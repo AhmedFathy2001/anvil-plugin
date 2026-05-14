@@ -77,7 +77,14 @@ public class OsrsBingoPlugin extends Plugin {
     @Inject
     private ConfigManager configManager;
 
-    private final BingoApiClient apiClient = new BingoApiClient();
+    @Inject
+    @Getter
+    private BingoApiClient apiClient;
+
+    @Inject
+    @Getter
+    private PendingSubmissionStore pendingSubmissionStore;
+
     private ScheduledExecutorService executor;
     private NavigationButton navButton;
     private OsrsBingoPanel panel;
@@ -878,7 +885,7 @@ public class OsrsBingoPlugin extends Plugin {
                     pending.timestamp = System.currentTimeMillis();
                     pending.itemId = trackingItemId;
 
-                    String savedId = PendingSubmissionStore.save(pending, pngBytes);
+                    String savedId = pendingSubmissionStore.save(pending, pngBytes);
                     if (savedId == null) {
                         log.error("Failed to persist drop '{}' to disk", drop.label);
                         return;
@@ -912,10 +919,10 @@ public class OsrsBingoPlugin extends Plugin {
      * success. Returns true on success, false on failure.
      */
     private boolean processPendingSubmission(PendingSubmissionStore.PendingSubmission pending) {
-        byte[] pngBytes = PendingSubmissionStore.readScreenshot(pending);
+        byte[] pngBytes = pendingSubmissionStore.readScreenshot(pending);
         if (pngBytes == null) {
             log.error("No screenshot found for pending submission (tile '{}')", pending.label);
-            PendingSubmissionStore.remove(pending);
+            pendingSubmissionStore.remove(pending);
             return false;
         }
 
@@ -938,7 +945,7 @@ public class OsrsBingoPlugin extends Plugin {
             );
 
             log.info("Drop '{}' submitted successfully!", pending.label);
-            PendingSubmissionStore.remove(pending);
+            pendingSubmissionStore.remove(pending);
             return true;
         } catch (IOException e) {
             log.error("Failed to submit pending drop '{}': {} (will retry with backoff)", pending.label, e.getMessage());
@@ -954,7 +961,7 @@ public class OsrsBingoPlugin extends Plugin {
             return;
         }
 
-        List<PendingSubmissionStore.PendingSubmission> pending = PendingSubmissionStore.loadAll();
+        List<PendingSubmissionStore.PendingSubmission> pending = pendingSubmissionStore.loadAll();
         if (pending.isEmpty()) {
             return;
         }

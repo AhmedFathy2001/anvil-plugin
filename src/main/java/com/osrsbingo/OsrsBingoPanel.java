@@ -247,7 +247,7 @@ public class OsrsBingoPanel extends PluginPanel
 		}
 
 		// Pending submissions section (always shown if there are any)
-		List<PendingSubmissionStore.PendingSubmission> pendingList = PendingSubmissionStore.loadAll();
+		List<PendingSubmissionStore.PendingSubmission> pendingList = plugin.getPendingSubmissionStore().loadAll();
 		if (!pendingList.isEmpty())
 		{
 			contentPanel.add(Box.createVerticalStrut(14));

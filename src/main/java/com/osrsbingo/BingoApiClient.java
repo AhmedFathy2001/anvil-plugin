@@ -3,6 +3,8 @@ package com.osrsbingo;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -15,12 +17,13 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
+@Singleton
 public class BingoApiClient
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final MediaType PNG = MediaType.parse("image/png");
-	private static final Gson GSON = new Gson();
 
+	private final Gson gson;
 	private final OkHttpClient httpClient;
 	private String apiUrl;
 	private String playerToken;
@@ -29,12 +32,14 @@ public class BingoApiClient
 	// (and reject drops on accounts that aren't signed up for the active event).
 	private volatile String currentRsn;
 
-	public BingoApiClient()
+	@Inject
+	public BingoApiClient(Gson gson, OkHttpClient client)
 	{
+		this.gson = gson;
 		// Read timeout is generous because clan-sync reconciliation against a 100+ member
 		// roster does a lot of round-trips to Turso and can comfortably take 30+ seconds.
 		// Tighter timeouts here will trip even on healthy servers.
-		this.httpClient = new OkHttpClient.Builder()
+		this.httpClient = client.newBuilder()
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
@@ -102,7 +107,7 @@ public class BingoApiClient
 				throw new IOException("Config fetch failed: HTTP " + response.code());
 			}
 			String body = response.body().string();
-			return GSON.fromJson(body, PluginConfigResponse.class);
+			return gson.fromJson(body, PluginConfigResponse.class);
 		}
 	}
 
@@ -160,7 +165,7 @@ public class BingoApiClient
 			{
 				throw new IOException("HTTP " + response.code() + " — " + responseBody);
 			}
-			return GSON.fromJson(responseBody, LinkResponse.class);
+			return gson.fromJson(responseBody, LinkResponse.class);
 		}
 	}
 
@@ -189,7 +194,7 @@ public class BingoApiClient
 			{
 				return null;
 			}
-			return GSON.fromJson(body, ActiveWeekly.class);
+			return gson.fromJson(body, ActiveWeekly.class);
 		}
 		catch (IOException e)
 		{
@@ -223,7 +228,7 @@ public class BingoApiClient
 				log.debug("weekly/enroll returned HTTP {} — {}", response.code(), responseBody);
 				return null;
 			}
-			return GSON.fromJson(responseBody, EnrollResponse.class);
+			return gson.fromJson(responseBody, EnrollResponse.class);
 		}
 		catch (IOException e)
 		{
@@ -263,7 +268,7 @@ public class BingoApiClient
 				return null;
 			}
 			String body = response.body().string();
-			return GSON.fromJson(body, ScheduleResponse.class);
+			return gson.fromJson(body, ScheduleResponse.class);
 		}
 		catch (IOException e)
 		{
@@ -329,7 +334,7 @@ public class BingoApiClient
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null) return null;
-			return GSON.fromJson(response.body().string(), EventDetail.class);
+			return gson.fromJson(response.body().string(), EventDetail.class);
 		}
 		catch (IOException e)
 		{
@@ -384,7 +389,7 @@ public class BingoApiClient
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null) return null;
-			MyActivePlayer wrap = GSON.fromJson(response.body().string(), MyActivePlayer.class);
+			MyActivePlayer wrap = gson.fromJson(response.body().string(), MyActivePlayer.class);
 			return wrap == null ? null : wrap.player;
 		}
 		catch (IOException e)
@@ -430,7 +435,7 @@ public class BingoApiClient
 				return null;
 			}
 			String responseBody = response.body().string();
-			return GSON.fromJson(responseBody, HelloResponse.class);
+			return gson.fromJson(responseBody, HelloResponse.class);
 		}
 		catch (IOException e)
 		{
@@ -450,7 +455,7 @@ public class BingoApiClient
 		}
 		JsonObject payload = new JsonObject();
 		payload.addProperty("clanName", clanName);
-		payload.add("members", GSON.toJsonTree(members));
+		payload.add("members", gson.toJsonTree(members));
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = new Request.Builder()
@@ -484,7 +489,7 @@ public class BingoApiClient
 			{
 				throw new IOException("HTTP " + response.code() + " — " + responseBody);
 			}
-			return GSON.fromJson(responseBody, ClanSyncResponse.class);
+			return gson.fromJson(responseBody, ClanSyncResponse.class);
 		}
 	}
 
@@ -561,7 +566,7 @@ public class BingoApiClient
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null) return null;
-			return GSON.fromJson(response.body().string(), SyncStatus.class);
+			return gson.fromJson(response.body().string(), SyncStatus.class);
 		}
 		catch (IOException e)
 		{

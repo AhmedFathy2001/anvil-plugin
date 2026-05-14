@@ -1,7 +1,8 @@
 package com.osrsbingo;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
 
@@ -11,14 +12,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
+@Singleton
 public class PendingSubmissionStore
 {
-	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final File PENDING_DIR = new File(RuneLite.RUNELITE_DIR, "osrs-bingo-pending");
 
 	// Garbage-collect pending submissions older than this. Prevents unbounded disk growth
 	// when retries keep failing (e.g. site URL permanently wrong) and the user never clears.
 	private static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
+
+	private final Gson gson;
+
+	@Inject
+	public PendingSubmissionStore(Gson gson)
+	{
+		this.gson = gson.newBuilder().setPrettyPrinting().create();
+	}
 
 	public static class PendingSubmission
 	{
@@ -34,7 +43,7 @@ public class PendingSubmissionStore
 		public Integer itemId; // specific item ID for per-item tracking (nullable)
 	}
 
-	public static void init()
+	public void init()
 	{
 		if (!PENDING_DIR.exists())
 		{
@@ -42,16 +51,11 @@ public class PendingSubmissionStore
 		}
 	}
 
-	/**
-	 * Saves a screenshot and submission metadata to disk.
-	 * Returns the submission ID (used as filename prefix).
-	 */
-	public static String save(PendingSubmission sub, byte[] pngBytes)
+	public String save(PendingSubmission sub, byte[] pngBytes)
 	{
 		init();
 		String id = sub.tileId + "-" + sub.timestamp;
 
-		// Save screenshot
 		File pngFile = new File(PENDING_DIR, id + ".png");
 		try (FileOutputStream fos = new FileOutputStream(pngFile))
 		{
@@ -63,12 +67,11 @@ public class PendingSubmissionStore
 			return null;
 		}
 
-		// Save metadata
 		sub.screenshotFile = id + ".png";
 		File jsonFile = new File(PENDING_DIR, id + ".json");
 		try (Writer w = new FileWriter(jsonFile))
 		{
-			GSON.toJson(sub, w);
+			gson.toJson(sub, w);
 		}
 		catch (IOException e)
 		{
@@ -81,11 +84,7 @@ public class PendingSubmissionStore
 		return id;
 	}
 
-	/**
-	 * Lists all pending submissions from disk. Silently prunes entries older than MAX_AGE_MS
-	 * so a long-running RuneLite instance doesn't accumulate unbounded pending files.
-	 */
-	public static List<PendingSubmission> loadAll()
+	public List<PendingSubmission> loadAll()
 	{
 		init();
 		List<PendingSubmission> result = new ArrayList<>();
@@ -99,7 +98,7 @@ public class PendingSubmissionStore
 		{
 			try (Reader r = new FileReader(f))
 			{
-				PendingSubmission sub = GSON.fromJson(r, PendingSubmission.class);
+				PendingSubmission sub = gson.fromJson(r, PendingSubmission.class);
 				if (sub != null && sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS)
 				{
 					log.info("Pruning expired pending submission '{}' ({} days old)",
@@ -117,10 +116,7 @@ public class PendingSubmissionStore
 		return result;
 	}
 
-	/**
-	 * Reads the screenshot bytes for a pending submission.
-	 */
-	public static byte[] readScreenshot(PendingSubmission sub)
+	public byte[] readScreenshot(PendingSubmission sub)
 	{
 		File pngFile = new File(PENDING_DIR, sub.screenshotFile);
 		try
@@ -134,10 +130,7 @@ public class PendingSubmissionStore
 		}
 	}
 
-	/**
-	 * Removes a completed pending submission from disk.
-	 */
-	public static void remove(PendingSubmission sub)
+	public void remove(PendingSubmission sub)
 	{
 		String baseName = sub.screenshotFile.replace(".png", "");
 		new File(PENDING_DIR, baseName + ".png").delete();
