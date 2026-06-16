@@ -6,7 +6,13 @@ import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +47,7 @@ public class PendingSubmissionStore
 		public String screenshotFile; // filename of PNG in pending dir
 		public long timestamp;
 		public Integer itemId; // specific item ID for per-item tracking (nullable)
+		public String capturedRsn; // character the drop was obtained on; only re-submitted while on it
 	}
 
 	public void init()

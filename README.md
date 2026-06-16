@@ -27,9 +27,9 @@ If you're a **clan admin**, it also lets you:
 
 1. Install **Anvil** from the RuneLite Plugin Hub.
 2. In your Anvil site's player dashboard, copy your **Player Token**.
-3. Open RuneLite → Configuration → Anvil and fill in:
-   - **Site URL** — the URL of your Anvil site (e.g. `https://your-anvil.vercel.app`)
-   - **Player Token** — the UUID from step 2
+3. Open RuneLite → Configuration → Anvil and paste your **Player Token** (the
+   UUID from step 2). That's the only required field — **Site URL** defaults to
+   the official site, so leave it unless you self-host.
 4. A side panel appears in RuneLite's sidebar. When connected, it shows your
    event, team, codeword, tracked drop progress, and any upcoming events.
 
@@ -52,11 +52,41 @@ If you're a **clan admin**, it also lets you:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Site URL | *(empty)* | Base URL of your Anvil site |
+| Site URL | *(official site)* | Base URL of your Anvil site — only change if you self-host |
 | Player Token | *(empty)* | Per-player UUID from the Anvil site dashboard |
 | Auto Submit Drops | `true` | Auto-screenshot and submit on tracked drops |
 | Show Overlay | `true` | Render the codeword/date verification overlay |
 | Auto-enroll weekly comp | `true` | On login, auto-enroll in the active weekly SotW/BotW if one is running |
+
+**Notifications section** — posts deaths and rare drops to clan Discord channels.
+The channels themselves are configured on the site (Admin → Integrations); these
+settings choose what *you* share:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Notify on death | `true` | Post to the clan deaths channel when you die |
+| Death message | `{name} just died!` | Your death line (`{name}` → RSN); small chance of a random clan one-liner |
+| Screenshot deaths | `true` | Attach a screenshot of the moment you died |
+| Notify on rare drops | `true` | Post valuable drops to the clan rare-drops channel |
+| Min drop value | `5,000,000` | Post a single drop worth at least this (higher of GE / high-alch). `0` disables value posts |
+| Screenshot rare drops | `true` | Attach a screenshot to rare-drop posts |
+| Notify on pets | `true` | Post when you receive a pet |
+| Min drop rarity (1 in N) | `1000` | Also post very rare NPC/pickpocket drops regardless of value (catches cheap-but-rare uniques). `0` disables |
+| Loot key value | `1,000,000` | Post a loot key as **one** notification when its contents total at least this. Loot keys only. `0` disables |
+| Funny lines | `true` | Add a cheeky one-liner to death/rare-drop posts (e.g. "Sit.", "SPOONED.") |
+
+How rare-drop posting works:
+
+- **Regular drops** (NPC / raid chest / clue / pickpocket / PvP floor loot) post
+  standout items — over *Min drop value*, or rarer than *Min drop rarity* — bundled
+  into one post per kill (no per-item spam).
+- **Loot keys** are reported as a single post gated only by *Loot key value*, and
+  the loot key item itself is never posted on receipt — only its contents on open.
+- **Prestige items** (Infernal cape, Dizana's quiver, raid ornament kits, etc.)
+  always post regardless of value/rarity. The list is baked in and can be extended
+  on the site (Admin → Integrations → *Always-notify drops*) with no plugin update.
+  Awarded items that don't drop are caught via the collection-log unlock message,
+  so enable RuneLite's *Collection log → New addition notification*.
 
 **Admin-only section (collapsed by default):**
 

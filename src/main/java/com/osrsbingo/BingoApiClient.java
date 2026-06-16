@@ -63,6 +63,12 @@ public class BingoApiClient
 		this.currentRsn = (rsn == null || rsn.isEmpty()) ? null : rsn;
 	}
 
+	/** The RSN currently stamped on requests (the logged-in character), or null. Thread-safe read. */
+	public String getCurrentRsn()
+	{
+		return currentRsn;
+	}
+
 	private Request.Builder authedRequest(String url)
 	{
 		Request.Builder b = new Request.Builder().url(url)
@@ -109,6 +115,106 @@ public class BingoApiClient
 			String body = response.body().string();
 			return gson.fromJson(body, PluginConfigResponse.class);
 		}
+	}
+
+	/**
+	 * GET /api/plugin/board — full board for the caller's active event (every tile + grid slot +
+	 * all-team completion state). Player-token authed. Never throws — returns null on any failure
+	 * so the clog view can show a graceful "couldn't load" message.
+	 */
+	public BoardResponse fetchBoard()
+	{
+		if (!isConfigured())
+		{
+			return null;
+		}
+		Request request = authedRequest(apiUrl + "/api/plugin/board")
+			.get()
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().string(), BoardResponse.class);
+		}
+		catch (IOException e)
+		{
+			log.debug("board fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	public static class BoardResponse
+	{
+		public int eventId;        // event this board belongs to (guards against stale-cache leak)
+		public String name;        // event name (for the preview header — may differ from your active event)
+		public boolean readOnly;   // true = preview of an event you're not actively competing in
+		public String format;      // "bingo" | "tilerace"
+		public String scoringMode; // "tiles" | "points"
+		public int boardSize;      // N for an N×N grid
+		public int yourTeamId;     // the calling player's team (-1 in a read-only preview)
+		public java.util.List<BoardTile> tiles;
+		public java.util.List<BoardTeam> teams;
+	}
+
+	/**
+	 * GET /api/plugin/board?eventId=N — read-only preview of any event (upcoming, or a live event
+	 * you're not competing in). Anonymous. Never throws — returns null on any failure.
+	 */
+	public BoardResponse fetchBoardPreview(int eventId)
+	{
+		if (apiUrl == null || apiUrl.isEmpty())
+		{
+			return null;
+		}
+		Request request = new Request.Builder()
+			.url(apiUrl + "/api/plugin/board?eventId=" + eventId)
+			.get()
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().string(), BoardResponse.class);
+		}
+		catch (IOException e)
+		{
+			log.debug("board preview fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	public static class BoardTile
+	{
+		public int tileId;
+		public int position;     // raw board slot
+		public int index;        // 0..N-1 in board order (tile-race sequence)
+		public int row;
+		public int col;
+		public String label;
+		public String description;
+		public int points;
+		public int itemId;       // representative OSRS item icon, or -1 (no item — use a sprite)
+		public java.util.List<Integer> itemIds; // every item on the tile (compound sets have several)
+		public int requiredAmount;
+		public String requirement; // human task text for stat tiles ("Gain 1,000,000 Mining XP"); null otherwise
+		public int optional;     // 1 = optional tile
+		public boolean complete; // YOUR team has completed this tile
+		// Per-item breakdown for compound tiles (e.g. a full-moon set), with your team's progress.
+		// Null/absent for simple single-item or manual tiles.
+		public java.util.List<PluginConfigResponse.ItemRequirement> itemRequirements;
+	}
+
+	public static class BoardTeam
+	{
+		public int teamId;
+		public String name;
+		public String color;     // hex like "#ff0000"
+		public java.util.List<Integer> completedTileIds;
 	}
 
 	/**
@@ -292,54 +398,8 @@ public class BingoApiClient
 		public String status; // "active" | "upcoming"
 		public Integer boardSize; // N for an N×N board
 		public Integer tileCount; // count of tiles configured for this event
-	}
-
-	public static class EventDetail
-	{
-		public int id;
-		public String name;
-		public Integer boardSize;
-		public String startDate;
-		public String endDate;
-		public String forceEndedAt;
-		public java.util.List<EventTile> tiles;
-	}
-
-	public static class EventTile
-	{
-		public int id;
-		public int position;
-		public String label;
-		public String icon;
-		public String description;
-		public String tileType;     // "standard" | "drop" | "stat" etc.
-		public Integer requiredAmount;
-		public String trackedStat;
-		public String statType;
-		public Integer statGoal;
-		public String trackingMode;
-		public Boolean optional;
-	}
-
-	/**
-	 * GET /api/plugin/event/{id} — full event + tiles for the plugin schedule detail view.
-	 */
-	public EventDetail fetchEventDetail(int id)
-	{
-		if (apiUrl == null || apiUrl.isEmpty()) return null;
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/event/" + id)
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null) return null;
-			return gson.fromJson(response.body().string(), EventDetail.class);
-		}
-		catch (IOException e)
-		{
-			return null;
-		}
+		public String format;      // "bingo" | "tilerace" — picks the in-game view
+		public String scoringMode; // "tiles" | "points"
 	}
 
 	public static class ScheduledWeekly
@@ -351,6 +411,58 @@ public class BingoApiClient
 		public String status;
 		public String startDate;
 		public String endDate;
+	}
+
+	/**
+	 * GET /api/plugin/weekly-leaderboard[?id=] — ranked standings for a weekly competition (the
+	 * active one when id is null). Unauthenticated. Never throws — returns null on any failure.
+	 */
+	public WeeklyLeaderboard fetchWeeklyLeaderboard(Integer competitionId)
+	{
+		if (apiUrl == null || apiUrl.isEmpty())
+		{
+			return null;
+		}
+		String url = apiUrl + "/api/plugin/weekly-leaderboard"
+			+ (competitionId != null ? "?id=" + competitionId : "");
+		Request request = new Request.Builder().url(url).get().build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().string(), WeeklyLeaderboard.class);
+		}
+		catch (IOException e)
+		{
+			log.debug("weekly-leaderboard fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	public static class WeeklyLeaderboard
+	{
+		public WeeklyComp competition;
+		public int total;
+		public java.util.List<LeaderboardEntry> entries;
+	}
+
+	public static class WeeklyComp
+	{
+		public int id;
+		public String title;
+		public String type;   // "skill" | "boss"
+		public String metric;
+		public String startDate;
+		public String endDate;
+	}
+
+	public static class LeaderboardEntry
+	{
+		public int rank;
+		public String rsn;
+		public long gained;
 	}
 
 	public static class MyActivePlayer
