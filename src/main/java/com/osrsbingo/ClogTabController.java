@@ -128,6 +128,15 @@ public class ClogTabController
 		}
 	}
 
+	/** Config refreshed in the background — re-render if our tab is open and active so it updates live. */
+	public void onConfigRefreshed()
+	{
+		if (isEnabled() && clogOpen && bingoTabActive)
+		{
+			clientThread.invokeLater(this::renderHub);
+		}
+	}
+
 	/**
 	 * The native list redrew (COLLECTION_DRAW_LIST). We never trigger this ourselves, so a redraw
 	 * while our tab is active means the user clicked a native tab/entry — drop back to native
@@ -882,7 +891,12 @@ public class ClogTabController
 		return null;
 	}
 
-	/** Hide/show the Combat Achievements book button in the content header — Anvil tab only. */
+	/**
+	 * Hide/show the native header's static widgets (the Combat Achievements book button AND the
+	 * leftover entry obtained-count text — the stray "9" that bled over our banner). On the Anvil
+	 * tab we render our own banner as dynamic children, so we want none of the native static header
+	 * content visible; it's restored when the player leaves the tab.
+	 */
 	private void hideHeaderBook(boolean hidden)
 	{
 		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
@@ -891,9 +905,16 @@ public class ClogTabController
 			return;
 		}
 		Widget[] s = header.getStaticChildren();
-		if (s != null && s.length > 0 && s[0] != null)
+		if (s == null)
 		{
-			s[0].setHidden(hidden);
+			return;
+		}
+		for (Widget w : s)
+		{
+			if (w != null)
+			{
+				w.setHidden(hidden);
+			}
 		}
 	}
 

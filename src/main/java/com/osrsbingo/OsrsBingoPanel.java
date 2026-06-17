@@ -74,7 +74,7 @@ public class OsrsBingoPanel extends PluginPanel
 		scrollPane.setBorder(null);
 		add(scrollPane, BorderLayout.CENTER);
 
-		// Footer with Refresh + Retry buttons
+		// Footer with Refresh button
 		JPanel footerPanel = new JPanel(new GridLayout(1, 1, 5, 0));
 		footerPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		footerPanel.setBorder(new EmptyBorder(5, 10, 5, 10));

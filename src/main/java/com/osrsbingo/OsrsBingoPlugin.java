@@ -8,7 +8,11 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.Actor;
+import net.runelite.api.Hitsplat;
+import net.runelite.api.Player;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.clan.ClanChannel;
 import net.runelite.api.clan.ClanMember;
 import net.runelite.api.clan.ClanRank;
@@ -16,14 +20,19 @@ import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.ScriptID;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
+import com.google.gson.Gson;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.input.KeyManager;
+import net.runelite.client.util.HotkeyListener;
+import okhttp3.OkHttpClient;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
@@ -39,6 +48,8 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 
 import javax.imageio.ImageIO;
+import java.io.File;
+import java.nio.file.Files;
 import javax.inject.Inject;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -81,7 +92,10 @@ public class OsrsBingoPlugin extends Plugin {
     private OsrsBingoOverlay overlay;
 
     @Inject
-    private BingoDropNotificationOverlay dropNotification;
+    private BingoClogBannerOverlay clogBanner;
+
+    @Inject
+    private BannerSoundService bannerSound;
 
     // Renders member-facing bingo tasks inside the in-game collection log (admin-only sidebar
     // means normies have no panel). Gated behind config.bingoClogTab(); see ClogTabController.
@@ -117,6 +131,32 @@ public class OsrsBingoPlugin extends Plugin {
     @Getter
     private PendingSubmissionStore pendingSubmissionStore;
 
+    @Inject
+    private OkHttpClient okHttpClient;
+
+    @Inject
+    private Gson gson;
+
+    @Inject
+    private KeyManager keyManager;
+
+    // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
+    // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
+    // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
+    // plugin's automatic event triggers.
+    // Touched from the client thread (startup, hotkey, config change) and the executor's reconnect
+    // tick — volatile for visibility, and connect/disconnect are synchronized on obsLock.
+    private volatile ObsReplayClient obsClip;
+    private final Object obsLock = new Object();
+    private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey())
+    {
+        @Override
+        public void hotkeyPressed()
+        {
+            captureClip();
+        }
+    };
+
     private ScheduledExecutorService executor;
     private NavigationButton navButton;
     private OsrsBingoPanel panel;
@@ -147,6 +187,12 @@ public class OsrsBingoPlugin extends Plugin {
     private final Map<String, Long> lastSubmittedAt = new HashMap<>();
     private static final long DEDUP_WINDOW_MS = 3_000;
 
+    // PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
+    // player then dies within the window, we count it as our kill (avoids screenshotting random
+    // nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
+    private final Map<String, Long> lastDamagedPlayerAt = new HashMap<>();
+    private static final long PVP_KILL_ATTRIBUTION_MS = 6_000;
+
     // Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
     // suppress a repeat post of the same item within a short window. Keyed by itemId.
     private final Map<Integer, Long> lastRareNotifyAt = new HashMap<>();
@@ -166,13 +212,13 @@ public class OsrsBingoPlugin extends Plugin {
             "{name} just speedran a trip to Lumbridge."
     );
 
-    // Short reaction lines appended to every death post when "Funny lines" is on.
+    // Short reaction lines appended to every death post.
     private static final List<String> DEATH_TAUNTS = Arrays.asList(
             "Sit. 🪑", "L + ratio.", "Skill issue.", "Couldn't be me.", "GG go next.",
             "Have you tried eating?", "That's gotta hurt.", "Prayer was off, wasn't it?", "Get good. 🤡"
     );
 
-    // Reaction lines appended to a notably lucky (rare / high-value) drop when "Funny lines" is on.
+    // Reaction lines appended to a notably lucky (rare / high-value) drop.
     private static final List<String> SPOON_TAUNTS = Arrays.asList(
             "SPOONED. 🥄", "Way under rate — absolute spoon.", "RNG said \"here you go champ\".",
             "Some of us are 5x dry. Disgusting.", "No skill, all luck. Congrats. 🥄",
@@ -276,8 +322,16 @@ public class OsrsBingoPlugin extends Plugin {
     @Override
     protected void startUp() {
         overlayManager.add(overlay);
-        overlayManager.add(dropNotification);
+        overlayManager.add(clogBanner);
+        bannerSound.ensureUserDir();
+        notifiedCompletedTiles.clear();
+        locallyShownTiles.clear();
+        completionBaselineEventId = null;
         executor = Executors.newSingleThreadScheduledExecutor();
+        keyManager.registerKeyListener(clipHotkeyListener);
+        if (config.clipsEnabled()) {
+            connectObs();
+        }
 
         // Side panel
         panel = new OsrsBingoPanel(this);
@@ -331,6 +385,7 @@ public class OsrsBingoPlugin extends Plugin {
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
             safely("refreshSchedule", this::refreshSchedule);
             safely("pruneDedupMap", this::pruneDedupMap);
+            safely("obsReconnect", this::maybeReconnectObs);
             // Catch-up case: the admin enrolls themselves as a player after the plugin's
             // already running. autoDiscoverPlayer is cheap (one HTTP call) and idempotent.
             safely("autoDiscoverPlayer", this::autoDiscoverPlayer);
@@ -385,7 +440,10 @@ public class OsrsBingoPlugin extends Plugin {
     @Override
     protected void shutDown() {
         overlayManager.remove(overlay);
-        overlayManager.remove(dropNotification);
+        overlayManager.remove(clogBanner);
+        bannerSound.shutdown();
+        keyManager.unregisterKeyListener(clipHotkeyListener);
+        disconnectObs();
         if (navAdded) {
             clientToolbar.removeNavigation(navButton);
             navAdded = false;
@@ -406,7 +464,12 @@ public class OsrsBingoPlugin extends Plugin {
      * members get no sidebar at all.
      */
     private void showBingoToast(PluginConfigResponse.TrackedDrop drop, int current, int required) {
-        dropNotification.show(drop.label, current, required);
+        clogBanner.show(drop.label, current, required);
+        bannerSound.play();
+        if (current >= required) {
+            // This drop completed the tile locally — suppress the duplicate team-completion banner.
+            locallyShownTiles.add(drop.tileId);
+        }
     }
 
     private void updateNavVisibility() {
@@ -482,6 +545,20 @@ public class OsrsBingoPlugin extends Plugin {
         // Toggling "Use admin features" or changing the admin token flips sidebar visibility.
         updateNavVisibility();
         scheduleRefresh();
+
+        // (Re)establish or tear down the OBS clip connection when its settings change.
+        String key = event.getKey();
+        if ("clipsEnabled".equals(key) || "obsHost".equals(key) || "obsPort".equals(key) || "obsPassword".equals(key)) {
+            if (config.clipsEnabled()) {
+                connectObs();
+            } else {
+                disconnectObs();
+            }
+        } else if (("clipLengthSeconds".equals(key) || "clipMp4".equals(key))
+                && config.clipsEnabled() && obsClip != null && obsClip.isConnected()) {
+            // Adopt the new length/format live — OBS restarts the buffer with the new settings.
+            obsClip.applyClipLength();
+        }
     }
 
     // --- Collection-log "Bingo" tab plumbing. Thin delegators so the controller owns all the
@@ -629,39 +706,15 @@ public class OsrsBingoPlugin extends Plugin {
     }
 
     private void tryAutoEnrollWeekly(String rsn) {
-        if (weeklyEnrollAttempted || !config.autoEnrollWeekly()) {
+        // The site auto-enrolls every active clan member into the running weekly competition,
+        // so the plugin no longer enrolls. We still fetch the active comp once per session to
+        // surface it in the side panel.
+        if (weeklyEnrollAttempted) {
             return;
         }
         weeklyEnrollAttempted = true;
 
-        BingoApiClient.ActiveWeekly active = apiClient.fetchActiveWeekly();
-        activeWeekly = active;
-        if (active == null) {
-            return;
-        }
-
-        BingoApiClient.EnrollResponse resp = apiClient.enrollWeekly(rsn);
-        if (resp == null || !resp.enrolled) {
-            if (panel != null) {
-                panel.update();
-            }
-            return;
-        }
-
-        // Already enrolled → silent, no banner spam
-        if (Boolean.TRUE.equals(resp.alreadyEnrolled)) {
-            weeklyEnrollmentSummary = "Already enrolled in " + (resp.compTitle != null ? resp.compTitle : active.title);
-            if (panel != null) {
-                panel.update();
-            }
-            return;
-        }
-
-        // Fresh enrollment
-        String compTitle = resp.compTitle != null ? resp.compTitle : active.title;
-        String baseline = resp.baselineValue != null ? String.format("%,d", resp.baselineValue) : "?";
-        weeklyEnrollmentSummary = "Enrolled — baseline " + baseline;
-        sendChatMessage("Enrolled in " + compTitle + " — baseline locked at " + baseline + ".");
+        activeWeekly = apiClient.fetchActiveWeekly();
         if (panel != null) {
             panel.update();
         }
@@ -701,6 +754,37 @@ public class OsrsBingoPlugin extends Plugin {
     public void onPlayerLootReceived(PlayerLootReceived event) {
         processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
+    }
+
+    @Subscribe
+    public void onHitsplatApplied(HitsplatApplied event) {
+        // Track damage WE deal to other players so a subsequent death can be attributed to us
+        // as a PvP kill. Cheap: a couple of reference checks on the client thread.
+        if (!config.notifyPvpKills()) {
+            return;
+        }
+        Hitsplat hitsplat = event.getHitsplat();
+        if (hitsplat == null || !hitsplat.isMine()) {
+            return;
+        }
+        Actor actor = event.getActor();
+        if (!(actor instanceof Player) || actor == client.getLocalPlayer()) {
+            return;
+        }
+        String name = actor.getName();
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        synchronized (lastDamagedPlayerAt) {
+            lastDamagedPlayerAt.put(name.toLowerCase(), System.currentTimeMillis());
+        }
+    }
+
+    @Subscribe
+    public void onCommandExecuted(CommandExecuted event) {
+        if ("bingosounds".equalsIgnoreCase(event.getCommand())) {
+            bannerSound.importSounds();
+        }
     }
 
     @Subscribe
@@ -794,6 +878,26 @@ public class OsrsBingoPlugin extends Plugin {
                     if ("pvp".equals(sourceKind)) {
                         log.debug("Skipping {} for tile '{}' — PvP loot rejected by default",
                                 itemId, drop.label);
+                        continue;
+                    }
+                }
+
+                // Per-tile specific-source filter (e.g. "onyx, but only from Tekton"). When
+                // sourceNpcs is set, the loot source name must match one of them
+                // (case-insensitive). Empty/null = any source.
+                if (drop.sourceNpcs != null && !drop.sourceNpcs.isEmpty()) {
+                    boolean sourceMatches = false;
+                    if (source != null) {
+                        for (String allowed : drop.sourceNpcs) {
+                            if (allowed != null && allowed.equalsIgnoreCase(source)) {
+                                sourceMatches = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!sourceMatches) {
+                        log.debug("Skipping {} for tile '{}' — source '{}' not in required NPCs {}",
+                                itemId, drop.label, source, drop.sourceNpcs);
                         continue;
                     }
                 }
@@ -951,13 +1055,12 @@ public class OsrsBingoPlugin extends Plugin {
     }
 
     /**
-     * Burns a banner onto the top-left of the screenshot summarizing what was
-     * detected. When the in-game overlay is disabled (config.showOverlay ==
-     * false) we additionally bake the team name + UTC date + event into the
-     * banner so the saved PNG is self-attesting regardless of whether the
-     * overlay rendered at capture time.
+     * Burns a self-attesting proof banner onto the top-left of the screenshot: the item (icon +
+     * name + count), the RSN it was obtained on, team, event and UTC time. Baked unconditionally so
+     * the saved PNG stands on its own regardless of chat being off or the overlay rendering.
      */
-    private void annotateDropScreenshot(BufferedImage img, String label, int amount, int current, int required) {
+    private void annotateDropScreenshot(BufferedImage img, String label, int amount, int current, int required,
+                                        String rsn, BufferedImage itemIcon) {
         java.awt.Graphics2D g = img.createGraphics();
         try {
             g.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -965,58 +1068,39 @@ public class OsrsBingoPlugin extends Plugin {
             String title = "BINGO DROP";
             String detail = label + "  ×" + amount + "  (" + current + "/" + required + ")";
 
-            // When the overlay is off, include team + UTC date inline so screenshot proof
-            // doesn't depend on the live overlay being rendered at capture time. With the
-            // overlay on, those values are already drawn elsewhere on the frame, so we
-            // skip duplicating them here.
-            String teamLine = null;
-            String dateLine = null;
-            String eventLine = null;
-            if (!config.showOverlay() && pluginConfig != null) {
-                if (pluginConfig.team != null && pluginConfig.team.name != null) {
-                    teamLine = "Team: " + pluginConfig.team.name;
-                }
-                if (pluginConfig.event != null && pluginConfig.event.name != null) {
-                    eventLine = "Event: " + pluginConfig.event.name;
-                }
-                dateLine = "UTC: " + java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
-                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+            java.util.List<String> meta = new java.util.ArrayList<>();
+            if (rsn != null && !rsn.isEmpty()) {
+                meta.add("RSN: " + rsn);
             }
+            if (pluginConfig != null && pluginConfig.team != null && pluginConfig.team.name != null) {
+                meta.add("Team: " + pluginConfig.team.name);
+            }
+            if (pluginConfig != null && pluginConfig.event != null && pluginConfig.event.name != null) {
+                meta.add("Event: " + pluginConfig.event.name);
+            }
+            meta.add("UTC: " + java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
             java.awt.Font titleFont = new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 14);
             java.awt.Font detailFont = new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 18);
             java.awt.Font metaFont = new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 12);
-
             java.awt.FontMetrics tfm = g.getFontMetrics(titleFont);
             java.awt.FontMetrics dfm = g.getFontMetrics(detailFont);
             java.awt.FontMetrics mfm = g.getFontMetrics(metaFont);
 
-            int titleW = tfm.stringWidth(title);
-            int detailW = dfm.stringWidth(detail);
-            int metaW = 0;
-            for (String s : new String[]{teamLine, eventLine, dateLine}) {
-                if (s != null) {
-                    metaW = Math.max(metaW, mfm.stringWidth(s));
-                }
+            boolean hasIcon = itemIcon != null && itemIcon.getWidth() > 0 && itemIcon.getHeight() > 0;
+            int iconW = hasIcon ? 36 : 0;
+            int iconGap = hasIcon ? 10 : 0;
+
+            int textW = Math.max(dfm.stringWidth(detail), tfm.stringWidth(title));
+            for (String s : meta) {
+                textW = Math.max(textW, mfm.stringWidth(s));
             }
 
             int padX = 14, padY = 10;
-            int boxW = Math.max(metaW, Math.max(detailW, titleW)) + padX * 2;
-            int contentH = tfm.getHeight() + dfm.getHeight() + 4;
-            int metaCount = 0;
-            if (teamLine != null) {
-                metaCount++;
-            }
-            if (eventLine != null) {
-                metaCount++;
-            }
-            if (dateLine != null) {
-                metaCount++;
-            }
-            if (metaCount > 0) {
-                contentH += 6 + metaCount * (mfm.getHeight() + 1);
-            }
-            int boxH = contentH + padY * 2;
+            int boxW = iconW + iconGap + textW + padX * 2;
+            int contentH = tfm.getHeight() + dfm.getHeight() + 4 + 6 + meta.size() * (mfm.getHeight() + 1);
+            int boxH = Math.max(contentH, iconW > 0 ? 32 : 0) + padY * 2;
             int boxX = 12, boxY = 12;
 
             // Drop shadow
@@ -1030,35 +1114,30 @@ public class OsrsBingoPlugin extends Plugin {
             g.setColor(new java.awt.Color(212, 160, 23));
             g.drawRoundRect(boxX, boxY, boxW, boxH, 10, 10);
 
+            if (hasIcon) {
+                g.drawImage(itemIcon, boxX + padX, boxY + padY, 36, 32, null);
+            }
+            int textX = boxX + padX + iconW + iconGap;
+
             // Title in gold
             g.setFont(titleFont);
             g.setColor(new java.awt.Color(212, 160, 23));
             int textY = boxY + padY + tfm.getAscent();
-            g.drawString(title, boxX + padX, textY);
+            g.drawString(title, textX, textY);
 
             // Detail in white
             g.setFont(detailFont);
             g.setColor(java.awt.Color.WHITE);
             int detailY = textY + tfm.getHeight() + 4;
-            g.drawString(detail, boxX + padX, detailY);
+            g.drawString(detail, textX, detailY);
 
-            // Meta lines (overlay-off proof)
-            if (metaCount > 0) {
-                g.setFont(metaFont);
-                g.setColor(new java.awt.Color(220, 220, 220));
-                int my = detailY + 6;
-                if (teamLine != null) {
-                    my += mfm.getHeight() + 1;
-                    g.drawString(teamLine, boxX + padX, my);
-                }
-                if (eventLine != null) {
-                    my += mfm.getHeight() + 1;
-                    g.drawString(eventLine, boxX + padX, my);
-                }
-                if (dateLine != null) {
-                    my += mfm.getHeight() + 1;
-                    g.drawString(dateLine, boxX + padX, my);
-                }
+            // Proof meta lines
+            g.setFont(metaFont);
+            g.setColor(new java.awt.Color(220, 220, 220));
+            int my = detailY + 6;
+            for (String s : meta) {
+                my += mfm.getHeight() + 1;
+                g.drawString(s, textX, my);
             }
         } finally {
             g.dispose();
@@ -1074,6 +1153,8 @@ public class OsrsBingoPlugin extends Plugin {
         // ever sent while logged into this same account, so a drop caught on a non-enrolled alt can't
         // be credited to the enrolled account later.
         final String capturedRsn = getLocalPlayerName();
+        // Item icon, fetched on the client thread so it's baked into the proof even with chat off.
+        final BufferedImage capturedIcon = trackingItemId != null ? itemManager.getImage(trackingItemId) : null;
 
         drawManager.requestNextFrameListener(image
                 -> {
@@ -1089,7 +1170,7 @@ public class OsrsBingoPlugin extends Plugin {
                     // faded or never rendered (5-stack pickups can fade quickly). Drawing
                     // on the image guarantees it ends up in the saved PNG regardless of
                     // overlay timing.
-                    annotateDropScreenshot(buffered, drop.label, amount, snapshotCurrent, snapshotRequired);
+                    annotateDropScreenshot(buffered, drop.label, amount, snapshotCurrent, snapshotRequired, capturedRsn, capturedIcon);
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
                     byte[] pngBytes = baos.toByteArray();
@@ -1485,6 +1566,52 @@ public class OsrsBingoPlugin extends Plugin {
         apiClient.configure(config.apiUrl(), config.playerToken());
     }
 
+    // Team-level tile completions (drops, stats, manual — any tile type, completed by any member).
+    // Fire a banner once per newly-completed tile. Seeded silently on the first refresh per event so
+    // tiles completed before this session (or a relog) don't re-pop.
+    private final java.util.Set<Integer> notifiedCompletedTiles = new java.util.HashSet<>();
+    private Integer completionBaselineEventId;
+    // Tiles this client already showed a banner for via the player's own drop. Their completion is
+    // skipped here so the contributor doesn't see it twice; teammates still get the team banner.
+    private final java.util.Set<Integer> locallyShownTiles = new java.util.HashSet<>();
+
+    private void checkTileCompletions(PluginConfigResponse cfg) {
+        if (cfg == null || cfg.event == null || cfg.completedTiles == null) {
+            return;
+        }
+        boolean seeding = completionBaselineEventId == null || completionBaselineEventId != cfg.event.id;
+        if (seeding) {
+            notifiedCompletedTiles.clear();
+            locallyShownTiles.clear();
+            completionBaselineEventId = cfg.event.id;
+        }
+        // Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
+        // popup is toggled off, so flipping it on later won't dump a backlog.
+        java.util.List<PluginConfigResponse.CompletedTile> newlyDone = new java.util.ArrayList<>();
+        for (PluginConfigResponse.CompletedTile t : cfg.completedTiles) {
+            if (notifiedCompletedTiles.add(t.tileId) && !seeding && !locallyShownTiles.contains(t.tileId)) {
+                newlyDone.add(t);
+            }
+        }
+        if (newlyDone.isEmpty() || !config.teamCompletionBanner()) {
+            return;
+        }
+        // Throttle a burst: banner only the hardest (most points) tile this poll, the rest as chat.
+        PluginConfigResponse.CompletedTile hardest = newlyDone.get(0);
+        for (PluginConfigResponse.CompletedTile t : newlyDone) {
+            if (t.points > hardest.points) {
+                hardest = t;
+            }
+        }
+        clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label);
+        bannerSound.play();
+        for (PluginConfigResponse.CompletedTile t : newlyDone) {
+            if (t != hardest) {
+                sendChatMessage("Tile complete: " + t.label);
+            }
+        }
+    }
+
     private void refreshConfig() {
         if (!apiClient.isConfigured()) {
             return;
@@ -1537,6 +1664,9 @@ public class OsrsBingoPlugin extends Plugin {
                     pluginConfig.event.name,
                     pluginConfig.team.name,
                     pluginConfig.trackedDrops != null ? pluginConfig.trackedDrops.size() : 0);
+
+            checkTileCompletions(pluginConfig);
+            clogTabController.onConfigRefreshed();
 
             if (panel != null) {
                 panel.update();
@@ -1604,22 +1734,59 @@ public class OsrsBingoPlugin extends Plugin {
     public void onActorDeath(ActorDeath event) {
         // Runs on the client thread — keep this cheap: a reference check + (optionally) a frame
         // request. Encoding and the network send happen off-thread.
-        if (!config.notifyDeaths()) {
+        Actor actor = event.getActor();
+
+        // Our own death → deaths channel.
+        if (actor == client.getLocalPlayer()) {
+            if (!config.notifyDeaths()) {
+                return;
+            }
+            String url = webhookUrlFor("deaths");
+            if (url == null) {
+                return;
+            }
+            String message = buildDeathMessage(getLocalPlayerName());
+            captureFrameAsync(png -> discordClient.sendWithImage(url, message, null, png, "anvil-death.png"));
             return;
         }
-        if (event.getActor() != client.getLocalPlayer()) {
+
+        // A player we damaged dying → our PvP kill. The ActorDeath fires on the tick the death
+        // animation starts (target at 0 HP) — exactly the moment we want the screenshot.
+        if (config.notifyPvpKills() && actor instanceof Player) {
+            maybeNotifyPvpKill((Player) actor);
+        }
+    }
+
+    /**
+     * Posts a PvP kill to the kills channel when the dying player is one we damaged within the
+     * attribution window. Runs on the client thread; screenshot + network send are deferred.
+     */
+    private void maybeNotifyPvpKill(Player victim) {
+        String name = victim.getName();
+        if (name == null || name.isEmpty()) {
             return;
         }
-        String url = webhookUrlFor("deaths");
+        long now = System.currentTimeMillis();
+        boolean ours;
+        synchronized (lastDamagedPlayerAt) {
+            lastDamagedPlayerAt.values().removeIf(t -> (now - t) > PVP_KILL_ATTRIBUTION_MS);
+            Long last = lastDamagedPlayerAt.remove(name.toLowerCase());
+            ours = last != null && (now - last) <= PVP_KILL_ATTRIBUTION_MS;
+        }
+        if (!ours) {
+            return;
+        }
+        String url = webhookUrlFor("pvpKills");
         if (url == null) {
             return;
         }
-        String message = buildDeathMessage(getLocalPlayerName());
-        if (config.deathScreenshot()) {
-            captureFrameAsync(png -> discordClient.sendWithImage(url, message, null, png, "anvil-death.png"));
-        } else {
-            discordClient.send(url, message, null);
-        }
+        String message = buildKillMessage(getLocalPlayerName(), name);
+        captureFrameAsync(png -> discordClient.sendWithImage(url, message, null, png, "anvil-pvp-kill.png"));
+    }
+
+    private String buildKillMessage(String killer, String victim) {
+        String who = (killer == null || killer.isEmpty()) ? "Someone" : killer;
+        return "**" + who + "** just killed **" + victim + "**!";
     }
 
     /**
@@ -1687,8 +1854,12 @@ public class OsrsBingoPlugin extends Plugin {
         }
 
         // ---- Regular drops: per-item value + rarity trigger. ----
-        long valueThreshold = Math.max(0, config.rareDropMinValue());
-        int rarityThreshold = Math.max(0, config.rareDropMinRarity());
+        // Enforced floors so a member can't spam the clan channel: drops must be worth at least
+        // 1m, and rarity posts must be rarer than 1/1000. 0 still means "disabled".
+        int rawValue = config.rareDropMinValue();
+        long valueThreshold = rawValue <= 0 ? 0 : Math.max(1_000_000, rawValue);
+        int rawRarity = config.rareDropMinRarity();
+        int rarityThreshold = rawRarity <= 0 ? 0 : Math.max(1000, rawRarity);
         AbstractRarityService rarity = raritySource(sourceKind);
 
         // Standout items get bundled into one post so a single kill never produces a surge.
@@ -1803,9 +1974,7 @@ public class OsrsBingoPlugin extends Plugin {
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " received " + name
                 + (source != null && !source.isEmpty() ? " from " + source : "") + "!";
-        if (config.funnyNotifications()) {
-            desc += "\n" + randomSpoonLine();
-        }
+        desc += "\n" + randomSpoonLine();
         // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
         com.google.gson.JsonObject embed = buildDropEmbed(
                 "💎 Notable drop!", desc, name, qty, value, null, shotName);
@@ -1841,9 +2010,7 @@ public class OsrsBingoPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " unlocked " + itemName + "!";
-        if (config.funnyNotifications()) {
-            desc += "\n" + randomSpoonLine();
-        }
+        desc += "\n" + randomSpoonLine();
         // No item id here (the message gives only a name), so value is unknown — omit it.
         com.google.gson.JsonObject embed = buildDropEmbed(
                 "💎 Notable drop!", desc, itemName, 1, 0, null, shotName);
@@ -1912,7 +2079,7 @@ public class OsrsBingoPlugin extends Plugin {
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " received a valuable drop"
                 + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
-        if (config.funnyNotifications() && isSpoon(value, dropRate)) {
+        if (isSpoon(value, dropRate)) {
             desc += "\n" + randomSpoonLine();
         }
         com.google.gson.JsonObject embed = buildDropEmbed(
@@ -1948,7 +2115,7 @@ public class OsrsBingoPlugin extends Plugin {
 
         String desc = (rsn != null ? rsn : "A clan member") + " received a valuable haul"
                 + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
-        if (config.funnyNotifications() && isSpoon(total, null)) {
+        if (isSpoon(total, null)) {
             desc += "\n" + randomSpoonLine();
         }
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
@@ -2014,7 +2181,7 @@ public class OsrsBingoPlugin extends Plugin {
         image.addProperty("url", "attachment://" + shotName);
         embed.add("image", image);
 
-        if (config.rareDropScreenshot()) {
+        if (config.petScreenshot()) {
             captureFrameAsync(png -> discordClient.sendWithImage(url, null, embed, png, shotName));
         } else {
             embed.remove("image");
@@ -2080,18 +2247,14 @@ public class OsrsBingoPlugin extends Plugin {
 
     private void postCaTierClear(String url, CombatAchievementTier tier) {
         String rsn = getLocalPlayerName();
-        String shotName = "anvil-ca.png";
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
         embed.addProperty("title", "🏆 Combat Achievement tier!");
         embed.addProperty("description",
                 (rsn != null ? rsn : "A clan member") + " unlocked the **" + tier.getDisplayName()
                 + "** Combat Achievements tier!");
         embed.addProperty("color", CA_EMBED_COLOR);
-        com.google.gson.JsonObject image = new com.google.gson.JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
-        // A tier clear is a milestone — always grab a screenshot.
-        captureFrameAsync(png -> discordClient.sendWithImage(url, null, embed, png, shotName));
+        // Combat-achievement posts are message-only — no screenshot.
+        discordClient.send(url, null, embed);
     }
 
     private com.google.gson.JsonObject buildDropEmbed(String title, String description,
@@ -2173,9 +2336,8 @@ public class OsrsBingoPlugin extends Plugin {
             }
         }
         base = base.replace("{name}", name);
-        if (config.funnyNotifications()) {
-            base += "\n" + randomDeathTaunt();
-        }
+        // Funny lines are always on — a cheeky reaction line on every death.
+        base += "\n" + randomDeathTaunt();
         return base;
     }
 
@@ -2231,11 +2393,131 @@ public class OsrsBingoPlugin extends Plugin {
             case "combatAchievements":
                 url = cfg.webhooks.combatAchievements;
                 break;
+            case "pvpKills":
+                url = cfg.webhooks.pvpKills;
+                break;
+            case "clips":
+                url = cfg.webhooks.clips;
+                break;
             default:
                 url = cfg.webhooks.rareDrops;
                 break;
         }
         return (url != null && !url.isEmpty()) ? url : null;
+    }
+
+    // ---- OBS clip capture ----
+
+    private void connectObs() {
+        synchronized (obsLock) {
+            disconnectObs();
+            obsClip = new ObsReplayClient(
+                    okHttpClient,
+                    gson,
+                    config.obsHost(),
+                    config.obsPort(),
+                    config.obsPassword(),
+                    this::onClipSaved,
+                    () -> { /* connected — no chat spam */ },
+                    // Per-save failures (e.g. the Replay Buffer isn't started) — tell the player why.
+                    this::sendChatMessage,
+                    config::clipLengthSeconds,
+                    () -> config.clipMp4() ? "mp4" : null
+            );
+            obsClip.connect();
+        }
+    }
+
+    /**
+     * Reconnect tick (runs on the 30s executor loop). OBS often isn't up yet when RuneLite launches,
+     * so the one-shot connect at startup can miss. Retrying here means the buffer gets started as soon
+     * as OBS becomes reachable — without it, clips only worked after toggling the config off/on.
+     */
+    private void maybeReconnectObs() {
+        if (config.clipsEnabled()) {
+            final ObsReplayClient c = obsClip;
+            if (c == null || !c.isConnected()) {
+                connectObs();
+            }
+        } else {
+            disconnectObs();
+        }
+    }
+
+    private void disconnectObs() {
+        synchronized (obsLock) {
+            if (obsClip != null) {
+                obsClip.disconnect();
+                obsClip = null;
+            }
+        }
+    }
+
+    /** Hotkey handler — ask OBS to flush the replay buffer. */
+    private void captureClip() {
+        if (!config.clipsEnabled()) {
+            return;
+        }
+        if (obsClip == null || !obsClip.isConnected()) {
+            sendChatMessage("Clip capture: OBS isn't connected. Make sure OBS is running with the WebSocket server + Replay Buffer enabled.");
+            // Opportunistic reconnect so the next press can work.
+            connectObs();
+            return;
+        }
+        sendChatMessage("Saving clip…");
+        obsClip.saveReplayBuffer();
+    }
+
+    /**
+     * Fires (off the client thread) once OBS has written the clip to disk. Posts it to the clan
+     * clips channel when it's small enough for Discord; otherwise just a quiet in-game notice.
+     */
+    private void onClipSaved(String path) {
+        if (path == null || path.isEmpty()) {
+            return;
+        }
+        File file = new File(path);
+        if (!file.exists()) {
+            sendChatMessage("Clip saved by OBS, but the file couldn't be found to post.");
+            return;
+        }
+        long maxBytes = (long) Math.max(1, config.clipMaxMb()) * 1024L * 1024L;
+        long size = file.length();
+        if (size > maxBytes) {
+            sendChatMessage("Clip saved locally (" + (size / (1024L * 1024L)) + "MB) — too big to auto-post to Discord.");
+            return;
+        }
+        String webhook = webhookUrlFor("clips");
+        if (webhook == null) {
+            sendChatMessage("Clip saved locally — no clips channel is configured on the site yet.");
+            return;
+        }
+        try {
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            String rsn = getLocalPlayerName();
+            String content = (rsn != null ? rsn : "A clan member") + " saved a clip 🎬";
+            discordClient.sendWithFile(webhook, content, bytes, file.getName(), contentTypeForClip(file.getName()));
+            sendChatMessage("Clip posted to the clan Discord.");
+        } catch (Exception e) {
+            sendChatMessage("Couldn't read the saved clip to post it (" + e.getMessage() + ").");
+        }
+    }
+
+    private static String contentTypeForClip(String name) {
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".mp4")) {
+            return "video/mp4";
+        }
+        if (lower.endsWith(".mkv")) {
+            return "video/x-matroska";
+        }
+        if (lower.endsWith(".mov")) {
+            return "video/quicktime";
+        }
+        if (lower.endsWith(".webm")) {
+            return "video/webm";
+        }
+        return "application/octet-stream";
     }
 
     /**
@@ -2263,9 +2545,15 @@ public class OsrsBingoPlugin extends Plugin {
         });
     }
 
+    // Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text
+    // has a built-in shadow). Brand orange on the tan chat was too low-contrast.
+    private static final String CHAT_PREFIX_COLOR = "ffd700";
+    private static final String CHAT_BODY_COLOR = "ffffff";
+
     private void sendChatMessage(String message) {
+        String line = "<col=" + CHAT_PREFIX_COLOR + ">[Anvil]</col> <col=" + CHAT_BODY_COLOR + ">" + message + "</col>";
         clientThread.invokeLater(()
-                -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "[Anvil] " + message, null)
+                -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null)
         );
     }
 }

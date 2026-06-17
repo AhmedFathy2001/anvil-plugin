@@ -70,6 +70,12 @@ public final class ClogTaskModel
 		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points,
 			String description, String category)
 		{
+			this(tileId, label, type, current, goal, itemId, points, description, category, false);
+		}
+
+		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points,
+			String description, String category, boolean forceCompleted)
+		{
 			this.tileId = tileId;
 			this.label = label == null ? "" : label;
 			this.type = type;
@@ -79,7 +85,9 @@ public final class ClogTaskModel
 			this.points = points;
 			this.description = description == null ? "" : description;
 			this.category = category == null ? "" : category.trim();
-			this.status = statusOf(current, goal);
+			// A team-level completion (any member / manual) is authoritative even when this client's
+			// own current < goal — e.g. an individual-mode tile a teammate finished first.
+			this.status = forceCompleted ? Status.COMPLETED : statusOf(current, goal);
 		}
 
 		public boolean isCompleted()
@@ -114,6 +122,18 @@ public final class ClogTaskModel
 			return rows;
 		}
 
+		java.util.Set<Integer> completed = new java.util.HashSet<>();
+		if (cfg.completedTiles != null)
+		{
+			for (PluginConfigResponse.CompletedTile c : cfg.completedTiles)
+			{
+				if (c != null)
+				{
+					completed.add(c.tileId);
+				}
+			}
+		}
+
 		if (cfg.trackedDrops != null)
 		{
 			for (PluginConfigResponse.TrackedDrop d : cfg.trackedDrops)
@@ -123,7 +143,7 @@ public final class ClogTaskModel
 					continue;
 				}
 				rows.add(new TaskRow(d.tileId, d.label, Type.DROP, d.currentAmount, d.requiredAmount,
-					representativeItemId(d), d.points, d.description, d.category));
+					representativeItemId(d), d.points, d.description, d.category, completed.contains(d.tileId)));
 			}
 		}
 
@@ -141,7 +161,7 @@ public final class ClogTaskModel
 				String statCategory = (s.category != null && !s.category.trim().isEmpty())
 					? s.category : s.statName;
 				rows.add(new TaskRow(s.tileId, s.label, Type.STAT, s.currentAmount, s.goalAmount, -1,
-					s.points, s.description, statCategory));
+					s.points, s.description, statCategory, completed.contains(s.tileId)));
 			}
 		}
 

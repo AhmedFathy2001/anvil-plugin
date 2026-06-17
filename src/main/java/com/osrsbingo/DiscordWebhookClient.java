@@ -81,6 +81,26 @@ public class DiscordWebhookClient
 		enqueue(webhookUrl, new Request.Builder().url(webhookUrl).post(multipart).build());
 	}
 
+	/**
+	 * Post a text message with an arbitrary file attached (e.g. a video clip) via Discord multipart.
+	 * Discord infers preview from the filename extension; {@code contentType} is the part's media type.
+	 */
+	public void sendWithFile(String webhookUrl, String content, byte[] bytes, String filename, String contentType)
+	{
+		if (isBlank(webhookUrl) || bytes == null || bytes.length == 0)
+		{
+			return;
+		}
+		MediaType type = MediaType.parse(contentType != null ? contentType : "application/octet-stream");
+		JsonObject payload = buildPayload(content, null);
+		MultipartBody multipart = new MultipartBody.Builder()
+			.setType(MultipartBody.FORM)
+			.addFormDataPart("payload_json", payload.toString())
+			.addFormDataPart("files[0]", filename, RequestBody.create(type, bytes))
+			.build();
+		enqueue(webhookUrl, new Request.Builder().url(webhookUrl).post(multipart).build());
+	}
+
 	private JsonObject buildPayload(String content, JsonObject embed)
 	{
 		JsonObject payload = new JsonObject();

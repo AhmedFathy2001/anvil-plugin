@@ -10,6 +10,7 @@ public class PluginConfigResponse
 	public String codeword;
 	public List<TrackedDrop> trackedDrops;
 	public List<TrackedStat> trackedStats;
+	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
 	public Webhooks webhooks;                          // plugin-posted notification destinations
@@ -26,6 +27,8 @@ public class PluginConfigResponse
 		public String rareDrops;
 		public String deaths;
 		public String combatAchievements;
+		public String pvpKills;
+		public String clips;
 	}
 
 	public static class EventInfo
@@ -67,6 +70,9 @@ public class PluginConfigResponse
 		public List<ItemRequirement> itemRequirements;
 		// null = accept any source. Otherwise must match one of: "npc", "event", "pvp".
 		public List<String> acceptedSources;
+		// null/empty = any source NPC. Otherwise the drop only counts when the loot source
+		// name matches one of these (case-insensitive), e.g. ["Tekton"] for "onyx, Tekton only".
+		public List<String> sourceNpcs;
 	}
 
 	public static class ItemRequirement
@@ -75,6 +81,13 @@ public class PluginConfigResponse
 		public String name;
 		public int requiredAmount;
 		public int currentAmount;
+	}
+
+	public static class CompletedTile
+	{
+		public int tileId;
+		public String label;
+		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
 	}
 
 	public static class TrackedStat

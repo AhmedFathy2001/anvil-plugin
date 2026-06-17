@@ -11,3 +11,6 @@ build/
 
 # OS
 .DS_Store
+
+# Local dev notes (not for publication)
+*.dev.md
