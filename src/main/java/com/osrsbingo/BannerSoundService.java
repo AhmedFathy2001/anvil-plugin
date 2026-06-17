@@ -2,22 +2,15 @@ package com.osrsbingo;
 
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
+import net.runelite.client.audio.AudioPlayer;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.Clip;
-import javax.sound.sampled.FloatControl;
-import javax.sound.sampled.LineEvent;
 import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.Desktop;
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -29,7 +22,8 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Plays a clip when the bingo banner fires. Clips are WAV/PCM (the only format stock Java decodes)
  * and come from two places: bundled clips under {@code resources/com/osrsbingo/sounds/} and user
- * clips in {@code <RuneLite dir>/anvil-bingo-sounds/}.
+ * clips in {@code <RuneLite dir>/anvil-bingo-sounds/}. Playback goes through RuneLite's
+ * {@link AudioPlayer} (plugin-hub policy requires this over the raw Java Sound API).
  */
 @Slf4j
 @Singleton
@@ -44,7 +38,7 @@ public class BannerSoundService
 	};
 
 	private final OsrsBingoConfig config;
-	private final java.util.concurrent.atomic.AtomicBoolean playing = new java.util.concurrent.atomic.AtomicBoolean(false);
+	private final AudioPlayer audioPlayer;
 	private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor(r ->
 	{
 		Thread t = new Thread(r, "anvil-banner-sound");
@@ -53,9 +47,10 @@ public class BannerSoundService
 	});
 
 	@Inject
-	public BannerSoundService(OsrsBingoConfig config)
+	public BannerSoundService(OsrsBingoConfig config, AudioPlayer audioPlayer)
 	{
 		this.config = config;
+		this.audioPlayer = audioPlayer;
 	}
 
 	public static File userDir()
@@ -84,11 +79,6 @@ public class BannerSoundService
 
 	private void playBlocking()
 	{
-		// Skip if a clip is already sounding — back-to-back completions shouldn't stack audio.
-		if (playing.get())
-		{
-			return;
-		}
 		try
 		{
 			List<String> userClips = new ArrayList<>();
@@ -162,55 +152,23 @@ public class BannerSoundService
 
 	private void playFile(File file) throws Exception
 	{
-		try (InputStream in = new BufferedInputStream(new FileInputStream(file)))
-		{
-			play(in);
-		}
+		audioPlayer.play(file, gainDb());
 	}
 
 	private void playResource(String resourcePath) throws Exception
 	{
-		try (InputStream in = BannerSoundService.class.getResourceAsStream(resourcePath))
-		{
-			if (in != null)
-			{
-				play(new BufferedInputStream(in));
-			}
-		}
+		audioPlayer.play(BannerSoundService.class, resourcePath, gainDb());
 	}
 
-	private void play(InputStream in) throws Exception
-	{
-		try (AudioInputStream ais = AudioSystem.getAudioInputStream(in))
-		{
-			Clip clip = AudioSystem.getClip();
-			clip.open(ais);
-			applyVolume(clip);
-			clip.addLineListener(event ->
-			{
-				if (event.getType() == LineEvent.Type.STOP)
-				{
-					playing.set(false);
-					clip.close();
-				}
-			});
-			playing.set(true);
-			clip.start();
-		}
-	}
-
-	private void applyVolume(Clip clip)
+	/**
+	 * Convert the 0–100 volume config to a MASTER_GAIN decibel value AudioPlayer applies. 100 → 0 dB
+	 * (unattenuated); lower volumes attenuate logarithmically; 0 → effectively silent. AudioPlayer
+	 * clamps to the line's supported range.
+	 */
+	private float gainDb()
 	{
 		int vol = Math.max(0, Math.min(100, config.bannerSoundVolume()));
-		if (!clip.isControlSupported(FloatControl.Type.MASTER_GAIN))
-		{
-			return;
-		}
-		FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-		float dB = vol <= 0
-			? gain.getMinimum()
-			: (float) (20.0 * Math.log10(vol / 100.0));
-		gain.setValue(Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), dB)));
+		return vol <= 0 ? -80f : (float) (20.0 * Math.log10(vol / 100.0));
 	}
 
 	/** Opens a file picker and copies the chosen WAV(s) into the user sounds folder. */
