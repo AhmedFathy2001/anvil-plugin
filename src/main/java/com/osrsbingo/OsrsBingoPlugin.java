@@ -288,6 +288,52 @@ public class OsrsBingoPlugin extends Plugin {
     // Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
     private final Map<String, DropAggregate> pendingAggregates = new HashMap<>();
 
+    // ---- Kill-count tiles ----------------------------------------------------------------
+    // Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
+    private volatile Map<String, List<PluginConfigResponse.TrackedKill>> killNpcIndex = Collections.emptyMap();
+
+    private static class KillAggregate {
+        final PluginConfigResponse.TrackedKill kill;
+        int totalKills;
+        int snapshotCurrent;
+        int snapshotRequired;
+        ScheduledFuture<?> flushTask;
+
+        KillAggregate(PluginConfigResponse.TrackedKill kill) {
+            this.kill = kill;
+        }
+    }
+
+    // Keyed on tileId — coalesces a kill spree into one screenshot + one submission.
+    private final Map<String, KillAggregate> pendingKillAggregates = new HashMap<>();
+
+    // ---- Timed-clear tiles ---------------------------------------------------------------
+    // Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
+    // and some content repeats either line). Parsing/matching lives in TimedClearParser (tested).
+    private final Map<Integer, Long> lastTimedSubmittedAt = new HashMap<>();
+    private static final long TIMED_DEDUP_WINDOW_MS = 20_000;
+
+    // The duration line and the activity-identifying line are separate, adjacent chat messages,
+    // and the order varies (Inferno prints "Duration:" first; most others print the kill/completion
+    // count first). We buffer recent lines + a pending duration so either order resolves.
+    private static final long TIMED_CORRELATION_MS = 8_000;
+
+    private static class TimedMsg {
+        final String lower;
+        final long ts;
+        TimedMsg(String lower, long ts) { this.lower = lower; this.ts = ts; }
+    }
+    private final java.util.ArrayDeque<TimedMsg> recentTimedMessages = new java.util.ArrayDeque<>();
+    private Integer pendingTimedSeconds = null;
+    private long pendingTimedAt = 0;
+
+    // Table-free attribution: the most recent NPC the player killed. When a "Duration:" line lands,
+    // the boss that just died names the activity, so a timed tile configured with that boss's name
+    // matches automatically — no per-boss string table needed (raids/friendly names also match via
+    // the activity name appearing in chat, plus the small optional alias set in TimedClearParser).
+    private volatile String lastNpcDeathName = null;
+    private volatile long lastNpcDeathAt = 0;
+
     // Server-upload throttle. Submissions go through a tiny gap so we never burst the
     // upload + submit endpoints if multiple aggregates flush close together.
     private static final long UPLOAD_THROTTLE_MS = 600;
@@ -455,6 +501,10 @@ public class OsrsBingoPlugin extends Plugin {
         pluginConfig = null;
         pendingRefresh = null;
         itemDropIndex = Collections.emptyMap();
+        killNpcIndex = Collections.emptyMap();
+        recentTimedMessages.clear();
+        pendingTimedSeconds = null;
+        lastNpcDeathName = null;
     }
 
     /**
@@ -724,6 +774,11 @@ public class OsrsBingoPlugin extends Plugin {
     public void onNpcLootReceived(NpcLootReceived event) {
         processLoot(event.getNpc().getName(), event.getItems(), "npc");
         maybeNotifyRareDrop(event.getNpc().getName(), event.getItems(), "npc");
+        // NpcLootReceived is RuneLite's attribution-safe "you killed this NPC" signal (fires once
+        // per kill, credited to the local player) — the right hook for kill-count tiles, including
+        // mobs that aren't on the hiscores. Mobs that drop literally nothing won't fire this; those
+        // can still be submitted manually from the site.
+        processNpcKill(event.getNpc().getName());
     }
 
     @Subscribe
@@ -832,6 +887,8 @@ public class OsrsBingoPlugin extends Plugin {
                 sendChatMessage("Pet drop detected — submit manually from the Anvil side panel.");
             }
         }
+        // Timed-clear tiles: pull a clear time out of completion/boss-kill messages.
+        handleTimedChat(plain);
     }
 
     private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
@@ -1023,6 +1080,255 @@ public class OsrsBingoPlugin extends Plugin {
         captureAndSubmit(agg.drop, agg.totalAmount, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId);
     }
 
+    /* ----------------------------- Kill-count tiles ----------------------------- */
+
+    /**
+     * Counts a kill toward any kill tile that targets this NPC. Mirrors the drop flow:
+     * increment the local count (capped at the requirement), coalesce a kill spree into one
+     * screenshot, and queue a submission. Runs on the client thread (called from loot event).
+     */
+    private void processNpcKill(String npcName) {
+        if (npcName == null || npcName.isEmpty()) {
+            return;
+        }
+        if (!config.autoSubmit() || pluginConfig == null) {
+            return;
+        }
+        if (!OsrsBingoOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(npcName.toLowerCase());
+        if (matches == null || matches.isEmpty()) {
+            return;
+        }
+        for (PluginConfigResponse.TrackedKill kill : matches) {
+            if (kill.currentAmount >= kill.requiredAmount) {
+                continue;
+            }
+            int amount = 1; // one NpcLootReceived == one kill
+            kill.currentAmount += amount;
+            int snapshotCurrent = kill.currentAmount;
+            int snapshotRequired = kill.requiredAmount;
+
+            log.info("Tracked kill detected: {} (tile '{}', {}/{})", npcName, kill.label, snapshotCurrent, snapshotRequired);
+            sendChatMessage("Tracked kill: " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+
+            queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired);
+        }
+    }
+
+    private void queueKillForFlush(PluginConfigResponse.TrackedKill kill, int amount,
+            int snapshotCurrent, int snapshotRequired) {
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        final String key = "kill:" + kill.tileId;
+        synchronized (pendingKillAggregates) {
+            KillAggregate agg = pendingKillAggregates.get(key);
+            if (agg == null) {
+                agg = new KillAggregate(kill);
+                pendingKillAggregates.put(key, agg);
+            }
+            agg.totalKills += amount;
+            agg.snapshotCurrent = snapshotCurrent;
+            agg.snapshotRequired = snapshotRequired;
+            if (agg.flushTask != null) {
+                agg.flushTask.cancel(false);
+            }
+            agg.flushTask = executor.schedule(() -> flushKillAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void flushKillAggregate(String key) {
+        KillAggregate agg;
+        synchronized (pendingKillAggregates) {
+            agg = pendingKillAggregates.remove(key);
+        }
+        if (agg == null || agg.totalKills <= 0) {
+            return;
+        }
+        long sinceLast = System.currentTimeMillis() - lastUploadAt;
+        if (sinceLast < UPLOAD_THROTTLE_MS) {
+            long delay = UPLOAD_THROTTLE_MS - sinceLast;
+            if (executor != null && !executor.isShutdown()) {
+                executor.schedule(() -> doSubmitKillAggregate(agg), delay, TimeUnit.MILLISECONDS);
+            }
+            return;
+        }
+        doSubmitKillAggregate(agg);
+    }
+
+    private void doSubmitKillAggregate(KillAggregate agg) {
+        lastUploadAt = System.currentTimeMillis();
+        final PluginConfigResponse.TrackedKill kill = agg.kill;
+        final int rolledBack = agg.totalKills;
+        String detail = kill.label + "  ×" + agg.totalKills + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+        captureAndSubmitProof(kill.tileId, kill.label, agg.totalKills, null, "BINGO KILL", detail,
+                "[Auto] " + kill.label + " kill(s) detected by RuneLite plugin",
+                () -> kill.currentAmount = Math.max(0, kill.currentAmount - rolledBack));
+    }
+
+    /**
+     * Shared capture → bake → persist → upload → submit path for kill and timed tiles. Mirrors
+     * captureAndSubmit (drops) but takes primitives plus an optional durationSeconds (non-null =
+     * timed) and a rollback to run if the screenshot capture fails.
+     */
+    private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
+            String bannerTitle, String bannerDetail, String note, Runnable rollback) {
+        if (pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
+            return;
+        }
+        final int eventId = pluginConfig.event.id;
+        final int teamId = pluginConfig.team.id;
+        final int playerId = pluginConfig.player.id;
+        final String capturedRsn = getLocalPlayerName();
+
+        drawManager.requestNextFrameListener(image -> {
+            if (executor == null || executor.isShutdown()) {
+                return;
+            }
+            executor.submit(() -> {
+                try {
+                    BufferedImage buffered = (BufferedImage) image;
+                    annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, null);
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    ImageIO.write(buffered, "png", baos);
+                    byte[] pngBytes = baos.toByteArray();
+
+                    PendingSubmissionStore.PendingSubmission pending = new PendingSubmissionStore.PendingSubmission();
+                    pending.eventId = eventId;
+                    pending.tileId = tileId;
+                    pending.teamId = teamId;
+                    pending.playerId = playerId;
+                    pending.amount = amount;
+                    pending.label = label;
+                    pending.note = note;
+                    pending.timestamp = System.currentTimeMillis();
+                    pending.itemId = null;
+                    pending.durationSeconds = durationSeconds;
+                    pending.capturedRsn = capturedRsn;
+
+                    String savedId = pendingSubmissionStore.save(pending, pngBytes);
+                    if (savedId == null) {
+                        log.error("Failed to persist submission '{}' to disk", label);
+                        return;
+                    }
+
+                    boolean success = processPendingSubmission(pending);
+                    if (success) {
+                        sendChatMessage("Submitted: " + label);
+                        retryBackoffMs = 30_000;
+                    }
+                    refreshConfig();
+                } catch (IOException e) {
+                    log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
+                    sendChatMessage("Screenshot failed for " + label + ": " + e.getMessage());
+                    if (rollback != null) {
+                        rollback.run();
+                    }
+                    if (panel != null) {
+                        panel.update();
+                    }
+                }
+            });
+        });
+    }
+
+    /* ----------------------------- Timed-clear tiles ----------------------------- */
+
+    /**
+     * Correlates a clear time (from a "Duration:/completion time:" line) with the adjacent line
+     * that names the activity (the boss kill/completion-count line). The two are separate chat
+     * messages and their order varies, so we keep a short ring buffer of recent lines plus a
+     * pending duration and resolve whichever arrives second. Parsing/matching is delegated to the
+     * unit-tested {@link TimedClearParser}. Runs on the client thread (from onChatMessage).
+     */
+    private void handleTimedChat(String plain) {
+        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedTimed == null
+                || pluginConfig.trackedTimed.isEmpty()) {
+            return;
+        }
+        if (!OsrsBingoOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        final String lower = plain.toLowerCase();
+
+        // Maintain the recent-line buffer (prune by age, cap size).
+        recentTimedMessages.addLast(new TimedMsg(lower, now));
+        while (!recentTimedMessages.isEmpty() && now - recentTimedMessages.peekFirst().ts > TIMED_CORRELATION_MS) {
+            recentTimedMessages.removeFirst();
+        }
+        while (recentTimedMessages.size() > 12) {
+            recentTimedMessages.removeFirst();
+        }
+
+        Integer seconds = TimedClearParser.parseDurationSeconds(lower);
+        if (seconds != null) {
+            // Duration line. The identifying line may already be in the buffer (count-first
+            // content) or may still be coming (Inferno prints the duration first).
+            boolean submitted = false;
+            for (TimedMsg m : recentTimedMessages) {
+                if (now - m.ts <= TIMED_CORRELATION_MS && submitTimedForMessage(m.lower, seconds, now)) {
+                    submitted = true;
+                }
+            }
+            // Table-free fallback: attribute to the boss we just killed.
+            if (lastNpcDeathName != null && (now - lastNpcDeathAt) <= TIMED_CORRELATION_MS
+                    && submitTimedForMessage(lastNpcDeathName.toLowerCase(), seconds, now)) {
+                submitted = true;
+            }
+            if (submitted) {
+                pendingTimedSeconds = null;
+            } else {
+                pendingTimedSeconds = seconds;
+                pendingTimedAt = now;
+            }
+        } else if (pendingTimedSeconds != null && (now - pendingTimedAt) <= TIMED_CORRELATION_MS) {
+            // No duration here, but a duration is waiting — does THIS line identify the activity?
+            if (submitTimedForMessage(lower, pendingTimedSeconds, now)) {
+                pendingTimedSeconds = null;
+            }
+        }
+    }
+
+    /**
+     * Submits {@code seconds} to every timed tile this line identifies, gated by the tile's cap,
+     * completion state, and a per-tile dedup window. Returns true if at least one tile submitted.
+     */
+    private boolean submitTimedForMessage(String lowerMessage, int seconds, long now) {
+        boolean any = false;
+        for (PluginConfigResponse.TrackedTimed tile : pluginConfig.trackedTimed) {
+            if (tile.completed || tile.activity == null) {
+                continue;
+            }
+            if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
+                continue;
+            }
+            if (seconds > tile.thresholdSeconds) {
+                log.info("Timed '{}' clear {} over cap {} — not submitting.", tile.label,
+                        TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
+                continue;
+            }
+            synchronized (lastTimedSubmittedAt) {
+                Long last = lastTimedSubmittedAt.get(tile.tileId);
+                if (last != null && (now - last) < TIMED_DEDUP_WINDOW_MS) {
+                    continue;
+                }
+                lastTimedSubmittedAt.put(tile.tileId, now);
+            }
+            log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
+                    TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
+            sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
+            String detail = tile.activity + "  " + TimedClearParser.formatClock(seconds)
+                    + "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")";
+            captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
+                    "[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
+            any = true;
+        }
+        return any;
+    }
+
     /**
      * Public entry point for manual submissions from the side panel.
      */
@@ -1061,12 +1367,19 @@ public class OsrsBingoPlugin extends Plugin {
      */
     private void annotateDropScreenshot(BufferedImage img, String label, int amount, int current, int required,
                                         String rsn, BufferedImage itemIcon) {
+        String detail = label + "  ×" + amount + "  (" + current + "/" + required + ")";
+        annotateProofBanner(img, "BINGO DROP", detail, rsn, itemIcon);
+    }
+
+    /**
+     * Burns a self-attesting proof banner (title + detail line + RSN/team/event/UTC) onto the
+     * top-left of a screenshot. Shared by drop, kill and timed submissions so every saved PNG
+     * stands on its own regardless of chat/overlay state.
+     */
+    private void annotateProofBanner(BufferedImage img, String title, String detail, String rsn, BufferedImage itemIcon) {
         java.awt.Graphics2D g = img.createGraphics();
         try {
             g.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-            String title = "BINGO DROP";
-            String detail = label + "  ×" + amount + "  (" + current + "/" + required + ")";
 
             java.util.List<String> meta = new java.util.ArrayList<>();
             if (rsn != null && !rsn.isEmpty()) {
@@ -1240,24 +1553,37 @@ public class OsrsBingoPlugin extends Plugin {
         }
 
         try {
-            String filename = "anvil-drop-" + pending.tileId + "-" + pending.timestamp + ".png";
+            String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + ".png";
 
             log.info("Uploading screenshot for tile '{}'...", pending.label);
             String imageUrl = apiClient.uploadImage(pngBytes, filename);
 
-            log.info("Submitting drop for tile '{}'...", pending.label);
-            apiClient.submitDrop(
-                    pending.eventId,
-                    pending.tileId,
-                    pending.teamId,
-                    pending.amount,
-                    imageUrl,
-                    pending.note,
-                    pending.playerId,
-                    pending.itemId
-            );
+            if (pending.durationSeconds != null) {
+                log.info("Submitting timed clear for tile '{}'...", pending.label);
+                apiClient.submitTimed(
+                        pending.eventId,
+                        pending.tileId,
+                        pending.teamId,
+                        pending.durationSeconds,
+                        imageUrl,
+                        pending.note,
+                        pending.playerId
+                );
+            } else {
+                log.info("Submitting drop for tile '{}'...", pending.label);
+                apiClient.submitDrop(
+                        pending.eventId,
+                        pending.tileId,
+                        pending.teamId,
+                        pending.amount,
+                        imageUrl,
+                        pending.note,
+                        pending.playerId,
+                        pending.itemId
+                );
+            }
 
-            log.info("Drop '{}' submitted successfully!", pending.label);
+            log.info("Submission '{}' sent successfully!", pending.label);
             pendingSubmissionStore.remove(pending);
             return true;
         } catch (IOException e) {
@@ -1712,6 +2038,27 @@ public class OsrsBingoPlugin extends Plugin {
             }
         }
         itemDropIndex = index;
+        rebuildKillNpcIndex();
+    }
+
+    /**
+     * Rebuild the lowercased-NPC-name → TrackedKill index for O(1) kill matching. Folded into
+     * the same refresh as the drop index so both stay in sync with the latest config.
+     */
+    private void rebuildKillNpcIndex() {
+        Map<String, List<PluginConfigResponse.TrackedKill>> index = new HashMap<>();
+        if (pluginConfig != null && pluginConfig.trackedKills != null) {
+            for (PluginConfigResponse.TrackedKill kill : pluginConfig.trackedKills) {
+                if (kill.targetNpcs != null) {
+                    for (String npc : kill.targetNpcs) {
+                        if (npc != null && !npc.isEmpty()) {
+                            index.computeIfAbsent(npc.toLowerCase(), k -> new ArrayList<>()).add(kill);
+                        }
+                    }
+                }
+            }
+        }
+        killNpcIndex = index;
     }
 
     private boolean isBlackout() {
@@ -1735,6 +2082,16 @@ public class OsrsBingoPlugin extends Plugin {
         // Runs on the client thread — keep this cheap: a reference check + (optionally) a frame
         // request. Encoding and the network send happen off-thread.
         Actor actor = event.getActor();
+
+        // Remember the last NPC that died near us so a timed "Duration:" line can attribute itself
+        // to the boss we just killed without a hardcoded activity table.
+        if (actor instanceof net.runelite.api.NPC) {
+            String npcName = actor.getName();
+            if (npcName != null && !npcName.isEmpty()) {
+                lastNpcDeathName = npcName;
+                lastNpcDeathAt = System.currentTimeMillis();
+            }
+        }
 
         // Our own death → deaths channel.
         if (actor == client.getLocalPlayer()) {

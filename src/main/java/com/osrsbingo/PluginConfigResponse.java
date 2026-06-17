@@ -10,6 +10,8 @@ public class PluginConfigResponse
 	public String codeword;
 	public List<TrackedDrop> trackedDrops;
 	public List<TrackedStat> trackedStats;
+	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
+	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
@@ -88,6 +90,35 @@ public class PluginConfigResponse
 		public int tileId;
 		public String label;
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
+	}
+
+	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
+	// need NOT be on the hiscores) toward requiredAmount. Same submission flow as a simple drop.
+	public static class TrackedKill
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public List<String> targetNpcs;   // any of these NPC names counts a kill
+		public int requiredAmount;
+		public int currentAmount;
+		public String trackingMode;        // "team" | "individual"/"solo"
+	}
+
+	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
+	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
+	public static class TrackedTimed
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
+		public int thresholdSeconds;       // complete if a clear is at or under this
+		public boolean completed;          // team already completed this tile
 	}
 
 	public static class TrackedStat

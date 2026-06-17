@@ -734,4 +734,37 @@ public class BingoApiClient
 			log.info("Drop submitted successfully for tile {}", tileId);
 		}
 	}
+
+	/**
+	 * POST /api/events/{eventId}/submissions — submits a timed-clear with image proof.
+	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
+	 * completes the tile when durationSeconds ≤ the tile's threshold.
+	 */
+	public void submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("tileId", tileId);
+		payload.addProperty("teamId", teamId);
+		payload.addProperty("amount", 1);
+		payload.addProperty("durationSeconds", durationSeconds);
+		payload.addProperty("imageUrl", imageUrl);
+		payload.addProperty("note", note);
+		payload.addProperty("creditPlayerId", creditPlayerId);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+
+		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Timed submission failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.info("Timed clear submitted successfully for tile {}", tileId);
+		}
+	}
 }

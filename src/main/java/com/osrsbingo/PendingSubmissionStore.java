@@ -47,6 +47,7 @@ public class PendingSubmissionStore
 		public String screenshotFile; // filename of PNG in pending dir
 		public long timestamp;
 		public Integer itemId; // specific item ID for per-item tracking (nullable)
+		public Integer durationSeconds; // timed-tile clear time in seconds (nullable; non-null routes to submitTimed)
 		public String capturedRsn; // character the drop was obtained on; only re-submitted while on it
 	}
 
