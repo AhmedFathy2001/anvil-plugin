@@ -14,16 +14,28 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
+import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
- * Posts fire-and-forget notifications straight to Discord webhook URLs (deaths, rare drops).
+ * Posts fire-and-forget notifications straight to Discord webhook URLs (deaths, rare drops, clips).
  *
  * Kept deliberately separate from {@link BingoApiClient}: this talks to discord.com, carries no
- * site auth, and never persists or retries — these messages are throwaway, unlike bingo drops.
+ * site auth, and never persists — these messages are throwaway, unlike bingo drops.
  *
  * Every send uses OkHttp's async dispatcher so the network round-trip runs off both the game
  * thread and the plugin's executor. Nothing here can stall the client.
+ *
+ * Rate limits: Discord buckets per webhook ID, shared across every clan member posting to the same
+ * URL — group content (a raid team all getting drops on one kill) bursts past the ~5-req/2s window.
+ * On a 429 we re-enqueue with the server's Retry-After plus randomized jitter, so simultaneous
+ * clients don't retry in lockstep and re-collide (thundering herd).
  */
 @Slf4j
 @Singleton
@@ -33,13 +45,34 @@ public class DiscordWebhookClient
 	private static final MediaType PNG = MediaType.parse("image/png");
 	// Discord hard-caps webhook message content at 2000 chars.
 	private static final int MAX_CONTENT = 2000;
+	// A throwaway notification isn't worth hammering Discord over — a couple of polite retries is plenty.
+	private static final int MAX_RETRIES = 2;
+	private static final long MAX_RETRY_MS = 10_000L;
+	private static final long DEFAULT_RETRY_MS = 1_000L;
+	private static final long MAX_JITTER_MS = 500L;
 
 	private final OkHttpClient httpClient;
+	// Clips are multi-MB video uploads; the shared RuneLite client's short write timeout aborts them
+	// mid-upload on slower connections. Give file posts their own generous timeouts (pool/dispatcher
+	// are still shared via newBuilder, so this is cheap).
+	private final OkHttpClient uploadClient;
+	private final ScheduledExecutorService retryScheduler =
+		Executors.newSingleThreadScheduledExecutor(r ->
+		{
+			Thread t = new Thread(r, "anvil-webhook-retry");
+			t.setDaemon(true);
+			return t;
+		});
 
 	@Inject
 	public DiscordWebhookClient(OkHttpClient client)
 	{
 		this.httpClient = client;
+		this.uploadClient = client.newBuilder()
+			.callTimeout(Duration.ofSeconds(120))
+			.writeTimeout(Duration.ofSeconds(120))
+			.readTimeout(Duration.ofSeconds(60))
+			.build();
 	}
 
 	/**
@@ -53,7 +86,7 @@ public class DiscordWebhookClient
 		}
 		JsonObject payload = buildPayload(content, embed);
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		enqueue(webhookUrl, new Request.Builder().url(webhookUrl).post(body).build());
+		enqueue(httpClient, new Request.Builder().url(webhookUrl).post(body).build(), null);
 	}
 
 	/**
@@ -78,17 +111,23 @@ public class DiscordWebhookClient
 			.addFormDataPart("payload_json", payload.toString())
 			.addFormDataPart("files[0]", filename, RequestBody.create(PNG, png))
 			.build();
-		enqueue(webhookUrl, new Request.Builder().url(webhookUrl).post(multipart).build());
+		enqueue(httpClient, new Request.Builder().url(webhookUrl).post(multipart).build(), null);
 	}
 
 	/**
-	 * Post a text message with an arbitrary file attached (e.g. a video clip) via Discord multipart.
+	 * Post a text message with a file attached (e.g. a video clip) via Discord multipart, streaming
+	 * straight from disk on the long-timeout upload client. {@code onComplete} receives true only on a
+	 * 2xx (after any retries) so the caller can report real success/failure instead of guessing.
 	 * Discord infers preview from the filename extension; {@code contentType} is the part's media type.
 	 */
-	public void sendWithFile(String webhookUrl, String content, byte[] bytes, String filename, String contentType)
+	public void sendWithFile(String webhookUrl, String content, File file, String filename, String contentType, Consumer<Boolean> onComplete)
 	{
-		if (isBlank(webhookUrl) || bytes == null || bytes.length == 0)
+		if (isBlank(webhookUrl) || file == null || !file.exists() || file.length() == 0)
 		{
+			if (onComplete != null)
+			{
+				onComplete.accept(false);
+			}
 			return;
 		}
 		MediaType type = MediaType.parse(contentType != null ? contentType : "application/octet-stream");
@@ -96,9 +135,9 @@ public class DiscordWebhookClient
 		MultipartBody multipart = new MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
 			.addFormDataPart("payload_json", payload.toString())
-			.addFormDataPart("files[0]", filename, RequestBody.create(type, bytes))
+			.addFormDataPart("files[0]", filename, RequestBody.create(type, file))
 			.build();
-		enqueue(webhookUrl, new Request.Builder().url(webhookUrl).post(multipart).build());
+		enqueue(uploadClient, new Request.Builder().url(webhookUrl).post(multipart).build(), onComplete);
 	}
 
 	private JsonObject buildPayload(String content, JsonObject embed)
@@ -117,30 +156,75 @@ public class DiscordWebhookClient
 		return payload;
 	}
 
-	private void enqueue(String url, Request request)
+	private void enqueue(OkHttpClient client, Request request, Consumer<Boolean> onComplete)
 	{
-		httpClient.newCall(request).enqueue(new Callback()
+		enqueueWithRetry(client, request, 0, onComplete);
+	}
+
+	private void enqueueWithRetry(OkHttpClient client, Request request, int attempt, Consumer<Boolean> onComplete)
+	{
+		client.newCall(request).enqueue(new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
 				log.debug("Anvil webhook post failed: {}", e.getMessage());
+				complete(onComplete, false);
 			}
 
 			@Override
 			public void onResponse(Call call, Response response)
 			{
-				// Drain + close so the connection can be reused. Log non-2xx (incl. 429) at debug
-				// only — these are throwaway notifications, no retry.
+				// Drain + close so the connection can be reused.
 				try (Response r = response)
 				{
+					if (r.code() == 429 && attempt < MAX_RETRIES)
+					{
+						long delayMs = retryDelayMs(r);
+						log.debug("Anvil webhook rate-limited, retry {} in {}ms", attempt + 1, delayMs);
+						retryScheduler.schedule(
+							() -> enqueueWithRetry(client, request, attempt + 1, onComplete),
+							delayMs, TimeUnit.MILLISECONDS);
+						return;
+					}
 					if (!r.isSuccessful())
 					{
 						log.debug("Anvil webhook returned HTTP {}", r.code());
+						complete(onComplete, false);
+						return;
 					}
+					complete(onComplete, true);
 				}
 			}
 		});
+	}
+
+	private static void complete(Consumer<Boolean> onComplete, boolean ok)
+	{
+		if (onComplete != null)
+		{
+			onComplete.accept(ok);
+		}
+	}
+
+	/** Honor Discord's Retry-After (seconds, may be fractional), capped, plus jitter to de-sync clients. */
+	private static long retryDelayMs(Response r)
+	{
+		long base = DEFAULT_RETRY_MS;
+		String header = r.header("Retry-After");
+		if (header != null && !header.isEmpty())
+		{
+			try
+			{
+				base = (long) Math.ceil(Double.parseDouble(header.trim()) * 1000.0);
+			}
+			catch (NumberFormatException ignored)
+			{
+				// Header wasn't a number — stick with the default.
+			}
+		}
+		base = Math.max(0L, Math.min(base, MAX_RETRY_MS));
+		return base + ThreadLocalRandom.current().nextLong(MAX_JITTER_MS + 1);
 	}
 
 	private static String truncate(String s)

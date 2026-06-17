@@ -49,7 +49,6 @@ import net.runelite.client.util.ImageUtil;
 
 import javax.imageio.ImageIO;
 import java.io.File;
-import java.nio.file.Files;
 import javax.inject.Inject;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -2849,15 +2848,18 @@ public class OsrsBingoPlugin extends Plugin {
             sendChatMessage("Clip saved locally — no clips channel is configured on the site yet.");
             return;
         }
-        try {
-            byte[] bytes = Files.readAllBytes(file.toPath());
-            String rsn = getLocalPlayerName();
-            String content = (rsn != null ? rsn : "A clan member") + " saved a clip 🎬";
-            discordClient.sendWithFile(webhook, content, bytes, file.getName(), contentTypeForClip(file.getName()));
-            sendChatMessage("Clip posted to the clan Discord.");
-        } catch (Exception e) {
-            sendChatMessage("Couldn't read the saved clip to post it (" + e.getMessage() + ").");
-        }
+        String rsn = getLocalPlayerName();
+        String content = (rsn != null ? rsn : "A clan member") + " saved a clip 🎬";
+        sendChatMessage("Uploading clip to the clan Discord…");
+        // Stream the file straight from disk on the upload client (generous timeouts); only claim
+        // success once Discord actually accepts it, so a 413/429/timeout reads as a failure, not silence.
+        discordClient.sendWithFile(webhook, content, file, file.getName(), contentTypeForClip(file.getName()), ok -> {
+            if (ok) {
+                sendChatMessage("Clip posted to the clan Discord.");
+            } else {
+                sendChatMessage("Clip saved locally, but Discord didn't accept the upload (too big, rate-limited, or timed out).");
+            }
+        });
     }
 
     private static String contentTypeForClip(String name) {
