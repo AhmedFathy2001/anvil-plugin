@@ -157,6 +157,7 @@ public class BingoApiClient
 		public int yourTeamId;     // the calling player's team (-1 in a read-only preview)
 		public java.util.List<BoardTile> tiles;
 		public java.util.List<BoardTeam> teams;
+		public java.util.List<PluginConfigResponse.TierBand> tiers; // difficulty bands for the Tier filter
 	}
 
 	/**
@@ -203,6 +204,9 @@ public class BingoApiClient
 		public int requiredAmount;
 		public String requirement; // human task text for stat tiles ("Gain 1,000,000 Mining XP"); null otherwise
 		public int optional;     // 1 = optional tile
+		public String category;  // free-text grouping (e.g. "GWD", "Slayer") for the plugin's Category filter; null = none
+		public String tileType;  // "drop" | "kill" | "timed" | "standard" (null on older servers) — for kind classification
+		public String statType;  // "skill" | "boss" | "kc" for stat tiles; null otherwise
 		public boolean complete; // YOUR team has completed this tile
 		// Per-item breakdown for compound tiles (e.g. a full-moon set), with your team's progress.
 		// Null/absent for simple single-item or manual tiles.

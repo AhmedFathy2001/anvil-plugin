@@ -14,28 +14,26 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 
 /**
- * Plays a clip when the bingo banner fires. Clips are WAV/PCM (the only format stock Java decodes)
- * and come from two places: bundled clips under {@code resources/com/osrsbingo/sounds/} and user
- * clips in {@code <RuneLite dir>/anvil-bingo-sounds/}. Playback goes through RuneLite's
- * {@link AudioPlayer} (plugin-hub policy requires this over the raw Java Sound API).
+ * Plays a clip when the bingo banner fires. No clips ship with the plugin — users supply their own
+ * WAV/PCM files (the only format stock Java decodes) by dropping them into
+ * {@code <RuneLite dir>/anvil-bingo-sounds/} (or via {@link #importSounds()}). Nothing plays until a
+ * file is added. Playback goes through RuneLite's {@link AudioPlayer} (plugin-hub policy requires
+ * this over the raw Java Sound API).
  */
 @Slf4j
 @Singleton
 public class BannerSoundService
 {
 	static final String USER_DIR_NAME = "anvil-bingo-sounds";
-	private static final String BUNDLED_PREFIX = "/com/osrsbingo/sounds/";
-
-	private static final String[] BUNDLED_CLIPS = {
-		"odablock-we-won.wav",
-		"c-engineer-completed.wav",
-	};
 
 	private final OsrsBingoConfig config;
 	private final AudioPlayer audioPlayer;
@@ -68,6 +66,63 @@ public class BannerSoundService
 		}
 	}
 
+	/** True if the user has at least one .wav in their sounds folder (i.e. a banner could play). */
+	public boolean hasClips()
+	{
+		File[] files = userDir().listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
+		return files != null && files.length > 0;
+	}
+
+	/** All .wav filenames in the user folder, case-insensitively sorted (for the in-tab manager). */
+	public List<String> listClips()
+	{
+		File[] files = userDir().listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
+		List<String> out = new ArrayList<>();
+		if (files != null)
+		{
+			for (File f : files)
+			{
+				out.add(f.getName());
+			}
+			out.sort(String.CASE_INSENSITIVE_ORDER);
+		}
+		return out;
+	}
+
+	/**
+	 * True if {@code name} is in the play cycle. The cycle is the comma-separated allowlist in
+	 * {@link OsrsBingoConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
+	 */
+	public boolean isSelected(String name)
+	{
+		Set<String> sel = parseSelected(config.bannerSoundClip());
+		return sel.isEmpty() || sel.contains(name.toLowerCase());
+	}
+
+	/** Parse the comma-separated clip allowlist into lowercased ".wav" filenames. Empty = play all. */
+	static Set<String> parseSelected(String csv)
+	{
+		Set<String> out = new LinkedHashSet<>();
+		if (csv == null)
+		{
+			return out;
+		}
+		for (String part : csv.split(","))
+		{
+			String s = part.trim().toLowerCase();
+			if (s.isEmpty())
+			{
+				continue;
+			}
+			if (!s.endsWith(".wav"))
+			{
+				s += ".wav";
+			}
+			out.add(s);
+		}
+		return out;
+	}
+
 	public void play()
 	{
 		if (!config.bannerSound())
@@ -81,68 +136,29 @@ public class BannerSoundService
 	{
 		try
 		{
-			List<String> userClips = new ArrayList<>();
 			File[] files = userDir().listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
-			if (files != null)
-			{
-				for (File f : files)
-				{
-					userClips.add(f.getAbsolutePath());
-				}
-			}
-
-			List<String> bundled = new ArrayList<>();
-			for (String name : BUNDLED_CLIPS)
-			{
-				if (BannerSoundService.class.getResource(BUNDLED_PREFIX + name) != null)
-				{
-					bundled.add(BUNDLED_PREFIX + name);
-				}
-			}
-
-			// A named clip overrides random selection; user files win over bundled on a name clash.
-			String wanted = config.bannerSoundClip();
-			wanted = wanted == null ? "" : wanted.trim();
-			if (!wanted.isEmpty())
-			{
-				if (!wanted.toLowerCase().endsWith(".wav"))
-				{
-					wanted += ".wav";
-				}
-				for (String p : userClips)
-				{
-					if (new File(p).getName().equalsIgnoreCase(wanted))
-					{
-						playFile(new File(p));
-						return;
-					}
-				}
-				for (String r : bundled)
-				{
-					if (r.substring(r.lastIndexOf('/') + 1).equalsIgnoreCase(wanted))
-					{
-						playResource(r);
-						return;
-					}
-				}
-				return;
-			}
-
-			int total = userClips.size() + bundled.size();
-			if (total == 0)
+			if (files == null || files.length == 0)
 			{
 				return;
 			}
 
-			int pick = ThreadLocalRandom.current().nextInt(total);
-			if (pick < userClips.size())
+			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
+			// Each banner plays one at random from the eligible set, so a multi-clip cycle varies.
+			Set<String> selected = parseSelected(config.bannerSoundClip());
+			List<File> candidates = new ArrayList<>();
+			for (File f : files)
 			{
-				playFile(new File(userClips.get(pick)));
+				if (selected.isEmpty() || selected.contains(f.getName().toLowerCase()))
+				{
+					candidates.add(f);
+				}
 			}
-			else
+			if (candidates.isEmpty())
 			{
-				playResource(bundled.get(pick - userClips.size()));
+				return;
 			}
+
+			playFile(candidates.get(ThreadLocalRandom.current().nextInt(candidates.size())));
 		}
 		catch (Exception e)
 		{
@@ -153,11 +169,6 @@ public class BannerSoundService
 	private void playFile(File file) throws Exception
 	{
 		audioPlayer.play(file, gainDb());
-	}
-
-	private void playResource(String resourcePath) throws Exception
-	{
-		audioPlayer.play(BannerSoundService.class, resourcePath, gainDb());
 	}
 
 	/**
@@ -171,8 +182,12 @@ public class BannerSoundService
 		return vol <= 0 ? -80f : (float) (20.0 * Math.log10(vol / 100.0));
 	}
 
-	/** Opens a file picker and copies the chosen WAV(s) into the user sounds folder. */
-	public void importSounds()
+	/**
+	 * Opens a file picker and copies the chosen WAV(s) into the user sounds folder. {@code onImported}
+	 * (may be null) is invoked with the successfully-copied filenames so the caller can confirm in chat;
+	 * it's skipped when the user cancels or nothing copied.
+	 */
+	public void importSounds(Consumer<List<String>> onImported)
 	{
 		SwingUtilities.invokeLater(() ->
 		{
@@ -185,17 +200,23 @@ public class BannerSoundService
 				return;
 			}
 			ensureUserDir();
+			List<String> imported = new ArrayList<>();
 			for (File src : chooser.getSelectedFiles())
 			{
 				try
 				{
 					Files.copy(src.toPath(), new File(userDir(), src.getName()).toPath(),
 						StandardCopyOption.REPLACE_EXISTING);
+					imported.add(src.getName());
 				}
 				catch (Exception e)
 				{
 					log.warn("Could not import sound {}: {}", src.getName(), e.getMessage());
 				}
+			}
+			if (onImported != null && !imported.isEmpty())
+			{
+				onImported.accept(imported);
 			}
 		});
 	}

@@ -17,7 +17,16 @@ public final class ClogTaskModel
 {
 	private ClogTaskModel() {}
 
+	/** Coarse data shape — drives only the icon fallback (DROP → item icon, STAT → sprite). */
 	public enum Type { DROP, STAT }
+
+	/**
+	 * Fine-grained tile mechanic, mirroring the web admin's 7-way kind filter
+	 * (standard / skill / boss / drop / collection / kill / timed). Drives the in-clog Type filter.
+	 * STANDARD never originates from the plugin config today (manual tiles aren't synced) but is
+	 * kept for parity with the web so the cycle order matches.
+	 */
+	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED }
 
 	public enum Status
 	{
@@ -30,8 +39,117 @@ public final class ClogTaskModel
 	/** Status filter options exposed by the in-clog filter bar (Phase 4). */
 	public enum StatusFilter { ALL, COMPLETED, IN_PROGRESS, NOT_STARTED }
 
-	/** Type filter options exposed by the in-clog filter bar (Phase 4). */
-	public enum TypeFilter { ALL, DROPS, STATS }
+	/**
+	 * Type filter options — ALL plus the seven {@link Kind}s, in the same order the web admin
+	 * cycles them. Cycling steps through these on the in-clog "Type" chip.
+	 */
+	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED }
+
+	/**
+	 * Difficulty-tier bands are no longer hardcoded — the server sends them (admin-configurable) in
+	 * the config/board payload. The Tier filter is the selected band's key, or "" for all tiers.
+	 * {@link #defaultTierBands()} is the baked-in fallback for older/offline servers.
+	 */
+	public static List<PluginConfigResponse.TierBand> defaultTierBands()
+	{
+		List<PluginConfigResponse.TierBand> bands = new ArrayList<>();
+		bands.add(tierBand("troll", "Troll", 0));
+		bands.add(tierBand("easy", "Easy", 11));
+		bands.add(tierBand("medium", "Medium", 100));
+		bands.add(tierBand("hard", "Hard", 350));
+		bands.add(tierBand("ultra", "Ultra", 700));
+		return bands;
+	}
+
+	private static PluginConfigResponse.TierBand tierBand(String key, String label, int min)
+	{
+		PluginConfigResponse.TierBand b = new PluginConfigResponse.TierBand();
+		b.key = key;
+		b.label = label;
+		b.min = min;
+		return b;
+	}
+
+	/** Served bands with blanks dropped, falling back to the baked-in defaults when empty/null. */
+	public static List<PluginConfigResponse.TierBand> tierBandsOrDefault(List<PluginConfigResponse.TierBand> bands)
+	{
+		if (bands == null)
+		{
+			return defaultTierBands();
+		}
+		List<PluginConfigResponse.TierBand> clean = new ArrayList<>();
+		for (PluginConfigResponse.TierBand b : bands)
+		{
+			if (b != null && b.key != null && !b.key.isEmpty())
+			{
+				clean.add(b);
+			}
+		}
+		return clean.isEmpty() ? defaultTierBands() : clean;
+	}
+
+	/**
+	 * The key of the band a point value falls into — the highest band whose {@code min} it meets,
+	 * with the lowest band as the floor. Returns null only when there are no bands.
+	 */
+	public static String tierKeyOf(int points, List<PluginConfigResponse.TierBand> bands)
+	{
+		if (bands == null || bands.isEmpty())
+		{
+			return null;
+		}
+		PluginConfigResponse.TierBand chosen = null;
+		PluginConfigResponse.TierBand lowest = null;
+		for (PluginConfigResponse.TierBand b : bands)
+		{
+			if (b == null)
+			{
+				continue;
+			}
+			if (lowest == null || b.min < lowest.min)
+			{
+				lowest = b;
+			}
+			if (points >= b.min && (chosen == null || b.min >= chosen.min))
+			{
+				chosen = b;
+			}
+		}
+		if (chosen == null)
+		{
+			chosen = lowest; // points below every band's min → fall back to the lowest band
+		}
+		return chosen == null ? null : chosen.key;
+	}
+
+	/** Human label for a band key (falls back to "" when not found). */
+	public static String tierLabel(String key, List<PluginConfigResponse.TierBand> bands)
+	{
+		if (key == null || key.isEmpty() || bands == null)
+		{
+			return "";
+		}
+		for (PluginConfigResponse.TierBand b : bands)
+		{
+			if (b != null && key.equalsIgnoreCase(b.key))
+			{
+				return b.label != null ? b.label : b.key;
+			}
+		}
+		return "";
+	}
+
+	/** The coarse {@link Type} implied by a {@link Kind} — DROP-family kinds show an item icon. */
+	private static Type typeOf(Kind kind)
+	{
+		return (kind == Kind.DROP || kind == Kind.COLLECTION) ? Type.DROP : Type.STAT;
+	}
+
+	/** Default {@link Kind} for the legacy constructors (board previews / tests) that only know Type. */
+	private static Kind kindOf(Type type)
+	{
+		return type == Type.DROP ? Kind.DROP : Kind.SKILL;
+	}
 
 	/**
 	 * A single renderable task. Immutable. {@code itemId < 0} means "no item icon" (stat tiles);
@@ -43,6 +161,7 @@ public final class ClogTaskModel
 		public final int tileId;
 		public final String label;
 		public final Type type;
+		public final Kind kind;
 		public final int current;
 		public final int goal;
 		public final int itemId;
@@ -76,9 +195,18 @@ public final class ClogTaskModel
 		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points,
 			String description, String category, boolean forceCompleted)
 		{
+			// Legacy entry point (board previews / tests): infer the fine-grained kind from Type.
+			this(tileId, label, kindOf(type), current, goal, itemId, points, description, category, forceCompleted);
+		}
+
+		/** Canonical constructor — callers that know the precise {@link Kind} (e.g. {@link #build}) use this. */
+		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
+			String description, String category, boolean forceCompleted)
+		{
 			this.tileId = tileId;
 			this.label = label == null ? "" : label;
-			this.type = type;
+			this.kind = kind == null ? Kind.STANDARD : kind;
+			this.type = typeOf(this.kind);
 			this.current = current;
 			this.goal = goal;
 			this.itemId = itemId;
@@ -142,7 +270,11 @@ public final class ClogTaskModel
 				{
 					continue;
 				}
-				rows.add(new TaskRow(d.tileId, d.label, Type.DROP, d.currentAmount, d.requiredAmount,
+				// A per-item requirement list means "collect each of these" → a COLLECTION tile;
+				// otherwise it's a simple drop pool. Mirrors the web's drop-vs-collection split.
+				Kind kind = (d.itemRequirements != null && !d.itemRequirements.isEmpty())
+					? Kind.COLLECTION : Kind.DROP;
+				rows.add(new TaskRow(d.tileId, d.label, kind, d.currentAmount, d.requiredAmount,
 					representativeItemId(d), d.points, d.description, d.category, completed.contains(d.tileId)));
 			}
 		}
@@ -160,8 +292,38 @@ public final class ClogTaskModel
 				// name (e.g. "zulrah", "mining") so stat tiles group sensibly even without one set.
 				String statCategory = (s.category != null && !s.category.trim().isEmpty())
 					? s.category : s.statName;
-				rows.add(new TaskRow(s.tileId, s.label, Type.STAT, s.currentAmount, s.goalAmount, -1,
-					s.points, s.description, statCategory, completed.contains(s.tileId)));
+				boolean isBoss = "boss".equalsIgnoreCase(s.statType) || "kc".equalsIgnoreCase(s.statType);
+				rows.add(new TaskRow(s.tileId, s.label, isBoss ? Kind.BOSS : Kind.SKILL, s.currentAmount,
+					s.goalAmount, -1, s.points, s.description, statCategory, completed.contains(s.tileId)));
+			}
+		}
+
+		if (cfg.trackedKills != null)
+		{
+			for (PluginConfigResponse.TrackedKill k : cfg.trackedKills)
+			{
+				if (k == null)
+				{
+					continue;
+				}
+				// No inventory icon for a kill-count tile; the controller shows the stat sprite.
+				rows.add(new TaskRow(k.tileId, k.label, Kind.KILL, k.currentAmount, k.requiredAmount, -1,
+					k.points, k.description, k.category, completed.contains(k.tileId)));
+			}
+		}
+
+		if (cfg.trackedTimed != null)
+		{
+			for (PluginConfigResponse.TrackedTimed t : cfg.trackedTimed)
+			{
+				if (t == null)
+				{
+					continue;
+				}
+				// Timed tiles are pass/fail (no running count): completed flag drives status; goal 1.
+				boolean done = t.completed || completed.contains(t.tileId);
+				rows.add(new TaskRow(t.tileId, t.label, Kind.TIMED, done ? 1 : 0, 1, -1,
+					t.points, t.description, t.category, done));
 			}
 		}
 
@@ -194,22 +356,34 @@ public final class ClogTaskModel
 	public static List<TaskRow> filter(List<TaskRow> rows, StatusFilter statusFilter,
 		TypeFilter typeFilter, String search)
 	{
-		return filter(rows, statusFilter, typeFilter, search, null);
+		return filter(rows, statusFilter, typeFilter, search, null, "", null);
 	}
 
 	/** As {@link #filter} but also restricts to a category ({@code null}/blank = all categories). */
 	public static List<TaskRow> filter(List<TaskRow> rows, StatusFilter statusFilter,
 		TypeFilter typeFilter, String search, String category)
 	{
+		return filter(rows, statusFilter, typeFilter, search, category, "", null);
+	}
+
+	/**
+	 * As {@link #filter} but also restricts to a difficulty tier — {@code tierKey} blank = every
+	 * tier; otherwise a tile matches when its points-derived band (per {@code tierBands}) equals it.
+	 */
+	public static List<TaskRow> filter(List<TaskRow> rows, StatusFilter statusFilter,
+		TypeFilter typeFilter, String search, String category, String tierKey,
+		List<PluginConfigResponse.TierBand> tierBands)
+	{
 		final String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
 		final StatusFilter sf = statusFilter == null ? StatusFilter.ALL : statusFilter;
 		final TypeFilter tf = typeFilter == null ? TypeFilter.ALL : typeFilter;
+		final String tier = tierKey == null ? "" : tierKey.trim();
 		final String cat = category == null ? "" : category.trim();
 
 		List<TaskRow> out = new ArrayList<>();
 		for (TaskRow r : rows)
 		{
-			if (!matchesStatus(r, sf) || !matchesType(r, tf))
+			if (!matchesStatus(r, sf) || !matchesType(r, tf) || !matchesTier(r, tier, tierBands))
 			{
 				continue;
 			}
@@ -250,14 +424,33 @@ public final class ClogTaskModel
 	{
 		switch (tf)
 		{
-			case DROPS:
-				return r.type == Type.DROP;
-			case STATS:
-				return r.type == Type.STAT;
+			case STANDARD:
+				return r.kind == Kind.STANDARD;
+			case SKILL:
+				return r.kind == Kind.SKILL;
+			case BOSS:
+				return r.kind == Kind.BOSS;
+			case DROP:
+				return r.kind == Kind.DROP;
+			case COLLECTION:
+				return r.kind == Kind.COLLECTION;
+			case KILL:
+				return r.kind == Kind.KILL;
+			case TIMED:
+				return r.kind == Kind.TIMED;
 			case ALL:
 			default:
 				return true;
 		}
+	}
+
+	private static boolean matchesTier(TaskRow r, String tierKey, List<PluginConfigResponse.TierBand> bands)
+	{
+		if (tierKey == null || tierKey.isEmpty())
+		{
+			return true;
+		}
+		return tierKey.equalsIgnoreCase(tierKeyOf(r.points, bands));
 	}
 
 	/** Distinct, case-insensitively-deduped category names present (sorted); blanks excluded. */

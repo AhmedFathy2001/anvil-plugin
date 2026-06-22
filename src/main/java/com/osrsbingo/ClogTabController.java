@@ -52,6 +52,7 @@ public class ClogTabController
 
 	private ClogTaskModel.StatusFilter statusFilter = ClogTaskModel.StatusFilter.ALL;
 	private ClogTaskModel.TypeFilter typeFilter = ClogTaskModel.TypeFilter.ALL;
+	private String tierFilter = ""; // "" = all tiers; otherwise a served band key
 	private String categoryFilter = ""; // "" = all categories
 	private String searchText = "";
 	private boolean searchInputOpen; // our chatbox search prompt is currently open
@@ -64,8 +65,10 @@ public class ClogTabController
 	 *   RACE        — tile-race track (format=tilerace)
 	 *   GRID_TILE   — single-tile detail page within a grid
 	 *   LEADERBOARD — weekly SOTW/BOTW standings
+	 *   POINTS      — read-only points list for a Leagues event you're NOT enrolled in (upcoming
+	 *                 preview, or a live event you're not competing in). The enrolled view is EVENT.
 	 */
-	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD }
+	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD, POINTS }
 	private HubView hubView = HubView.SCHEDULE;
 	// Schedule home event-type filter: "" = all, else "bingo" | "boss" | "skill".
 	private String eventTypeFilter = "";
@@ -227,6 +230,12 @@ public class ClogTabController
 	public void setTypeFilter(ClogTaskModel.TypeFilter f)
 	{
 		this.typeFilter = f;
+		refreshIfActive();
+	}
+
+	public void setTierFilter(String key)
+	{
+		this.tierFilter = key == null ? "" : key;
 		refreshIfActive();
 	}
 
@@ -464,6 +473,9 @@ public class ClogTabController
 			case LEADERBOARD:
 				renderLeaderboardView();
 				break;
+			case POINTS:
+				renderPointsPreview();
+				break;
 			case SCHEDULE:
 			default:
 				renderScheduleHome();
@@ -539,7 +551,21 @@ public class ClogTabController
 		viewingEventId = en.id;
 		viewingTitle = en.title;
 		selectedGridTileId = -1;
-		hubView = "tilerace".equalsIgnoreCase(en.format) ? HubView.RACE : HubView.GRID;
+		// Mirror openBingo's routing for the unenrolled/preview side: tilerace→RACE, points→POINTS
+		// (read-only list), classic tiles→GRID. Without the points branch a Leagues event wrongly
+		// rendered as an N×N grid (boardSize is the tile count for points, not a side length).
+		if ("tilerace".equalsIgnoreCase(en.format))
+		{
+			hubView = HubView.RACE;
+		}
+		else if ("points".equalsIgnoreCase(en.scoringMode))
+		{
+			hubView = HubView.POINTS;
+		}
+		else
+		{
+			hubView = HubView.GRID;
+		}
 		loadBoardPreview(en.id);
 		clientThread.invokeLater(this::renderHub);
 	}
@@ -778,6 +804,71 @@ public class ClogTabController
 		val.setAction(0, "Cycle");
 		val.setOnOpListener((JavaScriptCallback) e -> cycleEventTypeFilter());
 		val.revalidate();
+
+		// Banner sounds: the all-users entry point for adding your own clips (none ship with the
+		// plugin). The admin sidebar is hidden from regular members, so this tab is the only shared UI.
+		Widget sounds = container.createChild(-1, WidgetType.TEXT);
+		sounds.setText("<col=ffcc33>Banner sounds</col>");
+		sounds.setFontId(FONT_PLAIN);
+		sounds.setTextShadowed(true);
+		place(sounds, 10, y + 50, ClogIds.LEFT_COL_W - 20, 16);
+		sounds.setHasListener(true);
+		sounds.setAction(0, "Add");
+		sounds.setAction(1, "Open folder");
+		sounds.setOnOpListener((JavaScriptCallback) e -> {
+			// Action index 1 ("Open folder") maps to menu op 2; default click imports. Deleting a clip
+			// from that folder is the permanent remove.
+			if (e.getOp() == 2)
+			{
+				plugin.openBannerSoundsFolder();
+			}
+			else
+			{
+				plugin.importBannerSounds();
+			}
+		});
+		sounds.revalidate();
+
+		// One toggle row per clip: green = in the play cycle, grey = muted; clicking flips it (persisted
+		// via the comma-separated allowlist). The left column is fixed-height and doesn't scroll, so we
+		// only render as many rows as fit and collapse the rest into an "Open folder" overflow line.
+		int sy = y + 68;
+		final int rowH = 15;
+		List<String> clips = plugin.bannerSoundClips();
+		int colH = container.getHeight();
+		int fit = colH > 80 ? Math.max(1, (colH - sy - 6) / rowH) : 10;
+		boolean overflow = clips.size() > fit;
+		int shown = overflow ? Math.max(0, fit - 1) : clips.size(); // reserve a slot for the overflow line
+		for (int i = 0; i < shown; i++)
+		{
+			final String clip = clips.get(i);
+			boolean on = plugin.bannerSoundSelected(clip);
+			String disp = clip.toLowerCase().endsWith(".wav") ? clip.substring(0, clip.length() - 4) : clip;
+			if (disp.length() > 26)
+			{
+				disp = disp.substring(0, 25) + "…";
+			}
+			Widget row = container.createChild(-1, WidgetType.TEXT);
+			row.setText("<col=" + (on ? "49c25e" : "777777") + ">" + disp + "</col>");
+			row.setFontId(FONT_PLAIN);
+			place(row, 16, sy, ClogIds.LEFT_COL_W - 26, 14);
+			row.setHasListener(true);
+			row.setAction(0, on ? "Mute" : "Enable");
+			row.setOnOpListener((JavaScriptCallback) e -> plugin.toggleBannerSound(clip));
+			row.revalidate();
+			sy += rowH;
+		}
+		if (overflow)
+		{
+			Widget more = container.createChild(-1, WidgetType.TEXT);
+			more.setText("<col=aaaaaa>+" + (clips.size() - shown) + " more — Open folder</col>");
+			more.setFontId(FONT_PLAIN);
+			place(more, 16, sy, ClogIds.LEFT_COL_W - 26, 14);
+			more.setHasListener(true);
+			more.setAction(0, "Open folder");
+			more.setOnOpListener((JavaScriptCallback) e -> plugin.openBannerSoundsFolder());
+			more.revalidate();
+		}
 	}
 
 	private static String eventTypeLabel(String f)
@@ -930,6 +1021,30 @@ public class ClogTabController
 		setTypeFilter(v[(typeFilter.ordinal() + 1) % v.length]);
 	}
 
+	private void cycleTierFilter()
+	{
+		// Options: "" (All) followed by each served band key.
+		List<String> options = new ArrayList<>();
+		options.add("");
+		for (PluginConfigResponse.TierBand b : tierBands())
+		{
+			if (b != null && b.key != null && !b.key.isEmpty())
+			{
+				options.add(b.key);
+			}
+		}
+		int idx = 0;
+		for (int i = 0; i < options.size(); i++)
+		{
+			if (options.get(i).equalsIgnoreCase(tierFilter))
+			{
+				idx = i;
+				break;
+			}
+		}
+		setTierFilter(options.get((idx + 1) % options.size()));
+	}
+
 	private void cycleCategoryFilter()
 	{
 		// Options: "" (All) followed by each distinct category.
@@ -1016,7 +1131,9 @@ public class ClogTabController
 
 		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
 		int top = renderBodyFilters(items, paneWidth);
-		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.filter(tasks(), statusFilter, typeFilter, searchText, categoryFilter);
+		List<PluginConfigResponse.TierBand> bands = tierBands();
+		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.filter(tasks(), statusFilter, typeFilter, searchText,
+			categoryFilter, effectiveTier(bands), bands);
 
 		if (rows.isEmpty())
 		{
@@ -1079,19 +1196,50 @@ public class ClogTabController
 		search.revalidate();
 		y += 16;
 
-		// Filter chips on a single, evenly-split row so nothing wraps onto a ragged second line.
-		boolean hasCats = !ClogTaskModel.categories(tasks()).isEmpty();
-		int cols = hasCats ? 3 : 2;
-		int gap = 6;
-		int colW = (paneWidth - gap * (cols - 1)) / cols;
-		bodyFilterChip(items, "Status", pretty(statusFilter.name()), 0, y, colW, e -> cycleStatusFilter());
-		bodyFilterChip(items, "Type", pretty(typeFilter.name()), colW + gap, y, colW, e -> cycleTypeFilter());
+		// Filter chips: Status + Type always, Category when any tile is categorised, Tier on
+		// points events (tiers derive from point values). Laid out up to 3 per row so the labels
+		// stay legible even with all four present.
+		List<ClogTaskModel.TaskRow> all = tasks();
+		boolean hasCats = !ClogTaskModel.categories(all).isEmpty();
+		List<PluginConfigResponse.TierBand> bands = tierBands();
+		boolean showTier = ClogTaskModel.totalPoints(all) > 0 && !bands.isEmpty();
+
+		List<String> chipLabels = new ArrayList<>();
+		List<String> chipValues = new ArrayList<>();
+		List<JavaScriptCallback> chipActions = new ArrayList<>();
+
+		chipLabels.add("Status");
+		chipValues.add(pretty(statusFilter.name()));
+		chipActions.add(e -> cycleStatusFilter());
+		chipLabels.add("Type");
+		chipValues.add(pretty(typeFilter.name()));
+		chipActions.add(e -> cycleTypeFilter());
 		if (hasCats)
 		{
-			bodyFilterChip(items, "Category", categoryFilter.isEmpty() ? "All" : categoryFilter,
-				(colW + gap) * 2, y, colW, e -> cycleCategoryFilter());
+			chipLabels.add("Category");
+			chipValues.add(categoryFilter.isEmpty() ? "All" : categoryFilter);
+			chipActions.add(e -> cycleCategoryFilter());
 		}
-		y += 16;
+		if (showTier)
+		{
+			String tier = effectiveTier(bands);
+			chipLabels.add("Tier");
+			chipValues.add(tier.isEmpty() ? "All" : ClogTaskModel.tierLabel(tier, bands));
+			chipActions.add(e -> cycleTierFilter());
+		}
+
+		int perRow = 3;
+		int cols = Math.min(perRow, chipLabels.size());
+		int gap = 6;
+		int colW = (paneWidth - gap * (cols - 1)) / cols;
+		for (int i = 0; i < chipLabels.size(); i++)
+		{
+			int cx = (i % perRow) * (colW + gap);
+			int cy = y + (i / perRow) * 16;
+			bodyFilterChip(items, chipLabels.get(i), chipValues.get(i), cx, cy, colW, chipActions.get(i));
+		}
+		int numRows = (chipLabels.size() + perRow - 1) / perRow;
+		y += 16 * numRows;
 
 		return y + 4;
 	}
@@ -1288,7 +1436,7 @@ public class ClogTabController
 					if (b != null && b.id != pinnedEventId)
 					{
 						entries.add(new SchedEntry(b.id, "Bingo", b.title, bingoKindLabel(b.format, b.scoringMode),
-							b.status, b.startDate, b.endDate, false, b.format));
+							b.status, b.startDate, b.endDate, false, b.format, b.scoringMode));
 					}
 				}
 			}
@@ -1299,7 +1447,7 @@ public class ClogTabController
 					if (w != null && matchesWeeklyType(w.type))
 					{
 						String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "Boss of the Week";
-						entries.add(new SchedEntry(w.id, w.type, w.title, kind, w.status, w.startDate, w.endDate, true, null));
+						entries.add(new SchedEntry(w.id, w.type, w.title, kind, w.status, w.startDate, w.endDate, true, null, null));
 					}
 				}
 			}
@@ -1376,9 +1524,10 @@ public class ClogTabController
 		final String end;
 		final boolean weekly;
 		final String format; // bingo event layout ("bingo" | "tilerace"); null for weeklies
+		final String scoringMode; // bingo scoring ("tiles" | "points"); null for weeklies
 
 		SchedEntry(int id, String type, String title, String kind, String status, String start, String end,
-			boolean weekly, String format)
+			boolean weekly, String format, String scoringMode)
 		{
 			this.id = id;
 			this.type = type;
@@ -1389,6 +1538,7 @@ public class ClogTabController
 			this.end = end;
 			this.weekly = weekly;
 			this.format = format;
+			this.scoringMode = scoringMode;
 		}
 
 		boolean active()
@@ -1734,6 +1884,136 @@ public class ClogTabController
 		items.setScrollHeight(gridBottom + 10);
 		items.revalidateScroll();
 		updateScrollbar(items);
+	}
+
+	/**
+	 * Read-only points list for a Leagues-style (points-scored) event — the unenrolled / upcoming view.
+	 * The interactive enrolled view is the config-driven accordion ({@link #renderBingoPage()}); this one
+	 * renders straight from the fetched board, so it works for events you're not competing in. Points
+	 * boards have no grid geometry ({@code boardSize} is the tile count), so we list rather than grid.
+	 */
+	private void renderPointsPreview()
+	{
+		if (!clogOpen || !bingoTabActive)
+		{
+			return;
+		}
+		BingoApiClient.BoardResponse board = viewedBoard();
+
+		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		if (header != null)
+		{
+			header.deleteAllChildren();
+			bannerLine(header, boardTitle(board), COL_ORANGE, 0);
+			if (board != null && board.tiles != null && !board.tiles.isEmpty())
+			{
+				int totalPoints = 0;
+				for (BingoApiClient.BoardTile t : board.tiles)
+				{
+					if (t != null)
+					{
+						totalPoints += t.points;
+					}
+				}
+				bannerLine(header, "<col=ffff00>" + board.tiles.size() + "</col> tasks  <col=666666>·</col>  "
+					+ "<col=ffff00>" + totalPoints + "</col> pts", 0xffffff, BANNER_LINE_H);
+				String sub = "Leagues-style points";
+				if (board.readOnly)
+				{
+					sub += "  <col=666666>·</col>  <col=ffcc33>read-only preview</col>";
+				}
+				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_H * 2);
+			}
+			else
+			{
+				bannerLine(header, loadingBoard ? "Loading board..." : "Board unavailable", 0xaaaaaa, BANNER_LINE_H);
+			}
+			header.revalidate();
+		}
+
+		// Board still loading → a notice in the body; otherwise reuse the FULL accordion body
+		// (renderItems = search bar + Status/Type filters + filtered rich rows). tasks() yields this
+		// board's tiles while hubView == POINTS, so the preview is identical to the enrolled view.
+		if (board == null || board.tiles == null || board.tiles.isEmpty())
+		{
+			Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+			if (items != null)
+			{
+				items.deleteAllChildren();
+				int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
+				Widget m = items.createChild(-1, WidgetType.TEXT);
+				m.setText(loadingBoard ? "Loading board..." : "Couldn't load the board.");
+				m.setTextColor(0xaaaaaa);
+				m.setFontId(FONT_PLAIN);
+				place(m, 4, BODY_TOP, paneWidth - 8, 16);
+				m.revalidate();
+				items.setScrollHeight(BODY_TOP + ClogIds.ROW_H);
+				items.revalidateScroll();
+				updateScrollbar(items);
+			}
+			return;
+		}
+
+		renderItems();
+	}
+
+	/** Map a fetched board's tiles into the accordion's TaskRow model so previews reuse renderTaskRow. */
+	private List<ClogTaskModel.TaskRow> boardTaskRows(BingoApiClient.BoardResponse board)
+	{
+		List<ClogTaskModel.TaskRow> rows = new java.util.ArrayList<>();
+		if (board == null || board.tiles == null)
+		{
+			return rows;
+		}
+		for (BingoApiClient.BoardTile t : board.tiles)
+		{
+			if (t == null)
+			{
+				continue;
+			}
+			boolean stat = t.requirement != null && !t.requirement.trim().isEmpty();
+			ClogTaskModel.Kind kind = boardTileKind(t, stat);
+			boolean hasItemIcon = kind == ClogTaskModel.Kind.DROP || kind == ClogTaskModel.Kind.COLLECTION;
+			int itemId = hasItemIcon ? t.itemId : -1;
+			int goal = t.requiredAmount;
+			// Read-only preview has no per-you progress; only fill the bar if the board flags the tile
+			// complete (which in a preview means "some team has it"). forceCompleted drives the colour.
+			int current = t.complete ? Math.max(goal, 1) : 0;
+			String name = (t.label == null || t.label.isEmpty()) ? ("Tile " + (t.index + 1)) : t.label;
+			rows.add(new ClogTaskModel.TaskRow(t.tileId, name, kind, current, goal, itemId,
+				t.points, t.description, t.category, t.complete));
+		}
+		return rows;
+	}
+
+	/** Classify a previewed board tile into the same 7-way kind the enrolled config view uses. */
+	private static ClogTaskModel.Kind boardTileKind(BingoApiClient.BoardTile t, boolean stat)
+	{
+		String type = t.tileType == null ? "" : t.tileType.trim().toLowerCase(java.util.Locale.ROOT);
+		switch (type)
+		{
+			case "kill":
+				return ClogTaskModel.Kind.KILL;
+			case "timed":
+				return ClogTaskModel.Kind.TIMED;
+			case "drop":
+				return (t.itemRequirements != null && !t.itemRequirements.isEmpty())
+					? ClogTaskModel.Kind.COLLECTION : ClogTaskModel.Kind.DROP;
+			default:
+				break;
+		}
+		if (stat)
+		{
+			boolean boss = "boss".equalsIgnoreCase(t.statType) || "kc".equalsIgnoreCase(t.statType);
+			return boss ? ClogTaskModel.Kind.BOSS : ClogTaskModel.Kind.SKILL;
+		}
+		// Fallback for older servers that don't send tileType: an item icon ⇒ a drop, else standard.
+		if (t.itemId > 0 || (t.itemIds != null && !t.itemIds.isEmpty()))
+		{
+			return (t.itemRequirements != null && !t.itemRequirements.isEmpty())
+				? ClogTaskModel.Kind.COLLECTION : ClogTaskModel.Kind.DROP;
+		}
+		return ClogTaskModel.Kind.STANDARD;
 	}
 
 	/** One grid cell: filled background + outline + item icon (or label) + a transparent click layer. */
@@ -2293,7 +2573,48 @@ public class ClogTabController
 
 	private List<ClogTaskModel.TaskRow> tasks()
 	{
+		// In the unenrolled points preview the tasks come from the fetched board, not your config, so
+		// the accordion body (renderItems/renderBodyFilters — search + Status/Type filters + rich rows)
+		// renders the previewed event's tiles instead of your own.
+		if (hubView == HubView.POINTS)
+		{
+			return boardTaskRows(viewedBoard());
+		}
 		return ClogTaskModel.build(plugin.getPluginConfig());
+	}
+
+	/** Difficulty bands to filter by — from the previewed board in POINTS view, else your config. */
+	private List<PluginConfigResponse.TierBand> tierBands()
+	{
+		List<PluginConfigResponse.TierBand> served;
+		if (hubView == HubView.POINTS)
+		{
+			BingoApiClient.BoardResponse b = viewedBoard();
+			served = b == null ? null : b.tiers;
+		}
+		else
+		{
+			PluginConfigResponse cfg = plugin.getPluginConfig();
+			served = cfg == null ? null : cfg.tiers;
+		}
+		return ClogTaskModel.tierBandsOrDefault(served);
+	}
+
+	/** The selected tier key, or "" if it's blank or no longer a valid band (e.g. admin retuned them). */
+	private String effectiveTier(List<PluginConfigResponse.TierBand> bands)
+	{
+		if (tierFilter.isEmpty())
+		{
+			return "";
+		}
+		for (PluginConfigResponse.TierBand b : bands)
+		{
+			if (b != null && tierFilter.equalsIgnoreCase(b.key))
+			{
+				return tierFilter;
+			}
+		}
+		return "";
 	}
 
 	// ---- helpers ----

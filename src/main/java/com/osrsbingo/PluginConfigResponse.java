@@ -13,6 +13,7 @@ public class PluginConfigResponse
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
+	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
 	public Webhooks webhooks;                          // plugin-posted notification destinations
@@ -57,6 +58,15 @@ public class PluginConfigResponse
 	public static class PlayerInfo
 	{
 		public int id;
+	}
+
+	// One difficulty band: tiles with points >= min (and below the next band's min) fall in this
+	// tier. Admin-configured server-side and served here so the Tier filter needs no plugin update.
+	public static class TierBand
+	{
+		public String key;    // stable slug used in filter state
+		public String label;  // shown on the Tier chip
+		public int min;       // inclusive lower bound on points
 	}
 
 	public static class TrackedDrop

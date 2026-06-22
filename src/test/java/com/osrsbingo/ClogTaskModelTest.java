@@ -89,10 +89,136 @@ public class ClogTaskModelTest
 		assertEquals(1, completed.size());
 		assertEquals(1, completed.get(0).tileId);
 
+		// A bare STAT row classifies as the SKILL kind (the legacy constructor's default for stats).
 		List<ClogTaskModel.TaskRow> stats = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.STATS, null);
+			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.SKILL, null);
 		assertEquals(1, stats.size());
 		assertEquals(3, stats.get(0).tileId);
+	}
+
+	@Test
+	public void buildClassifiesEveryKind()
+	{
+		PluginConfigResponse cfg = new PluginConfigResponse();
+
+		cfg.trackedDrops = new ArrayList<>();
+		// Simple drop pool → DROP.
+		cfg.trackedDrops.add(drop(1, "Dragon warhammer", 0, 1, 13576));
+		// Per-item requirement list → COLLECTION.
+		PluginConfigResponse.TrackedDrop coll = drop(2, "Void set", 0, 1, 11665);
+		coll.itemRequirements = new ArrayList<>();
+		PluginConfigResponse.ItemRequirement req = new PluginConfigResponse.ItemRequirement();
+		req.itemId = 11665;
+		req.requiredAmount = 1;
+		coll.itemRequirements.add(req);
+		cfg.trackedDrops.add(coll);
+
+		cfg.trackedStats = new ArrayList<>();
+		PluginConfigResponse.TrackedStat skill = stat(3, "Agility XP", 0, 100);
+		skill.statType = "skill";
+		cfg.trackedStats.add(skill);
+		PluginConfigResponse.TrackedStat boss = stat(4, "Zulrah KC", 0, 100);
+		boss.statType = "boss";
+		cfg.trackedStats.add(boss);
+
+		cfg.trackedKills = new ArrayList<>();
+		PluginConfigResponse.TrackedKill kill = new PluginConfigResponse.TrackedKill();
+		kill.tileId = 5;
+		kill.label = "Kill 10 chickens";
+		kill.requiredAmount = 10;
+		kill.currentAmount = 4;
+		cfg.trackedKills.add(kill);
+
+		cfg.trackedTimed = new ArrayList<>();
+		PluginConfigResponse.TrackedTimed timed = new PluginConfigResponse.TrackedTimed();
+		timed.tileId = 6;
+		timed.label = "Sub-30 Inferno";
+		timed.completed = true;
+		cfg.trackedTimed.add(timed);
+
+		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
+		assertEquals(6, rows.size());
+		assertEquals(ClogTaskModel.Kind.DROP, kindOf(rows, 1));
+		assertEquals(ClogTaskModel.Kind.COLLECTION, kindOf(rows, 2));
+		assertEquals(ClogTaskModel.Kind.SKILL, kindOf(rows, 3));
+		assertEquals(ClogTaskModel.Kind.BOSS, kindOf(rows, 4));
+		assertEquals(ClogTaskModel.Kind.KILL, kindOf(rows, 5));
+		assertEquals(ClogTaskModel.Kind.TIMED, kindOf(rows, 6));
+		// The timed tile carries its completed flag through.
+		assertTrue(rowOf(rows, 6).isCompleted());
+
+		// Type filter narrows to a single kind.
+		List<ClogTaskModel.TaskRow> kills = ClogTaskModel.filter(rows,
+			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.KILL, null);
+		assertEquals(1, kills.size());
+		assertEquals(5, kills.get(0).tileId);
+	}
+
+	@Test
+	public void tierKeyMatchesDefaultBands()
+	{
+		List<PluginConfigResponse.TierBand> bands = ClogTaskModel.defaultTierBands();
+		assertEquals("troll", ClogTaskModel.tierKeyOf(10, bands));
+		assertEquals("easy", ClogTaskModel.tierKeyOf(50, bands));
+		assertEquals("medium", ClogTaskModel.tierKeyOf(250, bands));
+		assertEquals("hard", ClogTaskModel.tierKeyOf(400, bands));
+		assertEquals("ultra", ClogTaskModel.tierKeyOf(800, bands));
+	}
+
+	@Test
+	public void tierKeyHonoursCustomDynamicBands()
+	{
+		List<PluginConfigResponse.TierBand> bands = new ArrayList<>();
+		bands.add(band("baby", "Baby", 0));
+		bands.add(band("spicy", "Spicy", 200));
+		bands.add(band("death", "Death", 600));
+		assertEquals("baby", ClogTaskModel.tierKeyOf(50, bands));
+		assertEquals("spicy", ClogTaskModel.tierKeyOf(200, bands));
+		assertEquals("spicy", ClogTaskModel.tierKeyOf(599, bands));
+		assertEquals("death", ClogTaskModel.tierKeyOf(600, bands));
+		assertEquals("Death", ClogTaskModel.tierLabel("death", bands));
+		// Empty/missing served bands fall back to the baked-in defaults.
+		assertEquals(ClogTaskModel.defaultTierBands().size(), ClogTaskModel.tierBandsOrDefault(null).size());
+	}
+
+	@Test
+	public void filterByTier()
+	{
+		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
+		rows.add(new ClogTaskModel.TaskRow(1, "Troll", ClogTaskModel.Type.DROP, 0, 1, 100, 10));
+		rows.add(new ClogTaskModel.TaskRow(2, "Ultra", ClogTaskModel.Type.DROP, 0, 1, 101, 800));
+
+		List<PluginConfigResponse.TierBand> bands = ClogTaskModel.defaultTierBands();
+		List<ClogTaskModel.TaskRow> ultra = ClogTaskModel.filter(rows,
+			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, null, null, "ultra", bands);
+		assertEquals(1, ultra.size());
+		assertEquals(2, ultra.get(0).tileId);
+	}
+
+	private static PluginConfigResponse.TierBand band(String key, String label, int min)
+	{
+		PluginConfigResponse.TierBand b = new PluginConfigResponse.TierBand();
+		b.key = key;
+		b.label = label;
+		b.min = min;
+		return b;
+	}
+
+	private static ClogTaskModel.TaskRow rowOf(List<ClogTaskModel.TaskRow> rows, int tileId)
+	{
+		for (ClogTaskModel.TaskRow r : rows)
+		{
+			if (r.tileId == tileId)
+			{
+				return r;
+			}
+		}
+		throw new AssertionError("no row " + tileId);
+	}
+
+	private static ClogTaskModel.Kind kindOf(List<ClogTaskModel.TaskRow> rows, int tileId)
+	{
+		return rowOf(rows, tileId).kind;
 	}
 
 	@Test

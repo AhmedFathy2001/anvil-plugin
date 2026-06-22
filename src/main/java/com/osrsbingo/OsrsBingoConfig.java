@@ -134,8 +134,10 @@ public interface OsrsBingoConfig extends Config
 	@ConfigItem(
 		keyName = "bannerSound",
 		name = "Banner sound",
-		description = "Play a sound clip when the bingo banner fires. Bundled creator lines plus any .wav "
-			+ "you drop into the '" + BannerSoundService.USER_DIR_NAME + "' folder in your RuneLite directory.",
+		description = "Play a sound clip when the bingo banner fires. Add your own .wav files via the "
+			+ "'Banner sounds' button in the Bingo collection-log tab, or drop them into the '"
+			+ BannerSoundService.USER_DIR_NAME + "' folder in your RuneLite directory. Nothing plays "
+			+ "until you add at least one.",
 		position = 5,
 		section = "bingoSection"
 	)
@@ -159,10 +161,12 @@ public interface OsrsBingoConfig extends Config
 	@ConfigItem(
 		keyName = "bannerSoundClip",
 		name = "Banner sound clip",
-		description = "Leave blank to play a random clip each time, or enter a filename (e.g. my-clip.wav) from "
-			+ "your '" + BannerSoundService.USER_DIR_NAME + "' folder to always play that one.",
+		// Hidden from the panel: the play-cycle allowlist is managed via the Bingo collection-log tab's
+		// sound toggles, which read/write this key. Kept as a config key so the selection persists/syncs.
+		description = "Comma-separated allowlist of banner clips to cycle (blank = all). Managed in the Bingo tab.",
 		position = 7,
-		section = "bingoSection"
+		section = "bingoSection",
+		hidden = true
 	)
 	default String bannerSoundClip()
 	{

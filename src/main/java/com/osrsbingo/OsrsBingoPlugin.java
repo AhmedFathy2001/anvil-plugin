@@ -20,7 +20,6 @@ import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.ScriptID;
 import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPostFired;
@@ -58,8 +57,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -95,6 +96,9 @@ public class OsrsBingoPlugin extends Plugin {
 
     @Inject
     private BannerSoundService bannerSound;
+
+    // One-shot guard so the "no banner clips yet" nudge prints at most once per session.
+    private boolean bannerSoundHintShown;
 
     // Renders member-facing bingo tasks inside the in-game collection log (admin-only sidebar
     // means normies have no panel). Gated behind config.bingoClogTab(); see ClogTabController.
@@ -514,7 +518,7 @@ public class OsrsBingoPlugin extends Plugin {
      */
     private void showBingoToast(PluginConfigResponse.TrackedDrop drop, int current, int required) {
         clogBanner.show(drop.label, current, required);
-        bannerSound.play();
+        playBannerSound();
         if (current >= required) {
             // This drop completed the tile locally — suppress the duplicate team-completion banner.
             locallyShownTiles.add(drop.tileId);
@@ -834,10 +838,87 @@ public class OsrsBingoPlugin extends Plugin {
         }
     }
 
-    @Subscribe
-    public void onCommandExecuted(CommandExecuted event) {
-        if ("bingosounds".equalsIgnoreCase(event.getCommand())) {
-            bannerSound.importSounds();
+    /**
+     * Opens the OS file picker to add banner-sound WAVs. Wired to the "Banner sounds" button in the
+     * collection-log Bingo tab (visible to all users) — see ClogTabController.renderLeftColumn.
+     */
+    public void importBannerSounds() {
+        bannerSound.importSounds(names -> {
+            // New files join the cycle automatically (empty allowlist = all clips play). Users curate
+            // which ones cycle by tapping them in the tab list; no need to touch config on import.
+            sendChatMessage("Added to banner sounds: " + String.join(", ", names)
+                    + ". All clips cycle by default — tap one in the Bingo tab to toggle it on/off.");
+            clogTabController.onConfigRefreshed();
+        });
+    }
+
+    /** Clip filenames in the user's sounds folder — backs the in-tab manager list. */
+    public List<String> bannerSoundClips() {
+        return bannerSound.listClips();
+    }
+
+    /** Whether {@code name} is currently in the play cycle (for the tab's on/off rendering). */
+    public boolean bannerSoundSelected(String name) {
+        return bannerSound.isSelected(name);
+    }
+
+    /**
+     * Toggles a clip in/out of the play cycle from the tab. The cycle is persisted as the
+     * comma-separated 'bannerSoundClip' allowlist; an empty allowlist means "all clips play", so we
+     * materialise the full set before removing one, and collapse back to empty when everything's on.
+     */
+    public void toggleBannerSound(String name) {
+        List<String> all = bannerSound.listClips();
+        Set<String> sel = new LinkedHashSet<>();
+        String csv = config.bannerSoundClip();
+        if (csv != null && !csv.trim().isEmpty()) {
+            for (String part : csv.split(",")) {
+                String s = part.trim();
+                if (!s.isEmpty()) {
+                    sel.add(s);
+                }
+            }
+        } else {
+            sel.addAll(all); // blank = everything on; materialise so we can switch one off
+        }
+
+        // Toggle by case-insensitive filename match.
+        String match = null;
+        for (String s : sel) {
+            if (s.equalsIgnoreCase(name)) {
+                match = s;
+                break;
+            }
+        }
+        if (match != null) {
+            sel.remove(match);
+        } else {
+            sel.add(name);
+        }
+
+        // If every clip ends up selected, store blank ("all") to keep the value tidy and future-proof
+        // against newly-added files (which should default to on).
+        String value = (sel.size() == all.size() && all.size() > 0) ? "" : String.join(", ", sel);
+        configManager.setConfiguration("osrsbingo", "bannerSoundClip", value);
+        clogTabController.onConfigRefreshed();
+    }
+
+    /** Opens the sounds folder in the OS file manager so the user can delete clips (permanent remove). */
+    public void openBannerSoundsFolder() {
+        bannerSound.openFolder();
+    }
+
+    /**
+     * Plays the banner sound and, the first time it fires with sound enabled but no clips installed,
+     * nudges the user to the "Banner sounds" button in the collection-log Bingo tab. Fires at most
+     * once per session so it never spams.
+     */
+    private void playBannerSound() {
+        bannerSound.play();
+        if (!bannerSoundHintShown && config.bannerSound() && !bannerSound.hasClips()) {
+            bannerSoundHintShown = true;
+            sendChatMessage("Banner sound is on but you have no clips yet — open the Bingo tab in your "
+                    + "collection log and click \"Banner sounds\" to add a .wav.");
         }
     }
 
@@ -1929,7 +2010,7 @@ public class OsrsBingoPlugin extends Plugin {
             }
         }
         clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label);
-        bannerSound.play();
+        playBannerSound();
         for (PluginConfigResponse.CompletedTile t : newlyDone) {
             if (t != hardest) {
                 sendChatMessage("Tile complete: " + t.label);
