@@ -24,25 +24,26 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * Posts fire-and-forget notifications straight to Discord webhook URLs (deaths, rare drops, clips).
+ * Uploads an on-demand OBS replay clip straight to a Discord webhook URL that the USER pastes into
+ * the plugin config (Clips section). Nothing else posts to Discord from the plugin: deaths, kills,
+ * rare drops and CAs all go through {@link BingoApiClient#postNotification} to our own server, which
+ * forwards them. Clips are the one exception because a multi-MB video can't be proxied through the
+ * site's request-body limit — and a user-supplied webhook URL is allowed by the plugin hub (unlike a
+ * URL handed to us inside a server response).
  *
  * Kept deliberately separate from {@link BingoApiClient}: this talks to discord.com, carries no
- * site auth, and never persists — these messages are throwaway, unlike bingo drops.
+ * site auth, and never persists — the upload is throwaway, unlike bingo drops.
  *
- * Every send uses OkHttp's async dispatcher so the network round-trip runs off both the game
- * thread and the plugin's executor. Nothing here can stall the client.
+ * The upload uses OkHttp's async dispatcher so the round-trip runs off both the game thread and the
+ * plugin's executor. Nothing here can stall the client.
  *
- * Rate limits: Discord buckets per webhook ID, shared across every clan member posting to the same
- * URL — group content (a raid team all getting drops on one kill) bursts past the ~5-req/2s window.
- * On a 429 we re-enqueue with the server's Retry-After plus randomized jitter, so simultaneous
- * clients don't retry in lockstep and re-collide (thundering herd).
+ * Rate limits: on a 429 we re-enqueue with the server's Retry-After plus randomized jitter, so
+ * simultaneous clients don't retry in lockstep and re-collide (thundering herd).
  */
 @Slf4j
 @Singleton
 public class DiscordWebhookClient
 {
-	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-	private static final MediaType PNG = MediaType.parse("image/png");
 	// Discord hard-caps webhook message content at 2000 chars.
 	private static final int MAX_CONTENT = 2000;
 	// A throwaway notification isn't worth hammering Discord over — a couple of polite retries is plenty.
@@ -51,7 +52,6 @@ public class DiscordWebhookClient
 	private static final long DEFAULT_RETRY_MS = 1_000L;
 	private static final long MAX_JITTER_MS = 500L;
 
-	private final OkHttpClient httpClient;
 	// Clips are multi-MB video uploads; the shared RuneLite client's short write timeout aborts them
 	// mid-upload on slower connections. Give file posts their own generous timeouts (pool/dispatcher
 	// are still shared via newBuilder, so this is cheap).
@@ -67,51 +67,11 @@ public class DiscordWebhookClient
 	@Inject
 	public DiscordWebhookClient(OkHttpClient client)
 	{
-		this.httpClient = client;
 		this.uploadClient = client.newBuilder()
 			.callTimeout(Duration.ofSeconds(120))
 			.writeTimeout(Duration.ofSeconds(120))
 			.readTimeout(Duration.ofSeconds(60))
 			.build();
-	}
-
-	/**
-	 * Post a text and/or embed message. Either may be null. No-op if the URL is blank.
-	 */
-	public void send(String webhookUrl, String content, JsonObject embed)
-	{
-		if (isBlank(webhookUrl))
-		{
-			return;
-		}
-		JsonObject payload = buildPayload(content, embed);
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		enqueue(httpClient, new Request.Builder().url(webhookUrl).post(body).build(), null);
-	}
-
-	/**
-	 * Post a text/embed message with a PNG screenshot attached via Discord multipart. To render the
-	 * shot inside the embed, the caller should set embed.image.url = "attachment://" + filename.
-	 */
-	public void sendWithImage(String webhookUrl, String content, JsonObject embed, byte[] png, String filename)
-	{
-		if (isBlank(webhookUrl))
-		{
-			return;
-		}
-		if (png == null || png.length == 0)
-		{
-			// Nothing to attach — fall back to a plain message rather than send an empty file part.
-			send(webhookUrl, content, embed);
-			return;
-		}
-		JsonObject payload = buildPayload(content, embed);
-		MultipartBody multipart = new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
-			.addFormDataPart("payload_json", payload.toString())
-			.addFormDataPart("files[0]", filename, RequestBody.create(PNG, png))
-			.build();
-		enqueue(httpClient, new Request.Builder().url(webhookUrl).post(multipart).build(), null);
 	}
 
 	/**

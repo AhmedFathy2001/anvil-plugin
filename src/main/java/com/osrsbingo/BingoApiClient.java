@@ -6,6 +6,8 @@ import com.google.gson.JsonParser;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.Call;
+import okhttp3.Callback;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
@@ -95,6 +97,69 @@ public class BingoApiClient
 	{
 		return apiUrl != null && !apiUrl.isEmpty()
 			&& playerToken != null && !playerToken.isEmpty();
+	}
+
+	/**
+	 * Fire-and-forget: POST a clan notification to our own site, which forwards it to the Discord
+	 * channel configured server-side. {@code channel} is one of "deaths", "pvpKills", "rareDrops",
+	 * "combatAchievements". Either {@code content} or {@code embed} may be null; {@code png} may be
+	 * null (text/embed-only). The plugin never holds or calls the Discord webhook URL itself — the
+	 * server owns it — which keeps every plugin request pointed at the one configured base URL
+	 * (RuneLite plugin-hub rule). Never blocks the caller: uses OkHttp's async dispatcher.
+	 */
+	public void postNotification(String channel, String content, JsonObject embed, byte[] png, String filename)
+	{
+		if (!isConfigured() || channel == null || channel.isEmpty())
+		{
+			return;
+		}
+		JsonObject payload = new JsonObject();
+		payload.addProperty("channel", channel);
+		if (content != null && !content.isEmpty())
+		{
+			payload.addProperty("content", content);
+		}
+		if (embed != null)
+		{
+			payload.add("embed", embed);
+		}
+
+		RequestBody body;
+		if (png != null && png.length > 0)
+		{
+			body = new MultipartBody.Builder()
+				.setType(MultipartBody.FORM)
+				.addFormDataPart("payload_json", payload.toString())
+				.addFormDataPart("file", filename != null && !filename.isEmpty() ? filename : "image.png",
+					RequestBody.create(PNG, png))
+				.build();
+		}
+		else
+		{
+			body = RequestBody.create(JSON, payload.toString());
+		}
+
+		Request request = authedRequest(apiUrl + "/api/plugin/notify").post(body).build();
+		httpClient.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				log.debug("notify post failed: {}", e.getMessage());
+			}
+
+			@Override
+			public void onResponse(Call call, Response response)
+			{
+				try (Response r = response)
+				{
+					if (!r.isSuccessful())
+					{
+						log.debug("notify returned HTTP {}", r.code());
+					}
+				}
+			}
+		});
 	}
 
 	/**

@@ -16,7 +16,7 @@ public class PluginConfigResponse
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
-	public Webhooks webhooks;                          // plugin-posted notification destinations
+	public NotifyChannels notify;                      // which clan notification channels are enabled server-side
 	public List<String> funDeathMessages;              // server-managed 1/100 fun-death pool
 	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
 	public List<String> spoonTaunts;                   // server-managed lucky-drop reaction lines (override baked-in)
@@ -24,14 +24,17 @@ public class PluginConfigResponse
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 
-	public static class Webhooks
+	public static class NotifyChannels
 	{
-		// Discord webhook URLs the plugin posts to directly. Null when unset on the site.
-		public String rareDrops;
-		public String deaths;
-		public String combatAchievements;
-		public String pvpKills;
-		public String clips;
+		// True when the site has a Discord webhook configured for this notification type. The plugin
+		// posts notifications to its OWN server (POST /api/plugin/config's sibling /api/plugin/notify),
+		// which forwards them to Discord server-side — the plugin never receives or calls the webhook
+		// URL itself. (RuneLite plugin-hub rule: a plugin may not take a URL from a response and call
+		// it.) Clips are the exception: they upload straight to a user-pasted webhook in plugin config.
+		public boolean rareDrops;
+		public boolean deaths;
+		public boolean combatAchievements;
+		public boolean pvpKills;
 	}
 
 	public static class EventInfo

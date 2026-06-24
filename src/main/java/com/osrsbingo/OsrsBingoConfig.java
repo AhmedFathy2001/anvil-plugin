@@ -439,6 +439,20 @@ public interface OsrsBingoConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "clipsWebhookUrl",
+		name = "Clips Discord webhook URL",
+		description = "Paste your own Discord webhook URL to auto-post saved clips to. Clips are uploaded "
+			+ "straight from your machine to this webhook (they don't pass through the bingo site). Leave blank "
+			+ "to keep clips local-only.",
+		position = 9,
+		section = "clipsSection"
+	)
+	default String clipsWebhookUrl()
+	{
+		return "";
+	}
+
 	// ---- Admin link ----
 
 	@ConfigItem(
