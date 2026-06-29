@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import java.util.List;
 
@@ -21,6 +21,7 @@ public class PluginConfigResponse
 	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
 	public List<String> spoonTaunts;                   // server-managed lucky-drop reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
+	public boolean showKillCount = true;               // server toggle: include boss/raid KC on rare-drop posts
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 

@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
@@ -7,7 +7,7 @@ import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Keybind;
 
 @ConfigGroup("osrsbingo")
-public interface OsrsBingoConfig extends Config
+public interface AnvilConfig extends Config
 {
 	// ---- Sections (collapsible groups, top to bottom) ----
 	// Split by purpose: Setup + Bingo are event-participation; the "Notifications:" sections are
@@ -57,32 +57,24 @@ public interface OsrsBingoConfig extends Config
 	)
 	String clipsSection = "clipsSection";
 
-	@ConfigSection(
-		name = "Admin link",
-		description = "Link this plugin to your admin account on the bingo site for roster sync.",
-		position = 7,
-		closedByDefault = true
-	)
-	String adminSection = "adminSection";
-
 	// ---- Setup ----
 
 	@ConfigItem(
 		keyName = "apiUrl",
 		name = "Site URL",
-		description = "The URL of your bingo site. Defaults to the official site — only change this if you self-host.",
+		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). Ask your clan admin if unsure.",
 		position = 1,
 		section = "setupSection"
 	)
 	default String apiUrl()
 	{
-		return "https://theafkspot-bingo.vercel.app";
+		return "";
 	}
 
 	@ConfigItem(
 		keyName = "playerToken",
-		name = "Player Token",
-		description = "Your player token UUID from the bingo site",
+		name = "Account Token",
+		description = "Your account token from the bingo site (Profile → Plugin). One token works across every event you're signed up for.",
 		position = 2,
 		secret = true,
 		section = "setupSection"
@@ -336,6 +328,18 @@ public interface OsrsBingoConfig extends Config
 		return CombatAchievementTier.MASTER;
 	}
 
+	@ConfigItem(
+		keyName = "notifyLevelUps",
+		name = "Notify on 99s & high totals",
+		description = "Post to the clan combat-achievements channel when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
+		position = 3,
+		section = "caSection"
+	)
+	default boolean notifyLevelUps()
+	{
+		return true;
+	}
+
 	// ---- Clips ----
 
 	@ConfigItem(
@@ -449,45 +453,6 @@ public interface OsrsBingoConfig extends Config
 		section = "clipsSection"
 	)
 	default String clipsWebhookUrl()
-	{
-		return "";
-	}
-
-	// ---- Admin link ----
-
-	@ConfigItem(
-		keyName = "adminModeEnabled",
-		name = "Use admin features",
-		description = "When off, the plugin behaves as a regular player even if an admin token is stored. Useful for previewing the non-admin view without unlinking.",
-		position = 1,
-		section = "adminSection"
-	)
-	default boolean adminModeEnabled()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "adminLinkCode",
-		name = "Admin link code",
-		description = "Paste the 6-character code from the bingo site's admin settings, then click Link in the side panel.",
-		position = 2,
-		section = "adminSection"
-	)
-	default String adminLinkCode()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "adminPluginToken",
-		name = "Admin plugin token",
-		description = "Long-lived admin token returned by the site after linking. Managed automatically — do not edit.",
-		position = 3,
-		secret = true,
-		section = "adminSection"
-	)
-	default String adminPluginToken()
 	{
 		return "";
 	}

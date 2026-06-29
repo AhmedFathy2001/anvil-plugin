@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -18,15 +18,15 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 @Slf4j
-public class OsrsBingoOverlay extends OverlayPanel {
+public class AnvilOverlay extends OverlayPanel {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'");
 
-    private final OsrsBingoPlugin plugin;
-    private final OsrsBingoConfig config;
+    private final AnvilPlugin plugin;
+    private final AnvilConfig config;
 
     @Inject
-    public OsrsBingoOverlay(OsrsBingoPlugin plugin, OsrsBingoConfig config) {
+    public AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
         super(plugin);
         this.plugin = plugin;
         this.config = config;

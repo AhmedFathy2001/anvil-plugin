@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;

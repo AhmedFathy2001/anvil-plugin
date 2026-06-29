@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,8 +43,8 @@ public class ClogTabController
 	private final Client client;
 	private final ClientThread clientThread;
 	private final ItemManager itemManager;
-	private final OsrsBingoPlugin plugin;
-	private final OsrsBingoConfig config;
+	private final AnvilPlugin plugin;
+	private final AnvilConfig config;
 	private final ChatboxPanelManager chatboxPanelManager;
 
 	private boolean clogOpen;
@@ -57,6 +57,9 @@ public class ClogTabController
 	private String searchText = "";
 	private boolean searchInputOpen; // our chatbox search prompt is currently open
 	private int expandedTileId = -1;
+	// Admin-only "Sync clan roster" button state (schedule-home left column). True while a sync POST
+	// is in flight so the button shows a disabled "Syncing clan…" state and ignores repeat clicks.
+	private boolean clanSyncInProgress;
 
 	/**
 	 * Hub navigation: SCHEDULE is the home; the rest are drill-ins.
@@ -76,6 +79,14 @@ public class ClogTabController
 	private Integer selectedWeeklyId;
 	private BingoApiClient.WeeklyLeaderboard cachedLeaderboard;
 	private boolean loadingLeaderboard;
+	// Live countdown on the leaderboard detail header. We keep a handle to that one banner line so
+	// onGameTick can refresh just it (a single setText) instead of rebuilding the whole view — the
+	// label is minute-granular, so the text actually changes ~once a minute. Null when not shown.
+	private Widget countdownLine;
+	private String countdownStart;
+	private String countdownEnd;
+	private String countdownSuffix = "";
+	private String countdownText = "";
 	// Board drill-in state (shared by the GRID and RACE views — both read the same payload).
 	// cachedBoard = your own active event (interactive). cachedPreview = the last read-only preview
 	// of some *other* event (an upcoming one, or a live event you're not competing in).
@@ -94,7 +105,7 @@ public class ClogTabController
 
 	@Inject
 	public ClogTabController(Client client, ClientThread clientThread, ItemManager itemManager,
-		OsrsBingoPlugin plugin, OsrsBingoConfig config, ChatboxPanelManager chatboxPanelManager)
+		AnvilPlugin plugin, AnvilConfig config, ChatboxPanelManager chatboxPanelManager)
 	{
 		this.client = client;
 		this.clientThread = clientThread;
@@ -201,6 +212,18 @@ public class ClogTabController
 		{
 			closeSearchInput();
 			searchText = "";
+		}
+		// Tick the leaderboard countdown without rebuilding the view — repaint just the one line, and
+		// only when its minute-granular text actually changes.
+		if (bingoTabActive && hubView == HubView.LEADERBOARD && countdownLine != null)
+		{
+			String now = countdownLabel(countdownStart, countdownEnd);
+			if (!now.equals(countdownText))
+			{
+				countdownText = now;
+				countdownLine.setText(now + countdownSuffix);
+				countdownLine.revalidate();
+			}
 		}
 	}
 
@@ -805,6 +828,29 @@ public class ClogTabController
 		val.setOnOpListener((JavaScriptCallback) e -> cycleEventTypeFilter());
 		val.revalidate();
 
+		// Admin-only: "Sync clan roster" — pushes the in-game clan roster to the site. It sits in the
+		// pre-existing empty gap between the event-type value (ends at y+29) and the Banner sounds row
+		// (starts at y+50): placed at y+32 with height 14 it occupies y+32..y+46, overlapping neither.
+		// Rendered ONLY when plugin.isAdmin() is true, so for non-admins the gap stays empty exactly as
+		// it is today (no reserved space, no reflow of any surrounding widget).
+		if (plugin.isAdmin())
+		{
+			Widget sync = container.createChild(-1, WidgetType.TEXT);
+			sync.setText(clanSyncInProgress
+				? "<col=999999>Syncing clan…</col>"
+				: "<col=ffcc33>Sync clan roster</col>");
+			sync.setFontId(FONT_PLAIN);
+			sync.setTextShadowed(true);
+			place(sync, 10, y + 32, ClogIds.LEFT_COL_W - 20, 14);
+			if (!clanSyncInProgress)
+			{
+				sync.setHasListener(true);
+				sync.setAction(0, "Sync");
+				sync.setOnOpListener((JavaScriptCallback) e -> triggerClanSync());
+			}
+			sync.revalidate();
+		}
+
 		// Banner sounds: the all-users entry point for adding your own clips (none ship with the
 		// plugin). The admin sidebar is hidden from regular members, so this tab is the only shared UI.
 		Widget sounds = container.createChild(-1, WidgetType.TEXT);
@@ -900,6 +946,34 @@ public class ClogTabController
 		}
 		eventTypeFilter = order[(idx + 1) % order.length];
 		clientThread.invokeLater(this::renderHub);
+	}
+
+	/**
+	 * Admin "Sync clan roster" click handler. Flips the button to a disabled "Syncing clan…" state,
+	 * kicks off the off-thread sync (which scrapes the in-game roster and POSTs it), and re-renders the
+	 * left column when it completes. The success/failure summary is reported in-game by the plugin via
+	 * sendChatMessage; here we only own the button's in-progress state.
+	 */
+	private void triggerClanSync()
+	{
+		if (clanSyncInProgress)
+		{
+			return;
+		}
+		clanSyncInProgress = true;
+		// Repaint the left column so the button shows "Syncing clan…" and stops accepting clicks.
+		if (bingoTabActive)
+		{
+			clientThread.invokeLater(this::renderLeftColumn);
+		}
+		plugin.syncClanRoster((ok, msg) -> clientThread.invokeLater(() ->
+		{
+			clanSyncInProgress = false;
+			if (bingoTabActive && hubView == HubView.SCHEDULE)
+			{
+				renderLeftColumn();
+			}
+		}));
 	}
 
 	// ---- left column: hide native boss list, draw our filter column in its place ----
@@ -1105,7 +1179,7 @@ public class ClogTabController
 	private static final int BANNER_TOP = 1; // top margin so the header isn't flush against the divider
 	private static final int BANNER_LINE_H = 13; // per-line step; 3 lines must fit the clog header height
 
-	private void bannerLine(Widget header, String text, int color, int y)
+	private Widget bannerLine(Widget header, String text, int color, int y)
 	{
 		Widget line = header.createChild(-1, WidgetType.TEXT);
 		place(line, 2, y + BANNER_TOP, 280, 15);
@@ -1114,6 +1188,7 @@ public class ClogTabController
 		line.setTextColor(color);
 		line.setTextShadowed(true);
 		line.revalidate();
+		return line;
 	}
 
 	private void renderItems()
@@ -1569,6 +1644,7 @@ public class ClogTabController
 		BingoApiClient.WeeklyLeaderboard lb = cachedLeaderboard;
 
 		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		countdownLine = null;
 		if (header != null)
 		{
 			header.deleteAllChildren();
@@ -1577,8 +1653,12 @@ public class ClogTabController
 				String kind = "skill".equalsIgnoreCase(lb.competition.type) ? "Skill of the Week" : "Boss of the Week";
 				bannerLine(header, lb.competition.title == null ? kind : lb.competition.title, COL_ORANGE, 0);
 				bannerLine(header, kind + "  <col=666666>·</col>  " + nz(lb.competition.metric), 0xffffff, BANNER_LINE_H);
-				bannerLine(header, dateRange(lb.competition.startDate, lb.competition.endDate)
-					+ "  <col=666666>·</col>  " + lb.total + " players", 0xaaaaaa, BANNER_LINE_H * 2);
+				// Live countdown instead of a plain date range — onGameTick refreshes this one line.
+				countdownStart = lb.competition.startDate;
+				countdownEnd = lb.competition.endDate;
+				countdownSuffix = "  <col=666666>·</col>  " + lb.total + " players";
+				countdownText = countdownLabel(countdownStart, countdownEnd);
+				countdownLine = bannerLine(header, countdownText + countdownSuffix, 0xaaaaaa, BANNER_LINE_H * 2);
 			}
 			else
 			{
@@ -1779,6 +1859,66 @@ public class ClogTabController
 			return e;
 		}
 		return e.isEmpty() ? s : s + " - " + e;
+	}
+
+	/**
+	 * Relative countdown for a detail header: "Starts in 2d 4h" before it opens, "Ends in 3d 1h"
+	 * while live, "Ended" after. Falls back to the plain date range when the end date is unusable.
+	 */
+	private static String countdownLabel(String start, String end)
+	{
+		long now = System.currentTimeMillis();
+		long s = epochMillis(start);
+		long e = epochMillis(end);
+		if (s > 0 && now < s)
+		{
+			return "Starts in " + humanGap(s - now);
+		}
+		if (e > 0)
+		{
+			return now < e ? "Ends in " + humanGap(e - now) : "Ended";
+		}
+		return dateRange(start, end);
+	}
+
+	/** ISO date ("2026-06-21") or datetime (UTC) -> epoch millis, or -1 when unparseable. */
+	private static long epochMillis(String iso)
+	{
+		if (iso == null || iso.length() < 10)
+		{
+			return -1;
+		}
+		try
+		{
+			if (iso.length() == 10)
+			{
+				return java.time.LocalDate.parse(iso)
+					.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
+			}
+			return java.time.Instant.parse(iso.endsWith("Z") ? iso : iso + "Z").toEpochMilli();
+		}
+		catch (Exception ex)
+		{
+			return -1;
+		}
+	}
+
+	/** Compact "2d 4h", "5h 12m", "8m", "<1m" for a positive millisecond gap. */
+	private static String humanGap(long ms)
+	{
+		long totalMin = ms / 60000;
+		long days = totalMin / 1440;
+		long hours = (totalMin % 1440) / 60;
+		long mins = totalMin % 60;
+		if (days > 0)
+		{
+			return days + "d " + hours + "h";
+		}
+		if (hours > 0)
+		{
+			return hours + "h " + mins + "m";
+		}
+		return mins > 0 ? mins + "m" : "<1m";
 	}
 
 	// ---- classic bingo: square N×N grid (format=bingo, scoringMode=tiles) ----

@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;

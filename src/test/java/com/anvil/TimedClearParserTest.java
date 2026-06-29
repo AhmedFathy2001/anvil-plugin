@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;

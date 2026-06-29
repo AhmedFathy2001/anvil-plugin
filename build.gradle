@@ -22,7 +22,7 @@ dependencies {
     testImplementation group: 'net.runelite', name: 'jshell', version: runeLiteVersion
 }
 
-group = 'com.osrsbingo'
+group = 'com.anvil'
 version = '1.0.0'
 sourceCompatibility = '11'
 targetCompatibility = '11'
@@ -33,6 +33,6 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.register('runClient', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'com.osrsbingo.OsrsBingoPluginTest'
+    mainClass = 'com.anvil.AnvilPluginTest'
     jvmArgs = ['-ea']
 }

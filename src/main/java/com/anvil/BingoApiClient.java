@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -33,14 +33,17 @@ public class BingoApiClient
 	// request so the server can scope the per-user plugin token to the correct clan_member
 	// (and reject drops on accounts that aren't signed up for the active event).
 	private volatile String currentRsn;
+	// Stable Jagex account hash (client.getAccountHash()) of the locally logged-in account.
+	// Sent as `X-Account-Hash` so the server can anchor auto-verification to the account even
+	// across in-game renames. Null when logged out / unavailable.
+	private volatile String accountHash;
 
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
 	{
 		this.gson = gson;
-		// Read timeout is generous because clan-sync reconciliation against a 100+ member
-		// roster does a lot of round-trips to Turso and can comfortably take 30+ seconds.
-		// Tighter timeouts here will trip even on healthy servers.
+		// Read timeout is generous because some server reads do several round-trips to Turso
+		// and can take a while; tighter timeouts here will trip even on healthy servers.
 		this.httpClient = client.newBuilder()
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
@@ -71,12 +74,25 @@ public class BingoApiClient
 		return currentRsn;
 	}
 
+	/**
+	 * Sets the stable Jagex account hash of the locally logged-in account. Call alongside
+	 * {@link #setCurrentRsn} on login (and clear on logout). Pass the raw value from
+	 * {@code client.getAccountHash()}; values that mean "not logged in" (null or -1) are
+	 * treated as cleared.
+	 */
+	public void setAccountHash(long hash)
+	{
+		this.accountHash = hash == -1L ? null : Long.toString(hash);
+	}
+
 	private Request.Builder authedRequest(String url)
 	{
 		Request.Builder b = new Request.Builder().url(url)
 			.header("Authorization", "Bearer " + playerToken);
 		String rsn = currentRsn;
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
+		String hash = accountHash;
+		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
 		return b;
 	}
 
@@ -314,37 +330,6 @@ public class BingoApiClient
 	}
 
 	/**
-	 * POST /api/plugin/link — exchange a short-lived admin code + RSN for a long-lived admin token.
-	 * Returns the admin token string. Throws IOException on HTTP error (caller should show the status).
-	 */
-	public LinkResponse linkAdmin(String code, String rsn) throws IOException
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			throw new IOException("Site URL is not configured");
-		}
-		JsonObject payload = new JsonObject();
-		payload.addProperty("code", code);
-		payload.addProperty("rsn", rsn);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/link")
-			.post(body)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			String responseBody = response.body() != null ? response.body().string() : "";
-			if (!response.isSuccessful())
-			{
-				throw new IOException("HTTP " + response.code() + " — " + responseBody);
-			}
-			return gson.fromJson(responseBody, LinkResponse.class);
-		}
-	}
-
-	/**
 	 * GET /api/plugin/active-weekly — returns the currently live weekly competition, or null.
 	 * Unauthenticated. Never throws — returns null on any failure.
 	 */
@@ -534,51 +519,6 @@ public class BingoApiClient
 		public long gained;
 	}
 
-	public static class MyActivePlayer
-	{
-		public PlayerInfo player;
-	}
-
-	public static class PlayerInfo
-	{
-		public int playerId;
-		public String playerToken;
-		public String playerName;
-		public int eventId;
-		public String eventName;
-		public Integer teamId;
-		public String teamName;
-		public String teamColor;
-	}
-
-	/**
-	 * GET /api/plugin/my-active-player — uses the admin plugin token to discover the
-	 * caller's player record (and per-event playerToken) for whatever event they're
-	 * currently in. Lets an admin who's also a player skip the manual token-paste step.
-	 * Returns null on any failure or when there's no match.
-	 */
-	public PlayerInfo fetchMyActivePlayer(String adminToken, String rsn)
-	{
-		if (apiUrl == null || apiUrl.isEmpty() || adminToken == null || adminToken.isEmpty()) return null;
-		String url = apiUrl + "/api/plugin/my-active-player";
-		if (rsn != null && !rsn.isEmpty()) url += "?rsn=" + java.net.URLEncoder.encode(rsn, java.nio.charset.StandardCharsets.UTF_8);
-		Request request = new Request.Builder()
-			.url(url)
-			.header("Authorization", "Bearer " + adminToken)
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null) return null;
-			MyActivePlayer wrap = gson.fromJson(response.body().string(), MyActivePlayer.class);
-			return wrap == null ? null : wrap.player;
-		}
-		catch (IOException e)
-		{
-			return null;
-		}
-	}
-
 	public static class EnrollResponse
 	{
 		public boolean enrolled;
@@ -625,10 +565,61 @@ public class BingoApiClient
 		}
 	}
 
+	public static class HelloResponse
+	{
+		public boolean knownMember;
+		public boolean isGuest;
+		// What's running right now, for an in-game greeting on login.
+		public java.util.List<WeeklyInfo> activeWeekly;
+		public java.util.List<BingoInfo> activeBingos;
+	}
+
+	public static class WeeklyInfo
+	{
+		public String type;   // "skill" | "boss"
+		public String title;
+		public String metric;
+	}
+
+	public static class BingoInfo
+	{
+		public String name;
+	}
+
 	/**
-	 * POST /api/plugin/clan-sync — upload scraped clan roster. Authenticated with the admin token.
+	 * GET /api/plugin/me — "is my account token a site admin?" probe.
+	 *
+	 * Sends the per-user account token as a Bearer header. Returns true only on HTTP 200
+	 * (the site returns {isAdmin:true} for admins, 401 for non-admins / invalid tokens).
+	 * Tolerates network/parse failures by returning false — a hidden panel is the safe default.
 	 */
-	public ClanSyncResponse syncClan(String adminToken, String clanName, java.util.List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
+	public boolean fetchIsAdmin(String accountToken)
+	{
+		if (apiUrl == null || apiUrl.isEmpty() || accountToken == null || accountToken.isEmpty())
+		{
+			return false;
+		}
+		Request request = new Request.Builder()
+			.url(apiUrl + "/api/plugin/me")
+			.header("Authorization", "Bearer " + accountToken)
+			.get()
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			return response.code() == 200;
+		}
+		catch (Exception e)
+		{
+			log.debug("plugin/me probe failed: {}", e.getMessage());
+			return false;
+		}
+	}
+
+	/**
+	 * POST /api/plugin/clan-sync — upload the scraped clan roster. Authenticated with the
+	 * caller's per-user account token (must belong to a site admin).
+	 */
+	public ClanSyncResponse syncClan(String accountToken, String clanName, java.util.List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
 	{
 		if (apiUrl == null || apiUrl.isEmpty())
 		{
@@ -641,7 +632,7 @@ public class BingoApiClient
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = new Request.Builder()
 			.url(apiUrl + "/api/plugin/clan-sync")
-			.header("Authorization", "Bearer " + adminToken)
+			.header("Authorization", "Bearer " + accountToken)
 			.post(body)
 			.build();
 
@@ -650,7 +641,7 @@ public class BingoApiClient
 			String responseBody = response.body() != null ? response.body().string() : "";
 			if (response.code() == 401)
 			{
-				throw new AdminUnauthorizedException("Admin token revoked");
+				throw new AdminUnauthorizedException("Account token is not an admin (or was revoked)");
 			}
 			if (response.code() == 409)
 			{
@@ -674,25 +665,14 @@ public class BingoApiClient
 		}
 	}
 
-	public static class LinkResponse
-	{
-		public String token;
-		public int userId;
-		public String username;
-		public String rsn;
-	}
-
-	public static class HelloResponse
-	{
-		public boolean knownMember;
-		public boolean isGuest;
-	}
-
 	public static class ClanMember
 	{
 		public String rsn;
 		public String rank;
 		public Integer joinedDays;
+		// Only set for the locally-logged-in player — used by the site for stable identity /
+		// rename detection. Null for everyone else; gson omits it from the payload.
+		public String accountHash;
 	}
 
 	public static class ClanSyncResponse
@@ -712,47 +692,6 @@ public class BingoApiClient
 		public String oldRsn;   // populated only on rename
 		public String oldRank;  // populated only on rank_changed
 		public String newRank;  // populated only on rank_changed
-	}
-
-	public static class SyncStatus
-	{
-		public String lastSyncAt; // ISO 8601 or null
-		public SyncStatusSummary summary;
-	}
-
-	public static class SyncStatusSummary
-	{
-		public int added;
-		public int markedLeft;
-		public int returned;
-		public int renamed;
-	}
-
-	/**
-	 * GET /api/plugin/clan-sync — returns the most recent sync timestamp + summary so the
-	 * panel can show "Last sync: X ago" without performing a fresh sync. Returns null state
-	 * silently on auth/network failure — this is best-effort UX restoration.
-	 */
-	public SyncStatus fetchSyncStatus(String adminToken)
-	{
-		if (apiUrl == null || apiUrl.isEmpty() || adminToken == null || adminToken.isEmpty())
-		{
-			return null;
-		}
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/clan-sync")
-			.header("Authorization", "Bearer " + adminToken)
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null) return null;
-			return gson.fromJson(response.body().string(), SyncStatus.class);
-		}
-		catch (IOException e)
-		{
-			return null;
-		}
 	}
 
 	public static class ClanMismatchException extends Exception

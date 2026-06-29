@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import com.google.inject.Provides;
 import lombok.Getter;
@@ -11,13 +11,13 @@ import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.Actor;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.Player;
-import net.runelite.api.events.ActorDeath;
-import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.Skill;
 import net.runelite.api.clan.ClanChannel;
-import net.runelite.api.clan.ClanMember;
 import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
+import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.ScriptID;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
@@ -40,11 +40,8 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.DrawManager;
-import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.ImageUtil;
 
 import javax.imageio.ImageIO;
 import java.io.File;
@@ -71,10 +68,10 @@ import java.util.function.Consumer;
 @Slf4j
 @PluginDescriptor(
         name = "Anvil",
-        description = "Companion plugin for the Anvil clan-events platform — codeword overlay, auto-submits tracked bingo drops, clan roster sync, weekly auto-enroll",
+        description = "Companion plugin for the Anvil clan-events platform — codeword overlay, auto-submits tracked bingo drops, clan Discord notifications",
         tags = {"anvil", "bingo", "overlay", "drops", "loot", "clan", "event"}
 )
-public class OsrsBingoPlugin extends Plugin {
+public class AnvilPlugin extends Plugin {
 
     @Inject
     private Client client;
@@ -83,13 +80,13 @@ public class OsrsBingoPlugin extends Plugin {
     private ClientThread clientThread;
 
     @Inject
-    private OsrsBingoConfig config;
+    private AnvilConfig config;
 
     @Inject
     private OverlayManager overlayManager;
 
     @Inject
-    private OsrsBingoOverlay overlay;
+    private AnvilOverlay overlay;
 
     @Inject
     private BingoClogBannerOverlay clogBanner;
@@ -100,16 +97,13 @@ public class OsrsBingoPlugin extends Plugin {
     // One-shot guard so the "no banner clips yet" nudge prints at most once per session.
     private boolean bannerSoundHintShown;
 
-    // Renders member-facing bingo tasks inside the in-game collection log (admin-only sidebar
-    // means normies have no panel). Gated behind config.bingoClogTab(); see ClogTabController.
+    // Renders member-facing bingo tasks inside the in-game collection log.
+    // Gated behind config.bingoClogTab(); see ClogTabController.
     @Inject
     private ClogTabController clogTabController;
 
     @Inject
     private DrawManager drawManager;
-
-    @Inject
-    private ClientToolbar clientToolbar;
 
     @Inject
     private ConfigManager configManager;
@@ -159,13 +153,6 @@ public class OsrsBingoPlugin extends Plugin {
     };
 
     private ScheduledExecutorService executor;
-    private NavigationButton navButton;
-    private OsrsBingoPanel panel;
-    // The side panel is admin-only: it's added to the toolbar only while the plugin is
-    // admin-linked (see updateNavVisibility). Regular members never see a sidebar — their
-    // tasks live in the in-game collection log instead. navAdded tracks the current state
-    // so we never double-add or double-remove the navigation button.
-    private boolean navAdded = false;
 
     // Debounce config refresh — prevents spam when multiple config keys change at once
     private ScheduledFuture<?> pendingRefresh;
@@ -173,10 +160,6 @@ public class OsrsBingoPlugin extends Plugin {
 
     @Getter
     private volatile PluginConfigResponse pluginConfig;
-
-    // Connection status tracking
-    @Getter
-    private volatile boolean lastRefreshFailed;
 
     // Item ID → tracked drops lookup for O(1) loot matching
     private volatile Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex = Collections.emptyMap();
@@ -234,18 +217,50 @@ public class OsrsBingoPlugin extends Plugin {
     // "Blessed dizana's quiver" still matches "dizana's quiver". The server list
     // (pluginConfig.alwaysNotifyItems) extends this without a plugin update.
     private static final List<String> ALWAYS_NOTIFY_FALLBACK = Arrays.asList(
+            // Prestige capes / quivers (awarded, untradeable).
             "infernal cape",
             "dizana's quiver",
+            "purifying sigil",
+            // Raid ornament / colour kits + dusts (untradeable — ToB / CoX / ToA).
             "ancient blood ornament kit",
             "sanguine ornament kit",
             "holy ornament kit",
             "sanguine dust",
-            "radiant sigil"
+            "metamorphic dust",
+            "twisted ancestral colour kit",
+            "menaphite ornament kit",
+            // DT2 (Forgotten Four) untradeable uniques: the ring vestiges (the actual boss
+            // drops — Ultor/Magus/Bellator/Venator vestige, all caught by "vestige"), the
+            // chromium-ingot quartz, and the four Soulreaper axe pieces. Substring-matched.
+            "vestige",
+            "quartz",
+            "executioner's axe head",
+            "eye of the duke",
+            "leviathan's lure",
+            "siren's staff",
+            // Boss collection-log jars (untradeable) + Champions' Challenge scroll/cape.
+            "jar of",
+            "champion scroll",
+            "champion's cape",
+            // Enhanced crystal seeds — the Gauntlet weapon seed and the Elf-pickpocket
+            // teleport seed (both untradeable). Substring covers both.
+            "enhanced crystal",
+            // Vyrewatch Sentinel blood shard (tradeable, but GE price dips below the value
+            // floor so we always want it) + the Fight Caves fire cape milestone.
+            "blood shard",
+            "fire cape"
     );
 
     // Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
     // collection-log unlock message fire for it.
     private final Map<String, Long> lastAllowlistNotifyAt = new HashMap<>();
+
+    // Kill/clear count per source, scraped from "Your <X> kill count is: N" (and the raid
+    // "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
+    // landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
+    private final Map<String, Integer> killCounts = new HashMap<>();
+    private static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
+            "Your (?:completed )?(.+?) (?:kill )?count is: ([\\d,]+)");
 
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
@@ -257,13 +272,40 @@ public class OsrsBingoPlugin extends Plugin {
     // Trailing " (5 points)" appended when the in-game recompletion setting is on.
     private static final java.util.regex.Pattern CA_TASK_POINTS = java.util.regex.Pattern.compile(
             "\\s*\\(\\d+ points?\\)$");
-    // A parsed CA completion waiting one tick so the points varbit has settled before we read it.
-    private CombatAchievementTier pendingCaTier;
-    private String pendingCaTask;
-    // Last-known total CA points. A first completion raises it; a recompletion doesn't — that's how
-    // we skip duplicate posts when the in-game "repeat completion" message setting is on.
+    // Skill level-up, e.g. "Congratulations, you just advanced your Mining level. You are now
+    // level 99." Fires exactly once per level gained, so no dedup/baseline needed (unlike CA).
+    // Accepts the modern "your" and the older "a/an" phrasing.
+    private static final java.util.regex.Pattern LEVEL_UP_PATTERN = java.util.regex.Pattern.compile(
+            "you just advanced (?:your|an?) (\\w+) level\\. You are now level (\\d+)\\.");
+    // Parsed CA completions waiting one tick so the points varbit has settled before we read them.
+    // A queue (not a single slot): one kill can complete several CA tasks in the same tick — the
+    // game prints a message per task and we must post every one, not just the last.
+    private final List<PendingCaTask> pendingCaTasks = new ArrayList<>();
+    // Task names already announced this session. Dedups recompletions (the in-game "repeat
+    // completion" message) by NAME — which also lets multiple completions in one tick all post,
+    // unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
+    private final Set<String> notifiedCaTasks = new LinkedHashSet<>();
+    // Last-known total CA points, baselined at login; used only for tier-clear detection now.
     private int lastCaPoints = -1;
     private boolean caPointsInitialized;
+
+    private static final class PendingCaTask {
+        final CombatAchievementTier tier;
+        final String task;
+        PendingCaTask(CombatAchievementTier tier, String task) {
+            this.tier = tier;
+            this.task = task;
+        }
+    }
+    // Last-known total level, baselined at login so we only announce genuine crossings (not the
+    // total we logged in with). Total only ever rises on a skill level-up, so we check it there.
+    private int lastTotalLevel = -1;
+    private boolean totalLevelInitialized;
+    // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
+    // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
+    // ~1750 so it kicks in for high accounts without spamming every 50 levels.
+    private static final int TOTAL_MILESTONE_FLOOR = 1750;
+    private static final int TOTAL_MILESTONE_STEP = 100;
 
     // Drop coalescing — batch rapid same-tile drops into one screenshot + one submission.
     // Without this, killing 1 NPC that drops a stack of 2000 would fire 2000 captures and
@@ -350,16 +392,28 @@ public class OsrsBingoPlugin extends Plugin {
     private long retryBackoffMs = 30_000; // Start at 30s
     private static final long MAX_RETRY_BACKOFF_MS = 300_000; // Cap at 5 minutes
 
-    // Admin/clan flow state
-    @Getter
-    private volatile String lastSyncSummary;
-    @Getter
-    private volatile long lastSyncAt;
+    // Hello/membership flow state
     @Getter
     private volatile Boolean knownMember; // null = unknown, true = in clanMembers
     @Getter
     private volatile boolean isGuest;
     private volatile boolean helloSent;
+
+    // Admin-only clan-roster sync. Authenticated by the player's per-user account token
+    // (config.playerToken()) + their site admin role — verified once per login via GET /api/plugin/me
+    // (apiClient.fetchIsAdmin). There is no admin-link-code mechanism. When isAdmin is true the
+    // in-game collection-log "Bingo" tab renders a "Sync clan roster" button (see ClogTabController).
+    @Getter
+    private volatile boolean isAdmin = false;
+    // One-shot guard so we only probe admin status once per login session.
+    private volatile boolean adminProbeAttempted = false;
+    // Last clan-sync result summary, surfaced in chat after a sync.
+    private volatile String lastSyncSummary;
+
+    /** Callback for the async clan-sync action invoked from the clog tab. */
+    public interface AdminActionCallback {
+        void onResult(boolean ok, String message);
+    }
 
     // Weekly auto-enroll state (backlog #4)
     @Getter
@@ -386,45 +440,11 @@ public class OsrsBingoPlugin extends Plugin {
             connectObs();
         }
 
-        // Side panel
-        panel = new OsrsBingoPanel(this);
-        BufferedImage icon;
-        try {
-            icon = ImageUtil.loadImageResource(getClass(), "panel_icon.png");
-        } catch (Exception e) {
-            // Fallback: generate a simple gold square icon
-            icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-            java.awt.Graphics2D g = icon.createGraphics();
-            g.setColor(new java.awt.Color(255, 215, 0));
-            g.fillRoundRect(1, 1, 14, 14, 4, 4);
-            g.setColor(new java.awt.Color(60, 50, 30));
-            g.drawRoundRect(1, 1, 14, 14, 4, 4);
-            g.dispose();
-        }
-        navButton = NavigationButton.builder()
-                .tooltip("Anvil")
-                .icon(icon)
-                .priority(10)
-                .panel(panel)
-                .build();
-        // Admin-only: only mounts the sidebar when admin-linked.
-        updateNavVisibility();
-
         configureApiClient();
 
         // Initial config fetch
         if (apiClient.isConfigured()) {
             executor.submit(this::refreshConfig);
-        }
-
-        // Restore last sync state from the server so the panel doesn't show "No sync yet"
-        // after a plugin restart / config wipe / re-link.
-        if (hasAdminToken()) {
-            executor.submit(this::restoreSyncStatus);
-            // Also try to auto-discover the player record so admins who are also enrolled
-            // get the player UI without pasting a per-event token. Wait briefly so the
-            // local player name is populated.
-            executor.schedule(() -> safely("autoDiscoverPlayer", this::autoDiscoverPlayer), 4, TimeUnit.SECONDS);
         }
 
         // Retry any pending submissions from a previous session
@@ -439,9 +459,6 @@ public class OsrsBingoPlugin extends Plugin {
             safely("refreshSchedule", this::refreshSchedule);
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
-            // Catch-up case: the admin enrolls themselves as a player after the plugin's
-            // already running. autoDiscoverPlayer is cheap (one HTTP call) and idempotent.
-            safely("autoDiscoverPlayer", this::autoDiscoverPlayer);
         }, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -455,32 +472,6 @@ public class OsrsBingoPlugin extends Plugin {
         } catch (Exception e) {
             log.warn("Scheduled task '{}' threw, continuing: {}", name, e.getMessage());
         }
-    }
-
-    /**
-     * If admin is linked but no playerToken is set yet, ask the server whether
-     * the linked user is enrolled as a player anywhere. If so, copy the
-     * discovered playerToken into the plugin config — the existing player UI /
-     * drop tracking / codeword flows then activate without any manual steps.
-     * Idempotent: skips if playerToken is already populated.
-     */
-    private void autoDiscoverPlayer() {
-        if (hasPlayerToken()) {
-            return;
-        }
-        String adminToken = config.adminPluginToken();
-        if (adminToken == null || adminToken.isEmpty()) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        BingoApiClient.PlayerInfo info = apiClient.fetchMyActivePlayer(adminToken, rsn);
-        if (info == null || info.playerToken == null || info.playerToken.isEmpty()) {
-            return;
-        }
-        configManager.setConfiguration("osrsbingo", "playerToken", info.playerToken);
-        sendChatMessage("Anvil: linked you to " + info.eventName
-                + (info.teamName != null ? " (" + info.teamName + ")" : "")
-                + " as " + info.playerName + ".");
     }
 
     private void pruneDedupMap() {
@@ -497,10 +488,6 @@ public class OsrsBingoPlugin extends Plugin {
         bannerSound.shutdown();
         keyManager.unregisterKeyListener(clipHotkeyListener);
         disconnectObs();
-        if (navAdded) {
-            clientToolbar.removeNavigation(navButton);
-            navAdded = false;
-        }
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
@@ -514,32 +501,12 @@ public class OsrsBingoPlugin extends Plugin {
         lastNpcDeathName = null;
     }
 
-    /**
-     * Mounts/unmounts the side panel so it's present iff the plugin is
-     * admin-linked. Idempotent and safe to call repeatedly (startUp +
-     * onConfigChanged) — navAdded guards against double add/remove. Regular
-     * members get no sidebar at all.
-     */
     private void showBingoToast(PluginConfigResponse.TrackedDrop drop, int current, int required) {
         clogBanner.show(drop.label, current, required);
         playBannerSound();
         if (current >= required) {
             // This drop completed the tile locally — suppress the duplicate team-completion banner.
             locallyShownTiles.add(drop.tileId);
-        }
-    }
-
-    private void updateNavVisibility() {
-        if (navButton == null) {
-            return;
-        }
-        boolean show = hasAdminToken();
-        if (show && !navAdded) {
-            clientToolbar.addNavigation(navButton);
-            navAdded = true;
-        } else if (!show && navAdded) {
-            clientToolbar.removeNavigation(navButton);
-            navAdded = false;
         }
     }
 
@@ -590,8 +557,8 @@ public class OsrsBingoPlugin extends Plugin {
     }
 
     @Provides
-    OsrsBingoConfig provideConfig(ConfigManager configManager) {
-        return configManager.getConfig(OsrsBingoConfig.class);
+    AnvilConfig provideConfig(ConfigManager configManager) {
+        return configManager.getConfig(AnvilConfig.class);
     }
 
     @Subscribe
@@ -600,8 +567,6 @@ public class OsrsBingoPlugin extends Plugin {
             return;
         }
         configureApiClient();
-        // Toggling "Use admin features" or changing the admin token flips sidebar visibility.
-        updateNavVisibility();
         scheduleRefresh();
 
         // (Re)establish or tear down the OBS clip connection when its settings change.
@@ -650,12 +615,18 @@ public class OsrsBingoPlugin extends Plugin {
                 caPointsInitialized = true;
             }
         }
-        if (pendingCaTier != null) {
-            CombatAchievementTier tier = pendingCaTier;
-            String task = pendingCaTask;
-            pendingCaTier = null;
-            pendingCaTask = null;
-            handleCombatAchievement(tier, task);
+        // Baseline total level once after login so high-total posts fire on real crossings only.
+        if (!totalLevelInitialized && client.getGameState() == GameState.LOGGED_IN) {
+            int t = client.getTotalLevel();
+            if (t > 0) {
+                lastTotalLevel = t;
+                totalLevelInitialized = true;
+            }
+        }
+        if (!pendingCaTasks.isEmpty()) {
+            List<PendingCaTask> batch = new ArrayList<>(pendingCaTasks);
+            pendingCaTasks.clear();
+            handleCombatAchievements(batch);
         }
     }
 
@@ -665,60 +636,28 @@ public class OsrsBingoPlugin extends Plugin {
             // Delay slightly so local player name is populated
             if (executor != null && !executor.isShutdown()) {
                 executor.schedule(() -> {
-                    // Stamp the API client with the current RSN so server-side resolution
-                    // can scope per-user tokens to the right clan_member.
+                    // Stamp the API client with the current RSN + account hash so server-side
+                    // resolution can scope per-user tokens to the right clan_member and
+                    // auto-verify the account on play.
                     apiClient.setCurrentRsn(getLocalPlayerName());
+                    apiClient.setAccountHash(client.getAccountHash());
                     // Refresh config for the character we just logged into so tracking reflects THIS
                     // account's enrollment right away — when one person plays several accounts, only
                     // the enrolled one should track drops (don't wait for the 30s refresh cycle).
                     safely("refreshConfig", this::refreshConfig);
                     sendHello();
+                    safely("probeAdmin", this::probeAdmin);
                 }, 3, TimeUnit.SECONDS);
-                // Auto-sync the clan roster on login if we're admin-linked AND the
-                // clan-tab data is reachable. Run after a longer delay so the client
-                // has populated client.getClanChannel() / ClanSettings. Idempotent:
-                // syncClanRoster early-returns if scrape isn't yet available, and the
-                // server-side stamp already records the post-sync state, so we won't
-                // double-fire if the user manually clicks Sync.
-                executor.schedule(() -> safely("autoSyncOnLogin", this::autoSyncOnLogin),
-                        12, TimeUnit.SECONDS);
             }
         } else if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
             weeklyEnrollAttempted = false;
-            // Clear the RSN so we don't keep stamping the previous account onto requests
-            // that fire before the next login completes.
+            adminProbeAttempted = false;
+            // Clear the RSN + account hash so we don't keep stamping the previous account
+            // onto requests that fire before the next login completes.
             apiClient.setCurrentRsn(null);
+            apiClient.setAccountHash(-1L);
         }
-    }
-
-    /**
-     * Triggered ~12 seconds after login. Only syncs if: - This plugin is
-     * admin-linked (we have a token) - The local clan channel + settings are
-     * loaded (otherwise the roster is empty) - We haven't synced in the last 30
-     * minutes (avoid spamming the server when an admin world-hops or relogs in
-     * quick succession)
-     */
-    private void autoSyncOnLogin() {
-        if (!hasAdminToken()) {
-            return;
-        }
-        if (!isClanScrapeAvailable()) {
-            return;
-        }
-        long sinceLast = System.currentTimeMillis() - lastSyncAt;
-        if (lastSyncAt > 0 && sinceLast < 30 * 60 * 1000L) {
-            log.debug("Skipping auto-sync — last sync was {} ms ago", sinceLast);
-            return;
-        }
-        log.info("Auto-syncing clan roster on login");
-        syncClanRoster((ok, msg) -> {
-            if (ok) {
-                log.info("Auto-sync result: {}", msg);
-            } else {
-                log.warn("Auto-sync failed: {}", msg);
-            }
-        });
     }
 
     private void sendHello() {
@@ -742,14 +681,24 @@ public class OsrsBingoPlugin extends Plugin {
         if (!resp.knownMember) {
             sendChatMessage("Tracked as a guest — a clan admin can promote you to member on the site.");
         }
-        if (panel != null) {
-            panel.update();
+
+        // Greet with whatever's running right now so members know to jump in.
+        if (resp.activeWeekly != null) {
+            for (BingoApiClient.WeeklyInfo w : resp.activeWeekly) {
+                String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "Boss of the Week";
+                sendChatMessage(kind + " is live: " + w.title + "!");
+            }
+        }
+        if (resp.activeBingos != null) {
+            for (BingoApiClient.BingoInfo b : resp.activeBingos) {
+                sendChatMessage("Bingo running: " + b.name + ".");
+            }
         }
 
         // Fire weekly auto-enroll on the same login (site treats enroll as a weaker hello, so order is cosmetic)
         tryAutoEnrollWeekly(rsn);
 
-        // Prime the schedule for the side panel
+        // Prime the schedule for the in-game collection-log tab
         refreshSchedule();
     }
 
@@ -757,25 +706,19 @@ public class OsrsBingoPlugin extends Plugin {
         BingoApiClient.ScheduleResponse s = apiClient.fetchSchedule();
         if (s != null) {
             schedule = s;
-            if (panel != null) {
-                panel.update();
-            }
         }
     }
 
     private void tryAutoEnrollWeekly(String rsn) {
         // The site auto-enrolls every active clan member into the running weekly competition,
         // so the plugin no longer enrolls. We still fetch the active comp once per session to
-        // surface it in the side panel.
+        // surface it in the in-game collection-log tab.
         if (weeklyEnrollAttempted) {
             return;
         }
         weeklyEnrollAttempted = true;
 
         activeWeekly = apiClient.fetchActiveWeekly();
-        if (panel != null) {
-            panel.update();
-        }
     }
 
     @Subscribe
@@ -953,6 +896,15 @@ public class OsrsBingoPlugin extends Plugin {
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
         // Dizana's quiver, …) that don't fire a loot event. Strip any colour tags first.
         String plain = msg.replaceAll("<[^>]*>", "");
+        // Track boss/raid kill counts so a rare-drop post can show the KC the drop landed on.
+        java.util.regex.Matcher kcMatcher = KILL_COUNT_PATTERN.matcher(plain);
+        if (kcMatcher.find()) {
+            try {
+                killCounts.put(kcMatcher.group(1).trim().toLowerCase(),
+                        Integer.parseInt(kcMatcher.group(2).replace(",", "")));
+            } catch (NumberFormatException ignored) {
+            }
+        }
         int idx = plain.indexOf(CLOG_UNLOCK_PREFIX);
         if (idx >= 0) {
             String item = plain.substring(idx + CLOG_UNLOCK_PREFIX.length()).trim();
@@ -968,9 +920,24 @@ public class OsrsBingoPlugin extends Plugin {
             if (m.find()) {
                 CombatAchievementTier tier = CombatAchievementTier.byName(m.group(1));
                 if (tier != null) {
-                    pendingCaTier = tier;
-                    pendingCaTask = CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim();
+                    String task = CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim();
+                    pendingCaTasks.add(new PendingCaTask(tier, task));
                 }
+            }
+        }
+        // Skill 99s — reported to the same clan achievements channel as combat achievements. The
+        // level-up message fires once when the level is reached, so no varbit/baseline dance needed.
+        if (config.notifyLevelUps()) {
+            java.util.regex.Matcher lvl = LEVEL_UP_PATTERN.matcher(plain);
+            if (lvl.find()) {
+                try {
+                    if (Integer.parseInt(lvl.group(2)) == 99) {
+                        handleLevelMilestone(lvl.group(1).trim());
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+                // Any level gain bumps total — check for a high-total milestone (or max) crossing.
+                handleTotalMilestone();
             }
         }
         // Pet drops — no LootReceived fires for these
@@ -979,9 +946,9 @@ public class OsrsBingoPlugin extends Plugin {
                 || msg.contains("You have a funny feeling like you would have been followed")) {
             // Notify the clan rare-drops channel (independent of bingo — fires even with no event).
             maybeNotifyPet();
-            // Bingo: chat-flag only — players must manually submit pets via the side panel.
+            // Bingo: chat-flag only — players must manually submit pets on the Anvil site.
             if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
-                sendChatMessage("Pet drop detected — submit manually from the Anvil side panel.");
+                sendChatMessage("Pet drop detected — submit manually on the Anvil site.");
             }
         }
         // Timed-clear tiles: pull a clear time out of completion/boss-kill messages.
@@ -992,7 +959,7 @@ public class OsrsBingoPlugin extends Plugin {
         if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
             return;
         }
-        if (!OsrsBingoOverlay.isEventActive(pluginConfig.event)) {
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
             return;
         }
         if (isBlackout()) {
@@ -1191,7 +1158,7 @@ public class OsrsBingoPlugin extends Plugin {
         if (!config.autoSubmit() || pluginConfig == null) {
             return;
         }
-        if (!OsrsBingoOverlay.isEventActive(pluginConfig.event)) {
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
             return;
         }
         List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(npcName.toLowerCase());
@@ -1324,9 +1291,6 @@ public class OsrsBingoPlugin extends Plugin {
                     if (rollback != null) {
                         rollback.run();
                     }
-                    if (panel != null) {
-                        panel.update();
-                    }
                 }
             });
         });
@@ -1347,7 +1311,7 @@ public class OsrsBingoPlugin extends Plugin {
                 || pluginConfig.trackedTimed.isEmpty()) {
             return;
         }
-        if (!OsrsBingoOverlay.isEventActive(pluginConfig.event)) {
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
             return;
         }
         final long now = System.currentTimeMillis();
@@ -1427,37 +1391,6 @@ public class OsrsBingoPlugin extends Plugin {
             any = true;
         }
         return any;
-    }
-
-    /**
-     * Public entry point for manual submissions from the side panel.
-     */
-    public void submitManually(PluginConfigResponse.TrackedDrop drop, int amount, Integer itemId) {
-        if (pluginConfig == null) {
-            sendChatMessage("Cannot submit: plugin not configured.");
-            return;
-        }
-        if (!OsrsBingoOverlay.isEventActive(pluginConfig.event)) {
-            sendChatMessage("Cannot submit: event is not active.");
-            return;
-        }
-
-        int snapshotCurrent = drop.currentAmount + amount;
-        int snapshotRequired = drop.requiredAmount;
-        drop.currentAmount = snapshotCurrent;
-
-        if (itemId != null && drop.itemRequirements != null) {
-            for (PluginConfigResponse.ItemRequirement r : drop.itemRequirements) {
-                if (r.itemId == itemId) {
-                    r.currentAmount += amount;
-                    break;
-                }
-            }
-        }
-
-        showBingoToast(drop, snapshotCurrent, snapshotRequired);
-        sendChatMessage("Manual submission: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
-        captureAndSubmit(drop, amount, snapshotCurrent, snapshotRequired, itemId);
     }
 
     /**
@@ -1624,9 +1557,6 @@ public class OsrsBingoPlugin extends Plugin {
                     log.error("Failed to capture screenshot for '{}': {}", drop.label, e.getMessage());
                     sendChatMessage("Screenshot failed for " + drop.label + ": " + e.getMessage());
                     drop.currentAmount = Math.max(0, drop.currentAmount - amount);
-                    if (panel != null) {
-                        panel.update();
-                    }
                 }
             });
         });
@@ -1725,11 +1655,6 @@ public class OsrsBingoPlugin extends Plugin {
             retryBackoffMs = 30_000;
         }
 
-        // Update panel to reflect pending count changes
-        if (panel != null) {
-            panel.update();
-        }
-
         // Refresh config to get updated counts from server
         refreshConfig();
     }
@@ -1748,26 +1673,9 @@ public class OsrsBingoPlugin extends Plugin {
         pendingRefresh = executor.schedule(this::refreshConfig, REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
     }
 
-    /**
-     * Public method for the panel's Refresh button.
-     */
-    public void triggerRefresh() {
-        if (executor != null && !executor.isShutdown()) {
-            executor.submit(() -> {
-                refreshConfig();
-                refreshSchedule();
-            });
-        }
-    }
-
     /* -------------------------------------------------------------- */
- /* Admin link flow — backlog items 1 & 2                          */
- /* -------------------------------------------------------------- */
-    public interface AdminActionCallback {
-
-        void onResult(boolean success, String message);
-    }
-
+    /* Player/account helpers                                          */
+    /* -------------------------------------------------------------- */
     public String getLocalPlayerName() {
         if (client == null || client.getLocalPlayer() == null) {
             return null;
@@ -1775,106 +1683,37 @@ public class OsrsBingoPlugin extends Plugin {
         return client.getLocalPlayer().getName();
     }
 
-    public boolean hasAdminToken() {
-        if (!config.adminModeEnabled()) {
-            return false;
-        }
-        String t = config.adminPluginToken();
-        return t != null && !t.isEmpty();
+    private void configureApiClient() {
+        apiClient.configure(config.apiUrl(), config.playerToken());
     }
 
-    public boolean hasPlayerToken() {
-        String t = config.playerToken();
-        return t != null && !t.isEmpty();
-    }
-
-    public String getAdminLinkCode() {
-        return config.adminLinkCode();
-    }
-
-    public String getConfiguredApiUrl() {
-        return config.apiUrl();
-    }
-
-    public void linkAdmin(AdminActionCallback cb) {
-        if (executor == null || executor.isShutdown()) {
-            cb.onResult(false, "Plugin not running");
-            return;
-        }
-        String code = config.adminLinkCode() == null ? "" : config.adminLinkCode().trim();
-        if (code.length() != 6) {
-            cb.onResult(false, "Enter the 6-character link code from the site first.");
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        if (rsn == null || rsn.isEmpty()) {
-            cb.onResult(false, "Log in to OSRS first so the plugin can send your RSN.");
-            return;
-        }
-        executor.submit(()
-                -> {
-            try {
-                BingoApiClient.LinkResponse resp = apiClient.linkAdmin(code, rsn);
-                configManager.setConfiguration("osrsbingo", "adminPluginToken", resp.token);
-                // The admin token isn't RSN-bound — it works from any character on the account — so
-                // we don't store a linked RSN; the panel shows whichever character you're logged in as.
-                // Clear the one-time code from config so it doesn't linger
-                configManager.setConfiguration("osrsbingo", "adminLinkCode", "");
-                sendChatMessage("Admin link established as " + resp.rsn + ".");
-                cb.onResult(true, "Linked as " + resp.rsn);
-                if (panel != null) {
-                    panel.update();
-                }
-            } catch (IOException e) {
-                log.warn("Admin link failed: {}", e.getMessage());
-                cb.onResult(false, "Link failed: " + e.getMessage());
-            }
-        });
-    }
+    // ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
+    // Authenticated solely by the player's per-user account token (config.playerToken()) plus
+    // their site admin role. No admin-link-code mechanism exists anymore.
 
     /**
-     * Pulls the latest sync state from the server and populates
-     * lastSyncAt/lastSyncSummary so the side panel shows accurate "Last sync"
-     * info after restart. Best-effort: silent on network failure (status stays
-     * as "No sync yet" if there really hasn't been one).
+     * Once per login, ask the site whether this account token belongs to an admin
+     * (GET /api/plugin/me). On success, flip the isAdmin flag so the in-game collection-log
+     * "Bingo" tab renders its admin-only "Sync clan roster" button; otherwise it stays hidden.
+     * Guarded so it only probes when both the player token and site URL are set, and only once
+     * per login session.
      */
-    private void restoreSyncStatus() {
-        String adminToken = config.adminPluginToken();
-        if (adminToken == null || adminToken.isEmpty()) {
+    private void probeAdmin() {
+        if (adminProbeAttempted) {
             return;
         }
-        BingoApiClient.SyncStatus status = apiClient.fetchSyncStatus(adminToken);
-        if (status == null || status.lastSyncAt == null) {
+        String token = config.playerToken();
+        String url = config.apiUrl();
+        if (token == null || token.isEmpty() || url == null || url.isEmpty()) {
             return;
         }
-        try {
-            lastSyncAt = java.time.Instant.parse(status.lastSyncAt).toEpochMilli();
-        } catch (Exception ignored) {
-            return;
-        }
-        if (status.summary != null) {
-            lastSyncSummary = "+" + status.summary.added + " added · "
-                    + status.summary.markedLeft + " left"
-                    + (status.summary.renamed > 0 ? " · " + status.summary.renamed + " renamed" : "")
-                    + (status.summary.returned > 0 ? " · " + status.summary.returned + " returned" : "");
-        }
-        if (panel != null) {
-            javax.swing.SwingUtilities.invokeLater(() -> panel.update());
-        }
+        adminProbeAttempted = true;
+        isAdmin = apiClient.fetchIsAdmin(token);
+        // If the clog tab is open right now, re-render so the admin button appears/disappears.
+        clogTabController.onConfigRefreshed();
     }
 
-    public void unlinkAdmin() {
-        configManager.setConfiguration("osrsbingo", "adminPluginToken", "");
-        lastSyncSummary = null;
-        lastSyncAt = 0;
-        if (panel != null) {
-            panel.update();
-        }
-    }
-
-    /**
-     * Whether the local player is currently in a clan channel we can scrape.
-     */
+    /** Whether the local player is currently in a clan channel we can scrape. */
     public boolean isClanScrapeAvailable() {
         if (client == null) {
             return false;
@@ -1892,19 +1731,23 @@ public class OsrsBingoPlugin extends Plugin {
         return settings == null ? null : settings.getName();
     }
 
+    /**
+     * Scrape the in-game clan roster (on the client thread) then POST it to the site
+     * (off the client thread), authenticated with the player's account token.
+     */
     public void syncClanRoster(AdminActionCallback cb) {
         if (executor == null || executor.isShutdown()) {
             cb.onResult(false, "Plugin not running");
             return;
         }
-        if (!hasAdminToken()) {
-            cb.onResult(false, "Link as an admin first.");
+        String token = config.playerToken();
+        if (token == null || token.isEmpty()) {
+            cb.onResult(false, "Set your account token in plugin config first.");
             return;
         }
 
         // Read clan data on the client thread, then POST on the executor thread.
-        clientThread.invokeLater(()
-                -> {
+        clientThread.invokeLater(() -> {
             if (!isClanScrapeAvailable()) {
                 cb.onResult(false, "Open the clan tab in OSRS first so the roster is loaded.");
                 return;
@@ -1912,7 +1755,7 @@ public class OsrsBingoPlugin extends Plugin {
             ClanSettings settings = client.getClanSettings();
             String clanName = settings.getName();
             List<BingoApiClient.ClanMember> members = new ArrayList<>();
-            for (ClanMember m : settings.getMembers()) {
+            for (net.runelite.api.clan.ClanMember m : settings.getMembers()) {
                 BingoApiClient.ClanMember out = new BingoApiClient.ClanMember();
                 out.rsn = m.getName();
                 ClanRank rank = m.getRank();
@@ -1927,16 +1770,12 @@ public class OsrsBingoPlugin extends Plugin {
                 members.add(out);
             }
 
-            executor.submit(()
-                    -> {
+            executor.submit(() -> {
                 try {
-                    BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.adminPluginToken(), clanName, members);
+                    BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
                     lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
-                    lastSyncAt = System.currentTimeMillis();
-                    // High-level recap line.
                     sendChatMessage("Clan roster synced: " + lastSyncSummary);
-                    // Per-member changes — one chat line each, capped so a busy sync doesn't
-                    // flood the chatbox. Anything beyond the cap is summarized.
+                    // Per-member changes — one chat line each, capped so a busy sync doesn't flood chat.
                     if (r.changes != null && !r.changes.isEmpty()) {
                         int cap = 12;
                         int shown = 0;
@@ -1973,25 +1812,23 @@ public class OsrsBingoPlugin extends Plugin {
                         }
                     }
                     cb.onResult(true, lastSyncSummary);
-                    if (panel != null) {
-                        panel.update();
-                    }
                 } catch (BingoApiClient.AdminUnauthorizedException e) {
-                    unlinkAdmin();
-                    cb.onResult(false, "Admin link revoked by the site — please re-link.");
+                    // Token isn't (or is no longer) an admin — hide the button until the next login probe.
+                    isAdmin = false;
+                    clogTabController.onConfigRefreshed();
+                    sendChatMessage("Clan sync failed: your account token isn't an admin (or was revoked).");
+                    cb.onResult(false, "Your account token isn't an admin (or was revoked).");
                 } catch (BingoApiClient.ClanMismatchException e) {
                     String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
+                    sendChatMessage("Clan sync failed: clan name doesn't match site config (" + server + ").");
                     cb.onResult(false, "Clan name doesn't match site config (" + server + ").");
                 } catch (IOException e) {
                     log.warn("Clan sync failed: {}", e.getMessage());
+                    sendChatMessage("Clan sync failed: " + e.getMessage());
                     cb.onResult(false, "Sync failed: " + e.getMessage());
                 }
             });
         });
-    }
-
-    private void configureApiClient() {
-        apiClient.configure(config.apiUrl(), config.playerToken());
     }
 
     // Team-level tile completions (drops, stats, manual — any tile type, completed by any member).
@@ -2057,36 +1894,24 @@ public class OsrsBingoPlugin extends Plugin {
                 }
             }
             // Token validated but the caller has no active event right now (server
-            // returns event: null + noActiveEvent: true). Clear local state so the
-            // side panel shows the schedule/overview rather than a stale event.
+            // returns event: null + noActiveEvent: true). Clear local state so tracking
+            // reflects no active event rather than a stale one.
             if (fresh != null && fresh.event == null) {
                 pluginConfig = fresh;
-                lastRefreshFailed = false;
                 rebuildItemDropIndex();
                 log.info("Anvil: token valid, no active event for this user.");
-                if (panel != null) {
-                    panel.update();
-                }
                 return;
             }
-            // If the linked event has ended, drop it so the side panel falls back to
-            // the overview (admin section + schedule list) instead of a stuck "you're
-            // in BingoTest" view. Clearing the per-event playerToken triggers
-            // autoDiscoverPlayer on the next tick to pick up whatever's currently active.
+            // If the linked event has ended, drop it so tracking stops for the stale event.
             if (fresh != null && fresh.event != null && eventIsOver(fresh.event)) {
                 log.info("Anvil event '{}' has ended — clearing local player binding.",
                         fresh.event.name);
                 pluginConfig = null;
                 rebuildItemDropIndex();
-                lastRefreshFailed = false;
                 configManager.setConfiguration("osrsbingo", "playerToken", "");
-                if (panel != null) {
-                    panel.update();
-                }
                 return;
             }
             pluginConfig = fresh;
-            lastRefreshFailed = false;
             rebuildItemDropIndex();
             log.info("Anvil config refreshed: event='{}', team='{}', {} tracked drops",
                     pluginConfig.event.name,
@@ -2096,15 +1921,8 @@ public class OsrsBingoPlugin extends Plugin {
             checkTileCompletions(pluginConfig);
             clogTabController.onConfigRefreshed();
 
-            if (panel != null) {
-                panel.update();
-            }
         } catch (IOException e) {
-            lastRefreshFailed = true;
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
-            if (panel != null) {
-                panel.update();
-            }
         }
     }
 
@@ -2435,7 +2253,7 @@ public class OsrsBingoPlugin extends Plugin {
         desc += "\n" + randomSpoonLine();
         // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
         com.google.gson.JsonObject embed = buildDropEmbed(
-                "💎 Notable drop!", desc, name, qty, value, null, shotName);
+                "💎 Notable drop!", desc, name, qty, value, null, killCountFor(source), shotName);
 
         if (config.rareDropScreenshot()) {
             captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
@@ -2470,7 +2288,7 @@ public class OsrsBingoPlugin extends Plugin {
         desc += "\n" + randomSpoonLine();
         // No item id here (the message gives only a name), so value is unknown — omit it.
         com.google.gson.JsonObject embed = buildDropEmbed(
-                "💎 Notable drop!", desc, itemName, 1, 0, null, shotName);
+                "💎 Notable drop!", desc, itemName, 1, 0, null, null, shotName);
 
         if (config.rareDropScreenshot()) {
             captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
@@ -2530,6 +2348,18 @@ public class OsrsBingoPlugin extends Plugin {
         return "Item " + itemId;
     }
 
+    /**
+     * Most recent kill/clear count parsed for a loot source, or null if unknown
+     * or the server has switched the KC display off.
+     */
+    private Integer killCountFor(String source) {
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg != null && !cfg.showKillCount) {
+            return null;
+        }
+        return source == null ? null : killCounts.get(source.toLowerCase());
+    }
+
     private void postRareDrop(String source, int itemId, int qty, long value, Double dropRate) {
         String name = itemName(itemId);
         String rsn = getLocalPlayerName();
@@ -2540,7 +2370,7 @@ public class OsrsBingoPlugin extends Plugin {
             desc += "\n" + randomSpoonLine();
         }
         com.google.gson.JsonObject embed = buildDropEmbed(
-                "💰 Rare drop!", desc, name, qty, value, dropRate, shotName);
+                "💰 Rare drop!", desc, name, qty, value, dropRate, killCountFor(source), shotName);
 
         if (config.rareDropScreenshot()) {
             captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
@@ -2584,6 +2414,10 @@ public class OsrsBingoPlugin extends Plugin {
         fields.add(embedField("Top item", topLabel, false));
         fields.add(embedField("Total value", String.format("%,d gp", total), true));
         fields.add(embedField("Items", String.valueOf(items.size()), true));
+        Integer kc = killCountFor(source);
+        if (kc != null && kc > 0) {
+            fields.add(embedField("KC", String.format("%,d", kc), true));
+        }
         embed.add("fields", fields);
 
         // Link the standout item to its wiki page, matching single-item posts.
@@ -2651,23 +2485,17 @@ public class OsrsBingoPlugin extends Plugin {
      * clears the configured min tier, and a separate tier-clear post when this
      * task pushed total points across a tier threshold.
      */
-    private void handleCombatAchievement(CombatAchievementTier tier, String task) {
+    private void handleCombatAchievements(List<PendingCaTask> batch) {
         if (!notifyEnabled("combatAchievements")) {
             return;
         }
 
         int total = client.getVarbitValue(VarbitID.CA_POINTS);
-        // Points before this completion. When initialised we use the tracked value (exact); the
-        // fallback assumes a first completion so we still post if we never got a baseline.
-        int before = caPointsInitialized ? lastCaPoints : total - tier.getPoints();
+        // Points before this batch — only used to detect a tier-threshold crossing. With no baseline
+        // yet, fall back to the current total so we never post a phantom tier clear.
+        int before = caPointsInitialized ? lastCaPoints : total;
 
-        // Recompletion: a first clear always raises points by the tier's value, so unchanged points
-        // mean we've already notified this task — skip the duplicate.
-        if (caPointsInitialized && total <= before) {
-            return;
-        }
-
-        // Tier clear: did this completion push the cumulative total across a tier threshold?
+        // Tier clear: did the cumulative total cross any tier threshold across this batch?
         CombatAchievementTier cleared = null;
         for (CombatAchievementTier t : CombatAchievementTier.values()) {
             int threshold = client.getVarbitValue(t.getThresholdVarbitId());
@@ -2679,8 +2507,17 @@ public class OsrsBingoPlugin extends Plugin {
             postCaTierClear(cleared);
         }
 
-        if (tier.ordinal() >= config.caMinTaskTier().ordinal()) {
-            postCombatTask(tier, task);
+        // Individual tasks: post each FIRST-seen task at/above the configured floor. Dedup by task
+        // NAME (not points delta) so every completion in a multi-task tick posts, while recompletions
+        // (the in-game "repeat completion" message) are skipped.
+        for (PendingCaTask pending : batch) {
+            String key = pending.task == null ? "" : pending.task.toLowerCase();
+            if (key.isEmpty() || !notifiedCaTasks.add(key)) {
+                continue; // unparseable, or already announced this session
+            }
+            if (pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
+                postCombatTask(pending.tier, pending.task);
+            }
         }
 
         lastCaPoints = total;
@@ -2712,8 +2549,83 @@ public class OsrsBingoPlugin extends Plugin {
         apiClient.postNotification("combatAchievements", null, embed, null, null);
     }
 
+    /**
+     * A skill hit level 99. Posts to the clan achievements channel (shared with combat
+     * achievements), gated on that channel having a webhook configured server-side.
+     */
+    private void handleLevelMilestone(String skill) {
+        if (!notifyEnabled("combatAchievements")) {
+            return;
+        }
+        String rsn = getLocalPlayerName();
+        com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        embed.addProperty("title", "🎉 Level 99!");
+        embed.addProperty("description",
+                (rsn != null ? rsn : "A clan member") + " just reached **level 99 " + skill + "**!");
+        embed.addProperty("color", CA_EMBED_COLOR);
+        // Message-only — no screenshot, matching combat-achievement posts.
+        apiClient.postNotification("combatAchievements", null, embed, null, null);
+    }
+
+    /**
+     * Called on every skill level-up. Announces a high-total milestone (every {@code STEP} at or
+     * above {@code FLOOR}) or maxing, posting to the clan achievements channel. Uses the baselined
+     * total so we only fire on genuine crossings, and skips the round-100 post when this gain maxed.
+     */
+    private void handleTotalMilestone() {
+        if (!notifyEnabled("combatAchievements")) {
+            return;
+        }
+        int total = client.getTotalLevel();
+        if (!totalLevelInitialized) {
+            // Login baseline missed (e.g. levelled before the first tick settled) — seed and skip.
+            lastTotalLevel = total;
+            totalLevelInitialized = true;
+            return;
+        }
+        if (total <= lastTotalLevel) {
+            return;
+        }
+        int prev = lastTotalLevel;
+        lastTotalLevel = total;
+
+        int max = maxTotalLevel();
+        if (prev < max && max <= total) {
+            postTotalMilestone(total, true);
+            return; // maxing is the headline — don't also post the round-100 it passed
+        }
+        // Highest round-STEP value this gain reached, at/above the floor.
+        int milestone = (total / TOTAL_MILESTONE_STEP) * TOTAL_MILESTONE_STEP;
+        if (milestone >= TOTAL_MILESTONE_FLOOR && prev < milestone) {
+            postTotalMilestone(milestone, false);
+        }
+    }
+
+    /** Maximum possible total level, summed from the live Skill enum (adapts as skills are added). */
+    private int maxTotalLevel() {
+        int max = 0;
+        for (Skill s : Skill.values()) {
+            if (s != Skill.OVERALL) {
+                max += 99;
+            }
+        }
+        return max;
+    }
+
+    private void postTotalMilestone(int total, boolean maxed) {
+        String rsn = getLocalPlayerName();
+        String who = rsn != null ? rsn : "A clan member";
+        com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        embed.addProperty("title", maxed ? "🏆 Maxed!" : "📈 Total level milestone!");
+        embed.addProperty("description", maxed
+                ? who + " just **maxed** with a total level of **" + total + "**!"
+                : who + " just reached **" + total + " total level**!");
+        embed.addProperty("color", CA_EMBED_COLOR);
+        apiClient.postNotification("combatAchievements", null, embed, null, null);
+    }
+
     private com.google.gson.JsonObject buildDropEmbed(String title, String description,
-            String itemName, int qty, long value, Double dropRate, String shotName) {
+            String itemName, int qty, long value, Double dropRate, Integer killCount, String shotName) {
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
         embed.addProperty("title", title);
         embed.addProperty("description", description);
@@ -2727,6 +2639,9 @@ public class OsrsBingoPlugin extends Plugin {
         if (dropRate != null && dropRate > 0) {
             long oneIn = Math.round(1.0 / dropRate);
             fields.add(embedField("Drop rate", "1/" + String.format("%,d", oneIn), true));
+        }
+        if (killCount != null && killCount > 0) {
+            fields.add(embedField("KC", String.format("%,d", killCount), true));
         }
         embed.add("fields", fields);
 
