@@ -706,6 +706,12 @@ public class ClogTabController
 			return "tap to view";
 		}
 
+		// Board loaded, but the host is still hiding its tiles — don't render a bogus 0/0 tally.
+		if (tilesHidden(b))
+		{
+			return "tiles not revealed yet";
+		}
+
 		int done = 0;
 		for (BingoApiClient.BoardTile t : b.tiles)
 		{
@@ -716,6 +722,44 @@ public class ClogTabController
 		}
 		boolean race = "tilerace".equalsIgnoreCase(format);
 		return done + "/" + b.tiles.size() + (race ? " reached" : " done");
+	}
+
+	/** True when the board loaded fine but the host is keeping its tiles hidden from members. */
+	private static boolean tilesHidden(BingoApiClient.BoardResponse board)
+	{
+		return board != null && !board.tilesRevealed;
+	}
+
+	/**
+	 * Header caption for a GRID/RACE/POINTS view that has no tiles to draw. Distinguishes the three
+	 * reasons a board is empty: tiles deliberately hidden until the host reveals them (not an error),
+	 * still loading, or a genuine fetch failure.
+	 */
+	private String emptyBoardHeader(BingoApiClient.BoardResponse board, boolean race)
+	{
+		if (tilesHidden(board))
+		{
+			return "<col=ffcc33>Tiles not revealed yet</col>";
+		}
+		if (loadingBoard)
+		{
+			return race ? "Loading race..." : "Loading board...";
+		}
+		return race ? "Race unavailable" : "Board unavailable";
+	}
+
+	/** Body notice matching {@link #emptyBoardHeader} — a friendlier line for the empty pane. */
+	private String emptyBoardBody(BingoApiClient.BoardResponse board, boolean race)
+	{
+		if (tilesHidden(board))
+		{
+			return "<col=ffcc33>The host hasn't revealed the tiles yet.</col>";
+		}
+		if (loadingBoard)
+		{
+			return race ? "Loading race..." : "Loading board...";
+		}
+		return race ? "Couldn't load the race." : "Couldn't load the board.";
 	}
 
 	/** Format of the player's own active event ("bingo" | "tilerace"); defaults to "bingo". */
@@ -1962,7 +2006,7 @@ public class ClogTabController
 			}
 			else
 			{
-				bannerLine(header, loadingBoard ? "Loading board..." : "Board unavailable", 0xaaaaaa, BANNER_LINE_H);
+				bannerLine(header, emptyBoardHeader(board, false), 0xaaaaaa, BANNER_LINE_H);
 			}
 			header.revalidate();
 		}
@@ -1978,7 +2022,7 @@ public class ClogTabController
 		if (board == null || board.tiles == null || board.tiles.isEmpty())
 		{
 			Widget m = items.createChild(-1, WidgetType.TEXT);
-			m.setText(loadingBoard ? "Loading board..." : "Couldn't load the board.");
+			m.setText(emptyBoardBody(board, false));
 			m.setTextColor(0xaaaaaa);
 			m.setFontId(FONT_PLAIN);
 			place(m, 4, BODY_TOP, paneWidth - 8, 16);
@@ -2066,7 +2110,7 @@ public class ClogTabController
 			}
 			else
 			{
-				bannerLine(header, loadingBoard ? "Loading board..." : "Board unavailable", 0xaaaaaa, BANNER_LINE_H);
+				bannerLine(header, emptyBoardHeader(board, false), 0xaaaaaa, BANNER_LINE_H);
 			}
 			header.revalidate();
 		}
@@ -2082,7 +2126,7 @@ public class ClogTabController
 				items.deleteAllChildren();
 				int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
 				Widget m = items.createChild(-1, WidgetType.TEXT);
-				m.setText(loadingBoard ? "Loading board..." : "Couldn't load the board.");
+				m.setText(emptyBoardBody(board, false));
 				m.setTextColor(0xaaaaaa);
 				m.setFontId(FONT_PLAIN);
 				place(m, 4, BODY_TOP, paneWidth - 8, 16);
@@ -2471,7 +2515,7 @@ public class ClogTabController
 			}
 			else
 			{
-				bannerLine(header, loadingBoard ? "Loading race..." : "Race unavailable", 0xaaaaaa, BANNER_LINE_H);
+				bannerLine(header, emptyBoardHeader(board, true), 0xaaaaaa, BANNER_LINE_H);
 			}
 			header.revalidate();
 		}
@@ -2488,7 +2532,7 @@ public class ClogTabController
 		if (board == null || board.tiles == null || board.tiles.isEmpty())
 		{
 			Widget m = items.createChild(-1, WidgetType.TEXT);
-			m.setText(loadingBoard ? "Loading race..." : "Couldn't load the race.");
+			m.setText(emptyBoardBody(board, true));
 			m.setTextColor(0xaaaaaa);
 			m.setFontId(FONT_PLAIN);
 			place(m, 4, y, paneWidth - 8, 16);

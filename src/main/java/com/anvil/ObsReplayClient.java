@@ -39,6 +39,8 @@ public class ObsReplayClient extends WebSocketListener
 	private final Consumer<String> onError;
 	private final java.util.function.IntSupplier clipSeconds;
 	private final java.util.function.Supplier<String> clipFormat; // OBS RecFormat value, or null to leave as-is
+	// When true, also act on ReplayBufferSaved events we didn't trigger (OBS's own hotkey/triggers).
+	private final java.util.function.BooleanSupplier postExternalSaves;
 
 	private WebSocket webSocket;
 	private volatile boolean connected;
@@ -49,7 +51,8 @@ public class ObsReplayClient extends WebSocketListener
 
 	public ObsReplayClient(OkHttpClient http, Gson gson, String host, int port, String password,
 		Consumer<String> onClipSaved, Runnable onConnected, Consumer<String> onError,
-		java.util.function.IntSupplier clipSeconds, java.util.function.Supplier<String> clipFormat)
+		java.util.function.IntSupplier clipSeconds, java.util.function.Supplier<String> clipFormat,
+		java.util.function.BooleanSupplier postExternalSaves)
 	{
 		this.http = http;
 		this.gson = gson;
@@ -60,6 +63,7 @@ public class ObsReplayClient extends WebSocketListener
 		this.onError = onError;
 		this.clipSeconds = clipSeconds;
 		this.clipFormat = clipFormat;
+		this.postExternalSaves = postExternalSaves;
 	}
 
 	public void connect()
@@ -226,15 +230,19 @@ public class ObsReplayClient extends WebSocketListener
 			case 5: // Event
 				if (d != null && "ReplayBufferSaved".equals(optString(d, "eventType")))
 				{
-					// OBS broadcasts this to ALL connected clients. Only act on it if WE asked for the
-					// save; otherwise another client (e.g. a second RuneLite on the same OBS) triggered
-					// it and uploading here would double-post the clip.
-					if (!awaitingSave)
+					// OBS broadcasts this to ALL connected clients. By default only act on a save WE asked
+					// for; otherwise another client (e.g. a second RuneLite on the same OBS) triggering it
+					// would double-post. When the player opts in to OBS-triggered clips (they rely on OBS or
+					// the "Save Replay Buffer for OBS" plugin to auto-save), also act on saves we didn't
+					// trigger. self=true means it was our own SaveReplayBuffer.
+					boolean self = awaitingSave;
+					awaitingSave = false;
+					boolean postExternal = postExternalSaves != null && postExternalSaves.getAsBoolean();
+					if (!self && !postExternal)
 					{
 						log.debug("Anvil OBS: ignoring ReplayBufferSaved we didn't trigger");
 						break;
 					}
-					awaitingSave = false;
 					JsonObject ed = d.has("eventData") && d.get("eventData").isJsonObject() ? d.getAsJsonObject("eventData") : null;
 					String path = ed == null ? null : optString(ed, "savedReplayPath");
 					log.info("Anvil OBS: ReplayBufferSaved → {}", path);

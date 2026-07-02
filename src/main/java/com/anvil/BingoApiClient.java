@@ -236,6 +236,9 @@ public class BingoApiClient
 		public String scoringMode; // "tiles" | "points"
 		public int boardSize;      // N for an N×N grid
 		public int yourTeamId;     // the calling player's team (-1 in a read-only preview)
+		// false = the host hasn't revealed the tiles yet, so `tiles` is intentionally empty (NOT a
+		// fetch failure). Defaults true so older servers that omit the flag keep the old behaviour.
+		public boolean tilesRevealed = true;
 		public java.util.List<BoardTile> tiles;
 		public java.util.List<BoardTeam> teams;
 		public java.util.List<PluginConfigResponse.TierBand> tiers; // difficulty bands for the Tier filter

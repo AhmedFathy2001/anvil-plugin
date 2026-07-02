@@ -457,4 +457,19 @@ public interface AnvilConfig extends Config
 		return "";
 	}
 
+	@ConfigItem(
+		keyName = "postObsTriggeredClips",
+		name = "Post OBS-triggered clips too",
+		description = "Also handle replay-buffer saves triggered by OBS itself or the \"Save Replay Buffer for OBS\" "
+			+ "RuneLite plugin (its auto-clips on drops, deaths, etc.) — not just the hotkey above. They'll be "
+			+ "posted/saved the same way. Leave off if you run more than one RuneLite client on this same OBS, or "
+			+ "each would post a copy of every clip.",
+		position = 10,
+		section = "clipsSection"
+	)
+	default boolean postObsTriggeredClips()
+	{
+		return false;
+	}
+
 }

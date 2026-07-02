@@ -261,6 +261,11 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Integer> killCounts = new HashMap<>();
     private static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
             "Your (?:completed )?(.+?) (?:kill )?count is: ([\\d,]+)");
+    // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
+    // handler can tell whether the very first KC message of the session is for a kill the loot path
+    // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
+    private final Map<String, Long> lastLootKillAt = new HashMap<>();
+    private static final long KILL_DEDUP_MS = 6000;
 
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
@@ -290,8 +295,10 @@ public class AnvilPlugin extends Plugin {
     private boolean caPointsInitialized;
 
     private static final class PendingCaTask {
+
         final CombatAchievementTier tier;
         final String task;
+
         PendingCaTask(CombatAchievementTier tier, String task) {
             this.tier = tier;
             this.task = task;
@@ -410,8 +417,11 @@ public class AnvilPlugin extends Plugin {
     // Last clan-sync result summary, surfaced in chat after a sync.
     private volatile String lastSyncSummary;
 
-    /** Callback for the async clan-sync action invoked from the clog tab. */
+    /**
+     * Callback for the async clan-sync action invoked from the clog tab.
+     */
     public interface AdminActionCallback {
+
         void onResult(boolean ok, String message);
     }
 
@@ -897,11 +907,17 @@ public class AnvilPlugin extends Plugin {
         // Dizana's quiver, …) that don't fire a loot event. Strip any colour tags first.
         String plain = msg.replaceAll("<[^>]*>", "");
         // Track boss/raid kill counts so a rare-drop post can show the KC the drop landed on.
+        // The Jagex kill-count line is also the reliable kill signal for bosses whose loot comes
+        // from corpse interaction rather than a normal on-death drop (Maggot King, Araxxor, …),
+        // where NpcLootReceived may never fire — so it drives kill-count tiles for those bosses.
         java.util.regex.Matcher kcMatcher = KILL_COUNT_PATTERN.matcher(plain);
         if (kcMatcher.find()) {
             try {
-                killCounts.put(kcMatcher.group(1).trim().toLowerCase(),
-                        Integer.parseInt(kcMatcher.group(2).replace(",", "")));
+                String kcName = kcMatcher.group(1).trim();
+                String kcKey = kcName.toLowerCase();
+                boolean firstSeen = !killCounts.containsKey(kcKey);
+                killCounts.put(kcKey, Integer.parseInt(kcMatcher.group(2).replace(",", "")));
+                creditBossKillFromChat(kcName, firstSeen);
             } catch (NumberFormatException ignored) {
             }
         }
@@ -912,6 +928,10 @@ public class AnvilPlugin extends Plugin {
                 item = item.substring(0, item.length() - 1).trim();
             }
             maybeNotifyCollectionUnlock(item);
+            // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
+            // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
+            // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
+            creditClogUnlock(item);
         }
         // Combat achievement task completion. The points varbit hasn't settled yet, so we stash the
         // parse and finish on the next game tick (where we read CA points to detect a tier clear).
@@ -953,6 +973,52 @@ public class AnvilPlugin extends Plugin {
         }
         // Timed-clear tiles: pull a clear time out of completion/boss-kill messages.
         handleTimedChat(plain);
+    }
+
+    /**
+     * Credits drop/collection tiles from a "New item added to your collection
+     * log: X" chat line. The reliable signal for clog items that never fire a
+     * loot event: shop-bought minigame rewards (Barbarian Assault Fighter
+     * torso/hats/armour), gamble-only pets (Penance Queen), etc.
+     *
+     * The clog line names the item, so we resolve tracked item IDs → names via
+     * ItemManager and synthesise a single-item loot event through
+     * {@link #processLoot}. That reuses the whole drop pipeline
+     * (source/requirement filters, coalesce, screenshot + submit) AND its
+     * per-(tile,item) dedup — so an item that IS a real drop (fires a loot
+     * event AND a clog line the same tick) is still counted exactly once. Runs
+     * on the client thread (onChatMessage), where ItemManager is safe.
+     *
+     * Caveat: the clog line fires once per account, ever — a member who already
+     * owns the item won't re-trigger it. Surfaced to admins in the tile UI.
+     */
+    private void creditClogUnlock(String itemName) {
+        if (itemName == null || itemName.isEmpty()) {
+            return;
+        }
+        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        List<ItemStack> synthetic = null;
+        for (Integer id : itemDropIndex.keySet()) {
+            ItemComposition comp = itemManager.getItemComposition(id);
+            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
+                if (synthetic == null) {
+                    synthetic = new ArrayList<>(1);
+                }
+                synthetic.add(new ItemStack(id, 1));
+            }
+        }
+        if (synthetic == null) {
+            return; // no tile tracks this clog item
+        }
+        // "clog" source kind passes the default (non-PvP) tile source filter. Source name is the
+        // item itself — a tile with a specific sourceNpcs list won't match, which is intended
+        // (clog rewards have no NPC source to whitelist against).
+        processLoot(itemName, synthetic, "clog");
     }
 
     private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
@@ -1151,6 +1217,13 @@ public class AnvilPlugin extends Plugin {
      * coalesce a kill spree into one screenshot, and queue a submission. Runs
      * on the client thread (called from loot event).
      */
+    /**
+     * Loot-driven kill crediting (from NpcLootReceived): the right signal for
+     * normal NPCs, which have no Jagex kill-count message. Bosses that DO print
+     * a KC line are handled by the chat handler instead — once a KC message has
+     * been seen for this name we defer to it so a boss that fires both a KC
+     * line and NpcLootReceived is counted exactly once.
+     */
     private void processNpcKill(String npcName) {
         if (npcName == null || npcName.isEmpty()) {
             return;
@@ -1161,15 +1234,56 @@ public class AnvilPlugin extends Plugin {
         if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
             return;
         }
-        List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(npcName.toLowerCase());
+        String key = npcName.toLowerCase();
+        List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(key);
         if (matches == null || matches.isEmpty()) {
             return;
         }
+        lastLootKillAt.put(key, System.currentTimeMillis());
+        // KC-driven boss (a "Your <X> kill count is:" line has fired for it) → the chat handler owns
+        // the count. Skip here to avoid double-crediting the same kill.
+        if (killCounts.containsKey(key)) {
+            return;
+        }
+        creditKillTiles(npcName, matches, 1); // one NpcLootReceived == one kill
+    }
+
+    /**
+     * Kill crediting driven by the Jagex "Your <X> kill count is: N" chat line
+     * — the reliable signal for bosses whose loot comes from corpse interaction
+     * (Maggot King, Araxxor, …) and so may never fire NpcLootReceived.
+     */
+    private void creditBossKillFromChat(String npcName, boolean firstSeen) {
+        if (npcName == null || npcName.isEmpty()) {
+            return;
+        }
+        if (!config.autoSubmit() || pluginConfig == null) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        String key = npcName.toLowerCase();
+        List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(key);
+        if (matches == null || matches.isEmpty()) {
+            return;
+        }
+        // First KC line of the session for this boss: the loot path may have already credited this
+        // very kill moments ago (event ordering isn't guaranteed). If so, don't count it twice.
+        if (firstSeen) {
+            Long lootAt = lastLootKillAt.get(key);
+            if (lootAt != null && System.currentTimeMillis() - lootAt < KILL_DEDUP_MS) {
+                return;
+            }
+        }
+        creditKillTiles(npcName, matches, 1); // one KC line == one kill
+    }
+
+    private void creditKillTiles(String npcName, List<PluginConfigResponse.TrackedKill> matches, int amount) {
         for (PluginConfigResponse.TrackedKill kill : matches) {
             if (kill.currentAmount >= kill.requiredAmount) {
                 continue;
             }
-            int amount = 1; // one NpcLootReceived == one kill
             kill.currentAmount += amount;
             int snapshotCurrent = kill.currentAmount;
             int snapshotRequired = kill.requiredAmount;
@@ -1674,8 +1788,8 @@ public class AnvilPlugin extends Plugin {
     }
 
     /* -------------------------------------------------------------- */
-    /* Player/account helpers                                          */
-    /* -------------------------------------------------------------- */
+ /* Player/account helpers                                          */
+ /* -------------------------------------------------------------- */
     public String getLocalPlayerName() {
         if (client == null || client.getLocalPlayer() == null) {
             return null;
@@ -1690,13 +1804,13 @@ public class AnvilPlugin extends Plugin {
     // ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
     // Authenticated solely by the player's per-user account token (config.playerToken()) plus
     // their site admin role. No admin-link-code mechanism exists anymore.
-
     /**
-     * Once per login, ask the site whether this account token belongs to an admin
-     * (GET /api/plugin/me). On success, flip the isAdmin flag so the in-game collection-log
-     * "Bingo" tab renders its admin-only "Sync clan roster" button; otherwise it stays hidden.
-     * Guarded so it only probes when both the player token and site URL are set, and only once
-     * per login session.
+     * Once per login, ask the site whether this account token belongs to an
+     * admin (GET /api/plugin/me). On success, flip the isAdmin flag so the
+     * in-game collection-log "Bingo" tab renders its admin-only "Sync clan
+     * roster" button; otherwise it stays hidden. Guarded so it only probes when
+     * both the player token and site URL are set, and only once per login
+     * session.
      */
     private void probeAdmin() {
         if (adminProbeAttempted) {
@@ -1713,7 +1827,9 @@ public class AnvilPlugin extends Plugin {
         clogTabController.onConfigRefreshed();
     }
 
-    /** Whether the local player is currently in a clan channel we can scrape. */
+    /**
+     * Whether the local player is currently in a clan channel we can scrape.
+     */
     public boolean isClanScrapeAvailable() {
         if (client == null) {
             return false;
@@ -1732,8 +1848,9 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Scrape the in-game clan roster (on the client thread) then POST it to the site
-     * (off the client thread), authenticated with the player's account token.
+     * Scrape the in-game clan roster (on the client thread) then POST it to the
+     * site (off the client thread), authenticated with the player's account
+     * token.
      */
     public void syncClanRoster(AdminActionCallback cb) {
         if (executor == null || executor.isShutdown()) {
@@ -2550,8 +2667,9 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * A skill hit level 99. Posts to the clan achievements channel (shared with combat
-     * achievements), gated on that channel having a webhook configured server-side.
+     * A skill hit level 99. Posts to the clan achievements channel (shared with
+     * combat achievements), gated on that channel having a webhook configured
+     * server-side.
      */
     private void handleLevelMilestone(String skill) {
         if (!notifyEnabled("combatAchievements")) {
@@ -2568,9 +2686,10 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Called on every skill level-up. Announces a high-total milestone (every {@code STEP} at or
-     * above {@code FLOOR}) or maxing, posting to the clan achievements channel. Uses the baselined
-     * total so we only fire on genuine crossings, and skips the round-100 post when this gain maxed.
+     * Called on every skill level-up. Announces a high-total milestone (every
+     * {@code STEP} at or above {@code FLOOR}) or maxing, posting to the clan
+     * achievements channel. Uses the baselined total so we only fire on genuine
+     * crossings, and skips the round-100 post when this gain maxed.
      */
     private void handleTotalMilestone() {
         if (!notifyEnabled("combatAchievements")) {
@@ -2601,7 +2720,10 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** Maximum possible total level, summed from the live Skill enum (adapts as skills are added). */
+    /**
+     * Maximum possible total level, summed from the live Skill enum (adapts as
+     * skills are added).
+     */
     private int maxTotalLevel() {
         int max = 0;
         for (Skill s : Skill.values()) {
@@ -2786,7 +2908,8 @@ public class AnvilPlugin extends Plugin {
                     // Per-save failures (e.g. the Replay Buffer isn't started) — tell the player why.
                     this::sendChatMessage,
                     config::clipLengthSeconds,
-                    () -> config.clipMp4() ? "mp4" : null
+                    () -> config.clipMp4() ? "mp4" : null,
+                    config::postObsTriggeredClips
             );
             obsClip.connect();
         }
