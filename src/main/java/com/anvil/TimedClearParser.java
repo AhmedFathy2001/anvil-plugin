@@ -27,6 +27,11 @@ import java.util.regex.Pattern;
  *   Nightmare    "Team size: Solo Fight duration: 24:35"  +  "Your Nightmare kill count is: 11."
  *   Colosseum    "Wave 12 completed! Wave duration: 33:32.40"  +  "Your Sol Heredit kill count is: 100."
  *   CoX          "...your raid is complete! Duration: 15:39"  +  "Your completed Chambers of Xeric count is: 306."
+ *   Boss timers  "Fight duration: 1:36 (new personal best)"  +  "Your <boss> kill count is: N." — the
+ *                generic pair for every boss with an in-game kill timer (GWD, Zulrah, Vorkath, Hydra,
+ *                Grotesque Guardians, Muspah, the DT2 four, Scurrius, Araxxor, Yama, etc.); the
+ *                identity line names the boss, so the activity-name fallback covers them.
+ *   Gauntlet     "Challenge duration: 10:24. Personal best: 7:59."  +  "Your Gauntlet completion count is: 45."
  */
 final class TimedClearParser
 {
@@ -56,8 +61,20 @@ final class TimedClearParser
 		SIGNATURES.put("nightmare", Collections.singletonList("nightmare"));
 		SIGNATURES.put("phosani's nightmare", Collections.singletonList("phosani's nightmare"));
 		SIGNATURES.put("tzhaar-ket-rak", Collections.singletonList("tzhaar-ket-rak"));
-		SIGNATURES.put("the gauntlet", Collections.singletonList("the gauntlet"));
+		// The completion line reads "Your Gauntlet completion count is: N" — it never contains
+		// "the gauntlet", so a self-signature could never match. "your gauntlet completion" is
+		// also Corrupted-safe: CG's line reads "your corrupted gauntlet completion count".
+		SIGNATURES.put("the gauntlet", Arrays.asList("your gauntlet completion", "the gauntlet"));
 		SIGNATURES.put("corrupted gauntlet", Collections.singletonList("corrupted gauntlet"));
+		// Bosses whose kill-count line drops the article ("Your Leviathan kill count is: N"),
+		// so a tile named with "The …" would miss on the plain-substring fallback.
+		SIGNATURES.put("the leviathan", Collections.singletonList("leviathan"));
+		SIGNATURES.put("the whisperer", Collections.singletonList("whisperer"));
+		SIGNATURES.put("the hueycoatl", Collections.singletonList("hueycoatl"));
+		SIGNATURES.put("the royal titans", Collections.singletonList("royal titans"));
+		// "nex" is too short for the contains-fallback — "next" in any nearby line would
+		// false-match. Pin it to the real kill-count line.
+		SIGNATURES.put("nex", Collections.singletonList("your nex kill count"));
 	}
 
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */

@@ -12,6 +12,7 @@ public class PluginConfigResponse
 	public List<TrackedStat> trackedStats;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
+	public List<TrackedLms> trackedLms;           // LMS placement tiles (finish top-N, M times)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
@@ -149,6 +150,19 @@ public class PluginConfigResponse
 		public String category;
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
+		public boolean completed;          // team already completed this tile
+	}
+
+	public static class TrackedLms
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public int placementCap;           // finish at or under this placement (1 = win)
+		public int requiredAmount;         // qualifying games needed to complete the tile
+		public int currentAmount;          // team's submitted qualifying games so far
 		public boolean completed;          // team already completed this tile
 	}
 

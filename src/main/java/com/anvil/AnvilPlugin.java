@@ -7,8 +7,10 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.Actor;
+import net.runelite.api.widgets.Widget;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
@@ -737,6 +739,106 @@ public class AnvilPlugin extends Plugin {
             List<PendingCaTask> batch = new ArrayList<>(pendingCaTasks);
             pendingCaTasks.clear();
             handleCombatAchievements(batch);
+        }
+        trackLmsTick();
+    }
+
+    /* ------------------------- LMS placement tracking ------------------------- */
+    // Last Man Standing is "BR" (battle royale) in the cache. While the BR_INGAME varbit is up
+    // we sample the HUD's survivor counter every tick; dying while it reads N means we placed
+    // Nth (we were one of the N still standing). Winning never fires our death — the game just
+    // ends — so a session that closes with the last reading at "1 survivor" is a win.
+    private volatile boolean lmsInGame;
+    private volatile int lmsSurvivors;
+    private volatile int lmsKills;
+    private volatile boolean lmsPlacementRecorded; // one placement per game
+
+    private void trackLmsTick() {
+        boolean inGame = client.getVarbitValue(VarbitID.BR_INGAME) == 1;
+        if (inGame) {
+            if (!lmsInGame) {
+                lmsInGame = true;
+                lmsPlacementRecorded = false;
+                lmsSurvivors = 0;
+                lmsKills = 0;
+            }
+            Widget survivors = client.getWidget(InterfaceID.BrOverlay.SURVIVOR_COUNT);
+            if (survivors != null && !survivors.isHidden()) {
+                int n = parseLeadingInt(survivors.getText());
+                if (n > 0) {
+                    lmsSurvivors = n;
+                }
+            }
+            lmsKills = client.getVarbitValue(VarbitID.BR_KILLCOUNT);
+        } else if (lmsInGame) {
+            lmsInGame = false;
+            // Game ended without us dying. Only the sole-survivor reading counts as a win —
+            // an x-log or spectate exit leaves a higher count and records nothing.
+            if (!lmsPlacementRecorded && lmsSurvivors == 1) {
+                recordLmsPlacement(1);
+            }
+        }
+    }
+
+    /**
+     * Submits a qualifying LMS finish to every LMS tile whose placement cap covers it,
+     * with a baked "Placed Nth — K kills" proof screenshot. Runs at most once per game.
+     */
+    private void recordLmsPlacement(int placement) {
+        lmsPlacementRecorded = true;
+        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedLms == null
+                || pluginConfig.trackedLms.isEmpty()) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        final int kills = lmsKills;
+        final String place = ordinal(placement);
+        for (PluginConfigResponse.TrackedLms tile : pluginConfig.trackedLms) {
+            if (tile.completed) {
+                continue;
+            }
+            int cap = Math.max(1, tile.placementCap);
+            if (placement > cap) {
+                continue;
+            }
+            log.info("Tracked LMS placement: {} ({} kills) for '{}' (cap top {})", place, kills, tile.label, cap);
+            sendChatMessage("Tracked LMS placement: " + place + " — " + tile.label);
+            String detail = "Placed " + place + " — " + kills + (kills == 1 ? " kill" : " kills")
+                    + "  (needs top " + cap + ")";
+            captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO LMS", detail,
+                    "[Auto] LMS " + place + " place, " + kills + (kills == 1 ? " kill" : " kills")
+                            + " — detected by RuneLite plugin", null);
+        }
+    }
+
+    private static String ordinal(int n) {
+        int mod100 = n % 100;
+        if (mod100 >= 11 && mod100 <= 13) {
+            return n + "th";
+        }
+        switch (n % 10) {
+            case 1: return n + "st";
+            case 2: return n + "nd";
+            case 3: return n + "rd";
+            default: return n + "th";
+        }
+    }
+
+    /** Digits of a widget text like "5" or "Survivors: 5" (tags stripped); -1 when unparseable. */
+    private static int parseLeadingInt(String text) {
+        if (text == null) {
+            return -1;
+        }
+        String digits = text.replaceAll("<[^>]*>", "").replaceAll("[^0-9]", "");
+        if (digits.isEmpty() || digits.length() > 3) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 
@@ -2385,6 +2487,11 @@ public class AnvilPlugin extends Plugin {
 
         // Our own death → deaths channel.
         if (actor == client.getLocalPlayer()) {
+            // LMS: dying while the BR HUD reads N survivors means we placed Nth. Record before
+            // the notification gates — placement tracking is independent of death notifications.
+            if (lmsInGame && !lmsPlacementRecorded) {
+                recordLmsPlacement(Math.max(lmsSurvivors, 2));
+            }
             if (!config.notifyDeaths()) {
                 return;
             }
