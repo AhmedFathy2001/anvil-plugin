@@ -531,8 +531,12 @@ public class AnvilPlugin extends Plugin {
 
         configureApiClient();
 
-        // Initial config fetch
-        if (apiClient.isConfigured()) {
+        // Initial config fetch. If the plugin was enabled mid-session (already logged in),
+        // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
+        // the very first authed request carries the identity headers.
+        if (client.getGameState() == GameState.LOGGED_IN) {
+            executor.submit(this::stampIdentityAndGreet);
+        } else if (apiClient.isConfigured()) {
             executor.submit(this::refreshConfig);
         }
 
@@ -658,8 +662,20 @@ public class AnvilPlugin extends Plugin {
         configureApiClient();
         scheduleRefresh();
 
-        // (Re)establish or tear down the OBS clip connection when its settings change.
         String key = event.getKey();
+        // Setup pasted mid-session (the typical first install: enable the plugin while
+        // logged in, then enter Site URL + Account Token): stamp the RSN/account hash and
+        // greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
+        // probe so a new token gets re-checked. The single-threaded executor runs this
+        // before the debounced refresh, so that refresh already carries the headers.
+        if (("apiUrl".equals(key) || "playerToken".equals(key))
+                && client.getGameState() == GameState.LOGGED_IN
+                && executor != null && !executor.isShutdown()) {
+            adminProbeAttempted = false;
+            executor.submit(this::stampIdentityAndGreet);
+        }
+
+        // (Re)establish or tear down the OBS clip connection when its settings change.
         if ("clipsEnabled".equals(key) || "obsHost".equals(key) || "obsPort".equals(key) || "obsPassword".equals(key)) {
             if (config.clipsEnabled()) {
                 connectObs();
@@ -729,19 +745,7 @@ public class AnvilPlugin extends Plugin {
         if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
             // Delay slightly so local player name is populated
             if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> {
-                    // Stamp the API client with the current RSN + account hash so server-side
-                    // resolution can scope per-user tokens to the right clan_member and
-                    // auto-verify the account on play.
-                    apiClient.setCurrentRsn(getLocalPlayerName());
-                    apiClient.setAccountHash(client.getAccountHash());
-                    // Refresh config for the character we just logged into so tracking reflects THIS
-                    // account's enrollment right away — when one person plays several accounts, only
-                    // the enrolled one should track drops (don't wait for the 30s refresh cycle).
-                    safely("refreshConfig", this::refreshConfig);
-                    sendHello();
-                    safely("probeAdmin", this::probeAdmin);
-                }, 3, TimeUnit.SECONDS);
+                executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
             }
         } else if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
@@ -752,6 +756,26 @@ public class AnvilPlugin extends Plugin {
             apiClient.setCurrentRsn(null);
             apiClient.setAccountHash(-1L);
         }
+    }
+
+    /**
+     * Stamp the API client with the current RSN + account hash so server-side resolution
+     * can scope per-user tokens to the right clan_member and auto-verify the account on
+     * play, then fire the login-time round-trips (config, hello, admin probe). Runs on the
+     * executor. Called on the LOGGED_IN transition, and again from startUp/onConfigChanged
+     * when the plugin is enabled or configured mid-session — no transition fires then, and
+     * without the stamp every request until the next relog would go out without X-RSN, so
+     * the site could never capture the account.
+     */
+    private void stampIdentityAndGreet() {
+        apiClient.setCurrentRsn(getLocalPlayerName());
+        apiClient.setAccountHash(client.getAccountHash());
+        // Refresh config for the character we just logged into so tracking reflects THIS
+        // account's enrollment right away — when one person plays several accounts, only
+        // the enrolled one should track drops (don't wait for the 30s refresh cycle).
+        safely("refreshConfig", this::refreshConfig);
+        sendHello();
+        safely("probeAdmin", this::probeAdmin);
     }
 
     private void sendHello() {
