@@ -302,47 +302,61 @@ public class AnvilPlugin extends Plugin {
             "You have completed all of the (easy|medium|hard|elite) tasks in (?:the )?(.+?) area",
             java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    // Quest-completed scroll interface (group 153); child 4 carries "You have completed <Quest>!".
-    // The same signal RuneLite's own screenshot plugin keys off.
+    // Quest-completed scroll interface — gameval InterfaceID.QUESTSCROLL (153); child 4 is
+    // Questscroll.QUEST_TITLE, the "You have completed <Quest>!" line. Same signal RuneLite's
+    // screenshot plugin keys off.
     private static final int QUEST_COMPLETED_GROUP_ID = 153;
     private static final int QUEST_COMPLETED_TEXT_CHILD = 4;
-    private static final java.util.regex.Pattern QUEST_COMPLETED_PATTERN = java.util.regex.Pattern.compile(
-            "You have completed (.+?)!");
     // Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
     private final Set<String> announcedQuests = new LinkedHashSet<>();
 
-    // Quest difficulty tiers for completion announcements — game facts, baked like the bundled
-    // drop dataset. Only the top tiers are listed: any quest absent from both sets counts as
-    // below Master, so it only posts on the "All quests" setting. Lowercase names as shown on
-    // the completion scroll. Update when Jagex ships new Master/Grandmaster quests.
+    // Quest-name extraction, ported from RuneLite's ScreenshotPlugin (BSD-2) — the scroll text
+    // varies: "You have completed The Corsair Curse!", "'One Small Favour' completed!",
+    // "Congratulations! You have defeated the Culinaromancer!" (RFD subquests), and the
+    // "kind of"/"completely" phrasings of Hazeel Cult and Rag and Bone Man.
+    private static final java.util.regex.Pattern QUEST_PATTERN_1 = java.util.regex.Pattern.compile(
+            ".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$");
+    private static final java.util.regex.Pattern QUEST_PATTERN_2 = java.util.regex.Pattern.compile(
+            "'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
+    private static final List<String> RFD_TAGS = Arrays.asList("Another Cook", "freed", "defeated", "saved");
+    private static final List<String> WORD_QUEST_IN_NAME_TAGS = Arrays.asList(
+            "Another Cook", "Doric", "Heroes", "Legends", "Observatory", "Olaf", "Waterfall");
+
+    // Quest difficulty tiers for completion announcements — verified against the OSRS Wiki
+    // quest list (2026-07). Only the top tiers are listed: any quest absent from both sets
+    // counts as below Master, so it only posts on the "All quests" setting. Lowercase,
+    // matched against the parsed scroll name. Update when Jagex ships new Master+ quests.
     private static final Set<String> GRANDMASTER_QUESTS = new LinkedHashSet<>(Arrays.asList(
+            "desert treasure ii - the fallen empire",
+            "desert treasure ii", // scroll may omit the subtitle
             "dragon slayer ii",
             "monkey madness ii",
             "song of the elves",
-            "desert treasure ii - the fallen empire",
-            "while guthix sleeps",
-            "the final dawn"));
+            "the blood moon rises",
+            "while guthix sleeps"));
     private static final Set<String> MASTER_QUESTS = new LinkedHashSet<>(Arrays.asList(
-            "a kingdom divided",
             "a night at the theatre",
             "beneath cursed sands",
-            "defender of varrock",
             "desert treasure i",
-            "desert treasure", // pre-DT2 name, in case the scroll omits the numeral
+            "desert treasure", // pre-DT2 scroll name, in case the numeral is omitted
             "dream mentor",
             "grim tales",
             "legends' quest",
+            "making friends with my arm",
             "monkey madness i",
-            "monkey madness", // pre-MM2 name
+            "monkey madness", // pre-MM2 scroll name
             "mourning's end part i",
             "mourning's end part ii",
-            "recipe for disaster",
+            "perilous moons",
+            // The wiki tiers RFD as "Special"; defeating the Culinaromancer is the de-facto
+            // final completion (Barrows gloves), so announce it with the Masters.
+            "recipe for disaster - culinaromancer",
             "secrets of the north",
             "sins of the father",
             "swan song",
-            "the fremennik exiles",
-            "the heart of darkness",
-            "the path of glouphrie"));
+            "the curse of arrav",
+            "the final dawn",
+            "the fremennik exiles"));
     // Parsed CA completions waiting one tick so the points varbit has settled before we read them.
     // A queue (not a single slot): one kill can complete several CA tasks in the same tick — the
     // game prints a message per task and we must post every one, not just the last.
@@ -665,8 +679,9 @@ public class AnvilPlugin extends Plugin {
     public void onWidgetLoaded(WidgetLoaded event) {
         clogTabController.onWidgetLoaded(event.getGroupId());
         if (event.getGroupId() == QUEST_COMPLETED_GROUP_ID) {
-            // The scroll's text child isn't populated yet on the load event — read it next tick.
-            clientThread.invokeLater(this::handleQuestCompletedWidget);
+            // The scroll's text child isn't populated yet on the load event — read it next tick,
+            // with a couple of retries in case the text lands late.
+            scheduleQuestScrollRead(3);
         }
     }
 
@@ -2956,24 +2971,64 @@ public class AnvilPlugin extends Plugin {
 
     /**
      * Reads the quest-completed scroll and posts the completion, gated by the
-     * configured difficulty threshold (default Master &amp; up). Runs one tick
-     * after the widget loads so the text child is populated.
+     * configured difficulty threshold (default Master &amp; up). Runs a tick
+     * after the widget loads so the text child is populated; retries a couple
+     * of ticks if the text lands late.
      */
-    private void handleQuestCompletedWidget() {
-        net.runelite.api.widgets.Widget text = client.getWidget(QUEST_COMPLETED_GROUP_ID, QUEST_COMPLETED_TEXT_CHILD);
-        if (text == null || text.getText() == null) {
-            return;
+    private void scheduleQuestScrollRead(int attemptsLeft) {
+        clientThread.invokeLater(() -> {
+            net.runelite.api.widgets.Widget text = client.getWidget(QUEST_COMPLETED_GROUP_ID, QUEST_COMPLETED_TEXT_CHILD);
+            String raw = text != null ? text.getText() : null;
+            if (raw == null || raw.isEmpty()) {
+                if (attemptsLeft > 0) {
+                    scheduleQuestScrollRead(attemptsLeft - 1);
+                }
+                return;
+            }
+            String plain = raw.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+            String quest = parseQuestScroll(plain);
+            if (quest == null || quest.contains("partial completion")) {
+                return; // unparseable, or Hazeel Cult's "kind of completed" — not a completion
+            }
+            if (!announcedQuests.add(quest.toLowerCase())) {
+                return; // widget re-loaded for a quest already posted this session
+            }
+            postQuestCompletion(quest);
+        });
+    }
+
+    /**
+     * Parses the quest-completed scroll text into the quest name. Ported from
+     * RuneLite's ScreenshotPlugin (BSD-2) so all the scroll's text variants
+     * resolve correctly — RFD subquests become "Recipe for Disaster - X",
+     * "completely completed Rag and Bone Man" becomes "Rag and Bone Man II",
+     * and names genuinely containing "Quest" (Legends' Quest, Doric's Quest)
+     * keep the word. Returns null when nothing matches. Package-private for
+     * the unit test.
+     */
+    static String parseQuestScroll(String text) {
+        java.util.regex.Matcher m1 = QUEST_PATTERN_1.matcher(text);
+        java.util.regex.Matcher m2 = QUEST_PATTERN_2.matcher(text);
+        java.util.regex.Matcher m = m1.matches() ? m1 : m2;
+        if (!m.matches()) {
+            return null;
         }
-        String plain = text.getText().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
-        java.util.regex.Matcher m = QUEST_COMPLETED_PATTERN.matcher(plain);
-        if (!m.find()) {
-            return;
+        String quest = m.group("quest");
+        String verb = m.group("verb") != null ? m.group("verb") : "";
+        if (verb.contains("kind of")) {
+            quest += " partial completion";
+        } else if (verb.contains("completely")) {
+            quest += " II";
         }
-        String quest = m.group(1).trim();
-        if (!announcedQuests.add(quest.toLowerCase())) {
-            return; // widget re-loaded for a quest already posted this session
+        final String questAndVerb = quest + verb;
+        if (RFD_TAGS.stream().anyMatch(questAndVerb::contains)) {
+            quest = "Recipe for Disaster - " + quest;
         }
-        postQuestCompletion(quest);
+        final String questName = quest;
+        if (WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) {
+            quest += " Quest";
+        }
+        return quest;
     }
 
     /**
