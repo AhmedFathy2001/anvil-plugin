@@ -178,6 +178,19 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "dualProofFrames",
+		name = "Two-frame drop proof",
+		description = "Bake two frames into each drop screenshot — one the moment the drop lands, and one "
+			+ "a couple of seconds later once the loot has settled on the floor.",
+		position = 8,
+		section = "bingoSection"
+	)
+	default boolean dualProofFrames()
+	{
+		return true;
+	}
+
 	// ---- Notifications: Deaths & kills ----
 
 	@ConfigItem(

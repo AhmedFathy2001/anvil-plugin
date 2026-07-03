@@ -919,10 +919,28 @@ public class ClogTabController
 		});
 		sounds.revalidate();
 
+		// "Saved proofs" — only rendered while submissions are stuck on disk (upload failed and
+		// retrying), so the layout is untouched in the healthy case. Opens the pending-proofs
+		// folder so a member can grab the baked screenshot before it's pruned.
+		int sy = y + 68;
+		int stuckProofs = plugin.pendingProofCount();
+		if (stuckProofs > 0)
+		{
+			Widget proofs = container.createChild(-1, WidgetType.TEXT);
+			proofs.setText("<col=ff7d64>Saved proofs (" + stuckProofs + ")</col>");
+			proofs.setFontId(FONT_PLAIN);
+			proofs.setTextShadowed(true);
+			place(proofs, 10, sy, ClogIds.LEFT_COL_W - 20, 14);
+			proofs.setHasListener(true);
+			proofs.setAction(0, "Open folder");
+			proofs.setOnOpListener((JavaScriptCallback) e -> plugin.openPendingProofsFolder());
+			proofs.revalidate();
+			sy += 18;
+		}
+
 		// One toggle row per clip: green = in the play cycle, grey = muted; clicking flips it (persisted
 		// via the comma-separated allowlist). The left column is fixed-height and doesn't scroll, so we
 		// only render as many rows as fit and collapse the rest into an "Open folder" overflow line.
-		int sy = y + 68;
 		final int rowH = 15;
 		List<String> clips = plugin.bannerSoundClips();
 		int colH = container.getHeight();

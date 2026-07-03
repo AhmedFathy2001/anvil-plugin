@@ -270,6 +270,18 @@ public class AnvilPlugin extends Plugin {
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
 
+    // Completions that award a guaranteed item straight to the inventory — no loot event ever
+    // fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
+    // would need manual submission. The Jagex kill-count chat line fires on every completion,
+    // making it the repeat-safe credit signal. Keyed by the KC-line boss name (lowercase) →
+    // awarded item name. Sol Heredit is deliberately absent: repeat quivers arrive via the
+    // Fortis Colosseum reward chest, which fires LootReceived and is already drop-tracked —
+    // crediting the KC line too would double-count (the chest is claimed after the kill,
+    // outside the dedup window).
+    private static final Map<String, String> GUARANTEED_AWARDS = Map.of(
+            "tzkal-zuk", "Infernal cape",
+            "tztok-jad", "Fire cape");
+
     // Combat achievement task completion, e.g.
     // "Congratulations, you've completed an Elite combat task: Whack-a-Mole."
     private static final java.util.regex.Pattern CA_TASK_PATTERN = java.util.regex.Pattern.compile(
@@ -328,6 +340,10 @@ public class AnvilPlugin extends Plugin {
         int snapshotCurrent;
         int snapshotRequired;
         ScheduledFuture<?> flushTask;
+        // Frame grabbed the moment the first drop of the burst landed. The flush shot fires
+        // COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
+        // hands listeners a copy of the graphics buffer, so holding it is safe.
+        volatile BufferedImage triggerFrame;
 
         DropAggregate(PluginConfigResponse.TrackedDrop drop, Integer trackingItemId) {
             this.drop = drop;
@@ -877,6 +893,16 @@ public class AnvilPlugin extends Plugin {
         bannerSound.openFolder();
     }
 
+    /** Opens the folder holding proofs that haven't uploaded yet (baked PNGs + metadata). */
+    public void openPendingProofsFolder() {
+        pendingSubmissionStore.openFolder();
+    }
+
+    /** Proofs still waiting to upload — drives the "Saved proofs" row in the clog Bingo tab. */
+    public int pendingProofCount() {
+        return pendingSubmissionStore.count();
+    }
+
     /**
      * Plays the banner sound and, the first time it fires with sound enabled
      * but no clips installed, nudges the user to the "Banner sounds" button in
@@ -918,6 +944,12 @@ public class AnvilPlugin extends Plugin {
                 boolean firstSeen = !killCounts.containsKey(kcKey);
                 killCounts.put(kcKey, Integer.parseInt(kcMatcher.group(2).replace(",", "")));
                 creditBossKillFromChat(kcName, firstSeen);
+                // Guaranteed completion awards (Infernal cape, Fire cape) credit off the KC
+                // line — the only signal that fires on repeat completions.
+                String award = GUARANTEED_AWARDS.get(kcKey);
+                if (award != null) {
+                    creditGuaranteedAward(kcName, award);
+                }
             } catch (NumberFormatException ignored) {
             }
         }
@@ -991,6 +1023,8 @@ public class AnvilPlugin extends Plugin {
      *
      * Caveat: the clog line fires once per account, ever — a member who already
      * owns the item won't re-trigger it. Surfaced to admins in the tile UI.
+     * Guaranteed completion awards (Infernal cape, Fire cape) sidestep this via
+     * {@link #creditGuaranteedAward}, which fires on every completion.
      */
     private void creditClogUnlock(String itemName) {
         if (itemName == null || itemName.isEmpty()) {
@@ -1019,6 +1053,41 @@ public class AnvilPlugin extends Plugin {
         // item itself — a tile with a specific sourceNpcs list won't match, which is intended
         // (clog rewards have no NPC source to whitelist against).
         processLoot(itemName, synthetic, "clog");
+    }
+
+    /**
+     * Credits drop/collection tiles for a completion-awarded item (Infernal cape,
+     * Fire cape) off the Jagex kill-count chat line. These go straight to the
+     * inventory — no loot event — and the clog line only fires on the first-ever
+     * award, so repeat capes would otherwise need manual submission. The KC line
+     * fires on every completion.
+     *
+     * Synthesised as loot FROM the boss (sourceKind "npc"), so a tile restricted
+     * to e.g. sourceNpcs=["TzKal-Zuk"] still matches. On a first-ever award the
+     * clog line lands in the same message batch; processLoot's per-(tile,item)
+     * dedup counts the pair exactly once.
+     */
+    private void creditGuaranteedAward(String bossName, String itemName) {
+        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        List<ItemStack> synthetic = null;
+        for (Integer id : itemDropIndex.keySet()) {
+            ItemComposition comp = itemManager.getItemComposition(id);
+            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
+                if (synthetic == null) {
+                    synthetic = new ArrayList<>(1);
+                }
+                synthetic.add(new ItemStack(id, 1));
+            }
+        }
+        if (synthetic == null) {
+            return; // no tile tracks this award item
+        }
+        processLoot(bossName, synthetic, "npc");
     }
 
     private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
@@ -1170,6 +1239,13 @@ public class AnvilPlugin extends Plugin {
             if (agg == null) {
                 agg = new DropAggregate(drop, trackingItemId);
                 pendingAggregates.put(key, agg);
+                // First drop of the burst: grab the at-drop frame now. The flush shot lands
+                // COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
+                // visible — the proof shows both moments.
+                if (config.dualProofFrames()) {
+                    final DropAggregate fresh = agg;
+                    drawManager.requestNextFrameListener(img -> fresh.triggerFrame = (BufferedImage) img);
+                }
             }
             agg.totalAmount += amount;
             agg.snapshotCurrent = snapshotCurrent;
@@ -1207,7 +1283,8 @@ public class AnvilPlugin extends Plugin {
 
     private void doSubmitAggregate(DropAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
-        captureAndSubmit(agg.drop, agg.totalAmount, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId);
+        captureAndSubmit(agg.drop, agg.totalAmount, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId,
+                agg.triggerFrame);
     }
 
     /* ----------------------------- Kill-count tiles ----------------------------- */
@@ -1393,10 +1470,13 @@ public class AnvilPlugin extends Plugin {
                         return;
                     }
 
+                    sendChatMessage("Uploading proof: " + label + "…");
                     boolean success = processPendingSubmission(pending);
                     if (success) {
                         sendChatMessage("Submitted: " + label);
                         retryBackoffMs = 30_000;
+                    } else {
+                        notifyUploadFailed(label);
                     }
                     refreshConfig();
                 } catch (IOException e) {
@@ -1508,6 +1588,64 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
+     * Stacks the at-drop frame above the flush frame (thin gold divider, corner
+     * time tags) so the proof shows both the moment of the drop and the floor
+     * loot once it settled. Returns the flush frame untouched when there is no
+     * trigger frame (toggle off, or the frame never arrived).
+     */
+    private BufferedImage composeDualProof(BufferedImage triggerFrame, BufferedImage flushFrame) {
+        if (triggerFrame == null) {
+            return flushFrame;
+        }
+        int divider = 4;
+        int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
+        int h = triggerFrame.getHeight() + divider + flushFrame.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = out.createGraphics();
+        try {
+            g.setColor(java.awt.Color.BLACK);
+            g.fillRect(0, 0, w, h);
+            g.drawImage(triggerFrame, 0, 0, null);
+            g.setColor(new java.awt.Color(212, 160, 23));
+            g.fillRect(0, triggerFrame.getHeight(), w, divider);
+            g.drawImage(flushFrame, 0, triggerFrame.getHeight() + divider, null);
+            tagProofFrame(g, "AT DROP", w, 0);
+            tagProofFrame(g, "MOMENTS LATER", w, triggerFrame.getHeight() + divider);
+        } finally {
+            g.dispose();
+        }
+        return out;
+    }
+
+    // Small top-right tag naming which moment a stacked proof frame shows.
+    private void tagProofFrame(java.awt.Graphics2D g, String text, int frameW, int frameTop) {
+        g.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        java.awt.Font font = new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 12);
+        g.setFont(font);
+        java.awt.FontMetrics fm = g.getFontMetrics(font);
+        int padX = 8, padY = 4;
+        int bw = fm.stringWidth(text) + padX * 2;
+        int bh = fm.getHeight() + padY * 2;
+        int x = frameW - bw - 10;
+        int y = frameTop + 10;
+        g.setColor(new java.awt.Color(20, 18, 14, 230));
+        g.fillRoundRect(x, y, bw, bh, 8, 8);
+        g.setColor(new java.awt.Color(212, 160, 23));
+        g.drawRoundRect(x, y, bw, bh, 8, 8);
+        g.drawString(text, x + padX, y + padY + fm.getAscent());
+    }
+
+    /**
+     * One chat line when a proof can't be submitted right now. The PNG (banner
+     * already baked) is safe on disk in the pending store and auto-retried with
+     * backoff — this just makes the failure visible and points at the file.
+     */
+    private void notifyUploadFailed(String label) {
+        sendChatMessage("Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying. "
+                + "Find it in the collection log Bingo tab → \"Saved proofs\".");
+    }
+
+    /**
      * Burns a self-attesting proof banner onto the top-left of the screenshot:
      * the item (icon + name + count), the RSN it was obtained on, team, event
      * and UTC time. Baked unconditionally so the saved PNG stands on its own
@@ -1606,7 +1744,8 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
+    private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
+            BufferedImage triggerFrame) {
         // Capture IDs now (before async) since pluginConfig could change
         final int eventId = pluginConfig.event.id;
         final int teamId = pluginConfig.team.id;
@@ -1626,7 +1765,11 @@ public class AnvilPlugin extends Plugin {
             executor.submit(()
                     -> {
                 try {
-                    BufferedImage buffered = (BufferedImage) image;
+                    // Two-frame proof: the at-drop frame (stashed when the burst started) stacked
+                    // above this flush frame, taken COALESCE_FLUSH_MS later once floor loot has
+                    // settled. Falls back to the single flush frame when the toggle is off or the
+                    // trigger frame never arrived.
+                    BufferedImage buffered = composeDualProof(triggerFrame, (BufferedImage) image);
                     // Annotate the screenshot directly with a high-contrast banner so the
                     // drop is unambiguous even when the in-game loot popup has already
                     // faded or never rendered (5-stack pickups can fade quickly). Drawing
@@ -1657,12 +1800,15 @@ public class AnvilPlugin extends Plugin {
                     }
 
                     // Now upload and submit
+                    sendChatMessage("Uploading proof: " + drop.label + "…");
                     boolean success = processPendingSubmission(pending);
 
                     if (success) {
                         sendChatMessage("Drop submitted: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
                         // Reset backoff on success
                         retryBackoffMs = 30_000;
+                    } else {
+                        notifyUploadFailed(drop.label);
                     }
 
                     // Refresh config from server to sync all counts
@@ -1757,6 +1903,10 @@ public class AnvilPlugin extends Plugin {
             boolean success = processPendingSubmission(sub);
             if (!success) {
                 anyFailed = true;
+            } else {
+                // A previously-failed proof finally made it — say so, since the original
+                // "submitted" message never fired.
+                sendChatMessage("Queued proof submitted: " + sub.label);
             }
         }
 

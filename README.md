@@ -39,14 +39,23 @@ If you're a **clan admin**, it also lets you:
   (authenticated with your player token) to pull event, team, and tracked-drop
   metadata plus the rotating codeword.
 - When any of `NpcLootReceived`, `LootReceived` (chests/raids/clue caskets), or
-  `PlayerLootReceived` fires with an item ID that matches a tracked drop tile,
+  `PlayerLootReceived` fires with an item ID that matches a tracked drop tile —
+  or a collection-log unlock message names one (shop/gamble rewards that never
+  fire loot), or a kill-count message signals a guaranteed completion award
+  (Infernal cape, Fire cape — credited on every completion, not just the first) —
   the plugin:
-  1. Captures the current frame (with the codeword overlay visible).
-  2. Uploads the PNG to the Anvil site's image host.
+  1. Captures proof (with the codeword overlay visible). Drop tiles bake **two
+     frames** into one image by default — one the moment the drop lands, one a
+     couple of seconds later once floor loot has settled (toggle: *Two-frame
+     drop proof*).
+  2. Uploads the PNG to the Anvil site's image host (an "Uploading proof…"
+     chat line shows it's in flight).
   3. Posts a submission to `/api/events/{id}/submissions`, crediting your player.
 - Failed submissions are persisted to disk in `~/.runelite/osrs-bingo-pending/`
   and retried with exponential backoff (plus age-based cleanup after 7 days), so
-  a flaky connection or server restart won't lose a drop.
+  a flaky connection or server restart won't lose a drop. A failure is announced
+  in chat, and while anything is stuck a **Saved proofs** row appears in the
+  collection-log Bingo tab that opens the folder holding the baked screenshots.
 
 ## Settings
 
