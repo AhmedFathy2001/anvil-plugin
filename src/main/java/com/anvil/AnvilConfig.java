@@ -353,6 +353,31 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "notifyDiaries",
+		name = "Notify on diary completions",
+		description = "Post to the clan achievements channel when you complete an achievement-diary tier.",
+		position = 4,
+		section = "caSection"
+	)
+	default boolean notifyDiaries()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "questAnnounce",
+		name = "Announce quest completions",
+		description = "Post quest completions to the clan achievements channel at or above this difficulty. "
+			+ "\"Master & up\" covers Master and Grandmaster quests.",
+		position = 5,
+		section = "caSection"
+	)
+	default QuestAnnounceTier questAnnounce()
+	{
+		return QuestAnnounceTier.MASTER;
+	}
+
 	// ---- Clips ----
 
 	@ConfigItem(

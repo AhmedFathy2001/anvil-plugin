@@ -312,6 +312,20 @@ public final class ClogTaskModel
 			}
 		}
 
+		if (cfg.trackedDiaries != null)
+		{
+			for (PluginConfigResponse.TrackedDiary d : cfg.trackedDiaries)
+			{
+				if (d == null)
+				{
+					continue;
+				}
+				// Diary tiles count completions exactly like kills; no inventory icon.
+				rows.add(new TaskRow(d.tileId, d.label, Kind.KILL, d.currentAmount, d.requiredAmount, -1,
+					d.points, d.description, d.category, completed.contains(d.tileId)));
+			}
+		}
+
 		if (cfg.trackedTimed != null)
 		{
 			for (PluginConfigResponse.TrackedTimed t : cfg.trackedTimed)

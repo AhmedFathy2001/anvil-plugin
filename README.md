@@ -91,6 +91,9 @@ How rare-drop posting works:
   into one post per kill (no per-item spam).
 - **Loot keys** are reported as a single post gated only by *Loot key value*, and
   the loot key item itself is never posted on receipt — only its contents on open.
+- **Diary & quest completions** post to the clan achievements channel — diary
+  tier clears (*Notify on diary completions*) and quest completions at or above
+  a difficulty threshold (*Announce quest completions*, default Master & up).
 - **Prestige items** (Infernal cape, Dizana's quiver, raid ornament kits, etc.)
   always post regardless of value/rarity. The list is baked in and can be extended
   on the site (Admin → Integrations → *Always-notify drops*) with no plugin update.

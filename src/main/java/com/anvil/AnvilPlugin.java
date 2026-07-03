@@ -294,6 +294,55 @@ public class AnvilPlugin extends Plugin {
     // Accepts the modern "your" and the older "a/an" phrasing.
     private static final java.util.regex.Pattern LEVEL_UP_PATTERN = java.util.regex.Pattern.compile(
             "you just advanced (?:your|an?) (\\w+) level\\. You are now level (\\d+)\\.");
+
+    // Achievement-diary tier completion, e.g. "Congratulations! You have completed all of the
+    // easy tasks in the Ardougne area." Fires exactly once per account per tier, at the moment
+    // the final task is done — so it can't re-trigger for tiers finished before an event.
+    private static final java.util.regex.Pattern DIARY_PATTERN = java.util.regex.Pattern.compile(
+            "You have completed all of the (easy|medium|hard|elite) tasks in (?:the )?(.+?) area",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // Quest-completed scroll interface (group 153); child 4 carries "You have completed <Quest>!".
+    // The same signal RuneLite's own screenshot plugin keys off.
+    private static final int QUEST_COMPLETED_GROUP_ID = 153;
+    private static final int QUEST_COMPLETED_TEXT_CHILD = 4;
+    private static final java.util.regex.Pattern QUEST_COMPLETED_PATTERN = java.util.regex.Pattern.compile(
+            "You have completed (.+?)!");
+    // Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
+    private final Set<String> announcedQuests = new LinkedHashSet<>();
+
+    // Quest difficulty tiers for completion announcements — game facts, baked like the bundled
+    // drop dataset. Only the top tiers are listed: any quest absent from both sets counts as
+    // below Master, so it only posts on the "All quests" setting. Lowercase names as shown on
+    // the completion scroll. Update when Jagex ships new Master/Grandmaster quests.
+    private static final Set<String> GRANDMASTER_QUESTS = new LinkedHashSet<>(Arrays.asList(
+            "dragon slayer ii",
+            "monkey madness ii",
+            "song of the elves",
+            "desert treasure ii - the fallen empire",
+            "while guthix sleeps",
+            "the final dawn"));
+    private static final Set<String> MASTER_QUESTS = new LinkedHashSet<>(Arrays.asList(
+            "a kingdom divided",
+            "a night at the theatre",
+            "beneath cursed sands",
+            "defender of varrock",
+            "desert treasure i",
+            "desert treasure", // pre-DT2 name, in case the scroll omits the numeral
+            "dream mentor",
+            "grim tales",
+            "legends' quest",
+            "monkey madness i",
+            "monkey madness", // pre-MM2 name
+            "mourning's end part i",
+            "mourning's end part ii",
+            "recipe for disaster",
+            "secrets of the north",
+            "sins of the father",
+            "swan song",
+            "the fremennik exiles",
+            "the heart of darkness",
+            "the path of glouphrie"));
     // Parsed CA completions waiting one tick so the points varbit has settled before we read them.
     // A queue (not a single slot): one kill can complete several CA tasks in the same tick — the
     // game prints a message per task and we must post every one, not just the last.
@@ -615,6 +664,10 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onWidgetLoaded(WidgetLoaded event) {
         clogTabController.onWidgetLoaded(event.getGroupId());
+        if (event.getGroupId() == QUEST_COMPLETED_GROUP_ID) {
+            // The scroll's text child isn't populated yet on the load event — read it next tick.
+            clientThread.invokeLater(this::handleQuestCompletedWidget);
+        }
     }
 
     @Subscribe
@@ -976,6 +1029,16 @@ public class AnvilPlugin extends Plugin {
                     pendingCaTasks.add(new PendingCaTask(tier, task));
                 }
             }
+        }
+        // Achievement-diary tier completions — announce to the clan achievements channel and
+        // credit any diary bingo tiles. The line fires exactly once per account per tier.
+        java.util.regex.Matcher diaryMatcher = DIARY_PATTERN.matcher(plain);
+        if (diaryMatcher.find()) {
+            String tier = diaryMatcher.group(1).trim();
+            tier = Character.toUpperCase(tier.charAt(0)) + tier.substring(1).toLowerCase();
+            String area = diaryMatcher.group(2).trim();
+            maybeNotifyDiaryCompletion(area, tier);
+            creditDiaryTiles(area, tier);
         }
         // Skill 99s — reported to the same clan achievements channel as combat achievements. The
         // level-up message fires once when the level is reached, so no varbit/baseline dance needed.
@@ -2821,6 +2884,127 @@ public class AnvilPlugin extends Plugin {
      * combat achievements), gated on that channel having a webhook configured
      * server-side.
      */
+    /**
+     * Posts an achievement-diary tier completion to the clan achievements
+     * channel — same hook as combat achievements and 99s. Message-only.
+     */
+    private void maybeNotifyDiaryCompletion(String area, String tier) {
+        if (!config.notifyDiaries() || !notifyEnabled("combatAchievements")) {
+            return;
+        }
+        String rsn = getLocalPlayerName();
+        com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        embed.addProperty("title", "📜 Diary completed!");
+        embed.addProperty("description",
+                (rsn != null ? rsn : "A clan member") + " just completed the **" + area + " " + tier
+                        + "** achievement diary!");
+        embed.addProperty("color", CA_EMBED_COLOR);
+        apiClient.postNotification("combatAchievements", null, embed, null, null);
+    }
+
+    /**
+     * Credits diary bingo tiles whose selector list matches this completion.
+     * Selectors are "&lt;Area&gt; &lt;Tier&gt;" with "Any" as a wildcard on
+     * either side ("Any Elite", "Wilderness Any"); area matching is
+     * contains-based so "Lumbridge Any" matches the "Lumbridge &amp; Draynor"
+     * area. One completion == amount 1 through the shared proof pipeline
+     * (banner + screenshot + retry store).
+     */
+    private void creditDiaryTiles(String area, String tier) {
+        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDiaries == null) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        String areaLower = area.toLowerCase();
+        String tierLower = tier.toLowerCase();
+        for (PluginConfigResponse.TrackedDiary d : pluginConfig.trackedDiaries) {
+            if (d == null || d.diaries == null || d.currentAmount >= d.requiredAmount) {
+                continue;
+            }
+            boolean matches = false;
+            for (String sel : d.diaries) {
+                if (sel == null) {
+                    continue;
+                }
+                String s = sel.trim();
+                int cut = s.lastIndexOf(' ');
+                if (cut <= 0) {
+                    continue;
+                }
+                String selArea = s.substring(0, cut).trim().toLowerCase();
+                String selTier = s.substring(cut + 1).trim().toLowerCase();
+                boolean areaOk = selArea.equals("any") || areaLower.equals(selArea) || areaLower.contains(selArea);
+                boolean tierOk = selTier.equals("any") || tierLower.equals(selTier);
+                if (areaOk && tierOk) {
+                    matches = true;
+                    break;
+                }
+            }
+            if (!matches) {
+                continue;
+            }
+            d.currentAmount += 1;
+            final PluginConfigResponse.TrackedDiary fd = d;
+            captureAndSubmitProof(d.tileId, d.label, 1, null,
+                    "DIARY COMPLETE", area + " " + tier + " Diary",
+                    "[Auto] " + area + " " + tier + " diary completed — detected by RuneLite plugin",
+                    () -> fd.currentAmount = Math.max(0, fd.currentAmount - 1));
+        }
+    }
+
+    /**
+     * Reads the quest-completed scroll and posts the completion, gated by the
+     * configured difficulty threshold (default Master &amp; up). Runs one tick
+     * after the widget loads so the text child is populated.
+     */
+    private void handleQuestCompletedWidget() {
+        net.runelite.api.widgets.Widget text = client.getWidget(QUEST_COMPLETED_GROUP_ID, QUEST_COMPLETED_TEXT_CHILD);
+        if (text == null || text.getText() == null) {
+            return;
+        }
+        String plain = text.getText().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+        java.util.regex.Matcher m = QUEST_COMPLETED_PATTERN.matcher(plain);
+        if (!m.find()) {
+            return;
+        }
+        String quest = m.group(1).trim();
+        if (!announcedQuests.add(quest.toLowerCase())) {
+            return; // widget re-loaded for a quest already posted this session
+        }
+        postQuestCompletion(quest);
+    }
+
+    /**
+     * Posts a quest completion to the clan achievements channel. Tier comes
+     * from the baked name sets; a quest in neither set counts as below Master,
+     * so only the "All quests" setting posts it. Message-only, like CA posts.
+     */
+    private void postQuestCompletion(String questName) {
+        QuestAnnounceTier setting = config.questAnnounce();
+        if (setting == QuestAnnounceTier.OFF || !notifyEnabled("combatAchievements")) {
+            return;
+        }
+        String key = questName.toLowerCase();
+        boolean gm = GRANDMASTER_QUESTS.contains(key);
+        boolean master = MASTER_QUESTS.contains(key);
+        if (setting == QuestAnnounceTier.GRANDMASTER && !gm) {
+            return;
+        }
+        if (setting == QuestAnnounceTier.MASTER && !gm && !master) {
+            return;
+        }
+        String rsn = getLocalPlayerName();
+        String tierTag = gm ? " (Grandmaster)" : master ? " (Master)" : "";
+        com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        embed.addProperty("title", "🗺️ Quest complete!");
+        embed.addProperty("description",
+                (rsn != null ? rsn : "A clan member") + " just completed **" + questName + "**" + tierTag + "!");
+        embed.addProperty("color", CA_EMBED_COLOR);
+        apiClient.postNotification("combatAchievements", null, embed, null, null);
+    }
+
     private void handleLevelMilestone(String skill) {
         if (!notifyEnabled("combatAchievements")) {
             return;

@@ -12,6 +12,7 @@ public class PluginConfigResponse
 	public List<TrackedStat> trackedStats;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
+	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 
@@ -116,6 +117,22 @@ public class PluginConfigResponse
 		public int points;
 		public String category;
 		public List<String> targetNpcs;   // any of these NPC names counts a kill
+		public int requiredAmount;
+		public int currentAmount;
+		public String trackingMode;        // "team" | "individual"/"solo"
+	}
+
+	// Achievement-diary tile: the plugin credits a completion when the in-game diary completion
+	// line matches one of the selectors — "<Area> <Tier>" strings with "Any" as a wildcard on
+	// either side ("Ardougne Elite", "Any Elite", "Wilderness Any"). Same submission flow as kill.
+	public static class TrackedDiary
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public List<String> diaries;      // selectors — any matching one counts a completion
 		public int requiredAmount;
 		public int currentAmount;
 		public String trackingMode;        // "team" | "individual"/"solo"
