@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -39,13 +39,20 @@ public class ObsReplayClient extends WebSocketListener
 	private final Consumer<String> onError;
 	private final java.util.function.IntSupplier clipSeconds;
 	private final java.util.function.Supplier<String> clipFormat; // OBS RecFormat value, or null to leave as-is
+	// When true, also act on ReplayBufferSaved events we didn't trigger (OBS's own hotkey/triggers).
+	private final java.util.function.BooleanSupplier postExternalSaves;
 
 	private WebSocket webSocket;
 	private volatile boolean connected;
+	// True between our own SaveReplayBuffer request and the matching ReplayBufferSaved event. OBS
+	// broadcasts ReplayBufferSaved to EVERY connected obs-websocket client, so without this guard a
+	// second RuneLite client sharing the same OBS would also upload a clip it never triggered.
+	private volatile boolean awaitingSave;
 
 	public ObsReplayClient(OkHttpClient http, Gson gson, String host, int port, String password,
 		Consumer<String> onClipSaved, Runnable onConnected, Consumer<String> onError,
-		java.util.function.IntSupplier clipSeconds, java.util.function.Supplier<String> clipFormat)
+		java.util.function.IntSupplier clipSeconds, java.util.function.Supplier<String> clipFormat,
+		java.util.function.BooleanSupplier postExternalSaves)
 	{
 		this.http = http;
 		this.gson = gson;
@@ -56,6 +63,7 @@ public class ObsReplayClient extends WebSocketListener
 		this.onError = onError;
 		this.clipSeconds = clipSeconds;
 		this.clipFormat = clipFormat;
+		this.postExternalSaves = postExternalSaves;
 	}
 
 	public void connect()
@@ -86,6 +94,8 @@ public class ObsReplayClient extends WebSocketListener
 		{
 			return;
 		}
+		// Mark that the next ReplayBufferSaved broadcast is ours to act on.
+		awaitingSave = true;
 		sendRequest("SaveReplayBuffer", "anvil-clip");
 	}
 
@@ -220,6 +230,19 @@ public class ObsReplayClient extends WebSocketListener
 			case 5: // Event
 				if (d != null && "ReplayBufferSaved".equals(optString(d, "eventType")))
 				{
+					// OBS broadcasts this to ALL connected clients. By default only act on a save WE asked
+					// for; otherwise another client (e.g. a second RuneLite on the same OBS) triggering it
+					// would double-post. When the player opts in to OBS-triggered clips (they rely on OBS or
+					// the "Save Replay Buffer for OBS" plugin to auto-save), also act on saves we didn't
+					// trigger. self=true means it was our own SaveReplayBuffer.
+					boolean self = awaitingSave;
+					awaitingSave = false;
+					boolean postExternal = postExternalSaves != null && postExternalSaves.getAsBoolean();
+					if (!self && !postExternal)
+					{
+						log.debug("Anvil OBS: ignoring ReplayBufferSaved we didn't trigger");
+						break;
+					}
 					JsonObject ed = d.has("eventData") && d.get("eventData").isJsonObject() ? d.getAsJsonObject("eventData") : null;
 					String path = ed == null ? null : optString(ed, "savedReplayPath");
 					log.info("Anvil OBS: ReplayBufferSaved → {}", path);
@@ -240,9 +263,15 @@ public class ObsReplayClient extends WebSocketListener
 				if ("SaveReplayBuffer".equals(rt))
 				{
 					log.info("Anvil OBS: SaveReplayBuffer result={} {}", ok, comment);
-					if (!ok && onError != null)
+					if (!ok)
 					{
-						onError.accept("OBS could not save the clip — is the Replay Buffer started?");
+						// Our save failed, so no ReplayBufferSaved event will follow. Clear the guard
+						// now, otherwise it would wrongly consume the next client's broadcast.
+						awaitingSave = false;
+						if (onError != null)
+						{
+							onError.accept("OBS could not save the clip — is the Replay Buffer started?");
+						}
 					}
 				}
 				else if ("GetReplayBufferStatus".equals(rt))

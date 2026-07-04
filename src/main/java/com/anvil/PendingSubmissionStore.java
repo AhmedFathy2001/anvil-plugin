@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import com.google.gson.Gson;
 import javax.inject.Inject;
@@ -144,5 +144,34 @@ public class PendingSubmissionStore
 		new File(PENDING_DIR, baseName + ".png").delete();
 		new File(PENDING_DIR, baseName + ".json").delete();
 		log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
+	}
+
+	/** Number of submissions still waiting to upload (cheap — a directory listing, no parsing). */
+	public int count()
+	{
+		init();
+		String[] names = PENDING_DIR.list((dir, name) -> name.endsWith(".json"));
+		return names == null ? 0 : names.length;
+	}
+
+	/** Opens the pending-proofs folder in the OS file manager, off the calling thread. */
+	public void openFolder()
+	{
+		init();
+		if (!java.awt.Desktop.isDesktopSupported())
+		{
+			return;
+		}
+		new Thread(() ->
+		{
+			try
+			{
+				java.awt.Desktop.getDesktop().open(PENDING_DIR);
+			}
+			catch (Exception e)
+			{
+				log.warn("Could not open pending-proofs folder: {}", e.getMessage());
+			}
+		}, "anvil-open-proofs").start();
 	}
 }

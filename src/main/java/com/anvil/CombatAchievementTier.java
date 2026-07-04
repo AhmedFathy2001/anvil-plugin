@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import net.runelite.api.gameval.VarbitID;
 

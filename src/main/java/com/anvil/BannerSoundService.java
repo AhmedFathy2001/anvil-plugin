@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
@@ -35,7 +35,7 @@ public class BannerSoundService
 {
 	static final String USER_DIR_NAME = "anvil-bingo-sounds";
 
-	private final OsrsBingoConfig config;
+	private final AnvilConfig config;
 	private final AudioPlayer audioPlayer;
 	private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor(r ->
 	{
@@ -45,7 +45,7 @@ public class BannerSoundService
 	});
 
 	@Inject
-	public BannerSoundService(OsrsBingoConfig config, AudioPlayer audioPlayer)
+	public BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer)
 	{
 		this.config = config;
 		this.audioPlayer = audioPlayer;
@@ -91,7 +91,7 @@ public class BannerSoundService
 
 	/**
 	 * True if {@code name} is in the play cycle. The cycle is the comma-separated allowlist in
-	 * {@link OsrsBingoConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
+	 * {@link AnvilConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
 	 */
 	public boolean isSelected(String name)
 	{

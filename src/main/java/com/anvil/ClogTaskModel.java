@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -312,6 +312,20 @@ public final class ClogTaskModel
 			}
 		}
 
+		if (cfg.trackedDiaries != null)
+		{
+			for (PluginConfigResponse.TrackedDiary d : cfg.trackedDiaries)
+			{
+				if (d == null)
+				{
+					continue;
+				}
+				// Diary tiles count completions exactly like kills; no inventory icon.
+				rows.add(new TaskRow(d.tileId, d.label, Kind.KILL, d.currentAmount, d.requiredAmount, -1,
+					d.points, d.description, d.category, completed.contains(d.tileId)));
+			}
+		}
+
 		if (cfg.trackedTimed != null)
 		{
 			for (PluginConfigResponse.TrackedTimed t : cfg.trackedTimed)
@@ -324,6 +338,21 @@ public final class ClogTaskModel
 				boolean done = t.completed || completed.contains(t.tileId);
 				rows.add(new TaskRow(t.tileId, t.label, Kind.TIMED, done ? 1 : 0, 1, -1,
 					t.points, t.description, t.category, done));
+			}
+		}
+
+		if (cfg.trackedLms != null)
+		{
+			for (PluginConfigResponse.TrackedLms l : cfg.trackedLms)
+			{
+				if (l == null)
+				{
+					continue;
+				}
+				// LMS tiles count qualifying games toward requiredAmount, exactly like kills.
+				rows.add(new TaskRow(l.tileId, l.label, Kind.KILL, l.currentAmount,
+					Math.max(1, l.requiredAmount), -1, l.points, l.description, l.category,
+					completed.contains(l.tileId)));
 			}
 		}
 
@@ -387,7 +416,7 @@ public final class ClogTaskModel
 			{
 				continue;
 			}
-			if (!cat.isEmpty() && !cat.equalsIgnoreCase(r.category))
+			if (!cat.isEmpty() && !hasCategory(r, cat))
 			{
 				continue;
 			}
@@ -453,7 +482,27 @@ public final class ClogTaskModel
 		return tierKey.equalsIgnoreCase(tierKeyOf(r.points, bands));
 	}
 
-	/** Distinct, case-insensitively-deduped category names present (sorted); blanks excluded. */
+	/**
+	 * True when one of the row's comma-separated category tags equals {@code cat}
+	 * (case-insensitive). A tile can carry several tags (e.g. "Inferno, PvM") and
+	 * should surface under every one of them.
+	 */
+	private static boolean hasCategory(TaskRow r, String cat)
+	{
+		for (String part : r.category.split(","))
+		{
+			if (cat.equalsIgnoreCase(part.trim()))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Distinct, case-insensitively-deduped category tags present (sorted); blanks excluded.
+	 * Comma-separated multi-tag categories contribute each tag individually.
+	 */
 	public static List<String> categories(List<TaskRow> rows)
 	{
 		List<String> out = new ArrayList<>();
@@ -463,18 +512,26 @@ public final class ClogTaskModel
 			{
 				continue;
 			}
-			boolean seen = false;
-			for (String c : out)
+			for (String part : r.category.split(","))
 			{
-				if (c.equalsIgnoreCase(r.category))
+				String tag = part.trim();
+				if (tag.isEmpty())
 				{
-					seen = true;
-					break;
+					continue;
 				}
-			}
-			if (!seen)
-			{
-				out.add(r.category);
+				boolean seen = false;
+				for (String c : out)
+				{
+					if (c.equalsIgnoreCase(tag))
+					{
+						seen = true;
+						break;
+					}
+				}
+				if (!seen)
+				{
+					out.add(tag);
+				}
 			}
 		}
 		out.sort(String.CASE_INSENSITIVE_ORDER);

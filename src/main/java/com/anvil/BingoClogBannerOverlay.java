@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
@@ -76,7 +76,7 @@ public class BingoClogBannerOverlay extends Overlay
 	private long startedAt;
 
 	@Inject
-	public BingoClogBannerOverlay(OsrsBingoPlugin plugin)
+	public BingoClogBannerOverlay(AnvilPlugin plugin)
 	{
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
@@ -88,7 +88,7 @@ public class BingoClogBannerOverlay extends Overlay
 
 	private static BufferedImage loadBackground()
 	{
-		try (InputStream in = BingoClogBannerOverlay.class.getResourceAsStream("/com/osrsbingo/clog_banner.png"))
+		try (InputStream in = BingoClogBannerOverlay.class.getResourceAsStream("/com/anvil/clog_banner.png"))
 		{
 			return in == null ? null : ImageIO.read(in);
 		}

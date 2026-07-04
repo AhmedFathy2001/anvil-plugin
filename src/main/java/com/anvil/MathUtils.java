@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 /**
  * Binomial-probability helpers for multi-roll drop rarity.

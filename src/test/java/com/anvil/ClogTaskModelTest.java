@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +32,32 @@ public class ClogTaskModelTest
 		s.currentAmount = cur;
 		s.goalAmount = goal;
 		return s;
+	}
+
+	@Test
+	public void multiTagCategoriesSplitAndFilter()
+	{
+		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
+		rows.add(new ClogTaskModel.TaskRow(1, "Zuk cape", ClogTaskModel.Type.DROP, 0, 1, -1, 5, null, "Inferno, PvM"));
+		rows.add(new ClogTaskModel.TaskRow(2, "99 Slayer", ClogTaskModel.Type.STAT, 0, 1, -1, 5, null, "Skilling"));
+		rows.add(new ClogTaskModel.TaskRow(3, "Nex drop", ClogTaskModel.Type.DROP, 0, 1, -1, 5, null, "pvm"));
+
+		// Each tag contributes to the dropdown once, case-insensitively deduped.
+		List<String> cats = ClogTaskModel.categories(rows);
+		assertEquals(3, cats.size());
+		assertTrue(cats.contains("Inferno"));
+		assertTrue(cats.contains("Skilling"));
+		// "PvM" (first seen) wins over the later "pvm".
+		assertTrue(cats.contains("PvM"));
+
+		// Filtering by one tag matches every tile carrying it, whatever its other tags.
+		List<ClogTaskModel.TaskRow> pvm = ClogTaskModel.filter(
+			rows, ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, "", "PvM");
+		assertEquals(2, pvm.size());
+		List<ClogTaskModel.TaskRow> inferno = ClogTaskModel.filter(
+			rows, ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, "", "Inferno");
+		assertEquals(1, inferno.size());
+		assertEquals(1, inferno.get(0).tileId);
 	}
 
 	@Test

@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -40,6 +40,15 @@ public class TimedClearParserTest
 	}
 
 	@Test
+	public void parsesThreeDigitMinuteDurations()
+	{
+		// Slow Inferno/Zuk clears print raw minutes past 99 — real formats captured by RuneLite's
+		// chat-commands tests: "Duration: 172:18. Personal best: 134:52".
+		assertEquals(Integer.valueOf(10338), TimedClearParser.parseDurationSeconds("Duration: 172:18. Personal best: 134:52"));
+		assertEquals(Integer.valueOf(6271), TimedClearParser.parseDurationSeconds("Duration: 104:31 (new personal best)"));
+	}
+
+	@Test
 	public void ignoresMessagesWithoutADurationKeyword()
 	{
 		// A failed Inferno/TzHaar attempt carries a time but no "duration"/"completion time" keyword.
@@ -63,6 +72,35 @@ public class TimedClearParserTest
 	{
 		assertFalse(TimedClearParser.messageMatchesActivity("Your Sol Heredit kill count is: 100.", "Inferno"));
 		assertFalse(TimedClearParser.messageMatchesActivity("Your TzKal-Zuk kill count is: 1.", "Chambers of Xeric"));
+	}
+
+	@Test
+	public void matchesArticledBossNamesAgainstArticleFreeKillCountLines()
+	{
+		// DT2-style bosses: the kill-count line drops the "The".
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Leviathan kill count is: 4.", "The Leviathan"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Whisperer kill count is: 12.", "The Whisperer"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Hueycoatl kill count is: 3.", "The Hueycoatl"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Royal Titans kill count is: 8.", "The Royal Titans"));
+		// Article-free tile names ride the plain-substring fallback.
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Vardorvis kill count is: 20.", "Vardorvis"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Duke Sucellus kill count is: 7.", "Duke Sucellus"));
+	}
+
+	@Test
+	public void nexOnlyMatchesItsKillCountLine()
+	{
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Nex kill count is: 51.", "Nex"));
+		// "next" must not credit a Nex tile from an unrelated nearby line.
+		assertFalse(TimedClearParser.messageMatchesActivity("The next wave will begin soon.", "Nex"));
+	}
+
+	@Test
+	public void gauntletMatchesItsCompletionLineButNotCorrupted()
+	{
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Gauntlet completion count is: 45.", "The Gauntlet"));
+		assertFalse(TimedClearParser.messageMatchesActivity("Your Corrupted Gauntlet completion count is: 4.", "The Gauntlet"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Corrupted Gauntlet completion count is: 4.", "Corrupted Gauntlet"));
 	}
 
 	@Test

@@ -1,4 +1,4 @@
-package com.osrsbingo;
+package com.anvil;
 
 import java.util.List;
 
@@ -12,26 +12,32 @@ public class PluginConfigResponse
 	public List<TrackedStat> trackedStats;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
+	public List<TrackedLms> trackedLms;           // LMS placement tiles (finish top-N, M times)
+	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
-	public Webhooks webhooks;                          // plugin-posted notification destinations
+	public NotifyChannels notify;                      // which clan notification channels are enabled server-side
 	public List<String> funDeathMessages;              // server-managed 1/100 fun-death pool
 	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
 	public List<String> spoonTaunts;                   // server-managed lucky-drop reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
+	public boolean showKillCount = true;               // server toggle: include boss/raid KC on rare-drop posts
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 
-	public static class Webhooks
+	public static class NotifyChannels
 	{
-		// Discord webhook URLs the plugin posts to directly. Null when unset on the site.
-		public String rareDrops;
-		public String deaths;
-		public String combatAchievements;
-		public String pvpKills;
-		public String clips;
+		// True when the site has a Discord webhook configured for this notification type. The plugin
+		// posts notifications to its OWN server (POST /api/plugin/config's sibling /api/plugin/notify),
+		// which forwards them to Discord server-side — the plugin never receives or calls the webhook
+		// URL itself. (RuneLite plugin-hub rule: a plugin may not take a URL from a response and call
+		// it.) Clips are the exception: they upload straight to a user-pasted webhook in plugin config.
+		public boolean rareDrops;
+		public boolean deaths;
+		public boolean combatAchievements;
+		public boolean pvpKills;
 	}
 
 	public static class EventInfo
@@ -117,6 +123,22 @@ public class PluginConfigResponse
 		public String trackingMode;        // "team" | "individual"/"solo"
 	}
 
+	// Achievement-diary tile: the plugin credits a completion when the in-game diary completion
+	// line matches one of the selectors — "<Area> <Tier>" strings with "Any" as a wildcard on
+	// either side ("Ardougne Elite", "Any Elite", "Wilderness Any"). Same submission flow as kill.
+	public static class TrackedDiary
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public List<String> diaries;      // selectors — any matching one counts a completion
+		public int requiredAmount;
+		public int currentAmount;
+		public String trackingMode;        // "team" | "individual"/"solo"
+	}
+
 	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
 	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
 	public static class TrackedTimed
@@ -128,6 +150,19 @@ public class PluginConfigResponse
 		public String category;
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
+		public boolean completed;          // team already completed this tile
+	}
+
+	public static class TrackedLms
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public int placementCap;           // finish at or under this placement (1 = win)
+		public int requiredAmount;         // qualifying games needed to complete the tile
+		public int currentAmount;          // team's submitted qualifying games so far
 		public boolean completed;          // team already completed this tile
 	}
 
