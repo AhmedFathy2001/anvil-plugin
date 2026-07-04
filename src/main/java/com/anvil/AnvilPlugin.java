@@ -470,6 +470,10 @@ public class AnvilPlugin extends Plugin {
     // Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
     // gains that land within a couple of ticks of a Take click.
     private volatile int lastGroundTakeTick = -10;
+    // Telegrab guard: same idea, but the projectile takes several ticks to deliver the
+    // item, so the window is wider.
+    private volatile int lastTelegrabTick = -20;
+    private static final int TELEGRAB_GUARD_TICKS = 8;
     // Trade/bank items can land in the inventory on the same tick their interface closes —
     // remember the close so those gains stay suppressed too.
     private volatile int lastSuppressCloseTick = -10;
@@ -1756,6 +1760,7 @@ public class AnvilPlugin extends Plugin {
                 || pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)
                 || isBlackout() || gainSuppressingInterfaceOpen()
                 || client.getTickCount() - lastGroundTakeTick <= 2
+                || client.getTickCount() - lastTelegrabTick <= TELEGRAB_GUARD_TICKS
                 || client.getTickCount() - lastSuppressCloseTick <= 2) {
             return;
         }
@@ -1780,11 +1785,18 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** Ground-pickup guard: a "Take" makes the next inventory change look like a fresh gain. */
+    /**
+     * Ground-pickup guards: a "Take" (or a Telekinetic Grab cast) makes a later inventory
+     * change look like a fresh gain when it's really floor loot.
+     */
     @Subscribe
     public void onMenuOptionClicked(MenuOptionClicked event) {
         if ("Take".equalsIgnoreCase(event.getMenuOption())) {
             lastGroundTakeTick = client.getTickCount();
+        } else if ("Cast".equalsIgnoreCase(event.getMenuOption())
+                && event.getMenuTarget() != null
+                && event.getMenuTarget().contains("Telekinetic Grab")) {
+            lastTelegrabTick = client.getTickCount();
         }
     }
 
