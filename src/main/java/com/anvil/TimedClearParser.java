@@ -39,8 +39,10 @@ final class TimedClearParser
 
 	// A "duration"/"completion time" keyword followed (within a few non-digits) by an
 	// [h:]mm:ss token. Fractional ".ff" tails are intentionally left out of the capture group.
+	// Minutes go to three digits: slow Inferno/Zuk clears print raw minutes past 99
+	// ("Duration: 172:18. Personal best: 134:52") rather than rolling into h:mm:ss.
 	private static final Pattern DURATION = Pattern.compile(
-			"(?:duration|completion time)[^0-9]{0,16}((?:\\d{1,2}:)?\\d{1,2}:\\d{2})");
+			"(?:duration|completion time)[^0-9]{0,16}((?:\\d{1,2}:)?\\d{1,3}:\\d{2})");
 
 	// Lowercased activity (as configured on the tile) -> substrings that, if present in a nearby
 	// chat line, identify that activity. The identifying line is typically the boss/raid

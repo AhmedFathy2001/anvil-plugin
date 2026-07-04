@@ -40,6 +40,15 @@ public class TimedClearParserTest
 	}
 
 	@Test
+	public void parsesThreeDigitMinuteDurations()
+	{
+		// Slow Inferno/Zuk clears print raw minutes past 99 — real formats captured by RuneLite's
+		// chat-commands tests: "Duration: 172:18. Personal best: 134:52".
+		assertEquals(Integer.valueOf(10338), TimedClearParser.parseDurationSeconds("Duration: 172:18. Personal best: 134:52"));
+		assertEquals(Integer.valueOf(6271), TimedClearParser.parseDurationSeconds("Duration: 104:31 (new personal best)"));
+	}
+
+	@Test
 	public void ignoresMessagesWithoutADurationKeyword()
 	{
 		// A failed Inferno/TzHaar attempt carries a time but no "duration"/"completion time" keyword.
