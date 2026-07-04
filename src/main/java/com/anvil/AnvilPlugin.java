@@ -20,10 +20,15 @@ import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.ScriptID;
+import net.runelite.api.WorldView;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
@@ -439,6 +444,46 @@ public class AnvilPlugin extends Plugin {
     // Keyed on tileId — coalesces a kill spree into one screenshot + one submission.
     private final Map<String, KillAggregate> pendingKillAggregates = new HashMap<>();
 
+    // ---- Item-gain tiles (catch/cook/gather — counted from inventory gains) ----------------
+    private static class GainAggregate {
+
+        final PluginConfigResponse.TrackedGain gain;
+        int totalAmount;
+        int snapshotCurrent;
+        int snapshotRequired;
+        ScheduledFuture<?> flushTask;
+
+        GainAggregate(PluginConfigResponse.TrackedGain gain) {
+            this.gain = gain;
+        }
+    }
+
+    // itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
+    private volatile Map<Integer, List<PluginConfigResponse.TrackedGain>> gainItemIndex = Collections.emptyMap();
+    // Last seen inventory quantities (itemId → total). Null until the first snapshot after
+    // login/config load, so the baseline never counts as a gain.
+    private Map<Integer, Integer> lastInventoryCounts = null;
+    private final Map<Integer, GainAggregate> pendingGainAggregates = new HashMap<>();
+    // Gathering is a slow trickle (a catch every few seconds), so the settle window is much
+    // longer than drops' — one screenshot + submission per fishing stint, not per catch.
+    private static final long GAIN_COALESCE_MS = 30_000;
+    // Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
+    // gains that land within a couple of ticks of a Take click.
+    private volatile int lastGroundTakeTick = -10;
+    // Trade/bank items can land in the inventory on the same tick their interface closes —
+    // remember the close so those gains stay suppressed too.
+    private volatile int lastSuppressCloseTick = -10;
+
+    // ---- Deathless-raid tiles --------------------------------------------------------------
+    // Player deaths (anyone — raid instances are private, so any player is a party member)
+    // observed since the local player last entered an instance. Consulted when a raid
+    // completion line correlates to a deathless tile; reset on every instance entry.
+    private int instancePlayerDeaths = 0;
+    private boolean wasInInstance = false;
+    // Distinct players seen in the current instance (party size for tiles that require one).
+    // Raid teams share the entry room, so everyone renders at least once.
+    private final java.util.Set<String> instancePlayersSeen = new java.util.HashSet<>();
+
     // ---- Timed-clear tiles ---------------------------------------------------------------
     // Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
     // and some content repeats either line). Parsing/matching lives in TimedClearParser (tested).
@@ -591,6 +636,8 @@ public class AnvilPlugin extends Plugin {
         pendingRefresh = null;
         itemDropIndex = Collections.emptyMap();
         killNpcIndex = Collections.emptyMap();
+        gainItemIndex = Collections.emptyMap();
+        lastInventoryCounts = null;
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
         lastNpcDeathName = null;
@@ -706,6 +753,15 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onWidgetClosed(WidgetClosed event) {
         clogTabController.onWidgetClosed(event.getGroupId());
+        // Gain tiles: trade/bank items can land the tick their interface closes — keep those
+        // inventory changes suppressed (see onItemContainerChanged).
+        int g = event.getGroupId();
+        if (g == InterfaceID.BANKMAIN || g == InterfaceID.BANK_DEPOSITBOX
+                || g == InterfaceID.GE_OFFERS || g == InterfaceID.GE_COLLECT
+                || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM
+                || g == InterfaceID.SEED_VAULT) {
+            lastSuppressCloseTick = client.getTickCount();
+        }
     }
 
     @Subscribe
@@ -718,6 +774,23 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
+        // Deathless raids: reset the party-death counter + roster on every instance entry
+        // (CoX/ToB/ToA runs are instanced; each attempt is a fresh entry). While inside,
+        // collect the distinct players seen — that's the party size for tiles that pin one.
+        WorldView topView = client.getTopLevelWorldView();
+        boolean inInstance = topView != null && topView.isInstance();
+        if (inInstance && !wasInInstance) {
+            instancePlayerDeaths = 0;
+            instancePlayersSeen.clear();
+        }
+        wasInInstance = inInstance;
+        if (inInstance) {
+            for (Player p : client.getPlayers()) {
+                if (p != null && p.getName() != null) {
+                    instancePlayersSeen.add(p.getName().toLowerCase());
+                }
+            }
+        }
         // Baseline CA points once after login (before any completion) so we can tell first
         // completions (points rise) from recompletions (points unchanged).
         if (!caPointsInitialized && client.getGameState() == GameState.LOGGED_IN) {
@@ -849,7 +922,14 @@ public class AnvilPlugin extends Plugin {
             if (executor != null && !executor.isShutdown()) {
                 executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
             }
-        } else if (event.getGameState() == GameState.LOGIN_SCREEN) {
+        } else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
+            // Gain tiles: drop the inventory baseline so the next snapshot after login/hop
+            // re-seeds instead of reading the whole inventory as a "gain". Deathless: leave
+            // the instance so re-entry re-arms the death counter.
+            lastInventoryCounts = null;
+            wasInInstance = false;
+        }
+        if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
@@ -1362,7 +1442,21 @@ public class AnvilPlugin extends Plugin {
                     }
                 }
 
+                // Party-size gate (raid kit tiles, e.g. "solo Cursed phalanx"): raid chests are
+                // looted inside the instance, so the deathless party tracker knows the team
+                // size. Only counts when it matches exactly; 0 = any.
+                if (drop.partySize > 0) {
+                    int partySeen = instancePlayersSeen.size();
+                    if (!wasInInstance || partySeen != drop.partySize) {
+                        sendChatMessage("Drop not counted for " + drop.label + ": party of "
+                                + partySeen + ", tile requires " + drop.partySize + ".");
+                        continue;
+                    }
+                }
+
                 // Dedup: same loot fires NpcLootReceived + LootReceived back-to-back for NPC kills.
+                // Keyed per (tile, item) so a dedup hit only skips THIS tile — other tiles
+                // tracking the same item still get evaluated below.
                 String dedupKey = drop.tileId + ":" + itemId;
                 long now = System.currentTimeMillis();
                 Long lastAt;
@@ -1371,7 +1465,7 @@ public class AnvilPlugin extends Plugin {
                 }
                 if (lastAt != null && (now - lastAt) < DEDUP_WINDOW_MS) {
                     log.debug("Skipping duplicate drop event within dedup window: {} ({}ms)", drop.label, now - lastAt);
-                    break; // skip this item, try next in loot
+                    continue;
                 }
 
                 // Use the actual stack size from the loot event so a single kill that
@@ -1421,7 +1515,10 @@ public class AnvilPlugin extends Plugin {
                 // the flush so we end up with one screenshot + one submission for the
                 // whole burst (e.g. 5 feathers from a chicken).
                 queueDropForFlush(drop, amount, snapshotCurrent, snapshotRequired, trackingItemId);
-                break;
+                // No break: one drop credits EVERY tile tracking this item (e.g. a sunfire
+                // piece counting toward both "any Colosseum unique" and "sunfire piece"
+                // tiles). Each tile has its own aggregate, so each gets its own proof —
+                // mirrors creditKillTiles, which already credits all matching kill tiles.
             }
         }
     }
@@ -1627,6 +1724,139 @@ public class AnvilPlugin extends Plugin {
                 () -> kill.currentAmount = Math.max(0, kill.currentAmount - rolledBack));
     }
 
+    /* ----------------------------- Item-gain tiles ----------------------------- */
+    /**
+     * Counts tracked items appearing in the inventory (fishing catches, cooked food, jarred
+     * implings) toward gain tiles. Diffs each inventory snapshot against the previous one;
+     * gains while a bank/GE/deposit/trade/seed-vault interface is open (or just closed), or
+     * right after a ground "Take", are recorded but never credited — those are moves, not
+     * gathers. Unequipping tracked wearables still reads as a gain; the baked running total
+     * on the proof screenshot is the audit trail for that (same trust model as kill tiles).
+     */
+    @Subscribe
+    public void onItemContainerChanged(ItemContainerChanged event) {
+        if (event.getContainerId() != net.runelite.api.gameval.InventoryID.INV) {
+            return;
+        }
+        ItemContainer inv = event.getItemContainer();
+        if (inv == null) {
+            return;
+        }
+        Map<Integer, Integer> counts = new HashMap<>();
+        for (Item item : inv.getItems()) {
+            if (item != null && item.getId() > 0) {
+                counts.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
+            }
+        }
+        Map<Integer, Integer> previous = lastInventoryCounts;
+        lastInventoryCounts = counts;
+
+        // Baseline snapshot (login/config load) or a non-gather context → record only.
+        if (previous == null || gainItemIndex.isEmpty() || !config.autoSubmit()
+                || pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)
+                || isBlackout() || gainSuppressingInterfaceOpen()
+                || client.getTickCount() - lastGroundTakeTick <= 2
+                || client.getTickCount() - lastSuppressCloseTick <= 2) {
+            return;
+        }
+
+        for (Map.Entry<Integer, List<PluginConfigResponse.TrackedGain>> entry : gainItemIndex.entrySet()) {
+            int itemId = entry.getKey();
+            int delta = counts.getOrDefault(itemId, 0) - previous.getOrDefault(itemId, 0);
+            if (delta <= 0) {
+                continue;
+            }
+            // Every tile tracking this item credits, mirroring drops/kills.
+            for (PluginConfigResponse.TrackedGain gain : entry.getValue()) {
+                if (gain.completed || gain.currentAmount >= gain.requiredAmount) {
+                    continue;
+                }
+                int amount = Math.min(delta, Math.max(1, gain.requiredAmount - gain.currentAmount));
+                gain.currentAmount += amount;
+                log.info("Tracked gain: item {} ×{}, tile '{}' ({}/{})", itemId, amount, gain.label,
+                        gain.currentAmount, gain.requiredAmount);
+                queueGainForFlush(gain, amount);
+            }
+        }
+    }
+
+    /** Ground-pickup guard: a "Take" makes the next inventory change look like a fresh gain. */
+    @Subscribe
+    public void onMenuOptionClicked(MenuOptionClicked event) {
+        if ("Take".equalsIgnoreCase(event.getMenuOption())) {
+            lastGroundTakeTick = client.getTickCount();
+        }
+    }
+
+    /** True while an interface whose item flows aren't "gathering" is open. */
+    private boolean gainSuppressingInterfaceOpen() {
+        return client.getWidget(InterfaceID.BANKMAIN, 0) != null
+                || client.getWidget(InterfaceID.BANK_DEPOSITBOX, 0) != null
+                || client.getWidget(InterfaceID.GE_OFFERS, 0) != null
+                || client.getWidget(InterfaceID.GE_COLLECT, 0) != null
+                || client.getWidget(InterfaceID.TRADEMAIN, 0) != null
+                || client.getWidget(InterfaceID.TRADECONFIRM, 0) != null
+                || client.getWidget(InterfaceID.SEED_VAULT, 0) != null;
+    }
+
+    /**
+     * Adds a gain to the per-tile aggregate and (re)schedules its flush. Gathering trickles
+     * (a catch every few seconds), so the settle window is long — one screenshot + one
+     * submission per stint, with the running total baked on.
+     */
+    private void queueGainForFlush(PluginConfigResponse.TrackedGain gain, int amount) {
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        synchronized (pendingGainAggregates) {
+            GainAggregate agg = pendingGainAggregates.get(gain.tileId);
+            if (agg == null) {
+                agg = new GainAggregate(gain);
+                pendingGainAggregates.put(gain.tileId, agg);
+                sendChatMessage("Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
+            }
+            agg.totalAmount += amount;
+            agg.snapshotCurrent = gain.currentAmount;
+            agg.snapshotRequired = gain.requiredAmount;
+            if (agg.flushTask != null) {
+                agg.flushTask.cancel(false);
+            }
+            // Flush immediately once the tile is done — the completing proof shouldn't wait
+            // out the settle window.
+            long delay = gain.currentAmount >= gain.requiredAmount ? 1_500 : GAIN_COALESCE_MS;
+            agg.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), delay, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void flushGainAggregate(int tileId) {
+        GainAggregate agg;
+        synchronized (pendingGainAggregates) {
+            agg = pendingGainAggregates.remove(tileId);
+        }
+        if (agg == null || agg.totalAmount <= 0) {
+            return;
+        }
+        long sinceLast = System.currentTimeMillis() - lastUploadAt;
+        if (sinceLast < UPLOAD_THROTTLE_MS) {
+            long delay = UPLOAD_THROTTLE_MS - sinceLast;
+            if (executor != null && !executor.isShutdown()) {
+                executor.schedule(() -> doSubmitGainAggregate(agg), delay, TimeUnit.MILLISECONDS);
+            }
+            return;
+        }
+        doSubmitGainAggregate(agg);
+    }
+
+    private void doSubmitGainAggregate(GainAggregate agg) {
+        lastUploadAt = System.currentTimeMillis();
+        final PluginConfigResponse.TrackedGain gain = agg.gain;
+        final int rolledBack = agg.totalAmount;
+        String detail = gain.label + "  ×" + agg.totalAmount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+        captureAndSubmitProof(gain.tileId, gain.label, agg.totalAmount, null, "BINGO GAIN", detail,
+                "[Auto] " + gain.label + " gain(s) detected by RuneLite plugin",
+                () -> gain.currentAmount = Math.max(0, gain.currentAmount - rolledBack));
+    }
+
     /**
      * Shared capture → bake → persist → upload → submit path for kill and timed
      * tiles. Mirrors captureAndSubmit (drops) but takes primitives plus an
@@ -1674,7 +1904,7 @@ public class AnvilPlugin extends Plugin {
                         return;
                     }
 
-                    sendChatMessage("Uploading proof: " + label + "…");
+                    sendChatMessage("Uploading proof: " + label + "...");
                     boolean success = processPendingSubmission(pending);
                     if (success) {
                         sendChatMessage("Submitted: " + label);
@@ -1705,8 +1935,14 @@ public class AnvilPlugin extends Plugin {
      * onChatMessage).
      */
     private void handleTimedChat(String plain) {
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedTimed == null
-                || pluginConfig.trackedTimed.isEmpty()) {
+        if (!config.autoSubmit() || pluginConfig == null) {
+            return;
+        }
+        // Deathless tiles piggyback on the same correlation: a raid's completion is announced
+        // by the very duration + identity lines the timed machinery already pairs up.
+        boolean hasTimed = pluginConfig.trackedTimed != null && !pluginConfig.trackedTimed.isEmpty();
+        boolean hasDeathless = pluginConfig.trackedDeathless != null && !pluginConfig.trackedDeathless.isEmpty();
+        if (!hasTimed && !hasDeathless) {
             return;
         }
         if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
@@ -1730,8 +1966,13 @@ public class AnvilPlugin extends Plugin {
             // content) or may still be coming (Inferno prints the duration first).
             boolean submitted = false;
             for (TimedMsg m : recentTimedMessages) {
-                if (now - m.ts <= TIMED_CORRELATION_MS && submitTimedForMessage(m.lower, seconds, now)) {
-                    submitted = true;
+                if (now - m.ts <= TIMED_CORRELATION_MS) {
+                    if (submitTimedForMessage(m.lower, seconds, now)) {
+                        submitted = true;
+                    }
+                    if (submitDeathlessForMessage(m.lower, now)) {
+                        submitted = true;
+                    }
                 }
             }
             // Table-free fallback: attribute to the boss we just killed.
@@ -1747,10 +1988,74 @@ public class AnvilPlugin extends Plugin {
             }
         } else if (pendingTimedSeconds != null && (now - pendingTimedAt) <= TIMED_CORRELATION_MS) {
             // No duration here, but a duration is waiting — does THIS line identify the activity?
-            if (submitTimedForMessage(lower, pendingTimedSeconds, now)) {
+            boolean submitted = submitTimedForMessage(lower, pendingTimedSeconds, now);
+            if (submitDeathlessForMessage(lower, now)) {
+                submitted = true;
+            }
+            if (submitted) {
                 pendingTimedSeconds = null;
             }
         }
+    }
+
+    /**
+     * Credits deathless tiles this line identifies. Reaching here means a raid completion is
+     * being announced (a duration line is part of the correlation), so the run counts when no
+     * player died in the instance since we entered — and, when the tile pins a party size,
+     * when exactly that many distinct players were seen inside.
+     */
+    private boolean submitDeathlessForMessage(String lowerMessage, long now) {
+        if (pluginConfig == null || pluginConfig.trackedDeathless == null) {
+            return false;
+        }
+        boolean any = false;
+        for (PluginConfigResponse.TrackedDeathless tile : pluginConfig.trackedDeathless) {
+            if (tile == null || tile.completed || tile.activity == null
+                    || tile.currentAmount >= Math.max(1, tile.requiredAmount)) {
+                continue;
+            }
+            if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
+                continue;
+            }
+            // An Entry Mode clear must never credit a base-raid tile ("Theatre of Blood" is a
+            // substring of its Entry line). Harder modes crediting a base tile is fine.
+            if (lowerMessage.contains("entry mode")
+                    && !tile.activity.toLowerCase(java.util.Locale.ROOT).contains("entry mode")) {
+                continue;
+            }
+            synchronized (lastTimedSubmittedAt) {
+                Long last = lastTimedSubmittedAt.get(tile.tileId);
+                if (last != null && (now - last) < TIMED_DEDUP_WINDOW_MS) {
+                    continue;
+                }
+                // Mark attempts too — several nearby identity lines would otherwise repeat
+                // the verdict (or double-submit) for the same run.
+                lastTimedSubmittedAt.put(tile.tileId, now);
+            }
+            if (instancePlayerDeaths > 0) {
+                sendChatMessage("Not deathless: " + tile.label + " — " + instancePlayerDeaths
+                        + (instancePlayerDeaths == 1 ? " death" : " deaths") + " this run.");
+                continue;
+            }
+            int partySeen = instancePlayersSeen.size();
+            if (tile.partySize > 0 && partySeen != tile.partySize) {
+                sendChatMessage("Deathless run not counted for " + tile.label + ": party of "
+                        + partySeen + ", tile requires " + tile.partySize + ".");
+                continue;
+            }
+            tile.currentAmount++;
+            int goal = Math.max(1, tile.requiredAmount);
+            sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
+            String detail = tile.activity + "  deathless"
+                    + (tile.partySize > 0 ? "  party " + partySeen : "")
+                    + "  (" + tile.currentAmount + "/" + goal + ")";
+            final PluginConfigResponse.TrackedDeathless credited = tile;
+            captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO DEATHLESS", detail,
+                    "[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
+                    () -> credited.currentAmount = Math.max(0, credited.currentAmount - 1));
+            any = true;
+        }
+        return any;
     }
 
     /**
@@ -2004,7 +2309,7 @@ public class AnvilPlugin extends Plugin {
                     }
 
                     // Now upload and submit
-                    sendChatMessage("Uploading proof: " + drop.label + "…");
+                    sendChatMessage("Uploading proof: " + drop.label + "...");
                     boolean success = processPendingSubmission(pending);
 
                     if (success) {
@@ -2279,7 +2584,7 @@ public class AnvilPlugin extends Plugin {
                             shown++;
                         }
                         if (r.changes.size() > cap) {
-                            sendChatMessage("…and " + (r.changes.size() - cap) + " more changes (see Discord audit feed).");
+                            sendChatMessage("...and " + (r.changes.size() - cap) + " more changes (see Discord audit feed).");
                         }
                     }
                     cb.onResult(true, lastSyncSummary);
@@ -2430,6 +2735,24 @@ public class AnvilPlugin extends Plugin {
         }
         itemDropIndex = index;
         rebuildKillNpcIndex();
+        rebuildGainItemIndex();
+    }
+
+    /** Rebuild the itemId → TrackedGain index; refreshed together with the drop index. */
+    private void rebuildGainItemIndex() {
+        Map<Integer, List<PluginConfigResponse.TrackedGain>> index = new HashMap<>();
+        if (pluginConfig != null && pluginConfig.trackedGains != null) {
+            for (PluginConfigResponse.TrackedGain gain : pluginConfig.trackedGains) {
+                if (gain.itemIds != null) {
+                    for (Integer id : gain.itemIds) {
+                        if (id != null) {
+                            index.computeIfAbsent(id, k -> new ArrayList<>()).add(gain);
+                        }
+                    }
+                }
+            }
+        }
+        gainItemIndex = index;
     }
 
     /**
@@ -2483,6 +2806,12 @@ public class AnvilPlugin extends Plugin {
                 lastNpcDeathName = npcName;
                 lastNpcDeathAt = System.currentTimeMillis();
             }
+        }
+
+        // Deathless raids: any player dying while we're inside an instance counts against the
+        // current run (raid instances are private, so any player here is a party member).
+        if (actor instanceof Player && wasInInstance) {
+            instancePlayerDeaths++;
         }
 
         // Our own death → deaths channel.
@@ -3475,7 +3804,7 @@ public class AnvilPlugin extends Plugin {
             connectObs();
             return;
         }
-        sendChatMessage("Saving clip…");
+        sendChatMessage("Saving clip...");
         obsClip.saveReplayBuffer();
     }
 
@@ -3510,7 +3839,7 @@ public class AnvilPlugin extends Plugin {
         }
         String rsn = getLocalPlayerName();
         String content = (rsn != null ? rsn : "A clan member") + " saved a clip 🎬";
-        sendChatMessage("Uploading clip to the clan Discord…");
+        sendChatMessage("Uploading clip to the clan Discord...");
         // Stream the file straight from disk on the upload client (generous timeouts); only claim
         // success once Discord actually accepts it, so a 413/429/timeout reads as a failure, not silence.
         discordClient.sendWithFile(webhook, content, file, file.getName(), contentTypeForClip(file.getName()), ok -> {
