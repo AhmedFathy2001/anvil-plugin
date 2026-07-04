@@ -1402,7 +1402,13 @@ public class AnvilPlugin extends Plugin {
             }
 
             for (PluginConfigResponse.TrackedDrop drop : matchingDrops) {
-                if (drop.currentAmount >= drop.requiredAmount) {
+                // Per-item (collection/set) tiles can't use the aggregate short-circuit: on an
+                // "any full set" tile requiredAmount is the SMALLEST set's total, so scattered
+                // pieces across sets pass it long before any set completes — and the piece that
+                // finally finishes a set would never submit. Gate those on the team-completion
+                // flag instead; the per-item caps below already stop duplicate pieces.
+                boolean perItem = drop.itemRequirements != null && !drop.itemRequirements.isEmpty();
+                if (perItem ? isTileCompleted(drop.tileId) : drop.currentAmount >= drop.requiredAmount) {
                     continue;
                 }
 
@@ -2826,6 +2832,20 @@ public class AnvilPlugin extends Plugin {
             }
         }
         killNpcIndex = index;
+    }
+
+    /** True when the team has already completed this tile (per the last config refresh). */
+    private boolean isTileCompleted(int tileId) {
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.completedTiles == null) {
+            return false;
+        }
+        for (PluginConfigResponse.CompletedTile c : cfg.completedTiles) {
+            if (c != null && c.tileId == tileId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isBlackout() {
