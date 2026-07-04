@@ -223,6 +223,7 @@ public class PluginConfigResponse
 		public String category;      // free-text grouping (boss/skill) for the clog task filter
 		public String statName;     // e.g. "mining", "zulrah"
 		public String statType;     // "skill" | "boss" | "kc"
+		public int itemId = -1;     // boss KC tiles: the boss's representative clog item (icon); -1 for skills
 		public String trackingMode; // "team" | "individual"
 		public int currentAmount;   // gained XP / KC since baseline
 		public int goalAmount;
