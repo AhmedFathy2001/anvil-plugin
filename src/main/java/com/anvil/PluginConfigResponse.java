@@ -13,6 +13,9 @@ public class PluginConfigResponse
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
 	public List<TrackedLms> trackedLms;           // LMS placement tiles (finish top-N, M times)
+	public List<TrackedValue> trackedValues;      // loot-value tiles (one haul worth >= thresholdGp)
+	public List<TrackedGain> trackedGains;        // item-gain tiles (catch/cook/gather N, from inventory gains)
+	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
@@ -91,6 +94,10 @@ public class PluginConfigResponse
 		// null/empty = any source NPC. Otherwise the drop only counts when the loot source
 		// name matches one of these (case-insensitive), e.g. ["Tekton"] for "onyx, Tekton only".
 		public List<String> sourceNpcs;
+		// Exact raid party size required for the drop to count ("solo Cursed phalanx");
+		// 0/absent = any. Raid chests are looted inside the instance, so the deathless
+		// party tracker doubles as the size source.
+		public int partySize;
 	}
 
 	public static class ItemRequirement
@@ -150,6 +157,7 @@ public class PluginConfigResponse
 		public String category;
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
+		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
 		public boolean completed;          // team already completed this tile
 	}
 
@@ -163,6 +171,46 @@ public class PluginConfigResponse
 		public int placementCap;           // finish at or under this placement (1 = win)
 		public int requiredAmount;         // qualifying games needed to complete the tile
 		public int currentAmount;          // team's submitted qualifying games so far
+		public boolean completed;          // team already completed this tile
+	}
+
+	public static class TrackedGain
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public List<Integer> itemIds;      // pool — any of these appearing in the inventory counts
+		public int requiredAmount;         // total gains needed across the pool
+		public int currentAmount;          // team's submitted gains so far
+		public boolean completed;          // team already completed this tile
+	}
+
+	public static class TrackedDeathless
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public String activity;            // the raid, e.g. "Theatre of Blood"
+		public int requiredAmount;         // deathless runs needed
+		public int currentAmount;          // team's submitted runs so far
+		public int partySize;              // exact party size required; 0/absent = any size
+		public int itemId = -1;            // activity's signature reward (icon), -1 = book sprite
+		public boolean completed;          // team already completed this tile
+	}
+
+	public static class TrackedValue
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public long thresholdGp;           // a single haul must be worth at least this
+		public List<String> sources;       // optional source filter: NPC/chest names, or "PvP"; empty = any
 		public boolean completed;          // team already completed this tile
 	}
 

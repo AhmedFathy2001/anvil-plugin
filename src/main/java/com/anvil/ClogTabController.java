@@ -6,8 +6,10 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.FontTypeFace;
 import net.runelite.api.ScriptEvent;
 import net.runelite.api.ScriptID;
+import net.runelite.api.SpriteID;
 import net.runelite.api.widgets.ItemQuantityMode;
 import net.runelite.api.widgets.JavaScriptCallback;
 import net.runelite.api.widgets.Widget;
@@ -431,6 +433,111 @@ public class ClogTabController
 		w.setOriginalY(y);
 		w.setOriginalWidth(width);
 		w.setOriginalHeight(height);
+	}
+
+	private static final int DESC_LINE_H = 14;
+	private static final int DESC_COLOR = 0xc0c0c0;
+
+	/**
+	 * Renders a tile description as one TEXT widget per wrapped line. The client's own
+	 * multi-line text path is unusable here: raw newlines are dropped (words run together),
+	 * {@code <col>} tags don't survive its line splitting (lines fall back to the widget's
+	 * base color, i.e. black), and it draws past a fixed-height widget. So we wrap with the
+	 * real font metrics and lay each line out ourselves — color, spacing and total height
+	 * are then exact. Returns the height consumed.
+	 */
+	private int renderDescription(Widget items, String description, int x, int y, int width)
+	{
+		Widget first = items.createChild(-1, WidgetType.TEXT);
+		first.setFontId(FONT_PLAIN);
+		List<String> lines = wrapText(first.getFont(), description, width);
+
+		for (int i = 0; i < lines.size(); i++)
+		{
+			Widget w = i == 0 ? first : items.createChild(-1, WidgetType.TEXT);
+			w.setFontId(FONT_PLAIN);
+			w.setText(lines.get(i));
+			w.setTextColor(DESC_COLOR);
+			w.setTextShadowed(true);
+			place(w, x, y + i * DESC_LINE_H, width, DESC_LINE_H);
+			w.revalidate();
+		}
+		return lines.size() * DESC_LINE_H + 2;
+	}
+
+	/** Greedy word-wrap using font metrics; explicit newlines become hard breaks. */
+	private static List<String> wrapText(FontTypeFace font, String text, int width)
+	{
+		List<String> lines = new ArrayList<>();
+		for (String paragraph : text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1))
+		{
+			StringBuilder line = new StringBuilder();
+			for (String word : paragraph.split(" "))
+			{
+				String candidate = line.length() == 0 ? word : line + " " + word;
+				if (line.length() > 0 && textWidth(font, candidate) > width)
+				{
+					lines.add(line.toString());
+					line.setLength(0);
+					line.append(word);
+				}
+				else
+				{
+					line.setLength(0);
+					line.append(candidate);
+				}
+			}
+			lines.add(line.toString());
+		}
+		return lines;
+	}
+
+	private static int textWidth(FontTypeFace font, String text)
+	{
+		// ~6px/char fallback keeps the wrap sane if the font ever fails to resolve.
+		return font != null ? font.getTextWidth(text) : text.length() * 6;
+	}
+
+	/**
+	 * The stats-tab icon sprite for a hiscores skill name (as the server sends it, e.g.
+	 * "mining"), or -1 when there's no such sprite (bosses, and skills newer than the
+	 * pinned runelite-api like sailing) — callers fall back to the clog-book sprite.
+	 */
+	private static int skillSpriteId(String skill)
+	{
+		if (skill == null)
+		{
+			return -1;
+		}
+		switch (skill.toLowerCase(java.util.Locale.ROOT))
+		{
+			case "attack": return SpriteID.SKILL_ATTACK;
+			case "strength": return SpriteID.SKILL_STRENGTH;
+			case "defence": return SpriteID.SKILL_DEFENCE;
+			case "ranged": return SpriteID.SKILL_RANGED;
+			case "prayer": return SpriteID.SKILL_PRAYER;
+			case "magic": return SpriteID.SKILL_MAGIC;
+			case "hitpoints": return SpriteID.SKILL_HITPOINTS;
+			case "agility": return SpriteID.SKILL_AGILITY;
+			case "herblore": return SpriteID.SKILL_HERBLORE;
+			case "thieving": return SpriteID.SKILL_THIEVING;
+			case "crafting": return SpriteID.SKILL_CRAFTING;
+			case "fletching": return SpriteID.SKILL_FLETCHING;
+			case "mining": return SpriteID.SKILL_MINING;
+			case "smithing": return SpriteID.SKILL_SMITHING;
+			case "fishing": return SpriteID.SKILL_FISHING;
+			case "cooking": return SpriteID.SKILL_COOKING;
+			case "firemaking": return SpriteID.SKILL_FIREMAKING;
+			case "woodcutting": return SpriteID.SKILL_WOODCUTTING;
+			case "runecraft":
+			case "runecrafting": return SpriteID.SKILL_RUNECRAFT;
+			case "slayer": return SpriteID.SKILL_SLAYER;
+			case "farming": return SpriteID.SKILL_FARMING;
+			case "hunter": return SpriteID.SKILL_HUNTER;
+			case "construction": return SpriteID.SKILL_CONSTRUCTION;
+			case "overall": return SpriteID.SKILL_TOTAL;
+			default: return -1;
+		}
 	}
 
 	private Widget findBingoTab(Widget tabs)
@@ -881,7 +988,7 @@ public class ClogTabController
 		{
 			Widget sync = container.createChild(-1, WidgetType.TEXT);
 			sync.setText(clanSyncInProgress
-				? "<col=999999>Syncing clan…</col>"
+				? "<col=999999>Syncing clan...</col>"
 				: "<col=ffcc33>Sync clan roster</col>");
 			sync.setFontId(FONT_PLAIN);
 			sync.setTextShadowed(true);
@@ -954,7 +1061,7 @@ public class ClogTabController
 			String disp = clip.toLowerCase().endsWith(".wav") ? clip.substring(0, clip.length() - 4) : clip;
 			if (disp.length() > 26)
 			{
-				disp = disp.substring(0, 25) + "…";
+				disp = disp.substring(0, 25) + "...";
 			}
 			Widget row = container.createChild(-1, WidgetType.TEXT);
 			row.setText("<col=" + (on ? "49c25e" : "777777") + ">" + disp + "</col>");
@@ -1309,7 +1416,7 @@ public class ClogTabController
 		Widget search = items.createChild(-1, WidgetType.TEXT);
 		search.setText(hasQuery
 			? "<col=999999>Search:</col> <col=ffcc33>" + query + "</col>"
-			: "<col=777777>Search tasks…</col>");
+			: "<col=777777>Search tasks...</col>");
 		search.setFontId(FONT_PLAIN);
 		search.setTextShadowed(true);
 		place(search, 0, y, paneWidth, 14);
@@ -1411,14 +1518,32 @@ public class ClogTabController
 	private void bodyFilterChip(Widget items, String label, String value, int x, int y, int w, JavaScriptCallback onClick)
 	{
 		Widget chip = items.createChild(-1, WidgetType.TEXT);
-		chip.setText("<col=999999>" + label + ":</col> <col=ffcc33>" + value + "</col>");
 		chip.setFontId(FONT_PLAIN);
 		chip.setTextShadowed(true);
+		// Fit "Label: value" inside this chip's column — long free-text values (category names)
+		// otherwise draw over the neighbouring chip or off the pane edge.
+		String fitted = fitValue(chip.getFont(), label + ": ", value, w);
+		chip.setText("<col=999999>" + label + ":</col> <col=ffcc33>" + fitted + "</col>");
 		place(chip, x, y, w, 14);
 		chip.setHasListener(true);
 		chip.setAction(0, "Cycle");
 		chip.setOnOpListener(onClick);
 		chip.revalidate();
+	}
+
+	/** Truncates {@code value} with "..." so {@code prefix + value} fits in {@code width} px. */
+	private static String fitValue(FontTypeFace font, String prefix, String value, int width)
+	{
+		if (textWidth(font, prefix + value) <= width)
+		{
+			return value;
+		}
+		String v = value;
+		while (v.length() > 1 && textWidth(font, prefix + v + "...") > width)
+		{
+			v = v.substring(0, v.length() - 1).trim();
+		}
+		return v + "...";
 	}
 
 	/** Renders one accordion task row; returns the vertical space it consumed. */
@@ -1436,7 +1561,10 @@ public class ClogTabController
 		}
 		else
 		{
-			icon.setSpriteId(ClogIds.STAT_TILE_SPRITE);
+			// Skill tiles get their stats-tab skill icon; everything else without an item
+			// (bosses, kills, diaries, unknown skills) keeps the clog-book stand-in.
+			int skillSprite = row.kind == ClogTaskModel.Kind.SKILL ? skillSpriteId(row.skillName) : -1;
+			icon.setSpriteId(skillSprite != -1 ? skillSprite : ClogIds.STAT_TILE_SPRITE);
 		}
 		place(icon, 2, y + (ClogIds.ROW_H - ClogIds.ROW_ICON) / 2, ClogIds.ROW_ICON, ClogIds.ROW_ICON);
 		icon.setOpacity(row.status == ClogTaskModel.Status.NOT_STARTED ? 120 : 0);
@@ -1480,13 +1608,7 @@ public class ClogTabController
 		int height = ClogIds.ROW_H;
 		if (expanded && hasDesc)
 		{
-			Widget desc = items.createChild(-1, WidgetType.TEXT);
-			desc.setText("<col=c0c0c0>" + row.description + "</col>");
-			desc.setTextShadowed(true);
-			desc.setFontId(FONT_PLAIN);
-			place(desc, ClogIds.ROW_TEXT_X, y + ClogIds.ROW_H, textWidth, ClogIds.DESC_H);
-			desc.revalidate();
-			height += ClogIds.DESC_H + 2;
+			height += renderDescription(items, row.description, ClogIds.ROW_TEXT_X, y + ClogIds.ROW_H, textWidth) + 2;
 		}
 		return height;
 	}
@@ -1725,7 +1847,7 @@ public class ClogTabController
 			else
 			{
 				bannerLine(header, "Leaderboard", COL_ORANGE, 0);
-				bannerLine(header, loadingLeaderboard ? "Loading…" : "Unavailable", 0xaaaaaa, 16);
+				bannerLine(header, loadingLeaderboard ? "Loading..." : "Unavailable", 0xaaaaaa, 16);
 			}
 			header.revalidate();
 		}
@@ -1742,7 +1864,7 @@ public class ClogTabController
 		if (lb == null || lb.entries == null)
 		{
 			Widget m = items.createChild(-1, WidgetType.TEXT);
-			m.setText(loadingLeaderboard ? "Loading leaderboard…" : "Couldn't load the leaderboard.");
+			m.setText(loadingLeaderboard ? "Loading leaderboard..." : "Couldn't load the leaderboard.");
 			m.setTextColor(0xaaaaaa);
 			m.setFontId(FONT_PLAIN);
 			place(m, 4, y, paneWidth - 8, 16);
@@ -2175,15 +2297,18 @@ public class ClogTabController
 			}
 			boolean stat = t.requirement != null && !t.requirement.trim().isEmpty();
 			ClogTaskModel.Kind kind = boardTileKind(t, stat);
-			boolean hasItemIcon = kind == ClogTaskModel.Kind.DROP || kind == ClogTaskModel.Kind.COLLECTION;
-			int itemId = hasItemIcon ? t.itemId : -1;
+			// The server picks the icon item (tracked item, or a timed activity's signature
+			// reward); loot-value tiles show coins, everything else falls back to a sprite.
+			int itemId = t.itemId > 0 ? t.itemId
+				: (kind == ClogTaskModel.Kind.VALUE ? ClogTaskModel.COINS_ITEM_ID : -1);
+			String skillName = kind == ClogTaskModel.Kind.SKILL ? t.statName : null;
 			int goal = t.requiredAmount;
 			// Read-only preview has no per-you progress; only fill the bar if the board flags the tile
 			// complete (which in a preview means "some team has it"). forceCompleted drives the colour.
 			int current = t.complete ? Math.max(goal, 1) : 0;
 			String name = (t.label == null || t.label.isEmpty()) ? ("Tile " + (t.index + 1)) : t.label;
 			rows.add(new ClogTaskModel.TaskRow(t.tileId, name, kind, current, goal, itemId,
-				t.points, t.description, t.category, t.complete));
+				t.points, t.description, t.category, t.complete, skillName));
 		}
 		return rows;
 	}
@@ -2198,6 +2323,16 @@ public class ClogTabController
 				return ClogTaskModel.Kind.KILL;
 			case "timed":
 				return ClogTaskModel.Kind.TIMED;
+			case "diary":
+				return ClogTaskModel.Kind.DIARY;
+			case "lms":
+				return ClogTaskModel.Kind.LMS;
+			case "value":
+				return ClogTaskModel.Kind.VALUE;
+			case "gain":
+				return ClogTaskModel.Kind.GAIN;
+			case "deathless":
+				return ClogTaskModel.Kind.DEATHLESS;
 			case "drop":
 				return (t.itemRequirements != null && !t.itemRequirements.isEmpty())
 					? ClogTaskModel.Kind.COLLECTION : ClogTaskModel.Kind.DROP;
@@ -2330,7 +2465,7 @@ public class ClogTabController
 			return;
 		}
 
-		// Large icon (item) or a stand-in sprite for manual/stat tiles.
+		// Large icon (item), the skill's stats-tab icon, or a stand-in sprite for manual tiles.
 		int iconSize = 42;
 		Widget icon = items.createChild(-1, WidgetType.GRAPHIC);
 		if (sel.itemId > 0)
@@ -2340,7 +2475,8 @@ public class ClogTabController
 		}
 		else
 		{
-			icon.setSpriteId(ClogIds.STAT_TILE_SPRITE);
+			int skillSprite = "skill".equalsIgnoreCase(sel.statType) ? skillSpriteId(sel.statName) : -1;
+			icon.setSpriteId(skillSprite != -1 ? skillSprite : ClogIds.STAT_TILE_SPRITE);
 		}
 		place(icon, 6, y, iconSize, iconSize);
 		icon.revalidate();
@@ -2404,13 +2540,7 @@ public class ClogTabController
 
 		if (sel.description != null && !sel.description.isEmpty())
 		{
-			Widget desc = items.createChild(-1, WidgetType.TEXT);
-			desc.setText("<col=c0c0c0>" + sel.description + "</col>");
-			desc.setTextShadowed(true);
-			desc.setFontId(FONT_PLAIN);
-			place(desc, 6, y, paneWidth - 12, 60);
-			desc.revalidate();
-			y += 64;
+			y += renderDescription(items, sel.description, 6, y, paneWidth - 12) + 4;
 		}
 
 		// Compound tile (e.g. a full-moon set): list each required item with its icon and your
@@ -2877,6 +3007,10 @@ public class ClogTabController
 
 	private static String pretty(String enumName)
 	{
+		if ("LMS".equals(enumName))
+		{
+			return "LMS"; // initialism — "Lms" reads wrong on the Type chip
+		}
 		String s = enumName.toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
 		return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
 	}
