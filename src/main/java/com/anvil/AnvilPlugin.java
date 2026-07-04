@@ -1862,9 +1862,49 @@ public class AnvilPlugin extends Plugin {
     private void doSubmitGainAggregate(GainAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedGain gain = agg.gain;
-        final int rolledBack = agg.totalAmount;
-        String detail = gain.label + "  ×" + agg.totalAmount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-        captureAndSubmitProof(gain.tileId, gain.label, agg.totalAmount, null, "BINGO GAIN", detail,
+        final int amount = agg.totalAmount;
+
+        // Intermediate flushes are count-only pings — AFK gathering flushes every time the
+        // inventory fills or the spot depletes, and a screenshot per cycle would swamp the
+        // media store for zero evidentiary value. The single proof screenshot lands on the
+        // flush that completes the tile (manual web submissions still require an image).
+        if (agg.snapshotCurrent < agg.snapshotRequired) {
+            if (executor == null || executor.isShutdown()
+                    || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
+                return;
+            }
+            // Capture ids now — the config can clear (logout) before the task runs.
+            final int eventId = pluginConfig.event.id;
+            final int teamId = pluginConfig.team.id;
+            final int playerId = pluginConfig.player.id;
+            executor.submit(() -> {
+                try {
+                    apiClient.submitDrop(eventId, gain.tileId, teamId,
+                            amount, null, "[Auto] " + gain.label + " gain(s) counted by RuneLite plugin",
+                            playerId, null);
+                    log.info("Gain ping sent: '{}' ×{}", gain.label, amount);
+                    refreshConfig();
+                } catch (IOException e) {
+                    log.warn("Gain ping failed for '{}' ×{} — requeueing: {}", gain.label, amount, e.getMessage());
+                    // Fold the amount back into the aggregate so a later flush retries it.
+                    synchronized (pendingGainAggregates) {
+                        GainAggregate retry = pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new GainAggregate(gain));
+                        retry.totalAmount += amount;
+                        retry.snapshotCurrent = gain.currentAmount;
+                        retry.snapshotRequired = gain.requiredAmount;
+                        if (retry.flushTask != null) {
+                            retry.flushTask.cancel(false);
+                        }
+                        retry.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    }
+                }
+            });
+            return;
+        }
+
+        final int rolledBack = amount;
+        String detail = gain.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+        captureAndSubmitProof(gain.tileId, gain.label, amount, null, "BINGO GAIN", detail,
                 "[Auto] " + gain.label + " gain(s) detected by RuneLite plugin",
                 () -> gain.currentAmount = Math.max(0, gain.currentAmount - rolledBack));
     }
