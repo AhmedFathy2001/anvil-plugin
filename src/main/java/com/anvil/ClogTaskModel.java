@@ -301,10 +301,11 @@ public final class ClogTaskModel
 				String statCategory = (s.category != null && !s.category.trim().isEmpty())
 					? s.category : s.statName;
 				boolean isBoss = "boss".equalsIgnoreCase(s.statType) || "kc".equalsIgnoreCase(s.statType);
-				// statName doubles as the skill identifier ("mining") for the renderer's skill icon.
+				// statName doubles as the skill identifier ("mining") for the renderer's skill
+				// icon; boss tiles carry the server-picked representative item instead.
 				rows.add(new TaskRow(s.tileId, s.label, isBoss ? Kind.BOSS : Kind.SKILL, s.currentAmount,
-					s.goalAmount, -1, s.points, s.description, statCategory, completed.contains(s.tileId),
-					isBoss ? null : s.statName));
+					s.goalAmount, isBoss ? s.itemId : -1, s.points, s.description, statCategory,
+					completed.contains(s.tileId), isBoss ? null : s.statName));
 			}
 		}
 
