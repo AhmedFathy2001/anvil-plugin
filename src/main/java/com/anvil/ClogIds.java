@@ -62,7 +62,6 @@ final class ClogIds
 	static final int ROW_H = 36;
 	static final int ROW_ICON = 32;
 	static final int ROW_TEXT_X = 40;
-	static final int DESC_H = 28; // accordion description height when a row is expanded
 
 	// A sprite to stand in for stat tiles (which have no inventory item icon): the
 	// collection-log book icon. Confirmed present as SpriteID.HISCORE_COLLECTIONS_LOGGED.

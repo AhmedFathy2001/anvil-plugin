@@ -49,12 +49,57 @@ public class TimedClearParserTest
 	}
 
 	@Test
+	public void parsesTimeColonFormats()
+	{
+		// Sailing Barracuda Trials
+		assertEquals(Integer.valueOf(364), TimedClearParser.parseDurationSeconds("Time: 6:04.20 (new personal best)."));
+		// Hallowed Sepulchre floor + overall lines
+		assertEquals(Integer.valueOf(407), TimedClearParser.parseDurationSeconds("Floor 5 time: 6:47.40 (new personal best)"));
+		assertEquals(Integer.valueOf(1599), TimedClearParser.parseDurationSeconds("Overall time: 26:39.20 (new personal best)"));
+		// ToA per-challenge line
+		assertEquals(Integer.valueOf(623), TimedClearParser.parseDurationSeconds("Challenge time: 10:23"));
+	}
+
+	@Test
+	public void parsesTemporossSubduedFormat()
+	{
+		assertEquals(Integer.valueOf(392), TimedClearParser.parseDurationSeconds("Subdued in 6:32 (new personal best)."));
+	}
+
+	@Test
 	public void ignoresMessagesWithoutADurationKeyword()
 	{
 		// A failed Inferno/TzHaar attempt carries a time but no "duration"/"completion time" keyword.
 		assertNull(TimedClearParser.parseDurationSeconds("You survived for 1:16.80 but failed to kill any JalTok-Jads before perishing."));
 		assertNull(TimedClearParser.parseDurationSeconds("Your TzKal-Zuk kill count is: 1."));
 		assertNull(TimedClearParser.parseDurationSeconds(null));
+		// Countdowns aren't clears: "time" without a fused colon must not parse.
+		assertNull(TimedClearParser.parseDurationSeconds("Time remaining: 5:00"));
+		// Clan broadcast carries the time after "personal best:" — no duration keyword.
+		assertNull(TimedClearParser.parseDurationSeconds("Drenvox mdps has achieved a new Maggot King personal best: 1:19"));
+	}
+
+	@Test
+	public void matchesBarracudaTrialIdentityLines()
+	{
+		// Specific-course tiles ride the plain fallback — both flanking lines name the course.
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Gwenith Glide completion count is: 49", "Gwenith Glide"));
+		assertTrue(TimedClearParser.messageMatchesActivity(
+			"You have completed the Gwenith Glide and achieved the Marlin rank.", "The Gwenith Glide"));
+		// A generic any-trial tile matches every course via the signature table.
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Gwenith Glide completion count is: 49", "Barracuda Trials"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your Tempor Tantrum completion count is: 3", "Barracuda Trials"));
+		assertFalse(TimedClearParser.messageMatchesActivity("Your Gwenith Glide completion count is: 49", "Tempor Tantrum"));
+	}
+
+	@Test
+	public void matchesSepulchreRunsAndFloors()
+	{
+		// Full-run tiles: the "Overall time" exit line both carries the time and identifies the run.
+		assertTrue(TimedClearParser.messageMatchesActivity("Overall time: 26:39.20 (new personal best)", "Hallowed Sepulchre"));
+		assertFalse(TimedClearParser.messageMatchesActivity("Floor 5 time: 6:47.40 (new personal best)", "Hallowed Sepulchre"));
+		// Floor tiles ride the fallback against the floor line itself.
+		assertTrue(TimedClearParser.messageMatchesActivity("Floor 5 time: 6:47.40 (new personal best)", "Floor 5"));
 	}
 
 	@Test

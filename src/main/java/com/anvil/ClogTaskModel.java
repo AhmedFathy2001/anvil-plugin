@@ -21,12 +21,12 @@ public final class ClogTaskModel
 	public enum Type { DROP, STAT }
 
 	/**
-	 * Fine-grained tile mechanic, mirroring the web admin's 7-way kind filter
-	 * (standard / skill / boss / drop / collection / kill / timed). Drives the in-clog Type filter.
-	 * STANDARD never originates from the plugin config today (manual tiles aren't synced) but is
-	 * kept for parity with the web so the cycle order matches.
+	 * Fine-grained tile mechanic, mirroring the web admin's kind filter (standard / skill /
+	 * boss / drop / collection / kill / timed / diary / lms / value). Drives the in-clog Type
+	 * filter. STANDARD never originates from the plugin config today (manual tiles aren't
+	 * synced) but is kept for parity with the web so the cycle order matches.
 	 */
-	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED }
+	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, LMS, VALUE, GAIN, DEATHLESS }
 
 	public enum Status
 	{
@@ -43,7 +43,7 @@ public final class ClogTaskModel
 	 * Type filter options — ALL plus the seven {@link Kind}s, in the same order the web admin
 	 * cycles them. Cycling steps through these on the in-clog "Type" chip.
 	 */
-	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED }
+	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, LMS, VALUE, GAIN, DEATHLESS }
 
 	/**
 	 * Difficulty-tier bands are no longer hardcoded — the server sends them (admin-configurable) in
@@ -142,7 +142,7 @@ public final class ClogTaskModel
 	/** The coarse {@link Type} implied by a {@link Kind} — DROP-family kinds show an item icon. */
 	private static Type typeOf(Kind kind)
 	{
-		return (kind == Kind.DROP || kind == Kind.COLLECTION) ? Type.DROP : Type.STAT;
+		return (kind == Kind.DROP || kind == Kind.COLLECTION || kind == Kind.VALUE || kind == Kind.GAIN) ? Type.DROP : Type.STAT;
 	}
 
 	/** Default {@link Kind} for the legacy constructors (board previews / tests) that only know Type. */
@@ -168,6 +168,7 @@ public final class ClogTaskModel
 		public final int points;
 		public final String description;
 		public final String category; // free-text grouping (boss/skill); "" = uncategorised
+		public final String skillName; // hiscores skill for SKILL tiles ("mining"); null otherwise
 		public final Status status;
 
 		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId)
@@ -199,9 +200,15 @@ public final class ClogTaskModel
 			this(tileId, label, kindOf(type), current, goal, itemId, points, description, category, forceCompleted);
 		}
 
-		/** Canonical constructor — callers that know the precise {@link Kind} (e.g. {@link #build}) use this. */
 		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
 			String description, String category, boolean forceCompleted)
+		{
+			this(tileId, label, kind, current, goal, itemId, points, description, category, forceCompleted, null);
+		}
+
+		/** Canonical constructor — callers that know the precise {@link Kind} (e.g. {@link #build}) use this. */
+		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
+			String description, String category, boolean forceCompleted, String skillName)
 		{
 			this.tileId = tileId;
 			this.label = label == null ? "" : label;
@@ -213,6 +220,7 @@ public final class ClogTaskModel
 			this.points = points;
 			this.description = description == null ? "" : description;
 			this.category = category == null ? "" : category.trim();
+			this.skillName = skillName;
 			// A team-level completion (any member / manual) is authoritative even when this client's
 			// own current < goal — e.g. an individual-mode tile a teammate finished first.
 			this.status = forceCompleted ? Status.COMPLETED : statusOf(current, goal);
@@ -293,8 +301,10 @@ public final class ClogTaskModel
 				String statCategory = (s.category != null && !s.category.trim().isEmpty())
 					? s.category : s.statName;
 				boolean isBoss = "boss".equalsIgnoreCase(s.statType) || "kc".equalsIgnoreCase(s.statType);
+				// statName doubles as the skill identifier ("mining") for the renderer's skill icon.
 				rows.add(new TaskRow(s.tileId, s.label, isBoss ? Kind.BOSS : Kind.SKILL, s.currentAmount,
-					s.goalAmount, -1, s.points, s.description, statCategory, completed.contains(s.tileId)));
+					s.goalAmount, -1, s.points, s.description, statCategory, completed.contains(s.tileId),
+					isBoss ? null : s.statName));
 			}
 		}
 
@@ -321,7 +331,7 @@ public final class ClogTaskModel
 					continue;
 				}
 				// Diary tiles count completions exactly like kills; no inventory icon.
-				rows.add(new TaskRow(d.tileId, d.label, Kind.KILL, d.currentAmount, d.requiredAmount, -1,
+				rows.add(new TaskRow(d.tileId, d.label, Kind.DIARY, d.currentAmount, d.requiredAmount, -1,
 					d.points, d.description, d.category, completed.contains(d.tileId)));
 			}
 		}
@@ -335,8 +345,9 @@ public final class ClogTaskModel
 					continue;
 				}
 				// Timed tiles are pass/fail (no running count): completed flag drives status; goal 1.
+				// The server sends the activity's signature reward as the icon (quiver, capes…).
 				boolean done = t.completed || completed.contains(t.tileId);
-				rows.add(new TaskRow(t.tileId, t.label, Kind.TIMED, done ? 1 : 0, 1, -1,
+				rows.add(new TaskRow(t.tileId, t.label, Kind.TIMED, done ? 1 : 0, 1, t.itemId,
 					t.points, t.description, t.category, done));
 			}
 		}
@@ -350,14 +361,65 @@ public final class ClogTaskModel
 					continue;
 				}
 				// LMS tiles count qualifying games toward requiredAmount, exactly like kills.
-				rows.add(new TaskRow(l.tileId, l.label, Kind.KILL, l.currentAmount,
+				rows.add(new TaskRow(l.tileId, l.label, Kind.LMS, l.currentAmount,
 					Math.max(1, l.requiredAmount), -1, l.points, l.description, l.category,
 					completed.contains(l.tileId)));
 			}
 		}
 
+		if (cfg.trackedValues != null)
+		{
+			for (PluginConfigResponse.TrackedValue v : cfg.trackedValues)
+			{
+				if (v == null)
+				{
+					continue;
+				}
+				// Loot-value tiles are pass/fail (one qualifying haul): completed flag drives status.
+				// Coins as the icon — a gp-threshold tile has no single representative item.
+				boolean done = v.completed || completed.contains(v.tileId);
+				rows.add(new TaskRow(v.tileId, v.label, Kind.VALUE, done ? 1 : 0, 1, COINS_ITEM_ID,
+					v.points, v.description, v.category, done));
+			}
+		}
+
+		if (cfg.trackedGains != null)
+		{
+			for (PluginConfigResponse.TrackedGain g : cfg.trackedGains)
+			{
+				if (g == null)
+				{
+					continue;
+				}
+				// Gain tiles count like kills; the first pool item doubles as the icon.
+				int icon = (g.itemIds != null && !g.itemIds.isEmpty() && g.itemIds.get(0) != null)
+					? g.itemIds.get(0) : -1;
+				rows.add(new TaskRow(g.tileId, g.label, Kind.GAIN, g.currentAmount,
+					Math.max(1, g.requiredAmount), icon, g.points, g.description, g.category,
+					completed.contains(g.tileId)));
+			}
+		}
+
+		if (cfg.trackedDeathless != null)
+		{
+			for (PluginConfigResponse.TrackedDeathless d : cfg.trackedDeathless)
+			{
+				if (d == null)
+				{
+					continue;
+				}
+				// Deathless runs count like kills; the server sends the raid's signature reward icon.
+				rows.add(new TaskRow(d.tileId, d.label, Kind.DEATHLESS, d.currentAmount,
+					Math.max(1, d.requiredAmount), d.itemId, d.points, d.description, d.category,
+					completed.contains(d.tileId)));
+			}
+		}
+
 		return rows;
 	}
+
+	/** Inventory item id for coins — the stand-in icon for loot-value (gp threshold) tiles. */
+	static final int COINS_ITEM_ID = 995;
 
 	/**
 	 * Pick the icon to show for a drop tile: the first per-item requirement if present,
@@ -467,6 +529,16 @@ public final class ClogTaskModel
 				return r.kind == Kind.KILL;
 			case TIMED:
 				return r.kind == Kind.TIMED;
+			case DIARY:
+				return r.kind == Kind.DIARY;
+			case LMS:
+				return r.kind == Kind.LMS;
+			case VALUE:
+				return r.kind == Kind.VALUE;
+			case GAIN:
+				return r.kind == Kind.GAIN;
+			case DEATHLESS:
+				return r.kind == Kind.DEATHLESS;
 			case ALL:
 			default:
 				return true;
