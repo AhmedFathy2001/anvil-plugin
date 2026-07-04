@@ -32,17 +32,29 @@ import java.util.regex.Pattern;
  *                Grotesque Guardians, Muspah, the DT2 four, Scurrius, Araxxor, Yama, etc.); the
  *                identity line names the boss, so the activity-name fallback covers them.
  *   Gauntlet     "Challenge duration: 10:24. Personal best: 7:59."  +  "Your Gauntlet completion count is: 45."
+ *   Barracuda Trials (Sailing)
+ *                "You have completed the Gwenith Glide and achieved the Marlin rank."
+ *                + "Time: 6:04.20 (new personal best)."  +  "Your Gwenith Glide completion count is: 49"
+ *                — no signature entry needed: both flanking lines name the trial, so the
+ *                activity-name fallback matches tiles like "gwenith glide" / "tempor tantrum".
  */
 final class TimedClearParser
 {
 	private TimedClearParser() {}
 
-	// A "duration"/"completion time" keyword followed (within a few non-digits) by an
-	// [h:]mm:ss token. Fractional ".ff" tails are intentionally left out of the capture group.
-	// Minutes go to three digits: slow Inferno/Zuk clears print raw minutes past 99
-	// ("Duration: 172:18. Personal best: 134:52") rather than rolling into h:mm:ss.
+	// A duration keyword followed (within a few non-digits) by an [h:]mm:ss token. Fractional
+	// ".ff" tails are intentionally left out of the capture group. Minutes go to three digits:
+	// slow Inferno/Zuk clears print raw minutes past 99 ("Duration: 172:18. Personal best:
+	// 134:52") rather than rolling into h:mm:ss. Keyword family, mirroring the formats
+	// RuneLite's chat-commands PB tracker knows:
+	//   duration        — "Fight/Wave/Challenge/Corrupted challenge duration:", raid "Duration:"
+	//   completion time — ToB/ToA "total completion time:"
+	//   time:           — Barracuda Trials "Time: 6:04.20", Sepulchre "Floor 5 time:"/"Overall
+	//                     time:", ToA "Challenge time:". Colon fused so countdown lines
+	//                     ("Time remaining: 5:00") don't parse as a clear.
+	//   subdued in      — Tempoross "Subdued in 6:32"
 	private static final Pattern DURATION = Pattern.compile(
-			"(?:duration|completion time)[^0-9]{0,16}((?:\\d{1,2}:)?\\d{1,3}:\\d{2})");
+			"(?:duration|completion time|time:|subdued in)[^0-9]{0,16}((?:\\d{1,2}:)?\\d{1,3}:\\d{2})");
 
 	// Lowercased activity (as configured on the tile) -> substrings that, if present in a nearby
 	// chat line, identify that activity. The identifying line is typically the boss/raid
@@ -77,6 +89,16 @@ final class TimedClearParser
 		// "nex" is too short for the contains-fallback — "next" in any nearby line would
 		// false-match. Pin it to the real kill-count line.
 		SIGNATURES.put("nex", Collections.singletonList("your nex kill count"));
+		// Sailing Barracuda Trials: no chat line ever says "barracuda", so a generic
+		// any-trial tile needs the three course names. Tiles naming a specific course
+		// ("Gwenith Glide") ride the plain fallback — both flanking lines name it.
+		SIGNATURES.put("barracuda trials", Arrays.asList("tempor tantrum", "jubbly jive", "gwenith glide"));
+		SIGNATURES.put("barracuda trial", Arrays.asList("tempor tantrum", "jubbly jive", "gwenith glide"));
+		// Hallowed Sepulchre full runs: no chat line says "sepulchre" either — the exit
+		// message is "Overall time: 26:39.20", which both carries the time and identifies
+		// the run. Floor tiles ("Floor 5") ride the fallback against "Floor 5 time: ...".
+		SIGNATURES.put("hallowed sepulchre", Collections.singletonList("overall time"));
+		SIGNATURES.put("sepulchre", Collections.singletonList("overall time"));
 	}
 
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */
