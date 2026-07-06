@@ -278,6 +278,16 @@ public class AnvilPlugin extends Plugin {
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
 
+    // Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
+    // Fired for drops handed out through channels that produce NO loot event — Maggot King's
+    // pre-roll uniques spill out beside a corpse that never despawns. Greedy item group so an
+    // item name containing parentheses keeps them; the LAST parenthetical is the source. The
+    // recipient group is length-bounded (RSNs are ≤12 chars; "You" also fits) so the clan-chat
+    // broadcast variant ("... (50,000,000 coins) from Maggot King.") can never contort into a
+    // match. Package-private for DropNotificationLineTest.
+    static final java.util.regex.Pattern DROP_NOTIFICATION_PATTERN = java.util.regex.Pattern.compile(
+            "^(.{1,20}?) received a drop: (?:([\\d,]+) x )?(.+) \\(([^()]+)\\)\\.?$");
+
     // Completions that award a guaranteed item straight to the inventory — no loot event ever
     // fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
     // would need manual submission. The Jagex kill-count chat line fires on every completion,
@@ -1027,12 +1037,15 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Server-authoritative NPC loot (Jagex's loot-notification packet). This is the ONLY
-     * loot signal for corpse-looted bosses — Maggot King, Araxxor — where the client-side
-     * despawn inference behind NpcLootReceived never fires. For regular NPCs it can
-     * double-fire alongside NpcLootReceived; the per-(tile,item) credit dedup and the
-     * per-item rare-drop dedup both absorb that. Kill counting stays on NpcLootReceived +
-     * the Jagex KC chat line (which already covers these bosses), so kills never double.
+     * Server-authoritative NPC loot (the in-game loot tracker's clientscript). The loot
+     * signal for corpse-looted bosses — Araxxor, Maggot King's stomach loot — where the
+     * client-side despawn inference behind NpcLootReceived never fires. NOT sufficient on
+     * its own: loot that bypasses the in-game tracker (Maggot King's spill-out uniques)
+     * only surfaces in the drop-attribution chat line — see creditDropFromChat. For
+     * regular NPCs it can double-fire alongside NpcLootReceived; the per-(tile,item)
+     * credit dedup and the per-item rare-drop dedup both absorb that. Kill counting stays
+     * on NpcLootReceived + the Jagex KC chat line (which already covers these bosses), so
+     * kills never double.
      */
     @Subscribe
     public void onServerNpcLoot(ServerNpcLoot event) {
@@ -1262,6 +1275,12 @@ public class AnvilPlugin extends Plugin {
             // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
             creditClogUnlock(item);
         }
+        // Server drop-attribution line — the ONLY signal for drops that bypass both loot events
+        // (Maggot King's spill-out uniques). Recipient-checked, so safe at group bosses.
+        java.util.regex.Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(plain);
+        if (dropLine.matches()) {
+            creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
+        }
         // Combat achievement task completion. The points varbit hasn't settled yet, so we stash the
         // parse and finish on the next game tick (where we read CA points to detect a tier clear).
         if (config.notifyCombatAchievements()) {
@@ -1360,6 +1379,77 @@ public class AnvilPlugin extends Plugin {
         // item itself — a tile with a specific sourceNpcs list won't match, which is intended
         // (clog rewards have no NPC source to whitelist against).
         processLoot(itemName, synthetic, "clog");
+    }
+
+    /**
+     * Fallback drop crediting off the server's drop-attribution chat line —
+     * "&lt;player&gt; received a drop: &lt;item&gt; (&lt;source&gt;)". Maggot King's uniques
+     * spill out beside its corpse: the corpse never despawns (no NpcLootReceived) and the
+     * in-game loot-tracker script behind ServerNpcLoot doesn't report the spill, so this
+     * line is the only signal that fires. It names the recipient, so crediting stays
+     * attribution-safe where other players' drops are also announced. When a loot event
+     * DOES also fire, processLoot's per-(tile,item) window and the rare-drop per-item
+     * window absorb the duplicate — same contract as creditGuaranteedAward.
+     */
+    private void creditDropFromChat(String recipient, String qtyText, String itemName, String source) {
+        String local = getLocalPlayerName();
+        if (local == null || recipient == null || itemName == null || itemName.isEmpty()) {
+            return;
+        }
+        // Chat renders RSN spaces as non-breaking spaces; normalise both sides before comparing.
+        String who = recipient.replace('\u00A0', ' ').trim();
+        if (!who.equalsIgnoreCase(local.replace('\u00A0', ' ').trim()) && !who.equalsIgnoreCase("You")) {
+            return; // another player's drop
+        }
+        int qty = 1;
+        if (qtyText != null) {
+            try {
+                qty = Math.max(1, Integer.parseInt(qtyText.replace(",", "")));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        // Bingo tiles: synthesize loot for every tracked item id whose name matches, exactly
+        // like creditClogUnlock (item names are unique per family, ids aren't). Sourced as
+        // "npc" loot from the boss so tiles restricted to sourceNpcs=["Maggot King"] match.
+        List<ItemStack> synthetic = null;
+        Integer notifyId = null;
+        for (Integer id : itemDropIndex.keySet()) {
+            ItemComposition comp = itemManager.getItemComposition(id);
+            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
+                if (synthetic == null) {
+                    synthetic = new ArrayList<>(1);
+                }
+                synthetic.add(new ItemStack(id, qty));
+                notifyId = id;
+            }
+        }
+        if (synthetic != null) {
+            processLoot(source, synthetic, "npc");
+        }
+
+        // Clan rare-drop post — also for items no tile tracks (kill may pre-date any event).
+        // Resolve untracked names against the GE item list; untradeables that reach this line
+        // are covered by the prestige allowlist via the clog path instead.
+        if (notifyId == null) {
+            notifyId = findTradeableItemId(itemName);
+        }
+        if (notifyId != null) {
+            maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
+        }
+    }
+
+    /** Exact-name lookup against the GE item list (tradeables only); null when not found. */
+    private Integer findTradeableItemId(String name) {
+        try {
+            for (net.runelite.http.api.item.ItemPrice p : itemManager.search(name)) {
+                if (p != null && name.equalsIgnoreCase(p.getName())) {
+                    return p.getId();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /**
