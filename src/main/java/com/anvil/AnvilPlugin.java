@@ -42,6 +42,7 @@ import okhttp3.OkHttpClient;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
+import net.runelite.client.events.ServerNpcLoot;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
@@ -1023,6 +1024,24 @@ public class AnvilPlugin extends Plugin {
         weeklyEnrollAttempted = true;
 
         activeWeekly = apiClient.fetchActiveWeekly();
+    }
+
+    /**
+     * Server-authoritative NPC loot (Jagex's loot-notification packet). This is the ONLY
+     * loot signal for corpse-looted bosses — Maggot King, Araxxor — where the client-side
+     * despawn inference behind NpcLootReceived never fires. For regular NPCs it can
+     * double-fire alongside NpcLootReceived; the per-(tile,item) credit dedup and the
+     * per-item rare-drop dedup both absorb that. Kill counting stays on NpcLootReceived +
+     * the Jagex KC chat line (which already covers these bosses), so kills never double.
+     */
+    @Subscribe
+    public void onServerNpcLoot(ServerNpcLoot event) {
+        if (event.getComposition() == null) {
+            return;
+        }
+        String name = event.getComposition().getName();
+        processLoot(name, event.getItems(), "npc");
+        maybeNotifyRareDrop(name, event.getItems(), "npc");
     }
 
     @Subscribe
