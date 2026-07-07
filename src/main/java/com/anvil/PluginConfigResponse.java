@@ -82,6 +82,7 @@ public class PluginConfigResponse
 	public static class TrackedDrop
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;   // tile description, for the clog task accordion
 		public int points;           // Leagues-style reward value (0 = not a points event)
@@ -121,6 +122,7 @@ public class PluginConfigResponse
 	public static class TrackedKill
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -137,6 +139,7 @@ public class PluginConfigResponse
 	public static class TrackedDiary
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -154,6 +157,7 @@ public class PluginConfigResponse
 	public static class TrackedCombatTask
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -169,6 +173,7 @@ public class PluginConfigResponse
 	public static class TrackedTimed
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -182,6 +187,7 @@ public class PluginConfigResponse
 	public static class TrackedLms
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -195,6 +201,7 @@ public class PluginConfigResponse
 	public static class TrackedGain
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -208,6 +215,7 @@ public class PluginConfigResponse
 	public static class TrackedDeathless
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -223,6 +231,7 @@ public class PluginConfigResponse
 	public static class TrackedValue
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;
 		public int points;
@@ -235,6 +244,7 @@ public class PluginConfigResponse
 	public static class TrackedStat
 	{
 		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
 		public String description;   // tile description, for the clog task accordion
 		public int points;           // Leagues-style reward value (0 = not a points event)

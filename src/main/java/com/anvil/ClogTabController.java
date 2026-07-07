@@ -2307,8 +2307,11 @@ public class ClogTabController
 			// complete (which in a preview means "some team has it"). forceCompleted drives the colour.
 			int current = t.complete ? Math.max(goal, 1) : 0;
 			String name = (t.label == null || t.label.isEmpty()) ? ("Tile " + (t.index + 1)) : t.label;
-			rows.add(new ClogTaskModel.TaskRow(t.tileId, name, kind, current, goal, itemId,
-				t.points, t.description, t.category, t.complete, skillName));
+			ClogTaskModel.TaskRow row = new ClogTaskModel.TaskRow(t.tileId, name, kind, current, goal, itemId,
+				t.points, t.description, t.category, t.complete, skillName);
+			// Board order within each status group, mirroring the site's tile order.
+			row.position = t.index;
+			rows.add(row);
 		}
 		return rows;
 	}

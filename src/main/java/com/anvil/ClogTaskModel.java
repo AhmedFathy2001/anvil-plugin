@@ -170,6 +170,10 @@ public final class ClogTaskModel
 		public final String category; // free-text grouping (boss/skill); "" = uncategorised
 		public final String skillName; // hiscores skill for SKILL tiles ("mining"); null otherwise
 		public final Status status;
+		// Board position — the within-status-group sort key, so the in-game list mirrors the
+		// site's tile order (difficulty sort, shuffle). Set after construction (0 on old
+		// servers, where the sort falls through to the label tiebreak — the old behavior).
+		public int position;
 
 		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId)
 		{
@@ -282,7 +286,7 @@ public final class ClogTaskModel
 				// otherwise it's a simple drop pool. Mirrors the web's drop-vs-collection split.
 				Kind kind = (d.itemRequirements != null && !d.itemRequirements.isEmpty())
 					? Kind.COLLECTION : Kind.DROP;
-				rows.add(new TaskRow(d.tileId, d.label, kind, d.currentAmount, d.requiredAmount,
+				addAt(rows, d.position, new TaskRow(d.tileId, d.label, kind, d.currentAmount, d.requiredAmount,
 					representativeItemId(d), d.points, d.description, d.category, completed.contains(d.tileId)));
 			}
 		}
@@ -303,7 +307,7 @@ public final class ClogTaskModel
 				boolean isBoss = "boss".equalsIgnoreCase(s.statType) || "kc".equalsIgnoreCase(s.statType);
 				// statName doubles as the skill identifier ("mining") for the renderer's skill
 				// icon; boss tiles carry the server-picked representative item instead.
-				rows.add(new TaskRow(s.tileId, s.label, isBoss ? Kind.BOSS : Kind.SKILL, s.currentAmount,
+				addAt(rows, s.position, new TaskRow(s.tileId, s.label, isBoss ? Kind.BOSS : Kind.SKILL, s.currentAmount,
 					s.goalAmount, isBoss ? s.itemId : -1, s.points, s.description, statCategory,
 					completed.contains(s.tileId), isBoss ? null : s.statName));
 			}
@@ -318,7 +322,7 @@ public final class ClogTaskModel
 					continue;
 				}
 				// No inventory icon for a kill-count tile; the controller shows the stat sprite.
-				rows.add(new TaskRow(k.tileId, k.label, Kind.KILL, k.currentAmount, k.requiredAmount, -1,
+				addAt(rows, k.position, new TaskRow(k.tileId, k.label, Kind.KILL, k.currentAmount, k.requiredAmount, -1,
 					k.points, k.description, k.category, completed.contains(k.tileId)));
 			}
 		}
@@ -332,7 +336,7 @@ public final class ClogTaskModel
 					continue;
 				}
 				// Diary tiles count completions exactly like kills; no inventory icon.
-				rows.add(new TaskRow(d.tileId, d.label, Kind.DIARY, d.currentAmount, d.requiredAmount, -1,
+				addAt(rows, d.position, new TaskRow(d.tileId, d.label, Kind.DIARY, d.currentAmount, d.requiredAmount, -1,
 					d.points, d.description, d.category, completed.contains(d.tileId)));
 			}
 		}
@@ -346,7 +350,7 @@ public final class ClogTaskModel
 					continue;
 				}
 				// Combat Achievement tiles count completions exactly like diaries; no inventory icon.
-				rows.add(new TaskRow(t.tileId, t.label, Kind.COMBAT_TASK, t.currentAmount, t.requiredAmount, -1,
+				addAt(rows, t.position, new TaskRow(t.tileId, t.label, Kind.COMBAT_TASK, t.currentAmount, t.requiredAmount, -1,
 					t.points, t.description, t.category, completed.contains(t.tileId)));
 			}
 		}
@@ -362,7 +366,7 @@ public final class ClogTaskModel
 				// Timed tiles are pass/fail (no running count): completed flag drives status; goal 1.
 				// The server sends the activity's signature reward as the icon (quiver, capes…).
 				boolean done = t.completed || completed.contains(t.tileId);
-				rows.add(new TaskRow(t.tileId, t.label, Kind.TIMED, done ? 1 : 0, 1, t.itemId,
+				addAt(rows, t.position, new TaskRow(t.tileId, t.label, Kind.TIMED, done ? 1 : 0, 1, t.itemId,
 					t.points, t.description, t.category, done));
 			}
 		}
@@ -376,7 +380,7 @@ public final class ClogTaskModel
 					continue;
 				}
 				// LMS tiles count qualifying games toward requiredAmount, exactly like kills.
-				rows.add(new TaskRow(l.tileId, l.label, Kind.LMS, l.currentAmount,
+				addAt(rows, l.position, new TaskRow(l.tileId, l.label, Kind.LMS, l.currentAmount,
 					Math.max(1, l.requiredAmount), -1, l.points, l.description, l.category,
 					completed.contains(l.tileId)));
 			}
@@ -393,7 +397,7 @@ public final class ClogTaskModel
 				// Loot-value tiles are pass/fail (one qualifying haul): completed flag drives status.
 				// Coins as the icon — a gp-threshold tile has no single representative item.
 				boolean done = v.completed || completed.contains(v.tileId);
-				rows.add(new TaskRow(v.tileId, v.label, Kind.VALUE, done ? 1 : 0, 1, COINS_ITEM_ID,
+				addAt(rows, v.position, new TaskRow(v.tileId, v.label, Kind.VALUE, done ? 1 : 0, 1, COINS_ITEM_ID,
 					v.points, v.description, v.category, done));
 			}
 		}
@@ -409,7 +413,7 @@ public final class ClogTaskModel
 				// Gain tiles count like kills; the first pool item doubles as the icon.
 				int icon = (g.itemIds != null && !g.itemIds.isEmpty() && g.itemIds.get(0) != null)
 					? g.itemIds.get(0) : -1;
-				rows.add(new TaskRow(g.tileId, g.label, Kind.GAIN, g.currentAmount,
+				addAt(rows, g.position, new TaskRow(g.tileId, g.label, Kind.GAIN, g.currentAmount,
 					Math.max(1, g.requiredAmount), icon, g.points, g.description, g.category,
 					completed.contains(g.tileId)));
 			}
@@ -424,13 +428,20 @@ public final class ClogTaskModel
 					continue;
 				}
 				// Deathless runs count like kills; the server sends the raid's signature reward icon.
-				rows.add(new TaskRow(d.tileId, d.label, Kind.DEATHLESS, d.currentAmount,
+				addAt(rows, d.position, new TaskRow(d.tileId, d.label, Kind.DEATHLESS, d.currentAmount,
 					Math.max(1, d.requiredAmount), d.itemId, d.points, d.description, d.category,
 					completed.contains(d.tileId)));
 			}
 		}
 
 		return rows;
+	}
+
+	/** Adds the row with its board position stamped — the within-status-group sort key. */
+	private static void addAt(List<TaskRow> rows, int position, TaskRow row)
+	{
+		row.position = position;
+		rows.add(row);
 	}
 
 	/** Inventory item id for coins — the stand-in icon for loot-value (gp threshold) tiles. */
@@ -504,8 +515,11 @@ public final class ClogTaskModel
 			out.add(r);
 		}
 
+		// Actionable first (in progress → not started → completed), then the site's board
+		// order within each group — matching however the host sorted or shuffled the board.
 		out.sort(Comparator
 			.comparingInt((TaskRow r) -> r.status.ordinal())
+			.thenComparingInt(r -> r.position)
 			.thenComparing(r -> r.label, String.CASE_INSENSITIVE_ORDER));
 		return out;
 	}
