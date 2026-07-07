@@ -294,6 +294,35 @@ public class AnvilPlugin extends Plugin {
     static final java.util.regex.Pattern DROP_NOTIFICATION_PATTERN = java.util.regex.Pattern.compile(
             "^(.{1,20}?) received a drop: (?:([\\d,]+) x )?(.+) \\(([^()]+)\\)\\.?$");
 
+    // CLAN broadcast variant of the drop-attribution line, e.g. "Nisbro received a drop:
+    // Elder venator fang (50,000,000 coins) from Maggot King." — a fallback signal for the
+    // same spill-out drops. Parsed ONLY when the recipient is the local player, so exactly
+    // one clan member's plugin acts on it (no duplicate posts) — and unlike the personal
+    // line above it doesn't depend on each member's in-game loot-notification setting, only
+    // on the clan's broadcast threshold. The "(N coins) from" tail is anchored so item names
+    // containing parentheses stay intact. Package-private for DropNotificationLineTest.
+    static final java.util.regex.Pattern CLAN_DROP_BROADCAST_PATTERN = java.util.regex.Pattern.compile(
+            "^(.{1,20}?) received a drop: (?:([\\d,]+) x )?(.+) \\([\\d,]+ coins\\) from (.+?)\\.?$");
+
+    // Chat channels whose TEXT a player authors. The drop-attribution parsing accepts every
+    // OTHER channel — the personal line's exact ChatMessageType is unverified in the wild
+    // (it renders recolored, and guessing an allowlist wrong silently eats 50m drops), so a
+    // denylist is the safe shape: server-sent lines always parse, and the channels a player
+    // could type "X received a drop: …" into (spoofing a credit onto X's client — the
+    // recipient check alone can't catch that) never do.
+    private static final java.util.Set<ChatMessageType> PLAYER_AUTHORED_CHAT = java.util.EnumSet.of(
+            ChatMessageType.PUBLICCHAT,
+            ChatMessageType.MODCHAT,
+            ChatMessageType.AUTOTYPER,
+            ChatMessageType.MODAUTOTYPER,
+            ChatMessageType.PRIVATECHAT,
+            ChatMessageType.MODPRIVATECHAT,
+            ChatMessageType.PRIVATECHATOUT,
+            ChatMessageType.FRIENDSCHAT,
+            ChatMessageType.CLAN_CHAT,
+            ChatMessageType.CLAN_GUEST_CHAT,
+            ChatMessageType.CLAN_GIM_CHAT);
+
     // Completions that award a guaranteed item straight to the inventory — no loot event ever
     // fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
     // would need manual submission. The Jagex kill-count chat line fires on every completion,
@@ -1267,13 +1296,36 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onChatMessage(ChatMessage event) {
+        String msg = event.getMessage();
+        if (msg == null || msg.isEmpty()) {
+            return;
+        }
+
+        // Server drop-attribution lines — the ONLY signal for drops that bypass both loot
+        // events (Maggot King's spill-out uniques). Parsed from ANY non-player-authored
+        // channel (see PLAYER_AUTHORED_CHAT): the personal line's exact type is unverified,
+        // and an allowlist that guessed wrong would eat these silently. Two variants, both
+        // recipient-checked inside creditDropFromChat so only the drop's owner acts:
+        //   personal  "Nisbro received a drop: Elder venator fang (Maggot King)"
+        //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
+        //             Maggot King." — fallback for members whose in-game loot-notification
+        //             setting is off; guests outside the clan rely on the personal line.
+        if (!PLAYER_AUTHORED_CHAT.contains(event.getType()) && msg.contains("received a drop")) {
+            String stripped = msg.replaceAll("<[^>]*>", "");
+            // Each line shape matches exactly one of the two patterns (DropNotificationLineTest
+            // pins this down both ways), so a single chat line can never credit twice here.
+            java.util.regex.Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(stripped);
+            java.util.regex.Matcher broadcast = CLAN_DROP_BROADCAST_PATTERN.matcher(stripped);
+            if (broadcast.matches()) {
+                creditDropFromChat(broadcast.group(1), broadcast.group(2), broadcast.group(3), broadcast.group(4));
+            } else if (dropLine.matches()) {
+                creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
+            }
+        }
+
         if (event.getType() != ChatMessageType.GAMEMESSAGE
                 && event.getType() != ChatMessageType.SPAM
                 && event.getType() != ChatMessageType.MESBOX) {
-            return;
-        }
-        String msg = event.getMessage();
-        if (msg == null || msg.isEmpty()) {
             return;
         }
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
@@ -1320,12 +1372,8 @@ public class AnvilPlugin extends Plugin {
             // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
             creditClogUnlock(item);
         }
-        // Server drop-attribution line — the ONLY signal for drops that bypass both loot events
-        // (Maggot King's spill-out uniques). Recipient-checked, so safe at group bosses.
-        java.util.regex.Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(plain);
-        if (dropLine.matches()) {
-            creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
-        }
+        // (Drop-attribution lines are handled ABOVE the type gate — they parse from any
+        // non-player-authored channel, not just the three types this section accepts.)
         // Combat achievement task completion. Credits CA bingo tiles first (independent of the
         // notification toggle), then — when announcements are on — stashes the parse to finish
         // on the next game tick (the points varbit hasn't settled yet; it's read there to detect
