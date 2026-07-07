@@ -2325,6 +2325,8 @@ public class ClogTabController
 				return ClogTaskModel.Kind.TIMED;
 			case "diary":
 				return ClogTaskModel.Kind.DIARY;
+			case "ca":
+				return ClogTaskModel.Kind.COMBAT_TASK;
 			case "lms":
 				return ClogTaskModel.Kind.LMS;
 			case "value":

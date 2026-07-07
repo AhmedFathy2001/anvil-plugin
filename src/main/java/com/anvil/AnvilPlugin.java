@@ -302,10 +302,11 @@ public class AnvilPlugin extends Plugin {
 
     // Combat achievement task completion, e.g.
     // "Congratulations, you've completed an Elite combat task: Whack-a-Mole."
-    private static final java.util.regex.Pattern CA_TASK_PATTERN = java.util.regex.Pattern.compile(
+    // Package-visible for CombatTaskLineTest — CA bingo-tile crediting keys off this line.
+    static final java.util.regex.Pattern CA_TASK_PATTERN = java.util.regex.Pattern.compile(
             "Congratulations, you've completed an? (\\w+) combat task: (.+?)\\.?$");
     // Trailing " (5 points)" appended when the in-game recompletion setting is on.
-    private static final java.util.regex.Pattern CA_TASK_POINTS = java.util.regex.Pattern.compile(
+    static final java.util.regex.Pattern CA_TASK_POINTS = java.util.regex.Pattern.compile(
             "\\s*\\(\\d+ points?\\)$");
     // Skill level-up, e.g. "Congratulations, you just advanced your Mining level. You are now
     // level 99." Fires exactly once per level gained, so no dedup/baseline needed (unlike CA).
@@ -383,6 +384,21 @@ public class AnvilPlugin extends Plugin {
     // completion" message) by NAME — which also lets multiple completions in one tick all post,
     // unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
     private final Set<String> notifiedCaTasks = new LinkedHashSet<>();
+    // CA tile-credit dedup — "<tileId>|<task name>" pairs already credited this session, so
+    // repeating the SAME task (repeat-completion fires on every re-meet) can't farm a
+    // multi-count wildcard tile ("any 5 Master tasks" needs 5 distinct tasks, not one task
+    // five times). Cleared on the login screen so account swaps start fresh.
+    private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
+    // One nudge per session about the in-game "Repeat completion" CA setting.
+    private boolean caRepeatNudgeSent;
+    // One nudge per session about the in-game loot drop notifications (rare-drop post dependency).
+    private boolean lootNotifyNudgeSent;
+    // Once-per-session tracking-suppression notices, so a member's client.log answers "why did
+    // nothing track" without a line per suppressed loot event. Keyed by reason; reset at login.
+    private final Set<String> loggedSuppressions = new LinkedHashSet<>();
+    // Last logged tracking summary — config refreshes every ~30s, so the summary only logs when
+    // the tracking state actually changed (event, tile counts, autoSubmit, completions).
+    private String lastTrackingFingerprint;
     // Last-known total CA points, baselined at login; used only for tier-clear detection now.
     private int lastCaPoints = -1;
     private boolean caPointsInitialized;
@@ -948,6 +964,14 @@ public class AnvilPlugin extends Plugin {
             helloSent = false;
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
+            // CA per-session state: the next account may legitimately re-credit the same task
+            // (a teammate's alt), and deserves its own repeat-setting reminder.
+            creditedCaTaskTiles.clear();
+            caRepeatNudgeSent = false;
+            lootNotifyNudgeSent = false;
+            // Diagnostics start fresh per account: re-log suppressions and one tracking summary.
+            loggedSuppressions.clear();
+            lastTrackingFingerprint = null;
             // Clear the RSN + account hash so we don't keep stamping the previous account
             // onto requests that fire before the next login completes.
             apiClient.setCurrentRsn(null);
@@ -1281,15 +1305,22 @@ public class AnvilPlugin extends Plugin {
         if (dropLine.matches()) {
             creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
         }
-        // Combat achievement task completion. The points varbit hasn't settled yet, so we stash the
-        // parse and finish on the next game tick (where we read CA points to detect a tier clear).
-        if (config.notifyCombatAchievements()) {
-            java.util.regex.Matcher m = CA_TASK_PATTERN.matcher(plain);
-            if (m.find()) {
-                CombatAchievementTier tier = CombatAchievementTier.byName(m.group(1));
-                if (tier != null) {
-                    String task = CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim();
-                    pendingCaTasks.add(new PendingCaTask(tier, task));
+        // Combat achievement task completion. Credits CA bingo tiles first (independent of the
+        // notification toggle), then — when announcements are on — stashes the parse to finish
+        // on the next game tick (the points varbit hasn't settled yet; it's read there to detect
+        // a tier clear). With the in-game "Repeat completion" setting on, already-owned tasks
+        // re-fire this exact line (plus a " (N points)" suffix), which is what lets CA tiles
+        // count tasks the player completed before the event.
+        java.util.regex.Matcher caMatcher = CA_TASK_PATTERN.matcher(plain);
+        if (caMatcher.find()) {
+            CombatAchievementTier caTier = CombatAchievementTier.byName(caMatcher.group(1));
+            if (caTier != null) {
+                String caTask = CA_TASK_POINTS.matcher(caMatcher.group(2).trim()).replaceAll("").trim();
+                // Breadcrumb so client.log shows the parse even when no tile matches.
+                log.info("Anvil combat task line: {} '{}'", caTier.getDisplayName(), caTask);
+                creditCombatTaskTiles(caTier, caTask);
+                if (config.notifyCombatAchievements()) {
+                    pendingCaTasks.add(new PendingCaTask(caTier, caTask));
                 }
             }
         }
@@ -1300,6 +1331,9 @@ public class AnvilPlugin extends Plugin {
             String tier = diaryMatcher.group(1).trim();
             tier = Character.toUpperCase(tier.charAt(0)) + tier.substring(1).toLowerCase();
             String area = diaryMatcher.group(2).trim();
+            // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
+            // even when no tile matches.
+            log.info("Anvil diary line: {} {}", area, tier);
             maybeNotifyDiaryCompletion(area, tier);
             creditDiaryTiles(area, tier);
         }
@@ -1357,6 +1391,10 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
+            String gate = trackingGateReason();
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
             return;
         }
         if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
@@ -1434,6 +1472,13 @@ public class AnvilPlugin extends Plugin {
         if (notifyId == null) {
             notifyId = findTradeableItemId(itemName);
         }
+        // Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
+        // breadcrumb in the client log so a "why didn't my fang post?" is answerable after the fact.
+        // The line is rare (local player's own attributed drops only), so INFO is not noisy.
+        log.info("Anvil drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
+                itemName, qty, source, notifyId,
+                notifyId != null ? itemUnitValue(notifyId) : -1,
+                config.rareDropMinValue(), config.notifyRareDrops(), notifyEnabled("rareDrops"));
         if (notifyId != null) {
             maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
         }
@@ -1465,10 +1510,11 @@ public class AnvilPlugin extends Plugin {
      * dedup counts the pair exactly once.
      */
     private void creditGuaranteedAward(String bossName, String itemName) {
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        String gate = trackingGateReason();
+        if (gate != null || pluginConfig.trackedDrops == null) {
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
             return;
         }
         List<ItemStack> synthetic = null;
@@ -1488,13 +1534,15 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        String gate = trackingGateReason();
+        if (gate != null || pluginConfig.trackedDrops == null) {
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
             return;
         }
         if (isBlackout()) {
+            logTrackingSuppressed("blackout: every drop tile already complete");
             return;
         }
         if (items == null || items.isEmpty()) {
@@ -1726,6 +1774,10 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         if (!config.autoSubmit() || pluginConfig == null) {
+            String gate = trackingGateReason();
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
             return;
         }
         if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
@@ -1755,6 +1807,10 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         if (!config.autoSubmit() || pluginConfig == null) {
+            String gate = trackingGateReason();
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
             return;
         }
         if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
@@ -2212,6 +2268,8 @@ public class AnvilPlugin extends Plugin {
             }
             tile.currentAmount++;
             int goal = Math.max(1, tile.requiredAmount);
+            log.info("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
+                    tile.activity, partySeen, tile.label, tile.currentAmount, goal);
             sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
             String detail = tile.activity + "  deathless"
                     + (tile.partySize > 0 ? "  party " + partySeen : "")
@@ -2856,13 +2914,29 @@ public class AnvilPlugin extends Plugin {
             }
             pluginConfig = fresh;
             rebuildItemDropIndex();
-            log.info("Anvil config refreshed: event='{}', team='{}', {} tracked drops",
-                    pluginConfig.event.name,
-                    pluginConfig.team.name,
-                    pluginConfig.trackedDrops != null ? pluginConfig.trackedDrops.size() : 0);
+            // One tracking-state summary, logged only when it CHANGES (the refresh runs every
+            // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
+            // what the plugin believed it was tracking, and when that belief changed.
+            String summary = String.format(java.util.Locale.ROOT,
+                    "event='%s' team='%s' autoSubmit=%b drops=%d kills=%d gains=%d timed=%d"
+                            + " deathless=%d lms=%d values=%d diaries=%d combatTasks=%d completed=%d",
+                    pluginConfig.event.name, pluginConfig.team.name, config.autoSubmit(),
+                    sizeOf(pluginConfig.trackedDrops), sizeOf(pluginConfig.trackedKills),
+                    sizeOf(pluginConfig.trackedGains), sizeOf(pluginConfig.trackedTimed),
+                    sizeOf(pluginConfig.trackedDeathless), sizeOf(pluginConfig.trackedLms),
+                    sizeOf(pluginConfig.trackedValues), sizeOf(pluginConfig.trackedDiaries),
+                    sizeOf(pluginConfig.trackedCombatTasks), sizeOf(pluginConfig.completedTiles));
+            if (!summary.equals(lastTrackingFingerprint)) {
+                lastTrackingFingerprint = summary;
+                log.info("Anvil tracking: {}", summary);
+            }
 
             checkTileCompletions(pluginConfig);
             clogTabController.onConfigRefreshed();
+            // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
+            // tiles going live mid-session via the periodic refresh. No-ops once sent.
+            maybeNudgeCaRepeatSetting();
+            maybeNudgeLootNotifications();
 
         } catch (IOException e) {
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
@@ -2955,6 +3029,35 @@ public class AnvilPlugin extends Plugin {
             }
         }
         return false;
+    }
+
+    /**
+     * Logs a tracking-suppression reason once per session at INFO. The gates this guards run
+     * for every loot/kill/chat signal, so unconditional logging would flood client.log —
+     * once per reason keeps the log diagnostic ("send me your client.log") without the spam.
+     */
+    private void logTrackingSuppressed(String reason) {
+        if (loggedSuppressions.add(reason)) {
+            log.info("Anvil tracking suppressed — {} (logged once per session)", reason);
+        }
+    }
+
+    private static int sizeOf(List<?> list) {
+        return list == null ? 0 : list.size();
+    }
+
+    /** The suppression reason for the shared config gates, or null when tracking is live. */
+    private String trackingGateReason() {
+        if (!config.autoSubmit()) {
+            return "auto-submit disabled in plugin settings";
+        }
+        if (pluginConfig == null) {
+            return "no event config loaded (not enrolled, or token/RSN not resolved)";
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return "event not currently active";
+        }
+        return null;
     }
 
     private boolean isBlackout() {
@@ -3242,7 +3345,7 @@ public class AnvilPlugin extends Plugin {
                 "💎 Notable drop!", desc, name, qty, value, null, killCountFor(source), shotName);
 
         if (config.rareDropScreenshot()) {
-            captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
+            postRareDropWithScreenshot(embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -3277,7 +3380,7 @@ public class AnvilPlugin extends Plugin {
                 "💎 Notable drop!", desc, itemName, 1, 0, null, null, shotName);
 
         if (config.rareDropScreenshot()) {
-            captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
+            postRareDropWithScreenshot(embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -3359,7 +3462,7 @@ public class AnvilPlugin extends Plugin {
                 "💰 Rare drop!", desc, name, qty, value, dropRate, killCountFor(source), shotName);
 
         if (config.rareDropScreenshot()) {
-            captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
+            postRareDropWithScreenshot(embed, shotName);
         } else {
             // No screenshot — strip the attachment image reference so the embed renders cleanly.
             embed.remove("image");
@@ -3414,7 +3517,7 @@ public class AnvilPlugin extends Plugin {
         embed.add("image", image);
 
         if (config.rareDropScreenshot()) {
-            captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
+            postRareDropWithScreenshot(embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -3458,7 +3561,7 @@ public class AnvilPlugin extends Plugin {
         embed.add("image", image);
 
         if (config.petScreenshot()) {
-            captureFrameAsync(png -> apiClient.postNotification("rareDrops", null, embed, png, shotName));
+            postRareDropWithScreenshot(embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -3567,10 +3670,11 @@ public class AnvilPlugin extends Plugin {
      * (banner + screenshot + retry store).
      */
     private void creditDiaryTiles(String area, String tier) {
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDiaries == null) {
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        String gate = trackingGateReason();
+        if (gate != null || pluginConfig.trackedDiaries == null) {
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
             return;
         }
         String areaLower = area.toLowerCase();
@@ -3603,11 +3707,136 @@ public class AnvilPlugin extends Plugin {
             }
             d.currentAmount += 1;
             final PluginConfigResponse.TrackedDiary fd = d;
+            log.info("Tracked diary completion: {} {} → tile '{}' ({}/{})",
+                    area, tier, d.label, d.currentAmount, d.requiredAmount);
             captureAndSubmitProof(d.tileId, d.label, 1, null,
                     "DIARY COMPLETE", area + " " + tier + " Diary",
                     "[Auto] " + area + " " + tier + " diary completed — detected by RuneLite plugin",
                     () -> fd.currentAmount = Math.max(0, fd.currentAmount - 1));
         }
+    }
+
+    /**
+     * Credits Combat Achievement bingo tiles whose selector list matches this completion.
+     * Selectors are exact task names ("Whack-a-Mole") or "Any &lt;Tier&gt;" wildcards
+     * ("Any Master"), matched case-insensitively. One completion == amount 1 through the
+     * shared proof pipeline (banner + screenshot + retry store). A given task credits a
+     * given tile at most once per session (creditedCaTaskTiles), so re-meeting the same
+     * task's conditions repeatedly can't farm a multi-count wildcard tile.
+     */
+    private void creditCombatTaskTiles(CombatAchievementTier tier, String task) {
+        String gate = trackingGateReason();
+        if (gate != null || pluginConfig.trackedCombatTasks == null) {
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
+            return;
+        }
+        String taskLower = task.toLowerCase();
+        String anyTier = "any " + tier.getDisplayName().toLowerCase();
+        for (PluginConfigResponse.TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
+            if (t == null || t.tasks == null || t.currentAmount >= t.requiredAmount) {
+                continue;
+            }
+            boolean matches = false;
+            for (String sel : t.tasks) {
+                if (sel == null) {
+                    continue;
+                }
+                String s = sel.trim().toLowerCase();
+                if (s.equals(taskLower) || s.equals(anyTier)) {
+                    matches = true;
+                    break;
+                }
+            }
+            final String dedupKey = t.tileId + "|" + taskLower;
+            if (!matches) {
+                continue;
+            }
+            if (!creditedCaTaskTiles.add(dedupKey)) {
+                log.debug("Combat task '{}' already credited tile '{}' this session — skipping repeat", task, t.label);
+                continue;
+            }
+            t.currentAmount += 1;
+            final PluginConfigResponse.TrackedCombatTask ft = t;
+            log.info("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
+                    tier.getDisplayName(), task, t.label, t.currentAmount, t.requiredAmount);
+            captureAndSubmitProof(t.tileId, t.label, 1, null,
+                    "COMBAT TASK", tier.getDisplayName() + ": " + task,
+                    "[Auto] " + tier.getDisplayName() + " combat task \"" + task + "\" completed — detected by RuneLite plugin",
+                    () -> {
+                        ft.currentAmount = Math.max(0, ft.currentAmount - 1);
+                        // Un-remember the pair so a failed capture can credit on a later re-fire.
+                        creditedCaTaskTiles.remove(dedupKey);
+                    });
+        }
+    }
+
+    /**
+     * One-time (per session) reminder to enable the in-game "Repeat completion" Combat
+     * Achievement setting when the active event has incomplete CA tiles — without it, tasks
+     * the player already owns never re-fire the completion line, so those tiles can never
+     * track for them. Reads the setting's varbit, so the check runs on the client thread.
+     */
+    private void maybeNudgeCaRepeatSetting() {
+        if (caRepeatNudgeSent || pluginConfig == null || pluginConfig.trackedCombatTasks == null
+                || pluginConfig.trackedCombatTasks.isEmpty() || !AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        boolean anyIncomplete = false;
+        for (PluginConfigResponse.TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
+            if (t != null && t.currentAmount < t.requiredAmount) {
+                anyIncomplete = true;
+                break;
+            }
+        }
+        if (!anyIncomplete) {
+            return;
+        }
+        clientThread.invokeLater(() -> {
+            if (client.getGameState() != GameState.LOGGED_IN) {
+                return;
+            }
+            if (client.getVarbitValue(VarbitID.CA_TASK_RECOMPLETION_NOTIFICATIONS) == 1) {
+                return; // setting already on — nothing to remind about
+            }
+            caRepeatNudgeSent = true;
+            sendChatMessage("This event has Combat Achievement tiles — enable Settings > Combat Achievements"
+                    + " > \"Repeat completion\" so tasks you've already done can still count.");
+        });
+    }
+
+    /**
+     * One-time (per session) reminder to enable the in-game loot drop notifications when clan
+     * rare-drop posts are on. The "&lt;player&gt; received a drop: …" chat line those posts key
+     * off for corpse-boss spill loot (Maggot King uniques — see creditDropFromChat) is Jagex's
+     * opt-in loot notification: with the setting off, or its value threshold above the drop's
+     * price, the line never prints and the plugin has nothing to parse — a 50m fang can pass
+     * completely silently. Varbit read requires the client thread.
+     */
+    private void maybeNudgeLootNotifications() {
+        if (lootNotifyNudgeSent || !config.notifyRareDrops() || !notifyEnabled("rareDrops")) {
+            return;
+        }
+        clientThread.invokeLater(() -> {
+            if (client.getGameState() != GameState.LOGGED_IN) {
+                return;
+            }
+            boolean settingOn = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_ON) == 1;
+            // The plugin's own posting floor (enforced minimum 1m) — an in-game threshold above
+            // it would swallow lines for drops the clan channel wants to see.
+            long plugFloor = Math.max(1_000_000, Math.max(0, config.rareDropMinValue()));
+            long gameThreshold = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_VALUE);
+            if (settingOn && gameThreshold <= plugFloor) {
+                return; // configured fine — the attribution line will fire for qualifying drops
+            }
+            lootNotifyNudgeSent = true;
+            sendChatMessage(settingOn
+                    ? "Your in-game loot notification threshold is above the clan rare-drop floor — lower it"
+                    + " (Settings > Chat > Loot drop notifications) or drops like Maggot King uniques won't post."
+                    : "Enable Settings > Chat > \"Loot drop notifications\" — clan rare-drop posts for corpse-boss"
+                    + " loot (Maggot King uniques) rely on that chat line.");
+        });
     }
 
     /**
@@ -4049,28 +4278,65 @@ public class AnvilPlugin extends Plugin {
         return "application/octet-stream";
     }
 
+    // A stalled capture must not stall the notification: frames normally arrive within ~50ms,
+    // so a few seconds of grace is already generous before posting without the screenshot.
+    private static final long FRAME_CAPTURE_TIMEOUT_MS = 4000;
+
     /**
      * Captures the next rendered frame and hands the PNG bytes to
      * {@code consumer} OFF the client thread. The frame listener fires on the
      * client/AWT thread, so we immediately defer encoding to the executor; the
      * consumer then sends via OkHttp async. The game loop never waits on
      * either.
+     *
+     * <p>The consumer is guaranteed to run exactly once — with {@code null} when no frame
+     * arrives in time (a minimized client can stop rendering, and the next-frame listener
+     * then never fires) or the PNG encode fails. Callers post without the screenshot in
+     * that case; before this guarantee, a stalled capture silently dropped the whole
+     * notification (a Maggot King fang post vanished this way).
      */
     private void captureFrameAsync(Consumer<byte[]> consumer) {
+        java.util.concurrent.atomic.AtomicBoolean delivered = new java.util.concurrent.atomic.AtomicBoolean(false);
         drawManager.requestNextFrameListener(image -> {
             if (executor == null || executor.isShutdown()) {
                 return;
             }
             executor.submit(() -> {
+                byte[] png = null;
                 try {
                     BufferedImage buffered = (BufferedImage) image;
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
-                    consumer.accept(baos.toByteArray());
+                    png = baos.toByteArray();
                 } catch (Exception e) {
                     log.debug("Anvil frame capture failed: {}", e.getMessage());
                 }
+                if (delivered.compareAndSet(false, true)) {
+                    consumer.accept(png);
+                }
             });
+        });
+        if (executor != null && !executor.isShutdown()) {
+            executor.schedule(() -> {
+                if (delivered.compareAndSet(false, true)) {
+                    log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
+                    consumer.accept(null);
+                }
+            }, FRAME_CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
+     * Captures a frame and posts a rareDrops embed; a failed or stalled capture posts the
+     * embed without its image (stripping the attachment reference so Discord renders clean)
+     * instead of not posting at all.
+     */
+    private void postRareDropWithScreenshot(com.google.gson.JsonObject embed, String shotName) {
+        captureFrameAsync(png -> {
+            if (png == null) {
+                embed.remove("image");
+            }
+            apiClient.postNotification("rareDrops", null, embed, png, shotName);
         });
     }
 

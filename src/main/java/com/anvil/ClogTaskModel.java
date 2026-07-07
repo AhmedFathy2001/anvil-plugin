@@ -26,7 +26,7 @@ public final class ClogTaskModel
 	 * filter. STANDARD never originates from the plugin config today (manual tiles aren't
 	 * synced) but is kept for parity with the web so the cycle order matches.
 	 */
-	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, LMS, VALUE, GAIN, DEATHLESS }
+	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
 
 	public enum Status
 	{
@@ -43,7 +43,7 @@ public final class ClogTaskModel
 	 * Type filter options — ALL plus the seven {@link Kind}s, in the same order the web admin
 	 * cycles them. Cycling steps through these on the in-clog "Type" chip.
 	 */
-	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, LMS, VALUE, GAIN, DEATHLESS }
+	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
 
 	/**
 	 * Difficulty-tier bands are no longer hardcoded — the server sends them (admin-configurable) in
@@ -337,6 +337,20 @@ public final class ClogTaskModel
 			}
 		}
 
+		if (cfg.trackedCombatTasks != null)
+		{
+			for (PluginConfigResponse.TrackedCombatTask t : cfg.trackedCombatTasks)
+			{
+				if (t == null)
+				{
+					continue;
+				}
+				// Combat Achievement tiles count completions exactly like diaries; no inventory icon.
+				rows.add(new TaskRow(t.tileId, t.label, Kind.COMBAT_TASK, t.currentAmount, t.requiredAmount, -1,
+					t.points, t.description, t.category, completed.contains(t.tileId)));
+			}
+		}
+
 		if (cfg.trackedTimed != null)
 		{
 			for (PluginConfigResponse.TrackedTimed t : cfg.trackedTimed)
@@ -532,6 +546,8 @@ public final class ClogTaskModel
 				return r.kind == Kind.TIMED;
 			case DIARY:
 				return r.kind == Kind.DIARY;
+			case COMBAT_TASK:
+				return r.kind == Kind.COMBAT_TASK;
 			case LMS:
 				return r.kind == Kind.LMS;
 			case VALUE:

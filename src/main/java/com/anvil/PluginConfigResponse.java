@@ -17,6 +17,7 @@ public class PluginConfigResponse
 	public List<TrackedGain> trackedGains;        // item-gain tiles (catch/cook/gather N, from inventory gains)
 	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
+	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 
@@ -141,6 +142,23 @@ public class PluginConfigResponse
 		public int points;
 		public String category;
 		public List<String> diaries;      // selectors — any matching one counts a completion
+		public int requiredAmount;
+		public int currentAmount;
+		public String trackingMode;        // "team" | "individual"/"solo"
+	}
+
+	// Combat Achievement tile: the plugin credits a completion when the in-game "you've completed
+	// a <tier> combat task" line matches one of the selectors — exact task names ("Whack-a-Mole")
+	// or "Any <Tier>" wildcards ("Any Master"). Players who already own a task re-fire the line by
+	// enabling the in-game "Repeat completion" setting. Same submission flow as diary.
+	public static class TrackedCombatTask
+	{
+		public int tileId;
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public List<String> tasks;        // selectors — any matching one counts a completion
 		public int requiredAmount;
 		public int currentAmount;
 		public String trackingMode;        // "team" | "individual"/"solo"
