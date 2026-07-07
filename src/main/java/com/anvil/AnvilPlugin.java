@@ -26,6 +26,7 @@ import net.runelite.api.ScriptID;
 import net.runelite.api.WorldType;
 import net.runelite.api.WorldView;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
@@ -146,6 +147,9 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private KeyManager keyManager;
 
+    @Inject
+    private DebugLogExporter debugLogExporter;
+
     // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
     // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
     // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
@@ -158,6 +162,13 @@ public class AnvilPlugin extends Plugin {
         @Override
         public void hotkeyPressed() {
             captureClip();
+        }
+    };
+
+    private final HotkeyListener exportDebugLogHotkeyListener = new HotkeyListener(() -> config.exportDebugLogHotkey()) {
+        @Override
+        public void hotkeyPressed() {
+            exportDebugLog();
         }
     };
 
@@ -643,6 +654,7 @@ public class AnvilPlugin extends Plugin {
         completionBaselineEventId = null;
         executor = Executors.newSingleThreadScheduledExecutor();
         keyManager.registerKeyListener(clipHotkeyListener);
+        keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
             connectObs();
         }
@@ -698,6 +710,7 @@ public class AnvilPlugin extends Plugin {
         overlayManager.remove(clogBanner);
         bannerSound.shutdown();
         keyManager.unregisterKeyListener(clipHotkeyListener);
+        keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
         disconnectObs();
         if (executor != null) {
             executor.shutdownNow();
@@ -712,6 +725,95 @@ public class AnvilPlugin extends Plugin {
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
         lastNpcDeathName = null;
+    }
+
+    /** Members can type ::anvillog in chat to export a support log (mirrors the Support hotkey). */
+    @Subscribe
+    public void onCommandExecuted(CommandExecuted event) {
+        String cmd = event.getCommand();
+        if (cmd != null && cmd.equalsIgnoreCase("anvillog")) {
+            exportDebugLog();
+        }
+    }
+
+    /**
+     * Save a shareable support log (a diagnostic header + the Anvil-relevant slice of client.log) and
+     * tell the player where it went. Header is built on the client thread (safe access to game/plugin
+     * state), then the disk work runs on the executor so we never touch the filesystem on the UI thread.
+     */
+    private void exportDebugLog() {
+        clientThread.invoke(() -> {
+            final String header = buildDiagnosticHeader();
+            final ScheduledExecutorService ex = executor;
+            final Runnable job = () -> {
+                DebugLogExporter.Result res = debugLogExporter.export(header);
+                clientThread.invokeLater(() -> {
+                    if (res == null) {
+                        gameMessage("Anvil: couldn't save the debug log. Look in your .runelite/anvil-debug "
+                                + "folder, or ask your clan admin for help.");
+                    } else {
+                        gameMessage("Anvil: debug log saved — the folder just opened. Drag the newest "
+                                + "'anvil-debug' file to your clan admin. (Its location was copied to your clipboard.)");
+                    }
+                });
+            };
+            if (ex != null) {
+                ex.submit(job);
+            } else {
+                new Thread(job, "anvil-debug-export").start();
+            }
+        });
+    }
+
+    private void gameMessage(String msg) {
+        client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", msg, null);
+    }
+
+    /** Non-secret diagnostics that make a support log actionable. Never includes tokens. */
+    private String buildDiagnosticHeader() {
+        String nl = System.lineSeparator();
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== Anvil debug export ===").append(nl);
+        sb.append("Generated: ").append(java.time.ZonedDateTime.now()).append(nl);
+        sb.append("OS: ").append(System.getProperty("os.name")).append(' ')
+                .append(System.getProperty("os.version")).append(" (")
+                .append(System.getProperty("os.arch")).append(')').append(nl);
+        sb.append("Java: ").append(System.getProperty("java.version")).append(nl);
+        String pkgVer = getClass().getPackage() != null ? getClass().getPackage().getImplementationVersion() : null;
+        sb.append("Plugin version: ").append(pkgVer != null ? pkgVer : "(dev/unknown)").append(nl);
+
+        sb.append("Site URL: ").append(blankToNone(config.apiUrl())).append(nl);
+        sb.append("Account token set: ").append(config.playerToken().isEmpty() ? "no" : "yes").append(nl);
+        sb.append("API configured: ").append(apiClient.isConfigured() ? "yes" : "no").append(nl);
+        sb.append("Current RSN: ").append(blankToNone(apiClient.getCurrentRsn())).append(nl);
+        GameState gs = client.getGameState();
+        sb.append("Game state: ").append(gs != null ? gs.name() : "?").append(nl);
+
+        PluginConfigResponse pc = pluginConfig;
+        if (pc != null && pc.event != null) {
+            sb.append("Active event: ").append(pc.event.name).append(" (id ").append(pc.event.id).append(')').append(nl);
+        } else {
+            sb.append("Active event: none").append(nl);
+        }
+
+        try {
+            List<PendingSubmissionStore.PendingSubmission> pend = pendingSubmissionStore.loadAll();
+            sb.append("Pending submissions: ").append(pend.size()).append(nl);
+            long now = System.currentTimeMillis();
+            for (PendingSubmissionStore.PendingSubmission p : pend) {
+                sb.append("  - '").append(p.label).append("' tile ").append(p.tileId)
+                        .append(", event ").append(p.eventId)
+                        .append(", rsn ").append(p.capturedRsn)
+                        .append(", age ").append((now - p.timestamp) / 60000L).append("m").append(nl);
+            }
+        } catch (Exception e) {
+            sb.append("Pending submissions: (error reading: ").append(e.getMessage()).append(')').append(nl);
+        }
+        return sb.toString();
+    }
+
+    private static String blankToNone(String s) {
+        return (s == null || s.isEmpty()) ? "(none)" : s;
     }
 
     private void showBingoToast(PluginConfigResponse.TrackedDrop drop, int current, int required) {

@@ -57,6 +57,14 @@ public interface AnvilConfig extends Config
 	)
 	String clipsSection = "clipsSection";
 
+	@ConfigSection(
+		name = "Support",
+		description = "Trouble with a drop or login? Export a debug log to send your clan admin.",
+		position = 7,
+		closedByDefault = true
+	)
+	String supportSection = "supportSection";
+
 	// ---- Setup ----
 
 	@ConfigItem(
@@ -508,6 +516,22 @@ public interface AnvilConfig extends Config
 	default boolean postObsTriggeredClips()
 	{
 		return false;
+	}
+
+	// ---- Support ----
+
+	@ConfigItem(
+		keyName = "exportDebugLogHotkey",
+		name = "Export debug log hotkey",
+		description = "Press this to save a debug log you can send your clan admin. You can also just type "
+			+ "::anvillog in the game chat. The log is saved to your .runelite/anvil-debug folder, which opens "
+			+ "automatically, and its location is copied to your clipboard.",
+		position = 1,
+		section = "supportSection"
+	)
+	default Keybind exportDebugLogHotkey()
+	{
+		return Keybind.NOT_SET;
 	}
 
 }
