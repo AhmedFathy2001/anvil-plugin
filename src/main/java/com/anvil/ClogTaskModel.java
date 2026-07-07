@@ -26,7 +26,7 @@ public final class ClogTaskModel
 	 * filter. STANDARD never originates from the plugin config today (manual tiles aren't
 	 * synced) but is kept for parity with the web so the cycle order matches.
 	 */
-	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
+	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, PVP, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
 
 	public enum Status
 	{
@@ -43,7 +43,7 @@ public final class ClogTaskModel
 	 * Type filter options — ALL plus the seven {@link Kind}s, in the same order the web admin
 	 * cycles them. Cycling steps through these on the in-clog "Type" chip.
 	 */
-	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
+	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, PVP, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
 
 	/**
 	 * Difficulty-tier bands are no longer hardcoded — the server sends them (admin-configurable) in
@@ -327,6 +327,20 @@ public final class ClogTaskModel
 			}
 		}
 
+		if (cfg.trackedPvp != null)
+		{
+			for (PluginConfigResponse.TrackedPvp p : cfg.trackedPvp)
+			{
+				if (p == null)
+				{
+					continue;
+				}
+				// No inventory icon for a PvP-kill tile; the controller shows the stat sprite.
+				addAt(rows, p.position, new TaskRow(p.tileId, p.label, Kind.PVP, p.currentAmount, p.requiredAmount, -1,
+					p.points, p.description, p.category, completed.contains(p.tileId)));
+			}
+		}
+
 		if (cfg.trackedDiaries != null)
 		{
 			for (PluginConfigResponse.TrackedDiary d : cfg.trackedDiaries)
@@ -556,6 +570,8 @@ public final class ClogTaskModel
 				return r.kind == Kind.COLLECTION;
 			case KILL:
 				return r.kind == Kind.KILL;
+			case PVP:
+				return r.kind == Kind.PVP;
 			case TIMED:
 				return r.kind == Kind.TIMED;
 			case DIARY:

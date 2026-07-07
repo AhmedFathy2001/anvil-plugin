@@ -23,6 +23,7 @@ import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.ScriptID;
+import net.runelite.api.WorldType;
 import net.runelite.api.WorldView;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
@@ -269,6 +270,11 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Integer> killCounts = new HashMap<>();
     private static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
             "Your (?:completed )?(.+?) (?:kill )?count is: ([\\d,]+)");
+    // PvP kill credit — the game sends "You have defeated <name>!" only to the player it awards
+    // the kill (and the loot / loot key) to, making it the one-credit-per-death signal for
+    // PvP-kill tiles. Tolerates a trailing "." and any follow-on text (Bounty Hunter suffixes).
+    private static final java.util.regex.Pattern PVP_DEFEAT_PATTERN = java.util.regex.Pattern.compile(
+            "^You have defeated (.+?)[.!]");
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
@@ -454,6 +460,11 @@ public class AnvilPlugin extends Plugin {
     // ---- Kill-count tiles ----------------------------------------------------------------
     // Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
     private volatile Map<String, List<PluginConfigResponse.TrackedKill>> killNpcIndex = Collections.emptyMap();
+
+    // ---- PvP-kill tiles --------------------------------------------------------------------
+    // Normalised RSN -> teamId for every enrolled event player, so 'team:other' selectors can
+    // classify a victim. Rebuilt on each config refresh; empty unless the event has a pvp tile.
+    private volatile Map<String, Integer> pvpRosterIndex = Collections.emptyMap();
 
     private static class KillAggregate {
 
@@ -1125,7 +1136,9 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onHitsplatApplied(HitsplatApplied event) {
         // Track damage WE deal to other players so a subsequent death can be attributed to us
-        // as a PvP kill. Cheap: a couple of reference checks on the client thread.
+        // as a PvP kill NOTIFICATION. Cheap: a couple of reference checks on the client thread.
+        // (PvP-kill TILES don't use this — they credit off the "You have defeated" line, which
+        // the game sends only to the player awarded the kill.)
         if (!config.notifyPvpKills()) {
             return;
         }
@@ -1285,6 +1298,14 @@ public class AnvilPlugin extends Plugin {
                     creditGuaranteedAward(kcName, award);
                 }
             } catch (NumberFormatException ignored) {
+            }
+        }
+        // PvP-kill tiles: "You have defeated <name>!" goes ONLY to the player the game awards
+        // the kill to (the same one who gets the loot / loot key) — exactly one credit per death.
+        if (hasPvpTiles()) {
+            java.util.regex.Matcher pvpDefeat = PVP_DEFEAT_PATTERN.matcher(plain);
+            if (pvpDefeat.find()) {
+                creditPvpKillTiles(pvpDefeat.group(1).trim());
             }
         }
         int idx = plain.indexOf(CLOG_UNLOCK_PREFIX);
@@ -2934,10 +2955,11 @@ public class AnvilPlugin extends Plugin {
             // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
             // what the plugin believed it was tracking, and when that belief changed.
             String summary = String.format(java.util.Locale.ROOT,
-                    "event='%s' team='%s' autoSubmit=%b drops=%d kills=%d gains=%d timed=%d"
+                    "event='%s' team='%s' autoSubmit=%b drops=%d kills=%d pvp=%d gains=%d timed=%d"
                             + " deathless=%d lms=%d values=%d diaries=%d combatTasks=%d completed=%d",
                     pluginConfig.event.name, pluginConfig.team.name, config.autoSubmit(),
                     sizeOf(pluginConfig.trackedDrops), sizeOf(pluginConfig.trackedKills),
+                    sizeOf(pluginConfig.trackedPvp),
                     sizeOf(pluginConfig.trackedGains), sizeOf(pluginConfig.trackedTimed),
                     sizeOf(pluginConfig.trackedDeathless), sizeOf(pluginConfig.trackedLms),
                     sizeOf(pluginConfig.trackedValues), sizeOf(pluginConfig.trackedDiaries),
@@ -2993,6 +3015,24 @@ public class AnvilPlugin extends Plugin {
         itemDropIndex = index;
         rebuildKillNpcIndex();
         rebuildGainItemIndex();
+        rebuildPvpRosterIndex();
+    }
+
+    /**
+     * Rebuild the normalised-RSN → teamId roster index used by PvP-kill tiles'
+     * "team:other" selectors; refreshed together with the drop index. Empty
+     * unless the event has a pvp tile (the server only ships the roster then).
+     */
+    private void rebuildPvpRosterIndex() {
+        Map<String, Integer> index = new HashMap<>();
+        if (pluginConfig != null && pluginConfig.pvpRoster != null) {
+            for (PluginConfigResponse.RosterEntry entry : pluginConfig.pvpRoster) {
+                if (entry != null && entry.name != null && !entry.name.isEmpty()) {
+                    index.put(normalizeRsn(entry.name), entry.teamId);
+                }
+            }
+        }
+        pvpRosterIndex = index;
     }
 
     /** Rebuild the itemId → TrackedGain index; refreshed together with the drop index. */
@@ -3139,10 +3179,18 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /** True when the current event config carries any PvP-kill tiles. */
+    private boolean hasPvpTiles() {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null && cfg.trackedPvp != null && !cfg.trackedPvp.isEmpty();
+    }
+
     /**
      * Posts a PvP kill to the kills channel when the dying player is one we
      * damaged within the attribution window. Runs on the client thread;
-     * screenshot + network send are deferred.
+     * screenshot + network send are deferred. (Notification only — PvP-kill
+     * tiles credit off the "You have defeated" chat line instead, so exactly
+     * one player per death gets tile credit.)
      */
     private void maybeNotifyPvpKill(Player victim) {
         String name = victim.getName();
@@ -3164,6 +3212,78 @@ public class AnvilPlugin extends Plugin {
         }
         String message = buildKillMessage(getLocalPlayerName(), name);
         captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
+    }
+
+    /**
+     * Credits PvP-kill bingo tiles for a kill the game awarded us — called off the
+     * "You have defeated &lt;name&gt;!" line, which only the credited killer (the
+     * player who receives the loot / loot key) sees, so each death credits exactly
+     * one person. Only dangerous PvP counts — the Wilderness or a PvP world — so
+     * safe minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM can't farm
+     * the tile. Selector semantics: "team:other" matches any event participant on
+     * a different team (via the pvpRoster index); "rsn:&lt;name&gt;" matches that
+     * exact player, enrolled or not. Amount 1 per kill through the shared proof
+     * pipeline (the defeat message lands on the kill tick — the frame still shows
+     * the fight).
+     */
+    private void creditPvpKillTiles(String victimName) {
+        String gate = trackingGateReason();
+        if (gate != null || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()) {
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
+            return;
+        }
+        boolean dangerous = client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
+                || client.getWorldType().contains(WorldType.PVP);
+        if (!dangerous) {
+            logTrackingSuppressed("PvP kill outside dangerous PvP (Wilderness / PvP world) — not counted");
+            return;
+        }
+        String victim = normalizeRsn(victimName);
+        Integer victimTeam = pvpRosterIndex.get(victim);
+        Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
+        for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
+            if (tile == null || tile.targets == null || tile.currentAmount >= tile.requiredAmount
+                    || isTileCompleted(tile.tileId)) {
+                continue;
+            }
+            boolean matches = false;
+            for (String sel : tile.targets) {
+                if (sel == null) {
+                    continue;
+                }
+                String s = sel.trim();
+                if (s.equalsIgnoreCase("team:other")) {
+                    matches = victimTeam != null && myTeam != null && !victimTeam.equals(myTeam);
+                } else if (s.regionMatches(true, 0, "rsn:", 0, 4)) {
+                    matches = normalizeRsn(s.substring(4)).equals(victim);
+                }
+                if (matches) {
+                    break;
+                }
+            }
+            if (!matches) {
+                continue;
+            }
+            tile.currentAmount += 1;
+            final PluginConfigResponse.TrackedPvp ft = tile;
+            log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
+                    victimName, tile.label, tile.currentAmount, tile.requiredAmount);
+            String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
+            captureAndSubmitProof(tile.tileId, tile.label, 1, null,
+                    "BINGO PVP KILL", detail,
+                    "[Auto] PvP kill on " + victimName + " — detected by RuneLite plugin",
+                    () -> ft.currentAmount = Math.max(0, ft.currentAmount - 1));
+        }
+    }
+
+    /**
+     * Normalises an RSN for matching: client names carry non-breaking spaces
+     * (\u00A0) where the site roster has plain ones; casing is cosmetic.
+     */
+    private static String normalizeRsn(String name) {
+        return name == null ? "" : name.replace('\u00A0', ' ').trim().toLowerCase();
     }
 
     private String buildKillMessage(String killer, String victim) {

@@ -11,6 +11,8 @@ public class PluginConfigResponse
 	public List<TrackedDrop> trackedDrops;
 	public List<TrackedStat> trackedStats;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
+	public List<TrackedPvp> trackedPvp;           // PvP-kill tiles (rival-team / bounty kills in dangerous PvP)
+	public List<RosterEntry> pvpRoster;           // event roster (RSN -> teamId) for 'team:other' matching; empty unless a pvp tile exists
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
 	public List<TrackedLms> trackedLms;           // LMS placement tiles (finish top-N, M times)
 	public List<TrackedValue> trackedValues;      // loot-value tiles (one haul worth >= thresholdGp)
@@ -131,6 +133,33 @@ public class PluginConfigResponse
 		public int requiredAmount;
 		public int currentAmount;
 		public String trackingMode;        // "team" | "individual"/"solo"
+	}
+
+	// PvP-kill tile: the plugin credits a kill off the "You have defeated <name>!" line, which
+	// the game sends only to the player it awards the kill (and loot / loot key) to — exactly
+	// one credit per death. Only dangerous PvP counts (the Wilderness or a PvP world); safe
+	// minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM never do. The victim must match
+	// a selector: "team:other" = any member of a rival team (resolved against pvpRoster),
+	// "rsn:<name>" = a named bounty (need not be in the event). Same submission flow as kill.
+	public static class TrackedPvp
+	{
+		public int tileId;
+		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
+		public String label;
+		public String description;
+		public int points;
+		public String category;
+		public List<String> targets;      // selectors — "team:other" or "rsn:<name>" entries
+		public int requiredAmount;
+		public int currentAmount;
+		public String trackingMode;        // "team" | "individual"/"solo"
+	}
+
+	// One event participant, for 'team:other' matching. Only players with a team are included.
+	public static class RosterEntry
+	{
+		public String name;    // RSN as enrolled on the site
+		public int teamId;
 	}
 
 	// Achievement-diary tile: the plugin credits a completion when the in-game diary completion
