@@ -23,6 +23,7 @@ import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.ScriptID;
+import net.runelite.api.WorldType;
 import net.runelite.api.WorldView;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
@@ -269,6 +270,11 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Integer> killCounts = new HashMap<>();
     private static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
             "Your (?:completed )?(.+?) (?:kill )?count is: ([\\d,]+)");
+    // PvP kill credit — the game sends "You have defeated <name>!" only to the player it awards
+    // the kill (and the loot / loot key) to, making it the one-credit-per-death signal for
+    // PvP-kill tiles. Tolerates a trailing "." and any follow-on text (Bounty Hunter suffixes).
+    private static final java.util.regex.Pattern PVP_DEFEAT_PATTERN = java.util.regex.Pattern.compile(
+            "^You have defeated (.+?)[.!]");
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
@@ -287,6 +293,35 @@ public class AnvilPlugin extends Plugin {
     // match. Package-private for DropNotificationLineTest.
     static final java.util.regex.Pattern DROP_NOTIFICATION_PATTERN = java.util.regex.Pattern.compile(
             "^(.{1,20}?) received a drop: (?:([\\d,]+) x )?(.+) \\(([^()]+)\\)\\.?$");
+
+    // CLAN broadcast variant of the drop-attribution line, e.g. "Nisbro received a drop:
+    // Elder venator fang (50,000,000 coins) from Maggot King." — a fallback signal for the
+    // same spill-out drops. Parsed ONLY when the recipient is the local player, so exactly
+    // one clan member's plugin acts on it (no duplicate posts) — and unlike the personal
+    // line above it doesn't depend on each member's in-game loot-notification setting, only
+    // on the clan's broadcast threshold. The "(N coins) from" tail is anchored so item names
+    // containing parentheses stay intact. Package-private for DropNotificationLineTest.
+    static final java.util.regex.Pattern CLAN_DROP_BROADCAST_PATTERN = java.util.regex.Pattern.compile(
+            "^(.{1,20}?) received a drop: (?:([\\d,]+) x )?(.+) \\([\\d,]+ coins\\) from (.+?)\\.?$");
+
+    // Chat channels whose TEXT a player authors. The drop-attribution parsing accepts every
+    // OTHER channel — the personal line's exact ChatMessageType is unverified in the wild
+    // (it renders recolored, and guessing an allowlist wrong silently eats 50m drops), so a
+    // denylist is the safe shape: server-sent lines always parse, and the channels a player
+    // could type "X received a drop: …" into (spoofing a credit onto X's client — the
+    // recipient check alone can't catch that) never do.
+    private static final java.util.Set<ChatMessageType> PLAYER_AUTHORED_CHAT = java.util.EnumSet.of(
+            ChatMessageType.PUBLICCHAT,
+            ChatMessageType.MODCHAT,
+            ChatMessageType.AUTOTYPER,
+            ChatMessageType.MODAUTOTYPER,
+            ChatMessageType.PRIVATECHAT,
+            ChatMessageType.MODPRIVATECHAT,
+            ChatMessageType.PRIVATECHATOUT,
+            ChatMessageType.FRIENDSCHAT,
+            ChatMessageType.CLAN_CHAT,
+            ChatMessageType.CLAN_GUEST_CHAT,
+            ChatMessageType.CLAN_GIM_CHAT);
 
     // Completions that award a guaranteed item straight to the inventory — no loot event ever
     // fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
@@ -454,6 +489,11 @@ public class AnvilPlugin extends Plugin {
     // ---- Kill-count tiles ----------------------------------------------------------------
     // Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
     private volatile Map<String, List<PluginConfigResponse.TrackedKill>> killNpcIndex = Collections.emptyMap();
+
+    // ---- PvP-kill tiles --------------------------------------------------------------------
+    // Normalised RSN -> teamId for every enrolled event player, so 'team:other' selectors can
+    // classify a victim. Rebuilt on each config refresh; empty unless the event has a pvp tile.
+    private volatile Map<String, Integer> pvpRosterIndex = Collections.emptyMap();
 
     private static class KillAggregate {
 
@@ -1125,7 +1165,9 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onHitsplatApplied(HitsplatApplied event) {
         // Track damage WE deal to other players so a subsequent death can be attributed to us
-        // as a PvP kill. Cheap: a couple of reference checks on the client thread.
+        // as a PvP kill NOTIFICATION. Cheap: a couple of reference checks on the client thread.
+        // (PvP-kill TILES don't use this — they credit off the "You have defeated" line, which
+        // the game sends only to the player awarded the kill.)
         if (!config.notifyPvpKills()) {
             return;
         }
@@ -1254,13 +1296,36 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onChatMessage(ChatMessage event) {
+        String msg = event.getMessage();
+        if (msg == null || msg.isEmpty()) {
+            return;
+        }
+
+        // Server drop-attribution lines — the ONLY signal for drops that bypass both loot
+        // events (Maggot King's spill-out uniques). Parsed from ANY non-player-authored
+        // channel (see PLAYER_AUTHORED_CHAT): the personal line's exact type is unverified,
+        // and an allowlist that guessed wrong would eat these silently. Two variants, both
+        // recipient-checked inside creditDropFromChat so only the drop's owner acts:
+        //   personal  "Nisbro received a drop: Elder venator fang (Maggot King)"
+        //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
+        //             Maggot King." — fallback for members whose in-game loot-notification
+        //             setting is off; guests outside the clan rely on the personal line.
+        if (!PLAYER_AUTHORED_CHAT.contains(event.getType()) && msg.contains("received a drop")) {
+            String stripped = msg.replaceAll("<[^>]*>", "");
+            // Each line shape matches exactly one of the two patterns (DropNotificationLineTest
+            // pins this down both ways), so a single chat line can never credit twice here.
+            java.util.regex.Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(stripped);
+            java.util.regex.Matcher broadcast = CLAN_DROP_BROADCAST_PATTERN.matcher(stripped);
+            if (broadcast.matches()) {
+                creditDropFromChat(broadcast.group(1), broadcast.group(2), broadcast.group(3), broadcast.group(4));
+            } else if (dropLine.matches()) {
+                creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
+            }
+        }
+
         if (event.getType() != ChatMessageType.GAMEMESSAGE
                 && event.getType() != ChatMessageType.SPAM
                 && event.getType() != ChatMessageType.MESBOX) {
-            return;
-        }
-        String msg = event.getMessage();
-        if (msg == null || msg.isEmpty()) {
             return;
         }
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
@@ -1287,6 +1352,14 @@ public class AnvilPlugin extends Plugin {
             } catch (NumberFormatException ignored) {
             }
         }
+        // PvP-kill tiles: "You have defeated <name>!" goes ONLY to the player the game awards
+        // the kill to (the same one who gets the loot / loot key) — exactly one credit per death.
+        if (hasPvpTiles()) {
+            java.util.regex.Matcher pvpDefeat = PVP_DEFEAT_PATTERN.matcher(plain);
+            if (pvpDefeat.find()) {
+                creditPvpKillTiles(pvpDefeat.group(1).trim());
+            }
+        }
         int idx = plain.indexOf(CLOG_UNLOCK_PREFIX);
         if (idx >= 0) {
             String item = plain.substring(idx + CLOG_UNLOCK_PREFIX.length()).trim();
@@ -1299,12 +1372,8 @@ public class AnvilPlugin extends Plugin {
             // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
             creditClogUnlock(item);
         }
-        // Server drop-attribution line — the ONLY signal for drops that bypass both loot events
-        // (Maggot King's spill-out uniques). Recipient-checked, so safe at group bosses.
-        java.util.regex.Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(plain);
-        if (dropLine.matches()) {
-            creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
-        }
+        // (Drop-attribution lines are handled ABOVE the type gate — they parse from any
+        // non-player-authored channel, not just the three types this section accepts.)
         // Combat achievement task completion. Credits CA bingo tiles first (independent of the
         // notification toggle), then — when announcements are on — stashes the parse to finish
         // on the next game tick (the points varbit hasn't settled yet; it's read there to detect
@@ -2297,6 +2366,22 @@ public class AnvilPlugin extends Plugin {
             if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
                 continue;
             }
+            // An Entry Mode clear must never credit a base-raid tile ("Tombs of Amascut" is a
+            // substring of its Entry line) — same guard as the deathless path. Harder modes
+            // (CM / Hard / Expert) crediting a base tile is intended.
+            if (lowerMessage.contains("entry mode")
+                    && !tile.activity.toLowerCase(java.util.Locale.ROOT).contains("entry mode")) {
+                continue;
+            }
+            // Optional exact-party gate (raid tiles) — same signal as the deathless path.
+            if (tile.partySize > 0) {
+                int partySeen = instancePlayersSeen.size();
+                if (partySeen != tile.partySize) {
+                    log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
+                            tile.label, partySeen, tile.partySize);
+                    continue;
+                }
+            }
             if (seconds > tile.thresholdSeconds) {
                 log.info("Timed '{}' clear {} over cap {} — not submitting.", tile.label,
                         TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
@@ -2918,10 +3003,11 @@ public class AnvilPlugin extends Plugin {
             // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
             // what the plugin believed it was tracking, and when that belief changed.
             String summary = String.format(java.util.Locale.ROOT,
-                    "event='%s' team='%s' autoSubmit=%b drops=%d kills=%d gains=%d timed=%d"
+                    "event='%s' team='%s' autoSubmit=%b drops=%d kills=%d pvp=%d gains=%d timed=%d"
                             + " deathless=%d lms=%d values=%d diaries=%d combatTasks=%d completed=%d",
                     pluginConfig.event.name, pluginConfig.team.name, config.autoSubmit(),
                     sizeOf(pluginConfig.trackedDrops), sizeOf(pluginConfig.trackedKills),
+                    sizeOf(pluginConfig.trackedPvp),
                     sizeOf(pluginConfig.trackedGains), sizeOf(pluginConfig.trackedTimed),
                     sizeOf(pluginConfig.trackedDeathless), sizeOf(pluginConfig.trackedLms),
                     sizeOf(pluginConfig.trackedValues), sizeOf(pluginConfig.trackedDiaries),
@@ -2977,6 +3063,24 @@ public class AnvilPlugin extends Plugin {
         itemDropIndex = index;
         rebuildKillNpcIndex();
         rebuildGainItemIndex();
+        rebuildPvpRosterIndex();
+    }
+
+    /**
+     * Rebuild the normalised-RSN → teamId roster index used by PvP-kill tiles'
+     * "team:other" selectors; refreshed together with the drop index. Empty
+     * unless the event has a pvp tile (the server only ships the roster then).
+     */
+    private void rebuildPvpRosterIndex() {
+        Map<String, Integer> index = new HashMap<>();
+        if (pluginConfig != null && pluginConfig.pvpRoster != null) {
+            for (PluginConfigResponse.RosterEntry entry : pluginConfig.pvpRoster) {
+                if (entry != null && entry.name != null && !entry.name.isEmpty()) {
+                    index.put(normalizeRsn(entry.name), entry.teamId);
+                }
+            }
+        }
+        pvpRosterIndex = index;
     }
 
     /** Rebuild the itemId → TrackedGain index; refreshed together with the drop index. */
@@ -3123,10 +3227,18 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /** True when the current event config carries any PvP-kill tiles. */
+    private boolean hasPvpTiles() {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null && cfg.trackedPvp != null && !cfg.trackedPvp.isEmpty();
+    }
+
     /**
      * Posts a PvP kill to the kills channel when the dying player is one we
      * damaged within the attribution window. Runs on the client thread;
-     * screenshot + network send are deferred.
+     * screenshot + network send are deferred. (Notification only — PvP-kill
+     * tiles credit off the "You have defeated" chat line instead, so exactly
+     * one player per death gets tile credit.)
      */
     private void maybeNotifyPvpKill(Player victim) {
         String name = victim.getName();
@@ -3148,6 +3260,78 @@ public class AnvilPlugin extends Plugin {
         }
         String message = buildKillMessage(getLocalPlayerName(), name);
         captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
+    }
+
+    /**
+     * Credits PvP-kill bingo tiles for a kill the game awarded us — called off the
+     * "You have defeated &lt;name&gt;!" line, which only the credited killer (the
+     * player who receives the loot / loot key) sees, so each death credits exactly
+     * one person. Only dangerous PvP counts — the Wilderness or a PvP world — so
+     * safe minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM can't farm
+     * the tile. Selector semantics: "team:other" matches any event participant on
+     * a different team (via the pvpRoster index); "rsn:&lt;name&gt;" matches that
+     * exact player, enrolled or not. Amount 1 per kill through the shared proof
+     * pipeline (the defeat message lands on the kill tick — the frame still shows
+     * the fight).
+     */
+    private void creditPvpKillTiles(String victimName) {
+        String gate = trackingGateReason();
+        if (gate != null || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()) {
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
+            return;
+        }
+        boolean dangerous = client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
+                || client.getWorldType().contains(WorldType.PVP);
+        if (!dangerous) {
+            logTrackingSuppressed("PvP kill outside dangerous PvP (Wilderness / PvP world) — not counted");
+            return;
+        }
+        String victim = normalizeRsn(victimName);
+        Integer victimTeam = pvpRosterIndex.get(victim);
+        Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
+        for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
+            if (tile == null || tile.targets == null || tile.currentAmount >= tile.requiredAmount
+                    || isTileCompleted(tile.tileId)) {
+                continue;
+            }
+            boolean matches = false;
+            for (String sel : tile.targets) {
+                if (sel == null) {
+                    continue;
+                }
+                String s = sel.trim();
+                if (s.equalsIgnoreCase("team:other")) {
+                    matches = victimTeam != null && myTeam != null && !victimTeam.equals(myTeam);
+                } else if (s.regionMatches(true, 0, "rsn:", 0, 4)) {
+                    matches = normalizeRsn(s.substring(4)).equals(victim);
+                }
+                if (matches) {
+                    break;
+                }
+            }
+            if (!matches) {
+                continue;
+            }
+            tile.currentAmount += 1;
+            final PluginConfigResponse.TrackedPvp ft = tile;
+            log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
+                    victimName, tile.label, tile.currentAmount, tile.requiredAmount);
+            String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
+            captureAndSubmitProof(tile.tileId, tile.label, 1, null,
+                    "BINGO PVP KILL", detail,
+                    "[Auto] PvP kill on " + victimName + " — detected by RuneLite plugin",
+                    () -> ft.currentAmount = Math.max(0, ft.currentAmount - 1));
+        }
+    }
+
+    /**
+     * Normalises an RSN for matching: client names carry non-breaking spaces
+     * (\u00A0) where the site roster has plain ones; casing is cosmetic.
+     */
+    private static String normalizeRsn(String name) {
+        return name == null ? "" : name.replace('\u00A0', ' ').trim().toLowerCase();
     }
 
     private String buildKillMessage(String killer, String victim) {

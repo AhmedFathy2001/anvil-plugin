@@ -2324,6 +2324,8 @@ public class ClogTabController
 		{
 			case "kill":
 				return ClogTaskModel.Kind.KILL;
+			case "pvp":
+				return ClogTaskModel.Kind.PVP;
 			case "timed":
 				return ClogTaskModel.Kind.TIMED;
 			case "diary":
@@ -3015,6 +3017,10 @@ public class ClogTabController
 		if ("LMS".equals(enumName))
 		{
 			return "LMS"; // initialism — "Lms" reads wrong on the Type chip
+		}
+		if ("PVP".equals(enumName))
+		{
+			return "PvP"; // mixed-case initialism — "Pvp" reads wrong on the Type chip
 		}
 		String s = enumName.toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
 		return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
