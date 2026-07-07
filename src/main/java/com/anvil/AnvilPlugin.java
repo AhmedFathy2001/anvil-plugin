@@ -2297,6 +2297,22 @@ public class AnvilPlugin extends Plugin {
             if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
                 continue;
             }
+            // An Entry Mode clear must never credit a base-raid tile ("Tombs of Amascut" is a
+            // substring of its Entry line) — same guard as the deathless path. Harder modes
+            // (CM / Hard / Expert) crediting a base tile is intended.
+            if (lowerMessage.contains("entry mode")
+                    && !tile.activity.toLowerCase(java.util.Locale.ROOT).contains("entry mode")) {
+                continue;
+            }
+            // Optional exact-party gate (raid tiles) — same signal as the deathless path.
+            if (tile.partySize > 0) {
+                int partySeen = instancePlayersSeen.size();
+                if (partySeen != tile.partySize) {
+                    log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
+                            tile.label, partySeen, tile.partySize);
+                    continue;
+                }
+            }
             if (seconds > tile.thresholdSeconds) {
                 log.info("Timed '{}' clear {} over cap {} — not submitting.", tile.label,
                         TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));

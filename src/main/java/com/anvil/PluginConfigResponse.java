@@ -180,6 +180,7 @@ public class PluginConfigResponse
 		public String category;
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
+		public int partySize;              // raids — exact party size required; 0/absent = any size
 		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
 		public boolean completed;          // team already completed this tile
 	}
