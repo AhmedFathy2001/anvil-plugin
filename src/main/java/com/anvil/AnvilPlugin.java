@@ -1485,7 +1485,7 @@ public class AnvilPlugin extends Plugin {
                 creditBossKillFromChat(kcName, firstSeen);
                 // Real-time boss-KC tiles: push the absolute count so the tile updates now instead
                 // of waiting ~1h for the hiscores cron (debounced; only for tracked bosses).
-                maybeQueueKcPush(kcName, kcKey, kc);
+                maybeQueueKcPush(kcName, kc);
                 // Guaranteed completion awards (Infernal cape, Fire cape) credit off the KC
                 // line — the only signal that fires on repeat completions.
                 String award = GUARANTEED_AWARDS.get(kcKey);
@@ -3293,7 +3293,7 @@ public class AnvilPlugin extends Plugin {
         if (pluginConfig != null && pluginConfig.trackedKcNames != null) {
             for (String n : pluginConfig.trackedKcNames) {
                 if (n != null && !n.isEmpty()) {
-                    names.add(n.toLowerCase(java.util.Locale.ROOT));
+                    names.add(normalizeBossName(n));
                 }
             }
         }
@@ -3301,16 +3301,25 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
+     * Normalize a boss name for matching: lowercase, non-alphanumeric → space, collapse. Mirrors the
+     * server's lib/pluginStats so a KC line's boss name lines up with the config's watch-list
+     * regardless of punctuation — e.g. "Tombs of Amascut: Expert Mode" ↔ "tombs of amascut expert mode".
+     */
+    private static String normalizeBossName(String s) {
+        return s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+    }
+
+    /**
      * Buffers an absolute boss KC for a debounced push, if the event tracks this boss as a KC tile.
      * Absolute counts are idempotent, so the latest value overwrites and a kill streak becomes one
      * push. Runs on the client thread (onChatMessage); the network send happens on the executor.
      */
-    private void maybeQueueKcPush(String bossName, String kcKey, int kc) {
+    private void maybeQueueKcPush(String bossName, int kc) {
         if (!config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
                 || pluginConfig.team == null || pluginConfig.player == null) {
             return;
         }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event) || !trackedKcNames.contains(kcKey)) {
+        if (!AnvilOverlay.isEventActive(pluginConfig.event) || !trackedKcNames.contains(normalizeBossName(bossName))) {
             return;
         }
         if (executor == null || executor.isShutdown()) {
