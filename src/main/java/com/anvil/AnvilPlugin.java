@@ -2081,12 +2081,69 @@ public class AnvilPlugin extends Plugin {
         doSubmitKillAggregate(agg);
     }
 
+    // Milestone proof for grindy kill tiles — mirror of the site's Discord throttle. A 4000-kill
+    // task would otherwise upload one proof PNG per spree-flush for days, swamping the media store.
+    // Above PROOF_LARGE_TILE_MIN we bake a proof screenshot only when the running count crosses a
+    // 25% step of the goal (and on completion); flushes in between are lightweight count-only pings.
+    private static final int PROOF_LARGE_TILE_MIN = 25;
+    private static final double PROOF_MILESTONE_FRACTION = 0.25;
+
+    // True when this flush's running count crosses a milestone step of the goal (or the tile is
+    // small enough that we always screenshot). Stateless before/after check, matching the site.
+    private boolean crossesProofMilestone(int addedThisWindow, int current, int required) {
+        if (required < PROOF_LARGE_TILE_MIN) {
+            return true;
+        }
+        double step = Math.max(1.0, required * PROOF_MILESTONE_FRACTION);
+        return (long) Math.floor(current / step) > (long) Math.floor((current - addedThisWindow) / step);
+    }
+
     private void doSubmitKillAggregate(KillAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedKill kill = agg.kill;
-        final int rolledBack = agg.totalKills;
-        String detail = kill.label + "  ×" + agg.totalKills + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-        captureAndSubmitProof(kill.tileId, kill.label, agg.totalKills, null, "BINGO KILL", detail,
+        final int amount = agg.totalKills;
+        final boolean complete = agg.snapshotCurrent >= agg.snapshotRequired;
+
+        // Intermediate kills (not at a milestone, not completing) are count-only pings — no
+        // screenshot — so a long grind doesn't upload a PNG per burst. Mirrors the gain path; the
+        // single/milestone proof screenshots below are the audit trail.
+        if (!complete && !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
+            if (executor == null || executor.isShutdown()
+                    || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
+                return;
+            }
+            // Capture ids now — the config can clear (logout) before the task runs.
+            final int eventId = pluginConfig.event.id;
+            final int teamId = pluginConfig.team.id;
+            final int playerId = pluginConfig.player.id;
+            executor.submit(() -> {
+                try {
+                    apiClient.submitDrop(eventId, kill.tileId, teamId,
+                            amount, null, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin",
+                            playerId, null);
+                    log.info("Kill ping sent: '{}' ×{}", kill.label, amount);
+                    refreshConfig();
+                } catch (IOException e) {
+                    log.warn("Kill ping failed for '{}' ×{} — requeueing: {}", kill.label, amount, e.getMessage());
+                    // Fold the count back into the aggregate so a later flush retries it.
+                    synchronized (pendingKillAggregates) {
+                        KillAggregate retry = pendingKillAggregates.computeIfAbsent("kill:" + kill.tileId, k -> new KillAggregate(kill));
+                        retry.totalKills += amount;
+                        retry.snapshotCurrent = kill.currentAmount;
+                        retry.snapshotRequired = kill.requiredAmount;
+                        if (retry.flushTask != null) {
+                            retry.flushTask.cancel(false);
+                        }
+                        retry.flushTask = executor.schedule(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+                    }
+                }
+            });
+            return;
+        }
+
+        final int rolledBack = amount;
+        String detail = kill.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+        captureAndSubmitProof(kill.tileId, kill.label, amount, null, "BINGO KILL", detail,
                 "[Auto] " + kill.label + " kill(s) detected by RuneLite plugin",
                 () -> kill.currentAmount = Math.max(0, kill.currentAmount - rolledBack));
     }
