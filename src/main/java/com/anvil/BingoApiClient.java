@@ -1,6 +1,7 @@
 package com.anvil;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import javax.inject.Inject;
@@ -744,6 +745,52 @@ public class BingoApiClient
 				throw new IOException("Submission failed: HTTP " + response.code() + " — " + responseBody);
 			}
 			log.info("Drop submitted successfully for tile {}", tileId);
+		}
+	}
+
+	/**
+	 * POST /api/plugin/stats — real-time boss KC push (no screenshot). Body is
+	 * {@code {"stats":[{"name":"<in-game boss name>","kc":<absolute count>}]}}. The event, team, and
+	 * player are resolved server-side from the account-token auth (Bearer + X-RSN + X-Account-Hash),
+	 * so a caller can only ever report its own KC. Counts are ABSOLUTE (idempotent): the server takes
+	 * max(hiscores, pushed) per boss, so a debounced "latest value" is all that's needed and the
+	 * hourly hiscores cron reconciles it. Used to complete boss-KC tiles instantly instead of waiting
+	 * on the ~1h hiscores lag.
+	 */
+	public void submitStatKc(java.util.Map<String, Integer> counts) throws IOException
+	{
+		if (counts == null || counts.isEmpty())
+		{
+			return;
+		}
+		JsonArray stats = new JsonArray();
+		for (java.util.Map.Entry<String, Integer> e : counts.entrySet())
+		{
+			if (e.getKey() == null || e.getValue() == null)
+			{
+				continue;
+			}
+			JsonObject s = new JsonObject();
+			s.addProperty("name", e.getKey());
+			s.addProperty("kc", e.getValue());
+			stats.add(s);
+		}
+		JsonObject payload = new JsonObject();
+		payload.add("stats", stats);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("KC push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.info("Real-time KC pushed for {} boss(es)", counts.size());
 		}
 	}
 
