@@ -437,6 +437,8 @@ public class ClogTabController
 
 	private static final int DESC_LINE_H = 14;
 	private static final int DESC_COLOR = 0xc0c0c0;
+	// Second title line on expanded rows — 15px matches the title(y+3) → subtext(y+18) rhythm.
+	private static final int TITLE_LINE_H = 15;
 
 	/**
 	 * Renders a tile description as one TEXT widget per wrapped line. The client's own
@@ -1572,11 +1574,47 @@ public class ClogTabController
 		icon.revalidate();
 
 		Widget name = items.createChild(-1, WidgetType.TEXT);
-		String prefix = hasDesc ? "<col=ffcc33>" + (expanded ? "-" : "+") + "</col> " : "";
-		name.setText(prefix + row.label);
+		name.setFontId(FONT_PLAIN);
+		FontTypeFace font = name.getFont();
+		// Long labels don't fit one line — collapsed rows ellipsize, expanded rows wrap the
+		// label onto a second line (still capped at two so no row can swallow the pane). A
+		// truncated label makes the row expandable even without a description; measure with
+		// the plain "+ " stand-in since col tags take no render space.
+		boolean truncated = textWidth(font, "+ " + row.label) > textWidth;
+		boolean expandable = hasDesc || truncated;
+		String prefix = expandable ? "<col=ffcc33>" + (expanded ? "-" : "+") + "</col> " : "";
+		String prefixPlain = expandable ? "+ " : "";
+		int extraTitleH = 0;
+		String firstLine = null;
+		if (expanded && truncated)
+		{
+			List<String> lines = wrapText(font, row.label, textWidth - textWidth(font, prefixPlain));
+			// A single unbreakable word can't wrap (greedy wrap only splits between words) —
+			// fall through to the ellipsized single line for that case.
+			if (lines.size() > 1)
+			{
+				firstLine = prefix + lines.get(0);
+				String rest = String.join(" ", lines.subList(1, lines.size()));
+				Widget cont = items.createChild(-1, WidgetType.TEXT);
+				cont.setText(fitValue(font, "", rest, textWidth));
+				cont.setTextColor(statusColor);
+				cont.setTextShadowed(true);
+				cont.setFontId(FONT_PLAIN);
+				place(cont, ClogIds.ROW_TEXT_X, y + 3 + TITLE_LINE_H, textWidth, 16);
+				cont.setHasListener(true);
+				cont.setAction(0, "Collapse");
+				cont.setOnOpListener((JavaScriptCallback) e -> toggleExpand(row.tileId));
+				cont.revalidate();
+				extraTitleH = TITLE_LINE_H;
+			}
+		}
+		if (firstLine == null)
+		{
+			firstLine = prefix + fitValue(font, prefixPlain, row.label, textWidth);
+		}
+		name.setText(firstLine);
 		name.setTextColor(statusColor);
 		name.setTextShadowed(true);
-		name.setFontId(FONT_PLAIN);
 		place(name, ClogIds.ROW_TEXT_X, y + 3, textWidth, 16);
 		name.setHasListener(true);
 		name.setAction(0, expanded ? "Collapse" : "Expand");
@@ -1602,13 +1640,13 @@ public class ClogTabController
 		subText.setTextColor(0x999999);
 		subText.setTextShadowed(true);
 		subText.setFontId(FONT_PLAIN);
-		place(subText, ClogIds.ROW_TEXT_X, y + 18, textWidth, 14);
+		place(subText, ClogIds.ROW_TEXT_X, y + 18 + extraTitleH, textWidth, 14);
 		subText.revalidate();
 
-		int height = ClogIds.ROW_H;
+		int height = ClogIds.ROW_H + extraTitleH;
 		if (expanded && hasDesc)
 		{
-			height += renderDescription(items, row.description, ClogIds.ROW_TEXT_X, y + ClogIds.ROW_H, textWidth) + 2;
+			height += renderDescription(items, row.description, ClogIds.ROW_TEXT_X, y + ClogIds.ROW_H + extraTitleH, textWidth) + 2;
 		}
 		return height;
 	}
@@ -2793,11 +2831,13 @@ public class ClogTabController
 		icon.revalidate();
 
 		Widget name = items.createChild(-1, WidgetType.TEXT);
-		name.setText(t.label);
-		name.setTextColor(t.complete ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : 0xe0e0e0);
 		name.setFontId(FONT_PLAIN);
+		int nameW = Math.max(40, paneWidth - 58 - 70);
+		// Race rows have no expand affordance — just ellipsize instead of colliding with the pips.
+		name.setText(fitValue(name.getFont(), "", t.label, nameW));
+		name.setTextColor(t.complete ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : 0xe0e0e0);
 		name.setTextShadowed(true);
-		place(name, 58, ty, Math.max(40, paneWidth - 58 - 70), 16);
+		place(name, 58, ty, nameW, 16);
 		name.revalidate();
 
 		if (teamsHere != null && !teamsHere.isEmpty())
