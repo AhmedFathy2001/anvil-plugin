@@ -538,9 +538,16 @@ public class AnvilPlugin extends Plugin {
 
     // itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
     private volatile Map<Integer, List<PluginConfigResponse.TrackedGain>> gainItemIndex = Collections.emptyMap();
-    // Last seen inventory quantities (itemId → total). Null until the first snapshot after
-    // login/config load, so the baseline never counts as a gain.
-    private Map<Integer, Integer> lastInventoryCounts = null;
+    // Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
+    // the first snapshot after login/config load, so the baseline never counts as a gain. Worn
+    // items are folded in so equipping/unequipping — which just moves an item between the two
+    // containers — nets zero and is never miscounted as a gain (RuneLite fires a separate
+    // ItemContainerChanged for each container on an equip; diffing them independently reads the
+    // unequip as a +1). The diff is coalesced to onGameTick so both containers have settled.
+    private Map<Integer, Integer> lastHeldItemCounts = null;
+    // Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
+    // both containers in one tick) is evaluated once, after both have updated.
+    private boolean heldItemsDirty = false;
     private final Map<Integer, GainAggregate> pendingGainAggregates = new HashMap<>();
     // Gathering is a slow trickle (a catch every few seconds), so the settle window is much
     // longer than drops' — one screenshot + submission per fishing stint, not per catch.
@@ -721,7 +728,8 @@ public class AnvilPlugin extends Plugin {
         itemDropIndex = Collections.emptyMap();
         killNpcIndex = Collections.emptyMap();
         gainItemIndex = Collections.emptyMap();
-        lastInventoryCounts = null;
+        lastHeldItemCounts = null;
+        heldItemsDirty = false;
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
         lastNpcDeathName = null;
@@ -986,6 +994,12 @@ public class AnvilPlugin extends Plugin {
             pendingCaTasks.clear();
             handleCombatAchievements(batch);
         }
+        // Gain tiles: diff held items (inventory + worn) once per tick, after any equip/unequip
+        // has updated both containers, so a gear move never reads as a gain.
+        if (heldItemsDirty) {
+            heldItemsDirty = false;
+            updateHeldItemGains();
+        }
         trackLmsTick();
     }
 
@@ -1096,10 +1110,11 @@ public class AnvilPlugin extends Plugin {
                 executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
             }
         } else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
-            // Gain tiles: drop the inventory baseline so the next snapshot after login/hop
+            // Gain tiles: drop the held-item baseline so the next snapshot after login/hop
             // re-seeds instead of reading the whole inventory as a "gain". Deathless: leave
             // the instance so re-entry re-arms the death counter.
-            lastInventoryCounts = null;
+            lastHeldItemCounts = null;
+            heldItemsDirty = false;
             wasInInstance = false;
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
@@ -1425,9 +1440,15 @@ public class AnvilPlugin extends Plugin {
             }
         }
 
+        // FRIENDSCHATNOTIFICATION carries the ToA/ToB raid completion-TIME summary lines
+        // ("… total completion time: mm:ss") — a legacy channel, NOT GAMEMESSAGE — so it must
+        // be accepted or timed raid clears never see the real raid time and mis-correlate a
+        // per-room duration instead. This mirrors RuneLite's own ChatCommandsPlugin, which
+        // allows the same type for exactly this reason.
         if (event.getType() != ChatMessageType.GAMEMESSAGE
                 && event.getType() != ChatMessageType.SPAM
-                && event.getType() != ChatMessageType.MESBOX) {
+                && event.getType() != ChatMessageType.MESBOX
+                && event.getType() != ChatMessageType.FRIENDSCHATNOTIFICATION) {
             return;
         }
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
@@ -2081,21 +2102,28 @@ public class AnvilPlugin extends Plugin {
      */
     @Subscribe
     public void onItemContainerChanged(ItemContainerChanged event) {
-        if (event.getContainerId() != net.runelite.api.gameval.InventoryID.INV) {
-            return;
+        // Flag inventory OR worn changes; the actual diff runs once on the next onGameTick, after
+        // both containers have settled. Equipping/unequipping touches both in the same tick, so
+        // diffing here per-container would read the unequip's inventory bump as a phantom gain.
+        int id = event.getContainerId();
+        if (id == net.runelite.api.gameval.InventoryID.INV
+                || id == net.runelite.api.gameval.InventoryID.WORN) {
+            heldItemsDirty = true;
         }
-        ItemContainer inv = event.getItemContainer();
-        if (inv == null) {
-            return;
-        }
+    }
+
+    /**
+     * Coalesced gain diff over held items (inventory + worn equipment). Runs at most once per
+     * game tick from {@link #onGameTick}. Counting the two containers together means an equip or
+     * unequip — a move between them — cancels out, so only genuinely acquired items credit a gain
+     * tile. Ground-pickup / telegrab / trade-close / bank guards still suppress non-gather flows.
+     */
+    private void updateHeldItemGains() {
         Map<Integer, Integer> counts = new HashMap<>();
-        for (Item item : inv.getItems()) {
-            if (item != null && item.getId() > 0) {
-                counts.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
-            }
-        }
-        Map<Integer, Integer> previous = lastInventoryCounts;
-        lastInventoryCounts = counts;
+        addContainerCounts(counts, net.runelite.api.gameval.InventoryID.INV);
+        addContainerCounts(counts, net.runelite.api.gameval.InventoryID.WORN);
+        Map<Integer, Integer> previous = lastHeldItemCounts;
+        lastHeldItemCounts = counts;
 
         // Baseline snapshot (login/config load) or a non-gather context → record only.
         if (previous == null || gainItemIndex.isEmpty() || !config.autoSubmit()
@@ -2123,6 +2151,19 @@ public class AnvilPlugin extends Plugin {
                 log.info("Tracked gain: item {} ×{}, tile '{}' ({}/{})", itemId, amount, gain.label,
                         gain.currentAmount, gain.requiredAmount);
                 queueGainForFlush(gain, amount);
+            }
+        }
+    }
+
+    /** Adds a container's item quantities (itemId → total) into {@code counts}. No-op if absent. */
+    private void addContainerCounts(Map<Integer, Integer> counts, int containerId) {
+        ItemContainer c = client.getItemContainer(containerId);
+        if (c == null) {
+            return;
+        }
+        for (Item item : c.getItems()) {
+            if (item != null && item.getId() > 0) {
+                counts.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
             }
         }
     }
