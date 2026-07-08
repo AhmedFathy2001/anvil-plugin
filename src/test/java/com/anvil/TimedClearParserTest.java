@@ -56,8 +56,26 @@ public class TimedClearParserTest
 		// Hallowed Sepulchre floor + overall lines
 		assertEquals(Integer.valueOf(407), TimedClearParser.parseDurationSeconds("Floor 5 time: 6:47.40 (new personal best)"));
 		assertEquals(Integer.valueOf(1599), TimedClearParser.parseDurationSeconds("Overall time: 26:39.20 (new personal best)"));
-		// ToA per-challenge line
-		assertEquals(Integer.valueOf(623), TimedClearParser.parseDurationSeconds("Challenge time: 10:23"));
+	}
+
+	@Test
+	public void usesRaidTotalTimeNotRoomOrChallengeSubTimes()
+	{
+		// The raid clear time is the "total completion time" line — accept it (ToA + ToB).
+		assertEquals(Integer.valueOf(2090), TimedClearParser.parseDurationSeconds(
+			"Tombs of Amascut: Expert Mode total completion time: 34:50. Personal best: 18:31"));
+		assertEquals(Integer.valueOf(3750), TimedClearParser.parseDurationSeconds(
+			"Theatre of Blood total completion time: 1:02:30"));
+		// ToA sub-times must NOT parse — crediting the 7:05 final room let a 34:50 raid pass a
+		// 25-minute tile. Reject the per-room, per-challenge, and rooms-only aggregate lines.
+		assertNull(TimedClearParser.parseDurationSeconds("Challenge complete: The Wardens. Duration: 7:05"));
+		assertNull(TimedClearParser.parseDurationSeconds("Challenge time: 10:23"));
+		assertNull(TimedClearParser.parseDurationSeconds(
+			"Tombs of Amascut: Expert Mode challenge completion time: 30:16. Personal best: 16:08"));
+		// But "Challenge duration:" (Gauntlet / Corrupted Gauntlet / TzHaar-Ket-Rak) is a real
+		// clear time and must still parse.
+		assertEquals(Integer.valueOf(534), TimedClearParser.parseDurationSeconds("Challenge duration: 8:54.00 (new personal best)"));
+		assertEquals(Integer.valueOf(624), TimedClearParser.parseDurationSeconds("Corrupted challenge duration: 10:24. Personal best: 7:59."));
 	}
 
 	@Test

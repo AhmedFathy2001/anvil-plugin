@@ -50,11 +50,25 @@ final class TimedClearParser
 	//   duration        — "Fight/Wave/Challenge/Corrupted challenge duration:", raid "Duration:"
 	//   completion time — ToB/ToA "total completion time:"
 	//   time:           — Barracuda Trials "Time: 6:04.20", Sepulchre "Floor 5 time:"/"Overall
-	//                     time:", ToA "Challenge time:". Colon fused so countdown lines
-	//                     ("Time remaining: 5:00") don't parse as a clear.
+	//                     time:". Colon fused so countdown lines ("Time remaining: 5:00") don't
+	//                     parse as a clear.
 	//   subdued in      — Tempoross "Subdued in 6:32"
+	// ToA's per-room / per-challenge sub-times also match "duration"/"time:" but are filtered
+	// out before this (see RAID_SUBTIME) — they're not the raid clear time.
 	private static final Pattern DURATION = Pattern.compile(
 			"(?:duration|completion time|time:|subdued in)[^0-9]{0,16}((?:\\d{1,2}:)?\\d{1,3}:\\d{2})");
+
+	// ToA reports several *sub*-times before the raid total, each carrying its own duration:
+	//   "Challenge complete: The Wardens. Duration: 7:05"     — one room
+	//   "Challenge time: 10:23"                                — one challenge
+	//   "Tombs of Amascut: Expert Mode challenge completion time: 30:16" — rooms only, no overhead
+	// None of these is the raid clear time — a "clear the raid under X" tile must use the
+	// "… total completion time:" line (or CoX's "raid is complete! Duration:"). Crediting a room
+	// duration was letting a 34:50 raid pass a 25-minute tile off its 7:05 final room. These are
+	// the only "challenge …"/"… completion time" phrasings we reject; "Challenge duration:"
+	// (Gauntlet / Corrupted Gauntlet / TzHaar-Ket-Rak) and "total completion time" are kept.
+	private static final Pattern RAID_SUBTIME = Pattern.compile(
+			"challenge complete|challenge time:|challenge completion time");
 
 	// Lowercased activity (as configured on the tile) -> substrings that, if present in a nearby
 	// chat line, identify that activity. The identifying line is typically the boss/raid
@@ -108,7 +122,14 @@ final class TimedClearParser
 		{
 			return null;
 		}
-		Matcher m = DURATION.matcher(message.toLowerCase());
+		String lower = message.toLowerCase();
+		// A ToA per-room / per-challenge sub-time — never the raid clear time. Ignore it so a
+		// slow raid can't pass a timed tile off a fast final room (see RAID_SUBTIME).
+		if (RAID_SUBTIME.matcher(lower).find())
+		{
+			return null;
+		}
+		Matcher m = DURATION.matcher(lower);
 		if (!m.find())
 		{
 			return null;
