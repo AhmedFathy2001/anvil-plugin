@@ -538,6 +538,17 @@ public class AnvilPlugin extends Plugin {
 
     // itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
     private volatile Map<Integer, List<PluginConfigResponse.TrackedGain>> gainItemIndex = Collections.emptyMap();
+
+    // ---- Real-time boss-KC push (hiscores tiles) -------------------------------------------
+    // Lowercased in-game KC-line boss names the server tracks as boss-KC tiles. Rebuilt with the
+    // drop index each config refresh; empty unless the event has such tiles.
+    private volatile java.util.Set<String> trackedKcNames = Collections.emptySet();
+    // Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
+    // counts are idempotent, so a kill streak collapses to a single push of the newest value.
+    private final Map<String, Integer> pendingKcPush = new HashMap<>();
+    private java.util.concurrent.ScheduledFuture<?> kcPushTask;
+    // KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
+    private static final long KC_PUSH_COALESCE_MS = 15_000;
     // Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
     // the first snapshot after login/config load, so the baseline never counts as a gain. Worn
     // items are folded in so equipping/unequipping — which just moves an item between the two
@@ -730,6 +741,11 @@ public class AnvilPlugin extends Plugin {
         gainItemIndex = Collections.emptyMap();
         lastHeldItemCounts = null;
         heldItemsDirty = false;
+        trackedKcNames = Collections.emptySet();
+        synchronized (pendingKcPush) {
+            pendingKcPush.clear();
+            kcPushTask = null;
+        }
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
         lastNpcDeathName = null;
@@ -1464,8 +1480,12 @@ public class AnvilPlugin extends Plugin {
                 String kcName = kcMatcher.group(1).trim();
                 String kcKey = kcName.toLowerCase();
                 boolean firstSeen = !killCounts.containsKey(kcKey);
-                killCounts.put(kcKey, Integer.parseInt(kcMatcher.group(2).replace(",", "")));
+                int kc = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
+                killCounts.put(kcKey, kc);
                 creditBossKillFromChat(kcName, firstSeen);
+                // Real-time boss-KC tiles: push the absolute count so the tile updates now instead
+                // of waiting ~1h for the hiscores cron (debounced; only for tracked bosses).
+                maybeQueueKcPush(kcName, kcKey, kc);
                 // Guaranteed completion awards (Infernal cape, Fire cape) credit off the KC
                 // line — the only signal that fires on repeat completions.
                 String award = GUARANTEED_AWARDS.get(kcKey);
@@ -3264,6 +3284,78 @@ public class AnvilPlugin extends Plugin {
         rebuildKillNpcIndex();
         rebuildGainItemIndex();
         rebuildPvpRosterIndex();
+        rebuildTrackedKcNames();
+    }
+
+    /** Rebuild the set of in-game KC-line boss names to push real-time counts for; refreshed with the drop index. */
+    private void rebuildTrackedKcNames() {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        if (pluginConfig != null && pluginConfig.trackedKcNames != null) {
+            for (String n : pluginConfig.trackedKcNames) {
+                if (n != null && !n.isEmpty()) {
+                    names.add(n.toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        trackedKcNames = names;
+    }
+
+    /**
+     * Buffers an absolute boss KC for a debounced push, if the event tracks this boss as a KC tile.
+     * Absolute counts are idempotent, so the latest value overwrites and a kill streak becomes one
+     * push. Runs on the client thread (onChatMessage); the network send happens on the executor.
+     */
+    private void maybeQueueKcPush(String bossName, String kcKey, int kc) {
+        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
+                || pluginConfig.team == null || pluginConfig.player == null) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event) || !trackedKcNames.contains(kcKey)) {
+            return;
+        }
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        synchronized (pendingKcPush) {
+            pendingKcPush.put(bossName, kc);
+            if (kcPushTask != null) {
+                kcPushTask.cancel(false);
+            }
+            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Pushes the buffered absolute KCs to the server (no screenshot). Requeues on failure. */
+    private void flushKcPush() {
+        Map<String, Integer> batch;
+        synchronized (pendingKcPush) {
+            if (pendingKcPush.isEmpty()) {
+                return;
+            }
+            batch = new HashMap<>(pendingKcPush);
+            pendingKcPush.clear();
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
+            return; // event ended between queue and flush — drop; the count is safe on the hiscores side
+        }
+        try {
+            apiClient.submitStatKc(batch);
+            refreshConfig(); // pull back the updated progress / any completion the push triggered
+        } catch (IOException e) {
+            log.warn("KC push failed ({} boss(es)) — requeueing: {}", batch.size(), e.getMessage());
+            synchronized (pendingKcPush) {
+                for (Map.Entry<String, Integer> en : batch.entrySet()) {
+                    pendingKcPush.merge(en.getKey(), en.getValue(), Integer::max);
+                }
+                if (executor != null && !executor.isShutdown()) {
+                    if (kcPushTask != null) {
+                        kcPushTask.cancel(false);
+                    }
+                    kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                }
+            }
+        }
     }
 
     /**
