@@ -281,11 +281,6 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Integer> killCounts = new HashMap<>();
     private static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
             "Your (?:completed )?(.+?) (?:kill )?count is: ([\\d,]+)");
-    // PvP kill credit — the game sends "You have defeated <name>!" only to the player it awards
-    // the kill (and the loot / loot key) to, making it the one-credit-per-death signal for
-    // PvP-kill tiles. Tolerates a trailing "." and any follow-on text (Bounty Hunter suffixes).
-    private static final java.util.regex.Pattern PVP_DEFEAT_PATTERN = java.util.regex.Pattern.compile(
-            "^You have defeated (.+?)[.!]");
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
@@ -1297,11 +1292,12 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onHitsplatApplied(HitsplatApplied event) {
-        // Track damage WE deal to other players so a subsequent death can be attributed to us
-        // as a PvP kill NOTIFICATION. Cheap: a couple of reference checks on the client thread.
-        // (PvP-kill TILES don't use this — they credit off the "You have defeated" line, which
-        // the game sends only to the player awarded the kill.)
-        if (!config.notifyPvpKills()) {
+        // Track damage WE deal to other players so a subsequent death can be attributed to us —
+        // this drives BOTH the PvP kill notification AND PvP-kill tile credit. Cheap: a couple of
+        // reference checks on the client thread. (Loot-key kills produce no reliable chat/loot
+        // signal — the kill message is a random taunt pool and PlayerLootReceived never fires since
+        // the loot goes into a key, not onto the ground — so damage→death is the signal we use.)
+        if (!config.notifyPvpKills() && !hasPvpTiles()) {
             return;
         }
         Hitsplat hitsplat = event.getHitsplat();
@@ -1495,14 +1491,8 @@ public class AnvilPlugin extends Plugin {
             } catch (NumberFormatException ignored) {
             }
         }
-        // PvP-kill tiles: "You have defeated <name>!" goes ONLY to the player the game awards
-        // the kill to (the same one who gets the loot / loot key) — exactly one credit per death.
-        if (hasPvpTiles()) {
-            java.util.regex.Matcher pvpDefeat = PVP_DEFEAT_PATTERN.matcher(plain);
-            if (pvpDefeat.find()) {
-                creditPvpKillTiles(pvpDefeat.group(1).trim());
-            }
-        }
+        // (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
+        // so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
         int idx = plain.indexOf(CLOG_UNLOCK_PREFIX);
         if (idx >= 0) {
             String item = plain.substring(idx + CLOG_UNLOCK_PREFIX.length()).trim();
@@ -3521,10 +3511,30 @@ public class AnvilPlugin extends Plugin {
             return;
         }
 
-        // A player we damaged dying → our PvP kill. The ActorDeath fires on the tick the death
-        // animation starts (target at 0 HP) — exactly the moment we want the screenshot.
-        if (config.notifyPvpKills() && actor instanceof Player) {
-            maybeNotifyPvpKill((Player) actor);
+        // A player we damaged dying → our PvP kill. ActorDeath fires on the tick the death
+        // animation starts (target at 0 HP) — the moment we want the screenshot, and a reliable
+        // signal even for loot-key kills (which produce no ground loot and only a random taunt
+        // message). Damage attribution (a hitsplat we dealt within the window) says the kill is
+        // ours; the Player gives the victim name for the roster / RSN-bounty match. Consumed once
+        // so a single death credits once. Caveat: if two attackers both damaged the victim, both
+        // credit — the baked screenshot is the audit trail.
+        if (actor instanceof Player) {
+            String vname = actor.getName();
+            if (vname != null && !vname.isEmpty()) {
+                long now = System.currentTimeMillis();
+                boolean ours;
+                synchronized (lastDamagedPlayerAt) {
+                    lastDamagedPlayerAt.values().removeIf(t -> (now - t) > PVP_KILL_ATTRIBUTION_MS);
+                    Long last = lastDamagedPlayerAt.remove(vname.toLowerCase());
+                    ours = last != null && (now - last) <= PVP_KILL_ATTRIBUTION_MS;
+                }
+                if (ours) {
+                    creditPvpKillTiles(vname);
+                    if (config.notifyPvpKills()) {
+                        notifyPvpKill(vname);
+                    }
+                }
+            }
         }
     }
 
@@ -3535,27 +3545,11 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Posts a PvP kill to the kills channel when the dying player is one we
-     * damaged within the attribution window. Runs on the client thread;
-     * screenshot + network send are deferred. (Notification only — PvP-kill
-     * tiles credit off the "You have defeated" chat line instead, so exactly
-     * one player per death gets tile credit.)
+     * Posts a PvP kill to the kills channel. Called from onActorDeath once the kill is already
+     * attributed to us (damage within the window), so this just applies the channel toggle and
+     * posts. Runs on the client thread; screenshot + network send are deferred.
      */
-    private void maybeNotifyPvpKill(Player victim) {
-        String name = victim.getName();
-        if (name == null || name.isEmpty()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        boolean ours;
-        synchronized (lastDamagedPlayerAt) {
-            lastDamagedPlayerAt.values().removeIf(t -> (now - t) > PVP_KILL_ATTRIBUTION_MS);
-            Long last = lastDamagedPlayerAt.remove(name.toLowerCase());
-            ours = last != null && (now - last) <= PVP_KILL_ATTRIBUTION_MS;
-        }
-        if (!ours) {
-            return;
-        }
+    private void notifyPvpKill(String name) {
         if (!notifyEnabled("pvpKills")) {
             return;
         }
@@ -3564,16 +3558,15 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Credits PvP-kill bingo tiles for a kill the game awarded us — called off the
-     * "You have defeated &lt;name&gt;!" line, which only the credited killer (the
-     * player who receives the loot / loot key) sees, so each death credits exactly
-     * one person. Only dangerous PvP counts — the Wilderness or a PvP world — so
-     * safe minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM can't farm
-     * the tile. Selector semantics: "team:other" matches any event participant on
-     * a different team (via the pvpRoster index); "rsn:&lt;name&gt;" matches that
-     * exact player, enrolled or not. Amount 1 per kill through the shared proof
-     * pipeline (the defeat message lands on the kill tick — the frame still shows
-     * the fight).
+     * Credits PvP-kill bingo tiles for a kill attributed to us — called from onActorDeath when a
+     * player we damaged (within the attribution window) dies. Using the death (not a chat line)
+     * makes it work for loot-key kills, which produce only a random taunt message and no ground
+     * loot. Only dangerous PvP counts — the Wilderness or a PvP world — so safe minigames (LMS,
+     * Soul Wars, Castle Wars, PvP Arena) and DMM can't farm the tile. Selector semantics:
+     * "team:other" matches any event participant on a different team (via the pvpRoster index —
+     * so the victim must be enrolled on a team with a matching RSN); "rsn:&lt;name&gt;" matches
+     * that exact player, enrolled or not. Amount 1 per kill through the shared proof pipeline (the
+     * death fires on the kill tick — the frame still shows the fight).
      */
     private void creditPvpKillTiles(String victimName) {
         String gate = trackingGateReason();
