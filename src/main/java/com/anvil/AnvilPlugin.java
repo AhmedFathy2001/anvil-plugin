@@ -361,6 +361,11 @@ public class AnvilPlugin extends Plugin {
     private static final java.util.regex.Pattern DIARY_PATTERN = java.util.regex.Pattern.compile(
             "You have completed all of the (easy|medium|hard|elite) tasks in (?:the )?(.+?) area",
             java.util.regex.Pattern.CASE_INSENSITIVE);
+    // The diary completion line is emitted on more than one chat channel, so onChatMessage sees it
+    // twice; dedup by (area|tier) so we announce + credit once. The line never legitimately
+    // re-fires (once per account per tier), so this only needs to span the same-tick echo.
+    private static final long DIARY_DEDUP_MS = 15_000;
+    private final Map<String, Long> lastDiaryHandledAt = new HashMap<>();
 
     // Quest-completed scroll interface — gameval InterfaceID.QUESTSCROLL (153); child 4 is
     // Questscroll.QUEST_TITLE, the "You have completed <Quest>!" line. Same signal RuneLite's
@@ -1533,11 +1538,23 @@ public class AnvilPlugin extends Plugin {
             String tier = diaryMatcher.group(1).trim();
             tier = Character.toUpperCase(tier.charAt(0)) + tier.substring(1).toLowerCase();
             String area = diaryMatcher.group(2).trim();
-            // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
-            // even when no tile matches.
-            log.info("Anvil diary line: {} {}", area, tier);
-            maybeNotifyDiaryCompletion(area, tier);
-            creditDiaryTiles(area, tier);
+            // The game emits this completion line on more than one chat channel (e.g. GAMEMESSAGE
+            // + SPAM), so onChatMessage sees it twice — dedup by (area, tier) or we'd double-post
+            // the announcement AND double-credit the tile. The line can't legitimately re-fire
+            // (once per account per tier ever), so a short window is safe.
+            String diaryKey = (area + "|" + tier).toLowerCase(java.util.Locale.ROOT);
+            long dnow = System.currentTimeMillis();
+            Long lastDiary = lastDiaryHandledAt.get(diaryKey);
+            if (lastDiary != null && (dnow - lastDiary) < DIARY_DEDUP_MS) {
+                // duplicate channel echo of the same completion — ignore
+            } else {
+                lastDiaryHandledAt.put(diaryKey, dnow);
+                // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
+                // even when no tile matches.
+                log.info("Anvil diary line: {} {}", area, tier);
+                maybeNotifyDiaryCompletion(area, tier);
+                creditDiaryTiles(area, tier);
+            }
         }
         // Skill 99s — reported to the same clan achievements channel as combat achievements. The
         // level-up message fires once when the level is reached, so no varbit/baseline dance needed.
