@@ -3735,9 +3735,15 @@ public class AnvilPlugin extends Plugin {
 
             // Prestige items always post, bypassing the value/rarity gates. Posted on their own so
             // an untradeable like an Infernal cape never shows a misleading "0 gp" alongside others.
+            // An allowlist item NEVER also fires the value/rarity path — always continue, even when
+            // its own dedup suppresses this fire. Otherwise a second loot event for the same kill
+            // (NpcLootReceived + LootReceived) finds the allowlist already claimed, falls through,
+            // and posts a duplicate "Rare drop" for a high-value allowlist item (e.g. a Blood shard).
             String iname = itemName(itemId);
-            if (isAlwaysNotifyItem(iname) && claimAllowlistNotify(iname, now)) {
-                postSpecialDrop(source, itemId, qty, itemValue);
+            if (isAlwaysNotifyItem(iname)) {
+                if (claimAllowlistNotify(iname, now)) {
+                    postSpecialDrop(source, itemId, qty, itemValue);
+                }
                 continue;
             }
 
