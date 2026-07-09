@@ -1149,6 +1149,13 @@ public class AnvilPlugin extends Plugin {
             // onto requests that fire before the next login completes.
             apiClient.setCurrentRsn(null);
             apiClient.setAccountHash(-1L);
+            // Re-seed the team-completion baseline on the next login: while logged out a teammate
+            // may finish tiles, and those shouldn't fire a completion banner when you come back —
+            // only tiles completed while you're actually online should. Clearing the baseline makes
+            // the first refresh after login silently absorb whatever's already done.
+            completionBaselineEventId = null;
+            notifiedCompletedTiles.clear();
+            locallyShownTiles.clear();
         }
     }
 
