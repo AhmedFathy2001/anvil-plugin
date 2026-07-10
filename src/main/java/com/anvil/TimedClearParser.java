@@ -83,6 +83,24 @@ final class TimedClearParser
 		SIGNATURES.put("chambers of xeric", Collections.singletonList("chambers of xeric"));
 		SIGNATURES.put("theatre of blood", Collections.singletonList("theatre of blood"));
 		SIGNATURES.put("tombs of amascut", Collections.singletonList("tombs of amascut"));
+		// Raid-mode shorthands, so a mode tile matches however the admin phrased it. Colons and
+		// spacing are already folded away by norm(), so we only enumerate the abbreviations here;
+		// each pins the EXACT game count-line substring. A CM/HM/Expert tile must carry the full
+		// mode text so a *base*-mode clear (whose line omits it) can't wrongly complete it — while a
+		// base-raid tile keeps matching every harder mode (the mode line contains the base name).
+		SIGNATURES.put("cox", Collections.singletonList("chambers of xeric"));
+		SIGNATURES.put("cox cm", Collections.singletonList("chambers of xeric challenge mode"));
+		SIGNATURES.put("cox challenge mode", Collections.singletonList("chambers of xeric challenge mode"));
+		SIGNATURES.put("chambers of xeric cm", Collections.singletonList("chambers of xeric challenge mode"));
+		SIGNATURES.put("tob", Collections.singletonList("theatre of blood"));
+		SIGNATURES.put("tob hm", Collections.singletonList("theatre of blood hard mode"));
+		SIGNATURES.put("tob hard mode", Collections.singletonList("theatre of blood hard mode"));
+		SIGNATURES.put("theatre of blood hm", Collections.singletonList("theatre of blood hard mode"));
+		SIGNATURES.put("toa", Collections.singletonList("tombs of amascut"));
+		SIGNATURES.put("toa em", Collections.singletonList("tombs of amascut expert mode"));
+		SIGNATURES.put("toa expert", Collections.singletonList("tombs of amascut expert mode"));
+		SIGNATURES.put("toa expert mode", Collections.singletonList("tombs of amascut expert mode"));
+		SIGNATURES.put("tombs of amascut em", Collections.singletonList("tombs of amascut expert mode"));
 		SIGNATURES.put("fortis colosseum", Arrays.asList("sol heredit", "colosseum"));
 		SIGNATURES.put("colosseum", Arrays.asList("sol heredit", "colosseum"));
 		SIGNATURES.put("the nightmare", Collections.singletonList("nightmare"));
@@ -150,13 +168,28 @@ final class TimedClearParser
 
 	static List<String> signaturesFor(String activity)
 	{
-		String a = activity == null ? "" : activity.toLowerCase().trim();
+		String a = norm(activity);
 		List<String> s = SIGNATURES.get(a);
 		if (s != null)
 		{
 			return s;
 		}
 		return a.isEmpty() ? Collections.emptyList() : Collections.singletonList(a);
+	}
+
+	/**
+	 * Folds the punctuation/spacing admins add inconsistently so an activity string still matches the
+	 * game's count line. Colons especially: the game writes CoX Challenge Mode with NO colon, yet
+	 * "Chambers of Xeric: Challenge Mode" is the natural way to type it, and ToB/ToA modes DO carry a
+	 * colon — dropping it on BOTH sides of the compare makes colons irrelevant either way.
+	 */
+	static String norm(String s)
+	{
+		if (s == null)
+		{
+			return "";
+		}
+		return s.toLowerCase(java.util.Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
 	}
 
 	/** True when {@code message} contains any of the activity's identifying signatures. */
@@ -166,10 +199,10 @@ final class TimedClearParser
 		{
 			return false;
 		}
-		String lower = message.toLowerCase();
+		String nmsg = norm(message);
 		for (String sig : signaturesFor(activity))
 		{
-			if (lower.contains(sig))
+			if (nmsg.contains(norm(sig)))
 			{
 				return true;
 			}
