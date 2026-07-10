@@ -1335,13 +1335,20 @@ public class AnvilPlugin extends Plugin {
                 break;
             case PLAYER:
                 kind = "pvp";
-                break;     // includes loot key contents
+                break;
             case PICKPOCKET:
                 kind = "pickpocket";
                 break;
             default:
                 kind = "event";
                 break;   // raid chests / barrows / wt / clues
+        }
+        // A Wilderness loot key ("Loot Chest") holds PK loot, but RuneLite reports opening it as an
+        // EVENT (like a raid chest), not a PLAYER kill. Without this override it dodges the "PvP loot
+        // rejected by default" drop-tile guard, so PK'd items (dragon boots, berserker ring, …) wrongly
+        // credit PvM drop tiles. Treat key contents as pvp: PvM tiles reject them, pvp/value tiles keep them.
+        if (isLootKeyEvent(event.getName())) {
+            kind = "pvp";
         }
         processLoot(event.getName(), event.getItems(), kind);
         processValueTiles(event.getName(), event.getItems(), kind);
