@@ -32,12 +32,13 @@ public class BingoClogBannerOverlay extends Overlay
 	private static final int BASE_H = 100;
 	private static final float DISPLAY_SCALE = 1f;
 
-	// Text tops (design px) + size. Derived from the CSS reference, then the middle/bottom lines were
-	// pulled up (40→32, 64→56) to tighten the header→detail gap, which read too airy with the smaller
-	// body font. The middle↔bottom gap is unchanged; the label just gains a little more wrap headroom.
-	private static final float TOP_Y = 10f;
-	private static final float MID_Y = 32f;
-	private static final float BOTTOM_Y = 56f;
+	// Text tops (design px) + size. Tuned for even vertical rhythm on the small panel: the header sits
+	// just under the top of the frame (11), the "Tile complete!/Progress:" line clears the divider (36),
+	// and the label sits close under it (52) so the middle→label gap matches the ~15px gap between the
+	// two wrapped label lines — otherwise the body reads as two disconnected zones.
+	private static final float TOP_Y = 11f;
+	private static final float MID_Y = 36f;
+	private static final float BOTTOM_Y = 52f;
 	private static final float FONT_PX = 16f;
 	// The bottom label wraps onto a second line at full size when it's too wide — the RS font is a
 	// bitmap face that pixelates when scaled, so we never shrink glyphs. WRAP_LINE_H is the vertical
