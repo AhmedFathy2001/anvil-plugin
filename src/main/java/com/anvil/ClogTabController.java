@@ -75,6 +75,9 @@ public class ClogTabController
 	 */
 	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD, POINTS }
 	private HubView hubView = HubView.SCHEDULE;
+	// Which view the shared tile-detail page (GRID_TILE) should step back to. The grid opens it
+	// from the board (→ GRID); the points accordion reuses the same page (→ EVENT/POINTS).
+	private HubView tileDetailReturn = HubView.GRID;
 	// Schedule home event-type filter: "" = all, else "bingo" | "boss" | "skill".
 	private String eventTypeFilter = "";
 	// Leaderboard drill-in state.
@@ -140,7 +143,7 @@ public class ClogTabController
 			clogOpen = false;
 			bingoTabActive = false;
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 		}
 	}
 
@@ -171,10 +174,10 @@ public class ClogTabController
 		if (bingoTabActive)
 		{
 			bingoTabActive = false;
-			// Leaving our tab: drop the search so it doesn't linger (or trap a half-typed prompt)
-			// when the user clicks a native tab/entry.
+			// Leaving our tab: drop the search (so it doesn't linger or trap a half-typed prompt)
+			// and clear the filters when the user clicks a native tab/entry.
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 			setBossListHidden(false);
 			hideHeaderBook(false);
 			removeAnvilLeft();
@@ -204,7 +207,7 @@ public class ClogTabController
 		{
 			bingoTabActive = false;
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 			hideHeaderBook(false);
 			removeAnvilLeft();
 			injectBingoTab();
@@ -213,7 +216,7 @@ public class ClogTabController
 		if (searchInputOpen && !bingoTabActive)
 		{
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 		}
 		// Tick the leaderboard countdown without rebuilding the view — repaint just the one line, and
 		// only when its minute-granular text actually changes.
@@ -276,6 +279,21 @@ public class ClogTabController
 		{
 			clientThread.invokeLater(this::renderItems);
 		}
+	}
+
+	/**
+	 * Clears every task filter (status/type/category/tier) and the search query back to defaults.
+	 * Called whenever the user leaves our tab or closes the log, so a fiddly filter (e.g. a category
+	 * cycled deep into a long list) never lingers into the next open. Doesn't re-render on its own —
+	 * exit-point callers are already tearing the view down.
+	 */
+	private void resetFilters()
+	{
+		statusFilter = ClogTaskModel.StatusFilter.ALL;
+		typeFilter = ClogTaskModel.TypeFilter.ALL;
+		categoryFilter = "";
+		tierFilter = "";
+		searchText = "";
 	}
 
 	// ---- tab injection ----
@@ -649,6 +667,31 @@ public class ClogTabController
 	/** Drill into a single grid tile's detail page; Back (left column) returns to the grid. */
 	private void openGridTile(int tileId)
 	{
+		tileDetailReturn = HubView.GRID;
+		selectedGridTileId = tileId;
+		hubView = HubView.GRID_TILE;
+		clientThread.invokeLater(this::renderHub);
+	}
+
+	/**
+	 * Open the SAME tile-detail page from the points accordion (own event = EVENT, preview = POINTS).
+	 * The accordion renders from the plugin config and never loads the board, but the detail page is
+	 * board-driven (all-team completions, per-item progress) — so for the own event we point the board
+	 * fetch at the active event and kick it off; the page repaints when it lands. Back returns to
+	 * whichever list we came from.
+	 */
+	private void openTaskTile(int tileId)
+	{
+		tileDetailReturn = hubView;
+		if (hubView == HubView.EVENT)
+		{
+			viewingEventId = activeEventId();
+			viewingTitle = eventName();
+			if (viewedBoard() == null)
+			{
+				loadBoard();
+			}
+		}
 		selectedGridTileId = tileId;
 		hubView = HubView.GRID_TILE;
 		clientThread.invokeLater(this::renderHub);
@@ -656,7 +699,7 @@ public class ClogTabController
 
 	private void backToGrid()
 	{
-		hubView = HubView.GRID;
+		hubView = tileDetailReturn;
 		clientThread.invokeLater(this::renderHub);
 	}
 
@@ -941,17 +984,19 @@ public class ClogTabController
 
 		if (hubView != HubView.SCHEDULE)
 		{
-			// A tile-detail page steps back to its grid; everything else steps back to the schedule.
-			boolean toGrid = hubView == HubView.GRID_TILE;
+			// A tile-detail page steps back to where it was opened from (the board grid, or the
+			// points task list); everything else steps back to the schedule.
+			boolean onDetail = hubView == HubView.GRID_TILE;
+			String detailBack = tileDetailReturn == HubView.GRID ? "Back to Board" : "Back to Tasks";
 			Widget back = container.createChild(-1, WidgetType.TEXT);
-			back.setText("<col=ffcc33>" + (toGrid ? "Back to Board" : "Back to Schedule") + "</col>");
+			back.setText("<col=ffcc33>" + (onDetail ? detailBack : "Back to Schedule") + "</col>");
 			back.setFontId(FONT_PLAIN);
 			back.setTextShadowed(true);
 			place(back, 10, y, ClogIds.LEFT_COL_W - 20, 16);
 			back.setHasListener(true);
 			back.setAction(0, "Back");
 			back.setOnOpListener((JavaScriptCallback) e -> {
-				if (toGrid)
+				if (onDetail)
 				{
 					backToGrid();
 				}
@@ -1453,18 +1498,30 @@ public class ClogTabController
 		List<String> chipLabels = new ArrayList<>();
 		List<String> chipValues = new ArrayList<>();
 		List<JavaScriptCallback> chipActions = new ArrayList<>();
+		// Per-chip right-click reset: left-click cycles forward, right-click jumps straight back to
+		// "All" so you don't have to cycle the whole way around a long list. null = already at All.
+		List<Runnable> chipResets = new ArrayList<>();
 
 		chipLabels.add("Status");
 		chipValues.add(pretty(statusFilter.name()));
 		chipActions.add(e -> cycleStatusFilter());
+		chipResets.add(statusFilter == ClogTaskModel.StatusFilter.ALL ? null
+			: () -> setStatusFilter(ClogTaskModel.StatusFilter.ALL));
 		chipLabels.add("Type");
 		chipValues.add(pretty(typeFilter.name()));
 		chipActions.add(e -> cycleTypeFilter());
+		chipResets.add(typeFilter == ClogTaskModel.TypeFilter.ALL ? null
+			: () -> setTypeFilter(ClogTaskModel.TypeFilter.ALL));
 		if (hasCats)
 		{
 			chipLabels.add("Category");
 			chipValues.add(categoryFilter.isEmpty() ? "All" : categoryFilter);
 			chipActions.add(e -> cycleCategoryFilter());
+			chipResets.add(categoryFilter.isEmpty() ? null : () ->
+			{
+				categoryFilter = "";
+				refreshIfActive();
+			});
 		}
 		if (showTier)
 		{
@@ -1472,6 +1529,7 @@ public class ClogTabController
 			chipLabels.add("Tier");
 			chipValues.add(tier.isEmpty() ? "All" : ClogTaskModel.tierLabel(tier, bands));
 			chipActions.add(e -> cycleTierFilter());
+			chipResets.add(tier.isEmpty() ? null : () -> setTierFilter(""));
 		}
 
 		int perRow = 3;
@@ -1482,7 +1540,8 @@ public class ClogTabController
 		{
 			int cx = (i % perRow) * (colW + gap);
 			int cy = y + (i / perRow) * 16;
-			bodyFilterChip(items, chipLabels.get(i), chipValues.get(i), cx, cy, colW, chipActions.get(i));
+			bodyFilterChip(items, chipLabels.get(i), chipValues.get(i), cx, cy, colW,
+				chipActions.get(i), chipResets.get(i));
 		}
 		int numRows = (chipLabels.size() + perRow - 1) / perRow;
 		y += 16 * numRows;
@@ -1517,7 +1576,8 @@ public class ClogTabController
 		}
 	}
 
-	private void bodyFilterChip(Widget items, String label, String value, int x, int y, int w, JavaScriptCallback onClick)
+	private void bodyFilterChip(Widget items, String label, String value, int x, int y, int w,
+		JavaScriptCallback onCycle, Runnable onReset)
 	{
 		Widget chip = items.createChild(-1, WidgetType.TEXT);
 		chip.setFontId(FONT_PLAIN);
@@ -1529,7 +1589,22 @@ public class ClogTabController
 		place(chip, x, y, w, 14);
 		chip.setHasListener(true);
 		chip.setAction(0, "Cycle");
-		chip.setOnOpListener(onClick);
+		// Only offer "Reset" when this chip is off its default (mirrors the search bar's "Clear").
+		if (onReset != null)
+		{
+			chip.setAction(1, "Reset");
+		}
+		chip.setOnOpListener((JavaScriptCallback) e ->
+		{
+			if (e.getOp() == 2 && onReset != null)
+			{
+				onReset.run();
+			}
+			else
+			{
+				onCycle.run(e);
+			}
+		});
 		chip.revalidate();
 	}
 
@@ -1618,7 +1693,19 @@ public class ClogTabController
 		place(name, ClogIds.ROW_TEXT_X, y + 3, textWidth, 16);
 		name.setHasListener(true);
 		name.setAction(0, expanded ? "Collapse" : "Expand");
-		name.setOnOpListener((JavaScriptCallback) e -> toggleExpand(row.tileId));
+		// Second op: right-click → Inspect opens the shared tile-detail page (what counts + who's
+		// completed it) while left-click keeps the quick inline "+" description expand — both, as asked.
+		name.setAction(1, "Inspect");
+		name.setOnOpListener((JavaScriptCallback) e -> {
+			if (e.getOp() == 2)
+			{
+				openTaskTile(row.tileId);
+			}
+			else
+			{
+				toggleExpand(row.tileId);
+			}
+		});
 		name.revalidate();
 
 		StringBuilder sub = new StringBuilder();
@@ -2569,6 +2656,19 @@ public class ClogTabController
 		}
 
 		y += iconSize + 12;
+
+		// Auto-tracking kill-switch: the site won't auto-credit this tile (its tracking is off), so
+		// staff mark it done by hand. Surface it here so members don't think it's broken.
+		if (sel.autoTrackDisabled == 1)
+		{
+			Widget manualW = items.createChild(-1, WidgetType.TEXT);
+			manualW.setText("<col=ffb833>Not auto-tracked - completed manually by staff.</col>");
+			manualW.setTextShadowed(true);
+			manualW.setFontId(FONT_PLAIN);
+			place(manualW, 6, y, paneWidth - 12, 16);
+			manualW.revalidate();
+			y += 20;
+		}
 
 		// The actual task for stat tiles (skill XP / boss KC) — the label alone (often a custom
 		// name) doesn't say what to do, so surface the requirement prominently.
