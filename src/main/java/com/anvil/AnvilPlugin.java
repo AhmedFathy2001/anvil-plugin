@@ -785,6 +785,12 @@ public class AnvilPlugin extends Plugin {
         if (!config.notifyLevelUps()) {
             return;
         }
+        // Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels that aren't the
+        // player's real progression. Skip them entirely so hopping there neither spams "level 99!" nor
+        // overwrites the real-level baseline (lastSkillLevel) we compare future gains against.
+        if (statsAreArtificial()) {
+            return;
+        }
         Skill skill = event.getSkill();
         if (skill == null || skill == Skill.OVERALL) {
             return;
@@ -1044,8 +1050,10 @@ public class AnvilPlugin extends Plugin {
                 caPointsInitialized = true;
             }
         }
-        // Baseline total level once after login so high-total posts fire on real crossings only.
-        if (!totalLevelInitialized && client.getGameState() == GameState.LOGGED_IN) {
+        // Baseline total level once after login so high-total posts fire on real crossings only. Defer
+        // it on preset/alt-save worlds (PvP Arena, Leagues, …) so their inflated total isn't taken as
+        // the real baseline — it seeds on the first normal world instead.
+        if (!totalLevelInitialized && client.getGameState() == GameState.LOGGED_IN && !statsAreArtificial()) {
             int t = client.getTotalLevel();
             if (t > 0) {
                 lastTotalLevel = t;
@@ -4707,8 +4715,29 @@ public class AnvilPlugin extends Plugin {
         apiClient.postNotification("combatAchievements", null, embed, null, null);
     }
 
+    /**
+     * True when the current world's stats aren't the player's real main-game progression, so level-up
+     * and total-level milestones must be suppressed. PvP Arena hands out a preset max-stat account;
+     * Leagues (SEASONAL) / Deadman / Tournament / Beta / Fresh Start / Quest Speedrunning / LMS / no-save
+     * worlds are separate saves or preset loadouts. Hopping onto one otherwise spams "level 99!" for
+     * stats the player never trained.
+     */
+    private boolean statsAreArtificial() {
+        java.util.Set<WorldType> w = client.getWorldType();
+        return w != null && (
+               w.contains(WorldType.PVP_ARENA)
+            || w.contains(WorldType.SEASONAL)
+            || w.contains(WorldType.DEADMAN)
+            || w.contains(WorldType.TOURNAMENT_WORLD)
+            || w.contains(WorldType.BETA_WORLD)
+            || w.contains(WorldType.FRESH_START_WORLD)
+            || w.contains(WorldType.QUEST_SPEEDRUNNING)
+            || w.contains(WorldType.LAST_MAN_STANDING)
+            || w.contains(WorldType.NOSAVE_MODE));
+    }
+
     private void handleLevelMilestone(String skill) {
-        if (!notifyEnabled("combatAchievements")) {
+        if (!notifyEnabled("combatAchievements") || statsAreArtificial()) {
             return;
         }
         // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
@@ -4733,7 +4762,7 @@ public class AnvilPlugin extends Plugin {
      * crossings, and skips the round-100 post when this gain maxed.
      */
     private void handleTotalMilestone() {
-        if (!notifyEnabled("combatAchievements")) {
+        if (!notifyEnabled("combatAchievements") || statsAreArtificial()) {
             return;
         }
         int total = client.getTotalLevel();
