@@ -1546,6 +1546,33 @@ public class ClogTabController
 		int numRows = (chipLabels.size() + perRow - 1) / perRow;
 		y += 16 * numRows;
 
+		// One-tap "Reset filters" clears everything at once (search + every chip). Shown only when
+		// something is actually filtering; right-clicking individual chips still resets them one at a
+		// time — this is the shortcut when several are active.
+		boolean anyActive = statusFilter != ClogTaskModel.StatusFilter.ALL
+			|| typeFilter != ClogTaskModel.TypeFilter.ALL
+			|| !categoryFilter.isEmpty()
+			|| !effectiveTier(bands).isEmpty()
+			|| !searchText.trim().isEmpty();
+		if (anyActive)
+		{
+			Widget reset = items.createChild(-1, WidgetType.TEXT);
+			reset.setText("<col=ff9040>Reset filters</col>");
+			reset.setFontId(FONT_PLAIN);
+			reset.setTextShadowed(true);
+			place(reset, 0, y, paneWidth, 14);
+			reset.setXTextAlignment(ALIGN_RIGHT);
+			reset.setHasListener(true);
+			reset.setAction(0, "Reset");
+			reset.setOnOpListener((JavaScriptCallback) e ->
+			{
+				resetFilters();
+				refreshIfActive();
+			});
+			reset.revalidate();
+			y += 16;
+		}
+
 		return y + 4;
 	}
 
