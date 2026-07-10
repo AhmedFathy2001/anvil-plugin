@@ -107,6 +107,17 @@ public class BingoApiClient
 		if (raw == null) return "";
 		String s = raw.trim();
 		while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+		if (s.isEmpty()) return "";
+		// Require HTTPS: the account token rides as an Authorization: Bearer header on every request,
+		// so a plaintext http:// host would leak it on the wire. Permit http only for local dev hosts.
+		// Anything else is treated as unconfigured (returns "") rather than sending the token in clear.
+		String lower = s.toLowerCase();
+		boolean https = lower.startsWith("https://");
+		boolean localHttp = lower.startsWith("http://localhost") || lower.startsWith("http://127.0.0.1");
+		if (!https && !localHttp)
+		{
+			return "";
+		}
 		return s;
 	}
 
@@ -290,6 +301,7 @@ public class BingoApiClient
 		public String requirement; // human task text for stat tiles ("Gain 1,000,000 Mining XP"); null otherwise
 		public int optional;     // 1 = optional tile
 		public int autoTrackDisabled; // 1 = auto-tracking off; completed manually by staff (0/absent on older servers)
+		public java.util.List<String> sources; // source restriction ("Only from …") — drop/value tiles; null/empty = any
 		public String category;  // free-text grouping (e.g. "GWD", "Slayer") for the plugin's Category filter; null = none
 		public String tileType;  // "drop" | "kill" | "timed" | "standard" (null on older servers) — for kind classification
 		public String statType;  // "skill" | "boss" | "kc" for stat tiles; null otherwise

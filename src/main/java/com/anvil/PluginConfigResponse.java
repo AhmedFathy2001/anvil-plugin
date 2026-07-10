@@ -271,7 +271,8 @@ public class PluginConfigResponse
 		public String description;
 		public int points;
 		public String category;
-		public long thresholdGp;           // a single haul must be worth at least this
+		public long thresholdGp;           // single: a haul must be worth ≥ this; total: the gp target to reach
+		public String mode;                // "single" (one haul ≥ threshold) | "total" (hauls sum to threshold)
 		public List<String> sources;       // optional source filter: NPC/chest names, or "PvP"; empty = any
 		public boolean completed;          // team already completed this tile
 	}

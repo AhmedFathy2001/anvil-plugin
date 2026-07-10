@@ -38,7 +38,8 @@ public class ClogTabController
 {
 	private static final int ALIGN_CENTER = 1;
 	private static final int ALIGN_RIGHT = 2;
-	private static final int FONT_PLAIN = 495;
+	private static final int FONT_PLAIN = 495; // PLAIN_12
+	private static final int FONT_PLAIN_SMALL = 494; // PLAIN_11 — one step down, used to fit long text without cutting it off
 	private static final int COL_ORANGE = 0xff9040;
 	private static final int BODY_TOP = 8; // top margin so content isn't flush against the divider
 
@@ -485,6 +486,57 @@ public class ClogTabController
 		return lines.size() * DESC_LINE_H + 2;
 	}
 
+	/** Like {@link #renderDescription} but in an arbitrary colour / line height — wraps long "what
+	 *  counts" requirement text instead of clipping or ellipsizing it. Returns the height consumed. */
+	private int renderWrappedColored(Widget items, String text, int color, int x, int y, int width, int lineH)
+	{
+		Widget first = items.createChild(-1, WidgetType.TEXT);
+		first.setFontId(FONT_PLAIN);
+		List<String> lines = wrapText(first.getFont(), text, width);
+		for (int i = 0; i < lines.size(); i++)
+		{
+			Widget w = i == 0 ? first : items.createChild(-1, WidgetType.TEXT);
+			w.setFontId(FONT_PLAIN);
+			w.setText(lines.get(i));
+			w.setTextColor(color);
+			w.setTextShadowed(true);
+			place(w, x, y + i * lineH, width, lineH);
+			w.revalidate();
+		}
+		return lines.size() * lineH + 2;
+	}
+
+	/** A grey "label" on its own line, then the gold value wrapped + indented under it (the website's
+	 *  "Any of:" / "Only from:" rows). Returns the height consumed. */
+	private int labeledWrapped(Widget items, String label, String value, int x, int y, int width)
+	{
+		Widget lbl = items.createChild(-1, WidgetType.TEXT);
+		lbl.setText("<col=8a8a8a>" + label + "</col>");
+		lbl.setFontId(FONT_PLAIN);
+		lbl.setTextShadowed(true);
+		place(lbl, x, y, width, 14);
+		lbl.revalidate();
+		return 15 + renderWrappedColored(items, value, 0xffcc33, x + 8, y + 15, width - 8, DESC_LINE_H) + 3;
+	}
+
+	/** Resolve an OSRS item id to its name via ItemManager (client thread only); null on miss. */
+	private String itemName(int id)
+	{
+		if (id <= 0)
+		{
+			return null;
+		}
+		try
+		{
+			net.runelite.api.ItemComposition c = itemManager.getItemComposition(id);
+			return c != null ? c.getName() : null;
+		}
+		catch (Exception e)
+		{
+			return null;
+		}
+	}
+
 	/** Greedy word-wrap using font metrics; explicit newlines become hard breaks. */
 	private static List<String> wrapText(FontTypeFace font, String text, int width)
 	{
@@ -682,6 +734,9 @@ public class ClogTabController
 	 */
 	private void openTaskTile(int tileId)
 	{
+		// Drilling into a task closes + clears any in-progress search so it doesn't linger behind the
+		// detail page (and isn't still applied when you step back to the list).
+		closeAndResetSearch();
 		tileDetailReturn = hubView;
 		if (hubView == HubView.EVENT)
 		{
@@ -957,8 +1012,17 @@ public class ClogTabController
 
 	private void backToSchedule()
 	{
+		// Leaving the event view drops the search so it doesn't reappear pre-filled next time in.
+		closeAndResetSearch();
 		hubView = HubView.SCHEDULE;
 		clientThread.invokeLater(this::renderHub);
+	}
+
+	/** Close the chatbox search prompt (if open) and clear the query. */
+	private void closeAndResetSearch()
+	{
+		closeSearchInput();
+		searchText = "";
 	}
 
 
@@ -978,7 +1042,7 @@ public class ClogTabController
 		heading.setTextColor(COL_ORANGE);
 		heading.setFontId(FONT_PLAIN);
 		heading.setTextShadowed(true);
-		place(heading, 8, y, ClogIds.LEFT_COL_W - 16, 16);
+		place(heading, 10, y, ClogIds.LEFT_COL_W - 20, 16);
 		heading.revalidate();
 		y += 26;
 
@@ -1383,22 +1447,27 @@ public class ClogTabController
 		String subtitle = eventName() != null ? eventName()
 			: "No active event";
 
-		bannerLine(header, "Bingo Tasks", COL_ORANGE, 0);
-		String pts = totalPts > 0
-			? "<col=ffff00>" + earned + "</col> / " + totalPts + " points"
-			: "Completed: <col=ffff00>" + done + "/" + all.size() + "</col>";
-		bannerLine(header, pts, 0xffffff, BANNER_LINE_H);
-		bannerLine(header, subtitle + "  <col=666666>·</col>  " + done + "/" + all.size() + " done", 0xaaaaaa, BANNER_LINE_H * 2);
+		// Two lines (event name + progress) so the header breathes, like the detail header — three
+		// lines don't fit the clog header height without clipping.
+		bannerLine(header, subtitle, COL_ORANGE, 0);
+		String prog = done + "/" + all.size() + " done";
+		String line2 = totalPts > 0
+			? "<col=ffff00>" + earned + "</col> / " + totalPts + " points  <col=666666>·</col>  " + prog
+			: "<col=ffff00>" + prog + "</col>";
+		bannerLine(header, line2, 0xaaaaaa, BANNER_LINE_H);
 		header.revalidate();
 	}
 
-	private static final int BANNER_TOP = 1; // top margin so the header isn't flush against the divider
-	private static final int BANNER_LINE_H = 13; // per-line step; 3 lines must fit the clog header height
+	private static final int BANNER_TOP = 3; // top margin so the header isn't flush against the divider
+	private static final int BANNER_LINE_H = 16; // per-line step for 2-line headers, which have room to breathe
+	private static final int BANNER_LINE_3 = 13; // tighter step for the few 3-line headers (grid/race/points/
+	// leaderboard) — the clog header only fits ~3 lines at this spacing, so they stay compact by necessity
+	private static final int BANNER_LEFT = 6; // left indent so header text lines up with the body content
 
 	private Widget bannerLine(Widget header, String text, int color, int y)
 	{
 		Widget line = header.createChild(-1, WidgetType.TEXT);
-		place(line, 2, y + BANNER_TOP, 280, 15);
+		place(line, BANNER_LEFT, y + BANNER_TOP, 280, 15);
 		line.setFontId(FONT_PLAIN);
 		line.setText(text);
 		line.setTextColor(color);
@@ -1432,7 +1501,7 @@ public class ClogTabController
 			empty.setText("No bingo tasks match the current filters.");
 			empty.setTextColor(0xaaaaaa);
 			empty.setFontId(FONT_PLAIN);
-			place(empty, 0, top, paneWidth, 20);
+			place(empty, 2, top, paneWidth - 4, 20);
 			empty.revalidate();
 			items.setScrollHeight(top + ClogIds.ROW_H);
 			items.revalidateScroll();
@@ -1441,7 +1510,9 @@ public class ClogTabController
 		}
 
 		int y = top;
-		int textWidth = Math.max(60, paneWidth - ClogIds.ROW_TEXT_X);
+		// Leave room for the scrollbar on the right so long sub-lines (Reward + cur/goal) don't run
+		// under it and clip.
+		int textWidth = Math.max(60, paneWidth - ClogIds.ROW_TEXT_X - 14);
 		for (ClogTaskModel.TaskRow row : rows)
 		{
 			y += renderTaskRow(items, row, y, textWidth);
@@ -1466,7 +1537,7 @@ public class ClogTabController
 			: "<col=777777>Search tasks...</col>");
 		search.setFontId(FONT_PLAIN);
 		search.setTextShadowed(true);
-		place(search, 0, y, paneWidth, 14);
+		place(search, 2, y, paneWidth - 4, 14);
 		search.setHasListener(true);
 		search.setAction(0, "Search");
 		if (hasQuery)
@@ -1535,10 +1606,11 @@ public class ClogTabController
 		int perRow = 3;
 		int cols = Math.min(perRow, chipLabels.size());
 		int gap = 6;
-		int colW = (paneWidth - gap * (cols - 1)) / cols;
+		// Inset 2px each side so the leftmost chip lines up with the search bar + task-row icons.
+		int colW = (paneWidth - 4 - gap * (cols - 1)) / cols;
 		for (int i = 0; i < chipLabels.size(); i++)
 		{
-			int cx = (i % perRow) * (colW + gap);
+			int cx = 2 + (i % perRow) * (colW + gap);
 			int cy = y + (i / perRow) * 16;
 			bodyFilterChip(items, chipLabels.get(i), chipValues.get(i), cx, cy, colW,
 				chipActions.get(i), chipResets.get(i));
@@ -1560,7 +1632,7 @@ public class ClogTabController
 			reset.setText("<col=ff9040>Reset filters</col>");
 			reset.setFontId(FONT_PLAIN);
 			reset.setTextShadowed(true);
-			place(reset, 0, y, paneWidth, 14);
+			place(reset, 2, y, paneWidth - 4, 14);
 			reset.setXTextAlignment(ALIGN_RIGHT);
 			reset.setHasListener(true);
 			reset.setAction(0, "Reset");
@@ -1736,24 +1808,33 @@ public class ClogTabController
 		name.revalidate();
 
 		StringBuilder sub = new StringBuilder();
+		StringBuilder subPlain = new StringBuilder(); // tag-free copy for width measurement
 		if (row.points > 0)
 		{
 			sub.append("Reward: <col=ffcc33>").append(row.points).append(" points</col>");
+			subPlain.append("Reward: ").append(row.points).append(" points");
 		}
 		if (row.goal > 0)
 		{
 			if (sub.length() > 0)
 			{
 				sub.append("  <col=666666>·</col>  ");
+				subPlain.append("  ·  ");
 			}
 			sub.append("<col=").append(hex(statusColor)).append(">")
 				.append(row.current).append("/").append(row.goal).append("</col>");
+			subPlain.append(row.current).append("/").append(row.goal);
 		}
 		Widget subText = items.createChild(-1, WidgetType.TEXT);
+		subText.setFontId(FONT_PLAIN);
+		// Shrink a step before a long "Reward … · cur/goal" clips — keeps the exact numbers, no ellipsis.
+		if (textWidth(subText.getFont(), subPlain.toString()) > textWidth)
+		{
+			subText.setFontId(FONT_PLAIN_SMALL);
+		}
 		subText.setText(sub.toString());
 		subText.setTextColor(0x999999);
 		subText.setTextShadowed(true);
-		subText.setFontId(FONT_PLAIN);
 		place(subText, ClogIds.ROW_TEXT_X, y + 18 + extraTitleH, textWidth, 14);
 		subText.revalidate();
 
@@ -1801,7 +1882,7 @@ public class ClogTabController
 		t.setText("<col=" + hex(color) + ">" + label + "</col>");
 		t.setFontId(FONT_PLAIN);
 		t.setTextShadowed(true);
-		place(t, 10, y + 3, paneWidth - 16, 16);
+		place(t, 6, y + 3, paneWidth - 12, 16);
 		t.revalidate();
 		return SECTION_HEADER_H;
 	}
@@ -1988,13 +2069,13 @@ public class ClogTabController
 			{
 				String kind = "skill".equalsIgnoreCase(lb.competition.type) ? "Skill of the Week" : "Boss of the Week";
 				bannerLine(header, lb.competition.title == null ? kind : lb.competition.title, COL_ORANGE, 0);
-				bannerLine(header, kind + "  <col=666666>·</col>  " + nz(lb.competition.metric), 0xffffff, BANNER_LINE_H);
+				bannerLine(header, kind + "  <col=666666>·</col>  " + nz(lb.competition.metric), 0xffffff, BANNER_LINE_3);
 				// Live countdown instead of a plain date range — onGameTick refreshes this one line.
 				countdownStart = lb.competition.startDate;
 				countdownEnd = lb.competition.endDate;
 				countdownSuffix = "  <col=666666>·</col>  " + lb.total + " players";
 				countdownText = countdownLabel(countdownStart, countdownEnd);
-				countdownLine = bannerLine(header, countdownText + countdownSuffix, 0xaaaaaa, BANNER_LINE_H * 2);
+				countdownLine = bannerLine(header, countdownText + countdownSuffix, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -2124,7 +2205,7 @@ public class ClogTabController
 		t.setTextColor(titleColor);
 		t.setTextShadowed(true);
 		t.setFontId(FONT_PLAIN);
-		place(t, 4, y, paneWidth - 8, 16);
+		place(t, 6, y, paneWidth - 12, 16);
 		if (onOpen != null)
 		{
 			t.setHasListener(true);
@@ -2146,7 +2227,7 @@ public class ClogTabController
 		subW.setText(sub.toString());
 		subW.setTextShadowed(true);
 		subW.setFontId(FONT_PLAIN);
-		place(subW, 4, y + 15, paneWidth - 8, 14);
+		place(subW, 6, y + 15, paneWidth - 12, 14);
 		subW.revalidate();
 		return 34;
 	}
@@ -2284,7 +2365,7 @@ public class ClogTabController
 				}
 				// In a read-only preview `complete` means "some team has it"; otherwise it's your team.
 				bannerLine(header, "<col=ffff00>" + done + "</col> / " + board.tiles.size()
-					+ (board.readOnly ? " tiles claimed" : " tiles done"), 0xffffff, BANNER_LINE_H);
+					+ (board.readOnly ? " tiles claimed" : " tiles done"), 0xffffff, BANNER_LINE_3);
 				String sub = board.boardSize + "x" + board.boardSize + " board";
 				if (board.readOnly)
 				{
@@ -2294,7 +2375,7 @@ public class ClogTabController
 				{
 					sub += "  <col=666666>·</col>  " + teamName();
 				}
-				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_H * 2);
+				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -2392,13 +2473,13 @@ public class ClogTabController
 					}
 				}
 				bannerLine(header, "<col=ffff00>" + board.tiles.size() + "</col> tasks  <col=666666>·</col>  "
-					+ "<col=ffff00>" + totalPoints + "</col> pts", 0xffffff, BANNER_LINE_H);
+					+ "<col=ffff00>" + totalPoints + "</col> pts", 0xffffff, BANNER_LINE_3);
 				String sub = "Leagues-style points";
 				if (board.readOnly)
 				{
 					sub += "  <col=666666>·</col>  <col=ffcc33>read-only preview</col>";
 				}
-				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_H * 2);
+				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -2644,9 +2725,14 @@ public class ClogTabController
 		int tw = Math.max(60, paneWidth - tx - 6);
 
 		Widget title = items.createChild(-1, WidgetType.TEXT);
+		title.setFontId(FONT_PLAIN);
+		// Drop one font step before a long title clips — shrink to fit, Jagex-style, no ellipsis.
+		if (sel.label != null && textWidth(title.getFont(), sel.label) > tw)
+		{
+			title.setFontId(FONT_PLAIN_SMALL);
+		}
 		title.setText("<col=ff9040>" + sel.label + "</col>");
 		title.setTextShadowed(true);
-		title.setFontId(FONT_PLAIN);
 		place(title, tx, y + 2, tw, 18);
 		title.revalidate();
 
@@ -2697,22 +2783,64 @@ public class ClogTabController
 			y += 20;
 		}
 
-		// The actual task for stat tiles (skill XP / boss KC) — the label alone (often a custom
-		// name) doesn't say what to do, so surface the requirement prominently.
-		if (sel.requirement != null && !sel.requirement.isEmpty())
-		{
-			Widget reqW = items.createChild(-1, WidgetType.TEXT);
-			reqW.setText("<col=999999>Task:</col> <col=ffcc33>" + sel.requirement + "</col>");
-			reqW.setTextShadowed(true);
-			reqW.setFontId(FONT_PLAIN);
-			place(reqW, 6, y, paneWidth - 12, 16);
-			reqW.revalidate();
-			y += 20;
-		}
-
+		// Description (the human blurb) sits up top, like the website's tile modal.
 		if (sel.description != null && !sel.description.isEmpty())
 		{
-			y += renderDescription(items, sel.description, 6, y, paneWidth - 12) + 4;
+			y += renderDescription(items, sel.description, 6, y, paneWidth - 12) + 6;
+		}
+
+		// What counts — mirror the website's breakdown. Drop AND gain tiles get the accepted item pool
+		// ("Any of"); drops also get the source restriction ("Only from"). Everything else (kills,
+		// timed clears, stat goals…) gets the one-line requirement the server builds. Gain tiles show
+		// both — the pool AND the "Gather N" target. Wrapped, not clipped.
+		boolean isDropTile = "drop".equalsIgnoreCase(sel.tileType);
+		boolean isGainTile = "gain".equalsIgnoreCase(sel.tileType);
+		boolean isCompound = sel.itemRequirements != null && sel.itemRequirements.size() > 1;
+		boolean hasItems = sel.itemIds != null && !sel.itemIds.isEmpty();
+		boolean hasSources = sel.sources != null && !sel.sources.isEmpty();
+		boolean showAnyOf = (isDropTile || isGainTile) && hasItems && !isCompound; // compound sets list below with progress
+		boolean showFrom = isDropTile && hasSources;
+		boolean showReqLine = !isDropTile && sel.requirement != null && !sel.requirement.isEmpty();
+		if (showAnyOf || showFrom || showReqLine)
+		{
+			Widget wcLbl = items.createChild(-1, WidgetType.TEXT);
+			wcLbl.setText("<col=999999>What counts:</col>");
+			wcLbl.setFontId(FONT_PLAIN);
+			wcLbl.setTextShadowed(true);
+			place(wcLbl, 6, y, paneWidth - 12, 15);
+			wcLbl.revalidate();
+			y += 17;
+
+			if (showAnyOf)
+			{
+				StringBuilder pool = new StringBuilder();
+				for (int id : sel.itemIds)
+				{
+					String nm = itemName(id);
+					if (nm == null || nm.isEmpty())
+					{
+						continue;
+					}
+					if (pool.length() > 0)
+					{
+						pool.append(", ");
+					}
+					pool.append(nm);
+				}
+				if (pool.length() > 0)
+				{
+					y += labeledWrapped(items, "Any of:", pool.toString(), 6, y, paneWidth - 12);
+				}
+			}
+			if (showFrom)
+			{
+				y += labeledWrapped(items, "Only from:", String.join(", ", sel.sources), 6, y, paneWidth - 12);
+			}
+			if (showReqLine)
+			{
+				y += renderWrappedColored(items, sel.requirement, 0xffcc33, 6, y, paneWidth - 12, DESC_LINE_H);
+			}
+			y += 4;
 		}
 
 		// Compound tile (e.g. a full-moon set): list each required item with its icon and your
@@ -2824,14 +2952,14 @@ public class ClogTabController
 			if (board != null && board.tiles != null)
 			{
 				bannerLine(header, "Tile Race  <col=666666>·</col>  " + board.tiles.size() + " tiles",
-					0xffffff, BANNER_LINE_H);
+					0xffffff, BANNER_LINE_3);
 				int teamCount = board.teams != null ? board.teams.size() : 0;
 				String line = teamCount + " team" + (teamCount == 1 ? "" : "s") + " racing";
 				if (board.readOnly)
 				{
 					line += "  <col=666666>·</col>  <col=ffcc33>read-only preview</col>";
 				}
-				bannerLine(header, line, 0xaaaaaa, BANNER_LINE_H * 2);
+				bannerLine(header, line, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{

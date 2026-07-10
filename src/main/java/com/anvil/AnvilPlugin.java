@@ -32,6 +32,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import com.google.gson.Gson;
@@ -463,6 +464,12 @@ public class AnvilPlugin extends Plugin {
     // total we logged in with). Total only ever rises on a skill level-up, so we check it there.
     private int lastTotalLevel = -1;
     private boolean totalLevelInitialized;
+    // Per-skill real level, baselined on the first StatChanged for each skill (login), so a 99 is
+    // detected off the stat event — independent of the in-game "Level-up interface" setting, which
+    // decides whether the chat line even carries the level number. notified99 dedups a 99 arriving
+    // from both StatChanged and the chat line (and pre-seeds skills already 99 at login).
+    private final java.util.Map<Skill, Integer> lastSkillLevel = new java.util.EnumMap<>(Skill.class);
+    private final java.util.Set<String> notified99 = new java.util.HashSet<>();
     // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
     // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
     // ~1750 so it kicks in for high accounts without spamming every 50 levels.
@@ -530,6 +537,7 @@ public class AnvilPlugin extends Plugin {
         int snapshotCurrent;
         int snapshotRequired;
         ScheduledFuture<?> flushTask;
+        final long firstQueuedAt = System.currentTimeMillis();
 
         GainAggregate(PluginConfigResponse.TrackedGain gain) {
             this.gain = gain;
@@ -563,6 +571,10 @@ public class AnvilPlugin extends Plugin {
     // Gathering is a slow trickle (a catch every few seconds), so the settle window is much
     // longer than drops' — one screenshot + submission per fishing stint, not per catch.
     private static final long GAIN_COALESCE_MS = 30_000;
+    // Hard cap on how long a gain aggregate may keep deferring. The coalesce window resets on every
+    // catch, so a non-stop gather (karambwans, implings) would otherwise NEVER flush — the server
+    // stays empty and a logout mid-gather loses everything. This forces a flush ~every 30s regardless.
+    private static final long GAIN_MAX_HOLD_MS = 30_000;
     // Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
     // gains that land within a couple of ticks of a Take click.
     private volatile int lastGroundTakeTick = -10;
@@ -758,6 +770,41 @@ public class AnvilPlugin extends Plugin {
         if (cmd != null && cmd.equalsIgnoreCase("anvillog")) {
             exportDebugLog();
         }
+    }
+
+    /**
+     * Skill 99s + total-level milestones, detected off StatChanged so they fire regardless of the
+     * in-game "Level-up interface" setting. (We also parse the level-up chat line, but that only
+     * carries the level number when the popup is disabled — with it on, the default, nothing matched,
+     * so 99s/totals silently never posted.) Each skill is baselined on its first event of the session
+     * (login), so pre-existing 99s and the starting total don't announce; handleTotalMilestone's own
+     * baseline guards the total the same way.
+     */
+    @Subscribe
+    public void onStatChanged(StatChanged event) {
+        if (!config.notifyLevelUps()) {
+            return;
+        }
+        Skill skill = event.getSkill();
+        if (skill == null || skill == Skill.OVERALL) {
+            return;
+        }
+        int level = event.getLevel();
+        Integer prev = lastSkillLevel.put(skill, level);
+        if (prev == null) {
+            // First sighting this session = baseline; remember pre-existing 99s so they never announce.
+            if (level >= 99) {
+                notified99.add(skill.getName().toLowerCase());
+            }
+            return;
+        }
+        if (level <= prev) {
+            return; // XP within a level, or no gain — nothing to announce
+        }
+        if (level >= 99 && prev < 99) {
+            handleLevelMilestone(skill.getName());
+        }
+        handleTotalMilestone();
     }
 
     /**
@@ -1126,6 +1173,9 @@ public class AnvilPlugin extends Plugin {
                 executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
             }
         } else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
+            // Flush any gains still coalescing before we tear down — a logout/hop mid-gather would
+            // otherwise lose them (the aggregate lives only in memory). The executor is still alive here.
+            flushAllPendingGains();
             // Gain tiles: drop the held-item baseline so the next snapshot after login/hop
             // re-seeds instead of reading the whole inventory as a "gain". Deathless: leave
             // the instance so re-entry re-arms the death counter.
@@ -1264,6 +1314,7 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onNpcLootReceived(NpcLootReceived event) {
         processLoot(event.getNpc().getName(), event.getItems(), "npc");
+        processValueTiles(event.getNpc().getName(), event.getItems(), "npc");
         maybeNotifyRareDrop(event.getNpc().getName(), event.getItems(), "npc");
         // NpcLootReceived is RuneLite's attribution-safe "you killed this NPC" signal (fires once
         // per kill, credited to the local player) — the right hook for kill-count tiles, including
@@ -1293,13 +1344,140 @@ public class AnvilPlugin extends Plugin {
                 break;   // raid chests / barrows / wt / clues
         }
         processLoot(event.getName(), event.getItems(), kind);
+        processValueTiles(event.getName(), event.getItems(), kind);
         maybeNotifyRareDrop(event.getName(), event.getItems(), kind);
     }
 
     @Subscribe
     public void onPlayerLootReceived(PlayerLootReceived event) {
         processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
+        processValueTiles(event.getPlayer().getName(), event.getItems(), "pvp");
         maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
+    }
+
+    /**
+     * Loot-value tiles ("loot worth ≥ X gp"): price the WHOLE haul (GE value of every item) and, when
+     * a single haul from a matching source meets the threshold, submit it with a baked screenshot —
+     * the value-tile equivalent of the drop pipeline. The server decides completion (single-haul: a
+     * submission ≥ threshold). Source filter mirrors the site: "PvP" = a player kill, "Loot Chest" =
+     * an opened loot key, otherwise an NPC/chest name; empty = any.
+     */
+    private void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
+        String gate = trackingGateReason();
+        if (gate != null || !config.autoSubmit() || pluginConfig == null
+                || pluginConfig.trackedValues == null || pluginConfig.trackedValues.isEmpty()
+                || items == null || items.isEmpty()) {
+            return;
+        }
+        long haulGp = 0;
+        for (ItemStack it : items) {
+            if (it == null || it.getId() <= 0) {
+                continue;
+            }
+            int price = itemManager.getItemPrice(it.getId());
+            if (price > 0) {
+                haulGp += (long) price * Math.max(1, it.getQuantity());
+            }
+        }
+        if (haulGp <= 0) {
+            return;
+        }
+        for (PluginConfigResponse.TrackedValue v : pluginConfig.trackedValues) {
+            if (v == null || v.completed) {
+                continue;
+            }
+            boolean total = "total".equalsIgnoreCase(v.mode);
+            // Single haul: THIS haul must meet the threshold. Total: every qualifying haul counts
+            // toward the target (server sums the submitted amounts), so there's no per-haul threshold.
+            if (!total && haulGp < v.thresholdGp) {
+                continue;
+            }
+            if (!valueSourceMatches(v.sources, source, sourceKind)) {
+                continue;
+            }
+            // Dedup: the same loot can fire NpcLootReceived + LootReceived back-to-back.
+            String dedupKey = "value:" + v.tileId;
+            long now = System.currentTimeMillis();
+            synchronized (lastSubmittedAt) {
+                Long lastAt = lastSubmittedAt.get(dedupKey);
+                if (lastAt != null && now - lastAt < DEDUP_WINDOW_MS) {
+                    continue;
+                }
+                lastSubmittedAt.put(dedupKey, now);
+            }
+            final int amount = (int) Math.min(haulGp, Integer.MAX_VALUE);
+            final String gp = formatGp(haulGp);
+            if (total) {
+                // Accumulate: a count-only ping (no screenshot — a proof per PK haul would swamp the
+                // media store). The server sums hauls and completes when the target is reached.
+                submitValuePing(v, amount, gp);
+            } else {
+                // Single-haul completion: optimistically mark done so a follow-up haul in the same
+                // stint doesn't double-submit; capture a proof screenshot (rollback reverts on failure).
+                v.completed = true;
+                final PluginConfigResponse.TrackedValue tile = v;
+                log.info("Value tile credited (single): '{}' haul {} gp (threshold {})", v.label, haulGp, v.thresholdGp);
+                captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
+                        "[Auto] loot worth " + gp + " (" + v.label + ") detected by RuneLite plugin",
+                        () -> tile.completed = false);
+            }
+        }
+    }
+
+    /** Count-only submission for a TOTAL-value tile — no screenshot; the server sums hauls toward the
+     *  gp target. Runs on the executor so the loot handler stays cheap. */
+    private void submitValuePing(PluginConfigResponse.TrackedValue v, int amount, String gp) {
+        if (executor == null || executor.isShutdown() || pluginConfig == null
+                || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
+            return;
+        }
+        final int eventId = pluginConfig.event.id;
+        final int teamId = pluginConfig.team.id;
+        final int playerId = pluginConfig.player.id;
+        final int tileId = v.tileId;
+        final String label = v.label;
+        executor.submit(() -> {
+            try {
+                apiClient.submitDrop(eventId, tileId, teamId, amount, null,
+                        "[Auto] loot worth " + gp + " (" + label + ") counted by RuneLite plugin", playerId, null);
+                log.info("Value tile ping (total): '{}' +{} gp", label, amount);
+                refreshConfig();
+            } catch (IOException e) {
+                log.warn("Value ping failed for '{}' +{} gp: {}", label, amount, e.getMessage());
+            }
+        });
+    }
+
+    /** Does a value tile's source filter accept this loot? "PvP" matches a player kill; other entries
+     *  match the loot source name (case-insensitive). Empty/null = any source. */
+    private boolean valueSourceMatches(List<String> sources, String source, String sourceKind) {
+        if (sources == null || sources.isEmpty()) {
+            return true;
+        }
+        for (String s : sources) {
+            if (s == null) {
+                continue;
+            }
+            if (s.equalsIgnoreCase("PvP")) {
+                if ("pvp".equals(sourceKind)) {
+                    return true;
+                }
+            } else if (source != null && s.equalsIgnoreCase(source)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Short human gp label for proof banners / logs (5.0M gp, 500k gp, 999 gp). */
+    private static String formatGp(long gp) {
+        if (gp >= 1_000_000) {
+            return String.format(java.util.Locale.ROOT, "%.1fM gp", gp / 1_000_000.0);
+        }
+        if (gp >= 1_000) {
+            return String.format(java.util.Locale.ROOT, "%.0fk gp", gp / 1_000.0);
+        }
+        return gp + " gp";
     }
 
     @Subscribe
@@ -2216,13 +2394,36 @@ public class AnvilPlugin extends Plugin {
         Map<Integer, Integer> previous = lastHeldItemCounts;
         lastHeldItemCounts = counts;
 
+        // Why (if at all) is a gather suppressed this tick? Compute once so the diagnostic below can
+        // report it. null = nothing suppressing → we credit.
+        String suppress =
+                previous == null ? "baseline snapshot"
+                : gainItemIndex.isEmpty() ? "no gain tiles configured"
+                : !config.autoSubmit() ? "autoSubmit off"
+                : (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) ? "no active event"
+                : isBlackout() ? "blackout"
+                : gainSuppressingInterfaceOpen() ? "bank/GE/trade/seed-vault open"
+                : (client.getTickCount() - lastGroundTakeTick <= 2) ? "recent ground Take"
+                : (client.getTickCount() - lastTelegrabTick <= TELEGRAB_GUARD_TICKS) ? "recent telegrab"
+                : (client.getTickCount() - lastSuppressCloseTick <= 2) ? "interface just closed"
+                : null;
+
+        // Diagnostic (debug-level so it doesn't spam a normal log): every item whose held count ROSE
+        // this tick, whether a gain tile tracks it, and any suppression — so "my catch didn't count"
+        // is answerable by flipping on debug logging for com.anvil.
+        if (previous != null && log.isDebugEnabled()) {
+            for (Map.Entry<Integer, Integer> e : counts.entrySet()) {
+                int d = e.getValue() - previous.getOrDefault(e.getKey(), 0);
+                if (d > 0) {
+                    log.debug("Held-item +{}: item {} (tracked={}{})", d, e.getKey(),
+                            gainItemIndex.containsKey(e.getKey()),
+                            suppress != null ? ", SUPPRESSED: " + suppress : "");
+                }
+            }
+        }
+
         // Baseline snapshot (login/config load) or a non-gather context → record only.
-        if (previous == null || gainItemIndex.isEmpty() || !config.autoSubmit()
-                || pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)
-                || isBlackout() || gainSuppressingInterfaceOpen()
-                || client.getTickCount() - lastGroundTakeTick <= 2
-                || client.getTickCount() - lastTelegrabTick <= TELEGRAB_GUARD_TICKS
-                || client.getTickCount() - lastSuppressCloseTick <= 2) {
+        if (suppress != null) {
             return;
         }
 
@@ -2307,9 +2508,14 @@ public class AnvilPlugin extends Plugin {
             if (agg.flushTask != null) {
                 agg.flushTask.cancel(false);
             }
-            // Flush immediately once the tile is done — the completing proof shouldn't wait
-            // out the settle window.
-            long delay = gain.currentAmount >= gain.requiredAmount ? 1_500 : GAIN_COALESCE_MS;
+            // Flush immediately once the tile is done — the completing proof shouldn't wait out the
+            // settle window. Otherwise coalesce trickle catches, but cap the total hold so a non-stop
+            // gather still flushes (and syncs the server) ~every GAIN_MAX_HOLD_MS instead of deferring
+            // forever while each catch pushes the flush further out.
+            long heldFor = System.currentTimeMillis() - agg.firstQueuedAt;
+            long delay = gain.currentAmount >= gain.requiredAmount
+                    ? 1_500
+                    : Math.max(1_500, Math.min(GAIN_COALESCE_MS, GAIN_MAX_HOLD_MS - heldFor));
             agg.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), delay, TimeUnit.MILLISECONDS);
         }
     }
@@ -3231,8 +3437,14 @@ public class AnvilPlugin extends Plugin {
                 configManager.setConfiguration("osrsbingo", "playerToken", "");
                 return;
             }
+            // Preserve locally-counted gain progress across the refresh. The server's copy lags while
+            // gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so wholesale-replacing would snap an
+            // in-progress tile's live count backward (the reported karambwan/impling flakiness). Floor
+            // each fresh gain at what we've already counted locally.
+            Map<Integer, Integer> localGainProgress = snapshotGainProgress(pluginConfig);
             pluginConfig = fresh;
             rebuildItemDropIndex();
+            restoreGainProgressFloor(pluginConfig, localGainProgress);
             // One tracking-state summary, logged only when it CHANGES (the refresh runs every
             // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
             // what the plugin believed it was tracking, and when that belief changed.
@@ -3396,6 +3608,50 @@ public class AnvilPlugin extends Plugin {
             }
         }
         pvpRosterIndex = index;
+    }
+
+    /** Snapshot each tracked gain's locally-counted currentAmount by tileId (pre-refresh state). */
+    private Map<Integer, Integer> snapshotGainProgress(PluginConfigResponse cfg) {
+        Map<Integer, Integer> m = new HashMap<>();
+        if (cfg != null && cfg.trackedGains != null) {
+            for (PluginConfigResponse.TrackedGain g : cfg.trackedGains) {
+                if (g != null) {
+                    m.put(g.tileId, g.currentAmount);
+                }
+            }
+        }
+        return m;
+    }
+
+    /** Raise each fresh gain's currentAmount to at least the locally-counted value so a config
+     *  refresh never regresses an in-progress tile below what we've already tallied (and not yet
+     *  flushed). Capped at requiredAmount. Trade-off: an admin who deletes a gain submission won't
+     *  see the count drop until the player re-logs — acceptable vs. the count visibly snapping back. */
+    private void restoreGainProgressFloor(PluginConfigResponse fresh, Map<Integer, Integer> local) {
+        if (fresh == null || fresh.trackedGains == null || local.isEmpty()) {
+            return;
+        }
+        for (PluginConfigResponse.TrackedGain g : fresh.trackedGains) {
+            if (g == null) {
+                continue;
+            }
+            Integer prior = local.get(g.tileId);
+            if (prior != null && prior > g.currentAmount) {
+                g.currentAmount = Math.min(prior, g.requiredAmount);
+            }
+        }
+    }
+
+    /** Flush every pending gain aggregate now (e.g. on logout/hop) so trickle catches still
+     *  coalescing aren't lost — they only live in memory until submitted. */
+    private void flushAllPendingGains() {
+        java.util.List<Integer> tileIds;
+        synchronized (pendingGainAggregates) {
+            tileIds = new ArrayList<>(pendingGainAggregates.keySet());
+        }
+        for (int tileId : tileIds) {
+            flushGainAggregate(tileId);
+        }
     }
 
     /** Rebuild the itemId → TrackedGain index; refreshed together with the drop index. */
@@ -4104,15 +4360,21 @@ public class AnvilPlugin extends Plugin {
             postCaTierClear(cleared);
         }
 
-        // Individual tasks: post each FIRST-seen task at/above the configured floor. Dedup by task
-        // NAME (not points delta) so every completion in a multi-task tick posts, while recompletions
-        // (the in-game "repeat completion" message) are skipped.
+        // Individual tasks: post each FIRST-seen task at/above the configured floor, but only when
+        // this tick's completions actually raised the CA point total. Already-owned tasks re-fire the
+        // same chat line via the in-game "Repeat completion" setting — which we rely on so CA *tiles*
+        // can count tasks cleared before the event — without changing points, so gating on the delta
+        // keeps those recompletions out of the achievements channel. (A mixed tick containing both a
+        // genuine new task and a recompletion still posts the recompletion; the aggregate varbit can't
+        // attribute a per-task delta. That's rare — real spam is pure-recompletion ticks.) Dedup by
+        // task NAME so every genuinely new task in a multi-task tick still posts exactly once.
+        boolean pointsRose = total > before;
         for (PendingCaTask pending : batch) {
             String key = pending.task == null ? "" : pending.task.toLowerCase();
             if (key.isEmpty() || !notifiedCaTasks.add(key)) {
                 continue; // unparseable, or already announced this session
             }
-            if (pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
+            if (pointsRose && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
                 postCombatTask(pending.tier, pending.task);
             }
         }
@@ -4440,6 +4702,11 @@ public class AnvilPlugin extends Plugin {
 
     private void handleLevelMilestone(String skill) {
         if (!notifyEnabled("combatAchievements")) {
+            return;
+        }
+        // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
+        // level-up chat line, and StatChanged pre-seeds skills already 99 at login.
+        if (skill == null || !notified99.add(skill.toLowerCase())) {
             return;
         }
         String rsn = getLocalPlayerName();

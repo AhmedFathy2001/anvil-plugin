@@ -16,6 +16,8 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -30,14 +32,21 @@ public class BingoClogBannerOverlay extends Overlay
 	private static final int BASE_H = 100;
 	private static final float DISPLAY_SCALE = 1f;
 
-	// Text tops (design px) + size, straight from the CSS.
+	// Text tops (design px) + size. Derived from the CSS reference, then the middle/bottom lines were
+	// pulled up (40→32, 64→56) to tighten the header→detail gap, which read too airy with the smaller
+	// body font. The middle↔bottom gap is unchanged; the label just gains a little more wrap headroom.
 	private static final float TOP_Y = 10f;
-	private static final float MID_Y = 40f;
-	private static final float BOTTOM_Y = 64f;
+	private static final float MID_Y = 32f;
+	private static final float BOTTOM_Y = 56f;
 	private static final float FONT_PX = 16f;
+	// The bottom label wraps onto a second line at full size when it's too wide — the RS font is a
+	// bitmap face that pixelates when scaled, so we never shrink glyphs. WRAP_LINE_H is the vertical
+	// advance (design px) between the two lines, kept tight so both clear the 100px panel.
+	private static final float WRAP_LINE_H = 15f;
+	private static final int BOTTOM_MAX_LINES = 2;
 
-	// Horizontal padding (design px) kept clear inside the panel; text wider than the inner
-	// width is truncated with an ellipsis so long item/tile names can't overflow the banner.
+	// Horizontal padding (design px) kept clear inside the panel; text wider than the inner width wraps
+	// onto up to BOTTOM_MAX_LINES lines (bottom label) and is ellipsised only if it overflows the last.
 	private static final int TEXT_MARGIN_X = 12;
 
 	// Animation (matches the reference gif): a thin line grows to full WIDTH, then the whole
@@ -83,7 +92,10 @@ public class BingoClogBannerOverlay extends Overlay
 		setPriority(OverlayPriority.HIGHEST);
 		this.background = loadBackground();
 		this.headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX * DISPLAY_SCALE);
-		this.bodyFont = FontManager.getRunescapeFont().deriveFont(FONT_PX * DISPLAY_SCALE);
+		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
+		// crisp size — the standard chat font read too large on the small panel. No deriveFont: scaling
+		// a bitmap font off its native grid pixelates (see the wrap-not-shrink note above).
+		this.bodyFont = FontManager.getRunescapeSmallFont();
 	}
 
 	private static BufferedImage loadBackground()
@@ -217,7 +229,7 @@ public class BingoClogBannerOverlay extends Overlay
 				int maxTextW = fullW - 2 * TEXT_MARGIN_X;
 				drawCentered(g2, active.top, headerFont, ORANGE, fullW, maxTextW, TOP_Y * DISPLAY_SCALE);
 				drawCentered(g2, active.middle, bodyFont, ORANGE, fullW, maxTextW, MID_Y * DISPLAY_SCALE);
-				drawCentered(g2, active.bottom, bodyFont, WHITE, fullW, maxTextW, BOTTOM_Y * DISPLAY_SCALE);
+				drawWrapped(g2, active.bottom, bodyFont, WHITE, fullW, maxTextW, BOTTOM_Y * DISPLAY_SCALE);
 			}
 		}
 
@@ -242,6 +254,86 @@ public class BingoClogBannerOverlay extends Overlay
 		g.drawString(shown, x + 1, baseline + 1);
 		g.setColor(color);
 		g.drawString(shown, x, baseline);
+	}
+
+	/** Like {@link #drawCentered} but wraps a long label onto up to {@link #BOTTOM_MAX_LINES} lines at the
+	 *  full font size (the RS bitmap font pixelates when scaled, so we wrap rather than shrink), ellipsising
+	 *  only the final line if it still overflows. A single-line label renders identically to
+	 *  {@code drawCentered}; extra lines advance downward by {@link #WRAP_LINE_H}. */
+	private static void drawWrapped(Graphics2D g, String text, Font font, Color color, int width, int maxWidth, float topY)
+	{
+		if (text == null || text.isEmpty())
+		{
+			return;
+		}
+		g.setFont(font);
+		FontMetrics fm = g.getFontMetrics();
+		List<String> lines = wrap(text, fm, maxWidth, BOTTOM_MAX_LINES);
+		int step = Math.round(WRAP_LINE_H * DISPLAY_SCALE);
+		int top = Math.round(topY);
+		for (int i = 0; i < lines.size(); i++)
+		{
+			String shown = lines.get(i);
+			int x = (width - fm.stringWidth(shown)) / 2;
+			int baseline = top + i * step + fm.getAscent();
+			g.setColor(SHADOW);
+			g.drawString(shown, x + 1, baseline + 1);
+			g.setColor(color);
+			g.drawString(shown, x, baseline);
+		}
+	}
+
+	/** Greedy word-wrap into at most {@code maxLines} lines that each fit {@code maxWidth}; any overflow
+	 *  past the last line is folded into it, and every kept line is ellipsised if it still overflows
+	 *  (covers a lone over-long word too). */
+	private static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines)
+	{
+		List<String> lines = new ArrayList<>();
+		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth)
+		{
+			lines.add(text);
+			return lines;
+		}
+		StringBuilder line = new StringBuilder();
+		for (String word : text.split("\\s+"))
+		{
+			String trial = line.length() == 0 ? word : line + " " + word;
+			if (fm.stringWidth(trial) <= maxWidth)
+			{
+				line.setLength(0);
+				line.append(trial);
+				continue;
+			}
+			if (line.length() > 0)
+			{
+				lines.add(line.toString());
+				line.setLength(0);
+			}
+			line.append(word);
+		}
+		if (line.length() > 0)
+		{
+			lines.add(line.toString());
+		}
+		if (lines.size() > maxLines)
+		{
+			// Fold every line past the cap into the last kept line (it gets ellipsised below).
+			StringBuilder tail = new StringBuilder(lines.get(maxLines - 1));
+			for (int i = maxLines; i < lines.size(); i++)
+			{
+				tail.append(' ').append(lines.get(i));
+			}
+			lines = new ArrayList<>(lines.subList(0, maxLines - 1));
+			lines.add(tail.toString());
+		}
+		for (int i = 0; i < lines.size(); i++)
+		{
+			if (fm.stringWidth(lines.get(i)) > maxWidth)
+			{
+				lines.set(i, truncate(lines.get(i), fm, maxWidth));
+			}
+		}
+		return lines;
 	}
 
 	/** Trims {@code text} with a trailing ellipsis so it fits within {@code maxWidth} px. */
