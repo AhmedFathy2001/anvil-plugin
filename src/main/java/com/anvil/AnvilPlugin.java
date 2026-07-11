@@ -971,6 +971,7 @@ public class AnvilPlugin extends Plugin {
                 && client.getGameState() == GameState.LOGGED_IN
                 && executor != null && !executor.isShutdown()) {
             adminProbeAttempted = false;
+            setupWarned = false; // re-evaluate the URL/token pair after an edit
             executor.submit(this::stampIdentityAndGreet);
         }
 
@@ -1200,6 +1201,9 @@ public class AnvilPlugin extends Plugin {
             creditedCaTaskTiles.clear();
             caRepeatNudgeSent = false;
             lootNotifyNudgeSent = false;
+            // Re-evaluate setup + linking for the next account that logs in.
+            setupWarned = false;
+            unlinkedWarnedFor = null;
             // Diagnostics start fresh per account: re-log suppressions and one tracking summary.
             loggedSuppressions.clear();
             lastTrackingFingerprint = null;
@@ -1235,6 +1239,45 @@ public class AnvilPlugin extends Plugin {
         safely("refreshConfig", this::refreshConfig);
         sendHello();
         safely("probeAdmin", this::probeAdmin);
+        checkSetup();
+    }
+
+    // One-shot per session: flag a half-finished plugin setup (only the Site URL or only the Account
+    // Token filled in) so a member who pasted one but not the other isn't left wondering why nothing
+    // tracks. Both-set = fine; both-empty = Anvil simply isn't set up, so don't nag.
+    private boolean setupWarned;
+
+    private void checkSetup() {
+        if (setupWarned) {
+            return;
+        }
+        String url = config.apiUrl();
+        String token = config.playerToken();
+        boolean hasUrl = url != null && !url.trim().isEmpty();
+        boolean hasToken = token != null && !token.trim().isEmpty();
+        if (hasUrl == hasToken) {
+            return;
+        }
+        setupWarned = true;
+        if (hasToken) {
+            sendChatMessage("Your Account Token is set but the Site URL is missing — add it in the Anvil plugin config so tracking can connect.");
+        } else {
+            sendChatMessage("Your Site URL is set but the Account Token is missing — paste your token from the Anvil site into the plugin config.");
+        }
+    }
+
+    // Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
+    // linked to this account — otherwise tracking is silently off. The server flags it; reset on logout.
+    private String unlinkedWarnedFor;
+
+    private void warnUnlinkedRsn(String eventName) {
+        if (eventName == null || eventName.equals(unlinkedWarnedFor)) {
+            return;
+        }
+        unlinkedWarnedFor = eventName;
+        String rsn = getLocalPlayerName();
+        sendChatMessage((rsn != null ? rsn : "This account") + " is playing in \"" + eventName
+                + "\" but isn't linked to your Anvil account — your drops won't count. Verify this RSN on the Anvil site.");
     }
 
     private void sendHello() {
@@ -3456,6 +3499,7 @@ public class AnvilPlugin extends Plugin {
                 pluginConfig = fresh;
                 rebuildItemDropIndex();
                 log.info("Anvil: token valid, no active event for this user.");
+                warnUnlinkedRsn(fresh.unlinkedActiveEvent);
                 return;
             }
             // If the linked event has ended, drop it so tracking stops for the stale event.

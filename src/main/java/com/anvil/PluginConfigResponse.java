@@ -8,6 +8,9 @@ public class PluginConfigResponse
 	public TeamInfo team;
 	public PlayerInfo player;
 	public String codeword;
+	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
+	// account isn't linked to it — the plugin warns so tracking isn't silently off. Null otherwise.
+	public String unlinkedActiveEvent;
 	public List<TrackedDrop> trackedDrops;
 	public List<TrackedStat> trackedStats;
 	// Lowercased in-game KC-line boss names ("zulrah", "chambers of xeric challenge mode") for the
