@@ -1423,9 +1423,14 @@ public class AnvilPlugin extends Plugin {
             final int amount = (int) Math.min(haulGp, Integer.MAX_VALUE);
             final String gp = formatGp(haulGp);
             if (total) {
-                // Accumulate: a count-only ping (no screenshot — a proof per PK haul would swamp the
-                // media store). The server sums hauls and completes when the target is reached.
-                submitValuePing(v, amount, gp);
+                // Accumulate toward the target: capture a proof screenshot per qualifying haul (same
+                // pipeline as single-haul value tiles) so every contribution to the aggregate is
+                // verifiable — and removable — on the site. The server sums the submitted amounts and
+                // completes at the target, so we don't optimistically mark the tile done (and need no
+                // rollback).
+                log.info("Value tile credited (total): '{}' +{} gp", v.label, haulGp);
+                captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
+                        "[Auto] loot worth " + gp + " (" + v.label + ") counted by RuneLite plugin", null);
             } else {
                 // Single-haul completion: optimistically mark done so a follow-up haul in the same
                 // stint doesn't double-submit; capture a proof screenshot (rollback reverts on failure).
@@ -1437,30 +1442,6 @@ public class AnvilPlugin extends Plugin {
                         () -> tile.completed = false);
             }
         }
-    }
-
-    /** Count-only submission for a TOTAL-value tile — no screenshot; the server sums hauls toward the
-     *  gp target. Runs on the executor so the loot handler stays cheap. */
-    private void submitValuePing(PluginConfigResponse.TrackedValue v, int amount, String gp) {
-        if (executor == null || executor.isShutdown() || pluginConfig == null
-                || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
-            return;
-        }
-        final int eventId = pluginConfig.event.id;
-        final int teamId = pluginConfig.team.id;
-        final int playerId = pluginConfig.player.id;
-        final int tileId = v.tileId;
-        final String label = v.label;
-        executor.submit(() -> {
-            try {
-                apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-                        "[Auto] loot worth " + gp + " (" + label + ") counted by RuneLite plugin", playerId, null);
-                log.info("Value tile ping (total): '{}' +{} gp", label, amount);
-                refreshConfig();
-            } catch (IOException e) {
-                log.warn("Value ping failed for '{}' +{} gp: {}", label, amount, e.getMessage());
-            }
-        });
     }
 
     /** Does a value tile's source filter accept this loot? "PvP" matches a player kill; other entries
