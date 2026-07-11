@@ -1333,6 +1333,11 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onLootReceived(LootReceived event) {
+        // Minigame loot isn't real — an LMS kill "drops" the victim's throwaway loadout — so never
+        // post it to the drops channel or feed it to any bingo tile (drop/value/rare-drop).
+        if (lmsInGame) {
+            return;
+        }
         // Covers raid chests, clue caskets, barrows, implings, AND opened loot keys.
         // We classify the source so per-tile filters can reject drops from the wrong
         // place (e.g. a "CoX Dragon claws" tile shouldn't credit a PK loot key).
@@ -1365,6 +1370,9 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onPlayerLootReceived(PlayerLootReceived event) {
+        if (lmsInGame) {
+            return; // LMS PvP loot is minigame loot — not a real drop; skip tiles + the drops channel.
+        }
         processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         processValueTiles(event.getPlayer().getName(), event.getItems(), "pvp");
         maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
