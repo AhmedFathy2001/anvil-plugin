@@ -108,6 +108,10 @@ public class ClogTabController
 	private int boardRequestedEventId = -1;
 	// Grid tap-to-inspect: the tile whose detail page is shown (-1 = none).
 	private int selectedGridTileId = -1;
+	// Identity of the view last painted, so renderHub only snaps to the top on a real navigation
+	// (drill in / back / open) — NOT on a plain live refresh (onConfigRefreshed calls renderHub every
+	// 30s), which was yanking the user back to the top mid-scroll. Null = nothing painted yet.
+	private String lastRenderedView;
 
 	@Inject
 	public ClogTabController(Client client, ClientThread clientThread, ItemManager itemManager,
@@ -651,12 +655,16 @@ public class ClogTabController
 			return;
 		}
 		hideHeaderBook(true);
-		// Switching views (drill in / back / filter) starts at the top, not the old scroll offset.
+		// Switching views (drill in / back / open a tile) starts at the top, not the old scroll offset.
+		// Only reset when the view IDENTITY actually changed — a plain live re-render (the 30s
+		// onConfigRefreshed → renderHub) must keep the player's scroll position, not snap them up.
+		String navSig = hubView + "|" + viewingEventId + "|" + selectedGridTileId;
 		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
-		if (items != null)
+		if (items != null && !navSig.equals(lastRenderedView))
 		{
 			items.setScrollY(0);
 		}
+		lastRenderedView = navSig;
 		renderLeftColumn();
 		switch (hubView)
 		{
