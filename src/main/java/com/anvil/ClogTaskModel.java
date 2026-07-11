@@ -286,8 +286,22 @@ public final class ClogTaskModel
 				// otherwise it's a simple drop pool. Mirrors the web's drop-vs-collection split.
 				Kind kind = (d.itemRequirements != null && !d.itemRequirements.isEmpty())
 					? Kind.COLLECTION : Kind.DROP;
-				addAt(rows, d.position, new TaskRow(d.tileId, d.label, kind, d.currentAmount, d.requiredAmount,
-					representativeItemId(d), d.points, d.description, d.category, completed.contains(d.tileId)));
+				int current = d.currentAmount;
+				int goal = d.requiredAmount;
+				boolean done = completed.contains(d.tileId);
+				if (kind == Kind.COLLECTION)
+				{
+					// A collection completes when a full SET is obtained — not when the summed submission
+					// count reaches requiredAmount (the server stores that as a smallest-set short-circuit,
+					// often 1, so a 3-of-4 rings set read as 3/1 = done). Drive progress off the per-item
+					// requirements and their "any one set" groups.
+					int[] pg = collectionProgress(d.itemRequirements);
+					current = pg[0];
+					goal = pg[1];
+					done = done || pg[2] == 1;
+				}
+				addAt(rows, d.position, new TaskRow(d.tileId, d.label, kind, current, goal,
+					representativeItemId(d), d.points, d.description, d.category, done));
 			}
 		}
 
@@ -477,6 +491,82 @@ public final class ClogTaskModel
 			return d.itemIds.get(0);
 		}
 		return -1;
+	}
+
+	/**
+	 * Set-aware collection progress. Ungrouped requirements are always required; items sharing a
+	 * {@code group} form OR-ed alternative sets — collecting ONE full set (the always-required items
+	 * plus that group) completes the tile, no mixing across sets. Returns {current, goal, done} for the
+	 * set the player is CLOSEST to finishing (fewest items left), so a two-set tile shows real progress
+	 * toward one set instead of the inflated sum across every set. {@code done} = any one set is full.
+	 */
+	private static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs)
+	{
+		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
+		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
+		for (PluginConfigResponse.ItemRequirement r : reqs)
+		{
+			if (r == null)
+			{
+				continue;
+			}
+			String g = r.group == null ? "" : r.group.trim();
+			if (g.isEmpty())
+			{
+				ungrouped.add(r);
+			}
+			else
+			{
+				groups.computeIfAbsent(g, k -> new ArrayList<>()).add(r);
+			}
+		}
+		// Candidate complete sets: no groups → the ungrouped list is the single set; otherwise each
+		// group, combined with the always-required ungrouped items, is one alternative set.
+		List<List<PluginConfigResponse.ItemRequirement>> sets = new ArrayList<>();
+		if (groups.isEmpty())
+		{
+			sets.add(ungrouped);
+		}
+		else
+		{
+			for (List<PluginConfigResponse.ItemRequirement> grp : groups.values())
+			{
+				List<PluginConfigResponse.ItemRequirement> set = new ArrayList<>(ungrouped);
+				set.addAll(grp);
+				sets.add(set);
+			}
+		}
+		int bestSat = 0;
+		int bestGoal = 1;
+		int bestRemaining = Integer.MAX_VALUE;
+		for (List<PluginConfigResponse.ItemRequirement> set : sets)
+		{
+			if (set.isEmpty())
+			{
+				continue;
+			}
+			int sat = 0;
+			for (PluginConfigResponse.ItemRequirement r : set)
+			{
+				if (r.currentAmount >= Math.max(1, r.requiredAmount))
+				{
+					sat++;
+				}
+			}
+			int size = set.size();
+			if (sat >= size)
+			{
+				return new int[]{ size, size, 1 }; // a full set — the tile is complete
+			}
+			int remaining = size - sat;
+			if (remaining < bestRemaining || (remaining == bestRemaining && sat > bestSat))
+			{
+				bestRemaining = remaining;
+				bestSat = sat;
+				bestGoal = size;
+			}
+		}
+		return new int[]{ bestSat, Math.max(1, bestGoal), 0 };
 	}
 
 	/**

@@ -118,6 +118,10 @@ public class PluginConfigResponse
 		public String name;
 		public int requiredAmount;
 		public int currentAmount;
+		// "Any one set" grouping: ungrouped (null/blank) items are always required; items sharing a
+		// group form OR-ed alternative sets — collecting ONE full set (ungrouped + that group) completes
+		// the tile (no mixing across sets). Null/absent on a plain "collect all of these" collection.
+		public String group;
 	}
 
 	public static class CompletedTile
