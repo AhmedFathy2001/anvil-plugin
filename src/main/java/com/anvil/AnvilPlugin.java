@@ -1363,9 +1363,35 @@ public class AnvilPlugin extends Plugin {
         if (isLootKeyEvent(event.getName())) {
             kind = "pvp";
         }
-        processLoot(event.getName(), event.getItems(), kind);
-        processValueTiles(event.getName(), event.getItems(), kind);
-        maybeNotifyRareDrop(event.getName(), event.getItems(), kind);
+        // Clue caskets arrive under RuneLite's casket/trail name, which varies by version
+        // ("Reward Casket (Master)" / "Master Treasure Trail" / "Clue Scroll (Master)"); fold them all
+        // to the "Clue Scroll (Tier)" the source picker offers so a clue-restricted drop tile matches.
+        String source = normalizeClueSource(event.getName());
+        processLoot(source, event.getItems(), kind);
+        processValueTiles(source, event.getItems(), kind);
+        maybeNotifyRareDrop(source, event.getItems(), kind);
+    }
+
+    private static final String[] CLUE_TIERS = {"beginner", "easy", "medium", "hard", "elite", "master"};
+
+    /** Normalise any clue-casket loot source to "Clue Scroll (Tier)" (the source-picker form); returns
+     *  {@code name} unchanged when it isn't a tiered clue reward (e.g. a Tempoross casket, which has no
+     *  clue tier). */
+    private static String normalizeClueSource(String name) {
+        if (name == null) {
+            return null;
+        }
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        boolean clueish = lower.contains("clue") || lower.contains("treasure trail") || lower.contains("casket");
+        if (!clueish) {
+            return name;
+        }
+        for (String tier : CLUE_TIERS) {
+            if (lower.contains(tier)) {
+                return "Clue Scroll (" + Character.toUpperCase(tier.charAt(0)) + tier.substring(1) + ")";
+            }
+        }
+        return name;
     }
 
     @Subscribe
