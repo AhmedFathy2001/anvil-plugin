@@ -1849,15 +1849,27 @@ public class AnvilPlugin extends Plugin {
                 handleTotalMilestone();
             }
         }
-        // Pet drops — no LootReceived fires for these
+        // Pet drops — no LootReceived fires for these. The third line is the duplicate ("would have
+        // been followed") shown when the pet is already owned; we handle it the same, so a member who
+        // already has the pet still gets a proof for the tile.
         if (msg.contains("You have a funny feeling like you're being followed")
                 || msg.contains("You feel something weird sneaking into your backpack")
                 || msg.contains("You have a funny feeling like you would have been followed")) {
             // Notify the clan rare-drops channel (independent of bingo — fires even with no event).
             maybeNotifyPet();
-            // Bingo: chat-flag only — players must manually submit pets on the Anvil site.
+            // Bingo: pets can't be auto-credited to a specific tile, so capture a proof for the player
+            // to submit by hand (lands in "Saved proofs").
             if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
-                sendChatMessage("Pet drop detected — submit manually on the Anvil site.");
+                captureManualProof("Pet drop", "[Auto] Pet drop detected by RuneLite plugin");
+            }
+        }
+        // Champion's scroll — when a challenge is already complete the game shows only "…funny feeling
+        // that you would have received a Champion's scroll…" with NO item and no loot event, so a
+        // real-drop tile would never see it. The line names no specific champion, so (like pets) we
+        // capture a proof for manual submission rather than auto-credit.
+        if (msg.contains("funny feeling that you would have received a Champion")) {
+            if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
+                captureManualProof("Champion's scroll", "[Auto] Champion's scroll (duplicate) detected by RuneLite plugin");
             }
         }
         // Timed-clear tiles: pull a clear time out of completion/boss-kill messages.
@@ -3096,6 +3108,64 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /**
+     * Capture + save a MANUAL proof for a collectible the plugin can't auto-credit to a tile — a pet
+     * drop, or a duplicate Champion's scroll (the "would have received" line names no item and fires
+     * no loot event). We grab the next frame, burn the standard proof banner onto it, and stash it in
+     * the pending store flagged {@code manual} (so the retry loop never tries to upload it). It surfaces
+     * in the collection-log Bingo tab under "Saved proofs" for the player to attach when they submit by
+     * hand on the site.
+     */
+    private void captureManualProof(String label, String note) {
+        if (drawManager == null || executor == null || executor.isShutdown()) {
+            return;
+        }
+        final int eventId = pluginConfig != null && pluginConfig.event != null ? pluginConfig.event.id : 0;
+        final int teamId = pluginConfig != null && pluginConfig.team != null ? pluginConfig.team.id : 0;
+        final int playerId = pluginConfig != null && pluginConfig.player != null ? pluginConfig.player.id : 0;
+        final String capturedRsn = getLocalPlayerName();
+        drawManager.requestNextFrameListener(image -> {
+            if (executor == null || executor.isShutdown()) {
+                return;
+            }
+            executor.submit(() -> {
+                try {
+                    // Copy the shared frame before annotating so we don't mutate the draw manager's buffer.
+                    BufferedImage src = (BufferedImage) image;
+                    BufferedImage buffered = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+                    java.awt.Graphics2D g = buffered.createGraphics();
+                    g.drawImage(src, 0, 0, null);
+                    g.dispose();
+                    annotateProofBanner(buffered, "BINGO", label, capturedRsn, null);
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    ImageIO.write(buffered, "png", baos);
+
+                    PendingSubmissionStore.PendingSubmission pending = new PendingSubmissionStore.PendingSubmission();
+                    pending.eventId = eventId;
+                    pending.tileId = -1; // no tile — manual proof
+                    pending.teamId = teamId;
+                    pending.playerId = playerId;
+                    pending.amount = 1;
+                    pending.label = label;
+                    pending.note = note;
+                    pending.timestamp = System.currentTimeMillis();
+                    pending.capturedRsn = capturedRsn;
+                    pending.manual = true;
+
+                    String savedId = pendingSubmissionStore.save(pending, baos.toByteArray());
+                    if (savedId != null) {
+                        sendChatMessage(label + " — proof saved. Submit it on the Anvil site "
+                                + "(collection log Bingo tab → \"Saved proofs\").");
+                    } else {
+                        log.error("Failed to persist manual proof '{}'", label);
+                    }
+                } catch (IOException e) {
+                    log.error("Failed to capture manual proof '{}': {}", label, e.getMessage());
+                }
+            });
+        });
+    }
+
     private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
             BufferedImage triggerFrame) {
         // Capture IDs now (before async) since pluginConfig could change
@@ -3258,6 +3328,11 @@ public class AnvilPlugin extends Plugin {
         log.info("Found {} pending submission(s), retrying...", pending.size());
         boolean anyFailed = false;
         for (PendingSubmissionStore.PendingSubmission sub : pending) {
+            // Manual proofs (pet / duplicate Champion's scroll) have no tile to auto-submit to — they
+            // just sit in "Saved proofs" for the player to attach by hand on the site. Never upload.
+            if (sub.manual) {
+                continue;
+            }
             boolean success = processPendingSubmission(sub);
             if (!success) {
                 anyFailed = true;

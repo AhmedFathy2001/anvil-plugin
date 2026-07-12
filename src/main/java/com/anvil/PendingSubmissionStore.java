@@ -49,6 +49,10 @@ public class PendingSubmissionStore
 		public Integer itemId; // specific item ID for per-item tracking (nullable)
 		public Integer durationSeconds; // timed-tile clear time in seconds (nullable; non-null routes to submitTimed)
 		public String capturedRsn; // character the drop was obtained on; only re-submitted while on it
+		// A proof the plugin can't auto-submit to a specific tile (pet drop, duplicate Champion's
+		// scroll — the "would have received" line names no item), captured so the player has a ready
+		// screenshot to attach when they submit by hand on the site. The retry loop skips these.
+		public boolean manual;
 	}
 
 	public void init()
