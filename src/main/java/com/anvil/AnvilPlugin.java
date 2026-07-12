@@ -3469,7 +3469,7 @@ public class AnvilPlugin extends Plugin {
         if (newlyDone.isEmpty() || !config.teamCompletionBanner()) {
             return;
         }
-        // Throttle a burst: banner only the hardest (most points) tile this poll, the rest as chat.
+        // Banner only the hardest (most points) tile this poll to avoid a burst of banners.
         PluginConfigResponse.CompletedTile hardest = newlyDone.get(0);
         for (PluginConfigResponse.CompletedTile t : newlyDone) {
             if (t.points > hardest.points) {
@@ -3478,10 +3478,13 @@ public class AnvilPlugin extends Plugin {
         }
         clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label);
         playBannerSound();
+        // A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
+        // banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
+        // carry no crediting player, so those just say "Tile complete: <label>!".
         for (PluginConfigResponse.CompletedTile t : newlyDone) {
-            if (t != hardest) {
-                sendChatMessage("Tile complete: " + t.label);
-            }
+            String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
+                    ? " — by " + t.completedBy.trim() : "";
+            sendChatMessage("Tile complete: " + t.label + by + "!");
         }
     }
 

@@ -129,6 +129,7 @@ public class PluginConfigResponse
 		public int tileId;
 		public String label;
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
+		public String completedBy; // crediting player of the finishing submission; null for stat/manual tiles
 	}
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
