@@ -1104,9 +1104,12 @@ public class AnvilPlugin extends Plugin {
             lmsKills = client.getVarbitValue(VarbitID.BR_KILLCOUNT);
         } else if (lmsInGame) {
             lmsInGame = false;
-            // Game ended without us dying. Only the sole-survivor reading counts as a win —
-            // an x-log or spectate exit leaves a higher count and records nothing.
-            if (!lmsPlacementRecorded && lmsSurvivors == 1) {
+            // Game ended without us dying (a death records placement via onActorDeath). A win fires no
+            // death — the game just ends. The last survivor reading is usually 1, but landing the final
+            // kill can end the game before a tick samples "1", leaving a stale 2. So treat "ended in the
+            // final duel (1 or 2 left) without ever dying" as a win; 3+ still standing means an x-log /
+            // spectate exit and records nothing. (0 = never got a reading — ambiguous, skip.)
+            if (!lmsPlacementRecorded && lmsSurvivors >= 1 && lmsSurvivors <= 2) {
                 recordLmsPlacement(1);
             }
         }
