@@ -249,7 +249,12 @@ public class AnvilPlugin extends Plugin {
             "sanguine dust",
             "metamorphic dust",
             "twisted ancestral colour kit",
+            // ToA reward-chest cosmetics (untradeable, no-death at a high invocation): the Menaphite
+            // ornament kit (Elidinis' ward), the Cursed phalanx (Osmumten's fang), and the Masori
+            // crafting kit (Ava's assembler → Masori assembler).
             "menaphite ornament kit",
+            "cursed phalanx",
+            "masori crafting kit",
             // DT2 (Forgotten Four) untradeable uniques: the ring vestiges (the actual boss
             // drops — Ultor/Magus/Bellator/Venator vestige, all caught by "vestige"), the
             // chromium-ingot quartz, and the four Soulreaper axe pieces. Substring-matched.
@@ -1039,6 +1044,17 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    // ToA tracks each occupied party slot in these client varbits. We read party size from them
+    // because ToA splits raiders across separate rooms, so the scene headcount (instancePlayersSeen)
+    // reads solo even in a group.
+    private static final int[] TOA_PARTY_SLOTS = {
+            VarbitID.TOA_CLIENT_P0, VarbitID.TOA_CLIENT_P1, VarbitID.TOA_CLIENT_P2, VarbitID.TOA_CLIENT_P3,
+            VarbitID.TOA_CLIENT_P4, VarbitID.TOA_CLIENT_P5, VarbitID.TOA_CLIENT_P6, VarbitID.TOA_CLIENT_P7,
+    };
+    // Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
+    // client thread — read it safely. 0 = not in a ToA raid (gates then fall back to the scene count).
+    private volatile int lastToaPartySize = 0;
+
     @Subscribe
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
@@ -1059,6 +1075,18 @@ public class AnvilPlugin extends Plugin {
                 }
             }
         }
+        // ToA party size + invocation, read from the client's ToA varbits (scoped by a non-zero raid
+        // level so stale values outside ToA can't bleed into CoX/ToB gating).
+        int toaLevel = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+        int toaParty = 0;
+        if (toaLevel > 0) {
+            for (int slot : TOA_PARTY_SLOTS) {
+                if (client.getVarbitValue(slot) > 0) {
+                    toaParty++;
+                }
+            }
+        }
+        lastToaPartySize = toaParty;
         // Baseline CA points once after login (before any completion) so we can tell first
         // completions (points rise) from recompletions (points unchanged).
         if (!caPointsInitialized && client.getGameState() == GameState.LOGGED_IN) {
@@ -2122,7 +2150,7 @@ public class AnvilPlugin extends Plugin {
                 // looted inside the instance, so the deathless party tracker knows the team
                 // size. Only counts when it matches exactly; 0 = any.
                 if (drop.partySize > 0) {
-                    int partySeen = instancePlayersSeen.size();
+                    int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
                     if (!wasInInstance || partySeen != drop.partySize) {
                         sendChatMessage("Drop not counted for " + drop.label + ": party of "
                                 + partySeen + ", tile requires " + drop.partySize + ".");
@@ -2874,7 +2902,7 @@ public class AnvilPlugin extends Plugin {
                         + (instancePlayerDeaths == 1 ? " death" : " deaths") + " this run.");
                 continue;
             }
-            int partySeen = instancePlayersSeen.size();
+            int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
             if (tile.partySize > 0 && partySeen != tile.partySize) {
                 sendChatMessage("Deathless run not counted for " + tile.label + ": party of "
                         + partySeen + ", tile requires " + tile.partySize + ".");
@@ -2908,29 +2936,40 @@ public class AnvilPlugin extends Plugin {
             if (tile.completed || tile.activity == null) {
                 continue;
             }
-            if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
-                continue;
-            }
-            // An Entry Mode clear must never credit a base-raid tile ("Tombs of Amascut" is a
-            // substring of its Entry line) — same guard as the deathless path. Harder modes
-            // (CM / Hard / Expert) crediting a base tile is intended.
-            if (lowerMessage.contains("entry mode")
-                    && !tile.activity.toLowerCase(java.util.Locale.ROOT).contains("entry mode")) {
-                continue;
-            }
-            // Optional exact-party gate (raid tiles) — same signal as the deathless path.
-            if (tile.partySize > 0) {
-                int partySeen = instancePlayersSeen.size();
-                if (partySeen != tile.partySize) {
-                    log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
-                            tile.label, partySeen, tile.partySize);
+            // Barracuda Trials rank tiles ("Gwenith Glide — Marlin") gate on the EXACT course + rank
+            // the game reports, NOT a time cap or party size — each rank is a separate PB, so a Shark
+            // run must never credit a Marlin tile. Match those and skip the cap/party/entry-mode gates.
+            String[] trialTarget = TimedClearParser.trialTileTarget(tile.activity);
+            if (trialTarget != null) {
+                String[] got = TimedClearParser.parseTrialCompletion(lowerMessage);
+                if (got == null || !got[0].equals(trialTarget[0]) || !got[1].equals(trialTarget[1])) {
                     continue;
                 }
-            }
-            if (seconds > tile.thresholdSeconds) {
-                log.info("Timed '{}' clear {} over cap {} — not submitting.", tile.label,
-                        TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
-                continue;
+            } else {
+                if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
+                    continue;
+                }
+                // An Entry Mode clear must never credit a base-raid tile ("Tombs of Amascut" is a
+                // substring of its Entry line) — same guard as the deathless path. Harder modes
+                // (CM / Hard / Expert) crediting a base tile is intended.
+                if (lowerMessage.contains("entry mode")
+                        && !tile.activity.toLowerCase(java.util.Locale.ROOT).contains("entry mode")) {
+                    continue;
+                }
+                // Optional exact-party gate (raid tiles) — same signal as the deathless path.
+                if (tile.partySize > 0) {
+                    int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
+                    if (partySeen != tile.partySize) {
+                        log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
+                                tile.label, partySeen, tile.partySize);
+                        continue;
+                    }
+                }
+                if (seconds > tile.thresholdSeconds) {
+                    log.info("Timed '{}' clear {} over cap {} — not submitting.", tile.label,
+                            TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
+                    continue;
+                }
             }
             synchronized (lastTimedSubmittedAt) {
                 Long last = lastTimedSubmittedAt.get(tile.tileId);
@@ -2942,8 +2981,10 @@ public class AnvilPlugin extends Plugin {
             log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
                     TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
             sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
-            String detail = tile.activity + "  " + TimedClearParser.formatClock(seconds)
-                    + "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")";
+            String detail = trialTarget != null
+                    ? tile.activity + "  " + TimedClearParser.formatClock(seconds)
+                    : tile.activity + "  " + TimedClearParser.formatClock(seconds)
+                            + "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")";
             captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
                     "[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
             any = true;
