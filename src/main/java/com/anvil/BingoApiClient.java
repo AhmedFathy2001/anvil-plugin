@@ -730,6 +730,32 @@ public class BingoApiClient
 	/**
 	 * POST /api/events/{eventId}/submissions — submits a drop with image proof.
 	 */
+	/**
+	 * A submission the server rejected for good — the tile's already complete, the event ended, the
+	 * data's invalid — so retrying it will never succeed. The retry loop drops these instead of
+	 * looping forever (the "Get 5M in PvP Loot already complete, keeps retrying" bug).
+	 */
+	public static class PermanentSubmissionException extends IOException
+	{
+		PermanentSubmissionException(String message)
+		{
+			super(message);
+		}
+	}
+
+	/** 4xx client errors are permanent (don't retry) — except auth (401, token may refresh), request
+	 *  timeout (408) and rate-limit (429), which can clear on their own. 5xx / network = retryable. */
+	private static boolean isPermanentFailure(int code)
+	{
+		return code >= 400 && code < 500 && code != 401 && code != 408 && code != 429;
+	}
+
+	private static IOException submissionError(String context, int code, String responseBody)
+	{
+		String message = context + ": HTTP " + code + " — " + responseBody;
+		return isPermanentFailure(code) ? new PermanentSubmissionException(message) : new IOException(message);
+	}
+
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId, Integer itemId) throws IOException
 	{
 		JsonObject payload = new JsonObject();
@@ -755,7 +781,7 @@ public class BingoApiClient
 			if (!response.isSuccessful())
 			{
 				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Submission failed: HTTP " + response.code() + " — " + responseBody);
+				throw submissionError("Submission failed", response.code(), responseBody);
 			}
 			log.info("Drop submitted successfully for tile {}", tileId);
 		}
@@ -834,7 +860,7 @@ public class BingoApiClient
 			if (!response.isSuccessful())
 			{
 				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Timed submission failed: HTTP " + response.code() + " — " + responseBody);
+				throw submissionError("Timed submission failed", response.code(), responseBody);
 			}
 			log.info("Timed clear submitted successfully for tile {}", tileId);
 		}

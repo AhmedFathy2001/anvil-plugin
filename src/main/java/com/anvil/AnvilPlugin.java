@@ -3210,6 +3210,12 @@ public class AnvilPlugin extends Plugin {
             log.info("Submission '{}' sent successfully!", pending.label);
             pendingSubmissionStore.remove(pending);
             return true;
+        } catch (BingoApiClient.PermanentSubmissionException e) {
+            // The server rejected this for good (tile already complete, event ended, invalid) — retrying
+            // will never work, so drop it instead of looping forever. Treat as handled, not a failure.
+            log.info("Dropping pending '{}' — server rejected permanently: {}", pending.label, e.getMessage());
+            pendingSubmissionStore.remove(pending);
+            return true;
         } catch (IOException e) {
             log.error("Failed to submit pending drop '{}': {} (will retry with backoff)", pending.label, e.getMessage());
             return false;
