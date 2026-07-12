@@ -834,6 +834,50 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/stats — real-time skill-XP push (no screenshot). Body is
+	 * {@code {"skills":[{"name":"<skill>","xp":<absolute xp>}]}}. Same contract as {@link #submitStatKc}:
+	 * event/team/player resolved from the token, ABSOLUTE (idempotent) values, server keeps
+	 * max(hiscores, pushed) per skill and the hourly cron reconciles. Completes skill-XP tiles instantly
+	 * instead of waiting on the ~1h hiscores lag.
+	 */
+	public void submitStatXp(java.util.Map<String, Integer> xp) throws IOException
+	{
+		if (xp == null || xp.isEmpty())
+		{
+			return;
+		}
+		JsonArray skills = new JsonArray();
+		for (java.util.Map.Entry<String, Integer> e : xp.entrySet())
+		{
+			if (e.getKey() == null || e.getValue() == null)
+			{
+				continue;
+			}
+			JsonObject s = new JsonObject();
+			s.addProperty("name", e.getKey());
+			s.addProperty("xp", e.getValue());
+			skills.add(s);
+		}
+		JsonObject payload = new JsonObject();
+		payload.add("skills", skills);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Skill XP push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.info("Real-time XP pushed for {} skill(s)", xp.size());
+		}
+	}
+
+	/**
 	 * POST /api/events/{eventId}/submissions — submits a timed-clear with image proof.
 	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
 	 * completes the tile when durationSeconds ≤ the tile's threshold.

@@ -557,6 +557,13 @@ public class AnvilPlugin extends Plugin {
     private java.util.concurrent.ScheduledFuture<?> kcPushTask;
     // KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
     private static final long KC_PUSH_COALESCE_MS = 15_000;
+    // Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
+    // config refresh; empty unless the event has skill tiles.
+    private volatile java.util.Set<String> trackedSkillNames = Collections.emptySet();
+    // Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
+    // collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
+    private final Map<String, Integer> pendingSkillXpPush = new HashMap<>();
+    private java.util.concurrent.ScheduledFuture<?> skillXpPushTask;
     // Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
     // the first snapshot after login/config load, so the baseline never counts as a gain. Worn
     // items are folded in so equipping/unequipping — which just moves an item between the two
@@ -758,6 +765,11 @@ public class AnvilPlugin extends Plugin {
             pendingKcPush.clear();
             kcPushTask = null;
         }
+        trackedSkillNames = Collections.emptySet();
+        synchronized (pendingSkillXpPush) {
+            pendingSkillXpPush.clear();
+            skillXpPushTask = null;
+        }
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
         lastNpcDeathName = null;
@@ -782,17 +794,22 @@ public class AnvilPlugin extends Plugin {
      */
     @Subscribe
     public void onStatChanged(StatChanged event) {
-        if (!config.notifyLevelUps()) {
+        Skill skill = event.getSkill();
+        if (skill == null || skill == Skill.OVERALL) {
             return;
         }
-        // Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels that aren't the
-        // player's real progression. Skip them entirely so hopping there neither spams "level 99!" nor
-        // overwrites the real-level baseline (lastSkillLevel) we compare future gains against.
+        // Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels/XP that aren't the
+        // player's real progression — never notify off them, never overwrite the real-level baseline
+        // (lastSkillLevel), and never push their XP.
         if (statsAreArtificial()) {
             return;
         }
-        Skill skill = event.getSkill();
-        if (skill == null || skill == Skill.OVERALL) {
+        // Real-time skill-XP push (debounced), so skill-XP tiles move without waiting on the hourly
+        // hiscores cron — mirrors the boss-KC push. Runs regardless of the level-up notifier toggle;
+        // hiscores stays the source of truth (server keeps max(hiscores, pushed) and reconciles).
+        maybeQueueSkillXpPush(skill.getName(), event.getXp());
+
+        if (!config.notifyLevelUps()) {
             return;
         }
         int level = event.getLevel();
@@ -3597,6 +3614,79 @@ public class AnvilPlugin extends Plugin {
         rebuildGainItemIndex();
         rebuildPvpRosterIndex();
         rebuildTrackedKcNames();
+        rebuildTrackedSkillNames();
+    }
+
+    /** Rebuild the set of skill names to push real-time XP for; refreshed with the drop index. */
+    private void rebuildTrackedSkillNames() {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        if (pluginConfig != null && pluginConfig.trackedSkillNames != null) {
+            for (String n : pluginConfig.trackedSkillNames) {
+                if (n != null && !n.isEmpty()) {
+                    names.add(n.toLowerCase(java.util.Locale.ROOT).trim());
+                }
+            }
+        }
+        trackedSkillNames = names;
+    }
+
+    /**
+     * Buffers a skill's absolute XP for a debounced push, if the event tracks it as a skill-XP tile.
+     * Absolute XP is idempotent, so the latest value overwrites and a training burst becomes one push.
+     * Runs on the client thread (onStatChanged); the network send happens on the executor.
+     */
+    private void maybeQueueSkillXpPush(String skillName, int xp) {
+        if (skillName == null || !config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
+                || pluginConfig.team == null || pluginConfig.player == null) {
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)
+                || !trackedSkillNames.contains(skillName.toLowerCase(java.util.Locale.ROOT).trim())) {
+            return;
+        }
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        synchronized (pendingSkillXpPush) {
+            pendingSkillXpPush.put(skillName, xp);
+            if (skillXpPushTask != null) {
+                skillXpPushTask.cancel(false);
+            }
+            skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Pushes the buffered absolute skill XP to the server (no screenshot). Requeues on failure. */
+    private void flushSkillXpPush() {
+        Map<String, Integer> batch;
+        synchronized (pendingSkillXpPush) {
+            if (pendingSkillXpPush.isEmpty()) {
+                return;
+            }
+            batch = new HashMap<>(pendingSkillXpPush);
+            pendingSkillXpPush.clear();
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
+            return; // event ended between queue and flush — drop; the XP is safe on the hiscores side
+        }
+        try {
+            apiClient.submitStatXp(batch);
+            refreshConfig(); // pull back the updated progress / any completion the push triggered
+        } catch (IOException e) {
+            log.warn("Skill XP push failed ({} skill(s)) — requeueing: {}", batch.size(), e.getMessage());
+            synchronized (pendingSkillXpPush) {
+                for (Map.Entry<String, Integer> en : batch.entrySet()) {
+                    pendingSkillXpPush.merge(en.getKey(), en.getValue(), Integer::max);
+                }
+                if (executor != null && !executor.isShutdown()) {
+                    if (skillXpPushTask != null) {
+                        skillXpPushTask.cancel(false);
+                    }
+                    skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                }
+            }
+        }
     }
 
     /** Rebuild the set of in-game KC-line boss names to push real-time counts for; refreshed with the drop index. */

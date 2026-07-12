@@ -18,6 +18,10 @@ public class PluginConfigResponse
 	// these, it pushes the absolute KC to /api/plugin/stats so the tile updates in real time instead
 	// of waiting ~1h for the hiscores cron. Empty/absent = push nothing (older servers, or no KC tiles).
 	public List<String> trackedKcNames;
+	// Skill names (lowercase, e.g. "mining") the event's skill-XP tiles track — the plugin pushes
+	// real-time absolute XP for these off StatChanged, like trackedKcNames for boss KC. Empty/absent
+	// = push nothing (older servers, or no skill tiles).
+	public List<String> trackedSkillNames;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedPvp> trackedPvp;           // PvP-kill tiles (rival-team / bounty kills in dangerous PvP)
 	public List<RosterEntry> pvpRoster;           // event roster (RSN -> teamId) for 'team:other' matching; empty unless a pvp tile exists
