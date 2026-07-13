@@ -193,20 +193,37 @@ public class BingoApiClient
 	/**
 	 * GET /api/plugin/config — fetches event, team, player, codeword, tracked drops.
 	 */
+	// Conditional-GET cache for the config poll. The plugin GETs /api/plugin/config every 30s, but a
+	// clan's board rarely changes between polls, so we keep the last ETag + parsed config and send
+	// If-None-Match. A 304 means "unchanged" — we reuse the cached config and the server sends no body,
+	// so an unchanged poll costs a few header bytes instead of the whole board.
+	private volatile String lastConfigEtag;
+	private volatile PluginConfigResponse lastConfig;
+
 	public PluginConfigResponse fetchConfig() throws IOException
 	{
-		Request request = authedRequest(apiUrl + "/api/plugin/config")
-			.get()
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
+		Request.Builder rb = authedRequest(apiUrl + "/api/plugin/config").get();
+		String etag = lastConfigEtag;
+		PluginConfigResponse cached = lastConfig;
+		if (etag != null && cached != null)
 		{
+			rb.header("If-None-Match", etag);
+		}
+
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 304 && cached != null)
+			{
+				return cached; // unchanged since the last poll — reuse it, no body transferred
+			}
 			if (!response.isSuccessful())
 			{
 				throw new IOException("Config fetch failed: HTTP " + response.code());
 			}
-			String body = response.body().string();
-			return gson.fromJson(body, PluginConfigResponse.class);
+			PluginConfigResponse parsed = gson.fromJson(response.body().string(), PluginConfigResponse.class);
+			lastConfigEtag = response.header("ETag");
+			lastConfig = parsed;
+			return parsed;
 		}
 	}
 
@@ -215,22 +232,39 @@ public class BingoApiClient
 	 * all-team completion state). Player-token authed. Never throws — returns null on any failure
 	 * so the clog view can show a graceful "couldn't load" message.
 	 */
+	// Conditional-GET cache for the board, mirroring fetchConfig. The clog re-fetches the board on
+	// tab-open / view-switch but it rarely changes between opens, so we send If-None-Match and reuse
+	// the cached board on a 304 (no body transferred — a big board is tens of KB).
+	private volatile String lastBoardEtag;
+	private volatile BoardResponse lastBoard;
+
 	public BoardResponse fetchBoard()
 	{
 		if (!isConfigured())
 		{
 			return null;
 		}
-		Request request = authedRequest(apiUrl + "/api/plugin/board")
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
+		Request.Builder rb = authedRequest(apiUrl + "/api/plugin/board").get();
+		String etag = lastBoardEtag;
+		BoardResponse cached = lastBoard;
+		if (etag != null && cached != null)
 		{
+			rb.header("If-None-Match", etag);
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 304 && cached != null)
+			{
+				return cached; // board unchanged since the last fetch — reuse it, no body transferred
+			}
 			if (!response.isSuccessful() || response.body() == null)
 			{
 				return null;
 			}
-			return gson.fromJson(response.body().string(), BoardResponse.class);
+			BoardResponse parsed = gson.fromJson(response.body().string(), BoardResponse.class);
+			lastBoardEtag = response.header("ETag");
+			lastBoard = parsed;
+			return parsed;
 		}
 		catch (IOException e)
 		{
