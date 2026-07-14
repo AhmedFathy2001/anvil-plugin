@@ -51,8 +51,11 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.DrawManager;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.ImageUtil;
 
 import javax.imageio.ImageIO;
 import java.io.File;
@@ -95,6 +98,17 @@ public class AnvilPlugin extends Plugin {
 
     @Inject
     private OverlayManager overlayManager;
+
+    // Always-on progress sidebar — a toolbar PluginPanel showing per-clan tile progress. Reads
+    // through SidebarDataSource (mock for now; see provideSidebarDataSource) so it's independent
+    // of the multi-home backend track.
+    @Inject
+    private ClientToolbar clientToolbar;
+
+    @Inject
+    private AnvilSidebarPanel sidebarPanel;
+
+    private NavigationButton sidebarNavButton;
 
     @Inject
     private AnvilOverlay overlay;
@@ -690,6 +704,17 @@ public class AnvilPlugin extends Plugin {
     protected void startUp() {
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
+
+        // Mount the always-on progress sidebar in the RuneLite toolbar.
+        final BufferedImage sidebarIcon = ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png");
+        sidebarNavButton = NavigationButton.builder()
+                .tooltip("Anvil progress")
+                .icon(sidebarIcon)
+                .priority(7)
+                .panel(sidebarPanel)
+                .build();
+        clientToolbar.addNavigation(sidebarNavButton);
+
         bannerSound.ensureUserDir();
         notifiedCompletedTiles.clear();
         locallyShownTiles.clear();
@@ -750,6 +775,10 @@ public class AnvilPlugin extends Plugin {
     protected void shutDown() {
         overlayManager.remove(overlay);
         overlayManager.remove(clogBanner);
+        if (sidebarNavButton != null) {
+            clientToolbar.removeNavigation(sidebarNavButton);
+            sidebarNavButton = null;
+        }
         bannerSound.shutdown();
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
@@ -973,6 +1002,19 @@ public class AnvilPlugin extends Plugin {
     @Provides
     AnvilConfig provideConfig(ConfigManager configManager) {
         return configManager.getConfig(AnvilConfig.class);
+    }
+
+    /**
+     * Data source for the progress sidebar. This is the single wiring seam between the panel and its
+     * data — the panel only knows the {@link SidebarDataSource} interface.
+     *
+     * TODO(federation-multihome): swap {@link MockSidebarDataSource} for the real multi-home data
+     * source once the member's {@code {baseUrl, token}} home registry lands (Layer 0; see
+     * docs/FEDERATION.md). Nothing in AnvilSidebarPanel changes when this binding flips.
+     */
+    @Provides
+    SidebarDataSource provideSidebarDataSource(MockSidebarDataSource mock) {
+        return mock;
     }
 
     @Subscribe
