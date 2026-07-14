@@ -1,0 +1,97 @@
+package com.anvil;
+
+/**
+ * One entry in the always-on sidebar's live team feed — the plugin-side mirror of the Site's
+ * {@code /api/plugin/activity} {@code ActivityEntry} JSON (see {@code Anvil.Site/src/lib/pluginActivity.ts}).
+ *
+ * <p>Deliberately RuneLite-free and immutable, in the value-object style of
+ * {@link ClogTaskModel.TaskRow} / {@link ConnectionView}, so {@link AnvilActivityLog} and its tests
+ * never touch the client. Gson populates these from the endpoint; a missing field just stays at its
+ * default.</p>
+ */
+public final class ActivityEntry
+{
+	/** Kind of feed event. Mirrors the server's {@code "progress" | "complete"}. */
+	public enum Kind
+	{
+		PROGRESS, COMPLETE;
+
+		/**
+		 * Map the endpoint's lowercase wire value to a {@link Kind}. Unknown/blank → {@link #PROGRESS}
+		 * (the safe default — an unrecognised event still shows as a progress line rather than crashing).
+		 * Use this when building an {@link ActivityEntry} from JSON: deserialize into a raw DTO and pass
+		 * through the constructor rather than letting Gson populate {@code ActivityEntry} directly (Gson
+		 * bypasses the constructor's field normalization and won't match {@code isSelf}/enum casing).
+		 */
+		public static Kind fromWire(String s)
+		{
+			return "complete".equalsIgnoreCase(s == null ? null : s.trim()) ? COMPLETE : PROGRESS;
+		}
+	}
+
+	/**
+	 * Namespaced, monotonic-per-table id from the server ({@code s<submissionId>} / {@code c<completionId>}).
+	 * Globally unique and the dedup key — the log never shows the same id twice.
+	 */
+	public final String id;
+
+	/** ISO timestamp of the underlying event (submission created / tile completed). */
+	public final String ts;
+
+	/** Crediting RSN, or {@code null} for an unattributed (stat/manual) completion. */
+	public final String player;
+
+	public final int tileId;
+	public final String tileLabel;
+	public final Kind kind;
+
+	/** Units credited by this event (drops/kills/gains); 0 for a completion. */
+	public final int amount;
+
+	/** True when the caller themselves credited this — the panel styles/labels its own actions ("You"). */
+	public final boolean self;
+
+	public ActivityEntry(String id, String ts, String player, int tileId, String tileLabel,
+		Kind kind, int amount, boolean self)
+	{
+		this.id = id == null ? "" : id;
+		this.ts = ts == null ? "" : ts;
+		this.player = player;
+		this.tileId = tileId;
+		this.tileLabel = tileLabel == null ? "" : tileLabel;
+		this.kind = kind == null ? Kind.PROGRESS : kind;
+		this.amount = amount;
+		this.self = self;
+	}
+
+	public boolean isCompletion()
+	{
+		return kind == Kind.COMPLETE;
+	}
+
+	/**
+	 * A short, member-facing one-line summary — the text the feed row shows. Kept here (not in the
+	 * renderer) so it's unit-testable and identical wherever the entry is surfaced.
+	 *
+	 * <ul>
+	 *   <li>complete → {@code "Kayle completed Tanzanite fang"} / {@code "Team completed …"} when unattributed</li>
+	 *   <li>progress → {@code "You +3 · Bandos chestplate"} / {@code "Zulrah unique +1"} for a teammate</li>
+	 * </ul>
+	 */
+	public String summary()
+	{
+		String who = self ? "You" : (player == null || player.isEmpty() ? null : player);
+		if (kind == Kind.COMPLETE)
+		{
+			return (who == null ? "Team" : who) + " completed " + tileLabel;
+		}
+		String amt = amount > 0 ? "+" + amount : "+1";
+		if (who == null)
+		{
+			// Teammate partial with no attribution (shouldn't normally happen — submissions carry a
+			// crediting player — but stays graceful): lead with the tile.
+			return tileLabel + " " + amt;
+		}
+		return who + " " + amt + " · " + tileLabel;
+	}
+}
