@@ -1,12 +1,10 @@
-# Activity feed + "working on" — integration spec
+# Activity feed + "working on" — architecture notes
 
-This branch (`feat/activity-panel`) adds the **live layer** the always-on sidebar is missing: a
-player-attributed team **activity feed** and a **"you're working on"** spotlight. It ships the
-backend + the pure, tested models, and stops at the seam so the sidebar owner (branch
-`feat/federation-sidebar`) folds them into `ConnectionView` + `AnvilSidebarPanel` with no churn.
-
-Nothing here touches `AnvilSidebarPanel`, `ConnectionView`, `SidebarDataSource`, `AnvilPlugin`,
-`BingoApiClient`, `AnvilConfig`, or `ClogTabController`. All new files.
+This branch (`feat/activity-panel`) adds the **live layer** the always-on sidebar was missing: a
+player-attributed team **activity feed** and a **"you're working on"** spotlight. It started as a
+backend + pure-models spec handed to the sidebar branch (`feat/federation-sidebar`); that branch was
+then rebased in here and the two were **fully integrated** — the panel now renders both sections,
+driven by a real single-home data source. These notes document the shape for the multi-home track.
 
 ## What landed
 
@@ -14,11 +12,24 @@ Nothing here touches `AnvilSidebarPanel`, `ConnectionView`, `SidebarDataSource`,
 - `src/lib/pluginActivity.ts` — `buildActivity()` shapes the feed from `submissions` + `completions`.
 - `src/app/api/plugin/activity/route.ts` — `GET` (receive, ETag/304) + `POST` (send+receive stub).
 
-**Anvil.Plugin** (`feat/activity-panel`) — all pure, RuneLite-free, unit-tested
-- `ActivityEntry.java` — one feed row (mirrors the endpoint JSON) + `summary()` line text.
+**Anvil.Plugin** (`feat/activity-panel`)
+
+*Pure, RuneLite-free, unit-tested models (new):*
+- `ActivityEntry.java` — one feed row (mirrors the endpoint JSON) + `summary()` line text + `Kind.fromWire`.
 - `AnvilActivityLog.java` — bounded (50), deduped, newest-first ring + cursor. Ingests server batches.
 - `WorkingOnTracker.java` — "auto: last progressed" focus: feed it `TaskRow`s, get the spotlight tile.
-- `AnvilActivityLogTest` / `WorkingOnTrackerTest` — `./gradlew test` green.
+
+*Integration (wired into the sidebar):*
+- `AnvilSidebarDataSource.java` (new) — the **real** single-home `SidebarDataSource`: reads the config
+  the plugin already polls (`AnvilPlugin::getPluginConfig`) for the board summary + nearest tiles + focus,
+  and one conditional GET to `/api/plugin/activity` for the feed.
+- `BingoApiClient.java` — `fetchActivity(since)` (+ `ActivityResponse`/`ActivityItem` DTOs), own ETag.
+- `ConnectionView.java` — now carries `recentActivity` + `focus` (extra constructors; old ones still work).
+- `AnvilSidebarPanel.java` — renders a "Working on" spotlight + a "Team activity" feed.
+- `MockSidebarDataSource.java` — populates the new sections with live-moving fake data (offline demo).
+- `AnvilPlugin.java` — `@Provides` now binds `AnvilSidebarDataSource` (swap for `mock` for offline UI work).
+
+*Tests — `./gradlew test` green:* `AnvilActivityLogTest`, `WorkingOnTrackerTest`, `AnvilSidebarDataSourceTest`.
 
 ## Endpoint contract
 
@@ -50,9 +61,9 @@ GET /api/plugin/activity?since=<cursor>          Authorization: Bearer <accountT
 `FEDERATION_WIRE.md`. For the multi-home data source, add it to the per-instance fold exactly like
 `/board`; a federation-token (`board:read`) variant can mirror it later, same as `/board` has both forms.
 
-## Wiring it into the sidebar (the seam)
+## Wiring (done for single-home; the pattern the multi-home track generalises)
 
-Add two fields to `ConnectionView` (per instance — the feed and spotlight are per active event):
+`ConnectionView` now carries two fields (per instance — the feed and spotlight are per active event):
 
 ```java
 public final List<ActivityEntry> recentActivity;   // newest-first; == log.snapshot()
@@ -102,5 +113,19 @@ one of its nearest tiles, so the panel's new sections are reviewable without a s
 ## Verified
 
 - Site: `npx tsc --noEmit` + `eslint` clean.
-- Plugin: `./gradlew test` green (`AnvilActivityLogTest`, `WorkingOnTrackerTest`) + full suite.
-- Live end-to-end against a running instance is still to do (needs a dev DB + token + the panel wiring).
+- Plugin: `./gradlew test` green — `AnvilActivityLogTest`, `WorkingOnTrackerTest`, and
+  `AnvilSidebarDataSourceTest` (drives the real source headlessly: summary, nearest-ordering,
+  focus-on-advance, event reset) + the full pre-existing suite.
+- **Still to do — live/visual:** run it in RuneLite against a real instance (`./gradlew runClient`
+  with a Site URL + token) to eyeball the panel and confirm the feed/spotlight move on real drops. The
+  environment here is headless, so the Swing render wasn't visually verified.
+
+## Follow-ups (not blocking)
+
+- **Instant spotlight**: the panel polls every 15s; a ~1s local Swing timer reading the live-mutated
+  config would make your own drops tick the spotlight sub-second (stop it in `shutDown`).
+- **Icons**: spotlight/feed are text-only (matches the existing icon-less tile rows). `ItemManager` /
+  `SpriteManager` could add tile icons later.
+- **`POST /activity` outbound**: fold KC/XP pushes off `/api/plugin/stats` into the sync tick.
+- **Multi-home**: generalise `AnvilSidebarDataSource` to iterate `{baseUrl, token}` homes — one
+  `ConnectionView` (with its own per-instance `AnvilActivityLog` + `WorkingOnTracker`) per home.

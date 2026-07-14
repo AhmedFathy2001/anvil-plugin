@@ -51,8 +51,24 @@ public final class ConnectionView
 	/** Tiles closest to completion, already ordered nearest-first by the data source. Never {@code null}. */
 	public final List<TileProgressView> nearestTiles;
 
+	/**
+	 * Newest-first team activity feed for this instance's live event — the {@link AnvilActivityLog}
+	 * snapshot from {@code /api/plugin/activity}. Never {@code null} (empty = no recent events).
+	 */
+	public final List<ActivityEntry> recentActivity;
+
+	/**
+	 * The tile you're "working on" — the incomplete tile whose progress most recently ticked up
+	 * ({@link WorkingOnTracker}), or {@code null} when nothing has advanced this session. Drives the
+	 * panel's spotlight card. Held as a {@link ClogTaskModel.TaskRow} (RuneLite-free) so this stays
+	 * network-agnostic like the rest of the view-model.
+	 */
+	public final ClogTaskModel.TaskRow focus;
+
+	/** Canonical constructor — carries the live layer (feed + focus) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles)
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, ClogTaskModel.TaskRow focus)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -63,13 +79,33 @@ public final class ConnectionView
 		this.nearestTiles = nearestTiles == null
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(nearestTiles));
+		this.recentActivity = recentActivity == null
+			? Collections.emptyList()
+			: Collections.unmodifiableList(new ArrayList<>(recentActivity));
+		this.focus = focus;
 	}
 
-	/** Convenience constructor for a healthy connection (no per-connection error). */
+	/** Healthy connection (no per-connection error) with the live layer. */
+	public ConnectionView(String instanceId, String clanName, String eventName,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, ClogTaskModel.TaskRow focus)
+	{
+		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles,
+			recentActivity, focus);
+	}
+
+	/** Board-only connection with a per-connection error (no live layer). */
+	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles)
+	{
+		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles, null, null);
+	}
+
+	/** Convenience constructor for a healthy, board-only connection (no error, no live layer). */
 	public ConnectionView(String instanceId, String clanName, String eventName,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles)
 	{
-		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles);
+		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles, null, null);
 	}
 
 	public boolean hasError()

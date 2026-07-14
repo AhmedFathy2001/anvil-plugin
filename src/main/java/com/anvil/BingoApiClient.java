@@ -273,6 +273,78 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * GET /api/plugin/activity?since=&lt;cursor&gt; — the always-on sidebar's live team feed (submissions +
+	 * completions after the cursor, attributed and bounded). Player-token authed. Never throws — returns
+	 * null on any failure so the sidebar degrades gracefully.
+	 *
+	 * <p>Conditional-GET with its OWN ETag (separate from config/board so the caches never interfere):
+	 * while the cursor is stable (nothing new), an unchanged payload returns 304 and we reuse the cached
+	 * response — an idle team costs a few header bytes. A 304's cached body carries an empty
+	 * {@code activity}, so re-ingesting it is a no-op.</p>
+	 */
+	private volatile String lastActivityEtag;
+	private volatile ActivityResponse lastActivity;
+
+	public ActivityResponse fetchActivity(String since)
+	{
+		if (!isConfigured())
+		{
+			return null;
+		}
+		String url = apiUrl + "/api/plugin/activity"
+			+ (since == null || since.isEmpty() ? "" : "?since=" + since);
+		Request.Builder rb = authedRequest(url).get();
+		String etag = lastActivityEtag;
+		ActivityResponse cached = lastActivity;
+		if (etag != null && cached != null)
+		{
+			rb.header("If-None-Match", etag);
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 304 && cached != null)
+			{
+				return cached; // no new activity since this cursor — reuse it, no body transferred
+			}
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			ActivityResponse parsed = gson.fromJson(response.body().string(), ActivityResponse.class);
+			lastActivityEtag = response.header("ETag");
+			lastActivity = parsed;
+			return parsed;
+		}
+		catch (IOException e)
+		{
+			log.debug("activity fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** Response of GET /api/plugin/activity — Gson-mapped; see Anvil.Site/src/lib/pluginActivity.ts. */
+	public static class ActivityResponse
+	{
+		public String cursor;                       // send back as ?since= next poll
+		public java.util.List<ActivityItem> activity; // ascending by id (oldest→newest); may be null
+		public boolean truncated;                   // true = a gap; caller may want to refetch the board
+		public boolean noActiveEvent;               // true = valid token, not enrolled (empty feed, not an error)
+	}
+
+	/** One raw feed row from the endpoint. Built into an {@link ActivityEntry} via the constructor. */
+	public static class ActivityItem
+	{
+		public String id;
+		public String ts;
+		public String player;
+		public int tileId;
+		public String tileLabel;
+		public String kind;   // "progress" | "complete" — map with ActivityEntry.Kind.fromWire
+		public int amount;
+		public boolean isSelf;
+	}
+
 	public static class BoardResponse
 	{
 		public int eventId;        // event this board belongs to (guards against stale-cache leak)

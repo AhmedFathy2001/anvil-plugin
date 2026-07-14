@@ -60,6 +60,7 @@ import net.runelite.client.util.ImageUtil;
 import javax.imageio.ImageIO;
 import java.io.File;
 import javax.inject.Inject;
+import javax.inject.Singleton;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1008,13 +1009,20 @@ public class AnvilPlugin extends Plugin {
      * Data source for the progress sidebar. This is the single wiring seam between the panel and its
      * data — the panel only knows the {@link SidebarDataSource} interface.
      *
-     * TODO(federation-multihome): swap {@link MockSidebarDataSource} for the real multi-home data
-     * source once the member's {@code {baseUrl, token}} home registry lands (Layer 0; see
-     * docs/FEDERATION.md). Nothing in AnvilSidebarPanel changes when this binding flips.
+     * <p>Binds the real single-home {@link AnvilSidebarDataSource}: it reads the config THIS plugin
+     * already polls (via {@code this::getPluginConfig} — no extra board request, no shared-ETag clash)
+     * and adds one conditional GET for the live feed. Offline (no Site URL/token) it simply resolves to
+     * the empty state. For offline UI work, swap the return for {@code mock} ({@link MockSidebarDataSource}
+     * populates every section with fake, live-moving data).</p>
+     *
+     * TODO(federation-multihome): generalise {@link AnvilSidebarDataSource} to iterate the member's
+     * {@code {baseUrl, token}} homes (Layer 0; see docs/FEDERATION.md) — one {@link ConnectionView} per
+     * home. Nothing in AnvilSidebarPanel changes when that lands.
      */
     @Provides
+    @Singleton
     SidebarDataSource provideSidebarDataSource(MockSidebarDataSource mock) {
-        return mock;
+        return new AnvilSidebarDataSource(this::getPluginConfig, apiClient);
     }
 
     @Subscribe

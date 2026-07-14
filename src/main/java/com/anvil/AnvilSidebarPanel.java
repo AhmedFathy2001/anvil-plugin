@@ -56,6 +56,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final Color VALUE_COLOR = new Color(0x98_98_98);
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
+	/** Max activity rows rendered — keeps the sidebar glanceable; the rest collapse into a "+N more". */
+	private static final int ACTIVITY_ROWS_SHOWN = 12;
+
 	private final SidebarDataSource dataSource;
 
 	// Header controls (persistent across state changes).
@@ -321,11 +324,25 @@ public class AnvilSidebarPanel extends PluginPanel
 		body.add(buildSummary(selected));
 		body.add(gap(12));
 
-		JLabel nearestHeader = new JLabel("Nearest tiles");
-		nearestHeader.setFont(FontManager.getRunescapeSmallFont());
-		nearestHeader.setForeground(ColorScheme.BRAND_ORANGE);
-		nearestHeader.setAlignmentX(LEFT_ALIGNMENT);
-		body.add(nearestHeader);
+		// Spotlight — the tile you're actively progressing (updates live as your drops land).
+		if (selected.focus != null)
+		{
+			body.add(sectionHeader("Working on"));
+			body.add(gap(6));
+			body.add(buildSpotlight(selected.focus));
+			body.add(gap(12));
+		}
+
+		// Team activity — incoming credited events, newest first.
+		if (!selected.recentActivity.isEmpty())
+		{
+			body.add(sectionHeader("Team activity"));
+			body.add(gap(6));
+			body.add(buildActivityFeed(selected.recentActivity));
+			body.add(gap(12));
+		}
+
+		body.add(sectionHeader("Nearest tiles"));
 		body.add(gap(6));
 
 		if (selected.nearestTiles.isEmpty())
@@ -354,6 +371,117 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	// ---- Component builders -----------------------------------------------------------------------
+
+	/** A small gold section label, matching the panel's header style. */
+	private static JLabel sectionHeader(String text)
+	{
+		JLabel header = new JLabel(text);
+		header.setFont(FontManager.getRunescapeSmallFont());
+		header.setForeground(ColorScheme.BRAND_ORANGE);
+		header.setAlignmentX(LEFT_ALIGNMENT);
+		return header;
+	}
+
+	/**
+	 * The "Working on" spotlight — a prominent card for the tile you most recently progressed. A taller,
+	 * gold bar (vs the muted nearest-tile rows) makes it the panel's focal point.
+	 */
+	private JPanel buildSpotlight(ClogTaskModel.TaskRow focus)
+	{
+		JPanel panel = new JPanel(new BorderLayout(0, 4));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createMatteBorder(0, 2, 0, 0, ColorScheme.BRAND_ORANGE),
+			BorderFactory.createEmptyBorder(8, 8, 8, 8)));
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel name = new JLabel(ellipsize(focus.label, 30));
+		name.setFont(FontManager.getRunescapeFont());
+		name.setForeground(ColorScheme.TEXT_COLOR);
+		name.setToolTipText(focus.label);
+		panel.add(name, BorderLayout.NORTH);
+
+		int pct = focus.goal > 0 ? Math.min(100, (int) Math.round(focus.current * 100.0 / focus.goal)) : 0;
+		JProgressBar bar = new JProgressBar(0, 100);
+		bar.setValue(pct);
+		bar.setStringPainted(true);
+		bar.setString(focus.goal > 0 ? focus.current + " / " + focus.goal : "In progress");
+		bar.setForeground(ColorScheme.BRAND_ORANGE);
+		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		bar.setBorderPainted(false);
+		bar.setPreferredSize(new Dimension(0, 16));
+		panel.add(bar, BorderLayout.CENTER);
+
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		return panel;
+	}
+
+	/** The team activity feed — one colored line per event (newest first), capped so the panel stays glanceable. */
+	private JPanel buildActivityFeed(List<ActivityEntry> entries)
+	{
+		JPanel list = new JPanel();
+		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+		list.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		list.setAlignmentX(LEFT_ALIGNMENT);
+
+		int shown = 0;
+		for (ActivityEntry e : entries)
+		{
+			if (shown >= ACTIVITY_ROWS_SHOWN)
+			{
+				break;
+			}
+			if (shown > 0)
+			{
+				list.add(gap(3));
+			}
+			list.add(buildActivityRow(e));
+			shown++;
+		}
+		if (entries.size() > ACTIVITY_ROWS_SHOWN)
+		{
+			list.add(gap(3));
+			JLabel more = new JLabel("+" + (entries.size() - ACTIVITY_ROWS_SHOWN) + " more");
+			more.setFont(FontManager.getRunescapeSmallFont());
+			more.setForeground(VALUE_COLOR);
+			more.setAlignmentX(LEFT_ALIGNMENT);
+			list.add(more);
+		}
+		list.setMaximumSize(new Dimension(Integer.MAX_VALUE, list.getPreferredSize().height));
+		return list;
+	}
+
+	private JLabel buildActivityRow(ActivityEntry e)
+	{
+		JLabel row = new JLabel(ellipsize(e.summary(), 36));
+		row.setFont(FontManager.getRunescapeSmallFont());
+		row.setToolTipText(e.summary());
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		// Completions read as wins (green); your own actions stand out (gold); teammates stay neutral.
+		if (e.isCompletion())
+		{
+			row.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
+		}
+		else if (e.self)
+		{
+			row.setForeground(ColorScheme.BRAND_ORANGE);
+		}
+		else
+		{
+			row.setForeground(ColorScheme.TEXT_COLOR);
+		}
+		return row;
+	}
+
+	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
+	private static String ellipsize(String s, int max)
+	{
+		if (s == null)
+		{
+			return "";
+		}
+		return s.length() <= max ? s : s.substring(0, Math.max(0, max - 1)).trim() + "…";
+	}
 
 	private JPanel buildSummary(ConnectionView c)
 	{
