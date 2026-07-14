@@ -1032,10 +1032,12 @@ public class AnvilPlugin extends Plugin {
      */
     @Provides
     @Singleton
-    SidebarDataSource provideSidebarDataSource(MockSidebarDataSource mock) {
-        // Bind connection #0 to the injected client + live config now; extra homes are parsed in
-        // startUp()/onConfigChanged (where config is guaranteed injected). With none, this is the
-        // single-home source exactly.
+    SidebarDataSource provideSidebarDataSource(ConnectionManager connectionManager, BingoApiClient apiClient, MockSidebarDataSource mock) {
+        // Take the (singleton) manager + client as PARAMETERS, not this.fields: Guice can invoke this
+        // provider to satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are
+        // populated, so reading this.connectionManager here NPEs and the whole plugin fails to load.
+        // Params are resolved (and the singletons constructed) by Guice first, so they're non-null.
+        // initPrimary is idempotent; startUp() safely re-calls it. No extra homes ⇒ single-home exactly.
         connectionManager.initPrimary(apiClient, this::getPluginConfig);
         return new AnvilSidebarDataSource(connectionManager);
     }
