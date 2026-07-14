@@ -1101,4 +1101,108 @@ public class BingoApiClient
 			log.info("Timed clear submitted successfully for tile {}", tileId);
 		}
 	}
+
+	/**
+	 * POST /api/events/{eventId}/submissions with a {@link FanoutDescriptor} attached — the federated
+	 * variant of {@link #submitTimed}, used when the same timed clear is credited to more than one
+	 * connected clan (see {@code FEDERATION_WIRE.md} §5). Identical body to {@code submitTimed} plus a
+	 * {@code "fanout"} object; parses the {@code 200 {credited:false, reason:"exclusive"}} decline so a
+	 * per-clan {@code sharedCredit: exclusive} opt-out is honoured.
+	 */
+	public SubmitResult submitTimedFanout(int eventId, int tileId, int teamId, int durationSeconds,
+		String imageUrl, String note, int creditPlayerId, FanoutDescriptor fanout) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("tileId", tileId);
+		payload.addProperty("teamId", teamId);
+		payload.addProperty("amount", 1);
+		payload.addProperty("durationSeconds", durationSeconds);
+		payload.addProperty("imageUrl", imageUrl);
+		payload.addProperty("note", note);
+		payload.addProperty("creditPlayerId", creditPlayerId);
+		if (fanout != null)
+		{
+			payload.add("fanout", fanout.toJson());
+		}
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			String responseBody = response.body() != null ? response.body().string() : "";
+			if (!response.isSuccessful())
+			{
+				throw submissionError("Timed submission failed", response.code(), responseBody == null || responseBody.isEmpty() ? "no body" : responseBody);
+			}
+			return parseSubmitResult(responseBody, tileId);
+		}
+	}
+
+	/**
+	 * Fan-out variant of {@link #submitStatKc}: pushes the same absolute boss KCs to <em>this</em>
+	 * connection's {@code /api/plugin/stats} with a {@link FanoutDescriptor} attached, and parses the
+	 * {@code 200 {credited:false, reason:"exclusive"}} decline so a {@code sharedCredit: exclusive} clan
+	 * can opt out (see {@code FEDERATION_WIRE.md} §5). Event/team/player are resolved server-side from
+	 * <em>this</em> connection's own token, so the KC credits this clan's own team.
+	 */
+	public SubmitResult submitStatKcFanout(java.util.Map<String, Integer> counts, FanoutDescriptor fanout) throws IOException
+	{
+		return submitStatFanout("stats", "kc", counts, fanout);
+	}
+
+	/**
+	 * Fan-out variant of {@link #submitStatXp}: pushes the same absolute skill XP to <em>this</em>
+	 * connection's {@code /api/plugin/stats} with a {@link FanoutDescriptor} attached; honours the
+	 * {@code exclusive} decline exactly like {@link #submitStatKcFanout}.
+	 */
+	public SubmitResult submitStatXpFanout(java.util.Map<String, Integer> xp, FanoutDescriptor fanout) throws IOException
+	{
+		return submitStatFanout("skills", "xp", xp, fanout);
+	}
+
+	/** Shared body for the KC/XP fan-out pushes: {@code {"<arrayKey>":[{"name":..,"<valueKey>":..}], "fanout":{..}}}. */
+	private SubmitResult submitStatFanout(String arrayKey, String valueKey, java.util.Map<String, Integer> values, FanoutDescriptor fanout) throws IOException
+	{
+		if (values == null || values.isEmpty())
+		{
+			return new SubmitResult(false, "empty");
+		}
+		JsonArray arr = new JsonArray();
+		for (java.util.Map.Entry<String, Integer> e : values.entrySet())
+		{
+			if (e.getKey() == null || e.getValue() == null)
+			{
+				continue;
+			}
+			JsonObject s = new JsonObject();
+			s.addProperty("name", e.getKey());
+			s.addProperty(valueKey, e.getValue());
+			arr.add(s);
+		}
+		JsonObject payload = new JsonObject();
+		payload.add(arrayKey, arr);
+		if (fanout != null)
+		{
+			payload.add("fanout", fanout.toJson());
+		}
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			String responseBody = response.body() != null ? response.body().string() : "";
+			if (!response.isSuccessful())
+			{
+				throw new IOException("Stat fan-out push failed: HTTP " + response.code() + " — "
+					+ (responseBody == null || responseBody.isEmpty() ? "no body" : responseBody));
+			}
+			return parseSubmitResult(responseBody, -1);
+		}
+	}
 }

@@ -59,6 +59,11 @@ public final class AnvilConnection
 	private final WorkingOnTracker workingOn = new WorkingOnTracker();
 	private int scopedEventId = -1;
 
+	// Per-tile timed-clear fan-out dedup: a raid completion is announced over several correlated chat
+	// lines that the plugin may replay, so gate each of THIS connection's timed tiles to one credit per
+	// window (mirrors the plugin's own lastTimedSubmittedAt). Keyed by this connection's tileId.
+	private final Map<Integer, Long> lastTimedFanoutAt = new HashMap<>();
+
 	private AnvilConnection(int index, boolean primary, BingoApiClient client, String instanceId,
 		String label, Supplier<PluginConfigResponse> primaryConfigSupplier)
 	{
@@ -176,6 +181,29 @@ public final class AnvilConnection
 		activityLog.reset();
 		workingOn.reset();
 		scopedEventId = -1;
+		synchronized (lastTimedFanoutAt)
+		{
+			lastTimedFanoutAt.clear();
+		}
+	}
+
+	/**
+	 * Gate for a timed-clear fan-out to this connection's {@code tileId}: records {@code now} and returns
+	 * {@code true} the first time within {@code windowMs}, {@code false} for repeats — so a replayed raid
+	 * completion credits each of this clan's timed tiles at most once. Thread-safe.
+	 */
+	public boolean markTimedFanout(int tileId, long now, long windowMs)
+	{
+		synchronized (lastTimedFanoutAt)
+		{
+			Long last = lastTimedFanoutAt.get(tileId);
+			if (last != null && (now - last) < windowMs)
+			{
+				return false;
+			}
+			lastTimedFanoutAt.put(tileId, now);
+			return true;
+		}
 	}
 
 	/** The clan/event label for the clan filter: explicit label ?? team name ?? event name ?? host. */

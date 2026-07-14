@@ -29,7 +29,7 @@ public final class TileIndex
 {
 	private static final TileIndex EMPTY = new TileIndex(
 		Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(),
-		Collections.emptyMap(), Collections.emptySet(), Collections.emptySet());
+		Collections.emptyMap(), Collections.emptySet(), Collections.emptySet(), Collections.emptyList());
 
 	/** itemId → drop tiles that count it. */
 	public final Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex;
@@ -43,6 +43,8 @@ public final class TileIndex
 	public final Set<String> trackedKcNames;
 	/** lowercased skill names tracked as skill-XP tiles. */
 	public final Set<String> trackedSkillNames;
+	/** timed-clear tiles (matched by activity + cap at fan-out time; no cheap key exists). */
+	public final List<PluginConfigResponse.TrackedTimed> timedTiles;
 
 	private TileIndex(
 		Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex,
@@ -50,7 +52,8 @@ public final class TileIndex
 		Map<Integer, List<PluginConfigResponse.TrackedGain>> gainItemIndex,
 		Map<String, Integer> pvpRosterIndex,
 		Set<String> trackedKcNames,
-		Set<String> trackedSkillNames)
+		Set<String> trackedSkillNames,
+		List<PluginConfigResponse.TrackedTimed> timedTiles)
 	{
 		this.itemDropIndex = itemDropIndex;
 		this.killNpcIndex = killNpcIndex;
@@ -58,6 +61,7 @@ public final class TileIndex
 		this.pvpRosterIndex = pvpRosterIndex;
 		this.trackedKcNames = trackedKcNames;
 		this.trackedSkillNames = trackedSkillNames;
+		this.timedTiles = timedTiles;
 	}
 
 	/** The all-empty index — a connection with no config yet, or no active event. */
@@ -79,13 +83,28 @@ public final class TileIndex
 			buildGainItemIndex(cfg),
 			buildPvpRosterIndex(cfg),
 			buildTrackedKcNames(cfg),
-			buildTrackedSkillNames(cfg));
+			buildTrackedSkillNames(cfg),
+			buildTimedTiles(cfg));
 	}
 
 	/** Drop tiles that count {@code itemId} on this connection (empty when none). */
 	public List<PluginConfigResponse.TrackedDrop> dropsForItem(int itemId)
 	{
 		List<PluginConfigResponse.TrackedDrop> l = itemDropIndex.get(itemId);
+		return l == null ? Collections.emptyList() : l;
+	}
+
+	/** Kill tiles that count kills of {@code npcNameLower} (already lowercased) on this connection. */
+	public List<PluginConfigResponse.TrackedKill> killsForNpc(String npcNameLower)
+	{
+		List<PluginConfigResponse.TrackedKill> l = killNpcIndex.get(npcNameLower);
+		return l == null ? Collections.emptyList() : l;
+	}
+
+	/** Gain tiles that count {@code itemId} on this connection (empty when none). */
+	public List<PluginConfigResponse.TrackedGain> gainsForItem(int itemId)
+	{
+		List<PluginConfigResponse.TrackedGain> l = gainItemIndex.get(itemId);
 		return l == null ? Collections.emptyList() : l;
 	}
 
@@ -201,6 +220,23 @@ public final class TileIndex
 			}
 		}
 		return names;
+	}
+
+	private static List<PluginConfigResponse.TrackedTimed> buildTimedTiles(PluginConfigResponse cfg)
+	{
+		if (cfg.trackedTimed == null || cfg.trackedTimed.isEmpty())
+		{
+			return Collections.emptyList();
+		}
+		List<PluginConfigResponse.TrackedTimed> tiles = new ArrayList<>();
+		for (PluginConfigResponse.TrackedTimed t : cfg.trackedTimed)
+		{
+			if (t != null && t.activity != null && !t.activity.isEmpty())
+			{
+				tiles.add(t);
+			}
+		}
+		return Collections.unmodifiableList(tiles);
 	}
 
 	/** Mirrors {@code AnvilPlugin.normalizeBossName}: lowercase, non-alphanumeric → space, collapse. */

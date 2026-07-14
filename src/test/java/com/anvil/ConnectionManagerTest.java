@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
@@ -188,13 +189,214 @@ public class ConnectionManagerTest
 		}
 	}
 
-	/** A throwaway in-process stand-in for one Anvil instance: serves /api/upload + /api/events/*. */
+	// ---- non-drop fan-out: kill / gain / timed / KC (two connections credit independently) --------
+
+	private static PluginConfigResponse baseConfig(int eventId, int teamId, int playerId)
+	{
+		PluginConfigResponse cfg = new PluginConfigResponse();
+		cfg.event = new PluginConfigResponse.EventInfo();
+		cfg.event.id = eventId;
+		cfg.event.name = "Event " + eventId; // null start/end → active
+		cfg.team = new PluginConfigResponse.TeamInfo();
+		cfg.team.id = teamId;
+		cfg.team.name = "Team " + teamId;
+		cfg.player = new PluginConfigResponse.PlayerInfo();
+		cfg.player.id = playerId;
+		return cfg;
+	}
+
+	private static PluginConfigResponse killConfig(int eventId, int teamId, int playerId, int tileId, String npc)
+	{
+		PluginConfigResponse cfg = baseConfig(eventId, teamId, playerId);
+		PluginConfigResponse.TrackedKill k = new PluginConfigResponse.TrackedKill();
+		k.tileId = tileId;
+		k.label = npc;
+		k.targetNpcs = new ArrayList<>(Arrays.asList(npc));
+		cfg.trackedKills = new ArrayList<>(Arrays.asList(k));
+		return cfg;
+	}
+
+	private static PluginConfigResponse gainConfig(int eventId, int teamId, int playerId, int tileId, int itemId)
+	{
+		PluginConfigResponse cfg = baseConfig(eventId, teamId, playerId);
+		PluginConfigResponse.TrackedGain g = new PluginConfigResponse.TrackedGain();
+		g.tileId = tileId;
+		g.label = "Gain";
+		g.itemIds = new ArrayList<>(Arrays.asList(itemId));
+		cfg.trackedGains = new ArrayList<>(Arrays.asList(g));
+		return cfg;
+	}
+
+	private static PluginConfigResponse timedConfig(int eventId, int teamId, int playerId, int tileId, String activity)
+	{
+		PluginConfigResponse cfg = baseConfig(eventId, teamId, playerId);
+		PluginConfigResponse.TrackedTimed t = new PluginConfigResponse.TrackedTimed();
+		t.tileId = tileId;
+		t.label = activity;
+		t.activity = activity;
+		t.thresholdSeconds = 3600;
+		cfg.trackedTimed = new ArrayList<>(Arrays.asList(t));
+		return cfg;
+	}
+
+	private static PluginConfigResponse kcConfig(int eventId, int teamId, int playerId, String boss)
+	{
+		PluginConfigResponse cfg = baseConfig(eventId, teamId, playerId);
+		cfg.trackedKcNames = new ArrayList<>(Arrays.asList(boss));
+		return cfg;
+	}
+
+	@Test
+	public void killFansOutToEachClanOwnTeamAndTile() throws Exception
+	{
+		RecordingInstance clanA = new RecordingInstance(true);
+		RecordingInstance clanB = new RecordingInstance(false); // exclusive → declines
+		clanA.start();
+		clanB.start();
+		try
+		{
+			ConnectionManager cm = newManager();
+			cm.addResolvedConnection(clanA.baseUrl(), "tokA", "uuid-a", "A");
+			cm.addResolvedConnection(clanB.baseUrl(), "tokB", "uuid-b", "B");
+			cm.extraConnections().get(0).setPolledConfig(killConfig(1, 11, 21, 100, "Zulrah"));
+			cm.extraConnections().get(1).setPolledConfig(killConfig(2, 22, 22, 200, "Zulrah"));
+
+			List<String> npcs = Arrays.asList("zulrah");
+			List<AnvilConnection> matched = cm.extrasTrackingKill(npcs);
+			assertEquals(2, matched.size());
+			int credited = cm.submitKillToExtras(matched, null, npcs, 3, "note", cm.fanoutDescriptor(matched), "Zulrah");
+			assertEquals("A credits, B declines (exclusive)", 1, credited);
+
+			JsonObject a = clanA.lastSubmission();
+			assertEquals(100, a.get("tileId").getAsInt());
+			assertEquals(11, a.get("teamId").getAsInt());
+			assertEquals(3, a.get("amount").getAsInt());
+			assertEquals("/api/events/1/submissions", clanA.lastPath());
+			assertEquals(3, a.getAsJsonObject("fanout").get("count").getAsInt());
+			assertFalse("count-only ping ⇒ no proof upload", clanA.uploadHit());
+
+			JsonObject b = clanB.lastSubmission();
+			assertEquals(200, b.get("tileId").getAsInt());
+			assertEquals("/api/events/2/submissions", clanB.lastPath());
+		}
+		finally
+		{
+			clanA.stop();
+			clanB.stop();
+		}
+	}
+
+	@Test
+	public void gainFansOutWithProofUploadedPerClan() throws Exception
+	{
+		RecordingInstance clanA = new RecordingInstance(true);
+		RecordingInstance clanB = new RecordingInstance(true);
+		clanA.start();
+		clanB.start();
+		try
+		{
+			ConnectionManager cm = newManager();
+			cm.addResolvedConnection(clanA.baseUrl(), "tokA", "uuid-a", "A");
+			cm.addResolvedConnection(clanB.baseUrl(), "tokB", "uuid-b", "B");
+			cm.extraConnections().get(0).setPolledConfig(gainConfig(1, 11, 21, 100, 383));
+			cm.extraConnections().get(1).setPolledConfig(gainConfig(2, 22, 22, 200, 383));
+
+			List<Integer> items = Arrays.asList(383);
+			List<AnvilConnection> matched = cm.extrasTrackingGain(items);
+			int credited = cm.submitGainToExtras(matched, new byte[]{9}, items, 4, "note", cm.fanoutDescriptor(matched), "Gain");
+			assertEquals(2, credited);
+			assertTrue(clanA.uploadHit());
+			assertTrue(clanB.uploadHit()); // isolated media — each home uploaded its own proof
+			assertEquals(100, clanA.lastSubmission().get("tileId").getAsInt());
+			assertEquals(200, clanB.lastSubmission().get("tileId").getAsInt());
+		}
+		finally
+		{
+			clanA.stop();
+			clanB.stop();
+		}
+	}
+
+	@Test
+	public void timedFansOutThenDedupsAReplay() throws Exception
+	{
+		RecordingInstance clanA = new RecordingInstance(true);
+		RecordingInstance clanB = new RecordingInstance(true);
+		clanA.start();
+		clanB.start();
+		try
+		{
+			ConnectionManager cm = newManager();
+			cm.addResolvedConnection(clanA.baseUrl(), "tokA", "uuid-a", "A");
+			cm.addResolvedConnection(clanB.baseUrl(), "tokB", "uuid-b", "B");
+			cm.extraConnections().get(0).setPolledConfig(timedConfig(1, 11, 21, 100, "Chambers of Xeric"));
+			cm.extraConnections().get(1).setPolledConfig(timedConfig(2, 22, 22, 200, "Chambers of Xeric"));
+
+			String msg = "your completed chambers of xeric count is: 7. duration: 25:00";
+			List<AnvilConnection> matched = cm.extrasTrackingTimed(msg, 1500, 0);
+			assertEquals(2, matched.size());
+			int first = cm.submitTimedToExtras(matched, new byte[]{1}, msg, 1500, 0, "note", cm.fanoutDescriptor(matched), "CoX");
+			assertEquals(2, first);
+			assertEquals(1500, clanA.lastSubmission().get("durationSeconds").getAsInt());
+
+			// The completion lines get replayed — a second fan-out for the same tiles credits nobody.
+			int replay = cm.submitTimedToExtras(matched, new byte[]{1}, msg, 1500, 0, "note", cm.fanoutDescriptor(matched), "CoX");
+			assertEquals("dedup within the window", 0, replay);
+		}
+		finally
+		{
+			clanA.stop();
+			clanB.stop();
+		}
+	}
+
+	@Test
+	public void kcPushFansOutFilteredPerClan() throws Exception
+	{
+		RecordingInstance clanA = new RecordingInstance(true);
+		RecordingInstance clanB = new RecordingInstance(true);
+		clanA.start();
+		clanB.start();
+		try
+		{
+			ConnectionManager cm = newManager();
+			cm.addResolvedConnection(clanA.baseUrl(), "tokA", "uuid-a", "A");
+			cm.addResolvedConnection(clanB.baseUrl(), "tokB", "uuid-b", "B");
+			cm.extraConnections().get(0).setPolledConfig(kcConfig(1, 11, 21, "Zulrah"));   // A tracks Zulrah
+			cm.extraConnections().get(1).setPolledConfig(kcConfig(2, 22, 22, "Vorkath"));  // B tracks Vorkath
+
+			Map<String, Integer> batch = new java.util.LinkedHashMap<>();
+			batch.put("Zulrah", 500);
+			batch.put("Vorkath", 300);
+			int credited = cm.fanOutKcPush(batch);
+			assertEquals(2, credited);
+
+			// Each clan received ONLY the boss it tracks — the batch is filtered per home.
+			JsonObject a = clanA.lastStat();
+			assertEquals(1, a.getAsJsonArray("stats").size());
+			assertEquals("Zulrah", a.getAsJsonArray("stats").get(0).getAsJsonObject().get("name").getAsString());
+			assertEquals(500, a.getAsJsonArray("stats").get(0).getAsJsonObject().get("kc").getAsInt());
+			assertEquals("primary + 2 extras", 3, a.getAsJsonObject("fanout").get("count").getAsInt());
+
+			JsonObject b = clanB.lastStat();
+			assertEquals(1, b.getAsJsonArray("stats").size());
+			assertEquals("Vorkath", b.getAsJsonArray("stats").get(0).getAsJsonObject().get("name").getAsString());
+		}
+		finally
+		{
+			clanA.stop();
+			clanB.stop();
+		}
+	}
+
+	/** A throwaway in-process stand-in for one Anvil instance: serves /api/upload + /api/events/* + /api/plugin/stats. */
 	private static final class RecordingInstance
 	{
 		private final boolean credits;
 		private HttpServer server;
 		private final AtomicReference<String> submissionBody = new AtomicReference<>();
 		private final AtomicReference<String> submissionPath = new AtomicReference<>();
+		private final AtomicReference<String> statBody = new AtomicReference<>();
 		private final AtomicReference<Boolean> uploaded = new AtomicReference<>(false);
 
 		RecordingInstance(boolean credits)
@@ -225,6 +427,15 @@ public class ConnectionManagerTest
 					respond(ex, 200, credits ? "{}" : "{\"credited\":false,\"reason\":\"exclusive\"}");
 				}
 			});
+			server.createContext("/api/plugin/stats", new HttpHandler()
+			{
+				@Override
+				public void handle(HttpExchange ex) throws IOException
+				{
+					statBody.set(drain(ex));
+					respond(ex, 200, credits ? "{}" : "{\"credited\":false,\"reason\":\"exclusive\"}");
+				}
+			});
 			server.start();
 		}
 
@@ -241,6 +452,11 @@ public class ConnectionManagerTest
 		JsonObject lastSubmission()
 		{
 			return new JsonParser().parse(submissionBody.get()).getAsJsonObject();
+		}
+
+		JsonObject lastStat()
+		{
+			return new JsonParser().parse(statBody.get()).getAsJsonObject();
 		}
 
 		String lastPath()

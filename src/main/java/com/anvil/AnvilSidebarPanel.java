@@ -9,7 +9,9 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
+import javax.swing.Box;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultComboBoxModel;
@@ -61,9 +63,20 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private final SidebarDataSource dataSource;
 
+	// Federation "Connect clans" broker flow — the PRIMARY multi-home UX (the raw "Extra clan
+	// connections" CSV stays as an advanced/self-host fallback in config). All three are feature-gated:
+	// the button only shows when a broker URL is configured, and blank config ⇒ pure single-home.
+	private final Provider<BrokerClient> brokerClientProvider;
+	private final ConnectionManager connectionManager;
+	private final AnvilConfig config;
+
 	// Header controls (persistent across state changes).
 	private final JComboBox<ConnectionView> clanFilter = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
+	private final JButton connectButton = new JButton("Connect clans");
+	private final JLabel connectStatus = new JLabel();
+	private final JPanel connectRow = new JPanel(new BorderLayout(0, 2));
+	private boolean connectInFlight;
 	private final JPanel content = new JPanel();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
@@ -79,10 +92,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean fetchInFlight;
 
 	@Inject
-	public AnvilSidebarPanel(SidebarDataSource dataSource)
+	public AnvilSidebarPanel(SidebarDataSource dataSource, Provider<BrokerClient> brokerClientProvider,
+		ConnectionManager connectionManager, AnvilConfig config)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
+		this.brokerClientProvider = brokerClientProvider;
+		this.connectionManager = connectionManager;
+		this.config = config;
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -117,7 +134,31 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		titleRow.add(title, BorderLayout.WEST);
 		titleRow.add(refreshButton, BorderLayout.EAST);
-		header.add(titleRow, BorderLayout.NORTH);
+		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
+		titleRow.setAlignmentX(LEFT_ALIGNMENT);
+
+		// "Connect clans" — the broker device-login flow. Feature-gated: this whole row is hidden unless a
+		// broker URL is set in config (blank ⇒ pure single-home; the CSV field stays the advanced fallback).
+		connectButton.setFocusPainted(false);
+		connectButton.setForeground(ColorScheme.BRAND_ORANGE);
+		connectButton.addActionListener(e -> onConnectClans());
+		connectStatus.setFont(FontManager.getRunescapeSmallFont());
+		connectStatus.setForeground(VALUE_COLOR);
+		connectStatus.setVisible(false);
+		connectRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		connectRow.add(connectButton, BorderLayout.NORTH);
+		connectRow.add(connectStatus, BorderLayout.SOUTH);
+		connectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, connectRow.getPreferredSize().height));
+		connectRow.setAlignmentX(LEFT_ALIGNMENT);
+		connectRow.setVisible(brokerConfigured());
+
+		JPanel top = new JPanel();
+		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+		top.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		top.add(titleRow);
+		top.add(Box.createVerticalStrut(6));
+		top.add(connectRow);
+		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — a dropdown scales past the two-clan mock to the N connected homes multi-home
 		// will bring. Selecting a clan re-renders from the held snapshot (no refetch).
@@ -156,6 +197,84 @@ public class AnvilSidebarPanel extends PluginPanel
 		autoRefresh.stop();
 	}
 
+	// ---- "Connect clans" broker flow --------------------------------------------------------------
+
+	/** True once a federation broker URL is set — the single gate for the whole broker-login UX. */
+	private boolean brokerConfigured()
+	{
+		String url = config.federationBrokerUrl();
+		return url != null && !url.trim().isEmpty();
+	}
+
+	/**
+	 * Drive the §9.6 device-code broker flow off the EDT: Discord login in the system browser → poll →
+	 * {@code /me/instances} → {@code /assert} → per-instance {@code /exchange} → populate
+	 * {@link ConnectionManager}. Status lines are marshalled back to the EDT via {@code publish}; when it
+	 * finishes we poll the new homes' boards and re-render so they light up. No token is ever hand-pasted.
+	 */
+	private void onConnectClans()
+	{
+		if (connectInFlight)
+		{
+			return;
+		}
+		connectInFlight = true;
+		connectButton.setEnabled(false);
+		setConnectStatus("Logging in…");
+
+		new SwingWorker<BrokerClient.ConnectResult, String>()
+		{
+			@Override
+			protected BrokerClient.ConnectResult doInBackground()
+			{
+				BrokerClient broker = brokerClientProvider.get();
+				if (broker == null || !broker.isEnabled())
+				{
+					publish("Set a broker URL in the plugin's Federation config first.");
+					return null;
+				}
+				BrokerClient.ConnectResult result = broker.connectAll(connectionManager, this::publish);
+				// Fetch the freshly-connected homes' boards so the sidebar can render them immediately.
+				connectionManager.pollExtras();
+				return result;
+			}
+
+			@Override
+			protected void process(List<String> chunks)
+			{
+				if (!chunks.isEmpty())
+				{
+					setConnectStatus(chunks.get(chunks.size() - 1));
+				}
+			}
+
+			@Override
+			protected void done()
+			{
+				connectInFlight = false;
+				connectButton.setEnabled(true);
+				try
+				{
+					get(); // surface a background exception as the catch below
+				}
+				catch (Exception ex)
+				{
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					log.debug("connect-clans flow failed", cause);
+					setConnectStatus("Connect failed — try again.");
+				}
+				refresh(); // re-render with any new connections in hand
+			}
+		}.execute();
+	}
+
+	private void setConnectStatus(String text)
+	{
+		connectStatus.setText(text == null ? "" : text);
+		connectStatus.setVisible(text != null && !text.isEmpty());
+		connectRow.revalidate();
+	}
+
 	// ---- Refresh flow -----------------------------------------------------------------------------
 
 	/**
@@ -164,6 +283,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	public void refresh()
 	{
+		// Reveal/hide the broker CTA if the URL was set/cleared in config since the panel opened.
+		connectRow.setVisible(brokerConfigured());
 		if (fetchInFlight)
 		{
 			return;
