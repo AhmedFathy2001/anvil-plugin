@@ -8,25 +8,31 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The live, single-home {@link SidebarDataSource} — the real binding behind the always-on sidebar
- * until the multi-home federation layer generalises it to N instances.
+ * The live {@link SidebarDataSource} behind the always-on sidebar. Originally single-home; now the
+ * multi-home federation binding too — <em>the same shaping</em> is applied per {@link AnvilConnection}
+ * so the panel shows one row per connected clan without any panel change.
  *
- * <p>Deliberately decoupled from the plugin's polling internals:</p>
+ * <p>Two constructors, one code path:</p>
  * <ul>
- *   <li><b>Board summary + nearest tiles + focus</b> come from the config the plugin <em>already</em>
- *       polls — read via {@code configSupplier} ({@code AnvilPlugin::getPluginConfig}). We never call
- *       {@code apiClient.fetchConfig()} ourselves: that method shares a single ETag/response cache with
- *       the plugin's 30s poll, and a second caller would corrupt it. Reusing the cached config also
- *       means the sidebar adds <em>zero</em> board requests — its own progress is already live in that
- *       object (the plugin bumps counts in place on your drops).</li>
- *   <li><b>The activity feed</b> is the sidebar's only network call — one conditional GET to
- *       {@code /api/plugin/activity} per refresh, 304 when the team's been idle.</li>
+ *   <li><b>Single-home</b> ({@code configSupplier, apiClient}) — wraps the plugin's live config +
+ *       injected client in a single primary {@link AnvilConnection} held for the source's lifetime, so
+ *       cross-refresh state (the {@link WorkingOnTracker} spotlight, the {@link AnvilActivityLog} feed,
+ *       and the active-event scoping reset) persists exactly as before. This is the path the existing
+ *       tests exercise, and its output is unchanged.</li>
+ *   <li><b>Multi-home</b> ({@code ConnectionManager}) — iterates {@link ConnectionManager#connections()}
+ *       and shapes each into a {@link ConnectionView}. Connection&nbsp;#0 is the very same primary view
+ *       as the single-home path (same client, same live config), so with no extra homes the two are
+ *       identical; extra homes simply add rows.</li>
  * </ul>
  *
- * <p>Single active event → one {@link ConnectionView}; no event → an empty list (the panel's empty
- * state). The {@link AnvilActivityLog} + {@link WorkingOnTracker} are reset when the active event
- * changes so a new event's feed/spotlight never inherit the previous one's. Called off the EDT by the
- * panel's worker (one at a time), so no internal locking is needed.</p>
+ * <p>Board summary + nearest tiles + focus come from each connection's already-polled config (no extra
+ * board request, no shared-ETag clash). The activity feed is the source's only network call — one
+ * conditional GET to {@code /api/plugin/activity} per connection per refresh, 304 while idle. A
+ * connection with no active event contributes no row (its live state is reset); if <em>no</em>
+ * connection has an event, the list is empty and the panel shows its empty state. A per-connection feed
+ * hiccup surfaces inline via {@link ConnectionView#error} rather than failing the whole sidebar.</p>
+ *
+ * <p>Called off the EDT by the panel's worker (one at a time), so no internal locking is needed.</p>
  */
 @Slf4j
 public class AnvilSidebarDataSource implements SidebarDataSource
@@ -34,45 +40,70 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/** How many nearest-to-done incomplete tiles to surface. */
 	private static final int NEAREST_LIMIT = 5;
 
-	/** Stable id for the single home — the clan filter hides itself at one connection, so any constant works. */
-	private static final String LOCAL_INSTANCE_ID = "local";
+	/** Multi-home mode: the source of every connection. Null in single-home mode. */
+	private final ConnectionManager connectionManager;
 
-	private final Supplier<PluginConfigResponse> configSupplier;
-	private final BingoApiClient apiClient;
+	/** Single-home mode: the one primary connection, held so its live state persists across refreshes. */
+	private final AnvilConnection primaryConnection;
 
-	private final AnvilActivityLog activityLog = new AnvilActivityLog();
-	private final WorkingOnTracker workingOn = new WorkingOnTracker();
-
-	/** The event the log/tracker are currently scoped to; a change resets both. -1 = none. */
-	private int scopedEventId = -1;
-
+	/** Single-home binding — one connection over the plugin's live config + injected client. */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient)
 	{
-		this.configSupplier = configSupplier;
-		this.apiClient = apiClient;
+		this.connectionManager = null;
+		this.primaryConnection = AnvilConnection.primary(apiClient, configSupplier);
+	}
+
+	/** Multi-home binding — one {@link ConnectionView} per connected clan. */
+	public AnvilSidebarDataSource(ConnectionManager connectionManager)
+	{
+		this.connectionManager = connectionManager;
+		this.primaryConnection = null;
 	}
 
 	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
-		PluginConfigResponse cfg = configSupplier.get();
+		if (connectionManager == null)
+		{
+			// Single-home: exactly one connection (today's behaviour).
+			ConnectionView view = buildViewFor(primaryConnection);
+			return view == null ? Collections.emptyList() : Collections.singletonList(view);
+		}
+		// Multi-home: one row per connection; connection #0 is identical to the single-home view.
+		List<ConnectionView> out = new ArrayList<>();
+		for (AnvilConnection conn : connectionManager.connections())
+		{
+			ConnectionView view = buildViewFor(conn);
+			if (view != null)
+			{
+				out.add(view);
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * Shape one connection's already-polled config + a single activity GET into a {@link ConnectionView},
+	 * or {@code null} when that connection has no active event (its live state is reset so a later event
+	 * starts clean). Identical logic for the primary and every extra — that's what keeps connection #0
+	 * behaving exactly as the single-home source always has.
+	 */
+	private ConnectionView buildViewFor(AnvilConnection conn)
+	{
+		PluginConfigResponse cfg = conn.config();
 		if (cfg == null || cfg.event == null)
 		{
-			// No live event (or not loaded yet) → nothing to show; forget any previous event's state.
-			if (scopedEventId != -1)
+			if (conn.scopedEventId() != -1)
 			{
-				activityLog.reset();
-				workingOn.reset();
-				scopedEventId = -1;
+				conn.resetLiveState();
 			}
-			return Collections.emptyList();
+			return null;
 		}
 
-		if (cfg.event.id != scopedEventId)
+		if (cfg.event.id != conn.scopedEventId())
 		{
-			activityLog.reset();
-			workingOn.reset();
-			scopedEventId = cfg.event.id;
+			conn.resetLiveState();
+			conn.setScopedEventId(cfg.event.id);
 		}
 
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
@@ -80,7 +111,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		int tilesComplete = ClogTaskModel.completedCount(rows);
 
 		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
-		ClogTaskModel.TaskRow focus = workingOn.update(rows);
+		ClogTaskModel.TaskRow focus = conn.workingOn().update(rows);
 
 		// One conditional GET for the feed; a null return (network hiccup / 304-with-no-cache) just
 		// leaves the log as-is — the board summary above is already valid, so this is a partial, not a
@@ -88,10 +119,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		String error = null;
 		try
 		{
-			BingoApiClient.ActivityResponse ar = apiClient.fetchActivity(activityLog.getCursor());
+			BingoApiClient.ActivityResponse ar = conn.client().fetchActivity(conn.activityLog().getCursor());
 			if (ar != null && !ar.noActiveEvent)
 			{
-				activityLog.ingest(ar.cursor, toEntries(ar.activity));
+				conn.activityLog().ingest(ar.cursor, toEntries(ar.activity));
 			}
 		}
 		catch (RuntimeException e)
@@ -100,13 +131,15 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			error = "Live feed unavailable";
 		}
 
-		String clanName = cfg.team != null && cfg.team.name != null && !cfg.team.name.isEmpty()
-			? cfg.team.name : cfg.event.name;
+		String clanName = conn.displayName();
+		if (clanName == null || clanName.isEmpty())
+		{
+			clanName = cfg.event.name;
+		}
 
-		ConnectionView view = new ConnectionView(
-			LOCAL_INSTANCE_ID, clanName, cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, activityLog.snapshot(), focus);
-		return Collections.singletonList(view);
+		return new ConnectionView(
+			conn.instanceId(), clanName, cfg.event.name, error,
+			tilesComplete, tilesTotal, nearest, conn.activityLog().snapshot(), focus);
 	}
 
 	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */

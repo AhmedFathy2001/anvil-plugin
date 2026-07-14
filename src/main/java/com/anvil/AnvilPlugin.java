@@ -138,6 +138,11 @@ public class AnvilPlugin extends Plugin {
     @Getter
     private BingoApiClient apiClient;
 
+    // Multi-home federation spine. Connection #0 is a view over the injected apiClient + live config
+    // above (default behaviour unchanged); opt-in extra homes from config.federationHomes() add more.
+    @Inject
+    private ConnectionManager connectionManager;
+
     @Inject
     private ItemManager itemManager;
 
@@ -729,6 +734,12 @@ public class AnvilPlugin extends Plugin {
 
         configureApiClient();
 
+        // Multi-home spine: bind connection #0 to the injected client + live config (no behaviour
+        // change), then parse any opt-in extra homes. Empty field ⇒ just connection #0.
+        connectionManager.initPrimary(apiClient, this::getPluginConfig);
+        connectionManager.syncHomes(config.federationHomes());
+        executor.submit(() -> safely("federation initial poll", connectionManager::pollExtras));
+
         // Initial config fetch. If the plugin was enabled mid-session (already logged in),
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
         // the very first authed request carries the identity headers.
@@ -750,6 +761,7 @@ public class AnvilPlugin extends Plugin {
             safely("refreshSchedule", this::refreshSchedule);
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
+            safely("federationPollExtras", connectionManager::pollExtras);
         }, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -1009,20 +1021,23 @@ public class AnvilPlugin extends Plugin {
      * Data source for the progress sidebar. This is the single wiring seam between the panel and its
      * data — the panel only knows the {@link SidebarDataSource} interface.
      *
-     * <p>Binds the real single-home {@link AnvilSidebarDataSource}: it reads the config THIS plugin
-     * already polls (via {@code this::getPluginConfig} — no extra board request, no shared-ETag clash)
-     * and adds one conditional GET for the live feed. Offline (no Site URL/token) it simply resolves to
-     * the empty state. For offline UI work, swap the return for {@code mock} ({@link MockSidebarDataSource}
-     * populates every section with fake, live-moving data).</p>
-     *
-     * TODO(federation-multihome): generalise {@link AnvilSidebarDataSource} to iterate the member's
-     * {@code {baseUrl, token}} homes (Layer 0; see docs/FEDERATION.md) — one {@link ConnectionView} per
-     * home. Nothing in AnvilSidebarPanel changes when that lands.
+     * <p>Binds the multi-home {@link AnvilSidebarDataSource} over the {@link ConnectionManager}.
+     * Connection&nbsp;#0 is a view over the config THIS plugin already polls (via
+     * {@code this::getPluginConfig} — no extra board request, no shared-ETag clash) plus the injected
+     * {@link BingoApiClient}, so with no extra homes configured the sidebar behaves exactly as the
+     * single-home source always has (one row, its own live feed + spotlight). Opt-in extra homes from
+     * {@link AnvilConfig#federationHomes()} add one further row each. Offline (no Site URL/token) it
+     * resolves to the empty state. For offline UI work, swap the return for {@code mock}
+     * ({@link MockSidebarDataSource} populates every section with fake, live-moving data).</p>
      */
     @Provides
     @Singleton
     SidebarDataSource provideSidebarDataSource(MockSidebarDataSource mock) {
-        return new AnvilSidebarDataSource(this::getPluginConfig, apiClient);
+        // Bind connection #0 to the injected client + live config now; extra homes are parsed in
+        // startUp()/onConfigChanged (where config is guaranteed injected). With none, this is the
+        // single-home source exactly.
+        connectionManager.initPrimary(apiClient, this::getPluginConfig);
+        return new AnvilSidebarDataSource(connectionManager);
     }
 
     @Subscribe
@@ -1034,6 +1049,14 @@ public class AnvilPlugin extends Plugin {
         scheduleRefresh();
 
         String key = event.getKey();
+        // Opt-in multi-home list edited: reconcile extra connections (keeps live ones alive) and
+        // kick an off-thread poll so a newly-added clan shows up promptly. Empty ⇒ back to single-home.
+        if ("federationHomes".equals(key)) {
+            connectionManager.syncHomes(config.federationHomes());
+            if (executor != null && !executor.isShutdown()) {
+                executor.submit(() -> safely("federation resync poll", connectionManager::pollExtras));
+            }
+        }
         // Setup pasted mid-session (the typical first install: enable the plugin while
         // logged in, then enter Site URL + Account Token): stamp the RSN/account hash and
         // greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
@@ -2493,6 +2516,11 @@ public class AnvilPlugin extends Plugin {
         return (long) Math.floor(current / step) > (long) Math.floor((current - addedThisWindow) / step);
     }
 
+    // TODO(federation): kill-tile submissions still credit connection #0 only. The fan-out engine
+    // (ConnectionManager.dropDescriptor + submitDropToExtras) and per-connection killNpcIndex
+    // (AnvilConnection.tileIndex().killNpcIndex) already exist — wiring this kind to fan a kill out to
+    // every matching home mirrors the drop path in processPendingSubmission. Same for gains, timed,
+    // and the KC/XP stat pushes below. Left for a follow-up so this change stays additive + low-risk.
     private void doSubmitKillAggregate(KillAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedKill kill = agg.kill;
@@ -3376,16 +3404,42 @@ public class AnvilPlugin extends Plugin {
                 );
             } else {
                 log.info("Submitting drop for tile '{}'...", pending.label);
-                apiClient.submitDrop(
-                        pending.eventId,
-                        pending.tileId,
-                        pending.teamId,
-                        pending.amount,
-                        imageUrl,
-                        pending.note,
-                        pending.playerId,
-                        pending.itemId
-                );
+                // Federation fan-out: if opt-in extra homes track this item on a live event, this same
+                // drop is credited to each of them too (own team, own tile), and every /events call gets
+                // a fanout descriptor. With no extra homes (the default), matchedExtras is empty and
+                // descriptor is null — so this is byte-for-byte the plain single submitDrop from before.
+                List<AnvilConnection> matchedExtras = Collections.emptyList();
+                FanoutDescriptor descriptor = null;
+                if (connectionManager.hasExtraConnections() && pending.itemId != null) {
+                    matchedExtras = connectionManager.extrasTrackingDrop(pending.itemId);
+                    descriptor = connectionManager.dropDescriptor(matchedExtras);
+                }
+                if (descriptor != null) {
+                    apiClient.submitDropFanout(
+                            pending.eventId, pending.tileId, pending.teamId, pending.amount,
+                            imageUrl, pending.note, pending.playerId, pending.itemId, descriptor);
+                } else {
+                    apiClient.submitDrop(
+                            pending.eventId,
+                            pending.tileId,
+                            pending.teamId,
+                            pending.amount,
+                            imageUrl,
+                            pending.note,
+                            pending.playerId,
+                            pending.itemId
+                    );
+                }
+                // Credit every other connected clan that tracks this item (best-effort; each isolated —
+                // a decline/failure on one never affects the primary above or a sibling).
+                if (!matchedExtras.isEmpty()) {
+                    int fanned = connectionManager.submitDropToExtras(
+                            matchedExtras, pngBytes, pending.itemId, pending.amount,
+                            pending.note, descriptor, pending.label);
+                    if (fanned > 0) {
+                        log.info("Federation: '{}' also credited to {} other clan(s)", pending.label, fanned);
+                    }
+                }
             }
 
             log.info("Submission '{}' sent successfully!", pending.label);

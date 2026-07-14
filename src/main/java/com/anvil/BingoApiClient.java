@@ -894,6 +894,92 @@ public class BingoApiClient
 	}
 
 	/**
+	 * Outcome of a federated submission — carries the instance's {@code sharedCredit} decision so the
+	 * caller (a fan-out to several clans) can tell an accepted credit from a declined one. A plain 2xx
+	 * with no body is treated as {@code credited:true} (today's servers respond that way).
+	 */
+	public static final class SubmitResult
+	{
+		/** True when this instance credited the event; false when it declined (e.g. {@code exclusive}). */
+		public final boolean credited;
+		/** Server-supplied decline reason (e.g. {@code "exclusive"}), or {@code null} when credited. */
+		public final String reason;
+
+		SubmitResult(boolean credited, String reason)
+		{
+			this.credited = credited;
+			this.reason = reason;
+		}
+	}
+
+	/**
+	 * POST /api/events/{eventId}/submissions with a {@link FanoutDescriptor} attached — the federated
+	 * variant of {@link #submitDrop} used when the same game event is credited to more than one
+	 * connected clan (see {@code FEDERATION_WIRE.md} §5). Identical body to {@code submitDrop} plus a
+	 * {@code "fanout"} object; parses the {@code 200 {credited:false, reason:"exclusive"}} decline so a
+	 * per-clan {@code sharedCredit: exclusive} opt-out is honoured. A {@code null} descriptor omits the
+	 * field entirely (so a single-connection match stays byte-for-byte the plain {@code submitDrop}).
+	 */
+	public SubmitResult submitDropFanout(int eventId, int tileId, int teamId, int amount, String imageUrl,
+		String note, int creditPlayerId, Integer itemId, FanoutDescriptor fanout) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("tileId", tileId);
+		payload.addProperty("teamId", teamId);
+		payload.addProperty("amount", amount);
+		payload.addProperty("imageUrl", imageUrl);
+		payload.addProperty("note", note);
+		payload.addProperty("creditPlayerId", creditPlayerId);
+		if (itemId != null)
+		{
+			payload.addProperty("itemId", itemId);
+		}
+		if (fanout != null)
+		{
+			payload.add("fanout", fanout.toJson());
+		}
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			String responseBody = response.body() != null ? response.body().string() : "";
+			if (!response.isSuccessful())
+			{
+				throw submissionError("Submission failed", response.code(), responseBody == null || responseBody.isEmpty() ? "no body" : responseBody);
+			}
+			return parseSubmitResult(responseBody, tileId);
+		}
+	}
+
+	/** A 2xx body may carry {@code {credited:false, reason:"exclusive"}}; absent/garbage ⇒ credited. */
+	private SubmitResult parseSubmitResult(String responseBody, int tileId)
+	{
+		if (responseBody != null && !responseBody.isEmpty())
+		{
+			try
+			{
+				JsonObject o = new JsonParser().parse(responseBody).getAsJsonObject();
+				if (o.has("credited") && !o.get("credited").getAsBoolean())
+				{
+					String reason = o.has("reason") ? o.get("reason").getAsString() : null;
+					log.info("Drop tile {} not credited by instance (reason={})", tileId, reason);
+					return new SubmitResult(false, reason);
+				}
+			}
+			catch (RuntimeException ignored)
+			{
+				// Not JSON, or no credited field — a plain success. Fall through to credited:true.
+			}
+		}
+		log.info("Drop submitted successfully for tile {}", tileId);
+		return new SubmitResult(true, null);
+	}
+
+	/**
 	 * POST /api/plugin/stats — real-time boss KC push (no screenshot). Body is
 	 * {@code {"stats":[{"name":"<in-game boss name>","kc":<absolute count>}]}}. The event, team, and
 	 * player are resolved server-side from the account-token auth (Bearer + X-RSN + X-Account-Hash),
