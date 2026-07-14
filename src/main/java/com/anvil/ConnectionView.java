@@ -58,17 +58,18 @@ public final class ConnectionView
 	public final List<ActivityEntry> recentActivity;
 
 	/**
-	 * The tile you're "working on" — the incomplete tile whose progress most recently ticked up
-	 * ({@link WorkingOnTracker}), or {@code null} when nothing has advanced this session. Drives the
-	 * panel's spotlight card. Held as a {@link ClogTaskModel.TaskRow} (RuneLite-free) so this stays
-	 * network-agnostic like the rest of the view-model.
+	 * Tiles being <em>actively worked right now</em> — yours and any teammate's, deduped by tile (a boss
+	 * you're doing together is one row listing both). Ordered most-recently-updated first. Derived from
+	 * the feed's per-player attribution, so it reflects who's actually credited progress, not a
+	 * team-aggregate delta. Never {@code null} (empty = nobody's mid-task, or only stat grinds which
+	 * don't submit).
 	 */
-	public final ClogTaskModel.TaskRow focus;
+	public final List<ActiveTask> activeNow;
 
-	/** Canonical constructor — carries the live layer (feed + focus) alongside the board summary. */
+	/** Canonical constructor — carries the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, ClogTaskModel.TaskRow focus)
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -82,16 +83,18 @@ public final class ConnectionView
 		this.recentActivity = recentActivity == null
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(recentActivity));
-		this.focus = focus;
+		this.activeNow = activeNow == null
+			? Collections.emptyList()
+			: Collections.unmodifiableList(new ArrayList<>(activeNow));
 	}
 
 	/** Healthy connection (no per-connection error) with the live layer. */
 	public ConnectionView(String instanceId, String clanName, String eventName,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, ClogTaskModel.TaskRow focus)
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
 	{
 		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, focus);
+			recentActivity, activeNow);
 	}
 
 	/** Board-only connection with a per-connection error (no live layer). */
@@ -148,6 +151,46 @@ public final class ConnectionView
 				return Math.min(100, (int) Math.round(current * 100.0 / target));
 			}
 			return complete ? 100 : 0;
+		}
+	}
+
+	/**
+	 * One tile someone's actively working, for the "Active now" list. Carries the tile's live
+	 * progress ({@link ClogTaskModel.TaskRow}) plus who's on it — {@code "You"} for the local player,
+	 * teammates by RSN, deduped (a boss you're both doing lists both on one row).
+	 */
+	public static final class ActiveTask
+	{
+		public final ClogTaskModel.TaskRow tile;
+		/** Distinct workers, "You" first when the local player is among them. Never null/empty. */
+		public final List<String> workers;
+		public final boolean includesSelf;
+
+		public ActiveTask(ClogTaskModel.TaskRow tile, List<String> workers, boolean includesSelf)
+		{
+			this.tile = tile;
+			this.workers = workers == null
+				? Collections.emptyList()
+				: Collections.unmodifiableList(new ArrayList<>(workers));
+			this.includesSelf = includesSelf;
+		}
+
+		/** "You", "Kayle", or "You + Kayle" / "You + 2 others" for the row's byline. */
+		public String workersLabel()
+		{
+			if (workers.isEmpty())
+			{
+				return "";
+			}
+			if (workers.size() == 1)
+			{
+				return workers.get(0);
+			}
+			if (workers.size() == 2)
+			{
+				return workers.get(0) + " + " + workers.get(1);
+			}
+			return workers.get(0) + " + " + (workers.size() - 1) + " others";
 		}
 	}
 }
