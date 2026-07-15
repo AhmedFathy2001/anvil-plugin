@@ -417,18 +417,21 @@ public class BingoApiClient
 		public final boolean login;
 		/** The broker verification page to open when {@link #login}; {@code null} otherwise. */
 		public final String verificationUrl;
+		/** The short device code the member types into the verification page ({@link #login} only); null otherwise. */
+		public final String userCode;
 
-		FederationConnect(boolean connected, boolean login, String verificationUrl)
+		FederationConnect(boolean connected, boolean login, String verificationUrl, String userCode)
 		{
 			this.connected = connected;
 			this.login = login;
 			this.verificationUrl = verificationUrl == null || verificationUrl.isEmpty() ? null : verificationUrl;
+			this.userCode = userCode == null || userCode.isEmpty() ? null : userCode;
 		}
 
 		/** Neither connected nor a usable login — the connect call failed or returned something unexpected. */
 		static FederationConnect unavailable()
 		{
-			return new FederationConnect(false, false, null);
+			return new FederationConnect(false, false, null, null);
 		}
 	}
 
@@ -460,13 +463,15 @@ public class BingoApiClient
 			String status = o.has("status") && o.get("status").isJsonPrimitive() ? o.get("status").getAsString() : "";
 			if ("connected".equals(status))
 			{
-				return new FederationConnect(true, false, null);
+				return new FederationConnect(true, false, null, null);
 			}
 			if ("login".equals(status))
 			{
 				String url = o.has("verificationUrl") && o.get("verificationUrl").isJsonPrimitive()
 					? o.get("verificationUrl").getAsString() : null;
-				return new FederationConnect(false, true, url);
+				String code = o.has("userCode") && o.get("userCode").isJsonPrimitive()
+					? o.get("userCode").getAsString() : null;
+				return new FederationConnect(false, true, url, code);
 			}
 			return FederationConnect.unavailable();
 		}

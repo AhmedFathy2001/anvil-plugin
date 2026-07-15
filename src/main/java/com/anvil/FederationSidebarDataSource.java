@@ -135,7 +135,11 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 			// Self-host: the Discord login happens on the BROKER's own page, opened in the member's system
 			// browser. The plugin only ever polls its home site's /state back to connected — no broker traffic.
 			openInBrowser(result.verificationUrl);
-			notify(status, "Finish the login in your browser…");
+			// Surface the device code so the member can type it into the broker's page (the page asks for
+			// "the code shown in your RuneLite plugin"); the broker returns it and the site relays it through.
+			notify(status, result.userCode != null
+				? "Enter code " + result.userCode + " in your browser, then sign in with Discord."
+				: "Finish the login in your browser…");
 			for (int i = 0; i < LOGIN_POLL_MAX_ATTEMPTS; i++)
 			{
 				try
