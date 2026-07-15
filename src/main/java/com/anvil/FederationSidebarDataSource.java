@@ -49,7 +49,7 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	 * plugin never dials the broker on any path (all broker traffic is server-to-server on the home site).
 	 * A rogue home returning a fake Discord-login URL on any other host is refused, never opened.
 	 */
-	static final String PINNED_BROKER_HOST = "admin.anvil.gg";
+	static final String PINNED_BROKER_HOST = "anvilosrs.com";
 
 	/** How long to wait between {@code /state} polls while a self-host Discord login is in the browser. */
 	private static final long LOGIN_POLL_INTERVAL_MS = 3_000L;
@@ -174,7 +174,7 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	 * §8 verificationUrl pinning: true only when {@code url} is a well-formed <b>HTTPS</b> URL whose host is
 	 * exactly the {@link #PINNED_BROKER_HOST pinned Anvil broker} — no embedded credentials
 	 * ({@code user@host}), no off-standard port, no {@code http}. Everything else (a rogue home's phishing
-	 * URL, a look-alike host like {@code admin.anvil.gg.evil.com}, a {@code creds@} trick) returns false and
+	 * URL, a look-alike host like {@code anvilosrs.com.evil.com}, a {@code creds@} trick) returns false and
 	 * is never opened. Uses {@link URI} host parsing, so authority tricks resolve to the real host.
 	 */
 	static boolean isPinnedBrokerUrl(String url)

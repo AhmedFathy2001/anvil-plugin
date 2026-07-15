@@ -195,7 +195,7 @@ public class FederationSidebarDataSourceTest
 	{
 		MockSite site = new MockSite();
 		// The verificationUrl MUST be on the pinned Anvil broker host (§8) or the plugin refuses to open it.
-		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://admin.anvil.gg/federation/device\"}";
+		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://anvilosrs.com/federation/device\"}";
 		// /state reports connected only from the 3rd poll on — proves the login poll loop actually waits.
 		site.stateSequence = new String[] {
 			"{\"enabled\":true,\"connected\":false,\"clans\":[]}",
@@ -214,7 +214,7 @@ public class FederationSidebarDataSourceTest
 
 			assertEquals(FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
 			assertEquals("the self-host login page was opened in the (injected) browser",
-				"https://admin.anvil.gg/federation/device", opened.get());
+				"https://anvilosrs.com/federation/device", opened.get());
 			assertTrue("polled /state back to connected", ds.federationStatus().connected);
 			assertNotNull(statuses);
 		}
@@ -273,24 +273,24 @@ public class FederationSidebarDataSourceTest
 	public void pinnedBrokerUrlValidation()
 	{
 		// Only HTTPS on the exact pinned broker host, no creds, standard port.
-		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg/federation/device"));
-		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg:443/federation/device?x=1"));
+		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com/federation/device"));
+		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com:443/federation/device?x=1"));
 		assertTrue("host match is case-insensitive",
-			FederationSidebarDataSource.isPinnedBrokerUrl("https://ADMIN.Anvil.GG/federation/device"));
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://ANVILOSRS.CoM/federation/device"));
 
-		assertFalse("http is refused", FederationSidebarDataSource.isPinnedBrokerUrl("http://admin.anvil.gg/x"));
+		assertFalse("http is refused", FederationSidebarDataSource.isPinnedBrokerUrl("http://anvilosrs.com/x"));
 		assertFalse("wrong host is refused", FederationSidebarDataSource.isPinnedBrokerUrl("https://evil.example/x"));
 		assertFalse("suffix look-alike host is refused",
-			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg.evil.com/x"));
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com.evil.com/x"));
 		assertFalse("embedded credentials are refused",
-			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg@evil.com/x"));
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com@evil.com/x"));
 		assertFalse("off-standard port is refused",
-			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg:8443/x"));
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com:8443/x"));
 		assertFalse(FederationSidebarDataSource.isPinnedBrokerUrl(null));
 		assertFalse(FederationSidebarDataSource.isPinnedBrokerUrl(""));
 		assertFalse("garbage is refused", FederationSidebarDataSource.isPinnedBrokerUrl("not a url"));
 		assertFalse("backslash authority trick is refused",
-			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg\\@evil.com/x"));
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com\\@evil.com/x"));
 	}
 
 	// ---- §9 oversized /state payload -------------------------------------------------------------
