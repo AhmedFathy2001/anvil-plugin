@@ -111,11 +111,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		int tilesComplete = ClogTaskModel.completedCount(rows);
 
 		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
-		ClogTaskModel.TaskRow focus = conn.workingOn().update(rows);
 
 		// One conditional GET for the feed; a null return (network hiccup / 304-with-no-cache) just
 		// leaves the log as-is — the board summary above is already valid, so this is a partial, not a
-		// total, failure. We surface it inline rather than throwing.
+		// total, failure. We surface it inline rather than throwing. Done BEFORE focus so the spotlight
+		// reads the freshest feed.
 		String error = null;
 		try
 		{
@@ -131,6 +131,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			error = "Live feed unavailable";
 		}
 
+		List<ActivityEntry> feed = conn.activityLog().snapshot();
+
+		// "Active now" = tiles someone credited progress on recently — yours AND teammates', deduped by
+		// tile. Derived from the feed's per-player attribution, so it's who actually did the work, not a
+		// team-aggregate delta (which used to flip the spotlight to whatever any teammate last touched).
+		List<ConnectionView.ActiveTask> activeNow = activeTasksFromFeed(feed, rows);
+
 		String clanName = conn.displayName();
 		if (clanName == null || clanName.isEmpty())
 		{
@@ -139,7 +146,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		return new ConnectionView(
 			conn.instanceId(), clanName, cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, conn.activityLog().snapshot(), focus);
+			tilesComplete, tilesTotal, nearest, feed, activeNow);
 	}
 
 	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */
@@ -168,6 +175,105 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private static double fraction(ClogTaskModel.TaskRow r)
 	{
 		return r.goal > 0 ? Math.min(1.0, (double) r.current / r.goal) : 0.0;
+	}
+
+	/** Max "active now" rows — keeps the section glanceable. */
+	private static final int MAX_ACTIVE = 4;
+
+	/** How recent a feed event must be to count as "active now". */
+	private static final long RECENT_WINDOW_MS = 15 * 60_000L;
+
+	/**
+	 * Tiles with recent PROGRESS activity, deduped by tile with each tile's distinct workers collected
+	 * ("You" for the local player, teammates by RSN). Most-recently-updated first, capped at
+	 * {@link #MAX_ACTIVE}. Only incomplete, on-board tiles within {@link #RECENT_WINDOW_MS} qualify —
+	 * a finished tile or a stale one drops out. Completions and stat-only grinds (no submission) don't
+	 * appear here; that's expected — this is the "who's mid-task right now" view.
+	 */
+	private static List<ConnectionView.ActiveTask> activeTasksFromFeed(
+		List<ActivityEntry> feed, List<ClogTaskModel.TaskRow> rows)
+	{
+		java.util.Map<Integer, ClogTaskModel.TaskRow> incompleteById = new java.util.HashMap<>();
+		for (ClogTaskModel.TaskRow r : rows)
+		{
+			if (!r.isCompleted())
+			{
+				incompleteById.put(r.tileId, r);
+			}
+		}
+
+		long now = System.currentTimeMillis();
+		// Feed is newest-first, so first-seen == most-recent → LinkedHashMap preserves that ordering.
+		java.util.LinkedHashMap<Integer, java.util.LinkedHashSet<String>> byTile = new java.util.LinkedHashMap<>();
+		java.util.Set<Integer> selfTiles = new java.util.HashSet<>();
+		for (ActivityEntry e : feed)
+		{
+			if (e.kind != ActivityEntry.Kind.PROGRESS || !incompleteById.containsKey(e.tileId))
+			{
+				continue;
+			}
+			long t = parseTsMillis(e.ts);
+			if (t >= 0 && now - t > RECENT_WINDOW_MS)
+			{
+				continue; // too old to be "active now"
+			}
+			String worker = e.self ? "You" : (e.player == null || e.player.isEmpty() ? null : e.player);
+			if (worker == null)
+			{
+				continue;
+			}
+			byTile.computeIfAbsent(e.tileId, k -> new java.util.LinkedHashSet<>()).add(worker);
+			if (e.self)
+			{
+				selfTiles.add(e.tileId);
+			}
+		}
+
+		List<ConnectionView.ActiveTask> out = new ArrayList<>();
+		for (java.util.Map.Entry<Integer, java.util.LinkedHashSet<String>> en : byTile.entrySet())
+		{
+			if (out.size() >= MAX_ACTIVE)
+			{
+				break;
+			}
+			boolean self = selfTiles.contains(en.getKey());
+			List<String> workers = new ArrayList<>();
+			if (self)
+			{
+				workers.add("You"); // always lead with the local player
+			}
+			for (String w : en.getValue())
+			{
+				if (!"You".equals(w))
+				{
+					workers.add(w);
+				}
+			}
+			out.add(new ConnectionView.ActiveTask(incompleteById.get(en.getKey()), workers, self));
+		}
+		return out;
+	}
+
+	/** Parse the server's {@code "yyyy-MM-dd HH:mm:ss"} UTC timestamp to epoch millis, or -1 if unparseable. */
+	private static long parseTsMillis(String ts)
+	{
+		if (ts == null || ts.isEmpty())
+		{
+			return -1;
+		}
+		String s = ts.trim().replace(' ', 'T');
+		if (s.endsWith("Z"))
+		{
+			s = s.substring(0, s.length() - 1);
+		}
+		try
+		{
+			return java.time.LocalDateTime.parse(s).toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+		}
+		catch (RuntimeException e)
+		{
+			return -1;
+		}
 	}
 
 	private static List<ActivityEntry> toEntries(List<BingoApiClient.ActivityItem> items)

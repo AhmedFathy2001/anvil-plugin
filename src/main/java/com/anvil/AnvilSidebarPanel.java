@@ -445,12 +445,21 @@ public class AnvilSidebarPanel extends PluginPanel
 		body.add(buildSummary(selected));
 		body.add(gap(12));
 
-		// Spotlight — the tile you're actively progressing (updates live as your drops land).
-		if (selected.focus != null)
+		// Active now — tiles you and teammates are working right now (deduped by tile).
+		if (!selected.activeNow.isEmpty())
 		{
-			body.add(sectionHeader("Working on"));
+			body.add(sectionHeader("Active now"));
 			body.add(gap(6));
-			body.add(buildSpotlight(selected.focus));
+			boolean firstActive = true;
+			for (ConnectionView.ActiveTask task : selected.activeNow)
+			{
+				if (!firstActive)
+				{
+					body.add(gap(8));
+				}
+				body.add(buildActiveRow(task));
+				firstActive = false;
+			}
 			body.add(gap(12));
 		}
 
@@ -504,37 +513,87 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * The "Working on" spotlight — a prominent card for the tile you most recently progressed. A taller,
-	 * gold bar (vs the muted nearest-tile rows) makes it the panel's focal point.
+	 * One "Active now" row: tile name + a "who's on it" byline ("You", "Kayle", "You + Kayle") + a thin
+	 * progress bar. Your own tasks lead in gold; teammate-only tasks stay neutral. The value/label live
+	 * in {@code FontManager} JLabels (never painted inside the bar) so the text renders crisply.
 	 */
-	private JPanel buildSpotlight(ClogTaskModel.TaskRow focus)
+	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
 	{
-		JPanel panel = new JPanel(new BorderLayout(0, 4));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createMatteBorder(0, 2, 0, 0, ColorScheme.BRAND_ORANGE),
-			BorderFactory.createEmptyBorder(8, 8, 8, 8)));
-		panel.setAlignmentX(LEFT_ALIGNMENT);
+		ClogTaskModel.TaskRow tile = task.tile;
+		Color accent = task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR;
 
-		JLabel name = new JLabel(ellipsize(focus.label, 30));
-		name.setFont(FontManager.getRunescapeFont());
-		name.setForeground(ColorScheme.TEXT_COLOR);
-		name.setToolTipText(focus.label);
-		panel.add(name, BorderLayout.NORTH);
+		JPanel row = new JPanel(new GridBagLayout());
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setAlignmentX(LEFT_ALIGNMENT);
 
-		int pct = focus.goal > 0 ? Math.min(100, (int) Math.round(focus.current * 100.0 / focus.goal)) : 0;
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.anchor = GridBagConstraints.WEST;
+
+		JLabel name = new JLabel(ellipsize(tile.label, 24));
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(accent);
+		name.setToolTipText(tile.label);
+		row.add(name, gbc);
+
+		JLabel value = new JLabel(progressValue(tile));
+		value.setFont(FontManager.getRunescapeSmallFont());
+		value.setForeground(VALUE_COLOR);
+		gbc.gridx = 1;
+		gbc.weightx = 0;
+		gbc.fill = GridBagConstraints.NONE;
+		gbc.anchor = GridBagConstraints.EAST;
+		row.add(value, gbc);
+
+		JLabel who = new JLabel(task.workersLabel());
+		who.setFont(FontManager.getRunescapeSmallFont());
+		who.setForeground(task.includesSelf ? ColorScheme.BRAND_ORANGE : VALUE_COLOR);
+		gbc.gridx = 0;
+		gbc.gridy = 1;
+		gbc.gridwidth = 2;
+		gbc.weightx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.insets = new java.awt.Insets(1, 0, 0, 0);
+		row.add(who, gbc);
+
 		JProgressBar bar = new JProgressBar(0, 100);
-		bar.setValue(pct);
-		bar.setStringPainted(true);
-		bar.setString(focus.goal > 0 ? focus.current + " / " + focus.goal : "In progress");
-		bar.setForeground(ColorScheme.BRAND_ORANGE);
-		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		bar.setValue(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0);
+		bar.setStringPainted(false);
 		bar.setBorderPainted(false);
-		bar.setPreferredSize(new Dimension(0, 16));
-		panel.add(bar, BorderLayout.CENTER);
+		bar.setForeground(task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR);
+		bar.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
+		gbc.gridy = 2;
+		gbc.insets = new java.awt.Insets(3, 0, 0, 0);
+		row.add(bar, gbc);
 
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-		return panel;
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
+	/** "1.5M / 2M", "248 / 500", or "" for an untargeted tile — big numbers abbreviated for the narrow panel. */
+	private static String progressValue(ClogTaskModel.TaskRow tile)
+	{
+		return tile.goal > 0 ? formatCount(tile.current) + " / " + formatCount(tile.goal) : "";
+	}
+
+	/** Compact count: 1_507_300 → "1.5M", 2_000_000 → "2M", 15_000 → "15K", 500 → "500". */
+	private static String formatCount(int n)
+	{
+		if (n >= 1_000_000)
+		{
+			double m = n / 1_000_000.0;
+			return (m == Math.floor(m) ? String.valueOf((int) m) : String.format("%.1f", m)) + "M";
+		}
+		if (n >= 10_000)
+		{
+			return (n / 1000) + "K";
+		}
+		return String.valueOf(n);
 	}
 
 	/** The team activity feed — one colored line per event (newest first), capped so the panel stays glanceable. */
@@ -618,15 +677,27 @@ public class AnvilSidebarPanel extends PluginPanel
 		event.setForeground(ColorScheme.TEXT_COLOR);
 		panel.add(event, BorderLayout.NORTH);
 
+		// Count + bar together. The count is a FontManager JLabel — NOT painted inside the bar (the
+		// bar's default L&F font rendered poorly); the bar is now a clean, string-less progress strip.
+		JPanel bottom = new JPanel(new BorderLayout(0, 2));
+		bottom.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+		JLabel count = new JLabel(c.tilesComplete + " / " + c.tilesTotal + " tiles · " + c.completionPercent() + "%");
+		count.setFont(FontManager.getRunescapeSmallFont());
+		count.setForeground(VALUE_COLOR);
+		bottom.add(count, BorderLayout.NORTH);
+
 		JProgressBar bar = new JProgressBar(0, 100);
 		bar.setValue(c.completionPercent());
-		bar.setStringPainted(true);
-		bar.setString(c.tilesComplete + " / " + c.tilesTotal + " tiles (" + c.completionPercent() + "%)");
+		bar.setStringPainted(false);
 		bar.setForeground(c.completionPercent() >= 100
 			? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
 		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		bar.setBorderPainted(false);
-		panel.add(bar, BorderLayout.CENTER);
+		bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT + 1));
+		bottom.add(bar, BorderLayout.CENTER);
+
+		panel.add(bottom, BorderLayout.CENTER);
 
 		return panel;
 	}

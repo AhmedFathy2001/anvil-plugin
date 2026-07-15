@@ -51,15 +51,23 @@ public class MockSidebarDataSource implements SidebarDataSource
 
 		List<ConnectionView> connections = new ArrayList<>();
 
-		// Clan 1 — the spotlight tile (Zulrah KC) creeps each tick so its bar visibly advances, and the
-		// feed leads with a matching self event so "Working on" and "Team activity" tell one story.
-		ClogTaskModel.TaskRow focus1 = new ClogTaskModel.TaskRow(
-			102, "500 Zulrah KC", ClogTaskModel.Type.STAT, 420 + creep * 2, 500, -1);
+		// Clan 1 — the Zulrah tile creeps each tick so its bar visibly advances; "Active now" shows a
+		// solo self task, a shared task (You + Kayle — dedup demo), and a teammate-only task.
 		List<ActivityEntry> feed1 = Arrays.asList(
 			new ActivityEntry("s" + (900 + creep), "", "You", 102, "500 Zulrah KC", ActivityEntry.Kind.PROGRESS, 2, true),
 			new ActivityEntry("c31", "", "Kayle", 140, "Tanzanite fang", ActivityEntry.Kind.COMPLETE, 0, false),
 			new ActivityEntry("s880", "", "Sara", 141, "Any barrows item", ActivityEntry.Kind.PROGRESS, 1, false),
 			new ActivityEntry("s875", "", "You", 143, "Full Graceful set", ActivityEntry.Kind.PROGRESS, 1, true));
+		List<ConnectionView.ActiveTask> active1 = Arrays.asList(
+			new ConnectionView.ActiveTask(
+				new ClogTaskModel.TaskRow(102, "500 Zulrah KC", ClogTaskModel.Type.STAT, 420 + creep * 2, 500, -1),
+				Arrays.asList("You"), true),
+			new ConnectionView.ActiveTask(
+				new ClogTaskModel.TaskRow(150, "Kill 50 Vorkath", ClogTaskModel.Type.STAT, 22 + creep, 50, -1),
+				Arrays.asList("You", "Kayle"), true),
+			new ConnectionView.ActiveTask(
+				new ClogTaskModel.TaskRow(141, "Any barrows item", ClogTaskModel.Type.DROP, 4, 5, -1),
+				Arrays.asList("Sara"), false));
 
 		connections.add(new ConnectionView(
 			"11111111-1111-4111-8111-111111111111",
@@ -72,13 +80,18 @@ public class MockSidebarDataSource implements SidebarDataSource
 				new ConnectionView.TileProgressView("Full Graceful set", 5, 6, false),
 				new ConnectionView.TileProgressView("Dragon warhammer", 0, 1, false)
 			),
-			feed1, focus1));
+			feed1, active1));
 
-		ClogTaskModel.TaskRow focus2 = new ClogTaskModel.TaskRow(
-			203, "10M Mining XP", ClogTaskModel.Type.STAT, 9_300_000 + creep * 15_000, 10_000_000, -1);
 		List<ActivityEntry> feed2 = Arrays.asList(
 			new ActivityEntry("c50", "", "Rex", 201, "Inferno cape", ActivityEntry.Kind.COMPLETE, 0, false),
 			new ActivityEntry("s710", "", "Mara", 202, "Any godsword", ActivityEntry.Kind.PROGRESS, 1, false));
+		List<ConnectionView.ActiveTask> active2 = Arrays.asList(
+			new ConnectionView.ActiveTask(
+				new ClogTaskModel.TaskRow(203, "10M Mining XP", ClogTaskModel.Type.STAT, 9_300_000 + creep * 15_000, 10_000_000, -1),
+				Arrays.asList("You"), true),
+			new ConnectionView.ActiveTask(
+				new ClogTaskModel.TaskRow(202, "Any godsword", ClogTaskModel.Type.DROP, 1, 2, -1),
+				Arrays.asList("Mara"), false));
 
 		connections.add(new ConnectionView(
 			"22222222-2222-4222-8222-222222222222",
@@ -90,7 +103,7 @@ public class MockSidebarDataSource implements SidebarDataSource
 				new ConnectionView.TileProgressView("10M Mining XP", 9_300_000 + creep * 15_000, 10_000_000, false),
 				new ConnectionView.TileProgressView("Any godsword", 1, 2, false)
 			),
-			feed2, focus2));
+			feed2, active2));
 
 		return connections;
 	}

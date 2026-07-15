@@ -79,7 +79,7 @@ public class AnvilSidebarDataSourceMultiTest
 		assertEquals(3, c.tilesTotal);
 		assertEquals(1, c.tilesComplete);
 		assertTrue(c.recentActivity.isEmpty());           // unconfigured client → no feed
-		assertNull(c.focus);                              // first fetch only seeds
+		assertTrue(c.activeNow.isEmpty());                // no feed → nobody shown as active
 		assertEquals("Any barrows item", c.nearestTiles.get(0).name); // 80% before 50%
 		assertEquals("500 Zulrah KC", c.nearestTiles.get(1).name);
 	}

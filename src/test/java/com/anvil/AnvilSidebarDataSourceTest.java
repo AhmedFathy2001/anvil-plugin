@@ -8,7 +8,6 @@ import okhttp3.OkHttpClient;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -71,7 +70,7 @@ public class AnvilSidebarDataSourceTest
 		assertEquals(3, c.tilesTotal);
 		assertEquals(1, c.tilesComplete);           // only Dragon warhammer is done
 		assertTrue(c.recentActivity.isEmpty());     // no network → empty feed
-		assertNull(c.focus);                        // first fetch only seeds — nothing has advanced yet
+		assertTrue(c.activeNow.isEmpty());          // "active now" is feed-driven; no feed → nothing
 
 		// Nearest = incomplete tiles, closest-to-done first (80% before 50%).
 		assertNotNull(c.nearestTiles);
@@ -80,17 +79,19 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
-	public void focusFollowsTheMostRecentlyAdvancedTile() throws Exception
+	public void teamAggregateConfigDeltasDoNotDriveActiveNow() throws Exception
 	{
+		// Regression guard for the "spotlight flips to a teammate's grind" bug: "active now" comes from
+		// the attributed feed, NOT from diffing team-aggregate config counts. So bumping a config count
+		// (which a teammate's progress would do) must NOT conjure an active-now row.
 		PluginConfigResponse cfg = eventConfig();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ds.fetchConnections();                       // seed baseline
-		cfg.trackedDrops.get(0).currentAmount = 7;   // Zulrah KC ticks up (like a live credit)
+		ds.fetchConnections();
+		cfg.trackedDrops.get(0).currentAmount = 7;   // team total ticks up (could be anyone)
 		ConnectionView c = ds.fetchConnections().get(0);
 
-		assertNotNull("a tile advanced → spotlight appears", c.focus);
-		assertEquals(101, c.focus.tileId);
+		assertTrue(c.activeNow.isEmpty());           // no self feed event → not "what I'm doing"
 	}
 
 	@Test
