@@ -38,9 +38,9 @@ import java.util.List;
  *       (same board-summary / working-on / activity / nearest sections as the single-home render).</li>
  * </ul>
  *
- * <p>Deliberately RuneLite-free and immutable, in the value-object style of {@link ConnectionView} /
- * {@link FederationHome}, so it and its parser are fully unit-testable. {@link #parse} never throws — a
- * malformed body yields a {@link #disabled()} sentinel so a bad response can never break the sidebar.</p>
+ * <p>Deliberately RuneLite-free and immutable, in the value-object style of {@link ConnectionView}, so it
+ * and its parser are fully unit-testable. {@link #parse} never throws — a malformed body yields a
+ * {@link #disabled()} sentinel so a bad response can never break the sidebar.</p>
  */
 public final class FederationState
 {

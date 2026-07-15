@@ -7,13 +7,9 @@ import java.util.function.Consumer;
  * the last-observed {@link FederationState} (to decide whether to offer a "Connect" affordance) and a
  * one-click {@link #connectFederation connect} action.
  *
- * <p>Only the auto-path data source ({@link FederationSidebarDataSource}) implements this. The manual
- * CSV / broker path ({@link AnvilSidebarDataSource} over {@link ConnectionManager}) does <em>not</em>, so
- * the panel simply hides the site-relay affordance when it's bound to the manual path — that path keeps
- * its own advanced "Connect clans" (broker) button instead (see {@code FEDERATION_WIRE.md} §10.5).</p>
- *
- * <p>The panel discovers the capability with an {@code instanceof} check, so wiring the manual path stays
- * a pure {@link SidebarDataSource} with no federation surface.</p>
+ * <p>The site-relay data source ({@link FederationSidebarDataSource}) implements this; a plain
+ * {@link SidebarDataSource} does not. The panel discovers the capability with an {@code instanceof}
+ * check and simply hides the site-relay "Connect clans" affordance when the bound source lacks it.</p>
  */
 public interface FederationStatusSource
 {

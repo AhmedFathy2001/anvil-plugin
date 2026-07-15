@@ -6,29 +6,23 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.LinkBrowser;
 
 /**
- * The <b>site-relay</b> sidebar data source — the default (auto) federation path
- * (see {@code FEDERATION_WIRE.md} §10). On this path the plugin's <em>entire</em> federation network
- * footprint is its own home site: it polls {@code GET /api/plugin/federation/state} and renders the
- * per-clan boards the site already fanned out and shaped, and it establishes federation with a single
+ * The <b>site-relay</b> sidebar data source — the plugin's only federation path
+ * (see {@code FEDERATION_WIRE.md} §10). The plugin's <em>entire</em> federation network footprint is its
+ * own home site: it polls {@code GET /api/plugin/federation/state} and renders the per-clan boards the
+ * site already fanned out and shaped, and it establishes federation with a single
  * {@code POST /api/plugin/federation/connect}. It NEVER contacts a broker or another clan's site, opens
- * no clan connections, and holds no clan tokens — all of that is now server-to-server.
+ * no clan connections, and holds no clan tokens — all of that is server-to-server.
  *
- * <h3>Routing (auto vs. manual)</h3>
- * This one source drives both federation paths so the binding needn't be re-chosen when config changes:
+ * <h3>Routing</h3>
  * <ul>
- *   <li><b>Auto (default):</b> no manual extras configured ⇒ poll {@code /state}. If federation is on and
- *       the site returned clans, render them. Otherwise fall back to the single-home render (the
- *       {@link #delegate}, which over a bare {@link ConnectionManager} is exactly today's one-home
- *       sidebar) — so with federation off, the default path is byte-for-byte unchanged.</li>
- *   <li><b>Manual (advanced, §10.5):</b> when the CSV "Extra clan connections" (or the broker button) has
- *       populated {@link ConnectionManager#hasExtraConnections() extra connections}, the plugin IS doing
- *       direct multi-connect — the only mode that does — so we render straight from the manager
- *       ({@link #delegate}) and suppress the site-relay affordance. That path is untouched.</li>
+ *   <li>Poll {@code /state}. If federation is on and the site returned clans, render them.</li>
+ *   <li>Otherwise fall back to the single-home render (the {@link #delegate}, a direct
+ *       {@link AnvilSidebarDataSource} over the plugin's own live config) — so with federation off, the
+ *       default path is byte-for-byte today's one-home sidebar.</li>
  * </ul>
  *
- * <p>The auto path never invokes {@link BrokerClient} or opens a clan connection; the {@code /connect}
- * login (self-host only) opens the <em>broker's own page</em> in the system browser and then polls the
- * home site's {@code /state} — no plugin↔broker traffic.</p>
+ * <p>The {@code /connect} login (self-host only) opens the <em>broker's own page</em> in the system
+ * browser and then polls the home site's {@code /state} — no plugin↔broker traffic.</p>
  */
 @Slf4j
 public class FederationSidebarDataSource implements SidebarDataSource, FederationStatusSource
@@ -54,9 +48,8 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	private static final int LOGIN_POLL_MAX_ATTEMPTS = 40;
 
 	private final BingoApiClient apiClient;
-	private final ConnectionManager connectionManager;
 
-	/** The single-home / manual-multi render (a {@link ConnectionManager}-backed {@link AnvilSidebarDataSource}). */
+	/** The single-home render — a direct {@link AnvilSidebarDataSource} over the plugin's own live config. */
 	private final SidebarDataSource delegate;
 
 	private final BrowserOpener browserOpener;
@@ -66,18 +59,16 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	private volatile FederationState lastState = FederationState.disabled();
 
 	/** Production binding — real system browser + real sleep. */
-	public FederationSidebarDataSource(BingoApiClient apiClient, ConnectionManager connectionManager,
-		SidebarDataSource delegate)
+	public FederationSidebarDataSource(BingoApiClient apiClient, SidebarDataSource delegate)
 	{
-		this(apiClient, connectionManager, delegate, FederationSidebarDataSource::browseWithLinkBrowser, Thread::sleep);
+		this(apiClient, delegate, FederationSidebarDataSource::browseWithLinkBrowser, Thread::sleep);
 	}
 
 	/** Test seam — injectable browser opener + sleeper so the connect/login flow runs offline and fast. */
-	FederationSidebarDataSource(BingoApiClient apiClient, ConnectionManager connectionManager,
-		SidebarDataSource delegate, BrowserOpener browserOpener, Sleeper sleeper)
+	FederationSidebarDataSource(BingoApiClient apiClient, SidebarDataSource delegate,
+		BrowserOpener browserOpener, Sleeper sleeper)
 	{
 		this.apiClient = apiClient;
-		this.connectionManager = connectionManager;
 		this.delegate = delegate;
 		this.browserOpener = browserOpener;
 		this.sleeper = sleeper;
@@ -92,14 +83,7 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
-		// Manual direct-connect path owns the sidebar (and its own broker button) — no site-relay here.
-		if (connectionManager.hasExtraConnections())
-		{
-			lastState = FederationState.disabled();
-			return delegate.fetchConnections();
-		}
-
-		// Auto path: the home site is the only host we touch.
+		// The home site is the only host we touch.
 		FederationState state = apiClient.fetchFederationState();
 		lastState = state != null ? state : FederationState.disabled();
 		if (state != null && state.enabled && !state.clans.isEmpty())

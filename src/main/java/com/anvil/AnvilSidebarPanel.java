@@ -9,7 +9,6 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
 import javax.inject.Inject;
-import javax.inject.Provider;
 import javax.inject.Singleton;
 import javax.swing.Box;
 import javax.swing.BorderFactory;
@@ -63,27 +62,14 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private final SidebarDataSource dataSource;
 
-	// Site-relay federation (FEDERATION_WIRE.md §10, the DEFAULT path): the sidebar's data source polls the
-	// home site's /federation/state and renders the clans the SITE fans out. The plugin makes NO broker or
-	// clan connections here. Non-null only when the bound data source exposes the capability (the auto path);
-	// the manual CSV path binds a plain SidebarDataSource, so this is null and the site-relay CTA stays hidden.
+	// Site-relay federation (FEDERATION_WIRE.md §10, the plugin's ONLY federation path): the sidebar's data
+	// source polls the home site's /federation/state and renders the clans the SITE fans out. The plugin
+	// makes NO broker or clan connections. Non-null only when the bound data source exposes the capability.
 	private final FederationStatusSource federationStatus;
-
-	// Advanced/self-host DIRECT multi-connect (§10.5): the "Extra clan connections" CSV plus the opt-in
-	// broker "Connect clans" button below. Feature-gated OFF by default — the button only shows when a broker
-	// URL is configured, and blank config ⇒ pure single-home. This is the ONLY place the plugin connects
-	// directly to more than one clan; the auto path above never touches it.
-	private final Provider<BrokerClient> brokerClientProvider;
-	private final ConnectionManager connectionManager;
-	private final AnvilConfig config;
 
 	// Header controls (persistent across state changes).
 	private final JComboBox<ConnectionView> clanFilter = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
-	private final JButton connectButton = new JButton("Connect clans");
-	private final JLabel connectStatus = new JLabel();
-	private final JPanel connectRow = new JPanel(new BorderLayout(0, 2));
-	private boolean connectInFlight;
 
 	// Site-relay "Connect clans" affordance (auto path). Shown ONLY when the site says federation is enabled
 	// but this home isn't connected yet; a click POSTs /federation/connect (hosted = zero-click, self-host =
@@ -108,15 +94,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean fetchInFlight;
 
 	@Inject
-	public AnvilSidebarPanel(SidebarDataSource dataSource, Provider<BrokerClient> brokerClientProvider,
-		ConnectionManager connectionManager, AnvilConfig config)
+	public AnvilSidebarPanel(SidebarDataSource dataSource)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
 		this.federationStatus = dataSource instanceof FederationStatusSource ? (FederationStatusSource) dataSource : null;
-		this.brokerClientProvider = brokerClientProvider;
-		this.connectionManager = connectionManager;
-		this.config = config;
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -154,21 +136,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
 		titleRow.setAlignmentX(LEFT_ALIGNMENT);
 
-		// "Connect clans" — the broker device-login flow. Feature-gated: this whole row is hidden unless a
-		// broker URL is set in config (blank ⇒ pure single-home; the CSV field stays the advanced fallback).
-		connectButton.setFocusPainted(false);
-		connectButton.setForeground(ColorScheme.BRAND_ORANGE);
-		connectButton.addActionListener(e -> onConnectClans());
-		connectStatus.setFont(FontManager.getRunescapeSmallFont());
-		connectStatus.setForeground(VALUE_COLOR);
-		connectStatus.setVisible(false);
-		connectRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		connectRow.add(connectButton, BorderLayout.NORTH);
-		connectRow.add(connectStatus, BorderLayout.SOUTH);
-		connectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, connectRow.getPreferredSize().height));
-		connectRow.setAlignmentX(LEFT_ALIGNMENT);
-		connectRow.setVisible(brokerConfigured());
-
 		// Site-relay "Connect clans" (auto path). Visibility is driven live from /federation/state
 		// (see updateSiteConnectAffordance) — hidden until the site reports federation on & not connected.
 		siteConnectButton.setFocusPainted(false);
@@ -190,7 +157,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(siteConnectRow);
-		top.add(connectRow);
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — a dropdown scales past the two-clan mock to the N connected homes multi-home
@@ -228,84 +194,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void onDeactivate()
 	{
 		autoRefresh.stop();
-	}
-
-	// ---- "Connect clans" broker flow --------------------------------------------------------------
-
-	/** True once a federation broker URL is set — the single gate for the whole broker-login UX. */
-	private boolean brokerConfigured()
-	{
-		String url = config.federationBrokerUrl();
-		return url != null && !url.trim().isEmpty();
-	}
-
-	/**
-	 * Drive the §9.6 device-code broker flow off the EDT: Discord login in the system browser → poll →
-	 * {@code /me/instances} → {@code /assert} → per-instance {@code /exchange} → populate
-	 * {@link ConnectionManager}. Status lines are marshalled back to the EDT via {@code publish}; when it
-	 * finishes we poll the new homes' boards and re-render so they light up. No token is ever hand-pasted.
-	 */
-	private void onConnectClans()
-	{
-		if (connectInFlight)
-		{
-			return;
-		}
-		connectInFlight = true;
-		connectButton.setEnabled(false);
-		setConnectStatus("Logging in…");
-
-		new SwingWorker<BrokerClient.ConnectResult, String>()
-		{
-			@Override
-			protected BrokerClient.ConnectResult doInBackground()
-			{
-				BrokerClient broker = brokerClientProvider.get();
-				if (broker == null || !broker.isEnabled())
-				{
-					publish("Set a broker URL in the plugin's Federation config first.");
-					return null;
-				}
-				BrokerClient.ConnectResult result = broker.connectAll(connectionManager, this::publish);
-				// Fetch the freshly-connected homes' boards so the sidebar can render them immediately.
-				connectionManager.pollExtras();
-				return result;
-			}
-
-			@Override
-			protected void process(List<String> chunks)
-			{
-				if (!chunks.isEmpty())
-				{
-					setConnectStatus(chunks.get(chunks.size() - 1));
-				}
-			}
-
-			@Override
-			protected void done()
-			{
-				connectInFlight = false;
-				connectButton.setEnabled(true);
-				try
-				{
-					get(); // surface a background exception as the catch below
-				}
-				catch (Exception ex)
-				{
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.debug("connect-clans flow failed", cause);
-					setConnectStatus("Connect failed — try again.");
-				}
-				refresh(); // re-render with any new connections in hand
-			}
-		}.execute();
-	}
-
-	private void setConnectStatus(String text)
-	{
-		connectStatus.setText(text == null ? "" : text);
-		connectStatus.setVisible(text != null && !text.isEmpty());
-		connectRow.revalidate();
 	}
 
 	// ---- Site-relay "Connect clans" flow (auto path, FEDERATION_WIRE.md §10.2) --------------------
@@ -399,8 +287,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	public void refresh()
 	{
-		// Reveal/hide the broker CTA if the URL was set/cleared in config since the panel opened.
-		connectRow.setVisible(brokerConfigured());
 		if (fetchInFlight)
 		{
 			return;

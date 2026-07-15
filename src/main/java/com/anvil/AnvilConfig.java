@@ -65,14 +65,6 @@ public interface AnvilConfig extends Config
 	)
 	String supportSection = "supportSection";
 
-	@ConfigSection(
-		name = "Federation (advanced)",
-		description = "Connect to more than one Anvil clan at once. Off unless you fill in the extra homes below.",
-		position = 8,
-		closedByDefault = true
-	)
-	String federationSection = "federationSection";
-
 	// ---- Setup ----
 
 	@ConfigItem(
@@ -540,38 +532,6 @@ public interface AnvilConfig extends Config
 	default Keybind exportDebugLogHotkey()
 	{
 		return Keybind.NOT_SET;
-	}
-
-	// ---- Federation (advanced, opt-in multi-home) ----
-
-	@ConfigItem(
-		keyName = "federationHomes",
-		name = "Extra clan connections",
-		description = "OPTIONAL. Connect to additional Anvil clans beyond the one above, so one game event can be "
-			+ "credited to every clan you're in. One per line as \"<Site URL> <Account Token>\" (e.g. "
-			+ "https://clan-b.example.com  tok_abc123), or paste a JSON array of {baseUrl, token}. Leave blank to "
-			+ "use just the single site above — the normal setup.",
-		position = 1,
-		secret = true,
-		section = "federationSection"
-	)
-	default String federationHomes()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "federationBrokerUrl",
-		name = "Broker URL (experimental)",
-		description = "OPTIONAL and OFF by default. A federation broker base URL to auto-connect your clans via a "
-			+ "one-time Discord login instead of pasting tokens above. Leave blank unless your network runs a broker "
-			+ "— this path is pending plugin-hub review.",
-		position = 2,
-		section = "federationSection"
-	)
-	default String federationBrokerUrl()
-	{
-		return "";
 	}
 
 }

@@ -11,13 +11,13 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The live {@link SidebarDataSource} behind the always-on sidebar. Single-home and multi-home use one
- * code path — the same shaping is applied per {@link AnvilConnection}, so the panel shows one row per
- * connected clan without any panel change.
+ * The live {@link SidebarDataSource} behind the always-on sidebar. It renders the plugin's one home
+ * (connection&nbsp;#0) — a view over the {@link PluginConfigResponse} the plugin already polls plus the
+ * injected {@link BingoApiClient} — into a single {@link ConnectionView}.
  *
- * <p>Board summary + nearest tiles come from each connection's already-polled config (no extra board
- * request). The activity feed is the source's only network call — one conditional GET to
- * {@code /api/plugin/activity} per connection per refresh, 304 while idle.</p>
+ * <p>Board summary + nearest tiles come from the already-polled config (no extra board request). The
+ * activity feed is the source's only network call — one conditional GET to {@code /api/plugin/activity}
+ * per refresh, 304 while idle.</p>
  *
  * <p><b>"Active now"</b> — who's mid-task right now — is fused from three signals so it works for every
  * tile kind, deployed endpoint or not:</p>
@@ -25,20 +25,23 @@ import lombok.extern.slf4j.Slf4j;
  *   <li><b>Config-count deltas</b> on stat tiles (skill XP / boss KC). These are the ONLY signal for
  *       stat grinds — they never create a submission — and they need no activity endpoint. A rise means
  *       <em>someone</em> on the team progressed it.</li>
- *   <li><b>The local stat signal</b> ({@code AnvilPlugin::localStatProgress}, primary connection only)
- *       attributes those stat rises: a tile THIS account just gained on reads "You"; a rise on a tile it
- *       didn't touch reads "a teammate".</li>
+ *   <li><b>The local stat signal</b> ({@code AnvilPlugin::localStatProgress}) attributes those stat
+ *       rises: a tile THIS account just gained on reads "You"; a rise on a tile it didn't touch reads
+ *       "a teammate".</li>
  *   <li><b>The feed</b> attributes submission tiles (drops/kills/…) by name ("You", or a teammate's RSN)
  *       — available once {@code /api/plugin/activity} is deployed.</li>
  * </ul>
  * Signals merge by tile (deduped workers, "You" first), newest-active first, capped.
  *
- * <p>Called off the EDT by the panel's worker (one at a time), so the per-connection delta state below
- * needs no locking.</p>
+ * <p>Called off the EDT by the panel's worker (one at a time), so the delta state below needs no
+ * locking.</p>
  */
 @Slf4j
 public class AnvilSidebarDataSource implements SidebarDataSource
 {
+	/** Stable id for the plugin's one home. */
+	static final String LOCAL_INSTANCE_ID = "local";
+
 	/** How many nearest-to-done incomplete tiles to surface. */
 	private static final int NEAREST_LIMIT = 5;
 
@@ -52,87 +55,62 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 */
 	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
 
-	/** Multi-home mode: the source of every connection. Null in single-home mode. */
-	private final ConnectionManager connectionManager;
+	/** The plugin's live config (connection #0). */
+	private final Supplier<PluginConfigResponse> configSupplier;
 
-	/** Single-home mode: the one primary connection, held so its live state persists across refreshes. */
-	private final AnvilConnection primaryConnection;
+	/** The plugin's injected client — the sidebar's one network call (the activity feed) rides on it. */
+	private final BingoApiClient apiClient;
 
 	/** Stat tiles this account recently progressed (tileId → millis) — the "You" attribution for stat grinds. */
 	private final Supplier<Map<Integer, Long>> localStatProgress;
 
-	// Per-connection (keyed by instanceId) state for the config-delta signal: last-seen team amount per
-	// tile, and when each tile last rose. Persist across refreshes; cleared on event change.
+	// Live-sidebar state, scoped to the active event.
+	private final AnvilActivityLog activityLog = new AnvilActivityLog();
+	private int scopedEventId = -1;
+
+	// State for the config-delta signal: last-seen team amount per tile, and when each tile last rose.
+	// Persist across refreshes; cleared on event change. Keyed by the (single) instance id.
 	private final Map<String, Map<Integer, Integer>> lastAmounts = new HashMap<>();
 	private final Map<String, Map<Integer, Long>> roseAt = new HashMap<>();
 
-	/** Single-home binding — one connection over the plugin's live config + injected client. */
+	/** Single-home binding — the plugin's live config + injected client. */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient)
 	{
 		this(configSupplier, apiClient, Collections::emptyMap);
 	}
 
-	/** Single-home binding with the local stat signal (used in tests to drive attribution). */
+	/** Single-home binding with the local stat signal (the real plugin binding; drives attribution in tests). */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
 		Supplier<Map<Integer, Long>> localStatProgress)
 	{
-		this.connectionManager = null;
-		this.primaryConnection = AnvilConnection.primary(apiClient, configSupplier);
-		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
-	}
-
-	/** Multi-home binding — one {@link ConnectionView} per connected clan (no local signal). */
-	public AnvilSidebarDataSource(ConnectionManager connectionManager)
-	{
-		this(connectionManager, Collections::emptyMap);
-	}
-
-	/** Multi-home binding with the local stat signal (the real plugin binding). */
-	public AnvilSidebarDataSource(ConnectionManager connectionManager, Supplier<Map<Integer, Long>> localStatProgress)
-	{
-		this.connectionManager = connectionManager;
-		this.primaryConnection = null;
+		this.configSupplier = configSupplier;
+		this.apiClient = apiClient;
 		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
 	}
 
 	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
-		if (connectionManager == null)
-		{
-			ConnectionView view = buildViewFor(primaryConnection);
-			return view == null ? Collections.emptyList() : Collections.singletonList(view);
-		}
-		List<ConnectionView> out = new ArrayList<>();
-		for (AnvilConnection conn : connectionManager.connections())
-		{
-			ConnectionView view = buildViewFor(conn);
-			if (view != null)
-			{
-				out.add(view);
-			}
-		}
-		return out;
+		ConnectionView view = buildView();
+		return view == null ? Collections.emptyList() : Collections.singletonList(view);
 	}
 
-	private ConnectionView buildViewFor(AnvilConnection conn)
+	private ConnectionView buildView()
 	{
-		PluginConfigResponse cfg = conn.config();
+		PluginConfigResponse cfg = configSupplier.get();
 		if (cfg == null || cfg.event == null)
 		{
-			if (conn.scopedEventId() != -1)
+			if (scopedEventId != -1)
 			{
-				conn.resetLiveState();
-				forgetDeltas(conn.instanceId());
+				resetLiveState();
 			}
 			return null;
 		}
 
-		if (cfg.event.id != conn.scopedEventId())
+		if (cfg.event.id != scopedEventId)
 		{
-			conn.resetLiveState();
-			forgetDeltas(conn.instanceId()); // a new event's deltas must not inherit the old board's amounts
-			conn.setScopedEventId(cfg.event.id);
+			resetLiveState(); // a new event's deltas must not inherit the old board's amounts
+			scopedEventId = cfg.event.id;
 		}
 
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
@@ -145,10 +123,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		String error = null;
 		try
 		{
-			BingoApiClient.ActivityResponse ar = conn.client().fetchActivity(conn.activityLog().getCursor());
+			BingoApiClient.ActivityResponse ar = apiClient.fetchActivity(activityLog.getCursor());
 			if (ar != null && !ar.noActiveEvent)
 			{
-				conn.activityLog().ingest(ar.cursor, toEntries(ar.activity));
+				activityLog.ingest(ar.cursor, toEntries(ar.activity));
 			}
 		}
 		catch (RuntimeException e)
@@ -157,18 +135,40 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			error = "Live feed unavailable";
 		}
 
-		List<ActivityEntry> feed = conn.activityLog().snapshot();
-		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(conn, cfg, rows, feed);
+		List<ActivityEntry> feed = activityLog.snapshot();
+		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
 
-		String clanName = conn.displayName();
+		String clanName = primaryDisplayName(cfg);
 		if (clanName == null || clanName.isEmpty())
 		{
 			clanName = cfg.event.name;
 		}
 
 		return new ConnectionView(
-			conn.instanceId(), clanName, cfg.event.name, error,
+			LOCAL_INSTANCE_ID, clanName, cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, feed, activeNow);
+	}
+
+	/** Reset the feed + delta state when the active event changes (or clears). */
+	private void resetLiveState()
+	{
+		activityLog.reset();
+		scopedEventId = -1;
+		forgetDeltas(LOCAL_INSTANCE_ID);
+	}
+
+	/** The clan/event label for the header: team name ?? event name ?? "". */
+	private static String primaryDisplayName(PluginConfigResponse cfg)
+	{
+		if (cfg.team != null && cfg.team.name != null && !cfg.team.name.isEmpty())
+		{
+			return cfg.team.name;
+		}
+		if (cfg.event != null && cfg.event.name != null && !cfg.event.name.isEmpty())
+		{
+			return cfg.event.name;
+		}
+		return "";
 	}
 
 	private void forgetDeltas(String instanceId)
@@ -178,7 +178,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
-	private List<ConnectionView.ActiveTask> buildActiveNow(AnvilConnection conn, PluginConfigResponse cfg,
+	private List<ConnectionView.ActiveTask> buildActiveNow(PluginConfigResponse cfg,
 		List<ClogTaskModel.TaskRow> rows, List<ActivityEntry> feed)
 	{
 		final long now = System.currentTimeMillis();
@@ -224,8 +224,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			add(acc, incompleteById, e.tileId, worker, e.self, t < 0 ? now : t);
 		}
 
-		// 2. Local stat signal (primary connection only) — "You" on stat tiles this account is grinding.
-		Map<Integer, Long> local = isPrimary(conn) ? localStatProgress.get() : null;
+		// 2. Local stat signal — "You" on stat tiles this account is grinding.
+		Map<Integer, Long> local = localStatProgress.get();
 		if (local != null)
 		{
 			for (Map.Entry<Integer, Long> en : local.entrySet())
@@ -250,8 +250,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		// 3. Config-count deltas → an UNNAMED "a teammate", only as a fallback when the server doesn't
 		//    name workers itself (older server). Always tracks amounts for the next diff.
-		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(conn.instanceId(), k -> new HashMap<>());
-		Map<Integer, Long> rose = roseAt.computeIfAbsent(conn.instanceId(), k -> new HashMap<>());
+		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
+		Map<Integer, Long> rose = roseAt.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Integer> current = new HashMap<>();
 		for (ClogTaskModel.TaskRow r : rows)
 		{
@@ -284,7 +284,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
 		}
-		lastAmounts.put(conn.instanceId(), current);
+		lastAmounts.put(LOCAL_INSTANCE_ID, current);
 
 		// Newest-active first, capped; "You" leads each row's workers.
 		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());
@@ -333,11 +333,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		a.workers.add(worker);
 		a.self |= self;
 		a.recency = Math.max(a.recency, recency);
-	}
-
-	private boolean isPrimary(AnvilConnection conn)
-	{
-		return AnvilConnection.LOCAL_INSTANCE_ID.equals(conn.instanceId());
 	}
 
 	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */

@@ -21,16 +21,14 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The site-relay ({@code FEDERATION_WIRE.md} §10) sidebar path, driven against an in-process
- * {@link HttpServer} mock of the plugin's <b>home site</b> (JDK built-in — no new dependency, fully
- * offline). The whole point of §10 is proven here: on the auto path the plugin's federation traffic is
- * its home site and nothing else.
+ * The site-relay ({@code FEDERATION_WIRE.md} §10) sidebar path — the plugin's ONLY federation path —
+ * driven against an in-process {@link HttpServer} mock of the plugin's <b>home site</b> (JDK built-in —
+ * no new dependency, fully offline). The whole point of §10 is proven here: the plugin's federation
+ * traffic is its home site and nothing else.
  *
  * <ul>
  *   <li>{@code /federation/state} enabled ⇒ the sidebar renders the clans the SITE fanned out.</li>
  *   <li>federation off / endpoint absent ⇒ falls back to the single-home render (default unchanged).</li>
- *   <li>the manual CSV path (extra connections present) is rendered directly, and the site-relay status
- *       is suppressed — no {@code /state} call governs it.</li>
  *   <li>{@code /federation/connect} handles both {@code connected} (zero-click) and {@code login}
  *       (browser-open seam injected) → polls {@code /state} to connected.</li>
  * </ul>
@@ -39,7 +37,7 @@ public class FederationSidebarDataSourceTest
 {
 	private static final Gson GSON = new Gson();
 
-	/** A stand-in single-home / manual delegate that returns one recognizable row, so a fallback is provable. */
+	/** A stand-in single-home delegate that returns one recognizable row, so a fallback is provable. */
 	private static final class MarkerDelegate implements SidebarDataSource
 	{
 		static final String ID = "SINGLE-HOME";
@@ -80,7 +78,7 @@ public class FederationSidebarDataSourceTest
 		try
 		{
 			MarkerDelegate delegate = new MarkerDelegate();
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new ConnectionManager(GSON, new OkHttpClient()), delegate);
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
 
 			List<ConnectionView> conns = ds.fetchConnections();
 			assertEquals("both federated clans render", 2, conns.size());
@@ -113,7 +111,7 @@ public class FederationSidebarDataSourceTest
 		try
 		{
 			MarkerDelegate delegate = new MarkerDelegate();
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new ConnectionManager(GSON, new OkHttpClient()), delegate);
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
 
 			List<ConnectionView> conns = ds.fetchConnections();
 			assertEquals(1, conns.size());
@@ -136,7 +134,7 @@ public class FederationSidebarDataSourceTest
 		try
 		{
 			MarkerDelegate delegate = new MarkerDelegate();
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new ConnectionManager(GSON, new OkHttpClient()), delegate);
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
 
 			List<ConnectionView> conns = ds.fetchConnections();
 			assertEquals("404 /state ⇒ single-home render", MarkerDelegate.ID, conns.get(0).instanceId);
@@ -155,42 +153,12 @@ public class FederationSidebarDataSourceTest
 		// renders straight from the delegate — byte-for-byte today's behaviour, zero extra network.
 		MarkerDelegate delegate = new MarkerDelegate();
 		BingoApiClient unconfigured = new BingoApiClient(GSON, new OkHttpClient());
-		FederationSidebarDataSource ds = source(unconfigured, new ConnectionManager(GSON, new OkHttpClient()), delegate);
+		FederationSidebarDataSource ds = source(unconfigured, delegate);
 
 		List<ConnectionView> conns = ds.fetchConnections();
 		assertEquals(MarkerDelegate.ID, conns.get(0).instanceId);
 		assertEquals(1, delegate.calls);
 		assertFalse(ds.federationStatus().enabled);
-	}
-
-	// ---- Manual CSV direct path (§10.5) stays direct, suppresses site-relay -----------------------
-
-	@Test
-	public void manualExtraConnectionsRenderDirectlyAndSuppressSiteRelay() throws Exception
-	{
-		MockSite site = new MockSite();
-		site.stateBody = "{\"enabled\":true,\"connected\":false,\"needsLogin\":true,"
-			+ "\"verificationUrl\":\"https://broker.example/x\",\"clans\":[]}";
-		site.start();
-		try
-		{
-			ConnectionManager cm = new ConnectionManager(GSON, new OkHttpClient());
-			cm.syncHomes("https://clan-b.example.com  tok_abc123"); // an opt-in manual home ⇒ direct multi-connect
-			assertTrue(cm.hasExtraConnections());
-
-			MarkerDelegate delegate = new MarkerDelegate();
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), cm, delegate);
-
-			List<ConnectionView> conns = ds.fetchConnections();
-			assertEquals("manual path renders straight from the manager-backed delegate", MarkerDelegate.ID, conns.get(0).instanceId);
-			assertEquals(1, delegate.calls);
-			assertFalse("no site-relay affordance on the manual path", ds.federationStatus().needsConnect());
-			assertTrue("the home site's /state is never polled on the manual path", site.distinctPaths().isEmpty());
-		}
-		finally
-		{
-			site.stop();
-		}
 	}
 
 	// ---- /connect: zero-click and self-host login-then-poll --------------------------------------
@@ -205,7 +173,7 @@ public class FederationSidebarDataSourceTest
 		try
 		{
 			AtomicReference<String> opened = new AtomicReference<>();
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new ConnectionManager(GSON, new OkHttpClient()),
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
 				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { });
 
 			List<String> statuses = new ArrayList<>();
@@ -237,7 +205,7 @@ public class FederationSidebarDataSourceTest
 		try
 		{
 			AtomicReference<String> opened = new AtomicReference<>();
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new ConnectionManager(GSON, new OkHttpClient()),
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
 				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { /* no real sleep */ });
 
 			List<String> statuses = new ArrayList<>();
@@ -263,7 +231,7 @@ public class FederationSidebarDataSourceTest
 		site.start();
 		try
 		{
-			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new ConnectionManager(GSON, new OkHttpClient()),
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
 				new MarkerDelegate(), url -> true, ms -> { });
 			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, ds.connectFederation(null));
 		}
@@ -275,15 +243,15 @@ public class FederationSidebarDataSourceTest
 
 	// ---- helpers ---------------------------------------------------------------------------------
 
-	private static FederationSidebarDataSource source(BingoApiClient api, ConnectionManager cm, SidebarDataSource delegate)
+	private static FederationSidebarDataSource source(BingoApiClient api, SidebarDataSource delegate)
 	{
-		return source(api, cm, delegate, url -> true, ms -> { });
+		return source(api, delegate, url -> true, ms -> { });
 	}
 
-	private static FederationSidebarDataSource source(BingoApiClient api, ConnectionManager cm, SidebarDataSource delegate,
+	private static FederationSidebarDataSource source(BingoApiClient api, SidebarDataSource delegate,
 		FederationSidebarDataSource.BrowserOpener opener, FederationSidebarDataSource.Sleeper sleeper)
 	{
-		return new FederationSidebarDataSource(api, cm, delegate, opener, sleeper);
+		return new FederationSidebarDataSource(api, delegate, opener, sleeper);
 	}
 
 	/** In-process mock of the plugin's HOME site — serves ONLY the two §10.2 endpoints. */

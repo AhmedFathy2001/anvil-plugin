@@ -138,11 +138,6 @@ public class AnvilPlugin extends Plugin {
     @Getter
     private BingoApiClient apiClient;
 
-    // Multi-home federation spine. Connection #0 is a view over the injected apiClient + live config
-    // above (default behaviour unchanged); opt-in extra homes from config.federationHomes() add more.
-    @Inject
-    private ConnectionManager connectionManager;
-
     @Inject
     private ItemManager itemManager;
 
@@ -740,12 +735,6 @@ public class AnvilPlugin extends Plugin {
 
         configureApiClient();
 
-        // Multi-home spine: bind connection #0 to the injected client + live config (no behaviour
-        // change), then parse any opt-in extra homes. Empty field ⇒ just connection #0.
-        connectionManager.initPrimary(apiClient, this::getPluginConfig);
-        connectionManager.syncHomes(config.federationHomes());
-        executor.submit(() -> safely("federation initial poll", connectionManager::pollExtras));
-
         // Initial config fetch. If the plugin was enabled mid-session (already logged in),
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
         // the very first authed request carries the identity headers.
@@ -767,7 +756,6 @@ public class AnvilPlugin extends Plugin {
             safely("refreshSchedule", this::refreshSchedule);
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
-            safely("federationPollExtras", connectionManager::pollExtras);
         }, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -1024,44 +1012,28 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Federation broker client behind the sidebar's "Connect clans" button. Deliberately NOT a singleton
-     * and reads the broker URL as a PARAMETER (never a this.field — same lesson as
-     * {@link #provideSidebarDataSource}), so each {@code Provider.get()} reflects the CURRENTLY-configured
-     * URL and a blank config yields a disabled client. Feature-gated: inert unless a broker URL is set and
-     * the member clicks Connect.
-     */
-    @Provides
-    BrokerClient provideBrokerClient(Gson gson, OkHttpClient okHttpClient, AnvilConfig config) {
-        return new BrokerClient(gson, okHttpClient, config.federationBrokerUrl());
-    }
-
-    /**
      * Data source for the progress sidebar. This is the single wiring seam between the panel and its
      * data — the panel only knows the {@link SidebarDataSource} interface.
      *
-     * <p>Binds the <b>site-relay</b> {@link FederationSidebarDataSource} (the default federation path,
-     * {@code FEDERATION_WIRE.md} §10) over a {@link ConnectionManager}-backed {@link AnvilSidebarDataSource}
-     * delegate. On the auto path the source polls the home site's {@code /api/plugin/federation/state} and
-     * renders the clans the site fans out; with federation off it falls through to the delegate, which over
-     * a bare manager (connection&nbsp;#0 only — a view of the config THIS plugin already polls via
-     * {@code this::getPluginConfig}, no extra board request, no shared-ETag clash) is byte-for-byte today's
-     * one-home sidebar. The opt-in manual CSV path ({@link AnvilConfig#federationHomes()}) still populates
-     * the manager's extra connections; the site-relay source detects those and renders them directly — the
-     * only mode that does direct multi-connect (§10.5). Offline (no Site URL/token) it resolves to the empty
-     * state. For offline UI work, swap the return for {@code mock}
-     * ({@link MockSidebarDataSource} populates every section with fake, live-moving data).</p>
+     * <p>Binds the <b>site-relay</b> {@link FederationSidebarDataSource} (the plugin's only federation path,
+     * {@code FEDERATION_WIRE.md} §10) over a direct single-home {@link AnvilSidebarDataSource} delegate. The
+     * source polls the home site's {@code /api/plugin/federation/state} and renders the clans the site fans
+     * out; with federation off it falls through to the delegate — a view of the config THIS plugin already
+     * polls via {@code this::getPluginConfig} (no extra board request), byte-for-byte today's one-home
+     * sidebar. Offline (no Site URL/token) it resolves to the empty state. For offline UI work, swap the
+     * return for {@code mock} ({@link MockSidebarDataSource} populates every section with fake, live-moving
+     * data).</p>
      */
     @Provides
     @Singleton
-    SidebarDataSource provideSidebarDataSource(ConnectionManager connectionManager, BingoApiClient apiClient, MockSidebarDataSource mock) {
-        // Take the (singleton) manager + client as PARAMETERS, not this.fields: Guice can invoke this
-        // provider to satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are
-        // populated, so reading this.connectionManager here NPEs and the whole plugin fails to load.
-        // Params are resolved (and the singletons constructed) by Guice first, so they're non-null.
-        // initPrimary is idempotent; startUp() safely re-calls it. No extra homes ⇒ single-home exactly.
-        connectionManager.initPrimary(apiClient, this::getPluginConfig);
-        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(connectionManager, this::localStatProgress);
-        return new FederationSidebarDataSource(apiClient, connectionManager, delegate);
+    SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, MockSidebarDataSource mock) {
+        // Take the (singleton) client as a PARAMETER, not this.field: Guice can invoke this provider to
+        // satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are populated, so
+        // reading this.apiClient here would NPE and the whole plugin would fail to load. The param is
+        // resolved (and the singleton constructed) by Guice first, so it's non-null; the config/stat
+        // method references bind lazily and are only invoked at fetch time.
+        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient, this::localStatProgress);
+        return new FederationSidebarDataSource(apiClient, delegate);
     }
 
     @Subscribe
@@ -1073,14 +1045,6 @@ public class AnvilPlugin extends Plugin {
         scheduleRefresh();
 
         String key = event.getKey();
-        // Opt-in multi-home list edited: reconcile extra connections (keeps live ones alive) and
-        // kick an off-thread poll so a newly-added clan shows up promptly. Empty ⇒ back to single-home.
-        if ("federationHomes".equals(key)) {
-            connectionManager.syncHomes(config.federationHomes());
-            if (executor != null && !executor.isShutdown()) {
-                executor.submit(() -> safely("federation resync poll", connectionManager::pollExtras));
-            }
-        }
         // Setup pasted mid-session (the typical first install: enable the plugin while
         // logged in, then enter Site URL + Account Token): stamp the RSN/account hash and
         // greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
@@ -2567,7 +2531,6 @@ public class AnvilPlugin extends Plugin {
                             amount, null, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin",
                             playerId, null);
                     log.info("Kill ping sent: '{}' ×{}", kill.label, amount);
-                    fanOutCountPing(killFanout(kill, amount, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin (federated)"), kill.label);
                     refreshConfig();
                 } catch (IOException e) {
                     log.warn("Kill ping failed for '{}' ×{} — requeueing: {}", kill.label, amount, e.getMessage());
@@ -2591,8 +2554,7 @@ public class AnvilPlugin extends Plugin {
         String detail = kill.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
         captureAndSubmitProof(kill.tileId, kill.label, amount, null, "BINGO KILL", detail,
                 "[Auto] " + kill.label + " kill(s) detected by RuneLite plugin",
-                () -> kill.currentAmount = Math.max(0, kill.currentAmount - rolledBack),
-                killFanout(kill, amount, "[Auto] " + kill.label + " kill(s) detected by RuneLite plugin (federated)"));
+                () -> kill.currentAmount = Math.max(0, kill.currentAmount - rolledBack));
     }
 
     /* ----------------------------- Item-gain tiles ----------------------------- */
@@ -2798,7 +2760,6 @@ public class AnvilPlugin extends Plugin {
                             amount, null, "[Auto] " + gain.label + " gain(s) counted by RuneLite plugin",
                             playerId, null);
                     log.info("Gain ping sent: '{}' ×{}", gain.label, amount);
-                    fanOutCountPing(gainFanout(gain, amount, "[Auto] " + gain.label + " gain(s) counted by RuneLite plugin (federated)"), gain.label);
                     refreshConfig();
                 } catch (IOException e) {
                     log.warn("Gain ping failed for '{}' ×{} — requeueing: {}", gain.label, amount, e.getMessage());
@@ -2822,51 +2783,7 @@ public class AnvilPlugin extends Plugin {
         String detail = gain.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
         captureAndSubmitProof(gain.tileId, gain.label, amount, null, "BINGO GAIN", detail,
                 "[Auto] " + gain.label + " gain(s) detected by RuneLite plugin",
-                () -> gain.currentAmount = Math.max(0, gain.currentAmount - rolledBack),
-                gainFanout(gain, amount, "[Auto] " + gain.label + " gain(s) detected by RuneLite plugin (federated)"));
-    }
-
-    /* ----------------------------- Federation fan-out helpers ----------------------------- */
-
-    /**
-     * Build a fan-out for a counted kill: the extra connected clans that also watch this tile's NPC(s)
-     * each get the same {@code amount} credited on their own team/tile. {@code null} when no extra home
-     * tracks it (the single-home default) — the caller then does nothing.
-     */
-    private ConnectionManager.ProofFanout killFanout(PluginConfigResponse.TrackedKill kill, int amount, String note) {
-        if (!connectionManager.hasExtraConnections() || kill.targetNpcs == null) {
-            return null;
-        }
-        return connectionManager.killFanout(lowerNpcNames(kill.targetNpcs), amount, note, kill.label);
-    }
-
-    /** Build a fan-out for a counted item-gain, matched against each extra clan's own gain-item pool. */
-    private ConnectionManager.ProofFanout gainFanout(PluginConfigResponse.TrackedGain gain, int amount, String note) {
-        if (!connectionManager.hasExtraConnections() || gain.itemIds == null || gain.itemIds.isEmpty()) {
-            return null;
-        }
-        return connectionManager.gainFanout(gain.itemIds, amount, note, gain.label);
-    }
-
-    /** Run a count-only (no-image) fan-out ping to matching extra clans; logs how many credited. */
-    private void fanOutCountPing(ConnectionManager.ProofFanout fanout, String label) {
-        if (fanout == null) {
-            return;
-        }
-        int fanned = fanout.submit(null);
-        if (fanned > 0) {
-            log.info("Federation: '{}' also credited to {} other clan(s)", label, fanned);
-        }
-    }
-
-    private static List<String> lowerNpcNames(List<String> names) {
-        List<String> out = new ArrayList<>();
-        for (String n : names) {
-            if (n != null && !n.isEmpty()) {
-                out.add(n.toLowerCase(java.util.Locale.ROOT));
-            }
-        }
-        return out;
+                () -> gain.currentAmount = Math.max(0, gain.currentAmount - rolledBack));
     }
 
     /**
@@ -2877,16 +2794,6 @@ public class AnvilPlugin extends Plugin {
      */
     private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
             String bannerTitle, String bannerDetail, String note, Runnable rollback) {
-        captureAndSubmitProof(tileId, label, amount, durationSeconds, bannerTitle, bannerDetail, note, rollback, null);
-    }
-
-    /**
-     * Proof-bearing overload with a federation fan-out: once the primary proof submits, {@code fanout}
-     * (nullable) credits the same event to every extra connected clan whose own board tracks it, reusing
-     * the captured PNG (see {@link ConnectionManager}). Null fanout ⇒ single-home, byte-for-byte as before.
-     */
-    private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
-            String bannerTitle, String bannerDetail, String note, Runnable rollback, ConnectionManager.ProofFanout fanout) {
         if (pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
             return;
         }
@@ -2927,7 +2834,7 @@ public class AnvilPlugin extends Plugin {
                     }
 
                     sendChatMessage("Uploading proof: " + label + "...");
-                    boolean success = processPendingSubmission(pending, fanout);
+                    boolean success = processPendingSubmission(pending);
                     if (success) {
                         sendChatMessage("Submitted: " + label);
                         retryBackoffMs = 30_000;
@@ -3089,16 +2996,6 @@ public class AnvilPlugin extends Plugin {
      */
     private boolean submitTimedForMessage(String lowerMessage, int seconds, long now) {
         boolean any = false;
-        // Federation: build the fan-out once for this clear line (matching extras + descriptor while the
-        // config is stable). It's passed to every matching primary capture; ConnectionManager dedups per
-        // extra tile so a replayed completion credits each extra clan at most once. Null ⇒ single-home.
-        ConnectionManager.ProofFanout timedFan = null;
-        if (connectionManager.hasExtraConnections()) {
-            int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
-            timedFan = connectionManager.timedFanout(lowerMessage, seconds, partySeen,
-                    "[Auto] cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin (federated)",
-                    "timed clear");
-        }
         for (PluginConfigResponse.TrackedTimed tile : pluginConfig.trackedTimed) {
             if (tile.completed || tile.activity == null) {
                 continue;
@@ -3153,7 +3050,7 @@ public class AnvilPlugin extends Plugin {
                     : tile.activity + "  " + TimedClearParser.formatClock(seconds)
                             + "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")";
             captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
-                    "[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null, timedFan);
+                    "[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
             any = true;
         }
         return any;
@@ -3457,15 +3354,6 @@ public class AnvilPlugin extends Plugin {
      * success. Returns true on success, false on failure.
      */
     private boolean processPendingSubmission(PendingSubmissionStore.PendingSubmission pending) {
-        return processPendingSubmission(pending, null);
-    }
-
-    /**
-     * As above, plus a federation {@code fanout} (nullable): after the primary submit succeeds, credit the
-     * same kill/gain/timed event to every extra connected clan that tracks it, reusing this proof's PNG.
-     * Disk-retried proofs pass {@code null} (best-effort — the primary is the durable submission).
-     */
-    private boolean processPendingSubmission(PendingSubmissionStore.PendingSubmission pending, ConnectionManager.ProofFanout fanout) {
         // Only submit while logged into the account that obtained the drop. Guards the multi-account
         // case: a drop caught on a non-enrolled alt is never credited to the enrolled account, even
         // if it was queued during the brief window after switching characters.
@@ -3502,52 +3390,16 @@ public class AnvilPlugin extends Plugin {
                 );
             } else {
                 log.info("Submitting drop for tile '{}'...", pending.label);
-                // Federation fan-out: if opt-in extra homes track this item on a live event, this same
-                // drop is credited to each of them too (own team, own tile), and every /events call gets
-                // a fanout descriptor. With no extra homes (the default), matchedExtras is empty and
-                // descriptor is null — so this is byte-for-byte the plain single submitDrop from before.
-                List<AnvilConnection> matchedExtras = Collections.emptyList();
-                FanoutDescriptor descriptor = null;
-                if (connectionManager.hasExtraConnections() && pending.itemId != null) {
-                    matchedExtras = connectionManager.extrasTrackingDrop(pending.itemId);
-                    descriptor = connectionManager.dropDescriptor(matchedExtras);
-                }
-                if (descriptor != null) {
-                    apiClient.submitDropFanout(
-                            pending.eventId, pending.tileId, pending.teamId, pending.amount,
-                            imageUrl, pending.note, pending.playerId, pending.itemId, descriptor);
-                } else {
-                    apiClient.submitDrop(
-                            pending.eventId,
-                            pending.tileId,
-                            pending.teamId,
-                            pending.amount,
-                            imageUrl,
-                            pending.note,
-                            pending.playerId,
-                            pending.itemId
-                    );
-                }
-                // Credit every other connected clan that tracks this item (best-effort; each isolated —
-                // a decline/failure on one never affects the primary above or a sibling).
-                if (!matchedExtras.isEmpty()) {
-                    int fanned = connectionManager.submitDropToExtras(
-                            matchedExtras, pngBytes, pending.itemId, pending.amount,
-                            pending.note, descriptor, pending.label);
-                    if (fanned > 0) {
-                        log.info("Federation: '{}' also credited to {} other clan(s)", pending.label, fanned);
-                    }
-                }
-            }
-
-            // Non-drop fan-out (kill/gain/timed): the closure was built at capture time from the extras
-            // that track this event; it re-uses this proof's PNG to credit each on its own team/tile.
-            // Null (the single-home default, and every actual drop) ⇒ nothing extra happens.
-            if (fanout != null) {
-                int fanned = fanout.submit(pngBytes);
-                if (fanned > 0) {
-                    log.info("Federation: '{}' also credited to {} other clan(s)", pending.label, fanned);
-                }
+                apiClient.submitDrop(
+                        pending.eventId,
+                        pending.tileId,
+                        pending.teamId,
+                        pending.amount,
+                        imageUrl,
+                        pending.note,
+                        pending.playerId,
+                        pending.itemId
+                );
             }
 
             log.info("Submission '{}' sent successfully!", pending.label);
@@ -4031,14 +3883,6 @@ public class AnvilPlugin extends Plugin {
         }
         try {
             apiClient.submitStatXp(batch);
-            // Federation: push the same absolute XP to every extra clan tracking any of these skills
-            // (each on its own token ⇒ its own team). No-op in the single-home default.
-            if (connectionManager.hasExtraConnections()) {
-                int fanned = connectionManager.fanOutXpPush(batch);
-                if (fanned > 0) {
-                    log.info("Federation: XP push also credited to {} other clan(s)", fanned);
-                }
-            }
             refreshConfig(); // pull back the updated progress / any completion the push triggered
         } catch (IOException e) {
             log.warn("Skill XP push failed ({} skill(s)) — requeueing: {}", batch.size(), e.getMessage());
@@ -4120,14 +3964,6 @@ public class AnvilPlugin extends Plugin {
         }
         try {
             apiClient.submitStatKc(batch);
-            // Federation: push the same absolute KCs to every extra clan tracking any of these bosses
-            // (each on its own token ⇒ its own team). No-op in the single-home default.
-            if (connectionManager.hasExtraConnections()) {
-                int fanned = connectionManager.fanOutKcPush(batch);
-                if (fanned > 0) {
-                    log.info("Federation: KC push also credited to {} other clan(s)", fanned);
-                }
-            }
             refreshConfig(); // pull back the updated progress / any completion the push triggered
         } catch (IOException e) {
             log.warn("KC push failed ({} boss(es)) — requeueing: {}", batch.size(), e.getMessage());
