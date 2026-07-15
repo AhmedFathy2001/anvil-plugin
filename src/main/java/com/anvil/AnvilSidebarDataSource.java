@@ -45,8 +45,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/** Max "active now" rows — keeps the section glanceable. */
 	private static final int MAX_ACTIVE = 4;
 
-	/** How recent any signal must be to count as "active now". Stat XP ticks refresh it continuously. */
-	private static final long ACTIVE_WINDOW_MS = 3 * 60_000L;
+	/**
+	 * How recent a signal must be to count as "active now" — matched to the Site's stat-worker window
+	 * (5 min) so your own tasks and named teammates linger for the same time. Stat XP ticks / kills /
+	 * drops refresh it continuously, so it only counts down once you actually stop.
+	 */
+	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
 
 	/** Multi-home mode: the source of every connection. Null in single-home mode. */
 	private final ConnectionManager connectionManager;
