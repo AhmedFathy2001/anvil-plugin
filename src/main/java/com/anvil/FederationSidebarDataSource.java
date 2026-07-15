@@ -2,6 +2,8 @@ package com.anvil;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
@@ -134,11 +136,14 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 			}
 			// Self-host: the Discord login happens on the BROKER's own page, opened in the member's system
 			// browser. The plugin only ever polls its home site's /state back to connected — no broker traffic.
-			openInBrowser(result.verificationUrl);
-			// Surface the device code so the member can type it into the broker's page (the page asks for
-			// "the code shown in your RuneLite plugin"); the broker returns it and the site relays it through.
+			// Since the plugin is the one opening the browser, hand the page the code PREFILLED (RFC 8628
+			// verification_uri_complete) so the member only approves + signs in — no typing. The complete URL
+			// is built from the ALREADY-pinned base, so it stays on the pinned broker host (§8).
+			openInBrowser(withUserCode(result.verificationUrl, result.userCode));
+			// Still SHOW the code: the prefilled page asks the member to confirm it matches the plugin, and
+			// it's the fallback if the browser drops the query (bare page) or opens a different profile.
 			notify(status, result.userCode != null
-				? "Enter code " + result.userCode + " in your browser, then sign in with Discord."
+				? "Opening your browser — confirm code " + result.userCode + " and sign in with Discord."
 				: "Finish the login in your browser…");
 			// We poll /state (NOT /connect, which is tightly rate-limited): its server-side advanceSelfHost
 			// drives the broker device-poll to completion, so polling /state both advances AND observes the
@@ -231,6 +236,23 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 			return false;
 		}
 		return PINNED_BROKER_HOST.equalsIgnoreCase(host);
+	}
+
+	/**
+	 * The {@code verification_uri_complete} (RFC 8628): the broker page with the {@code user_code} prefilled
+	 * as a query param, so opening it needs only an approve + Discord sign-in — no typing. {@code base} is
+	 * already {@link #isPinnedBrokerUrl pinned}, and the code is URL-encoded, so scheme/host/port are
+	 * unchanged and the result stays on the pinned broker (§8). Returns {@code base} unchanged when there's
+	 * no code (falls back to the bare page, where the member types the code shown in the plugin).
+	 */
+	static String withUserCode(String base, String userCode)
+	{
+		if (base == null || userCode == null || userCode.isEmpty())
+		{
+			return base;
+		}
+		String sep = base.indexOf('?') >= 0 ? "&" : "?";
+		return base + sep + "user_code=" + URLEncoder.encode(userCode, StandardCharsets.UTF_8);
 	}
 
 	private boolean openInBrowser(String url)

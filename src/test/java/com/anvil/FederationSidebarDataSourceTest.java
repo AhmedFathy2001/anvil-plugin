@@ -250,7 +250,8 @@ public class FederationSidebarDataSourceTest
 
 			assertEquals("a login that resolves with no other clans is still a terminal success",
 				FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
-			assertEquals("https://anvilosrs.com/federation/device", opened.get());
+			assertEquals("the browser opens the page with the code PREFILLED (verification_uri_complete)",
+				"https://anvilosrs.com/federation/device?user_code=24YV-AM8H", opened.get());
 			assertFalse("signed in, but no remote clans to render", ds.federationStatus().connected);
 			assertTrue("the device code was surfaced for the member to type",
 				statuses.stream().anyMatch(s -> s.contains("24YV-AM8H")));
@@ -306,6 +307,26 @@ public class FederationSidebarDataSourceTest
 		{
 			site.stop();
 		}
+	}
+
+	@Test
+	public void withUserCodePrefillsTheBrokerPage()
+	{
+		assertEquals("code appended as ?user_code= on a bare base",
+			"https://anvilosrs.com/federation/device?user_code=24YV-AM8H",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", "24YV-AM8H"));
+		assertEquals("appended with & when the base already carries a query",
+			"https://anvilosrs.com/federation/device?x=1&user_code=AB12-CD34",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device?x=1", "AB12-CD34"));
+		assertEquals("no code ⇒ the bare page (member types the code shown in the plugin)",
+			"https://anvilosrs.com/federation/device",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", null));
+		assertEquals("empty code ⇒ the bare page",
+			"https://anvilosrs.com/federation/device",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", ""));
+		assertTrue("the prefilled URL is still on the pinned broker host (§8)",
+			FederationSidebarDataSource.isPinnedBrokerUrl(
+				FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", "24YV-AM8H")));
 	}
 
 	@Test
