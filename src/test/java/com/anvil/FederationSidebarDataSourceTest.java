@@ -194,7 +194,8 @@ public class FederationSidebarDataSourceTest
 	public void connectSelfHostLoginOpensBrowserThenPollsToConnected() throws Exception
 	{
 		MockSite site = new MockSite();
-		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://broker.example/federation/device\"}";
+		// The verificationUrl MUST be on the pinned Anvil broker host (§8) or the plugin refuses to open it.
+		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://admin.anvil.gg/federation/device\"}";
 		// /state reports connected only from the 3rd poll on — proves the login poll loop actually waits.
 		site.stateSequence = new String[] {
 			"{\"enabled\":true,\"connected\":false,\"clans\":[]}",
@@ -213,7 +214,7 @@ public class FederationSidebarDataSourceTest
 
 			assertEquals(FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
 			assertEquals("the self-host login page was opened in the (injected) browser",
-				"https://broker.example/federation/device", opened.get());
+				"https://admin.anvil.gg/federation/device", opened.get());
 			assertTrue("polled /state back to connected", ds.federationStatus().connected);
 			assertNotNull(statuses);
 		}
@@ -234,6 +235,89 @@ public class FederationSidebarDataSourceTest
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
 				new MarkerDelegate(), url -> true, ms -> { });
 			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, ds.connectFederation(null));
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	// ---- §8 verificationUrl pinning (anti-phishing) ----------------------------------------------
+
+	@Test
+	public void connectRefusesNonBrokerVerificationUrl() throws Exception
+	{
+		// A rogue home returns a login URL on a host that ISN'T the pinned Anvil broker → the plugin must
+		// refuse to open it (no phish), the browser-open seam is never invoked, and it reports UNAVAILABLE.
+		MockSite site = new MockSite();
+		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://evil.example/federation/device\"}";
+		site.start();
+		try
+		{
+			AtomicReference<String> opened = new AtomicReference<>();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { });
+
+			FederationStatusSource.ConnectOutcome outcome = ds.connectFederation(null);
+
+			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, outcome);
+			assertNull("a non-broker verification URL is NEVER opened in the browser", opened.get());
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void pinnedBrokerUrlValidation()
+	{
+		// Only HTTPS on the exact pinned broker host, no creds, standard port.
+		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg/federation/device"));
+		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg:443/federation/device?x=1"));
+		assertTrue("host match is case-insensitive",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://ADMIN.Anvil.GG/federation/device"));
+
+		assertFalse("http is refused", FederationSidebarDataSource.isPinnedBrokerUrl("http://admin.anvil.gg/x"));
+		assertFalse("wrong host is refused", FederationSidebarDataSource.isPinnedBrokerUrl("https://evil.example/x"));
+		assertFalse("suffix look-alike host is refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg.evil.com/x"));
+		assertFalse("embedded credentials are refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg@evil.com/x"));
+		assertFalse("off-standard port is refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg:8443/x"));
+		assertFalse(FederationSidebarDataSource.isPinnedBrokerUrl(null));
+		assertFalse(FederationSidebarDataSource.isPinnedBrokerUrl(""));
+		assertFalse("garbage is refused", FederationSidebarDataSource.isPinnedBrokerUrl("not a url"));
+		assertFalse("backslash authority trick is refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://admin.anvil.gg\\@evil.com/x"));
+	}
+
+	// ---- §9 oversized /state payload -------------------------------------------------------------
+
+	@Test
+	public void oversizedStateFallsBackToSingleHome() throws Exception
+	{
+		// A /state body larger than the client's response-size cap must be dropped (never materialized),
+		// leaving the sidebar on its single-home render rather than buffering a hostile payload.
+		MockSite site = new MockSite();
+		StringBuilder big = new StringBuilder("{\"enabled\":true,\"connected\":true,\"clans\":[{\"id\":\"x\",\"name\":\"");
+		for (int i = 0; i < 700 * 1024; i++)
+		{
+			big.append('a');
+		}
+		big.append("\"}]}");
+		site.stateBody = big.toString();
+		site.start();
+		try
+		{
+			MarkerDelegate delegate = new MarkerDelegate();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
+
+			List<ConnectionView> conns = ds.fetchConnections();
+			assertEquals("oversized /state ⇒ single-home render", MarkerDelegate.ID, conns.get(0).instanceId);
+			assertEquals(1, delegate.calls);
+			assertFalse("oversized body never enables federation", ds.federationStatus().enabled);
 		}
 		finally
 		{

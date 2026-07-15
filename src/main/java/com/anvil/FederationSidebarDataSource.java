@@ -1,5 +1,7 @@
 package com.anvil;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +42,14 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	{
 		void sleep(long ms) throws InterruptedException;
 	}
+
+	/**
+	 * §8 — the ONE broker fact the plugin keeps: the pinned Anvil broker host. Used <b>only</b> to validate
+	 * a self-host {@code verificationUrl} before it is opened in the member's browser (anti-phishing) — the
+	 * plugin never dials the broker on any path (all broker traffic is server-to-server on the home site).
+	 * A rogue home returning a fake Discord-login URL on any other host is refused, never opened.
+	 */
+	static final String PINNED_BROKER_HOST = "admin.anvil.gg";
 
 	/** How long to wait between {@code /state} polls while a self-host Discord login is in the browser. */
 	private static final long LOGIN_POLL_INTERVAL_MS = 3_000L;
@@ -113,6 +123,15 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		}
 		if (result.login && result.verificationUrl != null)
 		{
+			// §8 anti-phishing: the self-host login opens in the member's system browser, so a rogue home
+			// could hand back a fake Discord-login URL. Only ever open an HTTPS URL on the pinned Anvil
+			// broker host; refuse (log + surface) anything else rather than send the member to a phish.
+			if (!isPinnedBrokerUrl(result.verificationUrl))
+			{
+				log.warn("refusing to open a verification URL that isn't the Anvil broker: {}", result.verificationUrl);
+				notify(status, "Login blocked — that login page isn't on the Anvil broker.");
+				return ConnectOutcome.UNAVAILABLE;
+			}
 			// Self-host: the Discord login happens on the BROKER's own page, opened in the member's system
 			// browser. The plugin only ever polls its home site's /state back to connected — no broker traffic.
 			openInBrowser(result.verificationUrl);
@@ -149,6 +168,46 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		FederationState resolved = s != null ? s : FederationState.disabled();
 		lastState = resolved;
 		return resolved;
+	}
+
+	/**
+	 * §8 verificationUrl pinning: true only when {@code url} is a well-formed <b>HTTPS</b> URL whose host is
+	 * exactly the {@link #PINNED_BROKER_HOST pinned Anvil broker} — no embedded credentials
+	 * ({@code user@host}), no off-standard port, no {@code http}. Everything else (a rogue home's phishing
+	 * URL, a look-alike host like {@code admin.anvil.gg.evil.com}, a {@code creds@} trick) returns false and
+	 * is never opened. Uses {@link URI} host parsing, so authority tricks resolve to the real host.
+	 */
+	static boolean isPinnedBrokerUrl(String url)
+	{
+		if (url == null || url.isEmpty())
+		{
+			return false;
+		}
+		final URI uri;
+		try
+		{
+			uri = new URI(url);
+		}
+		catch (URISyntaxException e)
+		{
+			return false; // illegal characters (backslash, whitespace, control) never parse — refuse
+		}
+		String scheme = uri.getScheme();
+		String host = uri.getHost();
+		if (scheme == null || host == null || uri.getUserInfo() != null)
+		{
+			return false; // opaque URI, non-server authority, or embedded credentials
+		}
+		if (!"https".equalsIgnoreCase(scheme))
+		{
+			return false;
+		}
+		int port = uri.getPort();
+		if (port != -1 && port != 443)
+		{
+			return false;
+		}
+		return PINNED_BROKER_HOST.equalsIgnoreCase(host);
 	}
 
 	private boolean openInBrowser(String url)

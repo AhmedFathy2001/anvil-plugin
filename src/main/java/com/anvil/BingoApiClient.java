@@ -15,8 +15,11 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -336,6 +339,12 @@ public class BingoApiClient
 	// the plugin holds no clan tokens and opens no clan connections on this path.
 
 	/**
+	 * §1/§9 response-size cap on the federated {@code /state} body — we never materialize an unbounded
+	 * payload into memory. Generous headroom for many clans; a body over this is dropped (single-home fallback).
+	 */
+	private static final int MAX_STATE_BYTES = 512 * 1024;
+
+	/**
 	 * GET {@code /api/plugin/federation/state} — the site-relay sidebar's whole feed: whether federation
 	 * is on, whether this member's home is connected, and one ready-shaped board summary per federated
 	 * clan (§10.2). Account-token authed. Never throws — returns {@code null} on any failure (unconfigured,
@@ -358,13 +367,45 @@ public class BingoApiClient
 			{
 				return null;
 			}
-			return FederationState.parse(gson, response.body().string());
+			String json = readBounded(response.body(), MAX_STATE_BYTES);
+			if (json == null)
+			{
+				// Over the size cap — drop it (single-home fallback) rather than buffer a hostile payload.
+				log.debug("federation/state body exceeded {} bytes; ignoring", MAX_STATE_BYTES);
+				return null;
+			}
+			return FederationState.parse(gson, json);
 		}
 		catch (IOException e)
 		{
 			log.debug("federation/state fetch failed: {}", e.getMessage());
 			return null;
 		}
+	}
+
+	/**
+	 * Read at most {@code maxBytes} of a response body into a UTF-8 string; returns {@code null} when the
+	 * body is larger than the cap so the caller can bail (§9 parser DoS — a federated payload is never
+	 * materialized unbounded). Reads {@code maxBytes + 1} then checks, so an oversize body is detected
+	 * without ever holding more than the cap +1.
+	 */
+	private static String readBounded(ResponseBody body, int maxBytes) throws IOException
+	{
+		byte[] buf = new byte[maxBytes + 1];
+		int total = 0;
+		try (InputStream in = body.byteStream())
+		{
+			int r;
+			while (total < buf.length && (r = in.read(buf, total, buf.length - total)) != -1)
+			{
+				total += r;
+			}
+		}
+		if (total > maxBytes)
+		{
+			return null;
+		}
+		return new String(buf, 0, total, StandardCharsets.UTF_8);
 	}
 
 	/** Result of {@code POST /api/plugin/federation/connect} (§10.2). Exactly one of the two flags is set. */

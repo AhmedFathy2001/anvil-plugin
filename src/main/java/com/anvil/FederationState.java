@@ -78,14 +78,39 @@ public final class FederationState
 		return enabled && !connected;
 	}
 
+	// ---- Defensive parser limits (§9 payload DoS + §2 length/shape caps) --------------------------
+	//
+	// Every value here is untrusted federated input — even a "trusted" home may be relaying a self-host's
+	// data. We bound total size and nesting BEFORE Gson touches the body (a JSON bomb can exhaust the
+	// parser or blow the stack), clamp every string, and cap every array, so a hostile /state can only
+	// ever hide federation, never exhaust the plugin.
+
+	/** Hard ceiling on the {@code /state} text we will parse (matches the client's byte cap). */
+	static final int MAX_JSON_CHARS = 512 * 1024;
+	/** Reject JSON nested deeper than this. The real shape is ~6 levels; 32 is a generous JSON-bomb guard. */
+	static final int MAX_JSON_DEPTH = 32;
+	/** Per-string clamp applied to every parsed federated field before it reaches a store/render surface. */
+	static final int MAX_STRING = 256;
+	/** Array caps — a hostile home can't make the sidebar allocate/render an unbounded list. */
+	static final int MAX_CLANS = 64;
+	static final int MAX_NEAREST = 64;
+	static final int MAX_ACTIVITY = 128;
+	static final int MAX_ACTIVE = 64;
+	static final int MAX_WORKERS = 32;
+
 	/**
-	 * Parse a {@code /api/plugin/federation/state} body. Never throws; a null/blank/garbage body or any
-	 * per-field surprise degrades to {@link #disabled()} (or as much as parsed cleanly), so a bad response
-	 * can only ever hide federation, never crash the sidebar.
+	 * Parse a {@code /api/plugin/federation/state} body. Never throws; a null/blank/garbage body, an
+	 * oversized/over-nested payload (§9), or any per-field surprise degrades to {@link #disabled()} (or as
+	 * much as parsed cleanly), so a bad response can only ever hide federation, never crash the sidebar.
 	 */
 	public static FederationState parse(Gson gson, String json)
 	{
 		if (json == null || json.trim().isEmpty())
+		{
+			return disabled();
+		}
+		// §9 parser DoS: bound total size and nesting up front — a JSON bomb must never reach Gson.
+		if (json.length() > MAX_JSON_CHARS || !withinDepthLimit(json, MAX_JSON_DEPTH))
 		{
 			return disabled();
 		}
@@ -102,6 +127,10 @@ public final class FederationState
 			{
 				for (JsonElement el : clansEl.getAsJsonArray())
 				{
+					if (clans.size() >= MAX_CLANS)
+					{
+						break;
+					}
 					if (el != null && el.isJsonObject())
 					{
 						ConnectionView view = parseClan(el.getAsJsonObject());
@@ -147,6 +176,10 @@ public final class FederationState
 			{
 				for (JsonElement el : nearestEl.getAsJsonArray())
 				{
+					if (nearest.size() >= MAX_NEAREST)
+					{
+						break;
+					}
 					if (el != null && el.isJsonObject())
 					{
 						JsonObject t = el.getAsJsonObject();
@@ -173,6 +206,10 @@ public final class FederationState
 		}
 		for (JsonElement e : el.getAsJsonArray())
 		{
+			if (out.size() >= MAX_ACTIVITY)
+			{
+				break;
+			}
 			if (e == null || !e.isJsonObject())
 			{
 				continue;
@@ -196,6 +233,10 @@ public final class FederationState
 		}
 		for (JsonElement e : el.getAsJsonArray())
 		{
+			if (out.size() >= MAX_ACTIVE)
+			{
+				break;
+			}
 			if (e == null || !e.isJsonObject())
 			{
 				continue;
@@ -207,10 +248,14 @@ public final class FederationState
 			{
 				for (JsonElement wn : w.getAsJsonArray())
 				{
+					if (workers.size() >= MAX_WORKERS)
+					{
+						break;
+					}
 					if (wn != null && wn.isJsonPrimitive())
 					{
-						String name = wn.getAsString();
-						if (name != null && !name.isEmpty())
+						String name = clamp(wn.getAsString());
+						if (!name.isEmpty())
 						{
 							workers.add(name);
 						}
@@ -259,7 +304,69 @@ public final class FederationState
 	private static String strAt(JsonObject o, String key)
 	{
 		JsonElement el = o.get(key);
-		return el != null && el.isJsonPrimitive() ? el.getAsString() : "";
+		return el != null && el.isJsonPrimitive() ? clamp(el.getAsString()) : "";
+	}
+
+	/** Clamp a federated string to {@link #MAX_STRING} chars (§2 length caps); null → "". */
+	private static String clamp(String s)
+	{
+		if (s == null)
+		{
+			return "";
+		}
+		return s.length() <= MAX_STRING ? s : s.substring(0, MAX_STRING);
+	}
+
+	/**
+	 * §9 JSON-bomb guard: a single O(n) pass over the raw text that rejects the moment structural nesting
+	 * ({@code {}}/{@code []}) exceeds {@code maxDepth}, run <b>before</b> Gson so a deeply-nested body can
+	 * never drive the recursive parser into a {@link StackOverflowError}. String literals are skipped so
+	 * brackets inside a name don't count.
+	 */
+	static boolean withinDepthLimit(String json, int maxDepth)
+	{
+		int depth = 0;
+		boolean inString = false;
+		boolean escaped = false;
+		for (int i = 0; i < json.length(); i++)
+		{
+			char ch = json.charAt(i);
+			if (inString)
+			{
+				if (escaped)
+				{
+					escaped = false;
+				}
+				else if (ch == '\\')
+				{
+					escaped = true;
+				}
+				else if (ch == '"')
+				{
+					inString = false;
+				}
+				continue;
+			}
+			if (ch == '"')
+			{
+				inString = true;
+			}
+			else if (ch == '{' || ch == '[')
+			{
+				if (++depth > maxDepth)
+				{
+					return false;
+				}
+			}
+			else if (ch == '}' || ch == ']')
+			{
+				if (depth > 0)
+				{
+					depth--;
+				}
+			}
+		}
+		return true;
 	}
 
 	/** Like {@link #strAt} but returns {@code null} (not "") for an absent/blank value — for {@code player}. */

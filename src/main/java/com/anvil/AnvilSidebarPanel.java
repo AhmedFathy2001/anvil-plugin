@@ -539,10 +539,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		gbc.anchor = GridBagConstraints.WEST;
 
-		JLabel name = new JLabel(ellipsize(tile.label, 24));
+		JLabel name = new JLabel(plainText(ellipsize(tile.label, 24)));
 		name.setFont(FontManager.getRunescapeSmallFont());
 		name.setForeground(accent);
-		name.setToolTipText(tile.label);
+		name.setToolTipText(plainText(tile.label));
 		row.add(name, gbc);
 
 		JLabel value = new JLabel(progressValue(tile));
@@ -554,7 +554,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.anchor = GridBagConstraints.EAST;
 		row.add(value, gbc);
 
-		JLabel who = new JLabel(task.workersLabel());
+		JLabel who = new JLabel(plainText(task.workersLabel()));
 		who.setFont(FontManager.getRunescapeSmallFont());
 		who.setForeground(task.includesSelf ? ColorScheme.BRAND_ORANGE : VALUE_COLOR);
 		gbc.gridx = 0;
@@ -639,9 +639,9 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JLabel buildActivityRow(ActivityEntry e)
 	{
-		JLabel row = new JLabel(ellipsize(e.summary(), 36));
+		JLabel row = new JLabel(plainText(ellipsize(e.summary(), 36)));
 		row.setFont(FontManager.getRunescapeSmallFont());
-		row.setToolTipText(e.summary());
+		row.setToolTipText(plainText(e.summary()));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 		// Completions read as wins (green); your own actions stand out (gold); teammates stay neutral.
 		if (e.isCompletion())
@@ -657,6 +657,33 @@ public class AnvilSidebarPanel extends PluginPanel
 			row.setForeground(ColorScheme.TEXT_COLOR);
 		}
 		return row;
+	}
+
+	/**
+	 * §2/§6 — neutralize a federated string for Swing rendering. A {@link JLabel} (and {@link javax.swing.JToolTip})
+	 * switches to an HTML view when its text begins with {@code <html}, so a federated value like
+	 * {@code "<html><b>…</b>"} (a clan/tile/activity name from an untrusted upstream) could inject markup.
+	 * Any string that starts — ignoring leading whitespace and case — with {@code <html} has its
+	 * markup-significant characters escaped, so it can only ever render as <b>literal text</b>. Ordinary
+	 * strings pass through untouched. This is the explicit sanitize the security model requires (no reliance
+	 * on {@code putClientProperty("html.disable")}). Every federated field the panel renders routes through here.
+	 */
+	static String plainText(String s)
+	{
+		if (s == null)
+		{
+			return "";
+		}
+		int i = 0;
+		while (i < s.length() && Character.isWhitespace(s.charAt(i)))
+		{
+			i++;
+		}
+		if (s.regionMatches(true, i, "<html", 0, 5))
+		{
+			return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+		}
+		return s;
 	}
 
 	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
@@ -677,7 +704,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.setAlignmentX(LEFT_ALIGNMENT);
 
 		String eventLine = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
-		JLabel event = new JLabel(eventLine);
+		JLabel event = new JLabel(plainText(eventLine));
 		event.setFont(FontManager.getRunescapeFont());
 		event.setForeground(ColorScheme.TEXT_COLOR);
 		panel.add(event, BorderLayout.NORTH);
@@ -746,7 +773,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		gbc.anchor = GridBagConstraints.WEST;
 
-		JLabel name = new JLabel(tile.name);
+		JLabel name = new JLabel(plainText(tile.name));
 		name.setFont(FontManager.getRunescapeSmallFont());
 		name.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
 		row.add(name, gbc);
@@ -801,7 +828,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JLabel warningLabel(String message)
 	{
-		JLabel warn = new JLabel(message);
+		JLabel warn = new JLabel(plainText(message));
 		warn.setFont(FontManager.getRunescapeSmallFont());
 		warn.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
 		warn.setAlignmentX(LEFT_ALIGNMENT);
@@ -840,7 +867,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (value instanceof ConnectionView)
 			{
 				ConnectionView c = (ConnectionView) value;
-				setText(c.hasError() ? c.clanName + "  (!)" : c.clanName);
+				setText(plainText(c.hasError() ? c.clanName + "  (!)" : c.clanName));
 				setFont(getFont().deriveFont(Font.PLAIN));
 			}
 			return this;

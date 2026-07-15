@@ -115,4 +115,91 @@ public class FederationStateTest
 		assertEquals("the id/name-less row is dropped, the real one kept", 1, s.clans.size());
 		assertEquals("ok", s.clans.get(0).instanceId);
 	}
+
+	// ---- §9 parser limits (payload DoS) ----------------------------------------------------------
+
+	@Test
+	public void rejectsOversizedPayload()
+	{
+		// A body over the char cap is dropped before Gson sees it — degrades to disabled(), never OOMs.
+		StringBuilder sb = new StringBuilder("{\"enabled\":true,\"clans\":[{\"id\":\"x\",\"name\":\"");
+		for (int i = 0; i < FederationState.MAX_JSON_CHARS + 16; i++)
+		{
+			sb.append('a');
+		}
+		sb.append("\"}]}");
+		FederationState s = FederationState.parse(GSON, sb.toString());
+		assertFalse("oversized ⇒ disabled", s.enabled);
+		assertTrue(s.clans.isEmpty());
+	}
+
+	@Test
+	public void rejectsDeeplyNestedPayload()
+	{
+		// A JSON bomb: nesting far past the depth cap. Rejected by the pre-parse depth scan (no
+		// StackOverflowError), degrading to disabled() rather than driving the recursive parser off a cliff.
+		StringBuilder sb = new StringBuilder();
+		int depth = FederationState.MAX_JSON_DEPTH + 50;
+		for (int i = 0; i < depth; i++)
+		{
+			sb.append('[');
+		}
+		for (int i = 0; i < depth; i++)
+		{
+			sb.append(']');
+		}
+		FederationState s = FederationState.parse(GSON, sb.toString());
+		assertFalse("deeply-nested ⇒ disabled", s.enabled);
+		assertTrue(s.clans.isEmpty());
+	}
+
+	@Test
+	public void withinDepthLimitIgnoresBracketsInsideStrings()
+	{
+		// Brackets inside a string literal must NOT count toward nesting depth (else a legit name with
+		// "[" characters would be falsely rejected).
+		StringBuilder name = new StringBuilder();
+		for (int i = 0; i < FederationState.MAX_JSON_DEPTH + 20; i++)
+		{
+			name.append('[');
+		}
+		String body = "{\"enabled\":true,\"clans\":[{\"id\":\"x\",\"name\":\"" + name + "\"}]}";
+		FederationState s = FederationState.parse(GSON, body);
+		assertTrue("real structural depth is shallow ⇒ still parses", s.enabled);
+		assertEquals(1, s.clans.size());
+	}
+
+	@Test
+	public void clampsOverlongStrings()
+	{
+		// A pathologically long clan name is clamped to the per-string cap before it can reach a render/store.
+		StringBuilder name = new StringBuilder();
+		for (int i = 0; i < 5000; i++)
+		{
+			name.append('z');
+		}
+		FederationState s = FederationState.parse(GSON,
+			"{\"enabled\":true,\"clans\":[{\"id\":\"x\",\"name\":\"" + name + "\"}]}");
+		assertEquals(1, s.clans.size());
+		assertEquals("clan name clamped to MAX_STRING",
+			FederationState.MAX_STRING, s.clans.get(0).clanName.length());
+	}
+
+	@Test
+	public void capsClanArray()
+	{
+		// A home returning thousands of clans can't make the sidebar allocate an unbounded list.
+		StringBuilder sb = new StringBuilder("{\"enabled\":true,\"clans\":[");
+		for (int i = 0; i < FederationState.MAX_CLANS + 40; i++)
+		{
+			if (i > 0)
+			{
+				sb.append(',');
+			}
+			sb.append("{\"id\":\"c").append(i).append("\",\"name\":\"C").append(i).append("\"}");
+		}
+		sb.append("]}");
+		FederationState s = FederationState.parse(GSON, sb.toString());
+		assertEquals("clan array capped at MAX_CLANS", FederationState.MAX_CLANS, s.clans.size());
+	}
 }
