@@ -589,6 +589,12 @@ public class AnvilPlugin extends Plugin {
     // collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
     private final Map<String, Integer> pendingSkillXpPush = new HashMap<>();
     private java.util.concurrent.ScheduledFuture<?> skillXpPushTask;
+    // Stat tiles (skill XP / boss KC) the LOCAL player has recently made progress on: tileId → last
+    // gain millis. A stat tile's team total can rise from ANY teammate (the server aggregates the
+    // hiscores overlay), so the config alone can't say who's grinding it. This records what THIS
+    // account just did, letting the sidebar's "Active now" attribute a stat tile to "You" vs a
+    // teammate without the server having to attribute stat pushes. Read as a snapshot by the sidebar.
+    private final Map<Integer, Long> localStatProgressAt = new java.util.concurrent.ConcurrentHashMap<>();
     // Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
     // the first snapshot after login/config load, so the baseline never counts as a gain. Worn
     // items are folded in so equipping/unequipping — which just moves an item between the two
@@ -1051,7 +1057,7 @@ public class AnvilPlugin extends Plugin {
         // Params are resolved (and the singletons constructed) by Guice first, so they're non-null.
         // initPrimary is idempotent; startUp() safely re-calls it. No extra homes ⇒ single-home exactly.
         connectionManager.initPrimary(apiClient, this::getPluginConfig);
-        return new AnvilSidebarDataSource(connectionManager);
+        return new AnvilSidebarDataSource(connectionManager, this::localStatProgress);
     }
 
     @Subscribe
@@ -3953,6 +3959,36 @@ public class AnvilPlugin extends Plugin {
      * Absolute XP is idempotent, so the latest value overwrites and a training burst becomes one push.
      * Runs on the client thread (onStatChanged); the network send happens on the executor.
      */
+    /**
+     * Record that the local player just gained on the tracked stat tile whose {@code statName} matches
+     * {@code name} (skill name or boss KC name, case-insensitive). Best-effort: a name that maps to no
+     * stat tile is ignored (the tile then falls to the sidebar's "a teammate" attribution via config
+     * deltas). Called from the XP/KC push path, so it only fires on the local account's own gains.
+     */
+    private void noteLocalStatProgress(String name) {
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.trackedStats == null || name == null) {
+            return;
+        }
+        String n = name.toLowerCase(java.util.Locale.ROOT).trim();
+        for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
+            if (s != null && s.statName != null
+                    && n.equals(s.statName.toLowerCase(java.util.Locale.ROOT).trim())) {
+                localStatProgressAt.put(s.tileId, System.currentTimeMillis());
+                return;
+            }
+        }
+    }
+
+    /**
+     * Snapshot of stat tiles this account recently progressed (tileId → last-gain epoch millis), for
+     * the sidebar's "Active now" self-attribution. A fresh copy so the caller (off the client thread)
+     * never sees a partially-mutated map.
+     */
+    public Map<Integer, Long> localStatProgress() {
+        return new HashMap<>(localStatProgressAt);
+    }
+
     private void maybeQueueSkillXpPush(String skillName, int xp) {
         if (skillName == null || !config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
                 || pluginConfig.team == null || pluginConfig.player == null) {
@@ -3962,6 +3998,7 @@ public class AnvilPlugin extends Plugin {
                 || !trackedSkillNames.contains(skillName.toLowerCase(java.util.Locale.ROOT).trim())) {
             return;
         }
+        noteLocalStatProgress(skillName); // "Active now": this account is grinding this skill tile
         if (executor == null || executor.isShutdown()) {
             return;
         }
@@ -4050,6 +4087,7 @@ public class AnvilPlugin extends Plugin {
         if (!AnvilOverlay.isEventActive(pluginConfig.event) || !trackedKcNames.contains(normalizeBossName(bossName))) {
             return;
         }
+        noteLocalStatProgress(bossName); // "Active now": this account is grinding this boss-KC tile
         if (executor == null || executor.isShutdown()) {
             return;
         }
