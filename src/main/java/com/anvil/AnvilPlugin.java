@@ -1039,13 +1039,16 @@ public class AnvilPlugin extends Plugin {
      * Data source for the progress sidebar. This is the single wiring seam between the panel and its
      * data — the panel only knows the {@link SidebarDataSource} interface.
      *
-     * <p>Binds the multi-home {@link AnvilSidebarDataSource} over the {@link ConnectionManager}.
-     * Connection&nbsp;#0 is a view over the config THIS plugin already polls (via
-     * {@code this::getPluginConfig} — no extra board request, no shared-ETag clash) plus the injected
-     * {@link BingoApiClient}, so with no extra homes configured the sidebar behaves exactly as the
-     * single-home source always has (one row, its own live feed + spotlight). Opt-in extra homes from
-     * {@link AnvilConfig#federationHomes()} add one further row each. Offline (no Site URL/token) it
-     * resolves to the empty state. For offline UI work, swap the return for {@code mock}
+     * <p>Binds the <b>site-relay</b> {@link FederationSidebarDataSource} (the default federation path,
+     * {@code FEDERATION_WIRE.md} §10) over a {@link ConnectionManager}-backed {@link AnvilSidebarDataSource}
+     * delegate. On the auto path the source polls the home site's {@code /api/plugin/federation/state} and
+     * renders the clans the site fans out; with federation off it falls through to the delegate, which over
+     * a bare manager (connection&nbsp;#0 only — a view of the config THIS plugin already polls via
+     * {@code this::getPluginConfig}, no extra board request, no shared-ETag clash) is byte-for-byte today's
+     * one-home sidebar. The opt-in manual CSV path ({@link AnvilConfig#federationHomes()}) still populates
+     * the manager's extra connections; the site-relay source detects those and renders them directly — the
+     * only mode that does direct multi-connect (§10.5). Offline (no Site URL/token) it resolves to the empty
+     * state. For offline UI work, swap the return for {@code mock}
      * ({@link MockSidebarDataSource} populates every section with fake, live-moving data).</p>
      */
     @Provides
@@ -1057,7 +1060,8 @@ public class AnvilPlugin extends Plugin {
         // Params are resolved (and the singletons constructed) by Guice first, so they're non-null.
         // initPrimary is idempotent; startUp() safely re-calls it. No extra homes ⇒ single-home exactly.
         connectionManager.initPrimary(apiClient, this::getPluginConfig);
-        return new AnvilSidebarDataSource(connectionManager, this::localStatProgress);
+        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(connectionManager, this::localStatProgress);
+        return new FederationSidebarDataSource(apiClient, connectionManager, delegate);
     }
 
     @Subscribe

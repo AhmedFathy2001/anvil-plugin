@@ -63,9 +63,16 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private final SidebarDataSource dataSource;
 
-	// Federation "Connect clans" broker flow — the PRIMARY multi-home UX (the raw "Extra clan
-	// connections" CSV stays as an advanced/self-host fallback in config). All three are feature-gated:
-	// the button only shows when a broker URL is configured, and blank config ⇒ pure single-home.
+	// Site-relay federation (FEDERATION_WIRE.md §10, the DEFAULT path): the sidebar's data source polls the
+	// home site's /federation/state and renders the clans the SITE fans out. The plugin makes NO broker or
+	// clan connections here. Non-null only when the bound data source exposes the capability (the auto path);
+	// the manual CSV path binds a plain SidebarDataSource, so this is null and the site-relay CTA stays hidden.
+	private final FederationStatusSource federationStatus;
+
+	// Advanced/self-host DIRECT multi-connect (§10.5): the "Extra clan connections" CSV plus the opt-in
+	// broker "Connect clans" button below. Feature-gated OFF by default — the button only shows when a broker
+	// URL is configured, and blank config ⇒ pure single-home. This is the ONLY place the plugin connects
+	// directly to more than one clan; the auto path above never touches it.
 	private final Provider<BrokerClient> brokerClientProvider;
 	private final ConnectionManager connectionManager;
 	private final AnvilConfig config;
@@ -77,6 +84,15 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel connectStatus = new JLabel();
 	private final JPanel connectRow = new JPanel(new BorderLayout(0, 2));
 	private boolean connectInFlight;
+
+	// Site-relay "Connect clans" affordance (auto path). Shown ONLY when the site says federation is enabled
+	// but this home isn't connected yet; a click POSTs /federation/connect (hosted = zero-click, self-host =
+	// opens a broker login page + polls /state). Hidden entirely when connected (nothing to do) or off.
+	private final JButton siteConnectButton = new JButton("Connect clans");
+	private final JLabel siteConnectStatus = new JLabel();
+	private final JPanel siteConnectRow = new JPanel(new BorderLayout(0, 2));
+	private boolean siteConnectInFlight;
+
 	private final JPanel content = new JPanel();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
@@ -97,6 +113,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
+		this.federationStatus = dataSource instanceof FederationStatusSource ? (FederationStatusSource) dataSource : null;
 		this.brokerClientProvider = brokerClientProvider;
 		this.connectionManager = connectionManager;
 		this.config = config;
@@ -152,11 +169,27 @@ public class AnvilSidebarPanel extends PluginPanel
 		connectRow.setAlignmentX(LEFT_ALIGNMENT);
 		connectRow.setVisible(brokerConfigured());
 
+		// Site-relay "Connect clans" (auto path). Visibility is driven live from /federation/state
+		// (see updateSiteConnectAffordance) — hidden until the site reports federation on & not connected.
+		siteConnectButton.setFocusPainted(false);
+		siteConnectButton.setForeground(ColorScheme.BRAND_ORANGE);
+		siteConnectButton.addActionListener(e -> onSiteConnect());
+		siteConnectStatus.setFont(FontManager.getRunescapeSmallFont());
+		siteConnectStatus.setForeground(VALUE_COLOR);
+		siteConnectStatus.setVisible(false);
+		siteConnectRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		siteConnectRow.add(siteConnectButton, BorderLayout.NORTH);
+		siteConnectRow.add(siteConnectStatus, BorderLayout.SOUTH);
+		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
+		siteConnectRow.setAlignmentX(LEFT_ALIGNMENT);
+		siteConnectRow.setVisible(false);
+
 		JPanel top = new JPanel();
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
 		top.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
+		top.add(siteConnectRow);
 		top.add(connectRow);
 		header.add(top, BorderLayout.NORTH);
 
@@ -275,6 +308,89 @@ public class AnvilSidebarPanel extends PluginPanel
 		connectRow.revalidate();
 	}
 
+	// ---- Site-relay "Connect clans" flow (auto path, FEDERATION_WIRE.md §10.2) --------------------
+
+	/**
+	 * Show the site-relay connect button exactly when the home site reports federation enabled but not yet
+	 * connected ({@link FederationState#needsConnect()}). Hosted homes are connected zero-click, so the row
+	 * simply never appears; a self-host home shows it until the member finishes the one-time browser login.
+	 * No-op when the bound data source isn't the auto-path source, or while a connect is in flight.
+	 */
+	private void updateSiteConnectAffordance()
+	{
+		if (federationStatus == null || siteConnectInFlight)
+		{
+			return;
+		}
+		boolean show = federationStatus.federationStatus().needsConnect();
+		if (siteConnectRow.isVisible() != show)
+		{
+			siteConnectRow.setVisible(show);
+			siteConnectRow.revalidate();
+		}
+	}
+
+	/**
+	 * Drive the §10.2 connect handshake off the EDT: {@code POST /federation/connect}. A trusted home
+	 * returns connected immediately; a self-host opens a browser login and the data source polls
+	 * {@code /state} back to connected. Status lines marshal back via {@code publish}; when it finishes we
+	 * refresh so a now-connected home renders its clans and the button hides. The plugin makes no broker or
+	 * clan connections — everything here is the home site + (for self-host) the broker's own browser page.
+	 */
+	private void onSiteConnect()
+	{
+		if (federationStatus == null || siteConnectInFlight)
+		{
+			return;
+		}
+		siteConnectInFlight = true;
+		siteConnectButton.setEnabled(false);
+		setSiteConnectStatus("Connecting…");
+
+		new SwingWorker<FederationStatusSource.ConnectOutcome, String>()
+		{
+			@Override
+			protected FederationStatusSource.ConnectOutcome doInBackground()
+			{
+				return federationStatus.connectFederation(this::publish);
+			}
+
+			@Override
+			protected void process(List<String> chunks)
+			{
+				if (!chunks.isEmpty())
+				{
+					setSiteConnectStatus(chunks.get(chunks.size() - 1));
+				}
+			}
+
+			@Override
+			protected void done()
+			{
+				siteConnectInFlight = false;
+				siteConnectButton.setEnabled(true);
+				try
+				{
+					get(); // surface a background exception as the catch below
+				}
+				catch (Exception ex)
+				{
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					log.debug("site-relay connect flow failed", cause);
+					setSiteConnectStatus("Connect failed — try again.");
+				}
+				refresh(); // re-render + re-evaluate the affordance with the newest /state
+			}
+		}.execute();
+	}
+
+	private void setSiteConnectStatus(String text)
+	{
+		siteConnectStatus.setText(text == null ? "" : text);
+		siteConnectStatus.setVisible(text != null && !text.isEmpty());
+		siteConnectRow.revalidate();
+	}
+
 	// ---- Refresh flow -----------------------------------------------------------------------------
 
 	/**
@@ -322,6 +438,8 @@ public class AnvilSidebarPanel extends PluginPanel
 					log.debug("sidebar fetch failed", cause);
 					renderError(cause.getMessage());
 				}
+				// The fetch just refreshed /federation/state — reflect it in the connect affordance.
+				updateSiteConnectAffordance();
 			}
 		}.execute();
 	}

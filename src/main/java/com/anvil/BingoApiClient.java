@@ -323,6 +323,113 @@ public class BingoApiClient
 		}
 	}
 
+	// ---- Site-relayed federation (FEDERATION_WIRE.md §10.2) --------------------------------------
+	//
+	// The ONLY two federation endpoints the plugin calls, both on its own home site with the same
+	// account-token auth as everything else. The broker and all inter-site fan-out are server-to-server;
+	// the plugin holds no clan tokens and opens no clan connections on this path.
+
+	/**
+	 * GET {@code /api/plugin/federation/state} — the site-relay sidebar's whole feed: whether federation
+	 * is on, whether this member's home is connected, and one ready-shaped board summary per federated
+	 * clan (§10.2). Account-token authed. Never throws — returns {@code null} on any failure (unconfigured,
+	 * transport, non-2xx, unparseable), so the sidebar falls back to its single-home render.
+	 *
+	 * <p>A {@code null} return (older server with no such route ⇒ 404, or offline) is indistinguishable to
+	 * the caller from "federation disabled" — both mean "render the single home", which is exactly today's
+	 * behaviour on the default path.</p>
+	 */
+	public FederationState fetchFederationState()
+	{
+		if (!isConfigured())
+		{
+			return null;
+		}
+		Request request = authedRequest(apiUrl + "/api/plugin/federation/state").get().build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return FederationState.parse(gson, response.body().string());
+		}
+		catch (IOException e)
+		{
+			log.debug("federation/state fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** Result of {@code POST /api/plugin/federation/connect} (§10.2). Exactly one of the two flags is set. */
+	public static final class FederationConnect
+	{
+		/** {@code status:"connected"} — a trusted home vouched for the member server-to-server (zero-click). */
+		public final boolean connected;
+		/** {@code status:"login"} — a self-host home needs the member's Discord login in the browser. */
+		public final boolean login;
+		/** The broker verification page to open when {@link #login}; {@code null} otherwise. */
+		public final String verificationUrl;
+
+		FederationConnect(boolean connected, boolean login, String verificationUrl)
+		{
+			this.connected = connected;
+			this.login = login;
+			this.verificationUrl = verificationUrl == null || verificationUrl.isEmpty() ? null : verificationUrl;
+		}
+
+		/** Neither connected nor a usable login — the connect call failed or returned something unexpected. */
+		static FederationConnect unavailable()
+		{
+			return new FederationConnect(false, false, null);
+		}
+	}
+
+	/**
+	 * POST {@code /api/plugin/federation/connect} — ask the home site to establish federation for this
+	 * member (§10.2). A trusted home returns {@code {status:"connected"}} (the site minted assertions
+	 * server-to-server); a self-host returns {@code {status:"login", verificationUrl}} for the member to
+	 * complete a one-time Discord login. Account-token authed. Never throws — returns an
+	 * {@link FederationConnect#unavailable() unavailable} result on any failure.
+	 */
+	public FederationConnect federationConnect()
+	{
+		if (!isConfigured())
+		{
+			return FederationConnect.unavailable();
+		}
+		Request request = authedRequest(apiUrl + "/api/plugin/federation/connect")
+			.post(RequestBody.create(JSON, "{}"))
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			String body = response.body() != null ? response.body().string() : "";
+			if (!response.isSuccessful())
+			{
+				log.debug("federation/connect returned HTTP {}", response.code());
+				return FederationConnect.unavailable();
+			}
+			JsonObject o = new JsonParser().parse(body).getAsJsonObject();
+			String status = o.has("status") && o.get("status").isJsonPrimitive() ? o.get("status").getAsString() : "";
+			if ("connected".equals(status))
+			{
+				return new FederationConnect(true, false, null);
+			}
+			if ("login".equals(status))
+			{
+				String url = o.has("verificationUrl") && o.get("verificationUrl").isJsonPrimitive()
+					? o.get("verificationUrl").getAsString() : null;
+				return new FederationConnect(false, true, url);
+			}
+			return FederationConnect.unavailable();
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.debug("federation/connect failed: {}", e.getMessage());
+			return FederationConnect.unavailable();
+		}
+	}
+
 	/** Response of GET /api/plugin/activity — Gson-mapped; see Anvil.Site/src/lib/pluginActivity.ts. */
 	public static class ActivityResponse
 	{
