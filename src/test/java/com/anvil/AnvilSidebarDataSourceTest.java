@@ -9,18 +9,26 @@ import com.google.gson.Gson;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
  * Exercises the real {@link AnvilSidebarDataSource} without a network: an unconfigured
- * {@link BingoApiClient} makes {@code fetchActivity} return null (no request), so we drive the
- * config→ConnectionView shaping — summary, nearest tiles, and the "Active now" attribution built from
- * config-count deltas + the local stat signal.
+ * {@link BingoApiClient} makes {@code fetchActivity} return null, so we drive the config→ConnectionView
+ * shaping — summary, nearest tiles, and the "Active now" attribution from config deltas + local signal.
  */
 public class AnvilSidebarDataSourceTest
 {
+	/** Assert the connection has exactly one active task, on {@code tileId}, credited to {@code worker}. */
+	private static void assertSingleActive(ConnectionView c, int tileId, boolean self, String worker)
+	{
+		assertEquals(1, c.activeNow.size());
+		ConnectionView.ActiveTask t = c.activeNow.get(0);
+		assertEquals(tileId, t.tile.tileId);
+		assertEquals(self, t.includesSelf);
+		assertEquals(worker, t.workers.get(0));
+	}
+
 	private static PluginConfigResponse.TrackedDrop drop(int id, String label, int cur, int req)
 	{
 		PluginConfigResponse.TrackedDrop d = new PluginConfigResponse.TrackedDrop();
@@ -117,13 +125,7 @@ public class AnvilSidebarDataSourceTest
 
 		ds.fetchConnections();                        // seed
 		cfg.trackedDrops.get(0).currentAmount = 7;    // a teammate credits the kill/drop tile
-		ConnectionView c = ds.fetchConnections().get(0);
-
-		assertEquals(1, c.activeNow.size());
-		ConnectionView.ActiveTask t = c.activeNow.get(0);
-		assertEquals(101, t.tile.tileId);
-		assertFalse(t.includesSelf);
-		assertEquals("a teammate", t.workers.get(0));
+		assertSingleActive(ds.fetchConnections().get(0), 101, false, "a teammate");
 	}
 
 	@Test
@@ -138,13 +140,7 @@ public class AnvilSidebarDataSourceTest
 		ds.fetchConnections();                        // seed
 		local.put(101, System.currentTimeMillis());   // you credited the tile
 		cfg.trackedDrops.get(0).currentAmount = 7;
-		ConnectionView c = ds.fetchConnections().get(0);
-
-		assertEquals(1, c.activeNow.size());
-		ConnectionView.ActiveTask t = c.activeNow.get(0);
-		assertEquals(101, t.tile.tileId);
-		assertTrue(t.includesSelf);
-		assertEquals("You", t.workers.get(0));
+		assertSingleActive(ds.fetchConnections().get(0), 101, true, "You");
 	}
 
 	@Test
@@ -156,13 +152,7 @@ public class AnvilSidebarDataSourceTest
 
 		ds.fetchConnections();                                 // seed
 		cfg.trackedStats.get(0).currentAmount = 1_050_000;     // team Fishing XP rises (teammate)
-		ConnectionView c = ds.fetchConnections().get(0);
-
-		assertEquals(1, c.activeNow.size());
-		ConnectionView.ActiveTask t = c.activeNow.get(0);
-		assertEquals(201, t.tile.tileId);
-		assertFalse(t.includesSelf);
-		assertEquals("a teammate", t.workers.get(0));
+		assertSingleActive(ds.fetchConnections().get(0), 201, false, "a teammate");
 	}
 
 	@Test
@@ -176,13 +166,7 @@ public class AnvilSidebarDataSourceTest
 		ds.fetchConnections();                                 // seed
 		local.put(201, System.currentTimeMillis());            // this account gains Fishing XP now
 		cfg.trackedStats.get(0).currentAmount = 1_050_000;
-		ConnectionView c = ds.fetchConnections().get(0);
-
-		assertEquals(1, c.activeNow.size());
-		ConnectionView.ActiveTask t = c.activeNow.get(0);
-		assertEquals(201, t.tile.tileId);
-		assertTrue(t.includesSelf);
-		assertEquals("You", t.workers.get(0));
+		assertSingleActive(ds.fetchConnections().get(0), 201, true, "You");
 	}
 
 	@Test
@@ -193,12 +177,8 @@ public class AnvilSidebarDataSourceTest
 		cfg.trackedStats.get(0).activeWorkers = Arrays.asList("Alice");
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ConnectionView c = ds.fetchConnections().get(0);   // first fetch is enough — no delta required
-		assertEquals(1, c.activeNow.size());
-		ConnectionView.ActiveTask t = c.activeNow.get(0);
-		assertEquals(201, t.tile.tileId);
-		assertFalse(t.includesSelf);
-		assertEquals("Alice", t.workers.get(0));
+		// First fetch is enough — the server named the worker, no delta required.
+		assertSingleActive(ds.fetchConnections().get(0), 201, false, "Alice");
 	}
 
 	@Test

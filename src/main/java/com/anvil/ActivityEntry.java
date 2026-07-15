@@ -2,12 +2,8 @@ package com.anvil;
 
 /**
  * One entry in the always-on sidebar's live team feed — the plugin-side mirror of the Site's
- * {@code /api/plugin/activity} {@code ActivityEntry} JSON (see {@code Anvil.Site/src/lib/pluginActivity.ts}).
- *
- * <p>Deliberately RuneLite-free and immutable, in the value-object style of
- * {@link ClogTaskModel.TaskRow} / {@link ConnectionView}, so {@link AnvilActivityLog} and its tests
- * never touch the client. Gson populates these from the endpoint; a missing field just stays at its
- * default.</p>
+ * {@code /api/plugin/activity} JSON (see {@code Anvil.Site/src/lib/pluginActivity.ts}). RuneLite-free
+ * and immutable, in the value-object style of {@link ClogTaskModel.TaskRow} / {@link ConnectionView}.
  */
 public final class ActivityEntry
 {
@@ -17,11 +13,9 @@ public final class ActivityEntry
 		PROGRESS, COMPLETE;
 
 		/**
-		 * Map the endpoint's lowercase wire value to a {@link Kind}. Unknown/blank → {@link #PROGRESS}
-		 * (the safe default — an unrecognised event still shows as a progress line rather than crashing).
-		 * Use this when building an {@link ActivityEntry} from JSON: deserialize into a raw DTO and pass
-		 * through the constructor rather than letting Gson populate {@code ActivityEntry} directly (Gson
-		 * bypasses the constructor's field normalization and won't match {@code isSelf}/enum casing).
+		 * Map the endpoint's lowercase wire value to a {@link Kind}; unknown/blank → {@link #PROGRESS}.
+		 * Use when building from JSON (deserialize a raw DTO, then pass through the constructor) — Gson
+		 * bypasses the field normalization and won't match {@code isSelf}/enum casing.
 		 */
 		public static Kind fromWire(String s)
 		{
@@ -30,8 +24,8 @@ public final class ActivityEntry
 	}
 
 	/**
-	 * Namespaced, monotonic-per-table id from the server ({@code s<submissionId>} / {@code c<completionId>}).
-	 * Globally unique and the dedup key — the log never shows the same id twice.
+	 * Namespaced, monotonic-per-table id ({@code s<submissionId>} / {@code c<completionId>}) — globally
+	 * unique and the dedup key; the log never shows the same id twice.
 	 */
 	public final String id;
 
@@ -70,13 +64,9 @@ public final class ActivityEntry
 	}
 
 	/**
-	 * A short, member-facing one-line summary — the text the feed row shows. Kept here (not in the
-	 * renderer) so it's unit-testable and identical wherever the entry is surfaced.
-	 *
-	 * <ul>
-	 *   <li>complete → {@code "Kayle completed Tanzanite fang"} / {@code "Team completed …"} when unattributed</li>
-	 *   <li>progress → {@code "You +3 · Bandos chestplate"} / {@code "Zulrah unique +1"} for a teammate</li>
-	 * </ul>
+	 * A short, member-facing one-line summary — the feed row's text. Kept here (not in the renderer) so
+	 * it's unit-testable: {@code "Kayle completed Tanzanite fang"} / {@code "Team completed …"} for
+	 * completions, {@code "You +3 · Bandos chestplate"} / {@code "Zulrah unique +1"} for progress.
 	 */
 	public String summary()
 	{
@@ -88,9 +78,7 @@ public final class ActivityEntry
 		String amt = amount > 0 ? "+" + amount : "+1";
 		if (who == null)
 		{
-			// Teammate partial with no attribution (shouldn't normally happen — submissions carry a
-			// crediting player — but stays graceful): lead with the tile.
-			return tileLabel + " " + amt;
+			return tileLabel + " " + amt; // teammate partial with no attribution — lead with the tile
 		}
 		return who + " " + amt + " · " + tileLabel;
 	}

@@ -143,4 +143,25 @@ public class AnvilActivityLogTest
 		assertEquals(ActivityEntry.Kind.PROGRESS, ActivityEntry.Kind.fromWire(null));
 		assertEquals(ActivityEntry.Kind.PROGRESS, ActivityEntry.Kind.fromWire("garbage"));
 	}
+
+	@Test
+	public void aggregateForDisplayFoldsAGrindByWorkerAndTile()
+	{
+		// Newest-first: 3 of Kayle's "+1" kills on tile 5, a completion, then one of YOUR kills on tile 5.
+		List<ActivityEntry> feed = Arrays.asList(
+			new ActivityEntry("s30", "t", "Kayle", 5, "Kill 500 Dust devils", ActivityEntry.Kind.PROGRESS, 1, false),
+			new ActivityEntry("s29", "t", "Kayle", 5, "Kill 500 Dust devils", ActivityEntry.Kind.PROGRESS, 1, false),
+			new ActivityEntry("c9", "t", "Sara", 6, "Complete 25 ToA", ActivityEntry.Kind.COMPLETE, 0, false),
+			new ActivityEntry("s28", "t", "Kayle", 5, "Kill 500 Dust devils", ActivityEntry.Kind.PROGRESS, 1, false),
+			new ActivityEntry("s27", "t", "You", 5, "Kill 500 Dust devils", ActivityEntry.Kind.PROGRESS, 2, true));
+
+		List<ActivityEntry> agg = AnvilActivityLog.aggregateForDisplay(feed);
+
+		assertEquals(3, agg.size());                       // 3 Kayle kills fold to 1; completion; your line stays
+		assertEquals("s30", agg.get(0).id);                // newest occurrence's metadata kept
+		assertEquals("Kayle +3 · Kill 500 Dust devils", agg.get(0).summary());
+		assertTrue(agg.get(1).isCompletion());             // completion preserved in place
+		assertEquals(2, agg.get(2).amount);                // your own tile-5 grind is a separate line
+		assertTrue(agg.get(2).self);
+	}
 }

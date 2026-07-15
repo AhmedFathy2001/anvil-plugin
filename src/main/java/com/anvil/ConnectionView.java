@@ -5,74 +5,46 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Immutable UI view-model for one <em>connected clan/instance</em> in the always-on progress
- * sidebar ({@link AnvilSidebarPanel}). One {@code ConnectionView} == one Anvil instance the
- * plugin is homed to, folding together the two federation reads the multi-home layer will
- * eventually make per instance:
- *
- * <ul>
- *   <li>{@code GET /api/federation/v1/meta}  → {@link #instanceId}, {@link #clanName}
- *       (see {@code docs/FEDERATION_WIRE.md} §7)</li>
- *   <li>{@code GET /api/federation/v1/board} → {@link #eventName}, {@link #tilesComplete},
- *       {@link #tilesTotal}, {@link #nearestTiles}</li>
- * </ul>
- *
- * <p>Deliberately RuneLite-free so it can be unit-tested and so the panel binds to this shape
- * rather than to any HTTP client. The current {@link MockSidebarDataSource} and the future
- * multi-home {@link SidebarDataSource} both emit exactly this — the panel never changes.</p>
- *
- * <p>Fields mirror the value-object style of {@link ClogTaskModel.TaskRow}: public + final,
- * populated once through the builder-ish constructor. Never holds a live/HTTP handle.</p>
+ * Immutable UI view-model for one connected clan/instance in the always-on progress sidebar
+ * ({@link AnvilSidebarPanel}) — folding together the {@code /meta} (instanceId, clanName) and
+ * {@code /board} (eventName, tile counts, nearest tiles) reads the multi-home layer will make per
+ * instance (see {@code docs/FEDERATION_WIRE.md} §7). Deliberately RuneLite-free so it's unit-testable
+ * and the panel binds to this shape, not to any HTTP client; public + final fields in the value-object
+ * style of {@link ClogTaskModel.TaskRow}, populated once through the constructor.
  */
 public final class ConnectionView
 {
-	/** Stable instance UUID from {@code /meta} ({@code federation_instance_id}). Used as the selection key. */
+	/** Stable instance id ({@code federation_instance_id}) — the selection key. */
 	public final String instanceId;
 
-	/** Human clan/instance name from {@code /meta} — the label shown in the clan filter. */
+	/** Human clan/instance name — the label shown in the clan filter. */
 	public final String clanName;
 
-	/** Active event name on that instance from {@code /board}, or {@code null} when there's no live event. */
+	/** Active event name, or {@code null} when there's no live event. */
 	public final String eventName;
 
-	/**
-	 * Per-connection error message, or {@code null} when this instance was reached cleanly. Lets the
-	 * multi-home layer surface a single unreachable home inline while its siblings still render
-	 * (one clan down ≠ the whole sidebar failing). The mock always leaves this {@code null}.
-	 */
+	/** Per-connection error, or {@code null} when reached cleanly — lets one home fail inline while siblings render. */
 	public final String error;
 
-	/** Tiles YOUR team has completed on this instance's active board. */
+	/** Tiles your team has completed on this board. */
 	public final int tilesComplete;
 
-	/** Total tiles on this instance's active board. */
+	/** Total tiles on this board. */
 	public final int tilesTotal;
 
-	/** Tiles closest to completion, already ordered nearest-first by the data source. Never {@code null}. */
+	/** Tiles closest to completion, ordered nearest-first by the data source. Never {@code null}. */
 	public final List<TileProgressView> nearestTiles;
 
-	/**
-	 * Newest-first team activity feed for this instance's live event — the {@link AnvilActivityLog}
-	 * snapshot from {@code /api/plugin/activity}. Never {@code null} (empty = no recent events).
-	 */
+	/** Newest-first team activity feed (the {@link AnvilActivityLog} snapshot). Never {@code null}. */
 	public final List<ActivityEntry> recentActivity;
 
-	/**
-	 * Tiles being <em>actively worked right now</em> — yours and any teammate's, deduped by tile (a boss
-	 * you're doing together is one row listing both). Ordered most-recently-updated first. Derived from
-	 * the feed's per-player attribution, so it reflects who's actually credited progress, not a
-	 * team-aggregate delta. Never {@code null} (empty = nobody's mid-task, or only stat grinds which
-	 * don't submit).
-	 */
+	/** Tiles being actively worked right now — yours and teammates', deduped by tile. Never {@code null}. */
 	public final List<ActiveTask> activeNow;
 
-	/**
-	 * URL of the site page to open for this board (standings / leaderboard) — {@code <baseUrl>/events/<id>},
-	 * or {@code null} when unknown (e.g. a federated home that didn't supply one). Drives the panel's link.
-	 */
+	/** Site page to open for this board ({@code <baseUrl>/events/<id>}), or {@code null} when unknown. */
 	public final String boardUrl;
 
-	/** Canonical constructor — carries the live layer (feed + active tasks) alongside the board summary. */
+	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
@@ -81,7 +53,7 @@ public final class ConnectionView
 			recentActivity, activeNow, null);
 	}
 
-	/** Fullest constructor — as canonical, plus {@link #boardUrl} (the site page to open for this board). */
+	/** As canonical, plus {@link #boardUrl}. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl)
@@ -92,19 +64,13 @@ public final class ConnectionView
 		this.error = error;
 		this.tilesComplete = Math.max(0, tilesComplete);
 		this.tilesTotal = Math.max(0, tilesTotal);
-		this.nearestTiles = nearestTiles == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(nearestTiles));
-		this.recentActivity = recentActivity == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(recentActivity));
-		this.activeNow = activeNow == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(activeNow));
+		this.nearestTiles = copyOrEmpty(nearestTiles);
+		this.recentActivity = copyOrEmpty(recentActivity);
+		this.activeNow = copyOrEmpty(activeNow);
 		this.boardUrl = boardUrl;
 	}
 
-	/** Healthy connection (no per-connection error) with the live layer. */
+	/** Healthy connection (no error) with the live layer. */
 	public ConnectionView(String instanceId, String clanName, String eventName,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
@@ -120,11 +86,16 @@ public final class ConnectionView
 		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles, null, null);
 	}
 
-	/** Convenience constructor for a healthy, board-only connection (no error, no live layer). */
+	/** Healthy, board-only connection (no error, no live layer). */
 	public ConnectionView(String instanceId, String clanName, String eventName,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles)
 	{
 		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles, null, null);
+	}
+
+	private static <T> List<T> copyOrEmpty(List<T> src)
+	{
+		return src == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(src));
 	}
 
 	public boolean hasError()
@@ -140,7 +111,7 @@ public final class ConnectionView
 
 	/**
 	 * One tile's progress inside a {@link ConnectionView} — the "nearest tiles" rows. Mirrors the
-	 * {@code current}/{@code goal} pair the plugin already uses for tile progress everywhere else
+	 * {@code current}/{@code goal} pair the plugin uses for tile progress elsewhere
 	 * ({@link ClogTaskModel.TaskRow}), so the future {@code /board} binding is a straight copy.
 	 */
 	public static final class TileProgressView
@@ -171,9 +142,9 @@ public final class ConnectionView
 	}
 
 	/**
-	 * One tile someone's actively working, for the "Active now" list. Carries the tile's live
-	 * progress ({@link ClogTaskModel.TaskRow}) plus who's on it — {@code "You"} for the local player,
-	 * teammates by RSN, deduped (a boss you're both doing lists both on one row).
+	 * One tile someone's actively working, for the "Active now" list — the tile's live progress
+	 * ({@link ClogTaskModel.TaskRow}) plus who's on it ({@code "You"} for the local player, teammates by
+	 * RSN, deduped).
 	 */
 	public static final class ActiveTask
 	{
@@ -185,9 +156,7 @@ public final class ConnectionView
 		public ActiveTask(ClogTaskModel.TaskRow tile, List<String> workers, boolean includesSelf)
 		{
 			this.tile = tile;
-			this.workers = workers == null
-				? Collections.emptyList()
-				: Collections.unmodifiableList(new ArrayList<>(workers));
+			this.workers = copyOrEmpty(workers);
 			this.includesSelf = includesSelf;
 		}
 
