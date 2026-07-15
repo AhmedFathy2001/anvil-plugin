@@ -276,9 +276,13 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void setSiteConnectStatus(String text)
 	{
-		siteConnectStatus.setText(text == null ? "" : text);
+		siteConnectStatus.setText(plainText(text == null ? "" : text));
 		siteConnectStatus.setVisible(text != null && !text.isEmpty());
+		// Re-cap to the CURRENT preferred height. The construction-time cap was button-only (status was
+		// hidden), so without this the row can't grow and the status text clips/overlaps under the button.
+		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
 		siteConnectRow.revalidate();
+		siteConnectRow.repaint();
 	}
 
 	// ---- Refresh flow -----------------------------------------------------------------------------
