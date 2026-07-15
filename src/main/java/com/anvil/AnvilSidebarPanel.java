@@ -2,6 +2,7 @@ package com.anvil;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -29,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.components.PluginErrorPanel;
 
 /**
@@ -673,7 +675,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 		panel.setAlignmentX(LEFT_ALIGNMENT);
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 
 		String eventLine = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
 		JLabel event = new JLabel(eventLine);
@@ -703,7 +704,33 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		panel.add(bottom, BorderLayout.CENTER);
 
+		if (c.boardUrl != null && !c.boardUrl.isEmpty())
+		{
+			panel.add(boardLink(c.boardUrl), BorderLayout.SOUTH);
+		}
+
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 		return panel;
+	}
+
+	/** A clickable "View standings" link opening the board's site page in the system browser. */
+	private JLabel boardLink(String url)
+	{
+		JLabel link = new JLabel("View standings ↗");
+		link.setFont(FontManager.getRunescapeSmallFont());
+		link.setForeground(ColorScheme.BRAND_ORANGE);
+		link.setToolTipText("Open this board's standings on the Anvil site");
+		link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		link.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+		link.addMouseListener(new java.awt.event.MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(java.awt.event.MouseEvent e)
+			{
+				LinkBrowser.browse(url);
+			}
+		});
+		return link;
 	}
 
 	private JPanel buildTileRow(ConnectionView.TileProgressView tile)

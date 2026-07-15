@@ -58,6 +58,12 @@ public class BingoApiClient
 		this.playerToken = playerToken;
 	}
 
+	/** The configured site base URL (normalized, no trailing slash), or "" when unconfigured. */
+	public String getApiUrl()
+	{
+		return apiUrl == null ? "" : apiUrl;
+	}
+
 	/**
 	 * Sets the in-game RSN of the locally logged-in account. The plugin should call this
 	 * on every login (and clear it on logout). Null/empty values are tolerated — the

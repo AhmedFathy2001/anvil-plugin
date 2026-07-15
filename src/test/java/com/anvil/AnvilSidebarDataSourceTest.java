@@ -108,18 +108,43 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
-	public void dropTileConfigDeltaDoesNotDriveActiveNow() throws Exception
+	public void teammateOnSubmissionTileShowsAsTeammate() throws Exception
 	{
-		// Submission tiles (drops/kills) are attributed via the feed, not config deltas — a bare team
-		// total rise on a DROP tile must NOT appear in "Active now" (only stat tiles use config deltas).
+		// A drop/kill tile's team total rises with no local signal → a teammate is on it. (This is the
+		// aberrant-spectres case: kill-tile progress must surface in "Active now", not only via the feed.)
 		PluginConfigResponse cfg = eventConfig();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ds.fetchConnections();
+		ds.fetchConnections();                        // seed
+		cfg.trackedDrops.get(0).currentAmount = 7;    // a teammate credits the kill/drop tile
+		ConnectionView c = ds.fetchConnections().get(0);
+
+		assertEquals(1, c.activeNow.size());
+		ConnectionView.ActiveTask t = c.activeNow.get(0);
+		assertEquals(101, t.tile.tileId);
+		assertFalse(t.includesSelf);
+		assertEquals("a teammate", t.workers.get(0));
+	}
+
+	@Test
+	public void yourSubmissionTileShowsAsYou() throws Exception
+	{
+		// The local submit signal (recorded in the plugin's submit path) attributes your own kill/drop
+		// to YOU, even though the same config count rose.
+		PluginConfigResponse cfg = eventConfig();
+		Map<Integer, Long> local = new HashMap<>();
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local);
+
+		ds.fetchConnections();                        // seed
+		local.put(101, System.currentTimeMillis());   // you credited the tile
 		cfg.trackedDrops.get(0).currentAmount = 7;
 		ConnectionView c = ds.fetchConnections().get(0);
 
-		assertTrue(c.activeNow.isEmpty());
+		assertEquals(1, c.activeNow.size());
+		ConnectionView.ActiveTask t = c.activeNow.get(0);
+		assertEquals(101, t.tile.tileId);
+		assertTrue(t.includesSelf);
+		assertEquals("You", t.workers.get(0));
 	}
 
 	@Test

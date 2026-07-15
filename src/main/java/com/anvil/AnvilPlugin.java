@@ -2797,6 +2797,7 @@ public class AnvilPlugin extends Plugin {
         if (pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
             return;
         }
+        noteLocalProgress(tileId); // "Active now": this account credited this tile (kill/timed/diary/CA/...)
         final int eventId = pluginConfig.event.id;
         final int teamId = pluginConfig.team.id;
         final int playerId = pluginConfig.player.id;
@@ -3273,6 +3274,7 @@ public class AnvilPlugin extends Plugin {
 
     private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
             BufferedImage triggerFrame) {
+        noteLocalProgress(drop.tileId); // "Active now": this account credited this drop tile
         // Capture IDs now (before async) since pluginConfig could change
         final int eventId = pluginConfig.event.id;
         final int teamId = pluginConfig.team.id;
@@ -3830,16 +3832,28 @@ public class AnvilPlugin extends Plugin {
         for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
             if (s != null && s.statName != null
                     && n.equals(s.statName.toLowerCase(java.util.Locale.ROOT).trim())) {
-                localStatProgressAt.put(s.tileId, System.currentTimeMillis());
+                noteLocalProgress(s.tileId);
                 return;
             }
         }
     }
 
     /**
-     * Snapshot of stat tiles this account recently progressed (tileId → last-gain epoch millis), for
-     * the sidebar's "Active now" self-attribution. A fresh copy so the caller (off the client thread)
-     * never sees a partially-mutated map.
+     * Record that THIS account just progressed {@code tileId} — for any tile kind. Stat tiles arrive via
+     * {@link #noteLocalStatProgress}; submission tiles (drops/kills/…) call this straight from the submit
+     * path. Lets the sidebar's "Active now" attribute the tile to "You" vs "a teammate" without waiting on
+     * the (undeployed) activity feed.
+     */
+    private void noteLocalProgress(int tileId) {
+        if (tileId > 0) {
+            localStatProgressAt.put(tileId, System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * Snapshot of tiles this account recently progressed (tileId → epoch millis), for the sidebar's
+     * "Active now" self-attribution. A fresh copy so the caller (off the client thread) never sees a
+     * partially-mutated map.
      */
     public Map<Integer, Long> localStatProgress() {
         return new HashMap<>(localStatProgressAt);

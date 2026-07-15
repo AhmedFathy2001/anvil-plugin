@@ -66,10 +66,25 @@ public final class ConnectionView
 	 */
 	public final List<ActiveTask> activeNow;
 
+	/**
+	 * URL of the site page to open for this board (standings / leaderboard) — {@code <baseUrl>/events/<id>},
+	 * or {@code null} when unknown (e.g. a federated home that didn't supply one). Drives the panel's link.
+	 */
+	public final String boardUrl;
+
 	/** Canonical constructor — carries the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
+	{
+		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
+			recentActivity, activeNow, null);
+	}
+
+	/** Fullest constructor — as canonical, plus {@link #boardUrl} (the site page to open for this board). */
+	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -86,6 +101,7 @@ public final class ConnectionView
 		this.activeNow = activeNow == null
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(activeNow));
+		this.boardUrl = boardUrl;
 	}
 
 	/** Healthy connection (no per-connection error) with the live layer. */

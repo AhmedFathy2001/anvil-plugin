@@ -43,7 +43,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	static final String LOCAL_INSTANCE_ID = "local";
 
 	/** How many nearest-to-done incomplete tiles to surface. */
-	private static final int NEAREST_LIMIT = 5;
+	private static final int NEAREST_LIMIT = 10;
 
 	/** Max "active now" rows — keeps the section glanceable. */
 	private static final int MAX_ACTIVE = 4;
@@ -146,7 +146,18 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, clanName, cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, feed, activeNow);
+			tilesComplete, tilesTotal, nearest, feed, activeNow, boardUrlFor(cfg));
+	}
+
+	/** The site's public board/standings page for the active event, or null when the base URL is unknown. */
+	private String boardUrlFor(PluginConfigResponse cfg)
+	{
+		String base = apiClient.getApiUrl();
+		if (base == null || base.isEmpty() || cfg.event == null)
+		{
+			return null;
+		}
+		return base + "/events/" + cfg.event.id;
 	}
 
 	/** Reset the feed + delta state when the active event changes (or clears). */
@@ -204,8 +215,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				}
 			}
 		}
-		boolean serverNamesWorkers = !namedByTile.isEmpty();
-
 		Map<Integer, Acc> acc = new HashMap<>();
 
 		// 1. Feed — submission tiles, named. Newest-first.
@@ -248,16 +257,17 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 		}
 
-		// 3. Config-count deltas → an UNNAMED "a teammate", only as a fallback when the server doesn't
-		//    name workers itself (older server). Always tracks amounts for the next diff.
+		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — this is what surfaces a
+		//    teammate grinding a kill/drop/etc. tile (which never creates a stat push and, until the
+		//    activity feed is deployed, has no other signal). Per-tile suppression: skipped only where the
+		//    server already named that tile's teammates (step 2b) or you're already on it (step 2 / local).
 		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Long> rose = roseAt.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Integer> current = new HashMap<>();
 		for (ClogTaskModel.TaskRow r : rows)
 		{
 			current.put(r.tileId, r.current);
-			boolean statTile = r.kind == ClogTaskModel.Kind.SKILL || r.kind == ClogTaskModel.Kind.BOSS;
-			if (!statTile || r.isCompleted())
+			if (r.isCompleted())
 			{
 				continue;
 			}
@@ -273,9 +283,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				continue;
 			}
-			if (serverNamesWorkers)
+			if (namedByTile.containsKey(en.getKey()))
 			{
-				continue; // the server named the active teammates already — don't add an unnamed one
+				continue; // the server named this tile's teammates (stat tile) — don't add an unnamed one
 			}
 			Acc a = acc.get(en.getKey());
 			if (a != null && a.self)
