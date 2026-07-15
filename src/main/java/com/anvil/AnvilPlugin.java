@@ -489,6 +489,10 @@ public class AnvilPlugin extends Plugin {
     // decides whether the chat line even carries the level number. notified99 dedups a 99 arriving
     // from both StatChanged and the chat line (and pre-seeds skills already 99 at login).
     private final java.util.Map<Skill, Integer> lastSkillLevel = new java.util.EnumMap<>(Skill.class);
+    // Last real-world XP seen per skill, so the "Active now" self-signal fires only on an actual gain —
+    // NOT on the burst of StatChanged RuneLite emits for every skill on login/resync (which otherwise
+    // mislabels every tracked skill tile as "You"). The first sighting per skill just seeds the baseline.
+    private final java.util.Map<Skill, Integer> lastSkillXp = new java.util.EnumMap<>(Skill.class);
     private final java.util.Set<String> notified99 = new java.util.HashSet<>();
     // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
     // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
@@ -848,7 +852,10 @@ public class AnvilPlugin extends Plugin {
         // Real-time skill-XP push (debounced), so skill-XP tiles move without waiting on the hourly
         // hiscores cron — mirrors the boss-KC push. Runs regardless of the level-up notifier toggle;
         // hiscores stays the source of truth (server keeps max(hiscores, pushed) and reconciles).
-        maybeQueueSkillXpPush(skill.getName(), event.getXp());
+        // A real gain (XP rose) vs the login/resync baseline burst — only the former marks the tile "You".
+        Integer prevXp = lastSkillXp.put(skill, event.getXp());
+        boolean realGain = prevXp != null && event.getXp() > prevXp;
+        maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
 
         if (!config.notifyLevelUps()) {
             return;
@@ -3859,7 +3866,7 @@ public class AnvilPlugin extends Plugin {
         return new HashMap<>(localStatProgressAt);
     }
 
-    private void maybeQueueSkillXpPush(String skillName, int xp) {
+    private void maybeQueueSkillXpPush(String skillName, int xp, boolean realGain) {
         if (skillName == null || !config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
                 || pluginConfig.team == null || pluginConfig.player == null) {
             return;
@@ -3868,7 +3875,9 @@ public class AnvilPlugin extends Plugin {
                 || !trackedSkillNames.contains(skillName.toLowerCase(java.util.Locale.ROOT).trim())) {
             return;
         }
-        noteLocalStatProgress(skillName); // "Active now": this account is grinding this skill tile
+        if (realGain) {
+            noteLocalStatProgress(skillName); // "Active now": this account is actively grinding this skill tile
+        }
         if (executor == null || executor.isShutdown()) {
             return;
         }
