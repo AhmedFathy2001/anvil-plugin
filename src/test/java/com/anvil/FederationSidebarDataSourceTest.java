@@ -225,6 +225,45 @@ public class FederationSidebarDataSourceTest
 	}
 
 	@Test
+	public void connectSelfHostLoginResolvesToNoOtherClans() throws Exception
+	{
+		// The member finishes the browser login but belongs to no OTHER federated clan, so /state goes
+		// needsLogin=true (pending) → needsLogin=false && connected=false (login resolved, nothing to attach
+		// to). That is a terminal SUCCESS: the loop must stop and say so, not spin until the ~2-min timeout.
+		MockSite site = new MockSite();
+		site.connectBody = "{\"status\":\"login\","
+			+ "\"verificationUrl\":\"https://anvilosrs.com/federation/device\",\"userCode\":\"24YV-AM8H\"}";
+		site.stateSequence = new String[] {
+			"{\"enabled\":true,\"connected\":false,\"needsLogin\":true,\"clans\":[]}",
+			"{\"enabled\":true,\"connected\":false,\"needsLogin\":true,\"clans\":[]}",
+			"{\"enabled\":true,\"connected\":false,\"needsLogin\":false,\"clans\":[]}"
+		};
+		site.start();
+		try
+		{
+			AtomicReference<String> opened = new AtomicReference<>();
+			List<String> statuses = new ArrayList<>();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { });
+
+			FederationStatusSource.ConnectOutcome outcome = ds.connectFederation(statuses::add);
+
+			assertEquals("a login that resolves with no other clans is still a terminal success",
+				FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
+			assertEquals("https://anvilosrs.com/federation/device", opened.get());
+			assertFalse("signed in, but no remote clans to render", ds.federationStatus().connected);
+			assertTrue("the device code was surfaced for the member to type",
+				statuses.stream().anyMatch(s -> s.contains("24YV-AM8H")));
+			assertTrue("the terminal message says there are no other clans yet",
+				statuses.stream().anyMatch(s -> s.toLowerCase().contains("no other")));
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
 	public void connectUnavailableWhenSiteDeclines() throws Exception
 	{
 		MockSite site = new MockSite();

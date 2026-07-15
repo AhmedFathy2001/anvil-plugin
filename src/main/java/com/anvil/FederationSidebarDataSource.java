@@ -140,6 +140,12 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 			notify(status, result.userCode != null
 				? "Enter code " + result.userCode + " in your browser, then sign in with Discord."
 				: "Finish the login in your browser…");
+			// We poll /state (NOT /connect, which is tightly rate-limited): its server-side advanceSelfHost
+			// drives the broker device-poll to completion, so polling /state both advances AND observes the
+			// login. Two terminal outcomes: it flips to connected (≥1 remote clan), or it resolves with the
+			// member in NO other federated clan — in which case the login still succeeded but there is simply
+			// nothing to attach to, and we must say so rather than spin until the timeout.
+			boolean sawPending = false;
 			for (int i = 0; i < LOGIN_POLL_MAX_ATTEMPTS; i++)
 			{
 				try
@@ -155,6 +161,19 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 				if (s.connected)
 				{
 					notify(status, "Connected.");
+					return ConnectOutcome.CONNECTED;
+				}
+				// The site reports it still needs the browser login → the member hasn't finished on the
+				// broker's page yet. Remember we saw it pending so we can recognise it later resolving.
+				if (s.enabled && s.needsLogin)
+				{
+					sawPending = true;
+				}
+				// Was pending, now federation is on but no login is needed and still not connected → the
+				// browser login completed and the member belongs to no OTHER federated clan. Terminal success.
+				else if (sawPending && s.enabled && !s.needsLogin)
+				{
+					notify(status, "Signed in — no other Anvil clans are linked to yours yet.");
 					return ConnectOutcome.CONNECTED;
 				}
 			}
