@@ -154,7 +154,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 
 		List<ActivityEntry> feed = conn.activityLog().snapshot();
-		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(conn, rows, feed);
+		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(conn, cfg, rows, feed);
 
 		String clanName = conn.displayName();
 		if (clanName == null || clanName.isEmpty())
@@ -173,8 +173,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		roseAt.remove(instanceId);
 	}
 
-	/** Fuse the feed, the local stat signal, and config-count deltas into the deduped "Active now" list. */
-	private List<ConnectionView.ActiveTask> buildActiveNow(AnvilConnection conn,
+	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
+	private List<ConnectionView.ActiveTask> buildActiveNow(AnvilConnection conn, PluginConfigResponse cfg,
 		List<ClogTaskModel.TaskRow> rows, List<ActivityEntry> feed)
 	{
 		final long now = System.currentTimeMillis();
@@ -186,6 +186,21 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				incompleteById.put(r.tileId, r);
 			}
 		}
+
+		// Server-computed named teammates per stat tile (tileId → RSNs). Present (possibly empty) on a
+		// server that computes it; absent entirely on an older one, where we fall back to unnamed deltas.
+		Map<Integer, List<String>> namedByTile = new HashMap<>();
+		if (cfg.trackedStats != null)
+		{
+			for (PluginConfigResponse.TrackedStat s : cfg.trackedStats)
+			{
+				if (s != null && s.activeWorkers != null)
+				{
+					namedByTile.put(s.tileId, s.activeWorkers);
+				}
+			}
+		}
+		boolean serverNamesWorkers = !namedByTile.isEmpty();
 
 		Map<Integer, Acc> acc = new HashMap<>();
 
@@ -220,7 +235,17 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 		}
 
-		// 3. Config-count deltas on stat tiles → "a teammate" (unless this account is already on it).
+		// 2b. Named teammates on stat tiles (server-computed) — the good version of "a teammate".
+		for (Map.Entry<Integer, List<String>> en : namedByTile.entrySet())
+		{
+			for (String name : en.getValue())
+			{
+				add(acc, incompleteById, en.getKey(), name, false, now);
+			}
+		}
+
+		// 3. Config-count deltas → an UNNAMED "a teammate", only as a fallback when the server doesn't
+		//    name workers itself (older server). Always tracks amounts for the next diff.
 		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(conn.instanceId(), k -> new HashMap<>());
 		Map<Integer, Long> rose = roseAt.computeIfAbsent(conn.instanceId(), k -> new HashMap<>());
 		Map<Integer, Integer> current = new HashMap<>();
@@ -243,6 +268,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			if (now - en.getValue() > ACTIVE_WINDOW_MS || !incompleteById.containsKey(en.getKey()))
 			{
 				continue;
+			}
+			if (serverNamesWorkers)
+			{
+				continue; // the server named the active teammates already — don't add an unnamed one
 			}
 			Acc a = acc.get(en.getKey());
 			if (a != null && a.self)

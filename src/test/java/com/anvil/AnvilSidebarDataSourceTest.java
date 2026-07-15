@@ -161,6 +161,38 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
+	public void serverNamedWorkersShowTeammateByName() throws Exception
+	{
+		// When the server names the active teammates on a stat tile, we show the name (no delta needed).
+		PluginConfigResponse cfg = statConfig();
+		cfg.trackedStats.get(0).activeWorkers = Arrays.asList("Alice");
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		ConnectionView c = ds.fetchConnections().get(0);   // first fetch is enough — no delta required
+		assertEquals(1, c.activeNow.size());
+		ConnectionView.ActiveTask t = c.activeNow.get(0);
+		assertEquals(201, t.tile.tileId);
+		assertFalse(t.includesSelf);
+		assertEquals("Alice", t.workers.get(0));
+	}
+
+	@Test
+	public void serverNamedAttributionSuppressesUnnamedFallback() throws Exception
+	{
+		// The server computed active workers and says nobody's on it (empty list) → a lagging config
+		// rise must NOT conjure an unnamed "a teammate"; the server's word is authoritative.
+		PluginConfigResponse cfg = statConfig();
+		cfg.trackedStats.get(0).activeWorkers = new ArrayList<>();
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		ds.fetchConnections();                             // seed
+		cfg.trackedStats.get(0).currentAmount = 1_050_000; // team total rises anyway (hiscores catch-up)
+		ConnectionView c = ds.fetchConnections().get(0);
+
+		assertTrue(c.activeNow.isEmpty());
+	}
+
+	@Test
 	public void eventEndingResetsToEmpty() throws Exception
 	{
 		PluginConfigResponse cfg = eventConfig();

@@ -303,5 +303,10 @@ public class PluginConfigResponse
 		public String trackingMode; // "team" | "individual"
 		public int currentAmount;   // gained XP / KC since baseline
 		public int goalAmount;
+		// Teammates (RSNs) actively grinding this stat tile right now, for the sidebar's "Active now".
+		// The caller is never included (the plugin marks itself "You"). null on older servers that don't
+		// compute it (the sidebar then falls back to an unnamed "a teammate" via config-count deltas);
+		// an empty list means the server DID compute it and no teammate is currently active.
+		public java.util.List<String> activeWorkers;
 	}
 }
