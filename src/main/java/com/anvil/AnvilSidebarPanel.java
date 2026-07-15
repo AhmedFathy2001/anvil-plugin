@@ -59,6 +59,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final Color VALUE_COLOR = new Color(0x98_98_98);
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
+	/** Wrap width for the connect-status line — a little inside the panel so a long line (e.g. the signed-in-
+	 *  but-no-other-clans notice) wraps instead of clipping; a tooltip carries the full text as a backup. */
+	private static final int STATUS_WRAP_PX = PluginPanel.PANEL_WIDTH - 40;
+
 	/** Max activity rows rendered — keeps the sidebar glanceable; the rest collapse into a "+N more". */
 	private static final int ACTIVITY_ROWS_SHOWN = 12;
 
@@ -276,10 +280,17 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void setSiteConnectStatus(String text)
 	{
-		siteConnectStatus.setText(plainText(text == null ? "" : text));
-		siteConnectStatus.setVisible(text != null && !text.isEmpty());
+		String plain = text == null ? "" : text;
+		boolean show = !plain.isEmpty();
+		// The sidebar is narrow, so a full status line ("Signed in — no other clans…") clips as one line.
+		// Render it as width-constrained HTML so it WRAPS, and mirror the full text into the tooltip so it's
+		// always readable on hover. HTML-escape first — the userCode segment is broker-supplied.
+		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+		siteConnectStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "px'>" + escaped + "</body></html>" : "");
+		siteConnectStatus.setToolTipText(show ? plain : null);
+		siteConnectStatus.setVisible(show);
 		// Re-cap to the CURRENT preferred height. The construction-time cap was button-only (status was
-		// hidden), so without this the row can't grow and the status text clips/overlaps under the button.
+		// hidden), so without this the row can't grow and the wrapped status text clips/overlaps under the button.
 		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
 		siteConnectRow.revalidate();
 		siteConnectRow.repaint();
