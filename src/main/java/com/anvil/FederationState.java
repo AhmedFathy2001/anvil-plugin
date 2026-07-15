@@ -194,7 +194,8 @@ public final class FederationState
 		List<ConnectionView.ActiveTask> active = parseActive(c.get("active"));
 
 		return new ConnectionView(id, name, eventName.isEmpty() ? null : eventName,
-			error.isEmpty() ? null : error, tilesComplete, tilesTotal, nearest, activity, active);
+			error.isEmpty() ? null : error, tilesComplete, tilesTotal, nearest,
+			AnvilActivityLog.aggregateForDisplay(activity), active);
 	}
 
 	private static List<ActivityEntry> parseActivity(JsonElement el)

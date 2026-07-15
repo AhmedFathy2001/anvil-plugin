@@ -146,7 +146,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, clanName, cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, feed, activeNow, boardUrlFor(cfg));
+			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg));
 	}
 
 	/** The site's public board/standings page for the active event, or null when the base URL is unknown. */
