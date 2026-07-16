@@ -482,6 +482,31 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * POST {@code /api/plugin/federation/disconnect} — federation logout (§10.2). Asks the home site to
+	 * discard the member's cached remote-clan tokens and clear the durable signed-in marker. Account-token
+	 * authed, idempotent. Returns {@code true} on a 2xx acknowledgement; never throws.
+	 */
+	public boolean federationDisconnect()
+	{
+		if (!isConfigured())
+		{
+			return false;
+		}
+		Request request = authedRequest(apiUrl + "/api/plugin/federation/disconnect")
+			.post(RequestBody.create(JSON, "{}"))
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			return response.isSuccessful();
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.debug("federation/disconnect failed: {}", e.getMessage());
+			return false;
+		}
+	}
+
 	/** Response of GET /api/plugin/activity — Gson-mapped; see Anvil.Site/src/lib/pluginActivity.ts. */
 	public static class ActivityResponse
 	{

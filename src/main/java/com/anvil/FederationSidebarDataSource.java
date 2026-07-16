@@ -189,6 +189,16 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		return ConnectOutcome.UNAVAILABLE;
 	}
 
+	@Override
+	public boolean disconnectFederation()
+	{
+		boolean ok = apiClient.federationDisconnect();
+		// Re-read /state either way so the cached status reflects the server truth (signedIn should now be
+		// false); the panel refresh that follows then re-offers "Connect clans".
+		refreshState();
+		return ok;
+	}
+
 	/** Force a fresh {@code /state} read and cache it, so the panel's status reflects the newest server truth. */
 	private FederationState refreshState()
 	{

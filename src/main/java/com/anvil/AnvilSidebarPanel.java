@@ -146,7 +146,19 @@ public class AnvilSidebarPanel extends PluginPanel
 		// (see updateSiteConnectAffordance) — hidden until the site reports federation on & not connected.
 		siteConnectButton.setFocusPainted(false);
 		siteConnectButton.setForeground(ColorScheme.BRAND_ORANGE);
-		siteConnectButton.addActionListener(e -> onSiteConnect());
+		// One button, two modes: "Connect clans" when not signed in, "Disconnect" once signed in. The
+		// label is kept in sync by updateSiteConnectAffordance; route the click by the current state.
+		siteConnectButton.addActionListener(e ->
+		{
+			if (federationStatus != null && federationStatus.federationStatus().signedIn)
+			{
+				onSiteDisconnect();
+			}
+			else
+			{
+				onSiteConnect();
+			}
+		});
 		siteConnectStatus.setFont(FontManager.getRunescapeSmallFont());
 		siteConnectStatus.setForeground(VALUE_COLOR);
 		siteConnectStatus.setVisible(false);
@@ -216,7 +228,21 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		boolean show = federationStatus.federationStatus().needsConnect();
+		FederationState st = federationStatus.federationStatus();
+		// The row is offered whenever federation is on: "Connect clans" until the member signs in, then
+		// "Disconnect" as a durable logout — even when signed in with zero remote clans (that state persists
+		// across reloads via /state's signedIn), which is exactly the case that used to re-offer Connect.
+		boolean show = st.enabled;
+		siteConnectButton.setText(st.signedIn ? "Disconnect" : "Connect clans");
+		// A quiet standing note when signed in but nothing to render, so the row isn't just a lone button.
+		if (st.signedIn && st.clans.isEmpty())
+		{
+			setSiteConnectStatus("Signed in — no other Anvil clans are linked to yours yet.");
+		}
+		else
+		{
+			setSiteConnectStatus("");
+		}
 		if (siteConnectRow.isVisible() != show)
 		{
 			siteConnectRow.setVisible(show);
@@ -272,6 +298,52 @@ public class AnvilSidebarPanel extends PluginPanel
 					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
 					log.debug("site-relay connect flow failed", cause);
 					setSiteConnectStatus("Connect failed — try again.");
+				}
+				refresh(); // re-render + re-evaluate the affordance with the newest /state
+			}
+		}.execute();
+	}
+
+	/**
+	 * Federation logout off the EDT: {@code POST /disconnect}. Discards the member's cached remote-clan
+	 * tokens + clears the durable signed-in marker server-side; the follow-up refresh then re-reads
+	 * {@code /state} (now {@code signedIn:false}) so the button flips back to "Connect clans".
+	 */
+	private void onSiteDisconnect()
+	{
+		if (federationStatus == null || siteConnectInFlight)
+		{
+			return;
+		}
+		siteConnectInFlight = true;
+		siteConnectButton.setEnabled(false);
+		setSiteConnectStatus("Disconnecting…");
+
+		new SwingWorker<Boolean, Void>()
+		{
+			@Override
+			protected Boolean doInBackground()
+			{
+				return federationStatus.disconnectFederation();
+			}
+
+			@Override
+			protected void done()
+			{
+				siteConnectInFlight = false;
+				siteConnectButton.setEnabled(true);
+				try
+				{
+					if (!get())
+					{
+						setSiteConnectStatus("Disconnect failed — try again.");
+					}
+				}
+				catch (Exception ex)
+				{
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					log.debug("site-relay disconnect flow failed", cause);
+					setSiteConnectStatus("Disconnect failed — try again.");
 				}
 				refresh(); // re-render + re-evaluate the affordance with the newest /state
 			}

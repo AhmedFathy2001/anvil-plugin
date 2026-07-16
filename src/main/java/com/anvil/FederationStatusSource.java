@@ -39,4 +39,12 @@ public interface FederationStatusSource
 	 * polls) — call off the EDT. {@code status} (nullable) receives member-facing progress lines.
 	 */
 	ConnectOutcome connectFederation(Consumer<String> status);
+
+	/**
+	 * Federation logout: {@code POST /disconnect}. Tells the home site to discard the member's cached
+	 * remote-clan tokens and clear the durable signed-in marker, so {@code /state} reverts to
+	 * {@code signedIn:false} and the panel re-offers "Connect clans". Best-effort and idempotent; returns
+	 * {@code true} once the site has acknowledged (the panel refreshes either way). Call off the EDT.
+	 */
+	boolean disconnectFederation();
 }

@@ -236,7 +236,8 @@ public class FederationSidebarDataSourceTest
 		site.stateSequence = new String[] {
 			"{\"enabled\":true,\"connected\":false,\"needsLogin\":true,\"clans\":[]}",
 			"{\"enabled\":true,\"connected\":false,\"needsLogin\":true,\"clans\":[]}",
-			"{\"enabled\":true,\"connected\":false,\"needsLogin\":false,\"clans\":[]}"
+			// login resolved: the site now reports a durable signedIn even with zero remote clans.
+			"{\"enabled\":true,\"connected\":false,\"signedIn\":true,\"needsLogin\":false,\"clans\":[]}"
 		};
 		site.start();
 		try
@@ -253,10 +254,46 @@ public class FederationSidebarDataSourceTest
 			assertEquals("the browser opens the page with the code PREFILLED (verification_uri_complete)",
 				"https://anvilosrs.com/federation/device?user_code=24YV-AM8H", opened.get());
 			assertFalse("signed in, but no remote clans to render", ds.federationStatus().connected);
+			assertTrue("durably signed in ⇒ Disconnect, not a re-offered Connect", ds.federationStatus().signedIn);
+			assertFalse("signed in ⇒ Connect is no longer offered", ds.federationStatus().needsConnect());
 			assertTrue("the device code was surfaced for the member to type",
 				statuses.stream().anyMatch(s -> s.contains("24YV-AM8H")));
 			assertTrue("the terminal message says there are no other clans yet",
 				statuses.stream().anyMatch(s -> s.toLowerCase().contains("no other")));
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void disconnectClearsFederationAndRevertsToConnect() throws Exception
+	{
+		// A signed-in member (durable marker, zero clans) logs out: POST /disconnect, then /state re-reads
+		// signedIn=false so the panel re-offers "Connect clans".
+		MockSite site = new MockSite();
+		site.stateSequence = new String[] {
+			"{\"enabled\":true,\"connected\":false,\"signedIn\":true,\"clans\":[]}",   // before disconnect
+			"{\"enabled\":true,\"connected\":false,\"signedIn\":false,\"clans\":[]}"   // after disconnect
+		};
+		site.disconnectBody = "{\"status\":\"disconnected\"}";
+		site.start();
+		try
+		{
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new MarkerDelegate());
+
+			ds.fetchConnections(); // first /state → signedIn true
+			assertTrue("durably signed in", ds.federationStatus().signedIn);
+			assertFalse("signed in ⇒ no Connect offered", ds.federationStatus().needsConnect());
+
+			boolean ok = ds.disconnectFederation();
+
+			assertTrue("the site acknowledged the logout", ok);
+			assertFalse("after disconnect the member is signed out", ds.federationStatus().signedIn);
+			assertTrue("signed out ⇒ Connect is offered again", ds.federationStatus().needsConnect());
+			assertTrue("the plugin POSTed /disconnect",
+				site.distinctPaths().contains("/api/plugin/federation/disconnect"));
 		}
 		finally
 		{
@@ -414,9 +451,19 @@ public class FederationSidebarDataSourceTest
 		int connectStatus = 200;
 		String connectBody = "{\"status\":\"connected\"}";
 
+		// /federation/disconnect
+		int disconnectStatus = 200;
+		String disconnectBody = "{\"status\":\"disconnected\"}";
+
 		void start() throws IOException
 		{
 			server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+			server.createContext("/api/plugin/federation/disconnect", ex ->
+			{
+				paths.add(ex.getRequestURI().getPath());
+				drain(ex);
+				respond(ex, disconnectStatus, disconnectBody);
+			});
 			server.createContext("/api/plugin/federation/state", ex ->
 			{
 				paths.add(ex.getRequestURI().getPath());

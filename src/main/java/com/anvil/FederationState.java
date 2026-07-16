@@ -46,17 +46,24 @@ public final class FederationState
 {
 	public final boolean enabled;
 	public final boolean connected;
+	/**
+	 * The member has an established federation identity (completed the broker device login), even if it
+	 * resolved to zero remote clans — durable across reloads. Drives the "Disconnect" affordance: a member
+	 * who is signed in is not re-offered "Connect clans". Always implied by {@link #connected}.
+	 */
+	public final boolean signedIn;
 	public final boolean needsLogin;
 	/** Broker device-login page for a self-host home (§10.3), or {@code null}. */
 	public final String verificationUrl;
 	/** One row per federated clan, ready to render. Never {@code null}. */
 	public final List<ConnectionView> clans;
 
-	public FederationState(boolean enabled, boolean connected, boolean needsLogin, String verificationUrl,
-		List<ConnectionView> clans)
+	public FederationState(boolean enabled, boolean connected, boolean signedIn, boolean needsLogin,
+		String verificationUrl, List<ConnectionView> clans)
 	{
 		this.enabled = enabled;
 		this.connected = connected;
+		this.signedIn = signedIn || connected; // connected always implies signed in
 		this.needsLogin = needsLogin;
 		this.verificationUrl = verificationUrl == null || verificationUrl.isEmpty() ? null : verificationUrl;
 		this.clans = clans == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(clans));
@@ -69,13 +76,17 @@ public final class FederationState
 	 */
 	public static FederationState disabled()
 	{
-		return new FederationState(false, false, false, null, Collections.emptyList());
+		return new FederationState(false, false, false, false, null, Collections.emptyList());
 	}
 
-	/** True when a "Connect" affordance should be offered (federation on, but the home isn't connected yet). */
+	/**
+	 * True when a "Connect" affordance should be offered: federation on, but the member has not signed in
+	 * yet. Once signed in (even with zero remote clans) we offer "Disconnect" instead, so this is keyed on
+	 * {@link #signedIn}, not {@link #connected} — a member federated into no other clan is still signed in.
+	 */
 	public boolean needsConnect()
 	{
-		return enabled && !connected;
+		return enabled && !signedIn;
 	}
 
 	// ---- Defensive parser limits (§9 payload DoS + §2 length/shape caps) --------------------------
@@ -119,6 +130,7 @@ public final class FederationState
 			JsonObject o = new JsonParser().parse(json).getAsJsonObject();
 			boolean enabled = boolAt(o, "enabled");
 			boolean connected = boolAt(o, "connected");
+			boolean signedIn = boolAt(o, "signedIn");
 			boolean needsLogin = boolAt(o, "needsLogin");
 			String verificationUrl = strAt(o, "verificationUrl");
 			List<ConnectionView> clans = new ArrayList<>();
@@ -141,7 +153,7 @@ public final class FederationState
 					}
 				}
 			}
-			return new FederationState(enabled, connected, needsLogin, verificationUrl, clans);
+			return new FederationState(enabled, connected, signedIn, needsLogin, verificationUrl, clans);
 		}
 		catch (RuntimeException e)
 		{
