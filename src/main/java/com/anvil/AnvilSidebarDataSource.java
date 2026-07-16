@@ -11,22 +11,15 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The live {@link SidebarDataSource} behind the always-on sidebar. It renders the plugin's one home —
- * a view over the {@link PluginConfigResponse} the plugin already polls plus the injected
- * {@link BingoApiClient} — into a single {@link ConnectionView}. Board summary + nearest tiles come
- * from the already-polled config (no extra request); the activity feed is the source's only network
- * call (one conditional GET to {@code /api/plugin/activity} per refresh, 304 while idle).
+ * The live {@link SidebarDataSource} behind the sidebar: renders the plugin's one home — a view over the
+ * already-polled {@link PluginConfigResponse} plus the injected {@link BingoApiClient} — into a single
+ * {@link ConnectionView}. Board summary + nearest tiles come from the polled config (no extra request); the
+ * feed is the source's only network call (one conditional GET to {@code /api/plugin/activity}, 304 while idle).
  *
- * <p><b>"Active now"</b> — who's mid-task right now — is fused from three signals so it works for every
- * tile kind, deployed endpoint or not:</p>
- * <ul>
- *   <li><b>Config-count deltas</b> — the ONLY signal for stat grinds (they never submit) and the
- *       fallback for any tile kind: a rise means <em>someone</em> on the team progressed it.</li>
- *   <li><b>The local stat signal</b> ({@code AnvilPlugin::localStatProgress}) attributes those rises —
- *       a tile THIS account just gained on reads "You", one it didn't touch reads "a teammate".</li>
- *   <li><b>The feed</b> attributes submission tiles (drops/kills/…) by name, once the endpoint ships.</li>
- * </ul>
- * Signals merge by tile (deduped workers, "You" first), newest-active first, capped.
+ * <p><b>"Active now"</b> fuses three signals so it works for every tile kind: config-count deltas (the only
+ * signal for stat grinds, and the unnamed "a teammate" fallback for any kind), the local stat signal
+ * ({@code AnvilPlugin::localStatProgress}, which attributes a rise to "You"), and the feed (submission tiles
+ * by name). Signals merge by tile (deduped, "You" first), newest-first, capped.</p>
  *
  * <p>Called off the EDT by the panel's worker (one at a time), so the delta state needs no locking.</p>
  */
@@ -39,10 +32,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private static final int NEAREST_LIMIT = 10;
 	private static final int MAX_ACTIVE = 4;
 
-	/**
-	 * How recent a signal must be to count as "active now" — matched to the Site's 5-min stat-worker
-	 * window. Stat ticks / kills / drops refresh it continuously, so it only counts down once you stop.
-	 */
+	/** How recent a signal counts as "active now" — matched to the Site's 5-min stat-worker window. */
 	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
 
 	private final Supplier<PluginConfigResponse> configSupplier;
@@ -57,8 +47,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private final AnvilActivityLog activityLog = new AnvilActivityLog();
 	private int scopedEventId = -1;
 
-	// Config-delta signal state (per instance id): last-seen team amount per tile, and when each last rose.
-	// Persists across refreshes; cleared on event change.
+	// Config-delta signal state (per instance id): last-seen amount per tile + when each rose. Cleared on event change.
 	private final Map<String, Map<Integer, Integer>> lastAmounts = new HashMap<>();
 	private final Map<String, Map<Integer, Long>> roseAt = new HashMap<>();
 
@@ -107,8 +96,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		int tilesComplete = ClogTaskModel.completedCount(rows);
 		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
 
-		// One conditional GET for the feed. A failure leaves the log as-is (the board summary is still
-		// valid — a partial failure), surfaced inline rather than thrown.
+		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.
 		String error = null;
 		try
 		{
@@ -125,8 +113,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 
 		List<ActivityEntry> feed = activityLog.snapshot();
-		// Raw feed drives per-tile "Active now" attribution; the display list folds a grind's many "+1"
-		// rows into one "+N" line (the "Team activity" section).
+		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
 		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
 
 		// primaryDisplayName already falls back event ← team; ConnectionView maps "" → "(unnamed clan)".
@@ -188,8 +175,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 		}
 
-		// Server-computed named teammates per stat tile (tileId → RSNs). Present (possibly empty) on a
-		// server that computes it; absent entirely on an older one, where we fall back to unnamed deltas.
+		// Server-computed named teammates per stat tile (tileId → RSNs); absent on an older server (unnamed fallback).
 		Map<Integer, List<String>> namedByTile = new HashMap<>();
 		if (cfg.trackedStats != null)
 		{
@@ -243,9 +229,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 		}
 
-		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal surfacing a
-		//    teammate grinding a kill/drop/etc. tile before the feed ships. Suppressed per-tile where the
-		//    server already named that tile's teammates (2b) or you're already on it (2 / local).
+		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
+		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
 		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Long> rose = roseAt.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Integer> current = new HashMap<>();

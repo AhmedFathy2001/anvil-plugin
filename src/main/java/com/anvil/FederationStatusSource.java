@@ -3,10 +3,9 @@ package com.anvil;
 import java.util.function.Consumer;
 
 /**
- * The site-relay federation capability the panel needs on top of {@link SidebarDataSource}: the
- * last-observed {@link FederationState} (whether to offer "Connect") and a one-click
- * {@link #connectFederation connect}. {@link FederationSidebarDataSource} implements this; a plain
- * {@link SidebarDataSource} doesn't — the panel discovers it via {@code instanceof} and hides "Connect clans".
+ * The site-relay federation capability on top of {@link SidebarDataSource}: the last-observed
+ * {@link FederationState} and a one-click {@link #connectFederation connect}. Implemented by
+ * {@link FederationSidebarDataSource}; the panel discovers it via {@code instanceof}, else hides "Connect".
  */
 public interface FederationStatusSource
 {
@@ -21,17 +20,14 @@ public interface FederationStatusSource
 		UNAVAILABLE
 	}
 
-	/** The most recent {@link FederationState} seen by {@link SidebarDataSource#fetchConnections()} — never
-	 * {@code null} (a {@link FederationState#disabled()} sentinel before the first poll or on the manual path). */
+	/** Most recent {@link FederationState} seen by {@code fetchConnections()} — never {@code null} ({@link FederationState#disabled()} sentinel pre-poll). */
 	FederationState federationStatus();
 
-	/** Kick the §10.2 connect handshake: {@code POST /connect}. A trusted home returns {@code connected}
-	 * immediately (hosted zero-click); a self-host returns {@code login} + a broker verification URL opened in
-	 * the browser then polled via {@code /state} until Discord login finishes. Blocking — off the EDT; {@code status} (nullable) gets progress. */
+	/** Kick the §10.2 connect handshake: {@code POST /connect}. Trusted home returns {@code connected} (zero-click);
+	 * self-host returns {@code login} + a broker URL opened then polled via {@code /state}. Blocking, off the EDT. */
 	ConnectOutcome connectFederation(Consumer<String> status);
 
-	/** Federation logout: {@code POST /disconnect}. Home site discards the member's cached remote-clan tokens
-	 * and clears the durable signed-in marker, so {@code /state} reverts to {@code signedIn:false} and the
-	 * panel re-offers "Connect clans". Best-effort/idempotent; returns {@code true} once acknowledged. Off the EDT. */
+	/** Federation logout: {@code POST /disconnect} clears the durable signed-in marker, so {@code /state} reverts
+	 * to {@code signedIn:false} and the panel re-offers "Connect clans". Idempotent; {@code true} once acknowledged. */
 	boolean disconnectFederation();
 }

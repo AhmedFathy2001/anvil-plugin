@@ -9,9 +9,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The pure {@link FederationState#parse} mapping — the site-relay {@code /api/plugin/federation/state}
- * body → the sidebar's {@link ConnectionView} rows. No network; the data source's HTTP path is proven
- * separately in {@link FederationSidebarDataSourceTest}.
+ * The pure {@link FederationState#parse} mapping — {@code /federation/state} body → {@link ConnectionView}
+ * rows. No network; the HTTP path is proven in {@link FederationSidebarDataSourceTest}.
  */
 public class FederationStateTest
 {
@@ -136,8 +135,7 @@ public class FederationStateTest
 	@Test
 	public void rejectsDeeplyNestedPayload()
 	{
-		// A JSON bomb: nesting far past the depth cap. Rejected by the pre-parse depth scan (no
-		// StackOverflowError), degrading to disabled() rather than driving the recursive parser off a cliff.
+		// A JSON bomb: nesting past the depth cap. Rejected by the pre-parse depth scan (no StackOverflowError).
 		StringBuilder sb = new StringBuilder();
 		int depth = FederationState.MAX_JSON_DEPTH + 50;
 		for (int i = 0; i < depth; i++)
@@ -156,8 +154,7 @@ public class FederationStateTest
 	@Test
 	public void withinDepthLimitIgnoresBracketsInsideStrings()
 	{
-		// Brackets inside a string literal must NOT count toward nesting depth (else a legit name with
-		// "[" characters would be falsely rejected).
+		// Brackets inside a string literal must NOT count toward nesting depth (else a legit name is rejected).
 		StringBuilder name = new StringBuilder();
 		for (int i = 0; i < FederationState.MAX_JSON_DEPTH + 20; i++)
 		{

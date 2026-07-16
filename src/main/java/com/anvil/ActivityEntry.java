@@ -12,21 +12,14 @@ public final class ActivityEntry
 	{
 		PROGRESS, COMPLETE;
 
-		/**
-		 * Map the endpoint's lowercase wire value to a {@link Kind}; unknown/blank → {@link #PROGRESS}.
-		 * Use when building from JSON (deserialize a raw DTO, then pass through the constructor) — Gson
-		 * bypasses the field normalization and won't match {@code isSelf}/enum casing.
-		 */
+		/** Map the lowercase wire value to a {@link Kind}; unknown/blank → {@link #PROGRESS} (Gson bypasses this). */
 		public static Kind fromWire(String s)
 		{
 			return "complete".equalsIgnoreCase(s == null ? null : s.trim()) ? COMPLETE : PROGRESS;
 		}
 	}
 
-	/**
-	 * Namespaced, monotonic-per-table id ({@code s<submissionId>} / {@code c<completionId>}) — globally
-	 * unique and the dedup key; the log never shows the same id twice.
-	 */
+	/** Namespaced id ({@code s<submissionId>}/{@code c<completionId>}) — globally unique, the dedup key. */
 	public final String id;
 
 	/** ISO timestamp of the underlying event (submission created / tile completed). */
@@ -64,9 +57,8 @@ public final class ActivityEntry
 	}
 
 	/**
-	 * A short, member-facing one-line summary — the feed row's text. Kept here (not in the renderer) so
-	 * it's unit-testable: {@code "Kayle completed Tanzanite fang"} / {@code "Team completed …"} for
-	 * completions, {@code "You +3 · Bandos chestplate"} / {@code "Zulrah unique +1"} for progress.
+	 * A short, member-facing one-line feed summary. Kept here (not the renderer) so it's unit-testable:
+	 * {@code "Kayle completed …"}/{@code "Team completed …"} for completions, {@code "You +3 · …"} for progress.
 	 */
 	public String summary()
 	{

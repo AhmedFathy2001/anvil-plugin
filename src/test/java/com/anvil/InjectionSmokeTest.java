@@ -13,16 +13,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Guards the exact class of failure that once made the whole plugin fail to load: a {@code @Provides}
- * method reading a not-yet-injected {@code this.}-field. When Guice satisfies the sidebar panel's
- * dependency it may invoke {@link AnvilPlugin#provideSidebarDataSource} <em>before</em> the plugin's own
- * {@code @Inject} fields are populated — so the provider must take its collaborators as PARAMETERS.
- *
- * <p>This boots a real Guice injector over the graph the sidebar needs ({@link BingoApiClient}), then
- * invokes the <em>real</em> {@code provideSidebarDataSource} on an <em>uninjected</em>
- * {@code new AnvilPlugin()} — the precise scenario that used to NPE. A regression to reading
- * {@code this.apiClient} throws here; dropping the parameter makes {@code getDeclaredMethod} fail.
- * Cheaper than a full RuneLite injector, and it exercises the real provider, not a copy.</p>
+ * Guards a failure that once made the plugin fail to load: a {@code @Provides} method reading a not-yet-injected
+ * {@code this.}-field. Guice may invoke {@link AnvilPlugin#provideSidebarDataSource} before the plugin's own
+ * {@code @Inject} fields are populated, so the provider must take its collaborators as PARAMETERS. This boots a
+ * real injector, then invokes the real provider on an <em>uninjected</em> {@code new AnvilPlugin()} — the scenario
+ * that used to NPE. A regression to {@code this.apiClient} throws here; dropping the param fails {@code getDeclaredMethod}.
  */
 public class InjectionSmokeTest
 {
@@ -62,8 +57,7 @@ public class InjectionSmokeTest
 		BingoApiClient client = inj.getInstance(BingoApiClient.class);
 		assertNotNull(client);
 
-		// getDeclaredMethod(...) with this exact param type fails if the provider ever drops its param to
-		// read this.-fields again — and invoking it on an UNINJECTED plugin reproduces the load bug.
+		// getDeclaredMethod fails if the provider drops its param; invoking on an uninjected plugin reproduces the bug.
 		AnvilPlugin uninjectedPlugin = new AnvilPlugin();
 		Method provider = AnvilPlugin.class.getDeclaredMethod(
 			"provideSidebarDataSource", BingoApiClient.class);

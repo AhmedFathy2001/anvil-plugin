@@ -118,8 +118,7 @@ public class AnvilSidebarDataSourceTest
 	@Test
 	public void teammateOnSubmissionTileShowsAsTeammate() throws Exception
 	{
-		// A drop/kill tile's team total rises with no local signal → a teammate is on it. (This is the
-		// aberrant-spectres case: kill-tile progress must surface in "Active now", not only via the feed.)
+		// A drop/kill tile's team total rises with no local signal → a teammate is on it (kill-tile progress).
 		PluginConfigResponse cfg = eventConfig();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
@@ -131,8 +130,7 @@ public class AnvilSidebarDataSourceTest
 	@Test
 	public void yourSubmissionTileShowsAsYou() throws Exception
 	{
-		// The local submit signal (recorded in the plugin's submit path) attributes your own kill/drop
-		// to YOU, even though the same config count rose.
+		// The local submit signal attributes your own kill/drop to YOU, even though the config count also rose.
 		PluginConfigResponse cfg = eventConfig();
 		Map<Integer, Long> local = new HashMap<>();
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local);
@@ -184,8 +182,7 @@ public class AnvilSidebarDataSourceTest
 	@Test
 	public void serverNamedAttributionSuppressesUnnamedFallback() throws Exception
 	{
-		// The server computed active workers and says nobody's on it (empty list) → a lagging config
-		// rise must NOT conjure an unnamed "a teammate"; the server's word is authoritative.
+		// Server says nobody's on it (empty list) → a lagging config rise must NOT conjure "a teammate".
 		PluginConfigResponse cfg = statConfig();
 		cfg.trackedStats.get(0).activeWorkers = new ArrayList<>();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);

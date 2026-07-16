@@ -21,17 +21,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The site-relay ({@code FEDERATION_WIRE.md} §10) sidebar path — the plugin's ONLY federation path —
- * driven against an in-process {@link HttpServer} mock of the plugin's <b>home site</b> (JDK built-in —
- * no new dependency, fully offline). The whole point of §10 is proven here: the plugin's federation
- * traffic is its home site and nothing else.
- *
- * <ul>
- *   <li>{@code /federation/state} enabled ⇒ the sidebar renders the clans the SITE fanned out.</li>
- *   <li>federation off / endpoint absent ⇒ falls back to the single-home render (default unchanged).</li>
- *   <li>{@code /federation/connect} handles both {@code connected} (zero-click) and {@code login}
- *       (browser-open seam injected) → polls {@code /state} to connected.</li>
- * </ul>
+ * The site-relay (§10) sidebar path — the plugin's ONLY federation path — driven against an in-process
+ * {@link HttpServer} mock of the home site (JDK built-in, offline). Proves §10: federation traffic is the
+ * home site and nothing else. Covers /state render vs. fall back (off/absent), and /connect zero-click vs.
+ * self-host login (browser-open seam injected) → polls /state to connected.
  */
 public class FederationSidebarDataSourceTest
 {
@@ -149,8 +142,7 @@ public class FederationSidebarDataSourceTest
 	@Test
 	public void unconfiguredClientMakesNoCallAndRendersSingleHome() throws Exception
 	{
-		// The true single-home default: no Site URL/token ⇒ the source makes NO /state request at all and
-		// renders straight from the delegate — byte-for-byte today's behaviour, zero extra network.
+		// True single-home default: no Site URL/token ⇒ NO /state request, renders straight from the delegate.
 		MarkerDelegate delegate = new MarkerDelegate();
 		BingoApiClient unconfigured = new BingoApiClient(GSON, new OkHttpClient());
 		FederationSidebarDataSource ds = source(unconfigured, delegate);
@@ -227,9 +219,8 @@ public class FederationSidebarDataSourceTest
 	@Test
 	public void connectSelfHostLoginResolvesToNoOtherClans() throws Exception
 	{
-		// The member finishes the browser login but belongs to no OTHER federated clan, so /state goes
-		// needsLogin=true (pending) → needsLogin=false && connected=false (login resolved, nothing to attach
-		// to). That is a terminal SUCCESS: the loop must stop and say so, not spin until the ~2-min timeout.
+		// Login finishes but the member has no OTHER clan: /state goes needsLogin=true → signedIn (connected=false).
+		// A terminal SUCCESS — the loop must stop and say so, not spin until the ~2-min timeout.
 		MockSite site = new MockSite();
 		site.connectBody = "{\"status\":\"login\","
 			+ "\"verificationUrl\":\"https://anvilosrs.com/federation/device\",\"userCode\":\"24YV-AM8H\"}";
@@ -270,8 +261,7 @@ public class FederationSidebarDataSourceTest
 	@Test
 	public void disconnectClearsFederationAndRevertsToConnect() throws Exception
 	{
-		// A signed-in member (durable marker, zero clans) logs out: POST /disconnect, then /state re-reads
-		// signedIn=false so the panel re-offers "Connect clans".
+		// A signed-in member logs out: POST /disconnect, then /state re-reads signedIn=false ⇒ re-offer Connect.
 		MockSite site = new MockSite();
 		site.stateSequence = new String[] {
 			"{\"enabled\":true,\"connected\":false,\"signedIn\":true,\"clans\":[]}",   // before disconnect
@@ -324,8 +314,7 @@ public class FederationSidebarDataSourceTest
 	@Test
 	public void connectRefusesNonBrokerVerificationUrl() throws Exception
 	{
-		// A rogue home returns a login URL on a host that ISN'T the pinned Anvil broker → the plugin must
-		// refuse to open it (no phish), the browser-open seam is never invoked, and it reports UNAVAILABLE.
+		// A rogue home returns a login URL off the pinned broker host → refuse to open (no phish), report UNAVAILABLE.
 		MockSite site = new MockSite();
 		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://evil.example/federation/device\"}";
 		site.start();
@@ -395,8 +384,7 @@ public class FederationSidebarDataSourceTest
 	@Test
 	public void oversizedStateFallsBackToSingleHome() throws Exception
 	{
-		// A /state body larger than the client's response-size cap must be dropped (never materialized),
-		// leaving the sidebar on its single-home render rather than buffering a hostile payload.
+		// A /state body over the client's response-size cap is dropped (never materialized) → single-home render.
 		MockSite site = new MockSite();
 		StringBuilder big = new StringBuilder("{\"enabled\":true,\"connected\":true,\"clans\":[{\"id\":\"x\",\"name\":\"");
 		for (int i = 0; i < 700 * 1024; i++)

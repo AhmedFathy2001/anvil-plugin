@@ -7,14 +7,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * §2/§6 — the Swing plain-text guard for federated strings. A {@link javax.swing.JLabel} renders its text
- * as HTML when it begins with {@code <html}, so a federated clan/tile/activity name from an untrusted
- * upstream could inject markup. {@link AnvilSidebarPanel#plainText(String)} — through which every federated
- * field the panel renders is routed — must neutralize that so it can only render as literal text.
- *
- * <p>The authoritative check is {@link BasicHTML#isHTMLString(String)}: it is exactly what the label UI
- * uses to decide whether to build an HTML view. If it returns {@code false} for our output, Swing renders
- * the string verbatim — no markup, no injection.</p>
+ * §2/§6 — the Swing plain-text guard for federated strings. A {@link javax.swing.JLabel} renders as HTML when
+ * its text begins with {@code <html}, so an untrusted clan/tile/activity name could inject markup;
+ * {@link AnvilSidebarPanel#plainText(String)} (which every federated field routes through) must neutralize it.
+ * The authoritative check is {@link BasicHTML#isHTMLString(String)} — exactly what the label UI uses; if it
+ * returns {@code false} for our output, Swing renders verbatim (no markup, no injection).
  */
 public class SidebarTextSafetyTest
 {

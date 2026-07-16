@@ -34,19 +34,13 @@ import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.components.PluginErrorPanel;
 
 /**
- * Always-on progress sidebar — a {@link PluginPanel} in the RuneLite toolbar that shows, per
- * connected clan, how many tiles are done and which tiles are nearest completion.
+ * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
+ * completion. Decoupled from the network: reads everything through {@link SidebarDataSource} (site-relay or
+ * single-home; see {@code FEDERATION_WIRE.md} §7/§10). Owns four view states (loading/error/empty/ready), a
+ * clan filter, a manual Refresh, and an auto-refresh poll that runs only while the panel is open.
  *
- * <p>The panel is intentionally decoupled from the network: it reads everything through
- * {@link SidebarDataSource} (site-relay or single-home; see {@code FEDERATION_WIRE.md} §7/§10). It owns
- * four view states — <em>loading</em>, <em>error</em>, <em>empty</em>, <em>ready</em> —
- * a clan filter across {@code List<ConnectionView>}, a manual Refresh button, and an auto-refresh poll
- * that only runs while the panel is open.</p>
- *
- * <p><b>Threading:</b> all Swing mutation stays on the EDT. {@code onActivate}/{@code onDeactivate},
- * the refresh {@link Timer}, and {@link SwingWorker#done()} all run on the EDT; the only off-EDT work
- * is the blocking {@link SidebarDataSource#fetchConnections()} call inside the worker's background
- * method. Constructed once by Guice and reused (single toolbar panel), hence {@link Singleton}.</p>
+ * <p><b>Threading:</b> all Swing mutation stays on the EDT; the only off-EDT work is the blocking
+ * {@link SidebarDataSource#fetchConnections()} inside the worker. {@link Singleton} — one toolbar panel.</p>
  */
 @Slf4j
 @Singleton
@@ -58,8 +52,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final Color VALUE_COLOR = new Color(0x98_98_98);
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
-	/** Wrap width for the connect-status line — a little inside the panel so a long line (e.g. the signed-in-
-	 *  but-no-other-clans notice) wraps instead of clipping; a tooltip carries the full text as a backup. */
+	/** Wrap width for the connect-status line so a long notice wraps instead of clipping (tooltip carries full text). */
 	private static final int STATUS_WRAP_PX = PluginPanel.PANEL_WIDTH - 40;
 
 	/** Max activity rows rendered — keeps the sidebar glanceable; the rest collapse into a "+N more". */
@@ -67,18 +60,16 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private final SidebarDataSource dataSource;
 
-	// Site-relay federation (FEDERATION_WIRE.md §10, the plugin's ONLY federation path): the sidebar's data
-	// source polls the home site's /federation/state and renders the clans the SITE fans out. The plugin
-	// makes NO broker or clan connections. Non-null only when the bound data source exposes the capability.
+	// Site-relay federation (FEDERATION_WIRE.md §10, the plugin's ONLY federation path): the data source polls
+	// the home site's /federation/state; the plugin makes NO broker/clan connections. Non-null iff the source exposes it.
 	private final FederationStatusSource federationStatus;
 
 	// Header controls (persistent across state changes).
 	private final JComboBox<ConnectionView> clanFilter = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
 
-	// Site-relay "Connect clans" affordance (auto path). Shown ONLY when the site says federation is enabled
-	// but this home isn't connected yet; a click POSTs /federation/connect (hosted = zero-click, self-host =
-	// opens a broker login page + polls /state). Hidden entirely when connected (nothing to do) or off.
+	// Site-relay "Connect clans" affordance (auto path). Shown only when the site reports federation enabled but
+	// not connected; a click POSTs /federation/connect (hosted = zero-click, self-host = broker login + poll /state).
 	private final JButton siteConnectButton = new JButton("Connect clans");
 	private final JLabel siteConnectStatus = new JLabel();
 	private final JPanel siteConnectRow = new JPanel(new BorderLayout(0, 2));
@@ -89,8 +80,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
 	private final Timer autoRefresh;
 
-	// Last successful snapshot, and which clan the user has selected — preserved across refreshes so an
-	// auto-refresh doesn't reset the dropdown or flicker the list.
+	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
 	private List<ConnectionView> connections = java.util.Collections.emptyList();
 	private String selectedInstanceId;
 
@@ -141,12 +131,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
 		titleRow.setAlignmentX(LEFT_ALIGNMENT);
 
-		// Site-relay "Connect clans" (auto path). Visibility is driven live from /federation/state
-		// (see updateSiteConnectAffordance) — hidden until the site reports federation on & not connected.
+		// "Connect clans" visibility is driven live from /federation/state (see updateSiteConnectAffordance).
 		siteConnectButton.setFocusPainted(false);
 		siteConnectButton.setForeground(ColorScheme.BRAND_ORANGE);
-		// One button, two modes: "Connect clans" when not signed in, "Disconnect" once signed in. The
-		// label is kept in sync by updateSiteConnectAffordance; route the click by the current state.
+		// One button, two modes: "Connect clans" when signed out, "Disconnect" when signed in — route by current state.
 		siteConnectButton.addActionListener(e ->
 		{
 			if (federationStatus != null && federationStatus.federationStatus().signedIn)
@@ -176,8 +164,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(siteConnectRow);
 		header.add(top, BorderLayout.NORTH);
 
-		// Clan filter — a dropdown scales past the two-clan mock to the N connected homes multi-home
-		// will bring. Selecting a clan re-renders from the held snapshot (no refetch).
+		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
 		clanFilter.setRenderer(new ClanFilterRenderer());
 		clanFilter.setFocusable(false);
 		clanFilter.addActionListener(e ->
@@ -216,10 +203,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	// ---- Site-relay "Connect clans" flow (auto path, FEDERATION_WIRE.md §10.2) --------------------
 
 	/**
-	 * Show the site-relay connect button exactly when the home site reports federation enabled but not yet
-	 * connected ({@link FederationState#needsConnect()}). Hosted homes are connected zero-click, so the row
-	 * simply never appears; a self-host home shows it until the member finishes the one-time browser login.
-	 * No-op when the bound data source isn't the auto-path source, or while a connect is in flight.
+	 * Show the connect button when the home reports federation enabled but not connected. Hosted homes connect
+	 * zero-click (row never appears); self-host shows it until login. No-op off the auto path or mid-connect.
 	 */
 	private void updateSiteConnectAffordance()
 	{
@@ -228,9 +213,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 		FederationState st = federationStatus.federationStatus();
-		// The row is offered whenever federation is on: "Connect clans" until the member signs in, then
-		// "Disconnect" as a durable logout — even when signed in with zero remote clans (that state persists
-		// across reloads via /state's signedIn), which is exactly the case that used to re-offer Connect.
+		// Offered whenever federation is on: "Connect clans" until signed in, then "Disconnect" (durable via
+		// /state's signedIn) — even signed-in with zero clans, the case that used to wrongly re-offer Connect.
 		boolean show = st.enabled;
 		siteConnectButton.setText(st.signedIn ? "Disconnect" : "Connect clans");
 		// A quiet standing note when signed in but nothing to render, so the row isn't just a lone button.
@@ -250,11 +234,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * Drive the §10.2 connect handshake off the EDT: {@code POST /federation/connect}. A trusted home
-	 * returns connected immediately; a self-host opens a browser login and the data source polls
-	 * {@code /state} back to connected. Status lines marshal back via {@code publish}; when it finishes we
-	 * refresh so a now-connected home renders its clans and the button hides. The plugin makes no broker or
-	 * clan connections — everything here is the home site + (for self-host) the broker's own browser page.
+	 * §10.2 connect handshake off the EDT: {@code POST /federation/connect}. Trusted home returns connected;
+	 * self-host opens a browser login, then the source polls {@code /state} to connected. Status marshals via
+	 * {@code publish}; on finish we refresh so a connected home renders. No broker/clan connections from the plugin.
 	 */
 	private void onSiteConnect()
 	{
@@ -304,9 +286,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * Federation logout off the EDT: {@code POST /disconnect}. Discards the member's cached remote-clan
-	 * tokens + clears the durable signed-in marker server-side; the follow-up refresh then re-reads
-	 * {@code /state} (now {@code signedIn:false}) so the button flips back to "Connect clans".
+	 * Federation logout off the EDT: {@code POST /disconnect} clears the server-side signed-in marker; the
+	 * follow-up refresh re-reads {@code /state} ({@code signedIn:false}) so the button flips to "Connect clans".
 	 */
 	private void onSiteDisconnect()
 	{
@@ -353,15 +334,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		String plain = text == null ? "" : text;
 		boolean show = !plain.isEmpty();
-		// The sidebar is narrow, so a full status line ("Signed in — no other clans…") clips as one line.
-		// Render it as width-constrained HTML so it WRAPS, and mirror the full text into the tooltip so it's
-		// always readable on hover. HTML-escape first — the userCode segment is broker-supplied.
+		// Narrow sidebar: render as width-constrained HTML so a long line WRAPS, mirror full text into the tooltip.
+		// HTML-escape first — the userCode segment is broker-supplied.
 		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 		siteConnectStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "px'>" + escaped + "</body></html>" : "");
 		siteConnectStatus.setToolTipText(show ? plain : null);
 		siteConnectStatus.setVisible(show);
-		// Re-cap to the CURRENT preferred height. The construction-time cap was button-only (status was
-		// hidden), so without this the row can't grow and the wrapped status text clips/overlaps under the button.
+		// Re-cap to the current preferred height (construction-time cap was button-only) so the wrapped status can grow.
 		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
 		siteConnectRow.revalidate();
 		siteConnectRow.repaint();
@@ -369,10 +348,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	// ---- Refresh flow -----------------------------------------------------------------------------
 
-	/**
-	 * Kick a fetch off the EDT and re-render when it returns. Cheap to call repeatedly (manual button,
-	 * auto-poll, on-activate) — overlapping calls are coalesced by {@link #fetchInFlight}.
-	 */
+	/** Fetch off the EDT and re-render on return. Cheap to call repeatedly; overlapping calls coalesce via {@link #fetchInFlight}. */
 	public void refresh()
 	{
 		if (fetchInFlight)
@@ -383,8 +359,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		refreshButton.setEnabled(false);
 		if (connections.isEmpty())
 		{
-			// Nothing on screen yet — show the loading state. On a background poll we keep the current
-			// list visible (no flicker) and just swap it in when the new data lands.
+			// Nothing on screen yet — show loading. A background poll keeps the current list visible (no flicker).
 			renderLoading();
 		}
 
@@ -605,9 +580,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * One "Active now" row: tile name + a "who's on it" byline ("You", "Kayle", "You + Kayle") + a thin
-	 * progress bar. Your own tasks lead in gold; teammate-only tasks stay neutral. The value/label live
-	 * in {@code FontManager} JLabels (never painted inside the bar) so the text renders crisply.
+	 * One "Active now" row: tile name + a "who's on it" byline + a thin progress bar. Your own tasks lead in
+	 * gold, teammate-only stay neutral. Value/label are JLabels (never painted inside the bar) for crisp text.
 	 */
 	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
 	{
@@ -746,13 +720,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * §2/§6 — neutralize a federated string for Swing rendering. A {@link JLabel} (and {@link javax.swing.JToolTip})
-	 * switches to an HTML view when its text begins with {@code <html}, so a federated value like
-	 * {@code "<html><b>…</b>"} (a clan/tile/activity name from an untrusted upstream) could inject markup.
-	 * Any string that starts — ignoring leading whitespace and case — with {@code <html} has its
-	 * markup-significant characters escaped, so it can only ever render as <b>literal text</b>. Ordinary
-	 * strings pass through untouched. This is the explicit sanitize the security model requires (no reliance
-	 * on {@code putClientProperty("html.disable")}). Every federated field the panel renders routes through here.
+	 * §2/§6 — neutralize a federated string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
+	 * HTML when its text begins (ignoring leading whitespace, case-insensitive) with {@code <html}, so an
+	 * untrusted clan/tile/activity name could inject markup. Such strings get their markup chars escaped so they
+	 * render only as literal text; ordinary strings pass through. The explicit sanitize the security model
+	 * requires (no reliance on {@code html.disable}); every federated field the panel renders routes through here.
 	 */
 	static String plainText(String s)
 	{
@@ -795,8 +767,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		event.setForeground(ColorScheme.TEXT_COLOR);
 		panel.add(event, BorderLayout.NORTH);
 
-		// Count + bar together. The count is a FontManager JLabel — NOT painted inside the bar (the
-		// bar's default L&F font rendered poorly); the bar is now a clean, string-less progress strip.
+		// Count is a FontManager JLabel, NOT painted inside the bar (default L&F font rendered poorly).
 		JPanel bottom = new JPanel(new BorderLayout(0, 2));
 		bottom.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 

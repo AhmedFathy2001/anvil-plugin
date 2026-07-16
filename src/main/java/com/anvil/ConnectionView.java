@@ -5,12 +5,10 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Immutable UI view-model for one connected clan/instance in the always-on progress sidebar
- * ({@link AnvilSidebarPanel}) — folding together the {@code /meta} (instanceId, clanName) and
- * {@code /board} (eventName, tile counts, nearest tiles) reads the multi-home layer will make per
- * instance (see {@code docs/FEDERATION_WIRE.md} §7). Deliberately RuneLite-free so it's unit-testable
- * and the panel binds to this shape, not to any HTTP client; public + final fields in the value-object
- * style of {@link ClogTaskModel.TaskRow}, populated once through the constructor.
+ * Immutable UI view-model for one connected clan/instance in the sidebar ({@link AnvilSidebarPanel}),
+ * folding the {@code /meta} + {@code /board} reads (see {@code FEDERATION_WIRE.md} §7). RuneLite-free so
+ * it's unit-testable and the panel binds to this shape, not an HTTP client; value-object style like
+ * {@link ClogTaskModel.TaskRow}.
  */
 public final class ConnectionView
 {
@@ -110,8 +108,7 @@ public final class ConnectionView
 	}
 
 	/**
-	 * One tile's progress inside a {@link ConnectionView} — the "nearest tiles" rows. Mirrors the
-	 * {@code current}/{@code goal} pair the plugin uses for tile progress elsewhere
+	 * One tile's progress ("nearest tiles" rows) — mirrors the {@code current}/{@code goal} pair used elsewhere
 	 * ({@link ClogTaskModel.TaskRow}), so the future {@code /board} binding is a straight copy.
 	 */
 	public static final class TileProgressView
@@ -142,9 +139,8 @@ public final class ConnectionView
 	}
 
 	/**
-	 * One tile someone's actively working, for the "Active now" list — the tile's live progress
-	 * ({@link ClogTaskModel.TaskRow}) plus who's on it ({@code "You"} for the local player, teammates by
-	 * RSN, deduped).
+	 * One tile someone's actively working ("Active now") — the tile's progress ({@link ClogTaskModel.TaskRow})
+	 * plus who's on it ({@code "You"} for the local player, teammates by RSN, deduped).
 	 */
 	public static final class ActiveTask
 	{
