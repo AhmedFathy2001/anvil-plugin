@@ -22,9 +22,8 @@ import java.util.List;
  *       {@link ConnectionView#error} instead — do not throw for that.</li>
  * </ul>
  *
- * <p>Current binding: {@link MockSidebarDataSource}. The real implementation will iterate the
- * member's {@code {baseUrl, token}} homes (Layer 0 manual multi-home; see {@code docs/FEDERATION.md}),
- * hitting {@code /api/federation/v1/meta} and {@code /board} on each — but that is a separate track.</p>
+ * <p>Bound to the site-relay {@link FederationSidebarDataSource} over a single-home
+ * {@link AnvilSidebarDataSource} delegate (see {@code FEDERATION_WIRE.md} §10).</p>
  */
 public interface SidebarDataSource
 {

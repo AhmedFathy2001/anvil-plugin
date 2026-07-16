@@ -3,13 +3,10 @@ package com.anvil;
 import java.util.function.Consumer;
 
 /**
- * The site-relay federation capability the sidebar panel needs on top of {@link SidebarDataSource}:
- * the last-observed {@link FederationState} (to decide whether to offer a "Connect" affordance) and a
- * one-click {@link #connectFederation connect} action.
- *
- * <p>The site-relay data source ({@link FederationSidebarDataSource}) implements this; a plain
- * {@link SidebarDataSource} does not. The panel discovers the capability with an {@code instanceof}
- * check and simply hides the site-relay "Connect clans" affordance when the bound source lacks it.</p>
+ * The site-relay federation capability the panel needs on top of {@link SidebarDataSource}: the
+ * last-observed {@link FederationState} (whether to offer "Connect") and a one-click
+ * {@link #connectFederation connect}. {@link FederationSidebarDataSource} implements this; a plain
+ * {@link SidebarDataSource} doesn't — the panel discovers it via {@code instanceof} and hides "Connect clans".
  */
 public interface FederationStatusSource
 {
@@ -24,27 +21,17 @@ public interface FederationStatusSource
 		UNAVAILABLE
 	}
 
-	/**
-	 * The most recent {@link FederationState} seen by {@link SidebarDataSource#fetchConnections()} — never
-	 * {@code null} (a {@link FederationState#disabled()} sentinel before the first successful poll, or while
-	 * bound to the manual path).
-	 */
+	/** The most recent {@link FederationState} seen by {@link SidebarDataSource#fetchConnections()} — never
+	 * {@code null} (a {@link FederationState#disabled()} sentinel before the first poll or on the manual path). */
 	FederationState federationStatus();
 
-	/**
-	 * Kick the §10.2 connect handshake against the home site: {@code POST /connect}. If the home is a
-	 * trusted host it returns {@code connected} immediately (hosted zero-click); a self-host returns
-	 * {@code login} + a broker verification URL, which is opened in the system browser and then polled via
-	 * {@code /state} until the member finishes the Discord login. Blocking (opens a browser, sleeps between
-	 * polls) — call off the EDT. {@code status} (nullable) receives member-facing progress lines.
-	 */
+	/** Kick the §10.2 connect handshake: {@code POST /connect}. A trusted home returns {@code connected}
+	 * immediately (hosted zero-click); a self-host returns {@code login} + a broker verification URL opened in
+	 * the browser then polled via {@code /state} until Discord login finishes. Blocking — off the EDT; {@code status} (nullable) gets progress. */
 	ConnectOutcome connectFederation(Consumer<String> status);
 
-	/**
-	 * Federation logout: {@code POST /disconnect}. Tells the home site to discard the member's cached
-	 * remote-clan tokens and clear the durable signed-in marker, so {@code /state} reverts to
-	 * {@code signedIn:false} and the panel re-offers "Connect clans". Best-effort and idempotent; returns
-	 * {@code true} once the site has acknowledged (the panel refreshes either way). Call off the EDT.
-	 */
+	/** Federation logout: {@code POST /disconnect}. Home site discards the member's cached remote-clan tokens
+	 * and clears the durable signed-in marker, so {@code /state} reverts to {@code signedIn:false} and the
+	 * panel re-offers "Connect clans". Best-effort/idempotent; returns {@code true} once acknowledged. Off the EDT. */
 	boolean disconnectFederation();
 }

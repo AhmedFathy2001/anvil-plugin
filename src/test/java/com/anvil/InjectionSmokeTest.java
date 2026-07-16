@@ -18,11 +18,11 @@ import static org.junit.Assert.assertTrue;
  * dependency it may invoke {@link AnvilPlugin#provideSidebarDataSource} <em>before</em> the plugin's own
  * {@code @Inject} fields are populated — so the provider must take its collaborators as PARAMETERS.
  *
- * <p>This boots a real Guice injector over the graph the sidebar needs ({@link BingoApiClient},
- * {@link MockSidebarDataSource}), then invokes the <em>real</em> {@code provideSidebarDataSource} on an
- * <em>uninjected</em> {@code new AnvilPlugin()} — the precise scenario that used to NPE. A regression to
- * reading {@code this.apiClient} throws here; dropping the parameters makes {@code getDeclaredMethod}
- * fail. Cheaper than a full RuneLite injector, and it exercises the real provider, not a copy.</p>
+ * <p>This boots a real Guice injector over the graph the sidebar needs ({@link BingoApiClient}), then
+ * invokes the <em>real</em> {@code provideSidebarDataSource} on an <em>uninjected</em>
+ * {@code new AnvilPlugin()} — the precise scenario that used to NPE. A regression to reading
+ * {@code this.apiClient} throws here; dropping the parameter makes {@code getDeclaredMethod} fail.
+ * Cheaper than a full RuneLite injector, and it exercises the real provider, not a copy.</p>
  */
 public class InjectionSmokeTest
 {
@@ -60,17 +60,15 @@ public class InjectionSmokeTest
 
 		// The @Inject-constructor graph resolves under a real injector.
 		BingoApiClient client = inj.getInstance(BingoApiClient.class);
-		MockSidebarDataSource mock = inj.getInstance(MockSidebarDataSource.class);
 		assertNotNull(client);
-		assertNotNull(mock);
 
-		// getDeclaredMethod(...) with these exact param types fails if the provider ever drops its params
-		// to read this.-fields again — and invoking it on an UNINJECTED plugin reproduces the load bug.
+		// getDeclaredMethod(...) with this exact param type fails if the provider ever drops its param to
+		// read this.-fields again — and invoking it on an UNINJECTED plugin reproduces the load bug.
 		AnvilPlugin uninjectedPlugin = new AnvilPlugin();
 		Method provider = AnvilPlugin.class.getDeclaredMethod(
-			"provideSidebarDataSource", BingoApiClient.class, MockSidebarDataSource.class);
+			"provideSidebarDataSource", BingoApiClient.class);
 		provider.setAccessible(true);
-		Object sds = provider.invoke(uninjectedPlugin, client, mock);
+		Object sds = provider.invoke(uninjectedPlugin, client);
 		assertNotNull("provider must not read not-yet-injected this.-fields", sds);
 		assertTrue(sds instanceof SidebarDataSource);
 

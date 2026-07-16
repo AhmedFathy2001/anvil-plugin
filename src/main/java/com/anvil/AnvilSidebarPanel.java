@@ -38,9 +38,8 @@ import net.runelite.client.ui.components.PluginErrorPanel;
  * connected clan, how many tiles are done and which tiles are nearest completion.
  *
  * <p>The panel is intentionally decoupled from the network: it reads everything through
- * {@link SidebarDataSource} (currently {@link MockSidebarDataSource}; the real multi-home layer
- * drops in later with no changes here — see {@code docs/FEDERATION.md} and {@code FEDERATION_WIRE.md}
- * §7). It owns four view states — <em>loading</em>, <em>error</em>, <em>empty</em>, <em>ready</em> —
+ * {@link SidebarDataSource} (site-relay or single-home; see {@code FEDERATION_WIRE.md} §7/§10). It owns
+ * four view states — <em>loading</em>, <em>error</em>, <em>empty</em>, <em>ready</em> —
  * a clan filter across {@code List<ConnectionView>}, a manual Refresh button, and an auto-refresh poll
  * that only runs while the panel is open.</p>
  *

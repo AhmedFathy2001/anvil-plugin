@@ -1027,13 +1027,11 @@ public class AnvilPlugin extends Plugin {
      * source polls the home site's {@code /api/plugin/federation/state} and renders the clans the site fans
      * out; with federation off it falls through to the delegate — a view of the config THIS plugin already
      * polls via {@code this::getPluginConfig} (no extra board request), byte-for-byte today's one-home
-     * sidebar. Offline (no Site URL/token) it resolves to the empty state. For offline UI work, swap the
-     * return for {@code mock} ({@link MockSidebarDataSource} populates every section with fake, live-moving
-     * data).</p>
+     * sidebar. Offline (no Site URL/token) it resolves to the empty state.</p>
      */
     @Provides
     @Singleton
-    SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, MockSidebarDataSource mock) {
+    SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient) {
         // Take the (singleton) client as a PARAMETER, not this.field: Guice can invoke this provider to
         // satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are populated, so
         // reading this.apiClient here would NPE and the whole plugin would fail to load. The param is

@@ -10,47 +10,18 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The plugin-side view of {@code GET /api/plugin/federation/state} — the ONE federation read the
- * plugin makes on the <b>site-relay</b> (auto) path (see {@code FEDERATION_WIRE.md} §10.2). The home
- * site does all broker + inter-site work server-to-server and hands the plugin a ready, per-clan board
- * summary; the plugin never connects to a broker or to another clan's site on this path.
- *
- * <p>Shape:</p>
- * <pre>
- * { "enabled": true, "connected": true, "needsLogin": false, "verificationUrl": null,
- *   "clans": [ { "id": "&lt;uuid&gt;", "name": "The Anvil Clan", "eventName": "Summer Bingo",
- *               "board": { "tilesComplete": 7, "tilesTotal": 25,
- *                          "nearest": [ { "name": "…", "current": 4, "target": 5, "complete": false } ] },
- *               "activity": [ { "id":"s1","ts":"…","player":"You","tileId":102,"tileLabel":"…",
- *                               "kind":"progress","amount":2,"self":true } ],
- *               "active":   [ { "tileId":102,"label":"500 Zulrah KC","current":420,"goal":500,
- *                               "workers":["You"],"self":true } ] } ] }
- * </pre>
- *
- * <ul>
- *   <li>{@link #enabled} — the clan admin turned federation on for this instance.</li>
- *   <li>{@link #connected} — the home site has the member's federation session in hand (hosted =
- *       zero-click, so this is normally already {@code true}).</li>
- *   <li>{@link #needsLogin}/{@link #verificationUrl} — a self-host home that needs the member to prove
- *       identity via Discord in the broker's own browser page (§10.3); the plugin opens the URL and
- *       polls this endpoint back to {@code connected}.</li>
- *   <li>{@link #clans} — one {@link ConnectionView} per federated clan, already shaped for the sidebar
- *       (same board-summary / working-on / activity / nearest sections as the single-home render).</li>
- * </ul>
- *
- * <p>Deliberately RuneLite-free and immutable, in the value-object style of {@link ConnectionView}, so it
- * and its parser are fully unit-testable. {@link #parse} never throws — a malformed body yields a
- * {@link #disabled()} sentinel so a bad response can never break the sidebar.</p>
+ * The plugin-side view of {@code GET /api/plugin/federation/state} — the ONE federation read the plugin
+ * makes on the <b>site-relay</b> (auto) path ({@code FEDERATION_WIRE.md} §10.2): the home site does broker
+ * + inter-site work server-to-server and hands the plugin ready per-clan boards, so the plugin never dials a
+ * broker or another clan's site ({@link #verificationUrl} = a self-host's Discord identity proof in the
+ * broker's page, §10.3). Immutable/RuneLite-free/unit-testable; {@link #parse} never throws — a bad body yields a {@link #disabled()} sentinel.
  */
 public final class FederationState
 {
 	public final boolean enabled;
 	public final boolean connected;
-	/**
-	 * The member has an established federation identity (completed the broker device login), even if it
-	 * resolved to zero remote clans — durable across reloads. Drives the "Disconnect" affordance: a member
-	 * who is signed in is not re-offered "Connect clans". Always implied by {@link #connected}.
-	 */
+	/** Established federation identity (broker device login done), even with zero remote clans; durable across
+	 * reloads. Drives "Disconnect" (a signed-in member isn't re-offered "Connect"); implied by {@link #connected}. */
 	public final boolean signedIn;
 	public final boolean needsLogin;
 	/** Broker device-login page for a self-host home (§10.3), or {@code null}. */
@@ -69,38 +40,28 @@ public final class FederationState
 		this.clans = clans == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(clans));
 	}
 
-	/**
-	 * The inert sentinel — federation off, nothing connected, no clans. Used whenever {@code /state} is
-	 * absent (older server), unreachable, unparseable, or the plugin isn't set up: the sidebar then falls
-	 * back to its single-home render, so the default path is byte-for-byte today's behaviour.
-	 */
+	/** Inert sentinel (federation off, nothing connected, no clans), used when {@code /state} is absent/
+	 * unreachable/unparseable or the plugin isn't set up: the sidebar falls back to today's single-home render. */
 	public static FederationState disabled()
 	{
 		return new FederationState(false, false, false, false, null, Collections.emptyList());
 	}
 
-	/**
-	 * True when a "Connect" affordance should be offered: federation on, but the member has not signed in
-	 * yet. Once signed in (even with zero remote clans) we offer "Disconnect" instead, so this is keyed on
-	 * {@link #signedIn}, not {@link #connected} — a member federated into no other clan is still signed in.
-	 */
+	/** "Connect" is offered when federation is on but not yet signed in. Keyed on {@link #signedIn} not
+	 * {@link #connected} — a member federated into no other clan is still signed in (gets "Disconnect"). */
 	public boolean needsConnect()
 	{
 		return enabled && !signedIn;
 	}
 
 	// ---- Defensive parser limits (§9 payload DoS + §2 length/shape caps) --------------------------
-	//
-	// Every value here is untrusted federated input — even a "trusted" home may be relaying a self-host's
-	// data. We bound total size and nesting BEFORE Gson touches the body (a JSON bomb can exhaust the
-	// parser or blow the stack), clamp every string, and cap every array, so a hostile /state can only
-	// ever hide federation, never exhaust the plugin.
+	// All federated input is untrusted (a "trusted" home may relay self-host data): bound size+nesting BEFORE
+	// Gson (a JSON bomb exhausts the parser / blows the stack), clamp strings, cap arrays — a hostile /state can only hide federation.
 
 	/** Hard ceiling on the {@code /state} text we will parse (matches the client's byte cap). */
 	static final int MAX_JSON_CHARS = 512 * 1024;
 	/** Reject JSON nested deeper than this. The real shape is ~6 levels; 32 is a generous JSON-bomb guard. */
 	static final int MAX_JSON_DEPTH = 32;
-	/** Per-string clamp applied to every parsed federated field before it reaches a store/render surface. */
 	static final int MAX_STRING = 256;
 	/** Array caps — a hostile home can't make the sidebar allocate/render an unbounded list. */
 	static final int MAX_CLANS = 64;
@@ -109,11 +70,9 @@ public final class FederationState
 	static final int MAX_ACTIVE = 64;
 	static final int MAX_WORKERS = 32;
 
-	/**
-	 * Parse a {@code /api/plugin/federation/state} body. Never throws; a null/blank/garbage body, an
-	 * oversized/over-nested payload (§9), or any per-field surprise degrades to {@link #disabled()} (or as
-	 * much as parsed cleanly), so a bad response can only ever hide federation, never crash the sidebar.
-	 */
+	/** Parse a {@code /api/plugin/federation/state} body. Never throws; a null/garbage/oversized/over-nested
+	 * body (§9) or per-field surprise degrades to {@link #disabled()} (or as much as parsed) — bad responses
+	 * hide federation, never crash the sidebar. */
 	public static FederationState parse(Gson gson, String json)
 	{
 		if (json == null || json.trim().isEmpty())
@@ -228,8 +187,7 @@ public final class FederationState
 				continue;
 			}
 			JsonObject a = e.getAsJsonObject();
-			// Build through the constructor + Kind.fromWire — never let Gson populate ActivityEntry
-			// directly (it bypasses the field normalization and enum casing; see ActivityEntry docs).
+			// Build via constructor + Kind.fromWire; a direct Gson populate bypasses field normalization + enum casing.
 			out.add(new ActivityEntry(strAt(a, "id"), strAt(a, "ts"), nullableStr(a, "player"),
 				intAt(a, "tileId"), strAt(a, "tileLabel"), ActivityEntry.Kind.fromWire(strAt(a, "kind")),
 				intAt(a, "amount"), boolAt(a, "self")));
@@ -276,8 +234,7 @@ public final class FederationState
 				}
 			}
 			boolean self = boolAt(a, "self");
-			// The sidebar row only reads label / current / goal / tileId; Type is irrelevant to the render,
-			// so STAT is a fine placeholder (the server already decided who's "active" — no matching here).
+			// Row only reads label/current/goal/tileId; Type is render-irrelevant, so STAT is a placeholder.
 			ClogTaskModel.TaskRow tile = new ClogTaskModel.TaskRow(
 				intAt(a, "tileId"), strAt(a, "label"), ClogTaskModel.Type.STAT,
 				intAt(a, "current"), intAt(a, "goal"), -1);
@@ -330,12 +287,8 @@ public final class FederationState
 		return s.length() <= MAX_STRING ? s : s.substring(0, MAX_STRING);
 	}
 
-	/**
-	 * §9 JSON-bomb guard: a single O(n) pass over the raw text that rejects the moment structural nesting
-	 * ({@code {}}/{@code []}) exceeds {@code maxDepth}, run <b>before</b> Gson so a deeply-nested body can
-	 * never drive the recursive parser into a {@link StackOverflowError}. String literals are skipped so
-	 * brackets inside a name don't count.
-	 */
+	/** §9 JSON-bomb guard: one O(n) pass over the raw text, run <b>before</b> Gson, rejecting the moment
+	 * nesting exceeds {@code maxDepth} so a deep body can't overflow the recursive parser. Skips string literals. */
 	static boolean withinDepthLimit(String json, int maxDepth)
 	{
 		int depth = 0;
