@@ -840,10 +840,34 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override
 			public void mouseClicked(java.awt.event.MouseEvent e)
 			{
-				LinkBrowser.browse(url);
+				if (isSafeHttpUrl(url)) // defense-in-depth: never a javascript:/data:/file: or creds@host URL
+				{
+					LinkBrowser.browse(url);
+				}
 			}
 		});
 		return link;
+	}
+
+	/** True only for a well-formed absolute {@code http}/{@code https} URL with a host and no embedded
+	 *  credentials — refuses {@code javascript:} / {@code data:} / {@code file:} and {@code user@host} tricks. */
+	static boolean isSafeHttpUrl(String url)
+	{
+		if (url == null || url.isEmpty())
+		{
+			return false;
+		}
+		try
+		{
+			java.net.URI u = new java.net.URI(url);
+			String scheme = u.getScheme();
+			return u.getHost() != null && u.getUserInfo() == null
+				&& ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme));
+		}
+		catch (java.net.URISyntaxException ex)
+		{
+			return false;
+		}
 	}
 
 	private JPanel buildTileRow(ConnectionView.TileProgressView tile)
