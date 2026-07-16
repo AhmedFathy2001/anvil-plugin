@@ -500,7 +500,7 @@ public final class ClogTaskModel
 	 * set the player is CLOSEST to finishing (fewest items left), so a two-set tile shows real progress
 	 * toward one set instead of the inflated sum across every set. {@code done} = any one set is full.
 	 */
-	private static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs)
+	static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs)
 	{
 		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
 		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();

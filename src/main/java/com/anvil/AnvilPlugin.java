@@ -2272,6 +2272,15 @@ public class AnvilPlugin extends Plugin {
 
                 int snapshotCurrent = drop.currentAmount;
                 int snapshotRequired = drop.requiredAmount;
+                // Collection tiles (a set of items): report the LEADING set's progress — e.g. 4/4 for the
+                // 4 DK rings, or the closest set on a grouped/barrows tile — instead of the raw item count
+                // over the smallest-set total (which read as "4/1"). Same set-aware maths the clog tab uses;
+                // it reflects the highest set collected, and a stray item toward a different set won't shrink it.
+                if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
+                    int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements);
+                    snapshotCurrent = pg[0];
+                    snapshotRequired = pg[1];
+                }
 
                 synchronized (lastSubmittedAt) {
                     lastSubmittedAt.put(dedupKey, now);
