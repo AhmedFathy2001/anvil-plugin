@@ -1317,6 +1317,7 @@ public class AnvilPlugin extends Plugin {
             helloSent = false;
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
+            identityStampRetries = 0;
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
@@ -1351,8 +1352,25 @@ public class AnvilPlugin extends Plugin {
      * without the stamp every request until the next relog would go out without X-RSN, so
      * the site could never capture the account.
      */
+    private int identityStampRetries;
+    private static final int MAX_IDENTITY_STAMP_RETRIES = 5;
+
     private void stampIdentityAndGreet() {
-        apiClient.setCurrentRsn(getLocalPlayerName());
+        String rsn = getLocalPlayerName();
+        // Right after the LOGGED_IN transition the local player name (and account hash) can still be
+        // unpopulated. Firing the first resolve with no X-RSN leaves the server unable to scope the
+        // token to a clan_member — so the panel would sit unresolved until the 30s cycle. Retry a few
+        // times a couple seconds apart instead, so resolution really does land ON login.
+        if ((rsn == null || rsn.isEmpty())
+                && client.getGameState() == GameState.LOGGED_IN
+                && executor != null && !executor.isShutdown()
+                && identityStampRetries < MAX_IDENTITY_STAMP_RETRIES) {
+            identityStampRetries++;
+            executor.schedule(this::stampIdentityAndGreet, 2, TimeUnit.SECONDS);
+            return;
+        }
+        identityStampRetries = 0;
+        apiClient.setCurrentRsn(rsn);
         apiClient.setAccountHash(client.getAccountHash());
         // Refresh config for the character we just logged into so tracking reflects THIS
         // account's enrollment right away — when one person plays several accounts, only
@@ -1399,6 +1417,94 @@ public class AnvilPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         sendChatMessage((rsn != null ? rsn : "This account") + " is playing in \"" + eventName
                 + "\" but isn't linked to your Anvil account — your drops won't count. Verify this RSN on the Anvil site.");
+    }
+
+    // ---- Connection-health nag: broken Account Token / unreachable Site URL ----
+    // A configured plugin whose token is rejected (401/403) or whose site won't resolve tracks
+    // nothing, silently. We surface that in chat — but only after the failure has PERSISTED past a
+    // grace window (so a brief blip, e.g. right after the PC wakes, doesn't nag), then at most once
+    // every few minutes. Driven from the 30s config refresh, the one choke point for authed
+    // connectivity, so it covers both the active-event and weekly-only cases.
+    private enum ConnProblem { NONE, TOKEN, UNREACHABLE }
+    private long connFailingSinceMs;   // start of the current failure streak; 0 = healthy
+    private long connLastWarnedMs;     // last chat nag; 0 = not yet warned this streak
+    private ConnProblem connProblem = ConnProblem.NONE;
+    private static final long CONN_WARN_GRACE_MS = 90_000;         // ride out blips before the first nag
+    private static final long CONN_WARN_INTERVAL_MS = 5 * 60_000;  // then re-nag at most this often
+
+    /** A config refresh succeeded — token + URL are good. Clear the streak, announce recovery once. */
+    private void noteConnectionOk() {
+        if (connProblem == ConnProblem.NONE) {
+            return;
+        }
+        if (connLastWarnedMs != 0L && client.getGameState() == GameState.LOGGED_IN) {
+            sendChatMessage("Anvil: reconnected — tracking is back on.");
+        }
+        connProblem = ConnProblem.NONE;
+        connFailingSinceMs = 0L;
+        connLastWarnedMs = 0L;
+    }
+
+    /** A config refresh failed. Classify + (throttled) nag when it's a token/URL problem, not a blip. */
+    private void noteConnectionProblem(IOException e) {
+        ConnProblem problem = classifyConnProblem(e);
+        if (problem == ConnProblem.NONE) {
+            return; // unclassified/transient — already logged; don't guess-nag
+        }
+        long now = System.currentTimeMillis();
+        if (connProblem != problem) {
+            // First failure of a streak, or the category changed (URL came back but token now bad).
+            connProblem = problem;
+            connFailingSinceMs = now;
+            connLastWarnedMs = 0L;
+        }
+        if (now - connFailingSinceMs < CONN_WARN_GRACE_MS) {
+            return; // still inside the ride-out-blips grace window
+        }
+        if (connLastWarnedMs != 0L && now - connLastWarnedMs < CONN_WARN_INTERVAL_MS) {
+            return; // throttled
+        }
+        if (client.getGameState() != GameState.LOGGED_IN) {
+            return; // no chat to read yet — hold the nag until they're in-game
+        }
+        connLastWarnedMs = now;
+        if (problem == ConnProblem.TOKEN) {
+            sendChatMessage("Anvil: your Account Token was rejected — tracking is OFF. "
+                    + "Re-copy your token from the Anvil site into the plugin config.");
+        } else {
+            sendChatMessage("Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
+                    + "Check the Site URL in the plugin config and your connection.");
+        }
+    }
+
+    private static ConnProblem classifyConnProblem(IOException e) {
+        if (e instanceof java.net.UnknownHostException
+                || e instanceof java.net.ConnectException
+                || e instanceof java.net.SocketTimeoutException
+                || e instanceof javax.net.ssl.SSLException) {
+            return ConnProblem.UNREACHABLE;
+        }
+        String m = e.getMessage();
+        if (m != null && (m.contains("HTTP 401") || m.contains("HTTP 403"))) {
+            return ConnProblem.TOKEN;
+        }
+        return ConnProblem.NONE; // e.g. a 5xx / other transient — logged, but not a config problem
+    }
+
+    /** " (host)" for the unreachable message, best-effort from the configured Site URL. */
+    private String configuredHostSuffix() {
+        try {
+            String url = config.apiUrl();
+            if (url != null && !url.trim().isEmpty()) {
+                String host = java.net.URI.create(url.trim()).getHost();
+                if (host != null && !host.isEmpty()) {
+                    return " (" + host + ")";
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through to no host
+        }
+        return "";
     }
 
     private void sendHello() {
@@ -3717,6 +3823,9 @@ public class AnvilPlugin extends Plugin {
         }
         try {
             PluginConfigResponse fresh = apiClient.fetchConfig();
+            // A refresh that returned (HTTP 200/304, no throw) proves the token + Site URL are good —
+            // clear any connection-failure streak and announce recovery if we'd nagged.
+            noteConnectionOk();
             // The config response now carries the schedule + active weekly (merged reads), so adopt
             // them here — saves the separate schedule/active-weekly round-trips for token-holders.
             if (fresh != null) {
@@ -3733,7 +3842,16 @@ public class AnvilPlugin extends Plugin {
             if (fresh != null && fresh.event == null) {
                 pluginConfig = fresh;
                 rebuildItemDropIndex();
-                log.info("Anvil: token valid, no active event for this user.");
+                if (fresh.unlinkedActiveEvent != null && !fresh.unlinkedActiveEvent.isEmpty()) {
+                    // The diagnostic "money line" for debug exports: the token is valid AND this RSN
+                    // IS a player in a live bingo — but the account/token isn't linked to it, so
+                    // tracking is silently OFF. Distinct from a genuine "not enrolled anywhere" below.
+                    log.warn("Anvil: RSN '{}' is a player in '{}' but this account/token isn't linked to it"
+                            + " — tracking is OFF. Verify this RSN on the Anvil site.",
+                            getLocalPlayerName(), fresh.unlinkedActiveEvent);
+                } else {
+                    log.info("Anvil: token valid, no active event for this user.");
+                }
                 warnUnlinkedRsn(fresh.unlinkedActiveEvent);
                 return;
             }
@@ -3781,6 +3899,7 @@ public class AnvilPlugin extends Plugin {
 
         } catch (IOException e) {
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
+            noteConnectionProblem(e);
         }
     }
 
