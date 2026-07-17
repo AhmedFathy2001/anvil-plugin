@@ -198,6 +198,13 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Long> lastDamagedPlayerAt = new HashMap<>();
     private static final long PVP_KILL_ATTRIBUTION_MS = 6_000;
 
+    // PvP min-loot tiles credit off the LOOT (priced at PlayerLootReceived), not the death — so a
+    // kill on a matching victim is parked here at death and consumed when its loot arrives and prices
+    // at/above the tile's floor. Keyed by lowercased victim RSN. Loot-key / no-loot kills never fire
+    // PlayerLootReceived, so their entry just expires and the min-loot tile isn't credited (intended).
+    private final Map<String, Long> pendingMinLootKillAt = new HashMap<>();
+    private static final long PVP_MINLOOT_LOOT_WINDOW_MS = 20_000;
+
     // Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
     // suppress a repeat post of the same item within a short window. Keyed by itemId.
     private final Map<Integer, Long> lastRareNotifyAt = new HashMap<>();
@@ -1492,6 +1499,9 @@ public class AnvilPlugin extends Plugin {
         }
         processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         processValueTiles(event.getPlayer().getName(), event.getItems(), "pvp");
+        // Credit any PvP kill tile with a min-loot floor that was parked at the death and whose loot
+        // (priced here) reaches the floor. No-op unless such a kill is pending for this victim.
+        creditPvpMinLootKillTiles(event.getPlayer().getName(), event.getItems());
         maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
     }
 
@@ -4155,40 +4165,112 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String victim = normalizeRsn(victimName);
-        Integer victimTeam = pvpRosterIndex.get(victim);
         Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
+        boolean anyDeferred = false;
         for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
             if (tile == null || tile.targets == null || tile.currentAmount >= tile.requiredAmount
-                    || isTileCompleted(tile.tileId)) {
+                    || isTileCompleted(tile.tileId) || !pvpVictimMatchesTile(tile, victim, myTeam)) {
                 continue;
             }
-            boolean matches = false;
-            for (String sel : tile.targets) {
-                if (sel == null) {
-                    continue;
-                }
-                String s = sel.trim();
-                if (s.equalsIgnoreCase("team:other")) {
-                    matches = victimTeam != null && myTeam != null && !victimTeam.equals(myTeam);
-                } else if (s.regionMatches(true, 0, "rsn:", 0, 4)) {
-                    matches = normalizeRsn(s.substring(4)).equals(victim);
-                }
-                if (matches) {
-                    break;
-                }
-            }
-            if (!matches) {
+            // A min-loot floor is checked against the kill's LOOT, which only arrives in a later
+            // PlayerLootReceived — park the kill and let that event credit it. Every other PvP tile
+            // credits off the death now (still works for loot-key kills, which drop no ground loot).
+            if (tile.minLootValue > 0) {
+                anyDeferred = true;
                 continue;
             }
-            tile.currentAmount += 1;
-            final PluginConfigResponse.TrackedPvp ft = tile;
-            log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
-                    victimName, tile.label, tile.currentAmount, tile.requiredAmount);
-            String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
-            captureAndSubmitProof(tile.tileId, tile.label, 1, null,
-                    "BINGO PVP KILL", detail,
-                    "[Auto] PvP kill on " + victimName + " — detected by RuneLite plugin",
-                    () -> ft.currentAmount = Math.max(0, ft.currentAmount - 1));
+            creditOnePvpTile(tile, victimName);
+        }
+        if (anyDeferred) {
+            long now = System.currentTimeMillis();
+            synchronized (pendingMinLootKillAt) {
+                pendingMinLootKillAt.values().removeIf(t -> (now - t) > PVP_MINLOOT_LOOT_WINDOW_MS);
+                pendingMinLootKillAt.put(victim, now);
+            }
+        }
+    }
+
+    /** Selector match for a PvP tile against a normalised victim RSN ('team:other' / 'rsn:&lt;name&gt;'). */
+    private boolean pvpVictimMatchesTile(PluginConfigResponse.TrackedPvp tile, String victimNorm, Integer myTeam) {
+        if (tile.targets == null) {
+            return false;
+        }
+        Integer victimTeam = pvpRosterIndex.get(victimNorm);
+        for (String sel : tile.targets) {
+            if (sel == null) {
+                continue;
+            }
+            String s = sel.trim();
+            if (s.equalsIgnoreCase("team:other")) {
+                if (victimTeam != null && myTeam != null && !victimTeam.equals(myTeam)) {
+                    return true;
+                }
+            } else if (s.regionMatches(true, 0, "rsn:", 0, 4)) {
+                if (normalizeRsn(s.substring(4)).equals(victimNorm)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Optimistically bump a PvP tile and submit a baked kill screenshot (rollback reverts on failure). */
+    private void creditOnePvpTile(PluginConfigResponse.TrackedPvp tile, String victimName) {
+        tile.currentAmount += 1;
+        final PluginConfigResponse.TrackedPvp ft = tile;
+        log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
+                victimName, tile.label, tile.currentAmount, tile.requiredAmount);
+        String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
+        captureAndSubmitProof(tile.tileId, tile.label, 1, null,
+                "BINGO PVP KILL", detail,
+                "[Auto] PvP kill on " + victimName + " — detected by RuneLite plugin",
+                () -> ft.currentAmount = Math.max(0, ft.currentAmount - 1));
+    }
+
+    /**
+     * Credits PvP min-loot tiles from a kill's loot — called from onPlayerLootReceived. If we parked a
+     * matching kill on this victim at death (pendingMinLootKillAt) and the loot prices at/above a
+     * tile's floor, credit it. The loot is priced once and every qualifying min-loot tile for this
+     * victim is credited; the parked entry is consumed so one kill credits at most once per tile.
+     */
+    private void creditPvpMinLootKillTiles(String victimName, Collection<ItemStack> items) {
+        if (pluginConfig == null || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()
+                || items == null || items.isEmpty() || victimName == null) {
+            return;
+        }
+        String victim = normalizeRsn(victimName);
+        long now = System.currentTimeMillis();
+        synchronized (pendingMinLootKillAt) {
+            Long parkedAt = pendingMinLootKillAt.remove(victim); // consume — one credit per parked kill
+            if (parkedAt == null || (now - parkedAt) > PVP_MINLOOT_LOOT_WINDOW_MS) {
+                return;
+            }
+        }
+        if (trackingGateReason() != null) {
+            return;
+        }
+        long haulGp = 0;
+        for (ItemStack it : items) {
+            if (it == null || it.getId() <= 0) {
+                continue;
+            }
+            int price = itemManager.getItemPrice(it.getId());
+            if (price > 0) {
+                haulGp += (long) price * Math.max(1, it.getQuantity());
+            }
+        }
+        Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
+        for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
+            if (tile == null || tile.minLootValue <= 0 || tile.currentAmount >= tile.requiredAmount
+                    || isTileCompleted(tile.tileId) || !pvpVictimMatchesTile(tile, victim, myTeam)) {
+                continue;
+            }
+            if (haulGp < tile.minLootValue) {
+                log.info("PvP kill on {} worth {} gp is below tile '{}' floor {} gp — not counted",
+                        victimName, haulGp, tile.label, tile.minLootValue);
+                continue;
+            }
+            creditOnePvpTile(tile, victimName);
         }
     }
 

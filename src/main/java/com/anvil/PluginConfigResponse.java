@@ -170,6 +170,10 @@ public class PluginConfigResponse
 		public int requiredAmount;
 		public int currentAmount;
 		public String trackingMode;        // "team" | "individual"/"solo"
+		// Minimum loot value (gp) a kill must yield to count. 0 = no minimum (credit off the death,
+		// including loot-key kills). > 0 defers the credit to PlayerLootReceived and only counts a
+		// kill whose priced loot reaches this floor (so loot-key / no-loot kills never credit it).
+		public int minLootValue;
 	}
 
 	// One event participant, for 'team:other' matching. Only players with a team are included.
