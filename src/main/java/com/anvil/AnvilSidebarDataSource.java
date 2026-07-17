@@ -92,8 +92,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
-		int tilesTotal = rows.size();
-		int tilesComplete = ClogTaskModel.completedCount(rows);
+		// Leagues (scoringMode=points) ranks by summed tile WEIGHT, so the summary reads earned/total
+		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
+		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
+		boolean pointsScored = "points".equalsIgnoreCase(cfg.event.scoringMode)
+			&& ClogTaskModel.totalPoints(rows) > 0;
+		int tilesTotal = pointsScored ? ClogTaskModel.totalPoints(rows) : rows.size();
+		int tilesComplete = pointsScored ? ClogTaskModel.earnedPoints(rows) : ClogTaskModel.completedCount(rows);
 		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
 
 		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.
@@ -119,7 +124,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// primaryDisplayName already falls back event ← team; ConnectionView maps "" → "(unnamed clan)".
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, primaryDisplayName(cfg), cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg));
+			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored);
 	}
 
 	/** The site's public board/standings page for the active event, or null when the base URL is unknown. */

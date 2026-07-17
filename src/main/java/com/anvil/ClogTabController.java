@@ -905,7 +905,17 @@ public class ClogTabController
 		if (accordion)
 		{
 			List<ClogTaskModel.TaskRow> t = tasks();
-			return t.isEmpty() ? "Open board" : ClogTaskModel.completedCount(t) + "/" + t.size() + " tasks done";
+			if (t.isEmpty())
+			{
+				return "Open board";
+			}
+			// Leagues/points events are scored by tile WEIGHT, not tile count — so surface points
+			// (matching the board banner + website), falling back to the task tally only when no
+			// tile carries points. Classic/race events never reach here (accordion is points-only).
+			int totalPts = ClogTaskModel.totalPoints(t);
+			return totalPts > 0
+				? ClogTaskModel.earnedPoints(t) + "/" + totalPts + " pts"
+				: ClogTaskModel.completedCount(t) + "/" + t.size() + " tasks done";
 		}
 
 		BingoApiClient.BoardResponse b = activeBoard();

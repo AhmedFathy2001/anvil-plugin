@@ -771,7 +771,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JPanel bottom = new JPanel(new BorderLayout(0, 2));
 		bottom.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-		JLabel count = new JLabel(c.tilesComplete + " / " + c.tilesTotal + " tiles · " + c.completionPercent() + "%");
+		JLabel count = new JLabel(c.tilesComplete + " / " + c.tilesTotal + " " + c.unitNoun() + " · " + c.completionPercent() + "%");
 		count.setFont(FontManager.getRunescapeSmallFont());
 		count.setForeground(VALUE_COLOR);
 		bottom.add(count, BorderLayout.NORTH);

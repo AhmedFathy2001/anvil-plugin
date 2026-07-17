@@ -42,19 +42,26 @@ public final class ConnectionView
 	/** Site page to open for this board ({@code <baseUrl>/events/<id>}), or {@code null} when unknown. */
 	public final String boardUrl;
 
+	/**
+	 * True when this board is scored by summed tile POINTS (Leagues — {@code scoringMode=points})
+	 * rather than tile count. When set, {@link #tilesComplete}/{@link #tilesTotal} hold earned/total
+	 * points and {@link #unitNoun()} reads "pts". Classic bingo + tile race stay count-based ("tiles").
+	 */
+	public final boolean pointsScored;
+
 	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
 	{
 		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow, null);
+			recentActivity, activeNow, null, false);
 	}
 
-	/** As canonical, plus {@link #boardUrl}. */
+	/** As canonical, plus {@link #boardUrl} + {@link #pointsScored}. The base that sets every field. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl)
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -66,6 +73,7 @@ public final class ConnectionView
 		this.recentActivity = copyOrEmpty(recentActivity);
 		this.activeNow = copyOrEmpty(activeNow);
 		this.boardUrl = boardUrl;
+		this.pointsScored = pointsScored;
 	}
 
 	/** Healthy connection (no error) with the live layer. */
@@ -101,10 +109,16 @@ public final class ConnectionView
 		return error != null && !error.isEmpty();
 	}
 
-	/** Board completion as 0..100, or 0 when the board has no tiles. */
+	/** Board completion as 0..100, or 0 when the board has no tiles. Points-weighted for Leagues. */
 	public int completionPercent()
 	{
 		return tilesTotal > 0 ? Math.min(100, (int) Math.round(tilesComplete * 100.0 / tilesTotal)) : 0;
+	}
+
+	/** The noun for {@link #tilesComplete}/{@link #tilesTotal}: "pts" for a points board, else "tiles". */
+	public String unitNoun()
+	{
+		return pointsScored ? "pts" : "tiles";
 	}
 
 	/**
