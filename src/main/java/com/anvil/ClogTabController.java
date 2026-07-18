@@ -912,10 +912,12 @@ public class ClogTabController
 			// Leagues/points events are scored by tile WEIGHT, not tile count — so surface points
 			// (matching the board banner + website), falling back to the task tally only when no
 			// tile carries points. Classic/race events never reach here (accordion is points-only).
-			int totalPts = ClogTaskModel.totalPoints(t);
+			// Optional (bonus) tiles are excluded from both the points and the task totals.
+			java.util.Set<Integer> optionalIds = optionalTileIds();
+			int totalPts = ClogTaskModel.totalPoints(t, optionalIds);
 			return totalPts > 0
-				? ClogTaskModel.earnedPoints(t) + "/" + totalPts + " pts"
-				: ClogTaskModel.completedCount(t) + "/" + t.size() + " tasks done";
+				? ClogTaskModel.earnedPoints(t, optionalIds) + "/" + totalPts + " pts"
+				: ClogTaskModel.completedCount(t, optionalIds) + "/" + ClogTaskModel.scoredCount(t, optionalIds) + " tasks done";
 		}
 
 		BingoApiClient.BoardResponse b = activeBoard();
@@ -1459,16 +1461,17 @@ public class ClogTabController
 		header.deleteAllChildren();
 
 		List<ClogTaskModel.TaskRow> all = tasks();
-		int done = ClogTaskModel.completedCount(all);
-		int earned = ClogTaskModel.earnedPoints(all);
-		int totalPts = ClogTaskModel.totalPoints(all);
+		java.util.Set<Integer> optionalIds = optionalTileIds();
+		int done = ClogTaskModel.completedCount(all, optionalIds);
+		int earned = ClogTaskModel.earnedPoints(all, optionalIds);
+		int totalPts = ClogTaskModel.totalPoints(all, optionalIds);
 		String subtitle = eventName() != null ? eventName()
 			: "No active event";
 
 		// Two lines (event name + progress) so the header breathes, like the detail header — three
 		// lines don't fit the clog header height without clipping.
 		bannerLine(header, subtitle, COL_ORANGE, 0);
-		String prog = done + "/" + all.size() + " done";
+		String prog = done + "/" + ClogTaskModel.scoredCount(all, optionalIds) + " done";
 		String line2 = totalPts > 0
 			? "<col=ffff00>" + earned + "</col> / " + totalPts + " points  <col=666666>·</col>  " + prog
 			: "<col=ffff00>" + prog + "</col>";
@@ -3233,6 +3236,36 @@ public class ClogTabController
 			return boardTaskRows(viewedBoard());
 		}
 		return ClogTaskModel.build(plugin.getPluginConfig());
+	}
+
+	/**
+	 * Tile IDs flagged optional (bonus) for whatever {@link #tasks()} is currently showing — the
+	 * previewed board in POINTS view, else your own config. Optional tiles are excluded from the
+	 * score/points totals, matching the website. Empty set = nothing to exclude.
+	 */
+	private java.util.Set<Integer> optionalTileIds()
+	{
+		if (hubView == HubView.POINTS)
+		{
+			BingoApiClient.BoardResponse b = viewedBoard();
+			if (b == null || b.tiles == null)
+			{
+				return java.util.Collections.emptySet();
+			}
+			java.util.Set<Integer> ids = new java.util.HashSet<>();
+			for (BingoApiClient.BoardTile t : b.tiles)
+			{
+				if (t != null && t.optional == 1)
+				{
+					ids.add(t.tileId);
+				}
+			}
+			return ids;
+		}
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		return (cfg != null && cfg.optionalTileIds != null)
+			? new java.util.HashSet<>(cfg.optionalTileIds)
+			: java.util.Collections.emptySet();
 	}
 
 	/** Difficulty bands to filter by — from the previewed board in POINTS view, else your config. */

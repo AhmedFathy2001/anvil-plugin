@@ -750,10 +750,16 @@ public final class ClogTaskModel
 	/** Count completed rows (for the header "{done}/{total}" summary). */
 	public static int completedCount(List<TaskRow> rows)
 	{
+		return completedCount(rows, java.util.Collections.emptySet());
+	}
+
+	/** As {@link #completedCount(List)} but excluding optional tiles — they're bonus, off the score. */
+	public static int completedCount(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	{
 		int n = 0;
 		for (TaskRow r : rows)
 		{
-			if (r.isCompleted())
+			if (r.isCompleted() && !optionalTileIds.contains(r.tileId))
 			{
 				n++;
 			}
@@ -764,10 +770,16 @@ public final class ClogTaskModel
 	/** Points earned so far (sum of points of completed rows) — the Leagues-style banner number. */
 	public static int earnedPoints(List<TaskRow> rows)
 	{
+		return earnedPoints(rows, java.util.Collections.emptySet());
+	}
+
+	/** As {@link #earnedPoints(List)} but excluding optional tiles (bonus tiles don't add to the score). */
+	public static int earnedPoints(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	{
 		int p = 0;
 		for (TaskRow r : rows)
 		{
-			if (r.isCompleted())
+			if (r.isCompleted() && !optionalTileIds.contains(r.tileId))
 			{
 				p += r.points;
 			}
@@ -778,11 +790,34 @@ public final class ClogTaskModel
 	/** Total points available across all rows. */
 	public static int totalPoints(List<TaskRow> rows)
 	{
+		return totalPoints(rows, java.util.Collections.emptySet());
+	}
+
+	/** As {@link #totalPoints(List)} but excluding optional tiles — they're not part of the denominator. */
+	public static int totalPoints(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	{
 		int p = 0;
 		for (TaskRow r : rows)
 		{
-			p += r.points;
+			if (!optionalTileIds.contains(r.tileId))
+			{
+				p += r.points;
+			}
 		}
 		return p;
+	}
+
+	/** Number of SCORED (non-optional) rows — the count-mode denominator (classic/race "x / y"). */
+	public static int scoredCount(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	{
+		int n = 0;
+		for (TaskRow r : rows)
+		{
+			if (!optionalTileIds.contains(r.tileId))
+			{
+				n++;
+			}
+		}
+		return n;
 	}
 }

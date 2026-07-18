@@ -33,6 +33,7 @@ public class PluginConfigResponse
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
+	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):

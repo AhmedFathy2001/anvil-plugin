@@ -92,13 +92,23 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
+		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
+		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
+		// and every optional tile inflates the denominator).
+		java.util.Set<Integer> optionalIds = cfg.optionalTileIds == null
+			? java.util.Collections.emptySet()
+			: new java.util.HashSet<>(cfg.optionalTileIds);
 		// Leagues (scoringMode=points) ranks by summed tile WEIGHT, so the summary reads earned/total
 		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
 		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
 		boolean pointsScored = "points".equalsIgnoreCase(cfg.event.scoringMode)
-			&& ClogTaskModel.totalPoints(rows) > 0;
-		int tilesTotal = pointsScored ? ClogTaskModel.totalPoints(rows) : rows.size();
-		int tilesComplete = pointsScored ? ClogTaskModel.earnedPoints(rows) : ClogTaskModel.completedCount(rows);
+			&& ClogTaskModel.totalPoints(rows, optionalIds) > 0;
+		int tilesTotal = pointsScored
+			? ClogTaskModel.totalPoints(rows, optionalIds)
+			: ClogTaskModel.scoredCount(rows, optionalIds);
+		int tilesComplete = pointsScored
+			? ClogTaskModel.earnedPoints(rows, optionalIds)
+			: ClogTaskModel.completedCount(rows, optionalIds);
 		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
 
 		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.
