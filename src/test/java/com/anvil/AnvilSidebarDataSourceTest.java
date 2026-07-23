@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -88,9 +89,38 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
-	public void noEventYieldsEmptyList() throws Exception
+	public void noEventYieldsHomeStubCard() throws Exception
 	{
-		AnvilSidebarDataSource ds = newSource(() -> new PluginConfigResponse());
+		PluginConfigResponse cfg = new PluginConfigResponse();
+		cfg.clanName = "The AFK Spot";
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		// No member-scoped event still renders a HOME card (clan name, no board) — an empty list
+		// would make the home clan vanish from a federated sidebar.
+		List<ConnectionView> conns = ds.fetchConnections();
+		assertEquals(1, conns.size());
+		assertEquals("The AFK Spot", conns.get(0).clanName);
+		assertEquals(0, conns.get(0).tilesTotal);
+		assertNull(conns.get(0).statusNote); // no unlinked event → the generic "No active event yet."
+	}
+
+	@Test
+	public void noEventWithUnlinkedActiveEventCarriesLoginNote() throws Exception
+	{
+		PluginConfigResponse cfg = new PluginConfigResponse();
+		cfg.clanName = "The AFK Spot";
+		cfg.unlinkedActiveEvent = "July Bingo";
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		ConnectionView c = ds.fetchConnections().get(0);
+		assertEquals("July Bingo", c.eventName);
+		assertEquals("Log in in-game to load your board.", c.statusNote);
+	}
+
+	@Test
+	public void nullConfigYieldsEmptyList() throws Exception
+	{
+		AnvilSidebarDataSource ds = newSource(() -> null);
 		assertTrue(ds.fetchConnections().isEmpty());
 	}
 
@@ -203,6 +233,9 @@ public class AnvilSidebarDataSourceTest
 
 		assertEquals(1, ds.fetchConnections().size());
 		holder[0] = new PluginConfigResponse();      // event ended
-		assertTrue(ds.fetchConnections().isEmpty());
+		// Post-event the home still renders — as the board-less stub card, not an empty sidebar.
+		ConnectionView after = ds.fetchConnections().get(0);
+		assertEquals(0, after.tilesTotal);
+		assertTrue(after.nearestTiles.isEmpty());
 	}
 }

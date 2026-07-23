@@ -82,7 +82,19 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				resetLiveState();
 			}
-			return null;
+			if (cfg == null)
+			{
+				return null; // no config at all (site unreachable / bad token) — nothing to anchor a card on
+			}
+			// No member-scoped event: either the clan genuinely has no live event, or one IS running
+			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
+			// home card — without it, a federated sidebar shows only the OTHER clans, which reads as
+			// "my main clan disappeared". The card carries the clan name + an honest status line.
+			String note = cfg.unlinkedActiveEvent != null && !cfg.unlinkedActiveEvent.isEmpty()
+				? "Log in in-game to load your board."
+				: null; // null → the panel's "No active event yet."
+			return new ConnectionView(LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.unlinkedActiveEvent,
+				null, 0, 0, null, null, null, null, false, note);
 		}
 
 		if (cfg.event.id != scopedEventId)
@@ -131,10 +143,22 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
 		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
 
-		// primaryDisplayName already falls back event ← team; ConnectionView maps "" → "(unnamed clan)".
+		// The clan filter is a CLAN switcher, so the label is the clan name (site-provided) — the
+		// event name lives on the card itself. Falls back to team/event for pre-clanName sites;
+		// ConnectionView maps "" → "(unnamed clan)".
 		return new ConnectionView(
-			LOCAL_INSTANCE_ID, primaryDisplayName(cfg), cfg.event.name, error,
+			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored);
+	}
+
+	/** The home entry's clan-filter label: the site's clan name, else the old team/event fallback. */
+	private static String homeClanName(PluginConfigResponse cfg)
+	{
+		if (cfg.clanName != null && !cfg.clanName.isEmpty())
+		{
+			return cfg.clanName;
+		}
+		return primaryDisplayName(cfg);
 	}
 
 	/** The site's public board/standings page for the active event, or null when the base URL is unknown. */

@@ -25,7 +25,11 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import javax.swing.plaf.basic.BasicArrowButton;
 import javax.swing.plaf.basic.BasicComboBoxRenderer;
+import javax.swing.plaf.basic.BasicComboBoxUI;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
@@ -51,6 +55,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private static final Color VALUE_COLOR = new Color(0x98_98_98);
 	private static final int PROGRESS_BAR_HEIGHT = 6;
+
+	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
+	// rest of the sidebar (title, bars, links) already uses — default Swing chrome sticks out badly.
+	private static final Color WIDGET_BG = ColorScheme.DARKER_GRAY_COLOR;
+	private static final Color WIDGET_BG_HOVER = ColorScheme.DARK_GRAY_HOVER_COLOR;
+	private static final Color WIDGET_BORDER = new Color(0x47_47_47);
 
 	/** Wrap width for the connect-status line so a long notice wraps instead of clipping (tooltip carries full text). */
 	private static final int STATUS_WRAP_PX = PluginPanel.PANEL_WIDTH - 40;
@@ -121,7 +131,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		title.setFont(FontManager.getRunescapeBoldFont());
 		title.setForeground(ColorScheme.BRAND_ORANGE);
 
-		refreshButton.setFocusPainted(false);
+		styleFlatButton(refreshButton, Color.WHITE);
 		refreshButton.addActionListener(e -> refresh());
 
 		JPanel titleRow = new JPanel(new BorderLayout());
@@ -132,8 +142,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setAlignmentX(LEFT_ALIGNMENT);
 
 		// "Connect clans" visibility is driven live from /federation/state (see updateSiteConnectAffordance).
-		siteConnectButton.setFocusPainted(false);
-		siteConnectButton.setForeground(ColorScheme.BRAND_ORANGE);
+		styleFlatButton(siteConnectButton, ColorScheme.BRAND_ORANGE);
 		// One button, two modes: "Connect clans" when signed out, "Disconnect" when signed in — route by current state.
 		siteConnectButton.addActionListener(e ->
 		{
@@ -165,6 +174,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
+		styleClanFilter(clanFilter);
 		clanFilter.setRenderer(new ClanFilterRenderer());
 		clanFilter.setFocusable(false);
 		clanFilter.addActionListener(e ->
@@ -774,8 +784,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (c.tilesTotal <= 0)
 		{
 			// No live board on this clan (federated homes with no running event report 0/0) — a bare
-			// "0 / 0 tiles · 0%" reads like a bug, so say what's actually going on instead.
-			JLabel none = new JLabel("No active event yet.");
+			// "0 / 0 tiles · 0%" reads like a bug, so say what's actually going on instead. The view
+			// can carry a more specific line (e.g. the logged-out home's "Log in in-game …").
+			JLabel none = new JLabel(c.statusNote != null && !c.statusNote.isEmpty()
+				? c.statusNote : "No active event yet.");
 			none.setFont(FontManager.getRunescapeSmallFont());
 			none.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 			bottom.add(none, BorderLayout.NORTH);
@@ -950,6 +962,58 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Renders a {@link ConnectionView} in the clan dropdown by name, flagging an unreachable home. */
+	// ---- Anvil-themed widget chrome ---------------------------------------------------------------
+
+	/** Flat dark button matching the sidebar theme: dark surface, thin border, hover lift, no L&F chrome. */
+	private static void styleFlatButton(JButton b, Color foreground)
+	{
+		b.setFocusPainted(false);
+		b.setForeground(foreground);
+		b.setBackground(WIDGET_BG);
+		b.setFont(FontManager.getRunescapeSmallFont());
+		b.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(WIDGET_BORDER),
+			BorderFactory.createEmptyBorder(4, 10, 4, 10)));
+		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		b.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				if (b.isEnabled())
+				{
+					b.setBackground(WIDGET_BG_HOVER);
+				}
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				b.setBackground(WIDGET_BG);
+			}
+		});
+	}
+
+	/** Theme the clan-filter combo: dark flat field, gold arrow, dark popup — default Swing sticks out. */
+	private static void styleClanFilter(JComboBox<ConnectionView> combo)
+	{
+		combo.setBackground(WIDGET_BG);
+		combo.setForeground(Color.WHITE);
+		combo.setFont(FontManager.getRunescapeSmallFont());
+		combo.setBorder(BorderFactory.createLineBorder(WIDGET_BORDER));
+		combo.setUI(new BasicComboBoxUI()
+		{
+			@Override
+			protected JButton createArrowButton()
+			{
+				BasicArrowButton arrow = new BasicArrowButton(
+					SwingConstants.SOUTH, WIDGET_BG, WIDGET_BG, ColorScheme.BRAND_ORANGE, WIDGET_BG);
+				arrow.setBorder(BorderFactory.createEmptyBorder());
+				return arrow;
+			}
+		});
+	}
+
 	private static final class ClanFilterRenderer extends BasicComboBoxRenderer
 	{
 		@Override
@@ -957,11 +1021,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			boolean isSelected, boolean cellHasFocus)
 		{
 			super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+			// index >= 0 → popup row; -1 → the closed field. Dark rows, gold-tinted hover selection.
+			setOpaque(true);
+			setBackground(isSelected && index >= 0 ? WIDGET_BG_HOVER : WIDGET_BG);
+			setForeground(isSelected && index >= 0 ? ColorScheme.BRAND_ORANGE : Color.WHITE);
+			setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
 			if (value instanceof ConnectionView)
 			{
 				ConnectionView c = (ConnectionView) value;
 				setText(plainText(c.hasError() ? c.clanName + "  (!)" : c.clanName));
-				setFont(getFont().deriveFont(Font.PLAIN));
+				setFont(FontManager.getRunescapeSmallFont());
 			}
 			return this;
 		}

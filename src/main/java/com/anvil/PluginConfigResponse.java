@@ -7,6 +7,8 @@ public class PluginConfigResponse
 	public EventInfo event;
 	public TeamInfo team;
 	public PlayerInfo player;
+	/** The clan's display name (sidebar clan-filter label + logged-out home card). Null on older sites. */
+	public String clanName;
 	public String codeword;
 	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
 	// account isn't linked to it — the plugin warns so tracking isn't silently off. Null otherwise.

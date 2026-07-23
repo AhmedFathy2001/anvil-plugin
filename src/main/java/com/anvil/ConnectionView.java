@@ -49,6 +49,13 @@ public final class ConnectionView
 	 */
 	public final boolean pointsScored;
 
+	/**
+	 * Benign inline status for a board-less card ({@code tilesTotal == 0}) — e.g. the logged-out home's
+	 * "Log in in-game to load your board." Unlike {@link #error} it never marks the clan filter with
+	 * "(!)". {@code null} → the panel's generic "No active event yet." line.
+	 */
+	public final String statusNote;
+
 	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
@@ -58,10 +65,20 @@ public final class ConnectionView
 			recentActivity, activeNow, null, false);
 	}
 
-	/** As canonical, plus {@link #boardUrl} + {@link #pointsScored}. The base that sets every field. */
+	/** As canonical, plus {@link #boardUrl} + {@link #pointsScored}. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored)
+	{
+		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
+			recentActivity, activeNow, boardUrl, pointsScored, null);
+	}
+
+	/** As above, plus {@link #statusNote}. The base that sets every field. */
+	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
+		String statusNote)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -74,6 +91,7 @@ public final class ConnectionView
 		this.activeNow = copyOrEmpty(activeNow);
 		this.boardUrl = boardUrl;
 		this.pointsScored = pointsScored;
+		this.statusNote = statusNote;
 	}
 
 	/** Healthy connection (no error) with the live layer. */
