@@ -132,7 +132,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		title.setForeground(ColorScheme.BRAND_ORANGE);
 
 		styleFlatButton(refreshButton, Color.WHITE);
-		refreshButton.addActionListener(e -> refresh());
+		refreshButton.addActionListener(e -> refresh(true));
 
 		JPanel titleRow = new JPanel(new BorderLayout());
 		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -361,6 +361,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Fetch off the EDT and re-render on return. Cheap to call repeatedly; overlapping calls coalesce via {@link #fetchInFlight}. */
 	public void refresh()
 	{
+		refresh(false);
+	}
+
+	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh — the home is asked to bypass
+	 * its federation re-sync throttle so the button acts on a just-changed network immediately. */
+	private void refresh(boolean manual)
+	{
 		if (fetchInFlight)
 		{
 			return;
@@ -378,7 +385,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override
 			protected List<ConnectionView> doInBackground() throws Exception
 			{
-				return dataSource.fetchConnections();
+				return dataSource.fetchConnections(manual);
 			}
 
 			@Override

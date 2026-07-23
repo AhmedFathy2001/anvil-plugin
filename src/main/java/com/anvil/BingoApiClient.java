@@ -365,11 +365,17 @@ public class BingoApiClient
 	 */
 	public FederationState fetchFederationState()
 	{
+		return fetchFederationState(false);
+	}
+
+	/** As above; {@code force} = a member-initiated Refresh, asking the home to bypass its re-sync throttle. */
+	public FederationState fetchFederationState(boolean force)
+	{
 		if (!isConfigured())
 		{
 			return null;
 		}
-		Request request = authedRequest(apiUrl + "/api/plugin/federation/state").get().build();
+		Request request = authedRequest(apiUrl + "/api/plugin/federation/state" + (force ? "?force=1" : "")).get().build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)

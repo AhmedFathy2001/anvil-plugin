@@ -86,7 +86,13 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
-		FederationState state = apiClient.fetchFederationState();
+		return fetchConnections(false);
+	}
+
+	@Override
+	public List<ConnectionView> fetchConnections(boolean forceFederationRefresh) throws SidebarDataException
+	{
+		FederationState state = apiClient.fetchFederationState(forceFederationRefresh);
 		lastState = state != null ? state : FederationState.disabled();
 		if (state == null || !state.enabled || state.clans.isEmpty())
 		{
