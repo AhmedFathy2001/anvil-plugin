@@ -88,11 +88,16 @@ Plus: merge `submitStatKc`/`submitStatXp` (~40-line twins, differ only in `"kc"/
 
 ## 3. Split plan — AnvilPlugin.java (5,815 → ~800)
 
-Constraint honored: all 17 `@Subscribe` methods stay on `AnvilPlugin` as one-line delegators
-(preserves auto-registration AND intra-batch handler ordering, which matters — KC parse must
-populate `killCounts` before rare-drop embellishment in the same message batch). Extracted
-classes are plain `@Singleton` collaborators; no `eventBus.register`. `executor` is created in
-startUp — pass `Supplier<ScheduledExecutorService>` or give collaborators start/stop.
+Two options for extracted classes, both viable (EventBus facts verified against 1.12.30
+source, see §7.4): collaborators CAN own `@Subscribe` handlers via `eventBus.register(obj)`
+in startUp — cross-subscriber ordering IS deterministic (priority desc, then FQCN
+alphabetical; set `@Subscribe(priority = …)` for explicit guarantees; methods must be named
+`on<Event>`). Default remains thin delegators on `AnvilPlugin` for the chat mega-router
+(explicit in-method ordering: KC parse must populate `killCounts` before rare-drop
+embellishment in the same message), but coarse hooks (ClogTabController's widget/script
+events) can self-register and drop their delegators. Prefer the RuneLite-injected shared
+`ScheduledExecutorService` over a plugin-owned one (§7.1) — collaborators then take it by
+plain constructor injection, no `Supplier` needed.
 
 Extraction order (least coupled first):
 1. `ObsClipManager` (~150; lines 169–189, 5615–5740) — easy.
@@ -161,3 +166,85 @@ line counts twice). Recommended order:
 Lombok (1.18.30) is already an annotationProcessor — use `@Value`/`@Getter` for the small
 manual data classes (CombatAchievementTier, DebugLogExporter.Result, FederationConnect).
 Gson + OkHttp come from the RuneLite client (injected — keep it that way, hub rule).
+
+## 7. RuneLite-provided APIs replacing plugin code (verified vs 1.12.30 jars + source)
+
+Every claim below was checked with `javap`/`unzip -l` against the cached
+`client-1.12.30.jar` / `runelite-api-1.12.30.jar` and the `runelite-parent-1.12.30` GitHub
+tag — nothing from memory. Classpath facts: client's compile deps include Guava 23.2-jre,
+commons-text 1.2 (→ commons-lang3 3.7), Gson 2.8.5, OkHttp 3.14.9 — using them adds no
+dependency (RuneLite core's own `Text` uses Guava + commons-text).
+
+### 7.1 Adopt
+
+| Ours | Replacement | Notes |
+|---|---|---|
+| 3 divergent RSN normalizers (AnvilPlugin 4572, inline 2196; ClogTabController 2199) | `net.runelite.client.util.Text#standardize` | Exact transform: `removeTags + nbsp→space + trim + lowercase`. Fixes the drift bug; bonus tag-stripping handles `<img=N>` ironman icons. NPEs on null — keep a null guard. NOT `toJagexName` (eats hyphens, no lowercase). |
+| 11 timestamp-window/dedup maps in AnvilPlugin (9 unpruned, grow all session) | Guava `CacheBuilder.newBuilder().expireAfterWrite(…)` → `Cache<K,Boolean>` | Fixes the unbounded-growth leak. `killCounts` stays a plain map (counter, not window). |
+| 3 hand-rolled `openFolder` (DebugLogExporter 180, PendingSubmissionStore 162, BannerSoundService 225) | `LinkBrowser.open(path)` | Spawns its own thread; tries `xdg-open` first on Linux (fixes broken `Desktop.open` there — real UX win). Delta: modal copy-path dialog on total failure vs our silent log. No `openLocalFile` in 1.12.30. |
+| `sendChatMessage` manual `<col=>` + `invokeLater` (5804–5815) | `ChatMessageManager#queue(QueuedMessage)` + `ChatMessageBuilder` | Thread-safe queue drained on client thread — the `invokeLater` goes away. Use `append(Color,String)` overloads (plain `append` escapes `<>`; Color overload doesn't — matches current output byte-for-byte). Hub-idiomatic. |
+| Plugin-owned `executor` (748) + shutdownNow (812) + ~20 `executor == null \|\| isShutdown()` guards; DiscordWebhookClient `retryScheduler` (59 — never shut down, thread leak); BannerSoundService `audioExecutor` (40) | RuneLite-injected shared `ScheduledExecutorService` (bound in `RuneLiteModule`, wrapped in `ExecutorServiceExceptionLogger`; core ScreenshotPlugin injects it the same way) | NEVER shut it down — cancel tracked `ScheduledFuture`s in shutDown instead. One-shot debounce/coalesce `schedule()` calls move over unchanged. Keep long blocking HTTP off it where possible (it's single-threaded, client-wide). |
+| 30s `scheduleAtFixedRate` loop + `safely()` wrapper (767–791) | `@Schedule(period = 30, unit = ChronoUnit.SECONDS, asynchronous = true)` methods | Scheduler catches exceptions per invocation → `safely()` deletable. Trap: a bare `scheduleAtFixedRate` on the shared executor still DIES on first throw (`RunnableExceptionLogger` logs then rethrows) — `@Schedule` is what makes this safe. `asynchronous=true` required (we do HTTP). ~600ms resolution; runs from Hooks.tick even at login screen; first fire after one period (same as today). |
+| Deprecated id imports: `widgets.InterfaceID.COLLECTION_LOG`, `ComponentID.COLLECTION_LOG_{TABS,ENTRY_HEADER (8 sites),ENTRY_ITEMS}`, legacy `SpriteID.SKILL_*` switch (590–614), quest-scroll raw 153/child-4 (AnvilPlugin 409–410), `COINS_ITEM_ID=995` (ClogTaskModel 476), ClogIds tab sprites 2283–2286 + 6390 | `gameval.InterfaceID.COLLECTION` / `InterfaceID.Collection.{TABS,HEADER_TEXT,ITEMS_CONTENTS}` / `SpriteID.Staticons{,2}.*` / `InterfaceID.QUESTSCROLL` + `InterfaceID.Questscroll.QUEST_TITLE` (packed, one-arg getWidget) / `ItemID.COINS` / `SpriteID.TabsTall._0.._3` + `IconActivities25x25.COLLECTIONS_LOGGED` | All values verified matching. `ADVENTURE_LOG`→`MENU` (gameval name less readable — keep a comment). **Add `Staticons2.SAILING = 228`** — exists now; our `-1` fallback is stale (bug). ToA/ToB party varbits + all CA varbits + bank/GE groups are ALREADY gameval — nothing to do there. |
+| `formatGp` (1803) / sidebar `formatCount` (651) / `String.format("%,d")` ×2 | `QuantityFormatter#quantityToStackSize` / `#quantityToRSDecimalStack` / `#formatNumber` | Cosmetic output deltas (floor vs half-up, `"1.50M"` vs `"1.5M"`, `"15.9K"` vs `"15K"`) — opt in only if visible drift is OK. |
+| Hand-themed thin `JProgressBar` ×3 (sidebar 639, 802, 895) | `net.runelite.client.ui.components.ThinProgressBar` (4px; `setMaximumValue`+`setValue` — no pre-scaling to 100) | Track color derived as `fg.darker().darker()` vs our explicit DARKER_GRAY — slight visual delta. |
+| Lambda thread factories ×2; banner bg manual `ImageIO.read` (BingoClogBannerOverlay 102); `setSiteConnectStatus` inline HTML escape (343) | Guava `ThreadFactoryBuilder`; `ImageUtil.loadImageResource` (throws on missing — wrap try/catch to keep fail-soft); commons-text `StringEscapeUtils.escapeHtml4` (that site is always-HTML) | Do NOT swap `plainText` (729) — its conditional escaping is the security design. |
+
+### 7.2 New bugs found during verification
+
+1. **Banner sound at volume 0 can play at FULL volume**: `AudioPlayer.trySetGain` does NOT
+   clamp (comment at BannerSoundService:176 is wrong) — it warns and plays anyway when
+   −80 dB is outside the line's MASTER_GAIN range. Clamp to the line's range or skip playback
+   at volume 0.
+2. **Sailing skill sprite**: `SpriteID.Staticons2.SAILING = 228` exists in 1.12.30; the
+   skillSpriteId `-1` fallback for sailing is stale.
+3. **Blank-icon race in proof screenshots**: `itemManager.getImage()` at AnvilPlugin:3463
+   returns `AsyncBufferedImage`; first-encounter icons can render blank in the annotated
+   proof. Use `AsyncBufferedImage#onLoaded(Runnable)`.
+4. **Silent clog-credit hole**: `VarbitID.OPTION_COLLECTION_NEW_ITEM = 11959` — users with the
+   in-game "collection log — new item" chat setting off never produce the line our drop-tile
+   clog credits parse. Add a nudge like `maybeNudgeLootNotifications`.
+5. DiscordWebhookClient's `retryScheduler` is never shut down (leaks a thread across plugin
+   restarts) — fixed by the shared-executor migration.
+
+### 7.3 Detection upgrades available (optional, not hand-rolled duplication)
+
+- `VarbitID.CA_TIER_STATUS_{EASY..GRANDMASTER} = 12863–12868`: direct per-tier CA completion
+  status (VarbitChanged) vs our points-threshold inference for tier-clear posts.
+- All 48 diary-tier completion varbits exist (`{AREA}_DIARY_{TIER}_COMPLETE`, Karamja via
+  `ATJUN_*`): chat parse stays the trigger, but varbits enable login-time reconciliation of
+  diaries completed while the plugin was off — capability chat can never have.
+- `Notifier#notify` as an *additive* channel for tile completions (tray/flash when
+  unfocused, honors user notification prefs). Not a replacement for the banner.
+- `Quest`/`QuestState` (`getState` is CS2-script-based, client-thread) could cross-check the
+  quest-scroll parse; no difficulty metadata — our GM/Master sets stay.
+
+### 7.4 EventBus / framework facts the split depends on (verified from source)
+
+- `EventBus.register(Object)` scans class + superclasses for `@Subscribe`; methods MUST be
+  named `on<EventSimpleName>` (hard Preconditions check); one subscription per event class
+  per object; unregister in shutDown.
+- Ordering across subscribers is DETERMINISTIC: `@Subscribe(priority)` desc, ties broken
+  alphabetically by FQCN (so `com.anvil.AnvilPlugin` before `com.anvil.ClogTabController` at
+  default priority). Use explicit priority rather than relying on names.
+- `PluginManager` registers the plugin AFTER `startUp()` returns; collaborators registered in
+  startUp are on the bus first — harmless. `GameEventManager` exists for late registrants.
+
+### 7.5 Rejected (checked — doesn't exist or wrong fit)
+
+`Text.toJagexName` (strips hyphens, no lowercase — wrong for RSN compare) · no word-wrap
+util anywhere (ours stays ×2) · `DurationFormatUtils`/`RSTimeUnit` can't express humanGap's
+3-branch format · `plainText`'s conditional escape is deliberate — keep ·
+`ImageCapture` is disk-save only (no in-memory PNG; our DrawManager flow already matches core
+ScreenshotPlugin idiom and adds a timeout core lacks) · overlay components can't do the
+banner's 5-phase animation; `AnvilOverlay` is ALREADY OverlayPanel + components ·
+`MenuManager`/`WidgetMenuOption` target existing client widgets — `createChild` widgets
+require the manual listener wiring we have · `WildcardMatcher` has no capture groups (all 12+
+regexes are chat parsers) · NO typed events exist for clog unlocks/CA/quest/diary/pets (full
+events listing checked — chat/widget/varbit detection is mandatory) · no ParamID/EnumID CA
+metadata; CA task names must come from chat · `SkillIconManager`/`SpriteManager` are
+Swing-layer; widget `setSpriteId` is correct · `@Schedule` is periodic-only — one-shot
+debounces stay on the executor; sidebar's 15s poll correctly stays on `javax.swing.Timer`
+(EDT) · `ConfigManager` RSProfile: no misuse found (token + banner clip are correctly
+global) · `AnvilConfig` already uses sections/secret/Keybind properly — only `@Range`/`@Units`
+polish available.

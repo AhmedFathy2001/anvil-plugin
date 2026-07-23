@@ -118,6 +118,28 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
+	public void noEventWithServerHomeBoardRendersSummary() throws Exception
+	{
+		PluginConfigResponse cfg = new PluginConfigResponse();
+		cfg.clanName = "The AFK Spot";
+		cfg.homeBoard = new PluginConfigResponse.HomeBoard();
+		cfg.homeBoard.eventName = "July Bingo";
+		cfg.homeBoard.tilesComplete = 14_200;
+		cfg.homeBoard.tilesTotal = 30_000;
+		cfg.homeBoard.pointsScored = true;
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		// Logged out, but the site resolved the enrollment server-side → board numbers render.
+		ConnectionView c = ds.fetchConnections().get(0);
+		assertEquals("The AFK Spot", c.clanName);
+		assertEquals("July Bingo", c.eventName);
+		assertEquals(14_200, c.tilesComplete);
+		assertEquals(30_000, c.tilesTotal);
+		assertTrue(c.pointsScored);
+		assertEquals("Log in in-game for live tracking.", c.statusNote);
+	}
+
+	@Test
 	public void nullConfigYieldsEmptyList() throws Exception
 	{
 		AnvilSidebarDataSource ds = newSource(() -> null);

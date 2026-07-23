@@ -9,6 +9,20 @@ public class PluginConfigResponse
 	public PlayerInfo player;
 	/** The clan's display name (sidebar clan-filter label + logged-out home card). Null on older sites. */
 	public String clanName;
+	/**
+	 * Server-resolved board summary keyed to the token's USER (linked member → live enrollment) —
+	 * lets the sidebar show the home board at the login screen, before an in-game account resolves.
+	 * Null when the user isn't enrolled in a live event (or on older sites).
+	 */
+	public HomeBoard homeBoard;
+
+	public static class HomeBoard
+	{
+		public String eventName;
+		public int tilesComplete;
+		public int tilesTotal;
+		public boolean pointsScored;
+	}
 	public String codeword;
 	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
 	// account isn't linked to it — the plugin warns so tracking isn't silently off. Null otherwise.

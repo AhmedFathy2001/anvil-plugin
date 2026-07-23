@@ -5807,7 +5807,11 @@ public class AnvilPlugin extends Plugin {
     private static final String CHAT_BODY_COLOR = "ffffff";
 
     private void sendChatMessage(String message) {
-        String line = "<col=" + CHAT_PREFIX_COLOR + ">[Anvil]</col> <col=" + CHAT_BODY_COLOR + ">" + message + "</col>";
+        // A raw '|' in a chat line gets mangled by the chat pipeline (an event named
+        // "The AFK Spot | July Bingo" printed as a bare "July Bingo."). Interpolated names are
+        // admin-authored, so swap in the visually-identical broken bar instead.
+        String safe = message.replace('|', '¦');
+        String line = "<col=" + CHAT_PREFIX_COLOR + ">[Anvil]</col> <col=" + CHAT_BODY_COLOR + ">" + safe + "</col>";
         clientThread.invokeLater(()
                 -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null)
         );

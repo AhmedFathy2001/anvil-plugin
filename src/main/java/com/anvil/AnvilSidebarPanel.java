@@ -549,28 +549,33 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(gap(12));
 		}
 
-		body.add(sectionHeader("Nearest tiles"));
-		body.add(gap(6));
+		// No live board at all (stub home card / event-less federated clan) → the summary line already
+		// says why; an empty "Nearest tiles" section under it would just restate the absence.
+		if (selected.tilesTotal > 0)
+		{
+			body.add(sectionHeader("Nearest tiles"));
+			body.add(gap(6));
 
-		if (selected.nearestTiles.isEmpty())
-		{
-			JLabel none = new JLabel("No tiles to show yet.");
-			none.setFont(FontManager.getRunescapeSmallFont());
-			none.setForeground(VALUE_COLOR);
-			none.setAlignmentX(LEFT_ALIGNMENT);
-			body.add(none);
-		}
-		else
-		{
-			boolean first = true;
-			for (ConnectionView.TileProgressView tile : selected.nearestTiles)
+			if (selected.nearestTiles.isEmpty())
 			{
-				if (!first)
+				JLabel none = new JLabel("No tiles to show yet.");
+				none.setFont(FontManager.getRunescapeSmallFont());
+				none.setForeground(VALUE_COLOR);
+				none.setAlignmentX(LEFT_ALIGNMENT);
+				body.add(none);
+			}
+			else
+			{
+				boolean first = true;
+				for (ConnectionView.TileProgressView tile : selected.nearestTiles)
 				{
-					body.add(gap(8));
+					if (!first)
+					{
+						body.add(gap(8));
+					}
+					body.add(buildTileRow(tile));
+					first = false;
 				}
-				body.add(buildTileRow(tile));
-				first = false;
 			}
 		}
 

@@ -89,7 +89,17 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			// No member-scoped event: either the clan genuinely has no live event, or one IS running
 			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
 			// home card — without it, a federated sidebar shows only the OTHER clans, which reads as
-			// "my main clan disappeared". The card carries the clan name + an honest status line.
+			// "my main clan disappeared".
+			PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
+			if (hb != null)
+			{
+				// The site resolved the user's live enrollment server-side (token → linked member →
+				// team), so the board summary renders even at the login screen; the live layers
+				// (nearest tiles, active-now) still wait for a playing account.
+				return new ConnectionView(LOCAL_INSTANCE_ID, homeClanName(cfg), hb.eventName,
+					null, hb.tilesComplete, hb.tilesTotal, null, null, null, null, hb.pointsScored,
+					"Log in in-game for live tracking.");
+			}
 			String note = cfg.unlinkedActiveEvent != null && !cfg.unlinkedActiveEvent.isEmpty()
 				? "Log in in-game to load your board."
 				: null; // null → the panel's "No active event yet."
