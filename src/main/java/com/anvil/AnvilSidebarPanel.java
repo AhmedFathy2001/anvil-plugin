@@ -83,6 +83,15 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JButton siteConnectButton = new JButton("Connect clans");
 	private final JLabel siteConnectStatus = new JLabel();
 	private final JPanel siteConnectRow = new JPanel(new BorderLayout(0, 2));
+
+	// Device sign-in (home-native, DeviceSignIn): shown when a Site URL is configured but no
+	// Account Token yet — replaces the copy-the-token-from-your-profile step.
+	private final BingoApiClient apiClient;
+	private final net.runelite.client.config.ConfigManager configManager;
+	private final JButton signInButton = new JButton("Sign in with Discord");
+	private final JLabel signInStatus = new JLabel();
+	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
+	private boolean signInInFlight;
 	private boolean siteConnectInFlight;
 
 	private final JPanel content = new JPanel();
@@ -99,10 +108,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean fetchInFlight;
 
 	@Inject
-	public AnvilSidebarPanel(SidebarDataSource dataSource)
+	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
+		net.runelite.client.config.ConfigManager configManager)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
+		this.apiClient = apiClient;
+		this.configManager = configManager;
 		this.federationStatus = dataSource instanceof FederationStatusSource ? (FederationStatusSource) dataSource : null;
 
 		setLayout(new BorderLayout());
@@ -165,11 +177,25 @@ public class AnvilSidebarPanel extends PluginPanel
 		siteConnectRow.setAlignmentX(LEFT_ALIGNMENT);
 		siteConnectRow.setVisible(false);
 
+		// Sign-in affordance — visible only in the "Site URL set, no token" state (see refreshSignInRow).
+		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
+		signInButton.addActionListener(e -> startSignIn());
+		signInStatus.setFont(FontManager.getRunescapeSmallFont());
+		signInStatus.setForeground(VALUE_COLOR);
+		signInStatus.setVisible(false);
+		signInRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		signInRow.add(signInButton, BorderLayout.NORTH);
+		signInRow.add(signInStatus, BorderLayout.SOUTH);
+		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
+		signInRow.setAlignmentX(LEFT_ALIGNMENT);
+		signInRow.setVisible(false);
+
 		JPanel top = new JPanel();
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
 		top.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
+		top.add(signInRow);
 		top.add(siteConnectRow);
 		header.add(top, BorderLayout.NORTH);
 
@@ -216,6 +242,70 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * Show the connect button when the home reports federation enabled but not connected. Hosted homes connect
 	 * zero-click (row never appears); self-host shows it until login. No-op off the auto path or mid-connect.
 	 */
+	/** Show the Sign-in button exactly while a Site URL is configured but no Account Token exists. */
+	private void refreshSignInRow()
+	{
+		if (!signInInFlight)
+		{
+			signInRow.setVisible(apiClient.needsSignIn());
+			signInRow.revalidate();
+			signInRow.repaint();
+		}
+	}
+
+	/** Run the device sign-in off the EDT; on success store the token — onConfigChanged does the rest. */
+	private void startSignIn()
+	{
+		if (signInInFlight)
+		{
+			return;
+		}
+		signInInFlight = true;
+		signInButton.setEnabled(false);
+		signInStatus.setVisible(true);
+		signInStatus.setText("Starting…");
+
+		new SwingWorker<DeviceSignIn.Result, String>()
+		{
+			@Override
+			protected DeviceSignIn.Result doInBackground()
+			{
+				return new DeviceSignIn(apiClient).run(this::publish);
+			}
+
+			@Override
+			protected void process(List<String> lines)
+			{
+				signInStatus.setText(lines.get(lines.size() - 1));
+			}
+
+			@Override
+			protected void done()
+			{
+				signInInFlight = false;
+				signInButton.setEnabled(true);
+				try
+				{
+					DeviceSignIn.Result result = get();
+					if (result.outcome == DeviceSignIn.Outcome.SIGNED_IN)
+					{
+						// Storing the token fires the plugin's onConfigChanged → client reconfigure,
+						// identity stamp + greet, and a sidebar refresh — the same path as a manual paste.
+						configManager.setConfiguration("osrsbingo", "playerToken", result.token);
+						signInStatus.setVisible(false);
+					}
+				}
+				catch (Exception ex)
+				{
+					log.debug("sign-in flow failed", ex);
+					signInStatus.setText("Sign-in failed — try again.");
+				}
+				refreshSignInRow();
+				refresh();
+			}
+		}.execute();
+	}
+
 	private void updateSiteConnectAffordance()
 	{
 		if (federationStatus == null || siteConnectInFlight)
@@ -404,8 +494,10 @@ public class AnvilSidebarPanel extends PluginPanel
 					log.debug("sidebar fetch failed", cause);
 					renderError(cause.getMessage());
 				}
-				// The fetch just refreshed /federation/state — reflect it in the connect affordance.
+				// The fetch just refreshed /federation/state — reflect it in the connect affordance,
+				// and surface the Sign-in button whenever the token is missing/was just rejected.
 				updateSiteConnectAffordance();
+				refreshSignInRow();
 			}
 		}.execute();
 	}

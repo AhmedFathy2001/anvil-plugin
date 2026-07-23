@@ -95,6 +95,83 @@ public class BingoApiClient
 		this.accountHash = hash == -1L ? null : Long.toString(hash);
 	}
 
+	/** True when a Site URL is set but no Account Token yet — the state the Sign-in button serves. */
+	public boolean needsSignIn()
+	{
+		return apiUrl != null && !apiUrl.isEmpty() && (playerToken == null || playerToken.isEmpty());
+	}
+
+	// ---- Device-code sign-in (home-native RFC 8628; see the site's /api/plugin/auth/*) ----------
+
+	/** POST /api/plugin/auth/start response. */
+	public static class DeviceAuthStart
+	{
+		public String device_code;
+		public String user_code;
+		public String verification_url;
+		public String verification_url_complete;
+		public int interval;
+		public int expires_in;
+	}
+
+	/** POST /api/plugin/auth/poll response — status: pending | slow_down | expired | denied | complete. */
+	public static class DeviceAuthPoll
+	{
+		public String status;
+		public String token;
+		public int interval;
+	}
+
+	/** Begin the device sign-in. Deliberately UNAUTHENTICATED (the whole point is no token yet) —
+	 * only the Site URL must be configured. Null on transport/HTTP failure. */
+	public DeviceAuthStart authStart()
+	{
+		if (apiUrl == null || apiUrl.isEmpty())
+		{
+			return null;
+		}
+		RequestBody empty = RequestBody.create(null, new byte[0]);
+		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/start").post(empty).build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().charStream(), DeviceAuthStart.class);
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("auth/start failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */
+	public DeviceAuthPoll authPoll(String deviceCode)
+	{
+		if (apiUrl == null || apiUrl.isEmpty() || deviceCode == null || deviceCode.isEmpty())
+		{
+			return null;
+		}
+		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
+			gson.toJson(java.util.Collections.singletonMap("device_code", deviceCode)));
+		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/poll").post(body).build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().charStream(), DeviceAuthPoll.class);
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("auth/poll failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	private Request.Builder authedRequest(String url)
 	{
 		Request.Builder b = new Request.Builder().url(url)
