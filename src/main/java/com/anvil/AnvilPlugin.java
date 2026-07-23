@@ -207,6 +207,14 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Long> lastSubmittedAt = new HashMap<>();
     private static final long DEDUP_WINDOW_MS = 3_000;
 
+    // Item ids credited by a REAL loot event (raid chest / NPC drop), with the time last seen. The
+    // collection-log-unlock credit path (creditClogUnlock) skips these so a raid-chest item that
+    // already credited via its loot event can't ALSO credit when its "New item added to your
+    // collection log" line fires on pickup — same acquisition, but the two can land far more than the
+    // 3s loot dedup apart (open the chest, take the items later), which double-counted a CoX unique.
+    private final Map<Integer, Long> recentLootItemIds = new HashMap<>();
+    private static final long CLOG_LOOT_DEDUP_MS = 5 * 60_000;
+
     // PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
     // player then dies within the window, we count it as our kill (avoids screenshotting random
     // nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
@@ -1117,16 +1125,24 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    // ToA tracks each occupied party slot in these client varbits. We read party size from them
-    // because ToA splits raiders across separate rooms, so the scene headcount (instancePlayersSeen)
-    // reads solo even in a group.
+    // Raids expose the real party roster in client varbits, which we read for party-size tile gates.
+    // The scene headcount (instancePlayersSeen) is unreliable inside raids: raiders split across
+    // separate rooms — and even when the whole team is co-located (e.g. the CoX Olm room),
+    // client.getPlayers() may not return them — so it reads solo even in a group. ToA and ToB track
+    // each occupied party slot in a run of per-slot varbits (count the non-empty ones); CoX exposes
+    // the count directly.
     private static final int[] TOA_PARTY_SLOTS = {
             VarbitID.TOA_CLIENT_P0, VarbitID.TOA_CLIENT_P1, VarbitID.TOA_CLIENT_P2, VarbitID.TOA_CLIENT_P3,
             VarbitID.TOA_CLIENT_P4, VarbitID.TOA_CLIENT_P5, VarbitID.TOA_CLIENT_P6, VarbitID.TOA_CLIENT_P7,
     };
+    private static final int[] TOB_PARTY_SLOTS = {
+            VarbitID.TOB_CLIENT_P0, VarbitID.TOB_CLIENT_P1, VarbitID.TOB_CLIENT_P2,
+            VarbitID.TOB_CLIENT_P3, VarbitID.TOB_CLIENT_P4,
+    };
     // Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
-    // client thread — read it safely. 0 = not in a ToA raid (gates then fall back to the scene count).
-    private volatile int lastToaPartySize = 0;
+    // client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
+    // count, which still covers instanced content without a party varbit).
+    private volatile int lastRaidPartySize = 0;
 
     @Subscribe
     public void onGameTick(GameTick event) {
@@ -1148,18 +1164,29 @@ public class AnvilPlugin extends Plugin {
                 }
             }
         }
-        // ToA party size + invocation, read from the client's ToA varbits (scoped by a non-zero raid
-        // level so stale values outside ToA can't bleed into CoX/ToB gating).
-        int toaLevel = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
-        int toaParty = 0;
-        if (toaLevel > 0) {
+        // Raid party size, read from client varbits. Each raid is scoped by its own "am I in this
+        // raid" signal so a stale value from a prior raid can't bleed into another's gating, and we
+        // only ever read one raid's varbits at a time (you can't be in two raids at once).
+        int raidParty = 0;
+        if (client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) > 0) {
+            // ToA: scoped by a non-zero raid level. Count occupied party slots.
             for (int slot : TOA_PARTY_SLOTS) {
                 if (client.getVarbitValue(slot) > 0) {
-                    toaParty++;
+                    raidParty++;
+                }
+            }
+        } else if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) {
+            // CoX: the client exposes the party size directly while inside the dungeon.
+            raidParty = client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE);
+        } else if (client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0) {
+            // ToB: scoped by an active party status. Count occupied party slots.
+            for (int slot : TOB_PARTY_SLOTS) {
+                if (client.getVarbitValue(slot) > 0) {
+                    raidParty++;
                 }
             }
         }
-        lastToaPartySize = toaParty;
+        lastRaidPartySize = raidParty;
         // Baseline CA points once after login (before any completion) so we can tell first
         // completions (points rise) from recompletions (points unchanged).
         if (!caPointsInitialized && client.getGameState() == GameState.LOGGED_IN) {
@@ -2120,9 +2147,21 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         List<ItemStack> synthetic = null;
+        final long now = System.currentTimeMillis();
         for (Integer id : itemDropIndex.keySet()) {
             ItemComposition comp = itemManager.getItemComposition(id);
             if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
+                // Skip an item a real loot event just credited — the clog-unlock line is the same
+                // acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
+                // double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
+                // when taken). Genuine clog-only unlocks (BA torso, gamble pets) never hit this.
+                synchronized (recentLootItemIds) {
+                    recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
+                    Long seen = recentLootItemIds.get(id);
+                    if (seen != null && now - seen < CLOG_LOOT_DEDUP_MS) {
+                        continue;
+                    }
+                }
                 if (synthetic == null) {
                     synthetic = new ArrayList<>(1);
                 }
@@ -2130,7 +2169,7 @@ public class AnvilPlugin extends Plugin {
             }
         }
         if (synthetic == null) {
-            return; // no tile tracks this clog item
+            return; // no tile tracks this clog item (or all matches were just looted)
         }
         // "clog" source kind passes the default (non-PvP) tile source filter. Source name is the
         // item itself — a tile with a specific sourceNpcs list won't match, which is intended
@@ -2272,6 +2311,13 @@ public class AnvilPlugin extends Plugin {
 
         for (ItemStack item : items) {
             int itemId = item.getId();
+            // Remember items that arrived via a REAL loot event so a later clog-unlock line for the
+            // same acquisition can't re-credit the tile (see recentLootItemIds / creditClogUnlock).
+            if (!"clog".equals(sourceKind)) {
+                synchronized (recentLootItemIds) {
+                    recentLootItemIds.put(itemId, System.currentTimeMillis());
+                }
+            }
             List<PluginConfigResponse.TrackedDrop> matchingDrops = index.get(itemId);
             if (matchingDrops == null) {
                 continue;
@@ -2332,7 +2378,7 @@ public class AnvilPlugin extends Plugin {
                 // looted inside the instance, so the deathless party tracker knows the team
                 // size. Only counts when it matches exactly; 0 = any.
                 if (drop.partySize > 0) {
-                    int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
+                    int partySeen = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
                     if (!wasInInstance || partySeen != drop.partySize) {
                         sendChatMessage("Drop not counted for " + drop.label + ": party of "
                                 + partySeen + ", tile requires " + drop.partySize + ".");
@@ -3097,7 +3143,7 @@ public class AnvilPlugin extends Plugin {
                         + (instancePlayerDeaths == 1 ? " death" : " deaths") + " this run.");
                 continue;
             }
-            int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
+            int partySeen = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
             if (tile.partySize > 0 && partySeen != tile.partySize) {
                 sendChatMessage("Deathless run not counted for " + tile.label + ": party of "
                         + partySeen + ", tile requires " + tile.partySize + ".");
@@ -3153,7 +3199,7 @@ public class AnvilPlugin extends Plugin {
                 }
                 // Optional exact-party gate (raid tiles) — same signal as the deathless path.
                 if (tile.partySize > 0) {
-                    int partySeen = lastToaPartySize > 0 ? lastToaPartySize : instancePlayersSeen.size();
+                    int partySeen = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
                     if (partySeen != tile.partySize) {
                         log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
                                 tile.label, partySeen, tile.partySize);

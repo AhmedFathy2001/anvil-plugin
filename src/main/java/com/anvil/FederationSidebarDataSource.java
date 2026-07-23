@@ -4,7 +4,10 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.LinkBrowser;
@@ -82,12 +85,41 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	{
 		FederationState state = apiClient.fetchFederationState();
 		lastState = state != null ? state : FederationState.disabled();
-		if (state != null && state.enabled && !state.clans.isEmpty())
+		if (state == null || !state.enabled || state.clans.isEmpty())
 		{
-			return state.clans;
+			// Federation off / absent / no clans yet → single-home render (today's default, unchanged).
+			return delegate.fetchConnections();
 		}
-		// Federation off / absent / no clans yet → single-home render (today's default, unchanged).
-		return delegate.fetchConnections();
+		// Federated: HOME FIRST, then the relayed clans. Returning only `state.clans` here made the
+		// member's own board vanish the moment a second clan appeared (and with one remote clan the
+		// panel's clan filter never showed). The home render must stay the rich local one (nearest
+		// tiles, live feed) — the site-shaped federated entries only cover the OTHER homes.
+		List<ConnectionView> merged = new ArrayList<>();
+		Set<String> seen = new HashSet<>();
+		try
+		{
+			for (ConnectionView home : delegate.fetchConnections())
+			{
+				merged.add(home);
+				if (home.instanceId != null)
+				{
+					seen.add(home.instanceId);
+				}
+			}
+		}
+		catch (SidebarDataException e)
+		{
+			// A broken home must not blank the whole panel when the federated clans ARE renderable.
+			log.warn("home sidebar fetch failed; rendering federated clans only", e);
+		}
+		for (ConnectionView clan : state.clans)
+		{
+			if (clan.instanceId == null || seen.add(clan.instanceId))
+			{
+				merged.add(clan);
+			}
+		}
+		return merged;
 	}
 
 	@Override

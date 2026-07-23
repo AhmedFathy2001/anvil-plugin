@@ -70,7 +70,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "apiUrl",
 		name = "Site URL",
-		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). Ask your clan admin if unsure.",
+		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). If you leave off https://, it's added automatically. Ask your clan admin if unsure.",
 		position = 1,
 		section = "setupSection"
 	)

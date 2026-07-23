@@ -117,10 +117,19 @@ public class BingoApiClient
 		String s = raw.trim();
 		while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
 		if (s.isEmpty()) return "";
+		// If the user left the scheme off (e.g. "your-clan.vercel.app"), assume https:// — that's the
+		// common case and, without it, the checks below would treat the whole URL as unconfigured. We
+		// only PREPEND when there's no scheme at all; an explicit http:// is left untouched (we never
+		// silently "upgrade" a deliberate http:// host), so the HTTPS gate below still governs it.
+		String lower = s.toLowerCase();
+		if (!lower.startsWith("http://") && !lower.startsWith("https://"))
+		{
+			s = "https://" + s;
+			lower = s.toLowerCase();
+		}
 		// Require HTTPS: the account token rides as an Authorization: Bearer header on every request,
 		// so a plaintext http:// host would leak it on the wire. Permit http only for local dev hosts.
 		// Anything else is treated as unconfigured (returns "") rather than sending the token in clear.
-		String lower = s.toLowerCase();
 		boolean https = lower.startsWith("https://");
 		boolean localHttp = lower.startsWith("http://localhost") || lower.startsWith("http://127.0.0.1");
 		if (!https && !localHttp)

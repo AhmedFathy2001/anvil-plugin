@@ -74,16 +74,17 @@ public class FederationSidebarDataSourceTest
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
 
 			List<ConnectionView> conns = ds.fetchConnections();
-			assertEquals("both federated clans render", 2, conns.size());
-			assertEquals("uuid-a", conns.get(0).instanceId);
-			assertEquals("Clan A", conns.get(0).clanName);
-			assertEquals(7, conns.get(0).tilesComplete);
-			assertEquals(1, conns.get(0).nearestTiles.size());
-			assertEquals(1, conns.get(0).recentActivity.size());
-			assertEquals(1, conns.get(0).activeNow.size());
-			assertEquals("uuid-b", conns.get(1).instanceId);
+			assertEquals("home + both federated clans render", 3, conns.size());
+			assertEquals("home renders FIRST", MarkerDelegate.ID, conns.get(0).instanceId);
+			assertEquals("uuid-a", conns.get(1).instanceId);
+			assertEquals("Clan A", conns.get(1).clanName);
+			assertEquals(7, conns.get(1).tilesComplete);
+			assertEquals(1, conns.get(1).nearestTiles.size());
+			assertEquals(1, conns.get(1).recentActivity.size());
+			assertEquals(1, conns.get(1).activeNow.size());
+			assertEquals("uuid-b", conns.get(2).instanceId);
 
-			assertEquals("delegate is NOT consulted when the site returned clans", 0, delegate.calls);
+			assertEquals("delegate supplies the home render alongside the federated clans", 1, delegate.calls);
 			assertTrue(ds.federationStatus().enabled);
 			assertFalse(ds.federationStatus().needsConnect());
 			assertEquals("only the home site was contacted",

@@ -771,20 +771,32 @@ public class AnvilSidebarPanel extends PluginPanel
 		JPanel bottom = new JPanel(new BorderLayout(0, 2));
 		bottom.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-		JLabel count = new JLabel(c.tilesComplete + " / " + c.tilesTotal + " " + c.unitNoun() + " · " + c.completionPercent() + "%");
-		count.setFont(FontManager.getRunescapeSmallFont());
-		count.setForeground(VALUE_COLOR);
-		bottom.add(count, BorderLayout.NORTH);
+		if (c.tilesTotal <= 0)
+		{
+			// No live board on this clan (federated homes with no running event report 0/0) — a bare
+			// "0 / 0 tiles · 0%" reads like a bug, so say what's actually going on instead.
+			JLabel none = new JLabel("No active event yet.");
+			none.setFont(FontManager.getRunescapeSmallFont());
+			none.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			bottom.add(none, BorderLayout.NORTH);
+		}
+		else
+		{
+			JLabel count = new JLabel(c.tilesComplete + " / " + c.tilesTotal + " " + c.unitNoun() + " · " + c.completionPercent() + "%");
+			count.setFont(FontManager.getRunescapeSmallFont());
+			count.setForeground(VALUE_COLOR);
+			bottom.add(count, BorderLayout.NORTH);
 
-		JProgressBar bar = new JProgressBar(0, 100);
-		bar.setValue(c.completionPercent());
-		bar.setStringPainted(false);
-		bar.setForeground(c.completionPercent() >= 100
-			? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
-		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		bar.setBorderPainted(false);
-		bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT + 1));
-		bottom.add(bar, BorderLayout.CENTER);
+			JProgressBar bar = new JProgressBar(0, 100);
+			bar.setValue(c.completionPercent());
+			bar.setStringPainted(false);
+			bar.setForeground(c.completionPercent() >= 100
+				? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
+			bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			bar.setBorderPainted(false);
+			bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT + 1));
+			bottom.add(bar, BorderLayout.CENTER);
+		}
 
 		panel.add(bottom, BorderLayout.CENTER);
 
