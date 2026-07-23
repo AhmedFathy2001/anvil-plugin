@@ -916,13 +916,77 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		panel.add(bottom, BorderLayout.CENTER);
 
+		JPanel south = new JPanel();
+		south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
+		south.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		if (c.boardUrl != null && !c.boardUrl.isEmpty())
 		{
-			panel.add(boardLink(c.boardUrl), BorderLayout.SOUTH);
+			south.add(boardLink(c.boardUrl));
+		}
+		JPanel shareRow = buildShareRow(c);
+		if (shareRow != null)
+		{
+			south.add(shareRow);
+		}
+		if (south.getComponentCount() > 0)
+		{
+			panel.add(south, BorderLayout.SOUTH);
 		}
 
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 		return panel;
+	}
+
+	/**
+	 * Per-clan "Share my RSN" toggle — per ACCOUNT by design: it acts on the account currently logged
+	 * in (the server resolves it from the request), so each of a member's accounts is shared with each
+	 * clan individually. Only rendered on FEDERATED clan cards while the playing account is resolvable
+	 * ({@code shareEligible}); never on the home card (the home already knows its own member).
+	 */
+	private JPanel buildShareRow(ConnectionView c)
+	{
+		if (federationStatus == null || AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(c.instanceId))
+		{
+			return null;
+		}
+		FederationState st = federationStatus.federationStatus();
+		if (!st.enabled || !st.shareEligible)
+		{
+			return null;
+		}
+		boolean shared = st.sharedInstanceIds.contains(c.instanceId);
+		JButton share = new JButton(shared ? "Stop sharing my RSN" : "Share my RSN with this clan");
+		styleFlatButton(share, shared ? ColorScheme.LIGHT_GRAY_COLOR : ColorScheme.BRAND_ORANGE);
+		share.setToolTipText(shared
+			? "This clan currently knows this account's RSN. Click to retract it — the change reaches them within seconds."
+			: "Let this clan see THIS account's RSN so it can track and draft you. Shares only the name — never boards or game data.");
+		share.addActionListener(e ->
+		{
+			share.setEnabled(false);
+			new SwingWorker<Boolean, Void>()
+			{
+				@Override
+				protected Boolean doInBackground()
+				{
+					boolean ok = apiClient.federationShare(c.instanceId, !shared);
+					return ok;
+				}
+
+				@Override
+				protected void done()
+				{
+					// Forced refresh: the share rides the next exchange relay — force it now so the
+					// remote learns (or forgets) the RSN within seconds, and the button re-labels.
+					refresh(true);
+				}
+			}.execute();
+		});
+
+		JPanel row = new JPanel(new BorderLayout());
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+		row.add(share, BorderLayout.WEST);
+		return row;
 	}
 
 	/** A clickable "View standings" link opening the board's site page in the system browser. */

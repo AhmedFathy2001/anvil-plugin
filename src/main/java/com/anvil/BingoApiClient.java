@@ -172,6 +172,31 @@ public class BingoApiClient
 		}
 	}
 
+	/** Share (or stop sharing) the CURRENT account's RSN with one connected clan. Authed + carries the
+	 * X-RSN/X-Account-Hash headers, so the server scopes the share to the exact playing account. */
+	public boolean federationShare(String instanceId, boolean share)
+	{
+		if (!isConfigured() || instanceId == null || instanceId.isEmpty())
+		{
+			return false;
+		}
+		java.util.Map<String, String> payload = new java.util.HashMap<>();
+		payload.put("instanceId", instanceId);
+		payload.put("action", share ? "share" : "unshare");
+		Request request = authedRequest(apiUrl + "/api/plugin/federation/share")
+			.post(RequestBody.create(JSON, gson.toJson(payload)))
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			return response.isSuccessful();
+		}
+		catch (IOException e)
+		{
+			log.debug("federation/share failed: {}", e.getMessage());
+			return false;
+		}
+	}
+
 	private Request.Builder authedRequest(String url)
 	{
 		Request.Builder b = new Request.Builder().url(url)

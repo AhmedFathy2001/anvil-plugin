@@ -29,8 +29,21 @@ public final class FederationState
 	/** One row per federated clan, ready to render. Never {@code null}. */
 	public final List<ConnectionView> clans;
 
+	/** True when the CURRENT in-game account resolved server-side — per-account RSN sharing is offered. */
+	public final boolean shareEligible;
+
+	/** Instance ids the current account's RSN is shared with ("Share my RSN"). Never {@code null}. */
+	public final java.util.Set<String> sharedInstanceIds;
+
 	public FederationState(boolean enabled, boolean connected, boolean signedIn, boolean needsLogin,
 		String verificationUrl, List<ConnectionView> clans)
+	{
+		this(enabled, connected, signedIn, needsLogin, verificationUrl, clans, false, Collections.emptySet());
+	}
+
+	public FederationState(boolean enabled, boolean connected, boolean signedIn, boolean needsLogin,
+		String verificationUrl, List<ConnectionView> clans, boolean shareEligible,
+		java.util.Set<String> sharedInstanceIds)
 	{
 		this.enabled = enabled;
 		this.connected = connected;
@@ -38,6 +51,10 @@ public final class FederationState
 		this.needsLogin = needsLogin;
 		this.verificationUrl = verificationUrl == null || verificationUrl.isEmpty() ? null : verificationUrl;
 		this.clans = clans == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(clans));
+		this.shareEligible = shareEligible;
+		this.sharedInstanceIds = sharedInstanceIds == null
+			? Collections.emptySet()
+			: Collections.unmodifiableSet(new java.util.HashSet<>(sharedInstanceIds));
 	}
 
 	/** Inert sentinel (federation off, nothing connected, no clans), used when {@code /state} is absent/
@@ -92,6 +109,8 @@ public final class FederationState
 			boolean signedIn = boolAt(o, "signedIn");
 			boolean needsLogin = boolAt(o, "needsLogin");
 			String verificationUrl = strAt(o, "verificationUrl");
+			boolean shareEligible = boolAt(o, "shareEligible");
+			java.util.Set<String> shared = new java.util.HashSet<>();
 			List<ConnectionView> clans = new ArrayList<>();
 			JsonElement clansEl = o.get("clans");
 			if (clansEl != null && clansEl.isJsonArray())
@@ -104,15 +123,21 @@ public final class FederationState
 					}
 					if (el != null && el.isJsonObject())
 					{
-						ConnectionView view = parseClan(el.getAsJsonObject());
+						JsonObject co = el.getAsJsonObject();
+						ConnectionView view = parseClan(co);
 						if (view != null)
 						{
 							clans.add(view);
+							if (boolAt(co, "shared"))
+							{
+								shared.add(view.instanceId);
+							}
 						}
 					}
 				}
 			}
-			return new FederationState(enabled, connected, signedIn, needsLogin, verificationUrl, clans);
+			return new FederationState(enabled, connected, signedIn, needsLogin, verificationUrl, clans,
+				shareEligible, shared);
 		}
 		catch (RuntimeException e)
 		{
