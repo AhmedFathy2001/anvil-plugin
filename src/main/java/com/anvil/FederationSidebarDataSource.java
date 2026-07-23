@@ -41,6 +41,9 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	 * the broker (all traffic server-to-server); a rogue home's fake login URL on another host is refused. */
 	static final String PINNED_BROKER_HOST = "anvilosrs.com";
 
+	/** §8 path pin: the ONLY broker page the plugin will ever open — the device-login page. */
+	static final String PINNED_BROKER_LOGIN_PATH = "/federation/device";
+
 	/** How long to wait between {@code /state} polls while a self-host Discord login is in the browser. */
 	private static final long LOGIN_POLL_INTERVAL_MS = 3_000L;
 
@@ -248,7 +251,14 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		{
 			return false;
 		}
-		return PINNED_BROKER_HOST.equalsIgnoreCase(host);
+		if (!PINNED_BROKER_HOST.equalsIgnoreCase(host))
+		{
+			return false;
+		}
+		// Path pin: only the broker's device-login page may be opened — a hostile home handing back
+		// some OTHER legitimate broker URL (portal, future redirect endpoints, …) is refused too.
+		String path = uri.getPath();
+		return path != null && path.startsWith(PINNED_BROKER_LOGIN_PATH);
 	}
 
 	/** The {@code verification_uri_complete} (RFC 8628): the broker page with {@code user_code} prefilled as a
