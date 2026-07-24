@@ -1285,6 +1285,35 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/counters — the fun end-of-event recap counters (total deaths + total loot GP for
+	 * the active event). Body is {@code {"deaths":<n>,"lootGp":<gp>}} with ABSOLUTE per-event totals.
+	 * Idempotent like {@link #submitStatKc}: event/team/player resolved from the token, the server keeps
+	 * max(stored, pushed) per counter, so a retry or client restart never double-counts. No screenshot.
+	 * Purely cosmetic (superlatives only — never scoring).
+	 */
+	public void submitEventCounters(int deaths, long lootGp) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("deaths", deaths);
+		payload.addProperty("lootGp", lootGp);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/counters")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Counter push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.info("Recap counters pushed (deaths={}, lootGp={})", deaths, lootGp);
+		}
+	}
+
+	/**
 	 * POST /api/events/{eventId}/submissions — submits a timed-clear with image proof.
 	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
 	 * completes the tile when durationSeconds ≤ the tile's threshold.

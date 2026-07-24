@@ -315,8 +315,12 @@ public class AnvilPlugin extends Plugin {
     // "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
     // landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
     private final Map<String, Integer> killCounts = new HashMap<>();
-    private static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
-            "Your (?:completed )?(.+?) (?:kill )?count is: ([\\d,]+)");
+    // The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
+    // Barrows, "success" for Zalcano, "harvest"/"lap" for skilling bosses) and Wintertodt prefixes
+    // "subdued" — all must be kept OUT of the captured boss name or it never matches the
+    // trackedKcNames watch-list. Package-private for KillCountLineTest.
+    static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
+            "Your (?:completed |subdued )?(.+?) (?:kill |completion |success |chest |harvest |lap )?count is: ([\\d,]+)");
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
@@ -596,6 +600,21 @@ public class AnvilPlugin extends Plugin {
     private java.util.concurrent.ScheduledFuture<?> kcPushTask;
     // KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
     private static final long KC_PUSH_COALESCE_MS = 15_000;
+    // ── Recap "fun stat" counters (deaths + total loot GP) for the active event. Cosmetic only (feeds the
+    // end-of-event superlatives — never scoring). Held per-event and PERSISTED to the config store so a
+    // client restart mid-event keeps counting instead of resetting to zero; switching events resets both.
+    // Pushed as ABSOLUTE totals, debounced like KC, and max-merged server-side (idempotent).
+    private final Object counterLock = new Object();
+    private boolean countersLoaded = false;
+    private int counterEventId = 0;
+    private int eventDeaths = 0;
+    private long eventLootGp = 0;
+    private java.util.concurrent.ScheduledFuture<?> counterPushTask;
+    private final Map<String, Long> lastLootValueAt = new HashMap<>();
+    private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
+    private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
+    private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
+    private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
     // Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
     // config refresh; empty unless the event has skill tiles.
     private volatile java.util.Set<String> trackedSkillNames = Collections.emptySet();
@@ -829,6 +848,17 @@ public class AnvilPlugin extends Plugin {
         synchronized (pendingSkillXpPush) {
             pendingSkillXpPush.clear();
             skillXpPushTask = null;
+        }
+        // Flush the recap counters to the config store (captures loot gained since the last push) and
+        // stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
+        synchronized (counterLock) {
+            if (counterPushTask != null) {
+                counterPushTask.cancel(false);
+                counterPushTask = null;
+            }
+            if (countersLoaded) {
+                persistCounters();
+            }
         }
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
@@ -1620,6 +1650,7 @@ public class AnvilPlugin extends Plugin {
     public void onNpcLootReceived(NpcLootReceived event) {
         processLoot(event.getNpc().getName(), event.getItems(), "npc");
         processValueTiles(event.getNpc().getName(), event.getItems(), "npc");
+        recordEventLoot(event.getNpc().getName(), event.getItems(), "npc");
         maybeNotifyRareDrop(event.getNpc().getName(), event.getItems(), "npc");
         // NpcLootReceived is RuneLite's attribution-safe "you killed this NPC" signal (fires once
         // per kill, credited to the local player) — the right hook for kill-count tiles, including
@@ -1666,6 +1697,7 @@ public class AnvilPlugin extends Plugin {
         String source = normalizeClueSource(event.getName());
         processLoot(source, event.getItems(), kind);
         processValueTiles(source, event.getItems(), kind);
+        recordEventLoot(source, event.getItems(), kind);
         maybeNotifyRareDrop(source, event.getItems(), kind);
     }
 
@@ -1698,6 +1730,7 @@ public class AnvilPlugin extends Plugin {
         }
         processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         processValueTiles(event.getPlayer().getName(), event.getItems(), "pvp");
+        recordEventLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         // Credit any PvP kill tile with a min-loot floor that was parked at the death and whose loot
         // (priced here) reaches the floor. No-op unless such a kill is pending for this victim.
         creditPvpMinLootKillTiles(event.getPlayer().getName(), event.getItems());
@@ -4186,6 +4219,164 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /* -------------------------------------------------------------- */
+    /* Recap "fun stat" counters — deaths + total loot value. Cosmetic */
+    /* superlatives only; never touch scoring. See lib/eventRecap.     */
+    /* -------------------------------------------------------------- */
+
+    /**
+     * Make sure the in-memory counters belong to the CURRENT active event, loading the persisted values
+     * on first use (so a restart mid-event resumes counting) and zeroing them when the active event
+     * changes. Returns false — counting is skipped — when tracking is off (auto-submit disabled, no
+     * config, or the event isn't active), mirroring every other auto-tracking gate. Call under
+     * {@link #counterLock}.
+     */
+    private boolean ensureCounterEvent() {
+        if (!countersLoaded) {
+            counterEventId = readIntConfig(CFG_COUNTER_EVENT, 0);
+            eventDeaths = readIntConfig(CFG_COUNTER_DEATHS, 0);
+            eventLootGp = readLongConfig(CFG_COUNTER_LOOTGP, 0);
+            countersLoaded = true;
+        }
+        if (trackingGateReason() != null) {
+            return false;
+        }
+        int active = (pluginConfig != null && pluginConfig.event != null) ? pluginConfig.event.id : 0;
+        if (active <= 0) {
+            return false;
+        }
+        if (active != counterEventId) {
+            counterEventId = active;
+            eventDeaths = 0;
+            eventLootGp = 0;
+            persistCounters();
+        }
+        return true;
+    }
+
+    /** Our own death happened during an active event → bump the per-event death counter and push. */
+    private void recordEventDeath() {
+        synchronized (counterLock) {
+            if (!ensureCounterEvent()) {
+                return;
+            }
+            eventDeaths++;
+            persistCounters();
+        }
+        scheduleCounterPush();
+    }
+
+    /**
+     * Price a whole loot haul and add its GE value to the per-event loot total. Called from the same
+     * loot events as {@link #processValueTiles} (which price only when a value tile exists) so EVERY
+     * haul counts, value tile or not. A short fingerprint dedup absorbs the known NpcLootReceived +
+     * LootReceived double-fire for the same haul. Client thread only (itemManager.getItemPrice).
+     */
+    private void recordEventLoot(String source, Collection<ItemStack> items, String sourceKind) {
+        if (items == null || items.isEmpty() || trackingGateReason() != null) {
+            return;
+        }
+        long haulGp = 0;
+        int count = 0;
+        for (ItemStack it : items) {
+            if (it == null || it.getId() <= 0) {
+                continue;
+            }
+            int price = itemManager.getItemPrice(it.getId());
+            if (price > 0) {
+                haulGp += (long) price * Math.max(1, it.getQuantity());
+            }
+            count++;
+        }
+        if (haulGp <= 0) {
+            return;
+        }
+        // Dedup identical hauls arriving on two loot events back-to-back (source + value + item count).
+        String fp = sourceKind + "|" + source + "|" + haulGp + "|" + count;
+        long now = System.currentTimeMillis();
+        synchronized (lastLootValueAt) {
+            lastLootValueAt.values().removeIf(t -> now - t > DEDUP_WINDOW_MS);
+            Long seen = lastLootValueAt.get(fp);
+            if (seen != null && now - seen < DEDUP_WINDOW_MS) {
+                return;
+            }
+            lastLootValueAt.put(fp, now);
+        }
+        synchronized (counterLock) {
+            if (!ensureCounterEvent()) {
+                return;
+            }
+            eventLootGp += haulGp;
+        }
+        scheduleCounterPush();
+    }
+
+    /** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
+    private void scheduleCounterPush() {
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        synchronized (counterLock) {
+            if (counterPushTask != null) {
+                counterPushTask.cancel(false);
+            }
+            counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Push the current absolute per-event counters. Absolute + server max-merge → a failure just retries. */
+    private void flushCounterPush() {
+        int deaths;
+        long lootGp;
+        synchronized (counterLock) {
+            persistCounters();
+            deaths = eventDeaths;
+            lootGp = eventLootGp;
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
+            return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
+        }
+        try {
+            apiClient.submitEventCounters(deaths, lootGp);
+        } catch (IOException e) {
+            log.warn("Counter push failed (deaths={}, lootGp={}) — retrying: {}", deaths, lootGp, e.getMessage());
+            synchronized (counterLock) {
+                if (executor != null && !executor.isShutdown()) {
+                    if (counterPushTask != null) {
+                        counterPushTask.cancel(false);
+                    }
+                    counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                }
+            }
+        }
+    }
+
+    /** Persist the per-event counters to the config store so a restart resumes them. Call under counterLock. */
+    private void persistCounters() {
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_EVENT, Integer.toString(counterEventId));
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_DEATHS, Integer.toString(eventDeaths));
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_LOOTGP, Long.toString(eventLootGp));
+    }
+
+    private int readIntConfig(String key, int fallback) {
+        try {
+            String v = configManager.getConfiguration("osrsbingo", key);
+            return v == null || v.isEmpty() ? fallback : Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private long readLongConfig(String key, long fallback) {
+        try {
+            String v = configManager.getConfiguration("osrsbingo", key);
+            return v == null || v.isEmpty() ? fallback : Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
     /**
      * Rebuild the normalised-RSN → teamId roster index used by PvP-kill tiles'
      * "team:other" selectors; refreshed together with the drop index. Empty
@@ -4373,6 +4564,9 @@ public class AnvilPlugin extends Plugin {
             if (lmsInGame && !lmsPlacementRecorded) {
                 recordLmsPlacement(Math.max(lmsSurvivors, 2));
             }
+            // Recap counter — count the death for the "Wipe Magnet" superlative even if death
+            // notifications are off (still gated by auto-submit + an active event inside).
+            recordEventDeath();
             if (!config.notifyDeaths()) {
                 return;
             }
