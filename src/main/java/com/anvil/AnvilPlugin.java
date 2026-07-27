@@ -4035,11 +4035,6 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Buffers a skill's absolute XP for a debounced push, if the event tracks it as a skill-XP tile.
-     * Absolute XP is idempotent, so the latest value overwrites and a training burst becomes one push.
-     * Runs on the client thread (onStatChanged); the network send happens on the executor.
-     */
-    /**
      * Record that the local player just gained on the tracked stat tile whose {@code statName} matches
      * {@code name} (skill name or boss KC name, case-insensitive). Best-effort: a name that maps to no
      * stat tile is ignored (the tile then falls to the sidebar's "a teammate" attribution via config
@@ -4081,12 +4076,35 @@ public class AnvilPlugin extends Plugin {
         return new HashMap<>(localStatProgressAt);
     }
 
-    private void maybeQueueSkillXpPush(String skillName, int xp, boolean realGain) {
-        if (skillName == null || !config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
-                || pluginConfig.team == null || pluginConfig.player == null) {
-            return;
+    /**
+     * Whether the real-time stat push paths (skill XP + boss KC) may send right now. Two config
+     * shapes allow it: an active bingo event this account is a player in, or a weekly-only config
+     * (event == null) — the server merges the live SOTW/BOTW metrics into trackedKcNames /
+     * trackedSkillNames even with no bingo event, and /api/plugin/stats auths at the member level
+     * (account token + X-RSN), so the weekly moves live without any event. The tracked-name sets
+     * remain the per-stat filter in both shapes: with nothing tracked they're empty and nothing
+     * queues. An event that exists but has ended still blocks pushes until the next config refresh
+     * clears it (which then falls back to the weekly-only shape server-side).
+     */
+    private boolean statPushAllowed() {
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || !config.autoSubmit()) {
+            return false;
         }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)
+        if (cfg.event == null) {
+            return true; // weekly-only: trackedKcNames/trackedSkillNames decide what actually sends
+        }
+        return cfg.team != null && cfg.player != null && AnvilOverlay.isEventActive(cfg.event);
+    }
+
+    /**
+     * Buffers a skill's absolute XP for a debounced push, if a bingo skill-XP tile or the live
+     * weekly SOTW tracks it (trackedSkillNames carries both). Absolute XP is idempotent, so the
+     * latest value overwrites and a training burst becomes one push. Runs on the client thread
+     * (onStatChanged); the network send happens on the executor.
+     */
+    private void maybeQueueSkillXpPush(String skillName, int xp, boolean realGain) {
+        if (skillName == null || !statPushAllowed()
                 || !trackedSkillNames.contains(skillName.toLowerCase(java.util.Locale.ROOT).trim())) {
             return;
         }
@@ -4115,9 +4133,8 @@ public class AnvilPlugin extends Plugin {
             batch = new HashMap<>(pendingSkillXpPush);
             pendingSkillXpPush.clear();
         }
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
-            return; // event ended between queue and flush — drop; the XP is safe on the hiscores side
+        if (!statPushAllowed()) {
+            return; // event ended / auto-submit off between queue and flush — drop; the XP is safe on the hiscores side
         }
         try {
             apiClient.submitStatXp(batch);
@@ -4166,11 +4183,7 @@ public class AnvilPlugin extends Plugin {
      * push. Runs on the client thread (onChatMessage); the network send happens on the executor.
      */
     private void maybeQueueKcPush(String bossName, int kc) {
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.event == null
-                || pluginConfig.team == null || pluginConfig.player == null) {
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event) || !trackedKcNames.contains(normalizeBossName(bossName))) {
+        if (!statPushAllowed() || !trackedKcNames.contains(normalizeBossName(bossName))) {
             return;
         }
         noteLocalStatProgress(bossName); // "Active now": this account is grinding this boss-KC tile
@@ -4196,9 +4209,8 @@ public class AnvilPlugin extends Plugin {
             batch = new HashMap<>(pendingKcPush);
             pendingKcPush.clear();
         }
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
-            return; // event ended between queue and flush — drop; the count is safe on the hiscores side
+        if (!statPushAllowed()) {
+            return; // event ended / auto-submit off between queue and flush — drop; the count is safe on the hiscores side
         }
         try {
             apiClient.submitStatKc(batch);
