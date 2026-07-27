@@ -158,7 +158,53 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// ConnectionView maps "" → "(unnamed clan)".
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored);
+			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
+			null, revealNote(cfg.event));
+	}
+
+	/**
+	 * Reveal-policy boards: the "still hidden" one-liner under the board summary, or null on classic
+	 * boards / older servers (no field). Bounty draws on claim, the others on a clock the server sends.
+	 */
+	static String revealNote(PluginConfigResponse.EventInfo event)
+	{
+		if (event == null || event.revealPolicy == null || event.revealPolicy.isEmpty() || event.hiddenTileCount <= 0)
+		{
+			return null;
+		}
+		boolean bounty = "bounty".equalsIgnoreCase(event.revealPolicy);
+		String what = bounty
+			? event.hiddenTileCount + (event.hiddenTileCount == 1 ? " bounty" : " bounties") + " left"
+			: event.hiddenTileCount + (event.hiddenTileCount == 1 ? " tile" : " tiles") + " hidden";
+		String next = bounty ? "next on claim" : nextRevealLabel(event.nextRevealAt);
+		return what + (next == null ? "" : " · " + next);
+	}
+
+	/** "next in 42m" / "next in 3h 10m" from the server's ISO next-reveal stamp; null when absent/past. */
+	private static String nextRevealLabel(String nextRevealAt)
+	{
+		if (nextRevealAt == null || nextRevealAt.isEmpty())
+		{
+			return null;
+		}
+		try
+		{
+			long at = java.time.Instant.parse(nextRevealAt).toEpochMilli();
+			long mins = Math.max(0, (at - System.currentTimeMillis()) / 60_000);
+			if (mins < 1)
+			{
+				return "next any minute";
+			}
+			if (mins < 60)
+			{
+				return "next in " + mins + "m";
+			}
+			return "next in " + (mins / 60) + "h " + (mins % 60) + "m";
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
 	}
 
 	/** The home entry's clan-filter label: the site's clan name, else the old team/event fallback. */

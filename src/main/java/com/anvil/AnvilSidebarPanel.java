@@ -817,12 +817,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		row.setFont(FontManager.getRunescapeSmallFont());
 		row.setToolTipText(plainText(e.summary()));
 		row.setAlignmentX(LEFT_ALIGNMENT);
-		// Completions read as wins (green); your own actions stand out (gold); teammates stay neutral.
+		// Completions read as wins (green); reveals are announcements (gold, like your own actions);
+		// your own actions stand out (gold); teammates stay neutral.
 		if (e.isCompletion())
 		{
 			row.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
 		}
-		else if (e.self)
+		else if (e.kind == ActivityEntry.Kind.REVEAL || e.self)
 		{
 			row.setForeground(ColorScheme.BRAND_ORANGE);
 		}
@@ -912,6 +913,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			bar.setBorderPainted(false);
 			bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT + 1));
 			bottom.add(bar, BorderLayout.CENTER);
+
+			// Reveal-policy boards: "4 tiles hidden · next in 42m" under the bar, so members know
+			// more is coming (and when) without opening the site. Null on classic boards.
+			if (c.revealNote != null && !c.revealNote.isEmpty())
+			{
+				JLabel reveal = new JLabel(plainText(c.revealNote));
+				reveal.setFont(FontManager.getRunescapeSmallFont());
+				reveal.setForeground(ColorScheme.BRAND_ORANGE);
+				bottom.add(reveal, BorderLayout.SOUTH);
+			}
 		}
 
 		panel.add(bottom, BorderLayout.CENTER);

@@ -56,6 +56,13 @@ public final class ConnectionView
 	 */
 	public final String statusNote;
 
+	/**
+	 * Reveal-policy boards (showdown / lucky draw / bounty) only: the one-line "still hidden" status
+	 * rendered under the board summary — e.g. {@code "🙈 4 tiles hidden · next 19:00"} or
+	 * {@code "🎯 4 bounties left · next on claim"}. {@code null} on classic boards (no line).
+	 */
+	public final String revealNote;
+
 	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
@@ -74,11 +81,21 @@ public final class ConnectionView
 			recentActivity, activeNow, boardUrl, pointsScored, null);
 	}
 
-	/** As above, plus {@link #statusNote}. The base that sets every field. */
+	/** As above, plus {@link #statusNote}. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
 		String statusNote)
+	{
+		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
+			recentActivity, activeNow, boardUrl, pointsScored, statusNote, null);
+	}
+
+	/** As above, plus {@link #revealNote}. The base that sets every field. */
+	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
+		String statusNote, String revealNote)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -92,6 +109,7 @@ public final class ConnectionView
 		this.boardUrl = boardUrl;
 		this.pointsScored = pointsScored;
 		this.statusNote = statusNote;
+		this.revealNote = revealNote;
 	}
 
 	/** Healthy connection (no error) with the live layer. */

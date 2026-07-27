@@ -87,6 +87,11 @@ public class PluginConfigResponse
 		//   format="bingo" + scoringMode="tiles" -> square grid. May be null on older servers.
 		public String format;
 		public String scoringMode;
+		// Reveal-policy events (showdown / lucky draw / bounty) only — null/0 on classic events and
+		// older servers. The tracked* lists already contain ONLY revealed, still-open tiles.
+		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | null
+		public int hiddenTileCount;   // tiles not yet revealed
+		public String nextRevealAt;   // ISO time of the next reveal; null when none is scheduled
 	}
 
 	public static class TeamInfo

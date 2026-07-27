@@ -641,7 +641,7 @@ public class BingoApiClient
 		public String player;
 		public int tileId;
 		public String tileLabel;
-		public String kind;   // "progress" | "complete" — map with ActivityEntry.Kind.fromWire
+		public String kind;   // "progress" | "complete" | "reveal" — map with ActivityEntry.Kind.fromWire
 		public int amount;
 		public boolean isSelf;
 	}
@@ -658,6 +658,11 @@ public class BingoApiClient
 		// false = the host hasn't revealed the tiles yet, so `tiles` is intentionally empty (NOT a
 		// fetch failure). Defaults true so older servers that omit the flag keep the old behaviour.
 		public boolean tilesRevealed = true;
+		// Reveal-policy events (showdown / lucky draw / bounty) only — absent (null/0) on classic
+		// events and older servers. `tiles` already holds ONLY the revealed subset server-side.
+		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | null
+		public int hiddenTileCount;   // tiles not yet revealed (0 = everything's out)
+		public String nextRevealAt;   // ISO time of the next reveal, null when none is on the clock
 		public java.util.List<BoardTile> tiles;
 		public java.util.List<BoardTeam> teams;
 		public java.util.List<PluginConfigResponse.TierBand> tiers; // difficulty bands for the Tier filter

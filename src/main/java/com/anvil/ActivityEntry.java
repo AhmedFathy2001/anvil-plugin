@@ -7,15 +7,25 @@ package com.anvil;
  */
 public final class ActivityEntry
 {
-	/** Kind of feed event. Mirrors the server's {@code "progress" | "complete"}. */
+	/** Kind of feed event. Mirrors the server's {@code "progress" | "complete" | "reveal"}. */
 	public enum Kind
 	{
-		PROGRESS, COMPLETE;
+		PROGRESS, COMPLETE, REVEAL;
 
 		/** Map the lowercase wire value to a {@link Kind}; unknown/blank → {@link #PROGRESS} (Gson bypasses this). */
 		public static Kind fromWire(String s)
 		{
-			return "complete".equalsIgnoreCase(s == null ? null : s.trim()) ? COMPLETE : PROGRESS;
+			String v = s == null ? "" : s.trim();
+			if ("complete".equalsIgnoreCase(v))
+			{
+				return COMPLETE;
+			}
+			// Reveal-policy events (showdown / lucky draw / bounty): a hidden tile just went live.
+			if ("reveal".equalsIgnoreCase(v))
+			{
+				return REVEAL;
+			}
+			return PROGRESS;
 		}
 	}
 
@@ -62,6 +72,10 @@ public final class ActivityEntry
 	 */
 	public String summary()
 	{
+		if (kind == Kind.REVEAL)
+		{
+			return "New tile revealed: " + tileLabel;
+		}
 		String who = self ? "You" : (player == null || player.isEmpty() ? null : player);
 		if (kind == Kind.COMPLETE)
 		{
