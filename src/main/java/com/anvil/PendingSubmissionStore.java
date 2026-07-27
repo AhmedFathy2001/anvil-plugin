@@ -5,6 +5,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
+import net.runelite.client.util.LinkBrowser;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -162,20 +163,7 @@ public class PendingSubmissionStore
 	public void openFolder()
 	{
 		init();
-		if (!java.awt.Desktop.isDesktopSupported())
-		{
-			return;
-		}
-		new Thread(() ->
-		{
-			try
-			{
-				java.awt.Desktop.getDesktop().open(PENDING_DIR);
-			}
-			catch (Exception e)
-			{
-				log.warn("Could not open pending-proofs folder: {}", e.getMessage());
-			}
-		}, "anvil-open-proofs").start();
+		// LinkBrowser (hub policy over java.awt.Desktop) does its own off-thread open + fallbacks.
+		LinkBrowser.open(PENDING_DIR.getAbsolutePath());
 	}
 }

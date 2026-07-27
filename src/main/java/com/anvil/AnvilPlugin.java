@@ -899,11 +899,10 @@ public class AnvilPlugin extends Plugin {
                     }
                 });
             };
-            if (ex != null) {
-                ex.submit(job);
-            } else {
-                new Thread(job, "anvil-debug-export").start();
+            if (ex == null) {
+                return; // only mid-shutdown (hotkey already unregistered) — nothing to export into
             }
+            ex.submit(job);
         });
     }
 

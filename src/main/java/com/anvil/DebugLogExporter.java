@@ -1,6 +1,5 @@
 package com.anvil;
 
-import java.awt.Desktop;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
@@ -16,6 +15,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
+import net.runelite.client.util.LinkBrowser;
 
 /**
  * One-click support-log export. Members who hit a problem (a drop that never submits, login trouble)
@@ -179,20 +179,7 @@ public class DebugLogExporter
 
 	private void openFolder()
 	{
-		if (!Desktop.isDesktopSupported())
-		{
-			return;
-		}
-		new Thread(() ->
-		{
-			try
-			{
-				Desktop.getDesktop().open(OUT_DIR);
-			}
-			catch (Exception e)
-			{
-				log.debug("Anvil: could not open debug folder: {}", e.getMessage());
-			}
-		}, "anvil-open-debug").start();
+		// LinkBrowser (hub policy over java.awt.Desktop) does its own off-thread open + fallbacks.
+		LinkBrowser.open(OUT_DIR.getAbsolutePath());
 	}
 }
