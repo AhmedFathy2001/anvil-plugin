@@ -3,13 +3,13 @@ package com.anvil;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
 import net.runelite.client.audio.AudioPlayer;
+import net.runelite.client.util.LinkBrowser;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import java.awt.Desktop;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
@@ -225,21 +225,8 @@ public class BannerSoundService
 	public void openFolder()
 	{
 		ensureUserDir();
-		if (!Desktop.isDesktopSupported())
-		{
-			return;
-		}
-		audioExecutor.submit(() ->
-		{
-			try
-			{
-				Desktop.getDesktop().open(userDir());
-			}
-			catch (Exception e)
-			{
-				log.warn("Could not open sounds folder: {}", e.getMessage());
-			}
-		});
+		// LinkBrowser (hub policy over java.awt.Desktop) does its own off-thread open + fallbacks.
+		LinkBrowser.open(userDir().getAbsolutePath());
 	}
 
 	public void shutdown()
