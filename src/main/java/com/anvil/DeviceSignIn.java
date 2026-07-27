@@ -2,14 +2,18 @@ package com.anvil;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.LinkBrowser;
 
 /**
  * The plugin's "Sign in with Discord" — the home-native device-code flow (site: /api/plugin/auth/*).
- * Start → open the home's /link-device page in the member's browser → poll until approved → return
- * the account token for the caller to store. Blocking; run off the EDT.
+ * Start → open the home's /link-device page in the member's browser → poll until approved → hand the
+ * account token to the caller to store. Asynchronous: every step runs on the scheduler (approval polls
+ * paced by delayed rescheduling, never a sleeping thread) and BOTH callbacks arrive on that executor
+ * thread — marshal to the EDT before touching Swing. {@code done} fires exactly once.
  *
  * <p><b>Security:</b> no local listener — completion is detected purely by polling the home. The
  * browser URL is pinned to the CONFIGURED home origin (the one host the member explicitly typed
@@ -47,21 +51,22 @@ public final class DeviceSignIn
 
 	private final BingoApiClient apiClient;
 	private final FederationSidebarDataSource.BrowserOpener browserOpener;
-	private final FederationSidebarDataSource.Sleeper sleeper;
+	private final FederationSidebarDataSource.PollScheduler scheduler;
 
-	/** Production binding — real system browser + real sleep. */
-	public DeviceSignIn(BingoApiClient apiClient)
+	/** Production binding — real system browser + delayed steps on the shared client executor. */
+	public DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor)
 	{
-		this(apiClient, DeviceSignIn::browse, Thread::sleep);
+		this(apiClient, DeviceSignIn::browse,
+			(step, delayMs) -> executor.schedule(step, delayMs, TimeUnit.MILLISECONDS));
 	}
 
-	/** Test seam — injectable browser opener + sleeper so the flow runs offline and fast. */
+	/** Test seam — injectable browser opener + scheduler so the flow runs offline and fast. */
 	DeviceSignIn(BingoApiClient apiClient, FederationSidebarDataSource.BrowserOpener browserOpener,
-		FederationSidebarDataSource.Sleeper sleeper)
+		FederationSidebarDataSource.PollScheduler scheduler)
 	{
 		this.apiClient = apiClient;
 		this.browserOpener = browserOpener;
-		this.sleeper = sleeper;
+		this.scheduler = scheduler;
 	}
 
 	private static boolean browse(String url)
@@ -70,14 +75,22 @@ public final class DeviceSignIn
 		return true;
 	}
 
-	/** Run the whole flow. {@code status} receives short human-readable progress lines for the UI. */
-	public Result run(Consumer<String> status)
+	/** Run the whole flow. {@code status} receives short human-readable progress lines for the UI;
+	 * {@code done} the terminal {@link Result}. Both called on the executor thread. */
+	public void run(Consumer<String> status, Consumer<Result> done)
+	{
+		// The first step runs on the executor too — authStart is network I/O, keep it off the EDT.
+		schedule(() -> start(status, done), 0, status, done);
+	}
+
+	private void start(Consumer<String> status, Consumer<Result> done)
 	{
 		BingoApiClient.DeviceAuthStart start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty())
 		{
 			status.accept("Couldn't reach the site — check the Site URL.");
-			return new Result(Outcome.UNAVAILABLE, null);
+			done.accept(new Result(Outcome.UNAVAILABLE, null));
+			return;
 		}
 
 		String url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
@@ -87,7 +100,8 @@ public final class DeviceSignIn
 			// A response steering the browser anywhere but the member's own configured site is hostile.
 			log.warn("refusing sign-in URL not on the configured home: {}", url);
 			status.accept("Sign-in blocked — the site returned a suspicious login page.");
-			return new Result(Outcome.UNAVAILABLE, null);
+			done.accept(new Result(Outcome.UNAVAILABLE, null));
+			return;
 		}
 		if (!browserOpener.open(url))
 		{
@@ -101,46 +115,74 @@ public final class DeviceSignIn
 		long intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
 		long deadline = System.currentTimeMillis()
 			+ (start.expires_in > 0 ? start.expires_in : DEFAULT_EXPIRES_S) * 1000L;
-		while (System.currentTimeMillis() < deadline)
+		poll(status, done, start.device_code, intervalMs, deadline);
+	}
+
+	/** One scheduled approval poll; reschedules itself (server {@code slow_down} stretches the delay)
+	 * until a terminal status or the deadline. */
+	private void poll(Consumer<String> status, Consumer<Result> done, String deviceCode, long intervalMs, long deadline)
+	{
+		if (System.currentTimeMillis() >= deadline)
+		{
+			status.accept("The code expired — try again.");
+			done.accept(new Result(Outcome.EXPIRED, null));
+			return;
+		}
+		schedule(() ->
+		{
+			long nextIntervalMs = intervalMs;
+			BingoApiClient.DeviceAuthPoll poll = apiClient.authPoll(deviceCode);
+			if (poll != null && poll.status != null)
+			{
+				switch (poll.status)
+				{
+					case "complete":
+						if (poll.token != null && !poll.token.isEmpty())
+						{
+							status.accept("Signed in.");
+							done.accept(new Result(Outcome.SIGNED_IN, poll.token));
+						}
+						else
+						{
+							done.accept(new Result(Outcome.UNAVAILABLE, null));
+						}
+						return;
+					case "denied":
+						status.accept("Sign-in denied on the site.");
+						done.accept(new Result(Outcome.DENIED, null));
+						return;
+					case "expired":
+						status.accept("The code expired — try again.");
+						done.accept(new Result(Outcome.EXPIRED, null));
+						return;
+					case "slow_down":
+						nextIntervalMs = Math.max(intervalMs, Math.max(1, poll.interval) * 1000L);
+						break;
+					default: // pending (a null/blank poll is a transient blip — keep polling until the deadline)
+						break;
+				}
+			}
+			poll(status, done, deviceCode, nextIntervalMs, deadline);
+		}, intervalMs, status, done);
+	}
+
+	/** Schedule a flow step; an escaped {@link RuntimeException} would otherwise vanish inside the
+	 * executor, so surface it as the terminal failure. */
+	private void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done)
+	{
+		scheduler.schedule(() ->
 		{
 			try
 			{
-				sleeper.sleep(intervalMs);
+				step.run();
 			}
-			catch (InterruptedException e)
+			catch (RuntimeException e)
 			{
-				Thread.currentThread().interrupt();
-				return new Result(Outcome.UNAVAILABLE, null);
+				log.debug("sign-in flow failed", e);
+				status.accept("Sign-in failed — try again.");
+				done.accept(new Result(Outcome.UNAVAILABLE, null));
 			}
-			BingoApiClient.DeviceAuthPoll poll = apiClient.authPoll(start.device_code);
-			if (poll == null || poll.status == null)
-			{
-				continue; // transient blip — keep polling until the deadline
-			}
-			switch (poll.status)
-			{
-				case "complete":
-					if (poll.token != null && !poll.token.isEmpty())
-					{
-						status.accept("Signed in.");
-						return new Result(Outcome.SIGNED_IN, poll.token);
-					}
-					return new Result(Outcome.UNAVAILABLE, null);
-				case "denied":
-					status.accept("Sign-in denied on the site.");
-					return new Result(Outcome.DENIED, null);
-				case "expired":
-					status.accept("The code expired — try again.");
-					return new Result(Outcome.EXPIRED, null);
-				case "slow_down":
-					intervalMs = Math.max(intervalMs, Math.max(1, poll.interval) * 1000L);
-					break;
-				default: // pending
-					break;
-			}
-		}
-		status.accept("The code expired — try again.");
-		return new Result(Outcome.EXPIRED, null);
+		}, delayMs);
 	}
 
 	/**

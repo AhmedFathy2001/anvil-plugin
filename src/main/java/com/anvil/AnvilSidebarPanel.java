@@ -9,6 +9,7 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.Box;
@@ -89,6 +90,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	// Account Token yet — replaces the copy-the-token-from-your-profile step.
 	private final BingoApiClient apiClient;
 	private final net.runelite.client.config.ConfigManager configManager;
+	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
+	private final ScheduledExecutorService executor;
 	private final JButton signInButton = new JButton("Sign in with Discord");
 	private final JLabel signInStatus = new JLabel();
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
@@ -110,12 +113,13 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	@Inject
 	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
-		net.runelite.client.config.ConfigManager configManager)
+		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
 		this.apiClient = apiClient;
 		this.configManager = configManager;
+		this.executor = executor;
 		this.federationStatus = dataSource instanceof FederationStatusSource ? (FederationStatusSource) dataSource : null;
 
 		setLayout(new BorderLayout());
@@ -254,7 +258,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
-	/** Run the device sign-in off the EDT; on success store the token — onConfigChanged does the rest. */
+	/** Run the device sign-in (async, every step on the shared executor); on success store the token —
+	 * onConfigChanged does the rest. Both callbacks arrive off the EDT, so they marshal via invokeLater. */
 	private void startSignIn()
 	{
 		if (signInInFlight)
@@ -266,45 +271,22 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInStatus.setVisible(true);
 		signInStatus.setText("Starting…");
 
-		new SwingWorker<DeviceSignIn.Result, String>()
-		{
-			@Override
-			protected DeviceSignIn.Result doInBackground()
-			{
-				return new DeviceSignIn(apiClient).run(this::publish);
-			}
-
-			@Override
-			protected void process(List<String> lines)
-			{
-				signInStatus.setText(lines.get(lines.size() - 1));
-			}
-
-			@Override
-			protected void done()
+		new DeviceSignIn(apiClient, executor).run(
+			line -> SwingUtilities.invokeLater(() -> signInStatus.setText(line)),
+			result -> SwingUtilities.invokeLater(() ->
 			{
 				signInInFlight = false;
 				signInButton.setEnabled(true);
-				try
+				if (result.outcome == DeviceSignIn.Outcome.SIGNED_IN)
 				{
-					DeviceSignIn.Result result = get();
-					if (result.outcome == DeviceSignIn.Outcome.SIGNED_IN)
-					{
-						// Storing the token fires the plugin's onConfigChanged → client reconfigure,
-						// identity stamp + greet, and a sidebar refresh — the same path as a manual paste.
-						configManager.setConfiguration("osrsbingo", "playerToken", result.token);
-						signInStatus.setVisible(false);
-					}
-				}
-				catch (Exception ex)
-				{
-					log.debug("sign-in flow failed", ex);
-					signInStatus.setText("Sign-in failed — try again.");
+					// Storing the token fires the plugin's onConfigChanged → client reconfigure,
+					// identity stamp + greet, and a sidebar refresh — the same path as a manual paste.
+					configManager.setConfiguration("osrsbingo", "playerToken", result.token);
+					signInStatus.setVisible(false);
 				}
 				refreshSignInRow();
 				refresh();
-			}
-		}.execute();
+			}));
 	}
 
 	private void updateSiteConnectAffordance()
