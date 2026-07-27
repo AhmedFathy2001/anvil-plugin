@@ -6,6 +6,8 @@ import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Provides;
 import java.lang.reflect.Method;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Singleton;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
@@ -57,12 +59,12 @@ public class InjectionSmokeTest
 		BingoApiClient client = inj.getInstance(BingoApiClient.class);
 		assertNotNull(client);
 
-		// getDeclaredMethod fails if the provider drops its param; invoking on an uninjected plugin reproduces the bug.
+		// getDeclaredMethod fails if the provider drops a param; invoking on an uninjected plugin reproduces the bug.
 		AnvilPlugin uninjectedPlugin = new AnvilPlugin();
 		Method provider = AnvilPlugin.class.getDeclaredMethod(
-			"provideSidebarDataSource", BingoApiClient.class);
+			"provideSidebarDataSource", BingoApiClient.class, ScheduledExecutorService.class);
 		provider.setAccessible(true);
-		Object sds = provider.invoke(uninjectedPlugin, client);
+		Object sds = provider.invoke(uninjectedPlugin, client, Executors.newSingleThreadScheduledExecutor());
 		assertNotNull("provider must not read not-yet-injected this.-fields", sds);
 		assertTrue(sds instanceof SidebarDataSource);
 

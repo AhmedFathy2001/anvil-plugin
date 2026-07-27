@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -166,10 +167,10 @@ public class FederationSidebarDataSourceTest
 		{
 			AtomicReference<String> opened = new AtomicReference<>();
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
-				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { });
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run());
 
 			List<String> statuses = new ArrayList<>();
-			FederationStatusSource.ConnectOutcome outcome = ds.connectFederation(statuses::add);
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, statuses::add);
 
 			assertEquals(FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
 			assertNull("trusted home = zero-click; no browser opened", opened.get());
@@ -199,10 +200,10 @@ public class FederationSidebarDataSourceTest
 		{
 			AtomicReference<String> opened = new AtomicReference<>();
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
-				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { /* no real sleep */ });
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run() /* polls run inline, no waiting */);
 
 			List<String> statuses = new ArrayList<>();
-			FederationStatusSource.ConnectOutcome outcome = ds.connectFederation(statuses::add);
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, statuses::add);
 
 			assertEquals(FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
 			assertEquals("the self-host login page was opened in the (injected) browser",
@@ -236,9 +237,9 @@ public class FederationSidebarDataSourceTest
 			AtomicReference<String> opened = new AtomicReference<>();
 			List<String> statuses = new ArrayList<>();
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
-				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { });
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run());
 
-			FederationStatusSource.ConnectOutcome outcome = ds.connectFederation(statuses::add);
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, statuses::add);
 
 			assertEquals("a login that resolves with no other clans is still a terminal success",
 				FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
@@ -300,8 +301,8 @@ public class FederationSidebarDataSourceTest
 		try
 		{
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
-				new MarkerDelegate(), url -> true, ms -> { });
-			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, ds.connectFederation(null));
+				new MarkerDelegate(), url -> true, (step, delayMs) -> step.run());
+			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, connect(ds, null));
 		}
 		finally
 		{
@@ -322,9 +323,9 @@ public class FederationSidebarDataSourceTest
 		{
 			AtomicReference<String> opened = new AtomicReference<>();
 			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
-				new MarkerDelegate(), url -> { opened.set(url); return true; }, ms -> { });
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run());
 
-			FederationStatusSource.ConnectOutcome outcome = ds.connectFederation(null);
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, null);
 
 			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, outcome);
 			assertNull("a non-broker verification URL is NEVER opened in the browser", opened.get());
@@ -414,13 +415,23 @@ public class FederationSidebarDataSourceTest
 
 	private static FederationSidebarDataSource source(BingoApiClient api, SidebarDataSource delegate)
 	{
-		return source(api, delegate, url -> true, ms -> { });
+		return source(api, delegate, url -> true, (step, delayMs) -> step.run());
 	}
 
 	private static FederationSidebarDataSource source(BingoApiClient api, SidebarDataSource delegate,
-		FederationSidebarDataSource.BrowserOpener opener, FederationSidebarDataSource.Sleeper sleeper)
+		FederationSidebarDataSource.BrowserOpener opener, FederationSidebarDataSource.PollScheduler scheduler)
 	{
-		return new FederationSidebarDataSource(api, delegate, opener, sleeper);
+		return new FederationSidebarDataSource(api, delegate, opener, scheduler);
+	}
+
+	/** Runs the async connect flow to completion — the inline scheduler executes every step synchronously,
+	 * so the terminal outcome is set by the time the call returns. */
+	private static FederationStatusSource.ConnectOutcome connect(FederationSidebarDataSource ds,
+		Consumer<String> status)
+	{
+		AtomicReference<FederationStatusSource.ConnectOutcome> outcome = new AtomicReference<>();
+		ds.connectFederation(status, outcome::set);
+		return outcome.get();
 	}
 
 	/** In-process mock of the plugin's HOME site — serves ONLY the two §10.2 endpoints. */

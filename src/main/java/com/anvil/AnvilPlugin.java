@@ -1031,14 +1031,16 @@ public class AnvilPlugin extends Plugin {
      */
     @Provides
     @Singleton
-    SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient) {
+    SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, ScheduledExecutorService sharedExecutor) {
         // Take the (singleton) client as a PARAMETER, not this.field: Guice can invoke this provider to
         // satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are populated, so
         // reading this.apiClient here would NPE and the whole plugin would fail to load. The param is
         // resolved (and the singleton constructed) by Guice first, so it's non-null; the config/stat
-        // method references bind lazily and are only invoked at fetch time.
+        // method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
+        // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown) —
+        // it paces the connect flow's /state polls without ever sleeping a worker thread.
         AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient, this::localStatProgress);
-        return new FederationSidebarDataSource(apiClient, delegate);
+        return new FederationSidebarDataSource(apiClient, delegate, sharedExecutor);
     }
 
     @Subscribe

@@ -24,8 +24,10 @@ public interface FederationStatusSource
 	FederationState federationStatus();
 
 	/** Kick the §10.2 connect handshake: {@code POST /connect}. Trusted home returns {@code connected} (zero-click);
-	 * self-host returns {@code login} + a broker URL opened then polled via {@code /state}. Blocking, off the EDT. */
-	ConnectOutcome connectFederation(Consumer<String> status);
+	 * self-host returns {@code login} + a broker URL opened then polled via {@code /state}. Asynchronous — returns
+	 * immediately; every step runs on a background executor, and BOTH callbacks arrive on that executor thread
+	 * (never the EDT — marshal before touching Swing). {@code done} fires exactly once with the terminal outcome. */
+	void connectFederation(Consumer<String> status, Consumer<ConnectOutcome> done);
 
 	/** Federation logout: {@code POST /disconnect} clears the durable signed-in marker, so {@code /state} reverts
 	 * to {@code signedIn:false} and the panel re-offers "Connect clans". Idempotent; {@code true} once acknowledged. */
