@@ -1290,17 +1290,19 @@ public class BingoApiClient
 	}
 
 	/**
-	 * POST /api/plugin/counters — the fun end-of-event recap counters (total deaths + total loot GP for
-	 * the active event). Body is {@code {"deaths":<n>,"lootGp":<gp>}} with ABSOLUTE per-event totals.
+	 * POST /api/plugin/counters — the fun end-of-event recap counters (total deaths, total loot GP and
+	 * PvP kills for the active event). Body is {@code {"deaths":<n>,"lootGp":<gp>,"pvpKills":<n>}} with
+	 * ABSOLUTE per-event totals.
 	 * Idempotent like {@link #submitStatKc}: event/team/player resolved from the token, the server keeps
 	 * max(stored, pushed) per counter, so a retry or client restart never double-counts. No screenshot.
 	 * Purely cosmetic (superlatives only — never scoring).
 	 */
-	public void submitEventCounters(int deaths, long lootGp) throws IOException
+	public void submitEventCounters(int deaths, long lootGp, int pvpKills) throws IOException
 	{
 		JsonObject payload = new JsonObject();
 		payload.addProperty("deaths", deaths);
 		payload.addProperty("lootGp", lootGp);
+		payload.addProperty("pvpKills", pvpKills);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = authedRequest(apiUrl + "/api/plugin/counters")
@@ -1314,7 +1316,7 @@ public class BingoApiClient
 				String responseBody = response.body() != null ? response.body().string() : "no body";
 				throw new IOException("Counter push failed: HTTP " + response.code() + " — " + responseBody);
 			}
-			log.info("Recap counters pushed (deaths={}, lootGp={})", deaths, lootGp);
+			log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={})", deaths, lootGp, pvpKills);
 		}
 	}
 

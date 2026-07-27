@@ -609,12 +609,14 @@ public class AnvilPlugin extends Plugin {
     private int counterEventId = 0;
     private int eventDeaths = 0;
     private long eventLootGp = 0;
+    private int eventPvpKills = 0;
     private java.util.concurrent.ScheduledFuture<?> counterPushTask;
     private final Map<String, Long> lastLootValueAt = new HashMap<>();
     private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
     private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
     private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
+    private static final String CFG_COUNTER_PVP = "recapCounterPvpKills";
     // Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
     // config refresh; empty unless the event has skill tiles.
     private volatile java.util.Set<String> trackedSkillNames = Collections.emptySet();
@@ -1850,7 +1852,7 @@ public class AnvilPlugin extends Plugin {
         // reference checks on the client thread. (Loot-key kills produce no reliable chat/loot
         // signal — the kill message is a random taunt pool and PlayerLootReceived never fires since
         // the loot goes into a key, not onto the ground — so damage→death is the signal we use.)
-        if (!config.notifyPvpKills() && !hasPvpTiles()) {
+        if (!config.notifyPvpKills() && !hasPvpTiles() && !pvpCounterActive()) {
             return;
         }
         Hitsplat hitsplat = event.getHitsplat();
@@ -4232,8 +4234,8 @@ public class AnvilPlugin extends Plugin {
     }
 
     /* -------------------------------------------------------------- */
-    /* Recap "fun stat" counters — deaths + total loot value. Cosmetic */
-    /* superlatives only; never touch scoring. See lib/eventRecap.     */
+    /* Recap "fun stat" counters — deaths, total loot value, PvP     */
+    /* kills. Cosmetic superlatives only; never touch scoring.        */
     /* -------------------------------------------------------------- */
 
     /**
@@ -4248,6 +4250,7 @@ public class AnvilPlugin extends Plugin {
             counterEventId = readIntConfig(CFG_COUNTER_EVENT, 0);
             eventDeaths = readIntConfig(CFG_COUNTER_DEATHS, 0);
             eventLootGp = readLongConfig(CFG_COUNTER_LOOTGP, 0);
+            eventPvpKills = readIntConfig(CFG_COUNTER_PVP, 0);
             countersLoaded = true;
         }
         if (trackingGateReason() != null) {
@@ -4261,6 +4264,7 @@ public class AnvilPlugin extends Plugin {
             counterEventId = active;
             eventDeaths = 0;
             eventLootGp = 0;
+            eventPvpKills = 0;
             persistCounters();
         }
         return true;
@@ -4273,6 +4277,18 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
             eventDeaths++;
+            persistCounters();
+        }
+        scheduleCounterPush();
+    }
+
+    /** One attributed dangerous-PvP kill (see onActorDeath) → the per-event PKer counter. */
+    private void recordEventPvpKill() {
+        synchronized (counterLock) {
+            if (!ensureCounterEvent()) {
+                return;
+            }
+            eventPvpKills++;
             persistCounters();
         }
         scheduleCounterPush();
@@ -4340,19 +4356,21 @@ public class AnvilPlugin extends Plugin {
     private void flushCounterPush() {
         int deaths;
         long lootGp;
+        int pvpKills;
         synchronized (counterLock) {
             persistCounters();
             deaths = eventDeaths;
             lootGp = eventLootGp;
+            pvpKills = eventPvpKills;
         }
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
             return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
         }
         try {
-            apiClient.submitEventCounters(deaths, lootGp);
+            apiClient.submitEventCounters(deaths, lootGp, pvpKills);
         } catch (IOException e) {
-            log.warn("Counter push failed (deaths={}, lootGp={}) — retrying: {}", deaths, lootGp, e.getMessage());
+            log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {
                 if (executor != null && !executor.isShutdown()) {
                     if (counterPushTask != null) {
@@ -4369,6 +4387,7 @@ public class AnvilPlugin extends Plugin {
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_EVENT, Integer.toString(counterEventId));
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_DEATHS, Integer.toString(eventDeaths));
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_LOOTGP, Long.toString(eventLootGp));
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_PVP, Integer.toString(eventPvpKills));
     }
 
     private int readIntConfig(String key, int fallback) {
@@ -4608,6 +4627,11 @@ public class AnvilPlugin extends Plugin {
                     ours = last != null && (now - last) <= PVP_KILL_ATTRIBUTION_MS;
                 }
                 if (ours) {
+                    // Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
+                    // pvp tiles on the board or not. Tile credit + notify keep their own gates.
+                    if (inDangerousPvp()) {
+                        recordEventPvpKill();
+                    }
                     creditPvpKillTiles(vname);
                     if (config.notifyPvpKills()) {
                         notifyPvpKill(vname);
@@ -4621,6 +4645,23 @@ public class AnvilPlugin extends Plugin {
     private boolean hasPvpTiles() {
         PluginConfigResponse cfg = pluginConfig;
         return cfg != null && cfg.trackedPvp != null && !cfg.trackedPvp.isEmpty();
+    }
+
+    /**
+     * True when the recap PvP-kill counter alone wants damage→death attribution: an active event
+     * with auto-tracking on. Kept to cheap reference checks — this runs per hitsplat; the full
+     * tracking gate applies later inside ensureCounterEvent().
+     */
+    private boolean pvpCounterActive() {
+        PluginConfigResponse cfg = pluginConfig;
+        return config.autoSubmit() && cfg != null && cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
+    }
+
+    /** Dangerous PvP only — the Wilderness or a PvP world. Safe minigames (LMS, Soul Wars,
+     *  Castle Wars, PvP Arena) and DMM never count as PKs. Client thread (varbit read). */
+    private boolean inDangerousPvp() {
+        return client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
+                || client.getWorldType().contains(WorldType.PVP);
     }
 
     /**
@@ -4655,9 +4696,7 @@ public class AnvilPlugin extends Plugin {
             }
             return;
         }
-        boolean dangerous = client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
-                || client.getWorldType().contains(WorldType.PVP);
-        if (!dangerous) {
+        if (!inDangerousPvp()) {
             logTrackingSuppressed("PvP kill outside dangerous PvP (Wilderness / PvP world) — not counted");
             return;
         }
