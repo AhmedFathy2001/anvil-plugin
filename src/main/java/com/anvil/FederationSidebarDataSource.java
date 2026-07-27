@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.LinkBrowser;
@@ -29,11 +31,12 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		boolean open(String url);
 	}
 
-	/** The wait between {@code /state} polls after a self-host login; swapped for a no-op in tests. */
+	/** Schedules each connect-flow step off the EDT; production binds the shared RuneLite
+	 * {@link ScheduledExecutorService}, tests run the step inline. */
 	@FunctionalInterface
-	public interface Sleeper
+	public interface PollScheduler
 	{
-		void sleep(long ms) throws InterruptedException;
+		void schedule(Runnable step, long delayMs);
 	}
 
 	/** §8 anti-phishing — the ONE broker fact the plugin keeps: the pinned Anvil broker host, used <b>only</b> to
@@ -56,25 +59,27 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	private final SidebarDataSource delegate;
 
 	private final BrowserOpener browserOpener;
-	private final Sleeper sleeper;
+	private final PollScheduler scheduler;
 
 	/** Last {@code /state} seen (or a disabled sentinel) — read by the panel for the connect affordance. */
 	private volatile FederationState lastState = FederationState.disabled();
 
-	/** Production binding — real system browser + real sleep. */
-	public FederationSidebarDataSource(BingoApiClient apiClient, SidebarDataSource delegate)
+	/** Production binding — real system browser + delayed steps on the shared client executor. */
+	public FederationSidebarDataSource(BingoApiClient apiClient, SidebarDataSource delegate,
+		ScheduledExecutorService executor)
 	{
-		this(apiClient, delegate, FederationSidebarDataSource::browseWithLinkBrowser, Thread::sleep);
+		this(apiClient, delegate, FederationSidebarDataSource::browseWithLinkBrowser,
+			(step, delayMs) -> executor.schedule(step, delayMs, TimeUnit.MILLISECONDS));
 	}
 
-	/** Test seam — injectable browser opener + sleeper so the connect/login flow runs offline and fast. */
+	/** Test seam — injectable browser opener + scheduler so the connect/login flow runs offline and fast. */
 	FederationSidebarDataSource(BingoApiClient apiClient, SidebarDataSource delegate,
-		BrowserOpener browserOpener, Sleeper sleeper)
+		BrowserOpener browserOpener, PollScheduler scheduler)
 	{
 		this.apiClient = apiClient;
 		this.delegate = delegate;
 		this.browserOpener = browserOpener;
-		this.sleeper = sleeper;
+		this.scheduler = scheduler;
 	}
 
 	private static boolean browseWithLinkBrowser(String url)
@@ -138,7 +143,15 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	}
 
 	@Override
-	public ConnectOutcome connectFederation(Consumer<String> status)
+	public void connectFederation(Consumer<String> status, Consumer<ConnectOutcome> done)
+	{
+		// The first step runs on the executor too — the /connect POST is network I/O, keep it off the EDT.
+		schedule(() -> startConnect(status, done), 0, status, done);
+	}
+
+	/** The §10.2 handshake: {@code POST /connect}; a self-host login opens the browser then schedules
+	 * {@code /state} polls. Runs on the executor. */
+	private void startConnect(Consumer<String> status, Consumer<ConnectOutcome> done)
 	{
 		notify(status, "Connecting…");
 		BingoApiClient.FederationConnect result = apiClient.federationConnect();
@@ -146,7 +159,8 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		{
 			refreshState();
 			notify(status, "Connected.");
-			return ConnectOutcome.CONNECTED;
+			finish(done, ConnectOutcome.CONNECTED);
+			return;
 		}
 		if (result.login && result.verificationUrl != null)
 		{
@@ -156,7 +170,8 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 			{
 				log.warn("refusing to open a verification URL that isn't the Anvil broker: {}", result.verificationUrl);
 				notify(status, "Login blocked — that login page isn't on the Anvil broker.");
-				return ConnectOutcome.UNAVAILABLE;
+				finish(done, ConnectOutcome.UNAVAILABLE);
+				return;
 			}
 			// Self-host Discord login runs on the BROKER's own page in the member's browser; the plugin only
 			// polls its home /state back to connected (no broker traffic). Hand the page the code PREFILLED
@@ -166,44 +181,78 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 			notify(status, result.userCode != null
 				? "Opening your browser — confirm code " + result.userCode + " and sign in with Discord."
 				: "Finish the login in your browser…");
-			// Poll /state (NOT the rate-limited /connect): its server-side advanceSelfHost drives the broker
-			// device-poll to completion, so /state both advances AND observes the login. Terminal: connected
-			// (≥1 clan), or resolved with the member in NO other clan (login OK but nothing to attach to).
-			boolean sawPending = false;
-			for (int i = 0; i < LOGIN_POLL_MAX_ATTEMPTS; i++)
-			{
-				try
-				{
-					sleeper.sleep(LOGIN_POLL_INTERVAL_MS);
-				}
-				catch (InterruptedException e)
-				{
-					Thread.currentThread().interrupt();
-					return ConnectOutcome.LOGIN_PENDING;
-				}
-				FederationState s = refreshState();
-				if (s.connected)
-				{
-					notify(status, "Connected.");
-					return ConnectOutcome.CONNECTED;
-				}
-				// Site still needs the browser login → member hasn't finished; note pending to recognise it resolving.
-				if (s.enabled && s.needsLogin)
-				{
-					sawPending = true;
-				}
-				// Was pending, now on + no login needed + not connected → login done, member in no OTHER clan. Success.
-				else if (sawPending && s.enabled && !s.needsLogin)
-				{
-					notify(status, "Signed in — no other Anvil clans are linked to yours yet.");
-					return ConnectOutcome.CONNECTED;
-				}
-			}
-			notify(status, "Still waiting on the browser login — try Connect again.");
-			return ConnectOutcome.LOGIN_PENDING;
+			pollLogin(status, done, 0, false);
+			return;
 		}
 		notify(status, "Federation isn't available right now.");
-		return ConnectOutcome.UNAVAILABLE;
+		finish(done, ConnectOutcome.UNAVAILABLE);
+	}
+
+	/**
+	 * One scheduled {@code /state} poll (NOT the rate-limited {@code /connect}): its server-side
+	 * advanceSelfHost drives the broker device-poll to completion, so {@code /state} both advances AND
+	 * observes the login. Terminal: connected (≥1 clan), or resolved with the member in NO other clan
+	 * (login OK but nothing to attach to). {@code sawPending} = an earlier poll saw {@code needsLogin}.
+	 */
+	private void pollLogin(Consumer<String> status, Consumer<ConnectOutcome> done, int attempt, boolean sawPending)
+	{
+		if (attempt >= LOGIN_POLL_MAX_ATTEMPTS)
+		{
+			notify(status, "Still waiting on the browser login — try Connect again.");
+			finish(done, ConnectOutcome.LOGIN_PENDING);
+			return;
+		}
+		schedule(() ->
+		{
+			FederationState s = refreshState();
+			if (s.connected)
+			{
+				notify(status, "Connected.");
+				finish(done, ConnectOutcome.CONNECTED);
+				return;
+			}
+			// Site still needs the browser login → member hasn't finished; note pending to recognise it resolving.
+			if (s.enabled && s.needsLogin)
+			{
+				pollLogin(status, done, attempt + 1, true);
+				return;
+			}
+			// Was pending, now on + no login needed + not connected → login done, member in no OTHER clan. Success.
+			if (sawPending && s.enabled && !s.needsLogin)
+			{
+				notify(status, "Signed in — no other Anvil clans are linked to yours yet.");
+				finish(done, ConnectOutcome.CONNECTED);
+				return;
+			}
+			pollLogin(status, done, attempt + 1, sawPending);
+		}, LOGIN_POLL_INTERVAL_MS, status, done);
+	}
+
+	/** Schedule a flow step; an escaped {@link RuntimeException} would otherwise vanish inside the
+	 * executor, so surface it as the terminal failure the old blocking flow reported. */
+	private void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<ConnectOutcome> done)
+	{
+		scheduler.schedule(() ->
+		{
+			try
+			{
+				step.run();
+			}
+			catch (RuntimeException e)
+			{
+				log.debug("site-relay connect flow failed", e);
+				notify(status, "Connect failed — try again.");
+				finish(done, ConnectOutcome.UNAVAILABLE);
+			}
+		}, delayMs);
+	}
+
+	private static void finish(Consumer<ConnectOutcome> done, ConnectOutcome outcome)
+	{
+		if (done != null)
+		{
+			done.accept(outcome);
+		}
 	}
 
 	@Override

@@ -43,8 +43,9 @@ import net.runelite.client.ui.components.PluginErrorPanel;
  * single-home; see {@code FEDERATION_WIRE.md} §7/§10). Owns four view states (loading/error/empty/ready), a
  * clan filter, a manual Refresh, and an auto-refresh poll that runs only while the panel is open.
  *
- * <p><b>Threading:</b> all Swing mutation stays on the EDT; the only off-EDT work is the blocking
- * {@link SidebarDataSource#fetchConnections()} inside the worker. {@link Singleton} — one toolbar panel.</p>
+ * <p><b>Threading:</b> all Swing mutation stays on the EDT; off-EDT work is the blocking
+ * {@link SidebarDataSource#fetchConnections()} inside the worker plus the connect flow's scheduled steps,
+ * whose callbacks marshal back via invokeLater. {@link Singleton} — one toolbar panel.</p>
  */
 @Slf4j
 @Singleton
@@ -334,9 +335,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * §10.2 connect handshake off the EDT: {@code POST /federation/connect}. Trusted home returns connected;
-	 * self-host opens a browser login, then the source polls {@code /state} to connected. Status marshals via
-	 * {@code publish}; on finish we refresh so a connected home renders. No broker/clan connections from the plugin.
+	 * §10.2 connect handshake: {@code POST /federation/connect}. Trusted home returns connected; self-host
+	 * opens a browser login, then the source schedules {@code /state} polls to connected. Asynchronous — the
+	 * source runs every step on the shared executor and calls back on that thread, so both callbacks marshal
+	 * to the EDT here. No broker/clan connections from the plugin.
 	 */
 	private void onSiteConnect()
 	{
@@ -348,41 +350,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		siteConnectButton.setEnabled(false);
 		setSiteConnectStatus("Connecting…");
 
-		new SwingWorker<FederationStatusSource.ConnectOutcome, String>()
-		{
-			@Override
-			protected FederationStatusSource.ConnectOutcome doInBackground()
-			{
-				return federationStatus.connectFederation(this::publish);
-			}
-
-			@Override
-			protected void process(List<String> chunks)
-			{
-				if (!chunks.isEmpty())
-				{
-					setSiteConnectStatus(chunks.get(chunks.size() - 1));
-				}
-			}
-
-			@Override
-			protected void done()
+		federationStatus.connectFederation(
+			line -> SwingUtilities.invokeLater(() -> setSiteConnectStatus(line)),
+			outcome -> SwingUtilities.invokeLater(() ->
 			{
 				siteConnectInFlight = false;
 				siteConnectButton.setEnabled(true);
-				try
-				{
-					get(); // surface a background exception as the catch below
-				}
-				catch (Exception ex)
-				{
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.debug("site-relay connect flow failed", cause);
-					setSiteConnectStatus("Connect failed — try again.");
-				}
 				refresh(); // re-render + re-evaluate the affordance with the newest /state
-			}
-		}.execute();
+			}));
 	}
 
 	/**
