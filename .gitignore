@@ -18,3 +18,7 @@ build/
 # Third-party RuneLite plugin data written into the CWD when the dev client is launched
 # from this dir (e.g. a loot tracker's per-boss tallies) — not Anvil's, never committed.
 boss-loot/
+# RuneLite icon caches (base64 PNG dumps) written by the dev client — game assets, not source.
+/item-icons.json
+/hiscore-icons.json
+/clan-rank-icons.json
