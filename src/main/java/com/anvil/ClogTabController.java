@@ -73,8 +73,10 @@ public class ClogTabController
 	 *   LEADERBOARD — weekly SOTW/BOTW standings
 	 *   POINTS      — read-only points list for a Leagues event you're NOT enrolled in (upcoming
 	 *                 preview, or a live event you're not competing in). The enrolled view is EVENT.
+	 *   LADDER      — DMM-All-Stars-style missions board (format=ladder): live countdown to the next
+	 *                 drop, the open missions with a live grow/decay value, and the individual board.
 	 */
-	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD, POINTS }
+	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD, POINTS, LADDER }
 	private HubView hubView = HubView.SCHEDULE;
 	// Which view the shared tile-detail page (GRID_TILE) should step back to. The grid opens it
 	// from the board (→ GRID); the points accordion reuses the same page (→ EVENT/POINTS).
@@ -93,6 +95,15 @@ public class ClogTabController
 	private String countdownEnd;
 	private String countdownSuffix = "";
 	private String countdownText = "";
+	// Ladder missions board (format=ladder): the next-drop countdown target + decay rule drive the
+	// per-second value/countdown refresh (onGameTick → tickLadderView), and ladderRows are the held
+	// value widgets it updates in place. ladderShowMonth toggles the leaderboard scope.
+	private String ladderNextRevealAt;
+	private PluginConfigResponse.Decay ladderDecay;
+	private boolean ladderShowMonth = true;
+	private Widget ladderCountdownLine;
+	private String ladderCountdownText = "";
+	private final java.util.List<LadderRowRef> ladderRows = new java.util.ArrayList<>();
 	// Board drill-in state (shared by the GRID and RACE views — both read the same payload).
 	// cachedBoard = your own active event (interactive). cachedPreview = the last read-only preview
 	// of some *other* event (an upcoming one, or a live event you're not competing in).
@@ -234,6 +245,12 @@ public class ClogTabController
 				countdownLine.setText(now + countdownSuffix);
 				countdownLine.revalidate();
 			}
+		}
+		// The ladder board's per-second countdown + live mission values, likewise refreshed in place
+		// (game tick ≈ 0.6s, plenty for a seconds countdown). Only touches widgets whose text changed.
+		if (bingoTabActive && hubView == HubView.LADDER)
+		{
+			tickLadderView();
 		}
 	}
 
@@ -686,6 +703,9 @@ public class ClogTabController
 			case POINTS:
 				renderPointsPreview();
 				break;
+			case LADDER:
+				renderLadderView();
+				break;
 			case SCHEDULE:
 			default:
 				renderScheduleHome();
@@ -699,7 +719,12 @@ public class ClogTabController
 	 */
 	private void openBingo()
 	{
-		if ("tilerace".equalsIgnoreCase(eventFormat()))
+		if (LadderMissions.isLadder(eventFormat()))
+		{
+			hubView = HubView.LADDER;
+			clientThread.invokeLater(this::renderHub);
+		}
+		else if ("tilerace".equalsIgnoreCase(eventFormat()))
 		{
 			openRace();
 		}
@@ -901,6 +926,16 @@ public class ClogTabController
 	 */
 	private String pinnedProgressLabel(String format, String scoringMode)
 	{
+		if (LadderMissions.isLadder(format))
+		{
+			PluginConfigResponse cfg = plugin.getPluginConfig();
+			PluginConfigResponse.Standings m = cfg != null && cfg.event != null ? cfg.event.monthlyStandings : null;
+			if (m != null && m.yourRank > 0)
+			{
+				return "#" + m.yourRank + "  <col=666666>·</col>  " + String.format("%,d", m.yourPoints) + " pts";
+			}
+			return "tap to view";
+		}
 		boolean accordion = "bingo".equalsIgnoreCase(format) && "points".equalsIgnoreCase(scoringMode);
 		if (accordion)
 		{
@@ -2147,7 +2182,7 @@ public class ClogTabController
 				// Match on whitespace-normalized names — OSRS display names use non-breaking
 				// spaces, so a raw equalsIgnoreCase can miss the local player (and mis-flag).
 				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
-				y += leaderboardRow(items, e.rank, e.rsn, e.gained, isMe, y, paneWidth);
+				y += leaderboardRow(items, e.rank, e.rsn, e.gained, isMe, y, paneWidth, true);
 			}
 		}
 
@@ -2156,7 +2191,8 @@ public class ClogTabController
 		updateScrollbar(items);
 	}
 
-	private int leaderboardRow(Widget items, int rank, String rsn, long gained, boolean isMe, int y, int paneWidth)
+	// plus=true prefixes "+" (weekly XP/KC gained); ladder points pass false (an absolute score, not a gain).
+	private int leaderboardRow(Widget items, int rank, String rsn, long gained, boolean isMe, int y, int paneWidth, boolean plus)
 	{
 		int nameColor = isMe ? 0xffcc33
 			: (rank <= 3 ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : 0xe0e0e0);
@@ -2181,13 +2217,271 @@ public class ClogTabController
 
 		Widget gn = items.createChild(-1, WidgetType.TEXT);
 		// Floor at 0 so a not-yet-fetched baseline can't show a negative "+-23".
-		gn.setText("<col=ffcc33>+" + String.format("%,d", Math.max(0, gained)) + "</col>");
+		gn.setText("<col=ffcc33>" + (plus ? "+" : "") + String.format("%,d", Math.max(0, gained)) + "</col>");
 		gn.setFontId(FONT_PLAIN);
 		gn.setTextShadowed(true);
 		place(gn, paneWidth - 90, ty, 84, 16);
 		gn.setXTextAlignment(ALIGN_RIGHT);
 		gn.revalidate();
 		return 24;
+	}
+
+	// ---- ladder: DMM-All-Stars-style missions board (format=ladder) ----
+
+	/**
+	 * The live missions board for a ladder event: your rank, a per-second countdown to the next drop,
+	 * the currently-open missions with a live grow/decay value each, and the individual leaderboard with
+	 * an All-time / This-month toggle. The countdown + values refresh in place from onGameTick
+	 * (tickLadderView) — no board polling; everything rides the already-refreshed config.
+	 */
+	private void renderLadderView()
+	{
+		if (!clogOpen || !bingoTabActive)
+		{
+			return;
+		}
+		ladderRows.clear();
+		ladderCountdownLine = null;
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		PluginConfigResponse.EventInfo ev = cfg == null ? null : cfg.event;
+		ladderNextRevealAt = ev == null ? null : ev.nextRevealAt;
+		ladderDecay = ev == null ? null : ev.decay;
+		final long now = System.currentTimeMillis();
+
+		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		if (header != null)
+		{
+			header.deleteAllChildren();
+			String title = ev != null && ev.name != null && !ev.name.isEmpty() ? ev.name : "Ladder";
+			bannerLine(header, title, COL_ORANGE, 0);
+			bannerLine(header, ladderRankLine(ev), 0xffffff, BANNER_LINE_3);
+			ladderCountdownText = ladderCountdownText(now);
+			ladderCountdownLine = bannerLine(header, ladderCountdownText, 0xff9040, BANNER_LINE_3 * 2);
+			header.revalidate();
+		}
+
+		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+		if (items == null)
+		{
+			return;
+		}
+		items.deleteAllChildren();
+		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
+		int y = BODY_TOP;
+
+		// Active missions (revealed + still open), each with a live value.
+		y += ladderSectionLabel(items, "ACTIVE MISSIONS", y, paneWidth);
+		if (ev == null || ev.missions == null || ev.missions.isEmpty())
+		{
+			y += ladderInfoRow(items, "Waiting for the next mission to drop...", y, paneWidth);
+		}
+		else
+		{
+			for (PluginConfigResponse.Mission m : ev.missions)
+			{
+				if (m != null)
+				{
+					y += ladderMissionRow(items, m, now, y, paneWidth);
+				}
+			}
+		}
+		y += 6;
+
+		// Individual leaderboard with an All-time / This-month toggle.
+		y += ladderToggle(items, y, paneWidth);
+		PluginConfigResponse.Standings st = ev == null ? null : (ladderShowMonth ? ev.monthlyStandings : ev.standings);
+		if (st == null || st.entries == null || st.entries.isEmpty())
+		{
+			y += ladderInfoRow(items, ladderShowMonth ? "No points this month yet." : "No points yet — be first on the board.", y, paneWidth);
+		}
+		else
+		{
+			String me = normalizeRsn(localRsn());
+			for (PluginConfigResponse.StandingEntry e : st.entries)
+			{
+				if (e == null)
+				{
+					continue;
+				}
+				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
+				y += leaderboardRow(items, e.rank, e.rsn, e.points, isMe, y, paneWidth, false);
+			}
+		}
+
+		items.setScrollHeight(y + 6);
+		items.revalidateScroll();
+		updateScrollbar(items);
+	}
+
+	/** Per-tick refresh (onGameTick) of the ladder countdown + each mission's live value, in place. */
+	private void tickLadderView()
+	{
+		final long now = System.currentTimeMillis();
+		if (ladderCountdownLine != null)
+		{
+			String text = ladderCountdownText(now);
+			if (!text.equals(ladderCountdownText))
+			{
+				ladderCountdownText = text;
+				ladderCountdownLine.setText(text);
+				ladderCountdownLine.revalidate();
+			}
+		}
+		for (LadderRowRef r : ladderRows)
+		{
+			long val = LadderMissions.liveValue(r.face, r.revealedAtIso, ladderDecay, now);
+			String text = LadderMissions.valueLabel(r.face, val);
+			if (!text.equals(r.lastText))
+			{
+				r.lastText = text;
+				r.widget.setText(text);
+				r.widget.setTextColor(ladderValueColor(r.face, val));
+				r.widget.revalidate();
+			}
+		}
+	}
+
+	/** "You: #4 this month · 1,240 pts · #12 all-time", or an encouraging line when unranked. */
+	private static String ladderRankLine(PluginConfigResponse.EventInfo ev)
+	{
+		PluginConfigResponse.Standings month = ev == null ? null : ev.monthlyStandings;
+		PluginConfigResponse.Standings all = ev == null ? null : ev.standings;
+		int mr = month != null ? month.yourRank : 0;
+		long mp = month != null ? month.yourPoints : 0;
+		int ar = all != null ? all.yourRank : 0;
+		if (mr <= 0)
+		{
+			return "You: unranked  <col=666666>·</col>  finish a mission to score";
+		}
+		String s = "You: #" + mr + " this month  <col=666666>·</col>  " + String.format("%,d", mp) + " pts";
+		if (ar > 0)
+		{
+			s += "  <col=666666>·</col>  #" + ar + " all-time";
+		}
+		return s;
+	}
+
+	/** "NEXT MISSION IN  12:34" / "New mission dropping..." / "Next mission drops on a claim" (bounty). */
+	private String ladderCountdownText(long now)
+	{
+		String cd = LadderMissions.countdown(ladderNextRevealAt, now);
+		if (cd == null)
+		{
+			return "Next mission drops on a claim";
+		}
+		return "now".equals(cd) ? "New mission dropping..." : "NEXT MISSION IN  " + cd;
+	}
+
+	/** Gold for an unchanged value, green when it grew, orange when it's decaying. */
+	private static int ladderValueColor(long face, long current)
+	{
+		if (current == face)
+		{
+			return 0xffcc33;
+		}
+		return current > face ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : COL_ORANGE;
+	}
+
+	private int ladderSectionLabel(Widget items, String text, int y, int paneWidth)
+	{
+		Widget w = items.createChild(-1, WidgetType.TEXT);
+		w.setText("<col=ffcc33>" + text + "</col>");
+		w.setFontId(FONT_PLAIN);
+		w.setTextShadowed(true);
+		place(w, 6, y, paneWidth - 12, 16);
+		w.revalidate();
+		return 20;
+	}
+
+	private int ladderInfoRow(Widget items, String text, int y, int paneWidth)
+	{
+		Widget w = items.createChild(-1, WidgetType.TEXT);
+		w.setText(text);
+		w.setTextColor(0xaaaaaa);
+		w.setFontId(FONT_PLAIN);
+		w.setTextShadowed(true);
+		place(w, 8, y, paneWidth - 16, 16);
+		w.revalidate();
+		return ClogIds.ROW_H;
+	}
+
+	private int ladderMissionRow(Widget items, PluginConfigResponse.Mission m, long now, int y, int paneWidth)
+	{
+		int ty = y + 4;
+		Widget nm = items.createChild(-1, WidgetType.TEXT);
+		nm.setText(m.label == null ? "?" : m.label);
+		nm.setTextColor(0xe0e0e0);
+		nm.setFontId(FONT_PLAIN);
+		nm.setTextShadowed(true);
+		place(nm, 8, ty, paneWidth - 8 - 92, 16);
+		nm.revalidate();
+
+		long val = LadderMissions.liveValue(m.points, m.revealedAt, ladderDecay, now);
+		Widget vn = items.createChild(-1, WidgetType.TEXT);
+		vn.setText(LadderMissions.valueLabel(m.points, val));
+		vn.setTextColor(ladderValueColor(m.points, val));
+		vn.setFontId(FONT_PLAIN);
+		vn.setTextShadowed(true);
+		place(vn, paneWidth - 90, ty, 84, 16);
+		vn.setXTextAlignment(ALIGN_RIGHT);
+		vn.revalidate();
+		ladderRows.add(new LadderRowRef(vn, m.points, m.revealedAt));
+		return 22;
+	}
+
+	/** Two clickable chips switching the leaderboard scope; the active one is gold. */
+	private int ladderToggle(Widget items, int y, int paneWidth)
+	{
+		Widget month = items.createChild(-1, WidgetType.TEXT);
+		month.setText(ladderShowMonth ? "<col=ffcc33>[ This month ]</col>" : "<col=888888>This month</col>");
+		month.setFontId(FONT_PLAIN);
+		month.setTextShadowed(true);
+		place(month, 8, y, 100, 16);
+		month.setHasListener(true);
+		month.setAction(0, "View");
+		month.setOnOpListener((JavaScriptCallback) e ->
+		{
+			if (!ladderShowMonth)
+			{
+				ladderShowMonth = true;
+				clientThread.invokeLater(this::renderHub);
+			}
+		});
+		month.revalidate();
+
+		Widget all = items.createChild(-1, WidgetType.TEXT);
+		all.setText(!ladderShowMonth ? "<col=ffcc33>[ All-time ]</col>" : "<col=888888>All-time</col>");
+		all.setFontId(FONT_PLAIN);
+		all.setTextShadowed(true);
+		place(all, 116, y, 100, 16);
+		all.setHasListener(true);
+		all.setAction(0, "View");
+		all.setOnOpListener((JavaScriptCallback) e ->
+		{
+			if (ladderShowMonth)
+			{
+				ladderShowMonth = false;
+				clientThread.invokeLater(this::renderHub);
+			}
+		});
+		all.revalidate();
+		return 22;
+	}
+
+	/** Held ref for one mission's value widget so the tick recomputes its grow/decay value in place. */
+	private static final class LadderRowRef
+	{
+		final Widget widget;
+		final int face;
+		final String revealedAtIso;
+		String lastText = "";
+
+		LadderRowRef(Widget widget, int face, String revealedAtIso)
+		{
+			this.widget = widget;
+			this.face = face;
+			this.revealedAtIso = revealedAtIso;
+		}
 	}
 
 	private String localRsn()
@@ -3337,6 +3631,10 @@ public class ClogTabController
 	/** Schedule-row label for a bingo-family event, by format + scoring mode. */
 	private static String bingoKindLabel(String format, String scoringMode)
 	{
+		if (LadderMissions.isLadder(format))
+		{
+			return "Ladder";
+		}
 		if ("tilerace".equalsIgnoreCase(format))
 		{
 			return "Tile race";
