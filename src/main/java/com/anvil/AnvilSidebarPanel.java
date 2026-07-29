@@ -8,6 +8,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -102,6 +103,23 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
 	private final Timer autoRefresh;
+
+	// --- Ladder missions board (DMM-All-Stars style) --------------------------------------------
+	/** How long a card pulses gold after a new mission / claim (signalled from the plugin off-EDT). */
+	private static final int LADDER_FLASH_MS = 4000;
+	private static final Color LADDER_FLASH_COLOR = ColorScheme.BRAND_ORANGE;
+	/** Ticks the live countdown + per-mission grow/decay value once a second, with NO refetch. */
+	private final Timer ladderTick = new Timer(1000, e -> tickLadder());
+	/** The currently-rendered ladder card's data (countdown target, decay, missions), or null. */
+	private ConnectionView.Ladder ladderState;
+	/** Held label refs for the rendered ladder card so the tick updates them in place. */
+	private JLabel ladderCountdownLabel;
+	private final List<LadderValueLabel> ladderValueLabels = new ArrayList<>();
+	private JPanel ladderCardPanel;
+	/** Wall-clock (ms) until which the card pulses; written off-EDT by {@link #flashLadder()}. */
+	private volatile long ladderFlashUntil;
+	/** True while the card currently shows a coloured (flash) border — lets the tick reset it once. */
+	private boolean ladderFlashPainted;
 
 	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
 	private List<ConnectionView> connections = java.util.Collections.emptyList();
@@ -233,12 +251,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		refresh();
 		autoRefresh.start();
+		ladderTick.start();
 	}
 
 	@Override
 	public void onDeactivate()
 	{
 		autoRefresh.stop();
+		ladderTick.stop();
 	}
 
 	// ---- Site-relay "Connect clans" flow (auto path, FEDERATION_WIRE.md §10.2) --------------------
@@ -828,6 +848,17 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JPanel buildSummary(ConnectionView c)
 	{
+		// Only one card renders at a time (renderSelected), so the ladder tick binds to a single set of
+		// held refs. Reset them each render; a non-ladder card leaves the tick idle.
+		ladderState = null;
+		ladderCountdownLabel = null;
+		ladderCardPanel = null;
+		ladderValueLabels.clear();
+		if (c.ladder != null)
+		{
+			return buildLadderCard(c);
+		}
+
 		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -903,6 +934,191 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 		return panel;
+	}
+
+	/**
+	 * The DMM-All-Stars-style missions board for a ladder event: your rank, a live per-second countdown
+	 * to the next drop, and the currently-open missions with a live grow/decay value each. Replaces the
+	 * tile-count summary + reveal note (a rotating daily ladder has no fixed board to count). The held
+	 * label refs let {@link #tickLadder()} update the countdown + values once a second without a refetch.
+	 */
+	private JPanel buildLadderCard(ConnectionView c)
+	{
+		ConnectionView.Ladder l = c.ladder;
+		final long now = System.currentTimeMillis();
+
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		String eventLine = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
+		panel.add(leftLabel(eventLine, FontManager.getRunescapeFont(), ColorScheme.TEXT_COLOR));
+		panel.add(leftLabel(rankLine(l), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		panel.add(gap(6));
+
+		JLabel countdown = leftLabel(countdownText(l, now), FontManager.getRunescapeBoldFont(), ColorScheme.BRAND_ORANGE);
+		panel.add(countdown);
+		panel.add(gap(6));
+
+		if (l.missions.isEmpty())
+		{
+			panel.add(leftLabel("Waiting for the next mission…", FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		}
+		else
+		{
+			panel.add(leftLabel("Active missions", FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+			panel.add(gap(2));
+			for (ConnectionView.Ladder.Mission m : l.missions)
+			{
+				JPanel row = new JPanel(new BorderLayout(6, 0));
+				row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+				row.setAlignmentX(LEFT_ALIGNMENT);
+
+				JLabel name = new JLabel(plainText(ellipsize(m.label, 22)));
+				name.setFont(FontManager.getRunescapeSmallFont());
+				name.setForeground(ColorScheme.TEXT_COLOR);
+
+				long val = LadderMissions.liveValue(m.face, m.revealedAtIso, l.decay, now);
+				JLabel value = new JLabel(LadderMissions.valueLabel(m.face, val));
+				value.setFont(FontManager.getRunescapeSmallFont());
+				value.setForeground(valueColor(m.face, val));
+				value.setHorizontalAlignment(SwingConstants.RIGHT);
+
+				row.add(name, BorderLayout.CENTER);
+				row.add(value, BorderLayout.EAST);
+				row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+				panel.add(row);
+				ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
+			}
+		}
+
+		if (c.boardUrl != null && !c.boardUrl.isEmpty())
+		{
+			panel.add(gap(6));
+			panel.add(boardLink(c.boardUrl));
+		}
+
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+
+		// Bind the tick to this card.
+		ladderState = l;
+		ladderCountdownLabel = countdown;
+		ladderCardPanel = panel;
+		return panel;
+	}
+
+	/** A left-aligned JLabel (BoxLayout children default to centre), sanitized for federated text. */
+	private JLabel leftLabel(String text, Font font, Color color)
+	{
+		JLabel label = new JLabel(plainText(text));
+		label.setFont(font);
+		label.setForeground(color);
+		label.setAlignmentX(LEFT_ALIGNMENT);
+		return label;
+	}
+
+	/** "You: #4 this month · #12 all-time", or an encouraging line when the caller hasn't scored yet. */
+	private static String rankLine(ConnectionView.Ladder l)
+	{
+		if (l.monthRank <= 0)
+		{
+			return "You: unranked — finish a mission to get on the board";
+		}
+		String line = "You: #" + l.monthRank + " this month · " + l.monthPoints + " pts";
+		if (l.allTimeRank > 0)
+		{
+			line += " · #" + l.allTimeRank + " all-time";
+		}
+		return line;
+	}
+
+	/** "Next mission in 12:34" / "New mission dropping…" / "Next mission: on a claim" (bounty, no clock). */
+	private static String countdownText(ConnectionView.Ladder l, long now)
+	{
+		String cd = LadderMissions.countdown(l.nextRevealAtIso, now);
+		if (cd == null)
+		{
+			return "Next mission drops on a claim";
+		}
+		return "now".equals(cd) ? "New mission dropping…" : "Next mission in " + cd;
+	}
+
+	/** Grey when unchanged, green when it grew, orange when it's decaying. */
+	private static Color valueColor(long face, long current)
+	{
+		if (current == face)
+		{
+			return VALUE_COLOR;
+		}
+		return current > face ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE;
+	}
+
+	/** Live per-second refresh of the shown ladder card: the countdown, each mission's value, the flash. */
+	private void tickLadder()
+	{
+		final long now = System.currentTimeMillis();
+		ConnectionView.Ladder l = ladderState;
+		if (l != null)
+		{
+			if (ladderCountdownLabel != null)
+			{
+				ladderCountdownLabel.setText(plainText(countdownText(l, now)));
+			}
+			for (LadderValueLabel v : ladderValueLabels)
+			{
+				long val = LadderMissions.liveValue(v.face, v.revealedAtIso, l.decay, now);
+				v.label.setText(LadderMissions.valueLabel(v.face, val));
+				v.label.setForeground(valueColor(v.face, val));
+			}
+		}
+		applyFlash(now);
+	}
+
+	/** Pulse the card border gold while a new-mission / claim signal is fresh (see {@link #flashLadder()}). */
+	private void applyFlash(long now)
+	{
+		if (ladderCardPanel == null)
+		{
+			return;
+		}
+		if (now < ladderFlashUntil)
+		{
+			boolean on = ((ladderFlashUntil - now) / 350) % 2 == 0;
+			ladderCardPanel.setBorder(BorderFactory.createMatteBorder(8, 8, 8, 8,
+				on ? LADDER_FLASH_COLOR : ColorScheme.DARKER_GRAY_COLOR));
+			ladderFlashPainted = true;
+		}
+		else if (ladderFlashPainted)
+		{
+			ladderCardPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+			ladderFlashPainted = false;
+		}
+	}
+
+	/**
+	 * Signal a fresh new-mission / claim so the ladder card pulses gold for a few seconds. Called from the
+	 * plugin's config-refresh diff OFF the EDT — a plain volatile write the 1s tick picks up on the EDT.
+	 */
+	public void flashLadder()
+	{
+		ladderFlashUntil = System.currentTimeMillis() + LADDER_FLASH_MS;
+	}
+
+	/** Held ref for one mission's value label so the tick recomputes its grow/decay value in place. */
+	private static final class LadderValueLabel
+	{
+		final JLabel label;
+		final int face;
+		final String revealedAtIso;
+
+		LadderValueLabel(JLabel label, int face, String revealedAtIso)
+		{
+			this.label = label;
+			this.face = face;
+			this.revealedAtIso = revealedAtIso;
+		}
 	}
 
 	/**

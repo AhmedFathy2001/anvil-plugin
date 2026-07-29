@@ -153,13 +153,45 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
 		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
 
+		// Ladder events render a DMM-All-Stars-style missions board instead of the tile-count reveal note:
+		// a live countdown, the open missions with their live grow/decay value, and your rank.
+		ConnectionView.Ladder ladder = buildLadder(cfg.event);
+
 		// The clan filter is a CLAN switcher, so the label is the clan name (site-provided) — the
 		// event name lives on the card itself. Falls back to team/event for pre-clanName sites;
 		// ConnectionView maps "" → "(unnamed clan)".
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
-			null, revealNote(cfg.event));
+			null, ladder != null ? null : revealNote(cfg.event), ladder);
+	}
+
+	/**
+	 * Fold a ladder event's config into the sidebar's {@link ConnectionView.Ladder} view-model: the
+	 * countdown target, the caller's month + all-time rank, and the open missions. Null on every
+	 * non-ladder board (the normal summary + reveal note render instead).
+	 */
+	static ConnectionView.Ladder buildLadder(PluginConfigResponse.EventInfo event)
+	{
+		if (event == null || !LadderMissions.isLadder(event.format))
+		{
+			return null;
+		}
+		List<ConnectionView.Ladder.Mission> missions = new ArrayList<>();
+		if (event.missions != null)
+		{
+			for (PluginConfigResponse.Mission m : event.missions)
+			{
+				if (m != null)
+				{
+					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt));
+				}
+			}
+		}
+		int monthRank = event.monthlyStandings != null ? event.monthlyStandings.yourRank : 0;
+		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
+		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
+		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank, event.decay, missions);
 	}
 
 	/**

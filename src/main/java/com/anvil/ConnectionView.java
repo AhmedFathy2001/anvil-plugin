@@ -63,6 +63,14 @@ public final class ConnectionView
 	 */
 	public final String revealNote;
 
+	/**
+	 * Ladder events (DMM-All-Stars-style missions board): the live countdown target, the caller's rank,
+	 * and the active missions with their face points + reveal times. {@code null} on every non-ladder
+	 * board — the panel renders the normal summary + {@link #revealNote} instead. See {@link LadderMissions}
+	 * for the per-second value/countdown math this feeds.
+	 */
+	public final Ladder ladder;
+
 	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
@@ -91,11 +99,21 @@ public final class ConnectionView
 			recentActivity, activeNow, boardUrl, pointsScored, statusNote, null);
 	}
 
-	/** As above, plus {@link #revealNote}. The base that sets every field. */
+	/** As above, plus {@link #revealNote}; delegates to the full base with no ladder view. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
 		String statusNote, String revealNote)
+	{
+		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
+			recentActivity, activeNow, boardUrl, pointsScored, statusNote, revealNote, null);
+	}
+
+	/** As above, plus {@link #ladder}. The base that sets every field. */
+	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
+		String statusNote, String revealNote, Ladder ladder)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -110,6 +128,7 @@ public final class ConnectionView
 		this.pointsScored = pointsScored;
 		this.statusNote = statusNote;
 		this.revealNote = revealNote;
+		this.ladder = ladder;
 	}
 
 	/** Healthy connection (no error) with the live layer. */
@@ -222,6 +241,52 @@ public final class ConnectionView
 				return workers.get(0) + " + " + workers.get(1);
 			}
 			return workers.get(0) + " + " + (workers.size() - 1) + " others";
+		}
+	}
+
+	/**
+	 * The ladder missions-board view-model for the sidebar card: the countdown target, the caller's
+	 * rank (this month + all-time), and the currently-open missions. Display strings (live value,
+	 * m:ss countdown) are computed at tick time from these raw values via {@link LadderMissions}.
+	 */
+	public static final class Ladder
+	{
+		/** ISO time of the next reveal — the per-second countdown target. Null when none is scheduled. */
+		public final String nextRevealAtIso;
+		public final int monthRank;      // caller's rank this month; 0 when unranked
+		public final long monthPoints;   // caller's points this month
+		public final int allTimeRank;    // caller's all-time rank; 0 when unranked
+		/** The points ramp (may be null) — lets each mission show a live grow/decay value. */
+		public final PluginConfigResponse.Decay decay;
+		/** Currently-open missions (revealed, not yet claimed/expired), board order. Never null. */
+		public final List<Mission> missions;
+
+		public Ladder(String nextRevealAtIso, int monthRank, long monthPoints, int allTimeRank,
+			PluginConfigResponse.Decay decay, List<Mission> missions)
+		{
+			this.nextRevealAtIso = nextRevealAtIso;
+			this.monthRank = Math.max(0, monthRank);
+			this.monthPoints = Math.max(0, monthPoints);
+			this.allTimeRank = Math.max(0, allTimeRank);
+			this.decay = decay;
+			this.missions = copyOrEmpty(missions);
+		}
+
+		/** One open mission: its label, face value, and reveal time (for the live grow/decay value). */
+		public static final class Mission
+		{
+			public final int tileId;
+			public final String label;
+			public final int face;
+			public final String revealedAtIso;
+
+			public Mission(int tileId, String label, int face, String revealedAtIso)
+			{
+				this.tileId = tileId;
+				this.label = label == null ? "" : label;
+				this.face = Math.max(0, face);
+				this.revealedAtIso = revealedAtIso;
+			}
 		}
 	}
 }
