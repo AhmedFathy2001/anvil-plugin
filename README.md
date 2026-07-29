@@ -41,13 +41,18 @@ If you're a **clan admin or moderator**, it also lets you:
 ## Setup
 
 1. Install **Anvil** from the RuneLite Plugin Hub.
-2. On your Anvil site, go to **Profile → Plugin** and copy your **Account Token**
-   (one token works across every event you're signed up for).
-3. Open RuneLite → Configuration → Anvil and paste your **Account Token**. That's
-   the only required field — **Site URL** defaults to the official site, so leave
-   it unless you self-host.
-4. A side panel appears in RuneLite's sidebar. When connected, it shows your
-   event, team, codeword, tracked tile progress, and any upcoming events.
+2. Open RuneLite → Configuration → Anvil and set **Site URL** to your clan's Anvil
+   site (e.g. `https://your-clan.example.com`). Ask your clan admin if you're unsure.
+3. Sign in one of two ways:
+   - **Sign in with Discord** *(easiest)* — click it in the Anvil side panel and
+     approve in the browser page that opens; the plugin fills in your token for you.
+   - **Paste an Account Token** — on your Anvil site go to **Profile → Plugin**,
+     copy your token, and paste it into the *Account Token* field. One token works
+     across every event you're signed up for.
+4. The Anvil side panel shows your event, team, codeword, live tile progress, and
+   upcoming events. If your clan is linked with others through Anvil's federation,
+   their boards appear alongside your own, and — on timed-reveal boards — the panel
+   notes how many tiles are still hidden and when the next one drops.
 
 ## How it works
 
@@ -87,7 +92,7 @@ If you're a **clan admin or moderator**, it also lets you:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Site URL | *(official site)* | Base URL of your Anvil site — only change if you self-host |
+| Site URL | *(empty)* | Base URL of your clan's Anvil site (e.g. `https://your-clan.example.com`) — ask your admin if unsure |
 | Account Token | *(empty)* | From the site's Profile → Plugin page; one token covers all your events |
 | Auto Submit Drops | `true` | Auto-screenshot and submit on tracked tiles |
 | Show Overlay | `true` | Render the codeword/date verification overlay |
