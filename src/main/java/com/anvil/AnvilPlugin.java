@@ -3859,6 +3859,12 @@ public class AnvilPlugin extends Plugin {
     // skipped here so the contributor doesn't see it twice; teammates still get the team banner.
     private final java.util.Set<Integer> locallyShownTiles = new java.util.HashSet<>();
 
+    // Ladder missions board: mission tiles we've already alerted "new mission" for, and claim tiles
+    // we've already announced. Seeded on the first poll of an event (no backlog dump), cleared on change.
+    private final java.util.Set<Integer> notifiedMissionTiles = new java.util.HashSet<>();
+    private final java.util.Set<Integer> notifiedClaimTiles = new java.util.HashSet<>();
+    private Integer ladderBaselineEventId;
+
     private void checkTileCompletions(PluginConfigResponse cfg) {
         if (cfg == null || cfg.event == null || cfg.completedTiles == null) {
             return;
@@ -3896,6 +3902,78 @@ public class AnvilPlugin extends Plugin {
             String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
                     ? " — by " + t.completedBy.trim() : "";
             sendChatMessage("Tile complete: " + t.label + by + "!");
+        }
+    }
+
+    /**
+     * Ladder missions board alerts, diffed across config polls like {@link #checkTileCompletions}:
+     * a banner + chat when a NEW mission drops, and — on lock-out events — when ANOTHER player claims
+     * one (the caller's own claims are skipped). Both pulse the sidebar card. Seeded on the first poll
+     * so opening the board doesn't dump the whole backlog.
+     */
+    private void checkLadderAlerts(PluginConfigResponse cfg) {
+        if (cfg == null || cfg.event == null || !LadderMissions.isLadder(cfg.event.format)) {
+            return;
+        }
+        boolean seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
+        if (seeding) {
+            notifiedMissionTiles.clear();
+            notifiedClaimTiles.clear();
+            ladderBaselineEventId = cfg.event.id;
+        }
+
+        // --- new missions (revealed + open) ---
+        java.util.List<PluginConfigResponse.Mission> fresh = new java.util.ArrayList<>();
+        if (cfg.event.missions != null) {
+            for (PluginConfigResponse.Mission m : cfg.event.missions) {
+                if (m != null && notifiedMissionTiles.add(m.tileId) && !seeding) {
+                    fresh.add(m);
+                }
+            }
+        }
+        if (!fresh.isEmpty()) {
+            PluginConfigResponse.Mission top = fresh.get(0);
+            for (PluginConfigResponse.Mission m : fresh) {
+                if (m.points > top.points) {
+                    top = m;
+                }
+            }
+            clogBanner.show("Anvil Ladder", "New mission!", top.label);
+            playBannerSound();
+            for (PluginConfigResponse.Mission m : fresh) {
+                sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
+            }
+            if (sidebarPanel != null) {
+                sidebarPanel.flashLadder();
+            }
+        }
+
+        // --- lock-out claims by OTHER players ---
+        String me = normalizeRsn(getLocalPlayerName());
+        java.util.List<PluginConfigResponse.Claim> claims = new java.util.ArrayList<>();
+        if (cfg.event.recentClaims != null) {
+            for (PluginConfigResponse.Claim c : cfg.event.recentClaims) {
+                if (c == null || !notifiedClaimTiles.add(c.tileId) || seeding) {
+                    continue;
+                }
+                boolean mine = c.rsn != null && !me.isEmpty() && me.equals(normalizeRsn(c.rsn));
+                if (!mine) {
+                    claims.add(c);
+                }
+            }
+        }
+        if (!claims.isEmpty()) {
+            PluginConfigResponse.Claim latest = claims.get(0);
+            String who = latest.rsn != null && !latest.rsn.trim().isEmpty() ? latest.rsn.trim() : "Someone";
+            clogBanner.show("Anvil Ladder", "Mission claimed", who + ": " + latest.label);
+            playBannerSound();
+            for (PluginConfigResponse.Claim c : claims) {
+                String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
+                sendChatMessage(by + " claimed " + c.label + " - " + c.points + " pts!");
+            }
+            if (sidebarPanel != null) {
+                sidebarPanel.flashLadder();
+            }
         }
     }
 
@@ -3973,6 +4051,7 @@ public class AnvilPlugin extends Plugin {
             }
 
             checkTileCompletions(pluginConfig);
+            checkLadderAlerts(pluginConfig);
             clogTabController.onConfigRefreshed();
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
