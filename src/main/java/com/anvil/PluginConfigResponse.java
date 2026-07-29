@@ -85,13 +85,69 @@ public class PluginConfigResponse
 		// Drives which in-game Anvil view opens for the player's own active event:
 		//   format="tilerace" -> race track; format="bingo" + scoringMode="points" -> accordion;
 		//   format="bingo" + scoringMode="tiles" -> square grid. May be null on older servers.
-		public String format;
+		public String format;         // "tilerace" | "bingo" | "ladder" | null
 		public String scoringMode;
-		// Reveal-policy events (showdown / lucky draw / bounty) only — null/0 on classic events and
-		// older servers. The tracked* lists already contain ONLY revealed, still-open tiles.
-		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | null
+		// Reveal-policy events (showdown / lucky draw / bounty / ladder rotation) only — null/0 on
+		// classic events and older servers. The tracked* lists already contain ONLY revealed, still-open
+		// tiles.
+		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | "rotating" | null
 		public int hiddenTileCount;   // tiles not yet revealed
 		public String nextRevealAt;   // ISO time of the next reveal; null when none is scheduled
+		// Points ramp for reveal-mode events: a mission's live value scales from 100% at reveal toward
+		// targetPct% over `hours` (<100 decays, >100 grows). Null when off. Lets the ladder board show a
+		// live grow/decay value per mission (see AnvilSidebarDataSource.liveValue).
+		public Decay decay;
+		// Open missions on a reveal-mode board (revealed + still-open), with face points and reveal time
+		// so the plugin can render the "active missions" list + per-second countdown. Absent on classic.
+		public List<Mission> missions;
+		// Ladder events only: the individual leaderboard both all-time and for the current month, each
+		// with the caller's own rank. Drives the in-game missions board's standings + "You: #N".
+		public Standings standings;
+		public Standings monthlyStandings;
+		// Lock-out (bounty / lockout) events: the most recent EVENT-WIDE claims, so the plugin can
+		// announce "X claimed <mission>" to other players. Absent on non-lockout events.
+		public List<Claim> recentClaims;
+	}
+
+	public static class Decay
+	{
+		public int targetPct;   // ramp target as a percent of face (50 = decays to half; 200 = grows to 2x)
+		public int hours;       // hours over which the ramp reaches targetPct
+	}
+
+	public static class Mission
+	{
+		public int tileId;
+		public String label;
+		public int points;        // face value before the decay ramp
+		public String revealedAt; // ISO time this mission went live; null when unknown
+		public String category;
+	}
+
+	public static class Standings
+	{
+		public int yourRank;      // caller's 1-based rank; 0 when they have no scoring row yet
+		public long yourPoints;
+		public int yourTasks;
+		public int total;         // full board length (entries is capped)
+		public List<StandingEntry> entries;
+	}
+
+	public static class StandingEntry
+	{
+		public int rank;
+		public String rsn;
+		public long points;
+		public int tasks;
+	}
+
+	public static class Claim
+	{
+		public int tileId;
+		public String label;
+		public int points;
+		public String rsn;        // finisher's RSN; null when unattributed
+		public String at;         // ISO completion time
 	}
 
 	public static class TeamInfo
