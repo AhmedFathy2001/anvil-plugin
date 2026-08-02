@@ -1,9 +1,49 @@
 package com.anvil;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class PluginConfigResponse
 {
+	/**
+	 * Version/capability handshake, sent by sites ≥ v1.0.0 on every /config shape. Null on
+	 * older sites — {@link #serverSupports(String)} treats that as the v1.0.0 baseline set,
+	 * never as "supports nothing". Contract: docs/PLUGIN_WIRE.md in the anvil site repo.
+	 */
+	public ServerInfo server;
+
+	public static class ServerInfo
+	{
+		public String version;      // site semver, e.g. "1.0.0"
+		public String sha;          // exact commit the site image was built from
+		public int apiLevel;        // breaking-change counter; bumps are rare and loud
+		public List<String> capabilities;
+	}
+
+	/** Everything the plugin-facing API already supported when the handshake first shipped (site v1.0.0). */
+	private static final Set<String> BASELINE_CAPABILITIES = new HashSet<>(Arrays.asList(
+		"stats-live", "drop-tiles", "kill-tiles", "timed-tiles", "lms-tiles", "value-tiles",
+		"gain-tiles", "deathless-tiles", "pvp-tiles", "diary-tiles", "ca-tiles", "clog-tiles",
+		"weekly", "schedule", "notify", "counters", "activity-feed", "federation", "ladder",
+		"reveal-modes", "config-etag"));
+
+	/**
+	 * Gate new plugin surfaces on this instead of calling an endpoint and 404ing: self-hosted
+	 * sites can lag the hub plugin by months, and each federated connection may be on a
+	 * different version. Capabilities newer than the baseline return false until the site
+	 * explicitly advertises them — the surface should hide, not error.
+	 */
+	public boolean serverSupports(String capability)
+	{
+		if (server == null || server.capabilities == null)
+		{
+			return BASELINE_CAPABILITIES.contains(capability);
+		}
+		return server.capabilities.contains(capability);
+	}
+
 	public EventInfo event;
 	public TeamInfo team;
 	public PlayerInfo player;

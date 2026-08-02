@@ -131,7 +131,8 @@ public class BingoApiClient
 			return null;
 		}
 		RequestBody empty = RequestBody.create(null, new byte[0]);
-		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/start").post(empty).build();
+		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/start")
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(empty).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)
@@ -156,7 +157,8 @@ public class BingoApiClient
 		}
 		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
 			gson.toJson(java.util.Collections.singletonMap("device_code", deviceCode)));
-		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/poll").post(body).build();
+		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/poll")
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(body).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)
@@ -197,10 +199,34 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * Plugin semver, read from the same resource build.gradle uses as its version source
+	 * (src/main/resources/com/anvil/version.txt). Sent on every site call as
+	 * X-Anvil-Plugin-Version so sites can see which plugin versions their members run.
+	 */
+	static final String PLUGIN_VERSION = loadPluginVersion();
+
+	private static String loadPluginVersion()
+	{
+		try (InputStream in = BingoApiClient.class.getResourceAsStream("version.txt"))
+		{
+			if (in == null)
+			{
+				return "unknown";
+			}
+			return new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
+		}
+		catch (IOException e)
+		{
+			return "unknown";
+		}
+	}
+
 	private Request.Builder authedRequest(String url)
 	{
 		Request.Builder b = new Request.Builder().url(url)
-			.header("Authorization", "Bearer " + playerToken);
+			.header("Authorization", "Bearer " + playerToken)
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
 		String rsn = currentRsn;
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
 		String hash = accountHash;
@@ -975,6 +1001,7 @@ public class BingoApiClient
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = new Request.Builder()
 			.url(apiUrl + "/api/plugin/hello")
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION)
 			.post(body)
 			.build();
 
