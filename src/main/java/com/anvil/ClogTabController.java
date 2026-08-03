@@ -247,8 +247,9 @@ public class ClogTabController
 			}
 		}
 		// The ladder board's per-second countdown + live mission values, likewise refreshed in place
-		// (game tick ≈ 0.6s, plenty for a seconds countdown). Only touches widgets whose text changed.
-		if (bingoTabActive && hubView == HubView.LADDER)
+		// (game tick ≈ 0.6s, plenty for a seconds countdown). Runs for the ladder view AND any bingo
+		// view showing a missions strip (ladderRows non-empty). Only touches widgets whose text changed.
+		if (bingoTabActive && (hubView == HubView.LADDER || !ladderRows.isEmpty()))
 		{
 			tickLadderView();
 		}
@@ -1547,6 +1548,8 @@ public class ClogTabController
 
 		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
 		int top = renderBodyFilters(items, paneWidth);
+		// A classic bingo carrying announced missions shows them in a live strip above the task list.
+		top += renderActiveMissionsStrip(items, System.currentTimeMillis(), top, paneWidth);
 		List<PluginConfigResponse.TierBand> bands = tierBands();
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.filter(tasks(), statusFilter, typeFilter, searchText,
 			categoryFilter, effectiveTier(bands), bands);
@@ -2329,7 +2332,7 @@ public class ClogTabController
 		}
 		for (LadderRowRef r : ladderRows)
 		{
-			long val = LadderMissions.liveValue(r.face, r.revealedAtIso, ladderDecay, now);
+			long val = LadderMissions.liveValue(r.face, r.revealedAtIso, r.decay, now);
 			String text = LadderMissions.valueLabel(r.face, val);
 			if (!text.equals(r.lastText))
 			{
@@ -2416,7 +2419,9 @@ public class ClogTabController
 		place(nm, 8, ty, paneWidth - 8 - 92, 16);
 		nm.revalidate();
 
-		long val = LadderMissions.liveValue(m.points, m.revealedAt, ladderDecay, now);
+		// Prefer the mission's own decay (per-mission on a bingo); fall back to the event-level ramp.
+		PluginConfigResponse.Decay d = m.decay != null ? m.decay : ladderDecay;
+		long val = LadderMissions.liveValue(m.points, m.revealedAt, d, now);
 		Widget vn = items.createChild(-1, WidgetType.TEXT);
 		vn.setText(LadderMissions.valueLabel(m.points, val));
 		vn.setTextColor(ladderValueColor(m.points, val));
@@ -2425,8 +2430,57 @@ public class ClogTabController
 		place(vn, paneWidth - 90, ty, 84, 16);
 		vn.setXTextAlignment(ALIGN_RIGHT);
 		vn.revalidate();
-		ladderRows.add(new LadderRowRef(vn, m.points, m.revealedAt));
+		ladderRows.add(new LadderRowRef(vn, m.points, m.revealedAt, d));
 		return 22;
+	}
+
+	/**
+	 * An "Active missions" strip for a CLASSIC bingo carrying announced missions — a header, a live
+	 * countdown (when timed) and each mission's live grow/decay value — drawn atop the normal board
+	 * views. Returns the height used, or 0 (so a board with no missions is untouched). Reuses the ladder
+	 * row/countdown machinery, so onGameTick animates it. Skipped on reveal-policy boards (their tiles
+	 * already show on the board) and when there are no missions. Clears the ladder row refs either way.
+	 */
+	private int renderActiveMissionsStrip(Widget items, long now, int y, int paneWidth)
+	{
+		ladderRows.clear();
+		ladderCountdownLine = null;
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		PluginConfigResponse.EventInfo ev = cfg == null ? null : cfg.event;
+		if (ev == null || ev.missions == null || ev.missions.isEmpty())
+		{
+			return 0;
+		}
+		boolean revealBoard = ev.revealPolicy != null && !ev.revealPolicy.isEmpty();
+		if (revealBoard)
+		{
+			return 0; // reveal boards (showdown/rotating/bounty) show their tiles on the board itself
+		}
+		ladderDecay = ev.decay;
+		ladderNextRevealAt = ev.nextRevealAt;
+		int y0 = y;
+		y += ladderSectionLabel(items, "ACTIVE MISSIONS", y, paneWidth);
+		if (LadderMissions.countdown(ev.nextRevealAt, now) != null)
+		{
+			ladderCountdownText = ladderCountdownText(now);
+			Widget line = items.createChild(-1, WidgetType.TEXT);
+			line.setText(ladderCountdownText);
+			line.setTextColor(COL_ORANGE);
+			line.setFontId(FONT_PLAIN);
+			line.setTextShadowed(true);
+			place(line, 8, y, paneWidth - 16, 16);
+			line.revalidate();
+			ladderCountdownLine = line;
+			y += 18;
+		}
+		for (PluginConfigResponse.Mission m : ev.missions)
+		{
+			if (m != null)
+			{
+				y += ladderMissionRow(items, m, now, y, paneWidth);
+			}
+		}
+		return (y - y0) + 8; // trailing gap before the board
 	}
 
 	/** Two clickable chips switching the leaderboard scope; the active one is gold. */
@@ -2474,13 +2528,15 @@ public class ClogTabController
 		final Widget widget;
 		final int face;
 		final String revealedAtIso;
+		final PluginConfigResponse.Decay decay; // this mission's own ramp (may be null)
 		String lastText = "";
 
-		LadderRowRef(Widget widget, int face, String revealedAtIso)
+		LadderRowRef(Widget widget, int face, String revealedAtIso, PluginConfigResponse.Decay decay)
 		{
 			this.widget = widget;
 			this.face = face;
 			this.revealedAtIso = revealedAtIso;
+			this.decay = decay;
 		}
 	}
 
@@ -2705,6 +2761,10 @@ public class ClogTabController
 			return;
 		}
 		items.deleteAllChildren();
+		// Drop any stale mission-row refs from a prior view so the per-tick refresh never touches a
+		// deleted widget (the normal path re-populates them via the missions strip below).
+		ladderRows.clear();
+		ladderCountdownLine = null;
 		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
 
 		if (board == null || board.tiles == null || board.tiles.isEmpty())
@@ -2731,6 +2791,8 @@ public class ClogTabController
 		int gridW = n * cell + gap * (n - 1);
 		int startX = Math.max(0, (paneWidth - gridW) / 2);
 		int top = BODY_TOP;
+		// A classic bingo carrying announced missions shows them in a live strip above the grid.
+		top += renderActiveMissionsStrip(items, System.currentTimeMillis(), top, paneWidth);
 
 		// In a read-only preview there's no "your team", so a claimed cell uses a neutral gold;
 		// otherwise it's your team's colour.
