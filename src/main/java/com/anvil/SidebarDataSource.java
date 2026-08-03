@@ -35,9 +35,10 @@ public interface SidebarDataSource
 	List<ConnectionView> fetchConnections() throws SidebarDataException;
 
 	/**
-	 * As {@link #fetchConnections()}; {@code forceFederationRefresh} marks a member-initiated Refresh —
-	 * federation-aware sources ask the home to bypass its re-sync throttle so the button visibly acts on
-	 * a just-changed network. Default ignores the flag (single-home sources have no throttle to bypass).
+	 * As {@link #fetchConnections()}; {@code forceFederationRefresh} marks a member-initiated Refresh, so a
+	 * source may bypass whatever it normally throttles — the federated source asks the home to skip its
+	 * re-sync throttle, the single-home source re-reads the weekly standings it otherwise caches. Default
+	 * ignores the flag (a source with nothing throttled has nothing to bypass).
 	 */
 	default List<ConnectionView> fetchConnections(boolean forceFederationRefresh) throws SidebarDataException
 	{

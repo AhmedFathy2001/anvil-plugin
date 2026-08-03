@@ -191,7 +191,33 @@ public final class FederationState
 
 		return new ConnectionView(id, name, eventName.isEmpty() ? null : eventName,
 			error.isEmpty() ? null : error, tilesComplete, tilesTotal, nearest,
-			AnvilActivityLog.aggregateForDisplay(activity), active);
+			AnvilActivityLog.aggregateForDisplay(activity), active, null, false, null, null, null, null, null,
+			nullableBool(c, "member"));
+	}
+
+	/**
+	 * A tri-state boolean field: {@code null} when the home didn't send it (an older site) rather than
+	 * {@code false}. Load-bearing for {@code member} — "we weren't told" must not read as "you're a
+	 * guest there", which would move the sidebar's landing clan on no evidence at all.
+	 */
+	private static Boolean nullableBool(JsonObject o, String key)
+	{
+		try
+		{
+			JsonElement el = o.get(key);
+			// Only a REAL JSON boolean counts. Gson happily coerces a string primitive
+			// (getAsBoolean("yes") == false), which would turn a malformed/hostile payload into a
+			// confident "you're a guest here" — the one reading that moves the sidebar.
+			if (el == null || !el.isJsonPrimitive() || !el.getAsJsonPrimitive().isBoolean())
+			{
+				return null;
+			}
+			return el.getAsBoolean();
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
 	}
 
 	private static List<ActivityEntry> parseActivity(JsonElement el)

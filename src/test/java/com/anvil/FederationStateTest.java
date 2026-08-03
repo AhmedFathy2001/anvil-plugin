@@ -44,6 +44,27 @@ public class FederationStateTest
 	}
 
 	@Test
+	public void membershipIsTriStateSoAnOlderHomeNeverReadsAsGuest()
+	{
+		String body = "{\"enabled\":true,\"connected\":true,\"clans\":["
+			+ "{\"id\":\"a\",\"name\":\"A\",\"member\":true},"
+			+ "{\"id\":\"b\",\"name\":\"B\",\"member\":false},"
+			+ "{\"id\":\"c\",\"name\":\"C\"},"                       // older home: field absent
+			+ "{\"id\":\"d\",\"name\":\"D\",\"member\":\"yes\"}]}";  // junk is not evidence either
+		List<ConnectionView> clans = FederationState.parse(GSON, body).clans;
+
+		assertTrue(clans.get(0).isMemberHere());
+		assertFalse(clans.get(0).isGuestHere());
+		assertTrue(clans.get(1).isGuestHere());
+		for (ConnectionView unknown : clans.subList(2, 4))
+		{
+			assertNull("no field ⇒ unknown, never a guest", unknown.member);
+			assertFalse(unknown.isGuestHere());
+			assertFalse(unknown.isMemberHere());
+		}
+	}
+
+	@Test
 	public void connectedNeverOffersConnect()
 	{
 		FederationState s = FederationState.parse(GSON, "{\"enabled\":true,\"connected\":true,\"clans\":[]}");

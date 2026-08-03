@@ -45,6 +45,10 @@ import net.runelite.client.ui.components.PluginErrorPanel;
  * single-home; see {@code FEDERATION_WIRE.md} §7/§10). Owns four view states (loading/error/empty/ready), a
  * clan filter, a manual Refresh, and an auto-refresh poll that runs only while the panel is open.
  *
+ * <p>A clan can run several things at once — its board plus a live SOTW/BOTW. One event renders straight
+ * in; several land on the clickable events list ({@link #eventsOf}) and drill into a board or weekly card
+ * from there, with the choice held in {@link #selectedEventKey} so a refresh never bounces the member out.</p>
+ *
  * <p><b>Threading:</b> all Swing mutation stays on the EDT; off-EDT work is the blocking
  * {@link SidebarDataSource#fetchConnections()} inside the worker plus the connect flow's scheduled steps,
  * whose callbacks marshal back via invokeLater. {@link Singleton} — one toolbar panel.</p>
@@ -70,6 +74,15 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	/** Max activity rows rendered — keeps the sidebar glanceable; the rest collapse into a "+N more". */
 	private static final int ACTIVITY_ROWS_SHOWN = 12;
+
+	/** Leaderboard rows rendered on a weekly card before the caller's own (out-of-view) row is spliced in. */
+	private static final int WEEKLY_ROWS_SHOWN = 10;
+
+	/** Selection key for a clan's own bingo/ladder board in the events list. */
+	private static final String BOARD_EVENT_KEY = "board";
+
+	/** Roughly what fits on one small-font line at {@link PluginPanel#PANEL_WIDTH} — event cards clip to it. */
+	private static final int CARD_LINE_CHARS = 30;
 
 	private final SidebarDataSource dataSource;
 
@@ -124,6 +137,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
 	private List<ConnectionView> connections = java.util.Collections.emptyList();
 	private String selectedInstanceId;
+
+	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
+	private String selectedEventKey;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
 	private boolean rebuildingFilter;
@@ -236,6 +252,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (sel != null)
 			{
 				selectedInstanceId = sel.instanceId;
+				selectedEventKey = null; // another clan's events are a different list — start at the top
 				renderSelected();
 			}
 		});
@@ -487,18 +504,62 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (connections.isEmpty())
 		{
 			selectedInstanceId = null;
+			selectedEventKey = null;
 			rebuildFilter();
 			renderEmpty();
 			return;
 		}
 
-		// Keep the current selection if that clan is still connected; otherwise fall back to the first.
+		// Keep the current selection if that clan is still connected; otherwise land on the clan this
+		// account actually belongs to.
 		if (findSelected() == null)
 		{
-			selectedInstanceId = connections.get(0).instanceId;
+			selectedInstanceId = landingClan(connections).instanceId;
+			selectedEventKey = null;
 		}
 		rebuildFilter();
 		renderSelected();
+	}
+
+	/**
+	 * Which clan the sidebar opens on. Normally the configured home — that's the site the member
+	 * pointed the plugin at. But a player can be a mere federation GUEST at home while being a real
+	 * member of a clan they reached through it (an alt's site, a friend's clan, a hosted instance they
+	 * joined later); for them the home board is noise and their own clan is the point. So when we KNOW
+	 * this account is a guest here and a member there, we land there instead.
+	 *
+	 * <p>Both halves must be positive evidence ({@link ConnectionView#member} is tri-state): an older
+	 * home that doesn't send the flag, or a login screen where membership hasn't been answered yet,
+	 * keeps the home default rather than guessing. Only the DEFAULT moves — the clan dropdown keeps its
+	 * home-first order, and a member's own pick always wins until that clan drops out.</p>
+	 */
+	static ConnectionView landingClan(List<ConnectionView> connections)
+	{
+		ConnectionView home = null;
+		for (ConnectionView c : connections)
+		{
+			if (AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(c.instanceId))
+			{
+				home = c;
+				break;
+			}
+		}
+		if (home == null)
+		{
+			home = connections.get(0); // no home card at all (its fetch failed) — first relayed clan
+		}
+		if (!home.isGuestHere())
+		{
+			return home;
+		}
+		for (ConnectionView c : connections)
+		{
+			if (c.isMemberHere())
+			{
+				return c;
+			}
+		}
+		return home;
 	}
 
 	private ConnectionView findSelected()
@@ -576,6 +637,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		setContent(empty);
 	}
 
+	/**
+	 * Render the selected clan: one event drills straight in (today's board card), several show the
+	 * events list until the member picks one. A drilled-into event that stopped running (a weekly ended
+	 * mid-session) falls back to the list rather than a blank card.
+	 */
 	private void renderSelected()
 	{
 		ConnectionView selected = findSelected();
@@ -585,9 +651,56 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 
+		List<EventEntry> events = eventsOf(selected);
+		if (events.size() > 1)
+		{
+			EventEntry chosen = findEvent(events, selectedEventKey);
+			if (chosen == null)
+			{
+				selectedEventKey = null;
+				renderEventList(selected, events);
+				return;
+			}
+			renderEvent(selected, chosen, true);
+			return;
+		}
+		// 0 events → the board card carries the "No active event yet." / login note; 1 → straight in.
+		renderEvent(selected, events.isEmpty() ? null : events.get(0), false);
+	}
+
+	/** One event's full card. {@code entry} null (or a board entry) renders the board; weeklies get their own. */
+	private void renderEvent(ConnectionView selected, EventEntry entry, boolean withBack)
+	{
 		JPanel body = new JPanel();
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		if (withBack)
+		{
+			body.add(backLink());
+			body.add(gap(8));
+		}
+
+		if (entry != null && entry.weekly != null)
+		{
+			clearLadderRefs(); // a weekly card holds no ladder labels — leave the tick idle
+			body.add(buildWeeklyCard(entry.weekly));
+			if (!entry.weekly.upcoming)
+			{
+				body.add(gap(12));
+				body.add(buildWeeklyStandings(entry.weekly));
+			}
+			setContent(body);
+			return;
+		}
+
+		if (entry != null && entry.scheduled != null)
+		{
+			clearLadderRefs();
+			body.add(buildScheduledCard(entry.scheduled));
+			setContent(body);
+			return;
+		}
 
 		if (selected.hasError())
 		{
@@ -656,6 +769,473 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		setContent(body);
+	}
+
+	// ---- Events list (a clan running more than one thing) ------------------------------------------
+
+	/**
+	 * Everything selectable on this clan card: its live board (when there is one) followed by the live
+	 * weeklies. Static + package-private so the list/drill-in rule is unit-testable without Swing.
+	 */
+	static List<EventEntry> eventsOf(ConnectionView c)
+	{
+		List<EventEntry> out = new ArrayList<>();
+		boolean hasBoard = (c.eventName != null && !c.eventName.isEmpty()) || c.tilesTotal > 0;
+		if (hasBoard)
+		{
+			// Your own board leads — it's the one with progress on it.
+			String title = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
+			out.add(new EventEntry(BOARD_EVENT_KEY, title, c.ladder != null ? "Ladder" : "Bingo", null, null));
+		}
+		for (ConnectionView.WeeklyView w : c.weeklies)
+		{
+			out.add(new EventEntry("weekly:" + w.id, w.title, w.kindLabel(), w, null));
+		}
+		for (ConnectionView.ScheduledView s : c.scheduled)
+		{
+			out.add(new EventEntry("event:" + s.id, s.title, s.kindLabel(), null, s));
+		}
+		return out;
+	}
+
+	private static EventEntry findEvent(List<EventEntry> events, String key)
+	{
+		if (key == null)
+		{
+			return null;
+		}
+		for (EventEntry e : events)
+		{
+			if (e.key.equals(key))
+			{
+				return e;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * One selectable event on a clan card — exactly one of three things: the clan's own board (both
+	 * payloads null), a weekly competition, or another/soon bingo event off the schedule.
+	 */
+	static final class EventEntry
+	{
+		/** Stable selection key, so the choice survives an auto-refresh. */
+		final String key;
+		final String title;
+		/** "Bingo" / "Ladder" / "Skill of the Week" / "Boss of the Week". */
+		final String kind;
+		/** The weekly this entry stands for; null unless it IS a weekly. */
+		final ConnectionView.WeeklyView weekly;
+		/** The scheduled bingo this entry stands for; null unless it IS one. */
+		final ConnectionView.ScheduledView scheduled;
+
+		EventEntry(String key, String title, String kind, ConnectionView.WeeklyView weekly,
+			ConnectionView.ScheduledView scheduled)
+		{
+			this.key = key;
+			this.title = title == null ? "" : title;
+			this.kind = kind == null ? "" : kind;
+			this.weekly = weekly;
+			this.scheduled = scheduled;
+		}
+
+		boolean isBoard()
+		{
+			return weekly == null && scheduled == null;
+		}
+	}
+
+	/** The clan's events as clickable cards — the landing view whenever a clan runs more than one. */
+	private void renderEventList(ConnectionView c, List<EventEntry> events)
+	{
+		clearLadderRefs();
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		if (c.hasError())
+		{
+			body.add(warningLabel(c.error));
+			body.add(gap(8));
+		}
+
+		body.add(sectionHeader("Events"));
+		body.add(gap(6));
+		boolean first = true;
+		for (EventEntry e : events)
+		{
+			if (!first)
+			{
+				body.add(gap(8));
+			}
+			body.add(buildEventCard(c, e));
+			first = false;
+		}
+		setContent(body);
+	}
+
+	/** One row of the events list: name, kind, a one-line status, and (for a board) its progress bar. */
+	private JPanel buildEventCard(ConnectionView c, EventEntry entry)
+	{
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		card.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		card.setAlignmentX(LEFT_ALIGNMENT);
+		card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		card.setToolTipText(plainText(entry.title));
+
+		// Title + a chevron marking the row as a drill-in.
+		JPanel titleRow = new JPanel(new BorderLayout(6, 0));
+		titleRow.setOpaque(false);
+		titleRow.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel title = new JLabel(plainText(ellipsize(entry.title, 22)));
+		title.setFont(FontManager.getRunescapeFont());
+		title.setForeground(ColorScheme.TEXT_COLOR);
+		JLabel chevron = new JLabel("›");
+		chevron.setFont(FontManager.getRunescapeBoldFont());
+		chevron.setForeground(ColorScheme.BRAND_ORANGE);
+		titleRow.add(title, BorderLayout.CENTER);
+		titleRow.add(chevron, BorderLayout.EAST);
+		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
+		card.add(titleRow);
+
+		card.add(leftLabel(entry.kind, FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+
+		if (entry.isBoard())
+		{
+			card.add(leftLabel(ellipsize(boardStatusLine(c), CARD_LINE_CHARS),
+				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			// A ladder has no fixed board to fill, so its row shows standing instead of a progress bar.
+			if (c.tilesTotal > 0 && c.ladder == null)
+			{
+				JProgressBar bar = new JProgressBar(0, 100);
+				bar.setValue(c.completionPercent());
+				bar.setStringPainted(false);
+				bar.setBorderPainted(false);
+				bar.setForeground(c.completionPercent() >= 100
+					? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
+				bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+				bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
+				bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, PROGRESS_BAR_HEIGHT));
+				bar.setAlignmentX(LEFT_ALIGNMENT);
+				card.add(Box.createVerticalStrut(4));
+				card.add(bar);
+			}
+		}
+		else if (entry.weekly != null)
+		{
+			ConnectionView.WeeklyView w = entry.weekly;
+			card.add(leftLabel(ellipsize(w.metricLabel() + timingSuffix(w.upcoming, w.startDate, w.endDate),
+				CARD_LINE_CHARS), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			if (!w.upcoming)
+			{
+				card.add(leftLabel(ellipsize(yourStandingLine(w), CARD_LINE_CHARS),
+					FontManager.getRunescapeSmallFont(),
+					w.yourRank > 0 ? ColorScheme.BRAND_ORANGE : VALUE_COLOR));
+			}
+		}
+		else
+		{
+			ConnectionView.ScheduledView s = entry.scheduled;
+			String timing = timingLabel(!s.live, s.startDate, s.endDate);
+			card.add(leftLabel(ellipsize(timing == null ? s.sizeLabel() : timing, CARD_LINE_CHARS),
+				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			// A live event you're not in is worth flagging as joinable; an upcoming one just needs its size.
+			card.add(leftLabel(ellipsize(s.live ? "Running — you're not in it" : s.sizeLabel(), CARD_LINE_CHARS),
+				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+
+		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		card.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				selectedEventKey = entry.key;
+				renderSelected();
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				card.setBackground(WIDGET_BG_HOVER);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			}
+		});
+		return card;
+	}
+
+	/** The board row's status line: "14 / 25 tiles · 56%", where you stand on a ladder, or why neither. */
+	private static String boardStatusLine(ConnectionView c)
+	{
+		if (c.ladder != null)
+		{
+			return c.ladder.monthRank > 0
+				? "You: #" + c.ladder.monthRank + " · " + c.ladder.monthPoints + " pts this month"
+				: "Unranked — claim a mission";
+		}
+		if (c.tilesTotal > 0)
+		{
+			return c.tilesComplete + " / " + c.tilesTotal + " " + c.unitNoun() + " · " + c.completionPercent() + "%";
+		}
+		return c.statusNote != null && !c.statusNote.isEmpty() ? c.statusNote : "No board to show yet.";
+	}
+
+	/** "‹ All events" — back out of a drilled-into event to the clan's list. */
+	private JLabel backLink()
+	{
+		JLabel back = new JLabel("‹ All events");
+		back.setFont(FontManager.getRunescapeSmallFont());
+		back.setForeground(ColorScheme.BRAND_ORANGE);
+		back.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		back.setAlignmentX(LEFT_ALIGNMENT);
+		back.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				selectedEventKey = null;
+				renderSelected();
+			}
+		});
+		return back;
+	}
+
+	// ---- Weekly competition card (SOTW / BOTW) -----------------------------------------------------
+
+	/** The weekly's own summary: what it tracks, how long is left, and where you stand in it. */
+	private JPanel buildWeeklyCard(ConnectionView.WeeklyView w)
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		panel.add(leftLabel(w.title, FontManager.getRunescapeFont(), ColorScheme.TEXT_COLOR));
+		panel.add(leftLabel(w.kindLabel() + " · " + w.metricLabel(),
+			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+
+		String timing = timingLabel(w.upcoming, w.startDate, w.endDate);
+		String headcount = w.participants > 0
+			? w.participants + (w.participants == 1 ? " player" : " players") : null;
+		String line = timing == null ? headcount : (headcount == null ? timing : timing + " · " + headcount);
+		if (line != null)
+		{
+			panel.add(leftLabel(line, FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+
+		panel.add(gap(4));
+		// Nothing has been gained yet in a comp that hasn't started — say what it'll be instead of "#0".
+		panel.add(w.upcoming
+			? leftLabel("No standings until it starts.",
+				FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR)
+			: leftLabel(yourStandingLine(w), FontManager.getRunescapeSmallFont(),
+				w.yourRank > 0 ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR));
+
+		if (w.url != null && !w.url.isEmpty())
+		{
+			// Nothing to stand in yet on an upcoming comp — link to the comp itself instead.
+			panel.add(w.upcoming ? eventLink(w.url) : boardLink(w.url));
+		}
+
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		return panel;
+	}
+
+	/**
+	 * A bingo on the schedule that isn't yours: what it is, when it runs, how big, and a link to the
+	 * site to sign up. No progress section — there's no board of yours to track yet.
+	 */
+	private JPanel buildScheduledCard(ConnectionView.ScheduledView s)
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		panel.add(leftLabel(s.title, FontManager.getRunescapeFont(), ColorScheme.TEXT_COLOR));
+		panel.add(leftLabel(s.kindLabel(), FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+
+		String timing = timingLabel(!s.live, s.startDate, s.endDate);
+		if (timing != null)
+		{
+			panel.add(leftLabel(timing, FontManager.getRunescapeSmallFont(),
+				s.live ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR));
+		}
+		if (!s.sizeLabel().isEmpty())
+		{
+			panel.add(leftLabel(s.sizeLabel(), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+
+		panel.add(gap(4));
+		panel.add(leftLabel(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
+			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+
+		if (s.url != null && !s.url.isEmpty())
+		{
+			panel.add(eventLink(s.url));
+		}
+
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		return panel;
+	}
+
+	/** "You: #3 · +1.2M xp", or an honest line when the caller isn't on the board (or it wouldn't load). */
+	private static String yourStandingLine(ConnectionView.WeeklyView w)
+	{
+		if (w.yourRank > 0)
+		{
+			return "You: #" + w.yourRank + " · +" + formatCount(w.yourGained) + " " + w.unitNoun();
+		}
+		return w.top.isEmpty() ? "Standings unavailable" : "You're not on the board yet";
+	}
+
+	/** The head of the weekly's leaderboard, with the caller's row spliced in when it's further down. */
+	private JPanel buildWeeklyStandings(ConnectionView.WeeklyView w)
+	{
+		JPanel list = new JPanel();
+		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+		list.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		list.setAlignmentX(LEFT_ALIGNMENT);
+
+		list.add(sectionHeader("Standings"));
+		list.add(gap(6));
+
+		if (w.top.isEmpty())
+		{
+			list.add(leftLabel("No one has scored yet.", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			list.setMaximumSize(new Dimension(Integer.MAX_VALUE, list.getPreferredSize().height));
+			return list;
+		}
+
+		int shown = 0;
+		for (ConnectionView.Standing s : w.top)
+		{
+			if (shown >= WEEKLY_ROWS_SHOWN && !s.self)
+			{
+				continue;
+			}
+			// The caller's row is kept even when it ranks below the cut — mark the jump so #3 → #37 reads right.
+			if (shown >= WEEKLY_ROWS_SHOWN)
+			{
+				list.add(gap(3));
+				list.add(leftLabel("⋯", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			}
+			list.add(gap(3));
+			list.add(buildStandingRow(s, w.unitNoun()));
+			shown++;
+		}
+
+		list.setMaximumSize(new Dimension(Integer.MAX_VALUE, list.getPreferredSize().height));
+		return list;
+	}
+
+	/** One standings row: rank, RSN, gain. The caller's row leads in gold like their own activity does. */
+	private JPanel buildStandingRow(ConnectionView.Standing s, String unit)
+	{
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel rank = new JLabel(String.valueOf(s.rank));
+		rank.setFont(FontManager.getRunescapeSmallFont());
+		rank.setForeground(VALUE_COLOR);
+		rank.setPreferredSize(new Dimension(22, rank.getPreferredSize().height));
+		rank.setHorizontalAlignment(SwingConstants.RIGHT);
+
+		JLabel name = new JLabel(plainText(ellipsize(s.rsn, 16)));
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(s.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
+		name.setToolTipText(plainText(s.rsn));
+
+		JLabel gained = new JLabel("+" + formatCount(s.gained) + " " + unit);
+		gained.setFont(FontManager.getRunescapeSmallFont());
+		gained.setForeground(s.self ? ColorScheme.BRAND_ORANGE : VALUE_COLOR);
+		gained.setHorizontalAlignment(SwingConstants.RIGHT);
+
+		row.add(rank, BorderLayout.WEST);
+		row.add(name, BorderLayout.CENTER);
+		row.add(gained, BorderLayout.EAST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
+	/** " · ends in 2d 4h" / " · starts in 3d 1h" for the compact list row; "" when there's no usable date. */
+	private static String timingSuffix(boolean upcoming, String startIso, String endIso)
+	{
+		String label = timingLabel(upcoming, startIso, endIso);
+		return label == null ? "" : " · " + label.substring(0, 1).toLowerCase() + label.substring(1);
+	}
+
+	/** What matters about the clock right now: when it starts if it hasn't, else when it ends. */
+	static String timingLabel(boolean upcoming, String startIso, String endIso)
+	{
+		return upcoming ? gapLabel("Starts in ", startIso, "Starting…") : endsInLabel(endIso);
+	}
+
+	/** "Ends in 2d 4h" / "Ends in 42m" / "Ended", or null when the date is missing or unparseable. */
+	static String endsInLabel(String endIso)
+	{
+		return gapLabel("Ends in ", endIso, "Ended");
+	}
+
+	/** "{prefix}2d 4h" until {@code iso}; {@code passed} once it's behind us; null when unparseable. */
+	private static String gapLabel(String prefix, String iso, String passed)
+	{
+		long at = epochMillis(iso);
+		if (at < 0)
+		{
+			return null;
+		}
+		long left = at - System.currentTimeMillis();
+		if (left <= 0)
+		{
+			return passed;
+		}
+		long mins = left / 60_000;
+		if (mins < 60)
+		{
+			return prefix + Math.max(1, mins) + "m";
+		}
+		long hours = mins / 60;
+		if (hours < 24)
+		{
+			return prefix + hours + "h " + (mins % 60) + "m";
+		}
+		return prefix + (hours / 24) + "d " + (hours % 24) + "h";
+	}
+
+	/** ISO date ("2026-06-21") or UTC datetime → epoch millis, or -1 when unparseable. */
+	private static long epochMillis(String iso)
+	{
+		if (iso == null || iso.length() < 10)
+		{
+			return -1;
+		}
+		try
+		{
+			if (iso.length() == 10)
+			{
+				return java.time.LocalDate.parse(iso)
+					.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
+			}
+			String s = iso.trim().replace(' ', 'T');
+			return java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
+		}
+		catch (RuntimeException e)
+		{
+			return -1;
+		}
 	}
 
 	// ---- Component builders -----------------------------------------------------------------------
@@ -739,7 +1319,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Compact count: 1_507_300 → "1.5M", 2_000_000 → "2M", 15_000 → "15K", 500 → "500". */
-	private static String formatCount(int n)
+	private static String formatCount(long n)
 	{
 		if (n >= 1_000_000)
 		{
@@ -846,14 +1426,24 @@ public class AnvilSidebarPanel extends PluginPanel
 		return s.length() <= max ? s : s.substring(0, Math.max(0, max - 1)).trim() + "…";
 	}
 
-	private JPanel buildSummary(ConnectionView c)
+	/**
+	 * Drop the held ladder-card refs. Only one card renders at a time, so every render path that isn't
+	 * building a ladder card must clear them — otherwise the 1 s tick keeps updating labels that are no
+	 * longer on screen.
+	 */
+	private void clearLadderRefs()
 	{
-		// Only one card renders at a time (renderSelected), so the ladder tick binds to a single set of
-		// held refs. Reset them each render; a non-ladder card leaves the tick idle.
 		ladderState = null;
 		ladderCountdownLabel = null;
 		ladderCardPanel = null;
 		ladderValueLabels.clear();
+	}
+
+	private JPanel buildSummary(ConnectionView c)
+	{
+		// Only one card renders at a time (renderSelected), so the ladder tick binds to a single set of
+		// held refs. Reset them each render; a non-ladder card leaves the tick idle.
+		clearLadderRefs();
 		if (c.ladder != null)
 		{
 			return buildLadderCard(c);
@@ -1176,10 +1766,21 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** A clickable "View standings" link opening the board's site page in the system browser. */
 	private JLabel boardLink(String url)
 	{
-		JLabel link = new JLabel("View standings ↗");
+		return siteLink("View standings ↗", "Open the full standings on the Anvil site", url);
+	}
+
+	/** As {@link #boardLink}, for an event you're not in yet — the site page is where you sign up. */
+	private JLabel eventLink(String url)
+	{
+		return siteLink("View event ↗", "Open this event on the Anvil site", url);
+	}
+
+	private JLabel siteLink(String text, String tooltip, String url)
+	{
+		JLabel link = new JLabel(text);
 		link.setFont(FontManager.getRunescapeSmallFont());
 		link.setForeground(ColorScheme.BRAND_ORANGE);
-		link.setToolTipText("Open this board's standings on the Anvil site");
+		link.setToolTipText(tooltip);
 		link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		link.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
 		link.addMouseListener(new java.awt.event.MouseAdapter()

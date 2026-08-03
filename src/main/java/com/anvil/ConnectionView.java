@@ -71,6 +71,29 @@ public final class ConnectionView
 	 */
 	public final Ladder ladder;
 
+	/**
+	 * Live weekly competitions on this clan (SOTW/BOTW) — events in their own right alongside the board,
+	 * so a clan running only a weekly still has something to show. The panel lists them next to the board
+	 * and drills into one on click. Never {@code null}; empty on federated clans (the wire carries boards only).
+	 */
+	public final List<WeeklyView> weeklies;
+
+	/**
+	 * Other bingo events on this clan's schedule — starting soon, or live but not the caller's own
+	 * board. Listed after the live stuff so members can see what's coming without leaving the game.
+	 * Never {@code null}; empty on federated clans.
+	 */
+	public final List<ScheduledView> scheduled;
+
+	/**
+	 * Is the playing account a real member of this clan, or just a federation guest?
+	 * {@code TRUE} member · {@code FALSE} guest · {@code null} <b>unknown</b> — logged out, or a home
+	 * that predates the wire's {@code member} field. Deliberately tri-state: the panel only moves its
+	 * landing clan off the configured home on POSITIVE evidence both ways (guest here, member there),
+	 * so an old site or a login screen keeps today's behaviour instead of guessing.
+	 */
+	public final Boolean member;
+
 	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
@@ -109,11 +132,23 @@ public final class ConnectionView
 			recentActivity, activeNow, boardUrl, pointsScored, statusNote, revealNote, null);
 	}
 
-	/** As above, plus {@link #ladder}. The base that sets every field. */
+	/** As above, plus {@link #ladder}; delegates to the full base with no weeklies. */
 	public ConnectionView(String instanceId, String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
 		String statusNote, String revealNote, Ladder ladder)
+	{
+		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
+			recentActivity, activeNow, boardUrl, pointsScored, statusNote, revealNote, ladder, null, null, null);
+	}
+
+	/** As above, plus the clan's other events ({@link #weeklies}, {@link #scheduled}) and {@link #member}.
+	 *  The base that sets every field. */
+	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
+		String statusNote, String revealNote, Ladder ladder, List<WeeklyView> weeklies,
+		List<ScheduledView> scheduled, Boolean member)
 	{
 		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
@@ -129,6 +164,21 @@ public final class ConnectionView
 		this.statusNote = statusNote;
 		this.revealNote = revealNote;
 		this.ladder = ladder;
+		this.weeklies = copyOrEmpty(weeklies);
+		this.scheduled = copyOrEmpty(scheduled);
+		this.member = member;
+	}
+
+	/** True only on positive evidence that this account is a guest here (never on "we don't know"). */
+	public boolean isGuestHere()
+	{
+		return Boolean.FALSE.equals(member);
+	}
+
+	/** True only on positive evidence that this account is a real member here. */
+	public boolean isMemberHere()
+	{
+		return Boolean.TRUE.equals(member);
 	}
 
 	/** Healthy connection (no error) with the live layer. */
@@ -241,6 +291,186 @@ public final class ConnectionView
 				return workers.get(0) + " + " + workers.get(1);
 			}
 			return workers.get(0) + " + " + (workers.size() - 1) + " others";
+		}
+	}
+
+	/**
+	 * One live weekly competition (Skill / Boss of the Week) as the sidebar shows it: the comp itself,
+	 * the caller's standing, and the head of the leaderboard. Every display string is derived here so
+	 * the panel just renders — and so the shaping is unit-testable without Swing.
+	 */
+	public static final class WeeklyView
+	{
+		public final int id;
+		public final String title;
+		/** {@code "skill"} | {@code "boss"} — picks the kind label and the gain's unit. */
+		public final String type;
+		/** Raw metric key as the site stores it ({@code "mining"}, {@code "chambers_of_xeric"}). */
+		public final String metric;
+		public final String startDate;
+		public final String endDate;
+		/** True for a comp that hasn't started yet — it has no standings, just a start time. */
+		public final boolean upcoming;
+		/** Caller's rank, or 0 when they aren't on the board (not enrolled / no gain yet / unknown). */
+		public final int yourRank;
+		public final long yourGained;
+		/** Ranked participants, or 0 when the standings couldn't be read. */
+		public final int participants;
+		/** Head of the leaderboard, rank order, capped by the source. Never {@code null}. */
+		public final List<Standing> top;
+		/** The comp's page on the Anvil site ({@code <baseUrl>/weekly/<id>}), or {@code null} when unknown. */
+		public final String url;
+
+		public WeeklyView(int id, String title, String type, String metric, String startDate, String endDate,
+			int yourRank, long yourGained, int participants, List<Standing> top, String url)
+		{
+			this(id, title, type, metric, startDate, endDate, false, yourRank, yourGained, participants, top, url);
+		}
+
+		public WeeklyView(int id, String title, String type, String metric, String startDate, String endDate,
+			boolean upcoming, int yourRank, long yourGained, int participants, List<Standing> top, String url)
+		{
+			this.id = id;
+			this.title = title == null || title.isEmpty() ? kindLabel(type) : title;
+			this.type = type == null ? "" : type;
+			this.metric = metric == null ? "" : metric;
+			this.startDate = startDate;
+			this.endDate = endDate;
+			this.upcoming = upcoming;
+			this.yourRank = Math.max(0, yourRank);
+			this.yourGained = Math.max(0, yourGained);
+			this.participants = Math.max(0, participants);
+			this.top = copyOrEmpty(top);
+			this.url = url;
+		}
+
+		/** "Skill of the Week" / "Boss of the Week" — the card's kind line and the list row's subtitle. */
+		public String kindLabel()
+		{
+			return kindLabel(type);
+		}
+
+		private static String kindLabel(String type)
+		{
+			return "skill".equalsIgnoreCase(type) ? "Skill of the Week" : "Boss of the Week";
+		}
+
+		/** The tracked metric, humanised: {@code "chambers_of_xeric"} → {@code "Chambers of Xeric"}. */
+		public String metricLabel()
+		{
+			return humanise(metric);
+		}
+
+		/** What a gain counts in: XP for a skill comp, kills for a boss one. */
+		public String unitNoun()
+		{
+			return "skill".equalsIgnoreCase(type) ? "xp" : "kc";
+		}
+
+		/** Underscored/hyphenated metric keys → title case, keeping the small joining words lowercase. */
+		static String humanise(String key)
+		{
+			if (key == null || key.isEmpty())
+			{
+				return "";
+			}
+			String[] words = key.replace('_', ' ').replace('-', ' ').trim().split("\\s+");
+			StringBuilder out = new StringBuilder();
+			for (int i = 0; i < words.length; i++)
+			{
+				String w = words[i];
+				if (w.isEmpty())
+				{
+					continue;
+				}
+				if (out.length() > 0)
+				{
+					out.append(' ');
+				}
+				boolean small = i > 0 && ("of".equals(w) || "the".equals(w) || "and".equals(w) || "at".equals(w));
+				out.append(small ? w : Character.toUpperCase(w.charAt(0)) + w.substring(1));
+			}
+			return out.toString();
+		}
+	}
+
+	/**
+	 * A bingo event on the clan's schedule that ISN'T the caller's own board — one starting soon, or a
+	 * live one they aren't enrolled in. Read-only: there's no progress to show, so the card is the
+	 * pitch (what, when, how big) plus a link to sign up on the site.
+	 */
+	public static final class ScheduledView
+	{
+		public final int id;
+		public final String title;
+		public final String startDate;
+		public final String endDate;
+		/** True when it's already running (the caller just isn't in it); false = still upcoming. */
+		public final boolean live;
+		/** Tiles configured, or 0 when the site didn't say. */
+		public final int tileCount;
+		/** N for an N×N board, or 0 when it isn't a square grid (tile race / ladder / unknown). */
+		public final int boardSize;
+		public final String format;
+		public final String scoringMode;
+		/** The event's page on the Anvil site, or {@code null} when the base URL is unknown. */
+		public final String url;
+
+		public ScheduledView(int id, String title, String startDate, String endDate, boolean live,
+			int tileCount, int boardSize, String format, String scoringMode, String url)
+		{
+			this.id = id;
+			this.title = title == null || title.isEmpty() ? "Bingo" : title;
+			this.startDate = startDate;
+			this.endDate = endDate;
+			this.live = live;
+			this.tileCount = Math.max(0, tileCount);
+			this.boardSize = Math.max(0, boardSize);
+			this.format = format;
+			this.scoringMode = scoringMode;
+			this.url = url;
+		}
+
+		/** "Bingo" / "Bingo (points)" / "Tile race" / "Ladder" — same wording as the in-game schedule. */
+		public String kindLabel()
+		{
+			if (LadderMissions.isLadder(format))
+			{
+				return "Ladder";
+			}
+			if ("tilerace".equalsIgnoreCase(format))
+			{
+				return "Tile race";
+			}
+			return "points".equalsIgnoreCase(scoringMode) ? "Bingo (points)" : "Bingo";
+		}
+
+		/** "5×5 · 25 tiles", "25 tiles", or "" — whatever the site actually told us. */
+		public String sizeLabel()
+		{
+			String tiles = tileCount > 0 ? tileCount + (tileCount == 1 ? " tile" : " tiles") : "";
+			if (boardSize > 0)
+			{
+				return tiles.isEmpty() ? boardSize + "×" + boardSize : boardSize + "×" + boardSize + " · " + tiles;
+			}
+			return tiles;
+		}
+	}
+
+	/** One row of a weekly leaderboard, with the caller's own row flagged. */
+	public static final class Standing
+	{
+		public final int rank;
+		public final String rsn;
+		public final long gained;
+		public final boolean self;
+
+		public Standing(int rank, String rsn, long gained, boolean self)
+		{
+			this.rank = Math.max(0, rank);
+			this.rsn = rsn == null ? "" : rsn;
+			this.gained = Math.max(0, gained);
+			this.self = self;
 		}
 	}
 

@@ -102,7 +102,9 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		if (state == null || !state.enabled || state.clans.isEmpty())
 		{
 			// Federation off / absent / no clans yet → single-home render (today's default, unchanged).
-			return delegate.fetchConnections();
+			// The flag rides along: the home render throttles its own reads (weekly standings) and a
+			// member-initiated Refresh should bypass those too.
+			return delegate.fetchConnections(forceFederationRefresh);
 		}
 		// Federated: HOME FIRST, then the relayed clans. Returning only `state.clans` here made the
 		// member's own board vanish the moment a second clan appeared (and with one remote clan the
@@ -112,7 +114,7 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		Set<String> seen = new HashSet<>();
 		try
 		{
-			for (ConnectionView home : delegate.fetchConnections())
+			for (ConnectionView home : delegate.fetchConnections(forceFederationRefresh))
 			{
 				merged.add(home);
 				if (home.instanceId != null)

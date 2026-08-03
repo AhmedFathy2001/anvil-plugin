@@ -1085,7 +1085,8 @@ public class AnvilPlugin extends Plugin {
         // method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
         // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown) —
         // it paces the connect flow's /state polls without ever sleeping a worker thread.
-        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient, this::localStatProgress);
+        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient,
+            this::localStatProgress, this::getLocalPlayerName, this::homeMembership);
         return new FederationSidebarDataSource(apiClient, delegate, sharedExecutor);
     }
 
@@ -1375,6 +1376,10 @@ public class AnvilPlugin extends Plugin {
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
+            // Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
+            // the answer rather than let the sidebar rank clans on the previous account's standing.
+            knownMember = null;
+            isGuest = false;
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
             identityStampRetries = 0;
@@ -3699,6 +3704,16 @@ public class AnvilPlugin extends Plugin {
         return client.getLocalPlayer().getName();
     }
 
+    /**
+     * Is the account we're playing a real member of the HOME clan, or only a guest? Answered by the
+     * login handshake (POST /api/plugin/hello), so it's null until that lands — and null is meaningful:
+     * the sidebar only moves its landing clan off the configured home when it KNOWS we're a guest here
+     * and a member somewhere federated. Cleared on logout with the rest of the hello state.
+     */
+    public Boolean homeMembership() {
+        return knownMember == null ? null : !isGuest;
+    }
+
     private void configureApiClient() {
         apiClient.configure(config.apiUrl(), config.playerToken());
     }
@@ -3906,15 +3921,23 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Ladder missions board alerts, diffed across config polls like {@link #checkTileCompletions}:
-     * a banner + chat when a NEW mission drops, and — on lock-out events — when ANOTHER player claims
-     * one (the caller's own claims are skipped). Both pulse the sidebar card. Seeded on the first poll
-     * so opening the board doesn't dump the whole backlog.
+     * Missions board alerts, diffed across config polls like {@link #checkTileCompletions}: a banner +
+     * chat when a NEW mission drops, and when ANOTHER player claims a lock-out one (own claims skipped).
+     * Both pulse the sidebar card. Seeded on the first poll so opening the board doesn't dump the
+     * backlog. Fires for a ladder OR a classic bingo carrying missions — NOT for a reveal-policy board
+     * (showdown/rotating/bounty), whose reveals keep their existing sidebar-note behaviour.
      */
-    private void checkLadderAlerts(PluginConfigResponse cfg) {
-        if (cfg == null || cfg.event == null || !LadderMissions.isLadder(cfg.event.format)) {
+    private void checkMissionAlerts(PluginConfigResponse cfg) {
+        if (cfg == null || cfg.event == null) {
             return;
         }
+        boolean revealBoard = cfg.event.revealPolicy != null && !cfg.event.revealPolicy.isEmpty();
+        boolean surface = LadderMissions.isLadder(cfg.event.format)
+            || (!revealBoard && cfg.serverSupports("bingo-missions"));
+        if (!surface) {
+            return;
+        }
+        String tag = LadderMissions.isLadder(cfg.event.format) ? "Anvil Ladder" : "Anvil";
         boolean seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
         if (seeding) {
             notifiedMissionTiles.clear();
@@ -3938,7 +3961,7 @@ public class AnvilPlugin extends Plugin {
                     top = m;
                 }
             }
-            clogBanner.show("Anvil Ladder", "New mission!", top.label);
+            clogBanner.show(tag, "New mission!", top.label);
             playBannerSound();
             for (PluginConfigResponse.Mission m : fresh) {
                 sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
@@ -3965,7 +3988,7 @@ public class AnvilPlugin extends Plugin {
         if (!claims.isEmpty()) {
             PluginConfigResponse.Claim latest = claims.get(0);
             String who = latest.rsn != null && !latest.rsn.trim().isEmpty() ? latest.rsn.trim() : "Someone";
-            clogBanner.show("Anvil Ladder", "Mission claimed", who + ": " + latest.label);
+            clogBanner.show(tag, "Mission claimed", who + ": " + latest.label);
             playBannerSound();
             for (PluginConfigResponse.Claim c : claims) {
                 String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
@@ -4051,7 +4074,7 @@ public class AnvilPlugin extends Plugin {
             }
 
             checkTileCompletions(pluginConfig);
-            checkLadderAlerts(pluginConfig);
+            checkMissionAlerts(pluginConfig);
             clogTabController.onConfigRefreshed();
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.

@@ -35,6 +35,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/** How recent a signal counts as "active now" — matched to the Site's 5-min stat-worker window. */
 	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
 
+	/** How long a weekly's standings stay good. Way slacker than the 15 s panel poll — weekly gains are
+	 *  swept by the site's 15-min stats cron, so re-reading a leaderboard every refresh is pure noise. */
+	private static final long WEEKLY_STANDINGS_TTL_MS = 60_000L;
+
+	/** Leaderboard rows kept per weekly — the sidebar shows the head of the board, not all 50. */
+	private static final int WEEKLY_TOP_LIMIT = 10;
+
 	private final Supplier<PluginConfigResponse> configSupplier;
 
 	/** The plugin's injected client — the sidebar's one network call (the activity feed) rides on it. */
@@ -42,6 +49,19 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 	/** Stat tiles this account recently progressed (tileId → millis) — the "You" attribution for stat grinds. */
 	private final Supplier<Map<Integer, Long>> localStatProgress;
+
+	/** The playing account's RSN — flags "you" in a weekly's standings. Null/blank while logged out. */
+	private final Supplier<String> localRsn;
+
+	/** Is this account a real member of the HOME clan? {@code null} until the login handshake answers. */
+	private final Supplier<Boolean> homeMembership;
+
+	// Weekly standings cache (compId → last leaderboard read), the comps already read this generation,
+	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
+	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
+	private final Map<Integer, BingoApiClient.WeeklyLeaderboard> weeklyBoards = new HashMap<>();
+	private final java.util.Set<Integer> weeklyBoardsTried = new java.util.HashSet<>();
+	private long weeklyBoardsAt;
 
 	// Live-sidebar state, scoped to the active event.
 	private final AnvilActivityLog activityLog = new AnvilActivityLog();
@@ -57,34 +77,69 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this(configSupplier, apiClient, Collections::emptyMap);
 	}
 
-	/** Single-home binding with the local stat signal (the real plugin binding; drives attribution in tests). */
+	/** Single-home binding with the local stat signal (drives attribution in tests). */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
 		Supplier<Map<Integer, Long>> localStatProgress)
+	{
+		this(configSupplier, apiClient, localStatProgress, () -> null);
+	}
+
+	/** Adds the playing account's RSN for the weekly standings' "you" row. */
+	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
+		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn)
+	{
+		this(configSupplier, apiClient, localStatProgress, localRsn, () -> null);
+	}
+
+	/** The real plugin binding — also carries whether this account is a member (not a guest) at home. */
+	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
+		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn,
+		Supplier<Boolean> homeMembership)
 	{
 		this.configSupplier = configSupplier;
 		this.apiClient = apiClient;
 		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
+		this.localRsn = localRsn == null ? () -> null : localRsn;
+		this.homeMembership = homeMembership == null ? () -> null : homeMembership;
 	}
 
 	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
-		ConnectionView view = buildView();
+		return fetchConnections(false);
+	}
+
+	/** {@code force} = the member clicked Refresh — bypasses the weekly-standings throttle too. */
+	@Override
+	public List<ConnectionView> fetchConnections(boolean force) throws SidebarDataException
+	{
+		ConnectionView view = buildView(force);
 		return view == null ? Collections.emptyList() : Collections.singletonList(view);
 	}
 
-	private ConnectionView buildView()
+	private ConnectionView buildView(boolean force)
 	{
 		PluginConfigResponse cfg = configSupplier.get();
-		if (cfg == null || cfg.event == null)
+		if (cfg == null)
 		{
 			if (scopedEventId != -1)
 			{
 				resetLiveState();
 			}
-			if (cfg == null)
+			return null; // no config at all (site unreachable / bad token) — nothing to anchor a card on
+		}
+
+		// SOTW/BOTW ride alongside the board as events of their own, so they show up whether or not the
+		// member is in a live bingo — a weekly-only clan still has something on the card. The clan's
+		// other/coming bingos ride along the same way, so "what's next" needs no site visit.
+		List<ConnectionView.WeeklyView> weeklies = buildWeeklies(cfg, force);
+		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg);
+
+		if (cfg.event == null)
+		{
+			if (scopedEventId != -1)
 			{
-				return null; // no config at all (site unreachable / bad token) — nothing to anchor a card on
+				resetLiveState();
 			}
 			// No member-scoped event: either the clan genuinely has no live event, or one IS running
 			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
@@ -98,13 +153,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				// (nearest tiles, active-now) still wait for a playing account.
 				return new ConnectionView(LOCAL_INSTANCE_ID, homeClanName(cfg), hb.eventName,
 					null, hb.tilesComplete, hb.tilesTotal, null, null, null, null, hb.pointsScored,
-					"Log in in-game for live tracking.");
+					"Log in in-game for live tracking.", null, null, weeklies, scheduled, homeMembership.get());
 			}
 			String note = cfg.unlinkedActiveEvent != null && !cfg.unlinkedActiveEvent.isEmpty()
 				? "Log in in-game to load your board."
 				: null; // null → the panel's "No active event yet."
 			return new ConnectionView(LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.unlinkedActiveEvent,
-				null, 0, 0, null, null, null, null, false, note);
+				null, 0, 0, null, null, null, null, false, note, null, null, weeklies, scheduled, homeMembership.get());
 		}
 
 		if (cfg.event.id != scopedEventId)
@@ -163,7 +218,239 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
-			null, ladder != null ? null : revealNote(cfg.event), ladder);
+			null, ladder != null ? null : revealNote(cfg.event), ladder, weeklies, scheduled, homeMembership.get());
+	}
+
+	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
+
+	/**
+	 * The clan's weeklies — live ones folded with the caller's standing, upcoming ones as an
+	 * announcement. The comps themselves come from the config the plugin already polls (no extra
+	 * request); a LIVE comp's standings are one throttled read ({@link #WEEKLY_STANDINGS_TTL_MS}) that
+	 * degrades to a comp-only card when unreachable, and an upcoming one is never read at all (nothing
+	 * has happened yet). Live first, then soonest-starting.
+	 */
+	private List<ConnectionView.WeeklyView> buildWeeklies(PluginConfigResponse cfg, boolean force)
+	{
+		List<BingoApiClient.ScheduledWeekly> weeklies = scheduledWeeklies(cfg);
+		if (weeklies.isEmpty())
+		{
+			weeklyBoards.clear();
+			weeklyBoardsTried.clear();
+			return Collections.emptyList();
+		}
+		List<BingoApiClient.ScheduledWeekly> live = new ArrayList<>();
+		for (BingoApiClient.ScheduledWeekly w : weeklies)
+		{
+			if (isLive(w.status))
+			{
+				live.add(w);
+			}
+		}
+		refreshWeeklyBoards(live, force);
+
+		String me = normalizeRsn(localRsn.get());
+		List<ConnectionView.WeeklyView> out = new ArrayList<>(weeklies.size());
+		for (BingoApiClient.ScheduledWeekly w : weeklies)
+		{
+			out.add(toWeeklyView(w, weeklyBoards.get(w.id), me));
+		}
+		return out;
+	}
+
+	/**
+	 * Every weekly the site is advertising (live AND upcoming), deduped by id, live first then by
+	 * soonest start. Reads the schedule — which carries both comps when a SOTW and a BOTW overlap —
+	 * and falls back to the single {@code activeWeekly} field so an older site still surfaces its one
+	 * live comp. The site only ships non-completed comps, so nothing here is over.
+	 */
+	private static List<BingoApiClient.ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
+	{
+		List<BingoApiClient.ScheduledWeekly> out = new ArrayList<>();
+		java.util.Set<Integer> seen = new java.util.HashSet<>();
+		if (cfg.schedule != null && cfg.schedule.weeklies != null)
+		{
+			for (BingoApiClient.ScheduledWeekly w : cfg.schedule.weeklies)
+			{
+				if (w != null && seen.add(w.id))
+				{
+					out.add(w);
+				}
+			}
+		}
+		BingoApiClient.ActiveWeekly a = cfg.activeWeekly;
+		if (a != null && seen.add(a.id))
+		{
+			BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
+			w.id = a.id;
+			w.title = a.title;
+			w.type = a.type;
+			w.metric = a.metric;
+			w.status = "active";
+			w.startDate = a.startDate;
+			w.endDate = a.endDate;
+			out.add(w);
+		}
+		out.sort(SCHEDULE_ORDER);
+		return out;
+	}
+
+	/**
+	 * Bingo events on the clan's schedule other than the caller's own board — live ones they aren't in,
+	 * plus what's coming up. Straight off the polled config; the caller's own event is dropped because
+	 * the board card already IS that event.
+	 */
+	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg)
+	{
+		if (cfg.schedule == null || cfg.schedule.bingos == null)
+		{
+			return Collections.emptyList();
+		}
+		int ownEventId = cfg.event != null ? cfg.event.id : -1;
+		List<BingoApiClient.ScheduledBingo> bingos = new ArrayList<>();
+		for (BingoApiClient.ScheduledBingo b : cfg.schedule.bingos)
+		{
+			if (b != null && b.id != ownEventId)
+			{
+				bingos.add(b);
+			}
+		}
+		bingos.sort((x, y) -> SCHEDULE_ORDER.compare(
+			asEntry(x.status, x.startDate), asEntry(y.status, y.startDate)));
+
+		String base = apiClient.getApiUrl();
+		List<ConnectionView.ScheduledView> out = new ArrayList<>(bingos.size());
+		for (BingoApiClient.ScheduledBingo b : bingos)
+		{
+			out.add(new ConnectionView.ScheduledView(b.id, b.title, b.startDate, b.endDate,
+				isLive(b.status), b.tileCount == null ? 0 : b.tileCount,
+				b.boardSize == null ? 0 : b.boardSize, b.format, b.scoringMode,
+				base == null || base.isEmpty() ? null : base + "/events/" + b.id));
+		}
+		return out;
+	}
+
+	/** Live first, then soonest start (ISO strings sort chronologically); undated last. */
+	private static final Comparator<BingoApiClient.ScheduledWeekly> SCHEDULE_ORDER = (a, b) ->
+	{
+		boolean la = isLive(a.status);
+		boolean lb = isLive(b.status);
+		if (la != lb)
+		{
+			return la ? -1 : 1;
+		}
+		String sa = a.startDate == null ? "" : a.startDate;
+		String sb = b.startDate == null ? "" : b.startDate;
+		if (sa.isEmpty() != sb.isEmpty())
+		{
+			return sa.isEmpty() ? 1 : -1;
+		}
+		return sa.compareTo(sb);
+	};
+
+	/** Adapter so the bingo list can reuse {@link #SCHEDULE_ORDER} (same status/start ordering). */
+	private static BingoApiClient.ScheduledWeekly asEntry(String status, String startDate)
+	{
+		BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
+		w.status = status;
+		w.startDate = startDate;
+		return w;
+	}
+
+	private static boolean isLive(String status)
+	{
+		return "active".equalsIgnoreCase(status);
+	}
+
+	/**
+	 * One standings read per live comp per {@link #WEEKLY_STANDINGS_TTL_MS} window (a member-forced
+	 * Refresh opens a new window immediately) — including a comp whose read FAILED, so an unreachable
+	 * leaderboard is retried on the same slow cadence instead of every poll. A comp that stopped
+	 * running is dropped, so the cache can't outlive it.
+	 */
+	private void refreshWeeklyBoards(List<BingoApiClient.ScheduledWeekly> live, boolean force)
+	{
+		final long now = System.currentTimeMillis();
+		if (force || now - weeklyBoardsAt >= WEEKLY_STANDINGS_TTL_MS)
+		{
+			weeklyBoardsTried.clear();
+			weeklyBoardsAt = now;
+		}
+		java.util.Set<Integer> liveIds = new java.util.HashSet<>();
+		for (BingoApiClient.ScheduledWeekly w : live)
+		{
+			liveIds.add(w.id);
+			if (!weeklyBoardsTried.add(w.id))
+			{
+				continue; // already read this window — the cached board stands
+			}
+			try
+			{
+				BingoApiClient.WeeklyLeaderboard lb = apiClient.fetchWeeklyLeaderboard(w.id);
+				if (lb != null)
+				{
+					weeklyBoards.put(w.id, lb);
+				}
+			}
+			catch (RuntimeException e)
+			{
+				// A weekly board is a nice-to-have: keep whatever we had and render the comp without it.
+				log.debug("weekly leaderboard fetch failed for {}", w.id, e);
+			}
+		}
+		weeklyBoards.keySet().retainAll(liveIds);
+		weeklyBoardsTried.retainAll(liveIds);
+	}
+
+	/** Fold one comp + its (possibly absent) leaderboard into the panel's weekly card. */
+	private ConnectionView.WeeklyView toWeeklyView(BingoApiClient.ScheduledWeekly w,
+		BingoApiClient.WeeklyLeaderboard lb, String me)
+	{
+		List<ConnectionView.Standing> top = new ArrayList<>();
+		int yourRank = 0;
+		long yourGained = 0;
+		int participants = 0;
+		if (lb != null && isLive(w.status))
+		{
+			participants = lb.total;
+			if (lb.entries != null)
+			{
+				for (BingoApiClient.LeaderboardEntry e : lb.entries)
+				{
+					if (e == null)
+					{
+						continue;
+					}
+					// Match on whitespace-normalized names — OSRS display names carry non-breaking
+					// spaces, so a raw equalsIgnoreCase both misses and mis-flags the local player.
+					boolean self = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
+					if (self)
+					{
+						yourRank = e.rank;
+						yourGained = e.gained;
+					}
+					if (top.size() < WEEKLY_TOP_LIMIT || self)
+					{
+						top.add(new ConnectionView.Standing(e.rank, e.rsn, e.gained, self));
+					}
+				}
+			}
+		}
+		return new ConnectionView.WeeklyView(w.id, w.title, w.type, w.metric, w.startDate, w.endDate,
+			!isLive(w.status), yourRank, yourGained, participants, top, weeklyUrlFor(w.id));
+	}
+
+	/** The comp's page on the site, or null when the base URL is unknown (offline / unconfigured). */
+	private String weeklyUrlFor(int competitionId)
+	{
+		String base = apiClient.getApiUrl();
+		return base == null || base.isEmpty() ? null : base + "/weekly/" + competitionId;
+	}
+
+	/** Lower-cased, whitespace-collapsed RSN for robust comparisons (OSRS names use U+00A0). */
+	private static String normalizeRsn(String rsn)
+	{
+		return rsn == null ? "" : rsn.replaceAll("[\\s\\u00a0]+", " ").trim().toLowerCase();
 	}
 
 	/**
