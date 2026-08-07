@@ -4829,7 +4829,7 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** Selector match for a PvP tile against a normalised victim RSN ('team:other' / 'rsn:&lt;name&gt;'). */
+    /** Selector match for a PvP tile against a normalised victim RSN ('any' / 'team:other' / 'rsn:&lt;name&gt;'). */
     private boolean pvpVictimMatchesTile(PluginConfigResponse.TrackedPvp tile, String victimNorm, Integer myTeam) {
         if (tile.targets == null) {
             return false;
@@ -4840,7 +4840,11 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             String s = sel.trim();
-            if (s.equalsIgnoreCase("team:other")) {
+            if (s.equalsIgnoreCase("any")) {
+                // Any player kill counts — no team/bounty restriction (the caller already gated on
+                // dangerous-PvP, so safe minigames don't reach here).
+                return true;
+            } else if (s.equalsIgnoreCase("team:other")) {
                 if (victimTeam != null && myTeam != null && !victimTeam.equals(myTeam)) {
                     return true;
                 }
