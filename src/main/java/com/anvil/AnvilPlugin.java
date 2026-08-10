@@ -62,6 +62,7 @@ import java.io.File;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.awt.image.BufferedImage;
+import javax.swing.SwingUtilities;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -1096,7 +1097,16 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         configureApiClient();
-        scheduleRefresh();
+        // Setting the Site URL or Account Token is a deliberate one-shot edit — a paste, or the
+        // sign-in flow storing the token — not the rapid churn the debounce exists to coalesce.
+        // Waiting on it left the sidebar looking dead for up to POLL_INTERVAL_MS (15s): the token
+        // was live, the cache filled ~1s later, but the panel only repaints on its own timer. Fetch
+        // now and poke the panel when it lands.
+        if ("apiUrl".equals(event.getKey()) || "playerToken".equals(event.getKey())) {
+            refreshNowAndRepaint();
+        } else {
+            scheduleRefresh();
+        }
 
         String key = event.getKey();
         // Setup pasted mid-session (the typical first install: enable the plugin while
@@ -3684,6 +3694,29 @@ public class AnvilPlugin extends Plugin {
      * Debounced config refresh — collapses multiple rapid onConfigChanged calls
      * into one fetch.
      */
+    /**
+     * Fetch config immediately (cancelling any debounced refresh) and repaint the sidebar once it
+     * lands. For credential changes only — everything else can wait for the debounce.
+     */
+    private synchronized void refreshNowAndRepaint() {
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        if (pendingRefresh != null && !pendingRefresh.isDone()) {
+            pendingRefresh.cancel(false);
+        }
+        if (!apiClient.isConfigured()) {
+            // Half-configured (URL but no token, or vice versa): nothing to fetch, but the panel
+            // still needs to re-evaluate its sign-in row against the new state.
+            SwingUtilities.invokeLater(sidebarPanel::refresh);
+            return;
+        }
+        executor.submit(() -> {
+            safely("refreshConfig", this::refreshConfig);
+            SwingUtilities.invokeLater(sidebarPanel::refresh);
+        });
+    }
+
     private synchronized void scheduleRefresh() {
         if (!apiClient.isConfigured() || executor == null || executor.isShutdown()) {
             return;
