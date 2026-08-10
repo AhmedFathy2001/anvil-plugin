@@ -319,7 +319,25 @@ public class AnvilSidebarPanel extends PluginPanel
 					// Storing the token fires the plugin's onConfigChanged → client reconfigure,
 					// identity stamp + greet, and a sidebar refresh — the same path as a manual paste.
 					configManager.setConfiguration("osrsbingo", "playerToken", result.token);
-					signInStatus.setVisible(false);
+
+					// Read it straight back. A signed-in-but-empty config is the one failure mode a
+					// member can't diagnose: the site says they approved, the panel keeps asking them
+					// to sign in, and nothing explains why. It happens when the config write doesn't
+					// take — a synced RuneLite profile clobbered by a second client, most often — and
+					// it MUST NOT look like the sign-in itself failed. Say what happened and give them
+					// the manual route, which always works.
+					String stored = configManager.getConfiguration("osrsbingo", "playerToken");
+					if (stored == null || stored.isEmpty())
+					{
+						log.warn("Anvil: signed in but the token did not persist to the RuneLite config");
+						signInStatus.setText("Signed in, but RuneLite didn't save the token — paste it "
+							+ "from Profile → RuneLite plugin on the site.");
+						signInStatus.setVisible(true);
+					}
+					else
+					{
+						signInStatus.setVisible(false);
+					}
 				}
 				refreshSignInRow();
 				refresh();
