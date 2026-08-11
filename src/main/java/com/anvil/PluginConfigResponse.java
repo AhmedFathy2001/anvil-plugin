@@ -99,6 +99,10 @@ public class PluginConfigResponse
 	public List<String> spoonTaunts;                   // server-managed lucky-drop reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
 	public boolean showKillCount = true;               // server toggle: include boss/raid KC on rare-drop posts
+	// Clan-wide rare-drop rarity floor (1-in-N). A member may post only drops at least this rare;
+	// their own setting can be stricter but not looser. 0 / absent = no clan floor. Lets an admin
+	// quiet a noisy channel for everyone from the site instead of asking each member to edit config.
+	public int dropRarityFloor;
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 

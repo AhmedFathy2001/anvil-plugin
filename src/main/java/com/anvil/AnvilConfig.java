@@ -266,13 +266,15 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "rareDropMinRarity",
 		name = "Min drop rarity (1 in N)",
-		description = "Also post extremely rare NPC/pickpocket drops regardless of value (e.g. 5000 = rarer than 1/5000). Minimum enforced: 1/1000. 0 disables rarity-based posts.",
+		description = "Also post extremely rare NPC/pickpocket drops regardless of value (e.g. 10000 = rarer than 1/10000). Your clan can enforce a higher floor. Minimum enforced: 1/1000. 0 disables rarity-based posts.",
 		position = 3,
 		section = "dropsSection"
 	)
 	default int rareDropMinRarity()
 	{
-		return 5000;
+		// 1/10,000. Anything looser turns the channel into herb and seed rolls — at 1/2000 a normal
+		// slayer task posts several times. Raised from 1/5000; see AnvilPlugin.migrateConfigDefaults.
+		return 10_000;
 	}
 
 	@ConfigItem(
