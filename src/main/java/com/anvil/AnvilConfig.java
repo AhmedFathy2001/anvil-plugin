@@ -352,10 +352,22 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "caScreenshot",
+		name = "Screenshot combat tasks",
+		description = "Attach a screenshot to combat-achievement posts, the way drop posts work. Requires 'Notify on combat achievements'.",
+		position = 3,
+		section = "caSection"
+	)
+	default boolean caScreenshot()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "notifyLevelUps",
 		name = "Notify on 99s & high totals",
 		description = "Post to the clan combat-achievements channel when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
-		position = 3,
+		position = 4,
 		section = "caSection"
 	)
 	default boolean notifyLevelUps()
@@ -367,7 +379,7 @@ public interface AnvilConfig extends Config
 		keyName = "notifyDiaries",
 		name = "Notify on diary completions",
 		description = "Post to the clan achievements channel when you complete an achievement-diary tier.",
-		position = 4,
+		position = 5,
 		section = "caSection"
 	)
 	default boolean notifyDiaries()
@@ -380,7 +392,7 @@ public interface AnvilConfig extends Config
 		name = "Announce quest completions",
 		description = "Post quest completions to the clan achievements channel at or above this difficulty. "
 			+ "\"Master & up\" covers Master and Grandmaster quests.",
-		position = 5,
+		position = 6,
 		section = "caSection"
 	)
 	default QuestAnnounceTier questAnnounce()
