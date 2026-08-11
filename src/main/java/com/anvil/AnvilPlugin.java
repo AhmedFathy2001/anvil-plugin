@@ -623,6 +623,12 @@ public class AnvilPlugin extends Plugin {
     private int eventTickAccumulator = 0;
     private java.util.concurrent.ScheduledFuture<?> counterPushTask;
     private final Map<String, Long> lastLootValueAt = new HashMap<>();
+    // Item ids (by lowercased name) and the source from the last loot event, so a collection-log
+    // unlock line — which carries only text — can still draw the right sprite and name where it came
+    // from. Expired against CLOG_LOOT_DEDUP_MS; guarded by its own monitor.
+    private final Map<String, RecentItem> recentLootIds = new HashMap<>();
+    private String lastLootSource;
+    private long lastLootSourceAt;
     private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
     /** Game ticks in a minute (600ms each). */
     private static final int TICKS_PER_MINUTE = 100;
@@ -2105,7 +2111,12 @@ public class AnvilPlugin extends Plugin {
             if (item.endsWith(".")) {
                 item = item.substring(0, item.length() - 1).trim();
             }
+            // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
+            // unlock at the drops channel, while every OTHER new slot goes quietly to the
+            // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
+            // so a Dizana's quiver never lands twice.
             maybeNotifyCollectionUnlock(item);
+            maybeNotifyClogSlot(item);
             // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
             // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
             // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
@@ -4523,6 +4534,10 @@ public class AnvilPlugin extends Plugin {
      * LootReceived double-fire for the same haul. Client thread only (itemManager.getItemPrice).
      */
     private void recordEventLoot(String source, Collection<ItemStack> items, String sourceKind) {
+        // Note the haul for the clog notifier BEFORE the event gate: a collection-log unlock is worth
+        // announcing whether or not a bingo is running, so its sprite/source lookup can't be gated on
+        // one. Cheap — a few map writes that expire on their own.
+        rememberLootForClog(source, items);
         if (items == null || items.isEmpty() || trackingGateReason() != null) {
             return;
         }
@@ -5297,6 +5312,145 @@ public class AnvilPlugin extends Plugin {
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
+        }
+    }
+
+    /**
+     * Posts a NEW collection-log slot to the clan achievements channel.
+     *
+     * The unlock line is already parsed here to credit bingo tiles; this turns the same signal into
+     * the post other notifiers have had for years. Deliberately separate from
+     * {@link #maybeNotifyCollectionUnlock}: that one is the prestige allowlist shouting at the drops
+     * channel, this is every other slot filling in quietly next to diaries and combat tasks. An
+     * allowlisted item is skipped here so the two never double-post the same unlock.
+     *
+     * The count Dink shows ("548/1712") isn't available: this client version exposes no varbit for
+     * collection-log totals, and guessing one would be worse than omitting it. Everything else — the
+     * item, its sprite, that it's genuinely new, and the screenshot — is here.
+     */
+    private void maybeNotifyClogSlot(String itemName) {
+        if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) {
+            return;
+        }
+        if (!notifyEnabled("combatAchievements")) {
+            return;
+        }
+        // The prestige path already posted this one to the drops channel.
+        if (isAlwaysNotifyItem(itemName)) {
+            return;
+        }
+        // The unlock line can echo on more than one chat channel; the shared name dedup keeps this
+        // to one post per item.
+        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
+            return;
+        }
+
+        String rsn = getLocalPlayerName();
+        String shotName = "anvil-clog.png";
+        com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        if (rsn != null && !rsn.isEmpty()) {
+            com.google.gson.JsonObject author = new com.google.gson.JsonObject();
+            author.addProperty("name", rsn);
+            embed.add("author", author);
+        }
+        embed.addProperty("title", "📕 " + itemName);
+        embed.addProperty("description",
+                (rsn != null ? rsn : "A clan member") + " added a new slot to their collection log.");
+        embed.addProperty("color", CA_EMBED_COLOR);
+        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
+
+        com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
+        fields.add(statField("Status", "New!"));
+        String source = recentLootSource();
+        if (source != null) {
+            fields.add(statField("From", source));
+        }
+        embed.add("fields", fields);
+
+        // The item's own sprite: resolved from the loot event that just delivered it (which covers
+        // untradeables the GE search can't find), falling back to the GE item list.
+        Integer itemId = resolveItemIdByName(itemName);
+        if (itemId != null && itemId > 0) {
+            com.google.gson.JsonObject thumb = new com.google.gson.JsonObject();
+            thumb.addProperty("url", itemIconUrl(itemId));
+            embed.add("thumbnail", thumb);
+        }
+
+        if (config.clogScreenshot()) {
+            com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+            image.addProperty("url", "attachment://" + shotName);
+            embed.add("image", image);
+            captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
+        } else {
+            apiClient.postNotification("combatAchievements", null, embed, null, null);
+        }
+    }
+
+    /**
+     * Item id for a name we only know as text (the collection-log line gives no id). Prefers ids seen
+     * in a recent loot event — that covers untradeables the GE search will never return — and falls
+     * back to an exact-name GE lookup. Null when neither knows it; the post simply loses its sprite.
+     */
+    private Integer resolveItemIdByName(String name) {
+        String key = name.toLowerCase(java.util.Locale.ROOT);
+        long now = System.currentTimeMillis();
+        synchronized (recentLootIds) {
+            recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
+            RecentItem hit = recentLootIds.get(key);
+            if (hit != null) {
+                return hit.itemId;
+            }
+        }
+        return findTradeableItemId(name);
+    }
+
+    /** Where the last loot came from, if it landed recently enough to be this unlock's source. */
+    private String recentLootSource() {
+        synchronized (recentLootIds) {
+            if (lastLootSource == null || System.currentTimeMillis() - lastLootSourceAt > CLOG_LOOT_DEDUP_MS) {
+                return null;
+            }
+            return lastLootSource;
+        }
+    }
+
+    /**
+     * Remember the items (and where they came from) in a loot event, so a collection-log line landing
+     * moments later can name the source and draw the right sprite. Bounded by the same window the
+     * clog/loot dedup already uses; entries expire rather than accumulating.
+     */
+    private void rememberLootForClog(String source, Collection<ItemStack> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        synchronized (recentLootIds) {
+            recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
+            for (ItemStack it : items) {
+                if (it == null || it.getId() <= 0) {
+                    continue;
+                }
+                String name = itemName(it.getId());
+                if (name != null && !name.isEmpty()) {
+                    recentLootIds.put(name.toLowerCase(java.util.Locale.ROOT), new RecentItem(it.getId(), now));
+                }
+            }
+            if (source != null && !source.isEmpty()) {
+                lastLootSource = source;
+                lastLootSourceAt = now;
+            }
+        }
+    }
+
+    /** An item id seen in a recent loot event, with the time it landed. */
+    private static final class RecentItem {
+
+        final int itemId;
+        final long at;
+
+        RecentItem(int itemId, long at) {
+            this.itemId = itemId;
+            this.at = at;
         }
     }
 

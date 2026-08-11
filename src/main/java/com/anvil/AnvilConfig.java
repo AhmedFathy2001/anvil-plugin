@@ -364,10 +364,34 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "notifyClogSlots",
+		name = "Notify on collection log slots",
+		description = "Post every NEW collection-log slot to the clan achievements channel. Prestige items (Infernal cape, quivers, …) still go to the drops channel instead, so nothing posts twice.",
+		position = 4,
+		section = "caSection"
+	)
+	default boolean notifyClogSlots()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "clogScreenshot",
+		name = "Screenshot collection log slots",
+		description = "Attach a screenshot to collection-log posts. Requires 'Notify on collection log slots'.",
+		position = 5,
+		section = "caSection"
+	)
+	default boolean clogScreenshot()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "notifyLevelUps",
 		name = "Notify on 99s & high totals",
 		description = "Post to the clan combat-achievements channel when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
-		position = 4,
+		position = 6,
 		section = "caSection"
 	)
 	default boolean notifyLevelUps()
@@ -379,7 +403,7 @@ public interface AnvilConfig extends Config
 		keyName = "notifyDiaries",
 		name = "Notify on diary completions",
 		description = "Post to the clan achievements channel when you complete an achievement-diary tier.",
-		position = 5,
+		position = 7,
 		section = "caSection"
 	)
 	default boolean notifyDiaries()
@@ -392,7 +416,7 @@ public interface AnvilConfig extends Config
 		name = "Announce quest completions",
 		description = "Post quest completions to the clan achievements channel at or above this difficulty. "
 			+ "\"Master & up\" covers Master and Grandmaster quests.",
-		position = 6,
+		position = 8,
 		section = "caSection"
 	)
 	default QuestAnnounceTier questAnnounce()
