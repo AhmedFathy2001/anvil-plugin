@@ -111,7 +111,7 @@ settings choose what *you* share:
 | Notify on PvP kill | `false` | Post to the clan PvP channel when you kill a player |
 | Notify on rare drops | `true` | Post valuable drops to the clan rare-drops channel |
 | Min drop value | `5,000,000` | Post a single drop worth at least this (higher of GE / high-alch). `0` disables value posts |
-| Min drop rarity (1 in N) | `1000` | Also post very rare NPC/pickpocket drops regardless of value (catches cheap-but-rare uniques). `0` disables |
+| Min drop rarity (1 in N) | `10,000` | Also post very rare NPC/pickpocket drops regardless of value (catches cheap-but-rare uniques). Your clan can enforce a higher floor from the site; yours applies when it's stricter. `0` disables |
 | Screenshot rare drops | `true` | Attach a screenshot to rare-drop posts |
 | Loot key value | `1,000,000` | Post a loot key as **one** notification when its contents total at least this. Loot keys only. `0` disables |
 | Notify on pets | `true` | Post when you receive a pet |

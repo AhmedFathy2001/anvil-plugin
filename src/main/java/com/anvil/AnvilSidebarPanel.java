@@ -1755,18 +1755,36 @@ public class AnvilSidebarPanel extends PluginPanel
 		share.addActionListener(e ->
 		{
 			share.setEnabled(false);
-			new SwingWorker<Boolean, Void>()
+			setSiteConnectStatus("");
+			new SwingWorker<BingoApiClient.ShareResult, Void>()
 			{
 				@Override
-				protected Boolean doInBackground()
+				protected BingoApiClient.ShareResult doInBackground()
 				{
-					boolean ok = apiClient.federationShare(c.instanceId, !shared);
-					return ok;
+					return apiClient.federationShare(c.instanceId, !shared);
 				}
 
 				@Override
 				protected void done()
 				{
+					BingoApiClient.ShareResult result;
+					try
+					{
+						result = get();
+					}
+					catch (Exception ex)
+					{
+						result = new BingoApiClient.ShareResult(false, "Couldn't reach the site — try again.");
+					}
+					if (!result.ok)
+					{
+						// The server refuses for reasons the member can fix (account not verified here,
+						// not logged into it, clan not connected). Say so — silently re-rendering the
+						// same button made a refusal look exactly like a successful share.
+						share.setEnabled(true);
+						setSiteConnectStatus(result.error);
+						return;
+					}
 					// Forced refresh: the share rides the next exchange relay — force it now so the
 					// remote learns (or forgets) the RSN within seconds, and the button re-labels.
 					refresh(true);

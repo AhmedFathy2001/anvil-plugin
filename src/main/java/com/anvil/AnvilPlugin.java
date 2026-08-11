@@ -614,6 +614,14 @@ public class AnvilPlugin extends Plugin {
     private java.util.concurrent.ScheduledFuture<?> counterPushTask;
     private final Map<String, Long> lastLootValueAt = new HashMap<>();
     private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
+    // Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
+    // persists every setting the moment a plugin first runs, so a new default alone reaches nobody
+    // who has already used the plugin — the migration below is what actually moves them.
+    private static final String CFG_DEFAULTS_VERSION = "configDefaultsVersion";
+    private static final int CURRENT_DEFAULTS_VERSION = 1;
+    // The stored value a v0 install carries if the member never touched the rarity setting.
+    private static final int LEGACY_RARITY_DEFAULT = 5000;
+
     private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
     private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
@@ -750,6 +758,7 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        migrateConfigDefaults();
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
 
@@ -5031,8 +5040,7 @@ public class AnvilPlugin extends Plugin {
         // 1m, and rarity posts must be rarer than 1/1000. 0 still means "disabled".
         int rawValue = config.rareDropMinValue();
         long valueThreshold = rawValue <= 0 ? 0 : Math.max(1_000_000, rawValue);
-        int rawRarity = config.rareDropMinRarity();
-        int rarityThreshold = rawRarity <= 0 ? 0 : Math.max(1000, rawRarity);
+        int rarityThreshold = effectiveRarityFloor();
         AbstractRarityService rarity = raritySource(sourceKind);
 
         // Standout items get bundled into one post so a single kill never produces a surge.
@@ -5153,10 +5161,15 @@ public class AnvilPlugin extends Plugin {
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " received " + name
                 + (source != null && !source.isEmpty() ? " from " + source : "") + "!";
-        desc += "\n" + randomSpoonLine();
+        // Earned awards (Infernal cape, Dizana's quiver…) skip the lucky-drop line: they're the
+        // reward for finishing the content, and calling a hard-won clear "spooned" reads as a jab.
+        if (!DropLuck.isEarnedAward(name)) {
+            desc += "\n" + randomSpoonLine();
+        }
         // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
         com.google.gson.JsonObject embed = buildDropEmbed(
-                "💎 Notable drop!", desc, name, qty, value, null, killCountFor(source), shotName);
+                DropLuck.isEarnedAward(name) ? "🏆 Earned!" : "💎 Notable drop!",
+                desc, name, itemId, qty, value, null, killCountFor(source), shotName);
 
         if (config.rareDropScreenshot()) {
             postRareDropWithScreenshot(embed, shotName);
@@ -5188,10 +5201,13 @@ public class AnvilPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " unlocked " + itemName + "!";
-        desc += "\n" + randomSpoonLine();
+        boolean earned = DropLuck.isEarnedAward(itemName);
+        if (!earned) {
+            desc += "\n" + randomSpoonLine();
+        }
         // No item id here (the message gives only a name), so value is unknown — omit it.
         com.google.gson.JsonObject embed = buildDropEmbed(
-                "💎 Notable drop!", desc, itemName, 1, 0, null, null, shotName);
+                earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, 1, 0, null, null, shotName);
 
         if (config.rareDropScreenshot()) {
             postRareDropWithScreenshot(embed, shotName);
@@ -5255,6 +5271,50 @@ public class AnvilPlugin extends Plugin {
      * Most recent kill/clear count parsed for a loot source, or null if unknown
      * or the server has switched the KC display off.
      */
+    /**
+     * Move stale shipped defaults forward, once per install.
+     *
+     * v1: the rare-drop rarity floor went 1/5000 → 1/10000, because 1/5000 posts herb and seed
+     * rolls off an ordinary slayer task. Only rewrites a value still sitting on the OLD default —
+     * anyone who deliberately picked a number keeps it. A clan that wants a floor for everyone sets
+     * it on the site instead (see effectiveRarityFloor).
+     */
+    private void migrateConfigDefaults() {
+        try {
+            Integer stored = configManager.getConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, int.class);
+            int version = stored == null ? 0 : stored;
+            if (version >= CURRENT_DEFAULTS_VERSION) {
+                return;
+            }
+            if (version < 1 && config.rareDropMinRarity() == LEGACY_RARITY_DEFAULT) {
+                configManager.setConfiguration("osrsbingo", "rareDropMinRarity", 10_000);
+                log.info("Anvil: raised rare-drop rarity floor to 1/10000 (was the old 1/5000 default)");
+            }
+            configManager.setConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, CURRENT_DEFAULTS_VERSION);
+        } catch (Exception e) {
+            // A migration hiccup must never stop the plugin loading.
+            log.debug("Anvil config-defaults migration skipped: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * The rarity gate actually in force: rarer than 1-in-N, or 0 when rarity posts are off.
+     *
+     * Two inputs. The member's own setting is a preference; the clan's {@code dropRarityFloor} (from
+     * /api/plugin/config) is a floor the member can tighten but not loosen. That's what stops one
+     * person's 1/2000 setting from filling a shared channel with herb rolls, and it lets an admin
+     * fix the whole clan from the site instead of asking everyone to edit their config.
+     */
+    private int effectiveRarityFloor() {
+        int raw = config.rareDropMinRarity();
+        if (raw <= 0) {
+            return 0; // member disabled rarity posts entirely — the clan floor doesn't re-enable them
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        int clanFloor = cfg != null && cfg.dropRarityFloor > 0 ? cfg.dropRarityFloor : 0;
+        return Math.max(Math.max(1000, raw), clanFloor);
+    }
+
     private Integer killCountFor(String source) {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg != null && !cfg.showKillCount) {
@@ -5267,13 +5327,18 @@ public class AnvilPlugin extends Plugin {
         String name = itemName(itemId);
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
-        String desc = (rsn != null ? rsn : "A clan member") + " received a valuable drop"
+        Integer kc = killCountFor(source);
+        // A rare roll on something worthless is a punchline, not a prize — say so instead of
+        // dressing a Dragon spear up as treasure.
+        boolean troll = DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
+        String desc = (rsn != null ? rsn : "A clan member")
+                + (troll ? " got robbed" : " received a valuable drop")
                 + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
-        if (isSpoon(value, dropRate)) {
+        if (DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE)) {
             desc += "\n" + randomSpoonLine();
         }
         com.google.gson.JsonObject embed = buildDropEmbed(
-                "💰 Rare drop!", desc, name, qty, value, dropRate, killCountFor(source), shotName);
+                troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName);
 
         if (config.rareDropScreenshot()) {
             postRareDropWithScreenshot(embed, shotName);
@@ -5305,26 +5370,37 @@ public class AnvilPlugin extends Plugin {
 
         String desc = (rsn != null ? rsn : "A clan member") + " received a valuable haul"
                 + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
-        if (isSpoon(total, null)) {
+        // No single rate to judge a mixed haul by, so the combined value decides.
+        if (total >= SPOON_VALUE) {
             desc += "\n" + randomSpoonLine();
         }
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        if (rsn != null && !rsn.isEmpty()) {
+            com.google.gson.JsonObject author = new com.google.gson.JsonObject();
+            author.addProperty("name", rsn);
+            embed.add("author", author);
+        }
         embed.addProperty("title", "💰 Rare drop!");
         embed.addProperty("description", desc);
         embed.addProperty("color", RARE_EMBED_COLOR);
 
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
         fields.add(embedField("Top item", topLabel, false));
-        fields.add(embedField("Total value", String.format("%,d gp", total), true));
-        fields.add(embedField("Items", String.valueOf(items.size()), true));
+        fields.add(statField("Total value", String.format("%,d gp", total)));
+        fields.add(statField("Items", String.valueOf(items.size())));
         Integer kc = killCountFor(source);
         if (kc != null && kc > 0) {
-            fields.add(embedField("KC", String.format("%,d", kc), true));
+            fields.add(statField("KC", String.format("%,d", kc)));
         }
         embed.add("fields", fields);
 
         // Link the standout item to its wiki page, matching single-item posts.
         embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + topName.replace(' ', '_'));
+
+        // The haul's headline item carries the thumbnail.
+        com.google.gson.JsonObject thumb = new com.google.gson.JsonObject();
+        thumb.addProperty("url", itemIconUrl(top.itemId));
+        embed.add("thumbnail", thumb);
 
         com.google.gson.JsonObject image = new com.google.gson.JsonObject();
         image.addProperty("url", "attachment://" + shotName);
@@ -5853,32 +5929,68 @@ public class AnvilPlugin extends Plugin {
 
     private com.google.gson.JsonObject buildDropEmbed(String title, String description,
             String itemName, int qty, long value, Double dropRate, Integer killCount, String shotName) {
+        return buildDropEmbed(title, description, itemName, -1, qty, value, dropRate, killCount, shotName);
+    }
+
+    /**
+     * The drop embed. {@code itemId} (or -1 when unknown) adds the item's own sprite as the
+     * thumbnail — the same image the game draws, so a channel skim reads as icons rather than text.
+     * Numeric fields are wrapped in backticks so Discord boxes them; see the site's
+     * lib/discordEmbeds for the house style this matches.
+     */
+    private com.google.gson.JsonObject buildDropEmbed(String title, String description,
+            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName) {
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
+        String rsn = getLocalPlayerName();
+        if (rsn != null && !rsn.isEmpty()) {
+            com.google.gson.JsonObject author = new com.google.gson.JsonObject();
+            author.addProperty("name", rsn);
+            embed.add("author", author);
+        }
         embed.addProperty("title", title);
         embed.addProperty("description", description);
         embed.addProperty("color", RARE_EMBED_COLOR);
 
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
-        fields.add(embedField("Item", qty > 1 ? itemName + " ×" + qty : itemName, true));
+        fields.add(statField("Item", qty > 1 ? itemName + " ×" + qty : itemName));
         if (value > 0) {
-            fields.add(embedField("Value", String.format("%,d gp", value), true));
+            fields.add(statField("Value", String.format("%,d gp", value)));
         }
         if (dropRate != null && dropRate > 0) {
             long oneIn = Math.round(1.0 / dropRate);
-            fields.add(embedField("Drop rate", "1/" + String.format("%,d", oneIn), true));
+            fields.add(statField("Drop rate", "1/" + String.format("%,d", oneIn)));
         }
         if (killCount != null && killCount > 0) {
-            fields.add(embedField("KC", String.format("%,d", killCount), true));
+            fields.add(statField("KC", String.format("%,d", killCount)));
+        }
+        // Luck reads the rate against the kill count — silent unless the result is worth a remark.
+        String luck = DropLuck.luckLabel(dropRate, killCount);
+        if (luck != null) {
+            fields.add(statField("Luck", luck));
         }
         embed.add("fields", fields);
 
         // Wiki link (OSRS wiki uses underscores for spaces).
         embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
 
+        if (itemId > 0) {
+            com.google.gson.JsonObject thumb = new com.google.gson.JsonObject();
+            thumb.addProperty("url", itemIconUrl(itemId));
+            embed.add("thumbnail", thumb);
+        }
+
         com.google.gson.JsonObject image = new com.google.gson.JsonObject();
         image.addProperty("url", "attachment://" + shotName);
         embed.add("image", image);
         return embed;
+    }
+
+    /**
+     * RuneLite's static export of the game cache — the exact sprite the client renders, on a public
+     * CDN Discord can fetch. Mirrors the site's lib/tileIcons.itemIconUrl.
+     */
+    private static String itemIconUrl(int itemId) {
+        return "https://static.runelite.net/cache/item/icon/" + itemId + ".png";
     }
 
     private static com.google.gson.JsonObject embedField(String name, String value, boolean inline) {
@@ -5887,6 +5999,11 @@ public class AnvilPlugin extends Plugin {
         f.addProperty("value", value);
         f.addProperty("inline", inline);
         return f;
+    }
+
+    /** An inline field whose value is a number or short token — boxed with backticks. */
+    private static com.google.gson.JsonObject statField(String name, String value) {
+        return embedField(name, "`" + value.replace("`", "") + "`", true);
     }
 
     /**
@@ -5962,14 +6079,6 @@ public class AnvilPlugin extends Plugin {
         List<String> pool = (cfg != null && cfg.spoonTaunts != null && !cfg.spoonTaunts.isEmpty())
                 ? cfg.spoonTaunts : SPOON_TAUNTS;
         return randomLine(pool);
-    }
-
-    /**
-     * A drop worth a spoon reaction: a rare unique (rarity reported), or a
-     * high-value haul.
-     */
-    private boolean isSpoon(long value, Double dropRate) {
-        return (dropRate != null && dropRate > 0) || value >= SPOON_VALUE;
     }
 
     /**
