@@ -1263,6 +1263,8 @@ public class ClogTabController
 				return "Boss of the Week";
 			case "skill":
 				return "Skill of the Week";
+			case "efficiency":
+				return "Efficiency of the Week";
 			default:
 				return "All";
 		}
@@ -1270,7 +1272,7 @@ public class ClogTabController
 
 	private void cycleEventTypeFilter()
 	{
-		String[] order = {"", "bingo", "boss", "skill"};
+		String[] order = {"", "bingo", "boss", "skill", "efficiency"};
 		int idx = 0;
 		for (int i = 0; i < order.length; i++)
 		{
@@ -1997,7 +1999,7 @@ public class ClogTabController
 				{
 					if (w != null && matchesWeeklyType(w.type))
 					{
-						String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "Boss of the Week";
+						String kind = ConnectionView.WeeklyView.kindLabel(w.type);
 						entries.add(new SchedEntry(w.id, w.type, w.title, kind, w.status, w.startDate, w.endDate, true, null, null));
 					}
 				}
@@ -2126,9 +2128,11 @@ public class ClogTabController
 			header.deleteAllChildren();
 			if (lb != null && lb.competition != null)
 			{
-				String kind = "skill".equalsIgnoreCase(lb.competition.type) ? "Skill of the Week" : "Boss of the Week";
+				String kind = ConnectionView.WeeklyView.kindLabel(lb.competition.type);
 				bannerLine(header, lb.competition.title == null ? kind : lb.competition.title, COL_ORANGE, 0);
-				bannerLine(header, kind + "  <col=666666>·</col>  " + nz(lb.competition.metric), 0xffffff, BANNER_LINE_3);
+				// metricLabel, not the raw key: an EHP week read "ehp" here (and "Boss of the Week" above).
+				bannerLine(header, kind + "  <col=666666>·</col>  "
+					+ nz(ConnectionView.WeeklyView.metricLabel(lb.competition.type, lb.competition.metric)), 0xffffff, BANNER_LINE_3);
 				// Live countdown instead of a plain date range — onGameTick refreshes this one line.
 				countdownStart = lb.competition.startDate;
 				countdownEnd = lb.competition.endDate;
@@ -2185,7 +2189,8 @@ public class ClogTabController
 				// Match on whitespace-normalized names — OSRS display names use non-breaking
 				// spaces, so a raw equalsIgnoreCase can miss the local player (and mis-flag).
 				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
-				y += leaderboardRow(items, e.rank, e.rsn, e.gained, isMe, y, paneWidth, true);
+				// EHP/EHB gains are milli-hours — "+12.40 hrs", not "+12,400".
+				y += leaderboardRow(items, e.rank, e.rsn, gainText(lb.competition, e.gained), isMe, y, paneWidth);
 			}
 		}
 
@@ -2194,8 +2199,22 @@ public class ClogTabController
 		updateScrollbar(items);
 	}
 
-	// plus=true prefixes "+" (weekly XP/KC gained); ladder points pass false (an absolute score, not a gain).
-	private int leaderboardRow(Widget items, int rank, String rsn, long gained, boolean isMe, int y, int paneWidth, boolean plus)
+	/**
+	 * A weekly gain as the row shows it: "+1,234" for XP/KC, "+12.40 hrs" for an EHP/EHB comp, whose
+	 * values travel in milli-hours. Null competition (shouldn't happen) falls back to the plain count.
+	 */
+	private static String gainText(BingoApiClient.WeeklyComp comp, long gained)
+	{
+		long safe = Math.max(0, gained);
+		if (comp != null && "efficiency".equalsIgnoreCase(comp.type))
+		{
+			return "+" + ConnectionView.WeeklyView.formatGainValue(comp.type, safe) + " "
+				+ ConnectionView.WeeklyView.unitNoun(comp.type);
+		}
+		return "+" + String.format("%,d", safe);
+	}
+
+	private int leaderboardRow(Widget items, int rank, String rsn, String gainedText, boolean isMe, int y, int paneWidth)
 	{
 		int nameColor = isMe ? 0xffcc33
 			: (rank <= 3 ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : 0xe0e0e0);
@@ -2219,8 +2238,7 @@ public class ClogTabController
 		nm.revalidate();
 
 		Widget gn = items.createChild(-1, WidgetType.TEXT);
-		// Floor at 0 so a not-yet-fetched baseline can't show a negative "+-23".
-		gn.setText("<col=ffcc33>" + (plus ? "+" : "") + String.format("%,d", Math.max(0, gained)) + "</col>");
+		gn.setText("<col=ffcc33>" + gainedText + "</col>");
 		gn.setFontId(FONT_PLAIN);
 		gn.setTextShadowed(true);
 		place(gn, paneWidth - 90, ty, 84, 16);
@@ -2307,7 +2325,7 @@ public class ClogTabController
 					continue;
 				}
 				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
-				y += leaderboardRow(items, e.rank, e.rsn, e.points, isMe, y, paneWidth, false);
+				y += leaderboardRow(items, e.rank, e.rsn, String.format("%,d", Math.max(0, e.points)), isMe, y, paneWidth);
 			}
 		}
 

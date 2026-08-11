@@ -1113,7 +1113,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		if (w.yourRank > 0)
 		{
-			return "You: #" + w.yourRank + " · +" + formatCount(w.yourGained) + " " + w.unitNoun();
+			return "You: #" + w.yourRank + " · +" + w.formatGain(w.yourGained);
 		}
 		return w.top.isEmpty() ? "Standings unavailable" : "You're not on the board yet";
 	}
@@ -1150,7 +1150,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				list.add(leftLabel("⋯", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 			}
 			list.add(gap(3));
-			list.add(buildStandingRow(s, w.unitNoun()));
+			list.add(buildStandingRow(s, w));
 			shown++;
 		}
 
@@ -1159,7 +1159,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** One standings row: rank, RSN, gain. The caller's row leads in gold like their own activity does. */
-	private JPanel buildStandingRow(ConnectionView.Standing s, String unit)
+	private JPanel buildStandingRow(ConnectionView.Standing s, ConnectionView.WeeklyView w)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1176,7 +1176,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		name.setForeground(s.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(plainText(s.rsn));
 
-		JLabel gained = new JLabel("+" + formatCount(s.gained) + " " + unit);
+		JLabel gained = new JLabel("+" + w.formatGain(s.gained));
 		gained.setFont(FontManager.getRunescapeSmallFont());
 		gained.setForeground(s.self ? ColorScheme.BRAND_ORANGE : VALUE_COLOR);
 		gained.setHorizontalAlignment(SwingConstants.RIGHT);
@@ -1337,18 +1337,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Compact count: 1_507_300 → "1.5M", 2_000_000 → "2M", 15_000 → "15K", 500 → "500". */
+	// One definition, shared with ConnectionView.WeeklyView's gain formatting (which also has to know
+	// about EHP/EHB milli-hours) so the card and the standings rows can't drift apart.
 	private static String formatCount(long n)
 	{
-		if (n >= 1_000_000)
-		{
-			double m = n / 1_000_000.0;
-			return (m == Math.floor(m) ? String.valueOf((int) m) : String.format("%.1f", m)) + "M";
-		}
-		if (n >= 10_000)
-		{
-			return (n / 1000) + "K";
-		}
-		return String.valueOf(n);
+		return ConnectionView.formatCount(n);
 	}
 
 	/** The team activity feed — one colored line per event (newest first), capped so the panel stays glanceable. */

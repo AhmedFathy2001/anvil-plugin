@@ -312,6 +312,32 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
+	public void efficiencyCompIsItsOwnKindNotABossWeek() throws Exception
+	{
+		// EHP/EHB weeklies used to fall through the "skill ? SOTW : BOTW" test and render as a boss
+		// week, with the raw metric key and a milli-hour gain shown as a five-digit kill count.
+		PluginConfigResponse cfg = withSchedule(eventConfig(),
+			weekly(11, "Efficiency Week", "efficiency", "ehb", "active"));
+		ConnectionView.WeeklyView w = newSource(() -> cfg).fetchConnections().get(0).weeklies.get(0);
+
+		assertTrue(w.isEfficiency());
+		assertEquals("Efficiency of the Week", w.kindLabel());
+		assertEquals("EHB", w.metricLabel());
+		assertEquals("hrs", w.unitNoun());
+		// 12,400 milli-hours is 12.40 hours of bossing, not "+12,400 kc".
+		assertEquals("12.40 hrs", w.formatGain(12_400));
+		assertEquals("a stale baseline can't show negative hours", "0.00 hrs", w.formatGain(-5));
+	}
+
+	@Test
+	public void skillAndBossGainsKeepTheirCompactCounts()
+	{
+		assertEquals("1.2M xp", ConnectionView.WeeklyView.formatGain("skill", 1_200_000));
+		assertEquals("340K xp", ConnectionView.WeeklyView.formatGain("skill", 340_000));
+		assertEquals("184 kc", ConnectionView.WeeklyView.formatGain("boss", 184));
+	}
+
+	@Test
 	public void weekliesRideAlongWhenThereIsNoBingoEvent() throws Exception
 	{
 		// A weekly-only clan: no board, but the sidebar still has an event to show.

@@ -12,6 +12,27 @@ import java.util.List;
  */
 public final class ConnectionView
 {
+	/**
+	 * Milli-hours per hour. EHP/EHB weeklies travel as hours × 1000 (the site's EFFICIENCY_SCALE) so a
+	 * week's gain survives the integer columns it's stored in — divide before showing one.
+	 */
+	static final double EFFICIENCY_SCALE = 1000.0;
+
+	/** Compact count for display: {@code 1.2M} / {@code 340K} / {@code 850}. */
+	static String formatCount(long n)
+	{
+		if (n >= 1_000_000)
+		{
+			double m = n / 1_000_000.0;
+			return (m == Math.floor(m) ? String.valueOf((int) m) : String.format(java.util.Locale.ROOT, "%.1f", m)) + "M";
+		}
+		if (n >= 10_000)
+		{
+			return (n / 1000) + "K";
+		}
+		return String.valueOf(n);
+	}
+
 	/** Stable instance id ({@code federation_instance_id}) — the selection key. */
 	public final String instanceId;
 
@@ -344,27 +365,84 @@ public final class ConnectionView
 			this.url = url;
 		}
 
-		/** "Skill of the Week" / "Boss of the Week" — the card's kind line and the list row's subtitle. */
+		/** True for an EHP/EHB comp — ranked by efficient hours, not one skill's XP or one boss's KC. */
+		public boolean isEfficiency()
+		{
+			return "efficiency".equalsIgnoreCase(type);
+		}
+
+		/**
+		 * "Skill of the Week" / "Boss of the Week" / "Efficiency of the Week" — the card's kind line and
+		 * the list row's subtitle. Public so the callers that hold only a raw type string (the clog tab's
+		 * leaderboard + schedule, the login greeting) name a comp the same way this card does.
+		 */
 		public String kindLabel()
 		{
 			return kindLabel(type);
 		}
 
-		private static String kindLabel(String type)
+		public static String kindLabel(String type)
 		{
-			return "skill".equalsIgnoreCase(type) ? "Skill of the Week" : "Boss of the Week";
+			if ("skill".equalsIgnoreCase(type))
+			{
+				return "Skill of the Week";
+			}
+			// Efficiency comps are a THIRD type, not a fallback: matching only "skill" and letting
+			// everything else read as boss labelled every EHP/EHB week "Boss of the Week".
+			return "efficiency".equalsIgnoreCase(type) ? "Efficiency of the Week" : "Boss of the Week";
 		}
 
 		/** The tracked metric, humanised: {@code "chambers_of_xeric"} → {@code "Chambers of Xeric"}. */
 		public String metricLabel()
 		{
-			return humanise(metric);
+			return metricLabel(type, metric);
 		}
 
-		/** What a gain counts in: XP for a skill comp, kills for a boss one. */
+		public static String metricLabel(String type, String metric)
+		{
+			// "ehp"/"ehb" are initialisms — humanise would title-case them to "Ehp".
+			return "efficiency".equalsIgnoreCase(type)
+				? (metric == null ? "" : metric.toUpperCase(java.util.Locale.ROOT))
+				: humanise(metric);
+		}
+
+		/** What a gain counts in: XP for a skill comp, kills for a boss one, hours for EHP/EHB. */
 		public String unitNoun()
 		{
+			return unitNoun(type);
+		}
+
+		public static String unitNoun(String type)
+		{
+			if ("efficiency".equalsIgnoreCase(type))
+			{
+				return "hrs";
+			}
 			return "skill".equalsIgnoreCase(type) ? "xp" : "kc";
+		}
+
+		/** A gain as the UI shows it — "1.2M xp", "184 kc", "12.40 hrs". */
+		public String formatGain(long gained)
+		{
+			return formatGain(type, gained);
+		}
+
+		public static String formatGain(String type, long gained)
+		{
+			long safe = Math.max(0, gained);
+			return formatGainValue(type, safe) + " " + unitNoun(type);
+		}
+
+		/** The number alone, for callers that place the unit themselves. */
+		public static String formatGainValue(String type, long gained)
+		{
+			long safe = Math.max(0, gained);
+			// Efficiency comps travel in MILLI-hours (the site's EFFICIENCY_SCALE): the weekly's
+			// integer columns would round 12.4 EHB down to 12 and throw away most of a week's gain.
+			// Rendered raw that arrives as "+12,400 kc".
+			return "efficiency".equalsIgnoreCase(type)
+				? String.format(java.util.Locale.ROOT, "%.2f", safe / EFFICIENCY_SCALE)
+				: formatCount(safe);
 		}
 
 		/** Underscored/hyphenated metric keys → title case, keeping the small joining words lowercase. */

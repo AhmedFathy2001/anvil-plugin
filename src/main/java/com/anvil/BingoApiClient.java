@@ -1005,8 +1005,8 @@ public class BingoApiClient
 	{
 		public int id;
 		public String title;
-		public String type;   // "skill" | "boss"
-		public String metric;
+		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
+		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
 		public String startDate;
 		public String endDate;
 	}

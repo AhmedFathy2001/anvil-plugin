@@ -1641,7 +1641,7 @@ public class AnvilPlugin extends Plugin {
         // Greet with whatever's running right now so members know to jump in.
         if (resp.activeWeekly != null) {
             for (BingoApiClient.WeeklyInfo w : resp.activeWeekly) {
-                String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "Boss of the Week";
+                String kind = ConnectionView.WeeklyView.kindLabel(w.type);
                 sendChatMessage(kind + " is live: " + w.title + "!");
             }
         }
