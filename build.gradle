@@ -23,7 +23,9 @@ dependencies {
 }
 
 group = 'com.anvil'
-version = '1.0.0'
+// Single source of truth for the plugin version: BingoApiClient reads the same resource at runtime
+// and sends it to sites as X-Anvil-Plugin-Version (see docs/PLUGIN_WIRE.md in the anvil site repo).
+version = file('src/main/resources/com/anvil/version.txt').text.trim()
 sourceCompatibility = '11'
 targetCompatibility = '11'
 

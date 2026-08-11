@@ -167,6 +167,51 @@ public class TimedClearParserTest
 	}
 
 	@Test
+	public void forgivingRaidModeSpellingsMatchTheModeCountLine()
+	{
+		// The game's CoX Challenge Mode count line carries NO colon. Admins type the mode a dozen
+		// ways; every reasonable spelling must still match (colons/spacing folded, shorthands aliased).
+		String coxCm = "Your completed Chambers of Xeric Challenge Mode count is: 1.";
+		for (String activity : new String[] {
+			"Chambers of Xeric Challenge Mode",
+			"Chambers of Xeric: Challenge Mode",
+			"chambers of xeric challenge mode",
+			"CoX Challenge Mode",
+			"CoX CM",
+			"CoX: CM",
+			"Chambers of Xeric CM",
+		})
+		{
+			assertTrue(activity, TimedClearParser.messageMatchesActivity(coxCm, activity));
+		}
+
+		// ToB Hard Mode + ToA Expert Mode (which DO carry a colon in-game) — same tolerance.
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Theatre of Blood: Hard Mode count is: 3.", "ToB HM"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Theatre of Blood: Hard Mode count is: 3.", "Theatre of Blood Hard Mode"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Tombs of Amascut: Expert Mode count is: 2.", "ToA Expert"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Tombs of Amascut: Expert Mode count is: 2.", "ToA: Expert Mode"));
+	}
+
+	@Test
+	public void modeTileNeverCreditsOffABaseClearButBaseMatchesEveryMode()
+	{
+		String coxBase = "Your completed Chambers of Xeric count is: 306.";
+		String coxCm = "Your completed Chambers of Xeric Challenge Mode count is: 1.";
+
+		// A CM tile must NOT complete off a normal Chambers clear (its line lacks "challenge mode").
+		assertFalse(TimedClearParser.messageMatchesActivity(coxBase, "CoX CM"));
+		assertFalse(TimedClearParser.messageMatchesActivity(coxBase, "Chambers of Xeric: Challenge Mode"));
+
+		// A base Chambers tile keeps matching every harder mode (the mode line contains the base name).
+		assertTrue(TimedClearParser.messageMatchesActivity(coxBase, "Chambers of Xeric"));
+		assertTrue(TimedClearParser.messageMatchesActivity(coxCm, "Chambers of Xeric"));
+		assertTrue(TimedClearParser.messageMatchesActivity(coxCm, "CoX"));
+
+		// ToB Hard Mode tile likewise doesn't fire on a base Theatre clear.
+		assertFalse(TimedClearParser.messageMatchesActivity("Your completed Theatre of Blood count is: 5.", "ToB HM"));
+	}
+
+	@Test
 	public void formatsClock()
 	{
 		assertEquals("2:58", TimedClearParser.formatClock(178));

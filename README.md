@@ -8,39 +8,51 @@ The plugin lets participants:
 
 - **See a verification overlay** — a site-generated daily codeword and UTC
   timestamp burned into every screenshot so evidence is tamper-evident.
-- **Auto-submit tracked tiles** — drops, kill counts, item gains
-  (catch/cook/gather), timed clears, deathless raids, LMS placements,
-  achievement-diary tiers, and Combat Achievement tasks all credit automatically:
-  the plugin takes a screenshot, uploads it, and files a submission to your
-  team's board with zero clicks. Combat Achievement tiles even work for tasks
-  you completed years ago — enable the in-game *Settings → Combat Achievements →
+- **Auto-submit tracked tiles** — drops, boss kill-counts, skill XP, NPC kill
+  counts, item gains (catch/cook/gather), timed clears, deathless raids, LMS
+  placements, achievement-diary tiers, and Combat Achievement tasks all credit
+  automatically: submission tiles get a screenshot uploaded and filed to your
+  team's board with zero clicks, while boss-KC and skill-XP tiles update in real
+  time (see *How it works*). Combat Achievement tiles even work for tasks you
+  completed years ago — enable the in-game *Settings → Combat Achievements →
   Repeat completion* and re-meeting the task's conditions counts.
 - **Browse the board in-game** — a Bingo tab inside the collection log lists
   every tile with live progress, filters (status/type/category/tier), and the
   same tile order as the site's board: in-progress first, then not started,
   then completed.
-- **Manually submit** — a side-panel fallback for anything auto-detect misses
-  (pet drops, off-loot collection-log items, etc.).
+- **Manually submit** — a side-panel fallback for anything auto-detect can't
+  credit to a specific tile. Pet drops and **duplicate Champion's scrolls** (the
+  "…you would have received a Champion's scroll…" line, which names no item and
+  fires no loot event) auto-capture a banner-stamped screenshot into **Saved
+  proofs**, so you just attach it on the site instead of scrambling for a shot
+  after the fact.
 - **Weeklies tracked automatically** — SotW/BotW enrollment is handled
-  server-side for clan members; the plugin greets you with what's live on login.
+  server-side for clan members; the plugin greets you with what's live on login,
+  and while you're running it your boss-KC / skill-XP push moves the weekly
+  leaderboard in real time (hiscores still reconciles everyone on its sweep).
 
-If you're a **clan admin**, it also lets you:
+If you're a **clan admin or moderator**, it also lets you:
 
-- **Link your account to the plugin** — paste a one-time 6-char code from the
-  Anvil admin panel; the plugin gets a long-lived admin token bound to your RSN.
-- **Sync the in-game clan roster** — one click pushes the full clan member list
-  to the site, keeping ranks and guest/member status accurate.
+- **Sync the in-game clan roster** — no separate admin login or link code: the
+  plugin detects your admin role from your account token, and a **Sync clan
+  roster** button appears in the collection-log Bingo tab. One click pushes the
+  full clan member list to the site, keeping ranks and guest/member status accurate.
 
 ## Setup
 
 1. Install **Anvil** from the RuneLite Plugin Hub.
-2. On your Anvil site, go to **Profile → Plugin** and copy your **Account Token**
-   (one token works across every event you're signed up for).
-3. Open RuneLite → Configuration → Anvil and paste your **Account Token**. That's
-   the only required field — **Site URL** defaults to the official site, so leave
-   it unless you self-host.
-4. A side panel appears in RuneLite's sidebar. When connected, it shows your
-   event, team, codeword, tracked tile progress, and any upcoming events.
+2. Open RuneLite → Configuration → Anvil and set **Site URL** to your clan's Anvil
+   site (e.g. `https://your-clan.example.com`). Ask your clan admin if you're unsure.
+3. Sign in one of two ways:
+   - **Sign in with Discord** *(easiest)* — click it in the Anvil side panel and
+     approve in the browser page that opens; the plugin fills in your token for you.
+   - **Paste an Account Token** — on your Anvil site go to **Profile → Plugin**,
+     copy your token, and paste it into the *Account Token* field. One token works
+     across every event you're signed up for.
+4. The Anvil side panel shows your event, team, codeword, live tile progress, and
+   upcoming events. If your clan is linked with others through Anvil's federation,
+   their boards appear alongside your own, and — on timed-reveal boards — the panel
+   notes how many tiles are still hidden and when the next one drops.
 
 ## How it works
 
@@ -63,17 +75,24 @@ If you're a **clan admin**, it also lets you:
   2. Uploads the PNG to the Anvil site's image host (an "Uploading proof…"
      chat line shows it's in flight).
   3. Posts a submission to `/api/events/{id}/submissions`, crediting your player.
+- **Boss KC and skill XP tiles update live** — a boss's "…kill count is: N" chat
+  line and skill-XP gains (`StatChanged`) are pushed as absolute values (debounced,
+  so a kill streak or XP burst is one request) to `/api/plugin/stats`. A boss-KC or
+  skill-XP tile — and any live SotW/BotW you're in — moves the moment you get the
+  kill or the XP, without waiting on the periodic hiscores refresh. Hiscores stays
+  the source of truth and reconciles the value on its next sweep.
 - Failed submissions are persisted to disk in `~/.runelite/osrs-bingo-pending/`
   and retried with exponential backoff (plus age-based cleanup after 7 days), so
-  a flaky connection or server restart won't lose a drop. A failure is announced
-  in chat, and while anything is stuck a **Saved proofs** row appears in the
-  collection-log Bingo tab that opens the folder holding the baked screenshots.
+  a flaky connection or server restart won't lose a drop. The same folder also
+  holds **manual proofs** — pet / duplicate-Champion's-scroll screenshots the
+  plugin captures but can't auto-submit to a tile (retries skip these). A **Saved
+  proofs** row in the collection-log Bingo tab shows the count and opens the folder.
 
 ## Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Site URL | *(official site)* | Base URL of your Anvil site — only change if you self-host |
+| Site URL | *(empty)* | Base URL of your clan's Anvil site (e.g. `https://your-clan.example.com`) — ask your admin if unsure |
 | Account Token | *(empty)* | From the site's Profile → Plugin page; one token covers all your events |
 | Auto Submit Drops | `true` | Auto-screenshot and submit on tracked tiles |
 | Show Overlay | `true` | Render the codeword/date verification overlay |
@@ -92,7 +111,7 @@ settings choose what *you* share:
 | Notify on PvP kill | `false` | Post to the clan PvP channel when you kill a player |
 | Notify on rare drops | `true` | Post valuable drops to the clan rare-drops channel |
 | Min drop value | `5,000,000` | Post a single drop worth at least this (higher of GE / high-alch). `0` disables value posts |
-| Min drop rarity (1 in N) | `1000` | Also post very rare NPC/pickpocket drops regardless of value (catches cheap-but-rare uniques). `0` disables |
+| Min drop rarity (1 in N) | `10,000` | Also post very rare NPC/pickpocket drops regardless of value (catches cheap-but-rare uniques). Your clan can enforce a higher floor from the site; yours applies when it's stricter. `0` disables |
 | Screenshot rare drops | `true` | Attach a screenshot to rare-drop posts |
 | Loot key value | `1,000,000` | Post a loot key as **one** notification when its contents total at least this. Loot keys only. `0` disables |
 | Notify on pets | `true` | Post when you receive a pet |
@@ -133,36 +152,24 @@ and matters):
 - *Collection log → New addition notification* — credits shop/gamble/awarded
   collection-log items that never fire a loot event.
 
-**Admin-only section (collapsed by default):**
-
-| Setting | Description |
-|---------|-------------|
-| Admin link code | Paste the 6-char code from the site's `/admin/clan` page, then click **Link as admin** in the side panel |
-| Admin plugin token | Managed automatically after linking; don't edit manually (marked `secret`) |
-| Linked RSN | The RSN that was linked when the admin token was issued (display only) |
-
 ## Admin flows
 
-If you're an Anvil admin or moderator, link your plugin once:
+There's no separate admin login or link code — admin actions authenticate with the
+**same Account Token** as everyone else, and the plugin verifies your admin/mod role
+with the site once per login (`GET /api/plugin/me`).
 
-1. On the site, go to `/admin/clan` → **Generate Link Code**. You'll get a 6-char
-   code valid for 10 minutes.
-2. Paste the code into the plugin's **Admin link code** setting (under the
-   collapsed *Admin link* section).
-3. Open the Anvil side panel in RuneLite and press **Link as admin**.
-
-Once linked, the side panel shows a **Sync clan** button. Open the clan tab
-in-game (so RuneLite loads the roster), then press **Sync clan** to push the
-current in-game clan roster to the site. The site rejects the sync if the
-reported clan name doesn't match the one configured on `/admin/clan`.
+When you're an admin, a **Sync clan roster** button appears in the collection-log
+**Bingo** tab. Open the clan tab in-game (so RuneLite loads the roster), then click
+it to push the current in-game clan roster to the site — keeping ranks and
+guest/member status accurate. The site rejects the sync if the reported clan name
+doesn't match the one configured on the site.
 
 ## Privacy
 
 - The plugin only talks to the Site URL you configure — no third-party servers.
 - Screenshots are uploaded only when a tracked drop is detected (or you hit
   *Manual submit*).
-- The player token and admin plugin token are stored locally in your RuneLite
-  config (both marked as secret).
+- Your Account Token is stored locally in your RuneLite config (marked as secret).
 - On each login, the plugin sends a small `{ rsn }` payload to
   `/api/plugin/hello` so the site can auto-register you as a guest clan member.
   You can remove yourself from the roster from the site if you don't want to be

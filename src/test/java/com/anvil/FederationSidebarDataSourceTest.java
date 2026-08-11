@@ -1,0 +1,534 @@
+package com.anvil;
+
+import com.google.gson.Gson;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import okhttp3.OkHttpClient;
+import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * The site-relay (§10) sidebar path — the plugin's ONLY federation path — driven against an in-process
+ * {@link HttpServer} mock of the home site (JDK built-in, offline). Proves §10: federation traffic is the
+ * home site and nothing else. Covers /state render vs. fall back (off/absent), and /connect zero-click vs.
+ * self-host login (browser-open seam injected) → polls /state to connected.
+ */
+public class FederationSidebarDataSourceTest
+{
+	private static final Gson GSON = new Gson();
+
+	/** A stand-in single-home delegate that returns one recognizable row, so a fallback is provable. */
+	private static final class MarkerDelegate implements SidebarDataSource
+	{
+		static final String ID = "SINGLE-HOME";
+		int calls;
+
+		@Override
+		public List<ConnectionView> fetchConnections()
+		{
+			calls++;
+			return Collections.singletonList(new ConnectionView(ID, "Home Clan", "Home Event", 1, 3,
+				new ArrayList<>()));
+		}
+	}
+
+	private static BingoApiClient apiClient(String baseUrl)
+	{
+		BingoApiClient c = new BingoApiClient(GSON, new OkHttpClient());
+		c.configure(baseUrl, "tok_test");
+		return c;
+	}
+
+	// ---- Auto path: render vs. fall back ---------------------------------------------------------
+
+	@Test
+	public void autoPathRendersClansFromState() throws Exception
+	{
+		MockSite site = new MockSite();
+		site.stateBody = "{\"enabled\":true,\"connected\":true,\"clans\":[{"
+			+ "\"id\":\"uuid-a\",\"name\":\"Clan A\",\"eventName\":\"Summer Bingo\","
+			+ "\"board\":{\"tilesComplete\":7,\"tilesTotal\":25,\"nearest\":["
+			+ "  {\"name\":\"Any barrows item\",\"current\":4,\"target\":5,\"complete\":false}]},"
+			+ "\"activity\":[{\"id\":\"s1\",\"ts\":\"2026-07-14 10:00:00\",\"player\":\"Kayle\","
+			+ "  \"tileId\":140,\"tileLabel\":\"Tanzanite fang\",\"kind\":\"complete\",\"self\":false}],"
+			+ "\"active\":[{\"tileId\":102,\"label\":\"500 Zulrah KC\",\"current\":420,\"goal\":500,"
+			+ "  \"workers\":[\"You\"],\"self\":true}]},{"
+			+ "\"id\":\"uuid-b\",\"name\":\"Clan B\",\"board\":{\"tilesComplete\":3,\"tilesTotal\":9}}]}";
+		site.start();
+		try
+		{
+			MarkerDelegate delegate = new MarkerDelegate();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
+
+			List<ConnectionView> conns = ds.fetchConnections();
+			assertEquals("home + both federated clans render", 3, conns.size());
+			assertEquals("home renders FIRST", MarkerDelegate.ID, conns.get(0).instanceId);
+			assertEquals("uuid-a", conns.get(1).instanceId);
+			assertEquals("Clan A", conns.get(1).clanName);
+			assertEquals(7, conns.get(1).tilesComplete);
+			assertEquals(1, conns.get(1).nearestTiles.size());
+			assertEquals(1, conns.get(1).recentActivity.size());
+			assertEquals(1, conns.get(1).activeNow.size());
+			assertEquals("uuid-b", conns.get(2).instanceId);
+
+			assertEquals("delegate supplies the home render alongside the federated clans", 1, delegate.calls);
+			assertTrue(ds.federationStatus().enabled);
+			assertFalse(ds.federationStatus().needsConnect());
+			assertEquals("only the home site was contacted",
+				new ArrayList<>(Collections.singletonList("/api/plugin/federation/state")), site.distinctPaths());
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void federationDisabledFallsBackToSingleHome() throws Exception
+	{
+		MockSite site = new MockSite();
+		site.stateBody = "{\"enabled\":false,\"connected\":false,\"clans\":[]}";
+		site.start();
+		try
+		{
+			MarkerDelegate delegate = new MarkerDelegate();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
+
+			List<ConnectionView> conns = ds.fetchConnections();
+			assertEquals(1, conns.size());
+			assertEquals("federation off ⇒ single-home render (byte-identical default)", MarkerDelegate.ID, conns.get(0).instanceId);
+			assertEquals(1, delegate.calls);
+			assertFalse(ds.federationStatus().needsConnect());
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void stateEndpointAbsentFallsBackToSingleHome() throws Exception
+	{
+		MockSite site = new MockSite();
+		site.stateStatus = 404; // an older server with no such route
+		site.start();
+		try
+		{
+			MarkerDelegate delegate = new MarkerDelegate();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
+
+			List<ConnectionView> conns = ds.fetchConnections();
+			assertEquals("404 /state ⇒ single-home render", MarkerDelegate.ID, conns.get(0).instanceId);
+			assertFalse(ds.federationStatus().enabled);
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void unconfiguredClientMakesNoCallAndRendersSingleHome() throws Exception
+	{
+		// True single-home default: no Site URL/token ⇒ NO /state request, renders straight from the delegate.
+		MarkerDelegate delegate = new MarkerDelegate();
+		BingoApiClient unconfigured = new BingoApiClient(GSON, new OkHttpClient());
+		FederationSidebarDataSource ds = source(unconfigured, delegate);
+
+		List<ConnectionView> conns = ds.fetchConnections();
+		assertEquals(MarkerDelegate.ID, conns.get(0).instanceId);
+		assertEquals(1, delegate.calls);
+		assertFalse(ds.federationStatus().enabled);
+	}
+
+	// ---- /connect: zero-click and self-host login-then-poll --------------------------------------
+
+	@Test
+	public void connectZeroClickReturnsConnected() throws Exception
+	{
+		MockSite site = new MockSite();
+		site.connectBody = "{\"status\":\"connected\"}";
+		site.stateBody = "{\"enabled\":true,\"connected\":true,\"clans\":[]}";
+		site.start();
+		try
+		{
+			AtomicReference<String> opened = new AtomicReference<>();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run());
+
+			List<String> statuses = new ArrayList<>();
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, statuses::add);
+
+			assertEquals(FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
+			assertNull("trusted home = zero-click; no browser opened", opened.get());
+			assertTrue(ds.federationStatus().connected);
+			assertFalse(statuses.isEmpty());
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void connectSelfHostLoginOpensBrowserThenPollsToConnected() throws Exception
+	{
+		MockSite site = new MockSite();
+		// The verificationUrl MUST be on the pinned Anvil broker host (§8) or the plugin refuses to open it.
+		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://anvilosrs.com/federation/device\"}";
+		// /state reports connected only from the 3rd poll on — proves the login poll loop actually waits.
+		site.stateSequence = new String[] {
+			"{\"enabled\":true,\"connected\":false,\"clans\":[]}",
+			"{\"enabled\":true,\"connected\":false,\"clans\":[]}",
+			"{\"enabled\":true,\"connected\":true,\"clans\":[{\"id\":\"h\",\"name\":\"Home\"}]}"
+		};
+		site.start();
+		try
+		{
+			AtomicReference<String> opened = new AtomicReference<>();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run() /* polls run inline, no waiting */);
+
+			List<String> statuses = new ArrayList<>();
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, statuses::add);
+
+			assertEquals(FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
+			assertEquals("the self-host login page was opened in the (injected) browser",
+				"https://anvilosrs.com/federation/device", opened.get());
+			assertTrue("polled /state back to connected", ds.federationStatus().connected);
+			assertNotNull(statuses);
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void connectSelfHostLoginResolvesToNoOtherClans() throws Exception
+	{
+		// Login finishes but the member has no OTHER clan: /state goes needsLogin=true → signedIn (connected=false).
+		// A terminal SUCCESS — the loop must stop and say so, not spin until the ~2-min timeout.
+		MockSite site = new MockSite();
+		site.connectBody = "{\"status\":\"login\","
+			+ "\"verificationUrl\":\"https://anvilosrs.com/federation/device\",\"userCode\":\"24YV-AM8H\"}";
+		site.stateSequence = new String[] {
+			"{\"enabled\":true,\"connected\":false,\"needsLogin\":true,\"clans\":[]}",
+			"{\"enabled\":true,\"connected\":false,\"needsLogin\":true,\"clans\":[]}",
+			// login resolved: the site now reports a durable signedIn even with zero remote clans.
+			"{\"enabled\":true,\"connected\":false,\"signedIn\":true,\"needsLogin\":false,\"clans\":[]}"
+		};
+		site.start();
+		try
+		{
+			AtomicReference<String> opened = new AtomicReference<>();
+			List<String> statuses = new ArrayList<>();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run());
+
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, statuses::add);
+
+			assertEquals("a login that resolves with no other clans is still a terminal success",
+				FederationStatusSource.ConnectOutcome.CONNECTED, outcome);
+			assertEquals("the browser opens the page with the code PREFILLED (verification_uri_complete)",
+				"https://anvilosrs.com/federation/device?user_code=24YV-AM8H", opened.get());
+			assertFalse("signed in, but no remote clans to render", ds.federationStatus().connected);
+			assertTrue("durably signed in ⇒ Disconnect, not a re-offered Connect", ds.federationStatus().signedIn);
+			assertFalse("signed in ⇒ Connect is no longer offered", ds.federationStatus().needsConnect());
+			assertTrue("the device code was surfaced for the member to type",
+				statuses.stream().anyMatch(s -> s.contains("24YV-AM8H")));
+			assertTrue("the terminal message says there are no other clans yet",
+				statuses.stream().anyMatch(s -> s.toLowerCase().contains("no other")));
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void disconnectClearsFederationAndRevertsToConnect() throws Exception
+	{
+		// A signed-in member logs out: POST /disconnect, then /state re-reads signedIn=false ⇒ re-offer Connect.
+		MockSite site = new MockSite();
+		site.stateSequence = new String[] {
+			"{\"enabled\":true,\"connected\":false,\"signedIn\":true,\"clans\":[]}",   // before disconnect
+			"{\"enabled\":true,\"connected\":false,\"signedIn\":false,\"clans\":[]}"   // after disconnect
+		};
+		site.disconnectBody = "{\"status\":\"disconnected\"}";
+		site.start();
+		try
+		{
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), new MarkerDelegate());
+
+			ds.fetchConnections(); // first /state → signedIn true
+			assertTrue("durably signed in", ds.federationStatus().signedIn);
+			assertFalse("signed in ⇒ no Connect offered", ds.federationStatus().needsConnect());
+
+			boolean ok = ds.disconnectFederation();
+
+			assertTrue("the site acknowledged the logout", ok);
+			assertFalse("after disconnect the member is signed out", ds.federationStatus().signedIn);
+			assertTrue("signed out ⇒ Connect is offered again", ds.federationStatus().needsConnect());
+			assertTrue("the plugin POSTed /disconnect",
+				site.distinctPaths().contains("/api/plugin/federation/disconnect"));
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void connectUnavailableWhenSiteDeclines() throws Exception
+	{
+		MockSite site = new MockSite();
+		site.connectStatus = 503;
+		site.start();
+		try
+		{
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> true, (step, delayMs) -> step.run());
+			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, connect(ds, null));
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	// ---- §8 verificationUrl pinning (anti-phishing) ----------------------------------------------
+
+	@Test
+	public void connectRefusesNonBrokerVerificationUrl() throws Exception
+	{
+		// A rogue home returns a login URL off the pinned broker host → refuse to open (no phish), report UNAVAILABLE.
+		MockSite site = new MockSite();
+		site.connectBody = "{\"status\":\"login\",\"verificationUrl\":\"https://evil.example/federation/device\"}";
+		site.start();
+		try
+		{
+			AtomicReference<String> opened = new AtomicReference<>();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()),
+				new MarkerDelegate(), url -> { opened.set(url); return true; }, (step, delayMs) -> step.run());
+
+			FederationStatusSource.ConnectOutcome outcome = connect(ds, null);
+
+			assertEquals(FederationStatusSource.ConnectOutcome.UNAVAILABLE, outcome);
+			assertNull("a non-broker verification URL is NEVER opened in the browser", opened.get());
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	@Test
+	public void withUserCodePrefillsTheBrokerPage()
+	{
+		assertEquals("code appended as ?user_code= on a bare base",
+			"https://anvilosrs.com/federation/device?user_code=24YV-AM8H",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", "24YV-AM8H"));
+		assertEquals("appended with & when the base already carries a query",
+			"https://anvilosrs.com/federation/device?x=1&user_code=AB12-CD34",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device?x=1", "AB12-CD34"));
+		assertEquals("no code ⇒ the bare page (member types the code shown in the plugin)",
+			"https://anvilosrs.com/federation/device",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", null));
+		assertEquals("empty code ⇒ the bare page",
+			"https://anvilosrs.com/federation/device",
+			FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", ""));
+		assertTrue("the prefilled URL is still on the pinned broker host (§8)",
+			FederationSidebarDataSource.isPinnedBrokerUrl(
+				FederationSidebarDataSource.withUserCode("https://anvilosrs.com/federation/device", "24YV-AM8H")));
+	}
+
+	@Test
+	public void pinnedBrokerUrlValidation()
+	{
+		// Only HTTPS on the exact pinned broker host, no creds, standard port.
+		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com/federation/device"));
+		assertTrue(FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com:443/federation/device?x=1"));
+		assertTrue("host match is case-insensitive",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://ANVILOSRS.CoM/federation/device"));
+
+		assertFalse("http is refused", FederationSidebarDataSource.isPinnedBrokerUrl("http://anvilosrs.com/x"));
+		assertFalse("wrong host is refused", FederationSidebarDataSource.isPinnedBrokerUrl("https://evil.example/x"));
+		assertFalse("suffix look-alike host is refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com.evil.com/x"));
+		assertFalse("embedded credentials are refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com@evil.com/x"));
+		assertFalse("off-standard port is refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com:8443/x"));
+		assertFalse(FederationSidebarDataSource.isPinnedBrokerUrl(null));
+		assertFalse(FederationSidebarDataSource.isPinnedBrokerUrl(""));
+		assertFalse("garbage is refused", FederationSidebarDataSource.isPinnedBrokerUrl("not a url"));
+		assertFalse("backslash authority trick is refused",
+			FederationSidebarDataSource.isPinnedBrokerUrl("https://anvilosrs.com\\@evil.com/x"));
+	}
+
+	// ---- §9 oversized /state payload -------------------------------------------------------------
+
+	@Test
+	public void oversizedStateFallsBackToSingleHome() throws Exception
+	{
+		// A /state body over the client's response-size cap is dropped (never materialized) → single-home render.
+		MockSite site = new MockSite();
+		StringBuilder big = new StringBuilder("{\"enabled\":true,\"connected\":true,\"clans\":[{\"id\":\"x\",\"name\":\"");
+		for (int i = 0; i < 700 * 1024; i++)
+		{
+			big.append('a');
+		}
+		big.append("\"}]}");
+		site.stateBody = big.toString();
+		site.start();
+		try
+		{
+			MarkerDelegate delegate = new MarkerDelegate();
+			FederationSidebarDataSource ds = source(apiClient(site.baseUrl()), delegate);
+
+			List<ConnectionView> conns = ds.fetchConnections();
+			assertEquals("oversized /state ⇒ single-home render", MarkerDelegate.ID, conns.get(0).instanceId);
+			assertEquals(1, delegate.calls);
+			assertFalse("oversized body never enables federation", ds.federationStatus().enabled);
+		}
+		finally
+		{
+			site.stop();
+		}
+	}
+
+	// ---- helpers ---------------------------------------------------------------------------------
+
+	private static FederationSidebarDataSource source(BingoApiClient api, SidebarDataSource delegate)
+	{
+		return source(api, delegate, url -> true, (step, delayMs) -> step.run());
+	}
+
+	private static FederationSidebarDataSource source(BingoApiClient api, SidebarDataSource delegate,
+		FederationSidebarDataSource.BrowserOpener opener, FederationSidebarDataSource.PollScheduler scheduler)
+	{
+		return new FederationSidebarDataSource(api, delegate, opener, scheduler);
+	}
+
+	/** Runs the async connect flow to completion — the inline scheduler executes every step synchronously,
+	 * so the terminal outcome is set by the time the call returns. */
+	private static FederationStatusSource.ConnectOutcome connect(FederationSidebarDataSource ds,
+		Consumer<String> status)
+	{
+		AtomicReference<FederationStatusSource.ConnectOutcome> outcome = new AtomicReference<>();
+		ds.connectFederation(status, outcome::set);
+		return outcome.get();
+	}
+
+	/** In-process mock of the plugin's HOME site — serves ONLY the two §10.2 endpoints. */
+	private static final class MockSite
+	{
+		private HttpServer server;
+		private final List<String> paths = Collections.synchronizedList(new ArrayList<>());
+
+		// /federation/state
+		int stateStatus = 200;
+		String stateBody = "{\"enabled\":false,\"connected\":false,\"clans\":[]}";
+		String[] stateSequence; // when set, each poll returns the next entry (last repeats)
+		private final AtomicInteger statePoll = new AtomicInteger();
+
+		// /federation/connect
+		int connectStatus = 200;
+		String connectBody = "{\"status\":\"connected\"}";
+
+		// /federation/disconnect
+		int disconnectStatus = 200;
+		String disconnectBody = "{\"status\":\"disconnected\"}";
+
+		void start() throws IOException
+		{
+			server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+			server.createContext("/api/plugin/federation/disconnect", ex ->
+			{
+				paths.add(ex.getRequestURI().getPath());
+				drain(ex);
+				respond(ex, disconnectStatus, disconnectBody);
+			});
+			server.createContext("/api/plugin/federation/state", ex ->
+			{
+				paths.add(ex.getRequestURI().getPath());
+				String body = stateBody;
+				if (stateSequence != null && stateSequence.length > 0)
+				{
+					int i = Math.min(statePoll.getAndIncrement(), stateSequence.length - 1);
+					body = stateSequence[i];
+				}
+				respond(ex, stateStatus, body);
+			});
+			server.createContext("/api/plugin/federation/connect", ex ->
+			{
+				paths.add(ex.getRequestURI().getPath());
+				drain(ex);
+				respond(ex, connectStatus, connectBody);
+			});
+			server.start();
+		}
+
+		void stop()
+		{
+			server.stop(0);
+		}
+
+		String baseUrl()
+		{
+			return "http://127.0.0.1:" + server.getAddress().getPort();
+		}
+
+		/** Distinct request paths the site saw, in first-seen order — proves the home is the only host. */
+		List<String> distinctPaths()
+		{
+			List<String> out = new ArrayList<>();
+			synchronized (paths)
+			{
+				for (String p : paths)
+				{
+					if (!out.contains(p))
+					{
+						out.add(p);
+					}
+				}
+			}
+			return out;
+		}
+
+		private static void drain(HttpExchange ex) throws IOException
+		{
+			byte[] buf = new byte[4096];
+			while (ex.getRequestBody().read(buf) != -1)
+			{
+				// discard
+			}
+		}
+
+		private static void respond(HttpExchange ex, int code, String body) throws IOException
+		{
+			byte[] out = body.getBytes(StandardCharsets.UTF_8);
+			ex.getResponseHeaders().add("Content-Type", "application/json");
+			ex.sendResponseHeaders(code, out.length);
+			try (OutputStream os = ex.getResponseBody())
+			{
+				os.write(out);
+			}
+		}
+	}
+}

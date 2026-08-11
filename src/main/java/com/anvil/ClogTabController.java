@@ -38,7 +38,8 @@ public class ClogTabController
 {
 	private static final int ALIGN_CENTER = 1;
 	private static final int ALIGN_RIGHT = 2;
-	private static final int FONT_PLAIN = 495;
+	private static final int FONT_PLAIN = 495; // PLAIN_12
+	private static final int FONT_PLAIN_SMALL = 494; // PLAIN_11 — one step down, used to fit long text without cutting it off
 	private static final int COL_ORANGE = 0xff9040;
 	private static final int BODY_TOP = 8; // top margin so content isn't flush against the divider
 
@@ -72,9 +73,14 @@ public class ClogTabController
 	 *   LEADERBOARD — weekly SOTW/BOTW standings
 	 *   POINTS      — read-only points list for a Leagues event you're NOT enrolled in (upcoming
 	 *                 preview, or a live event you're not competing in). The enrolled view is EVENT.
+	 *   LADDER      — DMM-All-Stars-style missions board (format=ladder): live countdown to the next
+	 *                 drop, the open missions with a live grow/decay value, and the individual board.
 	 */
-	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD, POINTS }
+	private enum HubView { SCHEDULE, EVENT, GRID, GRID_TILE, RACE, LEADERBOARD, POINTS, LADDER }
 	private HubView hubView = HubView.SCHEDULE;
+	// Which view the shared tile-detail page (GRID_TILE) should step back to. The grid opens it
+	// from the board (→ GRID); the points accordion reuses the same page (→ EVENT/POINTS).
+	private HubView tileDetailReturn = HubView.GRID;
 	// Schedule home event-type filter: "" = all, else "bingo" | "boss" | "skill".
 	private String eventTypeFilter = "";
 	// Leaderboard drill-in state.
@@ -89,6 +95,15 @@ public class ClogTabController
 	private String countdownEnd;
 	private String countdownSuffix = "";
 	private String countdownText = "";
+	// Ladder missions board (format=ladder): the next-drop countdown target + decay rule drive the
+	// per-second value/countdown refresh (onGameTick → tickLadderView), and ladderRows are the held
+	// value widgets it updates in place. ladderShowMonth toggles the leaderboard scope.
+	private String ladderNextRevealAt;
+	private PluginConfigResponse.Decay ladderDecay;
+	private boolean ladderShowMonth = true;
+	private Widget ladderCountdownLine;
+	private String ladderCountdownText = "";
+	private final java.util.List<LadderRowRef> ladderRows = new java.util.ArrayList<>();
 	// Board drill-in state (shared by the GRID and RACE views — both read the same payload).
 	// cachedBoard = your own active event (interactive). cachedPreview = the last read-only preview
 	// of some *other* event (an upcoming one, or a live event you're not competing in).
@@ -104,6 +119,10 @@ public class ClogTabController
 	private int boardRequestedEventId = -1;
 	// Grid tap-to-inspect: the tile whose detail page is shown (-1 = none).
 	private int selectedGridTileId = -1;
+	// Identity of the view last painted, so renderHub only snaps to the top on a real navigation
+	// (drill in / back / open) — NOT on a plain live refresh (onConfigRefreshed calls renderHub every
+	// 30s), which was yanking the user back to the top mid-scroll. Null = nothing painted yet.
+	private String lastRenderedView;
 
 	@Inject
 	public ClogTabController(Client client, ClientThread clientThread, ItemManager itemManager,
@@ -140,7 +159,7 @@ public class ClogTabController
 			clogOpen = false;
 			bingoTabActive = false;
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 		}
 	}
 
@@ -171,10 +190,10 @@ public class ClogTabController
 		if (bingoTabActive)
 		{
 			bingoTabActive = false;
-			// Leaving our tab: drop the search so it doesn't linger (or trap a half-typed prompt)
-			// when the user clicks a native tab/entry.
+			// Leaving our tab: drop the search (so it doesn't linger or trap a half-typed prompt)
+			// and clear the filters when the user clicks a native tab/entry.
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 			setBossListHidden(false);
 			hideHeaderBook(false);
 			removeAnvilLeft();
@@ -204,7 +223,7 @@ public class ClogTabController
 		{
 			bingoTabActive = false;
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 			hideHeaderBook(false);
 			removeAnvilLeft();
 			injectBingoTab();
@@ -213,7 +232,7 @@ public class ClogTabController
 		if (searchInputOpen && !bingoTabActive)
 		{
 			closeSearchInput();
-			searchText = "";
+			resetFilters();
 		}
 		// Tick the leaderboard countdown without rebuilding the view — repaint just the one line, and
 		// only when its minute-granular text actually changes.
@@ -226,6 +245,13 @@ public class ClogTabController
 				countdownLine.setText(now + countdownSuffix);
 				countdownLine.revalidate();
 			}
+		}
+		// The ladder board's per-second countdown + live mission values, likewise refreshed in place
+		// (game tick ≈ 0.6s, plenty for a seconds countdown). Runs for the ladder view AND any bingo
+		// view showing a missions strip (ladderRows non-empty). Only touches widgets whose text changed.
+		if (bingoTabActive && (hubView == HubView.LADDER || !ladderRows.isEmpty()))
+		{
+			tickLadderView();
 		}
 	}
 
@@ -276,6 +302,21 @@ public class ClogTabController
 		{
 			clientThread.invokeLater(this::renderItems);
 		}
+	}
+
+	/**
+	 * Clears every task filter (status/type/category/tier) and the search query back to defaults.
+	 * Called whenever the user leaves our tab or closes the log, so a fiddly filter (e.g. a category
+	 * cycled deep into a long list) never lingers into the next open. Doesn't re-render on its own —
+	 * exit-point callers are already tearing the view down.
+	 */
+	private void resetFilters()
+	{
+		statusFilter = ClogTaskModel.StatusFilter.ALL;
+		typeFilter = ClogTaskModel.TypeFilter.ALL;
+		categoryFilter = "";
+		tierFilter = "";
+		searchText = "";
 	}
 
 	// ---- tab injection ----
@@ -467,6 +508,57 @@ public class ClogTabController
 		return lines.size() * DESC_LINE_H + 2;
 	}
 
+	/** Like {@link #renderDescription} but in an arbitrary colour / line height — wraps long "what
+	 *  counts" requirement text instead of clipping or ellipsizing it. Returns the height consumed. */
+	private int renderWrappedColored(Widget items, String text, int color, int x, int y, int width, int lineH)
+	{
+		Widget first = items.createChild(-1, WidgetType.TEXT);
+		first.setFontId(FONT_PLAIN);
+		List<String> lines = wrapText(first.getFont(), text, width);
+		for (int i = 0; i < lines.size(); i++)
+		{
+			Widget w = i == 0 ? first : items.createChild(-1, WidgetType.TEXT);
+			w.setFontId(FONT_PLAIN);
+			w.setText(lines.get(i));
+			w.setTextColor(color);
+			w.setTextShadowed(true);
+			place(w, x, y + i * lineH, width, lineH);
+			w.revalidate();
+		}
+		return lines.size() * lineH + 2;
+	}
+
+	/** A grey "label" on its own line, then the gold value wrapped + indented under it (the website's
+	 *  "Any of:" / "Only from:" rows). Returns the height consumed. */
+	private int labeledWrapped(Widget items, String label, String value, int x, int y, int width)
+	{
+		Widget lbl = items.createChild(-1, WidgetType.TEXT);
+		lbl.setText("<col=8a8a8a>" + label + "</col>");
+		lbl.setFontId(FONT_PLAIN);
+		lbl.setTextShadowed(true);
+		place(lbl, x, y, width, 14);
+		lbl.revalidate();
+		return 15 + renderWrappedColored(items, value, 0xffcc33, x + 8, y + 15, width - 8, DESC_LINE_H) + 3;
+	}
+
+	/** Resolve an OSRS item id to its name via ItemManager (client thread only); null on miss. */
+	private String itemName(int id)
+	{
+		if (id <= 0)
+		{
+			return null;
+		}
+		try
+		{
+			net.runelite.api.ItemComposition c = itemManager.getItemComposition(id);
+			return c != null ? c.getName() : null;
+		}
+		catch (Exception e)
+		{
+			return null;
+		}
+	}
+
 	/** Greedy word-wrap using font metrics; explicit newlines become hard breaks. */
 	private static List<String> wrapText(FontTypeFace font, String text, int width)
 	{
@@ -581,12 +673,16 @@ public class ClogTabController
 			return;
 		}
 		hideHeaderBook(true);
-		// Switching views (drill in / back / filter) starts at the top, not the old scroll offset.
+		// Switching views (drill in / back / open a tile) starts at the top, not the old scroll offset.
+		// Only reset when the view IDENTITY actually changed — a plain live re-render (the 30s
+		// onConfigRefreshed → renderHub) must keep the player's scroll position, not snap them up.
+		String navSig = hubView + "|" + viewingEventId + "|" + selectedGridTileId;
 		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
-		if (items != null)
+		if (items != null && !navSig.equals(lastRenderedView))
 		{
 			items.setScrollY(0);
 		}
+		lastRenderedView = navSig;
 		renderLeftColumn();
 		switch (hubView)
 		{
@@ -608,6 +704,9 @@ public class ClogTabController
 			case POINTS:
 				renderPointsPreview();
 				break;
+			case LADDER:
+				renderLadderView();
+				break;
 			case SCHEDULE:
 			default:
 				renderScheduleHome();
@@ -621,7 +720,12 @@ public class ClogTabController
 	 */
 	private void openBingo()
 	{
-		if ("tilerace".equalsIgnoreCase(eventFormat()))
+		if (LadderMissions.isLadder(eventFormat()))
+		{
+			hubView = HubView.LADDER;
+			clientThread.invokeLater(this::renderHub);
+		}
+		else if ("tilerace".equalsIgnoreCase(eventFormat()))
 		{
 			openRace();
 		}
@@ -649,6 +753,34 @@ public class ClogTabController
 	/** Drill into a single grid tile's detail page; Back (left column) returns to the grid. */
 	private void openGridTile(int tileId)
 	{
+		tileDetailReturn = HubView.GRID;
+		selectedGridTileId = tileId;
+		hubView = HubView.GRID_TILE;
+		clientThread.invokeLater(this::renderHub);
+	}
+
+	/**
+	 * Open the SAME tile-detail page from the points accordion (own event = EVENT, preview = POINTS).
+	 * The accordion renders from the plugin config and never loads the board, but the detail page is
+	 * board-driven (all-team completions, per-item progress) — so for the own event we point the board
+	 * fetch at the active event and kick it off; the page repaints when it lands. Back returns to
+	 * whichever list we came from.
+	 */
+	private void openTaskTile(int tileId)
+	{
+		// Drilling into a task closes + clears any in-progress search so it doesn't linger behind the
+		// detail page (and isn't still applied when you step back to the list).
+		closeAndResetSearch();
+		tileDetailReturn = hubView;
+		if (hubView == HubView.EVENT)
+		{
+			viewingEventId = activeEventId();
+			viewingTitle = eventName();
+			if (viewedBoard() == null)
+			{
+				loadBoard();
+			}
+		}
 		selectedGridTileId = tileId;
 		hubView = HubView.GRID_TILE;
 		clientThread.invokeLater(this::renderHub);
@@ -656,7 +788,7 @@ public class ClogTabController
 
 	private void backToGrid()
 	{
-		hubView = HubView.GRID;
+		hubView = tileDetailReturn;
 		clientThread.invokeLater(this::renderHub);
 	}
 
@@ -795,11 +927,33 @@ public class ClogTabController
 	 */
 	private String pinnedProgressLabel(String format, String scoringMode)
 	{
+		if (LadderMissions.isLadder(format))
+		{
+			PluginConfigResponse cfg = plugin.getPluginConfig();
+			PluginConfigResponse.Standings m = cfg != null && cfg.event != null ? cfg.event.monthlyStandings : null;
+			if (m != null && m.yourRank > 0)
+			{
+				return "#" + m.yourRank + "  <col=666666>·</col>  " + String.format("%,d", m.yourPoints) + " pts";
+			}
+			return "tap to view";
+		}
 		boolean accordion = "bingo".equalsIgnoreCase(format) && "points".equalsIgnoreCase(scoringMode);
 		if (accordion)
 		{
 			List<ClogTaskModel.TaskRow> t = tasks();
-			return t.isEmpty() ? "Open board" : ClogTaskModel.completedCount(t) + "/" + t.size() + " tasks done";
+			if (t.isEmpty())
+			{
+				return "Open board";
+			}
+			// Leagues/points events are scored by tile WEIGHT, not tile count — so surface points
+			// (matching the board banner + website), falling back to the task tally only when no
+			// tile carries points. Classic/race events never reach here (accordion is points-only).
+			// Optional (bonus) tiles are excluded from both the points and the task totals.
+			java.util.Set<Integer> optionalIds = optionalTileIds();
+			int totalPts = ClogTaskModel.totalPoints(t, optionalIds);
+			return totalPts > 0
+				? ClogTaskModel.earnedPoints(t, optionalIds) + "/" + totalPts + " pts"
+				: ClogTaskModel.completedCount(t, optionalIds) + "/" + ClogTaskModel.scoredCount(t, optionalIds) + " tasks done";
 		}
 
 		BingoApiClient.BoardResponse b = activeBoard();
@@ -914,8 +1068,17 @@ public class ClogTabController
 
 	private void backToSchedule()
 	{
+		// Leaving the event view drops the search so it doesn't reappear pre-filled next time in.
+		closeAndResetSearch();
 		hubView = HubView.SCHEDULE;
 		clientThread.invokeLater(this::renderHub);
+	}
+
+	/** Close the chatbox search prompt (if open) and clear the query. */
+	private void closeAndResetSearch()
+	{
+		closeSearchInput();
+		searchText = "";
 	}
 
 
@@ -935,23 +1098,25 @@ public class ClogTabController
 		heading.setTextColor(COL_ORANGE);
 		heading.setFontId(FONT_PLAIN);
 		heading.setTextShadowed(true);
-		place(heading, 8, y, ClogIds.LEFT_COL_W - 16, 16);
+		place(heading, 10, y, ClogIds.LEFT_COL_W - 20, 16);
 		heading.revalidate();
 		y += 26;
 
 		if (hubView != HubView.SCHEDULE)
 		{
-			// A tile-detail page steps back to its grid; everything else steps back to the schedule.
-			boolean toGrid = hubView == HubView.GRID_TILE;
+			// A tile-detail page steps back to where it was opened from (the board grid, or the
+			// points task list); everything else steps back to the schedule.
+			boolean onDetail = hubView == HubView.GRID_TILE;
+			String detailBack = tileDetailReturn == HubView.GRID ? "Back to Board" : "Back to Tasks";
 			Widget back = container.createChild(-1, WidgetType.TEXT);
-			back.setText("<col=ffcc33>" + (toGrid ? "Back to Board" : "Back to Schedule") + "</col>");
+			back.setText("<col=ffcc33>" + (onDetail ? detailBack : "Back to Schedule") + "</col>");
 			back.setFontId(FONT_PLAIN);
 			back.setTextShadowed(true);
 			place(back, 10, y, ClogIds.LEFT_COL_W - 20, 16);
 			back.setHasListener(true);
 			back.setAction(0, "Back");
 			back.setOnOpListener((JavaScriptCallback) e -> {
-				if (toGrid)
+				if (onDetail)
 				{
 					backToGrid();
 				}
@@ -1332,28 +1497,34 @@ public class ClogTabController
 		header.deleteAllChildren();
 
 		List<ClogTaskModel.TaskRow> all = tasks();
-		int done = ClogTaskModel.completedCount(all);
-		int earned = ClogTaskModel.earnedPoints(all);
-		int totalPts = ClogTaskModel.totalPoints(all);
+		java.util.Set<Integer> optionalIds = optionalTileIds();
+		int done = ClogTaskModel.completedCount(all, optionalIds);
+		int earned = ClogTaskModel.earnedPoints(all, optionalIds);
+		int totalPts = ClogTaskModel.totalPoints(all, optionalIds);
 		String subtitle = eventName() != null ? eventName()
 			: "No active event";
 
-		bannerLine(header, "Bingo Tasks", COL_ORANGE, 0);
-		String pts = totalPts > 0
-			? "<col=ffff00>" + earned + "</col> / " + totalPts + " points"
-			: "Completed: <col=ffff00>" + done + "/" + all.size() + "</col>";
-		bannerLine(header, pts, 0xffffff, BANNER_LINE_H);
-		bannerLine(header, subtitle + "  <col=666666>·</col>  " + done + "/" + all.size() + " done", 0xaaaaaa, BANNER_LINE_H * 2);
+		// Two lines (event name + progress) so the header breathes, like the detail header — three
+		// lines don't fit the clog header height without clipping.
+		bannerLine(header, subtitle, COL_ORANGE, 0);
+		String prog = done + "/" + ClogTaskModel.scoredCount(all, optionalIds) + " done";
+		String line2 = totalPts > 0
+			? "<col=ffff00>" + earned + "</col> / " + totalPts + " points  <col=666666>·</col>  " + prog
+			: "<col=ffff00>" + prog + "</col>";
+		bannerLine(header, line2, 0xaaaaaa, BANNER_LINE_H);
 		header.revalidate();
 	}
 
-	private static final int BANNER_TOP = 1; // top margin so the header isn't flush against the divider
-	private static final int BANNER_LINE_H = 13; // per-line step; 3 lines must fit the clog header height
+	private static final int BANNER_TOP = 3; // top margin so the header isn't flush against the divider
+	private static final int BANNER_LINE_H = 16; // per-line step for 2-line headers, which have room to breathe
+	private static final int BANNER_LINE_3 = 13; // tighter step for the few 3-line headers (grid/race/points/
+	// leaderboard) — the clog header only fits ~3 lines at this spacing, so they stay compact by necessity
+	private static final int BANNER_LEFT = 6; // left indent so header text lines up with the body content
 
 	private Widget bannerLine(Widget header, String text, int color, int y)
 	{
 		Widget line = header.createChild(-1, WidgetType.TEXT);
-		place(line, 2, y + BANNER_TOP, 280, 15);
+		place(line, BANNER_LEFT, y + BANNER_TOP, 280, 15);
 		line.setFontId(FONT_PLAIN);
 		line.setText(text);
 		line.setTextColor(color);
@@ -1377,6 +1548,8 @@ public class ClogTabController
 
 		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
 		int top = renderBodyFilters(items, paneWidth);
+		// A classic bingo carrying announced missions shows them in a live strip above the task list.
+		top += renderActiveMissionsStrip(items, System.currentTimeMillis(), top, paneWidth);
 		List<PluginConfigResponse.TierBand> bands = tierBands();
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.filter(tasks(), statusFilter, typeFilter, searchText,
 			categoryFilter, effectiveTier(bands), bands);
@@ -1387,7 +1560,7 @@ public class ClogTabController
 			empty.setText("No bingo tasks match the current filters.");
 			empty.setTextColor(0xaaaaaa);
 			empty.setFontId(FONT_PLAIN);
-			place(empty, 0, top, paneWidth, 20);
+			place(empty, 2, top, paneWidth - 4, 20);
 			empty.revalidate();
 			items.setScrollHeight(top + ClogIds.ROW_H);
 			items.revalidateScroll();
@@ -1396,7 +1569,9 @@ public class ClogTabController
 		}
 
 		int y = top;
-		int textWidth = Math.max(60, paneWidth - ClogIds.ROW_TEXT_X);
+		// Leave room for the scrollbar on the right so long sub-lines (Reward + cur/goal) don't run
+		// under it and clip.
+		int textWidth = Math.max(60, paneWidth - ClogIds.ROW_TEXT_X - 14);
 		for (ClogTaskModel.TaskRow row : rows)
 		{
 			y += renderTaskRow(items, row, y, textWidth);
@@ -1421,7 +1596,7 @@ public class ClogTabController
 			: "<col=777777>Search tasks...</col>");
 		search.setFontId(FONT_PLAIN);
 		search.setTextShadowed(true);
-		place(search, 0, y, paneWidth, 14);
+		place(search, 2, y, paneWidth - 4, 14);
 		search.setHasListener(true);
 		search.setAction(0, "Search");
 		if (hasQuery)
@@ -1453,18 +1628,30 @@ public class ClogTabController
 		List<String> chipLabels = new ArrayList<>();
 		List<String> chipValues = new ArrayList<>();
 		List<JavaScriptCallback> chipActions = new ArrayList<>();
+		// Per-chip right-click reset: left-click cycles forward, right-click jumps straight back to
+		// "All" so you don't have to cycle the whole way around a long list. null = already at All.
+		List<Runnable> chipResets = new ArrayList<>();
 
 		chipLabels.add("Status");
 		chipValues.add(pretty(statusFilter.name()));
 		chipActions.add(e -> cycleStatusFilter());
+		chipResets.add(statusFilter == ClogTaskModel.StatusFilter.ALL ? null
+			: () -> setStatusFilter(ClogTaskModel.StatusFilter.ALL));
 		chipLabels.add("Type");
 		chipValues.add(pretty(typeFilter.name()));
 		chipActions.add(e -> cycleTypeFilter());
+		chipResets.add(typeFilter == ClogTaskModel.TypeFilter.ALL ? null
+			: () -> setTypeFilter(ClogTaskModel.TypeFilter.ALL));
 		if (hasCats)
 		{
 			chipLabels.add("Category");
 			chipValues.add(categoryFilter.isEmpty() ? "All" : categoryFilter);
 			chipActions.add(e -> cycleCategoryFilter());
+			chipResets.add(categoryFilter.isEmpty() ? null : () ->
+			{
+				categoryFilter = "";
+				refreshIfActive();
+			});
 		}
 		if (showTier)
 		{
@@ -1472,20 +1659,50 @@ public class ClogTabController
 			chipLabels.add("Tier");
 			chipValues.add(tier.isEmpty() ? "All" : ClogTaskModel.tierLabel(tier, bands));
 			chipActions.add(e -> cycleTierFilter());
+			chipResets.add(tier.isEmpty() ? null : () -> setTierFilter(""));
 		}
 
 		int perRow = 3;
 		int cols = Math.min(perRow, chipLabels.size());
 		int gap = 6;
-		int colW = (paneWidth - gap * (cols - 1)) / cols;
+		// Inset 2px each side so the leftmost chip lines up with the search bar + task-row icons.
+		int colW = (paneWidth - 4 - gap * (cols - 1)) / cols;
 		for (int i = 0; i < chipLabels.size(); i++)
 		{
-			int cx = (i % perRow) * (colW + gap);
+			int cx = 2 + (i % perRow) * (colW + gap);
 			int cy = y + (i / perRow) * 16;
-			bodyFilterChip(items, chipLabels.get(i), chipValues.get(i), cx, cy, colW, chipActions.get(i));
+			bodyFilterChip(items, chipLabels.get(i), chipValues.get(i), cx, cy, colW,
+				chipActions.get(i), chipResets.get(i));
 		}
 		int numRows = (chipLabels.size() + perRow - 1) / perRow;
 		y += 16 * numRows;
+
+		// One-tap "Reset filters" clears everything at once (search + every chip). Shown only when
+		// something is actually filtering; right-clicking individual chips still resets them one at a
+		// time — this is the shortcut when several are active.
+		boolean anyActive = statusFilter != ClogTaskModel.StatusFilter.ALL
+			|| typeFilter != ClogTaskModel.TypeFilter.ALL
+			|| !categoryFilter.isEmpty()
+			|| !effectiveTier(bands).isEmpty()
+			|| !searchText.trim().isEmpty();
+		if (anyActive)
+		{
+			Widget reset = items.createChild(-1, WidgetType.TEXT);
+			reset.setText("<col=ff9040>Reset filters</col>");
+			reset.setFontId(FONT_PLAIN);
+			reset.setTextShadowed(true);
+			place(reset, 2, y, paneWidth - 4, 14);
+			reset.setXTextAlignment(ALIGN_RIGHT);
+			reset.setHasListener(true);
+			reset.setAction(0, "Reset");
+			reset.setOnOpListener((JavaScriptCallback) e ->
+			{
+				resetFilters();
+				refreshIfActive();
+			});
+			reset.revalidate();
+			y += 16;
+		}
 
 		return y + 4;
 	}
@@ -1517,7 +1734,8 @@ public class ClogTabController
 		}
 	}
 
-	private void bodyFilterChip(Widget items, String label, String value, int x, int y, int w, JavaScriptCallback onClick)
+	private void bodyFilterChip(Widget items, String label, String value, int x, int y, int w,
+		JavaScriptCallback onCycle, Runnable onReset)
 	{
 		Widget chip = items.createChild(-1, WidgetType.TEXT);
 		chip.setFontId(FONT_PLAIN);
@@ -1529,7 +1747,22 @@ public class ClogTabController
 		place(chip, x, y, w, 14);
 		chip.setHasListener(true);
 		chip.setAction(0, "Cycle");
-		chip.setOnOpListener(onClick);
+		// Only offer "Reset" when this chip is off its default (mirrors the search bar's "Clear").
+		if (onReset != null)
+		{
+			chip.setAction(1, "Reset");
+		}
+		chip.setOnOpListener((JavaScriptCallback) e ->
+		{
+			if (e.getOp() == 2 && onReset != null)
+			{
+				onReset.run();
+			}
+			else
+			{
+				onCycle.run(e);
+			}
+		});
 		chip.revalidate();
 	}
 
@@ -1618,28 +1851,49 @@ public class ClogTabController
 		place(name, ClogIds.ROW_TEXT_X, y + 3, textWidth, 16);
 		name.setHasListener(true);
 		name.setAction(0, expanded ? "Collapse" : "Expand");
-		name.setOnOpListener((JavaScriptCallback) e -> toggleExpand(row.tileId));
+		// Second op: right-click → Inspect opens the shared tile-detail page (what counts + who's
+		// completed it) while left-click keeps the quick inline "+" description expand — both, as asked.
+		name.setAction(1, "Inspect");
+		name.setOnOpListener((JavaScriptCallback) e -> {
+			if (e.getOp() == 2)
+			{
+				openTaskTile(row.tileId);
+			}
+			else
+			{
+				toggleExpand(row.tileId);
+			}
+		});
 		name.revalidate();
 
 		StringBuilder sub = new StringBuilder();
+		StringBuilder subPlain = new StringBuilder(); // tag-free copy for width measurement
 		if (row.points > 0)
 		{
 			sub.append("Reward: <col=ffcc33>").append(row.points).append(" points</col>");
+			subPlain.append("Reward: ").append(row.points).append(" points");
 		}
 		if (row.goal > 0)
 		{
 			if (sub.length() > 0)
 			{
 				sub.append("  <col=666666>·</col>  ");
+				subPlain.append("  ·  ");
 			}
 			sub.append("<col=").append(hex(statusColor)).append(">")
 				.append(row.current).append("/").append(row.goal).append("</col>");
+			subPlain.append(row.current).append("/").append(row.goal);
 		}
 		Widget subText = items.createChild(-1, WidgetType.TEXT);
+		subText.setFontId(FONT_PLAIN);
+		// Shrink a step before a long "Reward … · cur/goal" clips — keeps the exact numbers, no ellipsis.
+		if (textWidth(subText.getFont(), subPlain.toString()) > textWidth)
+		{
+			subText.setFontId(FONT_PLAIN_SMALL);
+		}
 		subText.setText(sub.toString());
 		subText.setTextColor(0x999999);
 		subText.setTextShadowed(true);
-		subText.setFontId(FONT_PLAIN);
 		place(subText, ClogIds.ROW_TEXT_X, y + 18 + extraTitleH, textWidth, 14);
 		subText.revalidate();
 
@@ -1687,7 +1941,7 @@ public class ClogTabController
 		t.setText("<col=" + hex(color) + ">" + label + "</col>");
 		t.setFontId(FONT_PLAIN);
 		t.setTextShadowed(true);
-		place(t, 10, y + 3, paneWidth - 16, 16);
+		place(t, 6, y + 3, paneWidth - 12, 16);
 		t.revalidate();
 		return SECTION_HEADER_H;
 	}
@@ -1874,13 +2128,13 @@ public class ClogTabController
 			{
 				String kind = "skill".equalsIgnoreCase(lb.competition.type) ? "Skill of the Week" : "Boss of the Week";
 				bannerLine(header, lb.competition.title == null ? kind : lb.competition.title, COL_ORANGE, 0);
-				bannerLine(header, kind + "  <col=666666>·</col>  " + nz(lb.competition.metric), 0xffffff, BANNER_LINE_H);
+				bannerLine(header, kind + "  <col=666666>·</col>  " + nz(lb.competition.metric), 0xffffff, BANNER_LINE_3);
 				// Live countdown instead of a plain date range — onGameTick refreshes this one line.
 				countdownStart = lb.competition.startDate;
 				countdownEnd = lb.competition.endDate;
 				countdownSuffix = "  <col=666666>·</col>  " + lb.total + " players";
 				countdownText = countdownLabel(countdownStart, countdownEnd);
-				countdownLine = bannerLine(header, countdownText + countdownSuffix, 0xaaaaaa, BANNER_LINE_H * 2);
+				countdownLine = bannerLine(header, countdownText + countdownSuffix, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -1931,7 +2185,7 @@ public class ClogTabController
 				// Match on whitespace-normalized names — OSRS display names use non-breaking
 				// spaces, so a raw equalsIgnoreCase can miss the local player (and mis-flag).
 				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
-				y += leaderboardRow(items, e.rank, e.rsn, e.gained, isMe, y, paneWidth);
+				y += leaderboardRow(items, e.rank, e.rsn, e.gained, isMe, y, paneWidth, true);
 			}
 		}
 
@@ -1940,7 +2194,8 @@ public class ClogTabController
 		updateScrollbar(items);
 	}
 
-	private int leaderboardRow(Widget items, int rank, String rsn, long gained, boolean isMe, int y, int paneWidth)
+	// plus=true prefixes "+" (weekly XP/KC gained); ladder points pass false (an absolute score, not a gain).
+	private int leaderboardRow(Widget items, int rank, String rsn, long gained, boolean isMe, int y, int paneWidth, boolean plus)
 	{
 		int nameColor = isMe ? 0xffcc33
 			: (rank <= 3 ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : 0xe0e0e0);
@@ -1965,13 +2220,324 @@ public class ClogTabController
 
 		Widget gn = items.createChild(-1, WidgetType.TEXT);
 		// Floor at 0 so a not-yet-fetched baseline can't show a negative "+-23".
-		gn.setText("<col=ffcc33>+" + String.format("%,d", Math.max(0, gained)) + "</col>");
+		gn.setText("<col=ffcc33>" + (plus ? "+" : "") + String.format("%,d", Math.max(0, gained)) + "</col>");
 		gn.setFontId(FONT_PLAIN);
 		gn.setTextShadowed(true);
 		place(gn, paneWidth - 90, ty, 84, 16);
 		gn.setXTextAlignment(ALIGN_RIGHT);
 		gn.revalidate();
 		return 24;
+	}
+
+	// ---- ladder: DMM-All-Stars-style missions board (format=ladder) ----
+
+	/**
+	 * The live missions board for a ladder event: your rank, a per-second countdown to the next drop,
+	 * the currently-open missions with a live grow/decay value each, and the individual leaderboard with
+	 * an All-time / This-month toggle. The countdown + values refresh in place from onGameTick
+	 * (tickLadderView) — no board polling; everything rides the already-refreshed config.
+	 */
+	private void renderLadderView()
+	{
+		if (!clogOpen || !bingoTabActive)
+		{
+			return;
+		}
+		ladderRows.clear();
+		ladderCountdownLine = null;
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		PluginConfigResponse.EventInfo ev = cfg == null ? null : cfg.event;
+		ladderNextRevealAt = ev == null ? null : ev.nextRevealAt;
+		ladderDecay = ev == null ? null : ev.decay;
+		final long now = System.currentTimeMillis();
+
+		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		if (header != null)
+		{
+			header.deleteAllChildren();
+			String title = ev != null && ev.name != null && !ev.name.isEmpty() ? ev.name : "Ladder";
+			bannerLine(header, title, COL_ORANGE, 0);
+			bannerLine(header, ladderRankLine(ev), 0xffffff, BANNER_LINE_3);
+			ladderCountdownText = ladderCountdownText(now);
+			ladderCountdownLine = bannerLine(header, ladderCountdownText, 0xff9040, BANNER_LINE_3 * 2);
+			header.revalidate();
+		}
+
+		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+		if (items == null)
+		{
+			return;
+		}
+		items.deleteAllChildren();
+		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
+		int y = BODY_TOP;
+
+		// Active missions (revealed + still open), each with a live value.
+		y += ladderSectionLabel(items, "ACTIVE MISSIONS", y, paneWidth);
+		if (ev == null || ev.missions == null || ev.missions.isEmpty())
+		{
+			y += ladderInfoRow(items, "Waiting for the next mission to drop...", y, paneWidth);
+		}
+		else
+		{
+			for (PluginConfigResponse.Mission m : ev.missions)
+			{
+				if (m != null)
+				{
+					y += ladderMissionRow(items, m, now, y, paneWidth);
+				}
+			}
+		}
+		y += 6;
+
+		// Individual leaderboard with an All-time / This-month toggle.
+		y += ladderToggle(items, y, paneWidth);
+		PluginConfigResponse.Standings st = ev == null ? null : (ladderShowMonth ? ev.monthlyStandings : ev.standings);
+		if (st == null || st.entries == null || st.entries.isEmpty())
+		{
+			y += ladderInfoRow(items, ladderShowMonth ? "No points this month yet." : "No points yet — be first on the board.", y, paneWidth);
+		}
+		else
+		{
+			String me = normalizeRsn(localRsn());
+			for (PluginConfigResponse.StandingEntry e : st.entries)
+			{
+				if (e == null)
+				{
+					continue;
+				}
+				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
+				y += leaderboardRow(items, e.rank, e.rsn, e.points, isMe, y, paneWidth, false);
+			}
+		}
+
+		items.setScrollHeight(y + 6);
+		items.revalidateScroll();
+		updateScrollbar(items);
+	}
+
+	/** Per-tick refresh (onGameTick) of the ladder countdown + each mission's live value, in place. */
+	private void tickLadderView()
+	{
+		final long now = System.currentTimeMillis();
+		if (ladderCountdownLine != null)
+		{
+			String text = ladderCountdownText(now);
+			if (!text.equals(ladderCountdownText))
+			{
+				ladderCountdownText = text;
+				ladderCountdownLine.setText(text);
+				ladderCountdownLine.revalidate();
+			}
+		}
+		for (LadderRowRef r : ladderRows)
+		{
+			long val = LadderMissions.liveValue(r.face, r.revealedAtIso, r.decay, now);
+			String text = LadderMissions.valueLabel(r.face, val);
+			if (!text.equals(r.lastText))
+			{
+				r.lastText = text;
+				r.widget.setText(text);
+				r.widget.setTextColor(ladderValueColor(r.face, val));
+				r.widget.revalidate();
+			}
+		}
+	}
+
+	/** "You: #4 this month · 1,240 pts · #12 all-time", or an encouraging line when unranked. */
+	private static String ladderRankLine(PluginConfigResponse.EventInfo ev)
+	{
+		PluginConfigResponse.Standings month = ev == null ? null : ev.monthlyStandings;
+		PluginConfigResponse.Standings all = ev == null ? null : ev.standings;
+		int mr = month != null ? month.yourRank : 0;
+		long mp = month != null ? month.yourPoints : 0;
+		int ar = all != null ? all.yourRank : 0;
+		if (mr <= 0)
+		{
+			return "You: unranked  <col=666666>·</col>  finish a mission to score";
+		}
+		String s = "You: #" + mr + " this month  <col=666666>·</col>  " + String.format("%,d", mp) + " pts";
+		if (ar > 0)
+		{
+			s += "  <col=666666>·</col>  #" + ar + " all-time";
+		}
+		return s;
+	}
+
+	/** "NEXT MISSION IN  12:34" / "New mission dropping..." / "Next mission drops on a claim" (bounty). */
+	private String ladderCountdownText(long now)
+	{
+		String cd = LadderMissions.countdown(ladderNextRevealAt, now);
+		if (cd == null)
+		{
+			return "Next mission drops on a claim";
+		}
+		return "now".equals(cd) ? "New mission dropping..." : "NEXT MISSION IN  " + cd;
+	}
+
+	/** Gold for an unchanged value, green when it grew, orange when it's decaying. */
+	private static int ladderValueColor(long face, long current)
+	{
+		if (current == face)
+		{
+			return 0xffcc33;
+		}
+		return current > face ? (ClogIds.COMPLETE_COLOR.getRGB() & 0xFFFFFF) : COL_ORANGE;
+	}
+
+	private int ladderSectionLabel(Widget items, String text, int y, int paneWidth)
+	{
+		Widget w = items.createChild(-1, WidgetType.TEXT);
+		w.setText("<col=ffcc33>" + text + "</col>");
+		w.setFontId(FONT_PLAIN);
+		w.setTextShadowed(true);
+		place(w, 6, y, paneWidth - 12, 16);
+		w.revalidate();
+		return 20;
+	}
+
+	private int ladderInfoRow(Widget items, String text, int y, int paneWidth)
+	{
+		Widget w = items.createChild(-1, WidgetType.TEXT);
+		w.setText(text);
+		w.setTextColor(0xaaaaaa);
+		w.setFontId(FONT_PLAIN);
+		w.setTextShadowed(true);
+		place(w, 8, y, paneWidth - 16, 16);
+		w.revalidate();
+		return ClogIds.ROW_H;
+	}
+
+	private int ladderMissionRow(Widget items, PluginConfigResponse.Mission m, long now, int y, int paneWidth)
+	{
+		int ty = y + 4;
+		Widget nm = items.createChild(-1, WidgetType.TEXT);
+		nm.setText(m.label == null ? "?" : m.label);
+		nm.setTextColor(0xe0e0e0);
+		nm.setFontId(FONT_PLAIN);
+		nm.setTextShadowed(true);
+		place(nm, 8, ty, paneWidth - 8 - 92, 16);
+		nm.revalidate();
+
+		// Prefer the mission's own decay (per-mission on a bingo); fall back to the event-level ramp.
+		PluginConfigResponse.Decay d = m.decay != null ? m.decay : ladderDecay;
+		long val = LadderMissions.liveValue(m.points, m.revealedAt, d, now);
+		Widget vn = items.createChild(-1, WidgetType.TEXT);
+		vn.setText(LadderMissions.valueLabel(m.points, val));
+		vn.setTextColor(ladderValueColor(m.points, val));
+		vn.setFontId(FONT_PLAIN);
+		vn.setTextShadowed(true);
+		place(vn, paneWidth - 90, ty, 84, 16);
+		vn.setXTextAlignment(ALIGN_RIGHT);
+		vn.revalidate();
+		ladderRows.add(new LadderRowRef(vn, m.points, m.revealedAt, d));
+		return 22;
+	}
+
+	/**
+	 * An "Active missions" strip for a CLASSIC bingo carrying announced missions — a header, a live
+	 * countdown (when timed) and each mission's live grow/decay value — drawn atop the normal board
+	 * views. Returns the height used, or 0 (so a board with no missions is untouched). Reuses the ladder
+	 * row/countdown machinery, so onGameTick animates it. Skipped on reveal-policy boards (their tiles
+	 * already show on the board) and when there are no missions. Clears the ladder row refs either way.
+	 */
+	private int renderActiveMissionsStrip(Widget items, long now, int y, int paneWidth)
+	{
+		ladderRows.clear();
+		ladderCountdownLine = null;
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		PluginConfigResponse.EventInfo ev = cfg == null ? null : cfg.event;
+		if (ev == null || ev.missions == null || ev.missions.isEmpty())
+		{
+			return 0;
+		}
+		boolean revealBoard = ev.revealPolicy != null && !ev.revealPolicy.isEmpty();
+		if (revealBoard)
+		{
+			return 0; // reveal boards (showdown/rotating/bounty) show their tiles on the board itself
+		}
+		ladderDecay = ev.decay;
+		ladderNextRevealAt = ev.nextRevealAt;
+		int y0 = y;
+		y += ladderSectionLabel(items, "ACTIVE MISSIONS", y, paneWidth);
+		if (LadderMissions.countdown(ev.nextRevealAt, now) != null)
+		{
+			ladderCountdownText = ladderCountdownText(now);
+			Widget line = items.createChild(-1, WidgetType.TEXT);
+			line.setText(ladderCountdownText);
+			line.setTextColor(COL_ORANGE);
+			line.setFontId(FONT_PLAIN);
+			line.setTextShadowed(true);
+			place(line, 8, y, paneWidth - 16, 16);
+			line.revalidate();
+			ladderCountdownLine = line;
+			y += 18;
+		}
+		for (PluginConfigResponse.Mission m : ev.missions)
+		{
+			if (m != null)
+			{
+				y += ladderMissionRow(items, m, now, y, paneWidth);
+			}
+		}
+		return (y - y0) + 8; // trailing gap before the board
+	}
+
+	/** Two clickable chips switching the leaderboard scope; the active one is gold. */
+	private int ladderToggle(Widget items, int y, int paneWidth)
+	{
+		Widget month = items.createChild(-1, WidgetType.TEXT);
+		month.setText(ladderShowMonth ? "<col=ffcc33>[ This month ]</col>" : "<col=888888>This month</col>");
+		month.setFontId(FONT_PLAIN);
+		month.setTextShadowed(true);
+		place(month, 8, y, 100, 16);
+		month.setHasListener(true);
+		month.setAction(0, "View");
+		month.setOnOpListener((JavaScriptCallback) e ->
+		{
+			if (!ladderShowMonth)
+			{
+				ladderShowMonth = true;
+				clientThread.invokeLater(this::renderHub);
+			}
+		});
+		month.revalidate();
+
+		Widget all = items.createChild(-1, WidgetType.TEXT);
+		all.setText(!ladderShowMonth ? "<col=ffcc33>[ All-time ]</col>" : "<col=888888>All-time</col>");
+		all.setFontId(FONT_PLAIN);
+		all.setTextShadowed(true);
+		place(all, 116, y, 100, 16);
+		all.setHasListener(true);
+		all.setAction(0, "View");
+		all.setOnOpListener((JavaScriptCallback) e ->
+		{
+			if (ladderShowMonth)
+			{
+				ladderShowMonth = false;
+				clientThread.invokeLater(this::renderHub);
+			}
+		});
+		all.revalidate();
+		return 22;
+	}
+
+	/** Held ref for one mission's value widget so the tick recomputes its grow/decay value in place. */
+	private static final class LadderRowRef
+	{
+		final Widget widget;
+		final int face;
+		final String revealedAtIso;
+		final PluginConfigResponse.Decay decay; // this mission's own ramp (may be null)
+		String lastText = "";
+
+		LadderRowRef(Widget widget, int face, String revealedAtIso, PluginConfigResponse.Decay decay)
+		{
+			this.widget = widget;
+			this.face = face;
+			this.revealedAtIso = revealedAtIso;
+			this.decay = decay;
+		}
 	}
 
 	private String localRsn()
@@ -2010,7 +2576,7 @@ public class ClogTabController
 		t.setTextColor(titleColor);
 		t.setTextShadowed(true);
 		t.setFontId(FONT_PLAIN);
-		place(t, 4, y, paneWidth - 8, 16);
+		place(t, 6, y, paneWidth - 12, 16);
 		if (onOpen != null)
 		{
 			t.setHasListener(true);
@@ -2032,7 +2598,7 @@ public class ClogTabController
 		subW.setText(sub.toString());
 		subW.setTextShadowed(true);
 		subW.setFontId(FONT_PLAIN);
-		place(subW, 4, y + 15, paneWidth - 8, 14);
+		place(subW, 6, y + 15, paneWidth - 12, 14);
 		subW.revalidate();
 		return 34;
 	}
@@ -2170,7 +2736,7 @@ public class ClogTabController
 				}
 				// In a read-only preview `complete` means "some team has it"; otherwise it's your team.
 				bannerLine(header, "<col=ffff00>" + done + "</col> / " + board.tiles.size()
-					+ (board.readOnly ? " tiles claimed" : " tiles done"), 0xffffff, BANNER_LINE_H);
+					+ (board.readOnly ? " tiles claimed" : " tiles done"), 0xffffff, BANNER_LINE_3);
 				String sub = board.boardSize + "x" + board.boardSize + " board";
 				if (board.readOnly)
 				{
@@ -2180,7 +2746,7 @@ public class ClogTabController
 				{
 					sub += "  <col=666666>·</col>  " + teamName();
 				}
-				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_H * 2);
+				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -2195,6 +2761,10 @@ public class ClogTabController
 			return;
 		}
 		items.deleteAllChildren();
+		// Drop any stale mission-row refs from a prior view so the per-tick refresh never touches a
+		// deleted widget (the normal path re-populates them via the missions strip below).
+		ladderRows.clear();
+		ladderCountdownLine = null;
 		int paneWidth = items.getWidth() > 0 ? items.getWidth() : 250;
 
 		if (board == null || board.tiles == null || board.tiles.isEmpty())
@@ -2221,6 +2791,8 @@ public class ClogTabController
 		int gridW = n * cell + gap * (n - 1);
 		int startX = Math.max(0, (paneWidth - gridW) / 2);
 		int top = BODY_TOP;
+		// A classic bingo carrying announced missions shows them in a live strip above the grid.
+		top += renderActiveMissionsStrip(items, System.currentTimeMillis(), top, paneWidth);
 
 		// In a read-only preview there's no "your team", so a claimed cell uses a neutral gold;
 		// otherwise it's your team's colour.
@@ -2278,13 +2850,13 @@ public class ClogTabController
 					}
 				}
 				bannerLine(header, "<col=ffff00>" + board.tiles.size() + "</col> tasks  <col=666666>·</col>  "
-					+ "<col=ffff00>" + totalPoints + "</col> pts", 0xffffff, BANNER_LINE_H);
+					+ "<col=ffff00>" + totalPoints + "</col> pts", 0xffffff, BANNER_LINE_3);
 				String sub = "Leagues-style points";
 				if (board.readOnly)
 				{
 					sub += "  <col=666666>·</col>  <col=ffcc33>read-only preview</col>";
 				}
-				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_H * 2);
+				bannerLine(header, sub, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -2530,9 +3102,14 @@ public class ClogTabController
 		int tw = Math.max(60, paneWidth - tx - 6);
 
 		Widget title = items.createChild(-1, WidgetType.TEXT);
+		title.setFontId(FONT_PLAIN);
+		// Drop one font step before a long title clips — shrink to fit, Jagex-style, no ellipsis.
+		if (sel.label != null && textWidth(title.getFont(), sel.label) > tw)
+		{
+			title.setFontId(FONT_PLAIN_SMALL);
+		}
 		title.setText("<col=ff9040>" + sel.label + "</col>");
 		title.setTextShadowed(true);
-		title.setFontId(FONT_PLAIN);
 		place(title, tx, y + 2, tw, 18);
 		title.revalidate();
 
@@ -2570,22 +3147,77 @@ public class ClogTabController
 
 		y += iconSize + 12;
 
-		// The actual task for stat tiles (skill XP / boss KC) — the label alone (often a custom
-		// name) doesn't say what to do, so surface the requirement prominently.
-		if (sel.requirement != null && !sel.requirement.isEmpty())
+		// Auto-tracking kill-switch: the site won't auto-credit this tile (its tracking is off), so
+		// staff mark it done by hand. Surface it here so members don't think it's broken.
+		if (sel.autoTrackDisabled == 1)
 		{
-			Widget reqW = items.createChild(-1, WidgetType.TEXT);
-			reqW.setText("<col=999999>Task:</col> <col=ffcc33>" + sel.requirement + "</col>");
-			reqW.setTextShadowed(true);
-			reqW.setFontId(FONT_PLAIN);
-			place(reqW, 6, y, paneWidth - 12, 16);
-			reqW.revalidate();
+			Widget manualW = items.createChild(-1, WidgetType.TEXT);
+			manualW.setText("<col=ffb833>Not auto-tracked - completed manually by staff.</col>");
+			manualW.setTextShadowed(true);
+			manualW.setFontId(FONT_PLAIN);
+			place(manualW, 6, y, paneWidth - 12, 16);
+			manualW.revalidate();
 			y += 20;
 		}
 
+		// Description (the human blurb) sits up top, like the website's tile modal.
 		if (sel.description != null && !sel.description.isEmpty())
 		{
-			y += renderDescription(items, sel.description, 6, y, paneWidth - 12) + 4;
+			y += renderDescription(items, sel.description, 6, y, paneWidth - 12) + 6;
+		}
+
+		// What counts — mirror the website's breakdown. Drop AND gain tiles get the accepted item pool
+		// ("Any of"); drops also get the source restriction ("Only from"). Everything else (kills,
+		// timed clears, stat goals…) gets the one-line requirement the server builds. Gain tiles show
+		// both — the pool AND the "Gather N" target. Wrapped, not clipped.
+		boolean isDropTile = "drop".equalsIgnoreCase(sel.tileType);
+		boolean isGainTile = "gain".equalsIgnoreCase(sel.tileType);
+		boolean isCompound = sel.itemRequirements != null && sel.itemRequirements.size() > 1;
+		boolean hasItems = sel.itemIds != null && !sel.itemIds.isEmpty();
+		boolean hasSources = sel.sources != null && !sel.sources.isEmpty();
+		boolean showAnyOf = (isDropTile || isGainTile) && hasItems && !isCompound; // compound sets list below with progress
+		boolean showFrom = isDropTile && hasSources;
+		boolean showReqLine = !isDropTile && sel.requirement != null && !sel.requirement.isEmpty();
+		if (showAnyOf || showFrom || showReqLine)
+		{
+			Widget wcLbl = items.createChild(-1, WidgetType.TEXT);
+			wcLbl.setText("<col=999999>What counts:</col>");
+			wcLbl.setFontId(FONT_PLAIN);
+			wcLbl.setTextShadowed(true);
+			place(wcLbl, 6, y, paneWidth - 12, 15);
+			wcLbl.revalidate();
+			y += 17;
+
+			if (showAnyOf)
+			{
+				StringBuilder pool = new StringBuilder();
+				for (int id : sel.itemIds)
+				{
+					String nm = itemName(id);
+					if (nm == null || nm.isEmpty())
+					{
+						continue;
+					}
+					if (pool.length() > 0)
+					{
+						pool.append(", ");
+					}
+					pool.append(nm);
+				}
+				if (pool.length() > 0)
+				{
+					y += labeledWrapped(items, "Any of:", pool.toString(), 6, y, paneWidth - 12);
+				}
+			}
+			if (showFrom)
+			{
+				y += labeledWrapped(items, "Only from:", String.join(", ", sel.sources), 6, y, paneWidth - 12);
+			}
+			if (showReqLine)
+			{
+				y += renderWrappedColored(items, sel.requirement, 0xffcc33, 6, y, paneWidth - 12, DESC_LINE_H);
+			}
+			y += 4;
 		}
 
 		// Compound tile (e.g. a full-moon set): list each required item with its icon and your
@@ -2697,14 +3329,14 @@ public class ClogTabController
 			if (board != null && board.tiles != null)
 			{
 				bannerLine(header, "Tile Race  <col=666666>·</col>  " + board.tiles.size() + " tiles",
-					0xffffff, BANNER_LINE_H);
+					0xffffff, BANNER_LINE_3);
 				int teamCount = board.teams != null ? board.teams.size() : 0;
 				String line = teamCount + " team" + (teamCount == 1 ? "" : "s") + " racing";
 				if (board.readOnly)
 				{
 					line += "  <col=666666>·</col>  <col=ffcc33>read-only preview</col>";
 				}
-				bannerLine(header, line, 0xaaaaaa, BANNER_LINE_H * 2);
+				bannerLine(header, line, 0xaaaaaa, BANNER_LINE_3 * 2);
 			}
 			else
 			{
@@ -2962,6 +3594,36 @@ public class ClogTabController
 		return ClogTaskModel.build(plugin.getPluginConfig());
 	}
 
+	/**
+	 * Tile IDs flagged optional (bonus) for whatever {@link #tasks()} is currently showing — the
+	 * previewed board in POINTS view, else your own config. Optional tiles are excluded from the
+	 * score/points totals, matching the website. Empty set = nothing to exclude.
+	 */
+	private java.util.Set<Integer> optionalTileIds()
+	{
+		if (hubView == HubView.POINTS)
+		{
+			BingoApiClient.BoardResponse b = viewedBoard();
+			if (b == null || b.tiles == null)
+			{
+				return java.util.Collections.emptySet();
+			}
+			java.util.Set<Integer> ids = new java.util.HashSet<>();
+			for (BingoApiClient.BoardTile t : b.tiles)
+			{
+				if (t != null && t.optional == 1)
+				{
+					ids.add(t.tileId);
+				}
+			}
+			return ids;
+		}
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		return (cfg != null && cfg.optionalTileIds != null)
+			? new java.util.HashSet<>(cfg.optionalTileIds)
+			: java.util.Collections.emptySet();
+	}
+
 	/** Difficulty bands to filter by — from the previewed board in POINTS view, else your config. */
 	private List<PluginConfigResponse.TierBand> tierBands()
 	{
@@ -3031,6 +3693,10 @@ public class ClogTabController
 	/** Schedule-row label for a bingo-family event, by format + scoring mode. */
 	private static String bingoKindLabel(String format, String scoringMode)
 	{
+		if (LadderMissions.isLadder(format))
+		{
+			return "Ladder";
+		}
 		if ("tilerace".equalsIgnoreCase(format))
 		{
 			return "Tile race";

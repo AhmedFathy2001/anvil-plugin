@@ -70,7 +70,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "apiUrl",
 		name = "Site URL",
-		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). Ask your clan admin if unsure.",
+		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). If you leave off https://, it's added automatically. Ask your clan admin if unsure.",
 		position = 1,
 		section = "setupSection"
 	)
@@ -266,13 +266,15 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "rareDropMinRarity",
 		name = "Min drop rarity (1 in N)",
-		description = "Also post extremely rare NPC/pickpocket drops regardless of value (e.g. 5000 = rarer than 1/5000). Minimum enforced: 1/1000. 0 disables rarity-based posts.",
+		description = "Also post extremely rare NPC/pickpocket drops regardless of value (e.g. 10000 = rarer than 1/10000). Your clan can enforce a higher floor. Minimum enforced: 1/1000. 0 disables rarity-based posts.",
 		position = 3,
 		section = "dropsSection"
 	)
 	default int rareDropMinRarity()
 	{
-		return 5000;
+		// 1/10,000. Anything looser turns the channel into herb and seed rolls — at 1/2000 a normal
+		// slayer task posts several times. Raised from 1/5000; see AnvilPlugin.migrateConfigDefaults.
+		return 10_000;
 	}
 
 	@ConfigItem(
@@ -350,10 +352,46 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "caScreenshot",
+		name = "Screenshot combat tasks",
+		description = "Attach a screenshot to combat-achievement posts, the way drop posts work. Requires 'Notify on combat achievements'.",
+		position = 3,
+		section = "caSection"
+	)
+	default boolean caScreenshot()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "notifyClogSlots",
+		name = "Notify on collection log slots",
+		description = "Post every NEW collection-log slot to the clan achievements channel. Prestige items (Infernal cape, quivers, …) still go to the drops channel instead, so nothing posts twice.",
+		position = 4,
+		section = "caSection"
+	)
+	default boolean notifyClogSlots()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "clogScreenshot",
+		name = "Screenshot collection log slots",
+		description = "Attach a screenshot to collection-log posts. Requires 'Notify on collection log slots'.",
+		position = 5,
+		section = "caSection"
+	)
+	default boolean clogScreenshot()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "notifyLevelUps",
 		name = "Notify on 99s & high totals",
 		description = "Post to the clan combat-achievements channel when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
-		position = 3,
+		position = 6,
 		section = "caSection"
 	)
 	default boolean notifyLevelUps()
@@ -365,7 +403,7 @@ public interface AnvilConfig extends Config
 		keyName = "notifyDiaries",
 		name = "Notify on diary completions",
 		description = "Post to the clan achievements channel when you complete an achievement-diary tier.",
-		position = 4,
+		position = 7,
 		section = "caSection"
 	)
 	default boolean notifyDiaries()
@@ -378,7 +416,7 @@ public interface AnvilConfig extends Config
 		name = "Announce quest completions",
 		description = "Post quest completions to the clan achievements channel at or above this difficulty. "
 			+ "\"Master & up\" covers Master and Grandmaster quests.",
-		position = 5,
+		position = 8,
 		section = "caSection"
 	)
 	default QuestAnnounceTier questAnnounce()

@@ -17,7 +17,6 @@ import okhttp3.Response;
 import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -56,17 +55,14 @@ public class DiscordWebhookClient
 	// mid-upload on slower connections. Give file posts their own generous timeouts (pool/dispatcher
 	// are still shared via newBuilder, so this is cheap).
 	private final OkHttpClient uploadClient;
-	private final ScheduledExecutorService retryScheduler =
-		Executors.newSingleThreadScheduledExecutor(r ->
-		{
-			Thread t = new Thread(r, "anvil-webhook-retry");
-			t.setDaemon(true);
-			return t;
-		});
+
+	/** RuneLite's shared client-lifetime scheduler — paces 429 retries; nothing to shut down here. */
+	private final ScheduledExecutorService retryScheduler;
 
 	@Inject
-	public DiscordWebhookClient(OkHttpClient client)
+	public DiscordWebhookClient(OkHttpClient client, ScheduledExecutorService retryScheduler)
 	{
+		this.retryScheduler = retryScheduler;
 		this.uploadClient = client.newBuilder()
 			.callTimeout(Duration.ofSeconds(120))
 			.writeTimeout(Duration.ofSeconds(120))
