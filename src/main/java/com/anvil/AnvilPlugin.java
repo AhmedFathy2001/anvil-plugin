@@ -237,6 +237,10 @@ public class AnvilPlugin extends Plugin {
     private static final long RARE_DEDUP_WINDOW_MS = 5_000;
     private static final int RARE_EMBED_COLOR = 0xD4A017; // gold, matches the site accent
     private static final int CA_EMBED_COLOR = 0x4A90D9; // blue, distinct from rare-drop gold
+    // Combat Achievements crest + hub page — the embed's thumbnail and title link. Both are plain
+    // strings handed to Discord in the payload; the plugin never fetches either.
+    private static final String CA_ICON_URL = "https://oldschool.runescape.wiki/images/Combat_Achievements_icon.png";
+    private static final String CA_WIKI_URL = "https://oldschool.runescape.wiki/w/Combat_Achievements";
 
     // Fallback fun-death lines used only when the server pool (pluginConfig.funDeathMessages) is
     // empty/unavailable. {name} is replaced with the RSN.
@@ -611,9 +615,19 @@ public class AnvilPlugin extends Plugin {
     private int eventDeaths = 0;
     private long eventLootGp = 0;
     private int eventPvpKills = 0;
+    /** Hardest single hitsplat we've landed this event — "Heavy Hitter". */
+    private int eventBiggestHit = 0;
+    /** Minutes logged in during the event. Turns every other counter into a rate. */
+    private int eventMinutes = 0;
+    /** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
+    private int eventTickAccumulator = 0;
     private java.util.concurrent.ScheduledFuture<?> counterPushTask;
     private final Map<String, Long> lastLootValueAt = new HashMap<>();
     private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
+    /** Game ticks in a minute (600ms each). */
+    private static final int TICKS_PER_MINUTE = 100;
+    /** Play time pushes on a slow cadence — the number only ever climbs by one. */
+    private static final int MINUTES_PER_PLAYTIME_PUSH = 10;
     // Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
     // persists every setting the moment a plugin first runs, so a new default alone reaches nobody
     // who has already used the plugin — the migration below is what actually moves them.
@@ -626,6 +640,8 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
     private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
     private static final String CFG_COUNTER_PVP = "recapCounterPvpKills";
+    private static final String CFG_COUNTER_BIGHIT = "recapCounterBiggestHit";
+    private static final String CFG_COUNTER_MINUTES = "recapCounterMinutes";
     // Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
     // config refresh; empty unless the event has skill tiles.
     private volatile java.util.Set<String> trackedSkillNames = Collections.emptySet();
@@ -1200,6 +1216,9 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
+        // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
+        // actually in-game — a client left open on the login screen doesn't earn anyone an award.
+        recordEventTick();
         // Deathless raids: reset the party-death counter + roster on every instance entry
         // (CoX/ToB/ToA runs are instanced; each attempt is a fresh entry). While inside,
         // collect the distinct players seen — that's the party size for tiles that pin one.
@@ -1872,6 +1891,13 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onHitsplatApplied(HitsplatApplied event) {
+        Hitsplat ourHit = event.getHitsplat();
+        // Biggest hit of the event — a recap superlative, so it counts every hit we land on anything,
+        // player or NPC, and is independent of the PvP gates below. One int compare per hitsplat.
+        if (ourHit != null && ourHit.isMine() && ourHit.getAmount() > 0) {
+            recordEventHit(ourHit.getAmount());
+        }
+
         // Track damage WE deal to other players so a subsequent death can be attributed to us —
         // this drives BOTH the PvP kill notification AND PvP-kill tile credit. Cheap: a couple of
         // reference checks on the client thread. (Loot-key kills produce no reliable chat/loot
@@ -1880,7 +1906,7 @@ public class AnvilPlugin extends Plugin {
         if (!config.notifyPvpKills() && !hasPvpTiles() && !pvpCounterActive()) {
             return;
         }
-        Hitsplat hitsplat = event.getHitsplat();
+        Hitsplat hitsplat = ourHit;
         if (hitsplat == null || !hitsplat.isMine()) {
             return;
         }
@@ -4396,6 +4422,8 @@ public class AnvilPlugin extends Plugin {
             eventDeaths = readIntConfig(CFG_COUNTER_DEATHS, 0);
             eventLootGp = readLongConfig(CFG_COUNTER_LOOTGP, 0);
             eventPvpKills = readIntConfig(CFG_COUNTER_PVP, 0);
+            eventBiggestHit = readIntConfig(CFG_COUNTER_BIGHIT, 0);
+            eventMinutes = readIntConfig(CFG_COUNTER_MINUTES, 0);
             countersLoaded = true;
         }
         if (trackingGateReason() != null) {
@@ -4410,6 +4438,9 @@ public class AnvilPlugin extends Plugin {
             eventDeaths = 0;
             eventLootGp = 0;
             eventPvpKills = 0;
+            eventBiggestHit = 0;
+            eventMinutes = 0;
+            eventTickAccumulator = 0;
             persistCounters();
         }
         return true;
@@ -4425,6 +4456,52 @@ public class AnvilPlugin extends Plugin {
             persistCounters();
         }
         scheduleCounterPush();
+    }
+
+    /**
+     * A hitsplat we landed → the per-event "hardest hit" high-water mark. Called from every one of
+     * our hitsplats, so it stays a cheap compare-and-return in the common case: only a genuine new
+     * record touches the lock, persists, or schedules a push.
+     */
+    private void recordEventHit(int damage) {
+        synchronized (counterLock) {
+            if (damage <= eventBiggestHit) {
+                return;
+            }
+            if (!ensureCounterEvent() || damage <= eventBiggestHit) {
+                return;
+            }
+            eventBiggestHit = damage;
+            persistCounters();
+        }
+        scheduleCounterPush();
+    }
+
+    /**
+     * Bank a minute of play. Driven from the game tick, so it measures time actually logged in
+     * during the event — the number that turns every other counter into a rate ("most kills" is
+     * usually just "played most"). Ticks are ~600ms; 100 of them make a minute.
+     */
+    private void recordEventTick() {
+        boolean bankedMinute;
+        synchronized (counterLock) {
+            if (!ensureCounterEvent()) {
+                // Not in a tracked event — don't let stale ticks bank into the next one.
+                eventTickAccumulator = 0;
+                return;
+            }
+            if (++eventTickAccumulator < TICKS_PER_MINUTE) {
+                return;
+            }
+            eventTickAccumulator = 0;
+            eventMinutes++;
+            persistCounters();
+            // Push on a slow cadence: a minute ticking over isn't worth a request every time.
+            bankedMinute = eventMinutes % MINUTES_PER_PLAYTIME_PUSH == 0;
+        }
+        if (bankedMinute) {
+            scheduleCounterPush();
+        }
     }
 
     /** One attributed dangerous-PvP kill (see onActorDeath) → the per-event PKer counter. */
@@ -4502,18 +4579,22 @@ public class AnvilPlugin extends Plugin {
         int deaths;
         long lootGp;
         int pvpKills;
+        int biggestHit;
+        int minutes;
         synchronized (counterLock) {
             persistCounters();
             deaths = eventDeaths;
             lootGp = eventLootGp;
             pvpKills = eventPvpKills;
+            biggestHit = eventBiggestHit;
+            minutes = eventMinutes;
         }
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
             return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
         }
         try {
-            apiClient.submitEventCounters(deaths, lootGp, pvpKills);
+            apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes);
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {
@@ -4533,6 +4614,8 @@ public class AnvilPlugin extends Plugin {
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_DEATHS, Integer.toString(eventDeaths));
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_LOOTGP, Long.toString(eventLootGp));
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_PVP, Integer.toString(eventPvpKills));
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_BIGHIT, Integer.toString(eventBiggestHit));
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_MINUTES, Integer.toString(eventMinutes));
     }
 
     private int readIntConfig(String key, int fallback) {
@@ -5501,25 +5584,78 @@ public class AnvilPlugin extends Plugin {
                 continue; // unparseable, or already announced this session
             }
             if (pointsRose && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
-                postCombatTask(pending.tier, pending.task);
+                postCombatTask(pending.tier, pending.task, total);
             }
         }
 
         lastCaPoints = total;
     }
 
-    private void postCombatTask(CombatAchievementTier tier, String task) {
+    /**
+     * Posts one completed combat task. Carries the numbers a CA grinder actually cares about: what
+     * the task was worth, where their running total sits, and how far the next tier unlock is —
+     * all read from the same varbits the tier-clear check uses, so no extra bookkeeping.
+     *
+     * Client thread (varbit reads happen in the caller); the screenshot + send are deferred.
+     */
+    private void postCombatTask(CombatAchievementTier tier, String task, int totalPoints) {
         String rsn = getLocalPlayerName();
+        String shotName = "anvil-ca.png";
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
-        embed.addProperty("title", "⚔️ Combat task!");
+        if (rsn != null && !rsn.isEmpty()) {
+            com.google.gson.JsonObject author = new com.google.gson.JsonObject();
+            author.addProperty("name", rsn);
+            embed.add("author", author);
+        }
+        embed.addProperty("title", "⚔️ " + tier.getDisplayName() + " combat task");
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " completed a " + tier.getDisplayName() + " combat task.");
+                (rsn != null ? rsn : "A clan member") + " completed **" + task + "**.");
         embed.addProperty("color", CA_EMBED_COLOR);
+        embed.addProperty("url", CA_WIKI_URL);
+
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
-        fields.add(embedField("Task", task, true));
-        fields.add(embedField("Tier", tier.getDisplayName(), true));
+        fields.add(statField("Points earned", "+" + tier.getPoints()));
+        if (totalPoints > 0) {
+            fields.add(statField("Total points", String.format("%,d", totalPoints)));
+            String progress = nextTierProgress(totalPoints);
+            if (progress != null) {
+                fields.add(statField("Next unlock", progress));
+            }
+        }
         embed.add("fields", fields);
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+
+        com.google.gson.JsonObject thumb = new com.google.gson.JsonObject();
+        thumb.addProperty("url", CA_ICON_URL);
+        embed.add("thumbnail", thumb);
+
+        if (config.caScreenshot()) {
+            com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+            image.addProperty("url", "attachment://" + shotName);
+            embed.add("image", image);
+            captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
+        } else {
+            apiClient.postNotification("combatAchievements", null, embed, null, null);
+        }
+    }
+
+    /**
+     * "216/726 (29.8%)" — progress toward the next tier's reward unlock, or null once every tier is
+     * unlocked. Thresholds are cumulative point totals held in per-tier varbits; the next unlock is
+     * simply the lowest threshold still above the current total. Client thread (varbit reads).
+     */
+    private String nextTierProgress(int totalPoints) {
+        int next = 0;
+        for (CombatAchievementTier t : CombatAchievementTier.values()) {
+            int threshold = client.getVarbitValue(t.getThresholdVarbitId());
+            if (threshold > totalPoints && (next == 0 || threshold < next)) {
+                next = threshold;
+            }
+        }
+        if (next <= 0) {
+            return null; // everything already unlocked — no bar left to fill
+        }
+        double pct = (100.0 * totalPoints) / next;
+        return String.format("%,d/%,d (%.1f%%)", totalPoints, next, pct);
     }
 
     private void postCaTierClear(CombatAchievementTier tier) {
