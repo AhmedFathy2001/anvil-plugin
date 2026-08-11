@@ -291,11 +291,11 @@ public final class ClogTaskModel
 				boolean done = completed.contains(d.tileId);
 				if (kind == Kind.COLLECTION)
 				{
-					// A collection completes when a full SET is obtained — not when the summed submission
-					// count reaches requiredAmount (the server stores that as a smallest-set short-circuit,
-					// often 1, so a 3-of-4 rings set read as 3/1 = done). Drive progress off the per-item
-					// requirements and their "any one set" groups.
-					int[] pg = collectionProgress(d.itemRequirements);
+					// A collection completes when its SETS are satisfied — not when the summed submission
+					// count reaches requiredAmount (the server stores that as a shortest-path total, often
+					// 1, so a 3-of-4 rings set read as 3/1 = done). Drive progress off the per-item
+					// requirements, their sets, and how the tile says those sets combine.
+					int[] pg = collectionProgress(d.itemRequirements, d.groupMode);
 					current = pg[0];
 					goal = pg[1];
 					done = done || pg[2] == 1;
@@ -494,13 +494,30 @@ public final class ClogTaskModel
 	}
 
 	/**
-	 * Set-aware collection progress. Ungrouped requirements are always required; items sharing a
-	 * {@code group} form OR-ed alternative sets — collecting ONE full set (the always-required items
-	 * plus that group) completes the tile, no mixing across sets. Returns {current, goal, done} for the
-	 * set the player is CLOSEST to finishing (fewest items left), so a two-set tile shows real progress
-	 * toward one set instead of the inflated sum across every set. {@code done} = any one set is full.
+	 * Set-aware collection progress, mirroring the site's lib/collectionSets (which owns the rule and
+	 * decides completion server-side — this is the in-game read of the same tile).
+	 *
+	 * <p>Ungrouped requirements are ALWAYS required. Items sharing a {@code group} form one set, and a
+	 * set counts as satisfied once {@code groupRequire} distinct items in it are obtained (0 = all of
+	 * them, a full set). {@code groupMode} decides how the sets combine:
+	 *
+	 * <ul>
+	 *   <li>{@code "any"} (default) — the sets are alternatives; satisfying ONE completes the tile.
+	 *       Progress reports the set the player is CLOSEST to finishing, so a two-set tile shows real
+	 *       progress toward one set instead of the inflated sum across every set.</li>
+	 *   <li>{@code "all"} — every set must be satisfied. Progress sums what each set needs, so
+	 *       "a unique from each of 4 bosses" reads 2/4 rather than pretending one boss finished it.</li>
+	 * </ul>
+	 *
+	 * <p>Returns {current, goal, done}. An older server sends no groupMode/groupRequire, which lands
+	 * on exactly the previous behaviour: OR-ed full sets.
 	 */
 	static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs)
+	{
+		return collectionProgress(reqs, null);
+	}
+
+	static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs, String groupMode)
 	{
 		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
 		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
@@ -517,46 +534,57 @@ public final class ClogTaskModel
 			}
 			else
 			{
-				groups.computeIfAbsent(g, k -> new ArrayList<>()).add(r);
+				// Case-insensitive, like the server's grouping — "Duke" and "duke" are one set.
+				groups.computeIfAbsent(g.toLowerCase(java.util.Locale.ROOT), k -> new ArrayList<>()).add(r);
 			}
 		}
-		// Candidate complete sets: no groups → the ungrouped list is the single set; otherwise each
-		// group, combined with the always-required ungrouped items, is one alternative set.
-		List<List<PluginConfigResponse.ItemRequirement>> sets = new ArrayList<>();
+
+		int ungroupedSat = satisfied(ungrouped);
+		int ungroupedSize = ungrouped.size();
 		if (groups.isEmpty())
 		{
-			sets.add(ungrouped);
+			int goal = Math.max(1, ungroupedSize);
+			return new int[]{ ungroupedSat, goal, ungroupedSat >= ungroupedSize && ungroupedSize > 0 ? 1 : 0 };
 		}
-		else
+
+		if ("all".equalsIgnoreCase(groupMode))
 		{
+			// Every set must be satisfied: the tile's goal is the always-required items plus each set's
+			// own requirement, and progress is what's been met toward that, capped per set so a fifth
+			// Duke unique can't paper over a missing Leviathan one.
+			int sat = ungroupedSat;
+			int goal = ungroupedSize;
+			boolean allSetsDone = true;
 			for (List<PluginConfigResponse.ItemRequirement> grp : groups.values())
 			{
-				List<PluginConfigResponse.ItemRequirement> set = new ArrayList<>(ungrouped);
-				set.addAll(grp);
-				sets.add(set);
+				int need = requireCount(grp);
+				int met = Math.min(satisfied(grp), need);
+				sat += met;
+				goal += need;
+				if (met < need)
+				{
+					allSetsDone = false;
+				}
 			}
+			return new int[]{ sat, Math.max(1, goal), allSetsDone && ungroupedSat >= ungroupedSize ? 1 : 0 };
 		}
+
+		// "any": each set, combined with the always-required items, is one alternative.
 		int bestSat = 0;
 		int bestGoal = 1;
 		int bestRemaining = Integer.MAX_VALUE;
-		for (List<PluginConfigResponse.ItemRequirement> set : sets)
+		for (List<PluginConfigResponse.ItemRequirement> grp : groups.values())
 		{
-			if (set.isEmpty())
+			int need = requireCount(grp);
+			int sat = ungroupedSat + Math.min(satisfied(grp), need);
+			int size = ungroupedSize + need;
+			if (size <= 0)
 			{
 				continue;
 			}
-			int sat = 0;
-			for (PluginConfigResponse.ItemRequirement r : set)
-			{
-				if (r.currentAmount >= Math.max(1, r.requiredAmount))
-				{
-					sat++;
-				}
-			}
-			int size = set.size();
 			if (sat >= size)
 			{
-				return new int[]{ size, size, 1 }; // a full set — the tile is complete
+				return new int[]{ size, size, 1 }; // this set is satisfied — the tile is complete
 			}
 			int remaining = size - sat;
 			if (remaining < bestRemaining || (remaining == bestRemaining && sat > bestSat))
@@ -567,6 +595,42 @@ public final class ClogTaskModel
 			}
 		}
 		return new int[]{ bestSat, Math.max(1, bestGoal), 0 };
+	}
+
+	/** How many of these requirements the player has met. */
+	private static int satisfied(List<PluginConfigResponse.ItemRequirement> reqs)
+	{
+		int n = 0;
+		for (PluginConfigResponse.ItemRequirement r : reqs)
+		{
+			if (r.currentAmount >= Math.max(1, r.requiredAmount))
+			{
+				n++;
+			}
+		}
+		return n;
+	}
+
+	/**
+	 * How many distinct items a set needs. Rows of a set should agree; if they don't (hand-edited
+	 * config) the strictest wins, clamped to the set's size so a stale "any 4 of" on a set that has
+	 * since shrunk to 3 items stays satisfiable. Same resolution as the server's.
+	 */
+	private static int requireCount(List<PluginConfigResponse.ItemRequirement> grp)
+	{
+		int declared = 0;
+		for (PluginConfigResponse.ItemRequirement r : grp)
+		{
+			if (r.groupRequire > declared)
+			{
+				declared = r.groupRequire;
+			}
+		}
+		if (declared <= 0)
+		{
+			declared = grp.size();
+		}
+		return Math.min(Math.max(1, declared), grp.size());
 	}
 
 	/**

@@ -2421,10 +2421,10 @@ public class AnvilPlugin extends Plugin {
             }
 
             for (PluginConfigResponse.TrackedDrop drop : matchingDrops) {
-                // Per-item (collection/set) tiles can't use the aggregate short-circuit: on an
-                // "any full set" tile requiredAmount is the SMALLEST set's total, so scattered
-                // pieces across sets pass it long before any set completes — and the piece that
-                // finally finishes a set would never submit. Gate those on the team-completion
+                // Per-item (collection/set) tiles can't use the aggregate short-circuit: requiredAmount
+                // is the SHORTEST path to completion (the smallest set on an any-one-set tile), so
+                // scattered pieces across sets pass it long before the tile is actually done — and the
+                // piece that finally finishes a set would never submit. Gate those on the team-completion
                 // flag instead; the per-item caps below already stop duplicate pieces.
                 boolean perItem = drop.itemRequirements != null && !drop.itemRequirements.isEmpty();
                 if (perItem ? isTileCompleted(drop.tileId) : drop.currentAmount >= drop.requiredAmount) {
@@ -2536,7 +2536,7 @@ public class AnvilPlugin extends Plugin {
                 // over the smallest-set total (which read as "4/1"). Same set-aware maths the clog tab uses;
                 // it reflects the highest set collected, and a stray item toward a different set won't shrink it.
                 if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-                    int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements);
+                    int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode);
                     snapshotCurrent = pg[0];
                     snapshotRequired = pg[1];
                 }

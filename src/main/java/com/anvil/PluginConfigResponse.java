@@ -241,6 +241,9 @@ public class PluginConfigResponse
 		// 0/absent = any. Raid chests are looted inside the instance, so the deathless
 		// party tracker doubles as the size source.
 		public int partySize;
+		// How this collection's sets combine: "any" (default, and what an older server sends nothing
+		// for) = the sets are alternatives, satisfy ONE; "all" = every set must be satisfied.
+		public String groupMode;
 	}
 
 	public static class ItemRequirement
@@ -249,10 +252,14 @@ public class PluginConfigResponse
 		public String name;
 		public int requiredAmount;
 		public int currentAmount;
-		// "Any one set" grouping: ungrouped (null/blank) items are always required; items sharing a
-		// group form OR-ed alternative sets — collecting ONE full set (ungrouped + that group) completes
-		// the tile (no mixing across sets). Null/absent on a plain "collect all of these" collection.
+		// Set name: ungrouped (null/blank) items are ALWAYS required; items sharing a group form one
+		// set. How the sets combine is the tile's groupMode. Null/absent on a plain "collect all of
+		// these" collection.
 		public String group;
+		// How many DISTINCT items in this set satisfy it. 0/absent = all of them (a full set), which
+		// is what every collection authored before set modes existed means. 1 is "any one item from
+		// this source" — with groupMode "all" that's a unique from each DT2 boss.
+		public int groupRequire;
 	}
 
 	public static class CompletedTile
