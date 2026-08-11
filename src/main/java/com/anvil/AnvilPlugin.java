@@ -3924,6 +3924,22 @@ public class AnvilPlugin extends Plugin {
                             sendChatMessage("...and " + (r.changes.size() - cap) + " more changes (see Discord audit feed).");
                         }
                     }
+                    // Plan limit. The admin running the sync is the one person who can act on this,
+                    // and they're right here — so say it in-game rather than leaving it to a banner
+                    // they'd have to open the site to see. Names come first because "6 members were
+                    // not added" is only useful if you know WHICH six.
+                    if (r.refusedNewMembers != null && !r.refusedNewMembers.isEmpty()) {
+                        int refusedCap = 6;
+                        String names = String.join(", ",
+                                r.refusedNewMembers.subList(0, Math.min(refusedCap, r.refusedNewMembers.size())));
+                        String more = r.refusedNewMembers.size() > refusedCap
+                                ? " and " + (r.refusedNewMembers.size() - refusedCap) + " more"
+                                : "";
+                        sendChatMessage("Not added (plan limit): " + names + more + ".");
+                    }
+                    if (r.capNotice != null && !r.capNotice.isEmpty()) {
+                        sendChatMessage(r.capNotice);
+                    }
                     cb.onResult(true, lastSyncSummary);
                 } catch (BingoApiClient.AdminUnauthorizedException e) {
                     // Token isn't (or is no longer) an admin — hide the button until the next login probe.
