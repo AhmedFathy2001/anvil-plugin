@@ -174,13 +174,32 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * Outcome of a share toggle. The server REFUSES a share for reasons the member can act on — the
+	 * account isn't verified on the site yet, they're not logged into it, the clan isn't connected —
+	 * so the message has to survive back to the UI. Returning a bare boolean here silently turned
+	 * every refusal into what looked like success.
+	 */
+	public static class ShareResult
+	{
+		public final boolean ok;
+		/** Server-supplied reason, or a generic line. Null when {@link #ok}. */
+		public final String error;
+
+		public ShareResult(boolean ok, String error)
+		{
+			this.ok = ok;
+			this.error = error;
+		}
+	}
+
 	/** Share (or stop sharing) the CURRENT account's RSN with one connected clan. Authed + carries the
 	 * X-RSN/X-Account-Hash headers, so the server scopes the share to the exact playing account. */
-	public boolean federationShare(String instanceId, boolean share)
+	public ShareResult federationShare(String instanceId, boolean share)
 	{
 		if (!isConfigured() || instanceId == null || instanceId.isEmpty())
 		{
-			return false;
+			return new ShareResult(false, "Not connected to a site.");
 		}
 		java.util.Map<String, String> payload = new java.util.HashMap<>();
 		payload.put("instanceId", instanceId);
@@ -190,12 +209,36 @@ public class BingoApiClient
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
-			return response.isSuccessful();
+			if (response.isSuccessful())
+			{
+				return new ShareResult(true, null);
+			}
+			// Every refusal ships { error } — surface it verbatim; it's written for the member.
+			String message = null;
+			try
+			{
+				if (response.body() != null)
+				{
+					com.google.gson.JsonObject o = gson.fromJson(response.body().charStream(), com.google.gson.JsonObject.class);
+					if (o != null && o.has("error") && o.get("error").isJsonPrimitive())
+					{
+						message = o.get("error").getAsString();
+					}
+				}
+			}
+			catch (com.google.gson.JsonParseException ignored)
+			{
+				// Non-JSON error body (proxy/HTML) — fall through to the generic line.
+			}
+			log.debug("federation/share refused ({}): {}", response.code(), message);
+			return new ShareResult(false, message != null && !message.isEmpty()
+				? message
+				: "The site refused the change (" + response.code() + ").");
 		}
 		catch (IOException e)
 		{
 			log.debug("federation/share failed: {}", e.getMessage());
-			return false;
+			return new ShareResult(false, "Couldn't reach the site — check your connection.");
 		}
 	}
 
