@@ -632,6 +632,10 @@ public class AnvilPlugin extends Plugin {
     // from. Expired against CLOG_LOOT_DEDUP_MS; guarded by its own monitor.
     private final Map<String, RecentItem> recentLootIds = new HashMap<>();
     private String lastLootSource;
+    // Which rarity table the last loot came from ("npc" / "pickpocket" / …). Kept alongside the
+    // source name so a pet post can price its own drop rate — Rocky is a pickpocketing roll and a
+    // Baby mole an NPC one, and asking the wrong service returns nothing rather than a wrong number.
+    private String lastLootSourceKind;
     private long lastLootSourceAt;
     private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
     /** Game ticks in a minute (600ms each). */
@@ -2169,12 +2173,17 @@ public class AnvilPlugin extends Plugin {
             if (item.endsWith(".")) {
                 item = item.substring(0, item.length() - 1).trim();
             }
-            // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
-            // unlock at the drops channel, while every OTHER new slot goes quietly to the
-            // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
-            // so a Dizana's quiver never lands twice.
-            maybeNotifyCollectionUnlock(item);
-            maybeNotifyClogSlot(item);
+            // A pet drop moments ago is still waiting to learn WHICH pet it was — this line is the
+            // only thing that says so. It takes the name and both clog posts stand down, or the same
+            // pet lands twice, once as 🐾 and once as 📕.
+            if (!claimPetName(item)) {
+                // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
+                // unlock at the drops channel, while every OTHER new slot goes quietly to the
+                // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
+                // so a Dizana's quiver never lands twice.
+                maybeNotifyCollectionUnlock(item);
+                maybeNotifyClogSlot(item);
+            }
             // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
             // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
             // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
@@ -2244,11 +2253,14 @@ public class AnvilPlugin extends Plugin {
         // Pet drops — no LootReceived fires for these. The third line is the duplicate ("would have
         // been followed") shown when the pet is already owned; we handle it the same, so a member who
         // already has the pet still gets a proof for the tile.
+        boolean duplicatePet = msg.contains("You have a funny feeling like you would have been followed");
         if (msg.contains("You have a funny feeling like you're being followed")
                 || msg.contains("You feel something weird sneaking into your backpack")
-                || msg.contains("You have a funny feeling like you would have been followed")) {
+                || duplicatePet) {
             // Notify the clan rare-drops channel (independent of bingo — fires even with no event).
-            maybeNotifyPet();
+            // A duplicate never fires a collection-log unlock (the slot is already filled), so it
+            // posts unnamed — which is why the two cases are told apart rather than merged.
+            maybeNotifyPet(duplicatePet);
             // Bingo: pets can't be auto-credited to a specific tile, so capture a proof for the player
             // to submit by hand (lands in "Saved proofs").
             if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
@@ -4744,7 +4756,7 @@ public class AnvilPlugin extends Plugin {
         // Note the haul for the clog notifier BEFORE the event gate: a collection-log unlock is worth
         // announcing whether or not a bingo is running, so its sprite/source lookup can't be gated on
         // one. Cheap — a few map writes that expire on their own.
-        rememberLootForClog(source, items);
+        rememberLootForClog(source, sourceKind, items);
         if (items == null || items.isEmpty() || trackingGateReason() != null) {
             return;
         }
@@ -5703,7 +5715,7 @@ public class AnvilPlugin extends Plugin {
      * moments later can name the source and draw the right sprite. Bounded by the same window the
      * clog/loot dedup already uses; entries expire rather than accumulating.
      */
-    private void rememberLootForClog(String source, Collection<ItemStack> items) {
+    private void rememberLootForClog(String source, String sourceKind, Collection<ItemStack> items) {
         if (items == null || items.isEmpty()) {
             return;
         }
@@ -5721,6 +5733,7 @@ public class AnvilPlugin extends Plugin {
             }
             if (source != null && !source.isEmpty()) {
                 lastLootSource = source;
+                lastLootSourceKind = sourceKind;
                 lastLootSourceAt = now;
             }
         }
@@ -5960,30 +5973,172 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    private void maybeNotifyPet() {
-        if (!config.notifyPets()) {
+    /**
+     * A pet drop waiting on its name before it posts.
+     *
+     * <p>The chat line that announces a pet doesn't say WHICH pet — it's the same sentence for a
+     * Baby mole and a Tangleroot. The only line that names it is the collection-log unlock, which
+     * follows a tick or two later, so the post waits for it rather than going out as "a pet".
+     *
+     * <p>This assumes the pet line lands FIRST, which is the order the game sends them. If it ever
+     * arrived second the pet would post unnamed and the unlock would post separately — the same two
+     * posts this code replaces, so the failure mode is the old behaviour rather than a broken one.
+     */
+    private static final class PendingPet {
+
+        final boolean duplicate;
+        final String source;
+        final String sourceKind;
+        final Integer killCount;
+        String name;
+
+        PendingPet(boolean duplicate, String source, String sourceKind, Integer killCount) {
+            this.duplicate = duplicate;
+            this.source = source;
+            this.sourceKind = sourceKind;
+            this.killCount = killCount;
+        }
+    }
+
+    private final Object petLock = new Object();
+    private PendingPet pendingPet;
+    /**
+     * How long the pet post waits for its collection-log line. Long enough to cover the unlock
+     * landing a tick or two later, short enough that the post still reads as immediate — and short
+     * enough that it can't swallow an unrelated unlock from the next kill.
+     */
+    private static final long PET_NAME_WINDOW_MS = 2_000;
+
+    /**
+     * Claim a collection-log unlock as the name of the pet we're about to post.
+     *
+     * <p>Returns true when it was the pet's, which also tells the caller to skip the normal
+     * collection-log posts — otherwise the same pet lands twice, once as 🐾 and once as 📕.
+     */
+    private boolean claimPetName(String itemName) {
+        if (itemName == null || itemName.isEmpty()) {
+            return false;
+        }
+        synchronized (petLock) {
+            if (pendingPet == null || pendingPet.name != null) {
+                return false;
+            }
+            pendingPet.name = itemName;
+            return true;
+        }
+    }
+
+    /**
+     * Note a pet drop and schedule the post. The source and kill count are captured NOW — by the
+     * time the post fires the player may have moved on, and "from Callisto at 1,204 KC" is the whole
+     * story of the drop.
+     */
+    private void maybeNotifyPet(boolean duplicate) {
+        if (!config.notifyPets() || !notifyEnabled("rareDrops")) {
             return;
         }
-        if (!notifyEnabled("rareDrops")) {
-            return;
+        String source;
+        String sourceKind;
+        synchronized (recentLootIds) {
+            boolean fresh = lastLootSource != null
+                    && System.currentTimeMillis() - lastLootSourceAt <= CLOG_LOOT_DEDUP_MS;
+            source = fresh ? lastLootSource : null;
+            sourceKind = fresh ? lastLootSourceKind : null;
+        }
+        PendingPet pet = new PendingPet(duplicate, source, sourceKind, killCountFor(source));
+        synchronized (petLock) {
+            pendingPet = pet;
+        }
+        if (executor != null && !executor.isShutdown()) {
+            executor.schedule(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS, TimeUnit.MILLISECONDS);
+        } else {
+            flushPetNotification(pet);
+        }
+    }
+
+    /**
+     * Post the pet, with whatever the wait turned up.
+     *
+     * <p>Every field here is omitted rather than guessed when it isn't known: a skilling pet fires no
+     * loot event, so it has no source, no KC and no drop rate, and inventing any of those for a clan
+     * channel would be worse than a shorter post.
+     */
+    private void flushPetNotification(PendingPet pet) {
+        synchronized (petLock) {
+            if (pendingPet == pet) {
+                pendingPet = null;
+            }
         }
         String rsn = getLocalPlayerName();
         String shotName = "anvil-pet.png";
+        String petName = pet.name;
+
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
-        embed.addProperty("title", "🐾 Pet drop!");
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just received a pet!");
+        if (rsn != null && !rsn.isEmpty()) {
+            com.google.gson.JsonObject author = new com.google.gson.JsonObject();
+            author.addProperty("name", rsn);
+            embed.add("author", author);
+        }
+        embed.addProperty("title", petName != null ? "🐾 " + petName : "🐾 Pet drop!");
+        String who = rsn != null ? rsn : "A clan member";
+        embed.addProperty("description", pet.duplicate
+                // The duplicate line is the game's own joke about a pet you already have.
+                ? who + " has a funny feeling like they would have been followed."
+                : who + " has a funny feeling like they're being followed.");
         embed.addProperty("color", RARE_EMBED_COLOR);
-        com.google.gson.JsonObject image = new com.google.gson.JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+
+        com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
+        fields.add(statField("Status", pet.duplicate ? "Duplicate" : "New!"));
+        if (pet.source != null && !pet.source.isEmpty()) {
+            fields.add(statField("From", pet.source));
+        }
+        if (pet.killCount != null && pet.killCount > 0) {
+            fields.add(statField("KC", String.format("%,d", pet.killCount)));
+        }
+
+        // Real rarity or none: the rate comes from the same service the rare-drop posts price
+        // against, asked with this pet's own item id.
+        Integer itemId = petName != null ? resolveItemIdByName(petName) : null;
+        Double dropRate = petRarity(itemId, pet);
+        if (dropRate != null && dropRate > 0) {
+            fields.add(statField("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate)));
+            String luck = DropLuck.luckLabel(dropRate, pet.killCount);
+            if (luck != null && !luck.isEmpty()) {
+                fields.add(statField("Luck", luck));
+            }
+        }
+        embed.add("fields", fields);
+
+        if (itemId != null && itemId > 0) {
+            com.google.gson.JsonObject thumb = new com.google.gson.JsonObject();
+            thumb.addProperty("url", itemIconUrl(itemId));
+            embed.add("thumbnail", thumb);
+        }
+        if (petName != null) {
+            embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + petName.replace(' ', '_'));
+        }
 
         if (config.petScreenshot()) {
+            com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+            image.addProperty("url", "attachment://" + shotName);
+            embed.add("image", image);
             postRareDropWithScreenshot(embed, shotName);
         } else {
-            embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
         }
+    }
+
+    /** This pet's drop rate from the rarity table its source uses, or null when nothing can price it. */
+    private Double petRarity(Integer itemId, PendingPet pet) {
+        if (itemId == null || itemId <= 0 || pet.source == null || pet.source.isEmpty()) {
+            return null;
+        }
+        AbstractRarityService service = raritySource(pet.sourceKind);
+        if (service == null) {
+            return null;
+        }
+        java.util.OptionalDouble r = service.getRarity(pet.source, itemId, 1);
+        return r.isPresent() && r.getAsDouble() > 0 ? r.getAsDouble() : null;
     }
 
     /**
