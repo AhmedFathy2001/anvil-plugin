@@ -567,6 +567,9 @@ public class AnvilPlugin extends Plugin {
         int totalKills;
         int snapshotCurrent;
         int snapshotRequired;
+        // Who was with us, captured when the kill happened — by the time the coalesced flush runs
+        // the party has scattered and the scene says nothing.
+        BingoApiClient.CoopFingerprint coop;
         ScheduledFuture<?> flushTask;
 
         KillAggregate(PluginConfigResponse.TrackedKill kill) {
@@ -2773,6 +2776,14 @@ public class AnvilPlugin extends Plugin {
             agg.totalKills += amount;
             agg.snapshotCurrent = snapshotCurrent;
             agg.snapshotRequired = snapshotRequired;
+            if (kill.needsCoopFingerprint()) {
+                BingoApiClient.CoopFingerprint fp = coopFingerprint();
+                // Keep the richest view across a coalesced burst: one kill in the window may have
+                // rendered a teammate another didn't.
+                if (fp != null && (agg.coop == null || fp.teammates.size() > agg.coop.teammates.size())) {
+                    agg.coop = fp;
+                }
+            }
             if (agg.flushTask != null) {
                 agg.flushTask.cancel(false);
             }
@@ -2823,6 +2834,7 @@ public class AnvilPlugin extends Plugin {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedKill kill = agg.kill;
         final int amount = agg.totalKills;
+        final BingoApiClient.CoopFingerprint coop = agg.coop;
         final boolean complete = agg.snapshotCurrent >= agg.snapshotRequired;
 
         // Intermediate kills (not at a milestone, not completing) are count-only pings — no
@@ -2841,7 +2853,7 @@ public class AnvilPlugin extends Plugin {
                 try {
                     apiClient.submitDrop(eventId, kill.tileId, teamId,
                             amount, null, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin",
-                            playerId, null);
+                            playerId, null, coop);
                     log.info("Kill ping sent: '{}' ×{}", kill.label, amount);
                     refreshConfig();
                 } catch (IOException e) {
@@ -4726,6 +4738,38 @@ public class AnvilPlugin extends Plugin {
             lastVestigeLine = r.line;
             lastVestigeLineAt = System.currentTimeMillis();
         }
+    }
+
+    /**
+     * What this client can see of its company right now: roster teammates in the instance, and the
+     * party headcount. Deliberately two signals — names are reliable for a single-arena boss and
+     * useless inside a raid (the party splits across rooms), while the raid party varbits are
+     * reliable exactly there. The server decides what to do with them; a client never suppresses
+     * its own submission, because two clients that can't see each other would both stay quiet.
+     */
+    private BingoApiClient.CoopFingerprint coopFingerprint() {
+        java.util.List<String> teammates = new ArrayList<>();
+        if (pluginConfig != null && pluginConfig.pvpRoster != null && !pluginConfig.pvpRoster.isEmpty()
+                && pluginConfig.team != null) {
+            String me = normalizeRsn(getLocalPlayerName());
+            java.util.Set<String> mine = new java.util.HashSet<>();
+            for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
+                if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
+                    mine.add(normalizeRsn(e.name));
+                }
+            }
+            // Copy before iterating: the set is written from the game tick, and this runs off a
+            // kill credit on the same thread today — but a snapshot costs nothing and can't throw.
+            for (String seen : new ArrayList<>(instancePlayersSeen)) {
+                String n = normalizeRsn(seen);
+                if (!n.isEmpty() && !n.equals(me) && mine.contains(n)) {
+                    teammates.add(n);
+                }
+            }
+        }
+        int party = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+        BingoApiClient.CoopFingerprint fp = new BingoApiClient.CoopFingerprint(teammates, party);
+        return fp.isEmpty() ? null : fp;
     }
 
     private int readIntConfig(String key, int fallback) {

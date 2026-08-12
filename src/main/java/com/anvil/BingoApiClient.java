@@ -1246,6 +1246,18 @@ public class BingoApiClient
 
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId, Integer itemId) throws IOException
 	{
+		submitDrop(eventId, tileId, teamId, amount, imageUrl, note, creditPlayerId, itemId, null);
+	}
+
+	/**
+	 * As above, plus the shared-kill fingerprint: what this client could see of its company when the
+	 * kill happened. The server correlates reports of the SAME kill from it (lib/coopRuns) — it never
+	 * decides anything locally, because two clients that can't see each other would both stay quiet
+	 * or both submit. Null on everything that isn't a shared-kill tile.
+	 */
+	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
+		int creditPlayerId, Integer itemId, CoopFingerprint coop) throws IOException
+	{
 		JsonObject payload = new JsonObject();
 		payload.addProperty("tileId", tileId);
 		payload.addProperty("teamId", teamId);
@@ -1256,6 +1268,22 @@ public class BingoApiClient
 		if (itemId != null)
 		{
 			payload.addProperty("itemId", itemId);
+		}
+		if (coop != null)
+		{
+			if (coop.teammates != null && !coop.teammates.isEmpty())
+			{
+				com.google.gson.JsonArray names = new com.google.gson.JsonArray();
+				for (String n : coop.teammates)
+				{
+					names.add(n);
+				}
+				payload.add("coopGroup", names);
+			}
+			if (coop.partySize > 1)
+			{
+				payload.addProperty("coopPartySize", coop.partySize);
+			}
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
@@ -1284,6 +1312,26 @@ public class BingoApiClient
 	 * hourly hiscores cron reconciles it. Used to complete boss-KC tiles instantly instead of waiting
 	 * on the ~1h hiscores lag.
 	 */
+	/** What a client could see of its company at kill time. Both halves are best-effort. */
+	public static final class CoopFingerprint
+	{
+		/** Lowercased RSNs of ROSTER teammates seen in the instance — empty when none could be named. */
+		public final java.util.List<String> teammates;
+		/** Instance/raid party headcount, which is reliable exactly where names aren't. 0 = unknown. */
+		public final int partySize;
+
+		public CoopFingerprint(java.util.List<String> teammates, int partySize)
+		{
+			this.teammates = teammates;
+			this.partySize = partySize;
+		}
+
+		public boolean isEmpty()
+		{
+			return (teammates == null || teammates.isEmpty()) && partySize <= 1;
+		}
+	}
+
 	public void submitStatKc(java.util.Map<String, Integer> counts) throws IOException
 	{
 		if (counts == null || counts.isEmpty())

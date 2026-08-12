@@ -306,6 +306,17 @@ public class PluginConfigResponse
 		public int requiredAmount;
 		public int currentAmount;
 		public String trackingMode;        // "team" | "individual"/"solo"
+		// Shared kills. "per-kill" = a kill several members were in credits ONCE (the server
+		// correlates their reports); coopMinMembers = the kill only counts with at least that many
+		// of the team in it. Either one makes this client attach what it could see of its company.
+		// Absent/"per-member" + 0 on older servers, which is the historical every-member counting.
+		public String coopCredit;
+		public int coopMinMembers;
+
+		public boolean needsCoopFingerprint()
+		{
+			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
+		}
 	}
 
 	// PvP-kill tile: the plugin credits a kill off the "You have defeated <name>!" line, which
