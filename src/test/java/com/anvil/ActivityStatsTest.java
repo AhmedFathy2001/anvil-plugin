@@ -116,4 +116,31 @@ public class ActivityStatsTest
 		assertTrue(ActivityStats.read(null, ZERO, ZERO).isEmpty());
 		assertTrue(ActivityStats.read(Collections.emptyList(), ZERO, ZERO).isEmpty());
 	}
+
+	@Test
+	public void clogProgressReadsLikeTheGameShowsIt()
+	{
+		Map<Integer, Integer> varps = new HashMap<>();
+		varps.put(VarPlayerID.COLLECTION_COUNT, 548);
+		varps.put(VarPlayerID.COLLECTION_COUNT_MAX, 1712);
+
+		assertEquals("548/1712 (32.0%)", ActivityStats.clogProgress(reader(varps)));
+	}
+
+	/** Both varps read 0 until the log syncs — a missing field beats a wrong one in a clan post. */
+	@Test
+	public void clogProgressIsAbsentRatherThanGuessedAt()
+	{
+		assertNull(ActivityStats.clogProgress(ZERO));
+
+		Map<Integer, Integer> noTotal = new HashMap<>();
+		noTotal.put(VarPlayerID.COLLECTION_COUNT, 548);
+		assertNull(ActivityStats.clogProgress(reader(noTotal)));
+
+		// More obtained than exist means we're reading something other than what we think.
+		Map<Integer, Integer> impossible = new HashMap<>();
+		impossible.put(VarPlayerID.COLLECTION_COUNT, 2000);
+		impossible.put(VarPlayerID.COLLECTION_COUNT_MAX, 1712);
+		assertNull(ActivityStats.clogProgress(reader(impossible)));
+	}
 }

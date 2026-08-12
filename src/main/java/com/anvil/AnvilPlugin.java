@@ -5603,9 +5603,9 @@ public class AnvilPlugin extends Plugin {
      * channel, this is every other slot filling in quietly next to diaries and combat tasks. An
      * allowlisted item is skipped here so the two never double-post the same unlock.
      *
-     * The count Dink shows ("548/1712") isn't available: this client version exposes no varbit for
-     * collection-log totals, and guessing one would be worse than omitting it. Everything else — the
-     * item, its sprite, that it's genuinely new, and the screenshot — is here.
+     * Carries the log's own completion count ("548/1712 (32.0%)") when the client can answer for it,
+     * which it can't until the collection log has synced this session — the field is dropped in that
+     * case rather than guessed at.
      */
     private void maybeNotifyClogSlot(String itemName) {
         if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) {
@@ -5643,6 +5643,11 @@ public class AnvilPlugin extends Plugin {
         String source = recentLootSource();
         if (source != null) {
             fields.add(statField("From", source));
+        }
+        // How much of the log this fills in. Null (and so absent) until the log has synced.
+        String logProgress = ActivityStats.clogProgress(client::getVarpValue);
+        if (logProgress != null) {
+            fields.add(statField("Collection log", logProgress));
         }
         embed.add("fields", fields);
 
