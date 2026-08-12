@@ -1414,6 +1414,54 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/stats — real-time activity push (no screenshot). Body is
+	 * {@code {"activities":[{"key":"<site stat key>","value":<absolute count>}]}} for the hiscores
+	 * counters that are neither a boss nor a skill: clue completions per tier, Colosseum glory,
+	 * collection-log slots.
+	 *
+	 * <p>Unlike {@link #submitStatKc} and {@link #submitStatXp}, which send the name the game printed
+	 * and let the server map it, these go by the site's own key — they're read from named varbits, so
+	 * the plugin already knows which counter it holds. Same contract otherwise: ABSOLUTE values, the
+	 * server keeps max(hiscores, pushed), and unknown keys are dropped rather than stored.
+	 */
+	public void submitStatActivities(java.util.Map<String, Integer> values) throws IOException
+	{
+		if (values == null || values.isEmpty())
+		{
+			return;
+		}
+		JsonArray activities = new JsonArray();
+		for (java.util.Map.Entry<String, Integer> e : values.entrySet())
+		{
+			if (e.getKey() == null || e.getValue() == null)
+			{
+				continue;
+			}
+			JsonObject a = new JsonObject();
+			a.addProperty("key", e.getKey());
+			a.addProperty("value", e.getValue());
+			activities.add(a);
+		}
+		JsonObject payload = new JsonObject();
+		payload.add("activities", activities);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Activity push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.info("Real-time activity counts pushed for {} key(s)", values.size());
+		}
+	}
+
+	/**
 	 * POST /api/plugin/counters — the fun end-of-event recap counters (total deaths, total loot GP and
 	 * PvP kills for the active event). Body is {@code {"deaths":<n>,"lootGp":<gp>,"pvpKills":<n>}} with
 	 * ABSOLUTE per-event totals.

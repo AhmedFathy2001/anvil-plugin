@@ -33,6 +33,7 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
+import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import com.google.gson.Gson;
@@ -662,6 +663,19 @@ public class AnvilPlugin extends Plugin {
     // collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
     private final Map<String, Integer> pendingSkillXpPush = new HashMap<>();
     private java.util.concurrent.ScheduledFuture<?> skillXpPushTask;
+    // ---- Real-time activity push (clue tiers, Colosseum glory, collection-log slots) ------------
+    // The site stat keys the event tracks that ActivityStats can actually read; rebuilt each config
+    // refresh, empty unless the event has such tiles AND the site advertises 'activity-stats'.
+    private volatile java.util.Set<String> trackedActivityKeys = Collections.emptySet();
+    private final Map<String, Integer> pendingActivityPush = new HashMap<>();
+    private java.util.concurrent.ScheduledFuture<?> activityPushTask;
+    // Last value pushed per key, so a varbit firing repeatedly with the same number doesn't re-send.
+    private final Map<String, Integer> lastPushedActivity = new HashMap<>();
+    // Ticks between safety re-reads. The varbit hook is what makes a finished clue land in seconds;
+    // this is the backstop for a counter that moves without one firing (or fires before login
+    // completes), which is cheap enough at one pass a minute to be worth not having to be sure.
+    private static final int ACTIVITY_POLL_TICKS = 100;
+    private int activityPollCountdown = ACTIVITY_POLL_TICKS;
     // Stat tiles (skill XP / boss KC) the LOCAL player has recently made progress on: tileId → last
     // gain millis. A stat tile's team total can rise from ANY teammate (the server aggregates the
     // hiscores overlay), so the config alone can't say who's grinding it. This records what THIS
@@ -889,6 +903,12 @@ public class AnvilPlugin extends Plugin {
         synchronized (pendingSkillXpPush) {
             pendingSkillXpPush.clear();
             skillXpPushTask = null;
+        }
+        trackedActivityKeys = Collections.emptySet();
+        synchronized (pendingActivityPush) {
+            pendingActivityPush.clear();
+            lastPushedActivity.clear();
+            activityPushTask = null;
         }
         // Flush the recap counters to the config store (captures loot gained since the last push) and
         // stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
@@ -1236,12 +1256,31 @@ public class AnvilPlugin extends Plugin {
     // count, which still covers instanced content without a party varbit).
     private volatile int lastRaidPartySize = 0;
 
+    /**
+     * Finishing a clue or a Colosseum run moves a counter the site can score a tile on, so report it
+     * now rather than at the next hiscores sweep. Filtered to the handful of ids we read before
+     * anything else happens — this event fires constantly, and the check is a short array scan.
+     */
+    @Subscribe
+    public void onVarbitChanged(VarbitChanged event) {
+        if (!trackedActivityKeys.isEmpty() && ActivityStats.isTrigger(event.getVarbitId(), event.getVarpId())) {
+            maybeQueueActivityPush();
+        }
+    }
+
     @Subscribe
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
         recordEventTick();
+        // Safety re-read of the activity counters. onVarbitChanged is what makes a finished clue
+        // land in seconds; this catches anything that moved without one reaching us — most obviously
+        // the counters that were already set before we logged in.
+        if (--activityPollCountdown <= 0) {
+            activityPollCountdown = ACTIVITY_POLL_TICKS;
+            maybeQueueActivityPush();
+        }
         // Deathless raids: reset the party-death counter + roster on every instance entry
         // (CoX/ToB/ToA runs are instanced; each attempt is a fresh entry). While inside,
         // collect the distinct players seen — that's the party size for tiles that pin one.
@@ -4270,6 +4309,33 @@ public class AnvilPlugin extends Plugin {
         rebuildPvpRosterIndex();
         rebuildTrackedKcNames();
         rebuildTrackedSkillNames();
+        rebuildTrackedActivityKeys();
+    }
+
+    /**
+     * Rebuild the set of activity keys to push counts for; refreshed with the drop index.
+     *
+     * <p>Filtered down to what {@link ActivityStats} can actually read, so a tile tracking an LMS or
+     * Bounty Hunter RANK — which the client has no counter for — never enters the push path and
+     * quietly keeps its hiscores-sweep behaviour.
+     */
+    private void rebuildTrackedActivityKeys() {
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        if (pluginConfig != null && pluginConfig.trackedActivityKeys != null
+                && pluginConfig.serverSupports("activity-stats")) {
+            for (String k : pluginConfig.trackedActivityKeys) {
+                if (k != null && ActivityStats.isReadable(k.trim())) {
+                    keys.add(k.trim());
+                }
+            }
+        }
+        trackedActivityKeys = keys;
+        if (keys.isEmpty()) {
+            synchronized (pendingActivityPush) {
+                pendingActivityPush.clear();
+                lastPushedActivity.clear();
+            }
+        }
     }
 
     /** Rebuild the set of skill names to push real-time XP for; refreshed with the drop index. */
@@ -4477,6 +4543,80 @@ public class AnvilPlugin extends Plugin {
                         kcPushTask.cancel(false);
                     }
                     kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read the tracked activity counters and buffer any that have risen since the last push.
+     *
+     * <p>Runs on the client thread (varbit change / game tick), which is where the varps have to be
+     * read; the network send happens on the executor. Diffing against what was last sent is what
+     * keeps this quiet — these counters move a handful of times a session, so the common case is a
+     * read, no change, and no request.
+     */
+    private void maybeQueueActivityPush() {
+        java.util.Set<String> wanted = trackedActivityKeys;
+        if (wanted.isEmpty() || !statPushAllowed() || executor == null || executor.isShutdown()) {
+            return;
+        }
+        Map<String, Integer> current = ActivityStats.read(wanted, client::getVarbitValue, client::getVarpValue);
+        if (current.isEmpty()) {
+            return;
+        }
+        synchronized (pendingActivityPush) {
+            boolean queued = false;
+            for (Map.Entry<String, Integer> e : current.entrySet()) {
+                Integer last = lastPushedActivity.get(e.getKey());
+                if (last != null && last >= e.getValue()) {
+                    continue; // already reported at least this high — nothing new to say
+                }
+                pendingActivityPush.put(e.getKey(), e.getValue());
+                queued = true;
+            }
+            if (!queued) {
+                return;
+            }
+            if (activityPushTask != null) {
+                activityPushTask.cancel(false);
+            }
+            activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Pushes the buffered absolute activity counts to the server (no screenshot). Requeues on failure. */
+    private void flushActivityPush() {
+        Map<String, Integer> batch;
+        synchronized (pendingActivityPush) {
+            if (pendingActivityPush.isEmpty()) {
+                return;
+            }
+            batch = new HashMap<>(pendingActivityPush);
+            pendingActivityPush.clear();
+        }
+        if (!statPushAllowed()) {
+            return; // event ended / auto-submit off between queue and flush — drop; the count is safe on the hiscores side
+        }
+        try {
+            apiClient.submitStatActivities(batch);
+            synchronized (pendingActivityPush) {
+                for (Map.Entry<String, Integer> e : batch.entrySet()) {
+                    lastPushedActivity.merge(e.getKey(), e.getValue(), Integer::max);
+                }
+            }
+            refreshConfig(); // pull back the updated progress / any completion the push triggered
+        } catch (IOException e) {
+            log.warn("Activity push failed ({} key(s)) — requeueing: {}", batch.size(), e.getMessage());
+            synchronized (pendingActivityPush) {
+                for (Map.Entry<String, Integer> en : batch.entrySet()) {
+                    pendingActivityPush.merge(en.getKey(), en.getValue(), Integer::max);
+                }
+                if (executor != null && !executor.isShutdown()) {
+                    if (activityPushTask != null) {
+                        activityPushTask.cancel(false);
+                    }
+                    activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
                 }
             }
         }

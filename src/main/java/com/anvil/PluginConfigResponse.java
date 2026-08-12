@@ -78,6 +78,11 @@ public class PluginConfigResponse
 	// real-time absolute XP for these off StatChanged, like trackedKcNames for boss KC. Empty/absent
 	// = push nothing (older servers, or no skill tiles).
 	public List<String> trackedSkillNames;
+	// Site stat keys ("cluesElite", "collectionsLogged") for the hiscores counters that are neither a
+	// boss nor a skill. Pushed by KEY rather than in-game name — the plugin reads each from a named
+	// varbit, so there's nothing to map — and only for the ones the client can actually answer
+	// (see ActivityStats). Requires the 'activity-stats' capability; empty/absent on older servers.
+	public List<String> trackedActivityKeys;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedPvp> trackedPvp;           // PvP-kill tiles (rival-team / bounty kills in dangerous PvP)
 	public List<RosterEntry> pvpRoster;           // event roster (RSN -> teamId) for 'team:other' matching; empty unless a pvp tile exists
