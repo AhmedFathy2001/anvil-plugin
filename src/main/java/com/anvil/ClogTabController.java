@@ -1882,9 +1882,11 @@ public class ClogTabController
 				sub.append("  <col=666666>·</col>  ");
 				subPlain.append("  ·  ");
 			}
-			sub.append("<col=").append(hex(statusColor)).append(">")
-				.append(row.current).append("/").append(row.goal).append("</col>");
-			subPlain.append(row.current).append("/").append(row.goal);
+			// progressText is set by kinds whose progress isn't a plain count — a cumulative value
+			// tile measures in gp, where the raw numbers are unreadable ("12500000/50000000").
+			String progress = row.progressText != null ? row.progressText : row.current + "/" + row.goal;
+			sub.append("<col=").append(hex(statusColor)).append(">").append(progress).append("</col>");
+			subPlain.append(progress);
 		}
 		Widget subText = items.createChild(-1, WidgetType.TEXT);
 		subText.setFontId(FONT_PLAIN);

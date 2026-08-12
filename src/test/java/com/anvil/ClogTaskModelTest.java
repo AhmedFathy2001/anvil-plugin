@@ -404,4 +404,49 @@ public class ClogTaskModelTest
 		reqs.add(req("b", 1, "Set", 4));
 		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, "all"));
 	}
+
+	// ── Cumulative value tiles ──────────────────────────────────────────────────────────────────
+
+	private static PluginConfigResponse.TrackedValue value(String mode, long threshold, long current)
+	{
+		PluginConfigResponse.TrackedValue v = new PluginConfigResponse.TrackedValue();
+		v.tileId = 1;
+		v.label = "Bank it";
+		v.mode = mode;
+		v.thresholdGp = threshold;
+		v.currentGp = current;
+		return v;
+	}
+
+	@Test
+	public void onlyTotalModeCountsAsCumulative()
+	{
+		assertTrue(ClogTaskModel.isTotalValue(value("total", 1, 0)));
+		assertTrue(ClogTaskModel.isTotalValue(value("TOTAL", 1, 0)));
+		assertFalse(ClogTaskModel.isTotalValue(value("single", 1, 0)));
+		// An older server sends no mode at all, which has only ever meant single-haul.
+		assertFalse(ClogTaskModel.isTotalValue(value(null, 1, 0)));
+	}
+
+	@Test
+	public void gpReadsShortAndDropsAPointlessDecimal()
+	{
+		assertEquals("0", ClogTaskModel.formatGp(0));
+		assertEquals("999", ClogTaskModel.formatGp(999));
+		assertEquals("1K", ClogTaskModel.formatGp(1_000));
+		assertEquals("12.5K", ClogTaskModel.formatGp(12_500));
+		assertEquals("3.4M", ClogTaskModel.formatGp(3_400_000));
+		assertEquals("50M", ClogTaskModel.formatGp(50_000_000));
+		assertEquals("2.1B", ClogTaskModel.formatGp(2_150_000_000L));
+		// Negative can't happen from the server, but must not render as "-1" either.
+		assertEquals("0", ClogTaskModel.formatGp(-5));
+	}
+
+	/** Truncating rather than rounding: 49.99m must never read "50M/50M" while the tile is short. */
+	@Test
+	public void gpNeverRoundsUpToLookFinished()
+	{
+		assertEquals("49.9M", ClogTaskModel.formatGp(49_990_000));
+		assertEquals("999.9M", ClogTaskModel.formatGp(999_999_999));
+	}
 }

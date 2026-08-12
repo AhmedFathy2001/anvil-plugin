@@ -169,6 +169,10 @@ public final class ClogTaskModel
 		public final String description;
 		public final String category; // free-text grouping (boss/skill); "" = uncategorised
 		public final String skillName; // hiscores skill for SKILL tiles ("mining"); null otherwise
+		// Pre-formatted "current/goal" for tiles whose progress isn't a plain count — a cumulative
+		// value tile is measured in gp, and "12500000/50000000" is a number nobody reads. Null on
+		// every other kind, which means the renderer prints current/goal itself.
+		public final String progressText;
 		public final Status status;
 		// Board position — the within-status-group sort key, so the in-game list mirrors the
 		// site's tile order (difficulty sort, shuffle). Set after construction (0 on old
@@ -210,10 +214,18 @@ public final class ClogTaskModel
 			this(tileId, label, kind, current, goal, itemId, points, description, category, forceCompleted, null);
 		}
 
-		/** Canonical constructor — callers that know the precise {@link Kind} (e.g. {@link #build}) use this. */
 		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
 			String description, String category, boolean forceCompleted, String skillName)
 		{
+			this(tileId, label, kind, current, goal, itemId, points, description, category, forceCompleted,
+				skillName, null);
+		}
+
+		/** Canonical constructor — callers that know the precise {@link Kind} (e.g. {@link #build}) use this. */
+		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
+			String description, String category, boolean forceCompleted, String skillName, String progressText)
+		{
+			this.progressText = progressText;
 			this.tileId = tileId;
 			this.label = label == null ? "" : label;
 			this.kind = kind == null ? Kind.STANDARD : kind;
@@ -422,11 +434,28 @@ public final class ClogTaskModel
 				{
 					continue;
 				}
-				// Loot-value tiles are pass/fail (one qualifying haul): completed flag drives status.
 				// Coins as the icon — a gp-threshold tile has no single representative item.
 				boolean done = v.completed || completed.contains(v.tileId);
-				addAt(rows, v.position, new TaskRow(v.tileId, v.label, Kind.VALUE, done ? 1 : 0, 1, COINS_ITEM_ID,
-					v.points, v.description, v.category, done));
+				if (isTotalValue(v))
+				{
+					// A cumulative tile ("bank 50m between you") has real progress the server already
+					// tracks, and showing it as pass/fail threw that away — the one tile on the board
+					// that could say how far along the team was, saying only "not yet". Bars are drawn
+					// from current/goal, so those carry the gp (clamped, since a target can exceed an
+					// int) while the label gets the readable form.
+					int goal = clampGp(v.thresholdGp);
+					int current = Math.min(clampGp(v.currentGp), goal);
+					addAt(rows, v.position, new TaskRow(v.tileId, v.label, Kind.VALUE, current, goal, COINS_ITEM_ID,
+						v.points, v.description, v.category, done, null,
+						formatGp(v.currentGp) + "/" + formatGp(v.thresholdGp)));
+				}
+				else
+				{
+					// Single-haul tiles are genuinely pass/fail — one qualifying drop or nothing — so
+					// there's no partial progress to show and the completed flag drives status.
+					addAt(rows, v.position, new TaskRow(v.tileId, v.label, Kind.VALUE, done ? 1 : 0, 1, COINS_ITEM_ID,
+						v.points, v.description, v.category, done));
+				}
 			}
 		}
 
@@ -463,6 +492,68 @@ public final class ClogTaskModel
 		}
 
 		return rows;
+	}
+
+	/**
+	 * True when a value tile accumulates toward its target rather than needing one qualifying haul.
+	 * An older server sends no mode at all, which means single — the only behaviour it had.
+	 */
+	static boolean isTotalValue(PluginConfigResponse.TrackedValue v)
+	{
+		return v != null && "total".equalsIgnoreCase(v.mode);
+	}
+
+	/**
+	 * Squeeze a gp amount into the int the progress bar is drawn from. A gp target is a long because
+	 * a clan-wide one can pass 2.1b; the bar only needs the ratio, and both ends clamp together so a
+	 * clamped tile still fills at the right rate rather than looking finished early.
+	 */
+	private static int clampGp(long gp)
+	{
+		if (gp <= 0)
+		{
+			return 0;
+		}
+		return gp > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) gp;
+	}
+
+	/**
+	 * Short gp for a progress line: 999, 12.5K, 3.4M, 2.15B. Trailing ".0" is dropped so a round
+	 * number reads "50M" rather than "50.0M", and the unit is only attached once — this sits in
+	 * "12.5M/50M", where repeating it on both sides is noise.
+	 */
+	static String formatGp(long gp)
+	{
+		long v = Math.max(0, gp);
+		if (v < 1_000)
+		{
+			return Long.toString(v);
+		}
+		String unit;
+		double scaled;
+		if (v < 1_000_000)
+		{
+			unit = "K";
+			scaled = v / 1_000d;
+		}
+		else if (v < 1_000_000_000L)
+		{
+			unit = "M";
+			scaled = v / 1_000_000d;
+		}
+		else
+		{
+			unit = "B";
+			scaled = v / 1_000_000_000d;
+		}
+		// One decimal, but only when it says something — truncated rather than rounded so a tile
+		// never reads as finished ("50M/50M") while the server still counts it short.
+		double truncated = Math.floor(scaled * 10) / 10d;
+		if (truncated == Math.floor(truncated))
+		{
+			return (long) truncated + unit;
+		}
+		return String.format(java.util.Locale.ROOT, "%.1f%s", truncated, unit);
 	}
 
 	/** Adds the row with its board position stamped — the within-status-group sort key. */
