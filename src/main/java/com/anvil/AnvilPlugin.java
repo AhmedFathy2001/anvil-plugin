@@ -642,6 +642,10 @@ public class AnvilPlugin extends Plugin {
     // The stored value a v0 install carries if the member never touched the rarity setting.
     private static final int LEGACY_RARITY_DEFAULT = 5000;
 
+    // Vestige-rotation counts, per RSN ("boss=rolls:exact;…"). Per-account because the cycle is
+    // account state; a shared config key would smear an alt's rolls into the main's.
+    private static final String CFG_VESTIGE_ROLLS = "vestigeRolls";
+
     private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
     private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
@@ -1214,6 +1218,16 @@ public class AnvilPlugin extends Plugin {
             VarbitID.TOB_CLIENT_P0, VarbitID.TOB_CLIENT_P1, VarbitID.TOB_CLIENT_P2,
             VarbitID.TOB_CLIENT_P3, VarbitID.TOB_CLIENT_P4,
     };
+    // Where this account sits in each DT2 boss's vestige rotation (VestigeRolls owns the rule).
+    // Loaded lazily per RSN and written back after every counted roll.
+    private VestigeRolls vestigeRolls;
+    private String vestigeRollsRsn;
+    // The roll line from the loot event the drop post is about — postRareDrop runs off the same
+    // event a moment later, so a short window is enough to pair them without threading it through.
+    private volatile String lastVestigeLine;
+    private volatile long lastVestigeLineAt;
+    private static final long VESTIGE_LINE_WINDOW_MS = 5000;
+
     // Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
     // client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
     // count, which still covers instanced content without a party varbit).
@@ -1694,12 +1708,14 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String name = event.getComposition().getName();
+        trackVestigeRolls(name, event.getItems());
         processLoot(name, event.getItems(), "npc");
         maybeNotifyRareDrop(name, event.getItems(), "npc");
     }
 
     @Subscribe
     public void onNpcLootReceived(NpcLootReceived event) {
+        trackVestigeRolls(event.getNpc().getName(), event.getItems());
         processLoot(event.getNpc().getName(), event.getItems(), "npc");
         processValueTiles(event.getNpc().getName(), event.getItems(), "npc");
         recordEventLoot(event.getNpc().getName(), event.getItems(), "npc");
@@ -2406,6 +2422,11 @@ public class AnvilPlugin extends Plugin {
 
         Map<Integer, List<PluginConfigResponse.TrackedDrop>> index = itemDropIndex;
 
+        // Credits handed to each tile by THIS kill, for tiles that cap it (perKillCap). A kill is
+        // one loot event, so the counter lives for one call: a boss that drops a vestige and an
+        // ingot rolled its unique table once, and a "count rolls" tile must see that as one.
+        Map<Integer, Integer> creditedThisKill = new java.util.HashMap<>();
+
         for (ItemStack item : items) {
             int itemId = item.getId();
             // Remember items that arrived via a REAL loot event so a later clog-unlock line for the
@@ -2502,6 +2523,19 @@ public class AnvilPlugin extends Plugin {
                 // still needs so an overflow doesn't double-count past the requirement.
                 int stackQty = Math.max(1, item.getQuantity());
 
+                // Per-kill cap: what this tile has left from THIS kill. Applies to the stack and
+                // across items, so neither a double drop nor a stack of two can spend more than the
+                // tile allows per kill.
+                int killRoom = Integer.MAX_VALUE;
+                if (drop.perKillCap > 0) {
+                    killRoom = drop.perKillCap - creditedThisKill.getOrDefault(drop.tileId, 0);
+                    if (killRoom <= 0) {
+                        log.debug("Per-kill cap reached for tile '{}' ({}), skipping {}", drop.label, drop.perKillCap, itemId);
+                        continue;
+                    }
+                    stackQty = Math.min(stackQty, killRoom);
+                }
+
                 // Per-item tracking: check if this specific item is already complete
                 Integer trackingItemId = null;
                 int amount;
@@ -2523,6 +2557,11 @@ public class AnvilPlugin extends Plugin {
                     req.currentAmount += amount;
                 } else {
                     amount = Math.min(stackQty, Math.max(1, drop.requiredAmount - drop.currentAmount));
+                }
+
+                if (drop.perKillCap > 0) {
+                    amount = Math.min(amount, killRoom);
+                    creditedThisKill.merge(drop.tileId, amount, Integer::sum);
                 }
 
                 log.info("Tracked drop detected: {} (item {} ×{}), tile '{}'", source, itemId, amount, drop.label);
@@ -4649,6 +4688,46 @@ public class AnvilPlugin extends Plugin {
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_MINUTES, Integer.toString(eventMinutes));
     }
 
+    /**
+     * Fold a kill's loot into the vestige rotation of whichever boss dropped it, and say where the
+     * player now stands. Independent of bingo: the cycle is account state, so it keeps counting with
+     * no event running, and it never gates on tracking being enabled.
+     */
+    private void trackVestigeRolls(String source, Collection<ItemStack> items) {
+        if (pluginConfig == null || pluginConfig.rollTables == null || items == null || items.isEmpty()) {
+            return;
+        }
+        PluginConfigResponse.RollTable table = null;
+        for (PluginConfigResponse.RollTable t : pluginConfig.rollTables) {
+            if (t != null && t.boss != null && t.boss.equalsIgnoreCase(source)) {
+                table = t;
+                break;
+            }
+        }
+        if (table == null) {
+            return;
+        }
+        String rsn = getLocalPlayerName();
+        String rsnKey = rsn == null ? "" : rsn.trim().toLowerCase(java.util.Locale.ROOT);
+        if (vestigeRolls == null || !rsnKey.equals(vestigeRollsRsn)) {
+            vestigeRolls = VestigeRolls.parse(configManager.getConfiguration("osrsbingo", CFG_VESTIGE_ROLLS + ":" + rsnKey));
+            vestigeRollsRsn = rsnKey;
+        }
+        for (ItemStack item : items) {
+            // Each unique in the loot is its own roll — a kill that somehow hands you two advances
+            // the cycle twice, which is what the table did.
+            VestigeRolls.Result r = vestigeRolls.record(table, item.getId());
+            if (r == null) {
+                continue;
+            }
+            configManager.setConfiguration("osrsbingo", CFG_VESTIGE_ROLLS + ":" + rsnKey, vestigeRolls.serialise());
+            sendChatMessage(table.boss + ": " + r.line);
+            // Remembered for the drop post, which is built moments later off the same loot event.
+            lastVestigeLine = r.line;
+            lastVestigeLineAt = System.currentTimeMillis();
+        }
+    }
+
     private int readIntConfig(String key, int fallback) {
         try {
             String v = configManager.getConfiguration("osrsbingo", key);
@@ -5589,6 +5668,13 @@ public class AnvilPlugin extends Plugin {
                 + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
         if (DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE)) {
             desc += "\n" + randomSpoonLine();
+        }
+        // Where this leaves their vestige rotation, when the drop was a roll of one (set moments
+        // ago by trackVestigeRolls off the same loot event).
+        String rollLine = lastVestigeLine;
+        if (rollLine != null && System.currentTimeMillis() - lastVestigeLineAt < VESTIGE_LINE_WINDOW_MS) {
+            desc += "\n" + rollLine;
+            lastVestigeLine = null;
         }
         com.google.gson.JsonObject embed = buildDropEmbed(
                 troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName);

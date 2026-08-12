@@ -91,6 +91,7 @@ public class PluginConfigResponse
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
+	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
 	public NotifyChannels notify;                      // which clan notification channels are enabled server-side
@@ -244,6 +245,11 @@ public class PluginConfigResponse
 		// How this collection's sets combine: "any" (default, and what an older server sends nothing
 		// for) = the sets are alternatives, satisfy ONE; "all" = every set must be satisfied.
 		public String groupMode;
+		// The most this tile can be credited from a SINGLE kill, whatever that kill dropped.
+		// 0/absent = uncapped (every tracked item, and every item in a stack, counts). 1 makes the
+		// tile count ROLLS: a DT2 kill handing you a vestige and an ingot rolled its unique table
+		// once, so it credits once.
+		public int perKillCap;
 	}
 
 	public static class ItemRequirement
@@ -260,6 +266,22 @@ public class PluginConfigResponse
 		// is what every collection authored before set modes existed means. 1 is "any one item from
 		// this source" — with groupMode "all" that's a unique from each DT2 boss.
 		public int groupRequire;
+	}
+
+	/**
+	 * A boss whose vestige is on a fixed rotation (the DT2 four): its unique table rolls
+	 * non-vestige, non-vestige, VESTIGE, so the count since the last vestige tells a player how
+	 * close they are. Server-side data (the site's lib/rollTables) so a cadence change or a
+	 * corrected item list needs no plugin release. Empty/absent on older servers — the tracker
+	 * then simply says nothing.
+	 */
+	public static class RollTable
+	{
+		public String boss;                 // NPC name as the loot event reports it
+		public List<Integer> rollItemIds;   // every item that counts as one roll
+		public int vestigeItemId;
+		public String vestigeName;
+		public int rollsPerVestige;         // counting the vestige itself: 1, 2, vestige
 	}
 
 	public static class CompletedTile
