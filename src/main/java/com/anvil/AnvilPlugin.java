@@ -328,11 +328,48 @@ public class AnvilPlugin extends Plugin {
     // landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
     private final Map<String, Integer> killCounts = new HashMap<>();
     // The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
-    // Barrows, "success" for Zalcano, "harvest"/"lap" for skilling bosses) and Wintertodt prefixes
-    // "subdued" — all must be kept OUT of the captured boss name or it never matches the
-    // trackedKcNames watch-list. Package-private for KillCountLineTest.
+    // Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
+    // "Total Ticket" for the Brimhaven Agility Arena) and Wintertodt prefixes "subdued" — all must
+    // be kept OUT of the captured boss name or it never matches the trackedKcNames watch-list.
+    // Package-private for KillCountLineTest.
     static final java.util.regex.Pattern KILL_COUNT_PATTERN = java.util.regex.Pattern.compile(
-            "Your (?:completed |subdued )?(.+?) (?:kill |completion |success |chest |harvest |lap )?count is: ([\\d,]+)");
+            "Your (?:completed |subdued )?(.+?) (?:kill |completion |success |chest |harvest |lap |Total Ticket )?count is: ([\\d,]+)");
+    // The Hallowed Sepulchre announces itself in its OWN shape, not the "Your <X> count is: N"
+    // one — so agility tiles targeting it need these two lines instead. Both carry a running
+    // total we deliberately ignore: like every other chat-driven tile, one line == one credit,
+    // so a player who has already looted 4,000 coffins starts an event on zero.
+    //
+    //   "You have completed Floor 3 of the Hallowed Sepulchre! Total completions: 1,234."
+    // Fires once per floor cleared, so a full 1→5 run emits five of these.
+    static final java.util.regex.Pattern SEPULCHRE_FLOOR_PATTERN = java.util.regex.Pattern.compile(
+            "You have completed Floor (\\d) of the Hallowed Sepulchre! Total completions: ([\\d,]+)");
+    //   "You have opened the Grand Hallowed Coffin 42 times!" ("1 time!" in the singular)
+    // The floor-5 coffin — the only signal that means a COMPLETE run rather than a floor.
+    static final java.util.regex.Pattern SEPULCHRE_COFFIN_PATTERN = java.util.regex.Pattern.compile(
+            "You have opened the Grand Hallowed Coffin ([\\d,]+) times?!");
+    // Target names these lines credit, matched against tiles' targetNpcs like any NPC name. The
+    // floor line credits BOTH its own floor and the any-floor name, so "complete 20 floors" and
+    // "clear floor 5 ten times" are both authorable; creditSepulchre dedups so a tile listing both
+    // still counts one.
+    static final String SEPULCHRE_ANY = "Hallowed Sepulchre";
+    static final String SEPULCHRE_COFFIN = "Grand Hallowed Coffin";
+
+    // Two more activities that keep a count but announce it in their own shape. Both fire on the
+    // ACTION (note the singular forms — "one offering", "1 rumour" — which a query-style report
+    // would have no reason to carry), so like every other chat-driven tile: one line, one credit.
+    //
+    //   "You have completed 42 rumours for the Hunter Guild."
+    static final java.util.regex.Pattern HUNTER_RUMOUR_PATTERN = java.util.regex.Pattern.compile(
+            "You have completed ([\\d,]+) rumours? for the Hunter Guild");
+    //   "You have made 7 offerings." / "You have made one offering."
+    // Bird's eggs offered at the Woodcutting Guild shrine. The line never names the activity, so
+    // this is the one counter here that would misfire if another piece of content ever printed the
+    // same sentence — kept because nothing else does today, but that's the risk if it ever breaks.
+    static final java.util.regex.Pattern EGG_OFFERING_PATTERN = java.util.regex.Pattern.compile(
+            "You have made (?:[\\d,]+|one) offerings?\\.");
+    static final String HUNTER_RUMOURS = "Hunter Rumours";
+    static final String EGG_OFFERINGS = "Bird's egg offerings";
+
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
@@ -1844,6 +1881,19 @@ public class AnvilPlugin extends Plugin {
         // ("Reward Casket (Master)" / "Master Treasure Trail" / "Clue Scroll (Master)"); fold them all
         // to the "Clue Scroll (Tier)" the source picker offers so a clue-restricted drop tile matches.
         String source = normalizeClueSource(event.getName());
+        // Count the OPEN itself, not just what fell out — this is what lets a kill tile target a
+        // chest ("open Larran's big chest 20 times") or a casket tier. The loot event is the only
+        // trustworthy signal for those: the game's own "You have opened the crystal chest 128
+        // times." line is a query RESPONSE (it has a "never opened" form), so counting occurrences
+        // of it would credit nothing for a real open and everything for someone re-asking.
+        //
+        // Routed through the loot-driven kill path on purpose: it already stands down for any
+        // source that also prints a "count is:" chat line, so a CoX chest can't credit the same
+        // raid twice. Restricted to EVENT loot — NPC kills come through onNpcLootReceived, and
+        // loot keys were re-typed to "pvp" above.
+        if ("event".equals(kind)) {
+            processNpcKill(source);
+        }
         processLoot(source, event.getItems(), kind);
         processValueTiles(source, event.getItems(), kind);
         recordEventLoot(source, event.getItems(), kind);
@@ -2223,6 +2273,22 @@ public class AnvilPlugin extends Plugin {
             } catch (NumberFormatException ignored) {
             }
         }
+        // Hallowed Sepulchre — its own line shapes (see the patterns above). A floor clear credits
+        // that floor and the any-floor name; the Grand Hallowed Coffin credits a complete run.
+        java.util.regex.Matcher floorMatcher = SEPULCHRE_FLOOR_PATTERN.matcher(plain);
+        if (floorMatcher.find()) {
+            creditNamedCounter("Hallowed Sepulchre Floor " + floorMatcher.group(1), SEPULCHRE_ANY);
+        }
+        if (SEPULCHRE_COFFIN_PATTERN.matcher(plain).find()) {
+            creditNamedCounter(SEPULCHRE_COFFIN);
+        }
+        // Hunter Guild rumours and Woodcutting Guild egg offerings — same one-line-one-credit rule.
+        if (HUNTER_RUMOUR_PATTERN.matcher(plain).find()) {
+            creditNamedCounter(HUNTER_RUMOURS);
+        }
+        if (EGG_OFFERING_PATTERN.matcher(plain).find()) {
+            creditNamedCounter(EGG_OFFERINGS);
+        }
         // (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
         // so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
         int idx = plain.indexOf(CLOG_UNLOCK_PREFIX);
@@ -2234,6 +2300,12 @@ public class AnvilPlugin extends Plugin {
             // A pet drop moments ago is still waiting to learn WHICH pet it was — this line is the
             // only thing that says so. It takes the name and both clog posts stand down, or the same
             // pet lands twice, once as 🐾 and once as 📕.
+            // Clip trail: a new collection-log slot is the single most clip-worthy thing that
+            // can happen and carries no gp value, so the loot floor above would never catch an
+            // untradeable one (Infernal cape, a pet). Recorded here, off the ungated chat line,
+            // rather than in the rare-drop notifier where it used to sit behind that channel's
+            // toggle. Pets are excluded — claimPetName routes those to their own post.
+            clipMoments.record("📕 New clog slot: " + item);
             if (!claimPetName(item)) {
                 // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
                 // unlock at the drops channel, while every OTHER new slot goes quietly to the
@@ -2785,11 +2857,13 @@ public class AnvilPlugin extends Plugin {
      * on the client thread (called from loot event).
      */
     /**
-     * Loot-driven kill crediting (from NpcLootReceived): the right signal for
-     * normal NPCs, which have no Jagex kill-count message. Bosses that DO print
-     * a KC line are handled by the chat handler instead — once a KC message has
-     * been seen for this name we defer to it so a boss that fires both a KC
-     * line and NpcLootReceived is counted exactly once.
+     * Loot-driven kill crediting: the right signal for anything with no Jagex
+     * count message. Two callers — NpcLootReceived for normal NPCs, and the
+     * EVENT branch of LootReceived for things you OPEN rather than kill (chests,
+     * clue caskets), where one loot event is exactly one open. Bosses that DO
+     * print a KC line are handled by the chat handler instead — once a KC message
+     * has been seen for this name we defer to it, so a source firing both a KC
+     * line and a loot event is counted exactly once.
      */
     private void processNpcKill(String npcName) {
         if (npcName == null || npcName.isEmpty()) {
@@ -2854,6 +2928,51 @@ public class AnvilPlugin extends Plugin {
         creditKillTiles(npcName, matches, 1); // one KC line == one kill
     }
 
+    /**
+     * Credit a tile from an activity that keeps its own count but announces it in a shape the
+     * generic "Your &lt;X&gt; count is: N" parser can't read — Sepulchre floors, the Grand Hallowed
+     * Coffin, Hunter Guild rumours, Woodcutting Guild egg offerings. The count in those lines is
+     * deliberately ignored: they all fire on the action, so one line is one credit, and a player
+     * who arrives with 4,000 already banked starts an event on zero.
+     *
+     * <p>Takes SEVERAL names because one line can match a tile under more than one — a floor clear
+     * announces both "Hallowed Sepulchre Floor 3" and the any-floor "Hallowed Sepulchre" — so a
+     * tile listing both would be credited twice for one floor by a naive per-name loop. Collect the
+     * union of matching tiles first (identity-based, since a tile object appears in every index
+     * bucket its names put it in) and credit each exactly once.
+     */
+    private void creditNamedCounter(String... names) {
+        if (!config.autoSubmit() || pluginConfig == null) {
+            String gate = trackingGateReason();
+            if (gate != null) {
+                logTrackingSuppressed(gate);
+            }
+            return;
+        }
+        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+            return;
+        }
+        // Identity set: two DIFFERENT tiles with the same name must both credit, but the SAME tile
+        // reached via two of its own names must not.
+        java.util.Set<PluginConfigResponse.TrackedKill> seen =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        List<PluginConfigResponse.TrackedKill> unique = new ArrayList<>();
+        for (String name : names) {
+            List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(name.toLowerCase());
+            if (matches == null) {
+                continue;
+            }
+            for (PluginConfigResponse.TrackedKill kill : matches) {
+                if (seen.add(kill)) {
+                    unique.add(kill);
+                }
+            }
+        }
+        if (!unique.isEmpty()) {
+            creditKillTiles(names[0], unique, 1); // one line == one floor/run
+        }
+    }
+
     private void creditKillTiles(String npcName, List<PluginConfigResponse.TrackedKill> matches, int amount) {
         for (PluginConfigResponse.TrackedKill kill : matches) {
             if (kill.currentAmount >= kill.requiredAmount) {
@@ -2863,8 +2982,11 @@ public class AnvilPlugin extends Plugin {
             int snapshotCurrent = kill.currentAmount;
             int snapshotRequired = kill.requiredAmount;
 
-            log.info("Tracked kill detected: {} (tile '{}', {}/{})", npcName, kill.label, snapshotCurrent, snapshotRequired);
-            sendChatMessage("Tracked kill: " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+            // "kill" for a normal kill tile, "lap" for an agility-lap tile — same counting path,
+            // and the noun is the only thing that differs (see TrackedKill.unit).
+            String noun = kill.unitNoun();
+            log.info("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
+            sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
 
             queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired);
         }
@@ -4812,11 +4934,63 @@ public class AnvilPlugin extends Plugin {
      * haul counts, value tile or not. A short fingerprint dedup absorbs the known NpcLootReceived +
      * LootReceived double-fire for the same haul. Client thread only (itemManager.getItemPrice).
      */
+    /**
+     * Value floor for putting a haul on the clip trail. Deliberately far below the rare-drop
+     * notification floor (which is forced to 1m+, because that one spams a clan channel): this
+     * decides only whether a clip the player saved themselves can say what it caught, and nobody
+     * needs protecting from their own clip. 100k is roughly "worth mentioning" without letting a
+     * bank-standing clip caption itself with a stack of bones.
+     */
+    private static final long CLIP_LOOT_FLOOR_GP = 100_000L;
+
+    /**
+     * Note a haul on the clip trail, so a saved clip can say what dropped.
+     *
+     * NOT tied to the rare-drop notification settings: those decide what the clan channel hears,
+     * this decides whether the clip has a caption. A player who broadcasts nothing still wants
+     * their own clip to say "Twisted bow from Chambers of Xeric" rather than "Clip saved".
+     */
+    private void recordLootMoment(String source, Collection<ItemStack> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        long haulGp = 0;
+        int bestId = -1;
+        long bestValue = 0;
+        int bestQty = 1;
+        for (ItemStack it : items) {
+            if (it == null || it.getId() <= 0) {
+                continue;
+            }
+            int qty = Math.max(1, it.getQuantity());
+            long value = itemUnitValue(it.getId()) * qty;
+            haulGp += value;
+            if (value > bestValue) {
+                bestValue = value;
+                bestId = it.getId();
+                bestQty = qty;
+            }
+        }
+        if (haulGp < CLIP_LOOT_FLOOR_GP || bestId <= 0) {
+            return;
+        }
+        String where = (source != null && !source.isEmpty()) ? " from " + source : "";
+        // One item carrying most of the haul IS the story ("Twisted bow from CoX"); a spread of
+        // small stuff isn't, so that reads as a total instead of naming an arbitrary top item.
+        clipMoments.record(bestValue * 2 >= haulGp
+                ? "💰 " + (bestQty > 1 ? bestQty + "x " : "") + itemName(bestId) + where
+                        + " (" + formatGp(bestValue) + ")"
+                : "💰 " + formatGp(haulGp) + " haul" + where);
+    }
+
     private void recordEventLoot(String source, Collection<ItemStack> items, String sourceKind) {
         // Note the haul for the clog notifier BEFORE the event gate: a collection-log unlock is worth
         // announcing whether or not a bingo is running, so its sprite/source lookup can't be gated on
         // one. Cheap — a few map writes that expire on their own.
         rememberLootForClog(source, sourceKind, items);
+        // Same reasoning for the clip trail — a clip is worth describing whether or not a bingo is
+        // running — so the moment is noted before the event gate too.
+        recordLootMoment(source, items);
         if (items == null || items.isEmpty() || trackingGateReason() != null) {
             return;
         }
@@ -5192,6 +5366,7 @@ public class AnvilPlugin extends Plugin {
             // Recap counter — count the death for the "Wipe Magnet" superlative even if death
             // notifications are off (still gated by auto-submit + an active event inside).
             recordEventDeath();
+            clipMoments.record("💀 Died");
             if (!config.notifyDeaths()) {
                 return;
             }
@@ -5199,7 +5374,6 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
             String message = buildDeathMessage(getLocalPlayerName());
-            clipMoments.record("💀 Died");
             captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
             return;
         }
@@ -5227,6 +5401,12 @@ public class AnvilPlugin extends Plugin {
                     if (inDangerousPvp()) {
                         recordEventPvpKill();
                     }
+                    // Clip trail gets the same treatment for the same reason: the kill is what the
+                    // clip CAUGHT, whether or not the clan broadcasts PKs and whether or not the
+                    // board has a pvp tile. Recording it inside notifyPvpKill (where it used to
+                    // live) meant a player with that channel off saved clips captioned "Clipped
+                    // during <event>" — describing nothing.
+                    clipMoments.record("⚔️ Killed " + vname);
                     creditPvpKillTiles(vname);
                     if (config.notifyPvpKills()) {
                         notifyPvpKill(vname);
@@ -5269,7 +5449,6 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String message = buildKillMessage(getLocalPlayerName(), name);
-        clipMoments.record("⚔️ Killed " + name);
         captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
     }
 
@@ -5608,7 +5787,6 @@ public class AnvilPlugin extends Plugin {
      */
     private void postSpecialDrop(String source, int itemId, int qty, long value) {
         String name = itemName(itemId);
-        clipMoments.record("💎 " + name + (source != null && !source.isEmpty() ? " from " + source : ""));
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " received " + name

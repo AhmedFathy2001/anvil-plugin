@@ -317,6 +317,16 @@ public class PluginConfigResponse
 		// Absent/"per-member" + 0 on older servers, which is the historical every-member counting.
 		public String coopCredit;
 		public int coopMinMembers;
+		// What one credit IS, for player-facing wording only ("kill", "lap", …). Agility-lap tiles
+		// ride this list because the game's lap counter is the same chat line boss KC uses, so the
+		// matching is identical and only the noun differs. Null on older servers → "kill".
+		public String unit;
+
+		/** Singular noun for one credit on this tile — "kill" unless the server says otherwise. */
+		public String unitNoun()
+		{
+			return unit == null || unit.trim().isEmpty() ? "kill" : unit.trim();
+		}
 
 		public boolean needsCoopFingerprint()
 		{
