@@ -159,6 +159,20 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "missionSound",
+		name = "Distinct mission sound",
+		description = "Play a short in-game chime when a mission drops or is claimed, instead of the same "
+			+ "clip a completed tile plays — so you can tell a new objective from a finished one without "
+			+ "looking. Turn off to use your banner clip for missions too.",
+		position = 8,
+		section = "bingoSection"
+	)
+	default boolean missionSound()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "bannerSoundClip",
 		name = "Banner sound clip",
 		// Hidden from the panel: the play-cycle allowlist is managed via the Bingo collection-log tab's

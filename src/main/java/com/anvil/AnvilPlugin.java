@@ -14,6 +14,7 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
+import net.runelite.api.SoundEffectID;
 import net.runelite.api.clan.ClanChannel;
 import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
@@ -2097,6 +2098,29 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /**
+     * The mission cue. A mission DROPPING is the opposite kind of news from a tile being finished, so
+     * sharing the completion clip made the two indistinguishable. This is a short built-in game chime
+     * instead — no clip to install, and unmistakably not the completion sound. Turning the option off
+     * falls back to the banner clip, for anyone who liked it that way.
+     *
+     * Runs from the config-poll executor, so the actual play hops to the client thread.
+     *
+     * @param claimed false when a mission is announced, true when someone claims one — a slightly
+     *                different chime, so "new thing to do" and "someone beat you to it" don't sound alike.
+     */
+    private void playMissionSound(boolean claimed) {
+        if (!config.missionSound()) {
+            playBannerSound();
+            return;
+        }
+        if (!config.bannerSound()) {
+            return; // the master "make noise at me" switch still wins
+        }
+        final int id = claimed ? SoundEffectID.GE_COLLECT_BLOOP : SoundEffectID.GE_ADD_OFFER_DINGALING;
+        clientThread.invoke(() -> client.playSoundEffect(id));
+    }
+
     @Subscribe
     public void onChatMessage(ChatMessage event) {
         String msg = event.getMessage();
@@ -4159,7 +4183,7 @@ public class AnvilPlugin extends Plugin {
                 }
             }
             clogBanner.show(tag, "New mission!", top.label);
-            playBannerSound();
+            playMissionSound(false);
             for (PluginConfigResponse.Mission m : fresh) {
                 sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
             }
@@ -4186,7 +4210,7 @@ public class AnvilPlugin extends Plugin {
             PluginConfigResponse.Claim latest = claims.get(0);
             String who = latest.rsn != null && !latest.rsn.trim().isEmpty() ? latest.rsn.trim() : "Someone";
             clogBanner.show(tag, "Mission claimed", who + ": " + latest.label);
-            playBannerSound();
+            playMissionSound(true);
             for (PluginConfigResponse.Claim c : claims) {
                 String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
                 sendChatMessage(by + " claimed " + c.label + " - " + c.points + " pts!");
