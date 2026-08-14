@@ -10,6 +10,7 @@ import net.runelite.api.ItemComposition;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.Actor;
+import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.Player;
@@ -168,6 +169,9 @@ public class AnvilPlugin extends Plugin {
 
     @Inject
     private DebugLogExporter debugLogExporter;
+
+    @Inject
+    private ClogItemCounts clogItemCounts;
 
     // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
     // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
@@ -1231,8 +1235,35 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
+            // A native log page just drew, which is the ONLY moment the client holds that page's item
+            // quantities. Harvest before delegating, and independently of whether the Anvil tab is
+            // enabled — this is the only way we ever learn how many of an item someone owns.
+            harvestClogCounts();
             clogTabController.onCollectionDrawList();
         }
+    }
+
+    /** Snapshot the quantities on the collection-log page currently drawn. Cheap; runs on the client thread. */
+    private void harvestClogCounts() {
+        long hash = client.getAccountHash();
+        if (hash == -1) {
+            return;
+        }
+        clogItemCounts.harvest(String.valueOf(hash), client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS));
+    }
+
+    /**
+     * How many of {@code itemId} the player will hold once this drop is counted, as an ordinal
+     * ("3rd"), or null when their log has never been browsed for it. See {@link ClogItemCounts} for
+     * why this is partial by nature.
+     */
+    private String clogOrdinalAfterDrop(Integer itemId) {
+        long hash = client.getAccountHash();
+        if (itemId == null || itemId <= 0 || hash == -1) {
+            return null;
+        }
+        Integer count = clogItemCounts.countAfterDrop(String.valueOf(hash), itemId);
+        return count == null ? null : ClogItemCounts.ordinal(count);
     }
 
     // Raids expose the real party roster in client varbits, which we read for party-size tile gates.
@@ -6133,7 +6164,14 @@ public class AnvilPlugin extends Plugin {
         embed.addProperty("color", RARE_EMBED_COLOR);
 
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
-        fields.add(statField("Status", pet.duplicate ? "Duplicate" : "New!"));
+        Integer itemId = petName != null ? resolveItemIdByName(petName) : null;
+        // "Duplicate" alone doesn't say whether this is their second or their sixth. The collection
+        // log knows, when the player has browsed the page it lives on (see ClogItemCounts).
+        String owned = clogOrdinalAfterDrop(itemId);
+        fields.add(statField("Status",
+                pet.duplicate
+                        ? (owned != null ? "Duplicate — their " + owned : "Duplicate")
+                        : "New!"));
         if (pet.source != null && !pet.source.isEmpty()) {
             fields.add(statField("From", pet.source));
         }
@@ -6143,7 +6181,6 @@ public class AnvilPlugin extends Plugin {
 
         // Real rarity or none: the rate comes from the same service the rare-drop posts price
         // against, asked with this pet's own item id.
-        Integer itemId = petName != null ? resolveItemIdByName(petName) : null;
         Double dropRate = petRarity(itemId, pet);
         if (dropRate != null && dropRate > 0) {
             fields.add(statField("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate)));
@@ -6743,6 +6780,13 @@ public class AnvilPlugin extends Plugin {
         }
         if (killCount != null && killCount > 0) {
             fields.add(statField("KC", String.format("%,d", killCount)));
+        }
+        // Which one of these they've had. Every drop post routes through this builder, so pricing a
+        // 3rd Tumeken's shadow as "their 3rd" costs nothing extra here. Silent when the player has
+        // never opened the log page this item lives on — see ClogItemCounts for why that's partial.
+        String owned = clogOrdinalAfterDrop(itemId > 0 ? itemId : null);
+        if (owned != null) {
+            fields.add(statField("Collection", owned));
         }
         // Luck reads the rate against the kill count — silent unless the result is worth a remark.
         String luck = DropLuck.luckLabel(dropRate, killCount);
