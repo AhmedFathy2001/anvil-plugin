@@ -21,6 +21,7 @@ import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.ClanChannelChanged;
 import net.runelite.api.events.WorldChanged;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.Item;
@@ -676,6 +677,13 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
     /** RuneLite's own chat-commands store, read once to seed a profile (see importRuneLitePersonalBests). */
     private static final String RUNELITE_PB_GROUP = "personalbest";
+    /** Last automatic roster push, so a channel reload storm can't fire a request per event. */
+    private long lastAutoRosterSyncAt;
+    /** Guard against a second automatic push overlapping the first. */
+    private volatile boolean autoRosterSyncRunning;
+    private static final long AUTO_ROSTER_MIN_GAP_MS = 30 * 60 * 1000;
+    /** The clan list lands a moment after the channel does; give it time rather than racing it. */
+    private static final long AUTO_ROSTER_DELAY_MS = 5_000;
     private final ClogSync clogSync = new ClogSync();
     private final PersonalBests personalBests = new PersonalBests();
     /** The account the two above belong to, so a character switch reloads rather than merges. */
@@ -7381,5 +7389,58 @@ public class AnvilPlugin extends Plugin {
         personalBests.onSent(batch);
         configManager.setConfiguration("osrsbingo", CFG_PB_STATE + ":" + profileSyncRsn,
                 personalBests.serializeState());
+    }
+
+    /**
+     * The clan channel loaded (or changed) — the moment the in-game roster becomes readable.
+     *
+     * <p>Rosters used to drift until an admin remembered to press "Sync clan roster": someone joins,
+     * the site doesn't know, and their drops land as a guest. The data is right here at login, so
+     * take it. Admin-only (the site refuses anyone else's push anyway), at most once every half hour
+     * per session, and silent — an automatic sync that announced itself in chat every login would be
+     * worse than the drift.
+     */
+    @Subscribe
+    public void onClanChannelChanged(ClanChannelChanged event) {
+        if (event.isGuest() || !config.autoSyncClanRoster()) {
+            return;
+        }
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        // The member list arrives just after the channel; a delay is cheaper than polling for it.
+        executor.schedule(() -> safely("autoRosterSync", this::autoSyncClanRoster),
+                AUTO_ROSTER_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Push the in-game roster if we're allowed to and haven't recently. Every guard here is a reason
+     * NOT to send: not an admin, no token, roster not loaded yet, one already running, or one ran
+     * within the last half hour.
+     */
+    private void autoSyncClanRoster() {
+        if (autoRosterSyncRunning || !isAdmin) {
+            return;
+        }
+        String token = config.playerToken();
+        if (token == null || token.isEmpty() || !apiClient.isConfigured()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (lastAutoRosterSyncAt != 0 && now - lastAutoRosterSyncAt < AUTO_ROSTER_MIN_GAP_MS) {
+            return;
+        }
+        autoRosterSyncRunning = true;
+        lastAutoRosterSyncAt = now;
+        syncClanRoster((ok, msg) -> {
+            autoRosterSyncRunning = false;
+            if (ok) {
+                log.debug("Clan roster auto-synced: {}", msg);
+            } else {
+                // Most likely "roster not loaded yet" — let the next channel change try again.
+                lastAutoRosterSyncAt = 0;
+                log.debug("Clan roster auto-sync skipped: {}", msg);
+            }
+        });
     }
 }

@@ -613,6 +613,18 @@ public interface AnvilConfig extends Config
 	// ---- Profile sync ----
 
 	@ConfigItem(
+		keyName = "autoSyncClanRoster",
+		name = "Keep the clan roster in sync",
+		description = "Admins only: push the in-game clan roster to the site automatically when you log in, so joins and leaves don't wait for someone to remember. The manual button in the Anvil tab still works.",
+		position = 0,
+		section = "profileSection"
+	)
+	default boolean autoSyncClanRoster()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "syncClog",
 		name = "Sync collection log",
 		description = "Send the collection-log pages you open to your clan site, so your profile there shows them. Only pages you actually open can be read — the game doesn't hand the client the rest.",
