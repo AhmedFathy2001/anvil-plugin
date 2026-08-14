@@ -1276,7 +1276,8 @@ public class AnvilPlugin extends Plugin {
      * scraping those would file a board as somebody's collection log.
      */
     private void captureClogPage() {
-        if (!config.syncClog() || !apiClient.isConfigured() || clogTabController.isAnvilTabActive()) {
+        if (!config.syncClog() || !apiClient.isConfigured() || clogTabController.isAnvilTabActive()
+                || !serverSupportsProfileSync()) {
             return;
         }
         ClogPage page = ClogPageReader.read(client);
@@ -7249,6 +7250,19 @@ public class AnvilPlugin extends Plugin {
     // nothing is read at all while the toggles are off.
 
     /**
+     * Whether the clan site can store profile data at all.
+     *
+     * <p>Gated on the capability rather than discovered by 404ing: a site that predates these
+     * endpoints would otherwise be asked every 30 seconds, forever, by every member of the clan.
+     * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
+     * no batching and no requests.
+     */
+    private boolean serverSupportsProfileSync() {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null && cfg.serverSupports("profile-sync");
+    }
+
+    /**
      * Point the profile-sync state at the account that just logged in.
      *
      * <p>State is per-RSN, so switching characters swaps it rather than merging two logs. A no-op
@@ -7326,7 +7340,8 @@ public class AnvilPlugin extends Plugin {
      * no thread of our own, and nothing on the client thread.
      */
     private void flushClogSync() {
-        if (!config.syncClog() || !apiClient.isConfigured() || profileSyncRsn == null) {
+        if (!config.syncClog() || !apiClient.isConfigured() || profileSyncRsn == null
+                || !serverSupportsProfileSync()) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -7348,7 +7363,8 @@ public class AnvilPlugin extends Plugin {
 
     /** Same contract for best times. */
     private void flushPersonalBests() {
-        if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null) {
+        if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null
+                || !serverSupportsProfileSync()) {
             return;
         }
         long now = System.currentTimeMillis();
