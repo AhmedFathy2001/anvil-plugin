@@ -5692,7 +5692,9 @@ public class AnvilPlugin extends Plugin {
         if (logProgress != null) {
             fields.add(statField("Completed", logProgress));
         }
-        String rank = ClogRank.forSlots(ActivityStats.clogSlots(client::getVarpValue));
+        String rank = ClogRank.forSlots(
+                ActivityStats.clogSlots(client::getVarpValue),
+                ActivityStats.clogSlotsMax(client::getVarpValue));
         if (rank != null) {
             fields.add(statField("Rank", rank));
         }
