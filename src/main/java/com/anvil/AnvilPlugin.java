@@ -182,6 +182,10 @@ public class AnvilPlugin extends Plugin {
     // What happened in the last N seconds, so a saved clip can name what it caught instead of
     // posting a bare "<rsn> saved a clip". Fed from the same points that already notify the clan.
     private final ClipMoments clipMoments = new ClipMoments();
+    // The last thing we landed a hit on, for captioning a clip of a fight that produced no kill,
+    // no loot and no death. Written on the client thread, read off it when a clip lands.
+    private volatile String lastCombatTarget;
+    private volatile long lastCombatTargetAt;
     private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
         @Override
         public void hotkeyPressed() {
@@ -2049,6 +2053,18 @@ public class AnvilPlugin extends Plugin {
         // player or NPC, and is independent of the PvP gates below. One int compare per hitsplat.
         if (ourHit != null && ourHit.isMine() && ourHit.getAmount() > 0) {
             recordEventHit(ourHit.getAmount());
+            // Remember WHAT we're fighting, so a clip of a fight that didn't end in a kill still has
+            // something true to say. Most clips are of the fight, not the loot — a wipe, a lucky
+            // spec, a tick-perfect prayer — and none of those fire any of the events a clip moment
+            // is normally built from. One field write per landed hit.
+            Actor hitTarget = event.getActor();
+            if (hitTarget != null && hitTarget != client.getLocalPlayer()) {
+                String tname = hitTarget.getName();
+                if (tname != null && !tname.isEmpty()) {
+                    lastCombatTarget = tname;
+                    lastCombatTargetAt = System.currentTimeMillis();
+                }
+            }
         }
 
         // Track damage WE deal to other players so a subsequent death can be attributed to us —
@@ -2260,6 +2276,10 @@ public class AnvilPlugin extends Plugin {
                 boolean firstSeen = !killCounts.containsKey(kcKey);
                 int kc = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
                 killCounts.put(kcKey, kc);
+                // The single most-clipped thing there is. Only notable LOOT was recorded before, so
+                // a clip of the kill itself — the pull, the tick-perfect prayer, the near-death —
+                // captioned itself with nothing at all.
+                clipMoments.record("⚔️ " + kcName + " kill " + String.format("%,d", kc));
                 creditBossKillFromChat(kcName, firstSeen);
                 // Real-time boss-KC tiles: push the absolute count so the tile updates now instead
                 // of waiting ~1h for the hiscores cron (debounced; only for tracked bosses).
@@ -7211,6 +7231,16 @@ public class AnvilPlugin extends Plugin {
         // post falls back to naming the event.
         int clipSeconds = Math.max(1, config.clipLengthSeconds());
         String moment = clipMoments.summarize(clipSeconds, 3);
+        // Nothing notable landed in the window — but if we were mid-fight, say who with. "Fighting
+        // Vorkath" is a caption; "Clipped during Test missions bingo" is a timestamp with extra
+        // steps. Only counts a target we actually hit inside the footage.
+        if (moment == null) {
+            String target = lastCombatTarget;
+            long since = System.currentTimeMillis() - lastCombatTargetAt;
+            if (target != null && since <= clipSeconds * 1000L + 5000L) {
+                moment = "⚔️ Fighting " + target;
+            }
+        }
 
         // Preferred route: hand the clip to the clan's own site and let IT post to the clips channel.
         // That means members don't each have to paste a webhook URL, and it still isn't a URL handed
@@ -7222,8 +7252,13 @@ public class AnvilPlugin extends Plugin {
         if (relayAvailable) {
             sendChatMessage("Uploading clip to your clan's Discord...");
             String eventName = cfg.event != null ? cfg.event.name : null;
+            // Their board position rides along: the footage can show the kill but not that it put
+            // them top of the month.
+            PluginConfigResponse.Standings standings = cfg.event != null ? cfg.event.monthlyStandings : null;
             BingoApiClient.ClipRelayResult result = apiClient.postClip(
-                    file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()));
+                    file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
+                    standings != null ? standings.yourRank : 0,
+                    standings != null ? standings.yourPoints : 0);
             switch (result) {
                 case POSTED:
                     sendChatMessage("Clip posted to the clan Discord.");

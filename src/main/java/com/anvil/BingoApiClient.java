@@ -433,6 +433,16 @@ public class BingoApiClient
 	 */
 	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType)
 	{
+		return postClip(file, moment, eventName, seconds, contentType, 0, 0);
+	}
+
+	/**
+	 * As above, plus the clipper's current standing — which the plugin already holds for its own
+	 * sidebar, so sending it costs nothing and saves the server re-deriving the board on an upload.
+	 */
+	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType,
+		int rank, long points)
+	{
 		if (!isConfigured() || file == null || !file.exists() || file.length() == 0)
 		{
 			return ClipRelayResult.UNSUPPORTED;
@@ -449,6 +459,11 @@ public class BingoApiClient
 		if (seconds > 0)
 		{
 			payload.addProperty("seconds", seconds);
+		}
+		if (rank > 0)
+		{
+			payload.addProperty("rank", rank);
+			payload.addProperty("points", points);
 		}
 		MediaType type = MediaType.parse(contentType != null ? contentType : "application/octet-stream");
 		MultipartBody multipart = new MultipartBody.Builder()
