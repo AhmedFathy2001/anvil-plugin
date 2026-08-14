@@ -174,7 +174,7 @@ final class ActivityStats
 	 */
 	static String clogProgress(IntUnaryOperator varp)
 	{
-		int obtained = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT);
+		int obtained = clogSlots(varp);
 		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
 		if (obtained <= 0 || total <= 0 || obtained > total)
 		{
@@ -182,6 +182,18 @@ final class ActivityStats
 		}
 		double percent = (obtained * 100d) / total;
 		return String.format(java.util.Locale.ROOT, "%d/%d (%.1f%%)", obtained, total, percent);
+	}
+
+	/**
+	 * Unique collection-log slots obtained, or 0 when the client can't answer (the log hasn't synced
+	 * this session, or the count exceeds its own maximum and is therefore not what we think it is).
+	 * Same guard as {@link #clogProgress}, exposed as a number so callers can rank it.
+	 */
+	static int clogSlots(IntUnaryOperator varp)
+	{
+		int obtained = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT);
+		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
+		return obtained > 0 && total > 0 && obtained <= total ? obtained : 0;
 	}
 
 	private ActivityStats()
