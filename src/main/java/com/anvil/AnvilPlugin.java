@@ -177,6 +177,9 @@ public class AnvilPlugin extends Plugin {
     // tick — volatile for visibility, and connect/disconnect are synchronized on obsLock.
     private volatile ObsReplayClient obsClip;
     private final Object obsLock = new Object();
+    // What happened in the last N seconds, so a saved clip can name what it caught instead of
+    // posting a bare "<rsn> saved a clip". Fed from the same points that already notify the clan.
+    private final ClipMoments clipMoments = new ClipMoments();
     private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
         @Override
         public void hotkeyPressed() {
@@ -4137,6 +4140,7 @@ public class AnvilPlugin extends Plugin {
         for (PluginConfigResponse.CompletedTile t : newlyDone) {
             String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
                     ? " — by " + t.completedBy.trim() : "";
+            clipMoments.record("✅ Tile complete: " + t.label);
             sendChatMessage("Tile complete: " + t.label + by + "!");
         }
     }
@@ -4185,6 +4189,7 @@ public class AnvilPlugin extends Plugin {
             clogBanner.show(tag, "New mission!", top.label);
             playMissionSound(false);
             for (PluginConfigResponse.Mission m : fresh) {
+                clipMoments.record("⚡ New mission: " + m.label);
                 sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
             }
             if (sidebarPanel != null) {
@@ -5163,6 +5168,7 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
             String message = buildDeathMessage(getLocalPlayerName());
+            clipMoments.record("💀 Died");
             captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
             return;
         }
@@ -5232,6 +5238,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String message = buildKillMessage(getLocalPlayerName(), name);
+        clipMoments.record("⚔️ Killed " + name);
         captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
     }
 
@@ -5570,6 +5577,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void postSpecialDrop(String source, int itemId, int qty, long value) {
         String name = itemName(itemId);
+        clipMoments.record("💎 " + name + (source != null && !source.isEmpty() ? " from " + source : ""));
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " received " + name
@@ -6953,27 +6961,75 @@ public class AnvilPlugin extends Plugin {
             sendChatMessage("Clip saved locally (" + (size / (1024L * 1024L)) + "MB) — too big to auto-post to Discord.");
             return;
         }
-        // Clips upload straight from the user's machine to a webhook THEY paste into plugin config —
-        // never through the bingo site (multi-MB video would blow the server's request-body limit) and
-        // never a URL handed to us by a server response (plugin-hub rule). Blank = keep clips local.
-        String webhook = config.clipsWebhookUrl();
-        webhook = webhook == null ? "" : webhook.trim();
+        // What the clip actually caught — drops, kills, completions, deaths and missions the plugin
+        // saw inside the buffer's own window. Null when nothing notable happened, in which case the
+        // post falls back to naming the event.
+        int clipSeconds = Math.max(1, config.clipLengthSeconds());
+        String moment = clipMoments.summarize(clipSeconds, 3);
+
+        // Preferred route: hand the clip to the clan's own site and let IT post to the clips channel.
+        // That means members don't each have to paste a webhook URL, and it still isn't a URL handed
+        // to us by a server response — it's the same configured base URL every other request uses.
+        // Gated on the capability so older self-hosted sites (which have no such route) fall straight
+        // through to the user's own webhook.
+        PluginConfigResponse cfg = pluginConfig;
+        boolean relayAvailable = cfg != null && cfg.serverSupports("clip-relay") && apiClient.isConfigured();
+        if (relayAvailable) {
+            sendChatMessage("Uploading clip to your clan's Discord...");
+            String eventName = cfg.event != null ? cfg.event.name : null;
+            BingoApiClient.ClipRelayResult result = apiClient.postClip(
+                    file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()));
+            switch (result) {
+                case POSTED:
+                    sendChatMessage("Clip posted to the clan Discord.");
+                    return;
+                case TOO_LARGE:
+                    sendChatMessage("Clip saved locally — too big for Discord ("
+                            + (size / (1024L * 1024L)) + "MB). Try a shorter clip length.");
+                    return;
+                case NO_CHANNEL:
+                    // The clan hasn't set a clips channel. A personal webhook still works, so only
+                    // stop here when there isn't one.
+                    if (clipsWebhook().isEmpty()) {
+                        sendChatMessage("Clip saved locally — your clan has no clips channel set up yet.");
+                        return;
+                    }
+                    break;
+                case UNSUPPORTED:
+                case FAILED:
+                default:
+                    break; // fall through to the personal webhook below
+            }
+        }
+
+        // Fallback: upload straight from the user's machine to a webhook THEY pasted into plugin
+        // config. Blank = keep clips local.
+        String webhook = clipsWebhook();
         if (webhook.isEmpty()) {
-            sendChatMessage("Clip saved locally — paste a Clips Discord webhook URL in the plugin config to auto-post.");
+            sendChatMessage(relayAvailable
+                    ? "Clip saved locally — couldn't reach your clan's Discord just now."
+                    : "Clip saved locally — paste a Clips Discord webhook URL in the plugin config to auto-post.");
             return;
         }
         String rsn = getLocalPlayerName();
-        String content = (rsn != null ? rsn : "A clan member") + " saved a clip 🎬";
-        sendChatMessage("Uploading clip to the clan Discord...");
+        String content = (rsn != null ? rsn : "A clan member") + " clipped 🎬"
+                + (moment != null ? "\n" + moment : "");
+        sendChatMessage("Uploading clip to Discord...");
         // Stream the file straight from disk on the upload client (generous timeouts); only claim
         // success once Discord actually accepts it, so a 413/429/timeout reads as a failure, not silence.
         discordClient.sendWithFile(webhook, content, file, file.getName(), contentTypeForClip(file.getName()), ok -> {
             if (ok) {
-                sendChatMessage("Clip posted to the clan Discord.");
+                sendChatMessage("Clip posted to Discord.");
             } else {
                 sendChatMessage("Clip saved locally, but Discord didn't accept the upload (too big, rate-limited, or timed out).");
             }
         });
+    }
+
+    /** The user's own clips webhook, trimmed; empty when unset. */
+    private String clipsWebhook() {
+        String webhook = config.clipsWebhookUrl();
+        return webhook == null ? "" : webhook.trim();
     }
 
     private static String contentTypeForClip(String name) {
