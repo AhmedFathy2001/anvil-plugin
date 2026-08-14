@@ -1918,7 +1918,10 @@ public class ClogTabController
 	// ---- Schedule section: upcoming bingo events + weekly competitions (from config.schedule) ----
 
 	private static final int SECTION_HEADER_H = 22;
-	private static final int SCHED_ROW_H = 34; // must match scheduleRow()'s returned height
+	// One schedule entry: a 16px title line + a 14px sub-line, plus the gap that separates
+	// consecutive entries. scheduleRow() returns this, so bumping the gap re-spaces the whole list.
+	private static final int SCHED_ROW_GAP = 12;
+	private static final int SCHED_ROW_H = 30 + SCHED_ROW_GAP;
 
 	/** Faint dark-green panel + bright full-height left accent that contains the "Live now" block. */
 	private void groupPanel(Widget items, int x, int y, int w, int h)
@@ -2021,7 +2024,8 @@ public class ClogTabController
 		if (hasPinned || !live.isEmpty())
 		{
 			int rows = (hasPinned ? 1 : 0) + live.size();
-			int sectionH = SECTION_HEADER_H + rows * SCHED_ROW_H + 4;
+			// The last row's trailing gap isn't inside the panel — trade it for an even bottom pad.
+			int sectionH = SECTION_HEADER_H + rows * SCHED_ROW_H - SCHED_ROW_GAP + 6;
 			groupPanel(items, 0, y, paneWidth, sectionH);
 			y += sectionHeader(items, "Live now", 0x4caf50, y, paneWidth);
 			if (hasPinned)
@@ -2616,11 +2620,15 @@ public class ClogTabController
 		}
 		Widget subW = items.createChild(-1, WidgetType.TEXT);
 		subW.setText(sub.toString());
+		// Base colour must be the same grey the string opens with: </col> reverts to the WIDGET's
+		// colour, not to the enclosing tag, so without this anything after a closed tag (e.g. the
+		// ladder label's "#1 <col>·</col> 0 pts") rendered in the default black.
+		subW.setTextColor(0x8a8a8a);
 		subW.setTextShadowed(true);
 		subW.setFontId(FONT_PLAIN);
-		place(subW, 6, y + 15, paneWidth - 12, 14);
+		place(subW, 6, y + 16, paneWidth - 12, 14);
 		subW.revalidate();
-		return 34;
+		return SCHED_ROW_H;
 	}
 
 	private static String stateLabel(String status)
