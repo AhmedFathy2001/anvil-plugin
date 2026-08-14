@@ -6237,6 +6237,23 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
+     * Wiki link for a specific combat task.
+     *
+     * The wiki has no page per task — they live as rows in the per-tier task tables — so this lands
+     * on the tier's list with the task name as a fragment. Where the wiki has an anchor for it the
+     * browser jumps straight to the row; where it doesn't, the reader still arrives at the list
+     * containing it, which is strictly better than the Combat Achievements hub page.
+     */
+    private static String caTaskWikiUrl(CombatAchievementTier tier, String task) {
+        String tierPath = tier.getDisplayName().replace(' ', '_');
+        String base = CA_WIKI_URL + "/" + tierPath;
+        if (task == null || task.isEmpty()) {
+            return base;
+        }
+        return base + "#" + task.trim().replace(' ', '_');
+    }
+
+    /**
      * Posts one completed combat task. Carries the numbers a CA grinder actually cares about: what
      * the task was worth, where their running total sits, and how far the next tier unlock is —
      * all read from the same varbits the tier-clear check uses, so no extra bookkeeping.
@@ -6252,11 +6269,15 @@ public class AnvilPlugin extends Plugin {
             author.addProperty("name", rsn);
             embed.add("author", author);
         }
-        embed.addProperty("title", "⚔️ " + tier.getDisplayName() + " combat task");
+        // Title names the TASK, not just its tier — "Into the Den of Giants" is the news; "Easy
+        // combat task" is the category. The link follows it to the tier's task list rather than the
+        // Combat Achievements hub, which told a reader nothing they didn't already know.
+        embed.addProperty("title", "⚔️ " + task);
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " completed **" + task + "**.");
+                (rsn != null ? rsn : "A clan member") + " completed a " + tier.getDisplayName().toLowerCase()
+                        + " combat task.");
         embed.addProperty("color", CA_EMBED_COLOR);
-        embed.addProperty("url", CA_WIKI_URL);
+        embed.addProperty("url", caTaskWikiUrl(tier, task));
 
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
         fields.add(statField("Points earned", "+" + tier.getPoints()));
