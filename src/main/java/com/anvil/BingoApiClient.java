@@ -1604,6 +1604,129 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/clog — collection-log pages the player has actually opened.
+	 *
+	 * <p>Sends ONLY obtained items, and only pages whose contents changed since the last successful
+	 * push ({@link ClogSync} owns that decision). The site already ships the full item catalogue, so
+	 * the missing half is derivable — transmitting it would double every payload to say "still
+	 * nothing here".
+	 *
+	 * <p>Idempotent: the server keys on (member, page) and replaces, so a retry or a client restart
+	 * mid-sync costs nothing. Profile data only — never scoring.
+	 */
+	public void submitClogPages(java.util.List<ClogPage> pages, int syncedPages) throws IOException
+	{
+		if (pages == null || pages.isEmpty())
+		{
+			return;
+		}
+		JsonArray out = new JsonArray();
+		for (ClogPage page : pages)
+		{
+			if (page == null || page.name == null || page.name.isEmpty())
+			{
+				continue;
+			}
+			JsonArray items = new JsonArray();
+			for (int i = 0; i < page.itemIds.length; i++)
+			{
+				JsonObject item = new JsonObject();
+				item.addProperty("id", page.itemIds[i]);
+				item.addProperty("q", page.quantities[i]);
+				items.add(item);
+			}
+			JsonObject p = new JsonObject();
+			p.addProperty("name", page.name);
+			p.addProperty("obtained", page.obtained);
+			p.addProperty("total", page.total);
+			p.add("items", items);
+			if (!page.counts.isEmpty())
+			{
+				JsonObject counts = new JsonObject();
+				for (java.util.Map.Entry<String, Integer> e : page.counts.entrySet())
+				{
+					counts.addProperty(e.getKey(), e.getValue());
+				}
+				p.add("counts", counts);
+			}
+			out.add(p);
+		}
+		if (out.size() == 0)
+		{
+			return;
+		}
+
+		JsonObject payload = new JsonObject();
+		payload.add("pages", out);
+		// How much of the log this account has opened at all — drives the site's "68% synced" note.
+		payload.addProperty("syncedPages", syncedPages);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/clog")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Collection log push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.debug("Collection log pushed: {} page(s), {} synced", out.size(), syncedPages);
+		}
+	}
+
+	/**
+	 * POST /api/plugin/pb — the account's best times, in centiseconds.
+	 *
+	 * <p>Centiseconds because the game separates runs by hundredths; whole seconds would tie times
+	 * the game itself doesn't. The server keeps the FASTEST of stored and pushed, so a retry, a
+	 * stale client or an out-of-order request can never raise somebody's record.
+	 */
+	public void submitPersonalBests(java.util.Map<String, Integer> bests) throws IOException
+	{
+		if (bests == null || bests.isEmpty())
+		{
+			return;
+		}
+		JsonArray out = new JsonArray();
+		for (java.util.Map.Entry<String, Integer> e : bests.entrySet())
+		{
+			if (e.getKey() == null || e.getKey().isEmpty() || e.getValue() == null || e.getValue() <= 0)
+			{
+				continue;
+			}
+			JsonObject b = new JsonObject();
+			b.addProperty("activity", e.getKey());
+			b.addProperty("centis", e.getValue());
+			out.add(b);
+		}
+		if (out.size() == 0)
+		{
+			return;
+		}
+
+		JsonObject payload = new JsonObject();
+		payload.add("bests", out);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/pb")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Personal best push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.debug("Personal bests pushed: {}", out.size());
+		}
+	}
+
+	/**
 	 * POST /api/events/{eventId}/submissions — submits a timed-clear with image proof.
 	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
 	 * completes the tile when durationSeconds ≤ the tile's threshold.

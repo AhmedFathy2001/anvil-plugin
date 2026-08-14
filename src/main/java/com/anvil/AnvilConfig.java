@@ -58,9 +58,17 @@ public interface AnvilConfig extends Config
 	String clipsSection = "clipsSection";
 
 	@ConfigSection(
+		name = "Profile sync",
+		description = "Send your collection log and best times to your clan site, so your profile there shows them.",
+		position = 7,
+		closedByDefault = true
+	)
+	String profileSection = "profileSection";
+
+	@ConfigSection(
 		name = "Support",
 		description = "Trouble with a drop or login? Export a debug log to send your clan admin.",
-		position = 7,
+		position = 8,
 		closedByDefault = true
 	)
 	String supportSection = "supportSection";
@@ -601,4 +609,42 @@ public interface AnvilConfig extends Config
 		return Keybind.NOT_SET;
 	}
 
+
+	// ---- Profile sync ----
+
+	@ConfigItem(
+		keyName = "syncClog",
+		name = "Sync collection log",
+		description = "Send the collection-log pages you open to your clan site, so your profile there shows them. Only pages you actually open can be read — the game doesn't hand the client the rest.",
+		position = 1,
+		section = "profileSection"
+	)
+	default boolean syncClog()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "syncPersonalBests",
+		name = "Sync personal bests",
+		description = "Send your best boss and raid times to your clan site as you set them.",
+		position = 2,
+		section = "profileSection"
+	)
+	default boolean syncPersonalBests()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "importRuneLitePbs",
+		name = "Import existing bests once",
+		description = "On first login, copy the personal bests RuneLite's own chat commands plugin has already recorded for this account, so your profile starts complete instead of empty. Reads local config only; runs once per account.",
+		position = 3,
+		section = "profileSection"
+	)
+	default boolean importRuneLitePbs()
+	{
+		return true;
+	}
 }

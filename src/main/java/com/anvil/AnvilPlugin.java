@@ -666,6 +666,20 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_COUNTER_PVP = "recapCounterPvpKills";
     private static final String CFG_COUNTER_BIGHIT = "recapCounterBiggestHit";
     private static final String CFG_COUNTER_MINUTES = "recapCounterMinutes";
+
+    // ── Profile sync (collection log + personal bests) ──────────────────────────────────────
+    // Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —
+    // an alt's log must never be filed as the main's. What's stored is only what the server has
+    // already accepted, so a restart resumes instead of re-sending a log that hasn't moved.
+    private static final String CFG_CLOG_STATE = "clogSyncState";
+    private static final String CFG_PB_STATE = "pbSyncState";
+    private static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
+    /** RuneLite's own chat-commands store, read once to seed a profile (see importRuneLitePersonalBests). */
+    private static final String RUNELITE_PB_GROUP = "personalbest";
+    private final ClogSync clogSync = new ClogSync();
+    private final PersonalBests personalBests = new PersonalBests();
+    /** The account the two above belong to, so a character switch reloads rather than merges. */
+    private String profileSyncRsn;
     // Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
     // config refresh; empty unless the event has skill tiles.
     private volatile java.util.Set<String> trackedSkillNames = Collections.emptySet();
@@ -859,6 +873,8 @@ public class AnvilPlugin extends Plugin {
             safely("refreshSchedule", this::refreshSchedule);
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
+            safely("flushClogSync", this::flushClogSync);
+            safely("flushPersonalBests", this::flushPersonalBests);
         }, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -1245,6 +1261,27 @@ public class AnvilPlugin extends Plugin {
     public void onScriptPostFired(ScriptPostFired event) {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
             clogTabController.onCollectionDrawList();
+            captureClogPage();
+        }
+    }
+
+    /**
+     * Read the collection-log page the game just drew, if it's one of the game's own.
+     *
+     * <p>On the client thread by definition (this is a script hook), so it stays a widget read and a
+     * hash compare — no JSON, no HTTP, no allocation in the overwhelmingly common case where the
+     * page hasn't changed since we last sent it. The push happens on the shared executor's next tick.
+     *
+     * <p>Skipped while OUR tab is on screen: the item pane then holds the bingo board's widgets, and
+     * scraping those would file a board as somebody's collection log.
+     */
+    private void captureClogPage() {
+        if (!config.syncClog() || !apiClient.isConfigured() || clogTabController.isAnvilTabActive()) {
+            return;
+        }
+        ClogPage page = ClogPageReader.read(client);
+        if (page != null) {
+            clogSync.offer(page, System.currentTimeMillis());
         }
     }
 
@@ -1559,6 +1596,7 @@ public class AnvilPlugin extends Plugin {
         apiClient.setCurrentRsn(rsn);
         apiClient.setAccountHash(client.getAccountHash());
         apiClient.setSeasonal(onSeasonalWorld());
+        loadProfileSyncState(rsn);
         // Refresh config for the character we just logged into so tracking reflects THIS
         // account's enrollment right away — when one person plays several accounts, only
         // the enrolled one should track drops (don't wait for the 30s refresh cycle).
@@ -2198,6 +2236,12 @@ public class AnvilPlugin extends Plugin {
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
         // Dizana's quiver, …) that don't fire a loot event. Strip any colour tags first.
         String plain = msg.replaceAll("<[^>]*>", "");
+        // Personal bests, captured whether or not an event is running — a best time is a profile
+        // fact, not an event one. Costs one indexOf on lines that don't mention a personal best,
+        // which is all of them bar a handful a session.
+        if (config.syncPersonalBests()) {
+            personalBests.onChatLine(plain, System.currentTimeMillis());
+        }
         // Track boss/raid kill counts so a rare-drop post can show the KC the drop landed on.
         // The Jagex kill-count line is also the reliable kill signal for bosses whose loot comes
         // from corpse interaction rather than a normal on-death drop (Maggot King, Araxxor, …),
@@ -2207,6 +2251,11 @@ public class AnvilPlugin extends Plugin {
             try {
                 String kcName = kcMatcher.group(1).trim();
                 String kcKey = kcName.toLowerCase();
+                // Name the activity for personal-best correlation. Free — this line is already
+                // parsed for kill crediting, so PB capture adds no regex to the chat hot path.
+                if (config.syncPersonalBests()) {
+                    personalBests.onActivitySeen(kcName, System.currentTimeMillis());
+                }
                 boolean firstSeen = !killCounts.containsKey(kcKey);
                 int kc = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
                 killCounts.put(kcKey, kc);
@@ -7192,5 +7241,129 @@ public class AnvilPlugin extends Plugin {
         clientThread.invokeLater(()
                 -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null)
         );
+    }
+
+    // -- Profile sync: collection log + personal bests ---------------------------------------
+    // Both are the player's OWN data going to the player's OWN clan site -- the pattern the hub
+    // accepts (nothing here reads or reports anybody else). Everything is opt-out in config, and
+    // nothing is read at all while the toggles are off.
+
+    /**
+     * Point the profile-sync state at the account that just logged in.
+     *
+     * <p>State is per-RSN, so switching characters swaps it rather than merging two logs. A no-op
+     * when the same account logs back in, which is the common case.
+     */
+    private void loadProfileSyncState(String rsn) {
+        String key = rsn == null ? "" : rsn.trim().toLowerCase(java.util.Locale.ROOT);
+        if (key.isEmpty() || key.equals(profileSyncRsn)) {
+            return;
+        }
+        profileSyncRsn = key;
+        clogSync.reset();
+        personalBests.reset();
+        clogSync.restoreState(configManager.getConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + key));
+        personalBests.restoreState(configManager.getConfiguration("osrsbingo", CFG_PB_STATE + ":" + key));
+        importRuneLitePersonalBests(key);
+    }
+
+    /**
+     * Copy the personal bests RuneLite's own chat-commands plugin has already recorded, once.
+     *
+     * <p>Local config only -- the same store the player's own client wrote, on the same machine, for
+     * the account they're logged into. Nothing is read about anyone else. Without it a profile
+     * starts empty and fills in over months; with it, a player who has been playing for years sees
+     * their real times the first time they open their clan profile.
+     *
+     * <p>Runs once per account (a flag in our own config), and does nothing when chat-commands has
+     * never run -- then the live capture builds the set from the next kill onward.
+     */
+    private void importRuneLitePersonalBests(String rsnKey) {
+        if (!config.importRuneLitePbs() || !config.syncPersonalBests()) {
+            return;
+        }
+        String done = configManager.getConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey);
+        if (done != null && !done.isEmpty()) {
+            return;
+        }
+        String profile = configManager.getRSProfileKey();
+        if (profile == null || profile.isEmpty()) {
+            return; // No RS profile yet -- try again next login rather than marking it done.
+        }
+
+        // Keys are stored as "<group>.<rs profile>.<activity>"; we want the activity tail.
+        String prefix = RUNELITE_PB_GROUP + "." + profile + ".";
+        Map<String, Integer> imported = new HashMap<>();
+        for (String fullKey : configManager.getConfigurationKeys(prefix)) {
+            String activity = fullKey.substring(prefix.length());
+            if (activity.isEmpty()) {
+                continue;
+            }
+            String raw = configManager.getRSProfileConfiguration(RUNELITE_PB_GROUP, activity);
+            if (raw == null || raw.isEmpty()) {
+                continue;
+            }
+            try {
+                // Stored as seconds with a fractional part; ours is centiseconds.
+                int centis = (int) Math.round(Double.parseDouble(raw.trim()) * 100.0);
+                if (centis > 0) {
+                    imported.put(activity, centis);
+                }
+            } catch (NumberFormatException e) {
+                // Not a time -- skip the key rather than the import.
+            }
+        }
+
+        int adopted = personalBests.seed(imported, System.currentTimeMillis());
+        configManager.setConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey, "1");
+        if (adopted > 0) {
+            log.debug("Imported {} existing personal best(s) for this account", adopted);
+        }
+    }
+
+    /**
+     * Send any collection-log pages that have changed. Runs on the shared executor's 30s tick --
+     * no thread of our own, and nothing on the client thread.
+     */
+    private void flushClogSync() {
+        if (!config.syncClog() || !apiClient.isConfigured() || profileSyncRsn == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!clogSync.isDue(now)) {
+            return;
+        }
+        java.util.List<ClogPage> batch = clogSync.nextBatch();
+        try {
+            apiClient.submitClogPages(batch, clogSync.syncedPages());
+        } catch (Exception e) {
+            // Left queued: the next tick retries. A clan site being down must not lose a sync.
+            log.debug("Collection log push failed, will retry: {}", e.getMessage());
+            return;
+        }
+        clogSync.onSent(batch);
+        configManager.setConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + profileSyncRsn,
+                clogSync.serializeState());
+    }
+
+    /** Same contract for best times. */
+    private void flushPersonalBests() {
+        if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!personalBests.isDue(now)) {
+            return;
+        }
+        Map<String, Integer> batch = personalBests.nextBatch();
+        try {
+            apiClient.submitPersonalBests(batch);
+        } catch (Exception e) {
+            log.debug("Personal best push failed, will retry: {}", e.getMessage());
+            return;
+        }
+        personalBests.onSent(batch);
+        configManager.setConfiguration("osrsbingo", CFG_PB_STATE + ":" + profileSyncRsn,
+                personalBests.serializeState());
     }
 }
