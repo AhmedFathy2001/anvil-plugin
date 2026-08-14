@@ -46,6 +46,8 @@ public class BingoApiClient
 	// Sent as `X-Account-Hash` so the server can anchor auto-verification to the account even
 	// across in-game renames. Null when logged out / unavailable.
 	private volatile String accountHash;
+	/** True while the logged-in world is a seasonal (Leagues) world. Set from the plugin on login/hop. */
+	private volatile boolean seasonal;
 
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
@@ -104,6 +106,12 @@ public class BingoApiClient
 	public void setAccountHash(long hash)
 	{
 		this.accountHash = hash == -1L ? null : Long.toString(hash);
+	}
+
+	/** Called when the world changes: seasonal posts route to the clan's Leagues channel server-side. */
+	public void setSeasonal(boolean seasonal)
+	{
+		this.seasonal = seasonal;
 	}
 
 	/** True when a Site URL is set but no Account Token yet — the state the Sign-in button serves. */
@@ -343,6 +351,14 @@ public class BingoApiClient
 		}
 		JsonObject payload = new JsonObject();
 		payload.addProperty("channel", channel);
+		// The player is on a Leagues world. The plugin reports only that fact — whether the clan has a
+		// separate Leagues channel, and what a seasonal post looks like, is the server's decision, so
+		// either can change without waiting for a plugin release. Carried as ambient state like the RSN
+		// and account hash, so every notification path gets it without threading a flag through each.
+		if (seasonal)
+		{
+			payload.addProperty("seasonal", true);
+		}
 		if (content != null && !content.isEmpty())
 		{
 			payload.addProperty("content", content);

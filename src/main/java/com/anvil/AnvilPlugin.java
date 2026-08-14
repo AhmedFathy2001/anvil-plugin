@@ -14,12 +14,14 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
+import net.runelite.api.WorldType;
 import net.runelite.api.SoundEffectID;
 import net.runelite.api.clan.ClanChannel;
 import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.WorldChanged;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
@@ -1228,6 +1230,17 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /**
+     * World hop — re-read whether we're on a seasonal world. Login already stamps it, but hopping
+     * between a main and a league world mid-session doesn't go through login, and the direction that
+     * matters most is hopping OFF: without this, main-game drops would keep posting to the Leagues
+     * channel for the rest of the session.
+     */
+    @Subscribe
+    public void onWorldChanged(WorldChanged event) {
+        apiClient.setSeasonal(onSeasonalWorld());
+    }
+
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
@@ -1545,6 +1558,7 @@ public class AnvilPlugin extends Plugin {
         identityStampRetries = 0;
         apiClient.setCurrentRsn(rsn);
         apiClient.setAccountHash(client.getAccountHash());
+        apiClient.setSeasonal(onSeasonalWorld());
         // Refresh config for the character we just logged into so tracking reflects THIS
         // account's enrollment right away — when one person plays several accounts, only
         // the enrolled one should track drops (don't wait for the 30s refresh cycle).
@@ -1552,6 +1566,23 @@ public class AnvilPlugin extends Plugin {
         sendHello();
         safely("probeAdmin", this::probeAdmin);
         checkSetup();
+    }
+
+    /**
+     * Is this a seasonal (Leagues) world?
+     *
+     * League drops are absurd next to main-game ones and their kill counts mean nothing beside them,
+     * so a clan can route seasonal posts to their own channel — the server decides where, this only
+     * reports where the player is. Read from the world's own flags rather than a toggle someone has
+     * to remember, so hopping onto a league world mid-session is picked up without them doing
+     * anything (and, more importantly, hopping OFF one is too).
+     */
+    private boolean onSeasonalWorld() {
+        if (!config.leagueRouting()) {
+            return false;
+        }
+        java.util.EnumSet<WorldType> types = client.getWorldType();
+        return types != null && types.contains(WorldType.SEASONAL);
     }
 
     // One-shot per session: flag a half-finished plugin setup (only the Site URL or only the Account

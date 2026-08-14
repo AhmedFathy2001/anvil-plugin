@@ -254,6 +254,20 @@ public interface AnvilConfig extends Config
 	// ---- Notifications: Drops & pets ----
 
 	@ConfigItem(
+		keyName = "leagueRouting",
+		name = "Separate Leagues posts",
+		description = "While you're on a seasonal (Leagues) world, send your notifications to your clan's "
+			+ "Leagues channel instead of the normal ones, and mark them as seasonal. Falls back to the "
+			+ "normal channels if your clan hasn't set one up. Turn off to post everything together.",
+		position = 0,
+		section = "dropsSection"
+	)
+	default boolean leagueRouting()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "notifyRareDrops",
 		name = "Notify on rare drops",
 		description = "Post valuable or very rare drops to the clan rare-drops channel.",
