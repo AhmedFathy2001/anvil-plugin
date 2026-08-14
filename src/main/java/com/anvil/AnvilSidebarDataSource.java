@@ -218,7 +218,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
-			null, ladder != null ? null : revealNote(cfg.event), ladder, weeklies, scheduled, homeMembership.get());
+			null, ladder != null && ladder.ladderFormat ? null : revealNote(cfg.event),
+			ladder, weeklies, scheduled, homeMembership.get());
 	}
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
@@ -454,13 +455,23 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/**
-	 * Fold a ladder event's config into the sidebar's {@link ConnectionView.Ladder} view-model: the
-	 * countdown target, the caller's month + all-time rank, and the open missions. Null on every
-	 * non-ladder board (the normal summary + reveal note render instead).
+	 * Fold missions into the sidebar's {@link ConnectionView.Ladder} view-model: the countdown target,
+	 * the caller's month + all-time rank, and the open missions.
+	 *
+	 * Built for a ladder (where it REPLACES the board summary) and, since a normal bingo can drop
+	 * hidden missions mid-event too, for any board that currently has missions — there it renders as
+	 * a strip under the usual summary. Null when neither applies, and the plain summary + reveal note
+	 * render on their own.
 	 */
 	static ConnectionView.Ladder buildLadder(PluginConfigResponse.EventInfo event)
 	{
-		if (event == null || !LadderMissions.isLadder(event.format))
+		if (event == null)
+		{
+			return null;
+		}
+		boolean ladder = LadderMissions.isLadder(event.format);
+		boolean hasMissions = event.missions != null && !event.missions.isEmpty();
+		if (!ladder && !hasMissions)
 		{
 			return null;
 		}
@@ -478,7 +489,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		int monthRank = event.monthlyStandings != null ? event.monthlyStandings.yourRank : 0;
 		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
 		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
-		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank, event.decay, missions);
+		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
+			event.decay, missions, ladder);
 	}
 
 	/**

@@ -90,10 +90,25 @@ public class SidebarEventsTest
 	public void ladderBoardIsLabelledAsALadder()
 	{
 		ConnectionView c = view("local", "Daily Missions", 0, 0,
-			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList()),
+			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList(), true),
 			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null, null);
 
 		assertEquals("Ladder", AnvilSidebarPanel.eventsOf(c).get(0).kind);
+	}
+
+	/**
+	 * A bingo that drops missions also carries a Ladder view-model (that's what feeds its mission
+	 * strip), but it is still a bingo — labelling it "Ladder" in the events list would misname the
+	 * whole event off the back of one feature.
+	 */
+	@Test
+	public void bingoWithMissionsIsStillLabelledABingo()
+	{
+		ConnectionView c = view("local", "Test missions bingo", 3, 12,
+			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList(), false),
+			Collections.emptyList(), null, null);
+
+		assertEquals("Bingo", AnvilSidebarPanel.eventsOf(c).get(0).kind);
 	}
 
 	@Test

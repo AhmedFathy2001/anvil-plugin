@@ -568,9 +568,19 @@ public final class ConnectionView
 		public final PluginConfigResponse.Decay decay;
 		/** Currently-open missions (revealed, not yet claimed/expired), board order. Never null. */
 		public final List<Mission> missions;
+		/**
+		 * True for a real ladder event, false for an ordinary bingo that merely carries missions.
+		 *
+		 * Both surface a mission strip — a bingo can drop hidden missions mid-event too, and those
+		 * deserve the same countdown and live values rather than being left to show up as "New tile
+		 * revealed" lines in the activity feed. Only a ladder REPLACES the board summary with this
+		 * card and carries a personal rank; a bingo keeps its board summary and gets the strip
+		 * underneath.
+		 */
+		public final boolean ladderFormat;
 
 		public Ladder(String nextRevealAtIso, int monthRank, long monthPoints, int allTimeRank,
-			PluginConfigResponse.Decay decay, List<Mission> missions)
+			PluginConfigResponse.Decay decay, List<Mission> missions, boolean ladderFormat)
 		{
 			this.nextRevealAtIso = nextRevealAtIso;
 			this.monthRank = Math.max(0, monthRank);
@@ -578,6 +588,7 @@ public final class ConnectionView
 			this.allTimeRank = Math.max(0, allTimeRank);
 			this.decay = decay;
 			this.missions = copyOrEmpty(missions);
+			this.ladderFormat = ladderFormat;
 		}
 
 		/** One open mission: its label, face value, and reveal time (for the live grow/decay value). */
