@@ -196,6 +196,16 @@ final class ActivityStats
 		return obtained > 0 && total > 0 && obtained <= total ? obtained : 0;
 	}
 
+	/**
+	 * Total collection-log slots in the game, or 0 when unreadable. Needed to place the Gilded rank,
+	 * which is a proportion of the total rather than a fixed number (see {@link ClogRank}).
+	 */
+	static int clogSlotsMax(IntUnaryOperator varp)
+	{
+		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
+		return Math.max(0, total);
+	}
+
 	private ActivityStats()
 	{
 	}
