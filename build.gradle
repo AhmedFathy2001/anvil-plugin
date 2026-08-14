@@ -10,7 +10,10 @@ repositories {
     mavenCentral()
 }
 
-def runeLiteVersion = '1.12.30'
+// 'latest.release' rather than a pinned number: the dev client has to match the LIVE game revision
+// or it crashes on startup reading enums out of a stale cache ("your client is out of date"), and a
+// pin silently rots the moment Jagex pushes an update. It's also what the plugin hub builds against.
+def runeLiteVersion = 'latest.release'
 
 dependencies {
     compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
