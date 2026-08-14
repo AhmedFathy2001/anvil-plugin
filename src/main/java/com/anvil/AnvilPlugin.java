@@ -5677,21 +5677,34 @@ public class AnvilPlugin extends Plugin {
             embed.add("author", author);
         }
         embed.addProperty("title", "📕 " + itemName);
+        // No "new slot" / "New!" wording: every collection-log unlock is by definition the first
+        // one, so saying so is noise. "New" is reserved for pets in the drops channel, where it
+        // actually distinguishes something.
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " added a new slot to their collection log.");
+                (rsn != null ? rsn : "A clan member") + " added " + itemName + " to their collection.");
         embed.addProperty("color", CA_EMBED_COLOR);
         embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
 
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
-        fields.add(statField("Status", "New!"));
-        String source = recentLootSource();
-        if (source != null) {
-            fields.add(statField("From", source));
-        }
-        // How much of the log this fills in. Null (and so absent) until the log has synced.
+        // How much of the log this fills in, and what that's worth as a standing. Both are dropped
+        // rather than guessed when the log hasn't synced this session (the count reads 0 until then).
         String logProgress = ActivityStats.clogProgress(client::getVarpValue);
         if (logProgress != null) {
-            fields.add(statField("Collection log", logProgress));
+            fields.add(statField("Completed", logProgress));
+        }
+        String rank = ClogRank.forSlots(ActivityStats.clogSlots(client::getVarpValue));
+        if (rank != null) {
+            fields.add(statField("Rank", rank));
+        }
+        String source = recentLootSource();
+        if (source != null) {
+            fields.add(statField("Source", source));
+            // How many times they'd killed it when it finally dropped — the number that turns
+            // "got the pet" into a story. Absent when the source keeps no kill count we can read.
+            Integer kc = killCountFor(source);
+            if (kc != null && kc > 0) {
+                fields.add(statField("Completion count", String.valueOf(kc)));
+            }
         }
         embed.add("fields", fields);
 
