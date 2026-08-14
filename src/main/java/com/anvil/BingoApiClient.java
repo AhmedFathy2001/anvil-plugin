@@ -17,6 +17,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +32,10 @@ public class BingoApiClient
 
 	private final Gson gson;
 	private final OkHttpClient httpClient;
+	// Clip relay uploads are multi-MB video. The normal client's 30s write timeout aborts those
+	// mid-upload on a slow connection, so file posts get their own generous timeouts (the pool and
+	// dispatcher are still shared via newBuilder, so an extra client is cheap).
+	private final OkHttpClient uploadClient;
 	private String apiUrl;
 	private String playerToken;
 	// In-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
@@ -52,6 +57,12 @@ public class BingoApiClient
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
+			.build();
+		this.uploadClient = client.newBuilder()
+			.connectTimeout(10, TimeUnit.SECONDS)
+			.callTimeout(120, TimeUnit.SECONDS)
+			.writeTimeout(120, TimeUnit.SECONDS)
+			.readTimeout(60, TimeUnit.SECONDS)
 			.build();
 	}
 
@@ -377,6 +388,85 @@ public class BingoApiClient
 				}
 			}
 		});
+	}
+
+	/** Outcome of a clip relay attempt, so the caller can tell the player something true. */
+	public enum ClipRelayResult
+	{
+		/** Posted to the clan's clips channel. */
+		POSTED,
+		/** This site is too old for the relay, or isn't configured — fall back to a user webhook. */
+		UNSUPPORTED,
+		/** The clan has no clips channel set up (server said 501). */
+		NO_CHANNEL,
+		/** Too big for the server to post anywhere (413). */
+		TOO_LARGE,
+		/** Rate-limited, Discord refused, or the upload failed. */
+		FAILED
+	}
+
+	/**
+	 * POST /api/plugin/clip — upload a saved clip and let the SERVER post it to the clan's clips
+	 * channel. This is the one file upload that goes through the site rather than straight to
+	 * Discord: it means members don't each have to paste a webhook URL into their plugin config,
+	 * and it still never involves a URL a server response handed us — this is the same configured
+	 * base URL every other request uses.
+	 *
+	 * Streams the file from disk on the long-timeout upload client. Blocking, so callers run it off
+	 * the client thread; {@code moment} is the plugin's own summary of what the clip caught.
+	 */
+	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType)
+	{
+		if (!isConfigured() || file == null || !file.exists() || file.length() == 0)
+		{
+			return ClipRelayResult.UNSUPPORTED;
+		}
+		JsonObject payload = new JsonObject();
+		if (moment != null && !moment.isEmpty())
+		{
+			payload.addProperty("moment", moment);
+		}
+		if (eventName != null && !eventName.isEmpty())
+		{
+			payload.addProperty("eventName", eventName);
+		}
+		if (seconds > 0)
+		{
+			payload.addProperty("seconds", seconds);
+		}
+		MediaType type = MediaType.parse(contentType != null ? contentType : "application/octet-stream");
+		MultipartBody multipart = new MultipartBody.Builder()
+			.setType(MultipartBody.FORM)
+			.addFormDataPart("payload_json", payload.toString())
+			.addFormDataPart("file", file.getName(), RequestBody.create(type, file))
+			.build();
+		Request request = authedRequest(apiUrl + "/api/plugin/clip").post(multipart).build();
+		try (Response response = uploadClient.newCall(request).execute())
+		{
+			if (response.isSuccessful())
+			{
+				return ClipRelayResult.POSTED;
+			}
+			switch (response.code())
+			{
+				// 404 = a site that predates the route. Capability gating should have caught it, but
+				// a stale config poll can race a downgrade, so treat it as "not available here".
+				case 404:
+					return ClipRelayResult.UNSUPPORTED;
+				case 501:
+					return ClipRelayResult.NO_CHANNEL;
+				case 413:
+					return ClipRelayResult.TOO_LARGE;
+				default:
+					log.debug("clip relay returned HTTP {}", response.code());
+					return ClipRelayResult.FAILED;
+			}
+		}
+		catch (IOException e)
+		{
+			log.debug("clip relay failed: {}", e.getMessage());
+			return ClipRelayResult.FAILED;
+		}
 	}
 
 	/**

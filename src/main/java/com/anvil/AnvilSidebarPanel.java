@@ -747,12 +747,43 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(gap(12));
 		}
 
-		// Team activity — incoming credited events, newest first.
-		if (!selected.recentActivity.isEmpty())
+		// Missions on an ordinary bingo: their own strip with the same countdown + live values a ladder
+		// gets. Without this they only ever showed up as "New tile revealed" lines in the activity feed,
+		// which is neither a timer nor a mission board. A ladder's card already IS this, so it's skipped.
+		if (selected.ladder != null && !selected.ladder.ladderFormat && !selected.ladder.missions.isEmpty())
 		{
-			body.add(sectionHeader("Team activity"));
+			body.add(sectionHeader("Missions"));
 			body.add(gap(6));
-			body.add(buildActivityFeed(selected.recentActivity));
+			body.add(buildMissionStrip(selected.ladder));
+			body.add(gap(12));
+		}
+
+		// Player activity — credited events, newest first. Reveals are BOARD news, not something a
+		// player did, so they're split out below rather than sitting in a feed of people's actions.
+		List<ActivityEntry> actions = new ArrayList<>();
+		List<ActivityEntry> reveals = new ArrayList<>();
+		for (ActivityEntry e : selected.recentActivity)
+		{
+			(e.kind == ActivityEntry.Kind.REVEAL ? reveals : actions).add(e);
+		}
+		if (!actions.isEmpty())
+		{
+			// "Team activity" is a lie on an individual ladder, where every team is one person.
+			body.add(sectionHeader(selected.ladder != null && selected.ladder.ladderFormat
+				? "Recent activity" : "Team activity"));
+			body.add(gap(6));
+			body.add(buildActivityFeed(actions));
+			body.add(gap(12));
+		}
+		// A ladder's card and a bingo's mission strip already show what's open with a live countdown, so
+		// repeating each drop as a feed line is noise. Only boards WITHOUT that strip list reveals.
+		boolean missionStripShown = selected.ladder != null
+			&& (selected.ladder.ladderFormat || !selected.ladder.missions.isEmpty());
+		if (!reveals.isEmpty() && !missionStripShown)
+		{
+			body.add(sectionHeader("Just opened"));
+			body.add(gap(6));
+			body.add(buildActivityFeed(reveals));
 			body.add(gap(12));
 		}
 
@@ -803,7 +834,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			// Your own board leads — it's the one with progress on it.
 			String title = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
-			out.add(new EventEntry(BOARD_EVENT_KEY, title, c.ladder != null ? "Ladder" : "Bingo", null, null));
+			out.add(new EventEntry(BOARD_EVENT_KEY, title,
+				c.ladder != null && c.ladder.ladderFormat ? "Ladder" : "Bingo", null, null));
 		}
 		for (ConnectionView.WeeklyView w : c.weeklies)
 		{
@@ -994,7 +1026,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** The board row's status line: "14 / 25 tiles · 56%", where you stand on a ladder, or why neither. */
 	private static String boardStatusLine(ConnectionView c)
 	{
-		if (c.ladder != null)
+		if (c.ladder != null && c.ladder.ladderFormat)
 		{
 			return c.ladder.monthRank > 0
 				? "You: #" + c.ladder.monthRank + " · " + c.ladder.monthPoints + " pts this month"
@@ -1455,7 +1487,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		// Only one card renders at a time (renderSelected), so the ladder tick binds to a single set of
 		// held refs. Reset them each render; a non-ladder card leaves the tick idle.
 		clearLadderRefs();
-		if (c.ladder != null)
+		// A ladder IS its missions board, so the card replaces the summary. A bingo that merely carries
+		// missions keeps its tile-count summary and gets the mission strip as its own section below.
+		if (c.ladder != null && c.ladder.ladderFormat)
 		{
 			return buildLadderCard(c);
 		}
@@ -1538,6 +1572,65 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
+	 * One open mission: label on the left, live grow/decay value on the right. Shared by the ladder
+	 * card and the bingo mission strip so both age their values on the same per-second tick — the
+	 * label is registered with {@link #ladderValueLabels} either way.
+	 */
+	private JPanel buildMissionRow(ConnectionView.Ladder.Mission m, ConnectionView.Ladder l, long now)
+	{
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel name = new JLabel(plainText(ellipsize(m.label, 22)));
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(ColorScheme.TEXT_COLOR);
+
+		long val = LadderMissions.liveValue(m.face, m.revealedAtIso, l.decay, now);
+		JLabel value = new JLabel(LadderMissions.valueLabel(m.face, val));
+		value.setFont(FontManager.getRunescapeSmallFont());
+		value.setForeground(valueColor(m.face, val));
+		value.setHorizontalAlignment(SwingConstants.RIGHT);
+
+		row.add(name, BorderLayout.CENTER);
+		row.add(value, BorderLayout.EAST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
+		return row;
+	}
+
+	/**
+	 * Missions on an ordinary bingo — the countdown to the next drop plus what's open right now, with
+	 * the same live values a ladder shows. No rank line: a bingo scores by team, not by a personal
+	 * ladder position.
+	 */
+	private JPanel buildMissionStrip(ConnectionView.Ladder l)
+	{
+		final long now = System.currentTimeMillis();
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel countdown = leftLabel(countdownText(l, now), FontManager.getRunescapeBoldFont(), ColorScheme.BRAND_ORANGE);
+		panel.add(countdown);
+		panel.add(gap(4));
+		for (ConnectionView.Ladder.Mission m : l.missions)
+		{
+			panel.add(buildMissionRow(m, l, now));
+		}
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+
+		// Bind the per-second tick to this strip, exactly as the ladder card does for itself — without
+		// it the countdown would sit frozen until the next config poll.
+		ladderState = l;
+		ladderCountdownLabel = countdown;
+		ladderCardPanel = panel;
+		return panel;
+	}
+
+	/**
 	 * The DMM-All-Stars-style missions board for a ladder event: your rank, a live per-second countdown
 	 * to the next drop, and the currently-open missions with a live grow/decay value each. Replaces the
 	 * tile-count summary + reveal note (a rotating daily ladder has no fixed board to count). The held
@@ -1573,25 +1666,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			panel.add(gap(2));
 			for (ConnectionView.Ladder.Mission m : l.missions)
 			{
-				JPanel row = new JPanel(new BorderLayout(6, 0));
-				row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-				row.setAlignmentX(LEFT_ALIGNMENT);
-
-				JLabel name = new JLabel(plainText(ellipsize(m.label, 22)));
-				name.setFont(FontManager.getRunescapeSmallFont());
-				name.setForeground(ColorScheme.TEXT_COLOR);
-
-				long val = LadderMissions.liveValue(m.face, m.revealedAtIso, l.decay, now);
-				JLabel value = new JLabel(LadderMissions.valueLabel(m.face, val));
-				value.setFont(FontManager.getRunescapeSmallFont());
-				value.setForeground(valueColor(m.face, val));
-				value.setHorizontalAlignment(SwingConstants.RIGHT);
-
-				row.add(name, BorderLayout.CENTER);
-				row.add(value, BorderLayout.EAST);
-				row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-				panel.add(row);
-				ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
+				panel.add(buildMissionRow(m, l, now));
 			}
 		}
 

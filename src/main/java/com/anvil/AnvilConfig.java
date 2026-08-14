@@ -159,6 +159,20 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "missionSound",
+		name = "Distinct mission sound",
+		description = "Play a short in-game chime when a mission drops or is claimed, instead of the same "
+			+ "clip a completed tile plays — so you can tell a new objective from a finished one without "
+			+ "looking. Turn off to use your banner clip for missions too.",
+		position = 8,
+		section = "bingoSection"
+	)
+	default boolean missionSound()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "bannerSoundClip",
 		name = "Banner sound clip",
 		// Hidden from the panel: the play-cycle allowlist is managed via the Bingo collection-log tab's
@@ -530,9 +544,10 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "clipsWebhookUrl",
 		name = "Clips Discord webhook URL",
-		description = "Paste your own Discord webhook URL to auto-post saved clips to. Clips are uploaded "
-			+ "straight from your machine to this webhook (they don't pass through the bingo site). Leave blank "
-			+ "to keep clips local-only.",
+		description = "Optional fallback. Clips normally go to your clan's clips channel through the Anvil "
+			+ "site, with no setup on your side. Paste your own Discord webhook URL here to post clips when "
+			+ "your clan hasn't set a clips channel up (or its site is too old to relay them) — those upload "
+			+ "straight from your machine to this webhook. Leave blank to keep clips local in that case.",
 		position = 9,
 		section = "clipsSection"
 	)
