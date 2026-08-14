@@ -98,6 +98,36 @@ public class KillCountLineTest
 		assertEquals("1,250", r[1]);
 	}
 
+	/**
+	 * Agility-lap tiles are kill tiles whose targets are course names, so the whole kind rests on
+	 * the "lap" counter word staying out of the captured name. A course whose name reaches the
+	 * index as "Ardougne Rooftop lap" matches nothing and the tile counts zero for a whole event.
+	 */
+	@Test
+	public void lapCounterWordStaysOutOfCourseName()
+	{
+		String[] r = parse("Your Gnome Stronghold Agility lap count is: 1.");
+		assertEquals("Gnome Stronghold Agility", r[0]);
+		assertEquals("1", r[1]);
+	}
+
+	@Test
+	public void parsesRooftopLapCountWithApostropheAndThousands()
+	{
+		String[] r = parse("Your Seers' Village Rooftop lap count is: 1,234.");
+		assertEquals("Seers' Village Rooftop", r[0]);
+		assertEquals("1,234", r[1]);
+	}
+
+	/** The Colossal Wyrm courses parenthesise their tier — the brackets are part of the name. */
+	@Test
+	public void parsesParenthesisedCourseTier()
+	{
+		String[] r = parse("Your Colossal Wyrm Agility Course (Advanced) lap count is: 5.");
+		assertEquals("Colossal Wyrm Agility Course (Advanced)", r[0]);
+		assertEquals("5", r[1]);
+	}
+
 	@Test
 	public void ignoresUnrelatedChat()
 	{

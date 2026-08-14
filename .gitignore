@@ -22,3 +22,6 @@ boss-loot/
 /item-icons.json
 /hiscore-icons.json
 /clan-rank-icons.json
+
+# Claude Code worktrees (local only)
+.claude/worktrees/
