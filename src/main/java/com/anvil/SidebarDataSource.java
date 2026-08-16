@@ -45,6 +45,25 @@ public interface SidebarDataSource
 		return fetchConnections();
 	}
 
+	/**
+	 * The STARTING SHOT this account still owes on its HOME clan's live event (site lib/startProof),
+	 * or {@code null} when nothing is owed — which is the case on every event that doesn't ask for
+	 * one, on sites that predate the feature, and the moment one is filed.
+	 *
+	 * <p>Deliberately NOT a {@link ConnectionView} field: it is about the one home this plugin is
+	 * authenticated against, not about each connected clan, and the view's constructors are already
+	 * positional enough to make an eighth optional field a hazard.</p>
+	 */
+	default PluginConfigResponse.StartProof startProof()
+	{
+		return null;
+	}
+
+	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
+	default void captureStartProof()
+	{
+	}
+
 	/** Total-failure signal for {@link #fetchConnections()} — carries a member-facing message for the error view. */
 	class SidebarDataException extends Exception
 	{

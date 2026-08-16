@@ -94,6 +94,21 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		return fetchConnections(false);
 	}
 
+	// The starting shot belongs to the HOME clan we're authenticated against — federation relays a
+	// view of other clans' boards, never an obligation on this account — so both halves pass straight
+	// through to the single-home delegate.
+	@Override
+	public PluginConfigResponse.StartProof startProof()
+	{
+		return delegate.startProof();
+	}
+
+	@Override
+	public void captureStartProof()
+	{
+		delegate.captureStartProof();
+	}
+
 	@Override
 	public List<ConnectionView> fetchConnections(boolean forceFederationRefresh) throws SidebarDataException
 	{
