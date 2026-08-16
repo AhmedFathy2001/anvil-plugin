@@ -177,6 +177,15 @@ public class ClogTabController
 	 * while our tab is active means the user clicked a native tab/entry — drop back to native
 	 * content (restore the boss list, drop our filter column). Re-apply our tab regardless.
 	 */
+	/**
+	 * Whether our injected tab is the one on screen. While it is, the native item pane holds OUR
+	 * widgets, so a reader that scraped it would file the bingo board as somebody's collection log.
+	 */
+	boolean isAnvilTabActive()
+	{
+		return bingoTabActive;
+	}
+
 	public void onCollectionDrawList()
 	{
 		if (!clogOpen)
