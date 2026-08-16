@@ -64,6 +64,28 @@ public class PluginConfigResponse
 		public boolean pointsScored;
 	}
 	public String codeword;
+
+	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
+	// requires one; null everywhere else, including on sites that predate the 'start-proof'
+	// capability, so the button simply never appears there.
+	public StartProof startProof;
+
+	public static class StartProof
+	{
+		/** Does this event ask for a starting shot at all? */
+		public boolean required;
+		/** Has the location been drawn (i.e. has the event gone live)? Nothing exists before this. */
+		public boolean drawn;
+		/** Where the player must be standing. Null until the draw. */
+		public String location;
+		/** This player's own keyword, derived server-side from the draw stamp. Null until the draw. */
+		public String keyword;
+		/** True while this player still owes a shot (never filed one, or theirs was rejected). */
+		public boolean needsUpload;
+		/** "pending" | "accepted" | "rejected", or null when nothing is on file. */
+		public String status;
+		public String imageUrl;
+	}
 	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
 	// account isn't linked to it — the plugin warns so tracking isn't silently off. Null otherwise.
 	public String unlinkedActiveEvent;

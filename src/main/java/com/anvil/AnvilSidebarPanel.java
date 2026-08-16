@@ -729,6 +729,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		body.add(buildSummary(selected));
 		body.add(gap(12));
 
+		// STARTING SHOT — the one thing here that blocks play, so it sits directly under the board
+		// summary rather than below the feed. Home clan only: it's an obligation on THIS account at
+		// the site we're authenticated against, not something a relayed clan can ask for.
+		PluginConfigResponse.StartProof startProof =
+			AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(selected.instanceId) ? dataSource.startProof() : null;
+		if (startProof != null)
+		{
+			body.add(buildStartProofCard(startProof));
+			body.add(gap(12));
+		}
+
 		// Active now — tiles you and teammates are working right now (deduped by tile).
 		if (!selected.activeNow.isEmpty())
 		{
@@ -1304,6 +1315,71 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * One "Active now" row: tile name + a "who's on it" byline + a thin progress bar. Your own tasks lead in
 	 * gold, teammate-only stay neutral. Value/label are JLabels (never painted inside the bar) for crisp text.
 	 */
+	/**
+	 * The starting-shot prompt: where to stand, this account's keyword, and the one button that
+	 * captures the frame, burns the proof banner onto it and files it. Rendered only while a shot is
+	 * actually owed — {@link SidebarDataSource#startProof()} returns null the moment one is filed.
+	 */
+	private JPanel buildStartProofCard(PluginConfigResponse.StartProof proof)
+	{
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		card.setAlignmentX(LEFT_ALIGNMENT);
+		card.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE),
+			BorderFactory.createEmptyBorder(6, 8, 8, 8)));
+
+		JLabel title = new JLabel("Starting shot needed");
+		title.setFont(FontManager.getRunescapeSmallFont());
+		title.setForeground(ColorScheme.BRAND_ORANGE);
+		title.setAlignmentX(LEFT_ALIGNMENT);
+		card.add(title);
+
+		if (proof.location != null && !proof.location.isEmpty())
+		{
+			JLabel where = new JLabel(plainText("Go to " + proof.location));
+			where.setFont(FontManager.getRunescapeSmallFont());
+			where.setForeground(Color.WHITE);
+			where.setAlignmentX(LEFT_ALIGNMENT);
+			where.setToolTipText(plainText(proof.location));
+			card.add(gap(4));
+			card.add(where);
+		}
+
+		if (proof.keyword != null && !proof.keyword.isEmpty())
+		{
+			JLabel word = new JLabel(plainText("Keyword: " + proof.keyword));
+			word.setFont(FontManager.getRunescapeSmallFont());
+			word.setForeground(VALUE_COLOR);
+			word.setAlignmentX(LEFT_ALIGNMENT);
+			card.add(gap(2));
+			card.add(word);
+		}
+
+		if ("rejected".equals(proof.status))
+		{
+			card.add(gap(2));
+			card.add(warningLabel("Your last shot was rejected — take another."));
+		}
+
+		JButton take = new JButton("Take starting shot");
+		styleFlatButton(take, ColorScheme.BRAND_ORANGE);
+		take.setAlignmentX(LEFT_ALIGNMENT);
+		take.addActionListener(e ->
+		{
+			take.setEnabled(false);
+			take.setText("Sending...");
+			// The capture itself hops to the next rendered frame and then to a worker; the panel just
+			// asks for it. The button goes away entirely on the next poll, once the site agrees.
+			dataSource.captureStartProof();
+		});
+		card.add(gap(6));
+		card.add(take);
+
+		return card;
+	}
+
 	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
 	{
 		ClogTaskModel.TaskRow tile = task.tile;

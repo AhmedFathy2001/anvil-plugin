@@ -209,6 +209,15 @@ public class AnvilPlugin extends Plugin {
     @Getter
     private volatile PluginConfigResponse pluginConfig;
 
+    // STARTING SHOT (site lib/startProof). `startProofFiled` latches the moment one is accepted by
+    // the server so the button/nudge go away immediately instead of waiting on the next config poll;
+    // `startProofInFlight` keeps an impatient double-click from filing two. Both reset on logout,
+    // since the next login may be a different account with a different obligation.
+    private volatile boolean startProofFiled;
+    private volatile boolean startProofInFlight;
+    /** One nudge per login — a reminder that repeats every poll is just noise. */
+    private volatile boolean startProofNudged;
+
     // Item ID → tracked drops lookup for O(1) loot matching
     private volatile Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex = Collections.emptyMap();
 
@@ -1197,6 +1206,10 @@ public class AnvilPlugin extends Plugin {
         // it paces the connect flow's /state polls without ever sleeping a worker thread.
         AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient,
             this::localStatProgress, this::getLocalPlayerName, this::homeMembership);
+        // The starting-shot button's action. Bound after construction for the same reason the
+        // suppliers above are method references: this provider can run before the plugin's own
+        // @Inject fields exist, and the capture only ever fires from a click, long after that.
+        delegate.setStartProofCapture(this::captureStartProof);
         return new FederationSidebarDataSource(apiClient, delegate, sharedExecutor);
     }
 
@@ -1545,6 +1558,10 @@ public class AnvilPlugin extends Plugin {
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
             identityStampRetries = 0;
+            // The starting shot is per ACCOUNT: the next login may be an alt that still owes one,
+            // so forget that this one filed (the server's config is the real answer either way).
+            startProofFiled = false;
+            startProofNudged = false;
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
@@ -3847,6 +3864,96 @@ public class AnvilPlugin extends Plugin {
         });
     }
 
+    /**
+     * Is a STARTING SHOT outstanding for this account right now? Drives the sidebar button and the
+     * login nudge. False on every site/event that doesn't ask for one, and the moment one is filed.
+     */
+    public boolean needsStartProof() {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null
+                && cfg.startProof != null
+                && cfg.startProof.required
+                && cfg.startProof.drawn
+                && cfg.startProof.needsUpload
+                && !startProofFiled
+                && cfg.event != null
+                && AnvilOverlay.isEventActive(cfg.event);
+    }
+
+    /** The drawn location + this player's keyword, for the sidebar's prompt. Null when nothing is owed. */
+    public PluginConfigResponse.StartProof getStartProof() {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null ? cfg.startProof : null;
+    }
+
+    /**
+     * Take the STARTING SHOT (site lib/startProof): grab the next frame, burn the standard proof
+     * banner onto it (RSN / team / event / UTC) with the drawn location and this player's keyword,
+     * upload it and file it. The keyword is derived server-side from a stamp that didn't exist before
+     * the event went live, so a shot carrying it could not have been staged in advance.
+     *
+     * Filed exactly once — {@link #startProofFiled} latches on success and the button disappears the
+     * moment the next config poll agrees. A failure says so in chat and leaves the button up, since
+     * the whole action is one keypress to repeat.
+     */
+    public void captureStartProof() {
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.startProof == null || cfg.event == null || !cfg.startProof.drawn) {
+            sendChatMessage("No starting shot is being asked for right now.");
+            return;
+        }
+        if (drawManager == null || executor == null || executor.isShutdown()) {
+            return;
+        }
+        if (startProofInFlight) {
+            return;
+        }
+        startProofInFlight = true;
+
+        final int eventId = cfg.event.id;
+        final String location = cfg.startProof.location;
+        final String keyword = cfg.startProof.keyword;
+        final String capturedRsn = getLocalPlayerName();
+        final String capturedAt = java.time.Instant.now().toString();
+
+        drawManager.requestNextFrameListener(image -> {
+            if (executor == null || executor.isShutdown()) {
+                startProofInFlight = false;
+                return;
+            }
+            executor.submit(() -> {
+                try {
+                    // Copy the shared frame before annotating — never mutate the draw manager's buffer.
+                    BufferedImage src = (BufferedImage) image;
+                    BufferedImage buffered = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+                    java.awt.Graphics2D g = buffered.createGraphics();
+                    g.drawImage(src, 0, 0, null);
+                    g.dispose();
+
+                    String detail = keyword != null ? keyword : "";
+                    if (location != null && !location.isEmpty()) {
+                        detail = detail.isEmpty() ? location : detail + "  @  " + location;
+                    }
+                    annotateProofBanner(buffered, "STARTING SHOT", detail, capturedRsn, null);
+
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    ImageIO.write(buffered, "png", baos);
+
+                    String imageUrl = apiClient.uploadImage(baos.toByteArray(), "start-proof-" + eventId + ".png");
+                    apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt);
+                    startProofFiled = true;
+                    sendChatMessage("Starting shot sent. You're clear to play.");
+                    refreshConfig();
+                } catch (IOException e) {
+                    log.error("Failed to file starting shot: {}", e.getMessage());
+                    sendChatMessage("Starting shot failed: " + e.getMessage() + " — try again.");
+                } finally {
+                    startProofInFlight = false;
+                }
+            });
+        });
+    }
+
     private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
             BufferedImage triggerFrame) {
         noteLocalProgress(drop.tileId); // "Active now": this account credited this drop tile
@@ -4479,11 +4586,28 @@ public class AnvilPlugin extends Plugin {
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
             maybeNudgeCaRepeatSetting();
             maybeNudgeLootNotifications();
+            maybeNudgeStartProof();
 
         } catch (IOException e) {
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
             noteConnectionProblem(e);
         }
+    }
+
+    /**
+     * One chat nudge per login when this account still owes a STARTING SHOT — the event is live, the
+     * location is drawn, and nothing has been filed. Says where to stand and that the panel button
+     * does the rest; repeating it every 30s refresh would just be noise, so it latches.
+     */
+    private void maybeNudgeStartProof() {
+        if (startProofNudged || !needsStartProof()) {
+            return;
+        }
+        PluginConfigResponse.StartProof sp = pluginConfig.startProof;
+        startProofNudged = true;
+        sendChatMessage("Starting shot needed before you play"
+                + (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
+                + ". Open the Anvil side panel and press \"Take starting shot\".");
     }
 
     private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {

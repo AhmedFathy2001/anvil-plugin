@@ -1359,10 +1359,63 @@ public class BingoApiClient
 		return code >= 400 && code < 500 && code != 401 && code != 408 && code != 429;
 	}
 
+	/**
+	 * The one 4xx that is NOT permanent: the site requires a starting shot (site lib/startProof) and
+	 * this player hasn't filed one yet. The drop really happened — throwing it away because a
+	 * screenshot is outstanding is the worst possible outcome — so it stays in the pending store and
+	 * goes up on a later retry, once they've taken their shot.
+	 */
+	static final String START_PROOF_REQUIRED = "start_proof_required";
+
+	/** Test seam for the retry classification above — the rule is worth pinning, the call sites aren't. */
+	static IOException submissionErrorForTest(String context, int code, String responseBody)
+	{
+		return submissionError(context, code, responseBody);
+	}
+
 	private static IOException submissionError(String context, int code, String responseBody)
 	{
 		String message = context + ": HTTP " + code + " — " + responseBody;
-		return isPermanentFailure(code) ? new PermanentSubmissionException(message) : new IOException(message);
+		boolean awaitingStartProof = responseBody != null && responseBody.contains(START_PROOF_REQUIRED);
+		return isPermanentFailure(code) && !awaitingStartProof
+			? new PermanentSubmissionException(message)
+			: new IOException(message);
+	}
+
+	/**
+	 * POST /api/events/:id/start-proof — file this account's STARTING SHOT (site lib/startProof).
+	 *
+	 * The image has already been through {@link #uploadImage}; this hands over its URL plus the
+	 * keyword we baked into the banner, which the server recomputes. A capture from an authenticated
+	 * plugin whose keyword matches is accepted outright; anything else waits for staff.
+	 */
+	public void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("imageUrl", imageUrl);
+		if (keyword != null)
+		{
+			payload.addProperty("keyword", keyword);
+		}
+		if (capturedAt != null)
+		{
+			payload.addProperty("capturedAt", capturedAt);
+		}
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/start-proof")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw submissionError("Starting shot failed", response.code(), responseBody);
+			}
+			log.info("Starting shot filed for event {}", eventId);
+		}
 	}
 
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId, Integer itemId) throws IOException

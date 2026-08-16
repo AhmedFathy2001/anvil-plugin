@@ -103,6 +103,43 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this.homeMembership = homeMembership == null ? () -> null : homeMembership;
 	}
 
+	/**
+	 * The starting-shot action, bound by the plugin after construction (Guice builds this source
+	 * before the plugin's own fields exist, so it can't be a constructor argument). Null in tests and
+	 * anywhere the panel is driven without a live plugin — the sidebar then simply shows no button.
+	 */
+	private volatile Runnable startProofCapture;
+
+	/** Bind the capture action. Idempotent; passing null unbinds. */
+	public void setStartProofCapture(Runnable capture)
+	{
+		this.startProofCapture = capture;
+	}
+
+	@Override
+	public PluginConfigResponse.StartProof startProof()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		if (cfg == null || cfg.startProof == null || !cfg.startProof.required
+			|| !cfg.startProof.drawn || !cfg.startProof.needsUpload)
+		{
+			return null;
+		}
+		// Only while the event is actually live — the same gate the in-game overlay uses, so the
+		// panel can't ask for a shot of an event that has ended.
+		return AnvilOverlay.isEventActive(cfg.event) ? cfg.startProof : null;
+	}
+
+	@Override
+	public void captureStartProof()
+	{
+		Runnable capture = startProofCapture;
+		if (capture != null)
+		{
+			capture.run();
+		}
+	}
+
 	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
