@@ -751,6 +751,8 @@ public class AnvilPlugin extends Plugin {
     // backoff per path, so a site refusing personal bests doesn't also slow the collection log down.
     private final SyncBackoff clogBackoff = new SyncBackoff();
     private final SyncBackoff clogFullBackoff = new SyncBackoff();
+    /** One in-flight immediate flush at a time — game ticks are 600ms and the push is not. */
+    private volatile boolean clogFlushQueued;
     private final SyncBackoff pbBackoff = new SyncBackoff();
     private final PersonalBests personalBests = new PersonalBests();
     /** The account the two above belong to, so a character switch reloads rather than merges. */
@@ -1441,6 +1443,31 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
+     * Push a settled transmit AS SOON AS it settles, rather than at the next 30-second tick.
+     *
+     * <p>A background trickle can wait for the scheduler; a sync somebody pressed a button for
+     * cannot. Waiting made a two-second job take up to thirty, which is the difference between
+     * "synced" and "did that work?". The tick is 600ms, so this costs a flag check per tick and
+     * gets the push away within one of them.
+     */
+    private void flushFullClogSyncWhenSettled() {
+        if (clogFlushQueued || executor == null || executor.isShutdown()) {
+            return;
+        }
+        if (!clogFullSync.isDue(System.currentTimeMillis())) {
+            return;
+        }
+        clogFlushQueued = true;
+        executor.submit(() -> {
+            try {
+                safely("flushFullClogSync", this::flushFullClogSync);
+            } finally {
+                clogFlushQueued = false;
+            }
+        });
+    }
+
+    /**
      * Stand the transmit guard down once the items have stopped arriving (or never started).
      *
      * <p>Held for at least {@link #CLOG_TRANSMIT_MIN_TICKS} so the re-fire of the setup script — the
@@ -1554,6 +1581,7 @@ public class AnvilPlugin extends Plugin {
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
         tickClogTransmitGuard();
+        flushFullClogSyncWhenSettled();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
         recordEventTick();

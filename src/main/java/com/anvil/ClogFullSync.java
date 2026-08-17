@@ -23,8 +23,12 @@ import java.util.Map;
  */
 final class ClogFullSync
 {
-	/** Items land over several ticks; wait this long after the last one before calling it complete. */
-	static final long QUIET_MS = 2_000;
+	/**
+	 * Items land over several ticks; wait this long after the last one before calling it complete.
+	 * Two ticks and change — long enough that a transmit arriving in bursts isn't cut in half, short
+	 * enough that a player who pressed a button isn't left watching an ellipsis.
+	 */
+	static final long QUIET_MS = 1_200;
 
 	/**
 	 * A transmit that yields fewer items than this is treated as noise rather than a log. The point
