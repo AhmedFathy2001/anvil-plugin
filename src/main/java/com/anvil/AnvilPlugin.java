@@ -726,6 +726,8 @@ public class AnvilPlugin extends Plugin {
     // already accepted, so a restart resumes instead of re-sending a log that hasn't moved.
     private static final String CFG_CLOG_STATE = "clogSyncState";
     private static final String CFG_PB_STATE = "pbSyncState";
+    /** Fingerprint of the last whole log we pushed, per RSN — so a relog doesn't re-send 1,700 items. */
+    private static final String CFG_CLOG_FINGERPRINT = "clogFingerprint";
     private static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
     /** RuneLite's own chat-commands store, read once to seed a profile (see importRuneLitePersonalBests). */
     private static final String RUNELITE_PB_GROUP = "personalbest";
@@ -7854,6 +7856,10 @@ public class AnvilPlugin extends Plugin {
         clogSync.reset();
         personalBests.reset();
         clogSync.restoreState(configManager.getConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + key));
+        // The whole-log fingerprint survives a restart: opening the collection log re-transmits
+        // everything every time, and without this each session's first open re-sent a log the site
+        // already had, byte for byte.
+        lastClogFingerprint = parseLongOrZero(configManager.getConfiguration("osrsbingo", CFG_CLOG_FINGERPRINT + ":" + key));
         personalBests.restoreState(configManager.getConfiguration("osrsbingo", CFG_PB_STATE + ":" + key));
         importRuneLitePersonalBests(key);
     }
@@ -7926,6 +7932,18 @@ public class AnvilPlugin extends Plugin {
         String rsn = profileSyncRsn;
         if (rsn != null && !rsn.isEmpty()) {
             importRuneLitePersonalBests(rsn);
+        }
+    }
+
+    /** Config values are text; a missing or corrupt one just means "no fingerprint yet". */
+    private static long parseLongOrZero(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
         }
     }
 
@@ -8030,6 +8048,10 @@ public class AnvilPlugin extends Plugin {
         }
         clogFullBackoff.onSuccess();
         lastClogFingerprint = fingerprint;
+        if (profileSyncRsn != null) {
+            configManager.setConfiguration("osrsbingo", CFG_CLOG_FINGERPRINT + ":" + profileSyncRsn,
+                    Long.toString(fingerprint));
+        }
         clogFullSync.onSent();
         log.info("Collection log synced: {} items", count);
         if (manual) {
