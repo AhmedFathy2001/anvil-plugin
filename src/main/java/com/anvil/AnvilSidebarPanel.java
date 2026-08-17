@@ -75,6 +75,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Max activity rows rendered — keeps the sidebar glanceable; the rest collapse into a "+N more". */
 	private static final int ACTIVITY_ROWS_SHOWN = 12;
 
+	/** Clip rows on the home page before the rest collapse into a "+N more" line. */
+	private static final int BANNER_CLIPS_SHOWN = 8;
+
 	/** Leaderboard rows rendered on a weekly card before the caller's own (out-of-view) row is spliced in. */
 	private static final int WEEKLY_ROWS_SHOWN = 10;
 
@@ -670,20 +673,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		List<EventEntry> events = eventsOf(selected);
-		if (events.size() > 1)
+		EventEntry chosen = findEvent(events, selectedEventKey);
+		if (chosen != null)
 		{
-			EventEntry chosen = findEvent(events, selectedEventKey);
-			if (chosen == null)
-			{
-				selectedEventKey = null;
-				renderEventList(selected, events);
-				return;
-			}
 			renderEvent(selected, chosen, true);
 			return;
 		}
-		// 0 events → the board card carries the "No active event yet." / login note; 1 → straight in.
-		renderEvent(selected, events.isEmpty() ? null : events.get(0), false);
+		// Home. Always a real page, even for one event: it's where the clan's own actions live —
+		// roster sync, profile sync, banner clips — and going "back" from an event has to arrive
+		// somewhere. Opening straight onto a lone event's card left no room for any of that.
+		selectedEventKey = null;
+		renderEventList(selected, events);
 	}
 
 	/** One event's full card. {@code entry} null (or a board entry) renders the board; weeklies get their own. */
@@ -922,19 +922,172 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(gap(8));
 		}
 
-		body.add(sectionHeader("Events"));
-		body.add(gap(6));
-		boolean first = true;
-		for (EventEntry e : events)
+		if (events.isEmpty())
 		{
-			if (!first)
-			{
-				body.add(gap(8));
-			}
-			body.add(buildEventCard(c, e));
-			first = false;
+			// Nothing running is a state, not an error: say so and leave the clan's own actions below.
+			JLabel none = new JLabel("No active event yet.");
+			none.setFont(FontManager.getRunescapeSmallFont());
+			none.setForeground(VALUE_COLOR);
+			none.setAlignmentX(LEFT_ALIGNMENT);
+			body.add(none);
+			body.add(gap(12));
 		}
+		else
+		{
+			body.add(sectionHeader("Events"));
+			body.add(gap(6));
+			boolean first = true;
+			for (EventEntry e : events)
+			{
+				if (!first)
+				{
+					body.add(gap(8));
+				}
+				body.add(buildEventCard(c, e));
+				first = false;
+			}
+			body.add(gap(12));
+		}
+
+		// The clan's own controls, under whatever is running. Home only, and only what this account
+		// can actually do — see SidebarDataSource.actionsFor.
+		body.add(buildPanelActions(c));
+		body.add(gap(12));
+		body.add(buildBannerSounds());
 		setContent(body);
+	}
+
+	/**
+	 * Roster sync and profile sync, when this account can do them here.
+	 *
+	 * <p>A roster is scraped from the clan channel you're standing in, so the button is absent for
+	 * any clan but your own — an admin elsewhere still can't see a roster they aren't in — and it
+	 * says why rather than vanishing without explanation. Both buttons carry the same limits as
+	 * their in-game counterparts, which live in the plugin, not here.
+	 */
+	private JPanel buildPanelActions(ConnectionView c)
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		SidebarDataSource.PanelActions actions = dataSource.actionsFor(c.instanceId);
+		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null)
+		{
+			return panel; // nothing this account can do here; no empty heading either
+		}
+
+		panel.add(sectionHeader("This clan"));
+		panel.add(gap(6));
+
+		if (actions.canSyncProfile)
+		{
+			JButton profile = new JButton("Sync profile");
+			styleFlatButton(profile, ColorScheme.BRAND_ORANGE);
+			profile.setAlignmentX(LEFT_ALIGNMENT);
+			profile.setToolTipText("Send your collection log and best times to this clan's site");
+			profile.addActionListener(e -> dataSource.syncProfile());
+			panel.add(profile);
+			panel.add(gap(4));
+		}
+
+		if (actions.canSyncRoster)
+		{
+			JButton roster = new JButton("Sync clan roster");
+			styleFlatButton(roster, ColorScheme.BRAND_ORANGE);
+			roster.setAlignmentX(LEFT_ALIGNMENT);
+			roster.setToolTipText("Push the in-game clan member list to the site");
+			roster.addActionListener(e -> dataSource.syncRoster());
+			panel.add(roster);
+		}
+		else if (actions.rosterNote != null)
+		{
+			JLabel note = new JLabel(plainText(actions.rosterNote));
+			note.setFont(FontManager.getRunescapeSmallFont());
+			note.setForeground(VALUE_COLOR);
+			note.setAlignmentX(LEFT_ALIGNMENT);
+			panel.add(note);
+		}
+
+		return panel;
+	}
+
+	/**
+	 * Banner clips, which are files in a folder on THIS machine.
+	 *
+	 * <p>Nothing here is per account or per clan — swapping character or clan doesn't change which
+	 * .wav files are on your disk — so the list is the same wherever you are in the panel. Green is
+	 * in the cycle, grey is muted, clicking flips it.
+	 */
+	private JPanel buildBannerSounds()
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		java.util.List<String> clips = dataSource.bannerSounds();
+		panel.add(sectionHeader("Banner sounds"));
+		panel.add(gap(6));
+
+		if (clips.isEmpty())
+		{
+			JLabel none = new JLabel("None added — drop .wav files in the folder.");
+			none.setFont(FontManager.getRunescapeSmallFont());
+			none.setForeground(VALUE_COLOR);
+			none.setAlignmentX(LEFT_ALIGNMENT);
+			panel.add(none);
+			panel.add(gap(4));
+		}
+		else
+		{
+			for (String clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN)))
+			{
+				boolean on = dataSource.bannerSoundOn(clip);
+				String display = clip.toLowerCase().endsWith(".wav") ? clip.substring(0, clip.length() - 4) : clip;
+				JLabel row = new JLabel(plainText(ellipsize(display, 28)));
+				row.setFont(FontManager.getRunescapeSmallFont());
+				row.setForeground(on ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
+				row.setAlignmentX(LEFT_ALIGNMENT);
+				row.setToolTipText(plainText(display) + (on ? " — playing" : " — muted"));
+				row.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+				row.addMouseListener(new java.awt.event.MouseAdapter()
+				{
+					@Override
+					public void mouseClicked(MouseEvent e)
+					{
+						dataSource.toggleBannerSound(clip);
+						renderSelected();
+					}
+				});
+				panel.add(row);
+				panel.add(gap(2));
+			}
+			if (clips.size() > BANNER_CLIPS_SHOWN)
+			{
+				JLabel more = new JLabel("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder");
+				more.setFont(FontManager.getRunescapeSmallFont());
+				more.setForeground(VALUE_COLOR);
+				more.setAlignmentX(LEFT_ALIGNMENT);
+				panel.add(more);
+			}
+			panel.add(gap(4));
+		}
+
+		JPanel buttons = new JPanel(new java.awt.GridLayout(1, 2, 4, 0));
+		buttons.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		buttons.setAlignmentX(LEFT_ALIGNMENT);
+		JButton add = new JButton("Add clip");
+		styleFlatButton(add, Color.WHITE);
+		add.addActionListener(e -> dataSource.importBannerSounds());
+		JButton open = new JButton("Open folder");
+		styleFlatButton(open, Color.WHITE);
+		open.addActionListener(e -> dataSource.openBannerSounds());
+		buttons.add(add);
+		buttons.add(open);
+		panel.add(buttons);
+		return panel;
 	}
 
 	/** One row of the events list: name, kind, a one-line status, and (for a board) its progress bar. */

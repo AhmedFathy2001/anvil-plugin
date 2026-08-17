@@ -116,6 +116,99 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this.startProofCapture = capture;
 	}
 
+	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
+	private volatile AnvilPlugin plugin;
+
+	public void setPlugin(AnvilPlugin plugin)
+	{
+		this.plugin = plugin;
+	}
+
+	@Override
+	public PanelActions actionsFor(String instanceId)
+	{
+		AnvilPlugin p = plugin;
+		if (p == null || !LOCAL_INSTANCE_ID.equals(instanceId))
+		{
+			// Another clan's card. A roster sync there is impossible (you can only read the clan
+			// channel you're in) and a profile sync has nowhere to go yet, so the panel offers
+			// neither rather than offering something that would fail.
+			return new PanelActions(false, false, null);
+		}
+		boolean profile = p.supportsProfileSync();
+		if (!p.isAdmin())
+		{
+			return new PanelActions(false, profile, null);
+		}
+		// Admin, at home — but the roster comes from the clan channel, so it has to be readable.
+		boolean scrape = p.isClanScrapeAvailable();
+		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
+	}
+
+	@Override
+	public void syncRoster()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.syncClanRosterFromPanel();
+		}
+	}
+
+	@Override
+	public void syncProfile()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.syncProfileNow();
+		}
+	}
+
+	@Override
+	public java.util.List<String> bannerSounds()
+	{
+		AnvilPlugin p = plugin;
+		return p == null ? java.util.Collections.emptyList() : p.bannerSoundClips();
+	}
+
+	@Override
+	public boolean bannerSoundOn(String clip)
+	{
+		AnvilPlugin p = plugin;
+		return p != null && p.bannerSoundSelected(clip);
+	}
+
+	@Override
+	public void toggleBannerSound(String clip)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.toggleBannerSound(clip);
+		}
+	}
+
+	@Override
+	public void openBannerSounds()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.openBannerSoundsFolder();
+		}
+	}
+
+	@Override
+	public void importBannerSounds()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.importBannerSounds();
+		}
+	}
+
 	@Override
 	public PluginConfigResponse.StartProof startProof()
 	{

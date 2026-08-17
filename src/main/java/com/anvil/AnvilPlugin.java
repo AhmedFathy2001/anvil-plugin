@@ -742,6 +742,8 @@ public class AnvilPlugin extends Plugin {
     private long lastAutoRosterSyncAt;
     /** Guard against a second automatic push overlapping the first. */
     private volatile boolean autoRosterSyncRunning;
+    /** Same, for the sidebar button — a double click should be one push, not two. */
+    private volatile boolean panelRosterSyncRunning;
     private static final long AUTO_ROSTER_MIN_GAP_MS = 30 * 60 * 1000;
     /** The clan list lands a moment after the channel does; give it time rather than racing it. */
     private static final long AUTO_ROSTER_DELAY_MS = 5_000;
@@ -1282,6 +1284,9 @@ public class AnvilPlugin extends Plugin {
         // suppliers above are method references: this provider can run before the plugin's own
         // @Inject fields exist, and the capture only ever fires from a click, long after that.
         delegate.setStartProofCapture(this::captureStartProof);
+        // The panel's buttons act on the plugin: roster sync, profile sync, and the local banner
+        // clips (which live in a folder on this machine, not on any account).
+        delegate.setPlugin(this);
         return new FederationSidebarDataSource(apiClient, delegate, sharedExecutor);
     }
 
@@ -7898,6 +7903,36 @@ public class AnvilPlugin extends Plugin {
      * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
      * no batching and no requests.
      */
+    /**
+     * The sidebar's "Sync clan roster" button.
+     *
+     * <p>Same work as the in-game one, with its own in-flight guard so a double click is one push,
+     * and the result reported in chat where the player is looking. Refused outright when the clan
+     * channel isn't readable — the roster is scraped from it, so there is nothing to send.
+     */
+    public void syncClanRosterFromPanel() {
+        if (!isAdmin) {
+            sendChatMessage("Only clan admins can sync the roster.");
+            return;
+        }
+        if (!isClanScrapeAvailable()) {
+            sendChatMessage("Join your clan channel first — the roster is read from it.");
+            return;
+        }
+        if (panelRosterSyncRunning) {
+            sendChatMessage("Already syncing the roster.");
+            return;
+        }
+        panelRosterSyncRunning = true;
+        sendChatMessage("Syncing the clan roster...");
+        syncClanRoster((ok, msg) -> {
+            panelRosterSyncRunning = false;
+            if (sidebarPanel != null) {
+                sidebarPanel.refresh();
+            }
+        });
+    }
+
     /** Does this clan's site take profile data? Drives the in-tab "Sync profile" row. */
     public boolean supportsProfileSync() {
         return config.syncClog() && apiClient.isConfigured() && serverSupportsProfileSync();

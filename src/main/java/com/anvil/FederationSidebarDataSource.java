@@ -109,6 +109,57 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 		delegate.captureStartProof();
 	}
 
+	// Panel actions belong to the HOME clan — the roster comes from the channel this account is in,
+	// and the profile goes to the site it is signed in to. The delegate answers for both, and for a
+	// relayed clan it answers "neither", which is the truth rather than a disabled-looking button.
+	@Override
+	public PanelActions actionsFor(String instanceId)
+	{
+		return delegate.actionsFor(instanceId);
+	}
+
+	@Override
+	public void syncRoster()
+	{
+		delegate.syncRoster();
+	}
+
+	@Override
+	public void syncProfile()
+	{
+		delegate.syncProfile();
+	}
+
+	@Override
+	public java.util.List<String> bannerSounds()
+	{
+		return delegate.bannerSounds();
+	}
+
+	@Override
+	public boolean bannerSoundOn(String clip)
+	{
+		return delegate.bannerSoundOn(clip);
+	}
+
+	@Override
+	public void toggleBannerSound(String clip)
+	{
+		delegate.toggleBannerSound(clip);
+	}
+
+	@Override
+	public void openBannerSounds()
+	{
+		delegate.openBannerSounds();
+	}
+
+	@Override
+	public void importBannerSounds()
+	{
+		delegate.importBannerSounds();
+	}
+
 	@Override
 	public List<ConnectionView> fetchConnections(boolean forceFederationRefresh) throws SidebarDataException
 	{

@@ -64,6 +64,76 @@ public interface SidebarDataSource
 	{
 	}
 
+	/**
+	 * What the panel may DO for one connection, which is not the same question for every clan.
+	 *
+	 * <p>A roster sync scrapes the clan channel you are standing in, so it is only ever offered for
+	 * the clan you are actually a member of — an admin elsewhere still cannot see a roster they
+	 * aren't in. A profile sync goes to the site the plugin is authenticated against, so it is
+	 * offered for the home clan alone until there is a wire for relaying one.
+	 */
+	class PanelActions
+	{
+		public static final PanelActions NONE = new PanelActions(false, false, null);
+
+		/** Show "Sync clan roster": admin, at home, with a readable clan channel. */
+		public final boolean canSyncRoster;
+		/** Show "Sync profile": the site takes profile data and it's the one we're signed in to. */
+		public final boolean canSyncProfile;
+		/** Why the roster button is absent, when the reason is worth saying. Null when it isn't. */
+		public final String rosterNote;
+
+		public PanelActions(boolean canSyncRoster, boolean canSyncProfile, String rosterNote)
+		{
+			this.canSyncRoster = canSyncRoster;
+			this.canSyncProfile = canSyncProfile;
+			this.rosterNote = rosterNote;
+		}
+	}
+
+	/** Actions available for the clan currently on screen. Never null. */
+	default PanelActions actionsFor(String instanceId)
+	{
+		return PanelActions.NONE;
+	}
+
+	/** Push the in-game clan roster to the home site. No-op unless {@code canSyncRoster}. */
+	default void syncRoster()
+	{
+	}
+
+	/** Send this account's collection log + bests to the home site. No-op unless {@code canSyncProfile}. */
+	default void syncProfile()
+	{
+	}
+
+	/** Local banner-sound clips, newest listing each call. Empty when the folder has none. */
+	default java.util.List<String> bannerSounds()
+	{
+		return java.util.Collections.emptyList();
+	}
+
+	/** Is this clip in the play cycle? */
+	default boolean bannerSoundOn(String clip)
+	{
+		return false;
+	}
+
+	/** Flip one clip in or out of the cycle. */
+	default void toggleBannerSound(String clip)
+	{
+	}
+
+	/** Open the local clips folder — these live on this machine, not on any account. */
+	default void openBannerSounds()
+	{
+	}
+
+	/** Import a .wav into the local clips folder. */
+	default void importBannerSounds()
+	{
+	}
+
 	/** Total-failure signal for {@link #fetchConnections()} — carries a member-facing message for the error view. */
 	class SidebarDataException extends Exception
 	{
