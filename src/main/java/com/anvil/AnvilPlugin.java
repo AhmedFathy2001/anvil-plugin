@@ -1674,7 +1674,7 @@ public class AnvilPlugin extends Plugin {
         clogTabController.onGameTick();
         tickClogTransmitGuard();
         tickManualSyncWatchdog();
-        clanRosterReadable = isClanScrapeAvailable();
+        updateClanRosterReadable();
         flushFullClogSyncWhenSettled();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
@@ -4591,6 +4591,30 @@ public class AnvilPlugin extends Plugin {
      */
     @Getter
     private volatile boolean clanRosterReadable;
+    /** Consecutive ticks the clan channel has been missing — see updateClanRosterReadable. */
+    private int clanRosterMissingTicks;
+    /** ~6 seconds of a genuinely absent channel before the button goes away. */
+    private static final int CLAN_ROSTER_GRACE_TICKS = 10;
+
+    /**
+     * Refresh the cached "can we read the roster" answer, with hysteresis.
+     *
+     * <p>{@code getClanChannel()} is momentarily null on login, on a world hop, and while the clan
+     * tab loads. Mirroring that straight into the panel made the roster button appear and disappear
+     * for no reason a player could see, so it takes a few seconds of genuinely NOT being there
+     * before we withdraw the button — while it comes back the instant the channel does.
+     */
+    private void updateClanRosterReadable() {
+        if (isClanScrapeAvailable()) {
+            clanRosterReadable = true;
+            clanRosterMissingTicks = 0;
+            return;
+        }
+        if (clanRosterReadable && ++clanRosterMissingTicks < CLAN_ROSTER_GRACE_TICKS) {
+            return; // a blink, not a departure
+        }
+        clanRosterReadable = false;
+    }
 
     public boolean isClanScrapeAvailable() {
         if (client == null) {
@@ -4658,24 +4682,25 @@ public class AnvilPlugin extends Plugin {
                     // left, because that's news whether or not you pressed anything.
                     boolean automatic = autoRosterAnnounce;
                     autoRosterAnnounce = false;
-                    boolean moved = r.added > 0 || r.markedLeft > 0 || r.renamed > 0 || r.returned > 0;
                     if (automatic) {
-                        if (moved) {
-                            java.util.List<String> parts = new java.util.ArrayList<>();
-                            if (r.added > 0) {
-                                parts.add(r.added + " joined");
-                            }
-                            if (r.returned > 0) {
-                                parts.add(r.returned + " returned");
-                            }
-                            if (r.markedLeft > 0) {
-                                parts.add(r.markedLeft + " left");
-                            }
-                            if (r.renamed > 0) {
-                                parts.add(r.renamed + " renamed");
-                            }
-                            sendChatMessage("Clan roster updated: " + String.join(", ", parts) + ".");
+                        java.util.List<String> parts = new java.util.ArrayList<>();
+                        if (r.added > 0) {
+                            parts.add(r.added + " joined");
                         }
+                        if (r.returned > 0) {
+                            parts.add(r.returned + " returned");
+                        }
+                        if (r.markedLeft > 0) {
+                            parts.add(r.markedLeft + " left");
+                        }
+                        if (r.renamed > 0) {
+                            parts.add(r.renamed + " renamed");
+                        }
+                        // Always says something. A sync that reports nothing is indistinguishable
+                        // from one that never ran, and that ambiguity cost an afternoon.
+                        sendChatMessage(parts.isEmpty()
+                                ? "Clan roster checked — nothing changed."
+                                : "Clan roster updated: " + String.join(", ", parts) + ".");
                     } else {
                         sendChatMessage("Clan roster synced: " + lastSyncSummary);
                     }
@@ -8192,6 +8217,9 @@ public class AnvilPlugin extends Plugin {
         if (!manual && fingerprint == lastClogFingerprint) {
             log.debug("Collection log unchanged since the last sync — nothing to push");
             clogFullSync.onSent();
+            // Nothing to send, but the player still asked the game for their log by opening it, so
+            // the outcome gets said: checked, unchanged, no request made.
+            sendChatMessage("Collection log checked — nothing new since your last sync.");
             return;
         }
         BingoApiClient.ClogPushResult result;
@@ -8242,11 +8270,12 @@ public class AnvilPlugin extends Plugin {
         log.info("Collection log synced: {} items", count);
         if (manual) {
             sendChatMessage("Profile synced — " + count + " collection log slots.");
-        } else if (result.added > 0) {
-            // Automatic, so it speaks only for news: new slots since last time. A sync that changed
-            // nothing — the common case, since opening the log re-sends all of it — stays silent.
-            sendChatMessage("Collection log synced — " + result.added + " new slot"
-                    + (result.added == 1 ? "" : "s") + ".");
+        } else {
+            // Automatic syncs report too. "Nothing new" is a useful sentence: it says the sync ran,
+            // reached the site and agreed with it, which silence never manages to say.
+            sendChatMessage(result.added > 0
+                    ? "Collection log synced — " + result.added + " new slot" + (result.added == 1 ? "" : "s") + "."
+                    : "Collection log synced — nothing new.");
         }
     }
 

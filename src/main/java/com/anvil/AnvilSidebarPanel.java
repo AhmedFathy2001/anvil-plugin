@@ -828,6 +828,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		}
 
+		// Clan actions ride at the bottom of an event view too. They belong to the clan, not to the
+		// page you happen to be on — losing them the moment you opened an event was half of why the
+		// roster button looked like it came and went.
+		body.add(gap(12));
+		body.add(buildPanelActions(selected));
+
 		setContent(body);
 	}
 
