@@ -731,8 +731,13 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
     /** RuneLite's own chat-commands store, read once to seed a profile (see importRuneLitePersonalBests). */
     private static final String RUNELITE_PB_GROUP = "personalbest";
-    /** Team-size variants RuneLite files raids under ("chambers of xeric 3 players"). */
-    private static final int MAX_PB_TEAM_SIZE = 8;
+    /** Exact team sizes RuneLite files raids under ("chambers of xeric 3 players"). */
+    private static final int MAX_PB_TEAM_SIZE = 24;
+    /** Large teams are recorded as a RANGE, not a count — the buckets the raid chat itself prints. */
+    private static final String[] PB_TEAM_BUCKETS = {
+        "5+ players", "10+ players", "11-15 players", "16-23 players", "24+ players",
+        "25+ players", "50+ players", "100+ players",
+    };
     /** Last automatic roster push, so a channel reload storm can't fire a request per event. */
     private long lastAutoRosterSyncAt;
     /** Guard against a second automatic push overlapping the first. */
@@ -761,6 +766,14 @@ public class AnvilPlugin extends Plugin {
     private volatile long lastClogFingerprint;
     /** When a button-press sync began, so one that never delivers says so instead of hanging silently. */
     private volatile long manualSyncStartedAt;
+    /**
+     * When the site will accept another whole-log push. The server allows one a minute per member,
+     * and a client that fires into that anyway learns nothing and spends somebody's server time —
+     * so we hold the number it gives us and wait instead of guessing.
+     */
+    private volatile long clogPushAllowedAt;
+    /** The site's limit, used to hold off BEFORE a request rather than after a refusal. */
+    private static final long SERVER_CLOG_COOLDOWN_MS = 60_000L;
     /** How long a pressed sync may take before we admit it didn't work. */
     private static final long MANUAL_SYNC_TIMEOUT_MS = 15_000L;
     private final SyncBackoff pbBackoff = new SyncBackoff();
@@ -1546,6 +1559,12 @@ public class AnvilPlugin extends Plugin {
             sendChatMessage("This clan's site doesn't support profile sync yet.");
             return;
         }
+        long wait = clogPushAllowedAt - System.currentTimeMillis();
+        if (wait > 0) {
+            sendChatMessage("Your log was synced less than a minute ago — try again in "
+                    + Math.max(1, (wait + 999) / 1000) + "s.");
+            return;
+        }
         clogSyncRequested = true;
         switch (requestFullClogTransmit()) {
             case STARTED:
@@ -1556,8 +1575,8 @@ public class AnvilPlugin extends Plugin {
                 sendChatMessage("Already syncing — give it a couple of seconds.");
                 break;
             case COOLING_DOWN:
-                long wait = (CLOG_TRANSMIT_COOLDOWN_MS - (System.currentTimeMillis() - lastClogTransmitAt) + 999) / 1000;
-                sendChatMessage("Just synced — try again in " + Math.max(1, wait) + "s.");
+                long settle = (CLOG_TRANSMIT_COOLDOWN_MS - (System.currentTimeMillis() - lastClogTransmitAt) + 999) / 1000;
+                sendChatMessage("Just asked the game for your log — give it " + Math.max(1, settle) + "s.");
                 break;
             case LOG_CLOSED:
                 sendChatMessage("Open your collection log and your profile will sync itself.");
@@ -7952,9 +7971,16 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             probeRuneLitePb(base, imported);
-            // Raids and party content are also filed per team size ("chambers of xeric 3 players").
+            // Every scale RuneLite files a raid under. Its own pattern is
+            // "(?<teamsize>\\d+(?:\\+|-\\d+)? players?|Solo)", so a solo run is the WORD solo — not
+            // "1 players" — and a big team is a bucket rather than an exact count. Probing only
+            // "N players" therefore missed every solo raid time anyone had.
+            probeRuneLitePb(base + " solo", imported);
             for (int size = 1; size <= MAX_PB_TEAM_SIZE; size++) {
                 probeRuneLitePb(base + " " + size + " players", imported);
+            }
+            for (String bucket : PB_TEAM_BUCKETS) {
+                probeRuneLitePb(base + " " + bucket, imported);
             }
         }
 
@@ -8027,6 +8053,11 @@ public class AnvilPlugin extends Plugin {
         java.util.List<ClogPage> batch = clogSync.nextBatch();
         try {
             apiClient.submitClogPages(batch, clogSync.syncedPages());
+        } catch (BingoApiClient.RateLimitedException e) {
+            // Background sync: nothing to tell the player, just wait as long as the site asked.
+            clogPushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
+            log.debug("Collection log pages rate-limited for {}ms", e.retryAfterMs);
+            return;
         } catch (BingoApiClient.PermanentSubmissionException e) {
             // Refused outright (a malformed page, a site that doesn't take these): dropping the batch
             // is the only way out of an otherwise permanent 30-second retry loop.
@@ -8060,6 +8091,10 @@ public class AnvilPlugin extends Plugin {
         if (!clogFullSync.isDue(now) || !clogFullBackoff.ready(now)) {
             return;
         }
+        // The site's own rate limit, respected before the request rather than discovered by it.
+        if (now < clogPushAllowedAt) {
+            return;
+        }
         boolean manual = clogFullSync.isManual();
         int count = clogFullSync.size();
         // Opening the log re-transmits everything, and most opens change nothing. Pushing an
@@ -8073,6 +8108,17 @@ public class AnvilPlugin extends Plugin {
         }
         try {
             apiClient.submitClogItems(clogFullSync.snapshot());
+        } catch (BingoApiClient.RateLimitedException e) {
+            // It said when. Wait exactly that long instead of doubling blindly, and keep the batch.
+            clogPushAllowedAt = now + Math.max(e.retryAfterMs, 1_000L);
+            clogFullSync.onSendFailed(now);
+            manualSyncStartedAt = 0;
+            log.debug("Collection log push rate-limited for {}ms", e.retryAfterMs);
+            if (manual) {
+                sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
+                        + Math.max(1, (e.retryAfterMs + 999) / 1000) + "s.");
+            }
+            return;
         } catch (BingoApiClient.PermanentSubmissionException e) {
             // The site said no and will keep saying no — most often because it predates whole-log
             // pushes and wants pages instead. Retrying that forever is just noise on their server.
@@ -8080,8 +8126,7 @@ public class AnvilPlugin extends Plugin {
             manualSyncStartedAt = 0;
             clogFullSync.onSent();
             if (manual) {
-                sendChatMessage("Your clan's site doesn't take a whole-log sync yet — "
-                        + "browse your collection log and it'll sync page by page instead.");
+                sendChatMessage("Couldn't sync your profile: " + e.getMessage() + ".");
             }
             return;
         } catch (Exception e) {
@@ -8090,13 +8135,15 @@ public class AnvilPlugin extends Plugin {
             log.debug("Whole-log push failed, retrying in {}s: {}",
                     clogFullBackoff.secondsUntilReady(now), e.getMessage());
             clogFullSync.onSendFailed(now);
+            manualSyncStartedAt = 0;
             if (manual) {
-                sendChatMessage("Profile sync failed: " + e.getMessage() + " — it'll retry on its own.");
+                sendChatMessage("Couldn't sync your profile: " + e.getMessage() + ". It'll retry on its own.");
             }
             return;
         }
         clogFullBackoff.onSuccess();
         manualSyncStartedAt = 0; // it landed — nothing for the watchdog to complain about
+        clogPushAllowedAt = now + SERVER_CLOG_COOLDOWN_MS;
         lastClogFingerprint = fingerprint;
         if (profileSyncRsn != null) {
             configManager.setConfiguration("osrsbingo", CFG_CLOG_FINGERPRINT + ":" + profileSyncRsn,
@@ -8122,6 +8169,11 @@ public class AnvilPlugin extends Plugin {
         Map<String, Integer> batch = personalBests.nextBatch();
         try {
             apiClient.submitPersonalBests(batch);
+        } catch (BingoApiClient.RateLimitedException e) {
+            // Bests ride the same limiter; the batch stays dirty and goes up when it clears.
+            pbBackoff.onFailure(System.currentTimeMillis());
+            log.debug("Personal bests rate-limited for {}ms", e.retryAfterMs);
+            return;
         } catch (BingoApiClient.PermanentSubmissionException e) {
             log.info("Personal bests refused, dropping the batch: {}", e.getMessage());
             personalBests.onSent(batch);

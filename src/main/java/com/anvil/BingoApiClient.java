@@ -1374,6 +1374,99 @@ public class BingoApiClient
 	 */
 	static final String START_PROOF_REQUIRED = "start_proof_required";
 
+	/**
+	 * A server that told us to wait, and for how long.
+	 *
+	 * The site limits a whole-log push to one a minute per member; a client that keeps firing into
+	 * that learns nothing and costs the clan's server a request every time. Carrying the wait means
+	 * the plugin can hold off instead of guessing, and tell the player a number.
+	 */
+	public static class RateLimitedException extends IOException
+	{
+		public final long retryAfterMs;
+
+		RateLimitedException(String message, long retryAfterMs)
+		{
+			super(message);
+			this.retryAfterMs = retryAfterMs;
+		}
+	}
+
+	/**
+	 * The server's own words, or a plain sentence when it didn't offer any.
+	 *
+	 * Responses are JSON; players are not. "HTTP 429 — {"error":"...","retryAfterMs":49445}" in a
+	 * chat box is the shape of a bug report, not an explanation, so the message field is unwrapped
+	 * and everything else gets a sentence written for a person.
+	 */
+	static String friendlyError(int code, String body)
+	{
+		String serverSaid = null;
+		try
+		{
+			JsonObject json = new JsonParser().parse(body).getAsJsonObject();
+			if (json.has("error") && !json.get("error").isJsonNull())
+			{
+				serverSaid = json.get("error").getAsString();
+			}
+		}
+		catch (Exception ignored)
+		{
+			// Not JSON, or not the shape we expect — fall through to the generic wording.
+		}
+		if (serverSaid != null && !serverSaid.isEmpty())
+		{
+			return serverSaid;
+		}
+		switch (code)
+		{
+			case 401:
+			case 403:
+				return "your account token isn't valid for this clan's site";
+			case 404:
+				return "this clan's site doesn't have that endpoint yet";
+			case 413:
+				return "that was too large for the site to accept";
+			case 429:
+				return "the site is asking us to slow down";
+			default:
+				return code >= 500 ? "the clan's site is having trouble" : "the site refused it (HTTP " + code + ")";
+		}
+	}
+
+	/** Milliseconds the server asked us to wait, or 0 when it didn't say. */
+	static long retryAfterFrom(String body)
+	{
+		try
+		{
+			JsonObject json = new JsonParser().parse(body).getAsJsonObject();
+			if (json.has("retryAfterMs") && !json.get("retryAfterMs").isJsonNull())
+			{
+				return Math.max(0, json.get("retryAfterMs").getAsLong());
+			}
+		}
+		catch (Exception ignored)
+		{
+			// No hint; the caller falls back to its own backoff.
+		}
+		return 0;
+	}
+
+	/**
+	 * A failure a player will read: the site's own sentence, classified the same way as any other.
+	 *
+	 * The diagnostic form (status, body) still goes to the log via the caller — this is what ends up
+	 * in a chat box, where a JSON blob is worse than saying nothing.
+	 */
+	private static IOException friendlyFailure(int code, String body)
+	{
+		String message = friendlyError(code, body);
+		boolean awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
+		return isPermanentFailure(code) && !awaitingStartProof
+			? new PermanentSubmissionException(message)
+			: new IOException(message);
+	}
+
 	/** Test seam for the retry classification above — the rule is worth pinning, the call sites aren't. */
 	static IOException submissionErrorForTest(String context, int code, String responseBody)
 	{
@@ -1422,8 +1515,15 @@ public class BingoApiClient
 		{
 			if (!response.isSuccessful())
 			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw submissionError("Collection log push failed", response.code(), responseBody);
+				String responseBody = response.body() != null ? response.body().string() : "";
+				// The site's own sentence, not its JSON. A player reading chat should be told what to
+				// do, and "{"error":...,"retryAfterMs":49445}" tells them to file a bug.
+				if (response.code() == 429)
+				{
+					throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
+				}
+				log.debug("Collection log push refused: HTTP {} — {}", response.code(), responseBody);
+				throw friendlyFailure(response.code(), responseBody);
 			}
 		}
 	}
