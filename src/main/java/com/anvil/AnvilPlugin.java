@@ -1577,6 +1577,14 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         clogSyncRequested = true;
+        // Everything below reads widgets and runs interface scripts, which only the client thread
+        // may do. The in-game button is already on it; the side panel's is on Swing's EDT, where
+        // this threw before saying anything — a button that silently does nothing.
+        clientThread.invoke(this::reportTransmitAttempt);
+    }
+
+    /** Ask for a transmit and say what happened. Client thread only. */
+    private void reportTransmitAttempt() {
         switch (requestFullClogTransmit()) {
             case STARTED:
                 manualSyncStartedAt = System.currentTimeMillis();
@@ -1666,6 +1674,7 @@ public class AnvilPlugin extends Plugin {
         clogTabController.onGameTick();
         tickClogTransmitGuard();
         tickManualSyncWatchdog();
+        clanRosterReadable = isClanScrapeAvailable();
         flushFullClogSyncWhenSettled();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
@@ -4573,6 +4582,16 @@ public class AnvilPlugin extends Plugin {
     /**
      * Whether the local player is currently in a clan channel we can scrape.
      */
+    /**
+     * Is the clan roster readable RIGHT NOW, as last seen from the client thread?
+     *
+     * <p>The side panel renders on Swing's EDT and has to know whether to offer a roster sync, but
+     * asking the client directly from there is a thread violation. This is refreshed on the game
+     * tick and read from anywhere.
+     */
+    @Getter
+    private volatile boolean clanRosterReadable;
+
     public boolean isClanScrapeAvailable() {
         if (client == null) {
             return false;
@@ -7947,7 +7966,9 @@ public class AnvilPlugin extends Plugin {
             sendChatMessage("Only clan admins can sync the roster.");
             return;
         }
-        if (!isClanScrapeAvailable()) {
+        // Cached, because this is called from the side panel on the EDT — reading the clan channel
+        // from there is the same thread violation that swallowed the profile button's message.
+        if (!clanRosterReadable) {
             sendChatMessage("Join your clan channel first — the roster is read from it.");
             return;
         }

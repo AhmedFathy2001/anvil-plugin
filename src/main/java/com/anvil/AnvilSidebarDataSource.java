@@ -140,8 +140,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		{
 			return new PanelActions(false, profile, null);
 		}
-		// Admin, at home — but the roster comes from the clan channel, so it has to be readable.
-		boolean scrape = p.isClanScrapeAvailable();
+		// Admin, at home — but the roster comes from the clan channel, so it has to be readable. The
+		// CACHED answer: this runs while the panel paints, on the EDT, where asking the client
+		// directly is a thread violation.
+		boolean scrape = p.isClanRosterReadable();
 		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
 	}
 
