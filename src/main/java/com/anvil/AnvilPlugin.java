@@ -759,6 +759,10 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean clogFlushQueued;
     /** Fingerprint of the last log we successfully pushed, so an unchanged one isn't sent again. */
     private volatile long lastClogFingerprint;
+    /** When a button-press sync began, so one that never delivers says so instead of hanging silently. */
+    private volatile long manualSyncStartedAt;
+    /** How long a pressed sync may take before we admit it didn't work. */
+    private static final long MANUAL_SYNC_TIMEOUT_MS = 15_000L;
     private final SyncBackoff pbBackoff = new SyncBackoff();
     private final PersonalBests personalBests = new PersonalBests();
     /** The account the two above belong to, so a character switch reloads rather than merges. */
@@ -1414,12 +1418,15 @@ public class AnvilPlugin extends Plugin {
      * script puts the view back as it was, so the player sees their log open normally. Runs on the
      * client thread (it's a script hook) and only ever while their OWN log is open.
      */
-    private void requestFullClogTransmit() {
+    /** What a transmit request did, so the button can say something true about it. */
+    private enum TransmitResult { STARTED, BUSY, COOLING_DOWN, LOG_CLOSED, UNAVAILABLE }
+
+    private TransmitResult requestFullClogTransmit() {
         if (!config.syncClog() || !apiClient.isConfigured() || !serverSupportsProfileSync()) {
-            return;
+            return TransmitResult.UNAVAILABLE;
         }
         if (client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1) {
-            return; // someone else's log, opened through a POH adventure log
+            return TransmitResult.UNAVAILABLE; // someone else's log, via a POH adventure log
         }
         // THE GUARD THAT MATTERS. The init script below re-fires the setup script that got us here,
         // and it does so on a LATER tick — so a flag cleared at the end of this method is already
@@ -1427,17 +1434,17 @@ public class AnvilPlugin extends Plugin {
         // toggle search. That recursion crashed a client with an ArrayIndexOutOfBounds inside the
         // interface scripts. The flag therefore lives until onGameTick decides the transmit is over.
         if (clogTransmitInFlight) {
-            return;
+            return TransmitResult.BUSY;
         }
         // Second belt, because the first one failing crashed someone's game: never fire twice inside
         // this window whatever the flag says. A missed sync waits for the next open; a loop does not.
         long now = System.currentTimeMillis();
         if (now - lastClogTransmitAt < CLOG_TRANSMIT_COOLDOWN_MS) {
-            return;
+            return TransmitResult.COOLING_DOWN;
         }
         // Only with the log actually on screen — the ops below address ITS widgets.
         if (client.getWidget(InterfaceID.Collection.FRAME) == null) {
-            return;
+            return TransmitResult.LOG_CLOSED;
         }
 
         clogTransmitInFlight = true;
@@ -1447,6 +1454,7 @@ public class AnvilPlugin extends Plugin {
         clogSyncRequested = false;
         client.menuAction(-1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
         client.runScript(COLLECTION_INIT);
+        return TransmitResult.STARTED;
     }
 
     /**
@@ -1482,6 +1490,31 @@ public class AnvilPlugin extends Plugin {
      * later, genuine open can sync again. The absolute ceiling covers the case where the toggle
      * yielded nothing at all, so a failed attempt can't wedge the flag on for the session.
      */
+    /**
+     * A manual sync that produced nothing has to say so.
+     *
+     * <p>If the search toggle doesn't make the server transmit — a game update moving the script, an
+     * interface closed mid-flight — the batch never reaches the minimum and nothing is ever pushed.
+     * The player, who pressed a button and was told "Syncing...", would otherwise wait forever.
+     */
+    private void tickManualSyncWatchdog() {
+        if (manualSyncStartedAt == 0) {
+            return;
+        }
+        long elapsed = System.currentTimeMillis() - manualSyncStartedAt;
+        if (elapsed < MANUAL_SYNC_TIMEOUT_MS) {
+            return;
+        }
+        manualSyncStartedAt = 0;
+        // A push in flight or already sent clears the batch, so anything still here never landed.
+        if (clogFullSync.size() == 0) {
+            sendChatMessage("The game didn't send your collection log. Close and reopen it, then try again.");
+        } else {
+            sendChatMessage("Only part of your collection log arrived — reopen it and sync again.");
+        }
+        clogFullSync.reset();
+    }
+
     private void tickClogTransmitGuard() {
         if (!clogTransmitInFlight) {
             return;
@@ -1514,11 +1547,25 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         clogSyncRequested = true;
-        if (client.getWidget(InterfaceID.Collection.FRAME) != null) {
-            sendChatMessage("Syncing your collection log...");
-            requestFullClogTransmit();
-        } else {
-            sendChatMessage("Open your collection log and your profile will sync itself.");
+        switch (requestFullClogTransmit()) {
+            case STARTED:
+                manualSyncStartedAt = System.currentTimeMillis();
+                sendChatMessage("Syncing your collection log...");
+                break;
+            case BUSY:
+                sendChatMessage("Already syncing — give it a couple of seconds.");
+                break;
+            case COOLING_DOWN:
+                long wait = (CLOG_TRANSMIT_COOLDOWN_MS - (System.currentTimeMillis() - lastClogTransmitAt) + 999) / 1000;
+                sendChatMessage("Just synced — try again in " + Math.max(1, wait) + "s.");
+                break;
+            case LOG_CLOSED:
+                sendChatMessage("Open your collection log and your profile will sync itself.");
+                break;
+            case UNAVAILABLE:
+            default:
+                sendChatMessage("Profile sync isn't available right now — check your Site URL and token.");
+                break;
         }
     }
 
@@ -1588,6 +1635,7 @@ public class AnvilPlugin extends Plugin {
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
         tickClogTransmitGuard();
+        tickManualSyncWatchdog();
         flushFullClogSyncWhenSettled();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
@@ -8029,6 +8077,7 @@ public class AnvilPlugin extends Plugin {
             // The site said no and will keep saying no — most often because it predates whole-log
             // pushes and wants pages instead. Retrying that forever is just noise on their server.
             log.info("Whole-log push refused, dropping it: {}", e.getMessage());
+            manualSyncStartedAt = 0;
             clogFullSync.onSent();
             if (manual) {
                 sendChatMessage("Your clan's site doesn't take a whole-log sync yet — "
@@ -8047,6 +8096,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         clogFullBackoff.onSuccess();
+        manualSyncStartedAt = 0; // it landed — nothing for the watchdog to complain about
         lastClogFingerprint = fingerprint;
         if (profileSyncRsn != null) {
             configManager.setConfiguration("osrsbingo", CFG_CLOG_FINGERPRINT + ":" + profileSyncRsn,
