@@ -4,6 +4,7 @@ import java.util.Map;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -113,6 +114,35 @@ public class ClogFullSyncTest
 		assertTrue(sync.isManual());
 		sync.onSent();
 		assertFalse(sync.isManual());
+	}
+
+	@Test
+	public void theFingerprintIgnoresOrderButNotContent()
+	{
+		ClogFullSync a = new ClogFullSync();
+		a.begin(false);
+		a.onItem(4151, 1, 1_000);
+		a.onItem(11802, 2, 1_000);
+
+		ClogFullSync b = new ClogFullSync();
+		b.begin(false);
+		b.onItem(11802, 2, 5_000);
+		b.onItem(4151, 1, 5_000);
+		assertEquals("the same log in any order is the same log", a.fingerprint(), b.fingerprint());
+
+		// A new item, or another of one you had, is a different log — both must push.
+		ClogFullSync more = new ClogFullSync();
+		more.begin(false);
+		more.onItem(4151, 1, 1_000);
+		more.onItem(11802, 2, 1_000);
+		more.onItem(20997, 1, 1_000);
+		assertNotEquals(a.fingerprint(), more.fingerprint());
+
+		ClogFullSync dupe = new ClogFullSync();
+		dupe.begin(false);
+		dupe.onItem(4151, 1, 1_000);
+		dupe.onItem(11802, 3, 1_000);
+		assertNotEquals(a.fingerprint(), dupe.fingerprint());
 	}
 
 	@Test

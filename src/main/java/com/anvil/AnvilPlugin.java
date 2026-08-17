@@ -753,6 +753,8 @@ public class AnvilPlugin extends Plugin {
     private final SyncBackoff clogFullBackoff = new SyncBackoff();
     /** One in-flight immediate flush at a time — game ticks are 600ms and the push is not. */
     private volatile boolean clogFlushQueued;
+    /** Fingerprint of the last log we successfully pushed, so an unchanged one isn't sent again. */
+    private volatile long lastClogFingerprint;
     private final SyncBackoff pbBackoff = new SyncBackoff();
     private final PersonalBests personalBests = new PersonalBests();
     /** The account the two above belong to, so a character switch reloads rather than merges. */
@@ -1801,6 +1803,7 @@ public class AnvilPlugin extends Plugin {
             // A half-received collection log belongs to the account that was logged in.
             clogFullSync.reset();
             clogSyncRequested = false;
+            lastClogFingerprint = 0;
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
@@ -7957,6 +7960,15 @@ public class AnvilPlugin extends Plugin {
         }
         boolean manual = clogFullSync.isManual();
         int count = clogFullSync.size();
+        // Opening the log re-transmits everything, and most opens change nothing. Pushing an
+        // identical log would burn the server's cooldown and rewrite 1,700 rows to say the same
+        // thing. A deliberate press still goes, so "sync now" always means something happened.
+        long fingerprint = clogFullSync.fingerprint();
+        if (!manual && fingerprint == lastClogFingerprint) {
+            log.debug("Collection log unchanged since the last sync — nothing to push");
+            clogFullSync.onSent();
+            return;
+        }
         try {
             apiClient.submitClogItems(clogFullSync.snapshot());
         } catch (BingoApiClient.PermanentSubmissionException e) {
@@ -7981,6 +7993,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         clogFullBackoff.onSuccess();
+        lastClogFingerprint = fingerprint;
         clogFullSync.onSent();
         log.info("Collection log synced: {} items", count);
         if (manual) {

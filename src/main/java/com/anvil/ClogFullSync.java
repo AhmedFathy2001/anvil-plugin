@@ -95,6 +95,25 @@ final class ClogFullSync
 		return items.size();
 	}
 
+	/**
+	 * A cheap fingerprint of what was received, so an unchanged log isn't pushed twice.
+	 *
+	 * <p>The transmit re-sends everything every time the log is opened, and most opens change
+	 * nothing. Order-independent (the game's transmit order is not ours to rely on) and includes
+	 * quantities, so a second of the same item still counts as a change.
+	 */
+	synchronized long fingerprint()
+	{
+		long hash = items.size();
+		for (Map.Entry<Integer, Integer> e : items.entrySet())
+		{
+			// Mixed per entry then XORed in: adding an item changes it, and reordering doesn't.
+			long h = e.getKey() * 0x9E3779B97F4A7C15L + e.getValue();
+			hash ^= h ^ (h >>> 29);
+		}
+		return hash;
+	}
+
 	/** The push landed: drop the batch and stand down until the next transmit. */
 	void onSent()
 	{
