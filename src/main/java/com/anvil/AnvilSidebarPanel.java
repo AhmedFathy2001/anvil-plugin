@@ -8,6 +8,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -987,28 +988,36 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.add(sectionHeader("This clan"));
 		panel.add(gap(6));
 
-		if (actions.canSyncProfile)
+		// Two buttons that do the same KIND of thing belong on one line: stacked full-width they read
+		// as a list of unrelated commands, and they cost two rows of a panel that has none to spare.
+		// Side by side the labels have to be short, which is why the pair says "Sync roster" and the
+		// lone button (nothing to sit beside) keeps the longer "Sync clan roster".
+		boolean both = actions.canSyncProfile && actions.canSyncRoster;
+		if (both)
 		{
-			JButton profile = new JButton("Sync profile");
-			styleFlatButton(profile, ColorScheme.BRAND_ORANGE);
-			profile.setAlignmentX(LEFT_ALIGNMENT);
-			profile.setToolTipText("Send your collection log and best times to this clan's site");
-			profile.addActionListener(e -> dataSource.syncProfile());
-			panel.add(profile);
-			panel.add(gap(4));
+			panel.add(buttonRow(
+				actionButton("Sync profile", "Send your collection log and best times to this clan's site",
+					dataSource::syncProfile),
+				actionButton("Sync roster", "Push the in-game clan member list to the site",
+					dataSource::syncRoster)));
+		}
+		else if (actions.canSyncProfile)
+		{
+			panel.add(fullWidth(actionButton("Sync profile",
+				"Send your collection log and best times to this clan's site", dataSource::syncProfile)));
+		}
+		else if (actions.canSyncRoster)
+		{
+			panel.add(fullWidth(actionButton("Sync clan roster",
+				"Push the in-game clan member list to the site", dataSource::syncRoster)));
 		}
 
-		if (actions.canSyncRoster)
+		if (!actions.canSyncRoster && actions.rosterNote != null)
 		{
-			JButton roster = new JButton("Sync clan roster");
-			styleFlatButton(roster, ColorScheme.BRAND_ORANGE);
-			roster.setAlignmentX(LEFT_ALIGNMENT);
-			roster.setToolTipText("Push the in-game clan member list to the site");
-			roster.addActionListener(e -> dataSource.syncRoster());
-			panel.add(roster);
-		}
-		else if (actions.rosterNote != null)
-		{
+			if (actions.canSyncProfile)
+			{
+				panel.add(gap(4));
+			}
 			JLabel note = new JLabel(plainText(actions.rosterNote));
 			note.setFont(FontManager.getRunescapeSmallFont());
 			note.setForeground(VALUE_COLOR);
@@ -1023,8 +1032,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * Banner clips, which are files in a folder on THIS machine.
 	 *
 	 * <p>Nothing here is per account or per clan — swapping character or clan doesn't change which
-	 * .wav files are on your disk — so the list is the same wherever you are in the panel. Green is
-	 * in the cycle, grey is muted, clicking flips it.
+	 * .wav files are on your disk — so the list is the same wherever you are in the panel. A lit
+	 * swatch is in the play cycle, a hollow one is muted, and clicking the row flips it.
 	 */
 	private JPanel buildBannerSounds()
 	{
@@ -1050,29 +1059,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			for (String clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN)))
 			{
-				boolean on = dataSource.bannerSoundOn(clip);
-				String display = clip.toLowerCase().endsWith(".wav") ? clip.substring(0, clip.length() - 4) : clip;
-				JLabel row = new JLabel(plainText(ellipsize(display, 28)));
-				row.setFont(FontManager.getRunescapeSmallFont());
-				row.setForeground(on ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
-				row.setAlignmentX(LEFT_ALIGNMENT);
-				row.setToolTipText(plainText(display) + (on ? " — playing" : " — muted"));
-				row.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
-				row.addMouseListener(new java.awt.event.MouseAdapter()
-				{
-					@Override
-					public void mouseClicked(MouseEvent e)
-					{
-						dataSource.toggleBannerSound(clip);
-						renderSelected();
-					}
-				});
-				panel.add(row);
+				panel.add(buildClipRow(clip, dataSource.bannerSoundOn(clip)));
 				panel.add(gap(2));
 			}
 			if (clips.size() > BANNER_CLIPS_SHOWN)
 			{
 				JLabel more = new JLabel("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder");
+				more.setBorder(BorderFactory.createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
 				more.setFont(FontManager.getRunescapeSmallFont());
 				more.setForeground(VALUE_COLOR);
 				more.setAlignmentX(LEFT_ALIGNMENT);
@@ -1081,19 +1074,83 @@ public class AnvilSidebarPanel extends PluginPanel
 			panel.add(gap(4));
 		}
 
-		JPanel buttons = new JPanel(new java.awt.GridLayout(1, 2, 4, 0));
-		buttons.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		buttons.setAlignmentX(LEFT_ALIGNMENT);
 		JButton add = new JButton("Add clip");
 		styleFlatButton(add, Color.WHITE);
+		add.setToolTipText("Pick .wav files to copy into the sounds folder");
 		add.addActionListener(e -> dataSource.importBannerSounds());
 		JButton open = new JButton("Open folder");
 		styleFlatButton(open, Color.WHITE);
+		open.setToolTipText("Open the sounds folder to rename or delete clips");
 		open.addActionListener(e -> dataSource.openBannerSounds());
-		buttons.add(add);
-		buttons.add(open);
-		panel.add(buttons);
+		panel.add(buttonRow(add, open));
 		return panel;
+	}
+
+	/** How far a clip's name sits from the panel edge — the swatch's width plus its gap. */
+	private static final int CLIP_TEXT_INSET = 14;
+
+	/**
+	 * One clip: a lit swatch, its name, and a click that mutes or unmutes it.
+	 *
+	 * <p>Colour alone carried this before — a green name meant playing, a grey one meant muted — which
+	 * is invisible if you don't already know the rule, and unreadable if you can't separate the two
+	 * greens. The swatch says on/off the way the in-game list does, the row lights under the pointer
+	 * so it's clearly a control, and the tooltip names the action rather than the state.
+	 */
+	private JPanel buildClipRow(String clip, boolean on)
+	{
+		String display = BannerSoundService.displayName(clip);
+
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 4));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		row.setToolTipText(plainText(display) + (on ? " — click to mute" : " — muted; click to unmute"));
+
+		JPanel swatch = new JPanel();
+		swatch.setPreferredSize(new Dimension(8, 8));
+		swatch.setMinimumSize(new Dimension(8, 8));
+		swatch.setMaximumSize(new Dimension(8, 8));
+		swatch.setBackground(on ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.DARK_GRAY_COLOR);
+		swatch.setBorder(BorderFactory.createLineBorder(on
+			? ColorScheme.PROGRESS_COMPLETE_COLOR : WIDGET_BORDER));
+		// Centre the 8px square against the text line rather than stretching it down the row.
+		JPanel swatchBox = new JPanel(new GridBagLayout());
+		swatchBox.setOpaque(false);
+		swatchBox.setPreferredSize(new Dimension(CLIP_TEXT_INSET - 6, 12));
+		swatchBox.add(swatch);
+
+		JLabel name = new JLabel(plainText(ellipsize(display, 26)));
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(on ? ColorScheme.TEXT_COLOR : VALUE_COLOR);
+
+		row.add(swatchBox, BorderLayout.WEST);
+		row.add(name, BorderLayout.CENTER);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+
+		row.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				dataSource.toggleBannerSound(clip);
+				renderSelected();
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				row.setBackground(WIDGET_BG_HOVER);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			}
+		});
+		return row;
 	}
 
 	/** One row of the events list: name, kind, a one-line status, and (for a board) its progress bar. */
@@ -2257,6 +2314,45 @@ public class AnvilSidebarPanel extends PluginPanel
 	// ---- Anvil-themed widget chrome ---------------------------------------------------------------
 
 	/** Flat dark button matching the sidebar theme: dark surface, thin border, hover lift, no L&F chrome. */
+	/** A themed action button in the panel's orange, wired to one thing it does. */
+	private static JButton actionButton(String label, String tooltip, Runnable onClick)
+	{
+		JButton b = new JButton(label);
+		styleFlatButton(b, ColorScheme.BRAND_ORANGE);
+		b.setAlignmentX(LEFT_ALIGNMENT);
+		b.setToolTipText(tooltip);
+		b.addActionListener(e -> onClick.run());
+		return b;
+	}
+
+	/**
+	 * Two buttons on one line, equal halves.
+	 *
+	 * <p>The height cap matters: a grid inside a vertical BoxLayout will happily stretch to whatever
+	 * space is left, which turns a pair of buttons into a pair of slabs.
+	 */
+	private static JPanel buttonRow(JButton left, JButton right)
+	{
+		JPanel row = new JPanel(new GridLayout(1, 2, 4, 0));
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.add(left);
+		row.add(right);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
+	/** One button holding a whole row, so a lone action doesn't sit in half a line. */
+	private static JPanel fullWidth(JButton button)
+	{
+		JPanel row = new JPanel(new GridLayout(1, 1));
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.add(button);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
 	private static void styleFlatButton(JButton b, Color foreground)
 	{
 		b.setFocusPainted(false);

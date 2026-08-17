@@ -90,6 +90,29 @@ public class BannerSoundService
 	}
 
 	/**
+	 * A clip filename as something to read: "odablock-we-won.wav" becomes "Odablock we won".
+	 *
+	 * <p>Clips arrive as downloaded files, so their names are slugs. Printed verbatim they made both
+	 * the in-game list and the side panel look like a directory listing that had leaked into the
+	 * interface. Lives here rather than in either panel because both of them show the same files.
+	 */
+	public static String displayName(String file)
+	{
+		String s = file == null ? "" : file.trim();
+		int dot = s.lastIndexOf('.');
+		if (dot > 0)
+		{
+			s = s.substring(0, dot);
+		}
+		s = s.replace('_', ' ').replace('-', ' ').replaceAll("\\s+", " ").trim();
+		if (s.isEmpty())
+		{
+			return file == null ? "" : file;
+		}
+		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+	}
+
+	/**
 	 * True if {@code name} is in the play cycle. The cycle is the comma-separated allowlist in
 	 * {@link AnvilConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
 	 */

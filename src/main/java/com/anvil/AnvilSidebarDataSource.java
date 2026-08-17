@@ -419,6 +419,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			w.title = a.title;
 			w.type = a.type;
 			w.metric = a.metric;
+			w.metricLabel = a.metricLabel;
 			w.status = "active";
 			w.startDate = a.startDate;
 			w.endDate = a.endDate;
@@ -569,8 +570,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				}
 			}
 		}
-		return new ConnectionView.WeeklyView(w.id, w.title, w.type, w.metric, w.startDate, w.endDate,
-			!isLive(w.status), yourRank, yourGained, participants, top, weeklyUrlFor(w.id));
+		return new ConnectionView.WeeklyView(w.id, w.title, w.type, w.metric, w.metricLabel,
+			w.startDate, w.endDate, !isLive(w.status), yourRank, yourGained, participants, top,
+			weeklyUrlFor(w.id));
 	}
 
 	/** The comp's page on the site, or null when the base URL is unknown (offline / unconfigured). */

@@ -765,7 +765,29 @@ public class AnvilPlugin extends Plugin {
      * left or was renamed, because that is news whether or not you asked for it.
      */
     private volatile boolean autoRosterAnnounce;
+    /**
+     * Has an automatic sync already reported itself this login?
+     *
+     * <p>The first one of a session always speaks, even to say nothing moved: that line is how you
+     * know the plugin is talking to your site at all, and its absence is what made a working sync
+     * look broken. Every one after it speaks only for news — a "nothing changed" every world hop, or
+     * every time the collection log is opened, is the noise the silence was protecting against.
+     */
+    private volatile boolean autoRosterReportedThisLogin;
+    private volatile boolean autoClogReportedThisLogin;
     private static final long AUTO_ROSTER_MIN_GAP_MS = 30 * 60 * 1000;
+    /**
+     * When another roster push is allowed.
+     *
+     * <p>A roster push rewrites every member row on the site, and the button is right there in two
+     * places — so it was one impatient double-click away from doing that twice, and nothing but the
+     * in-flight guard stood between a bored admin and a push per second. The collection log has had
+     * this cooldown since the site started refusing them; the roster deserves the same manners.
+     */
+    private volatile long rosterPushAllowedAt;
+    private static final long ROSTER_PUSH_COOLDOWN_MS = 60_000L;
+    /** Doubling wait after a push that failed for a reason that might clear (site down, no network). */
+    private final SyncBackoff rosterBackoff = new SyncBackoff();
     /** The clan list lands a moment after the channel does; give it time rather than racing it. */
     private static final long AUTO_ROSTER_DELAY_MS = 5_000;
     private final ClogSync clogSync = new ClogSync();
@@ -1917,6 +1939,10 @@ public class AnvilPlugin extends Plugin {
             clogFullSync.reset();
             clogSyncRequested = false;
             lastClogFingerprint = 0;
+            // Next login gets its one line back: "it ran and agreed with the site" is worth saying
+            // once per session, and only once.
+            autoRosterReportedThisLogin = false;
+            autoClogReportedThisLogin = false;
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
@@ -4678,6 +4704,29 @@ public class AnvilPlugin extends Plugin {
             return;
         }
 
+        // Wait your turn. Both buttons and the login-time push come through here, so this is the one
+        // place that can hold the line — a cooldown after a push that worked, and a doubling wait
+        // after one that didn't, so a site that's down isn't asked again every time someone clicks.
+        boolean automatic = autoRosterAnnounce;
+        long gate = System.currentTimeMillis();
+        boolean backedOff = !rosterBackoff.ready(gate);
+        long waitMs = backedOff
+                ? rosterBackoff.secondsUntilReady(gate) * 1000L
+                : rosterPushAllowedAt - gate;
+        if (waitMs > 0) {
+            // This attempt isn't happening, so it doesn't get to speak for the login either.
+            autoRosterAnnounce = false;
+            long secs = Math.max(1, (waitMs + 999) / 1000);
+            String why = backedOff
+                    ? "The site didn't take the last roster push — trying again in " + secs + "s."
+                    : "The roster was just synced — try again in " + secs + "s.";
+            if (!automatic) {
+                sendChatMessage(why);
+            }
+            cb.onResult(false, why);
+            return;
+        }
+
         // Read clan data on the client thread, then POST on the executor thread.
         clientThread.invokeLater(() -> {
             if (!isClanScrapeAvailable()) {
@@ -4705,11 +4754,12 @@ public class AnvilPlugin extends Plugin {
             executor.submit(() -> {
                 try {
                     BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
+                    rosterBackoff.onSuccess();
+                    rosterPushAllowedAt = System.currentTimeMillis() + ROSTER_PUSH_COOLDOWN_MS;
                     lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
                     // A sync nobody asked for reports itself only when the roster actually MOVED.
                     // Silence on the login where nothing changed; one line when somebody joined or
                     // left, because that's news whether or not you pressed anything.
-                    boolean automatic = autoRosterAnnounce;
                     autoRosterAnnounce = false;
                     if (automatic) {
                         java.util.List<String> parts = new java.util.ArrayList<>();
@@ -4725,11 +4775,16 @@ public class AnvilPlugin extends Plugin {
                         if (r.renamed > 0) {
                             parts.add(r.renamed + " renamed");
                         }
-                        // Always says something. A sync that reports nothing is indistinguishable
-                        // from one that never ran, and that ambiguity cost an afternoon.
-                        sendChatMessage(parts.isEmpty()
-                                ? "Clan roster checked — nothing changed."
-                                : "Clan roster updated: " + String.join(", ", parts) + ".");
+                        // News always gets said. "Nothing changed" gets said once a login — enough to
+                        // prove the sync ran, not so often that it becomes something to scroll past.
+                        boolean moved = !parts.isEmpty();
+                        boolean firstThisLogin = !autoRosterReportedThisLogin;
+                        autoRosterReportedThisLogin = true;
+                        if (moved) {
+                            sendChatMessage("Clan roster updated: " + String.join(", ", parts) + ".");
+                        } else if (firstThisLogin) {
+                            sendChatMessage("Clan roster checked — nothing changed.");
+                        }
                     } else {
                         sendChatMessage("Clan roster synced: " + lastSyncSummary);
                     }
@@ -4797,9 +4852,23 @@ public class AnvilPlugin extends Plugin {
                     String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
                     sendChatMessage("Clan sync failed: clan name doesn't match site config (" + server + ").");
                     cb.onResult(false, "Clan name doesn't match site config (" + server + ").");
+                } catch (BingoApiClient.RateLimitedException e) {
+                    // The site said when. Hold exactly that long rather than guessing at it.
+                    rosterPushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
+                    log.debug("Clan sync rate-limited for {}ms", e.retryAfterMs);
+                    if (!automatic) {
+                        sendChatMessage("The site is limiting roster syncs — try again in "
+                                + Math.max(1, (e.retryAfterMs + 999) / 1000) + "s.");
+                    }
+                    cb.onResult(false, "Rate limited by the site.");
                 } catch (IOException e) {
+                    // Might clear on its own (site down, network gone), so wait longer each time
+                    // instead of letting a button turn into a retry loop against a dead host.
+                    rosterBackoff.onFailure(System.currentTimeMillis());
                     log.warn("Clan sync failed: {}", e.getMessage());
-                    sendChatMessage("Clan sync failed: " + e.getMessage());
+                    if (!automatic) {
+                        sendChatMessage("Clan sync failed: " + e.getMessage());
+                    }
                     cb.onResult(false, "Sync failed: " + e.getMessage());
                 }
             });
@@ -8496,9 +8565,13 @@ public class AnvilPlugin extends Plugin {
         if (!manual && fingerprint == lastClogFingerprint) {
             log.debug("Collection log unchanged since the last sync — nothing to push");
             clogFullSync.onSent();
-            // Nothing to send, but the player still asked the game for their log by opening it, so
-            // the outcome gets said: checked, unchanged, no request made.
-            sendChatMessage("Collection log checked — nothing new since your last sync.");
+            // Nothing to send. Said once a login — proof the sync ran and agreed with the site —
+            // and then not again: the log is re-transmitted on every open, and a line each time
+            // saying nothing happened is worse than saying nothing at all.
+            if (!autoClogReportedThisLogin) {
+                autoClogReportedThisLogin = true;
+                sendChatMessage("Collection log checked — your profile is up to date.");
+            }
             return;
         }
         BingoApiClient.ClogPushResult result;
@@ -8549,12 +8622,15 @@ public class AnvilPlugin extends Plugin {
         log.info("Collection log synced: {} items", count);
         if (manual) {
             sendChatMessage("Profile synced — " + count + " collection log slots.");
-        } else {
-            // Automatic syncs report too. "Nothing new" is a useful sentence: it says the sync ran,
-            // reached the site and agreed with it, which silence never manages to say.
-            sendChatMessage(result.added > 0
-                    ? "Collection log synced — " + result.added + " new slot" + (result.added == 1 ? "" : "s") + "."
-                    : "Collection log synced — nothing new.");
+        } else if (result.added > 0) {
+            // New slots are news: always said.
+            autoClogReportedThisLogin = true;
+            sendChatMessage("Collection log synced — " + result.added + " new slot"
+                    + (result.added == 1 ? "" : "s") + ".");
+        } else if (!autoClogReportedThisLogin) {
+            // A push that added nothing still proves the round trip worked — once a login.
+            autoClogReportedThisLogin = true;
+            sendChatMessage("Collection log synced — nothing new.");
         }
     }
 

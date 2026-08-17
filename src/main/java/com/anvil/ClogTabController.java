@@ -40,6 +40,7 @@ public class ClogTabController
 	private static final int ALIGN_RIGHT = 2;
 	private static final int FONT_PLAIN = 495; // PLAIN_12
 	private static final int FONT_PLAIN_SMALL = 494; // PLAIN_11 — one step down, used to fit long text without cutting it off
+	private static final int FONT_BOLD = 496; // BOLD_12 — the game's own heading weight, for banner titles
 	private static final int COL_ORANGE = 0xff9040;
 	private static final int BODY_TOP = 8; // top margin so content isn't flush against the divider
 
@@ -233,6 +234,9 @@ public class ClogTabController
 			bingoTabActive = false;
 			closeSearchInput();
 			resetFilters();
+			// The game brought its own list back, but the strays we hid alongside it are still ours
+			// to put back — otherwise a native tab is missing its entry count until the next relog.
+			setBossListHidden(false);
 			hideHeaderBook(false);
 			removeAnvilLeft();
 			injectBingoTab();
@@ -1093,78 +1097,152 @@ public class ClogTabController
 
 	/** Left column: event-type filter on the Schedule home, a Back button inside an event. */
 
+	// ---- left column chrome -------------------------------------------------------------------
+	// Three kinds of row, and they must not look alike: a BUTTON does something (gold outline), a
+	// SETTING holds a value you can cycle (flat tint, grey label + gold value), a TOGGLE is on or off
+	// (a lit swatch). The column previously drew all three as bare gold sentences under underlined
+	// grey headings, so a heading, a filter and a button were three lines of the same thing.
+	private static final int COL_ROW_BG = 0x2a2620;   // the panel tint every row sits on
+	private static final int COL_LABEL = 0x9a9184;    // section headings and setting names
+	private static final int COL_VALUE = 0xffcc33;    // any value or action, i.e. the gold
+	private static final int COL_MUTED = 0x7d766c;    // off / secondary text
+	private static final int COL_ON = 0x4ec95f;       // a clip that's in the play cycle
+	private static final int ROW_X = 8;
+	private static final int ROW_W = ClogIds.LEFT_COL_W - 16;
+	private static final int BTN_H = 20;
+
+	/** The tinted panel + outline shared by buttons and settings. Returns [bg, border]. */
+	private Widget[] rowChrome(Widget container, int y, int h, int borderColor, int borderOpacity)
+	{
+		Widget bg = container.createChild(-1, WidgetType.RECTANGLE);
+		bg.setFilled(true);
+		bg.setTextColor(COL_ROW_BG);
+		bg.setOpacity(150); // 0 = opaque, 255 = transparent — a tint, not a slab
+		place(bg, ROW_X, y, ROW_W, h);
+		bg.revalidate();
+
+		Widget border = null;
+		if (borderColor >= 0)
+		{
+			border = container.createChild(-1, WidgetType.RECTANGLE);
+			border.setFilled(false);
+			border.setTextColor(borderColor);
+			border.setOpacity(borderOpacity);
+			place(border, ROW_X, y, ROW_W, h);
+			border.revalidate();
+		}
+		return new Widget[]{bg, border};
+	}
+
 	/**
-	 * A left-column button, drawn the way the board's tiles are: a filled panel, an outline, and the
-	 * label on top of both.
+	 * Light the whole row while the pointer is over it.
 	 *
-	 * <p>The column used to be a stack of bare gold sentences, which read as a list of headings
-	 * rather than as things you can press — nothing about "Sync profile" looked any more clickable
-	 * than "Event type" above it. Pressable things now look pressable and light up under the mouse.
+	 * <p>The listener goes on a widget that covers the entire row, so the row reacts as one control
+	 * rather than only where the letters happen to be.
+	 */
+	private void hoverLight(Widget hit, Widget bg, Widget border, int restOpacity)
+	{
+		hit.setOnMouseOverListener((JavaScriptCallback) e ->
+		{
+			bg.setOpacity(90);
+			if (border != null)
+			{
+				border.setOpacity(0);
+			}
+		});
+		hit.setOnMouseLeaveListener((JavaScriptCallback) e ->
+		{
+			bg.setOpacity(150);
+			if (border != null)
+			{
+				border.setOpacity(restOpacity);
+			}
+		});
+	}
+
+	/**
+	 * A thing you press: a tinted panel, a gold outline, and the label centred across both.
+	 *
+	 * <p>The label widget spans the whole button (rather than an inset strip) so the hover, the
+	 * right-click menu and the click all belong to the same rectangle the eye sees.
 	 *
 	 * @return the y a following row should start at
 	 */
 	private int drawButton(Widget container, int y, String label, String action, Runnable onClick, int accent)
 	{
-		final int h = 18;
-		final int x = 8;
-		final int w = ClogIds.LEFT_COL_W - 16;
-
-		Widget bg = container.createChild(-1, WidgetType.RECTANGLE);
-		bg.setFilled(true);
-		bg.setTextColor(0x2a2620);
-		bg.setOpacity(150); // 0 = opaque, 255 = transparent — a tint, not a slab
-		place(bg, x, y, w, h);
-		bg.revalidate();
-
-		Widget border = container.createChild(-1, WidgetType.RECTANGLE);
-		border.setFilled(false);
-		border.setTextColor(accent);
-		border.setOpacity(90);
-		place(border, x, y, w, h);
-		border.revalidate();
+		Widget[] chrome = rowChrome(container, y, BTN_H, accent, 90);
 
 		Widget text = container.createChild(-1, WidgetType.TEXT);
-		text.setText("<col=" + Integer.toHexString(accent) + ">" + label + "</col>");
+		text.setText("<col=" + hex(accent) + ">" + label + "</col>");
 		text.setFontId(FONT_PLAIN);
 		text.setTextShadowed(true);
-		place(text, x + 6, y + 3, w - 12, 14);
+		place(text, ROW_X, y, ROW_W, BTN_H);
+		text.setXTextAlignment(ALIGN_CENTER);
+		text.setYTextAlignment(ALIGN_CENTER);
 		text.setHasListener(true);
 		text.setAction(0, action);
 		text.setOnOpListener((JavaScriptCallback) e -> onClick.run());
-		// Hover lights the panel rather than the text: the whole button reacts, which is what makes
-		// it read as one control instead of a word that happens to be clickable.
-		text.setOnMouseOverListener((JavaScriptCallback) e ->
-		{
-			bg.setOpacity(90);
-			border.setOpacity(0);
-		});
-		text.setOnMouseLeaveListener((JavaScriptCallback) e ->
-		{
-			bg.setOpacity(150);
-			border.setOpacity(90);
-		});
+		hoverLight(text, chrome[0], chrome[1], 90);
 		text.revalidate();
 
-		return y + h + 4;
+		return y + BTN_H + 4;
 	}
 
-	/** A quiet caps label with a hairline under it — what separates one group of controls from another. */
-	private int drawSectionLabel(Widget container, int y, String label)
+	/**
+	 * A value you can change, not an action: no outline, the name in grey and the value in gold —
+	 * the same grammar the board's filter chips use, so "Show: All" reads as a setting and "Sync
+	 * profile" reads as a button without anyone having to try them to find out.
+	 */
+	private int drawSetting(Widget container, int y, String label, String value, Runnable onCycle)
 	{
+		final int h = 18;
+		Widget[] chrome = rowChrome(container, y, h, -1, 0);
+
 		Widget text = container.createChild(-1, WidgetType.TEXT);
-		text.setText("<col=8a8a8a>" + label + "</col>");
 		text.setFontId(FONT_PLAIN);
-		place(text, 10, y, ClogIds.LEFT_COL_W - 20, 12);
+		text.setTextShadowed(true);
+		String fitted = fitValue(text.getFont(), label + ": ", value, ROW_W - 16);
+		text.setText("<col=" + hex(COL_LABEL) + ">" + label + ":</col> <col=" + hex(COL_VALUE) + ">" + fitted + "</col>");
+		place(text, ROW_X + 7, y, ROW_W - 14, h);
+		text.setYTextAlignment(ALIGN_CENTER);
+		text.setHasListener(true);
+		text.setAction(0, "Cycle");
+		text.setOnOpListener((JavaScriptCallback) e -> onCycle.run());
+		hoverLight(text, chrome[0], null, 0);
 		text.revalidate();
 
-		Widget rule = container.createChild(-1, WidgetType.RECTANGLE);
-		rule.setFilled(true);
-		rule.setTextColor(0x5a5a5a);
-		rule.setOpacity(140);
-		place(rule, 8, y + 13, ClogIds.LEFT_COL_W - 16, 1);
-		rule.revalidate();
+		return y + h + 6;
+	}
 
-		return y + 18;
+	/**
+	 * A group heading: small caps, and a hairline running from the end of the words to the column
+	 * edge. Underlining the whole width made the heading look like a disabled button sitting on top
+	 * of the real ones; a trailing rule separates without competing.
+	 */
+	private int drawSectionLabel(Widget container, int y, String label)
+	{
+		y += 5; // air above a new group, so the heading belongs to what's under it
+		String caps = label.toUpperCase(java.util.Locale.ROOT);
+		Widget text = container.createChild(-1, WidgetType.TEXT);
+		text.setText("<col=" + hex(COL_LABEL) + ">" + caps + "</col>");
+		text.setFontId(FONT_PLAIN_SMALL);
+		place(text, ROW_X + 2, y, ROW_W - 4, 11);
+		text.revalidate();
+
+		int used = textWidth(text.getFont(), caps) + 6;
+		int ruleX = ROW_X + 2 + used;
+		int ruleW = ClogIds.LEFT_COL_W - 8 - ruleX;
+		if (ruleW > 8)
+		{
+			Widget rule = container.createChild(-1, WidgetType.RECTANGLE);
+			rule.setFilled(true);
+			rule.setTextColor(0x5a5248);
+			rule.setOpacity(120);
+			place(rule, ruleX, y + 5, ruleW, 1);
+			rule.revalidate();
+		}
+
+		return y + 15;
 	}
 
 	private void renderLeftColumn()
@@ -1184,7 +1262,31 @@ public class ClogTabController
 		heading.setTextShadowed(true);
 		place(heading, 10, y, ClogIds.LEFT_COL_W - 20, 16);
 		heading.revalidate();
-		y += 22;
+
+		// Whose site this is, right-aligned against the title. It fills a header that was otherwise
+		// one word floating over a column, and it answers the question a plugin that can point at
+		// several clans has to answer somewhere.
+		PluginConfigResponse cfg = plugin.getPluginConfig();
+		String clan = cfg == null || cfg.clanName == null ? "" : cfg.clanName.trim();
+		if (!clan.isEmpty())
+		{
+			Widget who = container.createChild(-1, WidgetType.TEXT);
+			who.setFontId(FONT_PLAIN_SMALL);
+			who.setText("<col=" + hex(COL_MUTED) + ">" + fitValue(who.getFont(), "", clan, ROW_W - 50) + "</col>");
+			place(who, ROW_X + 46, y + 3, ROW_W - 46, 12);
+			who.setXTextAlignment(ALIGN_RIGHT);
+			who.revalidate();
+		}
+
+		// A rule under the title, full width: the column reads as a panel with a header rather than
+		// as text that happens to start at the top.
+		Widget titleRule = container.createChild(-1, WidgetType.RECTANGLE);
+		titleRule.setFilled(true);
+		titleRule.setTextColor(COL_ORANGE);
+		titleRule.setOpacity(170);
+		place(titleRule, ROW_X, y + 17, ROW_W, 1);
+		titleRule.revalidate();
+		y += 26;
 
 		if (hubView != HubView.SCHEDULE)
 		{
@@ -1206,19 +1308,8 @@ public class ClogTabController
 			return;
 		}
 
-		// Filter: a label and its current value, which is a setting rather than an action — so it
-		// stays plain text and only the value is live.
-		y = drawSectionLabel(container, y, "Show");
-		Widget val = container.createChild(-1, WidgetType.TEXT);
-		val.setText("<col=ffcc33>" + eventTypeLabel(eventTypeFilter) + "</col>");
-		val.setFontId(FONT_PLAIN);
-		val.setTextShadowed(true);
-		place(val, 10, y, ClogIds.LEFT_COL_W - 20, 14);
-		val.setHasListener(true);
-		val.setAction(0, "Cycle");
-		val.setOnOpListener((JavaScriptCallback) e -> cycleEventTypeFilter());
-		val.revalidate();
-		y += 20;
+		// The event-type filter is a setting, not an action, so it wears the setting's clothes.
+		y = drawSetting(container, y, "Show", eventTypeLabel(eventTypeFilter), this::cycleEventTypeFilter);
 
 		// Actions. Everything here is a thing you press, so everything here looks like a button.
 		boolean anyAction = plugin.isAdmin() || plugin.supportsProfileSync();
@@ -1234,12 +1325,12 @@ public class ClogTabController
 			}
 			else
 			{
-				y = drawButton(container, y, "Sync clan roster", "Sync", this::triggerClanSync, 0xffcc33);
+				y = drawButton(container, y, "Sync clan roster", "Sync", this::triggerClanSync, COL_VALUE);
 			}
 		}
 		if (plugin.supportsProfileSync())
 		{
-			y = drawButton(container, y, "Sync profile", "Sync", plugin::syncProfileNow, 0xffcc33);
+			y = drawButton(container, y, "Sync profile", "Sync", plugin::syncProfileNow, COL_VALUE);
 		}
 
 		// Saved proofs — only while submissions are stuck on disk (upload failed and retrying), so
@@ -1252,49 +1343,86 @@ public class ClogTabController
 		}
 
 		// Banner sounds: files on this machine, not anything belonging to an account.
-		y = drawSectionLabel(container, y, "Banner sounds");
-		y = drawButton(container, y, "Add or open folder", "Add", plugin::importBannerSounds, 0xffcc33);
-
-		// One toggle row per clip: green = in the play cycle, grey = muted; clicking flips it. The
-		// column is fixed-height and doesn't scroll, so only as many as fit are drawn and the rest
-		// collapse into a count.
-		final int rowH = 15;
 		List<String> clips = plugin.bannerSoundClips();
+		y = drawSectionLabel(container, y, clips.isEmpty()
+			? "Banner sounds" : "Banner sounds (" + clips.size() + ")");
+		y = drawButton(container, y, clips.isEmpty() ? "Add a clip" : "Add or open folder",
+			clips.isEmpty() ? "Add" : "Open folder", plugin::importBannerSounds, COL_VALUE);
+
+		if (clips.isEmpty())
+		{
+			Widget none = container.createChild(-1, WidgetType.TEXT);
+			none.setText("<col=" + hex(COL_MUTED) + ">No clips yet - .wav files only</col>");
+			none.setFontId(FONT_PLAIN_SMALL);
+			place(none, ROW_X + 2, y + 2, ROW_W - 4, 12);
+			none.revalidate();
+			return;
+		}
+
+		// One toggle row per clip: a lit swatch means it's in the play cycle, a hollow one means it's
+		// muted, and clicking flips it. The tick and bullet this used to print aren't in the game's
+		// font, so every row rendered as a literal "?" \u2014 hence a drawn swatch instead of a character.
+		// The column is fixed-height and doesn't scroll, so only as many as fit are drawn and the
+		// rest collapse into a count.
+		final int rowH = 16;
 		int colH = container.getHeight();
-		int fit = colH > 80 ? Math.max(1, (colH - y - 6) / rowH) : 10;
+		int fit = colH > 80 ? Math.max(1, (colH - y - 8) / rowH) : 10;
 		boolean overflow = clips.size() > fit;
 		int shown = overflow ? Math.max(0, fit - 1) : clips.size();
 		for (int i = 0; i < shown; i++)
 		{
-			final String clip = clips.get(i);
-			boolean on = plugin.bannerSoundSelected(clip);
-			String disp = clip.toLowerCase().endsWith(".wav") ? clip.substring(0, clip.length() - 4) : clip;
-			if (disp.length() > 24)
-			{
-				disp = disp.substring(0, 23) + "...";
-			}
-			Widget row = container.createChild(-1, WidgetType.TEXT);
-			row.setText("<col=" + (on ? "49c25e" : "777777") + ">" + (on ? "\u2713 " : "\u2022 ") + disp + "</col>");
-			row.setFontId(FONT_PLAIN);
-			place(row, 14, y, ClogIds.LEFT_COL_W - 24, rowH);
-			row.setHasListener(true);
-			row.setAction(0, on ? "Mute" : "Unmute");
-			row.setOnOpListener((JavaScriptCallback) e -> plugin.toggleBannerSound(clip));
-			row.revalidate();
-			y += rowH;
+			String clip = clips.get(i);
+			y = drawClipRow(container, y, clip, plugin.bannerSoundSelected(clip), rowH);
 		}
 		if (overflow)
 		{
 			Widget more = container.createChild(-1, WidgetType.TEXT);
-			more.setText("<col=aaaaaa>+" + (clips.size() - shown) + " more in the folder</col>");
-			more.setFontId(FONT_PLAIN);
-			place(more, 14, y, ClogIds.LEFT_COL_W - 24, rowH);
+			more.setText("<col=" + hex(COL_MUTED) + ">+" + (clips.size() - shown) + " more in the folder</col>");
+			more.setFontId(FONT_PLAIN_SMALL);
+			place(more, ROW_X + 17, y + 2, ROW_W - 19, 12);
 			more.setHasListener(true);
 			more.setAction(0, "Open folder");
 			more.setOnOpListener((JavaScriptCallback) e -> plugin.openBannerSoundsFolder());
 			more.revalidate();
 		}
 	}
+
+	/** One banner-sound clip: [swatch] Name, lit when the clip is in the play cycle. */
+	private int drawClipRow(Widget container, int y, final String clip, boolean on, int rowH)
+	{
+		Widget bg = container.createChild(-1, WidgetType.RECTANGLE);
+		bg.setFilled(true);
+		bg.setTextColor(COL_ROW_BG);
+		bg.setOpacity(255); // invisible until the pointer is on the row
+		place(bg, ROW_X, y, ROW_W, rowH);
+		bg.revalidate();
+
+		Widget swatch = container.createChild(-1, WidgetType.RECTANGLE);
+		swatch.setFilled(on);
+		swatch.setTextColor(on ? COL_ON : COL_MUTED);
+		swatch.setOpacity(on ? 0 : 70);
+		place(swatch, ROW_X + 5, y + (rowH - 7) / 2, 7, 7);
+		swatch.revalidate();
+
+		Widget row = container.createChild(-1, WidgetType.TEXT);
+		row.setFontId(FONT_PLAIN);
+		row.setTextShadowed(true);
+		int textX = ROW_X + 17;
+		int textW = ClogIds.LEFT_COL_W - 8 - textX;
+		row.setText("<col=" + hex(on ? 0xd9d0c2 : COL_MUTED) + ">"
+			+ fitValue(row.getFont(), "", BannerSoundService.displayName(clip), textW) + "</col>");
+		place(row, textX, y, textW, rowH);
+		row.setYTextAlignment(ALIGN_CENTER);
+		row.setHasListener(true);
+		row.setAction(0, on ? "Mute" : "Unmute");
+		row.setOnOpListener((JavaScriptCallback) e -> plugin.toggleBannerSound(clip));
+		row.setOnMouseOverListener((JavaScriptCallback) e -> bg.setOpacity(140));
+		row.setOnMouseLeaveListener((JavaScriptCallback) e -> bg.setOpacity(255));
+		row.revalidate();
+
+		return y + rowH;
+	}
+
 
 private static String eventTypeLabel(String f)
 	{
@@ -1363,6 +1491,21 @@ private void cycleEventTypeFilter()
 		return tabs == null ? null : tabs.getParent();
 	}
 
+	/**
+	 * Native statics we hid alongside the boss list, by index, so leaving the tab restores exactly
+	 * those and nothing else.
+	 */
+	private final List<Integer> hiddenNativeStatics = new ArrayList<>();
+
+	/**
+	 * Clear the native left column for ours.
+	 *
+	 * <p>Hiding the category list isn't enough: the clog leaves loose text on the container itself —
+	 * the entry count that showed up as a stray cyan "8" in the bottom corner of our column, the same
+	 * kind of leftover as the "9" that bled over the banner. While our tab owns the view, no native
+	 * text of the container's own belongs on screen, so the small ones go with the list and come back
+	 * when we leave.
+	 */
 	private void setBossListHidden(boolean hidden)
 	{
 		Widget container = contentContainer();
@@ -1371,9 +1514,45 @@ private void cycleEventTypeFilter()
 			return;
 		}
 		Widget[] s = container.getStaticChildren();
-		if (s != null && s.length > ClogIds.LEFT_LIST_CHILD && s[ClogIds.LEFT_LIST_CHILD] != null)
+		if (s == null)
+		{
+			return;
+		}
+		if (s.length > ClogIds.LEFT_LIST_CHILD && s[ClogIds.LEFT_LIST_CHILD] != null)
 		{
 			s[ClogIds.LEFT_LIST_CHILD].setHidden(hidden);
+		}
+
+		if (!hidden)
+		{
+			for (int idx : hiddenNativeStatics)
+			{
+				if (idx >= 0 && idx < s.length && s[idx] != null)
+				{
+					s[idx].setHidden(false);
+				}
+			}
+			hiddenNativeStatics.clear();
+			return;
+		}
+
+		hiddenNativeStatics.clear();
+		for (int i = 0; i < s.length; i++)
+		{
+			Widget w = s[i];
+			// Already hidden by the game stays hidden by the game — we only undo what we did.
+			if (w == null || i == ClogIds.LEFT_LIST_CHILD || w.isHidden())
+			{
+				continue;
+			}
+			boolean strayText = w.getType() == WidgetType.TEXT && w.getHeight() <= 40;
+			boolean insideOurColumn = w.getRelativeX() >= 0 && w.getHeight() <= 40
+				&& w.getRelativeX() + w.getWidth() <= ClogIds.LEFT_COL_W;
+			if (strayText || insideOurColumn)
+			{
+				w.setHidden(true);
+				hiddenNativeStatics.add(i);
+			}
 		}
 	}
 
@@ -1549,7 +1728,7 @@ private void cycleEventTypeFilter()
 
 		// Two lines (event name + progress) so the header breathes, like the detail header — three
 		// lines don't fit the clog header height without clipping.
-		bannerLine(header, subtitle, COL_ORANGE, 0);
+		bannerTitle(header, subtitle);
 		String prog = done + "/" + ClogTaskModel.scoredCount(all, optionalIds) + " done";
 		String line2 = totalPts > 0
 			? "<col=ffff00>" + earned + "</col> / " + totalPts + " points  <col=666666>·</col>  " + prog
@@ -1563,6 +1742,38 @@ private void cycleEventTypeFilter()
 	private static final int BANNER_LINE_3 = 13; // tighter step for the few 3-line headers (grid/race/points/
 	// leaderboard) — the clog header only fits ~3 lines at this spacing, so they stay compact by necessity
 	private static final int BANNER_LEFT = 6; // left indent so header text lines up with the body content
+
+	/**
+	 * The banner's first line — the one that names what you're looking at.
+	 *
+	 * <p>It used to be the same font, weight and size as the two lines under it, so a header read as
+	 * three equal sentences and nothing announced itself as the title. It now uses the game's own
+	 * heading font with a gold bar down its left edge (the site's section marker, brought in-game),
+	 * which gives the banner a top without costing it a line of height — the clog header only fits
+	 * three, and every one of them is spoken for.
+	 */
+	private Widget bannerTitle(Widget header, String text)
+	{
+		Widget bar = header.createChild(-1, WidgetType.RECTANGLE);
+		bar.setFilled(true);
+		bar.setTextColor(COL_ORANGE);
+		bar.setOpacity(40);
+		place(bar, 1, BANNER_TOP + 2, 2, 12);
+		bar.revalidate();
+
+		Widget line = header.createChild(-1, WidgetType.TEXT);
+		line.setFontId(FONT_BOLD);
+		int avail = header.getWidth() > 40 ? header.getWidth() - BANNER_LEFT - 12 : 280;
+		place(line, BANNER_LEFT, BANNER_TOP, avail, 16);
+		// Bold is wider than plain, so a title that just fitted before can now run off the pane.
+		// Coloured markup is left alone: cutting a string mid-tag prints the tag.
+		line.setText(text != null && text.indexOf('<') < 0
+			? fitValue(line.getFont(), "", text, avail) : text);
+		line.setTextColor(COL_ORANGE);
+		line.setTextShadowed(true);
+		line.revalidate();
+		return line;
+	}
 
 	private Widget bannerLine(Widget header, String text, int color, int y)
 	{
@@ -2000,7 +2211,7 @@ private void cycleEventTypeFilter()
 		if (header != null)
 		{
 			header.deleteAllChildren();
-			bannerLine(header, "Schedule", COL_ORANGE, 0);
+			bannerTitle(header, "Schedule");
 			bannerLine(header, "Your events & upcoming competitions", 0xaaaaaa, 16);
 			header.revalidate();
 		}
@@ -2176,10 +2387,12 @@ private void cycleEventTypeFilter()
 			if (lb != null && lb.competition != null)
 			{
 				String kind = ConnectionView.WeeklyView.kindLabel(lb.competition.type);
-				bannerLine(header, lb.competition.title == null ? kind : lb.competition.title, COL_ORANGE, 0);
-				// metricLabel, not the raw key: an EHP week read "ehp" here (and "Boss of the Week" above).
+				bannerTitle(header, lb.competition.title == null ? kind : lb.competition.title);
+				// The site's own label, not the raw key: an EHP week read "ehp" here, and a boss week
+				// read "PhosanisNightmare" — the hiscores spelling, apostrophe and all missing.
 				bannerLine(header, kind + "  <col=666666>·</col>  "
-					+ nz(ConnectionView.WeeklyView.metricLabel(lb.competition.type, lb.competition.metric)), 0xffffff, BANNER_LINE_3);
+					+ nz(ConnectionView.WeeklyView.metricLabel(lb.competition.type, lb.competition.metric,
+						lb.competition.metricLabel)), 0xffffff, BANNER_LINE_3);
 				// Live countdown instead of a plain date range — onGameTick refreshes this one line.
 				countdownStart = lb.competition.startDate;
 				countdownEnd = lb.competition.endDate;
@@ -2189,7 +2402,7 @@ private void cycleEventTypeFilter()
 			}
 			else
 			{
-				bannerLine(header, "Leaderboard", COL_ORANGE, 0);
+				bannerTitle(header, "Leaderboard");
 				bannerLine(header, loadingLeaderboard ? "Loading..." : "Unavailable", 0xaaaaaa, 16);
 			}
 			header.revalidate();
@@ -2321,7 +2534,7 @@ private void cycleEventTypeFilter()
 		{
 			header.deleteAllChildren();
 			String title = ev != null && ev.name != null && !ev.name.isEmpty() ? ev.name : "Ladder";
-			bannerLine(header, title, COL_ORANGE, 0);
+			bannerTitle(header, title);
 			bannerLine(header, ladderRankLine(ev), 0xffffff, BANNER_LINE_3);
 			ladderCountdownText = ladderCountdownText(now);
 			ladderCountdownLine = bannerLine(header, ladderCountdownText, 0xff9040, BANNER_LINE_3 * 2);
@@ -2792,7 +3005,7 @@ private void cycleEventTypeFilter()
 		if (header != null)
 		{
 			header.deleteAllChildren();
-			bannerLine(header, boardTitle(board), COL_ORANGE, 0);
+			bannerTitle(header, boardTitle(board));
 			if (board != null && board.tiles != null && !board.tiles.isEmpty())
 			{
 				int done = 0;
@@ -2907,7 +3120,7 @@ private void cycleEventTypeFilter()
 		if (header != null)
 		{
 			header.deleteAllChildren();
-			bannerLine(header, boardTitle(board), COL_ORANGE, 0);
+			bannerTitle(header, boardTitle(board));
 			if (board != null && board.tiles != null && !board.tiles.isEmpty())
 			{
 				int totalPoints = 0;
@@ -3124,7 +3337,7 @@ private void cycleEventTypeFilter()
 		if (header != null)
 		{
 			header.deleteAllChildren();
-			bannerLine(header, boardTitle(board), COL_ORANGE, 0);
+			bannerTitle(header, boardTitle(board));
 			bannerLine(header, sel != null ? sel.label : "Tile detail", 0xffffff, BANNER_LINE_H);
 			header.revalidate();
 		}
@@ -3394,7 +3607,7 @@ private void cycleEventTypeFilter()
 		if (header != null)
 		{
 			header.deleteAllChildren();
-			bannerLine(header, board != null ? boardTitle(board) : "Tile Race", COL_ORANGE, 0);
+			bannerTitle(header, board != null ? boardTitle(board) : "Tile Race");
 			if (board != null && board.tiles != null)
 			{
 				bannerLine(header, "Tile Race  <col=666666>·</col>  " + board.tiles.size() + " tiles",
