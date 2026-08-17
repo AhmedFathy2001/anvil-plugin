@@ -145,6 +145,59 @@ public class SidebarEventsTest
 				.sizeLabel());
 	}
 
+	/**
+	 * Only a classic bingo is a grid. For every other format the site puts the TILE COUNT in
+	 * boardSize, so rendering it as a side length announced a 240-task Leagues board as "240×240" —
+	 * a claim about 57,600 tiles, next to the "240 tiles" that contradicted it.
+	 */
+	@Test
+	public void aListFormatIsNeverDescribedAsAGrid()
+	{
+		// The board from the bug report: Leagues, 240 tiles.
+		assertEquals("240 tiles",
+			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 240, 240, "bingo", "points", null)
+				.sizeLabel());
+		// boardSize alone still answers "how big", because for a list it IS the tile count.
+		assertEquals("240 tiles",
+			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 240, "bingo", "points", null)
+				.sizeLabel());
+		assertEquals("8 tiles",
+			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 8, "tilerace", "tiles", null)
+				.sizeLabel());
+		assertEquals("12 tiles",
+			new ConnectionView.ScheduledView(1, "Ladder", null, null, false, 12, 12, "ladder", "points", null)
+				.sizeLabel());
+		assertEquals("1 tile",
+			new ConnectionView.ScheduledView(1, "Bounty", null, null, false, 1, 1, "bingo", "points", null)
+				.sizeLabel());
+	}
+
+	@Test
+	public void aClassicGridStillSaysItsShape()
+	{
+		// A half-authored board keeps its geometry and reports the tiles that actually exist — the
+		// count is never derived from N², which would claim tiles nobody has written yet.
+		assertEquals("5×5 · 12 tiles",
+			new ConnectionView.ScheduledView(1, "Half-built", null, null, false, 12, 5, "bingo", "tiles", null)
+				.sizeLabel());
+		assertEquals("5×5",
+			new ConnectionView.ScheduledView(1, "Unauthored", null, null, false, 0, 5, "bingo", "tiles", null)
+				.sizeLabel());
+	}
+
+	@Test
+	public void aSiteTooOldToNameTheFormatIsJudgedOnItsGeometry()
+	{
+		// No format on the wire: 25 tiles on a board of 5 really is 5×5…
+		assertEquals("5×5 · 25 tiles",
+			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 25, 5, null, null, null)
+				.sizeLabel());
+		// …while 240 tiles on a board of 240 is a list, whatever the field is called.
+		assertEquals("240 tiles",
+			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 240, 240, null, null, null)
+				.sizeLabel());
+	}
+
 	// ---- Which clan the sidebar opens on -----------------------------------------------------------
 
 	@Test
@@ -213,6 +266,26 @@ public class SidebarEventsTest
 		assertEquals("Theatre of Blood Hard Mode",
 			weekly(1, "t", "boss", "theatre_of_blood_hard_mode").metricLabel());
 		assertEquals("", weekly(1, "t", "boss", null).metricLabel());
+	}
+
+	@Test
+	public void weeklyMetricPrefersTheLabelTheSiteSent()
+	{
+		// The whole point: only the site knows the apostrophe in "Phosani's Nightmare".
+		assertEquals("Phosani's Nightmare",
+			labelled("boss", "phosanisNightmare", "Phosani's Nightmare").metricLabel());
+		assertEquals("CoX: CM",
+			labelled("boss", "chambersOfXericChallengeMode", "CoX: CM").metricLabel());
+		// A site older than the field sends nothing; the key still has to read as words.
+		assertEquals("Phosanis Nightmare", labelled("boss", "phosanisNightmare", null).metricLabel());
+		assertEquals("Chambers of Xeric", labelled("boss", "chambersOfXeric", "  ").metricLabel());
+		assertEquals("EHB", labelled("efficiency", "ehb", null).metricLabel());
+	}
+
+	private static ConnectionView.WeeklyView labelled(String type, String metric, String sentLabel)
+	{
+		return new ConnectionView.WeeklyView(1, "t", type, metric, sentLabel,
+			"2026-07-27T00:00:00Z", "2026-08-03T00:00:00Z", false, 0, 0, 0, null, null);
 	}
 
 	@Test

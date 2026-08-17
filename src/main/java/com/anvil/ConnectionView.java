@@ -328,6 +328,8 @@ public final class ConnectionView
 		public final String type;
 		/** Raw metric key as the site stores it ({@code "mining"}, {@code "chambers_of_xeric"}). */
 		public final String metric;
+		/** What the site calls that metric, when it sends one. Read through {@link #metricLabel()}. */
+		private final String sentLabel;
 		public final String startDate;
 		public final String endDate;
 		/** True for a comp that hasn't started yet — it has no standings, just a start time. */
@@ -351,6 +353,15 @@ public final class ConnectionView
 		public WeeklyView(int id, String title, String type, String metric, String startDate, String endDate,
 			boolean upcoming, int yourRank, long yourGained, int participants, List<Standing> top, String url)
 		{
+			this(id, title, type, metric, null, startDate, endDate, upcoming, yourRank, yourGained,
+				participants, top, url);
+		}
+
+		public WeeklyView(int id, String title, String type, String metric, String sentLabel, String startDate,
+			String endDate, boolean upcoming, int yourRank, long yourGained, int participants,
+			List<Standing> top, String url)
+		{
+			this.sentLabel = sentLabel;
 			this.id = id;
 			this.title = title == null || title.isEmpty() ? kindLabel(type) : title;
 			this.type = type == null ? "" : type;
@@ -392,9 +403,26 @@ public final class ConnectionView
 			return "efficiency".equalsIgnoreCase(type) ? "Efficiency of the Week" : "Boss of the Week";
 		}
 
-		/** The tracked metric, humanised: {@code "chambers_of_xeric"} → {@code "Chambers of Xeric"}. */
+		/** The tracked metric, spelled for a person: {@code "phosanisNightmare"} → "Phosani's Nightmare". */
 		public String metricLabel()
 		{
+			return metricLabel(type, metric, sentLabel);
+		}
+
+		/**
+		 * The site's own name for the metric, falling back to what the key can be made to look like.
+		 *
+		 * <p>Prefer what was sent, always. Boss keys are hiscores keys, and no amount of splitting
+		 * "phosanisNightmare" recovers the apostrophe in "Phosani's Nightmare" or turns
+		 * "chambersOfXericChallengeMode" into the clan's "CoX: CM". The fallback exists for sites
+		 * older than the field, not as an equal option.
+		 */
+		public static String metricLabel(String type, String metric, String sentLabel)
+		{
+			if (sentLabel != null && !sentLabel.trim().isEmpty())
+			{
+				return sentLabel.trim();
+			}
 			return metricLabel(type, metric);
 		}
 
@@ -452,7 +480,13 @@ public final class ConnectionView
 			{
 				return "";
 			}
-			String[] words = key.replace('_', ' ').replace('-', ' ').trim().split("\\s+");
+			// Boss keys arrive camel-cased ("phosanisNightmare"), so a split on separators alone left
+			// them as one word and title-case made it "PhosanisNightmare" — which is what the in-game
+			// banner printed. A word boundary is also lower→upper (and letter→digit, for "theatreOfBlood2").
+			String spaced = key.replace('_', ' ').replace('-', ' ')
+				.replaceAll("(?<=[a-z0-9])(?=[A-Z])", " ")
+				.replaceAll("(?<=[A-Za-z])(?=[0-9])", " ");
+			String[] words = spaced.trim().split("\\s+");
 			StringBuilder out = new StringBuilder();
 			for (int i = 0; i < words.length; i++)
 			{
@@ -465,8 +499,11 @@ public final class ConnectionView
 				{
 					out.append(' ');
 				}
-				boolean small = i > 0 && ("of".equals(w) || "the".equals(w) || "and".equals(w) || "at".equals(w));
-				out.append(small ? w : Character.toUpperCase(w.charAt(0)) + w.substring(1));
+				// Case-insensitively, because the camel split hands these over capitalised ("Of").
+				boolean small = i > 0 && ("of".equalsIgnoreCase(w) || "the".equalsIgnoreCase(w)
+					|| "and".equalsIgnoreCase(w) || "at".equalsIgnoreCase(w));
+				out.append(small ? w.toLowerCase(java.util.Locale.ROOT)
+					: Character.toUpperCase(w.charAt(0)) + w.substring(1));
 			}
 			return out.toString();
 		}
@@ -487,7 +524,10 @@ public final class ConnectionView
 		public final boolean live;
 		/** Tiles configured, or 0 when the site didn't say. */
 		public final int tileCount;
-		/** N for an N×N board, or 0 when it isn't a square grid (tile race / ladder / unknown). */
+		/**
+		 * The site's `boardSize`, whose MEANING depends on the format: N for a classic N×N grid, the
+		 * tile COUNT for every list format (Leagues, tile race, ladder). See {@link #squareGrid()}.
+		 */
 		public final int boardSize;
 		public final String format;
 		public final String scoringMode;
@@ -523,15 +563,42 @@ public final class ConnectionView
 			return "points".equalsIgnoreCase(scoringMode) ? "Bingo (points)" : "Bingo";
 		}
 
-		/** "5×5 · 25 tiles", "25 tiles", or "" — whatever the site actually told us. */
+		/**
+		 * Whether {@code boardSize} is a grid SIDE or a tile COUNT.
+		 *
+		 * <p>Only a classic bingo is square. Every other format — Leagues and its reveal-policy
+		 * variants, tile race, ladder — is a task LIST whose boardSize is simply how many tiles it
+		 * has, so treating it as a side length turns a 240-task Leagues board into a "240×240"
+		 * claim about 57,600 tiles.
+		 */
+		private boolean squareGrid()
+		{
+			if (format != null && !format.isEmpty())
+			{
+				return "bingo".equalsIgnoreCase(format) && !"points".equalsIgnoreCase(scoringMode);
+			}
+			// A site too old to tell us. Believe the geometry instead: a square board's tile count is
+			// its side squared, and anything that doesn't add up is a list.
+			return tileCount > 0 && boardSize > 0 && boardSize * boardSize == tileCount;
+		}
+
+		/** "5×5 · 25 tiles" for a grid, "240 tiles" for a list, or "" when the site said nothing. */
 		public String sizeLabel()
 		{
-			String tiles = tileCount > 0 ? tileCount + (tileCount == 1 ? " tile" : " tiles") : "";
-			if (boardSize > 0)
+			if (squareGrid())
 			{
+				// Deliberately NOT derived from boardSize² — a board that is still being authored has
+				// fewer tiles than its grid has cells, and the honest thing is to say so.
+				String tiles = tileCount > 0 ? tileCount + (tileCount == 1 ? " tile" : " tiles") : "";
+				if (boardSize <= 0)
+				{
+					return tiles;
+				}
 				return tiles.isEmpty() ? boardSize + "×" + boardSize : boardSize + "×" + boardSize + " · " + tiles;
 			}
-			return tiles;
+			// A list: boardSize IS the tile count, so it stands in when the authored count is absent.
+			int count = tileCount > 0 ? tileCount : boardSize;
+			return count > 0 ? count + (count == 1 ? " tile" : " tiles") : "";
 		}
 	}
 
