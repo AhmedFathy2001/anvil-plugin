@@ -1227,11 +1227,18 @@ public class BingoApiClient
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
+			if (response.code() != 200)
+			{
+				// 401 = this token's user isn't an admin (or the token is stale). Anything else is
+				// the site having a bad time. Logged either way: "the button vanished" is otherwise
+				// indistinguishable between the two, and one of them is worth retrying.
+				log.info("Anvil: admin probe answered HTTP {} — no clan-sync button this session", response.code());
+			}
 			return response.code() == 200;
 		}
 		catch (Exception e)
 		{
-			log.debug("plugin/me probe failed: {}", e.getMessage());
+			log.info("Anvil: admin probe couldn't reach the site ({}) — will retry", e.getMessage());
 			return false;
 		}
 	}
@@ -1416,7 +1423,7 @@ public class BingoApiClient
 			if (!response.isSuccessful())
 			{
 				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Collection log push failed: HTTP " + response.code() + " — " + responseBody);
+				throw submissionError("Collection log push failed", response.code(), responseBody);
 			}
 		}
 	}
@@ -1778,7 +1785,7 @@ public class BingoApiClient
 			if (!response.isSuccessful())
 			{
 				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Collection log push failed: HTTP " + response.code() + " — " + responseBody);
+				throw submissionError("Collection log push failed", response.code(), responseBody);
 			}
 			log.debug("Collection log pushed: {} page(s), {} synced", out.size(), syncedPages);
 		}
@@ -1827,7 +1834,7 @@ public class BingoApiClient
 			if (!response.isSuccessful())
 			{
 				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Personal best push failed: HTTP " + response.code() + " — " + responseBody);
+				throw submissionError("Personal best push failed", response.code(), responseBody);
 			}
 			log.debug("Personal bests pushed: {}", out.size());
 		}

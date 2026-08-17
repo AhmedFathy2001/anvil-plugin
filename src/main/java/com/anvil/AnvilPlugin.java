@@ -747,6 +747,11 @@ public class AnvilPlugin extends Plugin {
     private volatile long lastClogTransmitAt;
     /** The player pressed "Sync profile" — the next log open pushes even if nothing has changed. */
     private volatile boolean clogSyncRequested;
+    // A failing push must not become a request every 30 seconds for the rest of the session. One
+    // backoff per path, so a site refusing personal bests doesn't also slow the collection log down.
+    private final SyncBackoff clogBackoff = new SyncBackoff();
+    private final SyncBackoff clogFullBackoff = new SyncBackoff();
+    private final SyncBackoff pbBackoff = new SyncBackoff();
     private final PersonalBests personalBests = new PersonalBests();
     /** The account the two above belong to, so a character switch reloads rather than merges. */
     private String profileSyncRsn;
@@ -871,6 +876,10 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean isAdmin = false;
     // One-shot guard so we only probe admin status once per login session.
     private volatile boolean adminProbeAttempted = false;
+    /** When the last probe ran, so a failed one can be retried instead of costing the whole session. */
+    private volatile long lastAdminProbeAt;
+    /** How often to re-ask while the answer is still "no". Cheap request, rare enough to be invisible. */
+    private static final long ADMIN_REPROBE_MS = 5 * 60_000L;
     // Last clan-sync result summary, surfaced in chat after a sync.
     private volatile String lastSyncSummary;
 
@@ -4441,6 +4450,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         adminProbeAttempted = true;
+        lastAdminProbeAt = System.currentTimeMillis();
         isAdmin = apiClient.fetchIsAdmin(token);
         // If the clog tab is open right now, re-render so the admin button appears/disappears.
         clogTabController.onConfigRefreshed();
@@ -4801,6 +4811,7 @@ public class AnvilPlugin extends Plugin {
             maybeNudgeCaRepeatSetting();
             maybeNudgeLootNotifications();
             maybeNudgeStartProof();
+            maybeReprobeAdmin();
 
         } catch (IOException e) {
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
@@ -4822,6 +4833,32 @@ public class AnvilPlugin extends Plugin {
         sendChatMessage("Starting shot needed before you play"
                 + (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
                 + ". Open the Anvil side panel and press \"Take starting shot\".");
+    }
+
+    /**
+     * Ask again whether this account is an admin, while the answer is still no.
+     *
+     * <p>The probe used to be strictly once per login, and it latched its "attempted" flag BEFORE the
+     * request — so a site that was restarting at the three-second mark cost an admin their
+     * "Sync clan roster" button for the entire session, with nothing in chat to say why. Re-asking
+     * every few minutes costs one tiny request and heals that by itself. A yes is never re-checked;
+     * losing admin mid-session is a logout-shaped problem, not a poll-shaped one.
+     */
+    private void maybeReprobeAdmin() {
+        if (isAdmin || !apiClient.isConfigured()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastAdminProbeAt < ADMIN_REPROBE_MS) {
+            return;
+        }
+        lastAdminProbeAt = now;
+        boolean admin = apiClient.fetchIsAdmin(config.playerToken());
+        if (admin) {
+            isAdmin = true;
+            log.info("Anvil: admin confirmed on retry — clan-sync button is back");
+            clogTabController.onConfigRefreshed();
+        }
     }
 
     private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {
@@ -7851,17 +7888,26 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         long now = System.currentTimeMillis();
-        if (!clogSync.isDue(now)) {
+        if (!clogSync.isDue(now) || !clogBackoff.ready(now)) {
             return;
         }
         java.util.List<ClogPage> batch = clogSync.nextBatch();
         try {
             apiClient.submitClogPages(batch, clogSync.syncedPages());
+        } catch (BingoApiClient.PermanentSubmissionException e) {
+            // Refused outright (a malformed page, a site that doesn't take these): dropping the batch
+            // is the only way out of an otherwise permanent 30-second retry loop.
+            log.info("Collection log pages refused, dropping the batch: {}", e.getMessage());
+            clogSync.onSent(batch);
+            return;
         } catch (Exception e) {
-            // Left queued: the next tick retries. A clan site being down must not lose a sync.
-            log.debug("Collection log push failed, will retry: {}", e.getMessage());
+            // Left queued: we retry after the backoff. A clan site being down must not lose a sync.
+            clogBackoff.onFailure(now);
+            log.debug("Collection log push failed, retrying in {}s: {}",
+                    clogBackoff.secondsUntilReady(now), e.getMessage());
             return;
         }
+        clogBackoff.onSuccess();
         clogSync.onSent(batch);
         configManager.setConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + profileSyncRsn,
                 clogSync.serializeState());
@@ -7878,22 +7924,35 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         long now = System.currentTimeMillis();
-        if (!clogFullSync.isDue(now)) {
+        if (!clogFullSync.isDue(now) || !clogFullBackoff.ready(now)) {
             return;
         }
         boolean manual = clogFullSync.isManual();
         int count = clogFullSync.size();
         try {
             apiClient.submitClogItems(clogFullSync.snapshot());
+        } catch (BingoApiClient.PermanentSubmissionException e) {
+            // The site said no and will keep saying no — most often because it predates whole-log
+            // pushes and wants pages instead. Retrying that forever is just noise on their server.
+            log.info("Whole-log push refused, dropping it: {}", e.getMessage());
+            clogFullSync.onSent();
+            if (manual) {
+                sendChatMessage("Your clan's site doesn't take a whole-log sync yet — "
+                        + "browse your collection log and it'll sync page by page instead.");
+            }
+            return;
         } catch (Exception e) {
-            // Kept for the next tick: a site that's down mustn't cost them the transmit.
-            log.debug("Whole-log push failed, will retry: {}", e.getMessage());
+            // Kept for the next attempt: a site that's down mustn't cost them the transmit.
+            clogFullBackoff.onFailure(now);
+            log.debug("Whole-log push failed, retrying in {}s: {}",
+                    clogFullBackoff.secondsUntilReady(now), e.getMessage());
             clogFullSync.onSendFailed(now);
             if (manual) {
                 sendChatMessage("Profile sync failed: " + e.getMessage() + " — it'll retry on its own.");
             }
             return;
         }
+        clogFullBackoff.onSuccess();
         clogFullSync.onSent();
         log.info("Collection log synced: {} items", count);
         if (manual) {
@@ -7908,16 +7967,23 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         long now = System.currentTimeMillis();
-        if (!personalBests.isDue(now)) {
+        if (!personalBests.isDue(now) || !pbBackoff.ready(now)) {
             return;
         }
         Map<String, Integer> batch = personalBests.nextBatch();
         try {
             apiClient.submitPersonalBests(batch);
+        } catch (BingoApiClient.PermanentSubmissionException e) {
+            log.info("Personal bests refused, dropping the batch: {}", e.getMessage());
+            personalBests.onSent(batch);
+            return;
         } catch (Exception e) {
-            log.debug("Personal best push failed, will retry: {}", e.getMessage());
+            pbBackoff.onFailure(now);
+            log.debug("Personal best push failed, retrying in {}s: {}",
+                    pbBackoff.secondsUntilReady(now), e.getMessage());
             return;
         }
+        pbBackoff.onSuccess();
         personalBests.onSent(batch);
         configManager.setConfiguration("osrsbingo", CFG_PB_STATE + ":" + profileSyncRsn,
                 personalBests.serializeState());
