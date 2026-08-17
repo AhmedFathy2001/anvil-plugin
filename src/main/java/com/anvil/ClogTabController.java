@@ -1092,6 +1092,81 @@ public class ClogTabController
 
 
 	/** Left column: event-type filter on the Schedule home, a Back button inside an event. */
+
+	/**
+	 * A left-column button, drawn the way the board's tiles are: a filled panel, an outline, and the
+	 * label on top of both.
+	 *
+	 * <p>The column used to be a stack of bare gold sentences, which read as a list of headings
+	 * rather than as things you can press — nothing about "Sync profile" looked any more clickable
+	 * than "Event type" above it. Pressable things now look pressable and light up under the mouse.
+	 *
+	 * @return the y a following row should start at
+	 */
+	private int drawButton(Widget container, int y, String label, String action, Runnable onClick, int accent)
+	{
+		final int h = 18;
+		final int x = 8;
+		final int w = ClogIds.LEFT_COL_W - 16;
+
+		Widget bg = container.createChild(-1, WidgetType.RECTANGLE);
+		bg.setFilled(true);
+		bg.setTextColor(0x2a2620);
+		bg.setOpacity(150); // 0 = opaque, 255 = transparent — a tint, not a slab
+		place(bg, x, y, w, h);
+		bg.revalidate();
+
+		Widget border = container.createChild(-1, WidgetType.RECTANGLE);
+		border.setFilled(false);
+		border.setTextColor(accent);
+		border.setOpacity(90);
+		place(border, x, y, w, h);
+		border.revalidate();
+
+		Widget text = container.createChild(-1, WidgetType.TEXT);
+		text.setText("<col=" + Integer.toHexString(accent) + ">" + label + "</col>");
+		text.setFontId(FONT_PLAIN);
+		text.setTextShadowed(true);
+		place(text, x + 6, y + 3, w - 12, 14);
+		text.setHasListener(true);
+		text.setAction(0, action);
+		text.setOnOpListener((JavaScriptCallback) e -> onClick.run());
+		// Hover lights the panel rather than the text: the whole button reacts, which is what makes
+		// it read as one control instead of a word that happens to be clickable.
+		text.setOnMouseOverListener((JavaScriptCallback) e ->
+		{
+			bg.setOpacity(90);
+			border.setOpacity(0);
+		});
+		text.setOnMouseLeaveListener((JavaScriptCallback) e ->
+		{
+			bg.setOpacity(150);
+			border.setOpacity(90);
+		});
+		text.revalidate();
+
+		return y + h + 4;
+	}
+
+	/** A quiet caps label with a hairline under it — what separates one group of controls from another. */
+	private int drawSectionLabel(Widget container, int y, String label)
+	{
+		Widget text = container.createChild(-1, WidgetType.TEXT);
+		text.setText("<col=8a8a8a>" + label + "</col>");
+		text.setFontId(FONT_PLAIN);
+		place(text, 10, y, ClogIds.LEFT_COL_W - 20, 12);
+		text.revalidate();
+
+		Widget rule = container.createChild(-1, WidgetType.RECTANGLE);
+		rule.setFilled(true);
+		rule.setTextColor(0x5a5a5a);
+		rule.setOpacity(140);
+		place(rule, 8, y + 13, ClogIds.LEFT_COL_W - 16, 1);
+		rule.revalidate();
+
+		return y + 18;
+	}
+
 	private void renderLeftColumn()
 	{
 		Widget container = contentContainer();
@@ -1109,7 +1184,7 @@ public class ClogTabController
 		heading.setTextShadowed(true);
 		place(heading, 10, y, ClogIds.LEFT_COL_W - 20, 16);
 		heading.revalidate();
-		y += 26;
+		y += 22;
 
 		if (hubView != HubView.SCHEDULE)
 		{
@@ -1117,14 +1192,8 @@ public class ClogTabController
 			// points task list); everything else steps back to the schedule.
 			boolean onDetail = hubView == HubView.GRID_TILE;
 			String detailBack = tileDetailReturn == HubView.GRID ? "Back to Board" : "Back to Tasks";
-			Widget back = container.createChild(-1, WidgetType.TEXT);
-			back.setText("<col=ffcc33>" + (onDetail ? detailBack : "Back to Schedule") + "</col>");
-			back.setFontId(FONT_PLAIN);
-			back.setTextShadowed(true);
-			place(back, 10, y, ClogIds.LEFT_COL_W - 20, 16);
-			back.setHasListener(true);
-			back.setAction(0, "Back");
-			back.setOnOpListener((JavaScriptCallback) e -> {
+			drawButton(container, y, onDetail ? detailBack : "Back to Schedule", "Back", () ->
+			{
 				if (onDetail)
 				{
 					backToGrid();
@@ -1133,151 +1202,93 @@ public class ClogTabController
 				{
 					backToSchedule();
 				}
-			});
-			back.revalidate();
+			}, COL_ORANGE);
 			return;
 		}
 
-		// Schedule home: event-type filter.
-		Widget lbl = container.createChild(-1, WidgetType.TEXT);
-		lbl.setText("<col=999999>Event type</col>");
-		lbl.setFontId(FONT_PLAIN);
-		place(lbl, 10, y, ClogIds.LEFT_COL_W - 20, 14);
-		lbl.revalidate();
-
+		// Filter: a label and its current value, which is a setting rather than an action — so it
+		// stays plain text and only the value is live.
+		y = drawSectionLabel(container, y, "Show");
 		Widget val = container.createChild(-1, WidgetType.TEXT);
 		val.setText("<col=ffcc33>" + eventTypeLabel(eventTypeFilter) + "</col>");
 		val.setFontId(FONT_PLAIN);
 		val.setTextShadowed(true);
-		place(val, 10, y + 13, ClogIds.LEFT_COL_W - 20, 16);
+		place(val, 10, y, ClogIds.LEFT_COL_W - 20, 14);
 		val.setHasListener(true);
 		val.setAction(0, "Cycle");
 		val.setOnOpListener((JavaScriptCallback) e -> cycleEventTypeFilter());
 		val.revalidate();
+		y += 20;
 
-		// Admin-only: "Sync clan roster" — pushes the in-game clan roster to the site. It sits in the
-		// pre-existing empty gap between the event-type value (ends at y+29) and the Banner sounds row
-		// (starts at y+50): placed at y+32 with height 14 it occupies y+32..y+46, overlapping neither.
-		// Rendered ONLY when plugin.isAdmin() is true, so for non-admins the gap stays empty exactly as
-		// it is today (no reserved space, no reflow of any surrounding widget).
-		// Optional rows stack in the gap under the event-type value. Each takes 18px; whatever is
-		// left starts at y+50 as before, so a column with neither row is pixel-identical to the one
-		// this replaced.
-		int rowY = y + 32;
+		// Actions. Everything here is a thing you press, so everything here looks like a button.
+		boolean anyAction = plugin.isAdmin() || plugin.supportsProfileSync();
+		if (anyAction)
+		{
+			y = drawSectionLabel(container, y, "Sync");
+		}
 		if (plugin.isAdmin())
 		{
-			Widget sync = container.createChild(-1, WidgetType.TEXT);
-			sync.setText(clanSyncInProgress
-				? "<col=999999>Syncing clan...</col>"
-				: "<col=ffcc33>Sync clan roster</col>");
-			sync.setFontId(FONT_PLAIN);
-			sync.setTextShadowed(true);
-			place(sync, 10, rowY, ClogIds.LEFT_COL_W - 20, 14);
-			if (!clanSyncInProgress)
+			if (clanSyncInProgress)
 			{
-				sync.setHasListener(true);
-				sync.setAction(0, "Sync");
-				sync.setOnOpListener((JavaScriptCallback) e -> triggerClanSync());
-			}
-			sync.revalidate();
-			rowY += 18;
-		}
-
-		// "Sync profile" — pushes this account's whole collection log to the clan site. Sits directly
-		// under the admin row (or in its place for everyone else), so the left column reads the same
-		// whether or not you're staff. Only rendered when the site actually accepts profile data.
-		if (plugin.supportsProfileSync())
-		{
-			Widget profile = container.createChild(-1, WidgetType.TEXT);
-			profile.setText("<col=ffcc33>Sync profile</col>");
-			profile.setFontId(FONT_PLAIN);
-			profile.setTextShadowed(true);
-			place(profile, 10, rowY, ClogIds.LEFT_COL_W - 20, 14);
-			profile.setHasListener(true);
-			profile.setAction(0, "Sync");
-			profile.setOnOpListener((JavaScriptCallback) e -> plugin.syncProfileNow());
-			profile.revalidate();
-			rowY += 18;
-		}
-
-		// Banner sounds: the all-users entry point for adding your own clips (none ship with the
-		// plugin). The admin sidebar is hidden from regular members, so this tab is the only shared UI.
-		Widget sounds = container.createChild(-1, WidgetType.TEXT);
-		sounds.setText("<col=ffcc33>Banner sounds</col>");
-		sounds.setFontId(FONT_PLAIN);
-		sounds.setTextShadowed(true);
-		int soundsY = Math.max(y + 50, rowY);
-		place(sounds, 10, soundsY, ClogIds.LEFT_COL_W - 20, 16);
-		sounds.setHasListener(true);
-		sounds.setAction(0, "Add");
-		sounds.setAction(1, "Open folder");
-		sounds.setOnOpListener((JavaScriptCallback) e -> {
-			// Action index 1 ("Open folder") maps to menu op 2; default click imports. Deleting a clip
-			// from that folder is the permanent remove.
-			if (e.getOp() == 2)
-			{
-				plugin.openBannerSoundsFolder();
+				y = drawButton(container, y, "Syncing clan...", "Wait", () -> { }, 0x999999);
 			}
 			else
 			{
-				plugin.importBannerSounds();
+				y = drawButton(container, y, "Sync clan roster", "Sync", this::triggerClanSync, 0xffcc33);
 			}
-		});
-		sounds.revalidate();
+		}
+		if (plugin.supportsProfileSync())
+		{
+			y = drawButton(container, y, "Sync profile", "Sync", plugin::syncProfileNow, 0xffcc33);
+		}
 
-		// "Saved proofs" — only rendered while submissions are stuck on disk (upload failed and
-		// retrying), so the layout is untouched in the healthy case. Opens the pending-proofs
-		// folder so a member can grab the baked screenshot before it's pruned.
-		int sy = soundsY + 18;
+		// Saved proofs — only while submissions are stuck on disk (upload failed and retrying), so
+		// the column is untouched in the healthy case.
 		int stuckProofs = plugin.pendingProofCount();
 		if (stuckProofs > 0)
 		{
-			Widget proofs = container.createChild(-1, WidgetType.TEXT);
-			proofs.setText("<col=ff7d64>Saved proofs (" + stuckProofs + ")</col>");
-			proofs.setFontId(FONT_PLAIN);
-			proofs.setTextShadowed(true);
-			place(proofs, 10, sy, ClogIds.LEFT_COL_W - 20, 14);
-			proofs.setHasListener(true);
-			proofs.setAction(0, "Open folder");
-			proofs.setOnOpListener((JavaScriptCallback) e -> plugin.openPendingProofsFolder());
-			proofs.revalidate();
-			sy += 18;
+			y = drawButton(container, y, "Saved proofs (" + stuckProofs + ")", "Open folder",
+				plugin::openPendingProofsFolder, 0xff7d64);
 		}
 
-		// One toggle row per clip: green = in the play cycle, grey = muted; clicking flips it (persisted
-		// via the comma-separated allowlist). The left column is fixed-height and doesn't scroll, so we
-		// only render as many rows as fit and collapse the rest into an "Open folder" overflow line.
+		// Banner sounds: files on this machine, not anything belonging to an account.
+		y = drawSectionLabel(container, y, "Banner sounds");
+		y = drawButton(container, y, "Add or open folder", "Add", plugin::importBannerSounds, 0xffcc33);
+
+		// One toggle row per clip: green = in the play cycle, grey = muted; clicking flips it. The
+		// column is fixed-height and doesn't scroll, so only as many as fit are drawn and the rest
+		// collapse into a count.
 		final int rowH = 15;
 		List<String> clips = plugin.bannerSoundClips();
 		int colH = container.getHeight();
-		int fit = colH > 80 ? Math.max(1, (colH - sy - 6) / rowH) : 10;
+		int fit = colH > 80 ? Math.max(1, (colH - y - 6) / rowH) : 10;
 		boolean overflow = clips.size() > fit;
-		int shown = overflow ? Math.max(0, fit - 1) : clips.size(); // reserve a slot for the overflow line
+		int shown = overflow ? Math.max(0, fit - 1) : clips.size();
 		for (int i = 0; i < shown; i++)
 		{
 			final String clip = clips.get(i);
 			boolean on = plugin.bannerSoundSelected(clip);
 			String disp = clip.toLowerCase().endsWith(".wav") ? clip.substring(0, clip.length() - 4) : clip;
-			if (disp.length() > 26)
+			if (disp.length() > 24)
 			{
-				disp = disp.substring(0, 25) + "...";
+				disp = disp.substring(0, 23) + "...";
 			}
 			Widget row = container.createChild(-1, WidgetType.TEXT);
-			row.setText("<col=" + (on ? "49c25e" : "777777") + ">" + disp + "</col>");
+			row.setText("<col=" + (on ? "49c25e" : "777777") + ">" + (on ? "\u2713 " : "\u2022 ") + disp + "</col>");
 			row.setFontId(FONT_PLAIN);
-			place(row, 16, sy, ClogIds.LEFT_COL_W - 26, 14);
+			place(row, 14, y, ClogIds.LEFT_COL_W - 24, rowH);
 			row.setHasListener(true);
-			row.setAction(0, on ? "Mute" : "Enable");
+			row.setAction(0, on ? "Mute" : "Unmute");
 			row.setOnOpListener((JavaScriptCallback) e -> plugin.toggleBannerSound(clip));
 			row.revalidate();
-			sy += rowH;
+			y += rowH;
 		}
 		if (overflow)
 		{
 			Widget more = container.createChild(-1, WidgetType.TEXT);
-			more.setText("<col=aaaaaa>+" + (clips.size() - shown) + " more — Open folder</col>");
+			more.setText("<col=aaaaaa>+" + (clips.size() - shown) + " more in the folder</col>");
 			more.setFontId(FONT_PLAIN);
-			place(more, 16, sy, ClogIds.LEFT_COL_W - 26, 14);
+			place(more, 14, y, ClogIds.LEFT_COL_W - 24, rowH);
 			more.setHasListener(true);
 			more.setAction(0, "Open folder");
 			more.setOnOpListener((JavaScriptCallback) e -> plugin.openBannerSoundsFolder());
@@ -1285,7 +1296,7 @@ public class ClogTabController
 		}
 	}
 
-	private static String eventTypeLabel(String f)
+private static String eventTypeLabel(String f)
 	{
 		switch (f)
 		{
@@ -1301,8 +1312,7 @@ public class ClogTabController
 				return "All";
 		}
 	}
-
-	private void cycleEventTypeFilter()
+private void cycleEventTypeFilter()
 	{
 		String[] order = {"", "bingo", "boss", "skill", "efficiency"};
 		int idx = 0;
@@ -1317,7 +1327,6 @@ public class ClogTabController
 		eventTypeFilter = order[(idx + 1) % order.length];
 		clientThread.invokeLater(this::renderHub);
 	}
-
 	/**
 	 * Admin "Sync clan roster" click handler. Flips the button to a disabled "Syncing clan…" state,
 	 * kicks off the off-thread sync (which scrapes the in-game roster and POSTs it), and re-renders the
