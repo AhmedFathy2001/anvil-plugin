@@ -671,4 +671,16 @@ public interface AnvilConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "shareMoments",
+		name = "Share highlights with the clan",
+		description = "Send the pets, uniques, big drops and deaths that happen while your clan's competition week or bingo is running, so they appear on the site's feed. Separate from the Discord channels above — turning those off doesn't turn this off, and vice versa. Nothing sent here scores anything.",
+		position = 4,
+		section = "profileSection"
+	)
+	default boolean shareMoments()
+	{
+		return true;
+	}
 }

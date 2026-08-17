@@ -1023,6 +1023,8 @@ public class BingoApiClient
 		public String title;
 		public String type;
 		public String metric;
+		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
+		public String metricLabel;
 		public String startDate;
 		public String endDate;
 	}
@@ -1082,6 +1084,8 @@ public class BingoApiClient
 		public String title;
 		public String type;
 		public String metric;
+		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
+		public String metricLabel;
 		public String status;
 		public String startDate;
 		public String endDate;
@@ -1128,6 +1132,8 @@ public class BingoApiClient
 		public String title;
 		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
 		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
+		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
+		public String metricLabel;
 		public String startDate;
 		public String endDate;
 	}
@@ -1200,6 +1206,8 @@ public class BingoApiClient
 		public String type;   // "skill" | "boss"
 		public String title;
 		public String metric;
+		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
+		public String metricLabel;
 	}
 
 	public static class BingoInfo
@@ -1284,6 +1292,12 @@ public class BingoApiClient
 				}
 				catch (Exception ignored) {}
 				throw new ClanMismatchException(serverClan);
+			}
+			if (response.code() == 429)
+			{
+				// The site has a limit and told us how long it is; the caller waits exactly that
+				// long rather than backing off blindly from a message it couldn't read.
+				throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
 			}
 			if (!response.isSuccessful())
 			{
@@ -1964,6 +1978,90 @@ public class BingoApiClient
 				throw submissionError("Personal best push failed", response.code(), responseBody);
 			}
 			log.debug("Personal bests pushed: {}", out.size());
+		}
+	}
+
+	/**
+	 * POST /api/plugin/moments — the clan's highlight feed: pets, uniques, big hauls and deaths.
+	 *
+	 * <p>Reports what the client SAW; the site decides what it meant. It knows which competition
+	 * week or board is running, what counts as a unique, and which pets belong to which skill — so
+	 * most of what goes up here is discarded there, on purpose, and a clan changing its mind about
+	 * any of it costs no plugin release.
+	 *
+	 * <p>Idempotent: every entry carries a key derived from what happened, so the two loot events
+	 * and three chat lines one occurrence fires — and a retry after a timeout — collapse into one
+	 * row. A failure therefore just retries with the queue intact.
+	 *
+	 * <p>Never scoring: nothing here completes a tile or moves a standing.
+	 */
+	public void submitMoments(java.util.List<AnvilMoments.Moment> batch) throws IOException
+	{
+		if (batch == null || batch.isEmpty())
+		{
+			return;
+		}
+		JsonArray out = new JsonArray();
+		for (AnvilMoments.Moment m : batch)
+		{
+			if (m == null || m.kind == null || m.key == null)
+			{
+				continue;
+			}
+			JsonObject o = new JsonObject();
+			o.addProperty("kind", m.kind);
+			o.addProperty("key", m.key);
+			o.addProperty("at", java.time.Instant.ofEpochMilli(m.at).toString());
+			o.addProperty("quantity", Math.max(1, m.quantity));
+			// Everything below is best-effort — a skilling pet has no source, no KC and no price, and
+			// inventing any of them would be worse than a shorter line on the feed.
+			if (m.itemId != null)
+			{
+				o.addProperty("itemId", m.itemId);
+			}
+			if (m.itemName != null && !m.itemName.isEmpty())
+			{
+				o.addProperty("itemName", m.itemName);
+			}
+			if (m.valueGp != null && m.valueGp > 0)
+			{
+				o.addProperty("valueGp", m.valueGp);
+			}
+			if (m.source != null && !m.source.isEmpty())
+			{
+				o.addProperty("source", m.source);
+			}
+			if (m.sourceKind != null && !m.sourceKind.isEmpty())
+			{
+				o.addProperty("sourceKind", m.sourceKind);
+			}
+			if (m.kc != null && m.kc > 0)
+			{
+				o.addProperty("kc", m.kc);
+			}
+			out.add(o);
+		}
+		if (out.size() == 0)
+		{
+			return;
+		}
+
+		JsonObject payload = new JsonObject();
+		payload.add("moments", out);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/moments")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Moment push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.debug("Moments pushed: {}", out.size());
 		}
 	}
 

@@ -697,6 +697,21 @@ public class AnvilPlugin extends Plugin {
     private String lastLootSourceKind;
     private long lastLootSourceAt;
     private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
+    // ── Highlight feed (AnvilMoments). Pets, uniques, big hauls and deaths, queued as they happen and
+    // pushed in small batches; the SITE decides which competition week or board each one belongs to
+    // and throws away the rest. Cosmetic only — never scoring. Recorded at the event and never inside
+    // a notification gate, so a member with the drops channel off still lands on the clan's feed.
+    private final AnvilMoments moments = new AnvilMoments();
+    private java.util.concurrent.ScheduledFuture<?> momentPushTask;
+    /** Long enough for a kill's two loot events (and a pet's chat lines) to settle into one entry. */
+    private static final long MOMENT_PUSH_COALESCE_MS = 8_000;
+    /**
+     * How stale the "what were we fighting" note may be and still name a killer.
+     *
+     * <p>Generous enough to cover a death you spent a few seconds losing, tight enough that the boss
+     * you killed a minute ago doesn't get the credit for a Wilderness PKer.
+     */
+    private static final long DEATH_ATTRIBUTION_MS = 30_000;
     /** Game ticks in a minute (600ms each). */
     private static final int TICKS_PER_MINUTE = 100;
     /** Play time pushes on a slow cadence — the number only ever climbs by one. */
@@ -1038,6 +1053,12 @@ public class AnvilPlugin extends Plugin {
         synchronized (pendingKcPush) {
             pendingKcPush.clear();
             kcPushTask = null;
+        }
+        // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
+        // session days later would be filed against whatever happens to be running then.
+        synchronized (moments) {
+            moments.reset();
+            momentPushTask = null;
         }
         trackedSkillNames = Collections.emptySet();
         synchronized (pendingSkillXpPush) {
@@ -2689,7 +2710,14 @@ public class AnvilPlugin extends Plugin {
             // rather than in the rare-drop notifier where it used to sit behind that channel's
             // toggle. Pets are excluded — claimPetName routes those to their own post.
             clipMoments.record("📕 New clog slot: " + item);
-            if (!claimPetName(item)) {
+            PendingPet claimedPet = claimPetName(item);
+            if (claimedPet == null) {
+                // Not a pet, so this is the ungated route to the clan's feed for an unlock that the
+                // loot path can't see: an untradeable with no GE price to clear a floor, or anything
+                // handed over without a loot event at all.
+                recordClogUnlockMoment(item);
+            }
+            if (claimedPet == null || !claimedPet.announce) {
                 // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
                 // unlock at the drops channel, while every OTHER new slot goes quietly to the
                 // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
@@ -2770,10 +2798,11 @@ public class AnvilPlugin extends Plugin {
         if (msg.contains("You have a funny feeling like you're being followed")
                 || msg.contains("You feel something weird sneaking into your backpack")
                 || duplicatePet) {
-            // Notify the clan rare-drops channel (independent of bingo — fires even with no event).
+            // Notify the clan rare-drops channel (independent of bingo — fires even with no event)
+            // and note it for the clan's highlight feed, which is NOT gated on that channel.
             // A duplicate never fires a collection-log unlock (the slot is already filled), so it
             // posts unnamed — which is why the two cases are told apart rather than merged.
-            maybeNotifyPet(duplicatePet);
+            handlePetDrop(duplicatePet);
             // Bingo: pets can't be auto-credited to a specific tile, so capture a proof for the player
             // to submit by hand (lands in "Saved proofs").
             if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
@@ -5570,6 +5599,9 @@ public class AnvilPlugin extends Plugin {
         // Same reasoning for the clip trail — a clip is worth describing whether or not a bingo is
         // running — so the moment is noted before the event gate too.
         recordLootMoment(source, items);
+        // And for the clan's highlight feed: a competition week has no bingo to gate on, and a
+        // near-miss during one that DOES have a bingo is worth as much as a hit.
+        recordLootMoments(source, sourceKind, items);
         if (items == null || items.isEmpty() || trackingGateReason() != null) {
             return;
         }
@@ -5652,6 +5684,212 @@ public class AnvilPlugin extends Plugin {
                     counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
                 }
             }
+        }
+    }
+
+    // ── Highlight feed ────────────────────────────────────────────────────────────────────────────
+    //
+    // Everything below reports; nothing below decides. Which competition week or board a moment
+    // belongs to, whether an item counts as a unique, and which pets belong to which skill are all
+    // the site's business (src/lib/moments.ts) — so this sends generously and expects most of it to
+    // be discarded, and a clan changing any of those rules costs no plugin release.
+
+    /** True when this member wants a feed and the site has one to put it on. */
+    private boolean momentsEnabled() {
+        PluginConfigResponse cfg = pluginConfig;
+        return config.shareMoments() && apiClient.isConfigured()
+                && cfg != null && cfg.serverSupports("moments");
+    }
+
+    /**
+     * Note a drop worth a line on the feed.
+     *
+     * <p>The value floor is the client's only filter and it is deliberately loose — the site knows
+     * what the board and the week care about, this only knows what would be silly to send (every
+     * rune from every kill). An item the site can't place costs one discarded row.
+     */
+    private void recordDropMoment(String source, String sourceKind, Integer itemId, String itemName, int quantity, long valueGp) {
+        if (!momentsEnabled() || (itemId == null && (itemName == null || itemName.isEmpty()))) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        moments.record(new AnvilMoments.Moment("drop", itemId, itemName, quantity, valueGp,
+                source, sourceKind, killCountFor(source), now,
+                AnvilMoments.keyFor("drop", source, itemId, now)));
+        scheduleMomentPush();
+    }
+
+    /**
+     * Pick what to report out of one kill's loot.
+     *
+     * <p>Two ways in, because they catch different things. PRICE catches the drop everyone in the
+     * clan would want to hear about, whatever dropped it. The BOARD's own item list catches the one
+     * worth nothing on the GE and everything to the people playing — an untradeable unique, or the
+     * piece a tile wanted that credited nothing because the tile was already finished or the source
+     * was wrong. That near-miss is half of what a highlight feed is for.
+     *
+     * <p>Capped at a few per haul, dearest first: a raid chest is not a reason to send twenty rows.
+     */
+    private void recordLootMoments(String source, String sourceKind, Collection<ItemStack> items) {
+        if (items == null || items.isEmpty() || !momentsEnabled()) {
+            return;
+        }
+        Map<Integer, List<PluginConfigResponse.TrackedDrop>> boardItems = itemDropIndex;
+        // Merge stacks first — a kill that drops coins twice is one line, not two.
+        Map<Integer, Integer> merged = new java.util.LinkedHashMap<>();
+        for (ItemStack item : items) {
+            if (item == null || item.getId() <= 0) {
+                continue;
+            }
+            merged.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
+        }
+
+        List<int[]> candidates = new ArrayList<>(); // {itemId, quantity, value}
+        for (Map.Entry<Integer, Integer> entry : merged.entrySet()) {
+            int itemId = entry.getKey();
+            int quantity = entry.getValue();
+            int price = itemManager.getItemPrice(itemId);
+            long value = (long) Math.max(0, price) * quantity;
+            boolean wanted = boardItems != null && boardItems.containsKey(itemId);
+            if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) {
+                continue;
+            }
+            candidates.add(new int[]{itemId, quantity, (int) Math.min(Integer.MAX_VALUE, value)});
+        }
+        candidates.sort((a, b) -> Integer.compare(b[2], a[2]));
+
+        int sent = 0;
+        for (int[] c : candidates) {
+            if (sent++ >= 3) {
+                break;
+            }
+            recordDropMoment(source, sourceKind, c[0], itemName(c[0]), c[1], c[2]);
+        }
+    }
+
+    /**
+     * Note a collection-log unlock for the feed.
+     *
+     * <p>This is the route for the unlocks the loot path can't see: an untradeable worth nothing on
+     * the GE will never clear a price floor, and some rewards are handed over with no loot event at
+     * all. It fires on the ungated chat line, so a member with every notification off still lands
+     * on the clan's feed.
+     *
+     * <p>Skips anything a real loot event just reported — that is the SAME acquisition arriving
+     * twice (the chest, then the pickup), and the loot copy already carries the price and stack.
+     */
+    private void recordClogUnlockMoment(String itemName) {
+        if (itemName == null || itemName.isEmpty() || !momentsEnabled()) {
+            return;
+        }
+        Integer itemId = resolveItemIdByName(itemName);
+        long now = System.currentTimeMillis();
+        if (itemId != null) {
+            synchronized (recentLootItemIds) {
+                recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
+                if (recentLootItemIds.containsKey(itemId)) {
+                    return;
+                }
+            }
+        }
+        String source;
+        String sourceKind;
+        synchronized (recentLootIds) {
+            boolean fresh = lastLootSource != null && now - lastLootSourceAt <= CLOG_LOOT_DEDUP_MS;
+            source = fresh ? lastLootSource : null;
+            sourceKind = fresh ? lastLootSourceKind : null;
+        }
+        long value = itemId != null ? Math.max(0, itemManager.getItemPrice(itemId)) : 0;
+        recordDropMoment(source, sourceKind, itemId, itemName, 1, value);
+    }
+
+    /**
+     * Note a pet. Called from the chat line itself, NOT from the notifier — a member with the drops
+     * channel switched off still got the pet, and the clan's feed is a different thing from their
+     * Discord settings.
+     *
+     * @return the queue key, so the collection-log line that names the pet can fill it in
+     */
+    private String recordPetMoment(String source, String sourceKind, Integer kc) {
+        if (!momentsEnabled()) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        // Keyed WITHOUT an item id, because at this point nobody knows which pet it was — the name
+        // lands a tick or two later and nameQueued() fills it into this same entry.
+        String key = AnvilMoments.keyFor("pet", source, null, now);
+        moments.record(new AnvilMoments.Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key));
+        scheduleMomentPush();
+        return key;
+    }
+
+    /** Name a pet already queued, once the collection-log line says which one it was. */
+    private void namePetMoment(String key, String itemName) {
+        if (key == null || !momentsEnabled()) {
+            return;
+        }
+        moments.nameQueued(key, itemName, resolveItemIdByName(itemName));
+    }
+
+    /**
+     * Note a death, and what killed us.
+     *
+     * <p>The killer is the thing we were last trading blows with — the same signal a clip uses to
+     * describe a fight that didn't end in a kill. It's a heuristic and it can be wrong (a wandering
+     * NPC finishing you off after the boss), but it is the only attribution the client has, and the
+     * site discards a death whose killer doesn't match anything it's watching.
+     */
+    private void recordDeathMoment() {
+        if (!momentsEnabled()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String killer = (lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS)
+                ? lastCombatTarget : null;
+        moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, "npc",
+                killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
+        scheduleMomentPush();
+    }
+
+    /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
+    private void scheduleMomentPush() {
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        synchronized (moments) {
+            if (momentPushTask != null) {
+                momentPushTask.cancel(false);
+            }
+            momentPushTask = executor.schedule(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
+     * Send the queued moments.
+     *
+     * <p>The batch stays queued until the site confirms it, so a failed push retries with nothing
+     * lost — and since every entry is keyed, a push that succeeded but whose reply we never saw
+     * stores nothing the second time.
+     */
+    private void flushMomentPush() {
+        if (!momentsEnabled() || moments.isEmpty()) {
+            return;
+        }
+        java.util.List<AnvilMoments.Moment> batch = moments.nextBatch();
+        if (batch.isEmpty()) {
+            return;
+        }
+        try {
+            apiClient.submitMoments(batch);
+        } catch (IOException e) {
+            log.debug("Moment push failed ({} queued) — retrying: {}", moments.size(), e.getMessage());
+            scheduleMomentPush();
+            return;
+        }
+        moments.onSent(batch);
+        // More than one batch's worth waiting (a long offline stretch) — keep going.
+        if (!moments.isEmpty()) {
+            scheduleMomentPush();
         }
     }
 
@@ -5945,6 +6183,11 @@ public class AnvilPlugin extends Plugin {
             // Recap counter — count the death for the "Wipe Magnet" superlative even if death
             // notifications are off (still gated by auto-submit + an active event inside).
             recordEventDeath();
+            // Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
+            // the boss everyone is racing that week is the story; dying in general is a number.
+            // Recorded here rather than beside the post below, so the drops channel being off can't
+            // erase it.
+            recordDeathMoment();
             clipMoments.record("💀 Died");
             if (!config.notifyDeaths()) {
                 return;
@@ -6825,13 +7068,24 @@ public class AnvilPlugin extends Plugin {
         final String source;
         final String sourceKind;
         final Integer killCount;
+        /**
+         * Whether this pet will actually be POSTED. The wait for the name happens either way — the
+         * clan's site feed wants it too — so this is what tells the collection-log line whether
+         * standing down would leave the pet unannounced.
+         */
+        final boolean announce;
+        /** The queued feed entry waiting for the same name, if any. */
+        final String momentKey;
         String name;
 
-        PendingPet(boolean duplicate, String source, String sourceKind, Integer killCount) {
+        PendingPet(boolean duplicate, String source, String sourceKind, Integer killCount,
+                   boolean announce, String momentKey) {
             this.duplicate = duplicate;
             this.source = source;
             this.sourceKind = sourceKind;
             this.killCount = killCount;
+            this.announce = announce;
+            this.momentKey = momentKey;
         }
     }
 
@@ -6845,33 +7099,41 @@ public class AnvilPlugin extends Plugin {
     private static final long PET_NAME_WINDOW_MS = 2_000;
 
     /**
-     * Claim a collection-log unlock as the name of the pet we're about to post.
+     * Claim a collection-log unlock as the name of the pet we just noticed.
      *
-     * <p>Returns true when it was the pet's, which also tells the caller to skip the normal
-     * collection-log posts — otherwise the same pet lands twice, once as 🐾 and once as 📕.
+     * <p>Returns the pet when this line was its name — which tells the caller two different things
+     * it must not confuse: the unlock is already accounted for (so it is not ALSO a drop), and, if
+     * that pet is going to be posted, the ordinary collection-log posts should stand down or the
+     * same pet lands twice, once as 🐾 and once as 📕. A member who only wanted the site feed still
+     * gets their normal clog post, because for them nothing else is going to mention it.
      */
-    private boolean claimPetName(String itemName) {
+    private PendingPet claimPetName(String itemName) {
         if (itemName == null || itemName.isEmpty()) {
-            return false;
+            return null;
         }
+        PendingPet pet;
         synchronized (petLock) {
             if (pendingPet == null || pendingPet.name != null) {
-                return false;
+                return null;
             }
             pendingPet.name = itemName;
-            return true;
+            pet = pendingPet;
         }
+        // The feed's copy of this pet has been sitting unnamed since the chat line — this is the
+        // only thing in the game that says which pet it was.
+        namePetMoment(pet.momentKey, itemName);
+        return pet;
     }
 
     /**
-     * Note a pet drop and schedule the post. The source and kill count are captured NOW — by the
-     * time the post fires the player may have moved on, and "from Callisto at 1,204 KC" is the whole
-     * story of the drop.
+     * Note a pet drop. The source and kill count are captured NOW — by the time anything is sent the
+     * player may have moved on, and "from Callisto at 1,204 KC" is the whole story of the drop.
+     *
+     * <p>The clan's feed is recorded unconditionally; only the Discord post is gated. They are
+     * different things: switching off the drops channel is a statement about a channel, not about
+     * whether the pet happened.
      */
-    private void maybeNotifyPet(boolean duplicate) {
-        if (!config.notifyPets() || !notifyEnabled("rareDrops")) {
-            return;
-        }
+    private void handlePetDrop(boolean duplicate) {
         String source;
         String sourceKind;
         synchronized (recentLootIds) {
@@ -6880,7 +7142,16 @@ public class AnvilPlugin extends Plugin {
             source = fresh ? lastLootSource : null;
             sourceKind = fresh ? lastLootSourceKind : null;
         }
-        PendingPet pet = new PendingPet(duplicate, source, sourceKind, killCountFor(source));
+        Integer kc = killCountFor(source);
+        String momentKey = recordPetMoment(source, sourceKind, kc);
+        boolean announce = config.notifyPets() && notifyEnabled("rareDrops");
+
+        // Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
+        // park a pet nothing will ever collect: the next collection-log line would claim it.
+        if (!announce && momentKey == null) {
+            return;
+        }
+        PendingPet pet = new PendingPet(duplicate, source, sourceKind, kc, announce, momentKey);
         synchronized (petLock) {
             pendingPet = pet;
         }
@@ -6903,6 +7174,11 @@ public class AnvilPlugin extends Plugin {
             if (pendingPet == pet) {
                 pendingPet = null;
             }
+        }
+        // The wait may have been for the site feed alone (drops channel off) — the name has been
+        // filled in by now either way, and there is nothing here to post.
+        if (!pet.announce) {
+            return;
         }
         String rsn = getLocalPlayerName();
         String shotName = "anvil-pet.png";
@@ -8035,6 +8311,9 @@ public class AnvilPlugin extends Plugin {
         profileSyncRsn = key;
         clogSync.reset();
         personalBests.reset();
+        // A different character doesn't inherit this one's unsent highlights — the site files them
+        // against whoever the request authenticates as, which would now be the wrong person.
+        moments.reset();
         clogSync.restoreState(configManager.getConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + key));
         // The whole-log fingerprint survives a restart: opening the collection log re-transmits
         // everything every time, and without this each session's first open re-sent a log the site
