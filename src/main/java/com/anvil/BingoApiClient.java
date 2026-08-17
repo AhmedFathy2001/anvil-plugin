@@ -1383,6 +1383,45 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/clog — push the WHOLE collection log as a flat obtained-item list.
+	 *
+	 * The page-by-page route sends what the player has drawn; this sends everything the server
+	 * transmitted (see {@link ClogFullSync}). No page names travel: the site owns the catalogue and
+	 * maps ids onto pages, so a Jagex reshuffle is a dataset rebuild there rather than a release here.
+	 */
+	public void submitClogItems(java.util.Map<Integer, Integer> items) throws IOException
+	{
+		if (items == null || items.isEmpty())
+		{
+			return;
+		}
+		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+		for (java.util.Map.Entry<Integer, Integer> e : items.entrySet())
+		{
+			JsonObject item = new JsonObject();
+			item.addProperty("id", e.getKey());
+			item.addProperty("q", e.getValue());
+			arr.add(item);
+		}
+		JsonObject payload = new JsonObject();
+		payload.add("items", arr);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/clog")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Collection log push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+		}
+	}
+
+	/**
 	 * POST /api/events/:id/start-proof — file this account's STARTING SHOT (site lib/startProof).
 	 *
 	 * The image has already been through {@link #uploadImage}; this hands over its URL plus the

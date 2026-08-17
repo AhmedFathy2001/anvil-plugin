@@ -1160,6 +1160,10 @@ public class ClogTabController
 		// (starts at y+50): placed at y+32 with height 14 it occupies y+32..y+46, overlapping neither.
 		// Rendered ONLY when plugin.isAdmin() is true, so for non-admins the gap stays empty exactly as
 		// it is today (no reserved space, no reflow of any surrounding widget).
+		// Optional rows stack in the gap under the event-type value. Each takes 18px; whatever is
+		// left starts at y+50 as before, so a column with neither row is pixel-identical to the one
+		// this replaced.
+		int rowY = y + 32;
 		if (plugin.isAdmin())
 		{
 			Widget sync = container.createChild(-1, WidgetType.TEXT);
@@ -1168,7 +1172,7 @@ public class ClogTabController
 				: "<col=ffcc33>Sync clan roster</col>");
 			sync.setFontId(FONT_PLAIN);
 			sync.setTextShadowed(true);
-			place(sync, 10, y + 32, ClogIds.LEFT_COL_W - 20, 14);
+			place(sync, 10, rowY, ClogIds.LEFT_COL_W - 20, 14);
 			if (!clanSyncInProgress)
 			{
 				sync.setHasListener(true);
@@ -1176,6 +1180,24 @@ public class ClogTabController
 				sync.setOnOpListener((JavaScriptCallback) e -> triggerClanSync());
 			}
 			sync.revalidate();
+			rowY += 18;
+		}
+
+		// "Sync profile" — pushes this account's whole collection log to the clan site. Sits directly
+		// under the admin row (or in its place for everyone else), so the left column reads the same
+		// whether or not you're staff. Only rendered when the site actually accepts profile data.
+		if (plugin.supportsProfileSync())
+		{
+			Widget profile = container.createChild(-1, WidgetType.TEXT);
+			profile.setText("<col=ffcc33>Sync profile</col>");
+			profile.setFontId(FONT_PLAIN);
+			profile.setTextShadowed(true);
+			place(profile, 10, rowY, ClogIds.LEFT_COL_W - 20, 14);
+			profile.setHasListener(true);
+			profile.setAction(0, "Sync");
+			profile.setOnOpListener((JavaScriptCallback) e -> plugin.syncProfileNow());
+			profile.revalidate();
+			rowY += 18;
 		}
 
 		// Banner sounds: the all-users entry point for adding your own clips (none ship with the
@@ -1184,7 +1206,8 @@ public class ClogTabController
 		sounds.setText("<col=ffcc33>Banner sounds</col>");
 		sounds.setFontId(FONT_PLAIN);
 		sounds.setTextShadowed(true);
-		place(sounds, 10, y + 50, ClogIds.LEFT_COL_W - 20, 16);
+		int soundsY = Math.max(y + 50, rowY);
+		place(sounds, 10, soundsY, ClogIds.LEFT_COL_W - 20, 16);
 		sounds.setHasListener(true);
 		sounds.setAction(0, "Add");
 		sounds.setAction(1, "Open folder");
@@ -1205,7 +1228,7 @@ public class ClogTabController
 		// "Saved proofs" — only rendered while submissions are stuck on disk (upload failed and
 		// retrying), so the layout is untouched in the healthy case. Opens the pending-proofs
 		// folder so a member can grab the baked screenshot before it's pruned.
-		int sy = y + 68;
+		int sy = soundsY + 18;
 		int stuckProofs = plugin.pendingProofCount();
 		if (stuckProofs > 0)
 		{

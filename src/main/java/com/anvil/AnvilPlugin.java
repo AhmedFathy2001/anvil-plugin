@@ -7,6 +7,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.MenuAction;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.Actor;
@@ -36,6 +37,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.WidgetClosed;
@@ -735,6 +737,12 @@ public class AnvilPlugin extends Plugin {
     /** The clan list lands a moment after the channel does; give it time rather than racing it. */
     private static final long AUTO_ROSTER_DELAY_MS = 5_000;
     private final ClogSync clogSync = new ClogSync();
+    /** Whole-log sync: the accumulator for a server transmit (see ClogFullSync). */
+    private final ClogFullSync clogFullSync = new ClogFullSync();
+    /** True while we're inside our own transmit request, so the re-init we fire can't re-trigger it. */
+    private volatile boolean clogTransmitInFlight;
+    /** The player pressed "Sync profile" — the next log open pushes even if nothing has changed. */
+    private volatile boolean clogSyncRequested;
     private final PersonalBests personalBests = new PersonalBests();
     /** The account the two above belong to, so a character switch reloads rather than merges. */
     private String profileSyncRsn;
@@ -932,6 +940,7 @@ public class AnvilPlugin extends Plugin {
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
             safely("flushClogSync", this::flushClogSync);
+            safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
         }, 30, 30, TimeUnit.SECONDS);
     }
@@ -1319,11 +1328,102 @@ public class AnvilPlugin extends Plugin {
         apiClient.setSeasonal(onSeasonalWorld());
     }
 
+    // --- Whole-log collection sync ---------------------------------------------------------------
+    // Opening the collection log and toggling its Search makes the SERVER transmit every entry, one
+    // script fire per item — the whole log without the player clicking a single page. The technique
+    // is WikiSync's (BSD-2, weirdgloop/WikiSync); RuneProfile ships the same three calls.
+
+    /** Fires once the collection log interface has finished setting itself up. */
+    private static final int COLLECTION_LOG_SETUP = 7797;
+    /** One fire per transmitted item: args[1] = item id, args[2] = quantity. */
+    private static final int COLLECTION_DELAYED_TRANSMIT = 4100;
+    /** Re-initialises the log's own view, which closes the search we opened to trigger the transmit. */
+    private static final int COLLECTION_INIT = 2240;
+
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
             clogTabController.onCollectionDrawList();
             captureClogPage();
+        } else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
+            requestFullClogTransmit();
+        }
+    }
+
+    @Subscribe
+    public void onScriptPreFired(ScriptPreFired event) {
+        if (event.getScriptId() != COLLECTION_DELAYED_TRANSMIT) {
+            return;
+        }
+        // Viewing someone else's log through a POH adventure log fires the same script with THEIR
+        // items. Storing those would overwrite this account's log with a stranger's.
+        if (client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1) {
+            clogFullSync.reset();
+            return;
+        }
+        Object[] args = event.getScriptEvent().getArguments();
+        if (args == null || args.length < 3) {
+            return;
+        }
+        try {
+            clogFullSync.onItem((int) args[1], (int) args[2], System.currentTimeMillis());
+        } catch (ClassCastException e) {
+            // A game update changed the script's shape — stop rather than file nonsense as a log.
+            log.debug("Collection transmit args weren't (id, quantity); ignoring");
+            clogFullSync.reset();
+        }
+    }
+
+    /**
+     * Ask the server for the whole collection log, now that the interface is open.
+     *
+     * <p>The Search toggle is what makes the server send every entry; re-running the log's init
+     * script puts the view back as it was, so the player sees their log open normally. Runs on the
+     * client thread (it's a script hook) and only ever while their OWN log is open.
+     */
+    private void requestFullClogTransmit() {
+        if (!config.syncClog() || !apiClient.isConfigured() || !serverSupportsProfileSync()) {
+            return;
+        }
+        if (client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1) {
+            return; // someone else's log, opened through a POH adventure log
+        }
+        // Our own re-init below re-fires setup; without this guard it would ask forever.
+        if (clogTransmitInFlight) {
+            return;
+        }
+        clogTransmitInFlight = true;
+        clogFullSync.begin(clogSyncRequested);
+        clogSyncRequested = false;
+        client.menuAction(-1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
+        client.runScript(COLLECTION_INIT);
+        clogTransmitInFlight = false;
+    }
+
+    /**
+     * "Sync profile" — the button. If their log is already open the transmit is triggered on the
+     * spot; otherwise we arm it, and opening the log finishes the job. Either way the player never
+     * has to page through anything.
+     */
+    public void syncProfileNow() {
+        if (!config.syncClog()) {
+            sendChatMessage("Collection log sync is off — turn it on in Configuration → Anvil → Profile sync.");
+            return;
+        }
+        if (!apiClient.isConfigured()) {
+            sendChatMessage("Set your Site URL and Account Token first (Configuration → Anvil → Setup).");
+            return;
+        }
+        if (!serverSupportsProfileSync()) {
+            sendChatMessage("This clan's site doesn't support profile sync yet.");
+            return;
+        }
+        clogSyncRequested = true;
+        if (client.getWidget(InterfaceID.Collection.FRAME) != null) {
+            sendChatMessage("Syncing your collection log...");
+            requestFullClogTransmit();
+        } else {
+            sendChatMessage("Open your collection log and your profile will sync itself.");
         }
     }
 
@@ -1608,6 +1708,9 @@ public class AnvilPlugin extends Plugin {
             // so forget that this one filed (the server's config is the real answer either way).
             startProofFiled = false;
             startProofNudged = false;
+            // A half-received collection log belongs to the account that was logged in.
+            clogFullSync.reset();
+            clogSyncRequested = false;
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
@@ -7602,6 +7705,11 @@ public class AnvilPlugin extends Plugin {
      * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
      * no batching and no requests.
      */
+    /** Does this clan's site take profile data? Drives the in-tab "Sync profile" row. */
+    public boolean supportsProfileSync() {
+        return config.syncClog() && apiClient.isConfigured() && serverSupportsProfileSync();
+    }
+
     private boolean serverSupportsProfileSync() {
         PluginConfigResponse cfg = pluginConfig;
         return cfg != null && cfg.serverSupports("profile-sync");
@@ -7704,6 +7812,40 @@ public class AnvilPlugin extends Plugin {
         clogSync.onSent(batch);
         configManager.setConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + profileSyncRsn,
                 clogSync.serializeState());
+    }
+
+    /**
+     * Push a settled whole-log transmit (see {@link ClogFullSync}). Runs on the same 30s tick as the
+     * page sync; the two are complementary — this carries every obtained item, the page route carries
+     * the kill-count lines that only appear on a drawn page.
+     */
+    private void flushFullClogSync() {
+        if (!config.syncClog() || !apiClient.isConfigured() || profileSyncRsn == null
+                || !serverSupportsProfileSync()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!clogFullSync.isDue(now)) {
+            return;
+        }
+        boolean manual = clogFullSync.isManual();
+        int count = clogFullSync.size();
+        try {
+            apiClient.submitClogItems(clogFullSync.snapshot());
+        } catch (Exception e) {
+            // Kept for the next tick: a site that's down mustn't cost them the transmit.
+            log.debug("Whole-log push failed, will retry: {}", e.getMessage());
+            clogFullSync.onSendFailed(now);
+            if (manual) {
+                sendChatMessage("Profile sync failed: " + e.getMessage() + " — it'll retry on its own.");
+            }
+            return;
+        }
+        clogFullSync.onSent();
+        log.info("Collection log synced: {} items", count);
+        if (manual) {
+            sendChatMessage("Profile synced — " + count + " collection log slots.");
+        }
     }
 
     /** Same contract for best times. */
