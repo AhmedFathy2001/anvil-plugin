@@ -729,6 +729,8 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
     /** RuneLite's own chat-commands store, read once to seed a profile (see importRuneLitePersonalBests). */
     private static final String RUNELITE_PB_GROUP = "personalbest";
+    /** Team-size variants RuneLite files raids under ("chambers of xeric 3 players"). */
+    private static final int MAX_PB_TEAM_SIZE = 8;
     /** Last automatic roster push, so a channel reload storm can't fire a request per event. */
     private long lastAutoRosterSyncAt;
     /** Guard against a second automatic push overlapping the first. */
@@ -956,6 +958,7 @@ public class AnvilPlugin extends Plugin {
             safely("refreshSchedule", this::refreshSchedule);
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
+            safely("importRuneLitePbs", this::retryPersonalBestImport);
             safely("flushClogSync", this::flushClogSync);
             safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
@@ -7874,38 +7877,71 @@ public class AnvilPlugin extends Plugin {
         if (done != null && !done.isEmpty()) {
             return;
         }
-        String profile = configManager.getRSProfileKey();
-        if (profile == null || profile.isEmpty()) {
+        if (configManager.getRSProfileKey() == null || configManager.getRSProfileKey().isEmpty()) {
             return; // No RS profile yet -- try again next login rather than marking it done.
         }
+        // The names to ask for. Without them there is nothing to probe, so we leave the flag unset
+        // and try again once the site's config has landed.
+        PluginConfigResponse cfg = pluginConfig;
+        List<String> activities = cfg != null ? cfg.pbActivities : null;
+        if (activities == null || activities.isEmpty()) {
+            return;
+        }
 
-        // Keys are stored as "<group>.<rs profile>.<activity>"; we want the activity tail.
-        String prefix = RUNELITE_PB_GROUP + "." + profile + ".";
+        // ASK, don't list. RuneLite stores these under the RS-profile scope, and its only key-listing
+        // API reads the main profile — so the obvious loop over getConfigurationKeys() silently found
+        // nothing at all, whatever prefix it was given. getRSProfileConfiguration reads the right
+        // store, one key at a time, which is why the names have to come from somewhere.
         Map<String, Integer> imported = new HashMap<>();
-        for (String fullKey : configManager.getConfigurationKeys(prefix)) {
-            String activity = fullKey.substring(prefix.length());
-            if (activity.isEmpty()) {
+        for (String base : activities) {
+            if (base == null || base.isEmpty()) {
                 continue;
             }
-            String raw = configManager.getRSProfileConfiguration(RUNELITE_PB_GROUP, activity);
-            if (raw == null || raw.isEmpty()) {
-                continue;
-            }
-            try {
-                // Stored as seconds with a fractional part; ours is centiseconds.
-                int centis = (int) Math.round(Double.parseDouble(raw.trim()) * 100.0);
-                if (centis > 0) {
-                    imported.put(activity, centis);
-                }
-            } catch (NumberFormatException e) {
-                // Not a time -- skip the key rather than the import.
+            probeRuneLitePb(base, imported);
+            // Raids and party content are also filed per team size ("chambers of xeric 3 players").
+            for (int size = 1; size <= MAX_PB_TEAM_SIZE; size++) {
+                probeRuneLitePb(base + " " + size + " players", imported);
             }
         }
 
         int adopted = personalBests.seed(imported, System.currentTimeMillis());
         configManager.setConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey, "1");
+        log.info("Anvil: imported {} existing personal best(s) from RuneLite ({} probed)",
+                adopted, imported.size());
         if (adopted > 0) {
-            log.debug("Imported {} existing personal best(s) for this account", adopted);
+            sendChatMessage("Imported " + adopted + " personal best" + (adopted == 1 ? "" : "s")
+                    + " from RuneLite.");
+        }
+    }
+
+    /**
+     * Try the personal-best import again on the periodic tick.
+     *
+     * <p>It needs three things that don't arrive together: an account (login), an RS profile key
+     * (login), and the site's activity list (the first config fetch). Running it only at login meant
+     * the config usually hadn't landed yet and the import quietly did nothing. The once-per-account
+     * flag makes every call after a successful one free.
+     */
+    private void retryPersonalBestImport() {
+        String rsn = profileSyncRsn;
+        if (rsn != null && !rsn.isEmpty()) {
+            importRuneLitePersonalBests(rsn);
+        }
+    }
+
+    /** Read one stored best, if RuneLite has it for this account. Times are seconds; ours centis. */
+    private void probeRuneLitePb(String activity, Map<String, Integer> into) {
+        String raw = configManager.getRSProfileConfiguration(RUNELITE_PB_GROUP, activity);
+        if (raw == null || raw.trim().isEmpty()) {
+            return;
+        }
+        try {
+            int centis = (int) Math.round(Double.parseDouble(raw.trim()) * 100.0);
+            if (centis > 0) {
+                into.put(activity, centis);
+            }
+        } catch (NumberFormatException e) {
+            // Not a time -- skip the key rather than the import.
         }
     }
 

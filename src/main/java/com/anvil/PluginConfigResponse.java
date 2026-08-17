@@ -65,6 +65,11 @@ public class PluginConfigResponse
 	}
 	public String codeword;
 
+	// Activity names for the personal-best import. RuneLite files its stored bests in a config scope
+	// a plugin can READ by key but cannot LIST, so the import has to ask by name — and the names come
+	// from the site so a new boss doesn't need a plugin release. Null on older sites.
+	public List<String> pbActivities;
+
 	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
 	// requires one; null everywhere else, including on sites that predate the 'start-proof'
 	// capability, so the button simply never appears there.
