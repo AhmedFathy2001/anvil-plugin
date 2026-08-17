@@ -744,6 +744,12 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean autoRosterSyncRunning;
     /** Same, for the sidebar button — a double click should be one push, not two. */
     private volatile boolean panelRosterSyncRunning;
+    /**
+     * The next roster push was started by the plugin, not a person, so it reports itself ONLY if the
+     * roster actually moved. Silence on a login where nothing changed; a line when someone joined,
+     * left or was renamed, because that is news whether or not you asked for it.
+     */
+    private volatile boolean autoRosterAnnounce;
     private static final long AUTO_ROSTER_MIN_GAP_MS = 30 * 60 * 1000;
     /** The clan list lands a moment after the channel does; give it time rather than racing it. */
     private static final long AUTO_ROSTER_DELAY_MS = 5_000;
@@ -4628,9 +4634,35 @@ public class AnvilPlugin extends Plugin {
                 try {
                     BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
                     lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
-                    sendChatMessage("Clan roster synced: " + lastSyncSummary);
-                    // Per-member changes — one chat line each, capped so a busy sync doesn't flood chat.
-                    if (r.changes != null && !r.changes.isEmpty()) {
+                    // A sync nobody asked for reports itself only when the roster actually MOVED.
+                    // Silence on the login where nothing changed; one line when somebody joined or
+                    // left, because that's news whether or not you pressed anything.
+                    boolean automatic = autoRosterAnnounce;
+                    autoRosterAnnounce = false;
+                    boolean moved = r.added > 0 || r.markedLeft > 0 || r.renamed > 0 || r.returned > 0;
+                    if (automatic) {
+                        if (moved) {
+                            java.util.List<String> parts = new java.util.ArrayList<>();
+                            if (r.added > 0) {
+                                parts.add(r.added + " joined");
+                            }
+                            if (r.returned > 0) {
+                                parts.add(r.returned + " returned");
+                            }
+                            if (r.markedLeft > 0) {
+                                parts.add(r.markedLeft + " left");
+                            }
+                            if (r.renamed > 0) {
+                                parts.add(r.renamed + " renamed");
+                            }
+                            sendChatMessage("Clan roster updated: " + String.join(", ", parts) + ".");
+                        }
+                    } else {
+                        sendChatMessage("Clan roster synced: " + lastSyncSummary);
+                    }
+                    // Per-member changes — one chat line each, capped so a busy sync doesn't flood
+                    // chat. Only for a sync somebody asked for: the automatic one has said its piece.
+                    if (!automatic && r.changes != null && !r.changes.isEmpty()) {
                         int cap = 12;
                         int shown = 0;
                         for (BingoApiClient.ClanChange ch : r.changes) {
@@ -8141,8 +8173,9 @@ public class AnvilPlugin extends Plugin {
             clogFullSync.onSent();
             return;
         }
+        BingoApiClient.ClogPushResult result;
         try {
-            apiClient.submitClogItems(clogFullSync.snapshot());
+            result = apiClient.submitClogItems(clogFullSync.snapshot());
         } catch (BingoApiClient.RateLimitedException e) {
             // It said when. Wait exactly that long instead of doubling blindly, and keep the batch.
             clogPushAllowedAt = now + Math.max(e.retryAfterMs, 1_000L);
@@ -8188,6 +8221,11 @@ public class AnvilPlugin extends Plugin {
         log.info("Collection log synced: {} items", count);
         if (manual) {
             sendChatMessage("Profile synced — " + count + " collection log slots.");
+        } else if (result.added > 0) {
+            // Automatic, so it speaks only for news: new slots since last time. A sync that changed
+            // nothing — the common case, since opening the log re-sends all of it — stays silent.
+            sendChatMessage("Collection log synced — " + result.added + " new slot"
+                    + (result.added == 1 ? "" : "s") + ".");
         }
     }
 
@@ -8266,6 +8304,7 @@ public class AnvilPlugin extends Plugin {
         }
         autoRosterSyncRunning = true;
         lastAutoRosterSyncAt = now;
+        autoRosterAnnounce = true;
         syncClanRoster((ok, msg) -> {
             autoRosterSyncRunning = false;
             if (ok) {

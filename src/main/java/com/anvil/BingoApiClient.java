@@ -1489,11 +1489,24 @@ public class BingoApiClient
 	 * transmitted (see {@link ClogFullSync}). No page names travel: the site owns the catalogue and
 	 * maps ids onto pages, so a Jagex reshuffle is a dataset rebuild there rather than a release here.
 	 */
-	public void submitClogItems(java.util.Map<Integer, Integer> items) throws IOException
+	/** What a whole-log push changed, so an automatic sync can stay quiet when it changed nothing. */
+	public static final class ClogPushResult
+	{
+		public int added;
+		public int removed;
+		public int updated;
+
+		public boolean movedAnything()
+		{
+			return added > 0 || removed > 0 || updated > 0;
+		}
+	}
+
+	public ClogPushResult submitClogItems(java.util.Map<Integer, Integer> items) throws IOException
 	{
 		if (items == null || items.isEmpty())
 		{
-			return;
+			return new ClogPushResult();
 		}
 		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
 		for (java.util.Map.Entry<Integer, Integer> e : items.entrySet())
@@ -1525,6 +1538,20 @@ public class BingoApiClient
 				log.debug("Collection log push refused: HTTP {} — {}", response.code(), responseBody);
 				throw friendlyFailure(response.code(), responseBody);
 			}
+			ClogPushResult result = new ClogPushResult();
+			try
+			{
+				JsonObject json = new JsonParser().parse(response.body().string()).getAsJsonObject();
+				result.added = json.has("added") ? json.get("added").getAsInt() : 0;
+				result.removed = json.has("removed") ? json.get("removed").getAsInt() : 0;
+				result.updated = json.has("updated") ? json.get("updated").getAsInt() : 0;
+			}
+			catch (Exception ignored)
+			{
+				// An older site doesn't report counts. The push still worked; we just can't say what
+				// it did, so an automatic sync stays quiet rather than guessing.
+			}
+			return result;
 		}
 	}
 
