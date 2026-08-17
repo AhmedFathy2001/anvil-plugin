@@ -739,8 +739,12 @@ public class AnvilPlugin extends Plugin {
     private final ClogSync clogSync = new ClogSync();
     /** Whole-log sync: the accumulator for a server transmit (see ClogFullSync). */
     private final ClogFullSync clogFullSync = new ClogFullSync();
-    /** True while we're inside our own transmit request, so the re-init we fire can't re-trigger it. */
+    /** True from asking for a transmit until it has settled, so the re-init we fire can't re-trigger it. */
     private volatile boolean clogTransmitInFlight;
+    /** Game tick the transmit was asked for — the guard is held relative to this. */
+    private volatile int clogTransmitTick;
+    /** Wall clock of the last request, for the cooldown that backstops the guard. */
+    private volatile long lastClogTransmitAt;
     /** The player pressed "Sync profile" — the next log open pushes even if nothing has changed. */
     private volatile boolean clogSyncRequested;
     private final PersonalBests personalBests = new PersonalBests();
@@ -1339,6 +1343,12 @@ public class AnvilPlugin extends Plugin {
     private static final int COLLECTION_DELAYED_TRANSMIT = 4100;
     /** Re-initialises the log's own view, which closes the search we opened to trigger the transmit. */
     private static final int COLLECTION_INIT = 2240;
+    /** Hold the guard at least this long: the re-fire of the setup script arrives a tick or two later. */
+    private static final int CLOG_TRANSMIT_MIN_TICKS = 4;
+    /** And no longer than this, so a transmit that yields nothing can't wedge the guard on. */
+    private static final int CLOG_TRANSMIT_MAX_TICKS = 50;
+    /** Hard floor between two transmit requests, whatever the guard believes. */
+    private static final long CLOG_TRANSMIT_COOLDOWN_MS = 10_000L;
 
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
@@ -1346,7 +1356,12 @@ public class AnvilPlugin extends Plugin {
             clogTabController.onCollectionDrawList();
             captureClogPage();
         } else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
-            requestFullClogTransmit();
+            // Opt-in until the trick has been proven on a real client: an unguarded version of this
+            // recursed through the interface scripts and crashed the game. The button asks for the
+            // same thing deliberately, which is the safe way to try it.
+            if (config.autoFullClogSync() || clogSyncRequested) {
+                requestFullClogTransmit();
+            }
         }
     }
 
@@ -1388,16 +1403,53 @@ public class AnvilPlugin extends Plugin {
         if (client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1) {
             return; // someone else's log, opened through a POH adventure log
         }
-        // Our own re-init below re-fires setup; without this guard it would ask forever.
+        // THE GUARD THAT MATTERS. The init script below re-fires the setup script that got us here,
+        // and it does so on a LATER tick — so a flag cleared at the end of this method is already
+        // false when the re-fire lands, and we ask again, and again: toggle search, re-init, setup,
+        // toggle search. That recursion crashed a client with an ArrayIndexOutOfBounds inside the
+        // interface scripts. The flag therefore lives until onGameTick decides the transmit is over.
         if (clogTransmitInFlight) {
             return;
         }
+        // Second belt, because the first one failing crashed someone's game: never fire twice inside
+        // this window whatever the flag says. A missed sync waits for the next open; a loop does not.
+        long now = System.currentTimeMillis();
+        if (now - lastClogTransmitAt < CLOG_TRANSMIT_COOLDOWN_MS) {
+            return;
+        }
+        // Only with the log actually on screen — the ops below address ITS widgets.
+        if (client.getWidget(InterfaceID.Collection.FRAME) == null) {
+            return;
+        }
+
         clogTransmitInFlight = true;
+        lastClogTransmitAt = now;
+        clogTransmitTick = client.getTickCount();
         clogFullSync.begin(clogSyncRequested);
         clogSyncRequested = false;
         client.menuAction(-1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
         client.runScript(COLLECTION_INIT);
-        clogTransmitInFlight = false;
+    }
+
+    /**
+     * Stand the transmit guard down once the items have stopped arriving (or never started).
+     *
+     * <p>Held for at least {@link #CLOG_TRANSMIT_MIN_TICKS} so the re-fire of the setup script — the
+     * one our own init causes — always lands while the flag is still up, and released after that so a
+     * later, genuine open can sync again. The absolute ceiling covers the case where the toggle
+     * yielded nothing at all, so a failed attempt can't wedge the flag on for the session.
+     */
+    private void tickClogTransmitGuard() {
+        if (!clogTransmitInFlight) {
+            return;
+        }
+        int elapsed = client.getTickCount() - clogTransmitTick;
+        if (elapsed < CLOG_TRANSMIT_MIN_TICKS) {
+            return;
+        }
+        if (elapsed >= CLOG_TRANSMIT_MAX_TICKS || clogFullSync.isDue(System.currentTimeMillis())) {
+            clogTransmitInFlight = false;
+        }
     }
 
     /**
@@ -1492,6 +1544,7 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         clogTabController.onGameTick();
+        tickClogTransmitGuard();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
         recordEventTick();

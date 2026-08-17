@@ -637,6 +637,18 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "autoFullClogSync",
+		name = "Sync the whole log on open",
+		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Off while the trick is being proven — the \"Sync profile\" button in the Anvil tab does the same thing on demand.",
+		position = 3,
+		section = "profileSection"
+	)
+	default boolean autoFullClogSync()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "syncPersonalBests",
 		name = "Sync personal bests",
 		description = "Send your best boss and raid times to your clan site as you set them.",
