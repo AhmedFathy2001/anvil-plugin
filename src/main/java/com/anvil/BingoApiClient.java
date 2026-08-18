@@ -1575,8 +1575,14 @@ public class BingoApiClient
 	 * The image has already been through {@link #uploadImage}; this hands over its URL plus the
 	 * keyword we baked into the banner, which the server recomputes. A capture from an authenticated
 	 * plugin whose keyword matches is accepted outright; anything else waits for staff.
+	 *
+	 * <p>The world position and session start ride along so the server can record what the two
+	 * client-side checks (StartProofRules) saw — it re-measures both rather than trusting our
+	 * verdict, and a shot that fails one lands `pending` instead of accepted. Both are optional:
+	 * pass null when we can't answer, and the server simply doesn't run that check.
 	 */
-	public void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt) throws IOException
+	public void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt,
+		Integer x, Integer y, String loginAt) throws IOException
 	{
 		JsonObject payload = new JsonObject();
 		payload.addProperty("imageUrl", imageUrl);
@@ -1587,6 +1593,15 @@ public class BingoApiClient
 		if (capturedAt != null)
 		{
 			payload.addProperty("capturedAt", capturedAt);
+		}
+		if (x != null && y != null)
+		{
+			payload.addProperty("x", x);
+			payload.addProperty("y", y);
+		}
+		if (loginAt != null)
+		{
+			payload.addProperty("loginAt", loginAt);
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());

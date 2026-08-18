@@ -220,6 +220,18 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean startProofInFlight;
     /** One nudge per login — a reminder that repeats every poll is just noise. */
     private volatile boolean startProofNudged;
+    /**
+     * When THIS game session began, for the starting shot's session window (see StartProofRules).
+     * {@link StartProofRules#UNKNOWN_LOGIN} means we didn't see the login that started it — the
+     * plugin was enabled mid-session, or the client reconnected — and the rule treats not knowing
+     * exactly like a stale session: log out and back in, and then we do know.
+     *
+     * <p>Stamped on the login-screen → in-game transition only. A world hop keeps the older stamp,
+     * because a hop is not the logout that flushes the hiscores.
+     */
+    private volatile long sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
+    /** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
+    private volatile boolean freshLoginPending;
 
     // Item ID → tracked drops lookup for O(1) loot matching
     private volatile Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex = Collections.emptyMap();
@@ -1000,6 +1012,13 @@ public class AnvilPlugin extends Plugin {
         }
 
         configureApiClient();
+
+        // Session clock for the starting shot: starting up AT the login screen means the next
+        // LOGGED_IN is a real login we can vouch for — the ordinary "launched the client" case.
+        // Starting up already in-game leaves it unknown, which the rule reads as "log out and back
+        // in", since we can't say when the last hiscores flush was.
+        freshLoginPending = client.getGameState() == GameState.LOGIN_SCREEN;
+        sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
 
         // Initial config fetch. If the plugin was enabled mid-session (already logged in),
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
@@ -1906,6 +1925,14 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onGameStateChanged(GameStateChanged event) {
+        // SESSION CLOCK for the starting shot (StartProofRules). Only the login screen starts a new
+        // session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
+        // logout that flushes the hiscores — treating either as a fresh login would hand out a clean
+        // bill of health to a client that has been up for hours.
+        if (event.getGameState() == GameState.LOGGED_IN && freshLoginPending) {
+            freshLoginPending = false;
+            sessionLoginAtMs = System.currentTimeMillis();
+        }
         if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
             // Delay slightly so local player name is populated
             if (executor != null && !executor.isShutdown()) {
@@ -1924,6 +1951,10 @@ public class AnvilPlugin extends Plugin {
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
+            // Back at the login screen: the next LOGGED_IN really is a new session, and until it
+            // arrives we don't have one at all.
+            freshLoginPending = true;
+            sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
             // Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
             // the answer rather than let the sidebar rank clans on the previous account's standing.
             knownMember = null;
@@ -4309,6 +4340,23 @@ public class AnvilPlugin extends Plugin {
         if (startProofInFlight) {
             return;
         }
+
+        // Where this account is standing, for the drawn spot's position check. Read before anything
+        // async: by the time the frame arrives the player may have taken a step.
+        final Integer worldX = localWorldX();
+        final Integer worldY = localWorldY();
+        final long loginAtMs = sessionLoginAtMs;
+
+        // Refuse rather than file something staff will only have to chase: standing in the wrong
+        // place or on a session too old to have flushed the hiscores are both fixable in-game, in
+        // seconds, and the message says how.
+        String blocked = StartProofRules.blockReason(
+                cfg.startProof, loginAtMs, System.currentTimeMillis(), worldX, worldY);
+        if (blocked != null) {
+            sendChatMessage(blocked);
+            return;
+        }
+
         startProofInFlight = true;
 
         final int eventId = cfg.event.id;
@@ -4316,6 +4364,9 @@ public class AnvilPlugin extends Plugin {
         final String keyword = cfg.startProof.keyword;
         final String capturedRsn = getLocalPlayerName();
         final String capturedAt = java.time.Instant.now().toString();
+        final String loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN
+                ? null
+                : java.time.Instant.ofEpochMilli(loginAtMs).toString();
 
         drawManager.requestNextFrameListener(image -> {
             if (executor == null || executor.isShutdown()) {
@@ -4341,7 +4392,7 @@ public class AnvilPlugin extends Plugin {
                     ImageIO.write(buffered, "png", baos);
 
                     String imageUrl = apiClient.uploadImage(baos.toByteArray(), "start-proof-" + eventId + ".png");
-                    apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt);
+                    apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
                     startProofFiled = true;
                     sendChatMessage("Starting shot sent. You're clear to play.");
                     refreshConfig();
@@ -4591,6 +4642,24 @@ public class AnvilPlugin extends Plugin {
             return null;
         }
         return client.getLocalPlayer().getName();
+    }
+
+    /**
+     * This account's world position, for the starting shot's position check (StartProofRules).
+     * Null while logged out — which simply means the check doesn't run.
+     */
+    private Integer localWorldX() {
+        if (client == null || client.getLocalPlayer() == null || client.getLocalPlayer().getWorldLocation() == null) {
+            return null;
+        }
+        return client.getLocalPlayer().getWorldLocation().getX();
+    }
+
+    private Integer localWorldY() {
+        if (client == null || client.getLocalPlayer() == null || client.getLocalPlayer().getWorldLocation() == null) {
+            return null;
+        }
+        return client.getLocalPlayer().getWorldLocation().getY();
     }
 
     /**
@@ -5114,7 +5183,11 @@ public class AnvilPlugin extends Plugin {
         startProofNudged = true;
         sendChatMessage("Starting shot needed before you play"
                 + (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
-                + ". Open the Anvil side panel and press \"Take starting shot\".");
+                + ". Open the Anvil side panel and press \"Take starting shot\"."
+                + (sp.maxSessionMinutes > 0
+                        ? " Take it within " + sp.maxSessionMinutes + " min of logging in — hiscores only save"
+                        + " on logout, so that's what sets your starting totals."
+                        : ""));
     }
 
     /**

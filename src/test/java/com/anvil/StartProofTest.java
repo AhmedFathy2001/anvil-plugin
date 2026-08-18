@@ -122,6 +122,86 @@ public class StartProofTest
 		assertEquals(1, fired.get());
 	}
 
+	private static PluginConfigResponse.StartProof checked()
+	{
+		PluginConfigResponse.StartProof sp = owed();
+		sp.spot = new PluginConfigResponse.StartProof.Spot();
+		sp.spot.x = 3094;
+		sp.spot.y = 3491;
+		sp.spot.radius = 25;
+		sp.maxSessionMinutes = 15;
+		return sp;
+	}
+
+	private static final long NOW = 1_800_000_000_000L;
+
+	@Test
+	public void aShotFromTheSpotOnAFreshSessionIsLetThrough()
+	{
+		// Six squares out, five minutes into the session: nothing to complain about.
+		assertNull(StartProofRules.blockReason(checked(), NOW - 5 * 60_000L, NOW, 3100, 3489));
+	}
+
+	@Test
+	public void standingSomewhereElseIsRefusedBeforeTheFrameIsGrabbed()
+	{
+		String reason = StartProofRules.blockReason(checked(), NOW - 60_000L, NOW, 2400, 3489);
+		assertNotNull(reason);
+		// The distance is the useful half of the message — "go to Edgeville bank" alone reads like a
+		// bug when you believe you ARE at Edgeville bank.
+		assertTrue(reason, reason.contains("694"));
+		assertTrue(reason, reason.contains("Edgeville bank"));
+	}
+
+	@Test
+	public void aSessionOlderThanTheWindowIsRefused()
+	{
+		String reason = StartProofRules.blockReason(checked(), NOW - 130 * 60_000L, NOW, 3094, 3491);
+		assertNotNull(reason);
+		assertTrue(reason, reason.contains("2h 10m"));
+		assertTrue(reason, reason.toLowerCase().contains("log out"));
+	}
+
+	@Test
+	public void notKnowingWhenTheSessionStartedCountsAsStale()
+	{
+		// Plugin enabled mid-session: we can't vouch for the logout that flushed the hiscores, and
+		// "probably fine" is exactly the answer this rule exists to stop giving.
+		String reason = StartProofRules.blockReason(checked(), StartProofRules.UNKNOWN_LOGIN, NOW, 3094, 3491);
+		assertNotNull(reason);
+		assertTrue(reason, reason.toLowerCase().contains("log out"));
+	}
+
+	@Test
+	public void checksThatCannotRunNeverBlock()
+	{
+		// An older site: no pin, no window. Exactly the behaviour before any of this existed.
+		assertNull(StartProofRules.blockReason(owed(), StartProofRules.UNKNOWN_LOGIN, NOW, 2400, 3489));
+
+		// Pinned spot, but logged out / no position to read — the distance check simply doesn't run.
+		PluginConfigResponse.StartProof spotOnly = checked();
+		spotOnly.maxSessionMinutes = 0;
+		assertNull(StartProofRules.blockReason(spotOnly, StartProofRules.UNKNOWN_LOGIN, NOW, null, null));
+
+		// Session window on, position unknown, session fresh: still fine.
+		assertNull(StartProofRules.blockReason(checked(), NOW - 60_000L, NOW, null, null));
+
+		// And nothing owed at all can't block anything.
+		assertNull(StartProofRules.blockReason(null, StartProofRules.UNKNOWN_LOGIN, NOW, null, null));
+	}
+
+	@Test
+	public void distanceIsMeasuredTheWayTheGameMeasuresIt()
+	{
+		PluginConfigResponse.StartProof sp = checked();
+		// The longer axis wins — 30 east and 4 north is 30 squares away, not 34.
+		assertEquals(30, StartProofRules.distance(sp, 3124, 3495));
+		assertEquals(0, StartProofRules.distance(sp, 3094, 3491));
+		// Nothing to measure against.
+		assertEquals(-1, StartProofRules.distance(owed(), 3094, 3491));
+		assertEquals(-1, StartProofRules.distance(sp, null, null));
+	}
+
 	@Test
 	public void awaitingAStartingShotIsRetryable()
 	{

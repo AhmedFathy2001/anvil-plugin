@@ -1573,6 +1573,19 @@ public class AnvilSidebarPanel extends PluginPanel
 			card.add(word);
 		}
 
+		if (proof.maxSessionMinutes > 0)
+		{
+			// Said here as well as in chat, because it's the one requirement you can't fix after the
+			// fact: the logout is what flushes the hiscores the event's baseline is read from.
+			JLabel relog = new JLabel(plainText("Log out and back in first (within " + proof.maxSessionMinutes + " min)"));
+			relog.setFont(FontManager.getRunescapeSmallFont());
+			relog.setForeground(Color.WHITE);
+			relog.setAlignmentX(LEFT_ALIGNMENT);
+			relog.setToolTipText("Hiscores only save when you log out, so this is what sets your starting totals.");
+			card.add(gap(2));
+			card.add(relog);
+		}
+
 		if ("rejected".equals(proof.status))
 		{
 			card.add(gap(2));
@@ -1589,6 +1602,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			// The capture itself hops to the next rendered frame and then to a worker; the panel just
 			// asks for it. The button goes away entirely on the next poll, once the site agrees.
 			dataSource.captureStartProof();
+			// ...unless the capture refused it — standing in the wrong place, or a session too old to
+			// have flushed the hiscores. That answer arrives in chat, so the button has to come back
+			// rather than sit on "Sending..." until the next poll redraws the card.
+			javax.swing.Timer restore = new javax.swing.Timer(4000, ev ->
+			{
+				take.setText("Take starting shot");
+				take.setEnabled(true);
+			});
+			restore.setRepeats(false);
+			restore.start();
 		});
 		card.add(gap(6));
 		card.add(take);
