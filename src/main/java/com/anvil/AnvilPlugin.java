@@ -77,6 +77,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -230,6 +231,8 @@ public class AnvilPlugin extends Plugin {
      * because a hop is not the logout that flushes the hiscores.
      */
     private volatile long sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
+    /** Account progress (quest points, CAs, diaries) as the site last accepted it — see AccountProgress. */
+    private final Map<String, Integer> lastSentProgress = new LinkedHashMap<>();
     /** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
     private volatile boolean freshLoginPending;
 
@@ -1048,7 +1051,58 @@ public class AnvilPlugin extends Plugin {
             safely("flushClogSync", this::flushClogSync);
             safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
+            safely("pushAccountProgress", this::pushAccountProgress);
         }, 30, 30, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Quest points, combat-achievement points/tier and diary counts → the site (AccountProgress).
+     *
+     * <p>Sampled on the client thread, diffed against what we last sent, and pushed only when
+     * something moved — which for most logins is nothing at all, so the steady state costs one
+     * varbit read and no request. The sample itself refuses to report an account that reads as all
+     * zeroes, which is what the client looks like for the first few ticks after login.
+     *
+     * <p>Cleared on logout with the rest of the per-account state: the next login may be an alt, and
+     * its progress is not this one's.
+     */
+    private void pushAccountProgress() {
+        if (!apiClient.isConfigured() || client.getGameState() != GameState.LOGGED_IN) {
+            return;
+        }
+        // A site that predates the endpoint would answer 404 on a loop; hide rather than error.
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || !cfg.serverSupports("progress")) {
+            return;
+        }
+        clientThread.invoke(() -> {
+            Map<String, Integer> sampled = AccountProgress.sample(client);
+            if (sampled.isEmpty()) {
+                return;
+            }
+            Map<String, Integer> changed = new LinkedHashMap<>();
+            for (Map.Entry<String, Integer> e : sampled.entrySet()) {
+                Integer sent = lastSentProgress.get(e.getKey());
+                if (sent == null || !sent.equals(e.getValue())) {
+                    changed.put(e.getKey(), e.getValue());
+                }
+            }
+            if (changed.isEmpty()) {
+                return;
+            }
+            if (executor == null || executor.isShutdown()) {
+                return;
+            }
+            executor.submit(() -> {
+                try {
+                    apiClient.submitProgress(changed);
+                    // Only latch what the server actually took, so a failed push retries next tick.
+                    lastSentProgress.putAll(changed);
+                } catch (IOException e) {
+                    log.debug("Account progress push failed, retrying later: {}", e.getMessage());
+                }
+            });
+        });
     }
 
     /**
@@ -1965,6 +2019,9 @@ public class AnvilPlugin extends Plugin {
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
             identityStampRetries = 0;
+            // Progress is per ACCOUNT: the next login may be an alt, whose quest points are not
+            // this one's — so the diff starts from nothing again.
+            lastSentProgress.clear();
             // The starting shot is per ACCOUNT: the next login may be an alt that still owes one,
             // so forget that this one filed (the server's config is the real answer either way).
             startProofFiled = false;

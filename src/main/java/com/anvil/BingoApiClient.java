@@ -1875,6 +1875,58 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/progress — quest points, combat-achievement points/tier, diary counts.
+	 *
+	 * <p>Account state the hiscores never publish (site: lib/memberProgress). Only keys whose value
+	 * actually moved since the last successful push are sent, so the steady state is no request at
+	 * all; the server max-merges what does arrive, which makes a retry free and stops a client that
+	 * read a varbit before the game populated it from walking somebody's account backwards.
+	 *
+	 * <p>Never scoring: nothing here completes a tile or moves a standing.
+	 */
+	public void submitProgress(java.util.Map<String, Integer> progress) throws IOException
+	{
+		if (progress == null || progress.isEmpty())
+		{
+			return;
+		}
+		JsonArray rows = new JsonArray();
+		for (java.util.Map.Entry<String, Integer> e : progress.entrySet())
+		{
+			if (e.getKey() == null || e.getValue() == null)
+			{
+				continue;
+			}
+			JsonObject row = new JsonObject();
+			row.addProperty("key", e.getKey());
+			row.addProperty("value", e.getValue());
+			rows.add(row);
+		}
+		if (rows.size() == 0)
+		{
+			return;
+		}
+
+		JsonObject payload = new JsonObject();
+		payload.add("progress", rows);
+
+		RequestBody body = RequestBody.create(JSON, payload.toString());
+		Request request = authedRequest(apiUrl + "/api/plugin/progress")
+			.post(body)
+			.build();
+
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Progress push failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.debug("Account progress pushed ({} key(s))", rows.size());
+		}
+	}
+
+	/**
 	 * POST /api/plugin/clog — collection-log pages the player has actually opened.
 	 *
 	 * <p>Sends ONLY obtained items, and only pages whose contents changed since the last successful
