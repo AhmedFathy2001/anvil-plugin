@@ -4,6 +4,7 @@ import java.util.List;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -146,5 +147,30 @@ public class AnvilMomentsTest
 		// An unknown killer still produces a usable key rather than a null one — a death nobody can
 		// attribute is still a death, and the site is what decides it belongs nowhere.
 		assertTrue(AnvilMoments.keyFor("death", null, null, 1_000_000L).startsWith("death|"));
+	}
+
+	@Test
+	public void aCombatTaskCarriesItsTaskAndTierAndNothingElse()
+	{
+		AnvilMoments.Moment m = AnvilMoments.Moment.combatTask("Perfect Zulrah", "Master", 1_000_000L);
+		assertEquals("ca", m.kind);
+		assertEquals("Perfect Zulrah", m.taskName);
+		assertEquals("Master", m.tier);
+		// No item, no price, no source: which boss it belongs to is the site's answer, out of its own
+		// dataset, so inventing one here would only be something to disagree with later.
+		assertNull(m.itemId);
+		assertNull(m.itemName);
+		assertNull(m.source);
+		assertNull(m.valueGp);
+		assertTrue(m.key.startsWith("ca|perfect zulrah|"));
+	}
+
+	@Test
+	public void twoTasksInTheSameTickKeepTheirOwnKeys()
+	{
+		AnvilMoments moments = new AnvilMoments();
+		moments.record(AnvilMoments.Moment.combatTask("Perfect Zulrah", "Master", 1_000_000L));
+		moments.record(AnvilMoments.Moment.combatTask("Zulrah Adept", "Hard", 1_000_000L));
+		assertEquals(2, moments.nextBatch().size());
 	}
 }

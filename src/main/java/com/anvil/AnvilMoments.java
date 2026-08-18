@@ -45,7 +45,7 @@ class AnvilMoments
 
 	static final class Moment
 	{
-		/** 'pet' | 'drop' | 'death'. */
+		/** 'pet' | 'drop' | 'death' | 'ca'. */
 		final String kind;
 		final Integer itemId;
 		final String itemName;
@@ -54,11 +54,20 @@ class AnvilMoments
 		final String source;
 		final String sourceKind;
 		final Integer kc;
+		/** 'ca' only: the task the completion line named, and the tier it claimed. */
+		final String taskName;
+		final String tier;
 		final long at;
 		final String key;
 
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
 			   String source, String sourceKind, Integer kc, long at, String key)
+		{
+			this(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc, null, null, at, key);
+		}
+
+		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
+			   String source, String sourceKind, Integer kc, String taskName, String tier, long at, String key)
 		{
 			this.kind = kind;
 			this.itemId = itemId;
@@ -68,8 +77,17 @@ class AnvilMoments
 			this.source = source;
 			this.sourceKind = sourceKind;
 			this.kc = kc;
+			this.taskName = taskName;
+			this.tier = tier;
 			this.at = at;
 			this.key = key;
+		}
+
+		/** A completed combat task. The site decides which boss it belongs to and whether it's news. */
+		static Moment combatTask(String taskName, String tier, long at)
+		{
+			return new Moment("ca", null, null, 1, null, null, null, null, taskName, tier, at,
+				keyFor("ca", taskName, null, at));
 		}
 	}
 

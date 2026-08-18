@@ -694,6 +694,8 @@ public class AnvilPlugin extends Plugin {
     private int eventBiggestHit = 0;
     /** Minutes logged in during the event. Turns every other counter into a rate. */
     private int eventMinutes = 0;
+    /** Combat tasks FIRST completed during the event — "Task Master". Recompletions never count. */
+    private int eventCaTasks = 0;
     /** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
     private int eventTickAccumulator = 0;
     private java.util.concurrent.ScheduledFuture<?> counterPushTask;
@@ -746,6 +748,7 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_COUNTER_PVP = "recapCounterPvpKills";
     private static final String CFG_COUNTER_BIGHIT = "recapCounterBiggestHit";
     private static final String CFG_COUNTER_MINUTES = "recapCounterMinutes";
+    private static final String CFG_COUNTER_CATASKS = "recapCounterCaTasks";
 
     // ── Profile sync (collection log + personal bests) ──────────────────────────────────────
     // Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —
@@ -2803,9 +2806,11 @@ public class AnvilPlugin extends Plugin {
                 // Breadcrumb so client.log shows the parse even when no tile matches.
                 log.info("Anvil combat task line: {} '{}'", caTier.getDisplayName(), caTask);
                 creditCombatTaskTiles(caTier, caTask);
-                if (config.notifyCombatAchievements()) {
-                    pendingCaTasks.add(new PendingCaTask(caTier, caTask));
-                }
+                // Stashed unconditionally: the next tick reads the points varbit, which is what
+                // tells a genuine first completion from a "Repeat completion" echo — and the
+                // highlight feed and the recap counter both need that answer whether or not this
+                // player has the achievements channel switched on.
+                pendingCaTasks.add(new PendingCaTask(caTier, caTask));
             }
         }
         // Achievement-diary tier completions — announce to the clan achievements channel and
@@ -5586,6 +5591,7 @@ public class AnvilPlugin extends Plugin {
             eventPvpKills = readIntConfig(CFG_COUNTER_PVP, 0);
             eventBiggestHit = readIntConfig(CFG_COUNTER_BIGHIT, 0);
             eventMinutes = readIntConfig(CFG_COUNTER_MINUTES, 0);
+            eventCaTasks = readIntConfig(CFG_COUNTER_CATASKS, 0);
             countersLoaded = true;
         }
         if (trackingGateReason() != null) {
@@ -5601,11 +5607,39 @@ public class AnvilPlugin extends Plugin {
             eventLootGp = 0;
             eventPvpKills = 0;
             eventBiggestHit = 0;
+            eventCaTasks = 0;
             eventMinutes = 0;
             eventTickAccumulator = 0;
             persistCounters();
         }
         return true;
+    }
+
+    /**
+     * A combat task the player just completed for the FIRST time (the caller has already checked the
+     * points varbit rose, so a "Repeat completion" echo never reaches here).
+     *
+     * Two jobs, neither of them a notification: queue it for the highlight feed, and count it for
+     * the event's Task Master award. The site decides which tiers are worth showing on which board —
+     * a floor that lives here would need a release to change, and it can't know that the clan is
+     * running a Zulrah week.
+     */
+    private void noteCombatTaskMoment(CombatAchievementTier tier, String task) {
+        if (task == null || task.isEmpty()) {
+            return;
+        }
+        moments.record(AnvilMoments.Moment.combatTask(
+                task, tier != null ? tier.getDisplayName() : null, System.currentTimeMillis()));
+        scheduleMomentPush();
+
+        synchronized (counterLock) {
+            if (!ensureCounterEvent()) {
+                return; // no live event of ours — the feed still took it, the counter has nowhere to go
+            }
+            eventCaTasks++;
+            persistCounters();
+        }
+        scheduleCounterPush();
     }
 
     /** Our own death happened during an active event → bump the per-event death counter and push. */
@@ -5802,6 +5836,7 @@ public class AnvilPlugin extends Plugin {
         int pvpKills;
         int biggestHit;
         int minutes;
+        int caTasks;
         synchronized (counterLock) {
             persistCounters();
             deaths = eventDeaths;
@@ -5809,13 +5844,14 @@ public class AnvilPlugin extends Plugin {
             pvpKills = eventPvpKills;
             biggestHit = eventBiggestHit;
             minutes = eventMinutes;
+            caTasks = eventCaTasks;
         }
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
             return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
         }
         try {
-            apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes);
+            apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {
@@ -6043,6 +6079,7 @@ public class AnvilPlugin extends Plugin {
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_PVP, Integer.toString(eventPvpKills));
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_BIGHIT, Integer.toString(eventBiggestHit));
         configManager.setConfiguration("osrsbingo", CFG_COUNTER_MINUTES, Integer.toString(eventMinutes));
+        configManager.setConfiguration("osrsbingo", CFG_COUNTER_CATASKS, Integer.toString(eventCaTasks));
     }
 
     /**
@@ -7401,9 +7438,7 @@ public class AnvilPlugin extends Plugin {
      * task pushed total points across a tier threshold.
      */
     private void handleCombatAchievements(List<PendingCaTask> batch) {
-        if (!notifyEnabled("combatAchievements")) {
-            return;
-        }
+        boolean announce = notifyEnabled("combatAchievements");
 
         int total = client.getVarbitValue(VarbitID.CA_POINTS);
         // Points before this batch — only used to detect a tier-threshold crossing. With no baseline
@@ -7418,7 +7453,7 @@ public class AnvilPlugin extends Plugin {
                 cleared = t; // values() ascend, so the last match is the highest tier crossed
             }
         }
-        if (cleared != null) {
+        if (cleared != null && announce) {
             postCaTierClear(cleared);
         }
 
@@ -7436,7 +7471,14 @@ public class AnvilPlugin extends Plugin {
             if (key.isEmpty() || !notifiedCaTasks.add(key)) {
                 continue; // unparseable, or already announced this session
             }
-            if (pointsRose && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
+            if (!pointsRose) {
+                continue; // a recompletion: it changed nothing, so it is not news
+            }
+            // The feed and the counter take every genuinely new task and let the SITE decide which
+            // are worth showing — a tier floor belongs where the clan can change it without a
+            // plugin release. The chat announcement keeps its own local floor.
+            noteCombatTaskMoment(pending.tier, pending.task);
+            if (announce && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
                 postCombatTask(pending.tier, pending.task, total);
             }
         }

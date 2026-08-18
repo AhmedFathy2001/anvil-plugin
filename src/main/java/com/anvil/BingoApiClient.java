@@ -1845,7 +1845,7 @@ public class BingoApiClient
 	 * max(stored, pushed) per counter, so a retry or client restart never double-counts. No screenshot.
 	 * Purely cosmetic (superlatives only — never scoring).
 	 */
-	public void submitEventCounters(int deaths, long lootGp, int pvpKills, int biggestHit, int minutesPlayed) throws IOException
+	public void submitEventCounters(int deaths, long lootGp, int pvpKills, int biggestHit, int minutesPlayed, int caTasks) throws IOException
 	{
 		JsonObject payload = new JsonObject();
 		payload.addProperty("deaths", deaths);
@@ -1855,6 +1855,7 @@ public class BingoApiClient
 		// keeps working against an older instance — the extra awards simply don't appear there.
 		payload.addProperty("biggestHit", biggestHit);
 		payload.addProperty("minutesPlayed", minutesPlayed);
+		payload.addProperty("caTasks", caTasks);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = authedRequest(apiUrl + "/api/plugin/counters")
@@ -1868,8 +1869,8 @@ public class BingoApiClient
 				String responseBody = response.body() != null ? response.body().string() : "no body";
 				throw new IOException("Counter push failed: HTTP " + response.code() + " — " + responseBody);
 			}
-			log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={})",
-				deaths, lootGp, pvpKills, biggestHit, minutesPlayed);
+			log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
+				deaths, lootGp, pvpKills, biggestHit, minutesPlayed, caTasks);
 		}
 	}
 
@@ -2045,6 +2046,14 @@ public class BingoApiClient
 			if (m.source != null && !m.source.isEmpty())
 			{
 				o.addProperty("source", m.source);
+			}
+			if (m.taskName != null && !m.taskName.isEmpty())
+			{
+				o.addProperty("taskName", m.taskName);
+			}
+			if (m.tier != null && !m.tier.isEmpty())
+			{
+				o.addProperty("tier", m.tier);
 			}
 			if (m.sourceKind != null && !m.sourceKind.isEmpty())
 			{
