@@ -3,6 +3,8 @@ package com.anvil;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import net.runelite.api.Client;
+import net.runelite.api.Quest;
+import net.runelite.api.QuestState;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 
@@ -45,6 +47,18 @@ final class AccountProgress
 
 	private static final String[] DIARY_KEYS = {"diaryEasy", "diaryMedium", "diaryHard", "diaryElite"};
 
+	/**
+	 * The key each region's tier mask is stored under, in the same order as {@link #DIARY_VARBITS},
+	 * with Karamja last — it only contributes its elite bit. Matches DIARY_REGIONS on the site.
+	 */
+	private static final String[] DIARY_REGION_KEYS = {
+		"diaryArdougne", "diaryDesert", "diaryFalador", "diaryFremennik", "diaryKandarin",
+		"diaryKourend", "diaryLumbridge", "diaryMorytania", "diaryVarrock", "diaryWestern",
+		"diaryWilderness",
+	};
+
+	private static final String KARAMJA_KEY = "diaryKaramja";
+
 	private AccountProgress()
 	{
 	}
@@ -79,13 +93,80 @@ final class AccountProgress
 		}
 
 		out.put("questPoints", questPoints);
+		out.put("questsCompleted", countQuests(client));
 		out.put("caPoints", caPoints);
 		out.put("caTier", highestTier(client, caPoints));
+		// Every tier cleared rather than only the highest, so a profile can light them cumulatively.
+		out.put("caTiers", tierMask(client, caPoints));
 		for (int tier = 0; tier < DIARY_KEYS.length; tier++)
 		{
 			out.put(DIARY_KEYS[tier], diaries[tier]);
 		}
+		// Per region as well as per tier: the counts say how many, these say which.
+		for (int region = 0; region < DIARY_VARBITS.length; region++)
+		{
+			out.put(DIARY_REGION_KEYS[region], regionMask(client, DIARY_VARBITS[region]));
+		}
+		out.put(KARAMJA_KEY, client.getVarbitValue(KARAMJA_ELITE) > 0 ? DIARY_ELITE_BIT : 0);
 		return out;
+	}
+
+	/** Tier bits inside a region mask — the same numbering the site uses. */
+	private static final int DIARY_EASY_BIT = 1;
+	private static final int DIARY_MEDIUM_BIT = 2;
+	private static final int DIARY_HARD_BIT = 4;
+	private static final int DIARY_ELITE_BIT = 8;
+
+	/** One region's four tiers, as a mask. */
+	private static int regionMask(Client client, int[] region)
+	{
+		int mask = 0;
+		int[] bits = {DIARY_EASY_BIT, DIARY_MEDIUM_BIT, DIARY_HARD_BIT, DIARY_ELITE_BIT};
+		for (int tier = 0; tier < region.length; tier++)
+		{
+			if (client.getVarbitValue(region[tier]) > 0)
+			{
+				mask |= bits[tier];
+			}
+		}
+		return mask;
+	}
+
+	/**
+	 * Quests finished, out of everything this client build knows about.
+	 *
+	 * <p>An enum walk of ~200 quests, each a varp read — cheap enough for the half-minute tick that
+	 * calls it, and the only way to the number: the game keeps no "quests completed" counter, only
+	 * quest points, and those weight quests differently.
+	 */
+	private static int countQuests(Client client)
+	{
+		int done = 0;
+		for (Quest quest : Quest.values())
+		{
+			if (quest.getState(client) == QuestState.FINISHED)
+			{
+				done++;
+			}
+		}
+		return done;
+	}
+
+	/** Bit per combat-achievement tier cleared: bit 0 Easy … bit 5 Grandmaster. */
+	private static int tierMask(Client client, int caPoints)
+	{
+		int mask = 0;
+		int index = 0;
+		for (CombatAchievementTier t : CombatAchievementTier.values())
+		{
+			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
+			if (threshold > 0 && caPoints >= threshold)
+			{
+				mask |= 1 << index;
+			}
+			index++;
+		}
+		return mask;
 	}
 
 	/** Regions complete at each tier: easy, medium, hard, elite. */
