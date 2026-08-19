@@ -152,6 +152,46 @@ final class AccountProgress
 		return done;
 	}
 
+	/** One quest, as the site lists it: the game's own id and name, and which of the three states. */
+	static final class Item
+	{
+		final int id;
+		final String name;
+		final int state;
+
+		Item(int id, String name, int state)
+		{
+			this.id = id;
+			this.name = name;
+			this.state = state;
+		}
+	}
+
+	/**
+	 * EVERY quest with its state, not just the finished ones.
+	 *
+	 * <p>"Which of these haven't I done" is the question a quest list gets opened for, and a list of
+	 * completions can't answer it. Names travel with the ids so the site never needs a quest dataset
+	 * of its own — one released next month lists itself.
+	 *
+	 * <p>Client thread, like everything else here.
+	 */
+	static java.util.List<Item> quests(Client client)
+	{
+		java.util.List<Item> out = new java.util.ArrayList<>();
+		if (client == null)
+		{
+			return out;
+		}
+		for (Quest quest : Quest.values())
+		{
+			QuestState state = quest.getState(client);
+			int code = state == QuestState.FINISHED ? 2 : state == QuestState.IN_PROGRESS ? 1 : 0;
+			out.add(new Item(quest.getId(), quest.getName(), code));
+		}
+		return out;
+	}
+
 	/** Bit per combat-achievement tier cleared: bit 0 Easy … bit 5 Grandmaster. */
 	private static int tierMask(Client client, int caPoints)
 	{

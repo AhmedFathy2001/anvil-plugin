@@ -1886,9 +1886,25 @@ public class BingoApiClient
 	 */
 	public void submitProgress(java.util.Map<String, Integer> progress) throws IOException
 	{
-		if (progress == null || progress.isEmpty())
+		submitProgress(progress, null, null);
+	}
+
+	/**
+	 * The same push, carrying an item list — every quest with its state, so the site can show which
+	 * are left rather than only how many are done. Sent whole and only when it changed, since half a
+	 * list is worse than none.
+	 */
+	public void submitProgress(java.util.Map<String, Integer> progress, String itemCategory,
+		java.util.List<AccountProgress.Item> items) throws IOException
+	{
+		boolean hasItems = itemCategory != null && items != null && !items.isEmpty();
+		if ((progress == null || progress.isEmpty()) && !hasItems)
 		{
 			return;
+		}
+		if (progress == null)
+		{
+			progress = java.util.Collections.emptyMap();
 		}
 		JsonArray rows = new JsonArray();
 		for (java.util.Map.Entry<String, Integer> e : progress.entrySet())
@@ -1902,13 +1918,35 @@ public class BingoApiClient
 			row.addProperty("value", e.getValue());
 			rows.add(row);
 		}
-		if (rows.size() == 0)
+		if (rows.size() == 0 && !hasItems)
 		{
 			return;
 		}
 
 		JsonObject payload = new JsonObject();
 		payload.add("progress", rows);
+		if (hasItems)
+		{
+			JsonArray itemRows = new JsonArray();
+			for (AccountProgress.Item item : items)
+			{
+				if (item == null || item.name == null || item.name.isEmpty())
+				{
+					continue;
+				}
+				JsonObject row = new JsonObject();
+				row.addProperty("id", item.id);
+				row.addProperty("name", item.name);
+				row.addProperty("state", item.state);
+				itemRows.add(row);
+			}
+			JsonObject set = new JsonObject();
+			set.addProperty("category", itemCategory);
+			set.add("items", itemRows);
+			JsonArray sets = new JsonArray();
+			sets.add(set);
+			payload.add("items", sets);
+		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = authedRequest(apiUrl + "/api/plugin/progress")

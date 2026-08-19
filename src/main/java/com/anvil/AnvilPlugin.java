@@ -233,6 +233,8 @@ public class AnvilPlugin extends Plugin {
     private volatile long sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
     /** Account progress (quest points, CAs, diaries) as the site last accepted it — see AccountProgress. */
     private final Map<String, Integer> lastSentProgress = new LinkedHashMap<>();
+    /** Finished-quest count behind the list the site last accepted — the list is re-sent when it moves. */
+    private volatile Integer lastSentQuestCount;
     /** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
     private volatile boolean freshLoginPending;
 
@@ -1087,7 +1089,15 @@ public class AnvilPlugin extends Plugin {
                     changed.put(e.getKey(), e.getValue());
                 }
             }
-            if (changed.isEmpty()) {
+
+            // The quest LIST rides along whenever the number of finished quests moves — that's the
+            // only thing that can change what the list says, and hashing 200 names every half minute
+            // to learn the same thing would be work for nothing.
+            Integer questsNow = sampled.get("questsCompleted");
+            boolean questsMoved = questsNow != null && !questsNow.equals(lastSentQuestCount);
+            final List<AccountProgress.Item> quests = questsMoved ? AccountProgress.quests(client) : null;
+
+            if (changed.isEmpty() && quests == null) {
                 return;
             }
             if (executor == null || executor.isShutdown()) {
@@ -1095,9 +1105,12 @@ public class AnvilPlugin extends Plugin {
             }
             executor.submit(() -> {
                 try {
-                    apiClient.submitProgress(changed);
+                    apiClient.submitProgress(changed, quests != null ? "quest" : null, quests);
                     // Only latch what the server actually took, so a failed push retries next tick.
                     lastSentProgress.putAll(changed);
+                    if (quests != null) {
+                        lastSentQuestCount = questsNow;
+                    }
                 } catch (IOException e) {
                     log.debug("Account progress push failed, retrying later: {}", e.getMessage());
                 }
@@ -2022,6 +2035,7 @@ public class AnvilPlugin extends Plugin {
             // Progress is per ACCOUNT: the next login may be an alt, whose quest points are not
             // this one's — so the diff starts from nothing again.
             lastSentProgress.clear();
+            lastSentQuestCount = null;
             // The starting shot is per ACCOUNT: the next login may be an alt that still owes one,
             // so forget that this one filed (the server's config is the real answer either way).
             startProofFiled = false;
