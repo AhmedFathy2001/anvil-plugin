@@ -309,11 +309,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		signInInFlight = true;
 		signInButton.setEnabled(false);
-		signInStatus.setVisible(true);
-		signInStatus.setText("Starting…");
+		setSignInStatus("Starting…");
 
 		new DeviceSignIn(apiClient, executor).run(
-			line -> SwingUtilities.invokeLater(() -> signInStatus.setText(line)),
+			line -> SwingUtilities.invokeLater(() -> setSignInStatus(line)),
 			result -> SwingUtilities.invokeLater(() ->
 			{
 				signInInFlight = false;
@@ -334,13 +333,12 @@ public class AnvilSidebarPanel extends PluginPanel
 					if (stored == null || stored.isEmpty())
 					{
 						log.warn("Anvil: signed in but the token did not persist to the RuneLite config");
-						signInStatus.setText("Signed in, but RuneLite didn't save the token — paste it "
+						setSignInStatus("Signed in, but RuneLite didn't save the token — paste it "
 							+ "from Profile → RuneLite plugin on the site.");
-						signInStatus.setVisible(true);
 					}
 					else
 					{
-						signInStatus.setVisible(false);
+						setSignInStatus("");
 					}
 				}
 				refreshSignInRow();
@@ -446,6 +444,29 @@ public class AnvilSidebarPanel extends PluginPanel
 		}.execute();
 	}
 
+	/**
+	 * The line under the sign-in button — most importantly the one carrying the approval code.
+	 *
+	 * <p>It used to be a bare setText on a label inside a row whose maximum height was capped at
+	 * CONSTRUCTION time, while the label was still hidden. So the row could never grow to fit it: the
+	 * status was set, the panel was told to show it, and the member saw an empty box where the code
+	 * they had been sent to find was supposed to be. Re-cap on every change, like the site-connect
+	 * row already does, and wrap as HTML so a long line breaks instead of being clipped at the edge
+	 * of a narrow sidebar.
+	 */
+	private void setSignInStatus(String text)
+	{
+		String plain = text == null ? "" : text;
+		boolean show = !plain.isEmpty();
+		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+		signInStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "px'>" + escaped + "</body></html>" : "");
+		signInStatus.setToolTipText(show ? plain : null);
+		signInStatus.setVisible(show);
+		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
+		signInRow.revalidate();
+		signInRow.repaint();
+	}
+
 	private void setSiteConnectStatus(String text)
 	{
 		String plain = text == null ? "" : text;
@@ -463,6 +484,28 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	// ---- Refresh flow -----------------------------------------------------------------------------
+
+	/**
+	 * Forget everything on screen, because it belongs to a site or an account we are no longer using.
+	 *
+	 * <p>Called the moment the Site URL or the token changes. Without it the panel kept rendering the
+	 * previous clan's events, board and roster until a fetch against the NEW credentials succeeded —
+	 * which is indefinitely when the new ones are wrong, so the member sits looking at a clan they
+	 * just left and reasonably concludes the change didn't take.
+	 */
+	public void clearForCredentialChange()
+	{
+		connections = java.util.Collections.emptyList();
+		selectedInstanceId = null;
+		selectedEventKey = null;
+		rebuildingFilter = true;
+		clanFilter.removeAllItems();
+		rebuildingFilter = false;
+		clanFilter.setVisible(false);
+		setSignInStatus("");
+		refreshSignInRow();
+		renderLoading();
+	}
 
 	/** Fetch off the EDT and re-render on return. Cheap to call repeatedly; overlapping calls coalesce via {@link #fetchInFlight}. */
 	public void refresh()

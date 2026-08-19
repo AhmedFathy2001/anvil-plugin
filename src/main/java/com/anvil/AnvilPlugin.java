@@ -4668,6 +4668,10 @@ public class AnvilPlugin extends Plugin {
      * lands. For credential changes only — everything else can wait for the debounce.
      */
     private synchronized void refreshNowAndRepaint() {
+        // The panel is currently showing a clan reached with the OLD credentials. Drop it before
+        // anything else: on a wrong URL or a bad token nothing ever arrives to replace it, and a
+        // member who just changed their settings would sit looking at the clan they left.
+        SwingUtilities.invokeLater(sidebarPanel::clearForCredentialChange);
         if (executor == null || executor.isShutdown()) {
             return;
         }
