@@ -152,6 +152,34 @@ final class AccountProgress
 		return done;
 	}
 
+	/**
+	 * The raw combat-achievement varps, exactly as the game holds them.
+	 *
+	 * <p>Completion is bit-packed across these: task `i` is bit `i % 32` of the `i / 32`-th varp in
+	 * the order the site sent. Which bit is which task is the site's business — it has the task
+	 * catalogue — so this reads integers and understands none of them, and a game update that adds a
+	 * varp costs a data change there rather than a release here.
+	 *
+	 * <p>Client thread.
+	 */
+	static java.util.Map<Integer, Integer> combatVarps(Client client, java.util.List<Integer> varps)
+	{
+		java.util.Map<Integer, Integer> out = new LinkedHashMap<>();
+		if (client == null || varps == null)
+		{
+			return out;
+		}
+		for (Integer varpId : varps)
+		{
+			if (varpId == null || varpId <= 0)
+			{
+				continue;
+			}
+			out.put(varpId, client.getVarpValue(varpId));
+		}
+		return out;
+	}
+
 	/** One quest, as the site lists it: the game's own id and name, and which of the three states. */
 	static final class Item
 	{

@@ -1897,8 +1897,23 @@ public class BingoApiClient
 	public void submitProgress(java.util.Map<String, Integer> progress, String itemCategory,
 		java.util.List<AccountProgress.Item> items) throws IOException
 	{
+		submitProgress(progress, itemCategory, items, null, 0);
+	}
+
+	/**
+	 * The same push, carrying the raw combat-achievement varps.
+	 *
+	 * <p>We send the numbers and the game's own point total; the site decodes which task each bit is
+	 * and refuses the lot if the points don't reconcile. Nothing here knows what a combat task is,
+	 * which is the point: the catalogue lives where it can be updated without a release.
+	 */
+	public void submitProgress(java.util.Map<String, Integer> progress, String itemCategory,
+		java.util.List<AccountProgress.Item> items, java.util.Map<Integer, Integer> caVarps,
+		int caPoints) throws IOException
+	{
 		boolean hasItems = itemCategory != null && items != null && !items.isEmpty();
-		if ((progress == null || progress.isEmpty()) && !hasItems)
+		boolean hasVarps = caVarps != null && !caVarps.isEmpty() && caPoints > 0;
+		if ((progress == null || progress.isEmpty()) && !hasItems && !hasVarps)
 		{
 			return;
 		}
@@ -1918,7 +1933,7 @@ public class BingoApiClient
 			row.addProperty("value", e.getValue());
 			rows.add(row);
 		}
-		if (rows.size() == 0 && !hasItems)
+		if (rows.size() == 0 && !hasItems && !hasVarps)
 		{
 			return;
 		}
@@ -1946,6 +1961,16 @@ public class BingoApiClient
 			JsonArray sets = new JsonArray();
 			sets.add(set);
 			payload.add("items", sets);
+		}
+		if (hasVarps)
+		{
+			JsonObject varpObj = new JsonObject();
+			for (java.util.Map.Entry<Integer, Integer> e : caVarps.entrySet())
+			{
+				varpObj.addProperty(String.valueOf(e.getKey()), e.getValue());
+			}
+			payload.add("caVarps", varpObj);
+			payload.addProperty("caPoints", caPoints);
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());

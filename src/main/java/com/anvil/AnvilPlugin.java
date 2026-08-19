@@ -1100,18 +1100,17 @@ public class AnvilPlugin extends Plugin {
             final List<AccountProgress.Item> quests = questsMoved ? AccountProgress.quests(client) : null;
 
             // Combat tasks, same rule: the points total is the only thing that can change which
-            // tasks are done, so the list is re-read when it moves. The walk reconciles itself
-            // against that same total and returns nothing if it can't (see CombatTaskWalk), so an
-            // empty answer here means "we don't know", never "you've completed none".
+            // tasks are done, so the bits are re-read when it moves. We send the raw varps and the
+            // total; the site decodes them against its catalogue and discards the lot if they don't
+            // reconcile, so a layout change can't produce a wrong list here or there.
             Integer caNow = sampled.get("caPoints");
             boolean caMoved = caNow != null && caNow > 0 && !caNow.equals(lastSentCaPoints);
-            List<AccountProgress.Item> tasks = caMoved ? CombatTaskWalk.completed(client, caNow) : null;
-            if (tasks != null && tasks.isEmpty()) {
-                tasks = null;
-            }
-            final List<AccountProgress.Item> caTasks = tasks;
+            final Map<Integer, Integer> caVarps = caMoved && cfg.caVarps != null
+                    ? AccountProgress.combatVarps(client, cfg.caVarps)
+                    : null;
+            final int caPointsNow = caNow == null ? 0 : caNow;
 
-            if (changed.isEmpty() && quests == null && caTasks == null) {
+            if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) {
                 return;
             }
             if (executor == null || executor.isShutdown()) {
@@ -1126,8 +1125,8 @@ public class AnvilPlugin extends Plugin {
                     if (quests != null) {
                         lastSentQuestCount = questsNow;
                     }
-                    if (caTasks != null) {
-                        apiClient.submitProgress(java.util.Collections.emptyMap(), "ca", caTasks);
+                    if (caVarps != null && !caVarps.isEmpty()) {
+                        apiClient.submitProgress(java.util.Collections.emptyMap(), null, null, caVarps, caPointsNow);
                         lastSentCaPoints = caNow;
                     }
                 } catch (IOException e) {

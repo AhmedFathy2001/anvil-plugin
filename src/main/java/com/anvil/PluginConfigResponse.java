@@ -69,6 +69,13 @@ public class PluginConfigResponse
 	// a plugin can READ by key but cannot LIST, so the import has to ask by name — and the names come
 	// from the site so a new boss doesn't need a plugin release. Null on older sites.
 	public List<String> pbActivities;
+	/**
+	 * The player varps combat-achievement completion is bit-packed into, in bit order. Read them,
+	 * send the numbers, and let the site decode: which task each bit is belongs with the catalogue,
+	 * not here, so a game update that adds a varp is a data change there rather than a release here.
+	 * Null on sites that predate it — then nothing is read.
+	 */
+	public List<Integer> caVarps;
 
 	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
 	// requires one; null everywhere else, including on sites that predate the 'start-proof'
