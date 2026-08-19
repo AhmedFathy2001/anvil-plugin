@@ -1121,10 +1121,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		styleFlatButton(add, Color.WHITE);
 		add.setToolTipText("Pick .wav files to copy into the sounds folder");
 		add.addActionListener(e -> dataSource.importBannerSounds());
-		JButton open = new JButton("Open folder");
+		JButton open = new JButton("Copy folder path");
 		styleFlatButton(open, Color.WHITE);
-		open.setToolTipText("Open the sounds folder to rename or delete clips");
-		open.addActionListener(e -> dataSource.openBannerSounds());
+		open.setToolTipText("Copy the sounds folder's path — paste it into your file manager to rename or delete clips");
+		open.addActionListener(e -> dataSource.copyBannerSoundsPath());
 		panel.add(buttonRow(add, open));
 		return panel;
 	}

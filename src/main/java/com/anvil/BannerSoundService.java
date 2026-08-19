@@ -3,7 +3,6 @@ package com.anvil;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
 import net.runelite.client.audio.AudioPlayer;
-import net.runelite.client.util.LinkBrowser;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -244,12 +243,13 @@ public class BannerSoundService
 		});
 	}
 
-	/** Opens the user sounds folder in the OS file manager. */
-	public void openFolder()
+	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */
+	public void copyFolderPath()
 	{
 		ensureUserDir();
-		// LinkBrowser (hub policy over java.awt.Desktop) does its own off-thread open + fallbacks.
-		LinkBrowser.open(userDir().getAbsolutePath());
+		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
+		// player pastes it wherever they were going to open it.
+		Clipboards.copy(userDir().getAbsolutePath());
 	}
 
 	public void shutdown()

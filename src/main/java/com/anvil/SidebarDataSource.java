@@ -125,7 +125,8 @@ public interface SidebarDataSource
 	}
 
 	/** Open the local clips folder — these live on this machine, not on any account. */
-	default void openBannerSounds()
+	/** Copy the sounds folder's path — hub releases may not open a file manager (see Clipboards). */
+	default void copyBannerSoundsPath()
 	{
 	}
 

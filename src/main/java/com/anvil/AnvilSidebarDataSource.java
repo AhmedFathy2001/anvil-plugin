@@ -192,12 +192,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
-	public void openBannerSounds()
+	public void copyBannerSoundsPath()
 	{
 		AnvilPlugin p = plugin;
 		if (p != null)
 		{
-			p.openBannerSoundsFolder();
+			p.copyBannerSoundsPath();
 		}
 	}
 

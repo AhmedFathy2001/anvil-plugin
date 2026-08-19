@@ -149,9 +149,9 @@ public class FederationSidebarDataSource implements SidebarDataSource, Federatio
 	}
 
 	@Override
-	public void openBannerSounds()
+	public void copyBannerSoundsPath()
 	{
-		delegate.openBannerSounds();
+		delegate.copyBannerSoundsPath();
 	}
 
 	@Override

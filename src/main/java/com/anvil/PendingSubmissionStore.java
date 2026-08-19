@@ -5,7 +5,6 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
-import net.runelite.client.util.LinkBrowser;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -160,10 +159,11 @@ public class PendingSubmissionStore
 	}
 
 	/** Opens the pending-proofs folder in the OS file manager, off the calling thread. */
-	public void openFolder()
+	public void copyFolderPath()
 	{
 		init();
-		// LinkBrowser (hub policy over java.awt.Desktop) does its own off-thread open + fallbacks.
-		LinkBrowser.open(PENDING_DIR.getAbsolutePath());
+		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
+		// player pastes it wherever they were going to open it.
+		Clipboards.copy(PENDING_DIR.getAbsolutePath());
 	}
 }

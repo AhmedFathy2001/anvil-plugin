@@ -1338,16 +1338,16 @@ public class ClogTabController
 		int stuckProofs = plugin.pendingProofCount();
 		if (stuckProofs > 0)
 		{
-			y = drawButton(container, y, "Saved proofs (" + stuckProofs + ")", "Open folder",
-				plugin::openPendingProofsFolder, 0xff7d64);
+			y = drawButton(container, y, "Saved proofs (" + stuckProofs + ")", "Copy path",
+				plugin::copyPendingProofsPath, 0xff7d64);
 		}
 
 		// Banner sounds: files on this machine, not anything belonging to an account.
 		List<String> clips = plugin.bannerSoundClips();
 		y = drawSectionLabel(container, y, clips.isEmpty()
 			? "Banner sounds" : "Banner sounds (" + clips.size() + ")");
-		y = drawButton(container, y, clips.isEmpty() ? "Add a clip" : "Add or open folder",
-			clips.isEmpty() ? "Add" : "Open folder", plugin::importBannerSounds, COL_VALUE);
+		y = drawButton(container, y, clips.isEmpty() ? "Add a clip" : "Add a clip or copy the folder path",
+			clips.isEmpty() ? "Add" : "Add", plugin::importBannerSounds, COL_VALUE);
 
 		if (clips.isEmpty())
 		{
@@ -1381,8 +1381,8 @@ public class ClogTabController
 			more.setFontId(FONT_PLAIN_SMALL);
 			place(more, ROW_X + 17, y + 2, ROW_W - 19, 12);
 			more.setHasListener(true);
-			more.setAction(0, "Open folder");
-			more.setOnOpListener((JavaScriptCallback) e -> plugin.openBannerSoundsFolder());
+			more.setAction(0, "Copy folder path");
+			more.setOnOpListener((JavaScriptCallback) e -> plugin.copyBannerSoundsPath());
 			more.revalidate();
 		}
 	}

@@ -2696,16 +2696,21 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Opens the sounds folder in the OS file manager so the user can delete
-     * clips (permanent remove).
+     * Puts the sounds folder's path on the clipboard, for deleting clips by hand.
+     *
+     * <p>It used to open the folder. LinkBrowser::open is restricted for plugin-hub releases, so the
+     * player pastes the path instead — and is told that's what happened, because a button that
+     * silently does something other than what it says is worse than one that does less.
      */
-    public void openBannerSoundsFolder() {
-        bannerSound.openFolder();
+    public void copyBannerSoundsPath() {
+        bannerSound.copyFolderPath();
+        sendChatMessage("Sounds folder path copied — paste it into your file manager.");
     }
 
-    /** Opens the folder holding proofs that haven't uploaded yet (baked PNGs + metadata). */
-    public void openPendingProofsFolder() {
-        pendingSubmissionStore.openFolder();
+    /** Same, for the folder holding proofs that haven't uploaded yet (baked PNGs + metadata). */
+    public void copyPendingProofsPath() {
+        pendingSubmissionStore.copyFolderPath();
+        sendChatMessage("Saved-proofs folder path copied — paste it into your file manager.");
     }
 
     /** Proofs still waiting to upload — drives the "Saved proofs" row in the clog Bingo tab. */

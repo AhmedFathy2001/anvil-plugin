@@ -15,7 +15,6 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
-import net.runelite.client.util.LinkBrowser;
 
 /**
  * One-click support-log export. Members who hit a problem (a drop that never submits, login trouble)
@@ -103,7 +102,6 @@ public class DebugLogExporter
 			Files.write(out.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
 
 			copyToClipboard(out.getAbsolutePath());
-			openFolder();
 
 			log.info("Anvil: exported debug log to {} ({} Anvil lines)", out, anvilLines.size());
 			return new Result(out, anvilLines.size(), logFound);
@@ -167,19 +165,7 @@ public class DebugLogExporter
 
 	private void copyToClipboard(String value)
 	{
-		try
-		{
-			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(value), null);
-		}
-		catch (Exception e)
-		{
-			log.debug("Anvil: clipboard copy skipped: {}", e.getMessage());
-		}
+		Clipboards.copy(value);
 	}
 
-	private void openFolder()
-	{
-		// LinkBrowser (hub policy over java.awt.Desktop) does its own off-thread open + fallbacks.
-		LinkBrowser.open(OUT_DIR.getAbsolutePath());
-	}
 }

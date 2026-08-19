@@ -57,7 +57,7 @@ public class SidebarActionsTest
 	{
 		AnvilSidebarDataSource ds = source();
 		ds.toggleBannerSound("nope.wav");
-		ds.openBannerSounds();
+		ds.copyBannerSoundsPath();
 		ds.importBannerSounds();
 		assertFalse(ds.bannerSoundOn("nope.wav"));
 	}
