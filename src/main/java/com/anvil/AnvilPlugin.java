@@ -1108,6 +1108,13 @@ public class AnvilPlugin extends Plugin {
             final Map<Integer, Integer> caVarps = caMoved && cfg.caVarps != null
                     ? AccountProgress.combatVarps(client, cfg.caVarps)
                     : null;
+            // Say which half is quiet when nothing lands: a site that never asked for the varps and a
+            // client that read none of them look identical from the profile page.
+            if (caMoved && cfg.caVarps == null) {
+                log.info("Anvil: combat achievements — this site didn't send a varp list, so none were read");
+            } else if (caVarps != null) {
+                log.info("Anvil: combat achievements — read {} varps at {} points", caVarps.size(), caNow);
+            }
             final int caPointsNow = caNow == null ? 0 : caNow;
 
             if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) {

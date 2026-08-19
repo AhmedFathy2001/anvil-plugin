@@ -1980,12 +1980,18 @@ public class BingoApiClient
 
 		try (Response response = httpClient.newCall(request).execute())
 		{
+			String responseBody = response.body() != null ? response.body().string() : "";
 			if (!response.isSuccessful())
 			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Progress push failed: HTTP " + response.code() + " — " + responseBody);
+				throw new IOException("Progress push failed: HTTP " + response.code() + " — "
+					+ (responseBody.isEmpty() ? "no body" : responseBody));
 			}
-			log.debug("Account progress pushed ({} key(s))", rows.size());
+			// The reply says what the server made of it — including, for combat achievements, whether
+			// the bits reconciled against the point total and how many tasks it couldn't name. Logged
+			// at INFO because when this feature is quiet the only alternative is guessing which half
+			// went wrong, which has cost a day already.
+			log.info("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(),
+				hasVarps ? caVarps.size() : 0, responseBody);
 		}
 	}
 
