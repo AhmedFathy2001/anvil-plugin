@@ -1742,6 +1742,9 @@ private void cycleEventTypeFilter()
 	private static final int BANNER_LINE_3 = 13; // tighter step for the few 3-line headers (grid/race/points/
 	// leaderboard) — the clog header only fits ~3 lines at this spacing, so they stay compact by necessity
 	private static final int BANNER_LEFT = 6; // left indent so header text lines up with the body content
+	private static final int BANNER_TEXT_H = 14; // one line's box; the plain font draws ~12 inside it
+	private static final int BANNER_LINE_MIN = 11; // tightest step before two lines start to touch
+	private static final int BANNER_FALLBACK_H = 40; // what the clog header measures when it can't say
 
 	/**
 	 * The banner's first line — the one that names what you're looking at.
@@ -1764,7 +1767,7 @@ private void cycleEventTypeFilter()
 		Widget line = header.createChild(-1, WidgetType.TEXT);
 		line.setFontId(FONT_BOLD);
 		int avail = header.getWidth() > 40 ? header.getWidth() - BANNER_LEFT - 12 : 280;
-		place(line, BANNER_LEFT, BANNER_TOP, avail, 16);
+		place(line, BANNER_LEFT, bannerLineTop(header, 0), avail, 16);
 		// Bold is wider than plain, so a title that just fitted before can now run off the pane.
 		// Coloured markup is left alone: cutting a string mid-tag prints the tag.
 		line.setText(text != null && text.indexOf('<') < 0
@@ -1778,13 +1781,39 @@ private void cycleEventTypeFilter()
 	private Widget bannerLine(Widget header, String text, int color, int y)
 	{
 		Widget line = header.createChild(-1, WidgetType.TEXT);
-		place(line, BANNER_LEFT, y + BANNER_TOP, 280, 15);
+		place(line, BANNER_LEFT, bannerLineTop(header, y), 280, BANNER_TEXT_H);
 		line.setFontId(FONT_PLAIN);
 		line.setText(text);
 		line.setTextColor(color);
 		line.setTextShadowed(true);
 		line.revalidate();
 		return line;
+	}
+
+	/**
+	 * Where a banner line actually goes, given how tall the header REALLY is.
+	 *
+	 * <p>The spacing used to be a constant, and three lines at that constant needed 44 pixels in a
+	 * header the game gives about 40 — so the third line, which is the one carrying the countdown and
+	 * the player count, was drawn half outside its own box and clipped mid-glyph. Deriving the step
+	 * from the measured height instead means the stack compresses to fit whatever it's given, and the
+	 * last line is pinned inside the box no matter what: a line can be tight, but it is never a row of
+	 * severed letters.
+	 */
+	private static int bannerLineTop(Widget header, int y)
+	{
+		int headerH = header.getHeight() > 0 ? header.getHeight() : BANNER_FALLBACK_H;
+		int top = BANNER_TOP + y;
+		if (top + BANNER_TEXT_H <= headerH)
+		{
+			return top; // it fits as asked — every header that was already fine is untouched
+		}
+		// It doesn't. Compress the stack evenly rather than letting the last line hang out of the
+		// box: the caller's y is a multiple of the three-line step, so it doubles as the line index.
+		int index = Math.max(1, y / BANNER_LINE_3);
+		int step = Math.max(BANNER_LINE_MIN, (headerH - BANNER_TOP - BANNER_TEXT_H) / index);
+		top = BANNER_TOP + index * step;
+		return Math.max(0, Math.min(top, headerH - BANNER_TEXT_H));
 	}
 
 	private void renderItems()
