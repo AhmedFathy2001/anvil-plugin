@@ -235,6 +235,8 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Integer> lastSentProgress = new LinkedHashMap<>();
     /** Finished-quest count behind the list the site last accepted — the list is re-sent when it moves. */
     private volatile Integer lastSentQuestCount;
+    /** CA points behind the task list the site last accepted — the list is re-read when it moves. */
+    private volatile Integer lastSentCaPoints;
     /** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
     private volatile boolean freshLoginPending;
 
@@ -1097,7 +1099,19 @@ public class AnvilPlugin extends Plugin {
             boolean questsMoved = questsNow != null && !questsNow.equals(lastSentQuestCount);
             final List<AccountProgress.Item> quests = questsMoved ? AccountProgress.quests(client) : null;
 
-            if (changed.isEmpty() && quests == null) {
+            // Combat tasks, same rule: the points total is the only thing that can change which
+            // tasks are done, so the list is re-read when it moves. The walk reconciles itself
+            // against that same total and returns nothing if it can't (see CombatTaskWalk), so an
+            // empty answer here means "we don't know", never "you've completed none".
+            Integer caNow = sampled.get("caPoints");
+            boolean caMoved = caNow != null && caNow > 0 && !caNow.equals(lastSentCaPoints);
+            List<AccountProgress.Item> tasks = caMoved ? CombatTaskWalk.completed(client, caNow) : null;
+            if (tasks != null && tasks.isEmpty()) {
+                tasks = null;
+            }
+            final List<AccountProgress.Item> caTasks = tasks;
+
+            if (changed.isEmpty() && quests == null && caTasks == null) {
                 return;
             }
             if (executor == null || executor.isShutdown()) {
@@ -1105,11 +1119,16 @@ public class AnvilPlugin extends Plugin {
             }
             executor.submit(() -> {
                 try {
+                    // One request each: the endpoint takes a category at a time, and these two move
+                    // independently.
                     apiClient.submitProgress(changed, quests != null ? "quest" : null, quests);
-                    // Only latch what the server actually took, so a failed push retries next tick.
                     lastSentProgress.putAll(changed);
                     if (quests != null) {
                         lastSentQuestCount = questsNow;
+                    }
+                    if (caTasks != null) {
+                        apiClient.submitProgress(java.util.Collections.emptyMap(), "ca", caTasks);
+                        lastSentCaPoints = caNow;
                     }
                 } catch (IOException e) {
                     log.debug("Account progress push failed, retrying later: {}", e.getMessage());
@@ -2036,6 +2055,7 @@ public class AnvilPlugin extends Plugin {
             // this one's — so the diff starts from nothing again.
             lastSentProgress.clear();
             lastSentQuestCount = null;
+            lastSentCaPoints = null;
             // The starting shot is per ACCOUNT: the next login may be an alt that still owes one,
             // so forget that this one filed (the server's config is the real answer either way).
             startProofFiled = false;
