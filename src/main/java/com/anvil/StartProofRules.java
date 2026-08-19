@@ -87,6 +87,31 @@ final class StartProofRules
 		return null;
 	}
 
+	/**
+	 * How long is left before the site stops asking for a shot, as a sentence fragment — or null
+	 * when there is no deadline to quote (an older site that doesn't send one, or an unreadable
+	 * stamp). The window closing is not a failure state: the ask simply expires, so this reads as a
+	 * countdown rather than a threat.
+	 */
+	static String describeWindow(PluginConfigResponse.StartProof proof, long nowMs)
+	{
+		if (proof == null || proof.windowEndsAt == null || proof.windowEndsAt.isEmpty())
+		{
+			return null;
+		}
+		long endsMs;
+		try
+		{
+			endsMs = java.time.Instant.parse(proof.windowEndsAt).toEpochMilli();
+		}
+		catch (java.time.format.DateTimeParseException e)
+		{
+			return null;
+		}
+		long minutes = (endsMs - nowMs) / 60_000L;
+		return minutes <= 0 ? null : describeMinutes(minutes);
+	}
+
 	/** "12 min" / "2h 05m" — a session age a player reads at a glance. */
 	static String describeMinutes(long minutes)
 	{

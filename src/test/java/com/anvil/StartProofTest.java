@@ -203,6 +203,25 @@ public class StartProofTest
 	}
 
 	@Test
+	public void describeWindowCountsDownAndThenGivesUp()
+	{
+		PluginConfigResponse.StartProof sp = owed();
+		long now = java.time.Instant.parse("2026-08-16T19:00:00Z").toEpochMilli();
+		sp.windowEndsAt = "2026-08-17T00:00:00Z";
+		assertEquals("5h 00m", StartProofRules.describeWindow(sp, now));
+
+		// Past the end there is nothing to quote — the ask has lapsed, it hasn't been failed.
+		sp.windowEndsAt = "2026-08-16T18:30:00Z";
+		assertEquals(null, StartProofRules.describeWindow(sp, now));
+
+		// A site too old to send one, and a stamp we can't read, both say nothing rather than lying.
+		sp.windowEndsAt = null;
+		assertEquals(null, StartProofRules.describeWindow(sp, now));
+		sp.windowEndsAt = "not a date";
+		assertEquals(null, StartProofRules.describeWindow(sp, now));
+	}
+
+	@Test
 	public void awaitingAStartingShotIsRetryable()
 	{
 		// 409 is normally a permanent 4xx — but this one clears the moment the player files their

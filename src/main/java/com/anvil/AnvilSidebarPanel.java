@@ -1635,6 +1635,23 @@ public class AnvilSidebarPanel extends PluginPanel
 			card.add(warningLabel("Your last shot was rejected — take another."));
 		}
 
+		// WHY it matters, which the card never said. A player who reads "starting shot needed" and
+		// carries on has no way to know their drops are landing in a review queue meanwhile.
+		card.add(gap(4));
+		card.add(warningLabel("Drops you send now are held for review until this is filed."));
+
+		String left = StartProofRules.describeWindow(proof, System.currentTimeMillis());
+		if (left != null)
+		{
+			JLabel expires = new JLabel(plainText("Asked for another " + left + ", then it lapses"));
+			expires.setFont(FontManager.getRunescapeSmallFont());
+			expires.setForeground(Color.WHITE);
+			expires.setAlignmentX(LEFT_ALIGNMENT);
+			expires.setToolTipText("Six hours in, the game has logged everyone out anyway, so the shot stops being asked for.");
+			card.add(gap(2));
+			card.add(expires);
+		}
+
 		JButton take = new JButton("Take starting shot");
 		styleFlatButton(take, ColorScheme.BRAND_ORANGE);
 		take.setAlignmentX(LEFT_ALIGNMENT);

@@ -221,6 +221,8 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean startProofInFlight;
     /** One nudge per login — a reminder that repeats every poll is just noise. */
     private volatile boolean startProofNudged;
+    /** One "this credit is being held" line per login — see {@link #warnStartProofBeforeCredit()}. */
+    private volatile boolean startProofCreditWarned;
     /**
      * When THIS game session began, for the starting shot's session window (see StartProofRules).
      * {@link StartProofRules#UNKNOWN_LOGIN} means we didn't see the login that started it — the
@@ -2065,6 +2067,7 @@ public class AnvilPlugin extends Plugin {
             // so forget that this one filed (the server's config is the real answer either way).
             startProofFiled = false;
             startProofNudged = false;
+            startProofCreditWarned = false;
             // A half-received collection log belongs to the account that was logged in.
             clogFullSync.reset();
             clogSyncRequested = false;
@@ -3657,6 +3660,7 @@ public class AnvilPlugin extends Plugin {
             final int playerId = pluginConfig.player.id;
             executor.submit(() -> {
                 try {
+                    warnStartProofBeforeCredit();
                     apiClient.submitDrop(eventId, kill.tileId, teamId,
                             amount, null, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin",
                             playerId, null, coop);
@@ -3886,6 +3890,7 @@ public class AnvilPlugin extends Plugin {
             final int playerId = pluginConfig.player.id;
             executor.submit(() -> {
                 try {
+                    warnStartProofBeforeCredit();
                     apiClient.submitDrop(eventId, gain.tileId, teamId,
                             amount, null, "[Auto] " + gain.label + " gain(s) counted by RuneLite plugin",
                             playerId, null);
@@ -4616,6 +4621,7 @@ public class AnvilPlugin extends Plugin {
         try {
             String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + ".png";
 
+            warnStartProofBeforeCredit();
             log.info("Uploading screenshot for tile '{}'...", pending.label);
             String imageUrl = apiClient.uploadImage(pngBytes, filename);
 
@@ -5291,13 +5297,36 @@ public class AnvilPlugin extends Plugin {
         }
         PluginConfigResponse.StartProof sp = pluginConfig.startProof;
         startProofNudged = true;
+        String left = StartProofRules.describeWindow(sp, System.currentTimeMillis());
         sendChatMessage("Starting shot needed before you play"
                 + (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
                 + ". Open the Anvil side panel and press \"Take starting shot\"."
                 + (sp.maxSessionMinutes > 0
                         ? " Take it within " + sp.maxSessionMinutes + " min of logging in — hiscores only save"
                         + " on logout, so that's what sets your starting totals."
-                        : ""));
+                        : "")
+                // The consequence, which the nudge never spelled out: a player told only that
+                // something is "needed" has no reason to do it before their next drop.
+                + " Until it's filed your drops are held for review"
+                + (left != null ? ", and it's only asked for another " + left : "")
+                + ".");
+    }
+
+    /**
+     * Say it once, at the moment it starts costing them something: a credit is going up while this
+     * account still owes a STARTING SHOT, so the site will hold it for review.
+     *
+     * The login nudge fires before anyone has done anything, which is the easiest message in the
+     * world to scroll past. This one lands on the drop itself. Once per login — the point is to be
+     * noticed, and a line per kill is how a plugin gets turned off.
+     */
+    private void warnStartProofBeforeCredit() {
+        if (startProofCreditWarned || !needsStartProof()) {
+            return;
+        }
+        startProofCreditWarned = true;
+        sendChatMessage("That's recorded, but your starting shot is still missing — it stays held for"
+                + " review until you take it. Anvil side panel → \"Take starting shot\".");
     }
 
     /**

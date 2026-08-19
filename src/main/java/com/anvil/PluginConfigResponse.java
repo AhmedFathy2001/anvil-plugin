@@ -106,6 +106,15 @@ public class PluginConfigResponse
 		public String keyword;
 		/** True while this player still owes a shot (never filed one, or theirs was rejected). */
 		public boolean needsUpload;
+		/**
+		 * Is a shot still being ASKED for? The site stops asking six hours after the start: OSRS
+		 * force-logs everyone by then, so nobody is still sitting on the stack the shot exists to
+		 * catch. `needsUpload` already folds this in — this is here so the panel can say how long
+		 * is left rather than having the card vanish without explanation.
+		 */
+		public boolean windowOpen;
+		/** ISO instant when the ask lapses. Null before the draw, and on sites too old to send it. */
+		public String windowEndsAt;
 		/** "pending" | "accepted" | "rejected", or null when nothing is on file. */
 		public String status;
 		public String imageUrl;
