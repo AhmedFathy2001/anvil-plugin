@@ -639,13 +639,13 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "autoFullClogSync",
 		name = "Sync the whole log on open",
-		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Off while the trick is being proven — the \"Sync profile\" button in the Anvil tab does the same thing on demand.",
+		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil tab yourself.",
 		position = 3,
 		section = "profileSection"
 	)
 	default boolean autoFullClogSync()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
