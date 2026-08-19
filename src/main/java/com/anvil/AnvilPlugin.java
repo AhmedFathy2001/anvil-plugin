@@ -8620,15 +8620,14 @@ public class AnvilPlugin extends Plugin {
      * starts empty and fills in over months; with it, a player who has been playing for years sees
      * their real times the first time they open their clan profile.
      *
-     * <p>Runs once per account (a flag in our own config), and does nothing when chat-commands has
-     * never run -- then the live capture builds the set from the next kill onward.
+     * <p>Runs once per account per activity list (a flag in our own config), and does nothing when
+     * chat-commands has never run -- then the live capture builds the set from the next kill onward.
+     * The flag stores a signature of the names we asked for, so when the site adds an activity --
+     * the awakened DT2 bosses, say -- everyone re-probes once for the new names. Re-running is safe:
+     * a seeded time only ever replaces a slower one.
      */
     private void importRuneLitePersonalBests(String rsnKey) {
         if (!config.importRuneLitePbs() || !config.syncPersonalBests()) {
-            return;
-        }
-        String done = configManager.getConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey);
-        if (done != null && !done.isEmpty()) {
             return;
         }
         if (configManager.getRSProfileKey() == null || configManager.getRSProfileKey().isEmpty()) {
@@ -8639,6 +8638,13 @@ public class AnvilPlugin extends Plugin {
         PluginConfigResponse cfg = pluginConfig;
         List<String> activities = cfg != null ? cfg.pbActivities : null;
         if (activities == null || activities.isEmpty()) {
+            return;
+        }
+        // String.hashCode is specified, so the same list gives the same signature on every client
+        // and every release. An older flag ("1", or an earlier list) simply doesn't match.
+        String signature = Integer.toString(activities.hashCode());
+        String done = configManager.getConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey);
+        if (signature.equals(done)) {
             return;
         }
 
@@ -8666,7 +8672,7 @@ public class AnvilPlugin extends Plugin {
         }
 
         int adopted = personalBests.seed(imported, System.currentTimeMillis());
-        configManager.setConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey, "1");
+        configManager.setConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey, signature);
         log.info("Anvil: imported {} existing personal best(s) from RuneLite ({} probed)",
                 adopted, imported.size());
         if (adopted > 0) {
