@@ -69,6 +69,14 @@ public final class DeviceSignIn
 		this.scheduler = scheduler;
 	}
 
+	/**
+	 * Ask the desktop to open the sign-in page.
+	 *
+	 * <p>Returns whether we ASKED without throwing, which is all RuneLite lets us know:
+	 * LinkBrowser.browse is void, so a browser that never appeared and one that opened fine are the
+	 * same call from here. Everything downstream is written so that distinction doesn't matter — the
+	 * address and the code go on screen either way.
+	 */
 	private static boolean browse(String url)
 	{
 		LinkBrowser.browse(url);
@@ -103,13 +111,16 @@ public final class DeviceSignIn
 			done.accept(new Result(Outcome.UNAVAILABLE, null));
 			return;
 		}
+		// The address is on screen whether or not the browser opened. We can't tell the difference
+		// (see browse), and the failure mode of assuming success is a player staring at a code with
+		// nowhere to type it — while the cost of saying both is one extra clause.
 		if (!browserOpener.open(url))
 		{
 			status.accept("Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
 		}
 		else
 		{
-			status.accept("Approve code " + start.user_code + " in your browser…");
+			status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 		}
 
 		long intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
