@@ -1293,12 +1293,15 @@ public class AnvilPlugin extends Plugin {
             final Runnable job = () -> {
                 DebugLogExporter.Result res = debugLogExporter.export(header);
                 clientThread.invokeLater(() -> {
+                    // Anvil's own chat styling, and only what actually happened: the folder no longer
+                    // opens (LinkBrowser::open is restricted for hub releases), so saying it did sent
+                    // people looking at a file manager that never appeared.
                     if (res == null) {
-                        gameMessage("Anvil: couldn't save the debug log. Look in your .runelite/anvil-debug "
+                        sendChatMessage("Couldn't save the debug log. Look in your .runelite/anvil-debug "
                                 + "folder, or ask your clan admin for help.");
                     } else {
-                        gameMessage("Anvil: debug log saved — the folder just opened. Drag the newest "
-                                + "'anvil-debug' file to your clan admin. (Its location was copied to your clipboard.)");
+                        sendChatMessage("Debug log saved — its path is on your clipboard. Paste that into "
+                                + "your file manager and send the newest 'anvil-debug' file to your clan admin.");
                     }
                 });
             };
@@ -1307,10 +1310,6 @@ public class AnvilPlugin extends Plugin {
             }
             ex.submit(job);
         });
-    }
-
-    private void gameMessage(String msg) {
-        client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", msg, null);
     }
 
     /** Non-secret diagnostics that make a support log actionable. Never includes tokens. */

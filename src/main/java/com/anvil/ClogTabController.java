@@ -1346,8 +1346,8 @@ public class ClogTabController
 		List<String> clips = plugin.bannerSoundClips();
 		y = drawSectionLabel(container, y, clips.isEmpty()
 			? "Banner sounds" : "Banner sounds (" + clips.size() + ")");
-		y = drawButton(container, y, clips.isEmpty() ? "Add a clip" : "Add a clip or copy the folder path",
-			clips.isEmpty() ? "Add" : "Add", plugin::importBannerSounds, COL_VALUE);
+		// This row imports, and only imports — copying the folder path is the "More" row below it.
+		y = drawButton(container, y, "Add a clip", "Add", plugin::importBannerSounds, COL_VALUE);
 
 		if (clips.isEmpty())
 		{
