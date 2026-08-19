@@ -2261,6 +2261,10 @@ private void cycleEventTypeFilter()
 		boolean haveActiveEvent = activeCfg != null && activeCfg.event != null;
 		boolean hasPinned = showBingo && haveActiveEvent;
 		int pinnedEventId = hasPinned ? activeEventId() : -1;
+		// ...but "your event" is not the same as "your event is running". The config resolves the
+		// event you're ENROLLED in, which is handed over the moment sign-ups open — so a bingo two
+		// months out was being printed under "Live now", next to a weekly that genuinely was.
+		boolean pinnedLive = hasPinned && AnvilOverlay.isEventActive(activeCfg.event);
 
 		// Collect schedule entries (excluding the pinned event), then split into live vs upcoming.
 		List<SchedEntry> entries = new ArrayList<>();
@@ -2302,14 +2306,14 @@ private void cycleEventTypeFilter()
 
 		// ---- Live now: pinned event + any live weeklies, wrapped in a green-accented panel so the
 		// active block reads as one cohesive, currently-running section. ----
-		if (hasPinned || !live.isEmpty())
+		if (pinnedLive || !live.isEmpty())
 		{
-			int rows = (hasPinned ? 1 : 0) + live.size();
+			int rows = (pinnedLive ? 1 : 0) + live.size();
 			// The last row's trailing gap isn't inside the panel — trade it for an even bottom pad.
 			int sectionH = SECTION_HEADER_H + rows * SCHED_ROW_H - SCHED_ROW_GAP + 6;
 			groupPanel(items, 0, y, paneWidth, sectionH);
 			y += sectionHeader(items, "Live now", 0x4caf50, y, paneWidth);
-			if (hasPinned)
+			if (pinnedLive)
 			{
 				String name = eventName() != null ? eventName() : "Bingo";
 				y += scheduleRow(items, "> " + name, bingoKindLabel(eventFormat(), eventScoringMode()),
@@ -2325,9 +2329,18 @@ private void cycleEventTypeFilter()
 		}
 
 		// ---- Upcoming: plain list, visually secondary to the live block. ----
-		if (!upcoming.isEmpty())
+		if (!upcoming.isEmpty() || (hasPinned && !pinnedLive))
 		{
 			y += sectionHeader(items, "Upcoming", 0x9a9a9a, y, paneWidth);
+			if (hasPinned && !pinnedLive)
+			{
+				// Still first, still openable — it IS their event. It just hasn't started, so it
+				// carries its dates instead of a progress figure that would read as 0% done.
+				String name = eventName() != null ? eventName() : "Bingo";
+				y += scheduleRow(items, "> " + name, bingoKindLabel(eventFormat(), eventScoringMode()),
+					"upcoming", stateLabel("upcoming"),
+					dateRange(activeCfg.event.startDate, activeCfg.event.endDate), y, paneWidth, this::openBingo);
+			}
 			for (SchedEntry en : upcoming)
 			{
 				Runnable onOpen = en.weekly ? (() -> openLeaderboard(en.id)) : (() -> openScheduledBingo(en));
