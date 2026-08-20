@@ -8404,10 +8404,15 @@ public class AnvilPlugin extends Plugin {
         boolean relayAvailable = cfg != null && cfg.serverSupports("clip-relay") && apiClient.isConfigured();
         if (relayAvailable) {
             sendChatMessage("Uploading clip to your clan's Discord...");
-            String eventName = cfg.event != null ? cfg.event.name : null;
+            // Only an event that is actually RUNNING. The config carries whatever board this
+            // account is enrolled in, and enrolment starts when sign-ups open — so a clip taken
+            // eight weeks before the first tile went up was captioned "Clipped during <that board>",
+            // which is a claim about a competition that hasn't happened yet.
+            boolean eventRunning = AnvilOverlay.isEventActive(cfg.event);
+            String eventName = eventRunning ? cfg.event.name : null;
             // Their board position rides along: the footage can show the kill but not that it put
             // them top of the month.
-            PluginConfigResponse.Standings standings = cfg.event != null ? cfg.event.monthlyStandings : null;
+            PluginConfigResponse.Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
             BingoApiClient.ClipRelayResult result = apiClient.postClip(
                     file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
                     standings != null ? standings.yourRank : 0,
