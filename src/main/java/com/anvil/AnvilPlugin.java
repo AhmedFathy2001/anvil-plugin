@@ -364,6 +364,21 @@ public class AnvilPlugin extends Plugin {
     // "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
     // landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
     private final Map<String, Integer> killCounts = new HashMap<>();
+    /**
+     * The most recent "Your X kill count is: N" line, and when it landed.
+     *
+     * A collection-log unlock names the ITEM and nothing else, so on its own the server can't say
+     * which kill produced it — and it was left inferring the count from the hiscores snapshot, which
+     * only flushes on logout. That is how an Ancestral bottom taken on the 80th Chambers landed in
+     * the log as "at 79 KC" while the Discord post, reading this map, said 80.
+     *
+     * The kill line always precedes the loot, so the last one seen is the kill the unlock came from.
+     */
+    private String lastKcName = null;
+    private int lastKcValue = 0;
+    private long lastKcAtMs = 0L;
+    /** How recent that line has to be for an unlock to be attributed to it. */
+    private static final long KC_ATTRIBUTION_WINDOW_MS = 60_000L;
     // The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
     // Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
     // "Total Ticket" for the Brimhaven Agility Arena) and Wintertodt prefixes "subdued" — all must
@@ -2824,6 +2839,9 @@ public class AnvilPlugin extends Plugin {
                 boolean firstSeen = !killCounts.containsKey(kcKey);
                 int kc = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
                 killCounts.put(kcKey, kc);
+                lastKcName = kcName;
+                lastKcValue = kc;
+                lastKcAtMs = System.currentTimeMillis();
                 // The single most-clipped thing there is. Only notable LOOT was recorded before, so
                 // a clip of the kill itself — the pull, the tick-perfect prayer, the near-death —
                 // captioned itself with nothing at all.
@@ -2874,6 +2892,17 @@ public class AnvilPlugin extends Plugin {
             // rather than in the rare-drop notifier where it used to sit behind that channel's
             // toggle. Pets are excluded — claimPetName routes those to their own post.
             clipMoments.record("📕 New clog slot: " + item);
+            // Tell the server the killcount this unlock happened at, while we still know it.
+            //
+            // The site stamps kcAtUnlock when the collection log next syncs, and had nothing better
+            // to read than the hiscores snapshot — which only flushes on logout, so it was routinely
+            // a kill or more behind. That is how an Ancestral bottom taken on the 80th Chambers was
+            // filed as "at 79 KC" while the Discord post, reading killCounts, said 80.
+            //
+            // Pushed even when no tile tracks this boss (maybeQueueKcPush deliberately won't) and
+            // regardless of whether an event is running: a collection log is a profile, not a board.
+            // Once per unlock, which is once per account per item, ever.
+            pushKcForUnlock();
             PendingPet claimedPet = claimPetName(item);
             if (claimedPet == null) {
                 // Not a pet, so this is the ungated route to the clan's feed for an unlock that the
@@ -5582,6 +5611,35 @@ public class AnvilPlugin extends Plugin {
      * Absolute counts are idempotent, so the latest value overwrites and a kill streak becomes one
      * push. Runs on the client thread (onChatMessage); the network send happens on the executor.
      */
+    /**
+     * Push the killcount an unlock just happened at, bypassing the tracked-boss gate.
+     *
+     * {@link #maybeQueueKcPush} only pushes bosses some tile tracks, which is right for board
+     * scoring and wrong here: a clog unlock is worth dating whatever the board happens to be about,
+     * and the boss it came from usually isn't on it. The kill line always precedes the loot, so the
+     * most recent one is the kill that produced this unlock — with a window on it, so an unlock that
+     * arrives with no recent kill (a shop-bought minigame reward, a gamble pet) pushes nothing
+     * rather than attributing itself to whatever was killed an hour ago.
+     */
+    private void pushKcForUnlock() {
+        if (!statPushAllowed() || lastKcName == null) {
+            return;
+        }
+        if (System.currentTimeMillis() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) {
+            return;
+        }
+        if (executor == null || executor.isShutdown()) {
+            return;
+        }
+        synchronized (pendingKcPush) {
+            pendingKcPush.put(lastKcName, lastKcValue);
+            if (kcPushTask != null) {
+                kcPushTask.cancel(false);
+            }
+            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
     private void maybeQueueKcPush(String bossName, int kc) {
         if (!statPushAllowed() || !trackedKcNames.contains(normalizeBossName(bossName))) {
             return;
