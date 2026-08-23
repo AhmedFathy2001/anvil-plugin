@@ -23,8 +23,21 @@ import java.util.Set;
  */
 class ClipMoments
 {
-	/** Plenty for a clip window: a 60s buffer during a busy raid won't produce more than this. */
-	private static final int MAX_ENTRIES = 40;
+	/**
+	 * A safety net, not the eviction policy — see RETENTION_MS.
+	 *
+	 * This used to be 40 with plain FIFO eviction, on the reasoning that a 60s buffer can't produce
+	 * more than that. True of the WINDOW, false of the WAIT: OBS can take minutes to write a clip on
+	 * a busy machine, and a raid fills 40 entries long before then, so by the time the file landed
+	 * the moments it was supposed to describe had been evicted by newer ones.
+	 */
+	private static final int MAX_ENTRIES = 400;
+
+	/**
+	 * How long a moment is kept. Long enough that a clip whose file arrives late can still find what
+	 * it caught; short enough that this never becomes a session-long log.
+	 */
+	private static final long RETENTION_MS = 15 * 60 * 1000L;
 
 	/**
 	 * Grace added to the clip window when selecting moments. OBS writes the file a moment after the
@@ -50,6 +63,16 @@ class ClipMoments
 	/** Note something worth clipping. No-ops on blank text. */
 	synchronized void record(String text)
 	{
+		record(text, System.currentTimeMillis());
+	}
+
+	/**
+	 * The same, at an explicit time. Exists so tests can lay moments out across minutes without
+	 * sleeping through them — the behaviour worth pinning here is entirely about WHEN things
+	 * happened relative to each other, and a test that can't control that can't check it.
+	 */
+	synchronized void record(String text, long atMs)
+	{
 		if (text == null)
 		{
 			return;
@@ -59,11 +82,18 @@ class ClipMoments
 		{
 			return;
 		}
-		if (entries.size() >= MAX_ENTRIES)
+		long now = atMs;
+		// Age out first: dropping the oldest ENTRY is what let a busy raid evict the moments a
+		// pending clip still needed. Dropping the oldest MINUTES can't.
+		while (!entries.isEmpty() && now - entries.peekFirst().at > RETENTION_MS)
 		{
 			entries.removeFirst();
 		}
-		entries.addLast(new Moment(System.currentTimeMillis(), trimmed));
+		while (entries.size() >= MAX_ENTRIES)
+		{
+			entries.removeFirst();
+		}
+		entries.addLast(new Moment(now, trimmed));
 	}
 
 	synchronized void clear()
@@ -78,15 +108,24 @@ class ClipMoments
 	 *
 	 * @param maxItems how many distinct moments to name before summarising the remainder
 	 */
-	synchronized String summarize(int windowSeconds, int maxItems)
+	synchronized String summarize(long asOfMs, int windowSeconds, int maxItems)
 	{
-		long cutoff = System.currentTimeMillis() - (Math.max(1, windowSeconds) * 1000L) - WINDOW_GRACE_MS;
+		// The window is the footage: it ends when the clip was ASKED FOR, not when its file turned
+		// up. Anchoring on "now" meant a clip OBS took ten minutes to write got captioned with
+		// whatever happened in the last thirty seconds of those ten minutes — a drop the player
+		// wasn't clipping, or a boss they'd since walked to.
+		long end = asOfMs + WINDOW_GRACE_MS;
+		long cutoff = asOfMs - (Math.max(1, windowSeconds) * 1000L) - WINDOW_GRACE_MS;
 		// LinkedHashSet: dedup while keeping the order we walk them in (newest first).
 		Set<String> recent = new LinkedHashSet<>();
 		List<Moment> all = new ArrayList<>(entries);
 		for (int i = all.size() - 1; i >= 0; i--)
 		{
 			Moment m = all.get(i);
+			if (m.at > end)
+			{
+				continue; // happened after the clip ended — not in the footage
+			}
 			if (m.at < cutoff)
 			{
 				break; // entries are append-ordered, so everything earlier is older still

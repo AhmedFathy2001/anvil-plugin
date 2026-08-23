@@ -188,6 +188,32 @@ public class AnvilPlugin extends Plugin {
     private final ClipMoments clipMoments = new ClipMoments();
     // The last thing we landed a hit on, for captioning a clip of a fight that produced no kill,
     // no loot and no death. Written on the client thread, read off it when a clip lands.
+    /**
+     * Clip requests we've asked OBS for and are still waiting on a file for.
+     *
+     * Everything a clip's caption needs is snapshotted when the HOTKEY is pressed, because that's
+     * when the footage ends — OBS's replay buffer holds the seconds before the press. Reading any of
+     * it when the file finally lands describes whatever the player is doing THEN, which on a slow
+     * machine can be ten minutes and a different boss later.
+     *
+     * A deque rather than one slot: pressing save twice queues two files, and OBS reports them in
+     * the order it was asked. Bounded so a machine that never writes a file can't grow it forever.
+     */
+    private static final class PendingClip {
+        final long requestedAt;
+        final String combatTarget;
+        final long combatTargetAt;
+
+        PendingClip(long requestedAt, String combatTarget, long combatTargetAt) {
+            this.requestedAt = requestedAt;
+            this.combatTarget = combatTarget;
+            this.combatTargetAt = combatTargetAt;
+        }
+    }
+
+    private static final int MAX_PENDING_CLIPS = 8;
+    private final java.util.Deque<PendingClip> pendingClips = new java.util.ArrayDeque<>();
+
     private volatile String lastCombatTarget;
     private volatile long lastCombatTargetAt;
     private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
@@ -8413,6 +8439,13 @@ public class AnvilPlugin extends Plugin {
             connectObs();
             return;
         }
+        // Snapshot the caption inputs NOW — the footage ends here, whatever time the file arrives.
+        synchronized (pendingClips) {
+            while (pendingClips.size() >= MAX_PENDING_CLIPS) {
+                pendingClips.removeFirst();
+            }
+            pendingClips.addLast(new PendingClip(System.currentTimeMillis(), lastCombatTarget, lastCombatTargetAt));
+        }
         sendChatMessage("Saving clip...");
         obsClip.saveReplayBuffer();
     }
@@ -8441,14 +8474,26 @@ public class AnvilPlugin extends Plugin {
         // saw inside the buffer's own window. Null when nothing notable happened, in which case the
         // post falls back to naming the event.
         int clipSeconds = Math.max(1, config.clipLengthSeconds());
-        String moment = clipMoments.summarize(clipSeconds, 3);
+        // The request this file answers, oldest first. Absent when OBS saved a clip we didn't ask
+        // for (someone pressed OBS's own hotkey), in which case "now" is the best we know.
+        PendingClip pending;
+        synchronized (pendingClips) {
+            pending = pendingClips.pollFirst();
+        }
+        long clipEndedAt = pending != null ? pending.requestedAt : System.currentTimeMillis();
+        String moment = clipMoments.summarize(clipEndedAt, clipSeconds, 3);
         // Nothing notable landed in the window — but if we were mid-fight, say who with. "Fighting
         // Vorkath" is a caption; "Clipped during Test missions bingo" is a timestamp with extra
         // steps. Only counts a target we actually hit inside the footage.
+        //
+        // Read from the snapshot, not the live field: by the time a slow save lands, `lastCombatTarget`
+        // is whatever they wandered into since, and it would caption the clip with a boss that isn't
+        // in it. That is the bug this whole path exists to avoid.
         if (moment == null) {
-            String target = lastCombatTarget;
-            long since = System.currentTimeMillis() - lastCombatTargetAt;
-            if (target != null && since <= clipSeconds * 1000L + 5000L) {
+            String target = pending != null ? pending.combatTarget : lastCombatTarget;
+            long targetAt = pending != null ? pending.combatTargetAt : lastCombatTargetAt;
+            long since = clipEndedAt - targetAt;
+            if (target != null && since >= 0 && since <= clipSeconds * 1000L + 5000L) {
                 moment = "⚔️ Fighting " + target;
             }
         }
