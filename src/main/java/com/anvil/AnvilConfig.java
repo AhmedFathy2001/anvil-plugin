@@ -78,7 +78,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "apiUrl",
 		name = "Site URL",
-		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). If you leave off https://, it's added automatically. Ask your clan admin if unsure.",
+		description = "Your Anvil site, e.g. https://anvilosrs.com (no trailing slash). One address covers every clan you are in, so you do not need a per-clan URL. Older per-clan addresses still work. Self-hosted? Use your own site's URL. If you leave off https://, it is added automatically.",
 		position = 1,
 		section = "setupSection"
 	)

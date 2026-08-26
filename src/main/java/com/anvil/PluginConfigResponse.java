@@ -20,6 +20,59 @@ public class PluginConfigResponse
 		public String sha;          // exact commit the site image was built from
 		public int apiLevel;        // breaking-change counter; bumps are rare and loud
 		public List<String> capabilities;
+		/**
+		 * The address this deployment would rather be reached at, e.g. "https://anvilosrs.com".
+		 *
+		 * One site now serves every clan, so a per-clan subdomain is a legacy address: it works, but
+		 * it resolves the clan from the hostname instead of from your token, which stops being
+		 * right the moment you join a second clan. The canonical address keeps working either way.
+		 *
+		 * SENT BY THE SERVER rather than baked in here, because Anvil is self-hostable — a
+		 * hard-coded anvilosrs.com would tell every self-hoster to point at somebody else's site.
+		 * Null on older sites and on any deployment that names none, in which case we say nothing.
+		 */
+		public String canonicalUrl;
+	}
+
+	/**
+	 * Whether the configured URL should be swapped for the one the site prefers.
+	 *
+	 * Only when the site both advertises a canonical address AND says it can resolve a clan without
+	 * one — otherwise moving someone to the apex would break them, which is a far worse outcome
+	 * than an out-of-date URL that works.
+	 *
+	 * Compared on host alone: scheme and trailing slashes are noise, and a user who typed a path is
+	 * still on a working address.
+	 */
+	public String suggestedUrlMigration(String configuredUrl)
+	{
+		if (server == null || server.canonicalUrl == null || server.canonicalUrl.isEmpty()) return null;
+		if (!serverSupports("apex-routing")) return null;
+		if (configuredUrl == null || configuredUrl.isEmpty()) return null;
+
+		String have = hostOf(configuredUrl);
+		String want = hostOf(server.canonicalUrl);
+		if (have == null || want == null || have.equalsIgnoreCase(want)) return null;
+		return server.canonicalUrl;
+	}
+
+	/** Host portion of a URL, lowercased, or null if it cannot be read as one. */
+	static String hostOf(String url)
+	{
+		try
+		{
+			String s = url.trim();
+			if (!s.toLowerCase().startsWith("http://") && !s.toLowerCase().startsWith("https://"))
+			{
+				s = "https://" + s;
+			}
+			String host = new java.net.URI(s).getHost();
+			return host == null ? null : host.toLowerCase();
+		}
+		catch (Exception e)
+		{
+			return null;
+		}
 	}
 
 	/** Everything the plugin-facing API already supported when the handshake first shipped (site v1.0.0). */

@@ -5252,6 +5252,35 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /** Set once we've mentioned the canonical URL, so a 30-second poll does not become a 30-second nag. */
+    private volatile boolean urlMigrationSuggested = false;
+
+    /**
+     * Mention the site's preferred address, once, when the configured one is a legacy alias.
+     *
+     * A per-clan subdomain resolves the clan from the hostname; the canonical address resolves it
+     * from your token, which is what keeps working when you join a second clan. The old address is
+     * NOT broken and we do not change it for them — silently rewriting a URL somebody typed is how
+     * you turn a working setup into a support ticket. We say it once and leave it to them.
+     *
+     * The server decides what "canonical" is (see PluginConfigResponse.suggestedUrlMigration), so a
+     * self-hosted site sends its own and nobody is ever pointed at a server that is not theirs.
+     */
+    private void maybeSuggestUrlMigration(PluginConfigResponse fresh) {
+        if (fresh == null || urlMigrationSuggested) {
+            return;
+        }
+        String suggested = fresh.suggestedUrlMigration(config.apiUrl());
+        if (suggested == null) {
+            return;
+        }
+        urlMigrationSuggested = true;
+        log.info("Anvil: configured site URL '{}' is a legacy address; '{}' is the current one.",
+                config.apiUrl(), suggested);
+        sendChatMessage("Anvil now runs one site for every clan. You can change your Site URL to "
+                + suggested + " in Configuration \u2192 Anvil \u2014 your current one still works.");
+    }
+
     private void refreshConfig() {
         if (!apiClient.isConfigured()) {
             return;
@@ -5261,6 +5290,7 @@ public class AnvilPlugin extends Plugin {
             // A refresh that returned (HTTP 200/304, no throw) proves the token + Site URL are good —
             // clear any connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();
+            maybeSuggestUrlMigration(fresh);
             // The config response now carries the schedule + active weekly (merged reads), so adopt
             // them here — saves the separate schedule/active-weekly round-trips for token-holders.
             if (fresh != null) {

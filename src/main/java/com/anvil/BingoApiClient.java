@@ -959,8 +959,8 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/active-weekly")
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(apiUrl + "/api/plugin/active-weekly"))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -1033,14 +1033,31 @@ public class BingoApiClient
 	 * GET /api/plugin/schedule — returns upcoming + active bingo events and weekly competitions.
 	 * Unauthenticated. Never throws — returns null on any failure.
 	 */
+	/**
+	 * Attach the account token when we have one, on a request that does not require it.
+	 *
+	 * These reads were written against a deployment that WAS a clan, so the hostname answered
+	 * "whose schedule?" and no token was needed. One site now serves every clan, and the canonical
+	 * address names none — so on the apex the token is the only thing that can say which clan the
+	 * caller means. Still optional: a site addressed by subdomain or /c/<slug> ignores it, and a
+	 * caller without a token gets exactly what it got before.
+	 */
+	private Request.Builder withOptionalAuth(Request.Builder builder)
+	{
+		String token = playerToken;
+		return token == null || token.isEmpty()
+			? builder
+			: builder.header("Authorization", "Bearer " + token);
+	}
+
 	public ScheduleResponse fetchSchedule()
 	{
 		if (apiUrl == null || apiUrl.isEmpty())
 		{
 			return null;
 		}
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/schedule")
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(apiUrl + "/api/plugin/schedule"))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -1103,7 +1120,7 @@ public class BingoApiClient
 		}
 		String url = apiUrl + "/api/plugin/weekly-leaderboard"
 			+ (competitionId != null ? "?id=" + competitionId : "");
-		Request request = new Request.Builder().url(url).get().build();
+		Request request = withOptionalAuth(new Request.Builder().url(url)).get().build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful())
