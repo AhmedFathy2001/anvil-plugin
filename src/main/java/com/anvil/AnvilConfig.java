@@ -143,7 +143,7 @@ public interface AnvilConfig extends Config
 		keyName = "bannerSound",
 		name = "Banner sound",
 		description = "Play a sound clip when the bingo banner fires. Add your own .wav files via the "
-			+ "'Banner sounds' button in the Bingo collection-log tab, or drop them into the '"
+			+ "'Banner sounds' button in the Anvil side panel, or drop them into the '"
 			+ BannerSoundService.USER_DIR_NAME + "' folder in your RuneLite directory. Nothing plays "
 			+ "until you add at least one.",
 		position = 5,
@@ -183,9 +183,9 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "bannerSoundClip",
 		name = "Banner sound clip",
-		// Hidden from the panel: the play-cycle allowlist is managed via the Bingo collection-log tab's
+		// Hidden from the settings panel: the play-cycle allowlist is managed via the Anvil side panel's
 		// sound toggles, which read/write this key. Kept as a config key so the selection persists/syncs.
-		description = "Comma-separated allowlist of banner clips to cycle (blank = all). Managed in the Bingo tab.",
+		description = "Comma-separated allowlist of banner clips to cycle (blank = all). Managed in the Anvil side panel.",
 		position = 7,
 		section = "bingoSection",
 		hidden = true
@@ -193,19 +193,6 @@ public interface AnvilConfig extends Config
 	default String bannerSoundClip()
 	{
 		return "";
-	}
-
-	@ConfigItem(
-		keyName = "bingoClogTab",
-		name = "Bingo tab in Collection Log",
-		description = "Show your bingo tasks as a custom tab inside the in-game Collection Log. "
-			+ "Experimental — injects into the collection log interface and may need updating after game updates.",
-		position = 4,
-		section = "bingoSection"
-	)
-	default boolean bingoClogTab()
-	{
-		return true;
 	}
 
 	@ConfigItem(
@@ -639,7 +626,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "autoFullClogSync",
 		name = "Sync the whole log on open",
-		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil tab yourself.",
+		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil side panel yourself.",
 		position = 3,
 		section = "profileSection"
 	)

@@ -16,7 +16,7 @@ The plugin lets participants:
   time (see *How it works*). Combat Achievement tiles even work for tasks you
   completed years ago — enable the in-game *Settings → Combat Achievements →
   Repeat completion* and re-meeting the task's conditions counts.
-- **Browse the board in-game** — a Bingo tab inside the collection log lists
+- **Browse the board in-game** — the Anvil side panel lists
   every tile with live progress, filters (status/type/category/tier), and the
   same tile order as the site's board: in-progress first, then not started,
   then completed.
@@ -35,7 +35,7 @@ If you're a **clan admin or moderator**, it also lets you:
 
 - **Sync the in-game clan roster** — no separate admin login or link code: the
   plugin detects your admin role from your account token, and a **Sync clan
-  roster** button appears in the collection-log Bingo tab. One click pushes the
+  roster** button appears in the Anvil side panel. One click pushes the
   full clan member list to the site, keeping ranks and guest/member status accurate.
 
 ## Setup
@@ -86,7 +86,7 @@ If you're a **clan admin or moderator**, it also lets you:
   a flaky connection or server restart won't lose a drop. The same folder also
   holds **manual proofs** — pet / duplicate-Champion's-scroll screenshots the
   plugin captures but can't auto-submit to a tile (retries skip these). A **Saved
-  proofs** row in the collection-log Bingo tab shows the count and opens the folder.
+  proofs** row in the Anvil side panel shows the count.
 
 ## Settings
 
@@ -97,7 +97,6 @@ If you're a **clan admin or moderator**, it also lets you:
 | Auto Submit Drops | `true` | Auto-screenshot and submit on tracked tiles |
 | Show Overlay | `true` | Render the codeword/date verification overlay |
 | Team completion popups | `true` | Banner (and sound) when a teammate completes a tile |
-| Bingo tab in Collection Log | `true` | The in-game board/task list inside the collection log |
 | Two-frame drop proof | `true` | Drop proofs bake two frames: at the drop, and once floor loot settles |
 
 **Notifications section** — posts deaths and rare drops to clan Discord channels.

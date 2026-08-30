@@ -7,10 +7,10 @@ import java.util.Locale;
 
 /**
  * Pure (client-free) adapter that turns the plugin's tracked drops + stats into a single,
- * sortable, filterable list of task rows for the in-game collection-log "Bingo" tab.
+ * sortable, filterable list of task rows for the Anvil side panel.
  *
  * Deliberately has no RuneLite dependencies so it is fully unit-testable. The
- * {@link ClogTabController} renders {@link TaskRow}s into the real collection-log widgets;
+ * {@link AnvilSidebarPanel} renders {@link TaskRow}s;
  * this class owns only the data shaping (status derivation, filtering, sorting).
  */
 public final class ClogTaskModel

@@ -132,11 +132,6 @@ public class AnvilPlugin extends Plugin {
     // One-shot guard so the "no banner clips yet" nudge prints at most once per session.
     private boolean bannerSoundHintShown;
 
-    // Renders member-facing bingo tasks inside the in-game collection log.
-    // Gated behind config.bingoClogTab(); see ClogTabController.
-    @Inject
-    private ClogTabController clogTabController;
-
     @Inject
     private DrawManager drawManager;
 
@@ -1008,7 +1003,7 @@ public class AnvilPlugin extends Plugin {
     // Admin-only clan-roster sync. Authenticated by the player's per-user account token
     // (config.playerToken()) + their site admin role — verified once per login via GET /api/plugin/me
     // (apiClient.fetchIsAdmin). There is no admin-link-code mechanism. When isAdmin is true the
-    // in-game collection-log "Bingo" tab renders a "Sync clan roster" button (see ClogTabController).
+    // side panel renders a "Sync clan roster" button.
     @Getter
     private volatile boolean isAdmin = false;
     // One-shot guard so we only probe admin status once per login session.
@@ -1029,7 +1024,7 @@ public class AnvilPlugin extends Plugin {
     private volatile String lastSyncSummary;
 
     /**
-     * Callback for the async clan-sync action invoked from the clog tab.
+     * Callback for the async clan-sync action invoked from the side panel.
      */
     public interface AdminActionCallback {
 
@@ -1425,52 +1420,6 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /**
-     * Fetch a weekly competition leaderboard off the client thread and deliver
-     * the result back on the client thread, for the Anvil clog tab's
-     * leaderboard view. {@code competitionId} null = the active competition.
-     */
-    public void loadWeeklyLeaderboard(Integer competitionId, Consumer<BingoApiClient.WeeklyLeaderboard> callback) {
-        if (executor == null) {
-            return;
-        }
-        executor.submit(() -> {
-            BingoApiClient.WeeklyLeaderboard lb = apiClient.fetchWeeklyLeaderboard(competitionId);
-            clientThread.invokeLater(() -> callback.accept(lb));
-        });
-    }
-
-    /**
-     * Fetch the full board (grid + all-team completion state) for the player's
-     * own active event off the client thread, delivering the result back on the
-     * client thread for the Anvil clog tab's classic-grid / tile-race views.
-     * Scoped by the player token, so it needs no event id.
-     */
-    public void loadBoard(Consumer<BingoApiClient.BoardResponse> callback) {
-        if (executor == null) {
-            return;
-        }
-        executor.submit(() -> {
-            BingoApiClient.BoardResponse board = apiClient.fetchBoard();
-            clientThread.invokeLater(() -> callback.accept(board));
-        });
-    }
-
-    /**
-     * Fetch a read-only board preview for any event (upcoming, or a live event
-     * the player isn't in) off the client thread, delivering back on the client
-     * thread for the Anvil clog tab.
-     */
-    public void loadBoardPreview(int eventId, Consumer<BingoApiClient.BoardResponse> callback) {
-        if (executor == null) {
-            return;
-        }
-        executor.submit(() -> {
-            BingoApiClient.BoardResponse board = apiClient.fetchBoardPreview(eventId);
-            clientThread.invokeLater(() -> callback.accept(board));
-        });
-    }
-
     @Provides
     AnvilConfig provideConfig(ConfigManager configManager) {
         return configManager.getConfig(AnvilConfig.class);
@@ -1553,11 +1502,8 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    // --- Collection-log "Bingo" tab plumbing. Thin delegators so the controller owns all the
-    //     fragile interface logic; see ClogTabController. ---
     @Subscribe
     public void onWidgetLoaded(WidgetLoaded event) {
-        clogTabController.onWidgetLoaded(event.getGroupId());
         if (event.getGroupId() == QUEST_COMPLETED_GROUP_ID) {
             // The scroll's text child isn't populated yet on the load event — read it next tick,
             // with a couple of retries in case the text lands late.
@@ -1567,7 +1513,6 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onWidgetClosed(WidgetClosed event) {
-        clogTabController.onWidgetClosed(event.getGroupId());
         // Gain tiles: trade/bank items can land the tick their interface closes — keep those
         // inventory changes suppressed (see onItemContainerChanged).
         int g = event.getGroupId();
@@ -1611,7 +1556,6 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onScriptPostFired(ScriptPostFired event) {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
-            clogTabController.onCollectionDrawList();
             captureClogPage();
         } else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
             // Opt-in until the trick has been proven on a real client: an unguarded version of this
@@ -1826,12 +1770,9 @@ public class AnvilPlugin extends Plugin {
      * hash compare — no JSON, no HTTP, no allocation in the overwhelmingly common case where the
      * page hasn't changed since we last sent it. The push happens on the shared executor's next tick.
      *
-     * <p>Skipped while OUR tab is on screen: the item pane then holds the bingo board's widgets, and
-     * scraping those would file a board as somebody's collection log.
      */
     private void captureClogPage() {
-        if (!config.syncClog() || !apiClient.isConfigured() || clogTabController.isAnvilTabActive()
-                || !serverSupportsProfileSync()) {
+        if (!config.syncClog() || !apiClient.isConfigured() || !serverSupportsProfileSync()) {
             return;
         }
         ClogPage page = ClogPageReader.read(client);
@@ -1883,7 +1824,6 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onGameTick(GameTick event) {
-        clogTabController.onGameTick();
         tickClogTransmitGuard();
         tickManualSyncWatchdog();
         updateClanRosterReadable();
@@ -2697,16 +2637,15 @@ public class AnvilPlugin extends Plugin {
 
     /**
      * Opens the OS file picker to add banner-sound WAVs. Wired to the "Banner
-     * sounds" button in the collection-log Bingo tab (visible to all users) —
-     * see ClogTabController.renderLeftColumn.
+     * sounds" button in the Anvil side panel (visible to all users) —
+     * see AnvilSidebarPanel.buildPanelActions.
      */
     public void importBannerSounds() {
         bannerSound.importSounds(names -> {
             // New files join the cycle automatically (empty allowlist = all clips play). Users curate
             // which ones cycle by tapping them in the tab list; no need to touch config on import.
             sendChatMessage("Added to banner sounds: " + String.join(", ", names)
-                    + ". All clips cycle by default — tap one in the Bingo tab to toggle it on/off.");
-            clogTabController.onConfigRefreshed();
+                    + ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off.");
         });
     }
 
@@ -2765,7 +2704,6 @@ public class AnvilPlugin extends Plugin {
         // against newly-added files (which should default to on).
         String value = (sel.size() == all.size() && all.size() > 0) ? "" : String.join(", ", sel);
         configManager.setConfiguration("osrsbingo", "bannerSoundClip", value);
-        clogTabController.onConfigRefreshed();
     }
 
     /**
@@ -2786,7 +2724,7 @@ public class AnvilPlugin extends Plugin {
         sendChatMessage("Saved-proofs folder path copied — paste it into your file manager.");
     }
 
-    /** Proofs still waiting to upload — drives the "Saved proofs" row in the clog Bingo tab. */
+    /** Proofs still waiting to upload — drives the "Saved proofs" row in the Anvil side panel. */
     public int pendingProofCount() {
         return pendingSubmissionStore.count();
     }
@@ -2794,15 +2732,15 @@ public class AnvilPlugin extends Plugin {
     /**
      * Plays the banner sound and, the first time it fires with sound enabled
      * but no clips installed, nudges the user to the "Banner sounds" button in
-     * the collection-log Bingo tab. Fires at most once per session so it never
+     * the Anvil side panel. Fires at most once per session so it never
      * spams.
      */
     private void playBannerSound() {
         bannerSound.play();
         if (!bannerSoundHintShown && config.bannerSound() && !bannerSound.hasClips()) {
             bannerSoundHintShown = true;
-            sendChatMessage("Banner sound is on but you have no clips yet — open the Bingo tab in your "
-                    + "collection log and click \"Banner sounds\" to add a .wav.");
+            sendChatMessage("Banner sound is on but you have no clips yet — open the Anvil side panel "
+                    + "and click \"Banner sounds\" to add a .wav.");
         }
     }
 
@@ -3419,7 +3357,7 @@ public class AnvilPlugin extends Plugin {
                 int snapshotRequired = drop.requiredAmount;
                 // Collection tiles (a set of items): report the LEADING set's progress — e.g. 4/4 for the
                 // 4 DK rings, or the closest set on a grouped/barrows tile — instead of the raw item count
-                // over the smallest-set total (which read as "4/1"). Same set-aware maths the clog tab uses;
+                // over the smallest-set total (which read as "4/1"). Set-aware maths;
                 // it reflects the highest set collected, and a stray item toward a different set won't shrink it.
                 if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
                     int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode);
@@ -4331,7 +4269,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void notifyUploadFailed(String label) {
         sendChatMessage("Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying. "
-                + "Find it in the collection log Bingo tab → \"Saved proofs\".");
+                + "Find it in the Anvil side panel → \"Saved proofs\".");
     }
 
     /**
@@ -4438,7 +4376,7 @@ public class AnvilPlugin extends Plugin {
      * drop, or a duplicate Champion's scroll (the "would have received" line names no item and fires
      * no loot event). We grab the next frame, burn the standard proof banner onto it, and stash it in
      * the pending store flagged {@code manual} (so the retry loop never tries to upload it). It surfaces
-     * in the collection-log Bingo tab under "Saved proofs" for the player to attach when they submit by
+     * in the Anvil side panel under "Saved proofs" for the player to attach when they submit by
      * hand on the site.
      */
     private void captureManualProof(String label, String note) {
@@ -4480,7 +4418,7 @@ public class AnvilPlugin extends Plugin {
                     String savedId = pendingSubmissionStore.save(pending, baos.toByteArray());
                     if (savedId != null) {
                         sendChatMessage(label + " — proof saved. Submit it on the Anvil site "
-                                + "(collection log Bingo tab → \"Saved proofs\").");
+                                + "(Anvil side panel → \"Saved proofs\").");
                     } else {
                         log.error("Failed to persist manual proof '{}'", label);
                     }
@@ -4899,8 +4837,7 @@ public class AnvilPlugin extends Plugin {
         adminProbeAttempted = true;
         lastAdminProbeAt = System.currentTimeMillis();
         isAdmin = apiClient.fetchIsAdmin(token);
-        // If the clog tab is open right now, re-render so the admin button appears/disappears.
-        clogTabController.onConfigRefreshed();
+        // Repaint the side panel so the admin button appears/disappears.
     }
 
     /**
@@ -5114,7 +5051,6 @@ public class AnvilPlugin extends Plugin {
                 } catch (BingoApiClient.AdminUnauthorizedException e) {
                     // Token isn't (or is no longer) an admin — hide the button until the next login probe.
                     isAdmin = false;
-                    clogTabController.onConfigRefreshed();
                     sendChatMessage("Clan sync failed: your account token isn't an admin (or was revoked).");
                     cb.onResult(false, "Your account token isn't an admin (or was revoked).");
                 } catch (BingoApiClient.ClanMismatchException e) {
@@ -5350,7 +5286,6 @@ public class AnvilPlugin extends Plugin {
         isAdmin = false;
         adminProbeAttempted = false;
         lastAdminProbeAt = 0L; // ask immediately rather than waiting out the re-probe interval
-        clogTabController.onConfigRefreshed();
     }
 
     /**
@@ -5499,7 +5434,6 @@ public class AnvilPlugin extends Plugin {
 
             checkTileCompletions(pluginConfig);
             checkMissionAlerts(pluginConfig);
-            clogTabController.onConfigRefreshed();
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
             maybeNudgeCaRepeatSetting();
@@ -5578,7 +5512,6 @@ public class AnvilPlugin extends Plugin {
         if (admin) {
             isAdmin = true;
             log.info("Anvil: admin confirmed on retry — clan-sync button is back");
-            clogTabController.onConfigRefreshed();
         }
     }
 
