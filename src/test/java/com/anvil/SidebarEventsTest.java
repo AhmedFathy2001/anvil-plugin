@@ -212,6 +212,12 @@ public class SidebarEventsTest
 
 	private static PluginConfigResponse.ClanRef clanRef(String slug, String name, String kind, String live, int eventId)
 	{
+		return clanRef(slug, name, kind, live, eventId, "bingo");
+	}
+
+	private static PluginConfigResponse.ClanRef clanRef(String slug, String name, String kind, String live,
+		int eventId, String liveKind)
+	{
 		PluginConfigResponse.ClanRef c = new PluginConfigResponse.ClanRef();
 		c.slug = slug;
 		c.name = name;
@@ -219,10 +225,14 @@ public class SidebarEventsTest
 		if (live != null)
 		{
 			c.live = new PluginConfigResponse.ClanBoard();
+			c.live.kind = liveKind;
 			c.live.eventId = eventId;
 			c.live.eventName = live;
-			c.live.tilesComplete = 3;
-			c.live.tilesTotal = 9;
+			if (!"weekly".equals(liveKind))
+			{
+				c.live.tilesComplete = 3;
+				c.live.tilesTotal = 9;
+			}
 		}
 		return c;
 	}
@@ -431,4 +441,52 @@ public class SidebarEventsTest
 	{
 		return java.time.Instant.ofEpochMilli(millis + 2000).toString();
 	}
+
+	// ---- A competition is something running too ---------------------------------------------------
+	//
+	// Reported from the field: a clan with an active Skill of the Week read as "Nothing live".
+
+	@Test
+	public void aRunningCompetitionIsNotNothingLive()
+	{
+		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+			clanRef("a", "Alpha", "member", "Slayer SOTW", 4, "weekly")));
+
+		// Its name, and no tally: a competition has a leaderboard, not a board to fill, so "0/0" would
+		// be a lie dressed as progress.
+		assertEquals("Slayer SOTW", choices.get(1).detail);
+	}
+
+	@Test
+	public void aBoardWithNoTilesYetStillDoesNotClaimZeroProgress()
+	{
+		PluginConfigResponse.ClanRef empty = clanRef("a", "Alpha", "member", "Unbuilt Bingo", 4);
+		empty.live.tilesComplete = 0;
+		empty.live.tilesTotal = 0;
+		assertEquals("Unbuilt Bingo", AnvilSidebarPanel.ClanChoice.of(Arrays.asList(empty)).get(1).detail);
+	}
+
+	@Test
+	public void aBoardAndACompetitionThatShareAnIdAreTwoThings()
+	{
+		// Different tables, so the ids collide freely. Deduping on the number alone folds them into one
+		// and silently drops whichever came second.
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer Bingo", 5),
+			clanRef("b", "Bravo", "guest", "Slayer SOTW", 5, "weekly"));
+
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+	}
+
+	@Test
+	public void aSiteTooOldToSendTheKindIsTreatedAsABoard()
+	{
+		// Every live thing such a site reports IS a board — that is all it knew how to report.
+		PluginConfigResponse.ClanRef old = clanRef("b", "Bravo", "guest", "Summer Bingo", 5, null);
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer Bingo", 5), old);
+
+		assertTrue("same board, so not also-live", AnvilSidebarPanel.otherLiveBoards(clans, "a").isEmpty());
+	}
+
 }

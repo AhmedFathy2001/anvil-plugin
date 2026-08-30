@@ -502,13 +502,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return out;
 		}
-		java.util.Set<Integer> seen = new HashSet<>();
+		java.util.Set<String> seen = new HashSet<>();
 		String addressed = addressedSlug == null ? "" : addressedSlug;
 		for (PluginConfigResponse.ClanRef c : clans)
 		{
 			if (c != null && addressed.equalsIgnoreCase(c.slug) && c.live != null)
 			{
-				seen.add(c.live.eventId); // the board already on screen, in full
+				seen.add(c.live.identity()); // the thing already on screen, in full
 			}
 		}
 		for (PluginConfigResponse.ClanRef c : clans)
@@ -517,7 +517,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				continue;
 			}
-			if (addressed.equalsIgnoreCase(c.slug) || !seen.add(c.live.eventId))
+			if (addressed.equalsIgnoreCase(c.slug) || !seen.add(c.live.identity()))
 			{
 				continue;
 			}
@@ -578,7 +578,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			if (c.live != null && c.live.eventName != null && !c.live.eventName.isEmpty())
 			{
-				return c.live.eventName + "  " + c.live.tilesComplete + "/" + c.live.tilesTotal;
+				// A competition has a leaderboard rather than a board to fill, so "0/0" would be a lie
+				// dressed as progress. The name is the whole answer there.
+				return c.live.isWeekly() || c.live.tilesTotal <= 0
+					? c.live.eventName
+					: c.live.eventName + "  " + c.live.tilesComplete + "/" + c.live.tilesTotal;
 			}
 			return "guest".equals(c.kind) ? "Guest \u00b7 nothing live" : "Nothing live";
 		}
@@ -1009,10 +1013,19 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		card.add(leftLabel(ellipsize(c.live.eventName, CARD_LINE_CHARS),
 			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
-		card.add(leftLabel(c.live.tilesComplete + " / " + c.live.tilesTotal
-			+ (c.live.pointsScored ? " points" : " tiles"), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		if (c.live.isWeekly() || c.live.tilesTotal <= 0)
+		{
+			// A competition fills no board, so it gets neither a tally nor a bar — saying "0 / 0 tiles"
+			// under a running SOTW reads as a broken board rather than as a leaderboard.
+			card.add(leftLabel("Competition running", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+		else
+		{
+			card.add(leftLabel(c.live.tilesComplete + " / " + c.live.tilesTotal
+				+ (c.live.pointsScored ? " points" : " tiles"), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
 
-		if (c.live.tilesTotal > 0)
+		if (!c.live.isWeekly() && c.live.tilesTotal > 0)
 		{
 			JProgressBar bar = new JProgressBar(0, 100);
 			bar.setValue(Math.max(0, Math.min(100, (int) Math.round(100.0 * c.live.tilesComplete / c.live.tilesTotal))));
