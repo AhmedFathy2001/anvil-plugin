@@ -576,15 +576,19 @@ public class AnvilSidebarPanel extends PluginPanel
 		/** What is happening in this clan, in one short line — the reason to pick it or not. */
 		private static String detailOf(PluginConfigResponse.ClanRef c)
 		{
-			if (c.live != null && c.live.eventName != null && !c.live.eventName.isEmpty())
+			if (c.live == null || c.live.eventName == null || c.live.eventName.isEmpty())
 			{
-				// A competition has a leaderboard rather than a board to fill, so "0/0" would be a lie
-				// dressed as progress. The name is the whole answer there.
-				return c.live.isWeekly() || c.live.tilesTotal <= 0
-					? c.live.eventName
-					: c.live.eventName + "  " + c.live.tilesComplete + "/" + c.live.tilesTotal;
+				return "guest".equals(c.kind) ? "Guest \u00b7 nothing live" : "Nothing live";
 			}
-			return "guest".equals(c.kind) ? "Guest \u00b7 nothing live" : "Nothing live";
+			// A competition has a leaderboard rather than a board to fill, so "0/0" would be a lie
+			// dressed as progress. The name is the whole answer there.
+			String head = c.live.isWeekly() || c.live.tilesTotal <= 0
+				? c.live.eventName
+				: c.live.eventName + "  " + c.live.tilesComplete + "/" + c.live.tilesTotal;
+			// One line names ONE of them. Say how many were not named rather than letting an arbitrary
+			// pick stand in for the whole clan — the number is why you would open the clan at all.
+			int more = c.liveCount - 1;
+			return more > 0 ? head + "  +" + more + " more" : head;
 		}
 
 		@Override
@@ -1023,6 +1027,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			card.add(leftLabel(c.live.tilesComplete + " / " + c.live.tilesTotal
 				+ (c.live.pointsScored ? " points" : " tiles"), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+		if (c.liveCount > 1)
+		{
+			// This card shows one of them. Switching is how you reach the rest, so the row has to admit
+			// there ARE others rather than presenting the freshest as everything happening there.
+			card.add(leftLabel("+ " + (c.liveCount - 1) + " more here",
+				FontManager.getRunescapeSmallFont(), ColorScheme.BRAND_ORANGE));
 		}
 
 		if (!c.live.isWeekly() && c.live.tilesTotal > 0)

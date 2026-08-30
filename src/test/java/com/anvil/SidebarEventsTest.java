@@ -489,4 +489,42 @@ public class SidebarEventsTest
 		assertTrue("same board, so not also-live", AnvilSidebarPanel.otherLiveBoards(clans, "a").isEmpty());
 	}
 
+
+	@Test
+	public void aRowSaysHowManyItIsNotShowing()
+	{
+		PluginConfigResponse.ClanRef busy = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
+		busy.liveCount = 4;
+		assertEquals("Summer Bingo  3/9  +3 more",
+			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(busy)).get(1).detail);
+	}
+
+	@Test
+	public void oneThingRunningNeedsNoTally()
+	{
+		PluginConfigResponse.ClanRef quiet = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
+		quiet.liveCount = 1;
+		assertEquals("Summer Bingo  3/9",
+			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(quiet)).get(1).detail);
+	}
+
+	@Test
+	public void aSiteTooOldToCountSaysNothingRatherThanMinusOne()
+	{
+		// liveCount is 0 on a site that does not send it, and 0 - 1 must not become "+-1 more".
+		PluginConfigResponse.ClanRef old = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
+		assertEquals(0, old.liveCount);
+		assertEquals("Summer Bingo  3/9",
+			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(old)).get(1).detail);
+	}
+
+	@Test
+	public void aBusyClanRunningOnlyACompetitionStillCounts()
+	{
+		PluginConfigResponse.ClanRef c = clanRef("a", "Alpha", "member", "Slayer SOTW", 4, "weekly");
+		c.liveCount = 3;
+		assertEquals("Slayer SOTW  +2 more",
+			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(c)).get(1).detail);
+	}
+
 }
