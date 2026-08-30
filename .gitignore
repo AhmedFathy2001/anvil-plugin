@@ -25,3 +25,6 @@ boss-loot/
 
 # Claude Code worktrees (local only)
 .claude/worktrees/
+
+# Parked source kept out of the build on purpose (see .attic/*/RESTORE.md)
+.attic/
