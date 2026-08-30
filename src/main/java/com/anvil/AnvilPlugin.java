@@ -1466,12 +1466,11 @@ public class AnvilPlugin extends Plugin {
      * Data source for the progress sidebar. This is the single wiring seam between the panel and its
      * data — the panel only knows the {@link SidebarDataSource} interface.
      *
-     * <p>Binds the <b>site-relay</b> {@link FederationSidebarDataSource} (the plugin's only federation path,
-     * {@code FEDERATION_WIRE.md} §10) over a direct single-home {@link AnvilSidebarDataSource} delegate. The
-     * source polls the home site's {@code /api/plugin/federation/state} and renders the clans the site fans
-     * out; with federation off it falls through to the delegate — a view of the config THIS plugin already
-     * polls via {@code this::getPluginConfig} (no extra board request), byte-for-byte today's one-home
-     * sidebar. Offline (no Site URL/token) it resolves to the empty state.</p>
+     * <p>One {@link AnvilSidebarDataSource} over the config THIS plugin already polls, so rendering the
+     * board costs no extra request. It used to sit under a federation layer that fanned several sites
+     * out; one Anvil now serves every clan, so the clans a member can switch between arrive in that
+     * same config response ({@code clans[]}) and the switch is an address, not a second data source.
+     * Offline (no Site URL/token) it resolves to the empty state.</p>
      */
     @Provides
     @Singleton
@@ -1481,8 +1480,8 @@ public class AnvilPlugin extends Plugin {
         // reading this.apiClient here would NPE and the whole plugin would fail to load. The param is
         // resolved (and the singleton constructed) by Guice first, so it's non-null; the config/stat
         // method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
-        // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown) —
-        // it paces the connect flow's /state polls without ever sleeping a worker thread.
+        // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
+        // Kept in the signature because the sidebar's device sign-in still paces its poll on it.
         AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient,
             this::localStatProgress, this::getLocalPlayerName, this::homeMembership);
         // The starting-shot button's action. Bound after construction for the same reason the
@@ -1492,7 +1491,7 @@ public class AnvilPlugin extends Plugin {
         // The panel's buttons act on the plugin: roster sync, profile sync, and the local banner
         // clips (which live in a folder on this machine, not on any account).
         delegate.setPlugin(this);
-        return new FederationSidebarDataSource(apiClient, delegate, sharedExecutor);
+        return delegate;
     }
 
     @Subscribe
@@ -3691,9 +3690,8 @@ public class AnvilPlugin extends Plugin {
         return (long) Math.floor(current / step) > (long) Math.floor((current - addedThisWindow) / step);
     }
 
-    // Federation: kill submissions fan out to every extra connected clan that watches the same NPC(s),
-    // each crediting its own team/tile with the shared fanout descriptor — mirroring the drop path.
-    // The count-only ping fans out with no image; the milestone/complete proof re-uses its PNG (below).
+    // A kill submission credits the caller's team/tile on the clan this plugin is addressing.
+    // The count-only ping carries no image; the milestone/complete proof re-uses its PNG (below).
     private void doSubmitKillAggregate(KillAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedKill kill = agg.kill;

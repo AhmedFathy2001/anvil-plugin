@@ -213,7 +213,7 @@ public class SidebarEventsTest
 	@Test
 	public void landsOnTheClanThisAccountIsAMemberOfWhenOnlyAGuestAtHome()
 	{
-		// The player pointed the plugin at a site they're only a federation guest on — their real clan
+		// The player is only a GUEST in the clan the plugin is addressing — their real clan
 		// is one of the federated ones, so that's the board worth opening.
 		List<ConnectionView> conns = Arrays.asList(
 			view("local", "Summer Bingo", 1, 5, null, null, null, false),

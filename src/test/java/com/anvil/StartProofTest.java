@@ -104,24 +104,6 @@ public class StartProofTest
 		assertEquals(1, fired.get());
 	}
 
-	@Test
-	public void federationPassesTheHomeObligationThrough()
-	{
-		PluginConfigResponse cfg = liveConfig();
-		cfg.startProof = owed();
-		AnvilSidebarDataSource home = sourceFor(cfg);
-		AtomicInteger fired = new AtomicInteger();
-		home.setStartProofCapture(fired::incrementAndGet);
-
-		// The relay layer must not swallow it: the shot is owed to the home we authenticate against.
-		SidebarDataSource relayed = new FederationSidebarDataSource(
-			new BingoApiClient(new Gson(), new OkHttpClient()), home,
-			url -> true, (step, delayMs) -> step.run());
-		assertNotNull(relayed.startProof());
-		relayed.captureStartProof();
-		assertEquals(1, fired.get());
-	}
-
 	private static PluginConfigResponse.StartProof checked()
 	{
 		PluginConfigResponse.StartProof sp = owed();

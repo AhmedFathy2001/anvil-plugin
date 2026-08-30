@@ -79,7 +79,7 @@ public class PluginConfigResponse
 	private static final Set<String> BASELINE_CAPABILITIES = new HashSet<>(Arrays.asList(
 		"stats-live", "drop-tiles", "kill-tiles", "timed-tiles", "lms-tiles", "value-tiles",
 		"gain-tiles", "deathless-tiles", "pvp-tiles", "diary-tiles", "ca-tiles", "clog-tiles",
-		"weekly", "schedule", "notify", "counters", "activity-feed", "federation", "ladder",
+		"weekly", "schedule", "notify", "counters", "activity-feed", "ladder",
 		"reveal-modes", "config-etag"));
 
 	/**

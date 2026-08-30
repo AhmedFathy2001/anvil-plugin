@@ -41,18 +41,6 @@ public class SidebarActionsTest
 	}
 
 	@Test
-	public void theFederatedSourcePassesActionsThrough()
-	{
-		AnvilSidebarDataSource home = source();
-		SidebarDataSource relayed = new FederationSidebarDataSource(
-			new BingoApiClient(new Gson(), new OkHttpClient()), home, url -> true, (step, delayMs) -> step.run());
-		// Same answer either way — the actions belong to the home clan, not to the relay layer.
-		assertEquals(home.actionsFor(AnvilSidebarDataSource.LOCAL_INSTANCE_ID).canSyncRoster,
-			relayed.actionsFor(AnvilSidebarDataSource.LOCAL_INSTANCE_ID).canSyncRoster);
-		assertTrue(relayed.bannerSounds().isEmpty());
-	}
-
-	@Test
 	public void bannerSoundCallsAreSafeWithoutAPlugin()
 	{
 		AnvilSidebarDataSource ds = source();

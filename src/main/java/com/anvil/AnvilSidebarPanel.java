@@ -90,19 +90,9 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private final SidebarDataSource dataSource;
 
-	// Site-relay federation (FEDERATION_WIRE.md §10, the plugin's ONLY federation path): the data source polls
-	// the home site's /federation/state; the plugin makes NO broker/clan connections. Non-null iff the source exposes it.
-	private final FederationStatusSource federationStatus;
-
 	// Header controls (persistent across state changes).
 	private final JComboBox<ConnectionView> clanFilter = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
-
-	// Site-relay "Connect clans" affordance (auto path). Shown only when the site reports federation enabled but
-	// not connected; a click POSTs /federation/connect (hosted = zero-click, self-host = broker login + poll /state).
-	private final JButton siteConnectButton = new JButton("Connect clans");
-	private final JLabel siteConnectStatus = new JLabel();
-	private final JPanel siteConnectRow = new JPanel(new BorderLayout(0, 2));
 
 	// Device sign-in (home-native, DeviceSignIn): shown when a Site URL is configured but no
 	// Account Token yet — replaces the copy-the-token-from-your-profile step.
@@ -114,7 +104,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel signInStatus = new JLabel();
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	private boolean signInInFlight;
-	private boolean siteConnectInFlight;
 
 	private final JPanel content = new JPanel();
 
@@ -158,7 +147,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		this.apiClient = apiClient;
 		this.configManager = configManager;
 		this.executor = executor;
-		this.federationStatus = dataSource instanceof FederationStatusSource ? (FederationStatusSource) dataSource : null;
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -196,30 +184,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
 		titleRow.setAlignmentX(LEFT_ALIGNMENT);
 
-		// "Connect clans" visibility is driven live from /federation/state (see updateSiteConnectAffordance).
-		styleFlatButton(siteConnectButton, ColorScheme.BRAND_ORANGE);
-		// One button, two modes: "Connect clans" when signed out, "Disconnect" when signed in — route by current state.
-		siteConnectButton.addActionListener(e ->
-		{
-			if (federationStatus != null && federationStatus.federationStatus().signedIn)
-			{
-				onSiteDisconnect();
-			}
-			else
-			{
-				onSiteConnect();
-			}
-		});
-		siteConnectStatus.setFont(FontManager.getRunescapeSmallFont());
-		siteConnectStatus.setForeground(VALUE_COLOR);
-		siteConnectStatus.setVisible(false);
-		siteConnectRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		siteConnectRow.add(siteConnectButton, BorderLayout.NORTH);
-		siteConnectRow.add(siteConnectStatus, BorderLayout.SOUTH);
-		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
-		siteConnectRow.setAlignmentX(LEFT_ALIGNMENT);
-		siteConnectRow.setVisible(false);
-
 		// Sign-in affordance — visible only in the "Site URL set, no token" state (see refreshSignInRow).
 		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
 		signInButton.addActionListener(e -> startSignIn());
@@ -239,7 +203,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(signInRow);
-		top.add(siteConnectRow);
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
@@ -282,12 +245,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		ladderTick.stop();
 	}
 
-	// ---- Site-relay "Connect clans" flow (auto path, FEDERATION_WIRE.md §10.2) --------------------
+	// ---- Device sign-in (DeviceSignIn) ------------------------------------------------------
 
-	/**
-	 * Show the connect button when the home reports federation enabled but not connected. Hosted homes connect
-	 * zero-click (row never appears); self-host shows it until login. No-op off the auto path or mid-connect.
-	 */
 	/** Show the Sign-in button exactly while a Site URL is configured but no Account Token exists. */
 	private void refreshSignInRow()
 	{
@@ -346,104 +305,6 @@ public class AnvilSidebarPanel extends PluginPanel
 			}));
 	}
 
-	private void updateSiteConnectAffordance()
-	{
-		if (federationStatus == null || siteConnectInFlight)
-		{
-			return;
-		}
-		FederationState st = federationStatus.federationStatus();
-		// Offered whenever federation is on: "Connect clans" until signed in, then "Disconnect" (durable via
-		// /state's signedIn) — even signed-in with zero clans, the case that used to wrongly re-offer Connect.
-		boolean show = st.enabled;
-		siteConnectButton.setText(st.signedIn ? "Disconnect" : "Connect clans");
-		// A quiet standing note when signed in but nothing to render, so the row isn't just a lone button.
-		if (st.signedIn && st.clans.isEmpty())
-		{
-			setSiteConnectStatus("Signed in — no other Anvil clans are linked to yours yet.");
-		}
-		else
-		{
-			setSiteConnectStatus("");
-		}
-		if (siteConnectRow.isVisible() != show)
-		{
-			siteConnectRow.setVisible(show);
-			siteConnectRow.revalidate();
-		}
-	}
-
-	/**
-	 * §10.2 connect handshake: {@code POST /federation/connect}. Trusted home returns connected; self-host
-	 * opens a browser login, then the source schedules {@code /state} polls to connected. Asynchronous — the
-	 * source runs every step on the shared executor and calls back on that thread, so both callbacks marshal
-	 * to the EDT here. No broker/clan connections from the plugin.
-	 */
-	private void onSiteConnect()
-	{
-		if (federationStatus == null || siteConnectInFlight)
-		{
-			return;
-		}
-		siteConnectInFlight = true;
-		siteConnectButton.setEnabled(false);
-		setSiteConnectStatus("Connecting…");
-
-		federationStatus.connectFederation(
-			line -> SwingUtilities.invokeLater(() -> setSiteConnectStatus(line)),
-			outcome -> SwingUtilities.invokeLater(() ->
-			{
-				siteConnectInFlight = false;
-				siteConnectButton.setEnabled(true);
-				refresh(); // re-render + re-evaluate the affordance with the newest /state
-			}));
-	}
-
-	/**
-	 * Federation logout off the EDT: {@code POST /disconnect} clears the server-side signed-in marker; the
-	 * follow-up refresh re-reads {@code /state} ({@code signedIn:false}) so the button flips to "Connect clans".
-	 */
-	private void onSiteDisconnect()
-	{
-		if (federationStatus == null || siteConnectInFlight)
-		{
-			return;
-		}
-		siteConnectInFlight = true;
-		siteConnectButton.setEnabled(false);
-		setSiteConnectStatus("Disconnecting…");
-
-		new SwingWorker<Boolean, Void>()
-		{
-			@Override
-			protected Boolean doInBackground()
-			{
-				return federationStatus.disconnectFederation();
-			}
-
-			@Override
-			protected void done()
-			{
-				siteConnectInFlight = false;
-				siteConnectButton.setEnabled(true);
-				try
-				{
-					if (!get())
-					{
-						setSiteConnectStatus("Disconnect failed — try again.");
-					}
-				}
-				catch (Exception ex)
-				{
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.debug("site-relay disconnect flow failed", cause);
-					setSiteConnectStatus("Disconnect failed — try again.");
-				}
-				refresh(); // re-render + re-evaluate the affordance with the newest /state
-			}
-		}.execute();
-	}
-
 	/**
 	 * The line under the sign-in button — most importantly the one carrying the approval code.
 	 *
@@ -465,22 +326,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
 		signInRow.revalidate();
 		signInRow.repaint();
-	}
-
-	private void setSiteConnectStatus(String text)
-	{
-		String plain = text == null ? "" : text;
-		boolean show = !plain.isEmpty();
-		// Narrow sidebar: render as width-constrained HTML so a long line WRAPS, mirror full text into the tooltip.
-		// HTML-escape first — the userCode segment is broker-supplied.
-		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-		siteConnectStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "px'>" + escaped + "</body></html>" : "");
-		siteConnectStatus.setToolTipText(show ? plain : null);
-		siteConnectStatus.setVisible(show);
-		// Re-cap to the current preferred height (construction-time cap was button-only) so the wrapped status can grow.
-		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
-		siteConnectRow.revalidate();
-		siteConnectRow.repaint();
 	}
 
 	// ---- Refresh flow -----------------------------------------------------------------------------
@@ -513,8 +358,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh(false);
 	}
 
-	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh — the home is asked to bypass
-	 * its federation re-sync throttle so the button acts on a just-changed network immediately. */
+	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh, so the source is asked to
+	 * bypass what it normally caches (the weekly standings) rather than serve a minute-old answer. */
 	private void refresh(boolean manual)
 	{
 		if (fetchInFlight)
@@ -553,9 +398,6 @@ public class AnvilSidebarPanel extends PluginPanel
 					log.debug("sidebar fetch failed", cause);
 					renderError(cause.getMessage());
 				}
-				// The fetch just refreshed /federation/state — reflect it in the connect affordance,
-				// and surface the Sign-in button whenever the token is missing/was just rejected.
-				updateSiteConnectAffordance();
 				refreshSignInRow();
 			}
 		}.execute();
@@ -587,11 +429,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * Which clan the sidebar opens on. Normally the configured home — that's the site the member
-	 * pointed the plugin at. But a player can be a mere federation GUEST at home while being a real
-	 * member of a clan they reached through it (an alt's site, a friend's clan, a hosted instance they
-	 * joined later); for them the home board is noise and their own clan is the point. So when we KNOW
-	 * this account is a guest here and a member there, we land there instead.
+	 * Which clan the sidebar opens on. Normally the one the plugin is addressing. But a player can be
+	 * a mere GUEST there while being a real member of another clan they hold a seat in (an alt's clan,
+	 * a friend's, one they joined later); for them the guest board is noise and their own clan is the
+	 * point. So when we KNOW this account is a guest here and a member there, we land there instead.
 	 *
 	 * <p>Both halves must be positive evidence ({@link ConnectionView#member} is tri-state): an older
 	 * home that doesn't send the flag, or a login screen where membership hasn't been answered yet,
@@ -1932,11 +1773,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			south.add(boardLink(c.boardUrl));
 		}
-		JPanel shareRow = buildShareRow(c);
-		if (shareRow != null)
-		{
-			south.add(shareRow);
-		}
 		if (south.getComponentCount() > 0)
 		{
 			panel.add(south, BorderLayout.SOUTH);
@@ -2170,76 +2006,6 @@ public class AnvilSidebarPanel extends PluginPanel
 			this.face = face;
 			this.revealedAtIso = revealedAtIso;
 		}
-	}
-
-	/**
-	 * Per-clan "Share my RSN" toggle — per ACCOUNT by design: it acts on the account currently logged
-	 * in (the server resolves it from the request), so each of a member's accounts is shared with each
-	 * clan individually. Only rendered on FEDERATED clan cards while the playing account is resolvable
-	 * ({@code shareEligible}); never on the home card (the home already knows its own member).
-	 */
-	private JPanel buildShareRow(ConnectionView c)
-	{
-		if (federationStatus == null || AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(c.instanceId))
-		{
-			return null;
-		}
-		FederationState st = federationStatus.federationStatus();
-		if (!st.enabled || !st.shareEligible)
-		{
-			return null;
-		}
-		boolean shared = st.sharedInstanceIds.contains(c.instanceId);
-		JButton share = new JButton(shared ? "Stop sharing my RSN" : "Share my RSN with this clan");
-		styleFlatButton(share, shared ? ColorScheme.LIGHT_GRAY_COLOR : ColorScheme.BRAND_ORANGE);
-		share.setToolTipText(shared
-			? "This clan currently knows this account's RSN. Click to retract it — the change reaches them within seconds."
-			: "Let this clan see THIS account's RSN so it can track and draft you. Shares only the name — never boards or game data.");
-		share.addActionListener(e ->
-		{
-			share.setEnabled(false);
-			setSiteConnectStatus("");
-			new SwingWorker<BingoApiClient.ShareResult, Void>()
-			{
-				@Override
-				protected BingoApiClient.ShareResult doInBackground()
-				{
-					return apiClient.federationShare(c.instanceId, !shared);
-				}
-
-				@Override
-				protected void done()
-				{
-					BingoApiClient.ShareResult result;
-					try
-					{
-						result = get();
-					}
-					catch (Exception ex)
-					{
-						result = new BingoApiClient.ShareResult(false, "Couldn't reach the site — try again.");
-					}
-					if (!result.ok)
-					{
-						// The server refuses for reasons the member can fix (account not verified here,
-						// not logged into it, clan not connected). Say so — silently re-rendering the
-						// same button made a refusal look exactly like a successful share.
-						share.setEnabled(true);
-						setSiteConnectStatus(result.error);
-						return;
-					}
-					// Forced refresh: the share rides the next exchange relay — force it now so the
-					// remote learns (or forgets) the RSN within seconds, and the button re-labels.
-					refresh(true);
-				}
-			}.execute();
-		});
-
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-		row.add(share, BorderLayout.WEST);
-		return row;
 	}
 
 	/** A clickable "View standings" link opening the board's site page in the system browser. */
