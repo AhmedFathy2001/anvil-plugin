@@ -207,18 +207,116 @@ public class SidebarEventsTest
 
 	private static PluginConfigResponse.ClanRef clanRef(String slug, String name, String kind, String live)
 	{
+		return clanRef(slug, name, kind, live, live == null ? 0 : Math.abs(live.hashCode()));
+	}
+
+	private static PluginConfigResponse.ClanRef clanRef(String slug, String name, String kind, String live, int eventId)
+	{
 		PluginConfigResponse.ClanRef c = new PluginConfigResponse.ClanRef();
 		c.slug = slug;
 		c.name = name;
 		c.kind = kind;
 		if (live != null)
 		{
-			c.live = new PluginConfigResponse.HomeBoard();
+			c.live = new PluginConfigResponse.ClanBoard();
+			c.live.eventId = eventId;
 			c.live.eventName = live;
 			c.live.tilesComplete = 3;
 			c.live.tilesTotal = 9;
 		}
 		return c;
+	}
+
+	private static List<String> slugs(List<PluginConfigResponse.ClanRef> rows)
+	{
+		List<String> out = new java.util.ArrayList<>();
+		for (PluginConfigResponse.ClanRef r : rows)
+		{
+			out.add(r.slug);
+		}
+		return out;
+	}
+
+	// ---- The merged view: what "also live" adds to the board already on screen ---------------------
+
+	@Test
+	public void nothingElseLiveMeansNoSection()
+	{
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(null, "a").isEmpty());
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(java.util.Collections.emptyList(), "a").isEmpty());
+		// A clan with no live board is not something to list under "also live".
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(
+			Arrays.asList(clanRef("a", "Alpha", "member", "Summer"), clanRef("b", "Bravo", "guest", null)), "a")
+			.isEmpty());
+	}
+
+	@Test
+	public void theOtherClansBoardsAreListed()
+	{
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer", 1),
+			clanRef("b", "Bravo", "guest", "Winter", 2),
+			clanRef("c", "Charlie", "member", "Autumn", 3));
+
+		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+	}
+
+	@Test
+	public void aCoHostedBoardIsNotAlsoLiveWhenItIS_theBoardOnScreen()
+	{
+		// One event, two hosts. Alpha's card is already showing it in full; listing Bravo's copy would
+		// offer the member somewhere else to go that is the same place.
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Cross-Clan Cup", 7),
+			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
+
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a").isEmpty());
+	}
+
+	@Test
+	public void aCoHostedBoardBetweenTwoOtherClansIsListedOnce()
+	{
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer", 1),
+			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7),
+			clanRef("c", "Charlie", "member", "Cross-Clan Cup", 7));
+
+		// Same board under two clans: one row, and the first-listed clan is the one offered.
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+	}
+
+	@Test
+	public void twoDifferentBoardsThatShareANameAreBothListed()
+	{
+		// Dedup is on the id precisely because it cannot be on the name.
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer", 1),
+			clanRef("b", "Bravo", "guest", "Summer Bingo", 2),
+			clanRef("c", "Charlie", "member", "Summer Bingo", 3));
+
+		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+	}
+
+	@Test
+	public void withNothingAddressedYetEveryLiveBoardIsListed()
+	{
+		// Before the first config answers there is no addressed clan, and a merged view of everything
+		// is the honest thing to show rather than nothing.
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer", 1),
+			clanRef("b", "Bravo", "guest", "Winter", 2));
+
+		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "")));
+		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, null)));
+	}
+
+	@Test
+	public void theAddressedSlugIsMatchedCaseInsensitivelyLikeEverySlugComparison()
+	{
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer", 1),
+			clanRef("b", "Bravo", "guest", "Winter", 2));
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "A")));
 	}
 
 	@Test
@@ -229,7 +327,7 @@ public class SidebarEventsTest
 	}
 
 	@Test
-	public void autoLeadsTheList()
+	public void allClansLeadsTheList()
 	{
 		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
 			clanRef("theafkspot", "The AFK Spot", "member", "Summer Bingo"),
@@ -237,7 +335,7 @@ public class SidebarEventsTest
 
 		assertEquals(3, choices.size());
 		assertEquals("", choices.get(0).slug);
-		assertEquals("Auto", choices.get(0).label);
+		assertEquals("All clans", choices.get(0).label);
 		assertEquals("theafkspot", choices.get(1).slug);
 		assertEquals("vanguard", choices.get(2).slug);
 	}

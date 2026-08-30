@@ -268,6 +268,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public String activeClan()
+	{
+		return apiClient.getActiveClan();
+	}
+
+	@Override
 	public void chooseClan(String slug)
 	{
 		AnvilPlugin p = plugin;

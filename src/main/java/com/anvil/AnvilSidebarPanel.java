@@ -10,6 +10,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -22,6 +23,7 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.SwingConstants;
@@ -31,7 +33,6 @@ import javax.swing.Timer;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import javax.swing.plaf.basic.BasicArrowButton;
-import javax.swing.plaf.basic.BasicComboBoxRenderer;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.ColorScheme;
@@ -479,11 +480,63 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * One row of the clan dropdown: a clan to point the plugin at, or Auto.
+	 * The live boards in your OTHER clans — everything the merged view adds to the addressed clan's card.
 	 *
-	 * Auto is a real row rather than an implied initial state, because it is the only way BACK. A
-	 * member who picks a clan that later goes quiet would otherwise be stuck watching a dead board
-	 * while their live one runs somewhere else, with nothing in the UI admitting it.
+	 * <p>Pure and static so the two rules that are easy to get quietly wrong can be tested without a
+	 * Swing component in sight.</p>
+	 *
+	 * <p><b>Dedup by event id, not by name.</b> A co-hosted event belongs to every host, so somebody
+	 * seated in two co-hosting clans has the same board listed under each. Showing it twice is wrong,
+	 * and "Summer Bingo" is not a rare enough name to dedup on.</p>
+	 *
+	 * <p><b>The addressed clan's board is excluded by its EVENT, not by its slug.</b> Same reason:
+	 * when the board you are already looking at in full is co-hosted, the other host's row is that
+	 * same board. Filtering only on the slug would list it again, under a different clan's name, as
+	 * though it were somewhere else to go.</p>
+	 */
+	static List<PluginConfigResponse.ClanRef> otherLiveBoards(
+		List<PluginConfigResponse.ClanRef> clans, String addressedSlug)
+	{
+		List<PluginConfigResponse.ClanRef> out = new ArrayList<>();
+		if (clans == null || clans.isEmpty())
+		{
+			return out;
+		}
+		java.util.Set<Integer> seen = new HashSet<>();
+		String addressed = addressedSlug == null ? "" : addressedSlug;
+		for (PluginConfigResponse.ClanRef c : clans)
+		{
+			if (c != null && addressed.equalsIgnoreCase(c.slug) && c.live != null)
+			{
+				seen.add(c.live.eventId); // the board already on screen, in full
+			}
+		}
+		for (PluginConfigResponse.ClanRef c : clans)
+		{
+			if (c == null || c.live == null || c.slug == null || c.slug.isEmpty())
+			{
+				continue;
+			}
+			if (addressed.equalsIgnoreCase(c.slug) || !seen.add(c.live.eventId))
+			{
+				continue;
+			}
+			out.add(c);
+		}
+		return out;
+	}
+
+	/**
+	 * One row of the clan dropdown: a clan to narrow to, or all of them.
+	 *
+	 * "All clans" is the DEFAULT and it is a real row, not an implied initial state, because it is
+	 * also the only way back. A member who narrows to a clan that later goes quiet would otherwise be
+	 * stuck watching a dead board while their live one runs somewhere else, with nothing in the UI
+	 * admitting it.
+	 *
+	 * On "All clans" the site decides which board the plugin addresses — live event first — and the
+	 * rest appear under "Also live". Choosing a clan narrows to it and moves where submissions file,
+	 * which is a bigger deal than a filter usually is; the rows say so.
 	 */
 	static final class ClanChoice
 	{
@@ -508,7 +561,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				return out;
 			}
-			out.add(new ClanChoice("", "Auto", "Follow whichever board I'm playing"));
+			out.add(new ClanChoice("", "All clans", "Everything you're playing"));
 			for (PluginConfigResponse.ClanRef c : clans)
 			{
 				if (c == null || c.slug == null || c.slug.isEmpty())
@@ -866,12 +919,139 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(gap(12));
 		}
 
+		// Everything else you are playing, in your other clans. Only in the merged view — picking a
+		// clan in the dropdown is a filter, and a filter that still showed the others would not be one.
+		if (dataSource.chosenClan().isEmpty())
+		{
+			JPanel elsewhere = buildOtherClanBoards();
+			if (elsewhere != null)
+			{
+				body.add(elsewhere);
+				body.add(gap(12));
+			}
+		}
+
 		// The clan's own controls, under whatever is running. Home only, and only what this account
 		// can actually do — see SidebarDataSource.actionsFor.
 		body.add(buildPanelActions(c));
 		body.add(gap(12));
 		body.add(buildBannerSounds());
 		setContent(body);
+	}
+
+	/**
+	 * "Also live" — your boards in the clans this plugin is NOT currently addressing.
+	 *
+	 * <p>Summaries rather than cards, and that is a limit rather than a design preference: the rich
+	 * layers (nearest tiles, the live feed, the ladder) come out of the ONE config response the plugin
+	 * polls, which is about one clan. What the site sends for the others is a name and a tally, so a
+	 * name and a tally is what these rows can honestly show.</p>
+	 *
+	 * <p>Clicking one addresses that clan, which turns its summary into the full card — and moves
+	 * where submissions file, which is why each row says so rather than looking like a tab.</p>
+	 *
+	 * @return null when there is nothing to add, so the caller adds no empty heading
+	 */
+	private JPanel buildOtherClanBoards()
+	{
+		List<PluginConfigResponse.ClanRef> others = otherLiveBoards(dataSource.clans(), dataSource.activeClan());
+		if (others.isEmpty())
+		{
+			return null;
+		}
+
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+		panel.add(sectionHeader("Also live"));
+		panel.add(gap(6));
+
+		boolean first = true;
+		for (PluginConfigResponse.ClanRef c : others)
+		{
+			if (!first)
+			{
+				panel.add(gap(6));
+			}
+			panel.add(buildOtherClanRow(c));
+			first = false;
+		}
+		return panel;
+	}
+
+	/** One "also live" row: whose board it is, what it is, and how far along. Click to go there. */
+	private JPanel buildOtherClanRow(PluginConfigResponse.ClanRef c)
+	{
+		String clanName = c.name == null || c.name.isEmpty() ? c.slug : c.name;
+
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		card.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		card.setAlignmentX(LEFT_ALIGNMENT);
+		card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		card.setToolTipText("Switch to " + plainText(clanName) + " — the sidebar and your submissions follow");
+
+		JPanel titleRow = new JPanel(new BorderLayout(6, 0));
+		titleRow.setOpaque(false);
+		titleRow.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel title = new JLabel(plainText(ellipsize(clanName, 22)));
+		title.setFont(FontManager.getRunescapeFont());
+		title.setForeground(ColorScheme.TEXT_COLOR);
+		JLabel chevron = new JLabel("›");
+		chevron.setFont(FontManager.getRunescapeBoldFont());
+		chevron.setForeground(ColorScheme.BRAND_ORANGE);
+		titleRow.add(title, BorderLayout.CENTER);
+		titleRow.add(chevron, BorderLayout.EAST);
+		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
+		card.add(titleRow);
+
+		card.add(leftLabel(ellipsize(c.live.eventName, CARD_LINE_CHARS),
+			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		card.add(leftLabel(c.live.tilesComplete + " / " + c.live.tilesTotal
+			+ (c.live.pointsScored ? " points" : " tiles"), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+
+		if (c.live.tilesTotal > 0)
+		{
+			JProgressBar bar = new JProgressBar(0, 100);
+			bar.setValue(Math.max(0, Math.min(100, (int) Math.round(100.0 * c.live.tilesComplete / c.live.tilesTotal))));
+			bar.setStringPainted(false);
+			bar.setBorderPainted(false);
+			bar.setForeground(ColorScheme.BRAND_ORANGE);
+			bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
+			bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, PROGRESS_BAR_HEIGHT));
+			bar.setAlignmentX(LEFT_ALIGNMENT);
+			card.add(Box.createVerticalStrut(4));
+			card.add(bar);
+		}
+
+		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		final String slug = c.slug;
+		card.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(java.awt.event.MouseEvent e)
+			{
+				selectedEventKey = null;
+				dataSource.chooseClan(slug);
+				renderLoading();
+			}
+
+			@Override
+			public void mouseEntered(java.awt.event.MouseEvent e)
+			{
+				card.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
+			}
+
+			@Override
+			public void mouseExited(java.awt.event.MouseEvent e)
+			{
+				card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			}
+		});
+		return card;
 	}
 
 	/**
@@ -1704,20 +1884,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		return s;
 	}
 
-	/**
-	 * Escape a string for insertion into markup this panel is composing.
-	 *
-	 * {@link #plainText} is the guard for a label whose whole text is untrusted — it escapes only when
-	 * the string would have been read as HTML in the first place, and passes everything else through
-	 * unchanged. That is exactly wrong here: once we have written a {@code <html>} prefix ourselves,
-	 * every angle bracket in what follows is markup, whatever the string starts with. A clan named
-	 * {@code <b>x} would otherwise render bold, and worse is available.
-	 */
-	private static String esc(String s)
-	{
-		return s == null ? "" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-	}
-
 	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
 	private static String ellipsize(String s, int max)
 	{
@@ -2294,30 +2460,52 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private static final class ClanChoiceRenderer extends BasicComboBoxRenderer
+	/**
+	 * Two real labels, not one HTML one.
+	 *
+	 * The second line was <code>&lt;font size='-2'&gt;</code> inside a label already set to
+	 * RuneScape's small font. That font is a bitmap face: asked to render smaller still it does not
+	 * get daintier, it gets illegible — and the size the browser-ish HTML renderer picks is not one
+	 * the face was drawn at. The rest of this panel never shrinks type to mean "secondary"; it keeps
+	 * the same small font and drops the colour to {@link #VALUE_COLOR}. This does the same.
+	 *
+	 * Building the row out of components also means no markup, which means no clan name can smuggle
+	 * any: {@link #plainText} was guarding a string we were about to concatenate into HTML ourselves,
+	 * which is the one case it does not guard.
+	 */
+	private static final class ClanChoiceRenderer implements ListCellRenderer<ClanChoice>
 	{
-		@Override
-		public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-			boolean isSelected, boolean cellHasFocus)
+		private final JPanel row = new JPanel(new BorderLayout(0, 1));
+		private final JLabel name = new JLabel();
+		private final JLabel detail = new JLabel();
+
+		ClanChoiceRenderer()
 		{
-			super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-			// index >= 0 → popup row; -1 → the closed field. Dark rows, gold-tinted hover selection.
-			setOpaque(true);
-			setBackground(isSelected && index >= 0 ? WIDGET_BG_HOVER : WIDGET_BG);
-			setForeground(isSelected && index >= 0 ? ColorScheme.BRAND_ORANGE : Color.WHITE);
-			setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
-			if (value instanceof ClanChoice)
-			{
-				ClanChoice c = (ClanChoice) value;
-				// The popup row carries the second line — which board is running there is the whole
-				// reason to pick one clan over another. The closed field (index -1) shows the name
-				// alone; a two-line label there would resize the header on every refresh.
-				setText(index >= 0 && !c.detail.isEmpty()
-					? "<html>" + esc(c.label) + "<br><font size='-2' color='#a0a0a0'>" + esc(c.detail) + "</font></html>"
-					: plainText(c.label));
-				setFont(FontManager.getRunescapeSmallFont());
-			}
-			return this;
+			name.setFont(FontManager.getRunescapeSmallFont());
+			detail.setFont(FontManager.getRunescapeSmallFont());
+			row.setOpaque(true);
+			row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+			row.add(name, BorderLayout.NORTH);
+			row.add(detail, BorderLayout.SOUTH);
+		}
+
+		@Override
+		public Component getListCellRendererComponent(JList<? extends ClanChoice> list, ClanChoice value,
+			int index, boolean isSelected, boolean cellHasFocus)
+		{
+			// index >= 0 → a popup row; -1 → the closed field. Dark rows, gold-tinted hover.
+			boolean hover = isSelected && index >= 0;
+			row.setBackground(hover ? WIDGET_BG_HOVER : WIDGET_BG);
+			name.setForeground(hover ? ColorScheme.BRAND_ORANGE : Color.WHITE);
+			detail.setForeground(VALUE_COLOR);
+
+			name.setText(value == null ? "" : plainText(value.label));
+			// The closed field shows the name alone — a second line there would resize the header on
+			// every refresh, and the detail is what you read while choosing, not after.
+			boolean showDetail = index >= 0 && value != null && !value.detail.isEmpty();
+			detail.setText(showDetail ? plainText(value.detail) : "");
+			detail.setVisible(showDetail);
+			return row;
 		}
 	}
 }

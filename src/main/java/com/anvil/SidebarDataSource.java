@@ -62,6 +62,16 @@ public interface SidebarDataSource
 	}
 
 	/**
+	 * The clan slug this plugin is actually addressing — a pick if there is one, else whatever the
+	 * site resolved. "" before the first answer. Distinct from {@link #chosenClan()}: the merged view
+	 * needs to know which board is already on screen in full, not whether anybody chose it.
+	 */
+	default String activeClan()
+	{
+		return "";
+	}
+
+	/**
 	 * The member picked a clan (or "" for Auto).
 	 *
 	 * Blocking-free: implementations persist the pick and kick off a refetch, they do not wait for one.

@@ -123,7 +123,24 @@ public class PluginConfigResponse
 		/** 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan. */
 		public String kind;
 		/** The board running here that this person is on, or null. */
-		public HomeBoard live;
+		public ClanBoard live;
+	}
+
+	/**
+	 * A live board in one of the person's clans.
+	 *
+	 * Shaped like {@link HomeBoard} but a type of its own because it carries the event id, and the id
+	 * is load-bearing: a co-hosted event belongs to every host, so the same board arrives listed under
+	 * each of them and the id is the only thing that says so. {@link HomeBoard} is the summary for the
+	 * clan the plugin is addressing, where the question never comes up.
+	 */
+	public static class ClanBoard
+	{
+		public int eventId;
+		public String eventName;
+		public int tilesComplete;
+		public int tilesTotal;
+		public boolean pointsScored;
 	}
 
 	/**
