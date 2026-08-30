@@ -2481,7 +2481,7 @@ private void cycleEventTypeFilter()
 		}
 		else
 		{
-			String me = normalizeRsn(localRsn());
+			String me = Rsn.normalize(localRsn());
 			for (BingoApiClient.LeaderboardEntry e : lb.entries)
 			{
 				if (e == null)
@@ -2490,7 +2490,7 @@ private void cycleEventTypeFilter()
 				}
 				// Match on whitespace-normalized names — OSRS display names use non-breaking
 				// spaces, so a raw equalsIgnoreCase can miss the local player (and mis-flag).
-				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
+				boolean isMe = !me.isEmpty() && me.equals(Rsn.normalize(e.rsn));
 				// EHP/EHB gains are milli-hours — "+12.40 hrs", not "+12,400".
 				y += leaderboardRow(items, e.rank, e.rsn, gainText(lb.competition, e.gained), isMe, y, paneWidth);
 			}
@@ -2619,14 +2619,14 @@ private void cycleEventTypeFilter()
 		}
 		else
 		{
-			String me = normalizeRsn(localRsn());
+			String me = Rsn.normalize(localRsn());
 			for (PluginConfigResponse.StandingEntry e : st.entries)
 			{
 				if (e == null)
 				{
 					continue;
 				}
-				boolean isMe = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
+				boolean isMe = !me.isEmpty() && me.equals(Rsn.normalize(e.rsn));
 				y += leaderboardRow(items, e.rank, e.rsn, String.format("%,d", Math.max(0, e.points)), isMe, y, paneWidth);
 			}
 		}
@@ -2863,13 +2863,6 @@ private void cycleEventTypeFilter()
 	private String localRsn()
 	{
 		return client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : null;
-	}
-
-	/** Lower-cased, whitespace-collapsed RSN for robust comparisons (handles non-breaking spaces). */
-	private static String normalizeRsn(String rsn)
-	{
-		// Java's \s excludes U+00A0, which OSRS names use — match it explicitly.
-		return rsn == null ? "" : rsn.replaceAll("[\\s\\u00a0]+", " ").trim().toLowerCase();
 	}
 
 	private boolean matchesWeeklyType(String weeklyType)

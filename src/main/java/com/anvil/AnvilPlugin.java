@@ -2380,7 +2380,24 @@ public class AnvilPlugin extends Plugin {
         refreshSchedule();
     }
 
+    /**
+     * Fetch the schedule separately — but only when nothing else is going to bring it.
+     *
+     * {@code /config} has carried the schedule since the reads were merged, and refreshConfig adopts
+     * it. Both run on the same 30-second tick, config first, so this was re-fetching data the client
+     * had just been handed and overwriting it with an identical copy: one wasted request per client
+     * every thirty seconds, plus an ordering dependency between two tasks in the same loop that
+     * nobody wants to have to think about.
+     *
+     * It cannot simply go, though. refreshConfig returns immediately without a token, so for somebody
+     * who has entered a Site URL and not yet signed in, this endpoint is the ONLY thing that fills the
+     * in-game tab's schedule — and browsing what a clan has coming up before linking an account is a
+     * reasonable thing to want to do. So it runs exactly in that gap.
+     */
     private void refreshSchedule() {
+        if (apiClient.isConfigured()) {
+            return; // the config poll already brought it, on this same tick
+        }
         BingoApiClient.ScheduleResponse s = apiClient.fetchSchedule();
         if (s != null) {
             schedule = s;
@@ -5236,14 +5253,14 @@ public class AnvilPlugin extends Plugin {
         }
 
         // --- lock-out claims by OTHER players ---
-        String me = normalizeRsn(getLocalPlayerName());
+        String me = Rsn.normalize(getLocalPlayerName());
         java.util.List<PluginConfigResponse.Claim> claims = new java.util.ArrayList<>();
         if (cfg.event.recentClaims != null) {
             for (PluginConfigResponse.Claim c : cfg.event.recentClaims) {
                 if (c == null || !notifiedClaimTiles.add(c.tileId) || seeding) {
                     continue;
                 }
-                boolean mine = c.rsn != null && !me.isEmpty() && me.equals(normalizeRsn(c.rsn));
+                boolean mine = c.rsn != null && !me.isEmpty() && me.equals(Rsn.normalize(c.rsn));
                 if (!mine) {
                     claims.add(c);
                 }
@@ -6506,17 +6523,17 @@ public class AnvilPlugin extends Plugin {
         java.util.List<String> teammates = new ArrayList<>();
         if (pluginConfig != null && pluginConfig.pvpRoster != null && !pluginConfig.pvpRoster.isEmpty()
                 && pluginConfig.team != null) {
-            String me = normalizeRsn(getLocalPlayerName());
+            String me = Rsn.normalize(getLocalPlayerName());
             java.util.Set<String> mine = new java.util.HashSet<>();
             for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
                 if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
-                    mine.add(normalizeRsn(e.name));
+                    mine.add(Rsn.normalize(e.name));
                 }
             }
             // Copy before iterating: the set is written from the game tick, and this runs off a
             // kill credit on the same thread today — but a snapshot costs nothing and can't throw.
             for (String seen : new ArrayList<>(instancePlayersSeen)) {
-                String n = normalizeRsn(seen);
+                String n = Rsn.normalize(seen);
                 if (!n.isEmpty() && !n.equals(me) && mine.contains(n)) {
                     teammates.add(n);
                 }
@@ -6555,7 +6572,7 @@ public class AnvilPlugin extends Plugin {
         if (pluginConfig != null && pluginConfig.pvpRoster != null) {
             for (PluginConfigResponse.RosterEntry entry : pluginConfig.pvpRoster) {
                 if (entry != null && entry.name != null && !entry.name.isEmpty()) {
-                    index.put(normalizeRsn(entry.name), entry.teamId);
+                    index.put(Rsn.normalize(entry.name), entry.teamId);
                 }
             }
         }
@@ -6849,7 +6866,7 @@ public class AnvilPlugin extends Plugin {
             logTrackingSuppressed("PvP kill outside dangerous PvP (Wilderness / PvP world) — not counted");
             return;
         }
-        String victim = normalizeRsn(victimName);
+        String victim = Rsn.normalize(victimName);
         Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
         boolean anyDeferred = false;
         for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
@@ -6895,7 +6912,7 @@ public class AnvilPlugin extends Plugin {
                     return true;
                 }
             } else if (s.regionMatches(true, 0, "rsn:", 0, 4)) {
-                if (normalizeRsn(s.substring(4)).equals(victimNorm)) {
+                if (Rsn.normalize(s.substring(4)).equals(victimNorm)) {
                     return true;
                 }
             }
@@ -6927,7 +6944,7 @@ public class AnvilPlugin extends Plugin {
                 || items == null || items.isEmpty() || victimName == null) {
             return;
         }
-        String victim = normalizeRsn(victimName);
+        String victim = Rsn.normalize(victimName);
         long now = System.currentTimeMillis();
         synchronized (pendingMinLootKillAt) {
             Long parkedAt = pendingMinLootKillAt.remove(victim); // consume — one credit per parked kill
@@ -6961,14 +6978,6 @@ public class AnvilPlugin extends Plugin {
             }
             creditOnePvpTile(tile, victimName);
         }
-    }
-
-    /**
-     * Normalises an RSN for matching: client names carry non-breaking spaces
-     * (\u00A0) where the site roster has plain ones; casing is cosmetic.
-     */
-    private static String normalizeRsn(String name) {
-        return name == null ? "" : name.replace('\u00A0', ' ').trim().toLowerCase();
     }
 
     private String buildKillMessage(String killer, String victim) {

@@ -416,7 +416,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 		refreshWeeklyBoards(live, force);
 
-		String me = normalizeRsn(localRsn.get());
+		String me = Rsn.normalize(localRsn.get());
 		List<ConnectionView.WeeklyView> out = new ArrayList<>(weeklies.size());
 		for (BingoApiClient.ScheduledWeekly w : weeklies)
 		{
@@ -591,7 +591,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 					}
 					// Match on whitespace-normalized names — OSRS display names carry non-breaking
 					// spaces, so a raw equalsIgnoreCase both misses and mis-flags the local player.
-					boolean self = !me.isEmpty() && me.equals(normalizeRsn(e.rsn));
+					boolean self = !me.isEmpty() && me.equals(Rsn.normalize(e.rsn));
 					if (self)
 					{
 						yourRank = e.rank;
@@ -614,12 +614,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	{
 		String base = apiClient.getApiUrl();
 		return base == null || base.isEmpty() ? null : base + "/weekly/" + competitionId;
-	}
-
-	/** Lower-cased, whitespace-collapsed RSN for robust comparisons (OSRS names use U+00A0). */
-	private static String normalizeRsn(String rsn)
-	{
-		return rsn == null ? "" : rsn.replaceAll("[\\s\\u00a0]+", " ").trim().toLowerCase();
 	}
 
 	/**
