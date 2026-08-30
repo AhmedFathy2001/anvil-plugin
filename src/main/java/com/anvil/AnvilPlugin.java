@@ -5345,8 +5345,27 @@ public class AnvilPlugin extends Plugin {
         apiClient.setChosenClan(clean);
         // Re-ask immediately rather than waiting out the poll: the member just told us they wanted a
         // different board, and showing them the old one for another thirty seconds reads as a no-op.
+        //
+        // Order matters, and it is the whole reason this does not just call the panel's own refresh.
+        // The sidebar renders from the config THIS class holds, so refreshing it before the new clan's
+        // config has landed re-renders the clan they just switched away from — a click that visibly
+        // does nothing, then quietly works fifteen seconds later. Fetch first, repaint second.
         if (executor != null) {
-            executor.execute(this::refreshConfig);
+            executor.execute(() -> {
+                refreshConfig();
+                repaintSidebar();
+            });
+        } else {
+            // No executor means startUp hasn't run, so there is no panel waiting on a fetch either.
+            repaintSidebar();
+        }
+    }
+
+    /** Ask the sidebar to re-read, from the EDT — it is Swing, and callers here are on worker threads. */
+    private void repaintSidebar() {
+        AnvilSidebarPanel panel = sidebarPanel;
+        if (panel != null) {
+            SwingUtilities.invokeLater(panel::refresh);
         }
     }
 

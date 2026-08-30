@@ -226,9 +226,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			// so this hands the choice to the plugin (which persists it and re-addresses the client)
 			// and shows the loading state until the answer comes back.
 			selectedEventKey = null; // another clan's events are a different list — start at the top
+			// No refresh() here on purpose. The source renders from the config the plugin holds, and
+			// that config is still the old clan's until the refetch lands — refreshing now would repaint
+			// the clan they just switched away from. The plugin repaints once it has the new answer.
 			dataSource.chooseClan(sel.slug);
 			renderLoading();
-			refresh(true);
 		});
 		header.add(clanPicker, BorderLayout.SOUTH);
 
