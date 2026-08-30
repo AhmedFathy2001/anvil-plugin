@@ -1013,6 +1013,14 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean isAdmin = false;
     // One-shot guard so we only probe admin status once per login session.
     private volatile boolean adminProbeAttempted = false;
+    /**
+     * The clan the {@link #isAdmin} answer belongs to.
+     *
+     * Authority is per clan on the site — being an admin of one confers nothing in another — so the
+     * answer does not travel with the member when they switch. Without this, picking a clan you do
+     * not administer keeps the Sync-roster button on screen, and clicking it collects a 403.
+     */
+    private volatile String adminAnswerFor = "";
     /** When the last probe ran, so a failed one can be retried instead of costing the whole session. */
     private volatile long lastAdminProbeAt;
     /** How often to re-ask while the answer is still "no". Cheap request, rare enough to be invisible. */
@@ -5305,6 +5313,27 @@ public class AnvilPlugin extends Plugin {
             apiClient.setResolvedClan(slug);
         }
         forgetAClanTheyAreNoLongerIn(fresh);
+        forgetAdminAnswerOnClanChange();
+    }
+
+    /**
+     * Drop a cached "you are an admin" the moment we start addressing a different clan.
+     *
+     * The probe is answered once per session and a yes is never re-checked, which was right when a
+     * deployment WAS a clan. It is not right now: the same token is an owner in one clan and a plain
+     * member in the next, so an answer carried across a switch shows a button that cannot work.
+     * Clearing it makes the ordinary re-probe ask again, against the clan we are actually addressing.
+     */
+    private void forgetAdminAnswerOnClanChange() {
+        String now = apiClient.getActiveClan();
+        if (now.equals(adminAnswerFor)) {
+            return;
+        }
+        adminAnswerFor = now;
+        isAdmin = false;
+        adminProbeAttempted = false;
+        lastAdminProbeAt = 0L; // ask immediately rather than waiting out the re-probe interval
+        clogTabController.onConfigRefreshed();
     }
 
     /**
@@ -5350,6 +5379,7 @@ public class AnvilPlugin extends Plugin {
         // The sidebar renders from the config THIS class holds, so refreshing it before the new clan's
         // config has landed re-renders the clan they just switched away from — a click that visibly
         // does nothing, then quietly works fifteen seconds later. Fetch first, repaint second.
+        forgetAdminAnswerOnClanChange();
         if (executor != null) {
             executor.execute(() -> {
                 refreshConfig();
