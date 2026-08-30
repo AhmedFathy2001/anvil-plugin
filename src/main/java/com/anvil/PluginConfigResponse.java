@@ -97,6 +97,54 @@ public class PluginConfigResponse
 		return server.capabilities.contains(capability);
 	}
 
+	// ── WHICH CLAN, AND WHICH OTHERS ──────────────────────────────────────────────────────────
+	//
+	// One Anvil serves every clan, so the canonical Site URL names none of them and the server picks
+	// one from the token: a live event first, then the latest-started of several, then the newest
+	// seat. That guess is nearly always right and completely invisible, which is the problem — a
+	// member on two boards had no way to see which one their drops were filing into.
+	//
+	// So the server says which clan it answered for, and lists the rest. The plugin addresses the one
+	// it means with a /c/<slug> prefix from then on, and offers the list as a dropdown.
+	//
+	// Null on a site that predates this (see the `clan-switch` capability): then there is one clan,
+	// the address names it, and there was never a choice to make.
+
+	/** The clan THIS response is about — whatever named it: a path, a host, or the token. */
+	public ClanRef activeClan;
+
+	/** Every clan the token's owner holds a seat in. Empty/null on an older site. */
+	public List<ClanRef> clans;
+
+	public static class ClanRef
+	{
+		public String slug;
+		public String name;
+		/** 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan. */
+		public String kind;
+		/** The board running here that this person is on, or null. */
+		public HomeBoard live;
+	}
+
+	/**
+	 * The clans worth offering in a switcher, home first.
+	 *
+	 * A single clan is not a choice, so it is not a dropdown — the panel hides the control entirely
+	 * rather than showing one option that does nothing.
+	 */
+	public List<ClanRef> switchableClans()
+	{
+		return clans == null ? java.util.Collections.emptyList() : clans;
+	}
+
+	/** The slug this response was resolved for, or null on a site that does not say. */
+	public String activeClanSlug()
+	{
+		return activeClan == null || activeClan.slug == null || activeClan.slug.isEmpty()
+			? null
+			: activeClan.slug;
+	}
+
 	public EventInfo event;
 	public TeamInfo team;
 	public PlayerInfo player;

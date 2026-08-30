@@ -91,7 +91,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final SidebarDataSource dataSource;
 
 	// Header controls (persistent across state changes).
-	private final JComboBox<ConnectionView> clanFilter = new JComboBox<>();
+	// Which clan the plugin is pointed at. One Anvil serves every clan and a person can hold seats in
+	// several, so this is a real choice rather than a filter over data we already have: picking here
+	// re-addresses everything the plugin does — board, stat pushes, submissions, notifications.
+	private final JComboBox<ClanChoice> clanPicker = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
 
 	// Device sign-in (home-native, DeviceSignIn): shown when a Site URL is configured but no
@@ -129,13 +132,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
 	private List<ConnectionView> connections = java.util.Collections.emptyList();
-	private String selectedInstanceId;
 
 	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
 	private String selectedEventKey;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
-	private boolean rebuildingFilter;
+	private boolean rebuildingPicker;
 	private boolean fetchInFlight;
 
 	@Inject
@@ -206,24 +208,29 @@ public class AnvilSidebarPanel extends PluginPanel
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
-		styleClanFilter(clanFilter);
-		clanFilter.setRenderer(new ClanFilterRenderer());
-		clanFilter.setFocusable(false);
-		clanFilter.addActionListener(e ->
+		styleClanPicker(clanPicker);
+		clanPicker.setRenderer(new ClanChoiceRenderer());
+		clanPicker.setFocusable(false);
+		clanPicker.addActionListener(e ->
 		{
-			if (rebuildingFilter)
+			if (rebuildingPicker)
 			{
 				return;
 			}
-			ConnectionView sel = (ConnectionView) clanFilter.getSelectedItem();
-			if (sel != null)
+			ClanChoice sel = (ClanChoice) clanPicker.getSelectedItem();
+			if (sel == null || sel.slug.equals(dataSource.chosenClan()))
 			{
-				selectedInstanceId = sel.instanceId;
-				selectedEventKey = null; // another clan's events are a different list — start at the top
-				renderSelected();
+				return;
 			}
+			// Not a filter over a snapshot we already hold — the other clan's board lives on the site,
+			// so this hands the choice to the plugin (which persists it and re-addresses the client)
+			// and shows the loading state until the answer comes back.
+			selectedEventKey = null; // another clan's events are a different list — start at the top
+			dataSource.chooseClan(sel.slug);
+			renderLoading();
+			refresh(true);
 		});
-		header.add(clanFilter, BorderLayout.SOUTH);
+		header.add(clanPicker, BorderLayout.SOUTH);
 
 		return header;
 	}
@@ -341,12 +348,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void clearForCredentialChange()
 	{
 		connections = java.util.Collections.emptyList();
-		selectedInstanceId = null;
 		selectedEventKey = null;
-		rebuildingFilter = true;
-		clanFilter.removeAllItems();
-		rebuildingFilter = false;
-		clanFilter.setVisible(false);
+		rebuildingPicker = true;
+		clanPicker.removeAllItems();
+		rebuildingPicker = false;
+		clanPicker.setVisible(false); // no config for the new credentials yet, so no clans to choose between
 		setSignInStatus("");
 		refreshSignInRow();
 		renderLoading();
@@ -403,121 +409,139 @@ public class AnvilSidebarPanel extends PluginPanel
 		}.execute();
 	}
 
-	/** New snapshot in hand — refresh the clan filter (preserving selection) and render. Runs on the EDT. */
+	/** New snapshot in hand — refresh the clan dropdown and render the addressed clan. Runs on the EDT. */
 	private void onConnections(List<ConnectionView> fetched)
 	{
 		connections = fetched == null ? java.util.Collections.emptyList() : fetched;
+		rebuildClanPicker();
 
 		if (connections.isEmpty())
 		{
-			selectedInstanceId = null;
 			selectedEventKey = null;
-			rebuildFilter();
 			renderEmpty();
 			return;
 		}
-
-		// Keep the current selection if that clan is still connected; otherwise land on the clan this
-		// account actually belongs to.
-		if (findSelected() == null)
-		{
-			selectedInstanceId = landingClan(connections).instanceId;
-			selectedEventKey = null;
-		}
-		rebuildFilter();
 		renderSelected();
 	}
 
 	/**
-	 * Which clan the sidebar opens on. Normally the one the plugin is addressing. But a player can be
-	 * a mere GUEST there while being a real member of another clan they hold a seat in (an alt's clan,
-	 * a friend's, one they joined later); for them the guest board is noise and their own clan is the
-	 * point. So when we KNOW this account is a guest here and a member there, we land there instead.
+	 * The clan the body is showing — the one this plugin is addressing.
 	 *
-	 * <p>Both halves must be positive evidence ({@link ConnectionView#member} is tri-state): an older
-	 * home that doesn't send the flag, or a login screen where membership hasn't been answered yet,
-	 * keeps the home default rather than guessing. Only the DEFAULT moves — the clan dropdown keeps its
-	 * home-first order, and a member's own pick always wins until that clan drops out.</p>
+	 * A list of one, in practice: the source renders the clan the client is pointed at, and pointing it
+	 * somewhere else is a refetch rather than a re-render. It stays a list because a source is allowed
+	 * to have nothing, and because the panel should not care which.
 	 */
-	static ConnectionView landingClan(List<ConnectionView> connections)
+	private ConnectionView addressedClan()
 	{
-		ConnectionView home = null;
-		for (ConnectionView c : connections)
-		{
-			if (AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(c.instanceId))
-			{
-				home = c;
-				break;
-			}
-		}
-		if (home == null)
-		{
-			home = connections.get(0); // no home card at all (its fetch failed) — first relayed clan
-		}
-		if (!home.isGuestHere())
-		{
-			return home;
-		}
-		for (ConnectionView c : connections)
-		{
-			if (c.isMemberHere())
-			{
-				return c;
-			}
-		}
-		return home;
+		return connections.isEmpty() ? null : connections.get(0);
 	}
 
-	private ConnectionView findSelected()
+	/**
+	 * Repopulate the clan dropdown, suppressing the selection-event storm a setModel provokes.
+	 *
+	 * <p>Fed from the site's list of this person's seats, not from the boards we happen to have loaded:
+	 * the point of the control is to reach a clan whose board we have NOT loaded. Hidden below two
+	 * entries, because one option that cannot be changed is not a choice.</p>
+	 *
+	 * <p>There used to be a rule here that landed a guest on their own clan instead. It is gone
+	 * deliberately, not lost: the server applies the stronger version of it when it resolves a clanless
+	 * request — a live event first, then a real membership before any guest seat — and two copies of a
+	 * default that can disagree is worse than one copy that decides.</p>
+	 */
+	private void rebuildClanPicker()
 	{
-		if (selectedInstanceId == null)
-		{
-			return null;
-		}
-		for (ConnectionView c : connections)
-		{
-			if (selectedInstanceId.equals(c.instanceId))
-			{
-				return c;
-			}
-		}
-		return null;
-	}
-
-	/** Repopulate the dropdown from {@link #connections}, suppressing the selection ActionEvent storm. */
-	private void rebuildFilter()
-	{
-		rebuildingFilter = true;
+		List<ClanChoice> choices = ClanChoice.of(dataSource.clans());
+		rebuildingPicker = true;
 		try
 		{
-			DefaultComboBoxModel<ConnectionView> model = new DefaultComboBoxModel<>();
-			ConnectionView toSelect = null;
-			for (ConnectionView c : connections)
+			DefaultComboBoxModel<ClanChoice> model = new DefaultComboBoxModel<>();
+			String chosen = dataSource.chosenClan();
+			ClanChoice toSelect = null;
+			for (ClanChoice c : choices)
 			{
 				model.addElement(c);
-				if (c.instanceId.equals(selectedInstanceId))
+				if (c.slug.equals(chosen))
 				{
 					toSelect = c;
 				}
 			}
-			clanFilter.setModel(model);
-			if (toSelect != null)
-			{
-				clanFilter.setSelectedItem(toSelect);
-			}
-			clanFilter.setVisible(connections.size() > 1); // no point showing a one-option filter
+			clanPicker.setModel(model);
+			// Nothing chosen — the site is deciding, which is the Auto row.
+			clanPicker.setSelectedItem(toSelect != null ? toSelect : choices.isEmpty() ? null : choices.get(0));
+			clanPicker.setVisible(choices.size() > 2);
 		}
 		finally
 		{
-			rebuildingFilter = false;
+			rebuildingPicker = false;
 		}
 	}
+
+	/**
+	 * One row of the clan dropdown: a clan to point the plugin at, or Auto.
+	 *
+	 * Auto is a real row rather than an implied initial state, because it is the only way BACK. A
+	 * member who picks a clan that later goes quiet would otherwise be stuck watching a dead board
+	 * while their live one runs somewhere else, with nothing in the UI admitting it.
+	 */
+	static final class ClanChoice
+	{
+		/** Clan slug, or "" for Auto. */
+		final String slug;
+		final String label;
+		/** Second line — the board running there, or what this seat is. Never null. */
+		final String detail;
+
+		ClanChoice(String slug, String label, String detail)
+		{
+			this.slug = slug == null ? "" : slug;
+			this.label = label == null ? "" : label;
+			this.detail = detail == null ? "" : detail;
+		}
+
+		/** Auto first, then the clans in the order the site sent them (newest seat first). */
+		static List<ClanChoice> of(List<PluginConfigResponse.ClanRef> clans)
+		{
+			List<ClanChoice> out = new ArrayList<>();
+			if (clans == null || clans.isEmpty())
+			{
+				return out;
+			}
+			out.add(new ClanChoice("", "Auto", "Follow whichever board I'm playing"));
+			for (PluginConfigResponse.ClanRef c : clans)
+			{
+				if (c == null || c.slug == null || c.slug.isEmpty())
+				{
+					continue;
+				}
+				out.add(new ClanChoice(c.slug, c.name == null || c.name.isEmpty() ? c.slug : c.name, detailOf(c)));
+			}
+			return out;
+		}
+
+		/** What is happening in this clan, in one short line — the reason to pick it or not. */
+		private static String detailOf(PluginConfigResponse.ClanRef c)
+		{
+			if (c.live != null && c.live.eventName != null && !c.live.eventName.isEmpty())
+			{
+				return c.live.eventName + "  " + c.live.tilesComplete + "/" + c.live.tilesTotal;
+			}
+			return "guest".equals(c.kind) ? "Guest \u00b7 nothing live" : "Nothing live";
+		}
+
+		@Override
+		public String toString()
+		{
+			return label;
+		}
+	}
+
 
 	// ---- Render states ----------------------------------------------------------------------------
 
 	private void renderLoading()
 	{
-		clanFilter.setVisible(false);
+		// The picker STAYS. Switching clan renders this state on purpose, and yanking the control the
+		// member is holding — then putting it back a second later — reads as the click having failed.
 		JLabel loading = new JLabel("Loading progress…", SwingConstants.CENTER);
 		loading.setForeground(VALUE_COLOR);
 		loading.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
@@ -526,7 +550,8 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void renderError(String message)
 	{
-		clanFilter.setVisible(false);
+		// A clan we cannot reach is still a clan they can switch away FROM, which is the likeliest thing
+		// they want next. Keep the control; the dropdown's own rebuild decides whether it has rows.
 		PluginErrorPanel error = new PluginErrorPanel();
 		error.setContent("Couldn't load progress",
 			(message == null || message.isEmpty() ? "Something went wrong." : message)
@@ -536,7 +561,6 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void renderEmpty()
 	{
-		clanFilter.setVisible(false);
 		PluginErrorPanel empty = new PluginErrorPanel();
 		empty.setContent("No connected clans",
 			"Link a clan on your Anvil site and its board progress will show up here.");
@@ -550,7 +574,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private void renderSelected()
 	{
-		ConnectionView selected = findSelected();
+		ConnectionView selected = addressedClan();
 		if (selected == null)
 		{
 			renderEmpty();
@@ -1651,11 +1675,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * §2/§6 — neutralize a federated string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
+	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
 	 * HTML when its text begins (ignoring leading whitespace, case-insensitive) with {@code <html}, so an
 	 * untrusted clan/tile/activity name could inject markup. Such strings get their markup chars escaped so they
-	 * render only as literal text; ordinary strings pass through. The explicit sanitize the security model
-	 * requires (no reliance on {@code html.disable}); every federated field the panel renders routes through here.
+	 * render only as literal text; ordinary strings pass through. An explicit sanitize rather than reliance on
+	 * {@code html.disable}; every server-supplied field the panel renders routes through here.
+	 *
+	 * <p>Use {@link #esc} instead when the string is being placed INSIDE markup we are building: there the
+	 * leading-{@code <html} test does not apply and every occurrence has to be escaped.</p>
 	 */
 	static String plainText(String s)
 	{
@@ -1673,6 +1700,20 @@ public class AnvilSidebarPanel extends PluginPanel
 			return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 		}
 		return s;
+	}
+
+	/**
+	 * Escape a string for insertion into markup this panel is composing.
+	 *
+	 * {@link #plainText} is the guard for a label whose whole text is untrusted — it escapes only when
+	 * the string would have been read as HTML in the first place, and passes everything else through
+	 * unchanged. That is exactly wrong here: once we have written a {@code <html>} prefix ourselves,
+	 * every angle bracket in what follows is markup, whatever the string starts with. A clan named
+	 * {@code <b>x} would otherwise render bold, and worse is available.
+	 */
+	private static String esc(String s)
+	{
+		return s == null ? "" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 	}
 
 	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
@@ -2232,7 +2273,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Theme the clan-filter combo: dark flat field, gold arrow, dark popup — default Swing sticks out. */
-	private static void styleClanFilter(JComboBox<ConnectionView> combo)
+	private static void styleClanPicker(JComboBox<ClanChoice> combo)
 	{
 		combo.setBackground(WIDGET_BG);
 		combo.setForeground(Color.WHITE);
@@ -2251,7 +2292,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private static final class ClanFilterRenderer extends BasicComboBoxRenderer
+	private static final class ClanChoiceRenderer extends BasicComboBoxRenderer
 	{
 		@Override
 		public Component getListCellRendererComponent(JList<?> list, Object value, int index,
@@ -2263,10 +2304,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			setBackground(isSelected && index >= 0 ? WIDGET_BG_HOVER : WIDGET_BG);
 			setForeground(isSelected && index >= 0 ? ColorScheme.BRAND_ORANGE : Color.WHITE);
 			setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
-			if (value instanceof ConnectionView)
+			if (value instanceof ClanChoice)
 			{
-				ConnectionView c = (ConnectionView) value;
-				setText(plainText(c.hasError() ? c.clanName + "  (!)" : c.clanName));
+				ClanChoice c = (ClanChoice) value;
+				// The popup row carries the second line — which board is running there is the whole
+				// reason to pick one clan over another. The closed field (index -1) shows the name
+				// alone; a two-line label there would resize the header on every refresh.
+				setText(index >= 0 && !c.detail.isEmpty()
+					? "<html>" + esc(c.label) + "<br><font size='-2' color='#a0a0a0'>" + esc(c.detail) + "</font></html>"
+					: plainText(c.label));
 				setFont(FontManager.getRunescapeSmallFont());
 			}
 			return this;

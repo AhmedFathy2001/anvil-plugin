@@ -198,65 +198,86 @@ public class SidebarEventsTest
 				.sizeLabel());
 	}
 
-	// ---- Which clan the sidebar opens on -----------------------------------------------------------
+	// ---- The clan dropdown ------------------------------------------------------------------------
+	//
+	// This replaced a client-side rule that landed a guest on their own clan instead of the one the
+	// plugin pointed at. The server applies the stronger version of that when it resolves a clanless
+	// request — live event first, then a real membership before any guest seat — so keeping a second
+	// copy here could only ever produce a disagreement about which board somebody is looking at.
 
-	@Test
-	public void landsOnTheHomeWhenThisAccountBelongsThere()
+	private static PluginConfigResponse.ClanRef clanRef(String slug, String name, String kind, String live)
 	{
-		List<ConnectionView> conns = Arrays.asList(
-			view("local", "Summer Bingo", 1, 5, null, null, null, true),
-			view("clanB", "Their Bingo", 2, 5, null, null, null, true));
-
-		assertEquals("local", AnvilSidebarPanel.landingClan(conns).instanceId);
+		PluginConfigResponse.ClanRef c = new PluginConfigResponse.ClanRef();
+		c.slug = slug;
+		c.name = name;
+		c.kind = kind;
+		if (live != null)
+		{
+			c.live = new PluginConfigResponse.HomeBoard();
+			c.live.eventName = live;
+			c.live.tilesComplete = 3;
+			c.live.tilesTotal = 9;
+		}
+		return c;
 	}
 
 	@Test
-	public void landsOnTheClanThisAccountIsAMemberOfWhenOnlyAGuestAtHome()
+	public void noClansMeansNoDropdownAtAll()
 	{
-		// The player is only a GUEST in the clan the plugin is addressing — their real clan
-		// is one of the federated ones, so that's the board worth opening.
-		List<ConnectionView> conns = Arrays.asList(
-			view("local", "Summer Bingo", 1, 5, null, null, null, false),
-			view("clanB", "Their Bingo", 2, 5, null, null, null, false),
-			view("clanC", "Real Bingo", 3, 5, null, null, null, true));
-
-		assertEquals("clanC", AnvilSidebarPanel.landingClan(conns).instanceId);
+		assertTrue(AnvilSidebarPanel.ClanChoice.of(null).isEmpty());
+		assertTrue(AnvilSidebarPanel.ClanChoice.of(java.util.Collections.emptyList()).isEmpty());
 	}
 
 	@Test
-	public void guestEverywhereFallsBackToTheConfiguredHome()
+	public void autoLeadsTheList()
 	{
-		List<ConnectionView> conns = Arrays.asList(
-			view("local", "Summer Bingo", 1, 5, null, null, null, false),
-			view("clanB", "Their Bingo", 2, 5, null, null, null, false));
+		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+			clanRef("theafkspot", "The AFK Spot", "member", "Summer Bingo"),
+			clanRef("vanguard", "Iron Vanguard", "guest", null)));
 
-		assertEquals("local", AnvilSidebarPanel.landingClan(conns).instanceId);
+		assertEquals(3, choices.size());
+		assertEquals("", choices.get(0).slug);
+		assertEquals("Auto", choices.get(0).label);
+		assertEquals("theafkspot", choices.get(1).slug);
+		assertEquals("vanguard", choices.get(2).slug);
 	}
 
 	@Test
-	public void unknownMembershipNeverMovesTheLandingClan()
+	public void eachRowSaysWhatIsRunningThere()
 	{
-		// Logged out at home (null) and an older site that doesn't send the flag (null): no evidence,
-		// so the configured home keeps the slot it has always had.
-		List<ConnectionView> conns = Arrays.asList(
-			view("local", "Summer Bingo", 1, 5, null, null, null, null),
-			view("clanB", "Their Bingo", 2, 5, null, null, null, null));
-		assertEquals("local", AnvilSidebarPanel.landingClan(conns).instanceId);
+		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+			clanRef("a", "Alpha", "member", "Summer Bingo"),
+			clanRef("b", "Bravo", "guest", null),
+			clanRef("c", "Charlie", "member", null)));
 
-		// Guest at home but the others are unknown → still no clan we KNOW they belong to.
-		List<ConnectionView> half = Arrays.asList(
-			view("local", "Summer Bingo", 1, 5, null, null, null, false),
-			view("clanB", "Their Bingo", 2, 5, null, null, null, null));
-		assertEquals("local", AnvilSidebarPanel.landingClan(half).instanceId);
+		// The board is the reason to pick one clan over another, so it is the second line.
+		assertEquals("Summer Bingo  3/9", choices.get(1).detail);
+		assertEquals("Guest \u00b7 nothing live", choices.get(2).detail);
+		assertEquals("Nothing live", choices.get(3).detail);
 	}
 
 	@Test
-	public void landingClanSurvivesAMissingHomeCard()
+	public void aClanWithNoNameFallsBackToItsSlugRatherThanRenderingBlank()
 	{
-		// The home fetch failed, so the list is federated-only — first clan rather than an exception.
-		List<ConnectionView> conns = Arrays.asList(view("clanB", "Their Bingo", 2, 5, null, null, null, null));
-		assertEquals("clanB", AnvilSidebarPanel.landingClan(conns).instanceId);
+		List<AnvilSidebarPanel.ClanChoice> choices =
+			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(clanRef("theafkspot", null, "member", null)));
+		assertEquals("theafkspot", choices.get(1).label);
 	}
+
+	@Test
+	public void aRowWithNoSlugIsNotOfferedBecauseItCannotBeAddressed()
+	{
+		// A slug is what a pick BECOMES — the /c/<slug> the client starts addressing. A row without one
+		// would look selectable and then quietly do nothing.
+		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+			clanRef(null, "Nameless", "member", null),
+			clanRef("", "Empty", "member", null),
+			clanRef("real", "Real", "member", null)));
+
+		assertEquals(2, choices.size());
+		assertEquals("real", choices.get(1).slug);
+	}
+
 
 	@Test
 	public void weeklyMetricKeysReadAsProse()

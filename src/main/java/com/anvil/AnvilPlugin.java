@@ -791,6 +791,8 @@ public class AnvilPlugin extends Plugin {
     // Vestige-rotation counts, per RSN ("boss=rolls:exact;…"). Per-account because the cycle is
     // account state; a shared config key would smear an alt's rolls into the main's.
     private static final String CFG_VESTIGE_ROLLS = "vestigeRolls";
+    /** The member's clan pick from the sidebar dropdown. "" (or absent) = Auto, let the site decide. */
+    static final String CFG_ACTIVE_CLAN = "activeClan";
 
     private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
@@ -1040,6 +1042,10 @@ public class AnvilPlugin extends Plugin {
     @Override
     protected void startUp() {
         migrateConfigDefaults();
+        // Restore the clan the member last picked, BEFORE the first fetch — otherwise the opening poll
+        // goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
+        // then jumps to theirs a few seconds later.
+        apiClient.setChosenClan(configManager.getConfiguration("osrsbingo", CFG_ACTIVE_CLAN));
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
 
@@ -5279,6 +5285,77 @@ public class AnvilPlugin extends Plugin {
                 + suggested + " in Configuration \u2192 Anvil \u2014 your current one still works.");
     }
 
+    /**
+     * Take the clan the site says it answered for, so everything AFTER this call is addressed.
+     *
+     * On Auto the config poll deliberately names no clan, which lets the site keep deciding — a member
+     * whose live board moves to their other clan follows it without touching anything. But the answer
+     * names the clan it is about, and repeating that back on the next request is strictly better than
+     * making the server guess again: it pins a member on two live boards to ONE of them for the whole
+     * exchange, and it is what makes filing a submission work on an address that names no clan at all.
+     *
+     * A site too old to send the field leaves us exactly where we were.
+     */
+    private void adoptResolvedClan(PluginConfigResponse fresh) {
+        if (fresh == null) {
+            return;
+        }
+        String slug = fresh.activeClanSlug();
+        if (slug != null) {
+            apiClient.setResolvedClan(slug);
+        }
+        forgetAClanTheyAreNoLongerIn(fresh);
+    }
+
+    /**
+     * Drop a pick for a clan the member no longer has a seat in.
+     *
+     * Leaving a clan is the one way a stored choice becomes permanently wrong: the dropdown stops
+     * offering it, so there is nothing to click to undo it, and the plugin would go on addressing a
+     * clan that answers nothing while a live board runs somewhere they can still reach. Falling back
+     * to Auto puts the decision back with the site, which is where it was before they chose.
+     *
+     * Only acts on a site that actually sends the list — an older one sends nothing, and "no clans" is
+     * then a fact about the site rather than about the member.
+     */
+    private void forgetAClanTheyAreNoLongerIn(PluginConfigResponse fresh) {
+        String chosen = getChosenClan();
+        if (chosen.isEmpty() || fresh.clans == null || fresh.clans.isEmpty()) {
+            return;
+        }
+        for (PluginConfigResponse.ClanRef c : fresh.clans) {
+            if (c != null && chosen.equalsIgnoreCase(c.slug)) {
+                return;
+            }
+        }
+        log.info("Anvil: no seat in '{}' any more — following your live board again.", chosen);
+        configManager.setConfiguration("osrsbingo", CFG_ACTIVE_CLAN, "");
+        apiClient.setChosenClan("");
+    }
+
+    /**
+     * The member picked a clan in the sidebar (or picked Auto, which is a blank slug).
+     *
+     * Persisted, because a pick that evaporated on restart would be worse than no pick at all — the
+     * plugin would quietly go back to guessing and the member would have no reason to look.
+     */
+    void setChosenClan(String slug) {
+        String clean = slug == null ? "" : slug.trim();
+        configManager.setConfiguration("osrsbingo", CFG_ACTIVE_CLAN, clean);
+        apiClient.setChosenClan(clean);
+        // Re-ask immediately rather than waiting out the poll: the member just told us they wanted a
+        // different board, and showing them the old one for another thirty seconds reads as a no-op.
+        if (executor != null) {
+            executor.execute(this::refreshConfig);
+        }
+    }
+
+    /** The member's clan pick, or "" when they are on Auto. */
+    String getChosenClan() {
+        String stored = configManager.getConfiguration("osrsbingo", CFG_ACTIVE_CLAN);
+        return stored == null ? "" : stored.trim();
+    }
+
     private void refreshConfig() {
         if (!apiClient.isConfigured()) {
             return;
@@ -5289,6 +5366,7 @@ public class AnvilPlugin extends Plugin {
             // clear any connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();
             maybeSuggestUrlMigration(fresh);
+            adoptResolvedClan(fresh);
             // The config response now carries the schedule + active weekly (merged reads), so adopt
             // them here — saves the separate schedule/active-weekly round-trips for token-holders.
             if (fresh != null) {

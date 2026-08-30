@@ -80,6 +80,109 @@ public class BingoApiClient
 		return apiUrl == null ? "" : apiUrl;
 	}
 
+	// ── WHICH CLAN THIS CLIENT IS TALKING TO ────────────────────────────────────────────────
+	//
+	// The Site URL the member typed is one Anvil, and one Anvil serves every clan. On the canonical
+	// address it therefore names no clan at all, and the server picks one from the token — live event
+	// first, then latest start, then newest seat.
+	//
+	// Good defaults, but a guess re-made on every request. Once we have been TOLD which clan we are
+	// dealing with — either because the member chose one in the sidebar, or because /config answered
+	// and said which one it answered for — we say so outright, by addressing `/c/<slug>` instead of
+	// the bare root. Same canonical path a browser uses, and the site has resolved it since the day
+	// clans stopped being subdomains.
+	//
+	// Two things fall out of it that are worth having on purpose. A member in two live boards stops
+	// being at the mercy of "latest start wins". And the handful of routes outside /api/plugin that
+	// still resolve a clan from the ADDRESS rather than the token — filing a submission, filing the
+	// starting shot, uploading its image — resolve correctly on the bare apex, which they do not when
+	// nothing names a clan.
+
+	/** A clan slug as the site accepts one; anything else is treated as naming no clan. */
+	private static final java.util.regex.Pattern CLAN_SLUG = java.util.regex.Pattern.compile("[a-z0-9-]{2,32}");
+
+	// TWO SLUGS, and the difference between them is the whole design.
+	//
+	// `chosen` is the member's pick in the sidebar. Empty means "Auto" — they have not chosen, and
+	// the server should keep deciding.
+	//
+	// `resolved` is what the server last told us it answered for. In Auto we adopt it for every call
+	// EXCEPT the config poll itself, which stays unaddressed so the server keeps re-deciding: a member
+	// whose live board moves to their other clan should follow it without touching a dropdown. Adopting
+	// it everywhere else is what makes a submission, a starting shot and its upload land in the right
+	// clan on the canonical address, where nothing in the URL says which clan is meant.
+
+	/** The member's explicit pick, or "" for Auto. Survives restarts (AnvilPlugin persists it). */
+	private volatile String chosenClan = "";
+
+	/** The clan the site last said it answered for. In-memory: it is the server's judgement, not a setting. */
+	private volatile String resolvedClan = "";
+
+	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
+	public void setChosenClan(String slug)
+	{
+		this.chosenClan = cleanSlug(slug);
+	}
+
+	/** The member's explicit pick, or "" when they are on Auto. */
+	public String getChosenClan()
+	{
+		return chosenClan;
+	}
+
+	/** The site answered, and named the clan it answered for. */
+	public void setResolvedClan(String slug)
+	{
+		this.resolvedClan = cleanSlug(slug);
+	}
+
+	/** The clan this client is actually addressing right now — a pick beats the server's guess. */
+	public String getActiveClan()
+	{
+		return !chosenClan.isEmpty() ? chosenClan : resolvedClan;
+	}
+
+	/**
+	 * Validated rather than trusted: a slug arrives over the wire and is about to be pasted into every
+	 * URL this client builds. Anything that is not a slug names no clan — which is the behaviour we
+	 * already had, and so cannot break anything.
+	 */
+	private static String cleanSlug(String slug)
+	{
+		String clean = slug == null ? "" : slug.trim().toLowerCase();
+		return !clean.isEmpty() && CLAN_SLUG.matcher(clean).matches() ? clean : "";
+	}
+
+	/**
+	 * A clan-scoped URL: the base, the clan we are addressing, then the path.
+	 *
+	 * Everything the plugin calls is clan-scoped except signing in, which is about a person and happens
+	 * before any clan is known ({@link #rootUrl}), and the config poll in Auto ({@link #configUrl}).
+	 */
+	String clanUrl(String path)
+	{
+		String slug = getActiveClan();
+		return slug.isEmpty() ? apiUrl + path : apiUrl + "/c/" + slug + path;
+	}
+
+	/**
+	 * Where to ask for the config.
+	 *
+	 * An explicit pick is addressed like everything else. On Auto this stays deliberately unaddressed,
+	 * so every poll is a fresh question — the answer names the clan, and the answer is allowed to
+	 * change when the member's live board does.
+	 */
+	String configUrl(String path)
+	{
+		return chosenClan.isEmpty() ? apiUrl + path : apiUrl + "/c/" + chosenClan + path;
+	}
+
+	/** A URL that must NOT carry a clan: the device sign-in pair, which is identity, not membership. */
+	String rootUrl(String path)
+	{
+		return apiUrl + path;
+	}
+
 	/**
 	 * Sets the in-game RSN of the locally logged-in account. The plugin should call this
 	 * on every login (and clear it on logout). Null/empty values are tolerated — the
@@ -150,7 +253,7 @@ public class BingoApiClient
 			return null;
 		}
 		RequestBody empty = RequestBody.create(null, new byte[0]);
-		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/start")
+		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/start"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(empty).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -176,7 +279,7 @@ public class BingoApiClient
 		}
 		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
 			gson.toJson(java.util.Collections.singletonMap("device_code", deviceCode)));
-		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/poll")
+		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/poll"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(body).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -315,7 +418,7 @@ public class BingoApiClient
 			body = RequestBody.create(JSON, payload.toString());
 		}
 
-		Request request = authedRequest(apiUrl + "/api/plugin/notify").post(body).build();
+		Request request = authedRequest(clanUrl("/api/plugin/notify")).post(body).build();
 		httpClient.newCall(request).enqueue(new Callback()
 		{
 			@Override
@@ -403,7 +506,7 @@ public class BingoApiClient
 			.addFormDataPart("payload_json", payload.toString())
 			.addFormDataPart("file", file.getName(), RequestBody.create(type, file))
 			.build();
-		Request request = authedRequest(apiUrl + "/api/plugin/clip").post(multipart).build();
+		Request request = authedRequest(clanUrl("/api/plugin/clip")).post(multipart).build();
 		try (Response response = uploadClient.newCall(request).execute())
 		{
 			if (response.isSuccessful())
@@ -444,7 +547,7 @@ public class BingoApiClient
 
 	public PluginConfigResponse fetchConfig() throws IOException
 	{
-		Request.Builder rb = authedRequest(apiUrl + "/api/plugin/config").get();
+		Request.Builder rb = authedRequest(configUrl("/api/plugin/config")).get();
 		String etag = lastConfigEtag;
 		PluginConfigResponse cached = lastConfig;
 		if (etag != null && cached != null)
@@ -486,7 +589,7 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		Request.Builder rb = authedRequest(apiUrl + "/api/plugin/board").get();
+		Request.Builder rb = authedRequest(clanUrl("/api/plugin/board")).get();
 		String etag = lastBoardEtag;
 		BoardResponse cached = lastBoard;
 		if (etag != null && cached != null)
@@ -534,7 +637,7 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		String url = apiUrl + "/api/plugin/activity"
+		String url = clanUrl("/api/plugin/activity")
 			+ (since == null || since.isEmpty() ? "" : "?since=" + since);
 		Request.Builder rb = authedRequest(url).get();
 		String etag = lastActivityEtag;
@@ -620,7 +723,7 @@ public class BingoApiClient
 			return null;
 		}
 		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/board?eventId=" + eventId)
+			.url(clanUrl("/api/plugin/board?eventId=" + eventId))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -684,7 +787,7 @@ public class BingoApiClient
 			.addFormDataPart("file", filename, fileBody)
 			.build();
 
-		Request request = authedRequest(apiUrl + "/api/upload")
+		Request request = authedRequest(clanUrl("/api/upload"))
 			.post(multipart)
 			.build();
 
@@ -711,7 +814,7 @@ public class BingoApiClient
 			return null;
 		}
 		Request request = withOptionalAuth(new Request.Builder()
-			.url(apiUrl + "/api/plugin/active-weekly"))
+			.url(clanUrl("/api/plugin/active-weekly")))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -747,8 +850,9 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		payload.addProperty("rsn", rsn);
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/weekly/enroll")
+		// Same as hello: optional, and the only clan signal left on an address that names none.
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/weekly/enroll")))
 			.post(body)
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -808,7 +912,7 @@ public class BingoApiClient
 			return null;
 		}
 		Request request = withOptionalAuth(new Request.Builder()
-			.url(apiUrl + "/api/plugin/schedule"))
+			.url(clanUrl("/api/plugin/schedule")))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -869,8 +973,8 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		String url = apiUrl + "/api/plugin/weekly-leaderboard"
-			+ (competitionId != null ? "?id=" + competitionId : "");
+		String url = clanUrl("/api/plugin/weekly-leaderboard"
+			+ (competitionId != null ? "?id=" + competitionId : ""));
 		Request request = withOptionalAuth(new Request.Builder().url(url)).get().build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -937,9 +1041,13 @@ public class BingoApiClient
 		payload.addProperty("rsn", rsn);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/hello")
-			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION)
+		// The token rides along when we have one. This call has never REQUIRED it — anyone running the
+		// plugin may say hello — but on the canonical address, which names no clan, the token is the
+		// only thing left that can say which clan is being greeted. A site addressed by /c/<slug> or
+		// by an old per-clan hostname ignores it and answers exactly as before.
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/hello"))
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION))
 			.post(body)
 			.build();
 
@@ -997,7 +1105,7 @@ public class BingoApiClient
 			return false;
 		}
 		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/me")
+			.url(clanUrl("/api/plugin/me"))
 			.header("Authorization", "Bearer " + accountToken)
 			.get()
 			.build();
@@ -1035,7 +1143,7 @@ public class BingoApiClient
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/clan-sync")
+			.url(clanUrl("/api/plugin/clan-sync"))
 			.header("Authorization", "Bearer " + accountToken)
 			.post(body)
 			.build();
@@ -1302,7 +1410,7 @@ public class BingoApiClient
 		payload.add("items", arr);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/clog")
+		Request request = authedRequest(clanUrl("/api/plugin/clog"))
 			.post(body)
 			.build();
 
@@ -1373,7 +1481,7 @@ public class BingoApiClient
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/start-proof")
+		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/start-proof"))
 			.post(body)
 			.build();
 
@@ -1432,7 +1540,7 @@ public class BingoApiClient
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 
-		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/submissions"))
 			.post(body)
 			.build();
 
@@ -1498,7 +1606,7 @@ public class BingoApiClient
 		payload.add("stats", stats);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
 			.post(body)
 			.build();
 
@@ -1542,7 +1650,7 @@ public class BingoApiClient
 		payload.add("skills", skills);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
 			.post(body)
 			.build();
 
@@ -1590,7 +1698,7 @@ public class BingoApiClient
 		payload.add("activities", activities);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
 			.post(body)
 			.build();
 
@@ -1626,7 +1734,7 @@ public class BingoApiClient
 		payload.addProperty("caTasks", caTasks);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/counters")
+		Request request = authedRequest(clanUrl("/api/plugin/counters"))
 			.post(body)
 			.build();
 
@@ -1742,7 +1850,7 @@ public class BingoApiClient
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/progress")
+		Request request = authedRequest(clanUrl("/api/plugin/progress"))
 			.post(body)
 			.build();
 
@@ -1822,7 +1930,7 @@ public class BingoApiClient
 		payload.addProperty("syncedPages", syncedPages);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/clog")
+		Request request = authedRequest(clanUrl("/api/plugin/clog"))
 			.post(body)
 			.build();
 
@@ -1871,7 +1979,7 @@ public class BingoApiClient
 		payload.add("bests", out);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/pb")
+		Request request = authedRequest(clanUrl("/api/plugin/pb"))
 			.post(body)
 			.build();
 
@@ -1963,7 +2071,7 @@ public class BingoApiClient
 		payload.add("moments", out);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/moments")
+		Request request = authedRequest(clanUrl("/api/plugin/moments"))
 			.post(body)
 			.build();
 
@@ -1996,7 +2104,7 @@ public class BingoApiClient
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 
-		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/submissions"))
 			.post(body)
 			.build();
 

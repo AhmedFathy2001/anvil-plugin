@@ -249,6 +249,34 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return view == null ? Collections.emptyList() : Collections.singletonList(view);
 	}
 
+	// ── The clan switcher's data ────────────────────────────────────────────────────────────────
+	//
+	// Straight off the config this source already reads, so offering the dropdown costs no request.
+
+	@Override
+	public List<PluginConfigResponse.ClanRef> clans()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg == null ? Collections.emptyList() : cfg.switchableClans();
+	}
+
+	@Override
+	public String chosenClan()
+	{
+		AnvilPlugin p = plugin;
+		return p == null ? "" : p.getChosenClan();
+	}
+
+	@Override
+	public void chooseClan(String slug)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.setChosenClan(slug);
+		}
+	}
+
 	private ConnectionView buildView(boolean force)
 	{
 		PluginConfigResponse cfg = configSupplier.get();

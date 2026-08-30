@@ -43,6 +43,34 @@ public interface SidebarDataSource
 		return fetchConnections();
 	}
 
+	// ── The clan this plugin is pointed at ───────────────────────────────────────────────────────
+	//
+	// One Anvil serves every clan, so the Site URL names none of them and a person may hold seats in
+	// several. The site says which clan it answered for and lists the rest; these three carry that to
+	// the panel, which offers it as a dropdown.
+
+	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
+	default List<PluginConfigResponse.ClanRef> clans()
+	{
+		return java.util.Collections.emptyList();
+	}
+
+	/** The member's explicit pick, or "" when they are on Auto and the site is deciding. */
+	default String chosenClan()
+	{
+		return "";
+	}
+
+	/**
+	 * The member picked a clan (or "" for Auto).
+	 *
+	 * Blocking-free: implementations persist the pick and kick off a refetch, they do not wait for one.
+	 * The panel calls this from the EDT.
+	 */
+	default void chooseClan(String slug)
+	{
+	}
+
 	/**
 	 * The STARTING SHOT this account still owes on the addressed clan's live event (site lib/startProof),
 	 * or {@code null} when nothing is owed — which is the case on every event that doesn't ask for
