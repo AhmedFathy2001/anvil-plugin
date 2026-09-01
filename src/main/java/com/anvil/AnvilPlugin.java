@@ -8329,8 +8329,11 @@ public class AnvilPlugin extends Plugin {
         embed.addProperty("description",
                 (rsn != null ? rsn : "A clan member") + " just reached **level 99 " + skill + "**!");
         embed.addProperty("color", CA_EMBED_COLOR);
-        // Message-only — no screenshot, matching combat-achievement posts.
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+        // How far along they are. A 99 post is about skills rather than total, so it counts those —
+        // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
+        // what they have done rather than a distance from somebody else's goal.
+        embed.add("fields", oneField("Progress", ninetyNineProgressLine()));
+        postAchievement(embed, config.levelScreenshot());
     }
 
     /**
@@ -8382,6 +8385,52 @@ public class AnvilPlugin extends Plugin {
         return max;
     }
 
+    /**
+     * Is this account plainly not chasing 2277?
+     *
+     * THERE IS NO "PURE" ACCOUNT TYPE. RuneLite's AccountType knows Normal and the Ironman variants
+     * and nothing else, because a pure is a BUILD rather than a flag — the game does not record the
+     * intention, only the stats it produced. So this asks the one question the stats answer without
+     * ambiguity: Defence 1. Nobody arrives at 99 Strength with Defence 1 by accident, and a level-3
+     * skiller is the same answer for the same reason.
+     *
+     * It is used only to SUPPRESS a line, never to claim anything. Telling somebody who has chosen a
+     * build that they are "435 levels from max" measures them against a goal they rejected, and the
+     * cost of guessing wrong is a missing line rather than a wrong one.
+     */
+    private boolean buildIsNotChasingMax() {
+        return client.getRealSkillLevel(Skill.DEFENCE) == 1;
+    }
+
+    /** "1,842 / 2,277 — 435 to go", or null when the number would not mean anything. */
+    private String maxProgressLine(int total) {
+        if (buildIsNotChasingMax()) {
+            return null;
+        }
+        int max = maxTotalLevel();
+        int left = max - total;
+        if (left <= 0) {
+            return null; // already there; the Maxed! post is the whole message
+        }
+        return String.format(java.util.Locale.ROOT, "%,d / %,d — %,d to go", total, max, left);
+    }
+
+    /** "12 of 23 skills at 99", the progress a 99 post is actually about. */
+    private String ninetyNineProgressLine() {
+        int at99 = 0;
+        int of = 0;
+        for (Skill sk : Skill.values()) {
+            if (sk == Skill.OVERALL) {
+                continue;
+            }
+            of++;
+            if (client.getRealSkillLevel(sk) >= 99) {
+                at99++;
+            }
+        }
+        return at99 + " of " + of + " skills at 99";
+    }
+
     private void postTotalMilestone(int total, boolean maxed) {
         String rsn = getLocalPlayerName();
         String who = rsn != null ? rsn : "A clan member";
@@ -8391,7 +8440,24 @@ public class AnvilPlugin extends Plugin {
                 ? who + " just **maxed** with a total level of **" + total + "**!"
                 : who + " just reached **" + total + " total level**!");
         embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+        // Where this leaves them. Omitted on a max — "0 to go" under "Maxed!" is noise — and on a
+        // build that is not chasing one.
+        String progress = maxed ? null : maxProgressLine(total);
+        if (progress != null) {
+            embed.add("fields", oneField("Progress to max", progress));
+        }
+        postAchievement(embed, config.levelScreenshot());
+    }
+
+    /** A one-entry Discord `fields` array, inline so it sits beside the description rather than under it. */
+    private static com.google.gson.JsonArray oneField(String name, String value) {
+        com.google.gson.JsonObject field = new com.google.gson.JsonObject();
+        field.addProperty("name", name);
+        field.addProperty("value", value);
+        field.addProperty("inline", true);
+        com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
+        fields.add(field);
+        return fields;
     }
 
     private com.google.gson.JsonObject buildDropEmbed(String title, String description,
@@ -8840,6 +8906,32 @@ public class AnvilPlugin extends Plugin {
      * embed without its image (stripping the attachment reference so Discord renders clean)
      * instead of not posting at all.
      */
+    /**
+     * Post an achievement embed, with a screenshot when the member wants one.
+     *
+     * A 99 and a max are the most screenshotted moments in the game, and both went out as text. The
+     * comment that made it so said "matching combat-achievement posts" — which was simply untrue: CA
+     * posts have taken a screenshot since `caScreenshot` existed, so the 99 was out of step with the
+     * very thing it cited. Same shape as that path now, down to removing the image reference when the
+     * capture fails, so a dropped frame degrades to the text post rather than an embed with a hole.
+     */
+    private void postAchievement(com.google.gson.JsonObject embed, boolean withShot) {
+        if (!withShot) {
+            apiClient.postNotification("combatAchievements", null, embed, null, null);
+            return;
+        }
+        String shotName = "anvil-achievement.png";
+        com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+        image.addProperty("url", "attachment://" + shotName);
+        embed.add("image", image);
+        captureFrameAsync(png -> {
+            if (png == null) {
+                embed.remove("image");
+            }
+            apiClient.postNotification("combatAchievements", null, embed, png, shotName);
+        });
+    }
+
     private void postRareDropWithScreenshot(com.google.gson.JsonObject embed, String shotName) {
         captureFrameAsync(png -> {
             if (png == null) {
