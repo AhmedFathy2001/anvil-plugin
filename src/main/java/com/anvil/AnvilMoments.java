@@ -89,6 +89,22 @@ class AnvilMoments
 			return new Moment("ca", null, null, 1, null, null, null, null, taskName, tier, at,
 				keyFor("ca", taskName, null, at));
 		}
+
+		/**
+		 * A level worth telling people about: a 99, a total-level milestone, or a max.
+		 *
+		 * <p>{@code skill} is the skill's name, or null when the news is the total rather than any one
+		 * skill. {@code level} rides in the quantity column and {@code scope} in sourceKind, so this
+		 * needs no new columns anywhere -- the site reads both to decide what sentence to write.</p>
+		 *
+		 * <p>Keyed on the skill and the number, NOT on the clock: a 99 happens once, and if a retry or
+		 * a second sighting arrives ten seconds later it is still the same 99.</p>
+		 */
+		static Moment level(String skill, int level, String scope, long at)
+		{
+			return new Moment("level", null, skill, level, null, null, scope, null, at,
+				"level|" + (skill == null ? "total" : skill.toLowerCase()) + "|" + level);
+		}
 	}
 
 	/** Keyed so a duplicate observation replaces rather than repeats; insertion-ordered for the batch. */

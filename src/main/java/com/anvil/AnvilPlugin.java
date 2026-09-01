@@ -1406,6 +1406,7 @@ public class AnvilPlugin extends Plugin {
             return; // XP within a level, or no gain — nothing to announce
         }
         if (level >= 99 && prev < 99) {
+            recordLevelMoment(skill.getName(), 99, "skill");
             handleLevelMilestone(skill.getName());
         }
         handleTotalMilestone();
@@ -3068,6 +3069,9 @@ public class AnvilPlugin extends Plugin {
             if (lvl.find()) {
                 try {
                     if (Integer.parseInt(lvl.group(2)) == 99) {
+                        // Same key as the StatChanged sighting, so whichever arrives first wins and
+                        // the other collapses onto it rather than posting the 99 twice.
+                        recordLevelMoment(lvl.group(1).trim(), 99, "skill");
                         handleLevelMilestone(lvl.group(1).trim());
                     }
                 } catch (NumberFormatException ignored) {
@@ -6448,6 +6452,25 @@ public class AnvilPlugin extends Plugin {
         scheduleMomentPush();
     }
 
+    /**
+     * Note a level worth remembering: a 99, a high total, or a max.
+     *
+     * <p>Called from the DETECTION, deliberately not from the announcer. Whether the clan has a
+     * Discord channel for level posts is a question about Discord; whether a 99 belongs on the clan's
+     * feed is a question about the feed, and answering the second with the first is how a member with
+     * notifications off vanishes from their own clan's history.</p>
+     *
+     * <p>Sent generously, like everything else here: the site decides whether a running board or
+     * competition week wants it, and drops it when nothing does.</p>
+     */
+    private void recordLevelMoment(String skill, int level, String scope) {
+        if (!momentsEnabled() || statsAreArtificial()) {
+            return;
+        }
+        moments.record(AnvilMoments.Moment.level(skill, level, scope, System.currentTimeMillis()));
+        scheduleMomentPush();
+    }
+
     /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
     private void scheduleMomentPush() {
         if (executor == null || executor.isShutdown()) {
@@ -8410,7 +8433,10 @@ public class AnvilPlugin extends Plugin {
      * crossings, and skips the round-100 post when this gain maxed.
      */
     private void handleTotalMilestone() {
-        if (!notifyEnabled("levels") || statsAreArtificial()) {
+        // NOT gated on the Discord channel here. The gate moved down to the post itself, because this
+        // method also advances lastTotalLevel and feeds the clan's highlight feed — returning early
+        // for want of a webhook froze the baseline and lost the milestone from both.
+        if (statsAreArtificial()) {
             return;
         }
         int total = client.getTotalLevel();
@@ -8428,12 +8454,14 @@ public class AnvilPlugin extends Plugin {
 
         int max = maxTotalLevel();
         if (prev < max && max <= total) {
+            recordLevelMoment(null, total, "max");
             postTotalMilestone(total, true);
             return; // maxing is the headline — don't also post the round-100 it passed
         }
         // Highest round-STEP value this gain reached, at/above the floor.
         int milestone = (total / TOTAL_MILESTONE_STEP) * TOTAL_MILESTONE_STEP;
         if (milestone >= TOTAL_MILESTONE_FLOOR && prev < milestone) {
+            recordLevelMoment(null, milestone, "total");
             postTotalMilestone(milestone, false);
         }
     }
@@ -8499,6 +8527,10 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void postTotalMilestone(int total, boolean maxed) {
+        if (!notifyEnabled("levels")) {
+            log.info("Anvil: total-level milestone {} not announced — no channel for level posts.", total);
+            return;
+        }
         String rsn = getLocalPlayerName();
         String who = rsn != null ? rsn : "A clan member";
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
