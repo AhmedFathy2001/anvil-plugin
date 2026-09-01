@@ -62,7 +62,7 @@ public class CombatTaskLineTest
 	public void ignoresUnrelatedCongratulationsLines()
 	{
 		assertFalse(AnvilPlugin.CA_TASK_PATTERN.matcher(
-			"Congratulations, you just advanced your Mining level. You are now level 99.").find());
+			"Congratulations, you've just advanced your Mining level. You are now level 99.").find());
 	}
 
 	@Test

@@ -533,8 +533,15 @@ public class AnvilPlugin extends Plugin {
     // Skill level-up, e.g. "Congratulations, you just advanced your Mining level. You are now
     // level 99." Fires exactly once per level gained, so no dedup/baseline needed (unlike CA).
     // Accepts the modern "your" and the older "a/an" phrasing.
-    private static final java.util.regex.Pattern LEVEL_UP_PATTERN = java.util.regex.Pattern.compile(
-            "you just advanced (?:your|an?) (\\w+) level\\. You are now level (\\d+)\\.");
+    // "Congratulations, you've just advanced your Cooking level. You are now level 99."
+    //
+    // The apostrophe is the whole story. This read "you just advanced" — which the game has never
+    // printed — so the chat fallback matched nothing, ever. It went unnoticed because the test beside
+    // it asserted the same invented sentence: written from the same memory as the pattern, so it
+    // agreed with the bug rather than with the game. The test now uses the real line.
+    static final java.util.regex.Pattern LEVEL_UP_PATTERN = java.util.regex.Pattern.compile(
+            "you(?:'ve|\u2019ve)? just advanced (?:your|an?) (\\w+) level\\. You are now level (\\d+)\\.",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
 
     // Achievement-diary tier completion, e.g. "Congratulations! You have completed all of the
     // easy tasks in the Ardougne area." Fires exactly once per account per tier, at the moment
@@ -644,10 +651,12 @@ public class AnvilPlugin extends Plugin {
     // total we logged in with). Total only ever rises on a skill level-up, so we check it there.
     private int lastTotalLevel = -1;
     private boolean totalLevelInitialized;
-    // Per-skill real level, baselined on the first StatChanged for each skill (login), so a 99 is
-    // detected off the stat event — independent of the in-game "Level-up interface" setting, which
-    // decides whether the chat line even carries the level number. notified99 dedups a 99 arriving
-    // from both StatChanged and the chat line (and pre-seeds skills already 99 at login).
+    // Per-skill real level, so a 99 is detected off the stat event — independent of the in-game
+    // "Level-up interface" setting, which decides whether the chat line even carries the level number.
+    // notified99 dedups a 99 arriving from both StatChanged and the chat line.
+    //
+    // Seeded from the live stat table (seedSkillLevels), NOT from whichever XP drop happens to arrive
+    // first. See that method for what the lazy version cost.
     private final java.util.Map<Skill, Integer> lastSkillLevel = new java.util.EnumMap<>(Skill.class);
     // Last real-world XP seen per skill, so the "Active now" self-signal fires only on an actual gain —
     // NOT on the burst of StatChanged RuneLite emits for every skill on login/resync (which otherwise
@@ -1070,6 +1079,10 @@ public class AnvilPlugin extends Plugin {
                 client, net.runelite.api.gameval.InterfaceID.ClansInfo.FRAME, "Anvil", "Sync roster",
                 () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(),
                 this::syncClanRosterFromPanel);
+        // The stat table as it stands right now, before any XP arrives. A plugin started mid-session
+        // — every reload during development, every enable from the sidebar — has no other chance to
+        // learn it, and what it doesn't know it mistakes for a level-up that already happened.
+        seedSkillLevels();
         migrateConfigDefaults();
         // Restore the clan the member last picked, BEFORE the first fetch — otherwise the opening poll
         // goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
@@ -1318,6 +1331,45 @@ public class AnvilPlugin extends Plugin {
      * (login), so pre-existing 99s and the starting total don't announce; handleTotalMilestone's own
      * baseline guards the total the same way.
      */
+    /**
+     * Record every skill's real level as the session's starting point.
+     *
+     * <p>WHAT THIS FIXES. The baseline used to be taken lazily: the first StatChanged for a skill was
+     * treated as "where they started" and discarded. That is right at login, when a burst of events
+     * arrives for skills nobody just trained — and wrong every other time the map is empty, because
+     * then the first XP drop is a real one. Start the plugin mid-session and the next level a player
+     * gains is read as their starting level and thrown away.</p>
+     *
+     * <p>Which is exactly what a 99 is: one XP drop, once. Reload the plugin at 98, cook one more
+     * fish, and the announcement is gone — silently, and with the skill added to notified99, so the
+     * chat line can't rescue it either. A once-per-account moment, lost to a plugin restart.</p>
+     *
+     * <p>Reading the table up front removes the guess. Skills already at 99 are marked announced (they
+     * were 99 before we were watching); anything that rises from here is a real level-up.</p>
+     */
+    private void seedSkillLevels() {
+        clientThread.invokeLater(() -> {
+            if (client.getGameState() != GameState.LOGGED_IN) {
+                return;
+            }
+            lastSkillLevel.clear();
+            notified99.clear();
+            for (Skill skill : Skill.values()) {
+                if (skill == Skill.OVERALL) {
+                    continue;
+                }
+                int level = client.getRealSkillLevel(skill);
+                if (level <= 0) {
+                    continue; // not populated yet — the next StatChanged baselines it the old way
+                }
+                lastSkillLevel.put(skill, level);
+                if (level >= 99) {
+                    notified99.add(skill.getName().toLowerCase());
+                }
+            }
+        });
+    }
+
     @Subscribe
     public void onStatChanged(StatChanged event) {
         Skill skill = event.getSkill();
@@ -2061,6 +2113,11 @@ public class AnvilPlugin extends Plugin {
         if (event.getGameState() == GameState.LOGGED_IN && freshLoginPending) {
             freshLoginPending = false;
             sessionLoginAtMs = System.currentTimeMillis();
+        }
+        if (event.getGameState() == GameState.LOGGED_IN) {
+            // Re-read on every login: the levels belong to the account that just logged in, and the
+            // previous one's are worse than nothing (a 99 on the alt reads as a 99 already announced).
+            seedSkillLevels();
         }
         if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
             // Delay slightly so local player name is populated
@@ -8315,14 +8372,24 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void handleLevelMilestone(String skill) {
-        if (!notifyEnabled("levels") || statsAreArtificial()) {
+        // A 99 happens once per skill per account, so when one does not reach Discord there has to be
+        // something in the log saying which step dropped it. Every gate below this used to be silent,
+        // and postNotification's own failure paths are log.debug — invisible at RuneLite's default
+        // level — which left "it just didn't post" as the entire diagnosis.
+        if (!notifyEnabled("levels")) {
+            log.info("Anvil: 99 {} not announced — this clan has no channel for level posts.", skill);
+            return;
+        }
+        if (statsAreArtificial()) {
+            log.info("Anvil: 99 {} not announced — levels on this world aren't real progression.", skill);
             return;
         }
         // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
         // level-up chat line, and StatChanged pre-seeds skills already 99 at login.
         if (skill == null || !notified99.add(skill.toLowerCase())) {
-            return;
+            return; // already announced this session, or already 99 when the session started
         }
+        log.info("Anvil: announcing 99 {}.", skill);
         String rsn = getLocalPlayerName();
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
         embed.addProperty("title", "🎉 Level 99!");

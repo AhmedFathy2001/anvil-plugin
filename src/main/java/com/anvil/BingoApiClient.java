@@ -439,10 +439,13 @@ public class BingoApiClient
 		Request request = authedRequest(clanUrl("/api/plugin/notify")).post(body).build();
 		httpClient.newCall(request).enqueue(new Callback()
 		{
+			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
+			// that the server rejected looked exactly like one that was never sent, and the only
+			// honest answer to "why didn't my 99 post" was that nobody could tell.
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
-				log.debug("notify post failed: {}", e.getMessage());
+				log.warn("Anvil: '{}' notification never reached the site: {}", channel, e.getMessage());
 			}
 
 			@Override
@@ -452,7 +455,7 @@ public class BingoApiClient
 				{
 					if (!r.isSuccessful())
 					{
-						log.debug("notify returned HTTP {}", r.code());
+						log.warn("Anvil: the site refused a '{}' notification (HTTP {}).", channel, r.code());
 					}
 				}
 			}
