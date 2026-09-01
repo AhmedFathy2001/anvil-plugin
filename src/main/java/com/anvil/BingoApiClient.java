@@ -217,10 +217,28 @@ public class BingoApiClient
 		this.seasonal = seasonal;
 	}
 
-	/** True when a Site URL is set but no Account Token yet — the state the Sign-in button serves. */
+	/**
+	 * The canonical Anvil, offered when somebody signs in without having typed a site.
+	 *
+	 * NOT the config default, and that distinction is the whole point. `apiUrl` still defaults to ""
+	 * so the plugin contacts nothing on its own — every unauthenticated poll here (hello,
+	 * active-weekly, schedule, weekly-leaderboard) bails on an empty URL, so an install that is never
+	 * signed into never reaches the network at all. This constant is only ever written by an explicit
+	 * click on Sign in, which is the user choosing the server exactly as typing it was.
+	 */
+	public static final String CANONICAL_SITE = "https://anvilosrs.com";
+
+	/**
+	 * True when there is no Account Token yet — the state the Sign-in button serves.
+	 *
+	 * It used to also require a Site URL, which meant somebody who had just installed the plugin saw
+	 * no way in: the button that would have configured them was hidden until they configured
+	 * themselves. Sign in now offers to fill the site in (see CANONICAL_SITE), so the button is the
+	 * first step rather than the second.
+	 */
 	public boolean needsSignIn()
 	{
-		return apiUrl != null && !apiUrl.isEmpty() && (playerToken == null || playerToken.isEmpty());
+		return playerToken == null || playerToken.isEmpty();
 	}
 
 	// ---- Device-code sign-in (home-native RFC 8628; see the site's /api/plugin/auth/*) ----------

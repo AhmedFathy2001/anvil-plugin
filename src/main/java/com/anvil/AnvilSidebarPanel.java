@@ -257,12 +257,26 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	// ---- Device sign-in (DeviceSignIn) ------------------------------------------------------
 
-	/** Show the Sign-in button exactly while a Site URL is configured but no Account Token exists. */
+	/**
+	 * Show the Sign-in button whenever there is no Account Token — and say where it will connect.
+	 *
+	 * The destination is stated BEFORE the click, not after, because for somebody who has typed no
+	 * site the click is what chooses the server. A button that quietly picked one and then contacted
+	 * it would be the plugin making that decision; naming it first makes the press the answer to a
+	 * question they have been asked.
+	 */
 	private void refreshSignInRow()
 	{
 		if (!signInInFlight)
 		{
-			signInRow.setVisible(apiClient.needsSignIn());
+			boolean show = apiClient.needsSignIn();
+			signInRow.setVisible(show);
+			if (show)
+			{
+				setSignInStatus(apiClient.getApiUrl().isEmpty()
+					? "Connects to " + BingoApiClient.CANONICAL_SITE + ". Using your own Anvil? Put its address in Site URL first."
+					: "Connects to " + apiClient.getApiUrl() + ".");
+			}
 			signInRow.revalidate();
 			signInRow.repaint();
 		}
@@ -276,6 +290,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
+		// THE SITE, IF THEY HAVE NOT NAMED ONE. Only when empty — somebody who typed their own address
+		// (a self-hosted Anvil, or an older per-clan one) has already answered this question, and
+		// overwriting their answer because they pressed the obvious button would be its own bug.
+		//
+		// Writing it here rather than defaulting the config item is deliberate: the plugin reaches the
+		// network only after this click, so an install nobody signs into contacts nothing at all. The
+		// click IS the disclosure, which is why the button says where it goes.
+		if (apiClient.getApiUrl().isEmpty())
+		{
+			configManager.setConfiguration("osrsbingo", "apiUrl", BingoApiClient.CANONICAL_SITE);
+			// Straight onto the client too. The config write reaches it through onConfigChanged, and
+			// the sign-in below starts on this thread — without this the first request would go out
+			// against the empty URL it was holding a moment ago.
+			apiClient.configure(
+				BingoApiClient.CANONICAL_SITE, configManager.getConfiguration("osrsbingo", "playerToken"));
+		}
+
 		signInInFlight = true;
 		signInButton.setEnabled(false);
 		setSignInStatus("Starting…");
