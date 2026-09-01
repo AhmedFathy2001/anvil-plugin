@@ -7157,7 +7157,7 @@ public class AnvilPlugin extends Plugin {
                 desc, name, itemId, qty, value, null, killCountFor(source), shotName);
 
         if (config.rareDropScreenshot()) {
-            postRareDropWithScreenshot(embed, shotName);
+            postWithScreenshot("rareDrops", embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -7195,7 +7195,7 @@ public class AnvilPlugin extends Plugin {
                 earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, 1, 0, null, null, shotName);
 
         if (config.rareDropScreenshot()) {
-            postRareDropWithScreenshot(embed, shotName);
+            postWithScreenshot("rareDrops", embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -7219,7 +7219,7 @@ public class AnvilPlugin extends Plugin {
         if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) {
             return;
         }
-        if (!notifyEnabled("combatAchievements")) {
+        if (!notifyEnabled("collectionLog")) {
             return;
         }
         // The prestige path already posted this one to the drops channel.
@@ -7287,9 +7287,9 @@ public class AnvilPlugin extends Plugin {
             com.google.gson.JsonObject image = new com.google.gson.JsonObject();
             image.addProperty("url", "attachment://" + shotName);
             embed.add("image", image);
-            captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
+            captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
         } else {
-            apiClient.postNotification("combatAchievements", null, embed, null, null);
+            apiClient.postNotification("collectionLog", null, embed, null, null);
         }
     }
 
@@ -7554,7 +7554,7 @@ public class AnvilPlugin extends Plugin {
                 troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName);
 
         if (config.rareDropScreenshot()) {
-            postRareDropWithScreenshot(embed, shotName);
+            postWithScreenshot("rareDrops", embed, shotName);
         } else {
             // No screenshot — strip the attachment image reference so the embed renders cleanly.
             embed.remove("image");
@@ -7620,7 +7620,7 @@ public class AnvilPlugin extends Plugin {
         embed.add("image", image);
 
         if (config.rareDropScreenshot()) {
-            postRareDropWithScreenshot(embed, shotName);
+            postWithScreenshot("rareDrops", embed, shotName);
         } else {
             embed.remove("image");
             apiClient.postNotification("rareDrops", null, embed, null, null);
@@ -7738,7 +7738,7 @@ public class AnvilPlugin extends Plugin {
         }
         Integer kc = killCountFor(source);
         String momentKey = recordPetMoment(source, sourceKind, kc);
-        boolean announce = config.notifyPets() && notifyEnabled("rareDrops");
+        boolean announce = config.notifyPets() && notifyEnabled("pets");
 
         // Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
         // park a pet nothing will ever collect: the next collection-log line would claim it.
@@ -7827,9 +7827,9 @@ public class AnvilPlugin extends Plugin {
             com.google.gson.JsonObject image = new com.google.gson.JsonObject();
             image.addProperty("url", "attachment://" + shotName);
             embed.add("image", image);
-            postRareDropWithScreenshot(embed, shotName);
+            postWithScreenshot("pets", embed, shotName);
         } else {
-            apiClient.postNotification("rareDrops", null, embed, null, null);
+            apiClient.postNotification("pets", null, embed, null, null);
         }
     }
 
@@ -8011,7 +8011,7 @@ public class AnvilPlugin extends Plugin {
      * channel — same hook as combat achievements and 99s. Message-only.
      */
     private void maybeNotifyDiaryCompletion(String area, String tier) {
-        if (!config.notifyDiaries() || !notifyEnabled("combatAchievements")) {
+        if (!config.notifyDiaries() || !notifyEnabled("diaries")) {
             return;
         }
         String rsn = getLocalPlayerName();
@@ -8021,7 +8021,7 @@ public class AnvilPlugin extends Plugin {
                 (rsn != null ? rsn : "A clan member") + " just completed the **" + area + " " + tier
                         + "** achievement diary!");
         embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+        apiClient.postNotification("diaries", null, embed, null, null);
     }
 
     /**
@@ -8271,7 +8271,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void postQuestCompletion(String questName) {
         QuestAnnounceTier setting = config.questAnnounce();
-        if (setting == QuestAnnounceTier.OFF || !notifyEnabled("combatAchievements")) {
+        if (setting == QuestAnnounceTier.OFF || !notifyEnabled("quests")) {
             return;
         }
         String key = questName.toLowerCase();
@@ -8290,7 +8290,7 @@ public class AnvilPlugin extends Plugin {
         embed.addProperty("description",
                 (rsn != null ? rsn : "A clan member") + " just completed **" + questName + "**" + tierTag + "!");
         embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+        apiClient.postNotification("quests", null, embed, null, null);
     }
 
     /**
@@ -8315,7 +8315,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void handleLevelMilestone(String skill) {
-        if (!notifyEnabled("combatAchievements") || statsAreArtificial()) {
+        if (!notifyEnabled("levels") || statsAreArtificial()) {
             return;
         }
         // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
@@ -8343,7 +8343,7 @@ public class AnvilPlugin extends Plugin {
      * crossings, and skips the round-100 post when this gain maxed.
      */
     private void handleTotalMilestone() {
-        if (!notifyEnabled("combatAchievements") || statsAreArtificial()) {
+        if (!notifyEnabled("levels") || statsAreArtificial()) {
             return;
         }
         int total = client.getTotalLevel();
@@ -8627,20 +8627,51 @@ public class AnvilPlugin extends Plugin {
      * server (/api/plugin/notify), which forwards it to Discord — the plugin
      * never sees the webhook URL itself.
      */
+    /**
+     * Whether the clan has somewhere to put this kind of post.
+     *
+     * <p>Five kinds -- pets, levels, quests, diaries, collection-log slots -- used to be announced
+     * under the name of the channel they shared. Each has its own name now, and a site that predates
+     * that split sends no flag for it; a boxed null there means "ask the channel it came from"
+     * rather than "off", so an older site keeps posting 99s exactly where it always did.</p>
+     *
+     * <p>Unknown names return false. The old default arm answered {@code rareDrops} for anything it
+     * didn't recognise, which would have quietly routed every new channel through the drop flag.</p>
+     */
     private boolean notifyEnabled(String channel) {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.notify == null) {
             return false;
         }
+        return channelEnabled(cfg.notify, channel);
+    }
+
+    /** The resolution itself, free of plugin state so the inheritance can be tested directly. */
+    static boolean channelEnabled(PluginConfigResponse.NotifyChannels n, String channel) {
+        if (n == null) {
+            return false;
+        }
         switch (channel) {
+            case "rareDrops":
+                return n.rareDrops;
             case "deaths":
-                return cfg.notify.deaths;
+                return n.deaths;
             case "combatAchievements":
-                return cfg.notify.combatAchievements;
+                return n.combatAchievements;
             case "pvpKills":
-                return cfg.notify.pvpKills;
+                return n.pvpKills;
+            case "pets":
+                return n.pets != null ? n.pets : n.rareDrops;
+            case "levels":
+                return n.levels != null ? n.levels : n.combatAchievements;
+            case "quests":
+                return n.quests != null ? n.quests : n.combatAchievements;
+            case "diaries":
+                return n.diaries != null ? n.diaries : n.combatAchievements;
+            case "collectionLog":
+                return n.collectionLog != null ? n.collectionLog : n.combatAchievements;
             default:
-                return cfg.notify.rareDrops;
+                return false;
         }
     }
 
@@ -8922,27 +8953,46 @@ public class AnvilPlugin extends Plugin {
      */
     private void postAchievement(com.google.gson.JsonObject embed, boolean withShot) {
         if (!withShot) {
-            apiClient.postNotification("combatAchievements", null, embed, null, null);
+            apiClient.postNotification("levels", null, embed, null, null);
             return;
         }
         String shotName = "anvil-achievement.png";
         com.google.gson.JsonObject image = new com.google.gson.JsonObject();
         image.addProperty("url", "attachment://" + shotName);
         embed.add("image", image);
-        captureFrameAsync(png -> {
+        Runnable capture = () -> captureFrameAsync(png -> {
             if (png == null) {
                 embed.remove("image");
             }
-            apiClient.postNotification("combatAchievements", null, embed, png, shotName);
+            apiClient.postNotification("levels", null, embed, png, shotName);
         });
+
+        // Let the room react before the shutter.
+        //
+        // The instant a 99 lands the screen holds the fireworks and nothing else; the congratulations
+        // that make the screenshot worth keeping are still being typed. A beat's pause catches the
+        // clan chat with the moment instead of an empty chatbox beneath it.
+        //
+        // Scheduled, never slept: a sleep here would park a shared RuneLite worker for a second and a
+        // half, and the hub rejects Thread.sleep on sight. Without a usable executor -- shutting down
+        // mid-level-up -- we capture now, because a slightly emptier screenshot beats none.
+        if (executor == null || executor.isShutdown()) {
+            capture.run();
+            return;
+        }
+        executor.schedule(capture, ACHIEVEMENT_SHOT_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
-    private void postRareDropWithScreenshot(com.google.gson.JsonObject embed, String shotName) {
+    /** Pause between the achievement and its screenshot, long enough for clanmates' replies. */
+    private static final long ACHIEVEMENT_SHOT_DELAY_MS = 1500;
+
+    /** Capture, then post to {@code channel}; a failed capture drops the image and posts anyway. */
+    private void postWithScreenshot(String channel, com.google.gson.JsonObject embed, String shotName) {
         captureFrameAsync(png -> {
             if (png == null) {
                 embed.remove("image");
             }
-            apiClient.postNotification("rareDrops", null, embed, png, shotName);
+            apiClient.postNotification(channel, null, embed, png, shotName);
         });
     }
 

@@ -334,6 +334,17 @@ public class PluginConfigResponse
 		public boolean deaths;
 		public boolean combatAchievements;
 		public boolean pvpKills;
+
+		// Channels that used to ride along with one of the above, split so a clan can give each its own
+		// Discord channel. Boxed on purpose: `false` and "this site is older than the split" are
+		// different answers, and only a null can say the second. An absent flag inherits the channel it
+		// used to share (AnvilPlugin.notifyEnabled), so a new plugin against an old site behaves exactly
+		// as it did before rather than going quiet.
+		public Boolean pets;
+		public Boolean levels;
+		public Boolean quests;
+		public Boolean diaries;
+		public Boolean collectionLog;
 	}
 
 	public static class EventInfo
