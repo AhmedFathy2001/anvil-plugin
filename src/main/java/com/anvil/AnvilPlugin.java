@@ -8440,9 +8440,14 @@ public class AnvilPlugin extends Plugin {
                 ? who + " just **maxed** with a total level of **" + total + "**!"
                 : who + " just reached **" + total + " total level**!");
         embed.addProperty("color", CA_EMBED_COLOR);
-        // Where this leaves them. Omitted on a max — "0 to go" under "Maxed!" is noise — and on a
-        // build that is not chasing one.
-        String progress = maxed ? null : maxProgressLine(total);
+        // Where this leaves them — from the LIVE total, not the milestone above.
+        //
+        // `total` is the rounded figure the post announces (1800), which is right in the sentence and
+        // wrong in the progress: somebody who crossed 1800 on a level that took them to 1803 is 474
+        // from max, not 477. The headline is the milestone; the progress is where they actually are.
+        //
+        // Omitted on a max — "0 to go" under "Maxed!" is noise — and on a build not chasing one.
+        String progress = maxed ? null : maxProgressLine(client.getTotalLevel());
         if (progress != null) {
             embed.add("fields", oneField("Progress to max", progress));
         }
