@@ -385,6 +385,25 @@ public class AnvilPlugin extends Plugin {
     // "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
     // landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
     private final Map<String, Integer> killCounts = new HashMap<>();
+
+    /**
+     * The "Anvil" button in the collection log header.
+     *
+     * Built in startUp rather than here: `client` arrives by injection, so a field initialiser would
+     * capture null. Enabled on the same condition the sidebar's Sync profile is — a site and a token
+     * — because a button that can only produce "you are not signed in" is worse than no button.
+     */
+    private HeaderButton clogSyncButton;
+
+    /**
+     * The "Anvil" button in the CLAN window's header, beside Wise Old Man's "Sync WOM Group".
+     *
+     * Gated on the same three things the sidebar's Sync-roster button is: a configured site, site
+     * admin in the clan being addressed, and a readable clan channel. The admin answer is per clan
+     * and dropped on a switch (see forgetAdminAnswerOnClanChange), so this cannot linger into a clan
+     * where pressing it could only collect a 403.
+     */
+    private HeaderButton clanSyncButton;
     /**
      * The most recent "Your X kill count is: N" line, and when it landed.
      *
@@ -1044,6 +1063,13 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        clogSyncButton = new HeaderButton(
+                client, net.runelite.api.gameval.InterfaceID.Collection.HEADER, "Anvil", "Sync to Anvil",
+                () -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
+        clanSyncButton = new HeaderButton(
+                client, net.runelite.api.gameval.InterfaceID.ClansInfo.FRAME, "Anvil", "Sync roster",
+                () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(),
+                this::syncClanRosterFromPanel);
         migrateConfigDefaults();
         // Restore the clan the member last picked, BEFORE the first fetch — otherwise the opening poll
         // goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
@@ -1504,6 +1530,14 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onWidgetLoaded(WidgetLoaded event) {
+        // The clan window. Its header is where Wise Old Man puts "Sync WOM Group", and ours goes
+        // beside it — placed against whatever is already there rather than at a fixed offset.
+        //
+        // Deferred a tick: the group has loaded, but the header's children (including other plugins'
+        // buttons, which is the whole thing we measure against) are not necessarily built yet.
+        if (event.getGroupId() == net.runelite.api.gameval.InterfaceID.CLANS_INFO && clanSyncButton != null) {
+            clientThread.invokeLater(() -> clanSyncButton.render());
+        }
         if (event.getGroupId() == QUEST_COMPLETED_GROUP_ID) {
             // The scroll's text child isn't populated yet on the load event — read it next tick,
             // with a couple of retries in case the text lands late.
@@ -1558,6 +1592,11 @@ public class AnvilPlugin extends Plugin {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
             captureClogPage();
         } else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
+            // The header button, drawn on every setup so it survives the log's own re-renders and is
+            // re-placed against whatever other plugins put there this time.
+            if (clogSyncButton != null) {
+                clogSyncButton.render();
+            }
             // Opt-in until the trick has been proven on a real client: an unguarded version of this
             // recursed through the interface scripts and crashed the game. The button asks for the
             // same thing deliberately, which is the safe way to try it.
