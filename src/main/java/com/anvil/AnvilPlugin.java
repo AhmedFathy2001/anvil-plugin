@@ -7421,12 +7421,73 @@ public class AnvilPlugin extends Plugin {
         return Math.max(Math.max(1000, raw), clanFloor);
     }
 
+    /**
+     * The kill count to stamp on a drop from {@code source}.
+     *
+     * A RAID REPORTS ITS LOOT UNDER THE BASE NAME. RuneLite's loot event says "Tombs of Amascut"
+     * whichever mode you ran, while the game's kill-count line names the mode — "Your completed Tombs
+     * of Amascut: Expert Mode count is: 220". Those are different keys, so looking the base name up
+     * answered with whatever the NORMAL-mode count happened to be, and an Expert drop at 220 was
+     * posted to Discord as "KC 54". Same shape for CoX Challenge Mode and ToB Hard Mode.
+     *
+     * The kill line always precedes the loot, so a recent line naming this source — or any mode of it
+     * — is the one this drop belongs to. Outside that window nothing recent is claimed and the
+     * per-name map answers as before, which is what a drop with no kill line (a clue casket, an
+     * impling) still wants.
+     */
+    /**
+     * The raid modes the game appends to a base name. A CLOSED SET, deliberately.
+     *
+     * The first attempt at this accepted any extra words after the base, on the reasoning that "a
+     * mode always adds words". It does — but so does a longer unrelated name once punctuation is
+     * stripped for matching: "Kree'Arra" normalises to "kree arra", so the apostrophe manufactures
+     * exactly the word boundary the check was leaning on, and "Kree" would have matched it. There
+     * are four of these in the game and they never change without a raid release, so naming them is
+     * both safer and more honest than a shape test.
+     */
+    private static final java.util.Set<String> RAID_MODE_SUFFIXES = java.util.Collections.unmodifiableSet(
+            new java.util.HashSet<>(java.util.Arrays.asList(
+                    "challenge mode", "entry mode", "expert mode", "hard mode")));
+
+    /**
+     * Does a kill-count line for {@code kcName} describe a kill of {@code source}?
+     *
+     * True for the same activity, and for any MODE of it — "Tombs of Amascut" is credited by
+     * "Tombs of Amascut: Expert Mode", because RuneLite's loot event and the game's chat line are
+     * naming the same raid.
+     */
+    static boolean kcLineBelongsTo(String source, String kcName) {
+        if (source == null || kcName == null) {
+            return false;
+        }
+        String want = normalizeBossName(source);
+        String seen = normalizeBossName(kcName);
+        if (want.isEmpty() || seen.isEmpty()) {
+            return false;
+        }
+        if (seen.equals(want)) {
+            return true;
+        }
+        if (!seen.startsWith(want + " ")) {
+            return false;
+        }
+        return RAID_MODE_SUFFIXES.contains(seen.substring(want.length() + 1));
+    }
+
     private Integer killCountFor(String source) {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg != null && !cfg.showKillCount) {
             return null;
         }
-        return source == null ? null : killCounts.get(source.toLowerCase());
+        if (source == null) {
+            return null;
+        }
+        if (lastKcName != null
+                && System.currentTimeMillis() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS
+                && kcLineBelongsTo(source, lastKcName)) {
+            return lastKcValue;
+        }
+        return killCounts.get(source.toLowerCase());
     }
 
     private void postRareDrop(String source, int itemId, int qty, long value, Double dropRate) {
