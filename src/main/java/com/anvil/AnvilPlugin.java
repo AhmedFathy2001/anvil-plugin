@@ -522,6 +522,25 @@ public class AnvilPlugin extends Plugin {
             "tzkal-zuk", "Infernal cape",
             "tztok-jad", "Fire cape");
 
+    // Chat styling, in BOTH the forms the game uses. RuneLite's <col=…> / <img=…> markup is the
+    // familiar one; the other is Jagex's older @tag@ colour codes (@red@, @dre@ …), which now
+    // include named ones the game puts inline with the text — a Combat Achievement line arrives as
+    // "…combat task: @ach_comp@Phantom Muspah Speed-Chaser." Stripping only the angle-bracket form
+    // left that code glued to the front of the task name, so it reached the tile matcher, the
+    // Discord title and the wiki link it builds. Neither form is ever content.
+    //
+    // Deliberately narrow: a code is short and alphanumeric, so an @ in ordinary text needs a
+    // second one close behind it to be touched at all — and none of the lines parsed here (kill
+    // counts, personal bests, diaries, quests, collection-log unlocks) can carry an @ in a name.
+    // Package-visible for ChatTagStripTest.
+    static final java.util.regex.Pattern CHAT_TAG = java.util.regex.Pattern.compile(
+            "<[^>]*>|@[A-Za-z0-9_]{1,20}@");
+
+    /** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
+    static String stripChatTags(String msg) {
+        return msg == null ? "" : CHAT_TAG.matcher(msg).replaceAll("");
+    }
+
     // Combat achievement task completion, e.g.
     // "Congratulations, you've completed an Elite combat task: Whack-a-Mole."
     // Package-visible for CombatTaskLineTest — CA bingo-tile crediting keys off this line.
@@ -2905,8 +2924,9 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
-        // Dizana's quiver, …) that don't fire a loot event. Strip any colour tags first.
-        String plain = msg.replaceAll("<[^>]*>", "");
+        // Dizana's quiver, …) that don't fire a loot event. Strip any styling first — both forms,
+        // or an @ach_comp@ ends up part of a task name (see CHAT_TAG).
+        String plain = stripChatTags(msg);
         // Personal bests, captured whether or not an event is running — a best time is a profile
         // fact, not an event one. Costs one indexOf on lines that don't mention a personal best,
         // which is all of them bar a handful a session.
@@ -8364,7 +8384,9 @@ public class AnvilPlugin extends Plugin {
                 }
                 return;
             }
-            String plain = raw.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+            // A widget, so the angle-bracket form is what appears here — but it costs nothing to
+            // take the @ codes too, and the quest scroll is styled by the same game.
+            String plain = CHAT_TAG.matcher(raw).replaceAll(" ").replaceAll("\\s+", " ").trim();
             String quest = parseQuestScroll(plain);
             if (quest == null || quest.contains("partial completion")) {
                 return; // unparseable, or Hazeel Cult's "kind of completed" — not a completion
