@@ -6425,11 +6425,11 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** Name a pet already queued, once the collection-log line says which one it was. */
-    private void namePetMoment(String key, String itemName) {
+    private void namePetMoment(String key, String itemName, String source, Integer kc) {
         if (key == null || !momentsEnabled()) {
             return;
         }
-        moments.nameQueued(key, itemName, resolveItemIdByName(itemName));
+        moments.nameQueued(key, itemName, resolveItemIdByName(itemName), source, kc);
     }
 
     /**
@@ -7093,9 +7093,9 @@ public class AnvilPlugin extends Plugin {
             }
             if (contents.size() == 1) {
                 RareItem it = contents.get(0);
-                postRareDrop(source, it.itemId, it.qty, it.value, null);
+                postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, null);
             } else {
-                postCombinedRareDrop(source, contents, total);
+                postCombinedRareDrop(source, sourceKind, contents, total);
             }
             return;
         }
@@ -7128,7 +7128,7 @@ public class AnvilPlugin extends Plugin {
             String iname = itemName(itemId);
             if (isAlwaysNotifyItem(iname)) {
                 if (claimAllowlistNotify(iname, now)) {
-                    postSpecialDrop(source, itemId, qty, itemValue);
+                    postSpecialDrop(source, sourceKind, itemId, qty, itemValue);
                 }
                 continue;
             }
@@ -7164,13 +7164,13 @@ public class AnvilPlugin extends Plugin {
 
         if (qualifying.size() == 1) {
             RareItem it = qualifying.get(0);
-            postRareDrop(source, it.itemId, it.qty, it.value, it.dropRate);
+            postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, it.dropRate);
         } else if (qualifying.size() > 1) {
             long total = 0;
             for (RareItem it : qualifying) {
                 total += it.value;
             }
-            postCombinedRareDrop(source, qualifying, total);
+            postCombinedRareDrop(source, sourceKind, qualifying, total);
         }
     }
 
@@ -7220,21 +7220,28 @@ public class AnvilPlugin extends Plugin {
      * Posts a notable collection-log unlock (a prestige item) when it lands via
      * a loot event.
      */
-    private void postSpecialDrop(String source, int itemId, int qty, long value) {
+    private void postSpecialDrop(String source, String sourceKind, int itemId, int qty, long value) {
         String name = itemName(itemId);
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " received " + name
-                + (source != null && !source.isEmpty() ? " from " + source : "") + "!";
-        // Earned awards (Infernal cape, Dizana's quiver…) skip the lucky-drop line: they're the
-        // reward for finishing the content, and calling a hard-won clear "spooned" reads as a jab.
-        if (!DropLuck.isEarnedAward(name)) {
+                + DropSource.fromPhrase(source, sourceKind) + "!";
+        // Two kinds of drop the lucky-drop line insults rather than celebrates. An EARNED award
+        // (Infernal cape, Dizana's quiver…) is the reward for finishing the content, so calling a
+        // hard-won clear "spooned" reads as a jab. A GUARANTEED drop was never rolled for at all —
+        // the boss owed it — so "someone drier deserved that" reads as not knowing the game. Notable
+        // items reach this path with no drop rate at all, which is why the line used to be
+        // unconditional: nothing here could tell the difference until the server started saying.
+        boolean earned = DropLuck.isEarnedAward(name);
+        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
+        if (!earned && !guaranteed) {
             desc += "\n" + randomSpoonLine();
         }
         // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
         com.google.gson.JsonObject embed = buildDropEmbed(
-                DropLuck.isEarnedAward(name) ? "🏆 Earned!" : "💎 Notable drop!",
-                desc, name, itemId, qty, value, null, killCountFor(source), shotName);
+                earned ? "🏆 Earned!" : "💎 Notable drop!",
+                desc, name, itemId, qty, value, null, killCountFor(source), shotName,
+                DropSource.countLabel(source, sourceKind), guaranteed);
 
         if (config.rareDropScreenshot()) {
             postWithScreenshot("rareDrops", embed, shotName);
@@ -7267,12 +7274,16 @@ public class AnvilPlugin extends Plugin {
         String shotName = "anvil-drop.png";
         String desc = (rsn != null ? rsn : "A clan member") + " unlocked " + itemName + "!";
         boolean earned = DropLuck.isEarnedAward(itemName);
-        if (!earned) {
+        // No source came with this line — the collection log says what, never from where — so only a
+        // clan override that named no sources ("guaranteed wherever it drops") can answer here.
+        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), itemName, null);
+        if (!earned && !guaranteed) {
             desc += "\n" + randomSpoonLine();
         }
         // No item id here (the message gives only a name), so value is unknown — omit it.
         com.google.gson.JsonObject embed = buildDropEmbed(
-                earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, 1, 0, null, null, shotName);
+                earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, -1, 1, 0, null, null, shotName,
+                "KC", guaranteed);
 
         if (config.rareDropScreenshot()) {
             postWithScreenshot("rareDrops", embed, shotName);
@@ -7593,6 +7604,24 @@ public class AnvilPlugin extends Plugin {
         return RAID_MODE_SUFFIXES.contains(seen.substring(want.length() + 1));
     }
 
+    /**
+     * The server's drop knowledge, or null against a site that doesn't serve it. Read through a
+     * method rather than the field so every caller sees the same null-safety and the capability
+     * gate lives in one place.
+     */
+    /** "woodcutting" -> "Woodcutting". The skill keys arrive lowercased from the site's dataset. */
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private PluginConfigResponse.DropFacts dropFacts() {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null && cfg.serverSupports("drop-facts") ? cfg.dropFacts : null;
+    }
+
     private Integer killCountFor(String source) {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg != null && !cfg.showKillCount) {
@@ -7609,18 +7638,20 @@ public class AnvilPlugin extends Plugin {
         return killCounts.get(source.toLowerCase());
     }
 
-    private void postRareDrop(String source, int itemId, int qty, long value, Double dropRate) {
+    private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate) {
         String name = itemName(itemId);
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
         Integer kc = killCountFor(source);
+        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
         // A rare roll on something worthless is a punchline, not a prize — say so instead of
-        // dressing a Dragon spear up as treasure.
-        boolean troll = DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
+        // dressing a Dragon spear up as treasure. A guaranteed drop is neither.
+        boolean troll = !guaranteed && DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
         String desc = (rsn != null ? rsn : "A clan member")
                 + (troll ? " got robbed" : " received a valuable drop")
-                + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
-        if (DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE)) {
+                + DropSource.fromPhrase(source, sourceKind) + ".";
+        // The reaction line is about beating the odds. There were none to beat.
+        if (!guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE)) {
             desc += "\n" + randomSpoonLine();
         }
         // Where this leaves their vestige rotation, when the drop was a roll of one (set moments
@@ -7631,7 +7662,8 @@ public class AnvilPlugin extends Plugin {
             lastVestigeLine = null;
         }
         com.google.gson.JsonObject embed = buildDropEmbed(
-                troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName);
+                troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName,
+                DropSource.countLabel(source, sourceKind), guaranteed);
 
         if (config.rareDropScreenshot()) {
             postWithScreenshot("rareDrops", embed, shotName);
@@ -7647,7 +7679,7 @@ public class AnvilPlugin extends Plugin {
      * highlights the single most valuable item, plus the combined total and
      * item count — instead of a post per item or a huge per-item list.
      */
-    private void postCombinedRareDrop(String source, List<RareItem> items, long total) {
+    private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total) {
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
 
@@ -7662,7 +7694,7 @@ public class AnvilPlugin extends Plugin {
                 + " (" + String.format("%,d gp", top.value) + ")";
 
         String desc = (rsn != null ? rsn : "A clan member") + " received a valuable haul"
-                + (source != null && !source.isEmpty() ? " from " + source : "") + ".";
+                + DropSource.fromPhrase(source, sourceKind) + ".";
         // No single rate to judge a mixed haul by, so the combined value decides.
         if (total >= SPOON_VALUE) {
             desc += "\n" + randomSpoonLine();
@@ -7683,7 +7715,7 @@ public class AnvilPlugin extends Plugin {
         fields.add(statField("Items", String.valueOf(items.size())));
         Integer kc = killCountFor(source);
         if (kc != null && kc > 0) {
-            fields.add(statField("KC", String.format("%,d", kc)));
+            fields.add(statField(DropSource.countLabel(source, sourceKind), String.format("%,d", kc)));
         }
         embed.add("fields", fields);
 
@@ -7751,6 +7783,13 @@ public class AnvilPlugin extends Plugin {
         /** The queued feed entry waiting for the same name, if any. */
         final String momentKey;
         String name;
+        /**
+         * Where it really came from, and the count there — resolvable only once the name is known
+         * (see DropSource.resolvePetSource). Null until then, and null afterwards for a pet nothing
+         * can place, which is what makes the post fall back to {@link #source}.
+         */
+        String resolvedSource;
+        Integer resolvedKc;
 
         PendingPet(boolean duplicate, String source, String sourceKind, Integer killCount,
                    boolean announce, String momentKey) {
@@ -7793,9 +7832,16 @@ public class AnvilPlugin extends Plugin {
             pendingPet.name = itemName;
             pet = pendingPet;
         }
-        // The feed's copy of this pet has been sitting unnamed since the chat line — this is the
-        // only thing in the game that says which pet it was.
-        namePetMoment(pet.momentKey, itemName);
+        // Naming it is also what makes its SOURCE knowable: until now the only candidate was the
+        // last loot the client saw. Resolve once, here, so the clan feed and the Discord post can
+        // never disagree about which boss it came from.
+        String resolved = DropSource.resolvePetSource(dropFacts(), itemName, pet.source, killCounts);
+        synchronized (petLock) {
+            pet.resolvedSource = resolved;
+            pet.resolvedKc = resolved == null ? null
+                    : (resolved.equalsIgnoreCase(pet.source) ? pet.killCount : killCountFor(resolved));
+        }
+        namePetMoment(pet.momentKey, itemName, resolved, pet.resolvedKc);
         return pet;
     }
 
@@ -7858,6 +7904,16 @@ public class AnvilPlugin extends Plugin {
         String shotName = "anvil-pet.png";
         String petName = pet.name;
 
+        // Where it ACTUALLY came from, settled in claimPetName the moment the name arrived (the feed
+        // took the same answer). A pet that never got named, or one nothing can place, falls back to
+        // the observed loot source — which is all this ever had.
+        String source;
+        Integer killCount;
+        synchronized (petLock) {
+            source = pet.name == null ? pet.source : pet.resolvedSource;
+            killCount = pet.name == null ? pet.killCount : pet.resolvedKc;
+        }
+
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
         if (rsn != null && !rsn.isEmpty()) {
             com.google.gson.JsonObject author = new com.google.gson.JsonObject();
@@ -7874,20 +7930,27 @@ public class AnvilPlugin extends Plugin {
 
         com.google.gson.JsonArray fields = new com.google.gson.JsonArray();
         fields.add(statField("Status", pet.duplicate ? "Duplicate" : "New!"));
-        if (pet.source != null && !pet.source.isEmpty()) {
-            fields.add(statField("From", pet.source));
+        if (source != null && !source.isEmpty()) {
+            fields.add(statField("From", source));
+        } else {
+            // A skilling pet has no monster; the skill is the only true thing there is to say, and
+            // saying nothing at all is still better than naming the last thing that dropped loot.
+            PluginConfigResponse.DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
+            if (entry != null && entry.skill != null && !entry.skill.isEmpty()) {
+                fields.add(statField("From", capitalize(entry.skill)));
+            }
         }
-        if (pet.killCount != null && pet.killCount > 0) {
-            fields.add(statField("KC", String.format("%,d", pet.killCount)));
+        if (killCount != null && killCount > 0) {
+            fields.add(statField("KC", String.format("%,d", killCount)));
         }
 
         // Real rarity or none: the rate comes from the same service the rare-drop posts price
         // against, asked with this pet's own item id.
         Integer itemId = petName != null ? resolveItemIdByName(petName) : null;
-        Double dropRate = petRarity(itemId, pet);
+        Double dropRate = petRarity(itemId, source, pet.sourceKind);
         if (dropRate != null && dropRate > 0) {
             fields.add(statField("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate)));
-            String luck = DropLuck.luckLabel(dropRate, pet.killCount);
+            String luck = DropLuck.luckLabel(dropRate, killCount);
             if (luck != null && !luck.isEmpty()) {
                 fields.add(statField("Luck", luck));
             }
@@ -7914,15 +7977,18 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** This pet's drop rate from the rarity table its source uses, or null when nothing can price it. */
-    private Double petRarity(Integer itemId, PendingPet pet) {
-        if (itemId == null || itemId <= 0 || pet.source == null || pet.source.isEmpty()) {
+    private Double petRarity(Integer itemId, String source, String sourceKind) {
+        if (itemId == null || itemId <= 0 || source == null || source.isEmpty()) {
             return null;
         }
-        AbstractRarityService service = raritySource(pet.sourceKind);
+        // The resolved source may be a monster the client never saw loot from, in which case there
+        // is no observed KIND either — but a pet the server files under a killable monster is by
+        // definition an npc drop, so the npc table is the right one to ask.
+        AbstractRarityService service = raritySource(sourceKind == null ? "npc" : sourceKind);
         if (service == null) {
             return null;
         }
-        java.util.OptionalDouble r = service.getRarity(pet.source, itemId, 1);
+        java.util.OptionalDouble r = service.getRarity(source, itemId, 1);
         return r.isPresent() && r.getAsDouble() > 0 ? r.getAsDouble() : null;
     }
 
@@ -8569,6 +8635,12 @@ public class AnvilPlugin extends Plugin {
         return buildDropEmbed(title, description, itemName, -1, qty, value, dropRate, killCount, shotName);
     }
 
+    private com.google.gson.JsonObject buildDropEmbed(String title, String description,
+            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName) {
+        return buildDropEmbed(title, description, itemName, itemId, qty, value, dropRate, killCount, shotName,
+                "KC", false);
+    }
+
     /**
      * The drop embed. {@code itemId} (or -1 when unknown) adds the item's own sprite as the
      * thumbnail — the same image the game draws, so a channel skim reads as icons rather than text.
@@ -8576,7 +8648,8 @@ public class AnvilPlugin extends Plugin {
      * lib/discordEmbeds for the house style this matches.
      */
     private com.google.gson.JsonObject buildDropEmbed(String title, String description,
-            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName) {
+            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName,
+            String countLabel, boolean guaranteed) {
         com.google.gson.JsonObject embed = new com.google.gson.JsonObject();
         String rsn = getLocalPlayerName();
         if (rsn != null && !rsn.isEmpty()) {
@@ -8593,15 +8666,22 @@ public class AnvilPlugin extends Plugin {
         if (value > 0) {
             fields.add(statField("Value", String.format("%,d gp", value)));
         }
-        if (dropRate != null && dropRate > 0) {
+        // A guaranteed drop has no rate worth printing and no luck to speak of: "1/1" and "Top 100%"
+        // are both true and both noise. Say what it is instead, so the post still explains itself.
+        if (guaranteed) {
+            fields.add(statField("Drop rate", "Guaranteed"));
+        } else if (dropRate != null && dropRate > 0) {
             long oneIn = Math.round(1.0 / dropRate);
             fields.add(statField("Drop rate", "1/" + String.format("%,d", oneIn)));
         }
         if (killCount != null && killCount > 0) {
-            fields.add(statField("KC", String.format("%,d", killCount)));
+            // Keys opened and caskets are not kills; calling either KC invites a comparison against
+            // a drop rate that has nothing to do with it (DropSource.countLabel).
+            fields.add(statField(countLabel == null || countLabel.isEmpty() ? "KC" : countLabel,
+                    String.format("%,d", killCount)));
         }
         // Luck reads the rate against the kill count — silent unless the result is worth a remark.
-        String luck = DropLuck.luckLabel(dropRate, killCount);
+        String luck = guaranteed ? null : DropLuck.luckLabel(dropRate, killCount);
         if (luck != null) {
             fields.add(statField("Luck", luck));
         }

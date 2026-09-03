@@ -320,8 +320,39 @@ public class PluginConfigResponse
 	// their own setting can be stricter but not looser. 0 / absent = no clan floor. Lets an admin
 	// quiet a noisy channel for everyone from the site instead of asking each member to edit config.
 	public int dropRarityFloor;
+	// What the SERVER knows about a drop and the client cannot (site capability "drop-facts"):
+	// which monster a pet actually comes from, and which items a source hands over every kill.
+	// Null against an older site, and every read of it degrades to the old guess-from-context
+	// behaviour rather than to nothing.
+	public DropFacts dropFacts;
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
+
+	/**
+	 * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for
+	 * {@code guaranteed}, the pet's for {@code pets} — because that is what the client has in hand
+	 * when a post is being written, and it survives an item-id variant swap.
+	 */
+	public static class DropFacts
+	{
+		/** Pet name -> where it really comes from. */
+		public java.util.Map<String, Pet> pets;
+		/**
+		 * Item name -> the sources that drop it EVERY time, lowercased. A single {@code "*"} entry
+		 * means "guaranteed wherever it drops" (a clan override that didn't name sources).
+		 */
+		public java.util.Map<String, List<String>> guaranteed;
+
+		public static class Pet
+		{
+			/** Every source that drops this pet. Empty for a skilling pet — there is no monster. */
+			public List<String> sources;
+			/** "npc" (killable, so a rate and a KC exist), "event" (raid/minigame), or "skill". */
+			public String kind;
+			/** For a skilling pet, the skill it comes from. Null otherwise. */
+			public String skill;
+		}
+	}
 
 	public static class NotifyChannels
 	{
