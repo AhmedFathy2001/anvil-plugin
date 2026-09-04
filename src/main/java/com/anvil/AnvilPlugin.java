@@ -2443,6 +2443,15 @@ public class AnvilPlugin extends Plugin {
         }
         knownMember = resp.knownMember;
         isGuest = resp.isGuest;
+        // The breadcrumb this decision never left. "Tracked as a guest" fired once against a clan the
+        // player holds a MEMBER seat in, and there was no way to tell which clan had answered or
+        // which character it had been asked about — so the message could not be checked, only
+        // believed. One line, at INFO, naming both.
+        log.info("Anvil: hello as '{}' -> clan '{}' seat={} knownMember={}",
+                rsn,
+                resp.clanName != null ? resp.clanName : "(site predates clan in hello)",
+                resp.seatKind != null ? resp.seatKind : "none",
+                resp.knownMember);
         if (!resp.knownMember) {
             sendChatMessage("Tracked as a guest — a clan admin can promote you to member on the site.");
         }
