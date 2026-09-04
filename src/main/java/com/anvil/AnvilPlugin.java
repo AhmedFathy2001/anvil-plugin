@@ -7520,7 +7520,13 @@ public class AnvilPlugin extends Plugin {
         if (rank != null) {
             fields.add(statField("Rank", rank));
         }
-        String source = recentLootSource();
+        // This item's own source first. The fallback still answers for an unlock with no loot event
+        // behind it at all — a skilling pet, a quest reward — where "the last thing that dropped"
+        // is the only signal there is.
+        String source = sourceForLootedItem(itemName);
+        if (source == null) {
+            source = recentLootSource();
+        }
         if (source != null) {
             fields.add(statField("Source", source));
             // How many times they'd killed it when it finally dropped — the number that turns
@@ -7569,6 +7575,42 @@ public class AnvilPlugin extends Plugin {
         return findTradeableItemId(name);
     }
 
+    /**
+     * What this specific item fell out of.
+     *
+     * THE BUG THIS FIXES. The source used to be "whatever loot event happened most recently", which
+     * is right for a drop announced the instant it lands and wrong for anything that arrives on its
+     * own schedule. A clue reward is the clean example: kill a Saradomin wizard, open the casket it
+     * eventually led to, and the collection-log line for Enchanted top was stamped `Saradomin
+     * wizard` — the thing the player last hit, not the thing the item came out of.
+     *
+     * The per-item memory was already being kept for the sprite lookup; it simply did not record
+     * where each item came from. Now it does, so the answer is about the item rather than the clock.
+     */
+    private String sourceForLootedItem(String itemName) {
+        if (itemName == null || itemName.isEmpty()) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        synchronized (recentLootIds) {
+            recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
+            return sourceOf(recentLootIds, itemName, now, CLOG_LOOT_DEDUP_MS);
+        }
+    }
+
+    /** The lookup itself, free of plugin state so the attribution can be tested directly. */
+    static String sourceOf(
+            java.util.Map<String, RecentItem> seen, String itemName, long now, long windowMs) {
+        if (itemName == null || itemName.isEmpty()) {
+            return null;
+        }
+        RecentItem hit = seen.get(itemName.toLowerCase(java.util.Locale.ROOT));
+        if (hit == null || now - hit.at > windowMs) {
+            return null;
+        }
+        return hit.source != null && !hit.source.isEmpty() ? hit.source : null;
+    }
+
     /** Where the last loot came from, if it landed recently enough to be this unlock's source. */
     private String recentLootSource() {
         synchronized (recentLootIds) {
@@ -7597,7 +7639,9 @@ public class AnvilPlugin extends Plugin {
                 }
                 String name = itemName(it.getId());
                 if (name != null && !name.isEmpty()) {
-                    recentLootIds.put(name.toLowerCase(java.util.Locale.ROOT), new RecentItem(it.getId(), now));
+                    recentLootIds.put(
+                            name.toLowerCase(java.util.Locale.ROOT),
+                            new RecentItem(it.getId(), now, source));
                 }
             }
             if (source != null && !source.isEmpty()) {
@@ -7608,15 +7652,18 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** An item id seen in a recent loot event, with the time it landed. */
-    private static final class RecentItem {
+    /** An item id seen in a recent loot event, with the time it landed and what it fell out of. */
+    static final class RecentItem {
 
         final int itemId;
         final long at;
+        /** The loot event this item was actually in — not merely the latest one. */
+        final String source;
 
-        RecentItem(int itemId, long at) {
+        RecentItem(int itemId, long at, String source) {
             this.itemId = itemId;
             this.at = at;
+            this.source = source;
         }
     }
 
