@@ -10,8 +10,8 @@ import net.runelite.api.widgets.WidgetTextAlignment;
 import net.runelite.api.widgets.WidgetType;
 
 /**
- * An "Anvil" button injected into a game interface's header — the collection log's, beside WikiSync
- * and RuneProfile, and the clan window's, beside Wise Old Man's.
+ * An "Anvil" button injected into a game interface's TITLE BAR — the collection log's, beside
+ * WikiSync and RuneProfile, and the clan window's, beside Wise Old Man's.
  *
  * WHY BUTTONS AND NOT THE TAB WE DELETED. The in-game clog TAB went in 5d2e425 — four thousand lines
  * of hand-drawn widgets nobody read, sitting between the side panel (progress at a glance) and the
@@ -20,11 +20,13 @@ import net.runelite.api.widgets.WidgetType;
  * than in RuneLite's.
  *
  * PLACED RELATIVE TO WHAT IS ALREADY THERE, never at a fixed offset. Two other hub plugins put
- * buttons in this exact header, and Jagex rearranges interfaces on game updates. So the position is
- * computed at draw time from the header's existing dynamic children — everybody's injected buttons,
- * ours included — and we sit to the LEFT of the leftmost. If the header is missing, the button
- * simply does not appear. A missing button is a small disappointment; one drawn on top of WikiSync's
- * is a bug report from somebody else's users.
+ * buttons in this exact bar, and Jagex rearranges interfaces on game updates. So the position is
+ * computed at draw time: start just left of the window's CLOSE button — the one part of a title bar
+ * that is always at its right edge — then keep stepping left past any dynamic child we would land
+ * on. Dynamic children are exactly everybody's injected buttons, ours included; the interface's own
+ * parts are static. If the bar is missing, the button simply does not appear. A missing button is a
+ * small disappointment; one drawn on top of WikiSync's — or on the close button — is a bug report
+ * from somebody else's users.
  */
 final class HeaderButton
 {
@@ -36,22 +38,34 @@ final class HeaderButton
 	/** Inset from the header's right edge when we are the first button in it. */
 	private static final int RIGHT_INSET = 12;
 
-	/** Identifies our own child across redraws, so a re-render moves it instead of adding a second. */
+	/**
+	 * The menu TARGET, and how we identify our own child across redraws so a re-render moves it
+	 * instead of adding a second.
+	 *
+	 * <p>The game builds a menu entry as "&lt;action&gt; &lt;name&gt;", which is why the action reads
+	 * "Sync to" rather than "Sync to Anvil" — the two used to be concatenated into "Sync to Anvil
+	 * Anvil".
+	 */
 	private static final String NAME = "Anvil";
 
 	private final Client client;
-	/** The header to inject into — a gameval component, so a client update carries it with us. */
+	/** The title bar to inject into — a gameval component, so a client update carries it with us. */
 	private final int componentId;
+	/** That bar's close button, the anchor we place ourselves to the left of. */
+	private final int closeComponentId;
 	private final String label;
+	/** The verb alone; the game appends {@link #NAME} to it. */
 	private final String action;
 	/** Whether syncing is possible right now — no site or no token means no button. */
 	private final BooleanSupplier enabled;
 	private final Runnable onClick;
 
-	HeaderButton(Client client, int componentId, String label, String action, BooleanSupplier enabled, Runnable onClick)
+	HeaderButton(Client client, int componentId, int closeComponentId, String label, String action,
+				 BooleanSupplier enabled, Runnable onClick)
 	{
 		this.client = client;
 		this.componentId = componentId;
+		this.closeComponentId = closeComponentId;
 		this.label = label;
 		this.action = action;
 		this.enabled = enabled;
@@ -113,22 +127,30 @@ final class HeaderButton
 	}
 
 	/**
-	 * An x that does not land on somebody else's button.
+	 * An x that lands on nobody: not the close button, not another plugin's.
 	 *
-	 * Every injected button in these headers is a DYNAMIC child — the interface's own parts are
-	 * static — so the dynamic children are exactly the set to avoid, whoever put them there.
+	 * <p>The close button is the fixed point. Every one of these title bars has one, it is always at
+	 * the right end, and it is the thing a misplaced button covers most expensively — a player who
+	 * cannot shut the collection log will remember which plugin did that. So we start immediately to
+	 * its left and walk further left past anything we would overlap.
 	 *
-	 * TWO LAYOUTS, ONE RULE. The collection log's plugins sit at the RIGHT of its header; Wise Old
-	 * Man's sits at the LEFT of the clan window's. A rule that only stepped one direction worked for
-	 * one of them and drew straight through the other, so this tries right of the rightmost first and
-	 * falls back to left of the leftmost when that would overflow the header. Load order stops
-	 * mattering either way: whoever draws second sees the first and steps around it.
+	 * <p>What we step past is the bar's DYNAMIC children, which is exactly the set of injected
+	 * buttons — WikiSync's, RuneProfile's, Wise Old Man's, ours — because an interface's own parts
+	 * are static. Load order stops mattering: whoever draws second sees the first and steps around
+	 * it. The walk is bounded, and gives up by returning the initial slot rather than looping on a
+	 * pathological layout; being slightly cramped beats not drawing at all.
 	 */
-	private int placeClearOf(Widget header, Widget self)
+	private int placeClearOf(Widget bar, Widget self)
 	{
-		int leftmost = Integer.MAX_VALUE;
-		int rightmostEdge = Integer.MIN_VALUE;
-		Widget[] children = header.getDynamicChildren();
+		Widget close = client.getWidget(closeComponentId);
+		int rightEdge = close != null && !close.isSelfHidden()
+			? close.getOriginalX()
+			: Math.max(0, bar.getWidth() - RIGHT_INSET);
+
+		Widget[] children = bar.getDynamicChildren();
+		int count = 0;
+		int[] lefts = new int[children == null ? 0 : children.length];
+		int[] widths = new int[lefts.length];
 		if (children != null)
 		{
 			for (Widget w : children)
@@ -137,28 +159,48 @@ final class HeaderButton
 				{
 					continue;
 				}
-				leftmost = Math.min(leftmost, w.getOriginalX());
-				rightmostEdge = Math.max(rightmostEdge, w.getOriginalX() + w.getWidth());
+				lefts[count] = w.getOriginalX();
+				widths[count] = w.getWidth();
+				count++;
 			}
 		}
+		return slotLeftOf(rightEdge, lefts, widths, count);
+	}
 
-		int headerWidth = header.getWidth();
-		if (leftmost == Integer.MAX_VALUE)
+	/**
+	 * The x of the first free slot walking LEFT from {@code rightEdge}, given the neighbours to
+	 * avoid. Pure arithmetic, so the placement rule is unit-tested without a game client
+	 * (HeaderButtonTest) — the part that reads widgets is the caller's.
+	 *
+	 * <p>Each step clears at least one neighbour, so the walk terminates in at most one pass per
+	 * neighbour. Running out of room to the left returns the starting slot rather than a negative x:
+	 * being slightly cramped beats being pinned to the bar's left edge, straight through its title.
+	 */
+	static int slotLeftOf(int rightEdge, int[] lefts, int[] widths, int count)
+	{
+		int start = rightEdge - WIDTH - GAP;
+		int x = start;
+		for (int guard = count; guard >= 0; guard--)
 		{
-			// First one in. Sit inside the header's right edge rather than at a guessed coordinate.
-			return Math.max(0, headerWidth - WIDTH - RIGHT_INSET);
+			int blockedBy = -1;
+			for (int i = 0; i < count; i++)
+			{
+				if (x < lefts[i] + widths[i] && lefts[i] < x + WIDTH)
+				{
+					blockedBy = i;
+					break;
+				}
+			}
+			if (blockedBy < 0)
+			{
+				return Math.max(0, x);
+			}
+			x = lefts[blockedBy] - WIDTH - GAP;
+			if (x < 0)
+			{
+				break;
+			}
 		}
-
-		int toTheRight = rightmostEdge + GAP;
-		if (toTheRight + WIDTH <= headerWidth)
-		{
-			return toTheRight;
-		}
-
-		int toTheLeft = leftmost - WIDTH - GAP;
-		// Only if it actually fits. Clamping a negative to 0 would put us back on top of the
-		// leftmost button, which is the collision this whole method exists to avoid — better to
-		// stack at the right edge and be slightly cramped than to overlap somebody.
-		return toTheLeft >= 0 ? toTheLeft : Math.max(0, headerWidth - WIDTH - RIGHT_INSET);
+		return Math.max(0, start);
 	}
 }

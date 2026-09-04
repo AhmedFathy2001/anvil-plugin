@@ -1095,11 +1095,18 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        // The window's TITLE BAR, not the entry pane's header the log also calls a header — that one
+        // is the strip naming the boss you have selected, which is where this button spent its first
+        // release squeezed against the item count. The bar is where WikiSync and RuneProfile put
+        // theirs, and where somebody looking for a sync button looks.
+        //
+        // The action is the verb ALONE: the game renders a menu entry as "<action> <name>", and the
+        // name is "Anvil", so spelling it in both produced "Sync to Anvil Anvil".
         clogSyncButton = new HeaderButton(
-                client, net.runelite.api.gameval.InterfaceID.Collection.HEADER, "Anvil", "Sync to Anvil",
+                client, InterfaceID.Collection.FRAME, InterfaceID.Collection.CLOSE, "Anvil", "Sync to",
                 () -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
         clanSyncButton = new HeaderButton(
-                client, net.runelite.api.gameval.InterfaceID.ClansInfo.FRAME, "Anvil", "Sync roster",
+                client, InterfaceID.ClansInfo.FRAME, InterfaceID.ClansInfo.CLOSE, "Anvil", "Sync roster to",
                 () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(),
                 this::syncClanRosterFromPanel);
         // The stat table as it stands right now, before any XP arrives. A plugin started mid-session
