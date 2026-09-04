@@ -270,6 +270,12 @@ public class AnvilPlugin extends Plugin {
     // Item ID → tracked drops lookup for O(1) loot matching
     private volatile Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex = Collections.emptyMap();
 
+    // Item IDs whose drop ALWAYS posts to the rare-drop channel regardless of value/rarity. The server
+    // resolves pluginConfig.alwaysNotifyItems (names) to ids so matching is by ID — not a fragile name
+    // compare — the same way bingo drop tiles match. Matters most for untradeable prestige items (a ToA
+    // Cursed phalanx has no GE value to gate on). Rebuilt with the drop index; complements the name allowlist.
+    private volatile java.util.Set<Integer> notableItemIds = Collections.emptySet();
+
     // Dedup window for NpcLootReceived + LootReceived firing on the same kill — track last
     // event per (tileId, itemId) and ignore repeats within the window. Note this is
     // separate from the coalesce window below: dedup catches duplicate fire events;
@@ -471,6 +477,13 @@ public class AnvilPlugin extends Plugin {
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
     private final Map<String, Long> lastLootKillAt = new HashMap<>();
     private static final long KILL_DEDUP_MS = 6000;
+
+    // ServerNpcLoot is RuneLite's server-authoritative NPC-loot event: it fires once per ACTUAL kill, so it
+    // counts barraged/clumped kills correctly, where the client-side NpcLootReceived under-fires (several
+    // NPCs despawning the same tick get missed/merged by its ground-item inference) — e.g. a slayer task the
+    // game says was 200 but the tile logged fewer. Once we've seen ServerNpcLoot it's the source of truth for
+    // per-kill counting (kill + value tiles); NpcLootReceived stays a fallback for clients that never emit it.
+    private volatile boolean serverNpcLootSeen;
 
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
@@ -2534,24 +2547,32 @@ public class AnvilPlugin extends Plugin {
         if (event.getComposition() == null) {
             return;
         }
+        serverNpcLootSeen = true;
         String name = event.getComposition().getName();
         trackVestigeRolls(name, event.getItems());
         processLoot(name, event.getItems(), "npc");
         maybeNotifyRareDrop(name, event.getItems(), "npc");
+        // Count kills + value off the SERVER event — it fires once per real kill, so a barraged clump of
+        // same-tick deaths is counted in full (NpcLootReceived under-fires those). See serverNpcLootSeen.
+        processValueTiles(name, event.getItems(), "npc");
+        processNpcKill(name);
     }
 
     @Subscribe
     public void onNpcLootReceived(NpcLootReceived event) {
-        trackVestigeRolls(event.getNpc().getName(), event.getItems());
-        processLoot(event.getNpc().getName(), event.getItems(), "npc");
-        processValueTiles(event.getNpc().getName(), event.getItems(), "npc");
-        recordEventLoot(event.getNpc().getName(), event.getItems(), "npc");
-        maybeNotifyRareDrop(event.getNpc().getName(), event.getItems(), "npc");
-        // NpcLootReceived is RuneLite's attribution-safe "you killed this NPC" signal (fires once
-        // per kill, credited to the local player) — the right hook for kill-count tiles, including
-        // mobs that aren't on the hiscores. Mobs that drop literally nothing won't fire this; those
-        // can still be submitted manually from the site.
-        processNpcKill(event.getNpc().getName());
+        String name = event.getNpc().getName();
+        trackVestigeRolls(name, event.getItems());
+        processLoot(name, event.getItems(), "npc");
+        recordEventLoot(name, event.getItems(), "npc");
+        maybeNotifyRareDrop(name, event.getItems(), "npc");
+        // Kill + value counting is owned by ServerNpcLoot when the client emits it (accurate under
+        // clumps); fall back to this client-side event only when it doesn't, so the two never
+        // double-count a kill. Everything above runs either way — those are per-DROP, not per-kill,
+        // and ServerNpcLoot carries the same items.
+        if (!serverNpcLootSeen) {
+            processValueTiles(name, event.getItems(), "npc");
+            processNpcKill(name);
+        }
     }
 
     @Subscribe
@@ -3241,6 +3262,14 @@ public class AnvilPlugin extends Plugin {
         if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
             return;
         }
+        // Notable clog unlocks (a ToA Cursed phalanx, a raid ornament kit) that fire ONLY the clog line and
+        // no loot event still deserve a rare-drop post. Route through maybeNotifyRareDrop — its per-item +
+        // name-keyed dedup absorbs the duplicate if a loot event fired for the same item — and do it
+        // independent of whether any TILE tracks the item (the webhook shouldn't need a tile).
+        Integer notableId = notableIdForName(itemName);
+        if (notableId != null) {
+            maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
+        }
         List<ItemStack> synthetic = null;
         final long now = System.currentTimeMillis();
         for (Integer id : itemDropIndex.keySet()) {
@@ -3270,6 +3299,21 @@ public class AnvilPlugin extends Plugin {
         // item itself — a tile with a specific sourceNpcs list won't match, which is intended
         // (clog rewards have no NPC source to whitelist against).
         processLoot(itemName, synthetic, "clog");
+    }
+
+    /** The notable-item id whose name matches {@code name} (case-insensitive), or null. Lets the clog-unlock
+     *  path resolve an untradeable prestige item to its id for a rare-drop post without a GE search. */
+    private Integer notableIdForName(String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        for (Integer id : notableItemIds) {
+            ItemComposition comp = itemManager.getItemComposition(id);
+            if (comp != null && name.equalsIgnoreCase(comp.getName())) {
+                return id;
+            }
+        }
+        return null;
     }
 
     /**
@@ -5744,6 +5788,15 @@ public class AnvilPlugin extends Plugin {
             }
         }
         itemDropIndex = index;
+        java.util.Set<Integer> notable = new java.util.HashSet<>();
+        if (pluginConfig != null && pluginConfig.alwaysNotifyItemIds != null) {
+            for (Integer id : pluginConfig.alwaysNotifyItemIds) {
+                if (id != null) {
+                    notable.add(id);
+                }
+            }
+        }
+        notableItemIds = notable;
         rebuildKillNpcIndex();
         rebuildGainItemIndex();
         rebuildPvpRosterIndex();
@@ -7238,7 +7291,9 @@ public class AnvilPlugin extends Plugin {
             // (NpcLootReceived + LootReceived) finds the allowlist already claimed, falls through,
             // and posts a duplicate "Rare drop" for a high-value allowlist item (e.g. a Blood shard).
             String iname = itemName(itemId);
-            if (isAlwaysNotifyItem(iname)) {
+            // Match by item ID (server-resolved) first — reliable for untradeables like a ToA Cursed phalanx
+            // that have no value to gate on — then fall back to the name allowlist for back-compat.
+            if (notableItemIds.contains(itemId) || isAlwaysNotifyItem(iname)) {
                 if (claimAllowlistNotify(iname, now)) {
                     postSpecialDrop(source, sourceKind, itemId, qty, itemValue);
                 }

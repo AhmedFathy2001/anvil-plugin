@@ -315,6 +315,7 @@ public class PluginConfigResponse
 	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
 	public List<String> spoonTaunts;                   // server-managed lucky-drop reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
+	public List<Integer> alwaysNotifyItemIds;          // ^ resolved to item ids server-side, for reliable id-match
 	public boolean showKillCount = true;               // server toggle: include boss/raid KC on rare-drop posts
 	// Clan-wide rare-drop rarity floor (1-in-N). A member may post only drops at least this rare;
 	// their own setting can be stricter but not looser. 0 / absent = no clan floor. Lets an admin
