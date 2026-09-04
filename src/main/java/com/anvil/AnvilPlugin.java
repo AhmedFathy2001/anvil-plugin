@@ -22,6 +22,7 @@ import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.ClanChannelChanged;
 import net.runelite.api.events.WorldChanged;
 import net.runelite.api.events.HitsplatApplied;
@@ -211,6 +212,9 @@ public class AnvilPlugin extends Plugin {
 
     private volatile String lastCombatTarget;
     private volatile long lastCombatTargetAt;
+    // Who is attacking US, which is a different question from what we are attacking and the only one
+    // a death should be answered with. See DeathAttribution.
+    private final DeathAttribution deathAttribution = new DeathAttribution();
     private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
         @Override
         public void hotkeyPressed() {
@@ -2189,6 +2193,9 @@ public class AnvilPlugin extends Plugin {
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
+            // Nothing is attacking a logged-out player, and whatever was is not attacking the next
+            // account either.
+            deathAttribution.clear();
             caRepeatNudgeSent = false;
             lootNotifyNudgeSent = false;
             // Re-evaluate setup + linking for the next account that logs in.
@@ -2705,9 +2712,40 @@ public class AnvilPlugin extends Plugin {
         return gp + " gp";
     }
 
+    /**
+     * Something acquired or dropped us as its target.
+     *
+     * <p>The only attribution the client offers for incoming damage: a hitsplat says how much and
+     * what type, never who. Keeping the set of things currently on us is what lets a death name the
+     * thing that killed it rather than the thing it was killing (DeathAttribution).
+     */
+    @Subscribe
+    public void onInteractingChanged(InteractingChanged event) {
+        Actor source = event.getSource();
+        if (source == null || source == client.getLocalPlayer()) {
+            return; // our own target changing is the other question entirely
+        }
+        String name = source.getName();
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        if (event.getTarget() == client.getLocalPlayer()) {
+            deathAttribution.targetedUs(name, System.currentTimeMillis());
+        } else {
+            deathAttribution.stoppedTargetingUs(name);
+        }
+    }
+
     @Subscribe
     public void onHitsplatApplied(HitsplatApplied event) {
         Hitsplat ourHit = event.getHitsplat();
+        // Damage TAKEN — the clock a death is attributed against. Anything not ours landing on us
+        // counts, including a mechanic with nobody behind it: the point is when we were last hurt,
+        // and whether anything had us targeted at the time is decided at death.
+        if (ourHit != null && ourHit.isOthers() && ourHit.getAmount() > 0
+                && event.getActor() == client.getLocalPlayer()) {
+            deathAttribution.tookDamage(System.currentTimeMillis());
+        }
         // Biggest hit of the event — a recap superlative, so it counts every hit we land on anything,
         // player or NPC, and is independent of the PvP gates below. One int compare per hitsplat.
         if (ourHit != null && ourHit.isMine() && ourHit.getAmount() > 0) {
@@ -6458,21 +6496,33 @@ public class AnvilPlugin extends Plugin {
     /**
      * Note a death, and what killed us.
      *
-     * <p>The killer is the thing we were last trading blows with — the same signal a clip uses to
-     * describe a fight that didn't end in a kill. It's a heuristic and it can be wrong (a wandering
-     * NPC finishing you off after the boss), but it is the only attribution the client has, and the
-     * site discards a death whose killer doesn't match anything it's watching.
+     * <p>The killer is inferred from what had us TARGETED when we last took damage, not from what we
+     * were hitting — see DeathAttribution for why the client cannot simply be asked, and for what
+     * the difference looked like in the feed ("died to Jug"). What we were fighting is still used,
+     * but only to break a tie between several things attacking us at once.
+     *
+     * <p>Null when nothing had us targeted, which is a mechanic or a fall, and the feed then says
+     * only that someone died. A death with no killer is a smaller story than one with the wrong.
      */
     private void recordDeathMoment() {
         if (!momentsEnabled()) {
             return;
         }
         long now = System.currentTimeMillis();
-        String killer = (lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS)
+        String fighting = (lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS)
                 ? lastCombatTarget : null;
+        String killer = deathAttribution.killer(fighting, now);
+        // Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
+        // and which one we picked, next to what we were hitting.
+        log.debug("Anvil death: killer='{}' (attackers={}, we were fighting '{}')",
+                killer, deathAttribution.attackerCount(), fighting);
         moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, "npc",
                 killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
         scheduleMomentPush();
+        // The fight is over: whatever had us targeted has no claim on the next one. Cleared here
+        // rather than waiting for each attacker to drop us, which an instance tear-down never
+        // reports — a stale attacker would otherwise be the prime suspect for the next death.
+        deathAttribution.clear();
     }
 
     /**
