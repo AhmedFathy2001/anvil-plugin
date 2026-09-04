@@ -1102,11 +1102,21 @@ public class AnvilPlugin extends Plugin {
         //
         // The action is the verb ALONE: the game renders a menu entry as "<action> <name>", and the
         // name is "Anvil", so spelling it in both produced "Sync to Anvil Anvil".
+        // UNIVERSE, not the entry pane's HEADER the button spent its first release in — that is the
+        // strip naming the boss you have selected, halfway down the interface. UNIVERSE is the
+        // container WikiSync and RuneProfile draw into, which is what puts us in the title bar
+        // beside them and in the same stacking order rather than behind them.
+        //
+        // The offset walks left from the bar's right edge: the close button ends at 28, WikiSync
+        // takes 33..104, and we take the next slot along. An absolute-right offset holds at any
+        // window size, where measuring off a neighbour moves the moment they move.
         clogSyncButton = new HeaderButton(
-                client, InterfaceID.Collection.FRAME, InterfaceID.Collection.CLOSE, "Anvil", "Sync to",
+                client, InterfaceID.Collection.UNIVERSE, InterfaceID.Collection.SEARCH_TOGGLE,
+                CLOG_BUTTON_OFFSET, "Anvil", "Sync to",
                 () -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
         clanSyncButton = new HeaderButton(
-                client, InterfaceID.ClansInfo.FRAME, InterfaceID.ClansInfo.CLOSE, "Anvil", "Sync roster to",
+                client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE,
+                CLAN_BUTTON_OFFSET, "Anvil", "Sync roster to",
                 () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(),
                 this::syncClanRosterFromPanel);
         // The stat table as it stands right now, before any XP arrives. A plugin started mid-session
@@ -1659,6 +1669,11 @@ public class AnvilPlugin extends Plugin {
 
     /** Fires once the collection log interface has finished setting itself up. */
     private static final int COLLECTION_LOG_SETUP = 7797;
+    // Where our title-bar buttons sit, measured from each bar's RIGHT edge. The collection log's
+    // close button ends at 28 and WikiSync's button takes 33..104, so we start after it; the clan
+    // window has only its close button, so we sit straight beside that.
+    private static final int CLOG_BUTTON_OFFSET = 109;
+    private static final int CLAN_BUTTON_OFFSET = 33;
     /** One fire per transmitted item: args[1] = item id, args[2] = quantity. */
     private static final int COLLECTION_DELAYED_TRANSMIT = 4100;
     /** Re-initialises the log's own view, which closes the search we opened to trigger the transmit. */
@@ -1675,10 +1690,12 @@ public class AnvilPlugin extends Plugin {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
             captureClogPage();
         } else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
-            // The header button, drawn on every setup so it survives the log's own re-renders and is
-            // re-placed against whatever other plugins put there this time.
+            // The title-bar button, on the next client tick rather than right here. WikiSync clears
+            // every dynamic child of this container before adding its own, on this same script — so
+            // drawing inline means whether our button exists depends on which plugin the event bus
+            // reaches first. Deferring puts us after all of them, whatever the load order.
             if (clogSyncButton != null) {
-                clogSyncButton.render();
+                clientThread.invokeLater(() -> clogSyncButton.render());
             }
             // Opt-in until the trick has been proven on a real client: an unguarded version of this
             // recursed through the interface scripts and crashed the game. The button asks for the
