@@ -384,7 +384,7 @@ public final class ConnectionView
 
 		/**
 		 * "Skill of the Week" / "Boss of the Week" / "Efficiency of the Week" — the card's kind line and
-		 * the list row's subtitle. Public so the callers that hold only a raw type string (the clog tab's
+		 * the list row's subtitle. Public so the callers that hold only a raw type string (the sidebar's
 		 * leaderboard + schedule, the login greeting) name a comp the same way this card does.
 		 */
 		public String kindLabel()

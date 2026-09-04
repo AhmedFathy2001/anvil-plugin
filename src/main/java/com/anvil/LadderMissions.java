@@ -6,7 +6,7 @@ import java.time.ZoneOffset;
 /**
  * Pure, RuneLite-free helpers for the in-game "missions board" of a ladder / rotating event: the live
  * grow-or-decay value of a mission, the per-second countdown to the next reveal, and their display
- * strings. Kept side-effect-free so both surfaces (the Swing sidebar and the collection-log tab) share
+ * strings. Kept side-effect-free so the Swing sidebar renders
  * one implementation and it's unit-testable. No threads, no I/O — just clock math.
  */
 final class LadderMissions

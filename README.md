@@ -1,189 +1,183 @@
 # Anvil
 
-The companion RuneLite plugin for **Anvil** — a clan-operations platform for Old
-School RuneScape that runs bingo events, weekly SotW/BotW competitions, and keeps
-a live clan roster synced from in-game.
+The RuneLite companion for **[anvilosrs.com](https://anvilosrs.com)** — where OSRS clans run their
+bingos, their weekly SotW/BotW competitions, and their roster.
 
-The plugin lets participants:
+You install it once and point it at the site. After that it does the boring half of an event for
+you: your drops get screenshotted and filed against the right tile, your kill counts and XP move the
+board as you earn them, and the things worth shouting about land in your clan's Discord.
 
-- **See a verification overlay** — a site-generated daily codeword and UTC
-  timestamp burned into every screenshot so evidence is tamper-evident.
-- **Auto-submit tracked tiles** — drops, boss kill-counts, skill XP, NPC kill
-  counts, item gains (catch/cook/gather), timed clears, deathless raids, LMS
-  placements, achievement-diary tiers, and Combat Achievement tasks all credit
-  automatically: submission tiles get a screenshot uploaded and filed to your
-  team's board with zero clicks, while boss-KC and skill-XP tiles update in real
-  time (see *How it works*). Combat Achievement tiles even work for tasks you
-  completed years ago — enable the in-game *Settings → Combat Achievements →
-  Repeat completion* and re-meeting the task's conditions counts.
-- **Browse the board in-game** — a Bingo tab inside the collection log lists
-  every tile with live progress, filters (status/type/category/tier), and the
-  same tile order as the site's board: in-progress first, then not started,
-  then completed.
-- **Manually submit** — a side-panel fallback for anything auto-detect can't
-  credit to a specific tile. Pet drops and **duplicate Champion's scrolls** (the
-  "…you would have received a Champion's scroll…" line, which names no item and
-  fires no loot event) auto-capture a banner-stamped screenshot into **Saved
-  proofs**, so you just attach it on the site instead of scrambling for a shot
-  after the fact.
-- **Weeklies tracked automatically** — SotW/BotW enrollment is handled
-  server-side for clan members; the plugin greets you with what's live on login,
-  and while you're running it your boss-KC / skill-XP push moves the weekly
-  leaderboard in real time (hiscores still reconciles everyone on its sweep).
+<p align="center">
+  <img src="docs/images/side-panel.png" alt="The Anvil side panel: your clans, live events, your placing, and sync buttons" width="260">
+</p>
 
-If you're a **clan admin or moderator**, it also lets you:
+## Get set up in two fields
 
-- **Sync the in-game clan roster** — no separate admin login or link code: the
-  plugin detects your admin role from your account token, and a **Sync clan
-  roster** button appears in the collection-log Bingo tab. One click pushes the
-  full clan member list to the site, keeping ranks and guest/member status accurate.
+1. **Install** — RuneLite → Configuration (the wrench) → **Plugin Hub** → search **Anvil** → Install.
+2. **Point it at the site** — Configuration → Anvil → **Setup** → set **Site URL** to
+   `https://anvilosrs.com`.
+3. **Sign in** — open the Anvil side panel and click **Sign in with Discord**. Approve the code in
+   your browser and the plugin fills your token in for you.
 
-## Setup
+<p align="center">
+  <img src="docs/images/settings-main.png" alt="The Anvil settings panel: Setup, Bingo and the notification sections" width="240">
+</p>
 
-1. Install **Anvil** from the RuneLite Plugin Hub.
-2. Open RuneLite → Configuration → Anvil and set **Site URL** to your clan's Anvil
-   site (e.g. `https://your-clan.example.com`). Ask your clan admin if you're unsure.
-3. Sign in one of two ways:
-   - **Sign in with Discord** *(easiest)* — click it in the Anvil side panel and
-     approve in the browser page that opens; the plugin fills in your token for you.
-   - **Paste an Account Token** — on your Anvil site go to **Profile → Plugin**,
-     copy your token, and paste it into the *Account Token* field. One token works
-     across every event you're signed up for.
-4. The Anvil side panel shows your event, team, codeword, live tile progress, and
-   upcoming events. If your clan is linked with others through Anvil's federation,
-   their boards appear alongside your own, and — on timed-reveal boards — the panel
-   notes how many tiles are still hidden and when the next one drops.
+One address covers **every clan you're in** — there's no per-clan URL and no per-event token. (Older
+per-clan addresses still work, and self-hosters point at their own site instead.)
 
-## How it works
+Can't run the plugin? You can verify an account on the website instead — see the
+**[player setup guide](https://anvilosrs.com/guide/plugin)**, which walks through all of this with
+screenshots.
 
-- The plugin periodically calls `GET /api/plugin/config` on your Anvil site
-  (authenticated with your account token) to pull event, team, and tracked-tile
-  metadata plus the rotating codeword.
-- When any of `NpcLootReceived`, `ServerNpcLoot` (corpse-interaction bosses like
-  Araxxor and the Maggot King), `LootReceived` (chests/raids/clue caskets), or
-  `PlayerLootReceived` fires with an item ID that matches a tracked drop tile —
-  or a collection-log unlock message names one (shop/gamble rewards that never
-  fire loot), or the "received a drop" attribution line names one (Maggot King's
-  spill-out uniques — enable the in-game *Loot drop notifications* chat setting,
-  which this line comes from), or a kill-count message signals a guaranteed
-  completion award (Infernal cape, Fire cape — credited on every completion, not
-  just the first) — the plugin:
-  1. Captures proof (with the codeword overlay visible). Drop tiles bake **two
-     frames** into one image by default — one the moment the drop lands, one a
-     couple of seconds later once floor loot has settled (toggle: *Two-frame
-     drop proof*).
-  2. Uploads the PNG to the Anvil site's image host (an "Uploading proof…"
-     chat line shows it's in flight).
-  3. Posts a submission to `/api/events/{id}/submissions`, crediting your player.
-- **Boss KC and skill XP tiles update live** — a boss's "…kill count is: N" chat
-  line and skill-XP gains (`StatChanged`) are pushed as absolute values (debounced,
-  so a kill streak or XP burst is one request) to `/api/plugin/stats`. A boss-KC or
-  skill-XP tile — and any live SotW/BotW you're in — moves the moment you get the
-  kill or the XP, without waiting on the periodic hiscores refresh. Hiscores stays
-  the source of truth and reconciles the value on its next sweep.
-- Failed submissions are persisted to disk in `~/.runelite/osrs-bingo-pending/`
-  and retried with exponential backoff (plus age-based cleanup after 7 days), so
-  a flaky connection or server restart won't lose a drop. The same folder also
-  holds **manual proofs** — pet / duplicate-Champion's-scroll screenshots the
-  plugin captures but can't auto-submit to a tile (retries skip these). A **Saved
-  proofs** row in the collection-log Bingo tab shows the count and opens the folder.
+## What it does
+
+**Files your drops for you.** When something lands that a tile is watching, the plugin takes the
+screenshot, stamps it, uploads it and files it against your team's board. No clicks. Two frames go
+into each drop shot by default — one as it lands, one once the loot has settled — because that's
+what stops arguments.
+
+**Moves the board live.** Boss kill counts and skill XP push as you earn them, so a KC or XP tile —
+and any weekly competition you're in — updates the moment you get the kill, rather than on the next
+hiscores sweep.
+
+**Tracks the things that aren't drops.** NPC kill counts, item gains from catching and cooking and
+gathering, timed clears, deathless raids, LMS placements, achievement-diary tiers, and Combat
+Achievement tasks. CA tiles even count tasks you cleared years ago — turn on
+*Settings → Combat Achievements → Repeat completion* in game and re-meeting the conditions credits
+it.
+
+**Proves it happened.** A codeword drawn daily by the site, plus a UTC timestamp, is drawn on screen
+and baked into every screenshot — so evidence can't be quietly back-dated.
+
+**Posts to your clan's Discord.** Deaths, PvP kills, rare and valuable drops, pets, combat
+achievements, collection-log slots, 99s, diaries and quests. You choose what you send; your admins
+choose which channel it lands in.
+
+**Keeps your profile current.** Your collection log and personal bests sync to the site, so your
+profile there shows what you've actually done.
+
+### In-game, where you already are
+
+An **Anvil** button sits in the collection log's title bar next to WikiSync and RuneProfile — one
+click syncs your log and your best times.
+
+<p align="center">
+  <img src="docs/images/collection-log-button.png" alt="The Anvil button in the collection log title bar" width="620">
+</p>
+
+The same button is in the clan window. If you're an admin or a moderator it pushes the in-game clan
+roster to the site, keeping ranks and guest/member status right without anyone typing a list out.
+
+<p align="center">
+  <img src="docs/images/clan-window-button.png" alt="The Anvil button in the clan window title bar" width="560">
+</p>
 
 ## Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Site URL | *(empty)* | Base URL of your clan's Anvil site (e.g. `https://your-clan.example.com`) — ask your admin if unsure |
-| Account Token | *(empty)* | From the site's Profile → Plugin page; one token covers all your events |
-| Auto Submit Drops | `true` | Auto-screenshot and submit on tracked tiles |
-| Show Overlay | `true` | Render the codeword/date verification overlay |
-| Team completion popups | `true` | Banner (and sound) when a teammate completes a tile |
-| Bingo tab in Collection Log | `true` | The in-game board/task list inside the collection log |
-| Two-frame drop proof | `true` | Drop proofs bake two frames: at the drop, and once floor loot settles |
+Defaults are sensible — you can install it, set two fields and never open this again. Every setting
+has a description in the plugin itself; this is the shape of it.
 
-**Notifications section** — posts deaths and rare drops to clan Discord channels.
-The channels themselves are configured on the site (Admin → Integrations); these
-settings choose what *you* share:
+| Section | What's in it |
+| --- | --- |
+| **Setup** | Site URL and your Account Token. The only two that matter. |
+| **Bingo** | Auto-submit, the verification overlay, team-completion banners and their sounds, two-frame drop proofs. |
+| **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
+| **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, pets, and whether each carries a screenshot. |
+| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |
+| **Clips** | OBS replay-buffer clips on a hotkey, posted to a clips webhook. Off by default. |
+| **Profile sync** | Collection log, personal bests, clan roster, and sharing highlights with the clan. |
+| **Support** | Export a debug log to send an admin. |
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Notify on death | `true` | Post to the clan deaths channel when you die |
-| Death message | `{name} just died!` | Your death line (`{name}` → RSN); small chance of a random clan one-liner |
-| Notify on PvP kill | `false` | Post to the clan PvP channel when you kill a player |
-| Notify on rare drops | `true` | Post valuable drops to the clan rare-drops channel |
-| Min drop value | `5,000,000` | Post a single drop worth at least this (higher of GE / high-alch). `0` disables value posts |
-| Min drop rarity (1 in N) | `10,000` | Also post very rare NPC/pickpocket drops regardless of value (catches cheap-but-rare uniques). Your clan can enforce a higher floor from the site; yours applies when it's stricter. `0` disables |
-| Screenshot rare drops | `true` | Attach a screenshot to rare-drop posts |
-| Loot key value | `1,000,000` | Post a loot key as **one** notification when its contents total at least this. Loot keys only. `0` disables |
-| Notify on pets | `true` | Post when you receive a pet |
-| Screenshot pets | `true` | Attach a screenshot to pet posts |
-| Notify on combat achievements | `true` | Post CA task completions and tier unlocks to the clan achievements channel |
-| CA task min tier | `Master` | Lowest CA tier worth announcing |
-| Notify on 99s & high totals | `true` | Post level-99s and high total-level milestones |
-| Notify on diary completions | `true` | Post achievement-diary tier clears |
-| Announce quest completions | `Master & up` | Post quest completions at or above this difficulty |
+A few worth knowing about:
 
-There's also a **Clips** section (OBS replay-buffer integration — auto-clip deaths
-and rare drops to a Discord webhook you supply) — see the in-plugin descriptions.
+| Setting | Default | Why you'd change it |
+| --- | --- | --- |
+| Show Overlay | on | Turn it off if you don't want the codeword panel on screen — proofs are still stamped. |
+| Min drop value | 5,000,000 | The gp floor for a drop post. `0` switches value posts off. |
+| Min drop rarity (1 in N) | 10,000 | Catches cheap-but-rare uniques. Looser than this and the channel fills with herb rolls. Your clan can set a floor; yours applies when it's stricter. |
+| Loot key value | 1,000,000 | A loot key posts once, for its whole contents. |
+| CA task min tier | Master | Set to Grandmaster for only the rarest tasks. Tier clears always post. |
+| Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
+| Two-frame drop proof | on | Off makes drop shots single-frame. Keep it on. |
 
-How rare-drop posting works:
+### Clips (optional)
 
-- **Regular drops** (NPC / raid chest / clue / pickpocket / PvP floor loot) post
-  standout items — over *Min drop value*, or rarer than *Min drop rarity* — bundled
-  into one post per kill (no per-item spam).
-- **Loot keys** are reported as a single post gated only by *Loot key value*, and
-  the loot key item itself is never posted on receipt — only its contents on open.
-- **Diary & quest completions** post to the clan achievements channel — diary
-  tier clears (*Notify on diary completions*) and quest completions at or above
-  a difficulty threshold (*Announce quest completions*, default Master & up).
-- **Prestige items** (Infernal cape, Dizana's quiver, raid ornament kits, etc.)
-  always post regardless of value/rarity. The list is baked in and can be extended
-  on the site (Admin → Integrations → *Always-notify drops*) with no plugin update.
-  Awarded items that don't drop are caught via the collection-log unlock message,
-  so enable RuneLite's *Collection log → New addition notification*.
+<img src="docs/images/settings-clips-sync.png" alt="The Clips and Profile sync settings sections" width="230" align="right">
 
-**In-game settings the plugin relies on** (it reminds you in chat when one is off
-and matters):
+Press a key, and the last few seconds are saved out of OBS and posted to your clan's clips channel.
+Needs OBS 28+ with the WebSocket server and Replay Buffer on; the plugin starts the buffer for you.
 
-- *Loot drop notifications* (Settings → Chat) — the only signal for corpse-boss
-  spill loot (Maggot King uniques); keep its value threshold at or below your
-  *Min drop value*.
-- *Combat Achievements → Repeat completion* — lets CA bingo tiles count tasks
-  you already completed before the event.
-- *Collection log → New addition notification* — credits shop/gamble/awarded
-  collection-log items that never fire a loot event.
+Clips go **straight from your PC to Discord** — they never pass through the site, and with the
+webhook field blank nothing uploads at all.
 
-## Admin flows
+### Profile sync
 
-There's no separate admin login or link code — admin actions authenticate with the
-**same Account Token** as everyone else, and the plugin verifies your admin/mod role
-with the site once per login (`GET /api/plugin/me`).
+Your collection log and personal bests, kept current on your profile. The whole log syncs when you
+open it in game, or on the **Sync profile** button in the side panel. **Share highlights with the
+clan** is what puts your pets, big drops and combat tasks on the clan's feed.
 
-When you're an admin, a **Sync clan roster** button appears in the collection-log
-**Bingo** tab. Open the clan tab in-game (so RuneLite loads the roster), then click
-it to push the current in-game clan roster to the site — keeping ranks and
-guest/member status accurate. The site rejects the sync if the reported clan name
-doesn't match the one configured on the site.
+<br clear="right">
+
+## In-game settings it leans on
+
+The plugin says so in chat when one of these is off and it matters:
+
+- **Loot drop notifications** (Settings → Chat) — the only signal for bosses whose loot spills out of
+  a corpse rather than dropping. Keep its threshold at or below your Min drop value.
+- **Combat Achievements → Repeat completion** — lets CA tiles count tasks you finished before the
+  event.
+- **Collection log → New addition notification** — credits shop, gamble and awarded log items that
+  never fire a loot event.
+
+## When something breaks
+
+The plugin tells you in chat when tracking stops, and why. Nothing to check on a dashboard.
+
+Failed submissions are kept on disk and retried with backoff, so a dropped connection or a server
+restart doesn't lose a drop. Anything the plugin can screenshot but can't file against a tile — pets,
+duplicate Champion's scrolls — is saved for you to attach on the site instead of scrambling for a
+shot after the fact.
+
+Still stuck? Type `::anvillog` in game chat. It writes a log to `.runelite/anvil-debug`, opens the
+folder and copies the path — send that to your clan admin.
+
+## Guides
+
+Written against the live site, with screenshots:
+
+- **[Player setup](https://anvilosrs.com/guide/plugin)** — this, in detail, including OBS clips
+- **[Captain's guide](https://anvilosrs.com/guide/captain)** — reading the pool, draft day, running a team
+- **[Running your first event](https://anvilosrs.com/guide/admin)** — for clan staff, start to finish
+- **[Formats, and how tiles open](https://anvilosrs.com/guide/formats)** — board shapes and reveal rules
+- **[Building a board that tracks itself](https://anvilosrs.com/guide/board)** — what each tile kind can see
+- **[Hosting a visiting clan](https://anvilosrs.com/guide/clan-vs-clan)** — clan-v-clan without collecting RSNs by hand
+- **[On the rota](https://anvilosrs.com/guide/moderator)** — verifying submissions and accounts
+- **[Fees and payouts](https://anvilosrs.com/guide/fees)** — entry fees through to paid placements
+
+All of them are available in 16 languages — pick one from the top of any guide page.
 
 ## Privacy
 
-- The plugin only talks to the Site URL you configure — no third-party servers.
-- Screenshots are uploaded only when a tracked drop is detected (or you hit
-  *Manual submit*).
-- Your Account Token is stored locally in your RuneLite config (marked as secret).
-- On each login, the plugin sends a small `{ rsn }` payload to
-  `/api/plugin/hello` so the site can auto-register you as a guest clan member.
-  You can remove yourself from the roster from the site if you don't want to be
-  tracked.
+- The plugin only ever talks to the **Site URL you set**. It refuses to open a sign-in page anywhere
+  else, and nothing goes to a third party.
+- Screenshots upload only when a tracked drop is detected, or when you ask for one.
+- Your Account Token is stored locally in your RuneLite config, marked secret. Rotate it from your
+  profile on the site if you think it leaked.
+- Clips go from your PC to your clan's Discord webhook, never through the site.
+- On login the plugin sends your RSN so the site can recognise you. You can remove yourself from a
+  clan's roster on the site at any time.
 
 ## Building locally
 
-```bash
+```
 ./gradlew build
-./gradlew runClient   # launches RuneLite with the plugin loaded for dev
+./gradlew runClient   # RuneLite with the plugin loaded, for development
 ```
 
 Requires JDK 11+.
 
 ## License
 
-BSD-2-Clause — see [LICENSE](LICENSE).
+BSD-2-Clause — see [LICENSE](LICENSE). Third-party code is credited in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

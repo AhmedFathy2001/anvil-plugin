@@ -20,13 +20,66 @@ public class PluginConfigResponse
 		public String sha;          // exact commit the site image was built from
 		public int apiLevel;        // breaking-change counter; bumps are rare and loud
 		public List<String> capabilities;
+		/**
+		 * The address this deployment would rather be reached at, e.g. "https://anvilosrs.com".
+		 *
+		 * One site now serves every clan, so a per-clan subdomain is a legacy address: it works, but
+		 * it resolves the clan from the hostname instead of from your token, which stops being
+		 * right the moment you join a second clan. The canonical address keeps working either way.
+		 *
+		 * SENT BY THE SERVER rather than baked in here, because Anvil is self-hostable — a
+		 * hard-coded anvilosrs.com would tell every self-hoster to point at somebody else's site.
+		 * Null on older sites and on any deployment that names none, in which case we say nothing.
+		 */
+		public String canonicalUrl;
+	}
+
+	/**
+	 * Whether the configured URL should be swapped for the one the site prefers.
+	 *
+	 * Only when the site both advertises a canonical address AND says it can resolve a clan without
+	 * one — otherwise moving someone to the apex would break them, which is a far worse outcome
+	 * than an out-of-date URL that works.
+	 *
+	 * Compared on host alone: scheme and trailing slashes are noise, and a user who typed a path is
+	 * still on a working address.
+	 */
+	public String suggestedUrlMigration(String configuredUrl)
+	{
+		if (server == null || server.canonicalUrl == null || server.canonicalUrl.isEmpty()) return null;
+		if (!serverSupports("apex-routing")) return null;
+		if (configuredUrl == null || configuredUrl.isEmpty()) return null;
+
+		String have = hostOf(configuredUrl);
+		String want = hostOf(server.canonicalUrl);
+		if (have == null || want == null || have.equalsIgnoreCase(want)) return null;
+		return server.canonicalUrl;
+	}
+
+	/** Host portion of a URL, lowercased, or null if it cannot be read as one. */
+	static String hostOf(String url)
+	{
+		try
+		{
+			String s = url.trim();
+			if (!s.toLowerCase().startsWith("http://") && !s.toLowerCase().startsWith("https://"))
+			{
+				s = "https://" + s;
+			}
+			String host = new java.net.URI(s).getHost();
+			return host == null ? null : host.toLowerCase();
+		}
+		catch (Exception e)
+		{
+			return null;
+		}
 	}
 
 	/** Everything the plugin-facing API already supported when the handshake first shipped (site v1.0.0). */
 	private static final Set<String> BASELINE_CAPABILITIES = new HashSet<>(Arrays.asList(
 		"stats-live", "drop-tiles", "kill-tiles", "timed-tiles", "lms-tiles", "value-tiles",
 		"gain-tiles", "deathless-tiles", "pvp-tiles", "diary-tiles", "ca-tiles", "clog-tiles",
-		"weekly", "schedule", "notify", "counters", "activity-feed", "federation", "ladder",
+		"weekly", "schedule", "notify", "counters", "activity-feed", "ladder",
 		"reveal-modes", "config-etag"));
 
 	/**
@@ -42,6 +95,101 @@ public class PluginConfigResponse
 			return BASELINE_CAPABILITIES.contains(capability);
 		}
 		return server.capabilities.contains(capability);
+	}
+
+	// ── WHICH CLAN, AND WHICH OTHERS ──────────────────────────────────────────────────────────
+	//
+	// One Anvil serves every clan, so the canonical Site URL names none of them and the server picks
+	// one from the token: a live event first, then the latest-started of several, then the newest
+	// seat. That guess is nearly always right and completely invisible, which is the problem — a
+	// member on two boards had no way to see which one their drops were filing into.
+	//
+	// So the server says which clan it answered for, and lists the rest. The plugin addresses the one
+	// it means with a /c/<slug> prefix from then on, and offers the list as a dropdown.
+	//
+	// Null on a site that predates this (see the `clan-switch` capability): then there is one clan,
+	// the address names it, and there was never a choice to make.
+
+	/** The clan THIS response is about — whatever named it: a path, a host, or the token. */
+	public ClanRef activeClan;
+
+	/** Every clan the token's owner holds a seat in. Empty/null on an older site. */
+	public List<ClanRef> clans;
+
+	public static class ClanRef
+	{
+		public String slug;
+		public String name;
+		/** 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan. */
+		public String kind;
+		/** The most relevant thing running here, or null. */
+		public ClanBoard live;
+		/**
+		 * How many things are running here in total — boards plus the competition.
+		 *
+		 * {@link #live} is one line in a dropdown, so it names ONE. Without this a clan running five
+		 * boards reads exactly like a clan running one, and the named board is an arbitrary pick
+		 * presented as the whole answer. Zero on a site too old to send it, which is indistinguishable
+		 * from "nothing running" — and on such a site there is no count to show anyway.
+		 */
+		public int liveCount;
+	}
+
+	/**
+	 * A live board in one of the person's clans.
+	 *
+	 * Shaped like {@link HomeBoard} but a type of its own because it carries the event id, and the id
+	 * is load-bearing: a co-hosted event belongs to every host, so the same board arrives listed under
+	 * each of them and the id is the only thing that says so. {@link HomeBoard} is the summary for the
+	 * clan the plugin is addressing, where the question never comes up.
+	 */
+	public static class ClanBoard
+	{
+		/**
+		 * "bingo" or "weekly" — and half of this thing's identity.
+		 *
+		 * A board id and a competition id come out of different tables and collide freely, so anything
+		 * deduping across clans has to key on the PAIR. Null on a site that predates the field, where
+		 * only boards were ever reported.
+		 */
+		public String kind;
+		public int eventId;
+		public String eventName;
+		/** Zero on a weekly: a competition has a leaderboard, not a board to fill. */
+		public int tilesComplete;
+		public int tilesTotal;
+		public boolean pointsScored;
+
+		/** True for a SOTW/BOTW — no board to fill, so no progress bar and no tile tally. */
+		public boolean isWeekly()
+		{
+			return "weekly".equals(kind);
+		}
+
+		/** Identity across clans: the id alone is ambiguous between the two tables it can come from. */
+		public String identity()
+		{
+			return (kind == null ? "bingo" : kind) + ":" + eventId;
+		}
+	}
+
+	/**
+	 * The clans worth offering in a switcher, home first.
+	 *
+	 * A single clan is not a choice, so it is not a dropdown — the panel hides the control entirely
+	 * rather than showing one option that does nothing.
+	 */
+	public List<ClanRef> switchableClans()
+	{
+		return clans == null ? java.util.Collections.emptyList() : clans;
+	}
+
+	/** The slug this response was resolved for, or null on a site that does not say. */
+	public String activeClanSlug()
+	{
+		return activeClan == null || activeClan.slug == null || activeClan.slug.isEmpty()
+			? null
+			: activeClan.slug;
 	}
 
 	public EventInfo event;
@@ -172,8 +320,39 @@ public class PluginConfigResponse
 	// their own setting can be stricter but not looser. 0 / absent = no clan floor. Lets an admin
 	// quiet a noisy channel for everyone from the site instead of asking each member to edit config.
 	public int dropRarityFloor;
+	// What the SERVER knows about a drop and the client cannot (site capability "drop-facts"):
+	// which monster a pet actually comes from, and which items a source hands over every kill.
+	// Null against an older site, and every read of it degrades to the old guess-from-context
+	// behaviour rather than to nothing.
+	public DropFacts dropFacts;
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
+
+	/**
+	 * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for
+	 * {@code guaranteed}, the pet's for {@code pets} — because that is what the client has in hand
+	 * when a post is being written, and it survives an item-id variant swap.
+	 */
+	public static class DropFacts
+	{
+		/** Pet name -> where it really comes from. */
+		public java.util.Map<String, Pet> pets;
+		/**
+		 * Item name -> the sources that drop it EVERY time, lowercased. A single {@code "*"} entry
+		 * means "guaranteed wherever it drops" (a clan override that didn't name sources).
+		 */
+		public java.util.Map<String, List<String>> guaranteed;
+
+		public static class Pet
+		{
+			/** Every source that drops this pet. Empty for a skilling pet — there is no monster. */
+			public List<String> sources;
+			/** "npc" (killable, so a rate and a KC exist), "event" (raid/minigame), or "skill". */
+			public String kind;
+			/** For a skilling pet, the skill it comes from. Null otherwise. */
+			public String skill;
+		}
+	}
 
 	public static class NotifyChannels
 	{
@@ -186,6 +365,17 @@ public class PluginConfigResponse
 		public boolean deaths;
 		public boolean combatAchievements;
 		public boolean pvpKills;
+
+		// Channels that used to ride along with one of the above, split so a clan can give each its own
+		// Discord channel. Boxed on purpose: `false` and "this site is older than the split" are
+		// different answers, and only a null can say the second. An absent flag inherits the channel it
+		// used to share (AnvilPlugin.notifyEnabled), so a new plugin against an old site behaves exactly
+		// as it did before rather than going quiet.
+		public Boolean pets;
+		public Boolean levels;
+		public Boolean quests;
+		public Boolean diaries;
+		public Boolean collectionLog;
 	}
 
 	public static class EventInfo

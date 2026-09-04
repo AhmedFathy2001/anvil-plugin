@@ -24,7 +24,7 @@ import static org.junit.Assert.assertTrue;
 public class InjectionSmokeTest
 {
 	/** Binds just the two roots (Gson + OkHttp); everything else has an {@code @Inject} constructor. */
-	private static Injector federationGraph()
+	private static Injector sidebarGraph()
 	{
 		return Guice.createInjector(new AbstractModule()
 		{
@@ -53,7 +53,7 @@ public class InjectionSmokeTest
 	@Test
 	public void sidebarGraphResolvesAndProviderTakesDepsAsParams() throws Exception
 	{
-		Injector inj = federationGraph();
+		Injector inj = sidebarGraph();
 
 		// The @Inject-constructor graph resolves under a real injector.
 		BingoApiClient client = inj.getInstance(BingoApiClient.class);

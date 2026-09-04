@@ -10,6 +10,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -22,6 +23,7 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.SwingConstants;
@@ -31,7 +33,6 @@ import javax.swing.Timer;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import javax.swing.plaf.basic.BasicArrowButton;
-import javax.swing.plaf.basic.BasicComboBoxRenderer;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.ColorScheme;
@@ -90,19 +91,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private final SidebarDataSource dataSource;
 
-	// Site-relay federation (FEDERATION_WIRE.md §10, the plugin's ONLY federation path): the data source polls
-	// the home site's /federation/state; the plugin makes NO broker/clan connections. Non-null iff the source exposes it.
-	private final FederationStatusSource federationStatus;
-
 	// Header controls (persistent across state changes).
-	private final JComboBox<ConnectionView> clanFilter = new JComboBox<>();
+	// Which clan the plugin is pointed at. One Anvil serves every clan and a person can hold seats in
+	// several, so this is a real choice rather than a filter over data we already have: picking here
+	// re-addresses everything the plugin does — board, stat pushes, submissions, notifications.
+	private final JComboBox<ClanChoice> clanPicker = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
-
-	// Site-relay "Connect clans" affordance (auto path). Shown only when the site reports federation enabled but
-	// not connected; a click POSTs /federation/connect (hosted = zero-click, self-host = broker login + poll /state).
-	private final JButton siteConnectButton = new JButton("Connect clans");
-	private final JLabel siteConnectStatus = new JLabel();
-	private final JPanel siteConnectRow = new JPanel(new BorderLayout(0, 2));
 
 	// Device sign-in (home-native, DeviceSignIn): shown when a Site URL is configured but no
 	// Account Token yet — replaces the copy-the-token-from-your-profile step.
@@ -114,7 +108,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel signInStatus = new JLabel();
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	private boolean signInInFlight;
-	private boolean siteConnectInFlight;
 
 	private final JPanel content = new JPanel();
 
@@ -140,13 +133,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
 	private List<ConnectionView> connections = java.util.Collections.emptyList();
-	private String selectedInstanceId;
 
 	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
 	private String selectedEventKey;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
-	private boolean rebuildingFilter;
+	private boolean rebuildingPicker;
 	private boolean fetchInFlight;
 
 	@Inject
@@ -158,7 +150,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		this.apiClient = apiClient;
 		this.configManager = configManager;
 		this.executor = executor;
-		this.federationStatus = dataSource instanceof FederationStatusSource ? (FederationStatusSource) dataSource : null;
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -196,30 +187,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
 		titleRow.setAlignmentX(LEFT_ALIGNMENT);
 
-		// "Connect clans" visibility is driven live from /federation/state (see updateSiteConnectAffordance).
-		styleFlatButton(siteConnectButton, ColorScheme.BRAND_ORANGE);
-		// One button, two modes: "Connect clans" when signed out, "Disconnect" when signed in — route by current state.
-		siteConnectButton.addActionListener(e ->
-		{
-			if (federationStatus != null && federationStatus.federationStatus().signedIn)
-			{
-				onSiteDisconnect();
-			}
-			else
-			{
-				onSiteConnect();
-			}
-		});
-		siteConnectStatus.setFont(FontManager.getRunescapeSmallFont());
-		siteConnectStatus.setForeground(VALUE_COLOR);
-		siteConnectStatus.setVisible(false);
-		siteConnectRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		siteConnectRow.add(siteConnectButton, BorderLayout.NORTH);
-		siteConnectRow.add(siteConnectStatus, BorderLayout.SOUTH);
-		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
-		siteConnectRow.setAlignmentX(LEFT_ALIGNMENT);
-		siteConnectRow.setVisible(false);
-
 		// Sign-in affordance — visible only in the "Site URL set, no token" state (see refreshSignInRow).
 		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
 		signInButton.addActionListener(e -> startSignIn());
@@ -239,28 +206,34 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(signInRow);
-		top.add(siteConnectRow);
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
-		styleClanFilter(clanFilter);
-		clanFilter.setRenderer(new ClanFilterRenderer());
-		clanFilter.setFocusable(false);
-		clanFilter.addActionListener(e ->
+		styleClanPicker(clanPicker);
+		clanPicker.setRenderer(new ClanChoiceRenderer());
+		clanPicker.setFocusable(false);
+		clanPicker.addActionListener(e ->
 		{
-			if (rebuildingFilter)
+			if (rebuildingPicker)
 			{
 				return;
 			}
-			ConnectionView sel = (ConnectionView) clanFilter.getSelectedItem();
-			if (sel != null)
+			ClanChoice sel = (ClanChoice) clanPicker.getSelectedItem();
+			if (sel == null || sel.slug.equals(dataSource.chosenClan()))
 			{
-				selectedInstanceId = sel.instanceId;
-				selectedEventKey = null; // another clan's events are a different list — start at the top
-				renderSelected();
+				return;
 			}
+			// Not a filter over a snapshot we already hold — the other clan's board lives on the site,
+			// so this hands the choice to the plugin (which persists it and re-addresses the client)
+			// and shows the loading state until the answer comes back.
+			selectedEventKey = null; // another clan's events are a different list — start at the top
+			// No refresh() here on purpose. The source renders from the config the plugin holds, and
+			// that config is still the old clan's until the refetch lands — refreshing now would repaint
+			// the clan they just switched away from. The plugin repaints once it has the new answer.
+			dataSource.chooseClan(sel.slug);
+			renderLoading();
 		});
-		header.add(clanFilter, BorderLayout.SOUTH);
+		header.add(clanPicker, BorderLayout.SOUTH);
 
 		return header;
 	}
@@ -282,18 +255,28 @@ public class AnvilSidebarPanel extends PluginPanel
 		ladderTick.stop();
 	}
 
-	// ---- Site-relay "Connect clans" flow (auto path, FEDERATION_WIRE.md §10.2) --------------------
+	// ---- Device sign-in (DeviceSignIn) ------------------------------------------------------
 
 	/**
-	 * Show the connect button when the home reports federation enabled but not connected. Hosted homes connect
-	 * zero-click (row never appears); self-host shows it until login. No-op off the auto path or mid-connect.
+	 * Show the Sign-in button whenever there is no Account Token — and say where it will connect.
+	 *
+	 * The destination is stated BEFORE the click, not after, because for somebody who has typed no
+	 * site the click is what chooses the server. A button that quietly picked one and then contacted
+	 * it would be the plugin making that decision; naming it first makes the press the answer to a
+	 * question they have been asked.
 	 */
-	/** Show the Sign-in button exactly while a Site URL is configured but no Account Token exists. */
 	private void refreshSignInRow()
 	{
 		if (!signInInFlight)
 		{
-			signInRow.setVisible(apiClient.needsSignIn());
+			boolean show = apiClient.needsSignIn();
+			signInRow.setVisible(show);
+			if (show)
+			{
+				setSignInStatus(apiClient.getApiUrl().isEmpty()
+					? "Connects to " + BingoApiClient.CANONICAL_SITE + ". Using your own Anvil? Put its address in Site URL first."
+					: "Connects to " + apiClient.getApiUrl() + ".");
+			}
 			signInRow.revalidate();
 			signInRow.repaint();
 		}
@@ -307,6 +290,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
+		// THE SITE, IF THEY HAVE NOT NAMED ONE. Only when empty — somebody who typed their own address
+		// (a self-hosted Anvil, or an older per-clan one) has already answered this question, and
+		// overwriting their answer because they pressed the obvious button would be its own bug.
+		//
+		// Writing it here rather than defaulting the config item is deliberate: the plugin reaches the
+		// network only after this click, so an install nobody signs into contacts nothing at all. The
+		// click IS the disclosure, which is why the button says where it goes.
+		if (apiClient.getApiUrl().isEmpty())
+		{
+			configManager.setConfiguration("osrsbingo", "apiUrl", BingoApiClient.CANONICAL_SITE);
+			// Straight onto the client too. The config write reaches it through onConfigChanged, and
+			// the sign-in below starts on this thread — without this the first request would go out
+			// against the empty URL it was holding a moment ago.
+			apiClient.configure(
+				BingoApiClient.CANONICAL_SITE, configManager.getConfiguration("osrsbingo", "playerToken"));
+		}
+
 		signInInFlight = true;
 		signInButton.setEnabled(false);
 		setSignInStatus("Starting…");
@@ -346,104 +346,6 @@ public class AnvilSidebarPanel extends PluginPanel
 			}));
 	}
 
-	private void updateSiteConnectAffordance()
-	{
-		if (federationStatus == null || siteConnectInFlight)
-		{
-			return;
-		}
-		FederationState st = federationStatus.federationStatus();
-		// Offered whenever federation is on: "Connect clans" until signed in, then "Disconnect" (durable via
-		// /state's signedIn) — even signed-in with zero clans, the case that used to wrongly re-offer Connect.
-		boolean show = st.enabled;
-		siteConnectButton.setText(st.signedIn ? "Disconnect" : "Connect clans");
-		// A quiet standing note when signed in but nothing to render, so the row isn't just a lone button.
-		if (st.signedIn && st.clans.isEmpty())
-		{
-			setSiteConnectStatus("Signed in — no other Anvil clans are linked to yours yet.");
-		}
-		else
-		{
-			setSiteConnectStatus("");
-		}
-		if (siteConnectRow.isVisible() != show)
-		{
-			siteConnectRow.setVisible(show);
-			siteConnectRow.revalidate();
-		}
-	}
-
-	/**
-	 * §10.2 connect handshake: {@code POST /federation/connect}. Trusted home returns connected; self-host
-	 * opens a browser login, then the source schedules {@code /state} polls to connected. Asynchronous — the
-	 * source runs every step on the shared executor and calls back on that thread, so both callbacks marshal
-	 * to the EDT here. No broker/clan connections from the plugin.
-	 */
-	private void onSiteConnect()
-	{
-		if (federationStatus == null || siteConnectInFlight)
-		{
-			return;
-		}
-		siteConnectInFlight = true;
-		siteConnectButton.setEnabled(false);
-		setSiteConnectStatus("Connecting…");
-
-		federationStatus.connectFederation(
-			line -> SwingUtilities.invokeLater(() -> setSiteConnectStatus(line)),
-			outcome -> SwingUtilities.invokeLater(() ->
-			{
-				siteConnectInFlight = false;
-				siteConnectButton.setEnabled(true);
-				refresh(); // re-render + re-evaluate the affordance with the newest /state
-			}));
-	}
-
-	/**
-	 * Federation logout off the EDT: {@code POST /disconnect} clears the server-side signed-in marker; the
-	 * follow-up refresh re-reads {@code /state} ({@code signedIn:false}) so the button flips to "Connect clans".
-	 */
-	private void onSiteDisconnect()
-	{
-		if (federationStatus == null || siteConnectInFlight)
-		{
-			return;
-		}
-		siteConnectInFlight = true;
-		siteConnectButton.setEnabled(false);
-		setSiteConnectStatus("Disconnecting…");
-
-		new SwingWorker<Boolean, Void>()
-		{
-			@Override
-			protected Boolean doInBackground()
-			{
-				return federationStatus.disconnectFederation();
-			}
-
-			@Override
-			protected void done()
-			{
-				siteConnectInFlight = false;
-				siteConnectButton.setEnabled(true);
-				try
-				{
-					if (!get())
-					{
-						setSiteConnectStatus("Disconnect failed — try again.");
-					}
-				}
-				catch (Exception ex)
-				{
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.debug("site-relay disconnect flow failed", cause);
-					setSiteConnectStatus("Disconnect failed — try again.");
-				}
-				refresh(); // re-render + re-evaluate the affordance with the newest /state
-			}
-		}.execute();
-	}
-
 	/**
 	 * The line under the sign-in button — most importantly the one carrying the approval code.
 	 *
@@ -467,22 +369,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInRow.repaint();
 	}
 
-	private void setSiteConnectStatus(String text)
-	{
-		String plain = text == null ? "" : text;
-		boolean show = !plain.isEmpty();
-		// Narrow sidebar: render as width-constrained HTML so a long line WRAPS, mirror full text into the tooltip.
-		// HTML-escape first — the userCode segment is broker-supplied.
-		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-		siteConnectStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "px'>" + escaped + "</body></html>" : "");
-		siteConnectStatus.setToolTipText(show ? plain : null);
-		siteConnectStatus.setVisible(show);
-		// Re-cap to the current preferred height (construction-time cap was button-only) so the wrapped status can grow.
-		siteConnectRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, siteConnectRow.getPreferredSize().height));
-		siteConnectRow.revalidate();
-		siteConnectRow.repaint();
-	}
-
 	// ---- Refresh flow -----------------------------------------------------------------------------
 
 	/**
@@ -496,12 +382,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void clearForCredentialChange()
 	{
 		connections = java.util.Collections.emptyList();
-		selectedInstanceId = null;
 		selectedEventKey = null;
-		rebuildingFilter = true;
-		clanFilter.removeAllItems();
-		rebuildingFilter = false;
-		clanFilter.setVisible(false);
+		rebuildingPicker = true;
+		clanPicker.removeAllItems();
+		rebuildingPicker = false;
+		clanPicker.setVisible(false); // no config for the new credentials yet, so no clans to choose between
 		setSignInStatus("");
 		refreshSignInRow();
 		renderLoading();
@@ -513,8 +398,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh(false);
 	}
 
-	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh — the home is asked to bypass
-	 * its federation re-sync throttle so the button acts on a just-changed network immediately. */
+	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh, so the source is asked to
+	 * bypass what it normally caches (the weekly standings) rather than serve a minute-old answer. */
 	private void refresh(boolean manual)
 	{
 		if (fetchInFlight)
@@ -553,130 +438,204 @@ public class AnvilSidebarPanel extends PluginPanel
 					log.debug("sidebar fetch failed", cause);
 					renderError(cause.getMessage());
 				}
-				// The fetch just refreshed /federation/state — reflect it in the connect affordance,
-				// and surface the Sign-in button whenever the token is missing/was just rejected.
-				updateSiteConnectAffordance();
 				refreshSignInRow();
 			}
 		}.execute();
 	}
 
-	/** New snapshot in hand — refresh the clan filter (preserving selection) and render. Runs on the EDT. */
+	/** New snapshot in hand — refresh the clan dropdown and render the addressed clan. Runs on the EDT. */
 	private void onConnections(List<ConnectionView> fetched)
 	{
 		connections = fetched == null ? java.util.Collections.emptyList() : fetched;
+		rebuildClanPicker();
 
 		if (connections.isEmpty())
 		{
-			selectedInstanceId = null;
 			selectedEventKey = null;
-			rebuildFilter();
 			renderEmpty();
 			return;
 		}
-
-		// Keep the current selection if that clan is still connected; otherwise land on the clan this
-		// account actually belongs to.
-		if (findSelected() == null)
-		{
-			selectedInstanceId = landingClan(connections).instanceId;
-			selectedEventKey = null;
-		}
-		rebuildFilter();
 		renderSelected();
 	}
 
 	/**
-	 * Which clan the sidebar opens on. Normally the configured home — that's the site the member
-	 * pointed the plugin at. But a player can be a mere federation GUEST at home while being a real
-	 * member of a clan they reached through it (an alt's site, a friend's clan, a hosted instance they
-	 * joined later); for them the home board is noise and their own clan is the point. So when we KNOW
-	 * this account is a guest here and a member there, we land there instead.
+	 * The clan the body is showing — the one this plugin is addressing.
 	 *
-	 * <p>Both halves must be positive evidence ({@link ConnectionView#member} is tri-state): an older
-	 * home that doesn't send the flag, or a login screen where membership hasn't been answered yet,
-	 * keeps the home default rather than guessing. Only the DEFAULT moves — the clan dropdown keeps its
-	 * home-first order, and a member's own pick always wins until that clan drops out.</p>
+	 * A list of one, in practice: the source renders the clan the client is pointed at, and pointing it
+	 * somewhere else is a refetch rather than a re-render. It stays a list because a source is allowed
+	 * to have nothing, and because the panel should not care which.
 	 */
-	static ConnectionView landingClan(List<ConnectionView> connections)
+	private ConnectionView addressedClan()
 	{
-		ConnectionView home = null;
-		for (ConnectionView c : connections)
-		{
-			if (AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(c.instanceId))
-			{
-				home = c;
-				break;
-			}
-		}
-		if (home == null)
-		{
-			home = connections.get(0); // no home card at all (its fetch failed) — first relayed clan
-		}
-		if (!home.isGuestHere())
-		{
-			return home;
-		}
-		for (ConnectionView c : connections)
-		{
-			if (c.isMemberHere())
-			{
-				return c;
-			}
-		}
-		return home;
+		return connections.isEmpty() ? null : connections.get(0);
 	}
 
-	private ConnectionView findSelected()
+	/**
+	 * Repopulate the clan dropdown, suppressing the selection-event storm a setModel provokes.
+	 *
+	 * <p>Fed from the site's list of this person's seats, not from the boards we happen to have loaded:
+	 * the point of the control is to reach a clan whose board we have NOT loaded. Hidden below two
+	 * entries, because one option that cannot be changed is not a choice.</p>
+	 *
+	 * <p>There used to be a rule here that landed a guest on their own clan instead. It is gone
+	 * deliberately, not lost: the server applies the stronger version of it when it resolves a clanless
+	 * request — a live event first, then a real membership before any guest seat — and two copies of a
+	 * default that can disagree is worse than one copy that decides.</p>
+	 */
+	private void rebuildClanPicker()
 	{
-		if (selectedInstanceId == null)
-		{
-			return null;
-		}
-		for (ConnectionView c : connections)
-		{
-			if (selectedInstanceId.equals(c.instanceId))
-			{
-				return c;
-			}
-		}
-		return null;
-	}
-
-	/** Repopulate the dropdown from {@link #connections}, suppressing the selection ActionEvent storm. */
-	private void rebuildFilter()
-	{
-		rebuildingFilter = true;
+		List<ClanChoice> choices = ClanChoice.of(dataSource.clans());
+		rebuildingPicker = true;
 		try
 		{
-			DefaultComboBoxModel<ConnectionView> model = new DefaultComboBoxModel<>();
-			ConnectionView toSelect = null;
-			for (ConnectionView c : connections)
+			DefaultComboBoxModel<ClanChoice> model = new DefaultComboBoxModel<>();
+			String chosen = dataSource.chosenClan();
+			ClanChoice toSelect = null;
+			for (ClanChoice c : choices)
 			{
 				model.addElement(c);
-				if (c.instanceId.equals(selectedInstanceId))
+				if (c.slug.equals(chosen))
 				{
 					toSelect = c;
 				}
 			}
-			clanFilter.setModel(model);
-			if (toSelect != null)
-			{
-				clanFilter.setSelectedItem(toSelect);
-			}
-			clanFilter.setVisible(connections.size() > 1); // no point showing a one-option filter
+			clanPicker.setModel(model);
+			// Nothing chosen — the site is deciding, which is the Auto row.
+			clanPicker.setSelectedItem(toSelect != null ? toSelect : choices.isEmpty() ? null : choices.get(0));
+			clanPicker.setVisible(choices.size() > 2);
 		}
 		finally
 		{
-			rebuildingFilter = false;
+			rebuildingPicker = false;
 		}
 	}
+
+	/**
+	 * The live boards in your OTHER clans — everything the merged view adds to the addressed clan's card.
+	 *
+	 * <p>Pure and static so the two rules that are easy to get quietly wrong can be tested without a
+	 * Swing component in sight.</p>
+	 *
+	 * <p><b>Dedup by event id, not by name.</b> A co-hosted event belongs to every host, so somebody
+	 * seated in two co-hosting clans has the same board listed under each. Showing it twice is wrong,
+	 * and "Summer Bingo" is not a rare enough name to dedup on.</p>
+	 *
+	 * <p><b>The addressed clan's board is excluded by its EVENT, not by its slug.</b> Same reason:
+	 * when the board you are already looking at in full is co-hosted, the other host's row is that
+	 * same board. Filtering only on the slug would list it again, under a different clan's name, as
+	 * though it were somewhere else to go.</p>
+	 */
+	static List<PluginConfigResponse.ClanRef> otherLiveBoards(
+		List<PluginConfigResponse.ClanRef> clans, String addressedSlug)
+	{
+		List<PluginConfigResponse.ClanRef> out = new ArrayList<>();
+		if (clans == null || clans.isEmpty())
+		{
+			return out;
+		}
+		java.util.Set<String> seen = new HashSet<>();
+		String addressed = addressedSlug == null ? "" : addressedSlug;
+		for (PluginConfigResponse.ClanRef c : clans)
+		{
+			if (c != null && addressed.equalsIgnoreCase(c.slug) && c.live != null)
+			{
+				seen.add(c.live.identity()); // the thing already on screen, in full
+			}
+		}
+		for (PluginConfigResponse.ClanRef c : clans)
+		{
+			if (c == null || c.live == null || c.slug == null || c.slug.isEmpty())
+			{
+				continue;
+			}
+			if (addressed.equalsIgnoreCase(c.slug) || !seen.add(c.live.identity()))
+			{
+				continue;
+			}
+			out.add(c);
+		}
+		return out;
+	}
+
+	/**
+	 * One row of the clan dropdown: a clan to narrow to, or all of them.
+	 *
+	 * "All clans" is the DEFAULT and it is a real row, not an implied initial state, because it is
+	 * also the only way back. A member who narrows to a clan that later goes quiet would otherwise be
+	 * stuck watching a dead board while their live one runs somewhere else, with nothing in the UI
+	 * admitting it.
+	 *
+	 * On "All clans" the site decides which board the plugin addresses — live event first — and the
+	 * rest appear under "Also live". Choosing a clan narrows to it and moves where submissions file,
+	 * which is a bigger deal than a filter usually is; the rows say so.
+	 */
+	static final class ClanChoice
+	{
+		/** Clan slug, or "" for Auto. */
+		final String slug;
+		final String label;
+		/** Second line — the board running there, or what this seat is. Never null. */
+		final String detail;
+
+		ClanChoice(String slug, String label, String detail)
+		{
+			this.slug = slug == null ? "" : slug;
+			this.label = label == null ? "" : label;
+			this.detail = detail == null ? "" : detail;
+		}
+
+		/** Auto first, then the clans in the order the site sent them (newest seat first). */
+		static List<ClanChoice> of(List<PluginConfigResponse.ClanRef> clans)
+		{
+			List<ClanChoice> out = new ArrayList<>();
+			if (clans == null || clans.isEmpty())
+			{
+				return out;
+			}
+			out.add(new ClanChoice("", "All clans", "Everything you're playing"));
+			for (PluginConfigResponse.ClanRef c : clans)
+			{
+				if (c == null || c.slug == null || c.slug.isEmpty())
+				{
+					continue;
+				}
+				out.add(new ClanChoice(c.slug, c.name == null || c.name.isEmpty() ? c.slug : c.name, detailOf(c)));
+			}
+			return out;
+		}
+
+		/** What is happening in this clan, in one short line — the reason to pick it or not. */
+		private static String detailOf(PluginConfigResponse.ClanRef c)
+		{
+			if (c.live == null || c.live.eventName == null || c.live.eventName.isEmpty())
+			{
+				return "guest".equals(c.kind) ? "Guest \u00b7 nothing live" : "Nothing live";
+			}
+			// A competition has a leaderboard rather than a board to fill, so "0/0" would be a lie
+			// dressed as progress. The name is the whole answer there.
+			String head = c.live.isWeekly() || c.live.tilesTotal <= 0
+				? c.live.eventName
+				: c.live.eventName + "  " + c.live.tilesComplete + "/" + c.live.tilesTotal;
+			// One line names ONE of them. Say how many were not named rather than letting an arbitrary
+			// pick stand in for the whole clan — the number is why you would open the clan at all.
+			int more = c.liveCount - 1;
+			return more > 0 ? head + "  +" + more + " more" : head;
+		}
+
+		@Override
+		public String toString()
+		{
+			return label;
+		}
+	}
+
 
 	// ---- Render states ----------------------------------------------------------------------------
 
 	private void renderLoading()
 	{
-		clanFilter.setVisible(false);
+		// The picker STAYS. Switching clan renders this state on purpose, and yanking the control the
+		// member is holding — then putting it back a second later — reads as the click having failed.
 		JLabel loading = new JLabel("Loading progress…", SwingConstants.CENTER);
 		loading.setForeground(VALUE_COLOR);
 		loading.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
@@ -685,7 +644,8 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void renderError(String message)
 	{
-		clanFilter.setVisible(false);
+		// A clan we cannot reach is still a clan they can switch away FROM, which is the likeliest thing
+		// they want next. Keep the control; the dropdown's own rebuild decides whether it has rows.
 		PluginErrorPanel error = new PluginErrorPanel();
 		error.setContent("Couldn't load progress",
 			(message == null || message.isEmpty() ? "Something went wrong." : message)
@@ -695,7 +655,6 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void renderEmpty()
 	{
-		clanFilter.setVisible(false);
 		PluginErrorPanel empty = new PluginErrorPanel();
 		empty.setContent("No connected clans",
 			"Link a clan on your Anvil site and its board progress will show up here.");
@@ -709,7 +668,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private void renderSelected()
 	{
-		ConnectionView selected = findSelected();
+		ConnectionView selected = addressedClan();
 		if (selected == null)
 		{
 			renderEmpty();
@@ -999,12 +958,155 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(gap(12));
 		}
 
+		// Everything else you are playing, in your other clans. Only in the merged view — picking a
+		// clan in the dropdown is a filter, and a filter that still showed the others would not be one.
+		if (dataSource.chosenClan().isEmpty())
+		{
+			JPanel elsewhere = buildOtherClanBoards();
+			if (elsewhere != null)
+			{
+				body.add(elsewhere);
+				body.add(gap(12));
+			}
+		}
+
 		// The clan's own controls, under whatever is running. Home only, and only what this account
 		// can actually do — see SidebarDataSource.actionsFor.
 		body.add(buildPanelActions(c));
 		body.add(gap(12));
 		body.add(buildBannerSounds());
 		setContent(body);
+	}
+
+	/**
+	 * "Also live" — your boards in the clans this plugin is NOT currently addressing.
+	 *
+	 * <p>Summaries rather than cards, and that is a limit rather than a design preference: the rich
+	 * layers (nearest tiles, the live feed, the ladder) come out of the ONE config response the plugin
+	 * polls, which is about one clan. What the site sends for the others is a name and a tally, so a
+	 * name and a tally is what these rows can honestly show.</p>
+	 *
+	 * <p>Clicking one addresses that clan, which turns its summary into the full card — and moves
+	 * where submissions file, which is why each row says so rather than looking like a tab.</p>
+	 *
+	 * @return null when there is nothing to add, so the caller adds no empty heading
+	 */
+	private JPanel buildOtherClanBoards()
+	{
+		List<PluginConfigResponse.ClanRef> others = otherLiveBoards(dataSource.clans(), dataSource.activeClan());
+		if (others.isEmpty())
+		{
+			return null;
+		}
+
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+		panel.add(sectionHeader("Also live"));
+		panel.add(gap(6));
+
+		boolean first = true;
+		for (PluginConfigResponse.ClanRef c : others)
+		{
+			if (!first)
+			{
+				panel.add(gap(6));
+			}
+			panel.add(buildOtherClanRow(c));
+			first = false;
+		}
+		return panel;
+	}
+
+	/** One "also live" row: whose board it is, what it is, and how far along. Click to go there. */
+	private JPanel buildOtherClanRow(PluginConfigResponse.ClanRef c)
+	{
+		String clanName = c.name == null || c.name.isEmpty() ? c.slug : c.name;
+
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		card.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		card.setAlignmentX(LEFT_ALIGNMENT);
+		card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		card.setToolTipText("Switch to " + plainText(clanName) + " — the sidebar and your submissions follow");
+
+		JPanel titleRow = new JPanel(new BorderLayout(6, 0));
+		titleRow.setOpaque(false);
+		titleRow.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel title = new JLabel(plainText(ellipsize(clanName, 22)));
+		title.setFont(FontManager.getRunescapeFont());
+		title.setForeground(ColorScheme.TEXT_COLOR);
+		JLabel chevron = new JLabel("›");
+		chevron.setFont(FontManager.getRunescapeBoldFont());
+		chevron.setForeground(ColorScheme.BRAND_ORANGE);
+		titleRow.add(title, BorderLayout.CENTER);
+		titleRow.add(chevron, BorderLayout.EAST);
+		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
+		card.add(titleRow);
+
+		card.add(leftLabel(ellipsize(c.live.eventName, CARD_LINE_CHARS),
+			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		if (c.live.isWeekly() || c.live.tilesTotal <= 0)
+		{
+			// A competition fills no board, so it gets neither a tally nor a bar — saying "0 / 0 tiles"
+			// under a running SOTW reads as a broken board rather than as a leaderboard.
+			card.add(leftLabel("Competition running", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+		else
+		{
+			card.add(leftLabel(c.live.tilesComplete + " / " + c.live.tilesTotal
+				+ (c.live.pointsScored ? " points" : " tiles"), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+		if (c.liveCount > 1)
+		{
+			// This card shows one of them. Switching is how you reach the rest, so the row has to admit
+			// there ARE others rather than presenting the freshest as everything happening there.
+			card.add(leftLabel("+ " + (c.liveCount - 1) + " more here",
+				FontManager.getRunescapeSmallFont(), ColorScheme.BRAND_ORANGE));
+		}
+
+		if (!c.live.isWeekly() && c.live.tilesTotal > 0)
+		{
+			JProgressBar bar = new JProgressBar(0, 100);
+			bar.setValue(Math.max(0, Math.min(100, (int) Math.round(100.0 * c.live.tilesComplete / c.live.tilesTotal))));
+			bar.setStringPainted(false);
+			bar.setBorderPainted(false);
+			bar.setForeground(ColorScheme.BRAND_ORANGE);
+			bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
+			bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, PROGRESS_BAR_HEIGHT));
+			bar.setAlignmentX(LEFT_ALIGNMENT);
+			card.add(Box.createVerticalStrut(4));
+			card.add(bar);
+		}
+
+		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		final String slug = c.slug;
+		card.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(java.awt.event.MouseEvent e)
+			{
+				selectedEventKey = null;
+				dataSource.chooseClan(slug);
+				renderLoading();
+			}
+
+			@Override
+			public void mouseEntered(java.awt.event.MouseEvent e)
+			{
+				card.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
+			}
+
+			@Override
+			public void mouseExited(java.awt.event.MouseEvent e)
+			{
+				card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			}
+		});
+		return card;
 	}
 
 	/**
@@ -1810,11 +1912,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * §2/§6 — neutralize a federated string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
+	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
 	 * HTML when its text begins (ignoring leading whitespace, case-insensitive) with {@code <html}, so an
 	 * untrusted clan/tile/activity name could inject markup. Such strings get their markup chars escaped so they
-	 * render only as literal text; ordinary strings pass through. The explicit sanitize the security model
-	 * requires (no reliance on {@code html.disable}); every federated field the panel renders routes through here.
+	 * render only as literal text; ordinary strings pass through. An explicit sanitize rather than reliance on
+	 * {@code html.disable}; every server-supplied field the panel renders routes through here.
+	 *
+	 * <p>Use {@link #esc} instead when the string is being placed INSIDE markup we are building: there the
+	 * leading-{@code <html} test does not apply and every occurrence has to be escaped.</p>
 	 */
 	static String plainText(String s)
 	{
@@ -1931,11 +2036,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (c.boardUrl != null && !c.boardUrl.isEmpty())
 		{
 			south.add(boardLink(c.boardUrl));
-		}
-		JPanel shareRow = buildShareRow(c);
-		if (shareRow != null)
-		{
-			south.add(shareRow);
 		}
 		if (south.getComponentCount() > 0)
 		{
@@ -2172,76 +2272,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
-	/**
-	 * Per-clan "Share my RSN" toggle — per ACCOUNT by design: it acts on the account currently logged
-	 * in (the server resolves it from the request), so each of a member's accounts is shared with each
-	 * clan individually. Only rendered on FEDERATED clan cards while the playing account is resolvable
-	 * ({@code shareEligible}); never on the home card (the home already knows its own member).
-	 */
-	private JPanel buildShareRow(ConnectionView c)
-	{
-		if (federationStatus == null || AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(c.instanceId))
-		{
-			return null;
-		}
-		FederationState st = federationStatus.federationStatus();
-		if (!st.enabled || !st.shareEligible)
-		{
-			return null;
-		}
-		boolean shared = st.sharedInstanceIds.contains(c.instanceId);
-		JButton share = new JButton(shared ? "Stop sharing my RSN" : "Share my RSN with this clan");
-		styleFlatButton(share, shared ? ColorScheme.LIGHT_GRAY_COLOR : ColorScheme.BRAND_ORANGE);
-		share.setToolTipText(shared
-			? "This clan currently knows this account's RSN. Click to retract it — the change reaches them within seconds."
-			: "Let this clan see THIS account's RSN so it can track and draft you. Shares only the name — never boards or game data.");
-		share.addActionListener(e ->
-		{
-			share.setEnabled(false);
-			setSiteConnectStatus("");
-			new SwingWorker<BingoApiClient.ShareResult, Void>()
-			{
-				@Override
-				protected BingoApiClient.ShareResult doInBackground()
-				{
-					return apiClient.federationShare(c.instanceId, !shared);
-				}
-
-				@Override
-				protected void done()
-				{
-					BingoApiClient.ShareResult result;
-					try
-					{
-						result = get();
-					}
-					catch (Exception ex)
-					{
-						result = new BingoApiClient.ShareResult(false, "Couldn't reach the site — try again.");
-					}
-					if (!result.ok)
-					{
-						// The server refuses for reasons the member can fix (account not verified here,
-						// not logged into it, clan not connected). Say so — silently re-rendering the
-						// same button made a refusal look exactly like a successful share.
-						share.setEnabled(true);
-						setSiteConnectStatus(result.error);
-						return;
-					}
-					// Forced refresh: the share rides the next exchange relay — force it now so the
-					// remote learns (or forgets) the RSN within seconds, and the button re-labels.
-					refresh(true);
-				}
-			}.execute();
-		});
-
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-		row.add(share, BorderLayout.WEST);
-		return row;
-	}
-
 	/** A clickable "View standings" link opening the board's site page in the system browser. */
 	private JLabel boardLink(String url)
 	{
@@ -2466,7 +2496,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Theme the clan-filter combo: dark flat field, gold arrow, dark popup — default Swing sticks out. */
-	private static void styleClanFilter(JComboBox<ConnectionView> combo)
+	private static void styleClanPicker(JComboBox<ClanChoice> combo)
 	{
 		combo.setBackground(WIDGET_BG);
 		combo.setForeground(Color.WHITE);
@@ -2485,25 +2515,52 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private static final class ClanFilterRenderer extends BasicComboBoxRenderer
+	/**
+	 * Two real labels, not one HTML one.
+	 *
+	 * The second line was <code>&lt;font size='-2'&gt;</code> inside a label already set to
+	 * RuneScape's small font. That font is a bitmap face: asked to render smaller still it does not
+	 * get daintier, it gets illegible — and the size the browser-ish HTML renderer picks is not one
+	 * the face was drawn at. The rest of this panel never shrinks type to mean "secondary"; it keeps
+	 * the same small font and drops the colour to {@link #VALUE_COLOR}. This does the same.
+	 *
+	 * Building the row out of components also means no markup, which means no clan name can smuggle
+	 * any: {@link #plainText} was guarding a string we were about to concatenate into HTML ourselves,
+	 * which is the one case it does not guard.
+	 */
+	private static final class ClanChoiceRenderer implements ListCellRenderer<ClanChoice>
 	{
-		@Override
-		public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-			boolean isSelected, boolean cellHasFocus)
+		private final JPanel row = new JPanel(new BorderLayout(0, 1));
+		private final JLabel name = new JLabel();
+		private final JLabel detail = new JLabel();
+
+		ClanChoiceRenderer()
 		{
-			super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-			// index >= 0 → popup row; -1 → the closed field. Dark rows, gold-tinted hover selection.
-			setOpaque(true);
-			setBackground(isSelected && index >= 0 ? WIDGET_BG_HOVER : WIDGET_BG);
-			setForeground(isSelected && index >= 0 ? ColorScheme.BRAND_ORANGE : Color.WHITE);
-			setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
-			if (value instanceof ConnectionView)
-			{
-				ConnectionView c = (ConnectionView) value;
-				setText(plainText(c.hasError() ? c.clanName + "  (!)" : c.clanName));
-				setFont(FontManager.getRunescapeSmallFont());
-			}
-			return this;
+			name.setFont(FontManager.getRunescapeSmallFont());
+			detail.setFont(FontManager.getRunescapeSmallFont());
+			row.setOpaque(true);
+			row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+			row.add(name, BorderLayout.NORTH);
+			row.add(detail, BorderLayout.SOUTH);
+		}
+
+		@Override
+		public Component getListCellRendererComponent(JList<? extends ClanChoice> list, ClanChoice value,
+			int index, boolean isSelected, boolean cellHasFocus)
+		{
+			// index >= 0 → a popup row; -1 → the closed field. Dark rows, gold-tinted hover.
+			boolean hover = isSelected && index >= 0;
+			row.setBackground(hover ? WIDGET_BG_HOVER : WIDGET_BG);
+			name.setForeground(hover ? ColorScheme.BRAND_ORANGE : Color.WHITE);
+			detail.setForeground(VALUE_COLOR);
+
+			name.setText(value == null ? "" : plainText(value.label));
+			// The closed field shows the name alone — a second line there would resize the header on
+			// every refresh, and the detail is what you read while choosing, not after.
+			boolean showDetail = index >= 0 && value != null && !value.detail.isEmpty();
+			detail.setText(showDetail ? plainText(value.detail) : "");
+			detail.setVisible(showDetail);
+			return row;
 		}
 	}
 }

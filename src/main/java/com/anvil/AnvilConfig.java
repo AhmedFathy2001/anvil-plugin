@@ -78,7 +78,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "apiUrl",
 		name = "Site URL",
-		description = "The base URL of your Anvil site, e.g. https://your-clan.vercel.app (no trailing slash). If you leave off https://, it's added automatically. Ask your clan admin if unsure.",
+		description = "Your Anvil site, e.g. https://anvilosrs.com (no trailing slash). One address covers every clan you are in, so you do not need a per-clan URL. Older per-clan addresses still work. Self-hosted? Use your own site's URL. If you leave off https://, it is added automatically.",
 		position = 1,
 		section = "setupSection"
 	)
@@ -143,7 +143,7 @@ public interface AnvilConfig extends Config
 		keyName = "bannerSound",
 		name = "Banner sound",
 		description = "Play a sound clip when the bingo banner fires. Add your own .wav files via the "
-			+ "'Banner sounds' button in the Bingo collection-log tab, or drop them into the '"
+			+ "'Banner sounds' button in the Anvil side panel, or drop them into the '"
 			+ BannerSoundService.USER_DIR_NAME + "' folder in your RuneLite directory. Nothing plays "
 			+ "until you add at least one.",
 		position = 5,
@@ -183,9 +183,9 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "bannerSoundClip",
 		name = "Banner sound clip",
-		// Hidden from the panel: the play-cycle allowlist is managed via the Bingo collection-log tab's
+		// Hidden from the settings panel: the play-cycle allowlist is managed via the Anvil side panel's
 		// sound toggles, which read/write this key. Kept as a config key so the selection persists/syncs.
-		description = "Comma-separated allowlist of banner clips to cycle (blank = all). Managed in the Bingo tab.",
+		description = "Comma-separated allowlist of banner clips to cycle (blank = all). Managed in the Anvil side panel.",
 		position = 7,
 		section = "bingoSection",
 		hidden = true
@@ -193,19 +193,6 @@ public interface AnvilConfig extends Config
 	default String bannerSoundClip()
 	{
 		return "";
-	}
-
-	@ConfigItem(
-		keyName = "bingoClogTab",
-		name = "Bingo tab in Collection Log",
-		description = "Show your bingo tasks as a custom tab inside the in-game Collection Log. "
-			+ "Experimental — injects into the collection log interface and may need updating after game updates.",
-		position = 4,
-		section = "bingoSection"
-	)
-	default boolean bingoClogTab()
-	{
-		return true;
 	}
 
 	@ConfigItem(
@@ -436,10 +423,22 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "levelScreenshot",
+		name = "Screenshot 99s & totals",
+		description = "Attach a screenshot to level-99, high-total and max posts, the way drop and combat-task posts work. Requires 'Notify on 99s & high totals'.",
+		position = 7,
+		section = "caSection"
+	)
+	default boolean levelScreenshot()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "notifyDiaries",
 		name = "Notify on diary completions",
 		description = "Post to the clan achievements channel when you complete an achievement-diary tier.",
-		position = 7,
+		position = 8,
 		section = "caSection"
 	)
 	default boolean notifyDiaries()
@@ -452,7 +451,7 @@ public interface AnvilConfig extends Config
 		name = "Announce quest completions",
 		description = "Post quest completions to the clan achievements channel at or above this difficulty. "
 			+ "\"Master & up\" covers Master and Grandmaster quests.",
-		position = 8,
+		position = 9,
 		section = "caSection"
 	)
 	default QuestAnnounceTier questAnnounce()
@@ -639,7 +638,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "autoFullClogSync",
 		name = "Sync the whole log on open",
-		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil tab yourself.",
+		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil side panel yourself.",
 		position = 3,
 		section = "profileSection"
 	)

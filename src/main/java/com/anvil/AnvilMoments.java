@@ -89,6 +89,22 @@ class AnvilMoments
 			return new Moment("ca", null, null, 1, null, null, null, null, taskName, tier, at,
 				keyFor("ca", taskName, null, at));
 		}
+
+		/**
+		 * A level worth telling people about: a 99, a total-level milestone, or a max.
+		 *
+		 * <p>{@code skill} is the skill's name, or null when the news is the total rather than any one
+		 * skill. {@code level} rides in the quantity column and {@code scope} in sourceKind, so this
+		 * needs no new columns anywhere -- the site reads both to decide what sentence to write.</p>
+		 *
+		 * <p>Keyed on the skill and the number, NOT on the clock: a 99 happens once, and if a retry or
+		 * a second sighting arrives ten seconds later it is still the same 99.</p>
+		 */
+		static Moment level(String skill, int level, String scope, long at)
+		{
+			return new Moment("level", null, skill, level, null, null, scope, null, at,
+				"level|" + (skill == null ? "total" : skill.toLowerCase()) + "|" + level);
+		}
 	}
 
 	/** Keyed so a duplicate observation replaces rather than repeats; insertion-ordered for the batch. */
@@ -120,14 +136,27 @@ class AnvilMoments
 	 */
 	synchronized boolean nameQueued(String key, String itemName, Integer itemId)
 	{
+		return nameQueued(key, itemName, itemId, null, null);
+	}
+
+	/**
+	 * As above, and correct where it came from at the same time.
+	 *
+	 * <p>A pet is queued before anything knows which pet it is, so its source can only be whatever
+	 * loot the client had just seen — the chest rather than the raid, a minion rather than the boss.
+	 * The name is what makes the real source knowable, so the two corrections arrive together. A null
+	 * {@code source} leaves the queued one alone: the caller learned nothing better.
+	 */
+	synchronized boolean nameQueued(String key, String itemName, Integer itemId, String source, Integer kc)
+	{
 		Moment existing = pending.get(key);
 		if (existing == null || itemName == null || itemName.isEmpty())
 		{
 			return false;
 		}
 		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
-			existing.quantity, existing.valueGp, existing.source, existing.sourceKind, existing.kc,
-			existing.at, existing.key));
+			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
+			source != null ? kc : existing.kc, existing.at, existing.key));
 		return true;
 	}
 

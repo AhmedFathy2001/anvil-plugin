@@ -50,8 +50,8 @@ public final class DeviceSignIn
 	}
 
 	private final BingoApiClient apiClient;
-	private final FederationSidebarDataSource.BrowserOpener browserOpener;
-	private final FederationSidebarDataSource.PollScheduler scheduler;
+	private final BrowserOpener browserOpener;
+	private final PollScheduler scheduler;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
 	public DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor)
@@ -61,8 +61,8 @@ public final class DeviceSignIn
 	}
 
 	/** Test seam — injectable browser opener + scheduler so the flow runs offline and fast. */
-	DeviceSignIn(BingoApiClient apiClient, FederationSidebarDataSource.BrowserOpener browserOpener,
-		FederationSidebarDataSource.PollScheduler scheduler)
+	DeviceSignIn(BingoApiClient apiClient, BrowserOpener browserOpener,
+		PollScheduler scheduler)
 	{
 		this.apiClient = apiClient;
 		this.browserOpener = browserOpener;

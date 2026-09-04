@@ -80,6 +80,109 @@ public class BingoApiClient
 		return apiUrl == null ? "" : apiUrl;
 	}
 
+	// ── WHICH CLAN THIS CLIENT IS TALKING TO ────────────────────────────────────────────────
+	//
+	// The Site URL the member typed is one Anvil, and one Anvil serves every clan. On the canonical
+	// address it therefore names no clan at all, and the server picks one from the token — live event
+	// first, then latest start, then newest seat.
+	//
+	// Good defaults, but a guess re-made on every request. Once we have been TOLD which clan we are
+	// dealing with — either because the member chose one in the sidebar, or because /config answered
+	// and said which one it answered for — we say so outright, by addressing `/c/<slug>` instead of
+	// the bare root. Same canonical path a browser uses, and the site has resolved it since the day
+	// clans stopped being subdomains.
+	//
+	// Two things fall out of it that are worth having on purpose. A member in two live boards stops
+	// being at the mercy of "latest start wins". And the handful of routes outside /api/plugin that
+	// still resolve a clan from the ADDRESS rather than the token — filing a submission, filing the
+	// starting shot, uploading its image — resolve correctly on the bare apex, which they do not when
+	// nothing names a clan.
+
+	/** A clan slug as the site accepts one; anything else is treated as naming no clan. */
+	private static final java.util.regex.Pattern CLAN_SLUG = java.util.regex.Pattern.compile("[a-z0-9-]{2,32}");
+
+	// TWO SLUGS, and the difference between them is the whole design.
+	//
+	// `chosen` is the member's pick in the sidebar. Empty means "Auto" — they have not chosen, and
+	// the server should keep deciding.
+	//
+	// `resolved` is what the server last told us it answered for. In Auto we adopt it for every call
+	// EXCEPT the config poll itself, which stays unaddressed so the server keeps re-deciding: a member
+	// whose live board moves to their other clan should follow it without touching a dropdown. Adopting
+	// it everywhere else is what makes a submission, a starting shot and its upload land in the right
+	// clan on the canonical address, where nothing in the URL says which clan is meant.
+
+	/** The member's explicit pick, or "" for Auto. Survives restarts (AnvilPlugin persists it). */
+	private volatile String chosenClan = "";
+
+	/** The clan the site last said it answered for. In-memory: it is the server's judgement, not a setting. */
+	private volatile String resolvedClan = "";
+
+	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
+	public void setChosenClan(String slug)
+	{
+		this.chosenClan = cleanSlug(slug);
+	}
+
+	/** The member's explicit pick, or "" when they are on Auto. */
+	public String getChosenClan()
+	{
+		return chosenClan;
+	}
+
+	/** The site answered, and named the clan it answered for. */
+	public void setResolvedClan(String slug)
+	{
+		this.resolvedClan = cleanSlug(slug);
+	}
+
+	/** The clan this client is actually addressing right now — a pick beats the server's guess. */
+	public String getActiveClan()
+	{
+		return !chosenClan.isEmpty() ? chosenClan : resolvedClan;
+	}
+
+	/**
+	 * Validated rather than trusted: a slug arrives over the wire and is about to be pasted into every
+	 * URL this client builds. Anything that is not a slug names no clan — which is the behaviour we
+	 * already had, and so cannot break anything.
+	 */
+	private static String cleanSlug(String slug)
+	{
+		String clean = slug == null ? "" : slug.trim().toLowerCase();
+		return !clean.isEmpty() && CLAN_SLUG.matcher(clean).matches() ? clean : "";
+	}
+
+	/**
+	 * A clan-scoped URL: the base, the clan we are addressing, then the path.
+	 *
+	 * Everything the plugin calls is clan-scoped except signing in, which is about a person and happens
+	 * before any clan is known ({@link #rootUrl}), and the config poll in Auto ({@link #configUrl}).
+	 */
+	String clanUrl(String path)
+	{
+		String slug = getActiveClan();
+		return slug.isEmpty() ? apiUrl + path : apiUrl + "/c/" + slug + path;
+	}
+
+	/**
+	 * Where to ask for the config.
+	 *
+	 * An explicit pick is addressed like everything else. On Auto this stays deliberately unaddressed,
+	 * so every poll is a fresh question — the answer names the clan, and the answer is allowed to
+	 * change when the member's live board does.
+	 */
+	String configUrl(String path)
+	{
+		return chosenClan.isEmpty() ? apiUrl + path : apiUrl + "/c/" + chosenClan + path;
+	}
+
+	/** A URL that must NOT carry a clan: the device sign-in pair, which is identity, not membership. */
+	String rootUrl(String path)
+	{
+		return apiUrl + path;
+	}
+
 	/**
 	 * Sets the in-game RSN of the locally logged-in account. The plugin should call this
 	 * on every login (and clear it on logout). Null/empty values are tolerated — the
@@ -114,10 +217,28 @@ public class BingoApiClient
 		this.seasonal = seasonal;
 	}
 
-	/** True when a Site URL is set but no Account Token yet — the state the Sign-in button serves. */
+	/**
+	 * The canonical Anvil, offered when somebody signs in without having typed a site.
+	 *
+	 * NOT the config default, and that distinction is the whole point. `apiUrl` still defaults to ""
+	 * so the plugin contacts nothing on its own — every unauthenticated poll here (hello,
+	 * active-weekly, schedule, weekly-leaderboard) bails on an empty URL, so an install that is never
+	 * signed into never reaches the network at all. This constant is only ever written by an explicit
+	 * click on Sign in, which is the user choosing the server exactly as typing it was.
+	 */
+	public static final String CANONICAL_SITE = "https://anvilosrs.com";
+
+	/**
+	 * True when there is no Account Token yet — the state the Sign-in button serves.
+	 *
+	 * It used to also require a Site URL, which meant somebody who had just installed the plugin saw
+	 * no way in: the button that would have configured them was hidden until they configured
+	 * themselves. Sign in now offers to fill the site in (see CANONICAL_SITE), so the button is the
+	 * first step rather than the second.
+	 */
 	public boolean needsSignIn()
 	{
-		return apiUrl != null && !apiUrl.isEmpty() && (playerToken == null || playerToken.isEmpty());
+		return playerToken == null || playerToken.isEmpty();
 	}
 
 	// ---- Device-code sign-in (home-native RFC 8628; see the site's /api/plugin/auth/*) ----------
@@ -150,7 +271,7 @@ public class BingoApiClient
 			return null;
 		}
 		RequestBody empty = RequestBody.create(null, new byte[0]);
-		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/start")
+		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/start"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(empty).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -176,7 +297,7 @@ public class BingoApiClient
 		}
 		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
 			gson.toJson(java.util.Collections.singletonMap("device_code", deviceCode)));
-		Request request = new Request.Builder().url(apiUrl + "/api/plugin/auth/poll")
+		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/poll"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(body).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -190,74 +311,6 @@ public class BingoApiClient
 		{
 			log.debug("auth/poll failed: {}", e.getMessage());
 			return null;
-		}
-	}
-
-	/**
-	 * Outcome of a share toggle. The server REFUSES a share for reasons the member can act on — the
-	 * account isn't verified on the site yet, they're not logged into it, the clan isn't connected —
-	 * so the message has to survive back to the UI. Returning a bare boolean here silently turned
-	 * every refusal into what looked like success.
-	 */
-	public static class ShareResult
-	{
-		public final boolean ok;
-		/** Server-supplied reason, or a generic line. Null when {@link #ok}. */
-		public final String error;
-
-		public ShareResult(boolean ok, String error)
-		{
-			this.ok = ok;
-			this.error = error;
-		}
-	}
-
-	/** Share (or stop sharing) the CURRENT account's RSN with one connected clan. Authed + carries the
-	 * X-RSN/X-Account-Hash headers, so the server scopes the share to the exact playing account. */
-	public ShareResult federationShare(String instanceId, boolean share)
-	{
-		if (!isConfigured() || instanceId == null || instanceId.isEmpty())
-		{
-			return new ShareResult(false, "Not connected to a site.");
-		}
-		java.util.Map<String, String> payload = new java.util.HashMap<>();
-		payload.put("instanceId", instanceId);
-		payload.put("action", share ? "share" : "unshare");
-		Request request = authedRequest(apiUrl + "/api/plugin/federation/share")
-			.post(RequestBody.create(JSON, gson.toJson(payload)))
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (response.isSuccessful())
-			{
-				return new ShareResult(true, null);
-			}
-			// Every refusal ships { error } — surface it verbatim; it's written for the member.
-			String message = null;
-			try
-			{
-				if (response.body() != null)
-				{
-					com.google.gson.JsonObject o = gson.fromJson(response.body().charStream(), com.google.gson.JsonObject.class);
-					if (o != null && o.has("error") && o.get("error").isJsonPrimitive())
-					{
-						message = o.get("error").getAsString();
-					}
-				}
-			}
-			catch (com.google.gson.JsonParseException ignored)
-			{
-				// Non-JSON error body (proxy/HTML) — fall through to the generic line.
-			}
-			log.debug("federation/share refused ({}): {}", response.code(), message);
-			return new ShareResult(false, message != null && !message.isEmpty()
-				? message
-				: "The site refused the change (" + response.code() + ").");
-		}
-		catch (IOException e)
-		{
-			log.debug("federation/share failed: {}", e.getMessage());
-			return new ShareResult(false, "Couldn't reach the site — check your connection.");
 		}
 	}
 
@@ -383,13 +436,16 @@ public class BingoApiClient
 			body = RequestBody.create(JSON, payload.toString());
 		}
 
-		Request request = authedRequest(apiUrl + "/api/plugin/notify").post(body).build();
+		Request request = authedRequest(clanUrl("/api/plugin/notify")).post(body).build();
 		httpClient.newCall(request).enqueue(new Callback()
 		{
+			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
+			// that the server rejected looked exactly like one that was never sent, and the only
+			// honest answer to "why didn't my 99 post" was that nobody could tell.
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
-				log.debug("notify post failed: {}", e.getMessage());
+				log.warn("Anvil: '{}' notification never reached the site: {}", channel, e.getMessage());
 			}
 
 			@Override
@@ -399,7 +455,7 @@ public class BingoApiClient
 				{
 					if (!r.isSuccessful())
 					{
-						log.debug("notify returned HTTP {}", r.code());
+						log.warn("Anvil: the site refused a '{}' notification (HTTP {}).", channel, r.code());
 					}
 				}
 			}
@@ -471,7 +527,7 @@ public class BingoApiClient
 			.addFormDataPart("payload_json", payload.toString())
 			.addFormDataPart("file", file.getName(), RequestBody.create(type, file))
 			.build();
-		Request request = authedRequest(apiUrl + "/api/plugin/clip").post(multipart).build();
+		Request request = authedRequest(clanUrl("/api/plugin/clip")).post(multipart).build();
 		try (Response response = uploadClient.newCall(request).execute())
 		{
 			if (response.isSuccessful())
@@ -512,7 +568,7 @@ public class BingoApiClient
 
 	public PluginConfigResponse fetchConfig() throws IOException
 	{
-		Request.Builder rb = authedRequest(apiUrl + "/api/plugin/config").get();
+		Request.Builder rb = authedRequest(configUrl("/api/plugin/config")).get();
 		String etag = lastConfigEtag;
 		PluginConfigResponse cached = lastConfig;
 		if (etag != null && cached != null)
@@ -538,52 +594,6 @@ public class BingoApiClient
 	}
 
 	/**
-	 * GET /api/plugin/board — full board for the caller's active event (every tile + grid slot +
-	 * all-team completion state). Player-token authed. Never throws — returns null on any failure
-	 * so the clog view can show a graceful "couldn't load" message.
-	 */
-	// Conditional-GET cache for the board, mirroring fetchConfig. The clog re-fetches the board on
-	// tab-open / view-switch but it rarely changes between opens, so we send If-None-Match and reuse
-	// the cached board on a 304 (no body transferred — a big board is tens of KB).
-	private volatile String lastBoardEtag;
-	private volatile BoardResponse lastBoard;
-
-	public BoardResponse fetchBoard()
-	{
-		if (!isConfigured())
-		{
-			return null;
-		}
-		Request.Builder rb = authedRequest(apiUrl + "/api/plugin/board").get();
-		String etag = lastBoardEtag;
-		BoardResponse cached = lastBoard;
-		if (etag != null && cached != null)
-		{
-			rb.header("If-None-Match", etag);
-		}
-		try (Response response = httpClient.newCall(rb.build()).execute())
-		{
-			if (response.code() == 304 && cached != null)
-			{
-				return cached; // board unchanged since the last fetch — reuse it, no body transferred
-			}
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				return null;
-			}
-			BoardResponse parsed = gson.fromJson(response.body().string(), BoardResponse.class);
-			lastBoardEtag = response.header("ETag");
-			lastBoard = parsed;
-			return parsed;
-		}
-		catch (IOException e)
-		{
-			log.debug("board fetch failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
-	/**
 	 * GET /api/plugin/activity?since=&lt;cursor&gt; — the always-on sidebar's live team feed (submissions +
 	 * completions after the cursor, attributed and bounded). Player-token authed. Never throws — returns
 	 * null on any failure so the sidebar degrades gracefully.
@@ -602,7 +612,7 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		String url = apiUrl + "/api/plugin/activity"
+		String url = clanUrl("/api/plugin/activity")
 			+ (since == null || since.isEmpty() ? "" : "?since=" + since);
 		Request.Builder rb = authedRequest(url).get();
 		String etag = lastActivityEtag;
@@ -633,187 +643,6 @@ public class BingoApiClient
 		}
 	}
 
-	// ---- Site-relayed federation (FEDERATION_WIRE.md §10.2) --------------------------------------
-	//
-	// The ONLY two federation endpoints the plugin calls, both on its own home site with the same
-	// account-token auth as everything else. The broker and all inter-site fan-out are server-to-server;
-	// the plugin holds no clan tokens and opens no clan connections on this path.
-
-	/**
-	 * §1/§9 response-size cap on the federated {@code /state} body — we never materialize an unbounded
-	 * payload into memory. Generous headroom for many clans; a body over this is dropped (single-home fallback).
-	 */
-	private static final int MAX_STATE_BYTES = 512 * 1024;
-
-	/**
-	 * GET {@code /api/plugin/federation/state} — the site-relay sidebar's whole feed: whether federation
-	 * is on, whether this member's home is connected, and one ready-shaped board summary per federated
-	 * clan (§10.2). Account-token authed. Never throws — returns {@code null} on any failure (unconfigured,
-	 * transport, non-2xx, unparseable), so the sidebar falls back to its single-home render.
-	 *
-	 * <p>A {@code null} return (older server with no such route ⇒ 404, or offline) is indistinguishable to
-	 * the caller from "federation disabled" — both mean "render the single home", which is exactly today's
-	 * behaviour on the default path.</p>
-	 */
-	public FederationState fetchFederationState()
-	{
-		return fetchFederationState(false);
-	}
-
-	/** As above; {@code force} = a member-initiated Refresh, asking the home to bypass its re-sync throttle. */
-	public FederationState fetchFederationState(boolean force)
-	{
-		if (!isConfigured())
-		{
-			return null;
-		}
-		Request request = authedRequest(apiUrl + "/api/plugin/federation/state" + (force ? "?force=1" : "")).get().build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				return null;
-			}
-			String json = readBounded(response.body(), MAX_STATE_BYTES);
-			if (json == null)
-			{
-				// Over the size cap — drop it (single-home fallback) rather than buffer a hostile payload.
-				log.debug("federation/state body exceeded {} bytes; ignoring", MAX_STATE_BYTES);
-				return null;
-			}
-			return FederationState.parse(gson, json);
-		}
-		catch (IOException e)
-		{
-			log.debug("federation/state fetch failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
-	/**
-	 * Read at most {@code maxBytes} of a response body into a UTF-8 string; returns {@code null} when the
-	 * body is larger than the cap so the caller can bail (§9 parser DoS — a federated payload is never
-	 * materialized unbounded). Reads {@code maxBytes + 1} then checks, so an oversize body is detected
-	 * without ever holding more than the cap +1.
-	 */
-	private static String readBounded(ResponseBody body, int maxBytes) throws IOException
-	{
-		byte[] buf = new byte[maxBytes + 1];
-		int total = 0;
-		try (InputStream in = body.byteStream())
-		{
-			int r;
-			while (total < buf.length && (r = in.read(buf, total, buf.length - total)) != -1)
-			{
-				total += r;
-			}
-		}
-		if (total > maxBytes)
-		{
-			return null;
-		}
-		return new String(buf, 0, total, StandardCharsets.UTF_8);
-	}
-
-	/** Result of {@code POST /api/plugin/federation/connect} (§10.2). Exactly one of the two flags is set. */
-	public static final class FederationConnect
-	{
-		/** {@code status:"connected"} — a trusted home vouched for the member server-to-server (zero-click). */
-		public final boolean connected;
-		/** {@code status:"login"} — a self-host home needs the member's Discord login in the browser. */
-		public final boolean login;
-		/** The broker verification page to open when {@link #login}; {@code null} otherwise. */
-		public final String verificationUrl;
-		/** The short device code the member types into the verification page ({@link #login} only); null otherwise. */
-		public final String userCode;
-
-		FederationConnect(boolean connected, boolean login, String verificationUrl, String userCode)
-		{
-			this.connected = connected;
-			this.login = login;
-			this.verificationUrl = verificationUrl == null || verificationUrl.isEmpty() ? null : verificationUrl;
-			this.userCode = userCode == null || userCode.isEmpty() ? null : userCode;
-		}
-
-		/** Neither connected nor a usable login — the connect call failed or returned something unexpected. */
-		static FederationConnect unavailable()
-		{
-			return new FederationConnect(false, false, null, null);
-		}
-	}
-
-	/**
-	 * POST {@code /api/plugin/federation/connect} — ask the home site to establish federation for this
-	 * member (§10.2). A trusted home returns {@code {status:"connected"}} (the site minted assertions
-	 * server-to-server); a self-host returns {@code {status:"login", verificationUrl}} for the member to
-	 * complete a one-time Discord login. Account-token authed. Never throws — returns an
-	 * {@link FederationConnect#unavailable() unavailable} result on any failure.
-	 */
-	public FederationConnect federationConnect()
-	{
-		if (!isConfigured())
-		{
-			return FederationConnect.unavailable();
-		}
-		Request request = authedRequest(apiUrl + "/api/plugin/federation/connect")
-			.post(RequestBody.create(JSON, "{}"))
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			String body = response.body() != null ? response.body().string() : "";
-			if (!response.isSuccessful())
-			{
-				log.debug("federation/connect returned HTTP {}", response.code());
-				return FederationConnect.unavailable();
-			}
-			JsonObject o = new JsonParser().parse(body).getAsJsonObject();
-			String status = o.has("status") && o.get("status").isJsonPrimitive() ? o.get("status").getAsString() : "";
-			if ("connected".equals(status))
-			{
-				return new FederationConnect(true, false, null, null);
-			}
-			if ("login".equals(status))
-			{
-				String url = o.has("verificationUrl") && o.get("verificationUrl").isJsonPrimitive()
-					? o.get("verificationUrl").getAsString() : null;
-				String code = o.has("userCode") && o.get("userCode").isJsonPrimitive()
-					? o.get("userCode").getAsString() : null;
-				return new FederationConnect(false, true, url, code);
-			}
-			return FederationConnect.unavailable();
-		}
-		catch (IOException | RuntimeException e)
-		{
-			log.debug("federation/connect failed: {}", e.getMessage());
-			return FederationConnect.unavailable();
-		}
-	}
-
-	/**
-	 * POST {@code /api/plugin/federation/disconnect} — federation logout (§10.2). Asks the home site to
-	 * discard the member's cached remote-clan tokens and clear the durable signed-in marker. Account-token
-	 * authed, idempotent. Returns {@code true} on a 2xx acknowledgement; never throws.
-	 */
-	public boolean federationDisconnect()
-	{
-		if (!isConfigured())
-		{
-			return false;
-		}
-		Request request = authedRequest(apiUrl + "/api/plugin/federation/disconnect")
-			.post(RequestBody.create(JSON, "{}"))
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			return response.isSuccessful();
-		}
-		catch (IOException | RuntimeException e)
-		{
-			log.debug("federation/disconnect failed: {}", e.getMessage());
-			return false;
-		}
-	}
-
 	/** Response of GET /api/plugin/activity — Gson-mapped; see Anvil.Site/src/lib/pluginActivity.ts. */
 	public static class ActivityResponse
 	{
@@ -836,92 +665,6 @@ public class BingoApiClient
 		public boolean isSelf;
 	}
 
-	public static class BoardResponse
-	{
-		public int eventId;        // event this board belongs to (guards against stale-cache leak)
-		public String name;        // event name (for the preview header — may differ from your active event)
-		public boolean readOnly;   // true = preview of an event you're not actively competing in
-		public String format;      // "bingo" | "tilerace"
-		public String scoringMode; // "tiles" | "points"
-		public int boardSize;      // N for an N×N grid
-		public int yourTeamId;     // the calling player's team (-1 in a read-only preview)
-		// false = the host hasn't revealed the tiles yet, so `tiles` is intentionally empty (NOT a
-		// fetch failure). Defaults true so older servers that omit the flag keep the old behaviour.
-		public boolean tilesRevealed = true;
-		// Reveal-policy events (showdown / lucky draw / bounty) only — absent (null/0) on classic
-		// events and older servers. `tiles` already holds ONLY the revealed subset server-side.
-		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | null
-		public int hiddenTileCount;   // tiles not yet revealed (0 = everything's out)
-		public String nextRevealAt;   // ISO time of the next reveal, null when none is on the clock
-		public java.util.List<BoardTile> tiles;
-		public java.util.List<BoardTeam> teams;
-		public java.util.List<PluginConfigResponse.TierBand> tiers; // difficulty bands for the Tier filter
-	}
-
-	/**
-	 * GET /api/plugin/board?eventId=N — read-only preview of any event (upcoming, or a live event
-	 * you're not competing in). Anonymous. Never throws — returns null on any failure.
-	 */
-	public BoardResponse fetchBoardPreview(int eventId)
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/board?eventId=" + eventId)
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				return null;
-			}
-			return gson.fromJson(response.body().string(), BoardResponse.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("board preview fetch failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
-	public static class BoardTile
-	{
-		public int tileId;
-		public int position;     // raw board slot
-		public int index;        // 0..N-1 in board order (tile-race sequence)
-		public int row;
-		public int col;
-		public String label;
-		public String description;
-		public int points;
-		public int itemId;       // representative OSRS item icon, or -1 (no item — use a sprite)
-		public java.util.List<Integer> itemIds; // every item on the tile (compound sets have several)
-		public int requiredAmount;
-		public String requirement; // human task text for stat tiles ("Gain 1,000,000 Mining XP"); null otherwise
-		public int optional;     // 1 = optional tile
-		public int autoTrackDisabled; // 1 = auto-tracking off; completed manually by staff (0/absent on older servers)
-		public java.util.List<String> sources; // source restriction ("Only from …") — drop/value tiles; null/empty = any
-		public String category;  // free-text grouping (e.g. "GWD", "Slayer") for the plugin's Category filter; null = none
-		public String tileType;  // "drop" | "kill" | "timed" | "standard" (null on older servers) — for kind classification
-		public String statType;  // "skill" | "boss" | "kc" for stat tiles; null otherwise
-		public String statName;  // hiscores stat key for stat tiles ("mining", "zulrah"); null otherwise
-		public boolean complete; // YOUR team has completed this tile
-		// Per-item breakdown for compound tiles (e.g. a full-moon set), with your team's progress.
-		// Null/absent for simple single-item or manual tiles.
-		public java.util.List<PluginConfigResponse.ItemRequirement> itemRequirements;
-	}
-
-	public static class BoardTeam
-	{
-		public int teamId;
-		public String name;
-		public String color;     // hex like "#ff0000"
-		public java.util.List<Integer> completedTileIds;
-	}
-
 	/**
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */
@@ -933,7 +676,7 @@ public class BingoApiClient
 			.addFormDataPart("file", filename, fileBody)
 			.build();
 
-		Request request = authedRequest(apiUrl + "/api/upload")
+		Request request = authedRequest(clanUrl("/api/upload"))
 			.post(multipart)
 			.build();
 
@@ -959,8 +702,8 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/active-weekly")
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/active-weekly")))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -996,8 +739,9 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		payload.addProperty("rsn", rsn);
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/weekly/enroll")
+		// Same as hello: optional, and the only clan signal left on an address that names none.
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/weekly/enroll")))
 			.post(body)
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -1033,14 +777,31 @@ public class BingoApiClient
 	 * GET /api/plugin/schedule — returns upcoming + active bingo events and weekly competitions.
 	 * Unauthenticated. Never throws — returns null on any failure.
 	 */
+	/**
+	 * Attach the account token when we have one, on a request that does not require it.
+	 *
+	 * These reads were written against a deployment that WAS a clan, so the hostname answered
+	 * "whose schedule?" and no token was needed. One site now serves every clan, and the canonical
+	 * address names none — so on the apex the token is the only thing that can say which clan the
+	 * caller means. Still optional: a site addressed by subdomain or /c/<slug> ignores it, and a
+	 * caller without a token gets exactly what it got before.
+	 */
+	private Request.Builder withOptionalAuth(Request.Builder builder)
+	{
+		String token = playerToken;
+		return token == null || token.isEmpty()
+			? builder
+			: builder.header("Authorization", "Bearer " + token);
+	}
+
 	public ScheduleResponse fetchSchedule()
 	{
 		if (apiUrl == null || apiUrl.isEmpty())
 		{
 			return null;
 		}
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/schedule")
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/schedule")))
 			.get()
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -1101,9 +862,9 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		String url = apiUrl + "/api/plugin/weekly-leaderboard"
-			+ (competitionId != null ? "?id=" + competitionId : "");
-		Request request = new Request.Builder().url(url).get().build();
+		String url = clanUrl("/api/plugin/weekly-leaderboard"
+			+ (competitionId != null ? "?id=" + competitionId : ""));
+		Request request = withOptionalAuth(new Request.Builder().url(url)).get().build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful())
@@ -1169,9 +930,13 @@ public class BingoApiClient
 		payload.addProperty("rsn", rsn);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/hello")
-			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION)
+		// The token rides along when we have one. This call has never REQUIRED it — anyone running the
+		// plugin may say hello — but on the canonical address, which names no clan, the token is the
+		// only thing left that can say which clan is being greeted. A site addressed by /c/<slug> or
+		// by an old per-clan hostname ignores it and answers exactly as before.
+		Request request = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/hello"))
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION))
 			.post(body)
 			.build();
 
@@ -1196,6 +961,15 @@ public class BingoApiClient
 	{
 		public boolean knownMember;
 		public boolean isGuest;
+		// WHICH CLAN ANSWERED, and about whom. "Tracked as a guest" is a claim about one person in one
+		// clan and the message named neither, so somebody in two clans could not tell a wrong answer
+		// from a surprising one. Null on a site that predates this — the log line says so rather than
+		// printing "null".
+		public String clanName;
+		public String clanSlug;
+		public String rsn;
+		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
+		public String seatKind;
 		// What's running right now, for an in-game greeting on login.
 		public java.util.List<WeeklyInfo> activeWeekly;
 		public java.util.List<BingoInfo> activeBingos;
@@ -1229,7 +1003,7 @@ public class BingoApiClient
 			return false;
 		}
 		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/me")
+			.url(clanUrl("/api/plugin/me"))
 			.header("Authorization", "Bearer " + accountToken)
 			.get()
 			.build();
@@ -1267,7 +1041,7 @@ public class BingoApiClient
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 		Request request = new Request.Builder()
-			.url(apiUrl + "/api/plugin/clan-sync")
+			.url(clanUrl("/api/plugin/clan-sync"))
 			.header("Authorization", "Bearer " + accountToken)
 			.post(body)
 			.build();
@@ -1534,7 +1308,7 @@ public class BingoApiClient
 		payload.add("items", arr);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/clog")
+		Request request = authedRequest(clanUrl("/api/plugin/clog"))
 			.post(body)
 			.build();
 
@@ -1605,7 +1379,7 @@ public class BingoApiClient
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/start-proof")
+		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/start-proof"))
 			.post(body)
 			.build();
 
@@ -1664,7 +1438,7 @@ public class BingoApiClient
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 
-		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/submissions"))
 			.post(body)
 			.build();
 
@@ -1730,7 +1504,7 @@ public class BingoApiClient
 		payload.add("stats", stats);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
 			.post(body)
 			.build();
 
@@ -1774,7 +1548,7 @@ public class BingoApiClient
 		payload.add("skills", skills);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
 			.post(body)
 			.build();
 
@@ -1822,7 +1596,7 @@ public class BingoApiClient
 		payload.add("activities", activities);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/stats")
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
 			.post(body)
 			.build();
 
@@ -1858,7 +1632,7 @@ public class BingoApiClient
 		payload.addProperty("caTasks", caTasks);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/counters")
+		Request request = authedRequest(clanUrl("/api/plugin/counters"))
 			.post(body)
 			.build();
 
@@ -1974,7 +1748,7 @@ public class BingoApiClient
 		}
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/progress")
+		Request request = authedRequest(clanUrl("/api/plugin/progress"))
 			.post(body)
 			.build();
 
@@ -2054,7 +1828,7 @@ public class BingoApiClient
 		payload.addProperty("syncedPages", syncedPages);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/clog")
+		Request request = authedRequest(clanUrl("/api/plugin/clog"))
 			.post(body)
 			.build();
 
@@ -2103,7 +1877,7 @@ public class BingoApiClient
 		payload.add("bests", out);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/pb")
+		Request request = authedRequest(clanUrl("/api/plugin/pb"))
 			.post(body)
 			.build();
 
@@ -2195,7 +1969,7 @@ public class BingoApiClient
 		payload.add("moments", out);
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(apiUrl + "/api/plugin/moments")
+		Request request = authedRequest(clanUrl("/api/plugin/moments"))
 			.post(body)
 			.build();
 
@@ -2228,7 +2002,7 @@ public class BingoApiClient
 
 		RequestBody body = RequestBody.create(JSON, payload.toString());
 
-		Request request = authedRequest(apiUrl + "/api/events/" + eventId + "/submissions")
+		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/submissions"))
 			.post(body)
 			.build();
 

@@ -4,16 +4,16 @@ import java.util.List;
 
 /**
  * The single seam between the always-on progress sidebar ({@link AnvilSidebarPanel}) and whatever
- * supplies its data. The panel depends only on this interface, so the multi-home federation layer
- * can drop in the real implementation with <strong>no panel changes</strong>.
+ * supplies its data. The panel depends only on this interface, so what actually answers — a live
+ * site, a fixture in a test — is a wiring decision the panel never sees.
  *
  * <p><b>Contract</b></p>
  * <ul>
  *   <li>{@link #fetchConnections()} is <em>blocking</em> — implementations do network I/O. The panel
  *       always calls it off the Swing EDT (via a {@code SwingWorker}) and marshals the result back.</li>
- *   <li>Returns the full set of the member's connected clans/instances, each already shaped as a
- *       {@link ConnectionView} (one {@code /meta} + {@code /board} fold per instance). Order is the
- *       display order of the clan filter.</li>
+ *   <li>Returns the clan this plugin is currently addressing, shaped as a {@link ConnectionView}.
+ *       A list rather than one value because the panel renders and selects over a list, and because
+ *       an implementation may legitimately have nothing to show.</li>
  *   <li>Never returns {@code null}. An <em>empty</em> list is a valid, distinct state (the member has
  *       no connected clans) and drives the panel's empty view.</li>
  *   <li>A <em>total</em> failure (no reachable homes at all, auth broken, etc.) throws
@@ -22,8 +22,7 @@ import java.util.List;
  *       {@link ConnectionView#error} instead — do not throw for that.</li>
  * </ul>
  *
- * <p>Bound to the site-relay {@link FederationSidebarDataSource} over a single-home
- * {@link AnvilSidebarDataSource} delegate (see {@code FEDERATION_WIRE.md} §10).</p>
+ * <p>Bound to {@link AnvilSidebarDataSource}, a view over the config the plugin already polls.</p>
  */
 public interface SidebarDataSource
 {
@@ -35,18 +34,55 @@ public interface SidebarDataSource
 	List<ConnectionView> fetchConnections() throws SidebarDataException;
 
 	/**
-	 * As {@link #fetchConnections()}; {@code forceFederationRefresh} marks a member-initiated Refresh, so a
-	 * source may bypass whatever it normally throttles — the federated source asks the home to skip its
-	 * re-sync throttle, the single-home source re-reads the weekly standings it otherwise caches. Default
-	 * ignores the flag (a source with nothing throttled has nothing to bypass).
+	 * As {@link #fetchConnections()}; {@code manualRefresh} marks a member-initiated Refresh, so a source
+	 * may bypass whatever it normally throttles — the live source re-reads the weekly standings it
+	 * otherwise caches for a minute. Default ignores the flag (nothing throttled, nothing to bypass).
 	 */
-	default List<ConnectionView> fetchConnections(boolean forceFederationRefresh) throws SidebarDataException
+	default List<ConnectionView> fetchConnections(boolean manualRefresh) throws SidebarDataException
 	{
 		return fetchConnections();
 	}
 
+	// ── The clan this plugin is pointed at ───────────────────────────────────────────────────────
+	//
+	// One Anvil serves every clan, so the Site URL names none of them and a person may hold seats in
+	// several. The site says which clan it answered for and lists the rest; these three carry that to
+	// the panel, which offers it as a dropdown.
+
+	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
+	default List<PluginConfigResponse.ClanRef> clans()
+	{
+		return java.util.Collections.emptyList();
+	}
+
+	/** The member's explicit pick, or "" when they are on Auto and the site is deciding. */
+	default String chosenClan()
+	{
+		return "";
+	}
+
 	/**
-	 * The STARTING SHOT this account still owes on its HOME clan's live event (site lib/startProof),
+	 * The clan slug this plugin is actually addressing — a pick if there is one, else whatever the
+	 * site resolved. "" before the first answer. Distinct from {@link #chosenClan()}: the merged view
+	 * needs to know which board is already on screen in full, not whether anybody chose it.
+	 */
+	default String activeClan()
+	{
+		return "";
+	}
+
+	/**
+	 * The member picked a clan (or "" for Auto).
+	 *
+	 * Blocking-free: implementations persist the pick and kick off a refetch, they do not wait for one.
+	 * The panel calls this from the EDT.
+	 */
+	default void chooseClan(String slug)
+	{
+	}
+
+	/**
+	 * The STARTING SHOT this account still owes on the addressed clan's live event (site lib/startProof),
 	 * or {@code null} when nothing is owed — which is the case on every event that doesn't ask for
 	 * one, on sites that predate the feature, and the moment one is filed.
 	 *
