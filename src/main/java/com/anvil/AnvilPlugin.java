@@ -2453,7 +2453,13 @@ public class AnvilPlugin extends Plugin {
                 resp.seatKind != null ? resp.seatKind : "none",
                 resp.knownMember);
         if (!resp.knownMember) {
-            sendChatMessage("Tracked as a guest — a clan admin can promote you to member on the site.");
+            // NAME THE CLAN. Somebody who owns one clan and guests in another read "Tracked as a
+            // guest" as a claim about them, and it is a claim about them IN ONE CLAN — true there and
+            // irrelevant to the clan they run. Without the name it cannot be told apart from a wrong
+            // answer, which is exactly how it was read.
+            String where = resp.clanName != null && !resp.clanName.isEmpty() ? " in " + resp.clanName : "";
+            sendChatMessage("Tracked as a guest" + where
+                    + " — a clan admin can promote you to member on the site.");
         }
 
         // Greet with whatever's running right now so members know to jump in.
