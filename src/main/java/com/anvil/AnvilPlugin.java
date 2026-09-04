@@ -6071,8 +6071,11 @@ public class AnvilPlugin extends Plugin {
         if (task == null || task.isEmpty()) {
             return;
         }
+        // The tier is never absent: the completion line names it, and the parse above stands down
+        // when that word isn't a tier we recognise — so nothing reaches here without one. The site
+        // relies on that (a `ca` moment with no rankable tier is rejected at its ingest route).
         moments.record(AnvilMoments.Moment.combatTask(
-                task, tier != null ? tier.getDisplayName() : null, System.currentTimeMillis()));
+                task, tier.getDisplayName(), System.currentTimeMillis()));
         scheduleMomentPush();
 
         synchronized (counterLock) {
