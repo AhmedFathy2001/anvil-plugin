@@ -4,7 +4,7 @@ import java.util.function.BooleanSupplier;
 
 import net.runelite.api.Client;
 import net.runelite.api.FontID;
-import net.runelite.api.SpriteID;
+import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.widgets.JavaScriptCallback;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetPositionMode;
@@ -22,11 +22,13 @@ import net.runelite.api.widgets.WidgetType;
  * than in RuneLite's.
  *
  * <p>DRAWN AS A BUTTON, NOT AS A WORD. The first version was a bare text widget, which read as a
- * stray label rather than something to click — its neighbours have a raised metal frame and a hover
- * state, and beside them a floating "Anvil" looks like a rendering fault. The frame is nine sprites
- * (a background, four corners, four edges) with the text laid over the whole area carrying the
- * listeners, which is how the game builds these and how WikiSync builds its own; the sprite set
- * swaps on hover so it lights up like every other button in the interface.
+ * stray label rather than something to click — its neighbours have a raised stone frame and a hover
+ * state, and beside them a floating "Anvil" looks like a rendering fault. So this is the game's own
+ * button: the V2 stone button's nine sprites (a backing, four corners, four edges) with the text
+ * laid over the whole area carrying the listeners, swapping to the pressed-in set on hover. There is
+ * essentially one right answer here and every plugin with a button in these bars has found it — the
+ * sprites are the same ids whether a codebase spells them the legacy way (WORLD_MAP_BUTTON_*,
+ * EQUIPMENT_BUTTON_*_HOVERED) or the generated way used here.
  *
  * <p>POSITIONED FROM THE RIGHT EDGE, not off a measured neighbour. Everything in these bars is
  * anchored right — the close button, then each plugin's button walking left — so an absolute-right
@@ -37,9 +39,6 @@ import net.runelite.api.widgets.WidgetType;
  * before adding its own, on the same script we draw on, so whether our button exists comes down to
  * who ran last — which is plugin load order, and nobody's to rely on. The answer is not to fight it:
  * we keep hold of what we made, notice when it is no longer attached, and build it again.
- *
- * <p>Adapted from WikiSync's SyncButtonManager (BSD-2-Clause, weirdgloop/WikiSync) — see
- * THIRD_PARTY_NOTICES.md. The sprite set and the nine-slice layout are theirs.
  */
 final class HeaderButton
 {
@@ -50,28 +49,30 @@ final class HeaderButton
 	private static final int CORNER = 9;
 	private static final int EDGE = 4;
 
+	/** The stone button as it sits: raised, on the light backing. */
 	private static final int[] SPRITES_IDLE = {
-		SpriteID.DIALOG_BACKGROUND,
-		SpriteID.WORLD_MAP_BUTTON_METAL_CORNER_TOP_LEFT,
-		SpriteID.WORLD_MAP_BUTTON_METAL_CORNER_TOP_RIGHT,
-		SpriteID.WORLD_MAP_BUTTON_METAL_CORNER_BOTTOM_LEFT,
-		SpriteID.WORLD_MAP_BUTTON_METAL_CORNER_BOTTOM_RIGHT,
-		SpriteID.WORLD_MAP_BUTTON_EDGE_LEFT,
-		SpriteID.WORLD_MAP_BUTTON_EDGE_TOP,
-		SpriteID.WORLD_MAP_BUTTON_EDGE_RIGHT,
-		SpriteID.WORLD_MAP_BUTTON_EDGE_BOTTOM,
+		SpriteID.TRADEBACKING,
+		SpriteID.V2StoneButtonOut.A_TOP_LEFT,
+		SpriteID.V2StoneButtonOut.A_TOP_RIGHT,
+		SpriteID.V2StoneButtonOut.A_BOTTOM_LEFT,
+		SpriteID.V2StoneButtonOut.A_BOTTOM_RIGHT,
+		SpriteID.V2StoneButtonOut.A_MAP_EDGE_LEFT,
+		SpriteID.V2StoneButtonOut.A_MAP_EDGE_TOP,
+		SpriteID.V2StoneButtonOut.A_MAP_EDGE_RIGHT,
+		SpriteID.V2StoneButtonOut.A_MAP_EDGE_BOTTOM,
 	};
 
+	/** The same button pressed in, on the dark backing — the game's own hover state for it. */
 	private static final int[] SPRITES_HOVERED = {
-		SpriteID.RESIZEABLE_MODE_SIDE_PANEL_BACKGROUND,
-		SpriteID.EQUIPMENT_BUTTON_METAL_CORNER_TOP_LEFT_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_METAL_CORNER_TOP_RIGHT_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_METAL_CORNER_BOTTOM_LEFT_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_METAL_CORNER_BOTTOM_RIGHT_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_EDGE_LEFT_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_EDGE_TOP_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_EDGE_RIGHT_HOVERED,
-		SpriteID.EQUIPMENT_BUTTON_EDGE_BOTTOM_HOVERED,
+		SpriteID.TRADEBACKING_DARK,
+		SpriteID.V2StoneButtonIn.A_TOP_LEFT,
+		SpriteID.V2StoneButtonIn.A_TOP_RIGHT,
+		SpriteID.V2StoneButtonIn.A_BOTTOM_LEFT,
+		SpriteID.V2StoneButtonIn.A_BOTTOM_RIGHT,
+		SpriteID.V2StoneButtonIn.A_LEFT,
+		SpriteID.V2StoneButtonIn.A_TOP,
+		SpriteID.V2StoneButtonIn.A_RIGHT,
+		SpriteID.V2StoneButtonIn.A_BOTTOM,
 	};
 
 	/** The frame's nine pieces, then the text on top. */
