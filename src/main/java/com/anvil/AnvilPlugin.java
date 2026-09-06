@@ -5900,24 +5900,30 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Whether the real-time stat push paths (skill XP + boss KC) may send right now. Two config
-     * shapes allow it: an active bingo event this account is a player in, or a weekly-only config
-     * (event == null) — the server merges the live SOTW/BOTW metrics into trackedKcNames /
-     * trackedSkillNames even with no bingo event, and /api/plugin/stats auths at the member level
-     * (account token + X-RSN), so the weekly moves live without any event. The tracked-name sets
-     * remain the per-stat filter in both shapes: with nothing tracked they're empty and nothing
-     * queues. An event that exists but has ended still blocks pushes until the next config refresh
-     * clears it (which then falls back to the weekly-only shape server-side).
+     * Whether the real-time stat push paths (skill XP + boss KC) may send right now.
+     *
+     * THE TRACKED-NAME SETS ARE THE FILTER. The server tells the plugin exactly which bosses and
+     * skills anything is watching — a bingo tile, a live SOTW, a live BOTW — and with nothing
+     * watching they are empty and nothing queues. That is the whole gate, and it is the server's to
+     * decide because only the server knows what is running.
+     *
+     * IT USED TO ALSO DEMAND AN ACTIVE BINGO, and that quietly turned the weekly off. Being drafted
+     * into a board that starts in six weeks is enough to make cfg.event non-null and not active, so
+     * a member grinding Kalphite Queen for the Boss of the Week pushed nothing at all: the server
+     * was asking for `kalphite queen` in trackedKcNames and the plugin refused to send it, because
+     * of a bingo neither of them was playing yet. The competition then moved only on the hiscores
+     * sweep, which lags by design — seven kills, +0 kc, and nothing wrong anywhere to point at.
+     *
+     * Sending during an inactive event is safe on the other side: lib/completionGate refuses any
+     * completion before a board starts, and stat baselines re-anchor at the start, so a pre-event
+     * push cannot score. Withholding it was the only thing that could go wrong, and did.
      */
+    static boolean statPushAllowed(PluginConfigResponse cfg, boolean autoSubmit) {
+        return cfg != null && autoSubmit;
+    }
+
     private boolean statPushAllowed() {
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg == null || !config.autoSubmit()) {
-            return false;
-        }
-        if (cfg.event == null) {
-            return true; // weekly-only: trackedKcNames/trackedSkillNames decide what actually sends
-        }
-        return cfg.team != null && cfg.player != null && AnvilOverlay.isEventActive(cfg.event);
+        return statPushAllowed(pluginConfig, config.autoSubmit());
     }
 
     /**
