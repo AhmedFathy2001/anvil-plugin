@@ -5927,18 +5927,26 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Buffers a skill's absolute XP for a debounced push, if a bingo skill-XP tile or the live
-     * weekly SOTW tracks it (trackedSkillNames carries both). Absolute XP is idempotent, so the
-     * latest value overwrites and a training burst becomes one push. Runs on the client thread
+     * Buffers a skill's absolute XP for a debounced push. Absolute XP is idempotent, so the latest
+     * value overwrites and a training burst becomes one push. Runs on the client thread
      * (onStatChanged); the network send happens on the executor.
+     *
+     * EVERYTHING, NOT JUST WHAT IS BEING WATCHED. This asked trackedSkillNames first, which made the
+     * client's report a function of what happened to be running: a skill nobody had a tile for went
+     * unreported, and the number only appeared when the hiscores sweep caught up — hours later, and
+     * only if the account had logged out. The plugin is the one thing that sees a gain the moment it
+     * happens, so it is the primary source and the sweep is the fallback that fills what it missed.
+     * The server already keeps max(hiscores, pushed) per key, so an extra key costs one map entry
+     * and can never lower anything.
      */
     private void maybeQueueSkillXpPush(String skillName, int xp, boolean realGain) {
-        if (skillName == null || !statPushAllowed()
-                || !trackedSkillNames.contains(skillName.toLowerCase(java.util.Locale.ROOT).trim())) {
+        if (skillName == null || !statPushAllowed()) {
             return;
         }
-        if (realGain) {
-            noteLocalStatProgress(skillName); // "Active now": this account is actively grinding this skill tile
+        // "Active now" stays about TILES — it means "this account is grinding the thing your board
+        // is watching", and saying it for every skill would make the signal meaningless.
+        if (realGain && trackedSkillNames.contains(skillName.toLowerCase(java.util.Locale.ROOT).trim())) {
+            noteLocalStatProgress(skillName);
         }
         if (executor == null || executor.isShutdown()) {
             return;
@@ -6040,11 +6048,20 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /**
+     * Buffers a boss's absolute kill count for a debounced push.
+     *
+     * Same reasoning as the skill push above: reported whether or not anything is watching, because
+     * the client is the only place a kill is known immediately. A KC line is rare enough that the
+     * volume is nothing, and the value is absolute, so a repeat is a no-op server-side.
+     */
     private void maybeQueueKcPush(String bossName, int kc) {
-        if (!statPushAllowed() || !trackedKcNames.contains(normalizeBossName(bossName))) {
+        if (!statPushAllowed()) {
             return;
         }
-        noteLocalStatProgress(bossName); // "Active now": this account is grinding this boss-KC tile
+        if (trackedKcNames.contains(normalizeBossName(bossName))) {
+            noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
+        }
         if (executor == null || executor.isShutdown()) {
             return;
         }
@@ -6098,7 +6115,12 @@ public class AnvilPlugin extends Plugin {
      * read, no change, and no request.
      */
     private void maybeQueueActivityPush() {
-        java.util.Set<String> wanted = trackedActivityKeys;
+        // EVERY COUNTER THIS CAN READ, not only the ones something is watching — the same rule the
+        // skill and KC pushes now follow, so one client report covers all three and the sweep is the
+        // fallback for whatever the client was not running to see. Reading them is a handful of
+        // varbit lookups against client memory; the send is debounced and carries absolute values,
+        // so an unchanged counter costs nothing.
+        java.util.Set<String> wanted = ActivityStats.readableKeys();
         if (wanted.isEmpty() || !statPushAllowed() || executor == null || executor.isShutdown()) {
             return;
         }
