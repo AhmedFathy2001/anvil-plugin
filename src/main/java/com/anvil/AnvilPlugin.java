@@ -4992,6 +4992,19 @@ public class AnvilPlugin extends Plugin {
             pendingRefresh.cancel(false);
         }
         if (!apiClient.isConfigured()) {
+            // SIGNING OUT HAS TO CLEAR WHAT SIGNING IN PUT THERE. The panel wipes its own view above,
+            // then rebuilds it from these fields — so leaving them set repaints the clan that was
+            // just disconnected: its board list, "You: #36" in a competition the client can no
+            // longer identify anyone in, and the admin-only roster-sync button. Nothing leaves the
+            // machine, and it still asserts a session that no longer exists.
+            pluginConfig = null;
+            schedule = null;
+            activeWeekly = null;
+            knownMember = false;
+            isGuest = false;
+            isAdmin = false;
+            // So a later sign-in greets again rather than assuming it already did.
+            helloSent = false;
             // Half-configured (URL but no token, or vice versa): nothing to fetch, but the panel
             // still needs to re-evaluate its sign-in row against the new state.
             SwingUtilities.invokeLater(sidebarPanel::refresh);
