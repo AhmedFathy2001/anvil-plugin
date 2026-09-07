@@ -95,6 +95,9 @@ final class HeaderButton
 	private final int anchorId;
 	/** Distance from the bar's right edge to our left edge, in the slot left of our neighbours. */
 	private final int rightOffset;
+	/** Where to sit when the slot nearer the close button is empty. Equal to rightOffset when the
+	 *  caller has no nearer slot to fall back to (the clan window, where we are already first). */
+	private final int nearOffset;
 	private final String label;
 	/** The verb alone; the game appends {@link #NAME} to it. */
 	private final String action;
@@ -106,12 +109,19 @@ final class HeaderButton
 	private Widget[] parts;
 
 	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, String label, String action,
+			BooleanSupplier enabled, Runnable onClick)
+	{
+		this(client, parentId, anchorId, rightOffset, rightOffset, label, action, enabled, onClick);
+	}
+
+	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, int nearOffset, String label, String action,
 				 BooleanSupplier enabled, Runnable onClick)
 	{
 		this.client = client;
 		this.parentId = parentId;
 		this.anchorId = anchorId;
 		this.rightOffset = rightOffset;
+		this.nearOffset = nearOffset;
 		this.label = label;
 		this.action = action;
 		this.enabled = enabled;
@@ -140,7 +150,7 @@ final class HeaderButton
 
 		final int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
 		final int y = anchor.getOriginalY();
-		final int x = rightOffset;
+		final int x = slotFor(parent);
 		final int yMode = anchor.getYPositionMode();
 		final int span = WIDTH - (CORNER * 2);
 		final Widget[] made = new Widget[PARTS];
@@ -182,6 +192,47 @@ final class HeaderButton
 
 		parts = made;
 		parent.revalidate();
+	}
+
+	/**
+	 * Which slot to sit in — the far one when a neighbour holds the near one, the near one otherwise.
+	 *
+	 * The offsets stay FIXED; this only chooses between two of them. Deriving coordinates from
+	 * another plugin's widget is what the class comment warns off, and this does not: it asks whether
+	 * anything foreign is anchored in the near slot, which is a yes/no about occupancy rather than a
+	 * position to copy.
+	 *
+	 * Without it the far offset was unconditional, so somebody with WikiSync disabled got a button
+	 * floating a slot-width away from the close button with an empty gap between them — reserved for
+	 * a plugin that was not running.
+	 */
+	private int slotFor(Widget parent)
+	{
+		if (nearOffset >= rightOffset)
+		{
+			return rightOffset;
+		}
+		Widget[] children = parent.getDynamicChildren();
+		if (children != null)
+		{
+			for (Widget child : children)
+			{
+				if (child == null || NAME.equals(child.getName()))
+				{
+					continue; // ours, from a previous render we are about to replace
+				}
+				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT)
+				{
+					continue;
+				}
+				final int childX = child.getOriginalX();
+				if (childX >= nearOffset && childX < rightOffset)
+				{
+					return rightOffset; // somebody is in the near slot; take the one beyond it
+				}
+			}
+		}
+		return nearOffset;
 	}
 
 	/** One piece of the frame, by its index into the sprite sets. */

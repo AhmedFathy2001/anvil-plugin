@@ -1125,7 +1125,7 @@ public class AnvilPlugin extends Plugin {
         // window size, where measuring off a neighbour moves the moment they move.
         clogSyncButton = new HeaderButton(
                 client, InterfaceID.Collection.UNIVERSE, InterfaceID.Collection.SEARCH_TOGGLE,
-                CLOG_BUTTON_OFFSET, "Anvil", "Sync to",
+                CLOG_BUTTON_OFFSET, CLOG_BUTTON_NEAR_OFFSET, "Anvil", "Sync to",
                 () -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
         clanSyncButton = new HeaderButton(
                 client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE,
@@ -1686,6 +1686,10 @@ public class AnvilPlugin extends Plugin {
     // close button ends at 28 and WikiSync's button takes 33..104, so we start after it; the clan
     // window has only its close button, so we sit straight beside that.
     private static final int CLOG_BUTTON_OFFSET = 109;
+    // The slot WikiSync would occupy (33..104), taken when it is not running. Without this the far
+    // offset was unconditional and the button sat a slot-width from the close button with an empty
+    // gap between, reserved for a plugin that was not there.
+    private static final int CLOG_BUTTON_NEAR_OFFSET = 33;
     private static final int CLAN_BUTTON_OFFSET = 33;
     /** One fire per transmitted item: args[1] = item id, args[2] = quantity. */
     private static final int COLLECTION_DELAYED_TRANSMIT = 4100;
