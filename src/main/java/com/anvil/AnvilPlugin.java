@@ -1706,6 +1706,18 @@ public class AnvilPlugin extends Plugin {
     public void onScriptPostFired(ScriptPostFired event) {
         if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
             captureClogPage();
+            // A SECOND CHANCE AT THE BUTTON, and the reason it needs one: the setup script below is
+            // the only place we drew, and with WikiSync disabled nothing else touches this container
+            // — so a draw that came too early, or landed while the button was disabled in config,
+            // was the only attempt there would ever be and the bar stayed empty until the interface
+            // was rebuilt from scratch. This script runs whenever the list draws, including on every
+            // tab change, so a missing button reappears at the next thing the player does.
+            //
+            // Idempotent: render() returns immediately when ours is still attached, so the common
+            // case costs one identity scan of the container's children.
+            if (clogSyncButton != null) {
+                clientThread.invokeLater(() -> clogSyncButton.render());
+            }
         } else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
             // The title-bar button, on the next client tick rather than right here. WikiSync clears
             // every dynamic child of this container before adding its own, on this same script — so
