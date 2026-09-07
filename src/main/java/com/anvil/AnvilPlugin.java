@@ -5665,9 +5665,11 @@ public class AnvilPlugin extends Plugin {
             // in-progress tile's live count backward (the reported karambwan/impling flakiness). Floor
             // each fresh gain at what we've already counted locally.
             Map<Integer, Integer> localGainProgress = snapshotGainProgress(pluginConfig);
+            Map<Integer, Integer> localKillProgress = snapshotKillProgress(pluginConfig);
             pluginConfig = fresh;
             rebuildItemDropIndex();
             restoreGainProgressFloor(pluginConfig, localGainProgress);
+            restoreKillProgressFloor(pluginConfig, localKillProgress);
             // One tracking-state summary, logged only when it CHANGES (the refresh runs every
             // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
             // what the plugin believed it was tracking, and when that belief changed.
@@ -6865,6 +6867,45 @@ public class AnvilPlugin extends Plugin {
             Integer prior = local.get(g.tileId);
             if (prior != null && prior > g.currentAmount) {
                 g.currentAmount = Math.min(prior, g.requiredAmount);
+            }
+        }
+    }
+
+    /** Snapshot each tracked kill's locally-counted currentAmount by tileId (pre-refresh state). */
+    private Map<Integer, Integer> snapshotKillProgress(PluginConfigResponse cfg) {
+        Map<Integer, Integer> m = new HashMap<>();
+        if (cfg != null && cfg.trackedKills != null) {
+            for (PluginConfigResponse.TrackedKill k : cfg.trackedKills) {
+                if (k != null) {
+                    m.put(k.tileId, k.currentAmount);
+                }
+            }
+        }
+        return m;
+    }
+
+    /** The same floor gains get, for kills — and for the same reason.
+     *
+     *  A kill tile counts locally and flushes on a debounce, so between the count and the flush the
+     *  server's copy is behind. The ~30s config refresh replaced the tracked kills wholesale, which
+     *  snapped an in-progress tile back to the server's stale number: ten chickens read 1,2,3,4,5
+     *  and then 1,2,3 again as the refresh landed mid-streak, before jumping to 6,7,10 once the
+     *  earlier flushes were counted. Nothing was lost — the server's total was right the whole time —
+     *  but the player is watching the wrong number and cannot tell those apart.
+     *
+     *  Same trade-off as gains: an admin deleting a kill submission won't see the count drop until
+     *  the player re-logs, which is much the better of the two surprises. */
+    private void restoreKillProgressFloor(PluginConfigResponse fresh, Map<Integer, Integer> local) {
+        if (fresh == null || fresh.trackedKills == null || local.isEmpty()) {
+            return;
+        }
+        for (PluginConfigResponse.TrackedKill k : fresh.trackedKills) {
+            if (k == null) {
+                continue;
+            }
+            Integer prior = local.get(k.tileId);
+            if (prior != null && prior > k.currentAmount) {
+                k.currentAmount = Math.min(prior, k.requiredAmount);
             }
         }
     }
