@@ -1310,6 +1310,15 @@ public class AnvilPlugin extends Plugin {
     protected void shutDown() {
         overlayManager.remove(overlay);
         overlayManager.remove(clogBanner);
+        // OUR WIDGETS ARE OURS TO CLEAR. Disabling the plugin left the buttons sitting in the game's
+        // title bars until the interface happened to be rebuilt — a control for a plugin that is no
+        // longer running, which does nothing when pressed.
+        if (clogSyncButton != null) {
+            clientThread.invokeLater(() -> clogSyncButton.hideParts());
+        }
+        if (clanSyncButton != null) {
+            clientThread.invokeLater(() -> clanSyncButton.hideParts());
+        }
         if (sidebarNavButton != null) {
             clientToolbar.removeNavigation(sidebarNavButton);
             sidebarNavButton = null;
@@ -1992,6 +2001,22 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onGameTick(GameTick event) {
+        // KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
+        //
+        // They were drawn on two scripts and never reconsidered, so anything that changed while the
+        // interface stayed open was invisible to them: enabling WikiSync stacked its button on top of
+        // ours, disabling it left ours in the far slot with a gap beside it, and turning our own sync
+        // setting off left a button that no longer did anything. WikiSync's own button appears and
+        // disappears instantly because it is re-evaluated, not because it is drawn more cleverly.
+        //
+        // A tick is 600ms and render() returns on an identity scan when nothing has moved, so this is
+        // cheap; it only runs at all while the relevant window is open.
+        if (clogSyncButton != null) {
+            clogSyncButton.refresh();
+        }
+        if (clanSyncButton != null) {
+            clanSyncButton.refresh();
+        }
         tickClogTransmitGuard();
         tickManualSyncWatchdog();
         updateClanRosterReadable();

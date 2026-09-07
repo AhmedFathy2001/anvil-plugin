@@ -107,6 +107,8 @@ final class HeaderButton
 
 	/** What we drew last time. Null until the first render, stale after a neighbour clears the bar. */
 	private Widget[] parts;
+	/** The slot those parts were drawn in, so a change of neighbours can be noticed and acted on. */
+	private int drawnAt = Integer.MIN_VALUE;
 
 	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, String label, String action,
 			BooleanSupplier enabled, Runnable onClick)
@@ -143,14 +145,22 @@ final class HeaderButton
 		{
 			return;
 		}
+		final int x = slotFor(parent);
 		if (stillAttached(parent))
 		{
-			return; // ours, intact, in place — drawing again would only make a second one
+			if (drawnAt == x)
+			{
+				return; // ours, intact, in the right slot — drawing again would only make a second one
+			}
+			// THE NEIGHBOURS MOVED. Enabling WikiSync mid-session fills the slot we took while it was
+			// away, and returning early here left the two buttons stacked on the same spot: ours was
+			// still attached, so nothing ever reconsidered where it should be. Hide the old copy and
+			// draw again at the slot that is free now.
+			hideParts();
 		}
 
 		final int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
 		final int y = anchor.getOriginalY();
-		final int x = slotFor(parent);
 		final int yMode = anchor.getYPositionMode();
 		final int span = WIDTH - (CORNER * 2);
 		final Widget[] made = new Widget[PARTS];
@@ -191,6 +201,7 @@ final class HeaderButton
 		made[TEXT] = text;
 
 		parts = made;
+		drawnAt = x;
 		parent.revalidate();
 	}
 
@@ -249,6 +260,58 @@ final class HeaderButton
 		piece.setOriginalHeight(h);
 		piece.revalidate();
 		return piece;
+	}
+
+	/**
+	 * Re-evaluate while the window is open: draw, move, or clear as the situation now stands.
+	 *
+	 * <p>Cheap enough for every tick. When the parent is gone there is nothing to do; when the button
+	 * should not be there it is hidden once and then there is nothing to hide; when it is already
+	 * right, render() returns on an identity scan.</p>
+	 */
+	void refresh()
+	{
+		Widget parent = client.getWidget(parentId);
+		if (parent == null)
+		{
+			// The window is closed. Our widgets went with it, so forget them rather than hiding
+			// objects that are no longer attached to anything.
+			parts = null;
+			drawnAt = Integer.MIN_VALUE;
+			return;
+		}
+		if (!enabled.getAsBoolean())
+		{
+			if (parts != null)
+			{
+				hideParts();
+			}
+			return;
+		}
+		render();
+	}
+
+	/**
+	 * Hide what we drew, and forget it.
+	 *
+	 * <p>Hidden rather than deleted because a dynamic child cannot be removed on its own — the only
+	 * removal the API offers clears the whole container, which would take the neighbours with it.
+	 * A hidden widget does not render and is collected when the interface is next rebuilt.</p>
+	 */
+	void hideParts()
+	{
+		if (parts != null)
+		{
+			for (Widget w : parts)
+			{
+				if (w != null)
+				{
+					w.setHidden(true);
+				}
+			}
+		}
+		parts = null;
+		drawnAt = Integer.MIN_VALUE;
 	}
 
 	/** Swap the frame between its idle and hovered sprite sets. */
