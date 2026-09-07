@@ -850,10 +850,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		List<EventEntry> out = new ArrayList<>();
 		boolean hasBoard = (c.eventName != null && !c.eventName.isEmpty()) || c.tilesTotal > 0;
+		String boardTitle = null;
 		if (hasBoard)
 		{
 			// Your own board leads — it's the one with progress on it.
 			String title = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
+			boardTitle = title;
 			out.add(new EventEntry(BOARD_EVENT_KEY, title,
 				c.ladder != null && c.ladder.ladderFormat ? "Ladder" : "Bingo", null, null));
 		}
@@ -863,6 +865,18 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		for (ConnectionView.ScheduledView s : c.scheduled)
 		{
+			// NOT THE BOARD ABOVE, AGAIN. The live board is keyed by a constant and a scheduled entry
+			// by its event id, so nothing stopped the same event appearing twice — once as your board
+			// with its progress on it, and once from the schedule underneath saying "Running — you're
+			// not in it", which is the same event contradicting itself two rows apart.
+			//
+			// Matched on the title because that is what this view carries; within one clan's own
+			// schedule two live boards sharing a name would be the ambiguity, and that is a naming
+			// problem rather than one worth a wider fix here.
+			if (hasBoard && s.title != null && s.title.equals(boardTitle))
+			{
+				continue;
+			}
 			out.add(new EventEntry("event:" + s.id, s.title, s.kindLabel(), null, s));
 		}
 		return out;
