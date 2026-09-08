@@ -72,6 +72,20 @@ public interface SidebarDataSource
 	}
 
 	/**
+	 * The board the panel is RENDERING, as a cross-clan identity ({@code "bingo:<id>"}), or "" when
+	 * there is none.
+	 *
+	 * <p>Not the same question as {@link #activeClan()}, and that gap is the bug it exists to close:
+	 * a co-hosted board belongs to both hosts, so the clan being addressed and the clan whose row
+	 * reports that board need not be the same one. Dedup "Also live" against the board on screen and
+	 * the two can drift as much as they like without the panel listing one event twice.</p>
+	 */
+	default String addressedBoard()
+	{
+		return "";
+	}
+
+	/**
 	 * The member picked a clan (or "" for Auto).
 	 *
 	 * Blocking-free: implementations persist the pick and kick off a refetch, they do not wait for one.

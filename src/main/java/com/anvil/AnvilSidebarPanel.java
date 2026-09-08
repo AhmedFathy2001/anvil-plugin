@@ -520,13 +520,22 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * seated in two co-hosting clans has the same board listed under each. Showing it twice is wrong,
 	 * and "Summer Bingo" is not a rare enough name to dedup on.</p>
 	 *
-	 * <p><b>The addressed clan's board is excluded by its EVENT, not by its slug.</b> Same reason:
-	 * when the board you are already looking at in full is co-hosted, the other host's row is that
-	 * same board. Filtering only on the slug would list it again, under a different clan's name, as
-	 * though it were somewhere else to go.</p>
+	 * <p><b>The board on screen is excluded by its EVENT, not by its slug.</b> Same reason: when the
+	 * board you are already looking at in full is co-hosted, the other host's row is that same board.
+	 * Filtering only on the slug would list it again, under a different clan's name, as though it
+	 * were somewhere else to go.</p>
+	 *
+	 * <p>And the board on screen is passed IN rather than read off the addressed clan's row, because
+	 * those two can disagree. A co-host's own row names whatever that clan reports as live — its
+	 * Skill of the Week, say — while the card above shows the co-hosted bingo the member is actually
+	 * playing, held on a seat in the host clan. Reading the row would then miss it, and the same
+	 * event appeared twice, its two tallies disagreeing.</p>
+	 *
+	 * @param shownBoard identity of the board the card above is rendering ({@code "bingo:<id>"}), or
+	 *                   null/"" when there is none
 	 */
 	static List<PluginConfigResponse.ClanRef> otherLiveBoards(
-		List<PluginConfigResponse.ClanRef> clans, String addressedSlug)
+		List<PluginConfigResponse.ClanRef> clans, String addressedSlug, String shownBoard)
 	{
 		List<PluginConfigResponse.ClanRef> out = new ArrayList<>();
 		if (clans == null || clans.isEmpty())
@@ -534,12 +543,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			return out;
 		}
 		java.util.Set<String> seen = new HashSet<>();
+		if (shownBoard != null && !shownBoard.isEmpty())
+		{
+			seen.add(shownBoard); // the board on screen, whichever clan's row also reports it
+		}
 		String addressed = addressedSlug == null ? "" : addressedSlug;
 		for (PluginConfigResponse.ClanRef c : clans)
 		{
 			if (c != null && addressed.equalsIgnoreCase(c.slug) && c.live != null)
 			{
-				seen.add(c.live.identity()); // the thing already on screen, in full
+				seen.add(c.live.identity()); // whatever else the addressed clan is running
 			}
 		}
 		for (PluginConfigResponse.ClanRef c : clans)
@@ -1007,7 +1020,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildOtherClanBoards()
 	{
-		List<PluginConfigResponse.ClanRef> others = otherLiveBoards(dataSource.clans(), dataSource.activeClan());
+		List<PluginConfigResponse.ClanRef> others =
+			otherLiveBoards(dataSource.clans(), dataSource.activeClan(), dataSource.addressedBoard());
 		if (others.isEmpty())
 		{
 			return null;

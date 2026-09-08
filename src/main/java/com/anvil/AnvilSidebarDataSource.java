@@ -274,6 +274,25 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public String addressedBoard()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		if (cfg == null)
+		{
+			return "";
+		}
+		// The member-scoped event when one resolved, else the board the site resolved from the token
+		// alone (the logged-out card). Both are the SAME board a clan row may also be reporting.
+		if (cfg.event != null)
+		{
+			return PluginConfigResponse.boardIdentity(cfg.event.id);
+		}
+		return cfg.homeBoard != null && cfg.homeBoard.eventId > 0
+			? PluginConfigResponse.boardIdentity(cfg.homeBoard.eventId)
+			: "";
+	}
+
+	@Override
 	public void chooseClan(String slug)
 	{
 		AnvilPlugin p = plugin;
@@ -352,6 +371,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		int tilesComplete = pointsScored
 			? ClogTaskModel.earnedPoints(rows, optionalIds)
 			: ClogTaskModel.completedCount(rows, optionalIds);
+		// THE BOARD, NOT THE PART OF IT THIS PLUGIN CAN SEE. The rows above are the tiles it can
+		// DETECT — a drop, a KC, an XP goal — so a board carrying manual tiles counted 10 of its 25
+		// and called that 50% while every other surface said 20%. When the site sends the board's own
+		// fraction, that is the board's fraction; the local count stays the answer for sites that don't.
+		if (cfg.board != null && cfg.board.tilesTotal > 0)
+		{
+			pointsScored = cfg.board.pointsScored;
+			tilesTotal = cfg.board.tilesTotal;
+			tilesComplete = cfg.board.tilesComplete;
+		}
 		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
 
 		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.

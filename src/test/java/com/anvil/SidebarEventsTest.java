@@ -252,11 +252,11 @@ public class SidebarEventsTest
 	@Test
 	public void nothingElseLiveMeansNoSection()
 	{
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(null, "a").isEmpty());
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(java.util.Collections.emptyList(), "a").isEmpty());
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(null, "a", null).isEmpty());
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(java.util.Collections.emptyList(), "a", null).isEmpty());
 		// A clan with no live board is not something to list under "also live".
 		assertTrue(AnvilSidebarPanel.otherLiveBoards(
-			Arrays.asList(clanRef("a", "Alpha", "member", "Summer"), clanRef("b", "Bravo", "guest", null)), "a")
+			Arrays.asList(clanRef("a", "Alpha", "member", "Summer"), clanRef("b", "Bravo", "guest", null)), "a", null)
 			.isEmpty());
 	}
 
@@ -268,7 +268,7 @@ public class SidebarEventsTest
 			clanRef("b", "Bravo", "guest", "Winter", 2),
 			clanRef("c", "Charlie", "member", "Autumn", 3));
 
-		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -280,7 +280,7 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Cross-Clan Cup", 7),
 			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
 
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a").isEmpty());
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a", null).isEmpty());
 	}
 
 	@Test
@@ -292,7 +292,43 @@ public class SidebarEventsTest
 			clanRef("c", "Charlie", "member", "Cross-Clan Cup", 7));
 
 		// Same board under two clans: one row, and the first-listed clan is the one offered.
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
+	}
+
+	@Test
+	public void theCoHostedBoardOnScreenIsNotListedAgainWhenTheAddressedClanReportsSomethingElse()
+	{
+		// The case that got shipped: one bingo, co-hosted. The member is a MEMBER of Alpha and holds
+		// their seat on it in Bravo, so Alpha's row names Alpha's OWN live thing — its Skill of the
+		// Week — while the card above shows the co-hosted bingo. Dedup against Alpha's row alone and
+		// the bingo comes back under "Also live" as Bravo's, one event twice, tallies disagreeing.
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Skill of the Week", 3, "weekly"),
+			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
+
+		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7").isEmpty());
+	}
+
+	@Test
+	public void aBoardOnScreenDoesNotHideTheOTHERBoardsSomewhereElse()
+	{
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("a", "Alpha", "member", "Skill of the Week", 3, "weekly"),
+			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7),
+			clanRef("c", "Charlie", "member", "Autumn", 9));
+
+		assertEquals(Arrays.asList("c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7")));
+	}
+
+	@Test
+	public void theBoardOnScreenIsMatchedByEVENT_notByTheNumberAlone()
+	{
+		// A weekly and a board are free to share an id — the pair never is. A competition with the
+		// same number as the board on screen is still somewhere else to go.
+		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
+			clanRef("b", "Bravo", "guest", "Slayer SOTW", 7, "weekly"));
+
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7")));
 	}
 
 	@Test
@@ -304,7 +340,7 @@ public class SidebarEventsTest
 			clanRef("b", "Bravo", "guest", "Summer Bingo", 2),
 			clanRef("c", "Charlie", "member", "Summer Bingo", 3));
 
-		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -316,8 +352,8 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Summer", 1),
 			clanRef("b", "Bravo", "guest", "Winter", 2));
 
-		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "")));
-		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, null)));
+		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "", null)));
+		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, null, null)));
 	}
 
 	@Test
@@ -326,7 +362,7 @@ public class SidebarEventsTest
 		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
 			clanRef("a", "Alpha", "member", "Summer", 1),
 			clanRef("b", "Bravo", "guest", "Winter", 2));
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "A")));
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "A", null)));
 	}
 
 	@Test
@@ -475,7 +511,7 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Summer Bingo", 5),
 			clanRef("b", "Bravo", "guest", "Slayer SOTW", 5, "weekly"));
 
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a")));
+		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -486,7 +522,7 @@ public class SidebarEventsTest
 		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
 			clanRef("a", "Alpha", "member", "Summer Bingo", 5), old);
 
-		assertTrue("same board, so not also-live", AnvilSidebarPanel.otherLiveBoards(clans, "a").isEmpty());
+		assertTrue("same board, so not also-live", AnvilSidebarPanel.otherLiveBoards(clans, "a", null).isEmpty());
 	}
 
 

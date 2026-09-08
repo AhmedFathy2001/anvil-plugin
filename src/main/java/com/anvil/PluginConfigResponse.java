@@ -169,7 +169,7 @@ public class PluginConfigResponse
 		/** Identity across clans: the id alone is ambiguous between the two tables it can come from. */
 		public String identity()
 		{
-			return (kind == null ? "bingo" : kind) + ":" + eventId;
+			return kind == null || "bingo".equals(kind) ? boardIdentity(eventId) : kind + ":" + eventId;
 		}
 	}
 
@@ -206,10 +206,47 @@ public class PluginConfigResponse
 
 	public static class HomeBoard
 	{
+		/**
+		 * WHICH board this is. Zero on a site that predates the field.
+		 *
+		 * <p>Load-bearing for the same reason {@link ClanBoard#eventId} is: a co-hosted board is
+		 * reported by every host, so the panel has to be able to say that the summary it is
+		 * rendering and a row under "Also live" are one event rather than two.</p>
+		 */
+		public int eventId;
 		public String eventName;
 		public int tilesComplete;
 		public int tilesTotal;
 		public boolean pointsScored;
+	}
+
+	/**
+	 * THE WHOLE BOARD'S FRACTION, from the server — not from what this plugin can see.
+	 *
+	 * <p>The tracked lists carry only tiles the plugin can DETECT: a drop, a KC, an XP goal. A manual
+	 * tile never arrives, so counting the rows in hand denominated a 25-tile board at 10 and reported
+	 * "5 / 10 tiles · 50%" beside a website, a Discord post and this same plugin's clan-switcher row
+	 * all saying 5 / 25. Null on a site that predates the field, where the local count is all there is.</p>
+	 */
+	public BoardTally board;
+
+	/** Earned/total for the board as a whole — points on a points board, tiles otherwise. */
+	public static class BoardTally
+	{
+		public int tilesComplete;
+		public int tilesTotal;
+		public boolean pointsScored;
+	}
+
+	/**
+	 * How a BOARD is named across clans, so every side of the dedup builds the same string.
+	 *
+	 * A board id and a competition id come out of different tables and collide freely, which is why
+	 * the kind is half of it — see {@link ClanBoard#identity()}.
+	 */
+	public static String boardIdentity(int eventId)
+	{
+		return "bingo:" + eventId;
 	}
 	public String codeword;
 
