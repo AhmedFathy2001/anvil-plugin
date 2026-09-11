@@ -1,9 +1,9 @@
 package com.anvil;
 
+import com.anvil.api.PluginConfigResponse;
+import org.junit.Test;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-
-import org.junit.Test;
 
 /**
  * Which notifications a clan's channel setup lets through.

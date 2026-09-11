@@ -1,9 +1,9 @@
 package com.anvil;
 
+import com.anvil.api.PluginConfigResponse;
+import org.junit.Test;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-
-import org.junit.Test;
 
 /**
  * When the plugin may push a live boss KC or skill XP.

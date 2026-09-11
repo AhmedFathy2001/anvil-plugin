@@ -1,9 +1,13 @@
 package com.anvil;
 
+import com.anvil.api.BingoApiClient;
+import com.anvil.api.PluginConfigResponse;
+import com.anvil.detect.StartProofRules;
+import com.anvil.ui.AnvilSidebarDataSource;
+import com.google.gson.Gson;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import com.google.gson.Gson;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;

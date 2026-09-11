@@ -1,5 +1,6 @@
 package com.anvil;
 
+import com.anvil.api.BingoApiClient;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 

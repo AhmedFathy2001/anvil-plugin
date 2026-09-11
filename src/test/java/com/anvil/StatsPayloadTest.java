@@ -1,9 +1,9 @@
 package com.anvil;
 
+import com.anvil.api.BingoApiClient;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.Test;
-
 import static org.junit.Assert.assertEquals;
 
 /**
