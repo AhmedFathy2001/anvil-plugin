@@ -863,12 +863,11 @@ public class AnvilPlugin extends Plugin {
     // Lowercased in-game KC-line boss names the server tracks as boss-KC tiles. Rebuilt with the
     // drop index each config refresh; empty unless the event has such tiles.
     private volatile Set<String> trackedKcNames = Collections.emptySet();
-    // Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
-    // counts are idempotent, so a kill streak collapses to a single push of the newest value.
-    private final Map<String, Integer> pendingKcPush = new HashMap<>();
-    private ScheduledFuture<?> kcPushTask;
     // KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
     private static final long KC_PUSH_COALESCE_MS = 15_000;
+    /** In-game boss name (as seen in chat) → latest ABSOLUTE kill count. */
+    private final DebouncedPush kcPush = new DebouncedPush(
+            "KC", "boss(es)", KC_PUSH_COALESCE_MS, batch -> apiClient.submitStatKc(batch), null);
     // ── Recap "fun stat" counters (deaths + total loot GP) for the active event. Cosmetic only (feeds the
     // end-of-event superlatives — never scoring). Held per-event and PERSISTED to the config store so a
     // client restart mid-event keeps counting instead of resetting to zero; switching events resets both.
@@ -1007,18 +1006,25 @@ public class AnvilPlugin extends Plugin {
     // Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
     // config refresh; empty unless the event has skill tiles.
     private volatile Set<String> trackedSkillNames = Collections.emptySet();
-    // Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
-    // collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
-    private final Map<String, Integer> pendingSkillXpPush = new HashMap<>();
-    private ScheduledFuture<?> skillXpPushTask;
+    /** Skill name → latest ABSOLUTE XP. Shares the KC window; a training burst is one push. */
+    private final DebouncedPush skillXpPush = new DebouncedPush(
+            "Skill XP", "skill(s)", KC_PUSH_COALESCE_MS, batch -> apiClient.submitStatXp(batch), null);
     // ---- Real-time activity push (clue tiers, Colosseum glory, collection-log slots) ------------
     // The site stat keys the event tracks that ActivityStats can actually read; rebuilt each config
     // refresh, empty unless the event has such tiles AND the site advertises 'activity-stats'.
     private volatile Set<String> trackedActivityKeys = Collections.emptySet();
-    private final Map<String, Integer> pendingActivityPush = new HashMap<>();
-    private ScheduledFuture<?> activityPushTask;
     // Last value pushed per key, so a varbit firing repeatedly with the same number doesn't re-send.
     private final Map<String, Integer> lastPushedActivity = new HashMap<>();
+    /** Site stat key → latest ABSOLUTE count, with the high-water mark updated on a send. */
+    private final DebouncedPush activityPush = new DebouncedPush(
+            "Activity", "key(s)", KC_PUSH_COALESCE_MS, batch -> apiClient.submitStatActivities(batch),
+            batch -> {
+                synchronized (lastPushedActivity) {
+                    for (Map.Entry<String, Integer> e : batch.entrySet()) {
+                        lastPushedActivity.merge(e.getKey(), e.getValue(), Integer::max);
+                    }
+                }
+            });
     // Ticks between safety re-reads. The varbit hook is what makes a finished clue land in seconds;
     // this is the backstop for a counter that moves without one firing (or fires before login
     // completes), which is cheap enough at one pass a minute to be worth not having to be sure.
@@ -1351,10 +1357,7 @@ public class AnvilPlugin extends Plugin {
         lastHeldItemCounts = null;
         heldItemsDirty = false;
         trackedKcNames = Collections.emptySet();
-        synchronized (pendingKcPush) {
-            pendingKcPush.clear();
-            kcPushTask = null;
-        }
+        kcPush.clear();
         // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
         // session days later would be filed against whatever happens to be running then.
         synchronized (moments) {
@@ -1362,15 +1365,11 @@ public class AnvilPlugin extends Plugin {
             momentPushTask = null;
         }
         trackedSkillNames = Collections.emptySet();
-        synchronized (pendingSkillXpPush) {
-            pendingSkillXpPush.clear();
-            skillXpPushTask = null;
-        }
+        skillXpPush.clear();
         trackedActivityKeys = Collections.emptySet();
-        synchronized (pendingActivityPush) {
-            pendingActivityPush.clear();
+        activityPush.clear();
+        synchronized (lastPushedActivity) {
             lastPushedActivity.clear();
-            activityPushTask = null;
         }
         // Flush the recap counters to the config store (captures loot gained since the last push) and
         // stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
@@ -5496,8 +5495,8 @@ public class AnvilPlugin extends Plugin {
         }
         trackedActivityKeys = keys;
         if (keys.isEmpty()) {
-            synchronized (pendingActivityPush) {
-                pendingActivityPush.clear();
+            activityPush.clear();
+            synchronized (lastPushedActivity) {
                 lastPushedActivity.clear();
             }
         }
@@ -5598,6 +5597,129 @@ public class AnvilPlugin extends Plugin {
      * The server already keeps max(hiscores, pushed) per key, so an extra key costs one map entry
      * and can never lower anything.
      */
+    /**
+     * An absolute-value buffer that sends once the writes stop.
+     *
+     * <p>Three counters work this way — boss kill counts, skill XP, and the activity counters read
+     * from varbits — and they worked this way in three copies. The values are ABSOLUTE, so a later
+     * write for the same key simply replaces an earlier one and a burst of training becomes one
+     * request. The server keeps max(hiscores, pushed), which is also why a retry can never
+     * double-count and why dropping a batch is safe: the hourly sweep still has the truth.</p>
+     *
+     * <p><b>Failure folds back rather than retries in place.</b> A failed send merges its batch into
+     * whatever has accumulated since, taking the higher value per key, and re-arms. So a send that
+     * fails during a grind does not resend a stale number — it resends the current one.</p>
+     */
+    private final class DebouncedPush {
+
+        /** What to call one of these in a log line: "boss(es)", "skill(s)", "key(s)". */
+        private final String label;
+        private final String noun;
+        private final long coalesceMs;
+        /**
+         * The request itself. Throws on anything the caller should retry.
+         *
+         * <p>These are constructed as field initialisers, which run BEFORE Guice injects
+         * {@code apiClient}. So the senders must be lambdas that dereference at call time — a bound
+         * method reference like {@code apiClient::submitStatKc} would capture null here and NPE on
+         * the first push, which is the same shape of bug {@code InjectionSmokeTest} exists for.</p>
+         */
+        private final PushSender send;
+        /** Ran after a send the server accepted, while nothing holds the buffer's lock. */
+        private final java.util.function.Consumer<Map<String, Integer>> onSent;
+
+        private final Map<String, Integer> pending = new HashMap<>();
+        private ScheduledFuture<?> task;
+
+        DebouncedPush(String label, String noun, long coalesceMs, PushSender send,
+                java.util.function.Consumer<Map<String, Integer>> onSent) {
+            this.label = label;
+            this.noun = noun;
+            this.coalesceMs = coalesceMs;
+            this.send = send;
+            this.onSent = onSent;
+        }
+
+        /** Buffer one absolute value and push the send further out. */
+        void queue(String key, int value) {
+            synchronized (pending) {
+                pending.put(key, value);
+                rearm();
+            }
+        }
+
+        /** Buffer several. Returns false when none of them were worth queueing. */
+        boolean queueAll(Map<String, Integer> values) {
+            if (values.isEmpty()) {
+                return false;
+            }
+            synchronized (pending) {
+                pending.putAll(values);
+                rearm();
+            }
+            return true;
+        }
+
+        /** Forget everything buffered — a logout, where the next account is not this one. */
+        void clear() {
+            synchronized (pending) {
+                pending.clear();
+                task = null;
+            }
+        }
+
+        /** Send what is buffered. Runs on the background thread. */
+        void flush() {
+            Map<String, Integer> batch;
+            synchronized (pending) {
+                if (pending.isEmpty()) {
+                    return;
+                }
+                batch = new HashMap<>(pending);
+                pending.clear();
+            }
+            if (!statPushAllowed()) {
+                // Event ended or auto-submit went off between the queue and the flush. Drop it: the
+                // value is absolute and the hiscores sweep still has it.
+                return;
+            }
+            try {
+                send.send(batch);
+                if (onSent != null) {
+                    onSent.accept(batch);
+                }
+                refreshConfig(); // pull back the progress, and any completion the push triggered
+            } catch (IOException e) {
+                log.warn("{} push failed ({} {}) — requeueing: {}", label, batch.size(), noun, e.getMessage());
+                synchronized (pending) {
+                    // Higher wins: anything queued while the request was in flight is newer.
+                    for (Map.Entry<String, Integer> en : batch.entrySet()) {
+                        pending.merge(en.getKey(), en.getValue(), Integer::max);
+                    }
+                    rearm();
+                }
+            }
+        }
+
+        /** Caller holds {@code pending}'s lock. */
+        private void rearm() {
+            if (!tasks.isLive()) {
+                return;
+            }
+            if (task != null) {
+                task.cancel(false);
+            }
+            task = tasks.runLater(this::flush, coalesceMs);
+        }
+    }
+
+    /** A stat push, as a lambda. Throws exactly what the caller should retry on. */
+    @FunctionalInterface
+    private interface PushSender {
+
+        void send(Map<String, Integer> batch) throws IOException;
+    }
+
     private void maybeQueueSkillXpPush(String skillName, int xp, boolean realGain) {
         if (skillName == null || !statPushAllowed()) {
             return;
@@ -5607,48 +5729,7 @@ public class AnvilPlugin extends Plugin {
         if (realGain && trackedSkillNames.contains(skillName.toLowerCase(Locale.ROOT).trim())) {
             noteLocalStatProgress(skillName);
         }
-        if (!tasks.isLive()) {
-            return;
-        }
-        synchronized (pendingSkillXpPush) {
-            pendingSkillXpPush.put(skillName, xp);
-            if (skillXpPushTask != null) {
-                skillXpPushTask.cancel(false);
-            }
-            skillXpPushTask = tasks.runLater(this::flushSkillXpPush, KC_PUSH_COALESCE_MS);
-        }
-    }
-
-    /** Pushes the buffered absolute skill XP to the server (no screenshot). Requeues on failure. */
-    private void flushSkillXpPush() {
-        Map<String, Integer> batch;
-        synchronized (pendingSkillXpPush) {
-            if (pendingSkillXpPush.isEmpty()) {
-                return;
-            }
-            batch = new HashMap<>(pendingSkillXpPush);
-            pendingSkillXpPush.clear();
-        }
-        if (!statPushAllowed()) {
-            return; // event ended / auto-submit off between queue and flush — drop; the XP is safe on the hiscores side
-        }
-        try {
-            apiClient.submitStatXp(batch);
-            refreshConfig(); // pull back the updated progress / any completion the push triggered
-        } catch (IOException e) {
-            log.warn("Skill XP push failed ({} skill(s)) — requeueing: {}", batch.size(), e.getMessage());
-            synchronized (pendingSkillXpPush) {
-                for (Map.Entry<String, Integer> en : batch.entrySet()) {
-                    pendingSkillXpPush.merge(en.getKey(), en.getValue(), Integer::max);
-                }
-                if (tasks.isLive()) {
-                    if (skillXpPushTask != null) {
-                        skillXpPushTask.cancel(false);
-                    }
-                    skillXpPushTask = tasks.runLater(this::flushSkillXpPush, KC_PUSH_COALESCE_MS);
-                }
-            }
-        }
+        skillXpPush.queue(skillName, xp);
     }
 
     /** Rebuild the set of in-game KC-line boss names to push real-time counts for; refreshed with the drop index. */
@@ -5695,16 +5776,7 @@ public class AnvilPlugin extends Plugin {
         if (System.currentTimeMillis() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) {
             return;
         }
-        if (!tasks.isLive()) {
-            return;
-        }
-        synchronized (pendingKcPush) {
-            pendingKcPush.put(lastKcName, lastKcValue);
-            if (kcPushTask != null) {
-                kcPushTask.cancel(false);
-            }
-            kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
-        }
+        kcPush.queue(lastKcName, lastKcValue);
     }
 
     /**
@@ -5721,48 +5793,7 @@ public class AnvilPlugin extends Plugin {
         if (trackedKcNames.contains(normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
         }
-        if (!tasks.isLive()) {
-            return;
-        }
-        synchronized (pendingKcPush) {
-            pendingKcPush.put(bossName, kc);
-            if (kcPushTask != null) {
-                kcPushTask.cancel(false);
-            }
-            kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
-        }
-    }
-
-    /** Pushes the buffered absolute KCs to the server (no screenshot). Requeues on failure. */
-    private void flushKcPush() {
-        Map<String, Integer> batch;
-        synchronized (pendingKcPush) {
-            if (pendingKcPush.isEmpty()) {
-                return;
-            }
-            batch = new HashMap<>(pendingKcPush);
-            pendingKcPush.clear();
-        }
-        if (!statPushAllowed()) {
-            return; // event ended / auto-submit off between queue and flush — drop; the count is safe on the hiscores side
-        }
-        try {
-            apiClient.submitStatKc(batch);
-            refreshConfig(); // pull back the updated progress / any completion the push triggered
-        } catch (IOException e) {
-            log.warn("KC push failed ({} boss(es)) — requeueing: {}", batch.size(), e.getMessage());
-            synchronized (pendingKcPush) {
-                for (Map.Entry<String, Integer> en : batch.entrySet()) {
-                    pendingKcPush.merge(en.getKey(), en.getValue(), Integer::max);
-                }
-                if (tasks.isLive()) {
-                    if (kcPushTask != null) {
-                        kcPushTask.cancel(false);
-                    }
-                    kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
-                }
-            }
-        }
+        kcPush.queue(bossName, kc);
     }
 
     /**
@@ -5787,61 +5818,19 @@ public class AnvilPlugin extends Plugin {
         if (current.isEmpty()) {
             return;
         }
-        synchronized (pendingActivityPush) {
-            boolean queued = false;
-            for (Map.Entry<String, Integer> e : current.entrySet()) {
-                Integer last = lastPushedActivity.get(e.getKey());
-                if (last != null && last >= e.getValue()) {
-                    continue; // already reported at least this high — nothing new to say
-                }
-                pendingActivityPush.put(e.getKey(), e.getValue());
-                queued = true;
+        // Only what has actually risen since we last reported it — these counters move a handful of
+        // times a session, so the common case is a read, no change, and no request.
+        Map<String, Integer> risen = new HashMap<>();
+        for (Map.Entry<String, Integer> e : current.entrySet()) {
+            Integer last;
+            synchronized (lastPushedActivity) {
+                last = lastPushedActivity.get(e.getKey());
             }
-            if (!queued) {
-                return;
-            }
-            if (activityPushTask != null) {
-                activityPushTask.cancel(false);
-            }
-            activityPushTask = tasks.runLater(this::flushActivityPush, KC_PUSH_COALESCE_MS);
-        }
-    }
-
-    /** Pushes the buffered absolute activity counts to the server (no screenshot). Requeues on failure. */
-    private void flushActivityPush() {
-        Map<String, Integer> batch;
-        synchronized (pendingActivityPush) {
-            if (pendingActivityPush.isEmpty()) {
-                return;
-            }
-            batch = new HashMap<>(pendingActivityPush);
-            pendingActivityPush.clear();
-        }
-        if (!statPushAllowed()) {
-            return; // event ended / auto-submit off between queue and flush — drop; the count is safe on the hiscores side
-        }
-        try {
-            apiClient.submitStatActivities(batch);
-            synchronized (pendingActivityPush) {
-                for (Map.Entry<String, Integer> e : batch.entrySet()) {
-                    lastPushedActivity.merge(e.getKey(), e.getValue(), Integer::max);
-                }
-            }
-            refreshConfig(); // pull back the updated progress / any completion the push triggered
-        } catch (IOException e) {
-            log.warn("Activity push failed ({} key(s)) — requeueing: {}", batch.size(), e.getMessage());
-            synchronized (pendingActivityPush) {
-                for (Map.Entry<String, Integer> en : batch.entrySet()) {
-                    pendingActivityPush.merge(en.getKey(), en.getValue(), Integer::max);
-                }
-                if (tasks.isLive()) {
-                    if (activityPushTask != null) {
-                        activityPushTask.cancel(false);
-                    }
-                    activityPushTask = tasks.runLater(this::flushActivityPush, KC_PUSH_COALESCE_MS);
-                }
+            if (last == null || last < e.getValue()) {
+                risen.put(e.getKey(), e.getValue());
             }
         }
+        activityPush.queueAll(risen);
     }
 
     /* -------------------------------------------------------------- */

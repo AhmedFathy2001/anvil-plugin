@@ -73,4 +73,23 @@ public class InjectionSmokeTest
 		// A resolved SidebarDataSource is usable straight away (single-home; unconfigured ⇒ empty).
 		assertTrue(((SidebarDataSource) sds).fetchConnections().isEmpty());
 	}
+
+	/**
+	 * Field initialisers run BEFORE Guice injects, so anything built in one must not capture an
+	 * injected field by value.
+	 *
+	 * <p>The trap is a bound method reference. {@code apiClient::submitStatKc} written as a field
+	 * initialiser evaluates {@code apiClient} immediately — which is null — and throws on the spot;
+	 * {@code batch -> apiClient.submitStatKc(batch)} reads it when the push actually runs. The
+	 * difference is invisible at the call site and the compiler is happy with both.</p>
+	 *
+	 * <p>Constructing an uninjected plugin runs every field initialiser it has. If one of them ever
+	 * captures an injected field again, this is where it shows up.</p>
+	 */
+	@Test
+	public void fieldInitialisersDoNotCaptureNotYetInjectedFields()
+	{
+		AnvilPlugin plugin = new AnvilPlugin();
+		assertNotNull("every field initialiser must survive construction before injection", plugin);
+	}
 }
