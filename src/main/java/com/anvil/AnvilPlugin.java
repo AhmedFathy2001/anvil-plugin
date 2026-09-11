@@ -43,11 +43,9 @@ import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -258,7 +256,8 @@ public class AnvilPlugin extends Plugin {
         }
     };
 
-    private ScheduledExecutorService executor;
+    /** Our own background thread for blocking network work. See {@link TaskRunner}. */
+    private final TaskRunner tasks = new TaskRunner();
 
     // Debounce config refresh — prevents spam when multiple config keys change at once
     private ScheduledFuture<?> pendingRefresh;
@@ -1185,7 +1184,7 @@ public class AnvilPlugin extends Plugin {
         notifiedCompletedTiles.clear();
         locallyShownTiles.clear();
         completionBaselineEventId = null;
-        executor = Executors.newSingleThreadScheduledExecutor();
+        tasks.start();
         keyManager.registerKeyListener(clipHotkeyListener);
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
@@ -1205,18 +1204,18 @@ public class AnvilPlugin extends Plugin {
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
         // the very first authed request carries the identity headers.
         if (client.getGameState() == GameState.LOGGED_IN) {
-            executor.submit(this::stampIdentityAndGreet);
+            tasks.run(this::stampIdentityAndGreet);
         } else if (apiClient.isConfigured()) {
-            executor.submit(this::refreshConfig);
+            tasks.run(this::refreshConfig);
         }
 
         // Retry any pending submissions from a previous session
-        executor.schedule(() -> safely("initial retry", this::retryPendingSubmissions), 3, TimeUnit.SECONDS);
+        tasks.runLater(() -> safely("initial retry", this::retryPendingSubmissions), 3_000);
 
-        // Refresh config every 30 seconds + retry pending submissions + refresh schedule.
-        // Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
+        // Refresh config every 30 seconds + retry pending submissions.
+        // Wrap in try/catch — an uncaught throw inside a repeating task silently
         // cancels the task forever, so a single hiccup would stop all future refreshes.
-        executor.scheduleAtFixedRate(() -> {
+        tasks.runEvery(() -> {
             safely("refreshConfig", this::refreshConfig);
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
             safely("pruneDedupMap", this::pruneDedupMap);
@@ -1226,7 +1225,7 @@ public class AnvilPlugin extends Plugin {
             safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
             safely("pushAccountProgress", this::pushAccountProgress);
-        }, 30, 30, TimeUnit.SECONDS);
+        }, 30_000);
     }
 
     /**
@@ -1290,10 +1289,10 @@ public class AnvilPlugin extends Plugin {
             if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) {
                 return;
             }
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     // One request each: the endpoint takes a category at a time, and these two move
                     // independently.
@@ -1353,10 +1352,7 @@ public class AnvilPlugin extends Plugin {
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
         disconnectObs();
-        if (executor != null) {
-            executor.shutdownNow();
-            executor = null;
-        }
+        tasks.stop();
         pluginConfig = null;
         pendingRefresh = null;
         itemDropIndex = Collections.emptyMap();
@@ -1505,7 +1501,6 @@ public class AnvilPlugin extends Plugin {
     private void exportDebugLog() {
         clientThread.invoke(() -> {
             final String header = buildDiagnosticHeader();
-            final ScheduledExecutorService ex = executor;
             final Runnable job = () -> {
                 DebugLogExporter.Result res = debugLogExporter.export(header);
                 clientThread.invokeLater(() -> {
@@ -1521,10 +1516,9 @@ public class AnvilPlugin extends Plugin {
                     }
                 });
             };
-            if (ex == null) {
-                return; // only mid-shutdown (hotkey already unregistered) — nothing to export into
-            }
-            ex.submit(job);
+            // A false return is only reachable mid-shutdown, with the hotkey already unregistered —
+            // there is nothing left to export into, so there is nothing to say about it either.
+            tasks.run(job);
         });
     }
 
@@ -1646,10 +1640,10 @@ public class AnvilPlugin extends Plugin {
         // before the debounced refresh, so that refresh already carries the headers.
         if (("apiUrl".equals(key) || "playerToken".equals(key))
                 && client.getGameState() == GameState.LOGGED_IN
-                && executor != null && !executor.isShutdown()) {
+                && tasks.isLive()) {
             adminProbeAttempted = false;
             setupWarned = false; // re-evaluate the URL/token pair after an edit
-            executor.submit(this::stampIdentityAndGreet);
+            tasks.run(this::stampIdentityAndGreet);
         }
 
         // (Re)establish or tear down the OBS clip connection when its settings change.
@@ -1846,14 +1840,14 @@ public class AnvilPlugin extends Plugin {
      * gets the push away within one of them.
      */
     private void flushFullClogSyncWhenSettled() {
-        if (clogFlushQueued || executor == null || executor.isShutdown()) {
+        if (clogFlushQueued || !tasks.isLive()) {
             return;
         }
         if (!clogFullSync.isDue(System.currentTimeMillis())) {
             return;
         }
         clogFlushQueued = true;
-        executor.submit(() -> {
+        tasks.run(() -> {
             try {
                 safely("flushFullClogSync", this::flushFullClogSync);
             } finally {
@@ -2248,9 +2242,7 @@ public class AnvilPlugin extends Plugin {
         }
         if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
             // Delay slightly so local player name is populated
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
-            }
+            tasks.runLater(this::stampIdentityAndGreet, 3_000);
         } else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
             // Flush any gains still coalescing before we tear down — a logout/hop mid-gather would
             // otherwise lose them (the aggregate lives only in memory). The executor is still alive here.
@@ -2341,10 +2333,10 @@ public class AnvilPlugin extends Plugin {
         // times a couple seconds apart instead, so resolution really does land ON login.
         if ((rsn == null || rsn.isEmpty())
                 && client.getGameState() == GameState.LOGGED_IN
-                && executor != null && !executor.isShutdown()
+                && tasks.isLive()
                 && identityStampRetries < MAX_IDENTITY_STAMP_RETRIES) {
             identityStampRetries++;
-            executor.schedule(this::stampIdentityAndGreet, 2, TimeUnit.SECONDS);
+            tasks.runLater(this::stampIdentityAndGreet, 2_000);
             return;
         }
         identityStampRetries = 0;
@@ -3672,7 +3664,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void queueDropForFlush(PluginConfigResponse.TrackedDrop drop, int amount,
             int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         final String key = drop.tileId + ":" + (trackingItemId == null ? "-" : trackingItemId);
@@ -3697,7 +3689,7 @@ public class AnvilPlugin extends Plugin {
             if (agg.flushTask != null) {
                 agg.flushTask.cancel(false);
             }
-            agg.flushTask = executor.schedule(() -> flushAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+            agg.flushTask = tasks.runLater(() -> flushAggregate(key), COALESCE_FLUSH_MS);
         }
     }
 
@@ -3715,9 +3707,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> doSubmitAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
+            tasks.runLater(() -> doSubmitAggregate(agg), delay);
             return;
         }
         doSubmitAggregate(agg);
@@ -3874,7 +3864,7 @@ public class AnvilPlugin extends Plugin {
 
     private void queueKillForFlush(PluginConfigResponse.TrackedKill kill, int amount,
             int snapshotCurrent, int snapshotRequired) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         final String key = "kill:" + kill.tileId;
@@ -3898,7 +3888,7 @@ public class AnvilPlugin extends Plugin {
             if (agg.flushTask != null) {
                 agg.flushTask.cancel(false);
             }
-            agg.flushTask = executor.schedule(() -> flushKillAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+            agg.flushTask = tasks.runLater(() -> flushKillAggregate(key), COALESCE_FLUSH_MS);
         }
     }
 
@@ -3913,9 +3903,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> doSubmitKillAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
+            tasks.runLater(() -> doSubmitKillAggregate(agg), delay);
             return;
         }
         doSubmitKillAggregate(agg);
@@ -3951,7 +3939,7 @@ public class AnvilPlugin extends Plugin {
         // screenshot — so a long grind doesn't upload a PNG per burst. Mirrors the gain path; the
         // single/milestone proof screenshots below are the audit trail.
         if (!complete && !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
-            if (executor == null || executor.isShutdown()
+            if (!tasks.isLive()
                     || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
                 return;
             }
@@ -3959,7 +3947,7 @@ public class AnvilPlugin extends Plugin {
             final int eventId = pluginConfig.event.id;
             final int teamId = pluginConfig.team.id;
             final int playerId = pluginConfig.player.id;
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     warnStartProofBeforeCredit();
                     apiClient.submitDrop(eventId, kill.tileId, teamId,
@@ -3978,7 +3966,7 @@ public class AnvilPlugin extends Plugin {
                         if (retry.flushTask != null) {
                             retry.flushTask.cancel(false);
                         }
-                        retry.flushTask = executor.schedule(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+                        retry.flushTask = tasks.runLater(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS);
                     }
                 }
             });
@@ -4124,7 +4112,7 @@ public class AnvilPlugin extends Plugin {
      * submission per stint, with the running total baked on.
      */
     private void queueGainForFlush(PluginConfigResponse.TrackedGain gain, int amount) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingGainAggregates) {
@@ -4148,7 +4136,7 @@ public class AnvilPlugin extends Plugin {
             long delay = gain.currentAmount >= gain.requiredAmount
                     ? 1_500
                     : Math.max(1_500, Math.min(GAIN_COALESCE_MS, GAIN_MAX_HOLD_MS - heldFor));
-            agg.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), delay, TimeUnit.MILLISECONDS);
+            agg.flushTask = tasks.runLater(() -> flushGainAggregate(gain.tileId), delay);
         }
     }
 
@@ -4163,9 +4151,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> doSubmitGainAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
+            tasks.runLater(() -> doSubmitGainAggregate(agg), delay);
             return;
         }
         doSubmitGainAggregate(agg);
@@ -4181,7 +4167,7 @@ public class AnvilPlugin extends Plugin {
         // media store for zero evidentiary value. The single proof screenshot lands on the
         // flush that completes the tile (manual web submissions still require an image).
         if (agg.snapshotCurrent < agg.snapshotRequired) {
-            if (executor == null || executor.isShutdown()
+            if (!tasks.isLive()
                     || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
                 return;
             }
@@ -4189,7 +4175,7 @@ public class AnvilPlugin extends Plugin {
             final int eventId = pluginConfig.event.id;
             final int teamId = pluginConfig.team.id;
             final int playerId = pluginConfig.player.id;
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     warnStartProofBeforeCredit();
                     apiClient.submitDrop(eventId, gain.tileId, teamId,
@@ -4208,7 +4194,7 @@ public class AnvilPlugin extends Plugin {
                         if (retry.flushTask != null) {
                             retry.flushTask.cancel(false);
                         }
-                        retry.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS, TimeUnit.MILLISECONDS);
+                        retry.flushTask = tasks.runLater(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS);
                     }
                 }
             });
@@ -4240,10 +4226,10 @@ public class AnvilPlugin extends Plugin {
         final String capturedRsn = getLocalPlayerName();
 
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     BufferedImage buffered = (BufferedImage) image;
                     annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, null);
@@ -4659,7 +4645,7 @@ public class AnvilPlugin extends Plugin {
      * hand on the site.
      */
     private void captureManualProof(String label, String note) {
-        if (drawManager == null || executor == null || executor.isShutdown()) {
+        if (drawManager == null || !tasks.isLive()) {
             return;
         }
         final int eventId = pluginConfig != null && pluginConfig.event != null ? pluginConfig.event.id : 0;
@@ -4667,10 +4653,10 @@ public class AnvilPlugin extends Plugin {
         final int playerId = pluginConfig != null && pluginConfig.player != null ? pluginConfig.player.id : 0;
         final String capturedRsn = getLocalPlayerName();
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     // Copy the shared frame before annotating so we don't mutate the draw manager's buffer.
                     BufferedImage src = (BufferedImage) image;
@@ -4746,7 +4732,7 @@ public class AnvilPlugin extends Plugin {
             sendChatMessage("No starting shot is being asked for right now.");
             return;
         }
-        if (drawManager == null || executor == null || executor.isShutdown()) {
+        if (drawManager == null || !tasks.isLive()) {
             return;
         }
         if (startProofInFlight) {
@@ -4781,11 +4767,11 @@ public class AnvilPlugin extends Plugin {
                 : Instant.ofEpochMilli(loginAtMs).toString();
 
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 startProofInFlight = false;
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     // Copy the shared frame before annotating — never mutate the draw manager's buffer.
                     BufferedImage src = (BufferedImage) image;
@@ -4834,10 +4820,10 @@ public class AnvilPlugin extends Plugin {
 
         drawManager.requestNextFrameListener(image
                 -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(()
+            tasks.run(()
                     -> {
                 try {
                     // Two-frame proof: the at-drop frame (stashed when the burst started) stacked
@@ -5023,7 +5009,7 @@ public class AnvilPlugin extends Plugin {
         // anything else: on a wrong URL or a bad token nothing ever arrives to replace it, and a
         // member who just changed their settings would sit looking at the clan they left.
         SwingUtilities.invokeLater(sidebarPanel::clearForCredentialChange);
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         if (pendingRefresh != null && !pendingRefresh.isDone()) {
@@ -5046,20 +5032,20 @@ public class AnvilPlugin extends Plugin {
             SwingUtilities.invokeLater(sidebarPanel::refresh);
             return;
         }
-        executor.submit(() -> {
+        tasks.run(() -> {
             safely("refreshConfig", this::refreshConfig);
             SwingUtilities.invokeLater(sidebarPanel::refresh);
         });
     }
 
     private synchronized void scheduleRefresh() {
-        if (!apiClient.isConfigured() || executor == null || executor.isShutdown()) {
+        if (!apiClient.isConfigured() || !tasks.isLive()) {
             return;
         }
         if (pendingRefresh != null && !pendingRefresh.isDone()) {
             pendingRefresh.cancel(false);
         }
-        pendingRefresh = executor.schedule(this::refreshConfig, REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        pendingRefresh = tasks.runLater(this::refreshConfig, REFRESH_DEBOUNCE_MS);
     }
 
     /* -------------------------------------------------------------- */
@@ -5190,7 +5176,7 @@ public class AnvilPlugin extends Plugin {
      * token.
      */
     public void syncClanRoster(AdminActionCallback cb) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             cb.onResult(false, "Plugin not running");
             return;
         }
@@ -5247,7 +5233,7 @@ public class AnvilPlugin extends Plugin {
                 members.add(out);
             }
 
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
                     rosterBackoff.onSuccess();
@@ -5622,13 +5608,12 @@ public class AnvilPlugin extends Plugin {
         // config has landed re-renders the clan they just switched away from — a click that visibly
         // does nothing, then quietly works fifteen seconds later. Fetch first, repaint second.
         forgetAdminAnswerOnClanChange();
-        if (executor != null) {
-            executor.execute(() -> {
-                refreshConfig();
-                repaintSidebar();
-            });
-        } else {
-            // No executor means startUp hasn't run, so there is no panel waiting on a fetch either.
+        boolean queued = tasks.run(() -> {
+            refreshConfig();
+            repaintSidebar();
+        });
+        if (!queued) {
+            // No background thread means startUp hasn't run, so there is no panel waiting on a fetch.
             repaintSidebar();
         }
     }
@@ -5977,7 +5962,7 @@ public class AnvilPlugin extends Plugin {
         if (realGain && trackedSkillNames.contains(skillName.toLowerCase(Locale.ROOT).trim())) {
             noteLocalStatProgress(skillName);
         }
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingSkillXpPush) {
@@ -5985,7 +5970,7 @@ public class AnvilPlugin extends Plugin {
             if (skillXpPushTask != null) {
                 skillXpPushTask.cancel(false);
             }
-            skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            skillXpPushTask = tasks.runLater(this::flushSkillXpPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6011,11 +5996,11 @@ public class AnvilPlugin extends Plugin {
                 for (Map.Entry<String, Integer> en : batch.entrySet()) {
                     pendingSkillXpPush.merge(en.getKey(), en.getValue(), Integer::max);
                 }
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (skillXpPushTask != null) {
                         skillXpPushTask.cancel(false);
                     }
-                    skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    skillXpPushTask = tasks.runLater(this::flushSkillXpPush, KC_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6065,7 +6050,7 @@ public class AnvilPlugin extends Plugin {
         if (System.currentTimeMillis() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) {
             return;
         }
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingKcPush) {
@@ -6073,7 +6058,7 @@ public class AnvilPlugin extends Plugin {
             if (kcPushTask != null) {
                 kcPushTask.cancel(false);
             }
-            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6091,7 +6076,7 @@ public class AnvilPlugin extends Plugin {
         if (trackedKcNames.contains(normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
         }
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingKcPush) {
@@ -6099,7 +6084,7 @@ public class AnvilPlugin extends Plugin {
             if (kcPushTask != null) {
                 kcPushTask.cancel(false);
             }
-            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6125,11 +6110,11 @@ public class AnvilPlugin extends Plugin {
                 for (Map.Entry<String, Integer> en : batch.entrySet()) {
                     pendingKcPush.merge(en.getKey(), en.getValue(), Integer::max);
                 }
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (kcPushTask != null) {
                         kcPushTask.cancel(false);
                     }
-                    kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6150,7 +6135,7 @@ public class AnvilPlugin extends Plugin {
         // varbit lookups against client memory; the send is debounced and carries absolute values,
         // so an unchanged counter costs nothing.
         Set<String> wanted = ActivityStats.readableKeys();
-        if (wanted.isEmpty() || !statPushAllowed() || executor == null || executor.isShutdown()) {
+        if (wanted.isEmpty() || !statPushAllowed() || !tasks.isLive()) {
             return;
         }
         Map<String, Integer> current = ActivityStats.read(wanted, client::getVarbitValue, client::getVarpValue);
@@ -6173,7 +6158,7 @@ public class AnvilPlugin extends Plugin {
             if (activityPushTask != null) {
                 activityPushTask.cancel(false);
             }
-            activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            activityPushTask = tasks.runLater(this::flushActivityPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6204,11 +6189,11 @@ public class AnvilPlugin extends Plugin {
                 for (Map.Entry<String, Integer> en : batch.entrySet()) {
                     pendingActivityPush.merge(en.getKey(), en.getValue(), Integer::max);
                 }
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (activityPushTask != null) {
                         activityPushTask.cancel(false);
                     }
-                    activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    activityPushTask = tasks.runLater(this::flushActivityPush, KC_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6464,14 +6449,14 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
     private void scheduleCounterPush() {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (counterLock) {
             if (counterPushTask != null) {
                 counterPushTask.cancel(false);
             }
-            counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            counterPushTask = tasks.runLater(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
         }
     }
 
@@ -6501,11 +6486,11 @@ public class AnvilPlugin extends Plugin {
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (counterPushTask != null) {
                         counterPushTask.cancel(false);
                     }
-                    counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    counterPushTask = tasks.runLater(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6708,14 +6693,14 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
     private void scheduleMomentPush() {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (moments) {
             if (momentPushTask != null) {
                 momentPushTask.cancel(false);
             }
-            momentPushTask = executor.schedule(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            momentPushTask = tasks.runLater(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS);
         }
     }
 
@@ -8198,8 +8183,8 @@ public class AnvilPlugin extends Plugin {
         synchronized (petLock) {
             pendingPet = pet;
         }
-        if (executor != null && !executor.isShutdown()) {
-            executor.schedule(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS, TimeUnit.MILLISECONDS);
+        if (tasks.isLive()) {
+            tasks.runLater(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS);
         } else {
             flushPetNotification(pet);
         }
@@ -9466,10 +9451,10 @@ public class AnvilPlugin extends Plugin {
     private void captureFrameAsync(Consumer<byte[]> consumer) {
         AtomicBoolean delivered = new AtomicBoolean(false);
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 byte[] png = null;
                 try {
                     BufferedImage buffered = (BufferedImage) image;
@@ -9484,14 +9469,12 @@ public class AnvilPlugin extends Plugin {
                 }
             });
         });
-        if (executor != null && !executor.isShutdown()) {
-            executor.schedule(() -> {
-                if (delivered.compareAndSet(false, true)) {
-                    log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
-                    consumer.accept(null);
-                }
-            }, FRAME_CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        }
+        tasks.runLater(() -> {
+            if (delivered.compareAndSet(false, true)) {
+                log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
+                consumer.accept(null);
+            }
+        }, FRAME_CAPTURE_TIMEOUT_MS);
     }
 
     /**
@@ -9533,11 +9516,11 @@ public class AnvilPlugin extends Plugin {
         // Scheduled, never slept: a sleep here would park a shared RuneLite worker for a second and a
         // half, and the hub rejects Thread.sleep on sight. Without a usable executor -- shutting down
         // mid-level-up -- we capture now, because a slightly emptier screenshot beats none.
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             capture.run();
             return;
         }
-        executor.schedule(capture, ACHIEVEMENT_SHOT_DELAY_MS, TimeUnit.MILLISECONDS);
+        tasks.runLater(capture, ACHIEVEMENT_SHOT_DELAY_MS);
     }
 
     /** Pause between the achievement and its screenshot, long enough for clanmates' replies. */
@@ -9946,12 +9929,8 @@ public class AnvilPlugin extends Plugin {
         if (event.isGuest() || !config.autoSyncClanRoster()) {
             return;
         }
-        if (executor == null || executor.isShutdown()) {
-            return;
-        }
         // The member list arrives just after the channel; a delay is cheaper than polling for it.
-        executor.schedule(() -> safely("autoRosterSync", this::autoSyncClanRoster),
-                AUTO_ROSTER_DELAY_MS, TimeUnit.MILLISECONDS);
+        tasks.runLater(() -> safely("autoRosterSync", this::autoSyncClanRoster), AUTO_ROSTER_DELAY_MS);
     }
 
     /**
