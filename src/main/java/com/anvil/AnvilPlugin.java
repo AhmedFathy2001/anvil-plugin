@@ -198,6 +198,9 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private DebugLogExporter debugLogExporter;
 
+    @Inject
+    private AnvilChat anvilChat;
+
     // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
     // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
     // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
@@ -9538,18 +9541,10 @@ public class AnvilPlugin extends Plugin {
 
     // Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text
     // has a built-in shadow). Brand orange on the tan chat was too low-contrast.
-    private static final String CHAT_PREFIX_COLOR = "ffd700";
-    private static final String CHAT_BODY_COLOR = "ffffff";
 
+    /** Say one line in the chatbox, in Anvil's colours. See {@link AnvilChat}. */
     private void sendChatMessage(String message) {
-        // A raw '|' in a chat line gets mangled by the chat pipeline (an event named
-        // "The AFK Spot | July Bingo" printed as a bare "July Bingo."). Interpolated names are
-        // admin-authored, so swap in the visually-identical broken bar instead.
-        String safe = message.replace('|', '\u00A6');
-        String line = "<col=" + CHAT_PREFIX_COLOR + ">[Anvil]</col> <col=" + CHAT_BODY_COLOR + ">" + safe + "</col>";
-        clientThread.invokeLater(()
-                -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null)
-        );
+        anvilChat.send(message);
     }
 
     // -- Profile sync: collection log + personal bests ---------------------------------------
