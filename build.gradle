@@ -34,6 +34,29 @@ targetCompatibility = '11'
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+
+    // Java's own lint is the typecheck: no extra dependency, nothing to download, and it catches the
+    // things that actually bite here — a deprecated client API we are still calling, an unchecked
+    // cast, a switch that falls through, a resource left open.
+    //
+    // Four categories are off, and the reason is that every one of them fires on code that is not
+    // ours to fix. `serial` wants serialVersionUID on a Swing panel and on exception types nobody
+    // serialises. `this-escape` fires on the RuneLite base classes we extend. `processing` is Lombok
+    // and Guice annotations that no processor claims. `classfile` is javac failing to read
+    // org.jetbrains.annotations.Range out of the RuneLite jars, which is not on our classpath and
+    // does not need to be.
+    options.compilerArgs << '-Xlint:all,-serial,-this-escape,-processing,-classfile'
+
+    // Warnings are visible always; they only FAIL the build when asked for by name:
+    //
+    //     ./gradlew build -PanvilStrict
+    //
+    // Deliberately not on by default. The plugin hub compiles this against whichever RuneLite
+    // version IT pins, not ours, and a warning that only appears there would break a release for
+    // something nobody could see locally.
+    if (project.hasProperty('anvilStrict')) {
+        options.compilerArgs << '-Werror'
+    }
 }
 
 tasks.register('runClient', JavaExec) {
