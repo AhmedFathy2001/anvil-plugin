@@ -785,14 +785,28 @@ public class AnvilPlugin extends Plugin {
     // settle delay so a kill spree still results in one well-annotated PNG.
     private static final long COALESCE_FLUSH_MS = 2_500;
 
-    private static class DropAggregate {
+    /**
+     * What every coalescing tile aggregate is: a running total, the progress as it stood when the
+     * burst last moved, and the flush that has been armed for it.
+     *
+     * <p>Drops, kills and gains each had their own copy of these four fields and their own copy of
+     * the code that maintains them. The interesting difference between the three is what they submit;
+     * the coalescing is the same coalescing.</p>
+     */
+    private abstract static class TileAggregate {
+
+        /** Everything that has landed in this burst so far. */
+        int total;
+        int snapshotCurrent;
+        int snapshotRequired;
+        /** The armed flush. Cancelled and replaced every time the burst moves — see {@link #arm}. */
+        ScheduledFuture<?> flushTask;
+    }
+
+    private static class DropAggregate extends TileAggregate {
 
         final PluginConfigResponse.TrackedDrop drop;
         final Integer trackingItemId;
-        int totalAmount;
-        int snapshotCurrent;
-        int snapshotRequired;
-        ScheduledFuture<?> flushTask;
         // Frame grabbed the moment the first drop of the burst landed. The flush shot fires
         // COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
         // hands listeners a copy of the graphics buffer, so holding it is safe.
@@ -816,16 +830,12 @@ public class AnvilPlugin extends Plugin {
     // classify a victim. Rebuilt on each config refresh; empty unless the event has a pvp tile.
     private volatile Map<String, Integer> pvpRosterIndex = Collections.emptyMap();
 
-    private static class KillAggregate {
+    private static class KillAggregate extends TileAggregate {
 
         final PluginConfigResponse.TrackedKill kill;
-        int totalKills;
-        int snapshotCurrent;
-        int snapshotRequired;
         // Who was with us, captured when the kill happened — by the time the coalesced flush runs
         // the party has scattered and the scene says nothing.
         BingoApiClient.CoopFingerprint coop;
-        ScheduledFuture<?> flushTask;
 
         KillAggregate(PluginConfigResponse.TrackedKill kill) {
             this.kill = kill;
@@ -836,13 +846,9 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, KillAggregate> pendingKillAggregates = new HashMap<>();
 
     // ---- Item-gain tiles (catch/cook/gather — counted from inventory gains) ----------------
-    private static class GainAggregate {
+    private static class GainAggregate extends TileAggregate {
 
         final PluginConfigResponse.TrackedGain gain;
-        int totalAmount;
-        int snapshotCurrent;
-        int snapshotRequired;
-        ScheduledFuture<?> flushTask;
         final long firstQueuedAt = System.currentTimeMillis();
 
         GainAggregate(PluginConfigResponse.TrackedGain gain) {
@@ -3619,6 +3625,55 @@ public class AnvilPlugin extends Plugin {
      * the flush fires we have the latest totals, single screenshot, single
      * submission.
      */
+    /**
+     * Fold this event into the aggregate and (re)arm its flush.
+     *
+     * <p>The cancel-then-replace is the whole point: a burst longer than the settle window would
+     * otherwise produce one upload per settle rather than one upload. Every new event pushes the
+     * flush out again, so the submission happens once the burst actually stops.</p>
+     *
+     * <p>Callers hold the aggregate map's lock — the read, the update and the re-arm have to be one
+     * step or two threads can each arm a flush for the same key.</p>
+     */
+    private void arm(TileAggregate agg, int amount, int snapshotCurrent, int snapshotRequired,
+            Runnable flush, long delayMs) {
+        agg.total += amount;
+        agg.snapshotCurrent = snapshotCurrent;
+        agg.snapshotRequired = snapshotRequired;
+        if (agg.flushTask != null) {
+            agg.flushTask.cancel(false);
+        }
+        agg.flushTask = tasks.runLater(flush, delayMs);
+    }
+
+    /**
+     * Take the aggregate for this key out of the map and submit it — now, or after the gap.
+     *
+     * <p>The gap is the upload throttle: several tiles completing at once would otherwise fire their
+     * proof uploads simultaneously. Pushing a flush further out is idempotent and self-correcting,
+     * so aggregates flushing in quick succession simply serialise.</p>
+     *
+     * <p>Removing before submitting is deliberate. Anything that arrives after this point belongs to
+     * the NEXT burst, and a failed submit folds its count back in by re-queueing rather than by
+     * holding the map entry hostage.</p>
+     */
+    private <K, A extends TileAggregate> void flushThrottled(Map<K, A> pending, K key,
+            java.util.function.Consumer<A> submit) {
+        A agg;
+        synchronized (pending) {
+            agg = pending.remove(key);
+        }
+        if (agg == null || agg.total <= 0) {
+            return;
+        }
+        long sinceLast = System.currentTimeMillis() - lastUploadAt;
+        if (sinceLast < UPLOAD_THROTTLE_MS) {
+            tasks.runLater(() -> submit.accept(agg), UPLOAD_THROTTLE_MS - sinceLast);
+            return;
+        }
+        submit.accept(agg);
+    }
+
     private void queueDropForFlush(PluginConfigResponse.TrackedDrop drop, int amount,
             int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
         if (!tasks.isLive()) {
@@ -3638,41 +3693,18 @@ public class AnvilPlugin extends Plugin {
                     drawManager.requestNextFrameListener(img -> fresh.triggerFrame = (BufferedImage) img);
                 }
             }
-            agg.totalAmount += amount;
-            agg.snapshotCurrent = snapshotCurrent;
-            agg.snapshotRequired = snapshotRequired;
-            // Cancel any pending flush and reschedule — drop bursts that span >COALESCE_FLUSH_MS
-            // would otherwise produce multiple uploads. Each new event resets the settle timer.
-            if (agg.flushTask != null) {
-                agg.flushTask.cancel(false);
-            }
-            agg.flushTask = tasks.runLater(() -> flushAggregate(key), COALESCE_FLUSH_MS);
+            arm(agg, amount, snapshotCurrent, snapshotRequired,
+                    () -> flushAggregate(key), COALESCE_FLUSH_MS);
         }
     }
 
     private void flushAggregate(String key) {
-        DropAggregate agg;
-        synchronized (pendingAggregates) {
-            agg = pendingAggregates.remove(key);
-        }
-        if (agg == null || agg.totalAmount <= 0) {
-            return;
-        }
-        // Throttle — if we just uploaded, push this flush a bit further out so we don't
-        // burst the server. Idempotent and self-correcting; multiple aggregates flushing
-        // in quick succession get serialized.
-        long sinceLast = System.currentTimeMillis() - lastUploadAt;
-        if (sinceLast < UPLOAD_THROTTLE_MS) {
-            long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            tasks.runLater(() -> doSubmitAggregate(agg), delay);
-            return;
-        }
-        doSubmitAggregate(agg);
+        flushThrottled(pendingAggregates, key, this::doSubmitAggregate);
     }
 
     private void doSubmitAggregate(DropAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
-        captureAndSubmit(agg.drop, agg.totalAmount, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId,
+        captureAndSubmit(agg.drop, agg.total, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId,
                 agg.triggerFrame);
     }
 
@@ -3830,9 +3862,6 @@ public class AnvilPlugin extends Plugin {
                 agg = new KillAggregate(kill);
                 pendingKillAggregates.put(key, agg);
             }
-            agg.totalKills += amount;
-            agg.snapshotCurrent = snapshotCurrent;
-            agg.snapshotRequired = snapshotRequired;
             if (kill.needsCoopFingerprint()) {
                 BingoApiClient.CoopFingerprint fp = coopFingerprint();
                 // Keep the richest view across a coalesced burst: one kill in the window may have
@@ -3841,28 +3870,13 @@ public class AnvilPlugin extends Plugin {
                     agg.coop = fp;
                 }
             }
-            if (agg.flushTask != null) {
-                agg.flushTask.cancel(false);
-            }
-            agg.flushTask = tasks.runLater(() -> flushKillAggregate(key), COALESCE_FLUSH_MS);
+            arm(agg, amount, snapshotCurrent, snapshotRequired,
+                    () -> flushKillAggregate(key), COALESCE_FLUSH_MS);
         }
     }
 
     private void flushKillAggregate(String key) {
-        KillAggregate agg;
-        synchronized (pendingKillAggregates) {
-            agg = pendingKillAggregates.remove(key);
-        }
-        if (agg == null || agg.totalKills <= 0) {
-            return;
-        }
-        long sinceLast = System.currentTimeMillis() - lastUploadAt;
-        if (sinceLast < UPLOAD_THROTTLE_MS) {
-            long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            tasks.runLater(() -> doSubmitKillAggregate(agg), delay);
-            return;
-        }
-        doSubmitKillAggregate(agg);
+        flushThrottled(pendingKillAggregates, key, this::doSubmitKillAggregate);
     }
 
     // Milestone proof for grindy kill tiles — mirror of the site's Discord throttle. A 4000-kill
@@ -3887,7 +3901,7 @@ public class AnvilPlugin extends Plugin {
     private void doSubmitKillAggregate(KillAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedKill kill = agg.kill;
-        final int amount = agg.totalKills;
+        final int amount = agg.total;
         final BingoApiClient.CoopFingerprint coop = agg.coop;
         final boolean complete = agg.snapshotCurrent >= agg.snapshotRequired;
 
@@ -3915,14 +3929,10 @@ public class AnvilPlugin extends Plugin {
                     log.warn("Kill ping failed for '{}' ×{} — requeueing: {}", kill.label, amount, e.getMessage());
                     // Fold the count back into the aggregate so a later flush retries it.
                     synchronized (pendingKillAggregates) {
-                        KillAggregate retry = pendingKillAggregates.computeIfAbsent("kill:" + kill.tileId, k -> new KillAggregate(kill));
-                        retry.totalKills += amount;
-                        retry.snapshotCurrent = kill.currentAmount;
-                        retry.snapshotRequired = kill.requiredAmount;
-                        if (retry.flushTask != null) {
-                            retry.flushTask.cancel(false);
-                        }
-                        retry.flushTask = tasks.runLater(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS);
+                        String retryKey = "kill:" + kill.tileId;
+                        arm(pendingKillAggregates.computeIfAbsent(retryKey, k -> new KillAggregate(kill)),
+                                amount, kill.currentAmount, kill.requiredAmount,
+                                () -> flushKillAggregate(retryKey), COALESCE_FLUSH_MS);
                     }
                 }
             });
@@ -4078,12 +4088,6 @@ public class AnvilPlugin extends Plugin {
                 pendingGainAggregates.put(gain.tileId, agg);
                 sendChatMessage("Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
             }
-            agg.totalAmount += amount;
-            agg.snapshotCurrent = gain.currentAmount;
-            agg.snapshotRequired = gain.requiredAmount;
-            if (agg.flushTask != null) {
-                agg.flushTask.cancel(false);
-            }
             // Flush immediately once the tile is done — the completing proof shouldn't wait out the
             // settle window. Otherwise coalesce trickle catches, but cap the total hold so a non-stop
             // gather still flushes (and syncs the server) ~every GAIN_MAX_HOLD_MS instead of deferring
@@ -4092,31 +4096,19 @@ public class AnvilPlugin extends Plugin {
             long delay = gain.currentAmount >= gain.requiredAmount
                     ? 1_500
                     : Math.max(1_500, Math.min(GAIN_COALESCE_MS, GAIN_MAX_HOLD_MS - heldFor));
-            agg.flushTask = tasks.runLater(() -> flushGainAggregate(gain.tileId), delay);
+            arm(agg, amount, gain.currentAmount, gain.requiredAmount,
+                    () -> flushGainAggregate(gain.tileId), delay);
         }
     }
 
     private void flushGainAggregate(int tileId) {
-        GainAggregate agg;
-        synchronized (pendingGainAggregates) {
-            agg = pendingGainAggregates.remove(tileId);
-        }
-        if (agg == null || agg.totalAmount <= 0) {
-            return;
-        }
-        long sinceLast = System.currentTimeMillis() - lastUploadAt;
-        if (sinceLast < UPLOAD_THROTTLE_MS) {
-            long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            tasks.runLater(() -> doSubmitGainAggregate(agg), delay);
-            return;
-        }
-        doSubmitGainAggregate(agg);
+        flushThrottled(pendingGainAggregates, tileId, this::doSubmitGainAggregate);
     }
 
     private void doSubmitGainAggregate(GainAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         final PluginConfigResponse.TrackedGain gain = agg.gain;
-        final int amount = agg.totalAmount;
+        final int amount = agg.total;
 
         // Intermediate flushes are count-only pings — AFK gathering flushes every time the
         // inventory fills or the spot depletes, and a screenshot per cycle would swamp the
@@ -4143,14 +4135,9 @@ public class AnvilPlugin extends Plugin {
                     log.warn("Gain ping failed for '{}' ×{} — requeueing: {}", gain.label, amount, e.getMessage());
                     // Fold the amount back into the aggregate so a later flush retries it.
                     synchronized (pendingGainAggregates) {
-                        GainAggregate retry = pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new GainAggregate(gain));
-                        retry.totalAmount += amount;
-                        retry.snapshotCurrent = gain.currentAmount;
-                        retry.snapshotRequired = gain.requiredAmount;
-                        if (retry.flushTask != null) {
-                            retry.flushTask.cancel(false);
-                        }
-                        retry.flushTask = tasks.runLater(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS);
+                        arm(pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new GainAggregate(gain)),
+                                amount, gain.currentAmount, gain.requiredAmount,
+                                () -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS);
                     }
                 }
             });
