@@ -7406,7 +7406,7 @@ public class AnvilPlugin extends Plugin {
         String name = itemName(itemId);
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
-        String desc = (rsn != null ? rsn : "A clan member") + " received " + name
+        String desc = who(rsn) + " received " + name
                 + DropSource.fromPhrase(source, sourceKind) + "!";
         // Two kinds of drop the lucky-drop line insults rather than celebrates. An EARNED award
         // (Infernal cape, Dizana's quiver…) is the reward for finishing the content, so calling a
@@ -7425,12 +7425,7 @@ public class AnvilPlugin extends Plugin {
                 desc, name, itemId, qty, value, null, killCountFor(source), shotName,
                 DropSource.countLabel(source, sourceKind), guaranteed);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
     }
 
     /**
@@ -7454,7 +7449,7 @@ public class AnvilPlugin extends Plugin {
         }
         String rsn = getLocalPlayerName();
         String shotName = "anvil-drop.png";
-        String desc = (rsn != null ? rsn : "A clan member") + " unlocked " + itemName + "!";
+        String desc = who(rsn) + " unlocked " + itemName + "!";
         boolean earned = DropLuck.isEarnedAward(itemName);
         // No source came with this line — the collection log says what, never from where — so only a
         // clan override that named no sources ("guaranteed wherever it drops") can answer here.
@@ -7467,12 +7462,7 @@ public class AnvilPlugin extends Plugin {
                 earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, -1, 1, 0, null, null, shotName,
                 "KC", guaranteed);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
     }
 
     /**
@@ -7508,19 +7498,15 @@ public class AnvilPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         String shotName = "anvil-clog.png";
         JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
+        addAuthor(embed, rsn);
         embed.addProperty("title", "📕 " + itemName);
         // No "new slot" / "New!" wording: every collection-log unlock is by definition the first
         // one, so saying so is noise. "New" is reserved for pets in the drops channel, where it
         // actually distinguishes something.
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " added " + itemName + " to their collection.");
+                who(rsn) + " added " + itemName + " to their collection.");
         embed.addProperty("color", CA_EMBED_COLOR);
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
+        addWikiUrl(embed, itemName);
 
         JsonArray fields = new JsonArray();
         // How much of the log this fills in, and what that's worth as a standing. Both are dropped
@@ -7556,16 +7542,10 @@ public class AnvilPlugin extends Plugin {
         // The item's own sprite: resolved from the loot event that just delivered it (which covers
         // untradeables the GE search can't find), falling back to the GE item list.
         Integer itemId = resolveItemIdByName(itemName);
-        if (itemId != null && itemId > 0) {
-            JsonObject thumb = new JsonObject();
-            thumb.addProperty("url", itemIconUrl(itemId));
-            embed.add("thumbnail", thumb);
-        }
+        addItemThumbnail(embed, itemId);
 
         if (config.clogScreenshot()) {
-            JsonObject image = new JsonObject();
-            image.addProperty("url", "attachment://" + shotName);
-            embed.add("image", image);
+            addAttachment(embed, shotName);
             captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
         } else {
             apiClient.postNotification("collectionLog", null, embed, null, null);
@@ -7876,7 +7856,7 @@ public class AnvilPlugin extends Plugin {
         // A rare roll on something worthless is a punchline, not a prize — say so instead of
         // dressing a Dragon spear up as treasure. A guaranteed drop is neither.
         boolean troll = !guaranteed && DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
-        String desc = (rsn != null ? rsn : "A clan member")
+        String desc = who(rsn)
                 + (troll ? " got robbed" : " received a valuable drop")
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // The reaction line is about beating the odds. There were none to beat.
@@ -7894,13 +7874,7 @@ public class AnvilPlugin extends Plugin {
                 troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName,
                 DropSource.countLabel(source, sourceKind), guaranteed);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            // No screenshot — strip the attachment image reference so the embed renders cleanly.
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
     }
 
     /**
@@ -7922,18 +7896,14 @@ public class AnvilPlugin extends Plugin {
         String topLabel = (top.qty > 1 ? topName + " ×" + top.qty : topName)
                 + " (" + String.format("%,d gp", top.value) + ")";
 
-        String desc = (rsn != null ? rsn : "A clan member") + " received a valuable haul"
+        String desc = who(rsn) + " received a valuable haul"
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // No single rate to judge a mixed haul by, so the combined value decides.
         if (total >= SPOON_VALUE) {
             desc += "\n" + randomSpoonLine();
         }
         JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
+        addAuthor(embed, rsn);
         embed.addProperty("title", "💰 Rare drop!");
         embed.addProperty("description", desc);
         embed.addProperty("color", RARE_EMBED_COLOR);
@@ -7949,23 +7919,14 @@ public class AnvilPlugin extends Plugin {
         embed.add("fields", fields);
 
         // Link the standout item to its wiki page, matching single-item posts.
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + topName.replace(' ', '_'));
+        addWikiUrl(embed, topName);
 
         // The haul's headline item carries the thumbnail.
-        JsonObject thumb = new JsonObject();
-        thumb.addProperty("url", itemIconUrl(top.itemId));
-        embed.add("thumbnail", thumb);
+        addThumbnail(embed, itemIconUrl(top.itemId));
 
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+        addAttachment(embed, shotName);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
     }
 
     /**
@@ -8144,17 +8105,13 @@ public class AnvilPlugin extends Plugin {
         }
 
         JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
+        addAuthor(embed, rsn);
         embed.addProperty("title", petName != null ? "🐾 " + petName : "🐾 Pet drop!");
-        String who = rsn != null ? rsn : "A clan member";
+        String name = who(rsn);
         embed.addProperty("description", pet.duplicate
                 // The duplicate line is the game's own joke about a pet you already have.
-                ? who + " has a funny feeling like they would have been followed."
-                : who + " has a funny feeling like they're being followed.");
+                ? name + " has a funny feeling like they would have been followed."
+                : name + " has a funny feeling like they're being followed.");
         embed.addProperty("color", RARE_EMBED_COLOR);
 
         JsonArray fields = new JsonArray();
@@ -8186,19 +8143,13 @@ public class AnvilPlugin extends Plugin {
         }
         embed.add("fields", fields);
 
-        if (itemId != null && itemId > 0) {
-            JsonObject thumb = new JsonObject();
-            thumb.addProperty("url", itemIconUrl(itemId));
-            embed.add("thumbnail", thumb);
-        }
+        addItemThumbnail(embed, itemId);
         if (petName != null) {
-            embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + petName.replace(' ', '_'));
+            addWikiUrl(embed, petName);
         }
 
         if (config.petScreenshot()) {
-            JsonObject image = new JsonObject();
-            image.addProperty("url", "attachment://" + shotName);
-            embed.add("image", image);
+            addAttachment(embed, shotName);
             postWithScreenshot("pets", embed, shotName);
         } else {
             apiClient.postNotification("pets", null, embed, null, null);
@@ -8304,17 +8255,13 @@ public class AnvilPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         String shotName = "anvil-ca.png";
         JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
+        addAuthor(embed, rsn);
         // Title names the TASK, not just its tier — "Into the Den of Giants" is the news; "Easy
         // combat task" is the category. The link follows it to the tier's task list rather than the
         // Combat Achievements hub, which told a reader nothing they didn't already know.
         embed.addProperty("title", "⚔️ " + task);
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " completed a " + tier.getDisplayName().toLowerCase()
+                who(rsn) + " completed a " + tier.getDisplayName().toLowerCase()
                         + " combat task.");
         embed.addProperty("color", CA_EMBED_COLOR);
         embed.addProperty("url", caTaskWikiUrl(tier, task));
@@ -8330,14 +8277,10 @@ public class AnvilPlugin extends Plugin {
         }
         embed.add("fields", fields);
 
-        JsonObject thumb = new JsonObject();
-        thumb.addProperty("url", CA_ICON_URL);
-        embed.add("thumbnail", thumb);
+        addThumbnail(embed, CA_ICON_URL);
 
         if (config.caScreenshot()) {
-            JsonObject image = new JsonObject();
-            image.addProperty("url", "attachment://" + shotName);
-            embed.add("image", image);
+            addAttachment(embed, shotName);
             captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
         } else {
             apiClient.postNotification("combatAchievements", null, embed, null, null);
@@ -8369,7 +8312,7 @@ public class AnvilPlugin extends Plugin {
         JsonObject embed = new JsonObject();
         embed.addProperty("title", "🏆 Combat Achievement tier!");
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " unlocked the **" + tier.getDisplayName()
+                who(rsn) + " unlocked the **" + tier.getDisplayName()
                 + "** Combat Achievements tier!");
         embed.addProperty("color", CA_EMBED_COLOR);
         // Combat-achievement posts are message-only — no screenshot.
@@ -8393,7 +8336,7 @@ public class AnvilPlugin extends Plugin {
         JsonObject embed = new JsonObject();
         embed.addProperty("title", "📜 Diary completed!");
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just completed the **" + area + " " + tier
+                who(rsn) + " just completed the **" + area + " " + tier
                         + "** achievement diary!");
         embed.addProperty("color", CA_EMBED_COLOR);
         apiClient.postNotification("diaries", null, embed, null, null);
@@ -8729,7 +8672,7 @@ public class AnvilPlugin extends Plugin {
         JsonObject embed = new JsonObject();
         embed.addProperty("title", "🗺️ Quest complete!");
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just completed **" + questName + "**" + tierTag + "!");
+                who(rsn) + " just completed **" + questName + "**" + tierTag + "!");
         embed.addProperty("color", CA_EMBED_COLOR);
         apiClient.postNotification("quests", null, embed, null, null);
     }
@@ -8778,7 +8721,7 @@ public class AnvilPlugin extends Plugin {
         JsonObject embed = new JsonObject();
         embed.addProperty("title", "🎉 Level 99!");
         embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just reached **level 99 " + skill + "**!");
+                who(rsn) + " just reached **level 99 " + skill + "**!");
         embed.addProperty("color", CA_EMBED_COLOR);
         // How far along they are. A 99 post is about skills rather than total, so it counts those —
         // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
@@ -8882,12 +8825,12 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String rsn = getLocalPlayerName();
-        String who = rsn != null ? rsn : "A clan member";
+        String name = who(rsn);
         JsonObject embed = new JsonObject();
         embed.addProperty("title", maxed ? "🏆 Maxed!" : "📈 Total level milestone!");
         embed.addProperty("description", maxed
-                ? who + " just **maxed** with a total level of **" + total + "**!"
-                : who + " just reached **" + total + " total level**!");
+                ? name + " just **maxed** with a total level of **" + total + "**!"
+                : name + " just reached **" + total + " total level**!");
         embed.addProperty("color", CA_EMBED_COLOR);
         // Where this leaves them — from the LIVE total, not the milestone above.
         //
@@ -8936,11 +8879,7 @@ public class AnvilPlugin extends Plugin {
             String countLabel, boolean guaranteed) {
         JsonObject embed = new JsonObject();
         String rsn = getLocalPlayerName();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
+        addAuthor(embed, rsn);
         embed.addProperty("title", title);
         embed.addProperty("description", description);
         embed.addProperty("color", RARE_EMBED_COLOR);
@@ -8972,17 +8911,11 @@ public class AnvilPlugin extends Plugin {
         embed.add("fields", fields);
 
         // Wiki link (OSRS wiki uses underscores for spaces).
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
+        addWikiUrl(embed, itemName);
 
-        if (itemId > 0) {
-            JsonObject thumb = new JsonObject();
-            thumb.addProperty("url", itemIconUrl(itemId));
-            embed.add("thumbnail", thumb);
-        }
+        addItemThumbnail(embed, itemId);
 
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+        addAttachment(embed, shotName);
         return embed;
     }
 
@@ -8994,6 +8927,80 @@ public class AnvilPlugin extends Plugin {
         return "https://static.runelite.net/cache/item/icon/" + itemId + ".png";
     }
 
+    /**
+     * Who this is about, in the embed's author line — omitted when we could not read a name.
+     *
+     * <p>Five posts carry it and five do not, which reads as an oversight rather than a decision;
+     * this is the shared copy, so whoever decides that only has to change one thing.</p>
+     */
+    static void addAuthor(JsonObject embed, String rsn) {
+        if (rsn == null || rsn.isEmpty()) {
+            return;
+        }
+        JsonObject author = new JsonObject();
+        author.addProperty("name", rsn);
+        embed.add("author", author);
+    }
+
+    /** The little picture in the embed's corner. */
+    static void addThumbnail(JsonObject embed, String url) {
+        JsonObject thumb = new JsonObject();
+        thumb.addProperty("url", url);
+        embed.add("thumbnail", thumb);
+    }
+
+    /** The item's own sprite as the thumbnail. Silent for an id we could not resolve. */
+    static void addItemThumbnail(JsonObject embed, Integer itemId) {
+        if (itemId != null && itemId > 0) {
+            addThumbnail(embed, itemIconUrl(itemId));
+        }
+    }
+
+    /**
+     * Point the embed's big image at the screenshot that will ride along with it.
+     *
+     * <p>Named rather than attached: the file goes up in the same multipart request, and Discord
+     * resolves {@code attachment://name} against it. If the capture then fails, the reference has to
+     * be removed or Discord renders a broken frame — see {@link #postWithOptionalShot}.</p>
+     */
+    static void addAttachment(JsonObject embed, String shotName) {
+        JsonObject image = new JsonObject();
+        image.addProperty("url", "attachment://" + shotName);
+        embed.add("image", image);
+    }
+
+    /** The OSRS wiki page for a thing, as the embed's title link. */
+    static void addWikiUrl(JsonObject embed, String pageName) {
+        // The OSRS wiki uses underscores for spaces.
+        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + pageName.replace(' ', '_'));
+    }
+
+    /**
+     * The name to say when we have one, and something that still reads as a sentence when we do not.
+     *
+     * <p>Thirteen copies of this ternary. A post that says "A clan member just got a Twisted bow" is
+     * worth making; one that says "null just got" is not.</p>
+     */
+    static String who(String rsn) {
+        return rsn != null && !rsn.isEmpty() ? rsn : "A clan member";
+    }
+
+    /**
+     * Post it, with the screenshot if the member wants one.
+     *
+     * <p>The embed arrives already pointing at {@code attachment://<shotName>}, so the no-screenshot
+     * path has to take that reference back out — an embed naming a file that never arrives renders
+     * as a broken image.</p>
+     */
+    private void postWithOptionalShot(String channel, JsonObject embed, String shotName, boolean wantShot) {
+        if (wantShot) {
+            postWithScreenshot(channel, embed, shotName);
+        } else {
+            embed.remove("image");
+            apiClient.postNotification(channel, null, embed, null, null);
+        }
+    }
+
     private static JsonObject embedField(String name, String value, boolean inline) {
         JsonObject f = new JsonObject();
         f.addProperty("name", name);
@@ -9003,7 +9010,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** An inline field whose value is a number or short token — boxed with backticks. */
-    private static JsonObject statField(String name, String value) {
+    static JsonObject statField(String name, String value) {
         return embedField(name, "`" + value.replace("`", "") + "`", true);
     }
 
@@ -9315,7 +9322,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String rsn = getLocalPlayerName();
-        String content = (rsn != null ? rsn : "A clan member") + " clipped 🎬"
+        String content = who(rsn) + " clipped 🎬"
                 + (moment != null ? "\n" + moment : "");
         sendChatMessage("Uploading clip to Discord...");
         // Stream the file straight from disk on the upload client (generous timeouts); only claim
@@ -9418,9 +9425,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String shotName = "anvil-achievement.png";
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+        addAttachment(embed, shotName);
         Runnable capture = () -> captureFrameAsync(png -> {
             if (png == null) {
                 embed.remove("image");
