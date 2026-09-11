@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+// NOTE: `new JsonParser().parse(...)` is deprecated in favour of the static
+// `JsonParser.parseString`, which arrived in Gson 2.8.6. RuneLite's client pins 2.8.5, so the
+// static form does not exist on the classpath we compile against. Leave these alone.
 import com.google.gson.JsonParser;
 import java.io.File;
 import java.io.IOException;
@@ -267,6 +270,39 @@ public class BingoApiClient
 		public int interval;
 	}
 
+	/**
+	 * Run a request whose failure is not worth interrupting anybody over, and parse the reply.
+	 *
+	 * <p>Four reads work this way: the two halves of the device sign-in, the greeting, and the weekly
+	 * leaderboard. None of them is the caller's only chance — the sign-in poll ticks again in a
+	 * second, the greeting retries on the next login, the leaderboard on the next panel refresh. So
+	 * every failure is the same failure: a debug line and a null, and the caller carries on.</p>
+	 *
+	 * <p>Catching {@code JsonParseException} alongside {@code IOException} matters: a captive portal
+	 * or a misconfigured reverse proxy answers 200 with an HTML login page, and Gson throws where
+	 * OkHttp did not. Two of these four caught it and two did not.</p>
+	 *
+	 * @return the parsed body, or null on any transport error, any non-2xx, a missing body, or a
+	 *         reply that is not the JSON we asked for.
+	 */
+	private <T> T readOrNull(Request request, Class<T> type, String what)
+	{
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				log.debug("{} returned HTTP {}", what, response.code());
+				return null;
+			}
+			return gson.fromJson(response.body().charStream(), type);
+		}
+		catch (IOException | JsonParseException e)
+		{
+			log.debug("{} failed: {}", what, e.getMessage());
+			return null;
+		}
+	}
+
 	/** Begin the device sign-in. Deliberately UNAUTHENTICATED (the whole point is no token yet) —
 	 * only the Site URL must be configured. Null on transport/HTTP failure. */
 	public DeviceAuthStart authStart()
@@ -278,19 +314,7 @@ public class BingoApiClient
 		RequestBody empty = RequestBody.create(null, new byte[0]);
 		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/start"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(empty).build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				return null;
-			}
-			return gson.fromJson(response.body().charStream(), DeviceAuthStart.class);
-		}
-		catch (IOException | JsonParseException e)
-		{
-			log.debug("auth/start failed: {}", e.getMessage());
-			return null;
-		}
+		return readOrNull(request, DeviceAuthStart.class, "auth/start");
 	}
 
 	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */
@@ -304,19 +328,7 @@ public class BingoApiClient
 			gson.toJson(Collections.singletonMap("device_code", deviceCode)));
 		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/poll"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(body).build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				return null;
-			}
-			return gson.fromJson(response.body().charStream(), DeviceAuthPoll.class);
-		}
-		catch (IOException | JsonParseException e)
-		{
-			log.debug("auth/poll failed: {}", e.getMessage());
-			return null;
-		}
+		return readOrNull(request, DeviceAuthPoll.class, "auth/poll");
 	}
 
 	/**
@@ -771,19 +783,7 @@ public class BingoApiClient
 		String url = clanUrl("/api/plugin/weekly-leaderboard"
 			+ (competitionId != null ? "?id=" + competitionId : ""));
 		Request request = withOptionalAuth(new Request.Builder().url(url)).get().build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				return null;
-			}
-			return gson.fromJson(response.body().string(), WeeklyLeaderboard.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("weekly-leaderboard fetch failed: {}", e.getMessage());
-			return null;
-		}
+		return readOrNull(request, WeeklyLeaderboard.class, "weekly-leaderboard fetch");
 	}
 
 	public static class WeeklyLeaderboard
@@ -836,21 +836,7 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				log.debug("plugin/hello returned HTTP {}", response.code());
-				return null;
-			}
-			String responseBody = response.body().string();
-			return gson.fromJson(responseBody, HelloResponse.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("plugin/hello failed: {}", e.getMessage());
-			return null;
-		}
+		return readOrNull(request, HelloResponse.class, "plugin/hello");
 	}
 
 	public static class HelloResponse
@@ -1157,6 +1143,39 @@ public class BingoApiClient
 		return submissionError(context, code, responseBody);
 	}
 
+	/**
+	 * Run a request that has to succeed, and turn anything else into an exception carrying the
+	 * server's own words.
+	 *
+	 * <p>Nine submit methods each wrote this out: open the response, read the body, build one of two
+	 * exception shapes, log a success line. What differed between them was the log line and which
+	 * exception shape — so those are the arguments, and the rest lives here.</p>
+	 *
+	 * @param friendly true for the paths a player sees. {@link #submissionError} translates the
+	 *                 status into something actionable and picks
+	 *                 {@link PermanentSubmissionException} for codes that will never succeed, so the
+	 *                 retry store stops re-sending them. False gives a plain IOException naming the
+	 *                 context — for the background pushes, which only ever reach client.log.
+	 * @return the response body, empty rather than null. Most callers ignore it; the progress push
+	 *         logs it, because what the server made of the request is the only way to tell which
+	 *         half went wrong.
+	 */
+	private String postExpectingOk(Request request, String context, boolean friendly) throws IOException
+	{
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			String responseBody = response.body() != null ? response.body().string() : "";
+			if (!response.isSuccessful())
+			{
+				String detail = responseBody.isEmpty() ? "no body" : responseBody;
+				throw friendly
+					? submissionError(context, response.code(), detail)
+					: new IOException(context + " failed: HTTP " + response.code() + " — " + detail);
+			}
+			return responseBody;
+		}
+	}
+
 	private static IOException submissionError(String context, int code, String responseBody)
 	{
 		String message = context + ": HTTP " + code + " — " + responseBody;
@@ -1279,15 +1298,8 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw submissionError("Starting shot failed", response.code(), responseBody);
-			}
-			log.info("Starting shot filed for event {}", eventId);
-		}
+		postExpectingOk(request, "Starting shot failed", true);
+		log.info("Starting shot filed for event {}", eventId);
 	}
 
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId, Integer itemId) throws IOException
@@ -1338,15 +1350,8 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw submissionError("Submission failed", response.code(), responseBody);
-			}
-			log.info("Drop submitted successfully for tile {}", tileId);
-		}
+		postExpectingOk(request, "Submission failed", true);
+		log.info("Drop submitted successfully for tile {}", tileId);
 	}
 
 	/**
@@ -1380,39 +1385,53 @@ public class BingoApiClient
 
 	public void submitStatKc(Map<String, Integer> counts) throws IOException
 	{
-		if (counts == null || counts.isEmpty())
+		submitStats(counts, "stats", "name", "kc", "KC push", "Real-time KC pushed for {} boss(es)");
+	}
+
+	/**
+	 * The three stat pushes, which are one request in three spellings.
+	 *
+	 * <p>They all POST to {@code /api/plugin/stats} with ABSOLUTE values and differ only in what the
+	 * array is called, what the name field is called, and what the value field is called. They were
+	 * three thirty-five-line methods that agreed on everything else, down to the log wording.</p>
+	 *
+	 * <p>Entries with a null key or a null value are dropped rather than sent — a half-read counter
+	 * would be stored by the server as a real one.</p>
+	 */
+	private void submitStats(Map<String, Integer> values, String arrayKey, String nameKey,
+		String valueKey, String failureLabel, String successLog) throws IOException
+	{
+		if (values == null || values.isEmpty())
 		{
 			return;
 		}
-		JsonArray stats = new JsonArray();
-		for (Map.Entry<String, Integer> e : counts.entrySet())
+		RequestBody body = RequestBody.create(JSON, statsPayload(values, arrayKey, nameKey, valueKey).toString());
+		Request request = authedRequest(clanUrl("/api/plugin/stats"))
+			.post(body)
+			.build();
+
+		postExpectingOk(request, failureLabel, false);
+		log.info(successLog, values.size());
+	}
+
+	/** The request body. Package-private so a test can hold the wire format to the byte. */
+	static JsonObject statsPayload(Map<String, Integer> values, String arrayKey, String nameKey, String valueKey)
+	{
+		JsonArray entries = new JsonArray();
+		for (Map.Entry<String, Integer> e : values.entrySet())
 		{
 			if (e.getKey() == null || e.getValue() == null)
 			{
 				continue;
 			}
-			JsonObject s = new JsonObject();
-			s.addProperty("name", e.getKey());
-			s.addProperty("kc", e.getValue());
-			stats.add(s);
+			JsonObject entry = new JsonObject();
+			entry.addProperty(nameKey, e.getKey());
+			entry.addProperty(valueKey, e.getValue());
+			entries.add(entry);
 		}
 		JsonObject payload = new JsonObject();
-		payload.add("stats", stats);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/stats"))
-			.post(body)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("KC push failed: HTTP " + response.code() + " — " + responseBody);
-			}
-			log.info("Real-time KC pushed for {} boss(es)", counts.size());
-		}
+		payload.add(arrayKey, entries);
+		return payload;
 	}
 
 	/**
@@ -1424,39 +1443,7 @@ public class BingoApiClient
 	 */
 	public void submitStatXp(Map<String, Integer> xp) throws IOException
 	{
-		if (xp == null || xp.isEmpty())
-		{
-			return;
-		}
-		JsonArray skills = new JsonArray();
-		for (Map.Entry<String, Integer> e : xp.entrySet())
-		{
-			if (e.getKey() == null || e.getValue() == null)
-			{
-				continue;
-			}
-			JsonObject s = new JsonObject();
-			s.addProperty("name", e.getKey());
-			s.addProperty("xp", e.getValue());
-			skills.add(s);
-		}
-		JsonObject payload = new JsonObject();
-		payload.add("skills", skills);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/stats"))
-			.post(body)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Skill XP push failed: HTTP " + response.code() + " — " + responseBody);
-			}
-			log.info("Real-time XP pushed for {} skill(s)", xp.size());
-		}
+		submitStats(xp, "skills", "name", "xp", "Skill XP push", "Real-time XP pushed for {} skill(s)");
 	}
 
 	/**
@@ -1472,39 +1459,8 @@ public class BingoApiClient
 	 */
 	public void submitStatActivities(Map<String, Integer> values) throws IOException
 	{
-		if (values == null || values.isEmpty())
-		{
-			return;
-		}
-		JsonArray activities = new JsonArray();
-		for (Map.Entry<String, Integer> e : values.entrySet())
-		{
-			if (e.getKey() == null || e.getValue() == null)
-			{
-				continue;
-			}
-			JsonObject a = new JsonObject();
-			a.addProperty("key", e.getKey());
-			a.addProperty("value", e.getValue());
-			activities.add(a);
-		}
-		JsonObject payload = new JsonObject();
-		payload.add("activities", activities);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/stats"))
-			.post(body)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Activity push failed: HTTP " + response.code() + " — " + responseBody);
-			}
-			log.info("Real-time activity counts pushed for {} key(s)", values.size());
-		}
+		submitStats(values, "activities", "key", "value", "Activity push",
+			"Real-time activity counts pushed for {} key(s)");
 	}
 
 	/**
@@ -1532,16 +1488,9 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Counter push failed: HTTP " + response.code() + " — " + responseBody);
-			}
-			log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
-				deaths, lootGp, pvpKills, biggestHit, minutesPlayed, caTasks);
-		}
+		postExpectingOk(request, "Counter push", false);
+		log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
+			deaths, lootGp, pvpKills, biggestHit, minutesPlayed, caTasks);
 	}
 
 	/**
@@ -1648,21 +1597,13 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			String responseBody = response.body() != null ? response.body().string() : "";
-			if (!response.isSuccessful())
-			{
-				throw new IOException("Progress push failed: HTTP " + response.code() + " — "
-					+ (responseBody.isEmpty() ? "no body" : responseBody));
-			}
-			// The reply says what the server made of it — including, for combat achievements, whether
-			// the bits reconciled against the point total and how many tasks it couldn't name. Logged
-			// at INFO because when this feature is quiet the only alternative is guessing which half
-			// went wrong, which has cost a day already.
-			log.info("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(),
-				hasVarps ? caVarps.size() : 0, responseBody);
-		}
+		// The reply says what the server made of it — including, for combat achievements, whether
+		// the bits reconciled against the point total and how many tasks it couldn't name. Logged
+		// at INFO because when this feature is quiet the only alternative is guessing which half
+		// went wrong, which has cost a day already.
+		String responseBody = postExpectingOk(request, "Progress push", false);
+		log.info("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(),
+			hasVarps ? caVarps.size() : 0, responseBody);
 	}
 
 	/**
@@ -1728,15 +1669,8 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw submissionError("Collection log push failed", response.code(), responseBody);
-			}
-			log.debug("Collection log pushed: {} page(s), {} synced", out.size(), syncedPages);
-		}
+		postExpectingOk(request, "Collection log push failed", true);
+		log.debug("Collection log pushed: {} page(s), {} synced", out.size(), syncedPages);
 	}
 
 	/**
@@ -1777,15 +1711,8 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw submissionError("Personal best push failed", response.code(), responseBody);
-			}
-			log.debug("Personal bests pushed: {}", out.size());
-		}
+		postExpectingOk(request, "Personal best push failed", true);
+		log.debug("Personal bests pushed: {}", out.size());
 	}
 
 	/**
@@ -1869,15 +1796,8 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw new IOException("Moment push failed: HTTP " + response.code() + " — " + responseBody);
-			}
-			log.debug("Moments pushed: {}", out.size());
-		}
+		postExpectingOk(request, "Moment push", false);
+		log.debug("Moments pushed: {}", out.size());
 	}
 
 	/**
@@ -1902,15 +1822,8 @@ public class BingoApiClient
 			.post(body)
 			.build();
 
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "no body";
-				throw submissionError("Timed submission failed", response.code(), responseBody);
-			}
-			log.info("Timed clear submitted successfully for tile {}", tileId);
-		}
+		postExpectingOk(request, "Timed submission failed", true);
+		log.info("Timed clear submitted successfully for tile {}", tileId);
 	}
 
 }
