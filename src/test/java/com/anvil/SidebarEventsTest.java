@@ -1,5 +1,8 @@
 package com.anvil;
 
+import com.anvil.api.PluginConfigResponse;
+import com.anvil.ui.AnvilSidebarPanel;
+import com.anvil.ui.ConnectionView;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;

@@ -1,5 +1,7 @@
 package com.anvil;
 
+import com.anvil.api.BingoApiClient;
+import com.anvil.ui.SidebarDataSource;
 import com.google.gson.Gson;
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;

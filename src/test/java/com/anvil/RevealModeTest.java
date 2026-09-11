@@ -1,5 +1,8 @@
 package com.anvil;
 
+import com.anvil.api.PluginConfigResponse;
+import com.anvil.ui.ActivityEntry;
+import com.anvil.ui.AnvilSidebarDataSource;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;

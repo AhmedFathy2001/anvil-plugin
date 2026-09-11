@@ -1,5 +1,6 @@
 package com.anvil;
 
+import com.anvil.detect.CombatAchievementTier;
 import java.util.regex.Matcher;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;

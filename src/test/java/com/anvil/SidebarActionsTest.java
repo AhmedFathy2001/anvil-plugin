@@ -1,5 +1,9 @@
 package com.anvil;
 
+import com.anvil.api.BingoApiClient;
+import com.anvil.api.PluginConfigResponse;
+import com.anvil.ui.AnvilSidebarDataSource;
+import com.anvil.ui.SidebarDataSource;
 import com.google.gson.Gson;
 import okhttp3.OkHttpClient;
 import org.junit.Test;

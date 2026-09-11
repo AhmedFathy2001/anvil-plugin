@@ -1,5 +1,49 @@
 package com.anvil;
 
+import com.anvil.api.BingoApiClient;
+import com.anvil.api.PluginConfigResponse;
+import com.anvil.clog.ClogFullSync;
+import com.anvil.clog.ClogPage;
+import com.anvil.clog.ClogPageReader;
+import com.anvil.clog.ClogRank;
+import com.anvil.clog.ClogSync;
+import com.anvil.clog.ClogTaskModel;
+import com.anvil.detect.AbstractRarityService;
+import com.anvil.detect.AccountProgress;
+import com.anvil.detect.ActivityStats;
+import com.anvil.detect.CombatAchievementTier;
+import com.anvil.detect.DropLuck;
+import com.anvil.detect.DropSource;
+import com.anvil.detect.LadderMissions;
+import com.anvil.detect.PersonalBests;
+import com.anvil.detect.QuestAnnounceTier;
+import com.anvil.detect.RarityService;
+import com.anvil.detect.SetupNudge;
+import com.anvil.detect.StartProofRules;
+import com.anvil.detect.ThievingService;
+import com.anvil.detect.TimedClearParser;
+import com.anvil.detect.VestigeRolls;
+import com.anvil.io.BannerSoundService;
+import com.anvil.io.DebugLogExporter;
+import com.anvil.io.DiscordWebhookClient;
+import com.anvil.io.ObsReplayClient;
+import com.anvil.io.PendingSubmissionStore;
+import com.anvil.ui.AnvilMoments;
+import com.anvil.ui.AnvilOverlay;
+import com.anvil.ui.AnvilSidebarDataSource;
+import com.anvil.ui.AnvilSidebarPanel;
+import com.anvil.ui.BingoClogBannerOverlay;
+import com.anvil.ui.ConnectionView;
+import com.anvil.ui.HeaderButton;
+import com.anvil.ui.SidebarDataSource;
+import com.anvil.util.AnvilChat;
+import com.anvil.util.ClipMoments;
+import com.anvil.util.DeathAttribution;
+import com.anvil.util.DedupWindow;
+import com.anvil.util.MathUtils;
+import com.anvil.util.Rsn;
+import com.anvil.util.SyncBackoff;
+import com.anvil.util.TaskRunner;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -5556,7 +5600,7 @@ public class AnvilPlugin extends Plugin {
      * Persisted, because a pick that evaporated on restart would be worse than no pick at all — the
      * plugin would quietly go back to guessing and the member would have no reason to look.
      */
-    void setChosenClan(String slug) {
+    public void setChosenClan(String slug) {
         String clean = slug == null ? "" : slug.trim();
         configManager.setConfiguration("osrsbingo", CFG_ACTIVE_CLAN, clean);
         apiClient.setChosenClan(clean);
@@ -5587,7 +5631,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** The member's clan pick, or "" when they are on Auto. */
-    String getChosenClan() {
+    public String getChosenClan() {
         String stored = configManager.getConfiguration("osrsbingo", CFG_ACTIVE_CLAN);
         return stored == null ? "" : stored.trim();
     }

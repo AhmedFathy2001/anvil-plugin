@@ -1,5 +1,6 @@
 package com.anvil;
 
+import com.anvil.ui.AnvilSidebarPanel;
 import javax.swing.plaf.basic.BasicHTML;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;

@@ -1,0 +1,221 @@
+package com.anvil.ui;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * The queue behind the clan's highlight feed: pets, uniques, big hauls and deaths, held until the
+ * next push.
+ *
+ * <p>WHAT THIS DOES NOT DO is decide whether any of it matters. The client cannot know which
+ * competition is running, what counts as a unique at this clan, or which pets belong to which skill
+ * — all of that lives on the site (src/lib/moments.ts), so a clan can change its mind without
+ * waiting on a plugin release. This sends what it saw, generously, and expects most of it to be
+ * thrown away.
+ *
+ * <p>EVERY MOMENT IS RECORDED AT THE EVENT, never inside a notification gate. A member with the
+ * drops channel switched off still gets their pet on the site's feed — the two settings are about
+ * different things, and tying them together is exactly the bug that once captioned every saved clip
+ * "Clip saved".
+ *
+ * <p>Each entry carries its own idempotency key, because the game says everything twice: one pet
+ * fires up to three chat lines, one kill fires two loot events, and a retry after a timeout is a
+ * third copy on purpose. The key is derived from what happened rather than from a counter, so all
+ * of those collapse into one row server-side.
+ *
+ * <p>Bounded and lossy by design. If a session outruns the pushes, the OLDEST entries go: a feed
+ * that drops the pet you just got to keep a 200k loot pile would be worse than useless. Touched
+ * from the client thread (game events) and drained on the executor, so every method is synchronized.
+ */
+public class AnvilMoments
+{
+	/**
+	 * A session's backlog, not a history. The site takes 25 per push and the pushes are debounced to
+	 * seconds, so this only fills at all when the site is unreachable.
+	 */
+	static final int MAX_QUEUED = 50;
+
+	/** How many go in one request — matches the site's own cap. */
+	static final int BATCH = 25;
+
+	/** Below this a drop isn't worth reporting on price alone. The site's floors are stricter. */
+	public static final long MIN_REPORTABLE_GP = 100_000L;
+
+	public static final class Moment
+	{
+		/** 'pet' | 'drop' | 'death' | 'ca'. */
+		public final String kind;
+		public final Integer itemId;
+		public final String itemName;
+		public final int quantity;
+		public final Long valueGp;
+		public final String source;
+		public final String sourceKind;
+		public final Integer kc;
+		/** 'ca' only: the task the completion line named, and the tier it claimed. */
+		public final String taskName;
+		public final String tier;
+		public final long at;
+		public final String key;
+
+		public Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
+			   String source, String sourceKind, Integer kc, long at, String key)
+		{
+			this(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc, null, null, at, key);
+		}
+
+		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
+			   String source, String sourceKind, Integer kc, String taskName, String tier, long at, String key)
+		{
+			this.kind = kind;
+			this.itemId = itemId;
+			this.itemName = itemName;
+			this.quantity = quantity;
+			this.valueGp = valueGp;
+			this.source = source;
+			this.sourceKind = sourceKind;
+			this.kc = kc;
+			this.taskName = taskName;
+			this.tier = tier;
+			this.at = at;
+			this.key = key;
+		}
+
+		/** A completed combat task. The site decides which boss it belongs to and whether it's news. */
+		public static Moment combatTask(String taskName, String tier, long at)
+		{
+			return new Moment("ca", null, null, 1, null, null, null, null, taskName, tier, at,
+				keyFor("ca", taskName, null, at));
+		}
+
+		/**
+		 * A level worth telling people about: a 99, a total-level milestone, or a max.
+		 *
+		 * <p>{@code skill} is the skill's name, or null when the news is the total rather than any one
+		 * skill. {@code level} rides in the quantity column and {@code scope} in sourceKind, so this
+		 * needs no new columns anywhere -- the site reads both to decide what sentence to write.</p>
+		 *
+		 * <p>Keyed on the skill and the number, NOT on the clock: a 99 happens once, and if a retry or
+		 * a second sighting arrives ten seconds later it is still the same 99.</p>
+		 */
+		public static Moment level(String skill, int level, String scope, long at)
+		{
+			return new Moment("level", null, skill, level, null, null, scope, null, at,
+				"level|" + (skill == null ? "total" : skill.toLowerCase()) + "|" + level);
+		}
+	}
+
+	/** Keyed so a duplicate observation replaces rather than repeats; insertion-ordered for the batch. */
+	private final Map<String, Moment> pending = new LinkedHashMap<>();
+
+	/**
+	 * Queue one. A repeat of a key already waiting REPLACES it — the second sighting of the same pet
+	 * is the one that knows its name.
+	 */
+	public synchronized void record(Moment moment)
+	{
+		if (moment == null || moment.key == null || moment.key.isEmpty())
+		{
+			return;
+		}
+		pending.remove(moment.key);
+		pending.put(moment.key, moment);
+		while (pending.size() > MAX_QUEUED)
+		{
+			pending.remove(pending.keySet().iterator().next());
+		}
+	}
+
+	/**
+	 * Fill in the name of something already queued — a pet is announced by one chat line and named
+	 * by the next, and the feed wants the name.
+	 *
+	 * @return true when there was something to name
+	 */
+	public synchronized boolean nameQueued(String key, String itemName, Integer itemId)
+	{
+		return nameQueued(key, itemName, itemId, null, null);
+	}
+
+	/**
+	 * As above, and correct where it came from at the same time.
+	 *
+	 * <p>A pet is queued before anything knows which pet it is, so its source can only be whatever
+	 * loot the client had just seen — the chest rather than the raid, a minion rather than the boss.
+	 * The name is what makes the real source knowable, so the two corrections arrive together. A null
+	 * {@code source} leaves the queued one alone: the caller learned nothing better.
+	 */
+	public synchronized boolean nameQueued(String key, String itemName, Integer itemId, String source, Integer kc)
+	{
+		Moment existing = pending.get(key);
+		if (existing == null || itemName == null || itemName.isEmpty())
+		{
+			return false;
+		}
+		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
+			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
+			source != null ? kc : existing.kc, existing.at, existing.key));
+		return true;
+	}
+
+	public synchronized boolean isEmpty()
+	{
+		return pending.isEmpty();
+	}
+
+	public synchronized int size()
+	{
+		return pending.size();
+	}
+
+	/** The next batch to send. Stays queued until {@link #onSent} confirms it — a failed push retries. */
+	public synchronized List<Moment> nextBatch()
+	{
+		List<Moment> batch = new ArrayList<>();
+		for (Moment m : pending.values())
+		{
+			batch.add(m);
+			if (batch.size() >= BATCH)
+			{
+				break;
+			}
+		}
+		return batch;
+	}
+
+	/** Drop what the site has taken. */
+	public synchronized void onSent(List<Moment> batch)
+	{
+		if (batch == null)
+		{
+			return;
+		}
+		for (Moment m : batch)
+		{
+			pending.remove(m.key);
+		}
+	}
+
+	/** Forget everything — a different account logging in doesn't inherit this one's moments. */
+	public synchronized void reset()
+	{
+		pending.clear();
+	}
+
+	/**
+	 * A key for one thing that happened.
+	 *
+	 * <p>Built from WHAT happened rather than from a counter, so the two loot events and three chat
+	 * lines the game fires for a single occurrence all produce the same string. Time is bucketed to
+	 * ten seconds so the copies — which arrive within a tick or two of each other — agree, while a
+	 * second genuine drop of the same item minutes later does not.
+	 */
+	public static String keyFor(String kind, String source, Integer itemId, long at)
+	{
+		long bucket = at / 10_000L;
+		return kind + "|" + (source == null ? "" : source.toLowerCase()) + "|"
+			+ (itemId == null ? "" : itemId) + "|" + bucket;
+	}
+}
