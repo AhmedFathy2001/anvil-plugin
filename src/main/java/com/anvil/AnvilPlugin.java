@@ -3,6 +3,7 @@ package com.anvil;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.clan.ClanRosterService;
+import com.anvil.clip.ObsClipService;
 import com.anvil.clog.ClogFullSync;
 import com.anvil.clog.ClogPage;
 import com.anvil.clog.ClogPageReader;
@@ -39,6 +40,7 @@ import com.anvil.ui.HeaderButton;
 import com.anvil.ui.SidebarDataSource;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.ClipMoments;
+import com.anvil.util.CombatTarget;
 import com.anvil.util.DeathAttribution;
 import com.anvil.util.DedupWindow;
 import com.anvil.util.MathUtils;
@@ -251,12 +253,13 @@ public class AnvilPlugin extends Plugin {
     // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
     // plugin's automatic event triggers.
     // Touched from the client thread (startup, hotkey, config change) and the executor's reconnect
-    // tick — volatile for visibility, and connect/disconnect are synchronized on obsLock.
-    private volatile ObsReplayClient obsClip;
-    private final Object obsLock = new Object();
-    // What happened in the last N seconds, so a saved clip can name what it caught instead of
-    // posting a bare "<rsn> saved a clip". Fed from the same points that already notify the clan.
-    private final ClipMoments clipMoments = new ClipMoments();
+    /** Clips: OBS, the pending-request queue, and getting the file to Discord. */
+    @Inject
+    private ObsClipService clips;
+
+    /** Shared with {@link ObsClipService}, which is the only thing that reads it. */
+    @Inject
+    private ClipMoments clipMoments;
     // The last thing we landed a hit on, for captioning a clip of a fight that produced no kill,
     // no loot and no death. Written on the client thread, read off it when a clip lands.
     /**
@@ -270,30 +273,18 @@ public class AnvilPlugin extends Plugin {
      * A deque rather than one slot: pressing save twice queues two files, and OBS reports them in
      * the order it was asked. Bounded so a machine that never writes a file can't grow it forever.
      */
-    private static final class PendingClip {
-        final long requestedAt;
-        final String combatTarget;
-        final long combatTargetAt;
+    /** The last thing we hit. Written here on a hitsplat; read by deaths and by clip captions. */
+    @Inject
+    private CombatTarget combatTarget;
 
-        PendingClip(long requestedAt, String combatTarget, long combatTargetAt) {
-            this.requestedAt = requestedAt;
-            this.combatTarget = combatTarget;
-            this.combatTargetAt = combatTargetAt;
-        }
-    }
-
-    private static final int MAX_PENDING_CLIPS = 8;
-    private final Deque<PendingClip> pendingClips = new ArrayDeque<>();
-
-    private volatile String lastCombatTarget;
-    private volatile long lastCombatTargetAt;
     // Who is attacking US, which is a different question from what we are attacking and the only one
     // a death should be answered with. See DeathAttribution.
     private final DeathAttribution deathAttribution = new DeathAttribution();
+
     private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
         @Override
         public void hotkeyPressed() {
-            captureClip();
+            clips.capture();
         }
     };
 
@@ -1178,6 +1169,10 @@ public class AnvilPlugin extends Plugin {
         clientToolbar.addNavigation(sidebarNavButton);
 
         bannerSound.ensureUserDir();
+        // The two things a clip's caption needs that only the plugin can answer: the live event
+        // config (replaced wholesale on every poll, so a supplier and not the value) and who is
+        // playing. Bound once here rather than passed through every call.
+        clips.bind(() -> pluginConfig, this::getLocalPlayerName);
         notifiedCompletedTiles.clear();
         locallyShownTiles.clear();
         completionBaselineEventId = null;
@@ -1185,7 +1180,7 @@ public class AnvilPlugin extends Plugin {
         keyManager.registerKeyListener(clipHotkeyListener);
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
-            connectObs();
+            clips.connect();
         }
 
         configureApiClient();
@@ -1215,7 +1210,7 @@ public class AnvilPlugin extends Plugin {
         tasks.runEvery(() -> {
             safely("refreshConfig", this::refreshConfig);
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
-            safely("obsReconnect", this::maybeReconnectObs);
+            safely("obsReconnect", clips::maybeReconnect);
             safely("importRuneLitePbs", this::retryPersonalBestImport);
             safely("flushClogSync", this::flushClogSync);
             safely("flushFullClogSync", this::flushFullClogSync);
@@ -1340,7 +1335,7 @@ public class AnvilPlugin extends Plugin {
         bannerSound.shutdown();
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
-        disconnectObs();
+        clips.disconnect();
         tasks.stop();
         pluginConfig = null;
         pendingRefresh = null;
@@ -1638,14 +1633,14 @@ public class AnvilPlugin extends Plugin {
         // (Re)establish or tear down the OBS clip connection when its settings change.
         if ("clipsEnabled".equals(key) || "obsHost".equals(key) || "obsPort".equals(key) || "obsPassword".equals(key)) {
             if (config.clipsEnabled()) {
-                connectObs();
+                clips.connect();
             } else {
-                disconnectObs();
+                clips.disconnect();
             }
-        } else if (("clipLengthSeconds".equals(key) || "clipMp4".equals(key))
-                && config.clipsEnabled() && obsClip != null && obsClip.isConnected()) {
+        } else if ("clipLengthSeconds".equals(key) || "clipMp4".equals(key)) {
             // Adopt the new length/format live — OBS restarts the buffer with the new settings.
-            obsClip.applyClipLength();
+            // The service checks for itself whether there is a live connection to tell.
+            clips.applyClipLength();
         }
     }
 
@@ -2831,8 +2826,7 @@ public class AnvilPlugin extends Plugin {
             if (hitTarget != null && hitTarget != client.getLocalPlayer()) {
                 String tname = hitTarget.getName();
                 if (tname != null && !tname.isEmpty()) {
-                    lastCombatTarget = tname;
-                    lastCombatTargetAt = System.currentTimeMillis();
+                    combatTarget.note(tname);
                 }
             }
         }
@@ -6309,8 +6303,8 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         long now = System.currentTimeMillis();
-        String fighting = (lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS)
-                ? lastCombatTarget : null;
+        CombatTarget.Seen seen = combatTarget.snapshot();
+        String fighting = seen.freshAt(now, DEATH_ATTRIBUTION_MS) ? seen.name : null;
         String killer = deathAttribution.killer(fighting, now);
         // Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
         // and which one we picked, next to what we were hitting.
@@ -8847,220 +8841,6 @@ public class AnvilPlugin extends Plugin {
             default:
                 return false;
         }
-    }
-
-    // ---- OBS clip capture ----
-    private void connectObs() {
-        synchronized (obsLock) {
-            disconnectObs();
-            obsClip = new ObsReplayClient(
-                    okHttpClient,
-                    gson,
-                    config.obsHost(),
-                    config.obsPort(),
-                    config.obsPassword(),
-                    this::onClipSaved,
-                    () -> {
-                        /* connected — no chat spam */ },
-                    // Per-save failures (e.g. the Replay Buffer isn't started) — tell the player why.
-                    this::sendChatMessage,
-                    config::clipLengthSeconds,
-                    () -> config.clipMp4() ? "mp4" : null,
-                    config::postObsTriggeredClips
-            );
-            obsClip.connect();
-        }
-    }
-
-    /**
-     * Reconnect tick (runs on the 30s executor loop). OBS often isn't up yet
-     * when RuneLite launches, so the one-shot connect at startup can miss.
-     * Retrying here means the buffer gets started as soon as OBS becomes
-     * reachable — without it, clips only worked after toggling the config
-     * off/on.
-     */
-    private void maybeReconnectObs() {
-        if (config.clipsEnabled()) {
-            final ObsReplayClient c = obsClip;
-            if (c == null || !c.isConnected()) {
-                connectObs();
-            }
-        } else {
-            disconnectObs();
-        }
-    }
-
-    private void disconnectObs() {
-        synchronized (obsLock) {
-            if (obsClip != null) {
-                obsClip.disconnect();
-                obsClip = null;
-            }
-        }
-    }
-
-    /**
-     * Hotkey handler — ask OBS to flush the replay buffer.
-     */
-    private void captureClip() {
-        if (!config.clipsEnabled()) {
-            return;
-        }
-        if (obsClip == null || !obsClip.isConnected()) {
-            sendChatMessage("Clip capture: OBS isn't connected. Make sure OBS is running with the WebSocket server + Replay Buffer enabled.");
-            // Opportunistic reconnect so the next press can work.
-            connectObs();
-            return;
-        }
-        // Snapshot the caption inputs NOW — the footage ends here, whatever time the file arrives.
-        synchronized (pendingClips) {
-            while (pendingClips.size() >= MAX_PENDING_CLIPS) {
-                pendingClips.removeFirst();
-            }
-            pendingClips.addLast(new PendingClip(System.currentTimeMillis(), lastCombatTarget, lastCombatTargetAt));
-        }
-        sendChatMessage("Saving clip...");
-        obsClip.saveReplayBuffer();
-    }
-
-    /**
-     * Fires (off the client thread) once OBS has written the clip to disk.
-     * Posts it to the clan clips channel when it's small enough for Discord;
-     * otherwise just a quiet in-game notice.
-     */
-    private void onClipSaved(String path) {
-        if (path == null || path.isEmpty()) {
-            return;
-        }
-        File file = new File(path);
-        if (!file.exists()) {
-            sendChatMessage("Clip saved by OBS, but the file couldn't be found to post.");
-            return;
-        }
-        long maxBytes = (long) Math.max(1, config.clipMaxMb()) * 1024L * 1024L;
-        long size = file.length();
-        if (size > maxBytes) {
-            sendChatMessage("Clip saved locally (" + (size / (1024L * 1024L)) + "MB) — too big to auto-post to Discord.");
-            return;
-        }
-        // What the clip actually caught — drops, kills, completions, deaths and missions the plugin
-        // saw inside the buffer's own window. Null when nothing notable happened, in which case the
-        // post falls back to naming the event.
-        int clipSeconds = Math.max(1, config.clipLengthSeconds());
-        // The request this file answers, oldest first. Absent when OBS saved a clip we didn't ask
-        // for (someone pressed OBS's own hotkey), in which case "now" is the best we know.
-        PendingClip pending;
-        synchronized (pendingClips) {
-            pending = pendingClips.pollFirst();
-        }
-        long clipEndedAt = pending != null ? pending.requestedAt : System.currentTimeMillis();
-        String moment = clipMoments.summarize(clipEndedAt, clipSeconds, 3);
-        // Nothing notable landed in the window — but if we were mid-fight, say who with. "Fighting
-        // Vorkath" is a caption; "Clipped during Test missions bingo" is a timestamp with extra
-        // steps. Only counts a target we actually hit inside the footage.
-        //
-        // Read from the snapshot, not the live field: by the time a slow save lands, `lastCombatTarget`
-        // is whatever they wandered into since, and it would caption the clip with a boss that isn't
-        // in it. That is the bug this whole path exists to avoid.
-        if (moment == null) {
-            String target = pending != null ? pending.combatTarget : lastCombatTarget;
-            long targetAt = pending != null ? pending.combatTargetAt : lastCombatTargetAt;
-            long since = clipEndedAt - targetAt;
-            if (target != null && since >= 0 && since <= clipSeconds * 1000L + 5000L) {
-                moment = "⚔️ Fighting " + target;
-            }
-        }
-
-        // Preferred route: hand the clip to the clan's own site and let IT post to the clips channel.
-        // That means members don't each have to paste a webhook URL, and it still isn't a URL handed
-        // to us by a server response — it's the same configured base URL every other request uses.
-        // Gated on the capability so older self-hosted sites (which have no such route) fall straight
-        // through to the user's own webhook.
-        PluginConfigResponse cfg = pluginConfig;
-        boolean relayAvailable = cfg != null && cfg.serverSupports("clip-relay") && apiClient.isConfigured();
-        if (relayAvailable) {
-            sendChatMessage("Uploading clip to your clan's Discord...");
-            // Only an event that is actually RUNNING. The config carries whatever board this
-            // account is enrolled in, and enrolment starts when sign-ups open — so a clip taken
-            // eight weeks before the first tile went up was captioned "Clipped during <that board>",
-            // which is a claim about a competition that hasn't happened yet.
-            boolean eventRunning = AnvilOverlay.isEventActive(cfg.event);
-            String eventName = eventRunning ? cfg.event.name : null;
-            // Their board position rides along: the footage can show the kill but not that it put
-            // them top of the month.
-            PluginConfigResponse.Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
-            BingoApiClient.ClipRelayResult result = apiClient.postClip(
-                    file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
-                    standings != null ? standings.yourRank : 0,
-                    standings != null ? standings.yourPoints : 0);
-            switch (result) {
-                case POSTED:
-                    sendChatMessage("Clip posted to the clan Discord.");
-                    return;
-                case TOO_LARGE:
-                    sendChatMessage("Clip saved locally — too big for Discord ("
-                            + (size / (1024L * 1024L)) + "MB). Try a shorter clip length.");
-                    return;
-                case NO_CHANNEL:
-                    // The clan hasn't set a clips channel. A personal webhook still works, so only
-                    // stop here when there isn't one.
-                    if (clipsWebhook().isEmpty()) {
-                        sendChatMessage("Clip saved locally — your clan has no clips channel set up yet.");
-                        return;
-                    }
-                    break;
-                case UNSUPPORTED:
-                case FAILED:
-                default:
-                    break; // fall through to the personal webhook below
-            }
-        }
-
-        // Fallback: upload straight from the user's machine to a webhook THEY pasted into plugin
-        // config. Blank = keep clips local.
-        String webhook = clipsWebhook();
-        if (webhook.isEmpty()) {
-            sendChatMessage(relayAvailable
-                    ? "Clip saved locally — couldn't reach your clan's Discord just now."
-                    : "Clip saved locally — paste a Clips Discord webhook URL in the plugin config to auto-post.");
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String content = who(rsn) + " clipped 🎬"
-                + (moment != null ? "\n" + moment : "");
-        sendChatMessage("Uploading clip to Discord...");
-        // Stream the file straight from disk on the upload client (generous timeouts); only claim
-        // success once Discord actually accepts it, so a 413/429/timeout reads as a failure, not silence.
-        discordClient.sendWithFile(webhook, content, file, file.getName(), contentTypeForClip(file.getName()), ok -> {
-            if (ok) {
-                sendChatMessage("Clip posted to Discord.");
-            } else {
-                sendChatMessage("Clip saved locally, but Discord didn't accept the upload (too big, rate-limited, or timed out).");
-            }
-        });
-    }
-
-    /** The user's own clips webhook, trimmed; empty when unset. */
-    private String clipsWebhook() {
-        String webhook = config.clipsWebhookUrl();
-        return webhook == null ? "" : webhook.trim();
-    }
-
-    private static String contentTypeForClip(String name) {
-        String lower = name.toLowerCase();
-        if (lower.endsWith(".mp4")) {
-            return "video/mp4";
-        }
-        if (lower.endsWith(".mkv")) {
-            return "video/x-matroska";
-        }
-        if (lower.endsWith(".mov")) {
-            return "video/quicktime";
-        }
-        if (lower.endsWith(".webm")) {
-            return "video/webm";
-        }
-        return "application/octet-stream";
     }
 
     // A stalled capture must not stall the notification: frames normally arrive within ~50ms,

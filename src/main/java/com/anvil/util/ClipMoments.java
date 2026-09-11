@@ -6,6 +6,7 @@ import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import javax.inject.Singleton;
 
 /**
  * What happened recently, so a saved clip can say what it caught.
@@ -21,6 +22,7 @@ import java.util.Set;
  * beyond one record, and no dependency on anything else in the plugin. Touched from the client
  * thread (game events) and read from the executor when a clip lands, so every method is synchronized.
  */
+@Singleton
 public class ClipMoments
 {
 	/**
