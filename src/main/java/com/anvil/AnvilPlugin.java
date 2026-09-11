@@ -33,6 +33,7 @@ import com.anvil.io.ObsReplayClient;
 import com.anvil.io.PendingSubmissionStore;
 import com.anvil.ui.AnvilMoments;
 import com.anvil.ui.AnvilOverlay;
+import com.anvil.ui.ProofBanner;
 import com.anvil.ui.AnvilSidebarDataSource;
 import com.anvil.ui.AnvilSidebarPanel;
 import com.anvil.ui.BingoClogBannerOverlay;
@@ -52,12 +53,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.inject.Provides;
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -68,7 +66,6 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -4072,7 +4069,7 @@ public class AnvilPlugin extends Plugin {
             tasks.run(() -> {
                 try {
                     BufferedImage buffered = (BufferedImage) image;
-                    annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, null);
+                    ProofBanner.draw(buffered, bannerTitle, bannerDetail, proofContext(capturedRsn), null);
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
                     byte[] pngBytes = baos.toByteArray();
@@ -4317,48 +4314,6 @@ public class AnvilPlugin extends Plugin {
      * loot once it settled. Returns the flush frame untouched when there is no
      * trigger frame (toggle off, or the frame never arrived).
      */
-    private BufferedImage composeDualProof(BufferedImage triggerFrame, BufferedImage flushFrame) {
-        if (triggerFrame == null) {
-            return flushFrame;
-        }
-        int divider = 4;
-        int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
-        int h = triggerFrame.getHeight() + divider + flushFrame.getHeight();
-        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = out.createGraphics();
-        try {
-            g.setColor(Color.BLACK);
-            g.fillRect(0, 0, w, h);
-            g.drawImage(triggerFrame, 0, 0, null);
-            g.setColor(new Color(212, 160, 23));
-            g.fillRect(0, triggerFrame.getHeight(), w, divider);
-            g.drawImage(flushFrame, 0, triggerFrame.getHeight() + divider, null);
-            tagProofFrame(g, "AT DROP", w, 0);
-            tagProofFrame(g, "MOMENTS LATER", w, triggerFrame.getHeight() + divider);
-        } finally {
-            g.dispose();
-        }
-        return out;
-    }
-
-    // Small top-right tag naming which moment a stacked proof frame shows.
-    private void tagProofFrame(Graphics2D g, String text, int frameW, int frameTop) {
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        Font font = new Font(Font.SANS_SERIF, Font.BOLD, 12);
-        g.setFont(font);
-        FontMetrics fm = g.getFontMetrics(font);
-        int padX = 8, padY = 4;
-        int bw = fm.stringWidth(text) + padX * 2;
-        int bh = fm.getHeight() + padY * 2;
-        int x = frameW - bw - 10;
-        int y = frameTop + 10;
-        g.setColor(new Color(20, 18, 14, 230));
-        g.fillRoundRect(x, y, bw, bh, 8, 8);
-        g.setColor(new Color(212, 160, 23));
-        g.drawRoundRect(x, y, bw, bh, 8, 8);
-        g.drawString(text, x + padX, y + padY + fm.getAscent());
-    }
-
     /**
      * One chat line when a proof can't be submitted right now. The PNG (banner
      * already baked) is safe on disk in the pending store and auto-retried with
@@ -4370,102 +4325,16 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Burns a self-attesting proof banner onto the top-left of the screenshot:
-     * the item (icon + name + count), the RSN it was obtained on, team, event
-     * and UTC time. Baked unconditionally so the saved PNG stands on its own
-     * regardless of chat being off or the overlay rendering.
+     * Who and where a proof was taken, as {@link ProofBanner} wants it.
+     *
+     * <p>Read at capture time, not at draw time: the config is replaced wholesale on every poll, and
+     * a proof that spends two seconds in the encoder should still say which event it belonged to.</p>
      */
-    private void annotateDropScreenshot(BufferedImage img, String label, int amount, int current, int required,
-            String rsn, BufferedImage itemIcon) {
-        String detail = label + "  ×" + amount + "  (" + current + "/" + required + ")";
-        annotateProofBanner(img, "BINGO DROP", detail, rsn, itemIcon);
-    }
-
-    /**
-     * Burns a self-attesting proof banner (title + detail line +
-     * RSN/team/event/UTC) onto the top-left of a screenshot. Shared by drop,
-     * kill and timed submissions so every saved PNG stands on its own
-     * regardless of chat/overlay state.
-     */
-    private void annotateProofBanner(BufferedImage img, String title, String detail, String rsn, BufferedImage itemIcon) {
-        Graphics2D g = img.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-            List<String> meta = new ArrayList<>();
-            if (rsn != null && !rsn.isEmpty()) {
-                meta.add("RSN: " + rsn);
-            }
-            if (pluginConfig != null && pluginConfig.team != null && pluginConfig.team.name != null) {
-                meta.add("Team: " + pluginConfig.team.name);
-            }
-            if (pluginConfig != null && pluginConfig.event != null && pluginConfig.event.name != null) {
-                meta.add("Event: " + pluginConfig.event.name);
-            }
-            meta.add("UTC: " + ZonedDateTime.now(ZoneOffset.UTC)
-                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
-
-            Font titleFont = new Font(Font.SANS_SERIF, Font.BOLD, 14);
-            Font detailFont = new Font(Font.SANS_SERIF, Font.BOLD, 18);
-            Font metaFont = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
-            FontMetrics tfm = g.getFontMetrics(titleFont);
-            FontMetrics dfm = g.getFontMetrics(detailFont);
-            FontMetrics mfm = g.getFontMetrics(metaFont);
-
-            boolean hasIcon = itemIcon != null && itemIcon.getWidth() > 0 && itemIcon.getHeight() > 0;
-            int iconW = hasIcon ? 36 : 0;
-            int iconGap = hasIcon ? 10 : 0;
-
-            int textW = Math.max(dfm.stringWidth(detail), tfm.stringWidth(title));
-            for (String s : meta) {
-                textW = Math.max(textW, mfm.stringWidth(s));
-            }
-
-            int padX = 14, padY = 10;
-            int boxW = iconW + iconGap + textW + padX * 2;
-            int contentH = tfm.getHeight() + dfm.getHeight() + 4 + 6 + meta.size() * (mfm.getHeight() + 1);
-            int boxH = Math.max(contentH, iconW > 0 ? 32 : 0) + padY * 2;
-            int boxX = 12, boxY = 12;
-
-            // Drop shadow
-            g.setColor(new Color(0, 0, 0, 120));
-            g.fillRoundRect(boxX + 3, boxY + 3, boxW, boxH, 10, 10);
-            // Background
-            g.setColor(new Color(20, 18, 14, 230));
-            g.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
-            // Gold accent border
-            g.setStroke(new BasicStroke(2f));
-            g.setColor(new Color(212, 160, 23));
-            g.drawRoundRect(boxX, boxY, boxW, boxH, 10, 10);
-
-            if (hasIcon) {
-                g.drawImage(itemIcon, boxX + padX, boxY + padY, 36, 32, null);
-            }
-            int textX = boxX + padX + iconW + iconGap;
-
-            // Title in gold
-            g.setFont(titleFont);
-            g.setColor(new Color(212, 160, 23));
-            int textY = boxY + padY + tfm.getAscent();
-            g.drawString(title, textX, textY);
-
-            // Detail in white
-            g.setFont(detailFont);
-            g.setColor(Color.WHITE);
-            int detailY = textY + tfm.getHeight() + 4;
-            g.drawString(detail, textX, detailY);
-
-            // Proof meta lines
-            g.setFont(metaFont);
-            g.setColor(new Color(220, 220, 220));
-            int my = detailY + 6;
-            for (String s : meta) {
-                my += mfm.getHeight() + 1;
-                g.drawString(s, textX, my);
-            }
-        } finally {
-            g.dispose();
-        }
+    private ProofBanner.Context proofContext(String rsn) {
+        PluginConfigResponse cfg = pluginConfig;
+        return new ProofBanner.Context(rsn,
+                cfg != null && cfg.team != null ? cfg.team.name : null,
+                cfg != null && cfg.event != null ? cfg.event.name : null);
     }
 
     /**
@@ -4496,7 +4365,7 @@ public class AnvilPlugin extends Plugin {
                     Graphics2D g = buffered.createGraphics();
                     g.drawImage(src, 0, 0, null);
                     g.dispose();
-                    annotateProofBanner(buffered, "BINGO", label, capturedRsn, null);
+                    ProofBanner.draw(buffered, "BINGO", label, proofContext(capturedRsn), null);
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
 
@@ -4616,7 +4485,7 @@ public class AnvilPlugin extends Plugin {
                     if (location != null && !location.isEmpty()) {
                         detail = detail.isEmpty() ? location : detail + "  @  " + location;
                     }
-                    annotateProofBanner(buffered, "STARTING SHOT", detail, capturedRsn, null);
+                    ProofBanner.draw(buffered, "STARTING SHOT", detail, proofContext(capturedRsn), null);
 
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
@@ -4662,13 +4531,14 @@ public class AnvilPlugin extends Plugin {
                     // above this flush frame, taken COALESCE_FLUSH_MS later once floor loot has
                     // settled. Falls back to the single flush frame when the toggle is off or the
                     // trigger frame never arrived.
-                    BufferedImage buffered = composeDualProof(triggerFrame, (BufferedImage) image);
+                    BufferedImage buffered = ProofBanner.stack(triggerFrame, (BufferedImage) image);
                     // Annotate the screenshot directly with a high-contrast banner so the
                     // drop is unambiguous even when the in-game loot popup has already
                     // faded or never rendered (5-stack pickups can fade quickly). Drawing
                     // on the image guarantees it ends up in the saved PNG regardless of
                     // overlay timing.
-                    annotateDropScreenshot(buffered, drop.label, amount, snapshotCurrent, snapshotRequired, capturedRsn, capturedIcon);
+                    ProofBanner.drawDrop(buffered, drop.label, amount, snapshotCurrent, snapshotRequired,
+                            proofContext(capturedRsn), capturedIcon);
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
                     byte[] pngBytes = baos.toByteArray();
