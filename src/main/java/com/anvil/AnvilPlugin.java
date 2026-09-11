@@ -16,6 +16,7 @@ import com.anvil.detect.ActivityStats;
 import com.anvil.detect.CombatAchievementTier;
 import com.anvil.detect.DropLuck;
 import com.anvil.detect.DropSource;
+import com.anvil.detect.GamePools;
 import com.anvil.detect.LadderMissions;
 import com.anvil.detect.PersonalBests;
 import com.anvil.detect.QuestAnnounceTier;
@@ -385,75 +386,10 @@ public class AnvilPlugin extends Plugin {
     private static final String CA_ICON_URL = "https://oldschool.runescape.wiki/images/Combat_Achievements_icon.png";
     private static final String CA_WIKI_URL = "https://oldschool.runescape.wiki/w/Combat_Achievements";
 
-    // Fallback fun-death lines used only when the server pool (pluginConfig.funDeathMessages) is
-    // empty/unavailable. {name} is replaced with the RSN.
-    private static final List<String> FUN_DEATHS_FALLBACK = Arrays.asList(
-            "{name} has been sent to Lumbridge to think about their choices.",
-            "{name} forgot to flick Protect from Magic. Classic.",
-            "{name} died doing what they loved: not eating.",
-            "Press F for {name}.",
-            "{name} just speedran a trip to Lumbridge."
-    );
 
-    // Short reaction lines appended to every death post.
-    private static final List<String> DEATH_TAUNTS = Arrays.asList(
-            "Sit. 🪑", "L + ratio.", "Skill issue.", "Couldn't be me.", "GG go next.",
-            "Have you tried eating?", "That's gotta hurt.", "Prayer was off, wasn't it?", "Get good. 🤡"
-    );
 
-    // Reaction lines appended to a notably lucky (rare / high-value) drop.
-    private static final List<String> SPOON_TAUNTS = Arrays.asList(
-            "SPOONED. 🥄", "Way under rate — absolute spoon.", "RNG said \"here you go champ\".",
-            "Some of us are 5x dry. Disgusting.", "No skill, all luck. Congrats. 🥄",
-            "Hand it over — someone drier deserved that."
-    );
 
-    // A drop this rare (or this valuable) earns a spoon reaction line.
-    private static final long SPOON_VALUE = 50_000_000L;
 
-    // Prestige items always posted to the rare-drops channel regardless of value/rarity — they're
-    // usually untradeable or cheap but a big deal. Matched as case-insensitive substrings, so
-    // "Blessed dizana's quiver" still matches "dizana's quiver". The server list
-    // (pluginConfig.alwaysNotifyItems) extends this without a plugin update.
-    private static final List<String> ALWAYS_NOTIFY_FALLBACK = Arrays.asList(
-            // Prestige capes / quivers (awarded, untradeable).
-            "infernal cape",
-            "dizana's quiver",
-            "purifying sigil",
-            // Raid ornament / colour kits + dusts (untradeable — ToB / CoX / ToA).
-            "ancient blood ornament kit",
-            "sanguine ornament kit",
-            "holy ornament kit",
-            "sanguine dust",
-            "metamorphic dust",
-            "twisted ancestral colour kit",
-            // ToA reward-chest cosmetics (untradeable, no-death at a high invocation): the Menaphite
-            // ornament kit (Elidinis' ward), the Cursed phalanx (Osmumten's fang), and the Masori
-            // crafting kit (Ava's assembler → Masori assembler).
-            "menaphite ornament kit",
-            "cursed phalanx",
-            "masori crafting kit",
-            // DT2 (Forgotten Four) untradeable uniques: the ring vestiges (the actual boss
-            // drops — Ultor/Magus/Bellator/Venator vestige, all caught by "vestige"), the
-            // chromium-ingot quartz, and the four Soulreaper axe pieces. Substring-matched.
-            "vestige",
-            "quartz",
-            "executioner's axe head",
-            "eye of the duke",
-            "leviathan's lure",
-            "siren's staff",
-            // Boss collection-log jars (untradeable) + Champions' Challenge scroll/cape.
-            "jar of",
-            "champion scroll",
-            "champion's cape",
-            // Enhanced crystal seeds — the Gauntlet weapon seed and the Elf-pickpocket
-            // teleport seed (both untradeable). Substring covers both.
-            "enhanced crystal",
-            // Vyrewatch Sentinel blood shard (tradeable, but GE price dips below the value
-            // floor so we always want it) + the Fight Caves fire cape milestone.
-            "blood shard",
-            "fire cape"
-    );
 
     // Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
     // collection-log unlock message fire for it.
@@ -675,45 +611,7 @@ public class AnvilPlugin extends Plugin {
             ".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$");
     private static final Pattern QUEST_PATTERN_2 = Pattern.compile(
             "'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
-    private static final List<String> RFD_TAGS = Arrays.asList("Another Cook", "freed", "defeated", "saved");
-    private static final List<String> WORD_QUEST_IN_NAME_TAGS = Arrays.asList(
-            "Another Cook", "Doric", "Heroes", "Legends", "Observatory", "Olaf", "Waterfall");
 
-    // Quest difficulty tiers for completion announcements — verified against the OSRS Wiki
-    // quest list (2026-07). Only the top tiers are listed: any quest absent from both sets
-    // counts as below Master, so it only posts on the "All quests" setting. Lowercase,
-    // matched against the parsed scroll name. Update when Jagex ships new Master+ quests.
-    private static final Set<String> GRANDMASTER_QUESTS = new LinkedHashSet<>(Arrays.asList(
-            "desert treasure ii - the fallen empire",
-            "desert treasure ii", // scroll may omit the subtitle
-            "dragon slayer ii",
-            "monkey madness ii",
-            "song of the elves",
-            "the blood moon rises",
-            "while guthix sleeps"));
-    private static final Set<String> MASTER_QUESTS = new LinkedHashSet<>(Arrays.asList(
-            "a night at the theatre",
-            "beneath cursed sands",
-            "desert treasure i",
-            "desert treasure", // pre-DT2 scroll name, in case the numeral is omitted
-            "dream mentor",
-            "grim tales",
-            "legends' quest",
-            "making friends with my arm",
-            "monkey madness i",
-            "monkey madness", // pre-MM2 scroll name
-            "mourning's end part i",
-            "mourning's end part ii",
-            "perilous moons",
-            // The wiki tiers RFD as "Special"; defeating the Culinaromancer is the de-facto
-            // final completion (Barrows gloves), so announce it with the Masters.
-            "recipe for disaster - culinaromancer",
-            "secrets of the north",
-            "sins of the father",
-            "swan song",
-            "the curse of arrav",
-            "the final dawn",
-            "the fremennik exiles"));
     // Parsed CA completions waiting one tick so the points varbit has settled before we read them.
     // A queue (not a single slot): one kill can complete several CA tasks in the same tick — the
     // game prints a message per task and we must post every one, not just the last.
@@ -7046,7 +6944,7 @@ public class AnvilPlugin extends Plugin {
             return false;
         }
         String n = name.toLowerCase();
-        for (String pattern : ALWAYS_NOTIFY_FALLBACK) {
+        for (String pattern : GamePools.ALWAYS_NOTIFY_FALLBACK) {
             if (n.contains(pattern)) {
                 return true;
             }
@@ -7534,7 +7432,7 @@ public class AnvilPlugin extends Plugin {
                 + (troll ? " got robbed" : " received a valuable drop")
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // The reaction line is about beating the odds. There were none to beat.
-        if (!guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE)) {
+        if (!guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, GamePools.SPOON_VALUE)) {
             desc += "\n" + randomSpoonLine();
         }
         // Where this leaves their vestige rotation, when the drop was a roll of one (set moments
@@ -7573,7 +7471,7 @@ public class AnvilPlugin extends Plugin {
         String desc = who(rsn) + " received a valuable haul"
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // No single rate to judge a mixed haul by, so the combined value decides.
-        if (total >= SPOON_VALUE) {
+        if (total >= GamePools.SPOON_VALUE) {
             desc += "\n" + randomSpoonLine();
         }
         JsonObject embed = new JsonObject();
@@ -8312,11 +8210,11 @@ public class AnvilPlugin extends Plugin {
             quest += " II";
         }
         final String questAndVerb = quest + verb;
-        if (RFD_TAGS.stream().anyMatch(questAndVerb::contains)) {
+        if (GamePools.RFD_TAGS.stream().anyMatch(questAndVerb::contains)) {
             quest = "Recipe for Disaster - " + quest;
         }
         final String questName = quest;
-        if (WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) {
+        if (GamePools.WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) {
             quest += " Quest";
         }
         return quest;
@@ -8333,8 +8231,8 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String key = questName.toLowerCase();
-        boolean gm = GRANDMASTER_QUESTS.contains(key);
-        boolean master = MASTER_QUESTS.contains(key);
+        boolean gm = GamePools.GRANDMASTER_QUESTS.contains(key);
+        boolean master = GamePools.MASTER_QUESTS.contains(key);
         if (setting == QuestAnnounceTier.GRANDMASTER && !gm) {
             return;
         }
@@ -8719,7 +8617,7 @@ public class AnvilPlugin extends Plugin {
         String base;
         boolean fun = ThreadLocalRandom.current().nextInt(100) == 0;
         if (fun) {
-            List<String> pool = FUN_DEATHS_FALLBACK;
+            List<String> pool = GamePools.FUN_DEATHS_FALLBACK;
             PluginConfigResponse cfg = pluginConfig;
             if (cfg != null && cfg.funDeathMessages != null && !cfg.funDeathMessages.isEmpty()) {
                 pool = cfg.funDeathMessages;
@@ -8748,7 +8646,7 @@ public class AnvilPlugin extends Plugin {
     private String randomDeathTaunt() {
         PluginConfigResponse cfg = pluginConfig;
         List<String> pool = (cfg != null && cfg.deathTaunts != null && !cfg.deathTaunts.isEmpty())
-                ? cfg.deathTaunts : DEATH_TAUNTS;
+                ? cfg.deathTaunts : GamePools.DEATH_TAUNTS;
         return randomLine(pool);
     }
 
@@ -8759,7 +8657,7 @@ public class AnvilPlugin extends Plugin {
     private String randomSpoonLine() {
         PluginConfigResponse cfg = pluginConfig;
         List<String> pool = (cfg != null && cfg.spoonTaunts != null && !cfg.spoonTaunts.isEmpty())
-                ? cfg.spoonTaunts : SPOON_TAUNTS;
+                ? cfg.spoonTaunts : GamePools.SPOON_TAUNTS;
         return randomLine(pool);
     }
 
