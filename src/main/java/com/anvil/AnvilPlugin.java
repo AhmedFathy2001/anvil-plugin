@@ -2,6 +2,7 @@ package com.anvil;
 
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.clan.ClanRosterService;
 import com.anvil.clog.ClogFullSync;
 import com.anvil.clog.ClogPage;
 import com.anvil.clog.ClogPageReader;
@@ -304,7 +305,8 @@ public class AnvilPlugin extends Plugin {
     };
 
     /** Our own background thread for blocking network work. See {@link TaskRunner}. */
-    private final TaskRunner tasks = new TaskRunner();
+    @Inject
+    private TaskRunner tasks;
 
     // Debounce config refresh — prevents spam when multiple config keys change at once
     private ScheduledFuture<?> pendingRefresh;
@@ -963,43 +965,13 @@ public class AnvilPlugin extends Plugin {
         "5+ players", "10+ players", "11-15 players", "16-23 players", "24+ players",
         "25+ players", "50+ players", "100+ players",
     };
-    /** Last automatic roster push, so a channel reload storm can't fire a request per event. */
-    private long lastAutoRosterSyncAt;
-    /** Guard against a second automatic push overlapping the first. */
-    private volatile boolean autoRosterSyncRunning;
-    /** Same, for the sidebar button — a double click should be one push, not two. */
-    private volatile boolean panelRosterSyncRunning;
     /**
-     * The next roster push was started by the plugin, not a person, so it reports itself ONLY if the
-     * roster actually moved. Silence on a login where nothing changed; a line when someone joined,
-     * left or was renamed, because that is news whether or not you asked for it.
-     */
-    private volatile boolean autoRosterAnnounce;
-    /**
-     * Has an automatic sync already reported itself this login?
+     * Has an automatic collection-log sync already reported itself this login?
      *
-     * <p>The first one of a session always speaks, even to say nothing moved: that line is how you
-     * know the plugin is talking to your site at all, and its absence is what made a working sync
-     * look broken. Every one after it speaks only for news — a "nothing changed" every world hop, or
-     * every time the collection log is opened, is the noise the silence was protecting against.
+     * <p>The log is re-transmitted every time it is opened, so "nothing new" said each time is worse
+     * than saying nothing at all. Once a login is enough to prove the round trip works.</p>
      */
-    private volatile boolean autoRosterReportedThisLogin;
     private volatile boolean autoClogReportedThisLogin;
-    private static final long AUTO_ROSTER_MIN_GAP_MS = 30 * 60 * 1000;
-    /**
-     * When another roster push is allowed.
-     *
-     * <p>A roster push rewrites every member row on the site, and the button is right there in two
-     * places — so it was one impatient double-click away from doing that twice, and nothing but the
-     * in-flight guard stood between a bored admin and a push per second. The collection log has had
-     * this cooldown since the site started refusing them; the roster deserves the same manners.
-     */
-    private volatile long rosterPushAllowedAt;
-    private static final long ROSTER_PUSH_COOLDOWN_MS = 60_000L;
-    /** Doubling wait after a push that failed for a reason that might clear (site down, no network). */
-    private final SyncBackoff rosterBackoff = new SyncBackoff();
-    /** The clan list lands a moment after the channel does; give it time rather than racing it. */
-    private static final long AUTO_ROSTER_DELAY_MS = 5_000;
     private final ClogSync clogSync = new ClogSync();
     /** Whole-log sync: the accumulator for a server transmit (see ClogFullSync). */
     private final ClogFullSync clogFullSync = new ClogFullSync();
@@ -1148,36 +1120,14 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean isGuest;
     private volatile boolean helloSent;
 
-    // Admin-only clan-roster sync. Authenticated by the player's per-user account token
-    // (config.playerToken()) + their site admin role — verified once per login via GET /api/plugin/me
-    // (apiClient.fetchIsAdmin). There is no admin-link-code mechanism. When isAdmin is true the
-    // side panel renders a "Sync clan roster" button.
-    @Getter
-    private volatile boolean isAdmin = false;
-    // One-shot guard so we only probe admin status once per login session.
-    private volatile boolean adminProbeAttempted = false;
     /**
-     * The clan the {@link #isAdmin} answer belongs to.
+     * Who this account is to the clan's site, and the roster push that answer gates.
      *
-     * Authority is per clan on the site — being an admin of one confers nothing in another — so the
-     * answer does not travel with the member when they switch. Without this, picking a clan you do
-     * not administer keeps the Sync-roster button on screen, and clicking it collects a 403.
+     * <p>Was a hundred-odd lines and eleven fields here, all of it about one question the plugin
+     * itself never asks — see {@link ClanRosterService}.</p>
      */
-    private volatile String adminAnswerFor = "";
-    /** When the last probe ran, so a failed one can be retried instead of costing the whole session. */
-    private volatile long lastAdminProbeAt;
-    /** How often to re-ask while the answer is still "no". Cheap request, rare enough to be invisible. */
-    private static final long ADMIN_REPROBE_MS = 5 * 60_000L;
-    // Last clan-sync result summary, surfaced in chat after a sync.
-    private volatile String lastSyncSummary;
-
-    /**
-     * Callback for the async clan-sync action invoked from the side panel.
-     */
-    public interface AdminActionCallback {
-
-        void onResult(boolean ok, String message);
-    }
+    @Inject
+    private ClanRosterService roster;
 
     @Override
     protected void startUp() {
@@ -1203,7 +1153,7 @@ public class AnvilPlugin extends Plugin {
         clanSyncButton = new HeaderButton(
                 client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE,
                 CLAN_BUTTON_OFFSET, "Anvil", "Sync roster to",
-                () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(),
+                () -> apiClient.isConfigured() && roster.isAdmin() && roster.isClanRosterReadable(),
                 this::syncClanRosterFromPanel);
         // The stat table as it stands right now, before any XP arrives. A plugin started mid-session
         // — every reload during development, every enable from the sidebar — has no other chance to
@@ -1680,7 +1630,7 @@ public class AnvilPlugin extends Plugin {
         if (("apiUrl".equals(key) || "playerToken".equals(key))
                 && client.getGameState() == GameState.LOGGED_IN
                 && tasks.isLive()) {
-            adminProbeAttempted = false;
+            roster.resetProbe();
             setupWarned = false; // re-evaluate the URL/token pair after an edit
             tasks.run(this::stampIdentityAndGreet);
         }
@@ -2075,7 +2025,7 @@ public class AnvilPlugin extends Plugin {
         }
         tickClogTransmitGuard();
         tickManualSyncWatchdog();
-        updateClanRosterReadable();
+        roster.onGameTick();
         flushFullClogSyncWhenSettled();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
@@ -2303,7 +2253,7 @@ public class AnvilPlugin extends Plugin {
             // the answer rather than let the sidebar rank clans on the previous account's standing.
             knownMember = null;
             isGuest = false;
-            adminProbeAttempted = false;
+            roster.resetProbe();
             identityStampRetries = 0;
             // Progress is per ACCOUNT: the next login may be an alt, whose quest points are not
             // this one's — so the diff starts from nothing again.
@@ -2321,7 +2271,7 @@ public class AnvilPlugin extends Plugin {
             lastClogFingerprint = 0;
             // Next login gets its one line back: "it ran and agreed with the site" is worth saying
             // once per session, and only once.
-            autoRosterReportedThisLogin = false;
+            roster.onLogout();
             autoClogReportedThisLogin = false;
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
@@ -2388,7 +2338,7 @@ public class AnvilPlugin extends Plugin {
         // the enrolled one should track drops (don't wait for the 30s refresh cycle).
         safely("refreshConfig", this::refreshConfig);
         sendHello();
-        safely("probeAdmin", this::probeAdmin);
+        safely("probeAdmin", roster::probeAdmin);
         checkSetup();
     }
 
@@ -5028,7 +4978,7 @@ public class AnvilPlugin extends Plugin {
             pluginConfig = null;
             knownMember = false;
             isGuest = false;
-            isAdmin = false;
+            roster.clearAdmin();
             // So a later sign-in greets again rather than assuming it already did.
             helloSent = false;
             // Half-configured (URL but no token, or vice versa): nothing to fetch, but the panel
@@ -5094,270 +5044,24 @@ public class AnvilPlugin extends Plugin {
         apiClient.configure(config.apiUrl(), config.playerToken());
     }
 
-    // ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
-    // Authenticated solely by the player's per-user account token (config.playerToken()) plus
-    // their site admin role. No admin-link-code mechanism exists anymore.
-    /**
-     * Once per login, ask the site whether this account token belongs to an
-     * admin (GET /api/plugin/me). On success, flip the isAdmin flag so the
-     * in-game collection-log "Bingo" tab renders its admin-only "Sync clan
-     * roster" button; otherwise it stays hidden. Guarded so it only probes when
-     * both the player token and site URL are set, and only once per login
-     * session.
-     */
-    private void probeAdmin() {
-        if (adminProbeAttempted) {
-            return;
-        }
-        String token = config.playerToken();
-        String url = config.apiUrl();
-        if (token == null || token.isEmpty() || url == null || url.isEmpty()) {
-            return;
-        }
-        adminProbeAttempted = true;
-        lastAdminProbeAt = System.currentTimeMillis();
-        isAdmin = apiClient.fetchIsAdmin(token);
-        // Repaint the side panel so the admin button appears/disappears.
-    }
-
-    /**
-     * Whether the local player is currently in a clan channel we can scrape.
-     */
-    /**
-     * Is the clan roster readable RIGHT NOW, as last seen from the client thread?
-     *
-     * <p>The side panel renders on Swing's EDT and has to know whether to offer a roster sync, but
-     * asking the client directly from there is a thread violation. This is refreshed on the game
-     * tick and read from anywhere.
-     */
-    @Getter
-    private volatile boolean clanRosterReadable;
-    /** Consecutive ticks the clan channel has been missing — see updateClanRosterReadable. */
-    private int clanRosterMissingTicks;
-    /** ~6 seconds of a genuinely absent channel before the button goes away. */
-    private static final int CLAN_ROSTER_GRACE_TICKS = 10;
-
-    /**
-     * Refresh the cached "can we read the roster" answer, with hysteresis.
-     *
-     * <p>{@code getClanChannel()} is momentarily null on login, on a world hop, and while the clan
-     * tab loads. Mirroring that straight into the panel made the roster button appear and disappear
-     * for no reason a player could see, so it takes a few seconds of genuinely NOT being there
-     * before we withdraw the button — while it comes back the instant the channel does.
-     */
-    private void updateClanRosterReadable() {
-        if (isClanScrapeAvailable()) {
-            clanRosterReadable = true;
-            clanRosterMissingTicks = 0;
-            return;
-        }
-        if (clanRosterReadable && ++clanRosterMissingTicks < CLAN_ROSTER_GRACE_TICKS) {
-            return; // a blink, not a departure
-        }
-        clanRosterReadable = false;
-    }
-
+    /** Client thread only — is there a clan roster to scrape? Used by the in-game tab button. */
     public boolean isClanScrapeAvailable() {
-        if (client == null) {
-            return false;
-        }
-        ClanChannel ch = client.getClanChannel();
-        ClanSettings settings = client.getClanSettings();
-        return ch != null && settings != null && settings.getMembers() != null && !settings.getMembers().isEmpty();
+        return roster.isClanScrapeAvailable();
     }
 
+    /** Client thread only — the clan's name, or null. */
     public String getClanName() {
-        if (client == null) {
-            return null;
-        }
-        ClanSettings settings = client.getClanSettings();
-        return settings == null ? null : settings.getName();
+        return roster.getClanName();
     }
 
-    /**
-     * Scrape the in-game clan roster (on the client thread) then POST it to the
-     * site (off the client thread), authenticated with the player's account
-     * token.
-     */
-    public void syncClanRoster(AdminActionCallback cb) {
-        if (!tasks.isLive()) {
-            cb.onResult(false, "Plugin not running");
-            return;
-        }
-        String token = config.playerToken();
-        if (token == null || token.isEmpty()) {
-            cb.onResult(false, "Set your account token in plugin config first.");
-            return;
-        }
+    /** Cached "is there a roster to sync", safe from the Swing EDT. See {@link ClanRosterService}. */
+    public boolean isClanRosterReadable() {
+        return roster.isClanRosterReadable();
+    }
 
-        // Wait your turn. Both buttons and the login-time push come through here, so this is the one
-        // place that can hold the line — a cooldown after a push that worked, and a doubling wait
-        // after one that didn't, so a site that's down isn't asked again every time someone clicks.
-        boolean automatic = autoRosterAnnounce;
-        long gate = System.currentTimeMillis();
-        boolean backedOff = !rosterBackoff.ready(gate);
-        long waitMs = backedOff
-                ? rosterBackoff.secondsUntilReady(gate) * 1000L
-                : rosterPushAllowedAt - gate;
-        if (waitMs > 0) {
-            // This attempt isn't happening, so it doesn't get to speak for the login either.
-            autoRosterAnnounce = false;
-            long secs = Math.max(1, (waitMs + 999) / 1000);
-            String why = backedOff
-                    ? "The site didn't take the last roster push — trying again in " + secs + "s."
-                    : "The roster was just synced — try again in " + secs + "s.";
-            if (!automatic) {
-                sendChatMessage(why);
-            }
-            cb.onResult(false, why);
-            return;
-        }
-
-        // Read clan data on the client thread, then POST on the executor thread.
-        clientThread.invokeLater(() -> {
-            if (!isClanScrapeAvailable()) {
-                cb.onResult(false, "Open the clan tab in OSRS first so the roster is loaded.");
-                return;
-            }
-            ClanSettings settings = client.getClanSettings();
-            String clanName = settings.getName();
-            List<BingoApiClient.ClanMember> members = new ArrayList<>();
-            for (net.runelite.api.clan.ClanMember m : settings.getMembers()) {
-                BingoApiClient.ClanMember out = new BingoApiClient.ClanMember();
-                out.rsn = m.getName();
-                ClanRank rank = m.getRank();
-                if (rank != null) {
-                    ClanTitle title = settings.titleForRank(rank);
-                    out.rank = title != null ? title.getName() : String.valueOf(rank.getRank());
-                }
-                LocalDate joined = m.getJoinDate();
-                if (joined != null) {
-                    out.joinedDays = (int) ChronoUnit.DAYS.between(joined, LocalDate.now());
-                }
-                members.add(out);
-            }
-
-            tasks.run(() -> {
-                try {
-                    BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
-                    rosterBackoff.onSuccess();
-                    rosterPushAllowedAt = System.currentTimeMillis() + ROSTER_PUSH_COOLDOWN_MS;
-                    lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
-                    // A sync nobody asked for reports itself only when the roster actually MOVED.
-                    // Silence on the login where nothing changed; one line when somebody joined or
-                    // left, because that's news whether or not you pressed anything.
-                    autoRosterAnnounce = false;
-                    if (automatic) {
-                        List<String> parts = new ArrayList<>();
-                        if (r.added > 0) {
-                            parts.add(r.added + " joined");
-                        }
-                        if (r.returned > 0) {
-                            parts.add(r.returned + " returned");
-                        }
-                        if (r.markedLeft > 0) {
-                            parts.add(r.markedLeft + " left");
-                        }
-                        if (r.renamed > 0) {
-                            parts.add(r.renamed + " renamed");
-                        }
-                        // News always gets said. "Nothing changed" gets said once a login — enough to
-                        // prove the sync ran, not so often that it becomes something to scroll past.
-                        boolean moved = !parts.isEmpty();
-                        boolean firstThisLogin = !autoRosterReportedThisLogin;
-                        autoRosterReportedThisLogin = true;
-                        if (moved) {
-                            sendChatMessage("Clan roster updated: " + String.join(", ", parts) + ".");
-                        } else if (firstThisLogin) {
-                            sendChatMessage("Clan roster checked — nothing changed.");
-                        }
-                    } else {
-                        sendChatMessage("Clan roster synced: " + lastSyncSummary);
-                    }
-                    // Per-member changes — one chat line each, capped so a busy sync doesn't flood
-                    // chat. Only for a sync somebody asked for: the automatic one has said its piece.
-                    if (!automatic && r.changes != null && !r.changes.isEmpty()) {
-                        int cap = 12;
-                        int shown = 0;
-                        for (BingoApiClient.ClanChange ch : r.changes) {
-                            if (shown >= cap) {
-                                break;
-                            }
-                            String line;
-                            switch (ch.type == null ? "" : ch.type) {
-                                case "joined":
-                                    line = ch.rsn + " joined the clan.";
-                                    break;
-                                case "left":
-                                    line = ch.rsn + " left the clan.";
-                                    break;
-                                case "returned":
-                                    line = ch.rsn + " returned to the clan.";
-                                    break;
-                                case "renamed":
-                                    line = (ch.oldRsn == null ? "?" : ch.oldRsn) + " is now known as " + ch.rsn + ".";
-                                    break;
-                                case "rank_changed":
-                                    line = ch.rsn + " is now " + (ch.newRank == null ? "ranked" : ch.newRank)
-                                            + (ch.oldRank != null ? " (was " + ch.oldRank + ")" : "") + ".";
-                                    break;
-                                default:
-                                    continue;
-                            }
-                            sendChatMessage(line);
-                            shown++;
-                        }
-                        if (r.changes.size() > cap) {
-                            sendChatMessage("...and " + (r.changes.size() - cap) + " more changes (see Discord audit feed).");
-                        }
-                    }
-                    // Plan limit. The admin running the sync is the one person who can act on this,
-                    // and they're right here — so say it in-game rather than leaving it to a banner
-                    // they'd have to open the site to see. Names come first because "6 members were
-                    // not added" is only useful if you know WHICH six.
-                    if (r.refusedNewMembers != null && !r.refusedNewMembers.isEmpty()) {
-                        int refusedCap = 6;
-                        String names = String.join(", ",
-                                r.refusedNewMembers.subList(0, Math.min(refusedCap, r.refusedNewMembers.size())));
-                        String more = r.refusedNewMembers.size() > refusedCap
-                                ? " and " + (r.refusedNewMembers.size() - refusedCap) + " more"
-                                : "";
-                        sendChatMessage("Not added (plan limit): " + names + more + ".");
-                    }
-                    if (r.capNotice != null && !r.capNotice.isEmpty()) {
-                        sendChatMessage(r.capNotice);
-                    }
-                    cb.onResult(true, lastSyncSummary);
-                } catch (BingoApiClient.AdminUnauthorizedException e) {
-                    // Token isn't (or is no longer) an admin — hide the button until the next login probe.
-                    isAdmin = false;
-                    sendChatMessage("Clan sync failed: your account token isn't an admin (or was revoked).");
-                    cb.onResult(false, "Your account token isn't an admin (or was revoked).");
-                } catch (BingoApiClient.ClanMismatchException e) {
-                    String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
-                    sendChatMessage("Clan sync failed: clan name doesn't match site config (" + server + ").");
-                    cb.onResult(false, "Clan name doesn't match site config (" + server + ").");
-                } catch (BingoApiClient.RateLimitedException e) {
-                    // The site said when. Hold exactly that long rather than guessing at it.
-                    rosterPushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
-                    log.debug("Clan sync rate-limited for {}ms", e.retryAfterMs);
-                    if (!automatic) {
-                        sendChatMessage("The site is limiting roster syncs — try again in "
-                                + Math.max(1, (e.retryAfterMs + 999) / 1000) + "s.");
-                    }
-                    cb.onResult(false, "Rate limited by the site.");
-                } catch (IOException e) {
-                    // Might clear on its own (site down, network gone), so wait longer each time
-                    // instead of letting a button turn into a retry loop against a dead host.
-                    rosterBackoff.onFailure(System.currentTimeMillis());
-                    log.warn("Clan sync failed: {}", e.getMessage());
-                    if (!automatic) {
-                        sendChatMessage("Clan sync failed: " + e.getMessage());
-                    }
-                    cb.onResult(false, "Sync failed: " + e.getMessage());
-                }
-            });
-        });
+    /** Does the site call this account a clan admin? Read by the sidebar. */
+    public boolean isAdmin() {
+        return roster.isAdmin();
     }
 
     // Team-level tile completions (drops, stats, manual — any tile type, completed by any member).
@@ -5546,26 +5250,7 @@ public class AnvilPlugin extends Plugin {
             apiClient.setResolvedClan(slug);
         }
         forgetAClanTheyAreNoLongerIn(fresh);
-        forgetAdminAnswerOnClanChange();
-    }
-
-    /**
-     * Drop a cached "you are an admin" the moment we start addressing a different clan.
-     *
-     * The probe is answered once per session and a yes is never re-checked, which was right when a
-     * deployment WAS a clan. It is not right now: the same token is an owner in one clan and a plain
-     * member in the next, so an answer carried across a switch shows a button that cannot work.
-     * Clearing it makes the ordinary re-probe ask again, against the clan we are actually addressing.
-     */
-    private void forgetAdminAnswerOnClanChange() {
-        String now = apiClient.getActiveClan();
-        if (now.equals(adminAnswerFor)) {
-            return;
-        }
-        adminAnswerFor = now;
-        isAdmin = false;
-        adminProbeAttempted = false;
-        lastAdminProbeAt = 0L; // ask immediately rather than waiting out the re-probe interval
+        roster.forgetAdminAnswerOnClanChange();
     }
 
     /**
@@ -5611,7 +5296,7 @@ public class AnvilPlugin extends Plugin {
         // The sidebar renders from the config THIS class holds, so refreshing it before the new clan's
         // config has landed re-renders the clan they just switched away from — a click that visibly
         // does nothing, then quietly works fifteen seconds later. Fetch first, repaint second.
-        forgetAdminAnswerOnClanChange();
+        roster.forgetAdminAnswerOnClanChange();
         boolean queued = tasks.run(() -> {
             refreshConfig();
             repaintSidebar();
@@ -5711,7 +5396,7 @@ public class AnvilPlugin extends Plugin {
             maybeNudgeCaRepeatSetting();
             maybeNudgeLootNotifications();
             maybeNudgeStartProof();
-            maybeReprobeAdmin();
+            roster.maybeReprobeAdmin();
 
         } catch (IOException e) {
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
@@ -5760,31 +5445,6 @@ public class AnvilPlugin extends Plugin {
         startProofCreditWarned = true;
         sendChatMessage("That's recorded, but your starting shot is still missing — it stays held for"
                 + " review until you take it. Anvil side panel → \"Take starting shot\".");
-    }
-
-    /**
-     * Ask again whether this account is an admin, while the answer is still no.
-     *
-     * <p>The probe used to be strictly once per login, and it latched its "attempted" flag BEFORE the
-     * request — so a site that was restarting at the three-second mark cost an admin their
-     * "Sync clan roster" button for the entire session, with nothing in chat to say why. Re-asking
-     * every few minutes costs one tiny request and heals that by itself. A yes is never re-checked;
-     * losing admin mid-session is a logout-shaped problem, not a poll-shaped one.
-     */
-    private void maybeReprobeAdmin() {
-        if (isAdmin || !apiClient.isConfigured()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        if (now - lastAdminProbeAt < ADMIN_REPROBE_MS) {
-            return;
-        }
-        lastAdminProbeAt = now;
-        boolean admin = apiClient.fetchIsAdmin(config.playerToken());
-        if (admin) {
-            isAdmin = true;
-            log.info("Anvil: admin confirmed on retry — clan-sync button is back");
-        }
     }
 
     private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {
@@ -9535,24 +9195,7 @@ public class AnvilPlugin extends Plugin {
      * channel isn't readable — the roster is scraped from it, so there is nothing to send.
      */
     public void syncClanRosterFromPanel() {
-        if (!isAdmin) {
-            sendChatMessage("Only clan admins can sync the roster.");
-            return;
-        }
-        // Cached, because this is called from the side panel on the EDT — reading the clan channel
-        // from there is the same thread violation that swallowed the profile button's message.
-        if (!clanRosterReadable) {
-            sendChatMessage("Join your clan channel first — the roster is read from it.");
-            return;
-        }
-        if (panelRosterSyncRunning) {
-            sendChatMessage("Already syncing the roster.");
-            return;
-        }
-        panelRosterSyncRunning = true;
-        sendChatMessage("Syncing the clan roster...");
-        syncClanRoster((ok, msg) -> {
-            panelRosterSyncRunning = false;
+        roster.syncFromPanel(() -> {
             if (sidebarPanel != null) {
                 sidebarPanel.refresh();
             }
@@ -9892,38 +9535,8 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         // The member list arrives just after the channel; a delay is cheaper than polling for it.
-        tasks.runLater(() -> safely("autoRosterSync", this::autoSyncClanRoster), AUTO_ROSTER_DELAY_MS);
+        tasks.runLater(() -> safely("autoRosterSync", roster::autoSync),
+                ClanRosterService.AUTO_ROSTER_DELAY_MS);
     }
 
-    /**
-     * Push the in-game roster if we're allowed to and haven't recently. Every guard here is a reason
-     * NOT to send: not an admin, no token, roster not loaded yet, one already running, or one ran
-     * within the last half hour.
-     */
-    private void autoSyncClanRoster() {
-        if (autoRosterSyncRunning || !isAdmin) {
-            return;
-        }
-        String token = config.playerToken();
-        if (token == null || token.isEmpty() || !apiClient.isConfigured()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        if (lastAutoRosterSyncAt != 0 && now - lastAutoRosterSyncAt < AUTO_ROSTER_MIN_GAP_MS) {
-            return;
-        }
-        autoRosterSyncRunning = true;
-        lastAutoRosterSyncAt = now;
-        autoRosterAnnounce = true;
-        syncClanRoster((ok, msg) -> {
-            autoRosterSyncRunning = false;
-            if (ok) {
-                log.debug("Clan roster auto-synced: {}", msg);
-            } else {
-                // Most likely "roster not loaded yet" — let the next channel change try again.
-                lastAutoRosterSyncAt = 0;
-                log.debug("Clan roster auto-sync skipped: {}", msg);
-            }
-        });
-    }
 }
