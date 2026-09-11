@@ -660,6 +660,8 @@ public class AnvilPlugin extends Plugin {
     // five times). Cleared on the login screen so account swaps start fresh.
     private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
     // One nudge per session about the in-game "Repeat completion" CA setting.
+    /** One per login: the event is live and auto-submit is off, so none of it is being counted. */
+    private boolean autoSubmitNudgeSent;
     private boolean caRepeatNudgeSent;
     // One nudge per session about the in-game loot drop notifications (rare-drop post dependency).
     private boolean lootNotifyNudgeSent;
@@ -852,6 +854,9 @@ public class AnvilPlugin extends Plugin {
     private static final String CFG_VESTIGE_ROLLS = "vestigeRolls";
     /** The member's clan pick from the sidebar dropdown. "" (or absent) = Auto, let the site decide. */
     static final String CFG_ACTIVE_CLAN = "activeClan";
+
+    /** How many times a never-configured install has been told where to sign in. See SetupNudge. */
+    static final String CFG_FIRST_RUN_NUDGES = "firstRunNudges";
 
     private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
@@ -2274,6 +2279,7 @@ public class AnvilPlugin extends Plugin {
             // Nothing is attacking a logged-out player, and whatever was is not attacking the next
             // account either.
             deathAttribution.clear();
+            autoSubmitNudgeSent = false;
             caRepeatNudgeSent = false;
             lootNotifyNudgeSent = false;
             // Re-evaluate setup + linking for the next account that logs in.
@@ -2353,27 +2359,41 @@ public class AnvilPlugin extends Plugin {
         return types != null && types.contains(WorldType.SEASONAL);
     }
 
-    // One-shot per session: flag a half-finished plugin setup (only the Site URL or only the Account
-    // Token filled in) so a member who pasted one but not the other isn't left wondering why nothing
-    // tracks. Both-set = fine; both-empty = Anvil simply isn't set up, so don't nag.
+    // One-shot per login: say something about the plugin's own setup when there is something to say.
+    // A half-finished one (only the Site URL or only the Account Token) is a misconfiguration and is
+    // named as such; a completely empty one is a fresh install, which used to get silence and now
+    // gets pointed at the way in. Both set = connected, nothing to say. See SetupNudge for the rule
+    // and the copy, and for why the fresh-install line is capped instead of repeating forever.
     private boolean setupWarned;
 
     private void checkSetup() {
         if (setupWarned) {
             return;
         }
-        String url = config.apiUrl();
-        String token = config.playerToken();
-        boolean hasUrl = url != null && !url.trim().isEmpty();
-        boolean hasToken = token != null && !token.trim().isEmpty();
-        if (hasUrl == hasToken) {
+        int shown = firstRunNudgesShown();
+        SetupNudge.Kind kind = SetupNudge.decide(config.apiUrl(), config.playerToken(), shown);
+        if (kind == SetupNudge.Kind.NONE) {
             return;
         }
         setupWarned = true;
-        if (hasToken) {
-            sendChatMessage("Your Account Token is set but the Site URL is missing — add it in the Anvil plugin config so tracking can connect.");
-        } else {
-            sendChatMessage("Your Site URL is set but the Account Token is missing — paste your token from the Anvil site into the plugin config.");
+        for (String line : SetupNudge.lines(kind)) {
+            sendChatMessage(line);
+        }
+        if (kind == SetupNudge.Kind.FIRST_RUN) {
+            // Counted on the install, not in memory: the point of the cap is that it survives the
+            // restarts, and an in-memory count would re-arm every time RuneLite opened — which is
+            // the nag the cap exists to prevent.
+            configManager.setConfiguration("osrsbingo", CFG_FIRST_RUN_NUDGES, String.valueOf(shown + 1));
+        }
+    }
+
+    /** How many first-run nudges this install has already printed. Absent/garbage reads as none. */
+    private int firstRunNudgesShown() {
+        try {
+            String raw = configManager.getConfiguration("osrsbingo", CFG_FIRST_RUN_NUDGES);
+            return raw == null || raw.isEmpty() ? 0 : Math.max(0, Integer.parseInt(raw.trim()));
+        } catch (RuntimeException e) {
+            return 0;
         }
     }
 
@@ -5733,6 +5753,7 @@ public class AnvilPlugin extends Plugin {
             checkMissionAlerts(pluginConfig);
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
+            maybeNudgeAutoSubmit();
             maybeNudgeCaRepeatSetting();
             maybeNudgeLootNotifications();
             maybeNudgeStartProof();
@@ -8619,6 +8640,51 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
+     * Is a live event being tracked into a void because auto-submit is off?
+     *
+     * <p>THE SWITCH THAT TURNS EVERYTHING OFF. "Auto Submit Drops" reads like it governs drops, and
+     * it governs the lot: drop, value, kill, timed, LMS, gain, deathless, diary and combat-task
+     * tiles all check it, and so does {@link #statPushAllowed} — so a member who flicked it off
+     * months ago, or who never looked at the config because the plugin was set up for them, plays a
+     * whole bingo contributing nothing. Nothing on the board looks broken from their side: tiles
+     * simply never move, which is indistinguishable from not having got the drop.</p>
+     *
+     * <p>Only while an event is actually RUNNING. Outside one the toggle costs nothing, and a plugin
+     * that lectures about settings for something that is not happening is noise.</p>
+     */
+    static boolean autoSubmitBlocksEvent(PluginConfigResponse cfg, boolean autoSubmit) {
+        return !autoSubmit && cfg != null && AnvilOverlay.isEventActive(cfg.event);
+    }
+
+    /**
+     * Does this board have tiles that can only credit off the in-game drop-notification line?
+     *
+     * <p>Drop and value tiles both do, for the corpse-looted bosses whose loot bypasses every loot
+     * event the client raises (see {@link #creditDropFromChat}). The rest of the board does not care,
+     * but the plugin cannot tell in advance which boss a tile's drop will come from, and the cost of
+     * asking is one chat line against a silent 50m fang.</p>
+     */
+    static boolean eventNeedsDropLines(PluginConfigResponse cfg) {
+        if (cfg == null || !AnvilOverlay.isEventActive(cfg.event)) {
+            return false;
+        }
+        return (cfg.trackedDrops != null && !cfg.trackedDrops.isEmpty())
+                || (cfg.trackedValues != null && !cfg.trackedValues.isEmpty());
+    }
+
+    /** One chat nudge per login when a live event is being played with auto-submit switched off. */
+    private void maybeNudgeAutoSubmit() {
+        if (autoSubmitNudgeSent || !autoSubmitBlocksEvent(pluginConfig, config.autoSubmit())) {
+            return;
+        }
+        autoSubmitNudgeSent = true;
+        String event = pluginConfig.event != null && pluginConfig.event.name != null
+                ? pluginConfig.event.name : "this event";
+        sendChatMessage("\"Auto Submit Drops\" is off in the Anvil plugin config — nothing you do in \""
+                + event + "\" is being counted until you turn it back on.");
+    }
+
+    /**
      * One-time (per session) reminder to enable the in-game "Repeat completion" Combat
      * Achievement setting when the active event has incomplete CA tiles — without it, tasks
      * the player already owns never re-fire the completion line, so those tiles can never
@@ -8661,7 +8727,18 @@ public class AnvilPlugin extends Plugin {
      * completely silently. Varbit read requires the client thread.
      */
     private void maybeNudgeLootNotifications() {
-        if (lootNotifyNudgeSent || !config.notifyRareDrops() || !notifyEnabled("rareDrops")) {
+        if (lootNotifyNudgeSent) {
+            return;
+        }
+        // TWO REASONS TO CARE, and only one of them used to be asked about. Clan rare-drop posts
+        // need the line, and so does a BOARD with drop or value tiles on it: the same corpse-boss
+        // loot that never posts also never credits (creditDropFromChat is what feeds both). Gating
+        // the reminder on the clan-post toggle meant a member who had turned posts off — or whose
+        // clan doesn't run them — played a bingo whose spill-loot tiles could not fire, and was
+        // never told why.
+        boolean forPosts = config.notifyRareDrops() && notifyEnabled("rareDrops");
+        boolean forTiles = eventNeedsDropLines(pluginConfig);
+        if (!forPosts && !forTiles) {
             return;
         }
         clientThread.invokeLater(() -> {
@@ -8673,15 +8750,23 @@ public class AnvilPlugin extends Plugin {
             // it would swallow lines for drops the clan channel wants to see.
             long plugFloor = Math.max(1_000_000, Math.max(0, config.rareDropMinValue()));
             long gameThreshold = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_VALUE);
-            if (settingOn && gameThreshold <= plugFloor) {
+            // The threshold half is a CLAN-POST concern only: it is measured against the posting
+            // floor, and there is no equivalent number for a tile — a tile wants whatever the drop
+            // happens to be worth. So a board-driven reminder ends at "the setting is off".
+            if (settingOn && (!forPosts || gameThreshold <= plugFloor)) {
                 return; // configured fine — the attribution line will fire for qualifying drops
             }
             lootNotifyNudgeSent = true;
-            sendChatMessage(settingOn
-                    ? "Your in-game loot notification threshold is above the clan rare-drop floor — lower it"
-                    + " (Settings > Chat > Loot drop notifications) or drops like Maggot King uniques won't post."
-                    : "Enable Settings > Chat > \"Loot drop notifications\" — clan rare-drop posts for corpse-boss"
-                    + " loot (Maggot King uniques) rely on that chat line.");
+            if (!settingOn) {
+                sendChatMessage(forTiles
+                        ? "Enable Settings > Chat > \"Loot drop notifications\" — this board has drop tiles, and"
+                        + " bosses that spill their loot (Maggot King, Araxxor) only announce it on that line."
+                        : "Enable Settings > Chat > \"Loot drop notifications\" — clan rare-drop posts for corpse-boss"
+                        + " loot (Maggot King uniques) rely on that chat line.");
+            } else {
+                sendChatMessage("Your in-game loot notification threshold is above the clan rare-drop floor — lower it"
+                        + " (Settings > Chat > Loot drop notifications) or drops like Maggot King uniques won't post.");
+            }
         });
     }
 

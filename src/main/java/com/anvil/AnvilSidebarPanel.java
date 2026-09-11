@@ -668,10 +668,62 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void renderEmpty()
 	{
+		// TWO DIFFERENT NOTHINGS, and they were being told the same story. "Link a clan on your Anvil
+		// site" is advice for somebody who HAS a site and an account; a fresh install has neither, and
+		// reading it as their first contact with the plugin leaves them looking for a clan page nobody
+		// has given them the address of. Signed out is the state to answer first, because it is the
+		// state every new install starts in.
+		if (apiClient.needsSignIn())
+		{
+			setContent(firstRunCard());
+			return;
+		}
 		PluginErrorPanel empty = new PluginErrorPanel();
 		empty.setContent("No connected clans",
-			"Link a clan on your Anvil site and its board progress will show up here.");
+			"Join your clan on the Anvil site — or start one, it's free — and its board progress shows up here.");
 		setContent(empty);
+	}
+
+	/**
+	 * What a fresh install sees: what this is, the one button that connects it, and where that goes.
+	 *
+	 * <p>The sign-in button itself lives in the header (it is shown in exactly this state), so this
+	 * points at it rather than repeating it. What it adds is the half a stranger cannot guess — that
+	 * the account is free, that it is theirs rather than their clan's, and that a person with no clan
+	 * still gets something out of it. The link is the only address here, and it is the same one
+	 * pressing Sign in would write.</p>
+	 */
+	private JPanel firstRunCard()
+	{
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		card.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+		card.setAlignmentX(LEFT_ALIGNMENT);
+
+		card.add(sectionHeader("New here?"));
+		card.add(gap(6));
+		card.add(note("Anvil tracks your OSRS progress — collection log, personal bests, records — and"
+			+ " your clan's bingo boards. Press Sign in with Discord above to make your free account"
+			+ " and connect this client in one step."));
+		card.add(gap(6));
+		card.add(note("You don't need a clan: your profile is your own. If you run one, starting it"
+			+ " there is free too."));
+		card.add(siteLink(BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "") + " ↗",
+			"Open Anvil in your browser", BingoApiClient.CANONICAL_SITE));
+
+		return card;
+	}
+
+	/** A wrapped grey paragraph at the panel's width — long copy clips rather than wraps without it. */
+	private static JLabel note(String text)
+	{
+		JLabel label = new JLabel("<html><body style='width:" + STATUS_WRAP_PX + "px'>"
+			+ text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</body></html>");
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setForeground(VALUE_COLOR);
+		label.setAlignmentX(LEFT_ALIGNMENT);
+		return label;
 	}
 
 	/**
