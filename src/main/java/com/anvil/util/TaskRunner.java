@@ -2,6 +2,7 @@ package com.anvil.util;
 
 import com.anvil.AnvilPlugin;
 import java.util.concurrent.Executors;
+import javax.inject.Singleton;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -34,8 +35,17 @@ import java.util.concurrent.TimeUnit;
  * {@link #runLater} returns null rather than throwing, so a caller's early-out stays a plain
  * {@code if}.</p>
  */
+@Singleton
 public final class TaskRunner
 {
+	/**
+	 * Guice builds this; {@code AnvilPlugin} drives {@link #start()} and {@link #stop()} from its
+	 * own lifecycle, and every collaborator injects the same instance rather than being handed it.
+	 */
+	public TaskRunner()
+	{
+	}
+
 	/** Null before start() and after stop(). Volatile: written on the client thread, read on ours. */
 	private volatile ScheduledExecutorService executor;
 
