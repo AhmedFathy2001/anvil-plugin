@@ -3,7 +3,6 @@ package com.anvil;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.OverlayPriority;
 
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
@@ -90,7 +89,7 @@ public class BingoClogBannerOverlay extends Overlay
 	{
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
-		setPriority(OverlayPriority.HIGHEST);
+		setPriority(PRIORITY_HIGHEST);
 		this.background = loadBackground();
 		this.headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX * DISPLAY_SCALE);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own

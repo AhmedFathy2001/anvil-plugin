@@ -1,9 +1,13 @@
 package com.anvil;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Pure (client-free) adapter that turns the plugin's tracked drops + stats into a single,
@@ -274,7 +278,7 @@ public final class ClogTaskModel
 			return rows;
 		}
 
-		java.util.Set<Integer> completed = new java.util.HashSet<>();
+		Set<Integer> completed = new HashSet<>();
 		if (cfg.completedTiles != null)
 		{
 			for (PluginConfigResponse.CompletedTile c : cfg.completedTiles)
@@ -553,7 +557,7 @@ public final class ClogTaskModel
 		{
 			return (long) truncated + unit;
 		}
-		return String.format(java.util.Locale.ROOT, "%.1f%s", truncated, unit);
+		return String.format(Locale.ROOT, "%.1f%s", truncated, unit);
 	}
 
 	/** Adds the row with its board position stamped — the within-status-group sort key. */
@@ -611,7 +615,7 @@ public final class ClogTaskModel
 	static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs, String groupMode)
 	{
 		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
-		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
+		LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new LinkedHashMap<>();
 		for (PluginConfigResponse.ItemRequirement r : reqs)
 		{
 			if (r == null)
@@ -626,7 +630,7 @@ public final class ClogTaskModel
 			else
 			{
 				// Case-insensitive, like the server's grouping — "Duke" and "duke" are one set.
-				groups.computeIfAbsent(g.toLowerCase(java.util.Locale.ROOT), k -> new ArrayList<>()).add(r);
+				groups.computeIfAbsent(g.toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(r);
 			}
 		}
 
@@ -905,11 +909,11 @@ public final class ClogTaskModel
 	/** Count completed rows (for the header "{done}/{total}" summary). */
 	public static int completedCount(List<TaskRow> rows)
 	{
-		return completedCount(rows, java.util.Collections.emptySet());
+		return completedCount(rows, Collections.emptySet());
 	}
 
 	/** As {@link #completedCount(List)} but excluding optional tiles — they're bonus, off the score. */
-	public static int completedCount(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	public static int completedCount(List<TaskRow> rows, Set<Integer> optionalTileIds)
 	{
 		int n = 0;
 		for (TaskRow r : rows)
@@ -925,11 +929,11 @@ public final class ClogTaskModel
 	/** Points earned so far (sum of points of completed rows) — the Leagues-style banner number. */
 	public static int earnedPoints(List<TaskRow> rows)
 	{
-		return earnedPoints(rows, java.util.Collections.emptySet());
+		return earnedPoints(rows, Collections.emptySet());
 	}
 
 	/** As {@link #earnedPoints(List)} but excluding optional tiles (bonus tiles don't add to the score). */
-	public static int earnedPoints(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	public static int earnedPoints(List<TaskRow> rows, Set<Integer> optionalTileIds)
 	{
 		int p = 0;
 		for (TaskRow r : rows)
@@ -945,11 +949,11 @@ public final class ClogTaskModel
 	/** Total points available across all rows. */
 	public static int totalPoints(List<TaskRow> rows)
 	{
-		return totalPoints(rows, java.util.Collections.emptySet());
+		return totalPoints(rows, Collections.emptySet());
 	}
 
 	/** As {@link #totalPoints(List)} but excluding optional tiles — they're not part of the denominator. */
-	public static int totalPoints(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	public static int totalPoints(List<TaskRow> rows, Set<Integer> optionalTileIds)
 	{
 		int p = 0;
 		for (TaskRow r : rows)
@@ -963,7 +967,7 @@ public final class ClogTaskModel
 	}
 
 	/** Number of SCORED (non-optional) rows — the count-mode denominator (classic/race "x / y"). */
-	public static int scoredCount(List<TaskRow> rows, java.util.Set<Integer> optionalTileIds)
+	public static int scoredCount(List<TaskRow> rows, Set<Integer> optionalTileIds)
 	{
 		int n = 0;
 		for (TaskRow r : rows)

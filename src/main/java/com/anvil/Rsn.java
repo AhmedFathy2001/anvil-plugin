@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * One way to fold an OSRS name into a comparison key — the SAME way the site does it.
@@ -40,8 +41,8 @@ public final class Rsn
 	}
 
 	/** Whitespace-or-underscore runs. U+00A0 is named explicitly — Java's {@code \s} omits it. */
-	private static final java.util.regex.Pattern FOLD =
-		java.util.regex.Pattern.compile("[\\s\\u00a0_]+");
+	private static final Pattern FOLD =
+		Pattern.compile("[\\s\\u00a0_]+");
 
 	/**
 	 * The comparison key for a name, or "" when there is no name.

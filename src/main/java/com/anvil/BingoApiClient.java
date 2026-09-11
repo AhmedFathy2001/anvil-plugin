@@ -3,7 +3,18 @@ package com.anvil;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -16,12 +27,6 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Singleton
@@ -99,7 +104,7 @@ public class BingoApiClient
 	// nothing names a clan.
 
 	/** A clan slug as the site accepts one; anything else is treated as naming no clan. */
-	private static final java.util.regex.Pattern CLAN_SLUG = java.util.regex.Pattern.compile("[a-z0-9-]{2,32}");
+	private static final Pattern CLAN_SLUG = Pattern.compile("[a-z0-9-]{2,32}");
 
 	// TWO SLUGS, and the difference between them is the whole design.
 	//
@@ -281,7 +286,7 @@ public class BingoApiClient
 			}
 			return gson.fromJson(response.body().charStream(), DeviceAuthStart.class);
 		}
-		catch (IOException | com.google.gson.JsonParseException e)
+		catch (IOException | JsonParseException e)
 		{
 			log.debug("auth/start failed: {}", e.getMessage());
 			return null;
@@ -296,7 +301,7 @@ public class BingoApiClient
 			return null;
 		}
 		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
-			gson.toJson(java.util.Collections.singletonMap("device_code", deviceCode)));
+			gson.toJson(Collections.singletonMap("device_code", deviceCode)));
 		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/poll"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(body).build();
 		try (Response response = httpClient.newCall(request).execute())
@@ -307,7 +312,7 @@ public class BingoApiClient
 			}
 			return gson.fromJson(response.body().charStream(), DeviceAuthPoll.class);
 		}
-		catch (IOException | com.google.gson.JsonParseException e)
+		catch (IOException | JsonParseException e)
 		{
 			log.debug("auth/poll failed: {}", e.getMessage());
 			return null;
@@ -647,7 +652,7 @@ public class BingoApiClient
 	public static class ActivityResponse
 	{
 		public String cursor;                       // send back as ?since= next poll
-		public java.util.List<ActivityItem> activity; // ascending by id (oldest→newest); may be null
+		public List<ActivityItem> activity; // ascending by id (oldest→newest); may be null
 		public boolean truncated;                   // true = a gap; caller may want to refetch the board
 		public boolean noActiveEvent;               // true = valid token, not enrolled (empty feed, not an error)
 	}
@@ -692,75 +697,6 @@ public class BingoApiClient
 		}
 	}
 
-	/**
-	 * GET /api/plugin/active-weekly — returns the currently live weekly competition, or null.
-	 * Unauthenticated. Never throws — returns null on any failure.
-	 */
-	public ActiveWeekly fetchActiveWeekly()
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
-		Request request = withOptionalAuth(new Request.Builder()
-			.url(clanUrl("/api/plugin/active-weekly")))
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				return null;
-			}
-			String body = response.body().string();
-			if (body == null || body.isEmpty() || "null".equals(body.trim()))
-			{
-				return null;
-			}
-			return gson.fromJson(body, ActiveWeekly.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("active-weekly fetch failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
-	/**
-	 * POST /api/plugin/weekly/enroll — enrolls the given RSN in the live weekly competition.
-	 * Unauthenticated. Returns null on transport failure.
-	 */
-	public EnrollResponse enrollWeekly(String rsn)
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
-		JsonObject payload = new JsonObject();
-		payload.addProperty("rsn", rsn);
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		// Same as hello: optional, and the only clan signal left on an address that names none.
-		Request request = withOptionalAuth(new Request.Builder()
-			.url(clanUrl("/api/plugin/weekly/enroll")))
-			.post(body)
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			String responseBody = response.body() != null ? response.body().string() : "";
-			if (!response.isSuccessful())
-			{
-				log.debug("weekly/enroll returned HTTP {} — {}", response.code(), responseBody);
-				return null;
-			}
-			return gson.fromJson(responseBody, EnrollResponse.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("weekly/enroll failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
 	public static class ActiveWeekly
 	{
 		public int id;
@@ -773,10 +709,6 @@ public class BingoApiClient
 		public String endDate;
 	}
 
-	/**
-	 * GET /api/plugin/schedule — returns upcoming + active bingo events and weekly competitions.
-	 * Unauthenticated. Never throws — returns null on any failure.
-	 */
 	/**
 	 * Attach the account token when we have one, on a request that does not require it.
 	 *
@@ -794,36 +726,10 @@ public class BingoApiClient
 			: builder.header("Authorization", "Bearer " + token);
 	}
 
-	public ScheduleResponse fetchSchedule()
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
-		Request request = withOptionalAuth(new Request.Builder()
-			.url(clanUrl("/api/plugin/schedule")))
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				return null;
-			}
-			String body = response.body().string();
-			return gson.fromJson(body, ScheduleResponse.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("schedule fetch failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
 	public static class ScheduleResponse
 	{
-		public java.util.List<ScheduledBingo> bingos;
-		public java.util.List<ScheduledWeekly> weeklies;
+		public List<ScheduledBingo> bingos;
+		public List<ScheduledWeekly> weeklies;
 	}
 
 	public static class ScheduledBingo
@@ -884,7 +790,7 @@ public class BingoApiClient
 	{
 		public WeeklyComp competition;
 		public int total;
-		public java.util.List<LeaderboardEntry> entries;
+		public List<LeaderboardEntry> entries;
 	}
 
 	public static class WeeklyComp
@@ -904,16 +810,6 @@ public class BingoApiClient
 		public int rank;
 		public String rsn;
 		public long gained;
-	}
-
-	public static class EnrollResponse
-	{
-		public boolean enrolled;
-		public Boolean alreadyEnrolled;
-		public Integer compId;
-		public String compTitle;
-		public Long baselineValue;
-		public String reason;
 	}
 
 	/**
@@ -971,8 +867,8 @@ public class BingoApiClient
 		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
 		public String seatKind;
 		// What's running right now, for an in-game greeting on login.
-		public java.util.List<WeeklyInfo> activeWeekly;
-		public java.util.List<BingoInfo> activeBingos;
+		public List<WeeklyInfo> activeWeekly;
+		public List<BingoInfo> activeBingos;
 	}
 
 	public static class WeeklyInfo
@@ -1029,7 +925,7 @@ public class BingoApiClient
 	 * POST /api/plugin/clan-sync — upload the scraped clan roster. Authenticated with the
 	 * caller's per-user account token (must belong to a site admin).
 	 */
-	public ClanSyncResponse syncClan(String accountToken, String clanName, java.util.List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
+	public ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
 	{
 		if (apiUrl == null || apiUrl.isEmpty())
 		{
@@ -1098,13 +994,13 @@ public class BingoApiClient
 		public int markedLeft;
 		public int renamed;
 		public int returned;
-		public java.util.List<ClanChange> changes;
+		public List<ClanChange> changes;
 		// Plan-limit state, added later. A site that predates it sends neither field and GSON leaves
 		// them null/empty, so an older instance simply produces no cap line.
 		//   capNotice         — one ready-to-show sentence, or null when there's nothing to say.
 		//   refusedNewMembers — RSNs the plan limit kept off the roster on this sweep.
 		public String capNotice;
-		public java.util.List<String> refusedNewMembers;
+		public List<String> refusedNewMembers;
 	}
 
 	public static class ClanChange
@@ -1290,14 +1186,14 @@ public class BingoApiClient
 		}
 	}
 
-	public ClogPushResult submitClogItems(java.util.Map<Integer, Integer> items) throws IOException
+	public ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException
 	{
 		if (items == null || items.isEmpty())
 		{
 			return new ClogPushResult();
 		}
-		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
-		for (java.util.Map.Entry<Integer, Integer> e : items.entrySet())
+		JsonArray arr = new JsonArray();
+		for (Map.Entry<Integer, Integer> e : items.entrySet())
 		{
 			JsonObject item = new JsonObject();
 			item.addProperty("id", e.getKey());
@@ -1423,7 +1319,7 @@ public class BingoApiClient
 		{
 			if (coop.teammates != null && !coop.teammates.isEmpty())
 			{
-				com.google.gson.JsonArray names = new com.google.gson.JsonArray();
+				JsonArray names = new JsonArray();
 				for (String n : coop.teammates)
 				{
 					names.add(n);
@@ -1466,11 +1362,11 @@ public class BingoApiClient
 	public static final class CoopFingerprint
 	{
 		/** Lowercased RSNs of ROSTER teammates seen in the instance — empty when none could be named. */
-		public final java.util.List<String> teammates;
+		public final List<String> teammates;
 		/** Instance/raid party headcount, which is reliable exactly where names aren't. 0 = unknown. */
 		public final int partySize;
 
-		public CoopFingerprint(java.util.List<String> teammates, int partySize)
+		public CoopFingerprint(List<String> teammates, int partySize)
 		{
 			this.teammates = teammates;
 			this.partySize = partySize;
@@ -1482,14 +1378,14 @@ public class BingoApiClient
 		}
 	}
 
-	public void submitStatKc(java.util.Map<String, Integer> counts) throws IOException
+	public void submitStatKc(Map<String, Integer> counts) throws IOException
 	{
 		if (counts == null || counts.isEmpty())
 		{
 			return;
 		}
 		JsonArray stats = new JsonArray();
-		for (java.util.Map.Entry<String, Integer> e : counts.entrySet())
+		for (Map.Entry<String, Integer> e : counts.entrySet())
 		{
 			if (e.getKey() == null || e.getValue() == null)
 			{
@@ -1526,14 +1422,14 @@ public class BingoApiClient
 	 * max(hiscores, pushed) per skill and the hourly cron reconciles. Completes skill-XP tiles instantly
 	 * instead of waiting on the ~1h hiscores lag.
 	 */
-	public void submitStatXp(java.util.Map<String, Integer> xp) throws IOException
+	public void submitStatXp(Map<String, Integer> xp) throws IOException
 	{
 		if (xp == null || xp.isEmpty())
 		{
 			return;
 		}
 		JsonArray skills = new JsonArray();
-		for (java.util.Map.Entry<String, Integer> e : xp.entrySet())
+		for (Map.Entry<String, Integer> e : xp.entrySet())
 		{
 			if (e.getKey() == null || e.getValue() == null)
 			{
@@ -1574,14 +1470,14 @@ public class BingoApiClient
 	 * the plugin already knows which counter it holds. Same contract otherwise: ABSOLUTE values, the
 	 * server keeps max(hiscores, pushed), and unknown keys are dropped rather than stored.
 	 */
-	public void submitStatActivities(java.util.Map<String, Integer> values) throws IOException
+	public void submitStatActivities(Map<String, Integer> values) throws IOException
 	{
 		if (values == null || values.isEmpty())
 		{
 			return;
 		}
 		JsonArray activities = new JsonArray();
-		for (java.util.Map.Entry<String, Integer> e : values.entrySet())
+		for (Map.Entry<String, Integer> e : values.entrySet())
 		{
 			if (e.getKey() == null || e.getValue() == null)
 			{
@@ -1658,7 +1554,7 @@ public class BingoApiClient
 	 *
 	 * <p>Never scoring: nothing here completes a tile or moves a standing.
 	 */
-	public void submitProgress(java.util.Map<String, Integer> progress) throws IOException
+	public void submitProgress(Map<String, Integer> progress) throws IOException
 	{
 		submitProgress(progress, null, null);
 	}
@@ -1668,8 +1564,8 @@ public class BingoApiClient
 	 * are left rather than only how many are done. Sent whole and only when it changed, since half a
 	 * list is worse than none.
 	 */
-	public void submitProgress(java.util.Map<String, Integer> progress, String itemCategory,
-		java.util.List<AccountProgress.Item> items) throws IOException
+	public void submitProgress(Map<String, Integer> progress, String itemCategory,
+		List<AccountProgress.Item> items) throws IOException
 	{
 		submitProgress(progress, itemCategory, items, null, 0);
 	}
@@ -1681,8 +1577,8 @@ public class BingoApiClient
 	 * and refuses the lot if the points don't reconcile. Nothing here knows what a combat task is,
 	 * which is the point: the catalogue lives where it can be updated without a release.
 	 */
-	public void submitProgress(java.util.Map<String, Integer> progress, String itemCategory,
-		java.util.List<AccountProgress.Item> items, java.util.Map<Integer, Integer> caVarps,
+	public void submitProgress(Map<String, Integer> progress, String itemCategory,
+		List<AccountProgress.Item> items, Map<Integer, Integer> caVarps,
 		int caPoints) throws IOException
 	{
 		boolean hasItems = itemCategory != null && items != null && !items.isEmpty();
@@ -1693,10 +1589,10 @@ public class BingoApiClient
 		}
 		if (progress == null)
 		{
-			progress = java.util.Collections.emptyMap();
+			progress = Collections.emptyMap();
 		}
 		JsonArray rows = new JsonArray();
-		for (java.util.Map.Entry<String, Integer> e : progress.entrySet())
+		for (Map.Entry<String, Integer> e : progress.entrySet())
 		{
 			if (e.getKey() == null || e.getValue() == null)
 			{
@@ -1739,7 +1635,7 @@ public class BingoApiClient
 		if (hasVarps)
 		{
 			JsonObject varpObj = new JsonObject();
-			for (java.util.Map.Entry<Integer, Integer> e : caVarps.entrySet())
+			for (Map.Entry<Integer, Integer> e : caVarps.entrySet())
 			{
 				varpObj.addProperty(String.valueOf(e.getKey()), e.getValue());
 			}
@@ -1780,7 +1676,7 @@ public class BingoApiClient
 	 * <p>Idempotent: the server keys on (member, page) and replaces, so a retry or a client restart
 	 * mid-sync costs nothing. Profile data only — never scoring.
 	 */
-	public void submitClogPages(java.util.List<ClogPage> pages, int syncedPages) throws IOException
+	public void submitClogPages(List<ClogPage> pages, int syncedPages) throws IOException
 	{
 		if (pages == null || pages.isEmpty())
 		{
@@ -1809,7 +1705,7 @@ public class BingoApiClient
 			if (!page.counts.isEmpty())
 			{
 				JsonObject counts = new JsonObject();
-				for (java.util.Map.Entry<String, Integer> e : page.counts.entrySet())
+				for (Map.Entry<String, Integer> e : page.counts.entrySet())
 				{
 					counts.addProperty(e.getKey(), e.getValue());
 				}
@@ -1850,14 +1746,14 @@ public class BingoApiClient
 	 * the game itself doesn't. The server keeps the FASTEST of stored and pushed, so a retry, a
 	 * stale client or an out-of-order request can never raise somebody's record.
 	 */
-	public void submitPersonalBests(java.util.Map<String, Integer> bests) throws IOException
+	public void submitPersonalBests(Map<String, Integer> bests) throws IOException
 	{
 		if (bests == null || bests.isEmpty())
 		{
 			return;
 		}
 		JsonArray out = new JsonArray();
-		for (java.util.Map.Entry<String, Integer> e : bests.entrySet())
+		for (Map.Entry<String, Integer> e : bests.entrySet())
 		{
 			if (e.getKey() == null || e.getKey().isEmpty() || e.getValue() == null || e.getValue() <= 0)
 			{
@@ -1906,7 +1802,7 @@ public class BingoApiClient
 	 *
 	 * <p>Never scoring: nothing here completes a tile or moves a standing.
 	 */
-	public void submitMoments(java.util.List<AnvilMoments.Moment> batch) throws IOException
+	public void submitMoments(List<AnvilMoments.Moment> batch) throws IOException
 	{
 		if (batch == null || batch.isEmpty())
 		{
@@ -1922,7 +1818,7 @@ public class BingoApiClient
 			JsonObject o = new JsonObject();
 			o.addProperty("kind", m.kind);
 			o.addProperty("key", m.key);
-			o.addProperty("at", java.time.Instant.ofEpochMilli(m.at).toString());
+			o.addProperty("at", Instant.ofEpochMilli(m.at).toString());
 			o.addProperty("quantity", Math.max(1, m.quantity));
 			// Everything below is best-effort — a skilling pet has no source, no KC and no price, and
 			// inventing any of them would be worse than a shorter line on the feed.

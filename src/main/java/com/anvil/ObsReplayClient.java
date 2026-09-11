@@ -2,18 +2,20 @@ package com.anvil;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
-
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
-import java.util.function.Consumer;
 
 /**
  * Minimal obs-websocket v5 client — connects to OBS, saves the replay buffer on demand, and reports
@@ -37,10 +39,10 @@ public class ObsReplayClient extends WebSocketListener
 	private final Consumer<String> onClipSaved; // savedReplayPath
 	private final Runnable onConnected;
 	private final Consumer<String> onError;
-	private final java.util.function.IntSupplier clipSeconds;
-	private final java.util.function.Supplier<String> clipFormat; // OBS RecFormat value, or null to leave as-is
+	private final IntSupplier clipSeconds;
+	private final Supplier<String> clipFormat; // OBS RecFormat value, or null to leave as-is
 	// When true, also act on ReplayBufferSaved events we didn't trigger (OBS's own hotkey/triggers).
-	private final java.util.function.BooleanSupplier postExternalSaves;
+	private final BooleanSupplier postExternalSaves;
 
 	private WebSocket webSocket;
 	private volatile boolean connected;
@@ -51,8 +53,8 @@ public class ObsReplayClient extends WebSocketListener
 
 	public ObsReplayClient(OkHttpClient http, Gson gson, String host, int port, String password,
 		Consumer<String> onClipSaved, Runnable onConnected, Consumer<String> onError,
-		java.util.function.IntSupplier clipSeconds, java.util.function.Supplier<String> clipFormat,
-		java.util.function.BooleanSupplier postExternalSaves)
+		IntSupplier clipSeconds, Supplier<String> clipFormat,
+		BooleanSupplier postExternalSaves)
 	{
 		this.http = http;
 		this.gson = gson;

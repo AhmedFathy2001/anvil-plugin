@@ -2,7 +2,6 @@ package com.anvil;
 
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.OverlayPriority;
 import net.runelite.client.ui.overlay.components.LineComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 
@@ -31,7 +30,7 @@ public class AnvilOverlay extends OverlayPanel {
         this.plugin = plugin;
         this.config = config;
         setPosition(OverlayPosition.TOP_LEFT);
-        setPriority(OverlayPriority.LOW);
+        setPriority(PRIORITY_LOW);
     }
 
     @Override

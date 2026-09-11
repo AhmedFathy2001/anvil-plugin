@@ -1,5 +1,6 @@
 package com.anvil;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -52,7 +53,7 @@ public interface SidebarDataSource
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	default List<PluginConfigResponse.ClanRef> clans()
 	{
-		return java.util.Collections.emptyList();
+		return Collections.emptyList();
 	}
 
 	/** The member's explicit pick, or "" when they are on Auto and the site is deciding. */
@@ -158,9 +159,9 @@ public interface SidebarDataSource
 	}
 
 	/** Local banner-sound clips, newest listing each call. Empty when the folder has none. */
-	default java.util.List<String> bannerSounds()
+	default List<String> bannerSounds()
 	{
-		return java.util.Collections.emptyList();
+		return Collections.emptyList();
 	}
 
 	/** Is this clip in the play cycle? */

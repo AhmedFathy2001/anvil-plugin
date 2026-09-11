@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -189,7 +190,7 @@ final class TimedClearParser
 		{
 			return "";
 		}
-		return s.toLowerCase(java.util.Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
+		return s.toLowerCase(Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
 	}
 
 	/** True when {@code message} contains any of the activity's identifying signatures. */

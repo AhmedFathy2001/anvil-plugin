@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.runelite.api.Client;
-import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 
 /**
@@ -40,8 +40,8 @@ final class ClogPageReader
 	 */
 	static ClogPage read(Client client)
 	{
-		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
-		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+		Widget header = client.getWidget(InterfaceID.Collection.HEADER_TEXT);
+		Widget items = client.getWidget(InterfaceID.Collection.ITEMS_CONTENTS);
 		if (header == null || items == null)
 		{
 			return null;

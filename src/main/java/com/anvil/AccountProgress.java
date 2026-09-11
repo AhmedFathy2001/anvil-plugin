@@ -1,6 +1,8 @@
 package com.anvil;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import net.runelite.api.Client;
 import net.runelite.api.Quest;
@@ -162,9 +164,9 @@ final class AccountProgress
 	 *
 	 * <p>Client thread.
 	 */
-	static java.util.Map<Integer, Integer> combatVarps(Client client, java.util.List<Integer> varps)
+	static Map<Integer, Integer> combatVarps(Client client, List<Integer> varps)
 	{
-		java.util.Map<Integer, Integer> out = new LinkedHashMap<>();
+		Map<Integer, Integer> out = new LinkedHashMap<>();
 		if (client == null || varps == null)
 		{
 			return out;
@@ -204,9 +206,9 @@ final class AccountProgress
 	 *
 	 * <p>Client thread, like everything else here.
 	 */
-	static java.util.List<Item> quests(Client client)
+	static List<Item> quests(Client client)
 	{
-		java.util.List<Item> out = new java.util.ArrayList<>();
+		List<Item> out = new ArrayList<>();
 		if (client == null)
 		{
 			return out;
