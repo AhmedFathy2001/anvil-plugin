@@ -1,12 +1,17 @@
 package com.anvil;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
@@ -60,7 +65,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
 	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
 	private final Map<Integer, BingoApiClient.WeeklyLeaderboard> weeklyBoards = new HashMap<>();
-	private final java.util.Set<Integer> weeklyBoardsTried = new java.util.HashSet<>();
+	private final Set<Integer> weeklyBoardsTried = new HashSet<>();
 	private long weeklyBoardsAt;
 
 	// Live-sidebar state, scoped to the active event.
@@ -168,10 +173,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
-	public java.util.List<String> bannerSounds()
+	public List<String> bannerSounds()
 	{
 		AnvilPlugin p = plugin;
-		return p == null ? java.util.Collections.emptyList() : p.bannerSoundClips();
+		return p == null ? Collections.emptyList() : p.bannerSoundClips();
 	}
 
 	@Override
@@ -357,9 +362,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
 		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
 		// and every optional tile inflates the denominator).
-		java.util.Set<Integer> optionalIds = cfg.optionalTileIds == null
-			? java.util.Collections.emptySet()
-			: new java.util.HashSet<>(cfg.optionalTileIds);
+		Set<Integer> optionalIds = cfg.optionalTileIds == null
+			? Collections.emptySet()
+			: new HashSet<>(cfg.optionalTileIds);
 		// Leagues (scoringMode=points) ranks by summed tile WEIGHT, so the summary reads earned/total
 		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
 		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
@@ -463,7 +468,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private static List<BingoApiClient.ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
 	{
 		List<BingoApiClient.ScheduledWeekly> out = new ArrayList<>();
-		java.util.Set<Integer> seen = new java.util.HashSet<>();
+		Set<Integer> seen = new HashSet<>();
 		if (cfg.schedule != null && cfg.schedule.weeklies != null)
 		{
 			for (BingoApiClient.ScheduledWeekly w : cfg.schedule.weeklies)
@@ -573,7 +578,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			weeklyBoardsTried.clear();
 			weeklyBoardsAt = now;
 		}
-		java.util.Set<Integer> liveIds = new java.util.HashSet<>();
+		Set<Integer> liveIds = new HashSet<>();
 		for (BingoApiClient.ScheduledWeekly w : live)
 		{
 			liveIds.add(w.id);
@@ -711,7 +716,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 		try
 		{
-			long at = java.time.Instant.parse(nextRevealAt).toEpochMilli();
+			long at = Instant.parse(nextRevealAt).toEpochMilli();
 			long mins = Math.max(0, (at - System.currentTimeMillis()) / 60_000);
 			if (mins < 1)
 			{
@@ -974,7 +979,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 		try
 		{
-			return java.time.LocalDateTime.parse(s).toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+			return LocalDateTime.parse(s).toInstant(ZoneOffset.UTC).toEpochMilli();
 		}
 		catch (RuntimeException e)
 		{

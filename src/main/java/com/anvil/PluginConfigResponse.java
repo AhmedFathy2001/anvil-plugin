@@ -1,8 +1,11 @@
 package com.anvil;
 
+import java.net.URI;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class PluginConfigResponse
@@ -66,7 +69,7 @@ public class PluginConfigResponse
 			{
 				s = "https://" + s;
 			}
-			String host = new java.net.URI(s).getHost();
+			String host = new URI(s).getHost();
 			return host == null ? null : host.toLowerCase();
 		}
 		catch (Exception e)
@@ -181,7 +184,7 @@ public class PluginConfigResponse
 	 */
 	public List<ClanRef> switchableClans()
 	{
-		return clans == null ? java.util.Collections.emptyList() : clans;
+		return clans == null ? Collections.emptyList() : clans;
 	}
 
 	/** The slug this response was resolved for, or null on a site that does not say. */
@@ -374,12 +377,12 @@ public class PluginConfigResponse
 	public static class DropFacts
 	{
 		/** Pet name -> where it really comes from. */
-		public java.util.Map<String, Pet> pets;
+		public Map<String, Pet> pets;
 		/**
 		 * Item name -> the sources that drop it EVERY time, lowercased. A single {@code "*"} entry
 		 * means "guaranteed wherever it drops" (a clan override that didn't name sources).
 		 */
-		public java.util.Map<String, List<String>> guaranteed;
+		public Map<String, List<String>> guaranteed;
 
 		public static class Pet
 		{
@@ -786,6 +789,6 @@ public class PluginConfigResponse
 		// The caller is never included (the plugin marks itself "You"). null on older servers that don't
 		// compute it (the sidebar then falls back to an unnamed "a teammate" via config-count deltas);
 		// an empty list means the server DID compute it and no teammate is currently active.
-		public java.util.List<String> activeWorkers;
+		public List<String> activeWorkers;
 	}
 }

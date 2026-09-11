@@ -94,7 +94,7 @@ public class RsnTest
 		java.util.Locale original = java.util.Locale.getDefault();
 		try
 		{
-			java.util.Locale.setDefault(new java.util.Locale("tr", "TR"));
+			java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"));
 			assertEquals("iron mike", Rsn.normalize("IRON MIKE"));
 			assertTrue(Rsn.same("IRON MIKE", "Iron Mike"));
 		}

@@ -2,44 +2,54 @@ package com.anvil;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Cursor;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import javax.swing.Box;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
-import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import javax.swing.JToolTip;
+import javax.swing.ListCellRenderer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import javax.swing.plaf.basic.BasicArrowButton;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
-import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.components.PluginErrorPanel;
+import net.runelite.client.util.LinkBrowser;
 
 /**
  * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
@@ -132,7 +142,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean ladderFlashPainted;
 
 	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
-	private List<ConnectionView> connections = java.util.Collections.emptyList();
+	private List<ConnectionView> connections = Collections.emptyList();
 
 	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
 	private String selectedEventKey;
@@ -381,7 +391,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	public void clearForCredentialChange()
 	{
-		connections = java.util.Collections.emptyList();
+		connections = Collections.emptyList();
 		selectedEventKey = null;
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
@@ -446,7 +456,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** New snapshot in hand — refresh the clan dropdown and render the addressed clan. Runs on the EDT. */
 	private void onConnections(List<ConnectionView> fetched)
 	{
-		connections = fetched == null ? java.util.Collections.emptyList() : fetched;
+		connections = fetched == null ? Collections.emptyList() : fetched;
 		rebuildClanPicker();
 
 		if (connections.isEmpty())
@@ -542,7 +552,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return out;
 		}
-		java.util.Set<String> seen = new HashSet<>();
+		Set<String> seen = new HashSet<>();
 		if (shownBoard != null && !shownBoard.isEmpty())
 		{
 			seen.add(shownBoard); // the board on screen, whichever clan's row also reports it
@@ -1167,7 +1177,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		card.addMouseListener(new MouseAdapter()
 		{
 			@Override
-			public void mouseClicked(java.awt.event.MouseEvent e)
+			public void mouseClicked(MouseEvent e)
 			{
 				selectedEventKey = null;
 				dataSource.chooseClan(slug);
@@ -1175,13 +1185,13 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			@Override
-			public void mouseEntered(java.awt.event.MouseEvent e)
+			public void mouseEntered(MouseEvent e)
 			{
 				card.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
 			}
 
 			@Override
-			public void mouseExited(java.awt.event.MouseEvent e)
+			public void mouseExited(MouseEvent e)
 			{
 				card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			}
@@ -1267,7 +1277,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		panel.setAlignmentX(LEFT_ALIGNMENT);
 
-		java.util.List<String> clips = dataSource.bannerSounds();
+		List<String> clips = dataSource.bannerSounds();
 		panel.add(sectionHeader("Banner sounds"));
 		panel.add(gap(6));
 
@@ -1728,11 +1738,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			if (iso.length() == 10)
 			{
-				return java.time.LocalDate.parse(iso)
-					.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
+				return LocalDate.parse(iso)
+					.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
 			}
 			String s = iso.trim().replace(' ', 'T');
-			return java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
+			return Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
 		}
 		catch (RuntimeException e)
 		{
@@ -1847,7 +1857,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			// ...unless the capture refused it — standing in the wrong place, or a session too old to
 			// have flushed the hiscores. That answer arrives in chat, so the button has to come back
 			// rather than sit on "Sending..." until the next poll redraws the card.
-			javax.swing.Timer restore = new javax.swing.Timer(4000, ev ->
+			Timer restore = new Timer(4000, ev ->
 			{
 				take.setText("Take starting shot");
 				take.setEnabled(true);
@@ -1901,7 +1911,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.weightx = 1;
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new java.awt.Insets(1, 0, 0, 0);
+		gbc.insets = new Insets(1, 0, 0, 0);
 		row.add(who, gbc);
 
 		JProgressBar bar = new JProgressBar(0, 100);
@@ -1912,7 +1922,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		bar.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
 		gbc.gridy = 2;
-		gbc.insets = new java.awt.Insets(3, 0, 0, 0);
+		gbc.insets = new Insets(3, 0, 0, 0);
 		row.add(bar, gbc);
 
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
@@ -1992,7 +2002,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
+	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link JToolTip} renders as
 	 * HTML when its text begins (ignoring leading whitespace, case-insensitive) with {@code <html}, so an
 	 * untrusted clan/tile/activity name could inject markup. Such strings get their markup chars escaped so they
 	 * render only as literal text; ordinary strings pass through. An explicit sanitize rather than reliance on
@@ -2372,10 +2382,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		link.setToolTipText(tooltip);
 		link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		link.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-		link.addMouseListener(new java.awt.event.MouseAdapter()
+		link.addMouseListener(new MouseAdapter()
 		{
 			@Override
-			public void mouseClicked(java.awt.event.MouseEvent e)
+			public void mouseClicked(MouseEvent e)
 			{
 				if (isSafeHttpUrl(url)) // defense-in-depth: never a javascript:/data:/file: or creds@host URL
 				{
@@ -2396,12 +2406,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		try
 		{
-			java.net.URI u = new java.net.URI(url);
+			URI u = new URI(url);
 			String scheme = u.getScheme();
 			return u.getHost() != null && u.getUserInfo() == null
 				&& ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme));
 		}
-		catch (java.net.URISyntaxException ex)
+		catch (URISyntaxException ex)
 		{
 			return false;
 		}
@@ -2447,7 +2457,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.gridwidth = 2;
 		gbc.weightx = 1;
 		gbc.fill = GridBagConstraints.HORIZONTAL;
-		gbc.insets = new java.awt.Insets(3, 0, 0, 0);
+		gbc.insets = new Insets(3, 0, 0, 0);
 		row.add(bar, gbc);
 
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
@@ -2488,9 +2498,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		SwingUtilities.invokeLater(() ->
 		{
 			content.removeAll();
-			if (component instanceof javax.swing.JComponent)
+			if (component instanceof JComponent)
 			{
-				((javax.swing.JComponent) component).setAlignmentX(LEFT_ALIGNMENT);
+				((JComponent) component).setAlignmentX(LEFT_ALIGNMENT);
 			}
 			content.add(component);
 			content.revalidate();
@@ -2500,7 +2510,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private static Component gap(int height)
 	{
-		return javax.swing.Box.createVerticalStrut(height);
+		return Box.createVerticalStrut(height);
 	}
 
 	/** Renders a {@link ConnectionView} in the clan dropdown by name, flagging an unreachable home. */
