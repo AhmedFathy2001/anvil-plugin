@@ -43,11 +43,9 @@ import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -200,6 +198,9 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private DebugLogExporter debugLogExporter;
 
+    @Inject
+    private AnvilChat anvilChat;
+
     // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
     // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
     // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
@@ -258,7 +259,8 @@ public class AnvilPlugin extends Plugin {
         }
     };
 
-    private ScheduledExecutorService executor;
+    /** Our own background thread for blocking network work. See {@link TaskRunner}. */
+    private final TaskRunner tasks = new TaskRunner();
 
     // Debounce config refresh — prevents spam when multiple config keys change at once
     private ScheduledFuture<?> pendingRefresh;
@@ -309,36 +311,36 @@ public class AnvilPlugin extends Plugin {
     // event per (tileId, itemId) and ignore repeats within the window. Note this is
     // separate from the coalesce window below: dedup catches duplicate fire events;
     // coalesce batches genuine repeated drops within a short window into one upload.
-    private final Map<String, Long> lastSubmittedAt = new HashMap<>();
     private static final long DEDUP_WINDOW_MS = 3_000;
+    private final DedupWindow<String> lastSubmittedAt = new DedupWindow<>(DEDUP_WINDOW_MS);
 
     // Item ids credited by a REAL loot event (raid chest / NPC drop), with the time last seen. The
     // collection-log-unlock credit path (creditClogUnlock) skips these so a raid-chest item that
     // already credited via its loot event can't ALSO credit when its "New item added to your
     // collection log" line fires on pickup — same acquisition, but the two can land far more than the
     // 3s loot dedup apart (open the chest, take the items later), which double-counted a CoX unique.
-    private final Map<Integer, Long> recentLootItemIds = new HashMap<>();
     private static final long CLOG_LOOT_DEDUP_MS = 5 * 60_000;
+    private final DedupWindow<Integer> recentLootItemIds = new DedupWindow<>(CLOG_LOOT_DEDUP_MS);
 
     // PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
     // player then dies within the window, we count it as our kill (avoids screenshotting random
     // nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
-    private final Map<String, Long> lastDamagedPlayerAt = new HashMap<>();
     private static final long PVP_KILL_ATTRIBUTION_MS = 6_000;
+    private final DedupWindow<String> lastDamagedPlayerAt = new DedupWindow<>(PVP_KILL_ATTRIBUTION_MS);
 
     // PvP min-loot tiles credit off the LOOT (priced at PlayerLootReceived), not the death — so a
     // kill on a matching victim is parked here at death and consumed when its loot arrives and prices
     // at/above the tile's floor. Keyed by lowercased victim RSN. Loot-key / no-loot kills never fire
     // PlayerLootReceived, so their entry just expires and the min-loot tile isn't credited (intended).
-    private final Map<String, Long> pendingMinLootKillAt = new HashMap<>();
     private static final long PVP_MINLOOT_LOOT_WINDOW_MS = 20_000;
+    private final DedupWindow<String> pendingMinLootKillAt = new DedupWindow<>(PVP_MINLOOT_LOOT_WINDOW_MS);
 
     // Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
     // suppress a repeat post of the same item within a short window. Keyed by itemId.
-    private final Map<Integer, Long> lastRareNotifyAt = new HashMap<>();
-    // Aggregate-loot dedup keyed by source name (same NPC kill fires NpcLootReceived + LootReceived).
-    private final Map<String, Long> lastAggregateNotifyAt = new HashMap<>();
     private static final long RARE_DEDUP_WINDOW_MS = 5_000;
+    private final DedupWindow<Integer> lastRareNotifyAt = new DedupWindow<>(RARE_DEDUP_WINDOW_MS);
+    // Aggregate-loot dedup keyed by source name (same NPC kill fires NpcLootReceived + LootReceived).
+    private final DedupWindow<String> lastAggregateNotifyAt = new DedupWindow<>(RARE_DEDUP_WINDOW_MS);
     private static final int RARE_EMBED_COLOR = 0xD4A017; // gold, matches the site accent
     private static final int CA_EMBED_COLOR = 0x4A90D9; // blue, distinct from rare-drop gold
     // Combat Achievements crest + hub page — the embed's thumbnail and title link. Both are plain
@@ -418,7 +420,7 @@ public class AnvilPlugin extends Plugin {
 
     // Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
     // collection-log unlock message fire for it.
-    private final Map<String, Long> lastAllowlistNotifyAt = new HashMap<>();
+    private final DedupWindow<String> lastAllowlistNotifyAt = new DedupWindow<>(RARE_DEDUP_WINDOW_MS);
 
     // Kill/clear count per source, scraped from "Your <X> kill count is: N" (and the raid
     // "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
@@ -504,8 +506,8 @@ public class AnvilPlugin extends Plugin {
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path
     // already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
-    private final Map<String, Long> lastLootKillAt = new HashMap<>();
     private static final long KILL_DEDUP_MS = 6000;
+    private final DedupWindow<String> lastLootKillAt = new DedupWindow<>(KILL_DEDUP_MS);
 
     // ServerNpcLoot is RuneLite's server-authoritative NPC-loot event: it fires once per ACTUAL kill, so it
     // counts barraged/clumped kills correctly, where the client-side NpcLootReceived under-fires (several
@@ -618,7 +620,7 @@ public class AnvilPlugin extends Plugin {
     // twice; dedup by (area|tier) so we announce + credit once. The line never legitimately
     // re-fires (once per account per tier), so this only needs to span the same-tick echo.
     private static final long DIARY_DEDUP_MS = 15_000;
-    private final Map<String, Long> lastDiaryHandledAt = new HashMap<>();
+    private final DedupWindow<String> lastDiaryHandledAt = new DedupWindow<>(DIARY_DEDUP_MS);
 
     // Quest-completed scroll interface — gameval InterfaceID.QUESTSCROLL (153); child 4 is
     // Questscroll.QUEST_TITLE, the "You have completed <Quest>!" line. Same signal RuneLite's
@@ -843,7 +845,7 @@ public class AnvilPlugin extends Plugin {
     /** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
     private int eventTickAccumulator = 0;
     private ScheduledFuture<?> counterPushTask;
-    private final Map<String, Long> lastLootValueAt = new HashMap<>();
+    private final DedupWindow<String> lastLootValueAt = new DedupWindow<>(DEDUP_WINDOW_MS);
     // Item ids (by lowercased name) and the source from the last loot event, so a collection-log
     // unlock line — which carries only text — can still draw the right sprite and name where it came
     // from. Expired against CLOG_LOOT_DEDUP_MS; guarded by its own monitor.
@@ -1057,8 +1059,8 @@ public class AnvilPlugin extends Plugin {
     // ---- Timed-clear tiles ---------------------------------------------------------------
     // Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
     // and some content repeats either line). Parsing/matching lives in TimedClearParser (tested).
-    private final Map<Integer, Long> lastTimedSubmittedAt = new HashMap<>();
     private static final long TIMED_DEDUP_WINDOW_MS = 20_000;
+    private final DedupWindow<Integer> lastTimedSubmittedAt = new DedupWindow<>(TIMED_DEDUP_WINDOW_MS);
 
     // The duration line and the activity-identifying line are separate, adjacent chat messages,
     // and the order varies (Inferno prints "Duration:" first; most others print the kill/completion
@@ -1185,7 +1187,7 @@ public class AnvilPlugin extends Plugin {
         notifiedCompletedTiles.clear();
         locallyShownTiles.clear();
         completionBaselineEventId = null;
-        executor = Executors.newSingleThreadScheduledExecutor();
+        tasks.start();
         keyManager.registerKeyListener(clipHotkeyListener);
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
@@ -1205,28 +1207,27 @@ public class AnvilPlugin extends Plugin {
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
         // the very first authed request carries the identity headers.
         if (client.getGameState() == GameState.LOGGED_IN) {
-            executor.submit(this::stampIdentityAndGreet);
+            tasks.run(this::stampIdentityAndGreet);
         } else if (apiClient.isConfigured()) {
-            executor.submit(this::refreshConfig);
+            tasks.run(this::refreshConfig);
         }
 
         // Retry any pending submissions from a previous session
-        executor.schedule(() -> safely("initial retry", this::retryPendingSubmissions), 3, TimeUnit.SECONDS);
+        tasks.runLater(() -> safely("initial retry", this::retryPendingSubmissions), 3_000);
 
-        // Refresh config every 30 seconds + retry pending submissions + refresh schedule.
-        // Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
+        // Refresh config every 30 seconds + retry pending submissions.
+        // Wrap in try/catch — an uncaught throw inside a repeating task silently
         // cancels the task forever, so a single hiccup would stop all future refreshes.
-        executor.scheduleAtFixedRate(() -> {
+        tasks.runEvery(() -> {
             safely("refreshConfig", this::refreshConfig);
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
-            safely("pruneDedupMap", this::pruneDedupMap);
             safely("obsReconnect", this::maybeReconnectObs);
             safely("importRuneLitePbs", this::retryPersonalBestImport);
             safely("flushClogSync", this::flushClogSync);
             safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
             safely("pushAccountProgress", this::pushAccountProgress);
-        }, 30, 30, TimeUnit.SECONDS);
+        }, 30_000);
     }
 
     /**
@@ -1290,10 +1291,10 @@ public class AnvilPlugin extends Plugin {
             if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) {
                 return;
             }
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     // One request each: the endpoint takes a category at a time, and these two move
                     // independently.
@@ -1325,13 +1326,6 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    private void pruneDedupMap() {
-        long cutoff = System.currentTimeMillis() - DEDUP_WINDOW_MS;
-        synchronized (lastSubmittedAt) {
-            lastSubmittedAt.entrySet().removeIf(e -> e.getValue() < cutoff);
-        }
-    }
-
     @Override
     protected void shutDown() {
         overlayManager.remove(overlay);
@@ -1353,10 +1347,7 @@ public class AnvilPlugin extends Plugin {
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
         disconnectObs();
-        if (executor != null) {
-            executor.shutdownNow();
-            executor = null;
-        }
+        tasks.stop();
         pluginConfig = null;
         pendingRefresh = null;
         itemDropIndex = Collections.emptyMap();
@@ -1505,7 +1496,6 @@ public class AnvilPlugin extends Plugin {
     private void exportDebugLog() {
         clientThread.invoke(() -> {
             final String header = buildDiagnosticHeader();
-            final ScheduledExecutorService ex = executor;
             final Runnable job = () -> {
                 DebugLogExporter.Result res = debugLogExporter.export(header);
                 clientThread.invokeLater(() -> {
@@ -1521,10 +1511,9 @@ public class AnvilPlugin extends Plugin {
                     }
                 });
             };
-            if (ex == null) {
-                return; // only mid-shutdown (hotkey already unregistered) — nothing to export into
-            }
-            ex.submit(job);
+            // A false return is only reachable mid-shutdown, with the hotkey already unregistered —
+            // there is nothing left to export into, so there is nothing to say about it either.
+            tasks.run(job);
         });
     }
 
@@ -1646,10 +1635,10 @@ public class AnvilPlugin extends Plugin {
         // before the debounced refresh, so that refresh already carries the headers.
         if (("apiUrl".equals(key) || "playerToken".equals(key))
                 && client.getGameState() == GameState.LOGGED_IN
-                && executor != null && !executor.isShutdown()) {
+                && tasks.isLive()) {
             adminProbeAttempted = false;
             setupWarned = false; // re-evaluate the URL/token pair after an edit
-            executor.submit(this::stampIdentityAndGreet);
+            tasks.run(this::stampIdentityAndGreet);
         }
 
         // (Re)establish or tear down the OBS clip connection when its settings change.
@@ -1846,14 +1835,14 @@ public class AnvilPlugin extends Plugin {
      * gets the push away within one of them.
      */
     private void flushFullClogSyncWhenSettled() {
-        if (clogFlushQueued || executor == null || executor.isShutdown()) {
+        if (clogFlushQueued || !tasks.isLive()) {
             return;
         }
         if (!clogFullSync.isDue(System.currentTimeMillis())) {
             return;
         }
         clogFlushQueued = true;
-        executor.submit(() -> {
+        tasks.run(() -> {
             try {
                 safely("flushFullClogSync", this::flushFullClogSync);
             } finally {
@@ -2248,9 +2237,7 @@ public class AnvilPlugin extends Plugin {
         }
         if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
             // Delay slightly so local player name is populated
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
-            }
+            tasks.runLater(this::stampIdentityAndGreet, 3_000);
         } else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
             // Flush any gains still coalescing before we tear down — a logout/hop mid-gather would
             // otherwise lose them (the aggregate lives only in memory). The executor is still alive here.
@@ -2341,10 +2328,10 @@ public class AnvilPlugin extends Plugin {
         // times a couple seconds apart instead, so resolution really does land ON login.
         if ((rsn == null || rsn.isEmpty())
                 && client.getGameState() == GameState.LOGGED_IN
-                && executor != null && !executor.isShutdown()
+                && tasks.isLive()
                 && identityStampRetries < MAX_IDENTITY_STAMP_RETRIES) {
             identityStampRetries++;
-            executor.schedule(this::stampIdentityAndGreet, 2, TimeUnit.SECONDS);
+            tasks.runLater(this::stampIdentityAndGreet, 2_000);
             return;
         }
         identityStampRetries = 0;
@@ -2745,14 +2732,8 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             // Dedup: the same loot can fire NpcLootReceived + LootReceived back-to-back.
-            String dedupKey = "value:" + v.tileId;
-            long now = System.currentTimeMillis();
-            synchronized (lastSubmittedAt) {
-                Long lastAt = lastSubmittedAt.get(dedupKey);
-                if (lastAt != null && now - lastAt < DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                lastSubmittedAt.put(dedupKey, now);
+            if (!lastSubmittedAt.claim("value:" + v.tileId)) {
+                continue;
             }
             final int amount = (int) Math.min(haulGp, Integer.MAX_VALUE);
             final String gp = formatGp(haulGp);
@@ -2882,9 +2863,7 @@ public class AnvilPlugin extends Plugin {
         if (name == null || name.isEmpty()) {
             return;
         }
-        synchronized (lastDamagedPlayerAt) {
-            lastDamagedPlayerAt.put(name.toLowerCase(), System.currentTimeMillis());
-        }
+        lastDamagedPlayerAt.record(name.toLowerCase());
     }
 
     /**
@@ -3205,12 +3184,8 @@ public class AnvilPlugin extends Plugin {
             // the announcement AND double-credit the tile. The line can't legitimately re-fire
             // (once per account per tier ever), so a short window is safe.
             String diaryKey = (area + "|" + tier).toLowerCase(Locale.ROOT);
-            long dnow = System.currentTimeMillis();
-            Long lastDiary = lastDiaryHandledAt.get(diaryKey);
-            if (lastDiary != null && (dnow - lastDiary) < DIARY_DEDUP_MS) {
-                // duplicate channel echo of the same completion — ignore
-            } else {
-                lastDiaryHandledAt.put(diaryKey, dnow);
+            // A false claim is the duplicate channel echo of the same completion — ignore it.
+            if (lastDiaryHandledAt.claim(diaryKey)) {
                 // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
                 // even when no tile matches.
                 log.info("Anvil diary line: {} {}", area, tier);
@@ -3309,7 +3284,6 @@ public class AnvilPlugin extends Plugin {
             maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
         }
         List<ItemStack> synthetic = null;
-        final long now = System.currentTimeMillis();
         for (Integer id : itemDropIndex.keySet()) {
             ItemComposition comp = itemManager.getItemComposition(id);
             if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
@@ -3317,12 +3291,8 @@ public class AnvilPlugin extends Plugin {
                 // acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
                 // double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
                 // when taken). Genuine clog-only unlocks (BA torso, gamble pets) never hit this.
-                synchronized (recentLootItemIds) {
-                    recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
-                    Long seen = recentLootItemIds.get(id);
-                    if (seen != null && now - seen < CLOG_LOOT_DEDUP_MS) {
-                        continue;
-                    }
+                if (recentLootItemIds.seen(id)) {
+                    continue;
                 }
                 if (synthetic == null) {
                     synthetic = new ArrayList<>(1);
@@ -3496,9 +3466,7 @@ public class AnvilPlugin extends Plugin {
             // Remember items that arrived via a REAL loot event so a later clog-unlock line for the
             // same acquisition can't re-credit the tile (see recentLootItemIds / creditClogUnlock).
             if (!"clog".equals(sourceKind)) {
-                synchronized (recentLootItemIds) {
-                    recentLootItemIds.put(itemId, System.currentTimeMillis());
-                }
+                recentLootItemIds.record(itemId);
             }
             List<PluginConfigResponse.TrackedDrop> matchingDrops = index.get(itemId);
             if (matchingDrops == null) {
@@ -3572,13 +3540,8 @@ public class AnvilPlugin extends Plugin {
                 // Keyed per (tile, item) so a dedup hit only skips THIS tile — other tiles
                 // tracking the same item still get evaluated below.
                 String dedupKey = drop.tileId + ":" + itemId;
-                long now = System.currentTimeMillis();
-                Long lastAt;
-                synchronized (lastSubmittedAt) {
-                    lastAt = lastSubmittedAt.get(dedupKey);
-                }
-                if (lastAt != null && (now - lastAt) < DEDUP_WINDOW_MS) {
-                    log.debug("Skipping duplicate drop event within dedup window: {} ({}ms)", drop.label, now - lastAt);
+                if (lastSubmittedAt.seen(dedupKey)) {
+                    log.debug("Skipping duplicate drop event within dedup window: {}", drop.label);
                     continue;
                 }
 
@@ -3644,9 +3607,7 @@ public class AnvilPlugin extends Plugin {
                     snapshotRequired = pg[1];
                 }
 
-                synchronized (lastSubmittedAt) {
-                    lastSubmittedAt.put(dedupKey, now);
-                }
+                lastSubmittedAt.record(dedupKey);
 
                 showBingoToast(drop, snapshotCurrent, snapshotRequired);
                 sendChatMessage("Tracked drop detected: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
@@ -3672,7 +3633,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void queueDropForFlush(PluginConfigResponse.TrackedDrop drop, int amount,
             int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         final String key = drop.tileId + ":" + (trackingItemId == null ? "-" : trackingItemId);
@@ -3697,7 +3658,7 @@ public class AnvilPlugin extends Plugin {
             if (agg.flushTask != null) {
                 agg.flushTask.cancel(false);
             }
-            agg.flushTask = executor.schedule(() -> flushAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+            agg.flushTask = tasks.runLater(() -> flushAggregate(key), COALESCE_FLUSH_MS);
         }
     }
 
@@ -3715,9 +3676,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> doSubmitAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
+            tasks.runLater(() -> doSubmitAggregate(agg), delay);
             return;
         }
         doSubmitAggregate(agg);
@@ -3764,7 +3723,7 @@ public class AnvilPlugin extends Plugin {
         if (matches == null || matches.isEmpty()) {
             return;
         }
-        lastLootKillAt.put(key, System.currentTimeMillis());
+        lastLootKillAt.record(key);
         // KC-driven boss (a "Your <X> kill count is:" line has fired for it) → the chat handler owns
         // the count. Skip here to avoid double-crediting the same kill.
         if (killCounts.containsKey(key)) {
@@ -3800,8 +3759,7 @@ public class AnvilPlugin extends Plugin {
         // First KC line of the session for this boss: the loot path may have already credited this
         // very kill moments ago (event ordering isn't guaranteed). If so, don't count it twice.
         if (firstSeen) {
-            Long lootAt = lastLootKillAt.get(key);
-            if (lootAt != null && System.currentTimeMillis() - lootAt < KILL_DEDUP_MS) {
+            if (lastLootKillAt.seen(key)) {
                 return;
             }
         }
@@ -3874,7 +3832,7 @@ public class AnvilPlugin extends Plugin {
 
     private void queueKillForFlush(PluginConfigResponse.TrackedKill kill, int amount,
             int snapshotCurrent, int snapshotRequired) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         final String key = "kill:" + kill.tileId;
@@ -3898,7 +3856,7 @@ public class AnvilPlugin extends Plugin {
             if (agg.flushTask != null) {
                 agg.flushTask.cancel(false);
             }
-            agg.flushTask = executor.schedule(() -> flushKillAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+            agg.flushTask = tasks.runLater(() -> flushKillAggregate(key), COALESCE_FLUSH_MS);
         }
     }
 
@@ -3913,9 +3871,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> doSubmitKillAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
+            tasks.runLater(() -> doSubmitKillAggregate(agg), delay);
             return;
         }
         doSubmitKillAggregate(agg);
@@ -3951,7 +3907,7 @@ public class AnvilPlugin extends Plugin {
         // screenshot — so a long grind doesn't upload a PNG per burst. Mirrors the gain path; the
         // single/milestone proof screenshots below are the audit trail.
         if (!complete && !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
-            if (executor == null || executor.isShutdown()
+            if (!tasks.isLive()
                     || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
                 return;
             }
@@ -3959,7 +3915,7 @@ public class AnvilPlugin extends Plugin {
             final int eventId = pluginConfig.event.id;
             final int teamId = pluginConfig.team.id;
             final int playerId = pluginConfig.player.id;
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     warnStartProofBeforeCredit();
                     apiClient.submitDrop(eventId, kill.tileId, teamId,
@@ -3978,7 +3934,7 @@ public class AnvilPlugin extends Plugin {
                         if (retry.flushTask != null) {
                             retry.flushTask.cancel(false);
                         }
-                        retry.flushTask = executor.schedule(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+                        retry.flushTask = tasks.runLater(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS);
                     }
                 }
             });
@@ -4124,7 +4080,7 @@ public class AnvilPlugin extends Plugin {
      * submission per stint, with the running total baked on.
      */
     private void queueGainForFlush(PluginConfigResponse.TrackedGain gain, int amount) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingGainAggregates) {
@@ -4148,7 +4104,7 @@ public class AnvilPlugin extends Plugin {
             long delay = gain.currentAmount >= gain.requiredAmount
                     ? 1_500
                     : Math.max(1_500, Math.min(GAIN_COALESCE_MS, GAIN_MAX_HOLD_MS - heldFor));
-            agg.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), delay, TimeUnit.MILLISECONDS);
+            agg.flushTask = tasks.runLater(() -> flushGainAggregate(gain.tileId), delay);
         }
     }
 
@@ -4163,9 +4119,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(() -> doSubmitGainAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
+            tasks.runLater(() -> doSubmitGainAggregate(agg), delay);
             return;
         }
         doSubmitGainAggregate(agg);
@@ -4181,7 +4135,7 @@ public class AnvilPlugin extends Plugin {
         // media store for zero evidentiary value. The single proof screenshot lands on the
         // flush that completes the tile (manual web submissions still require an image).
         if (agg.snapshotCurrent < agg.snapshotRequired) {
-            if (executor == null || executor.isShutdown()
+            if (!tasks.isLive()
                     || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
                 return;
             }
@@ -4189,7 +4143,7 @@ public class AnvilPlugin extends Plugin {
             final int eventId = pluginConfig.event.id;
             final int teamId = pluginConfig.team.id;
             final int playerId = pluginConfig.player.id;
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     warnStartProofBeforeCredit();
                     apiClient.submitDrop(eventId, gain.tileId, teamId,
@@ -4208,7 +4162,7 @@ public class AnvilPlugin extends Plugin {
                         if (retry.flushTask != null) {
                             retry.flushTask.cancel(false);
                         }
-                        retry.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS, TimeUnit.MILLISECONDS);
+                        retry.flushTask = tasks.runLater(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS);
                     }
                 }
             });
@@ -4240,10 +4194,10 @@ public class AnvilPlugin extends Plugin {
         final String capturedRsn = getLocalPlayerName();
 
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     BufferedImage buffered = (BufferedImage) image;
                     annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, null);
@@ -4389,14 +4343,10 @@ public class AnvilPlugin extends Plugin {
                     && !tile.activity.toLowerCase(Locale.ROOT).contains("entry mode")) {
                 continue;
             }
-            synchronized (lastTimedSubmittedAt) {
-                Long last = lastTimedSubmittedAt.get(tile.tileId);
-                if (last != null && (now - last) < TIMED_DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                // Mark attempts too — several nearby identity lines would otherwise repeat
-                // the verdict (or double-submit) for the same run.
-                lastTimedSubmittedAt.put(tile.tileId, now);
+            // Claims attempts too — several nearby identity lines would otherwise repeat the
+            // verdict (or double-submit) for the same run.
+            if (!lastTimedSubmittedAt.claim(tile.tileId)) {
+                continue;
             }
             if (instancePlayerDeaths > 0) {
                 sendChatMessage("Not deathless: " + tile.label + " — " + instancePlayerDeaths
@@ -4472,12 +4422,8 @@ public class AnvilPlugin extends Plugin {
                     continue;
                 }
             }
-            synchronized (lastTimedSubmittedAt) {
-                Long last = lastTimedSubmittedAt.get(tile.tileId);
-                if (last != null && (now - last) < TIMED_DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                lastTimedSubmittedAt.put(tile.tileId, now);
+            if (!lastTimedSubmittedAt.claim(tile.tileId)) {
+                continue;
             }
             log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
                     TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
@@ -4659,7 +4605,7 @@ public class AnvilPlugin extends Plugin {
      * hand on the site.
      */
     private void captureManualProof(String label, String note) {
-        if (drawManager == null || executor == null || executor.isShutdown()) {
+        if (drawManager == null || !tasks.isLive()) {
             return;
         }
         final int eventId = pluginConfig != null && pluginConfig.event != null ? pluginConfig.event.id : 0;
@@ -4667,10 +4613,10 @@ public class AnvilPlugin extends Plugin {
         final int playerId = pluginConfig != null && pluginConfig.player != null ? pluginConfig.player.id : 0;
         final String capturedRsn = getLocalPlayerName();
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     // Copy the shared frame before annotating so we don't mutate the draw manager's buffer.
                     BufferedImage src = (BufferedImage) image;
@@ -4746,7 +4692,7 @@ public class AnvilPlugin extends Plugin {
             sendChatMessage("No starting shot is being asked for right now.");
             return;
         }
-        if (drawManager == null || executor == null || executor.isShutdown()) {
+        if (drawManager == null || !tasks.isLive()) {
             return;
         }
         if (startProofInFlight) {
@@ -4781,11 +4727,11 @@ public class AnvilPlugin extends Plugin {
                 : Instant.ofEpochMilli(loginAtMs).toString();
 
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 startProofInFlight = false;
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     // Copy the shared frame before annotating — never mutate the draw manager's buffer.
                     BufferedImage src = (BufferedImage) image;
@@ -4834,10 +4780,10 @@ public class AnvilPlugin extends Plugin {
 
         drawManager.requestNextFrameListener(image
                 -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(()
+            tasks.run(()
                     -> {
                 try {
                     // Two-frame proof: the at-drop frame (stashed when the burst started) stacked
@@ -5023,7 +4969,7 @@ public class AnvilPlugin extends Plugin {
         // anything else: on a wrong URL or a bad token nothing ever arrives to replace it, and a
         // member who just changed their settings would sit looking at the clan they left.
         SwingUtilities.invokeLater(sidebarPanel::clearForCredentialChange);
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         if (pendingRefresh != null && !pendingRefresh.isDone()) {
@@ -5046,20 +4992,20 @@ public class AnvilPlugin extends Plugin {
             SwingUtilities.invokeLater(sidebarPanel::refresh);
             return;
         }
-        executor.submit(() -> {
+        tasks.run(() -> {
             safely("refreshConfig", this::refreshConfig);
             SwingUtilities.invokeLater(sidebarPanel::refresh);
         });
     }
 
     private synchronized void scheduleRefresh() {
-        if (!apiClient.isConfigured() || executor == null || executor.isShutdown()) {
+        if (!apiClient.isConfigured() || !tasks.isLive()) {
             return;
         }
         if (pendingRefresh != null && !pendingRefresh.isDone()) {
             pendingRefresh.cancel(false);
         }
-        pendingRefresh = executor.schedule(this::refreshConfig, REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        pendingRefresh = tasks.runLater(this::refreshConfig, REFRESH_DEBOUNCE_MS);
     }
 
     /* -------------------------------------------------------------- */
@@ -5190,7 +5136,7 @@ public class AnvilPlugin extends Plugin {
      * token.
      */
     public void syncClanRoster(AdminActionCallback cb) {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             cb.onResult(false, "Plugin not running");
             return;
         }
@@ -5247,7 +5193,7 @@ public class AnvilPlugin extends Plugin {
                 members.add(out);
             }
 
-            executor.submit(() -> {
+            tasks.run(() -> {
                 try {
                     BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
                     rosterBackoff.onSuccess();
@@ -5622,13 +5568,12 @@ public class AnvilPlugin extends Plugin {
         // config has landed re-renders the clan they just switched away from — a click that visibly
         // does nothing, then quietly works fifteen seconds later. Fetch first, repaint second.
         forgetAdminAnswerOnClanChange();
-        if (executor != null) {
-            executor.execute(() -> {
-                refreshConfig();
-                repaintSidebar();
-            });
-        } else {
-            // No executor means startUp hasn't run, so there is no panel waiting on a fetch either.
+        boolean queued = tasks.run(() -> {
+            refreshConfig();
+            repaintSidebar();
+        });
+        if (!queued) {
+            // No background thread means startUp hasn't run, so there is no panel waiting on a fetch.
             repaintSidebar();
         }
     }
@@ -5977,7 +5922,7 @@ public class AnvilPlugin extends Plugin {
         if (realGain && trackedSkillNames.contains(skillName.toLowerCase(Locale.ROOT).trim())) {
             noteLocalStatProgress(skillName);
         }
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingSkillXpPush) {
@@ -5985,7 +5930,7 @@ public class AnvilPlugin extends Plugin {
             if (skillXpPushTask != null) {
                 skillXpPushTask.cancel(false);
             }
-            skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            skillXpPushTask = tasks.runLater(this::flushSkillXpPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6011,11 +5956,11 @@ public class AnvilPlugin extends Plugin {
                 for (Map.Entry<String, Integer> en : batch.entrySet()) {
                     pendingSkillXpPush.merge(en.getKey(), en.getValue(), Integer::max);
                 }
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (skillXpPushTask != null) {
                         skillXpPushTask.cancel(false);
                     }
-                    skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    skillXpPushTask = tasks.runLater(this::flushSkillXpPush, KC_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6065,7 +6010,7 @@ public class AnvilPlugin extends Plugin {
         if (System.currentTimeMillis() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) {
             return;
         }
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingKcPush) {
@@ -6073,7 +6018,7 @@ public class AnvilPlugin extends Plugin {
             if (kcPushTask != null) {
                 kcPushTask.cancel(false);
             }
-            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6091,7 +6036,7 @@ public class AnvilPlugin extends Plugin {
         if (trackedKcNames.contains(normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
         }
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (pendingKcPush) {
@@ -6099,7 +6044,7 @@ public class AnvilPlugin extends Plugin {
             if (kcPushTask != null) {
                 kcPushTask.cancel(false);
             }
-            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6125,11 +6070,11 @@ public class AnvilPlugin extends Plugin {
                 for (Map.Entry<String, Integer> en : batch.entrySet()) {
                     pendingKcPush.merge(en.getKey(), en.getValue(), Integer::max);
                 }
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (kcPushTask != null) {
                         kcPushTask.cancel(false);
                     }
-                    kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    kcPushTask = tasks.runLater(this::flushKcPush, KC_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6150,7 +6095,7 @@ public class AnvilPlugin extends Plugin {
         // varbit lookups against client memory; the send is debounced and carries absolute values,
         // so an unchanged counter costs nothing.
         Set<String> wanted = ActivityStats.readableKeys();
-        if (wanted.isEmpty() || !statPushAllowed() || executor == null || executor.isShutdown()) {
+        if (wanted.isEmpty() || !statPushAllowed() || !tasks.isLive()) {
             return;
         }
         Map<String, Integer> current = ActivityStats.read(wanted, client::getVarbitValue, client::getVarpValue);
@@ -6173,7 +6118,7 @@ public class AnvilPlugin extends Plugin {
             if (activityPushTask != null) {
                 activityPushTask.cancel(false);
             }
-            activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            activityPushTask = tasks.runLater(this::flushActivityPush, KC_PUSH_COALESCE_MS);
         }
     }
 
@@ -6204,11 +6149,11 @@ public class AnvilPlugin extends Plugin {
                 for (Map.Entry<String, Integer> en : batch.entrySet()) {
                     pendingActivityPush.merge(en.getKey(), en.getValue(), Integer::max);
                 }
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (activityPushTask != null) {
                         activityPushTask.cancel(false);
                     }
-                    activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    activityPushTask = tasks.runLater(this::flushActivityPush, KC_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6444,14 +6389,8 @@ public class AnvilPlugin extends Plugin {
         }
         // Dedup identical hauls arriving on two loot events back-to-back (source + value + item count).
         String fp = sourceKind + "|" + source + "|" + haulGp + "|" + count;
-        long now = System.currentTimeMillis();
-        synchronized (lastLootValueAt) {
-            lastLootValueAt.values().removeIf(t -> now - t > DEDUP_WINDOW_MS);
-            Long seen = lastLootValueAt.get(fp);
-            if (seen != null && now - seen < DEDUP_WINDOW_MS) {
-                return;
-            }
-            lastLootValueAt.put(fp, now);
+        if (!lastLootValueAt.claim(fp)) {
+            return;
         }
         synchronized (counterLock) {
             if (!ensureCounterEvent()) {
@@ -6464,14 +6403,14 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
     private void scheduleCounterPush() {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (counterLock) {
             if (counterPushTask != null) {
                 counterPushTask.cancel(false);
             }
-            counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            counterPushTask = tasks.runLater(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
         }
     }
 
@@ -6501,11 +6440,11 @@ public class AnvilPlugin extends Plugin {
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {
-                if (executor != null && !executor.isShutdown()) {
+                if (tasks.isLive()) {
                     if (counterPushTask != null) {
                         counterPushTask.cancel(false);
                     }
-                    counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+                    counterPushTask = tasks.runLater(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
                 }
             }
         }
@@ -6608,13 +6547,8 @@ public class AnvilPlugin extends Plugin {
         }
         Integer itemId = resolveItemIdByName(itemName);
         long now = System.currentTimeMillis();
-        if (itemId != null) {
-            synchronized (recentLootItemIds) {
-                recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
-                if (recentLootItemIds.containsKey(itemId)) {
-                    return;
-                }
-            }
+        if (itemId != null && recentLootItemIds.seen(itemId)) {
+            return;
         }
         String source;
         String sourceKind;
@@ -6708,14 +6642,14 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
     private void scheduleMomentPush() {
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             return;
         }
         synchronized (moments) {
             if (momentPushTask != null) {
                 momentPushTask.cancel(false);
             }
-            momentPushTask = executor.schedule(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            momentPushTask = tasks.runLater(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS);
         }
     }
 
@@ -7105,13 +7039,7 @@ public class AnvilPlugin extends Plugin {
         if (actor instanceof Player) {
             String vname = actor.getName();
             if (vname != null && !vname.isEmpty()) {
-                long now = System.currentTimeMillis();
-                boolean ours;
-                synchronized (lastDamagedPlayerAt) {
-                    lastDamagedPlayerAt.values().removeIf(t -> (now - t) > PVP_KILL_ATTRIBUTION_MS);
-                    Long last = lastDamagedPlayerAt.remove(vname.toLowerCase());
-                    ours = last != null && (now - last) <= PVP_KILL_ATTRIBUTION_MS;
-                }
+                boolean ours = lastDamagedPlayerAt.consume(vname.toLowerCase());
                 if (ours) {
                     // Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
                     // pvp tiles on the board or not. Tile credit + notify keep their own gates.
@@ -7210,11 +7138,7 @@ public class AnvilPlugin extends Plugin {
             creditOnePvpTile(tile, victimName);
         }
         if (anyDeferred) {
-            long now = System.currentTimeMillis();
-            synchronized (pendingMinLootKillAt) {
-                pendingMinLootKillAt.values().removeIf(t -> (now - t) > PVP_MINLOOT_LOOT_WINDOW_MS);
-                pendingMinLootKillAt.put(victim, now);
-            }
+            pendingMinLootKillAt.record(victim);
         }
     }
 
@@ -7271,12 +7195,9 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String victim = Rsn.normalize(victimName);
-        long now = System.currentTimeMillis();
-        synchronized (pendingMinLootKillAt) {
-            Long parkedAt = pendingMinLootKillAt.remove(victim); // consume — one credit per parked kill
-            if (parkedAt == null || (now - parkedAt) > PVP_MINLOOT_LOOT_WINDOW_MS) {
-                return;
-            }
+        // One credit per parked kill: consume() both reads and removes it.
+        if (!pendingMinLootKillAt.consume(victim)) {
+            return;
         }
         if (trackingGateReason() != null) {
             return;
@@ -7358,12 +7279,8 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
             String key = source == null ? "" : source;
-            synchronized (lastAggregateNotifyAt) {
-                Long last = lastAggregateNotifyAt.get(key);
-                if (last != null && (now - last) < RARE_DEDUP_WINDOW_MS) {
-                    return;
-                }
-                lastAggregateNotifyAt.put(key, now);
+            if (!lastAggregateNotifyAt.claim(key)) {
+                return;
             }
             if (contents.size() == 1) {
                 RareItem it = contents.get(0);
@@ -7428,12 +7345,8 @@ public class AnvilPlugin extends Plugin {
 
             // Per-item dedup also suppresses the duplicate fire when a kill and a follow-up loot
             // event both report the same item within the window.
-            synchronized (lastRareNotifyAt) {
-                Long last = lastRareNotifyAt.get(itemId);
-                if (last != null && (now - last) < RARE_DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                lastRareNotifyAt.put(itemId, now);
+            if (!lastRareNotifyAt.claim(itemId)) {
+                continue;
             }
             qualifying.add(new RareItem(itemId, qty, itemValue, dropRate));
         }
@@ -7482,14 +7395,7 @@ public class AnvilPlugin extends Plugin {
      */
     private boolean claimAllowlistNotify(String name, long now) {
         String key = name.toLowerCase();
-        synchronized (lastAllowlistNotifyAt) {
-            Long last = lastAllowlistNotifyAt.get(key);
-            if (last != null && (now - last) < RARE_DEDUP_WINDOW_MS) {
-                return false;
-            }
-            lastAllowlistNotifyAt.put(key, now);
-            return true;
-        }
+        return lastAllowlistNotifyAt.claim(key);
     }
 
     /**
@@ -8198,8 +8104,8 @@ public class AnvilPlugin extends Plugin {
         synchronized (petLock) {
             pendingPet = pet;
         }
-        if (executor != null && !executor.isShutdown()) {
-            executor.schedule(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS, TimeUnit.MILLISECONDS);
+        if (tasks.isLive()) {
+            tasks.runLater(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS);
         } else {
             flushPetNotification(pet);
         }
@@ -9466,10 +9372,10 @@ public class AnvilPlugin extends Plugin {
     private void captureFrameAsync(Consumer<byte[]> consumer) {
         AtomicBoolean delivered = new AtomicBoolean(false);
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!tasks.isLive()) {
                 return;
             }
-            executor.submit(() -> {
+            tasks.run(() -> {
                 byte[] png = null;
                 try {
                     BufferedImage buffered = (BufferedImage) image;
@@ -9484,14 +9390,12 @@ public class AnvilPlugin extends Plugin {
                 }
             });
         });
-        if (executor != null && !executor.isShutdown()) {
-            executor.schedule(() -> {
-                if (delivered.compareAndSet(false, true)) {
-                    log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
-                    consumer.accept(null);
-                }
-            }, FRAME_CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        }
+        tasks.runLater(() -> {
+            if (delivered.compareAndSet(false, true)) {
+                log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
+                consumer.accept(null);
+            }
+        }, FRAME_CAPTURE_TIMEOUT_MS);
     }
 
     /**
@@ -9533,11 +9437,11 @@ public class AnvilPlugin extends Plugin {
         // Scheduled, never slept: a sleep here would park a shared RuneLite worker for a second and a
         // half, and the hub rejects Thread.sleep on sight. Without a usable executor -- shutting down
         // mid-level-up -- we capture now, because a slightly emptier screenshot beats none.
-        if (executor == null || executor.isShutdown()) {
+        if (!tasks.isLive()) {
             capture.run();
             return;
         }
-        executor.schedule(capture, ACHIEVEMENT_SHOT_DELAY_MS, TimeUnit.MILLISECONDS);
+        tasks.runLater(capture, ACHIEVEMENT_SHOT_DELAY_MS);
     }
 
     /** Pause between the achievement and its screenshot, long enough for clanmates' replies. */
@@ -9555,18 +9459,10 @@ public class AnvilPlugin extends Plugin {
 
     // Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text
     // has a built-in shadow). Brand orange on the tan chat was too low-contrast.
-    private static final String CHAT_PREFIX_COLOR = "ffd700";
-    private static final String CHAT_BODY_COLOR = "ffffff";
 
+    /** Say one line in the chatbox, in Anvil's colours. See {@link AnvilChat}. */
     private void sendChatMessage(String message) {
-        // A raw '|' in a chat line gets mangled by the chat pipeline (an event named
-        // "The AFK Spot | July Bingo" printed as a bare "July Bingo."). Interpolated names are
-        // admin-authored, so swap in the visually-identical broken bar instead.
-        String safe = message.replace('|', '\u00A6');
-        String line = "<col=" + CHAT_PREFIX_COLOR + ">[Anvil]</col> <col=" + CHAT_BODY_COLOR + ">" + safe + "</col>";
-        clientThread.invokeLater(()
-                -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null)
-        );
+        anvilChat.send(message);
     }
 
     // -- Profile sync: collection log + personal bests ---------------------------------------
@@ -9946,12 +9842,8 @@ public class AnvilPlugin extends Plugin {
         if (event.isGuest() || !config.autoSyncClanRoster()) {
             return;
         }
-        if (executor == null || executor.isShutdown()) {
-            return;
-        }
         // The member list arrives just after the channel; a delay is cheaper than polling for it.
-        executor.schedule(() -> safely("autoRosterSync", this::autoSyncClanRoster),
-                AUTO_ROSTER_DELAY_MS, TimeUnit.MILLISECONDS);
+        tasks.runLater(() -> safely("autoRosterSync", this::autoSyncClanRoster), AUTO_ROSTER_DELAY_MS);
     }
 
     /**
