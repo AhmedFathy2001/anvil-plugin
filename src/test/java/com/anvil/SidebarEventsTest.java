@@ -3,6 +3,8 @@ package com.anvil;
 import com.anvil.api.dto.ClanBoard;
 import com.anvil.api.dto.ClanRef;
 import com.anvil.ui.AnvilSidebarPanel;
+import com.anvil.ui.view.BoardChoices;
+import com.anvil.ui.view.Clock;
 import com.anvil.ui.ConnectionView;
 import com.anvil.ui.view.Ladder;
 import com.anvil.ui.view.ScheduledView;
@@ -52,7 +54,7 @@ public class SidebarEventsTest
 	@Test
 	public void boardAndWeekliesBothBecomeEvents()
 	{
-		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(
+		List<BoardChoices.EventEntry> events = BoardChoices.eventsOf(
 			board("Summer Bingo", Arrays.asList(weekly(7, "Mining Madness", "skill", "mining"))));
 
 		assertEquals(2, events.size());
@@ -70,7 +72,7 @@ public class SidebarEventsTest
 	public void aLoneBoardStaysASingleEvent()
 	{
 		// One event → the panel renders it directly; no list, no back link.
-		assertEquals(1, AnvilSidebarPanel.eventsOf(board("Summer Bingo", null)).size());
+		assertEquals(1, BoardChoices.eventsOf(board("Summer Bingo", null)).size());
 	}
 
 	@Test
@@ -80,7 +82,7 @@ public class SidebarEventsTest
 		ConnectionView c = view("local", null, 0, 0, null,
 			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null, null);
 
-		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(c);
+		List<BoardChoices.EventEntry> events = BoardChoices.eventsOf(c);
 		assertEquals(1, events.size());
 		assertFalse(events.get(0).isBoard());
 	}
@@ -90,7 +92,7 @@ public class SidebarEventsTest
 	{
 		ConnectionView c = new ConnectionView("local", "The AFK Spot", null, 0, 0, null);
 		// Nothing running → the panel falls back to today's "No active event yet." card.
-		assertTrue(AnvilSidebarPanel.eventsOf(c).isEmpty());
+		assertTrue(BoardChoices.eventsOf(c).isEmpty());
 	}
 
 	@Test
@@ -100,7 +102,7 @@ public class SidebarEventsTest
 			new Ladder(null, 0, 0, 0, null, Collections.emptyList(), true),
 			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null, null);
 
-		assertEquals("Ladder", AnvilSidebarPanel.eventsOf(c).get(0).kind);
+		assertEquals("Ladder", BoardChoices.eventsOf(c).get(0).kind);
 	}
 
 	/**
@@ -115,7 +117,7 @@ public class SidebarEventsTest
 			new Ladder(null, 0, 0, 0, null, Collections.emptyList(), false),
 			Collections.emptyList(), null, null);
 
-		assertEquals("Bingo", AnvilSidebarPanel.eventsOf(c).get(0).kind);
+		assertEquals("Bingo", BoardChoices.eventsOf(c).get(0).kind);
 	}
 
 	@Test
@@ -125,7 +127,7 @@ public class SidebarEventsTest
 			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")),
 			Arrays.asList(upcomingBingo(31, "Autumn Bingo", "2026-09-01T00:00:00Z")), null);
 
-		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(c);
+		List<BoardChoices.EventEntry> events = BoardChoices.eventsOf(c);
 		assertEquals(3, events.size());
 		// Your board, then the weekly, then what's coming — progress first, announcements last.
 		assertEquals("event:31", events.get(2).key);
@@ -259,10 +261,10 @@ public class SidebarEventsTest
 	@Test
 	public void nothingElseLiveMeansNoSection()
 	{
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(null, "a", null).isEmpty());
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(java.util.Collections.emptyList(), "a", null).isEmpty());
+		assertTrue(BoardChoices.otherLiveBoards(null, "a", null).isEmpty());
+		assertTrue(BoardChoices.otherLiveBoards(java.util.Collections.emptyList(), "a", null).isEmpty());
 		// A clan with no live board is not something to list under "also live".
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(
+		assertTrue(BoardChoices.otherLiveBoards(
 			Arrays.asList(clanRef("a", "Alpha", "member", "Summer"), clanRef("b", "Bravo", "guest", null)), "a", null)
 			.isEmpty());
 	}
@@ -275,7 +277,7 @@ public class SidebarEventsTest
 			clanRef("b", "Bravo", "guest", "Winter", 2),
 			clanRef("c", "Charlie", "member", "Autumn", 3));
 
-		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
+		assertEquals(Arrays.asList("b", "c"), slugs(BoardChoices.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -287,7 +289,7 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Cross-Clan Cup", 7),
 			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
 
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a", null).isEmpty());
+		assertTrue(BoardChoices.otherLiveBoards(clans, "a", null).isEmpty());
 	}
 
 	@Test
@@ -299,7 +301,7 @@ public class SidebarEventsTest
 			clanRef("c", "Charlie", "member", "Cross-Clan Cup", 7));
 
 		// Same board under two clans: one row, and the first-listed clan is the one offered.
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
+		assertEquals(Arrays.asList("b"), slugs(BoardChoices.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -313,7 +315,7 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Skill of the Week", 3, "weekly"),
 			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
 
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7").isEmpty());
+		assertTrue(BoardChoices.otherLiveBoards(clans, "a", "bingo:7").isEmpty());
 	}
 
 	@Test
@@ -324,7 +326,7 @@ public class SidebarEventsTest
 			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7),
 			clanRef("c", "Charlie", "member", "Autumn", 9));
 
-		assertEquals(Arrays.asList("c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7")));
+		assertEquals(Arrays.asList("c"), slugs(BoardChoices.otherLiveBoards(clans, "a", "bingo:7")));
 	}
 
 	@Test
@@ -335,7 +337,7 @@ public class SidebarEventsTest
 		List<ClanRef> clans = Arrays.asList(
 			clanRef("b", "Bravo", "guest", "Slayer SOTW", 7, "weekly"));
 
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7")));
+		assertEquals(Arrays.asList("b"), slugs(BoardChoices.otherLiveBoards(clans, "a", "bingo:7")));
 	}
 
 	@Test
@@ -347,7 +349,7 @@ public class SidebarEventsTest
 			clanRef("b", "Bravo", "guest", "Summer Bingo", 2),
 			clanRef("c", "Charlie", "member", "Summer Bingo", 3));
 
-		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
+		assertEquals(Arrays.asList("b", "c"), slugs(BoardChoices.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -359,8 +361,8 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Summer", 1),
 			clanRef("b", "Bravo", "guest", "Winter", 2));
 
-		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "", null)));
-		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, null, null)));
+		assertEquals(Arrays.asList("a", "b"), slugs(BoardChoices.otherLiveBoards(clans, "", null)));
+		assertEquals(Arrays.asList("a", "b"), slugs(BoardChoices.otherLiveBoards(clans, null, null)));
 	}
 
 	@Test
@@ -369,20 +371,20 @@ public class SidebarEventsTest
 		List<ClanRef> clans = Arrays.asList(
 			clanRef("a", "Alpha", "member", "Summer", 1),
 			clanRef("b", "Bravo", "guest", "Winter", 2));
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "A", null)));
+		assertEquals(Arrays.asList("b"), slugs(BoardChoices.otherLiveBoards(clans, "A", null)));
 	}
 
 	@Test
 	public void noClansMeansNoDropdownAtAll()
 	{
-		assertTrue(AnvilSidebarPanel.ClanChoice.of(null).isEmpty());
-		assertTrue(AnvilSidebarPanel.ClanChoice.of(java.util.Collections.emptyList()).isEmpty());
+		assertTrue(BoardChoices.ClanChoice.of(null).isEmpty());
+		assertTrue(BoardChoices.ClanChoice.of(java.util.Collections.emptyList()).isEmpty());
 	}
 
 	@Test
 	public void allClansLeadsTheList()
 	{
-		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+		List<BoardChoices.ClanChoice> choices = BoardChoices.ClanChoice.of(Arrays.asList(
 			clanRef("theafkspot", "The AFK Spot", "member", "Summer Bingo"),
 			clanRef("vanguard", "Iron Vanguard", "guest", null)));
 
@@ -396,7 +398,7 @@ public class SidebarEventsTest
 	@Test
 	public void eachRowSaysWhatIsRunningThere()
 	{
-		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+		List<BoardChoices.ClanChoice> choices = BoardChoices.ClanChoice.of(Arrays.asList(
 			clanRef("a", "Alpha", "member", "Summer Bingo"),
 			clanRef("b", "Bravo", "guest", null),
 			clanRef("c", "Charlie", "member", null)));
@@ -410,8 +412,8 @@ public class SidebarEventsTest
 	@Test
 	public void aClanWithNoNameFallsBackToItsSlugRatherThanRenderingBlank()
 	{
-		List<AnvilSidebarPanel.ClanChoice> choices =
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(clanRef("theafkspot", null, "member", null)));
+		List<BoardChoices.ClanChoice> choices =
+			BoardChoices.ClanChoice.of(Arrays.asList(clanRef("theafkspot", null, "member", null)));
 		assertEquals("theafkspot", choices.get(1).label);
 	}
 
@@ -420,7 +422,7 @@ public class SidebarEventsTest
 	{
 		// A slug is what a pick BECOMES — the /c/<slug> the client starts addressing. A row without one
 		// would look selectable and then quietly do nothing.
-		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+		List<BoardChoices.ClanChoice> choices = BoardChoices.ClanChoice.of(Arrays.asList(
 			clanRef(null, "Nameless", "member", null),
 			clanRef("", "Empty", "member", null),
 			clanRef("real", "Real", "member", null)));
@@ -470,13 +472,13 @@ public class SidebarEventsTest
 	public void endsInLabelCountsDownAndThenReadsEnded()
 	{
 		long now = System.currentTimeMillis();
-		assertEquals("Ends in 2d 0h", AnvilSidebarPanel.endsInLabel(iso(now + 48 * 3600_000L)));
-		assertEquals("Ends in 3h 0m", AnvilSidebarPanel.endsInLabel(iso(now + 3 * 3600_000L)));
-		assertEquals("Ends in 20m", AnvilSidebarPanel.endsInLabel(iso(now + 20 * 60_000L)));
-		assertEquals("Ended", AnvilSidebarPanel.endsInLabel(iso(now - 60_000L)));
+		assertEquals("Ends in 2d 0h", Clock.endsInLabel(iso(now + 48 * 3600_000L)));
+		assertEquals("Ends in 3h 0m", Clock.endsInLabel(iso(now + 3 * 3600_000L)));
+		assertEquals("Ends in 20m", Clock.endsInLabel(iso(now + 20 * 60_000L)));
+		assertEquals("Ended", Clock.endsInLabel(iso(now - 60_000L)));
 		// Missing / unparseable dates simply drop the line rather than printing a bogus one.
-		assertNull(AnvilSidebarPanel.endsInLabel(null));
-		assertNull(AnvilSidebarPanel.endsInLabel("not-a-date"));
+		assertNull(Clock.endsInLabel(null));
+		assertNull(Clock.endsInLabel("not-a-date"));
 	}
 
 	/** ISO instant, a few seconds late so the truncating countdown lands on the round number. */
@@ -492,7 +494,7 @@ public class SidebarEventsTest
 	@Test
 	public void aRunningCompetitionIsNotNothingLive()
 	{
-		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+		List<BoardChoices.ClanChoice> choices = BoardChoices.ClanChoice.of(Arrays.asList(
 			clanRef("a", "Alpha", "member", "Slayer SOTW", 4, "weekly")));
 
 		// Its name, and no tally: a competition has a leaderboard, not a board to fill, so "0/0" would
@@ -506,7 +508,7 @@ public class SidebarEventsTest
 		ClanRef empty = clanRef("a", "Alpha", "member", "Unbuilt Bingo", 4);
 		empty.live.tilesComplete = 0;
 		empty.live.tilesTotal = 0;
-		assertEquals("Unbuilt Bingo", AnvilSidebarPanel.ClanChoice.of(Arrays.asList(empty)).get(1).detail);
+		assertEquals("Unbuilt Bingo", BoardChoices.ClanChoice.of(Arrays.asList(empty)).get(1).detail);
 	}
 
 	@Test
@@ -518,7 +520,7 @@ public class SidebarEventsTest
 			clanRef("a", "Alpha", "member", "Summer Bingo", 5),
 			clanRef("b", "Bravo", "guest", "Slayer SOTW", 5, "weekly"));
 
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
+		assertEquals(Arrays.asList("b"), slugs(BoardChoices.otherLiveBoards(clans, "a", null)));
 	}
 
 	@Test
@@ -529,7 +531,7 @@ public class SidebarEventsTest
 		List<ClanRef> clans = Arrays.asList(
 			clanRef("a", "Alpha", "member", "Summer Bingo", 5), old);
 
-		assertTrue("same board, so not also-live", AnvilSidebarPanel.otherLiveBoards(clans, "a", null).isEmpty());
+		assertTrue("same board, so not also-live", BoardChoices.otherLiveBoards(clans, "a", null).isEmpty());
 	}
 
 
@@ -539,7 +541,7 @@ public class SidebarEventsTest
 		ClanRef busy = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
 		busy.liveCount = 4;
 		assertEquals("Summer Bingo  3/9  +3 more",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(busy)).get(1).detail);
+			BoardChoices.ClanChoice.of(Arrays.asList(busy)).get(1).detail);
 	}
 
 	@Test
@@ -548,7 +550,7 @@ public class SidebarEventsTest
 		ClanRef quiet = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
 		quiet.liveCount = 1;
 		assertEquals("Summer Bingo  3/9",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(quiet)).get(1).detail);
+			BoardChoices.ClanChoice.of(Arrays.asList(quiet)).get(1).detail);
 	}
 
 	@Test
@@ -558,7 +560,7 @@ public class SidebarEventsTest
 		ClanRef old = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
 		assertEquals(0, old.liveCount);
 		assertEquals("Summer Bingo  3/9",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(old)).get(1).detail);
+			BoardChoices.ClanChoice.of(Arrays.asList(old)).get(1).detail);
 	}
 
 	@Test
@@ -567,7 +569,7 @@ public class SidebarEventsTest
 		ClanRef c = clanRef("a", "Alpha", "member", "Slayer SOTW", 4, "weekly");
 		c.liveCount = 3;
 		assertEquals("Slayer SOTW  +2 more",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(c)).get(1).detail);
+			BoardChoices.ClanChoice.of(Arrays.asList(c)).get(1).detail);
 	}
 
 }
