@@ -59,6 +59,8 @@ public class ChatRouter
     protected final AnvilChat chat;
     protected final TaskRunner tasks;
     private final com.anvil.track.DropTracker drops;
+    /** Drops that arrive as words: a collection-log unlock, or a server drop line. */
+    private final com.anvil.track.DropCredit dropCredit;
     private final com.anvil.track.KillTracker kills;
     private final com.anvil.track.TimedClearTracker timed;
     private final com.anvil.track.ProofPipeline proofs;
@@ -78,7 +80,7 @@ public class ChatRouter
     @Inject
     ChatRouter(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.track.DropTracker drops, com.anvil.track.KillTracker kills, com.anvil.track.TimedClearTracker timed, com.anvil.track.ProofPipeline proofs, com.anvil.track.StatPushService statPush, com.anvil.track.AchievementTiles achTiles, com.anvil.clog.ProfileSync profileSync, com.anvil.notify.LootSourceMemory lootSource, com.anvil.notify.PetNotifier pets, com.anvil.notify.RareDropNotifier rareDrops, com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.util.ClipMoments clipMoments,
+            com.anvil.track.DropTracker drops, com.anvil.track.DropCredit dropCredit, com.anvil.track.KillTracker kills, com.anvil.track.TimedClearTracker timed, com.anvil.track.ProofPipeline proofs, com.anvil.track.StatPushService statPush, com.anvil.track.AchievementTiles achTiles, com.anvil.clog.ProfileSync profileSync, com.anvil.notify.LootSourceMemory lootSource, com.anvil.notify.PetNotifier pets, com.anvil.notify.RareDropNotifier rareDrops, com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.util.ClipMoments clipMoments,
         Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
@@ -89,6 +91,7 @@ public class ChatRouter
         this.chat = chat;
         this.tasks = tasks;
         this.drops = drops;
+        this.dropCredit = dropCredit;
         this.kills = kills;
         this.timed = timed;
         this.proofs = proofs;
@@ -244,9 +247,9 @@ public class ChatRouter
             Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(stripped);
             Matcher broadcast = CLAN_DROP_BROADCAST_PATTERN.matcher(stripped);
             if (broadcast.matches()) {
-                drops.creditDropFromChat(broadcast.group(1), broadcast.group(2), broadcast.group(3), broadcast.group(4));
+                dropCredit.creditDropFromChat(broadcast.group(1), broadcast.group(2), broadcast.group(3), broadcast.group(4));
             } else if (dropLine.matches()) {
-                drops.creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
+                dropCredit.creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
             }
         }
 
@@ -301,7 +304,7 @@ public class ChatRouter
                 // line — the only signal that fires on repeat completions.
                 String award = DropTracker.guaranteedAward(kcKey);
                 if (award != null) {
-                    drops.creditGuaranteedAward(kcName, award);
+                    dropCredit.creditGuaranteedAward(kcName, award);
                 }
             } catch (NumberFormatException ignored) {
             }
@@ -368,7 +371,7 @@ public class ChatRouter
             // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
             // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
             // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
-            drops.creditClogUnlock(item);
+            dropCredit.creditClogUnlock(item);
         }
         // (Drop-attribution lines are handled ABOVE the type gate — they parse from any
         // non-player-authored channel, not just the three types this section accepts.)
