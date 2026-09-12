@@ -1,23 +1,16 @@
 package com.anvil.api;
 
 import com.anvil.api.dto.ActivityResponse;
-import com.anvil.api.dto.AdminUnauthorizedException;
-import com.anvil.api.dto.ClanMember;
-import com.anvil.api.dto.ClanMismatchException;
-import com.anvil.api.dto.ClanSyncResponse;
 import com.anvil.api.dto.DeviceAuthPoll;
 import com.anvil.api.dto.DeviceAuthStart;
 import com.anvil.api.dto.HelloResponse;
 import com.anvil.api.dto.PermanentSubmissionException;
-import com.anvil.api.dto.RateLimitedException;
 import com.anvil.api.dto.WeeklyLeaderboard;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -104,6 +97,12 @@ public class BingoApiClient
 		return site.getApiUrl();
 	}
 
+	/** Is there a site to talk to at all? A token may still be missing — see {@link #needsSignIn()}. */
+	public boolean isConfiguredUrl()
+	{
+		return site.isConfiguredUrl();
+	}
+
 	public boolean isConfigured()
 	{
 		return site.isConfigured();
@@ -182,6 +181,12 @@ public class BingoApiClient
 	}
 
 	/** A request carrying this account's identity — token, RSN, account hash and plugin version. */
+	/** The token as a bearer header, when there is one. See {@link SiteAddress#optionalAuth}. */
+	public Request.Builder optionalAuth(Request.Builder builder)
+	{
+		return site.optionalAuth(builder);
+	}
+
 	public Request.Builder authedRequest(String url)
 	{
 		return site.authedRequest(url);
@@ -371,98 +376,6 @@ public class BingoApiClient
 			.build();
 
 		return readOrNull(request, HelloResponse.class, "plugin/hello");
-	}
-
-	/**
-	 * GET /api/plugin/me — "is my account token a site admin?" probe.
-	 *
-	 * Sends the per-user account token as a Bearer header. Returns true only on HTTP 200
-	 * (the site returns {isAdmin:true} for admins, 401 for non-admins / invalid tokens).
-	 * Tolerates network/parse failures by returning false — a hidden panel is the safe default.
-	 */
-	public boolean fetchIsAdmin(String accountToken)
-	{
-		if (!site.isConfiguredUrl() || accountToken == null || accountToken.isEmpty())
-		{
-			return false;
-		}
-		Request request = new Request.Builder()
-			.url(clanUrl("/api/plugin/me"))
-			.header("Authorization", "Bearer " + accountToken)
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (response.code() != 200)
-			{
-				// 401 = this token's user isn't an admin (or the token is stale). Anything else is
-				// the site having a bad time. Logged either way: "the button vanished" is otherwise
-				// indistinguishable between the two, and one of them is worth retrying.
-				log.info("Anvil: admin probe answered HTTP {} — no clan-sync button this session", response.code());
-			}
-			return response.code() == 200;
-		}
-		catch (Exception e)
-		{
-			log.info("Anvil: admin probe couldn't reach the site ({}) — will retry", e.getMessage());
-			return false;
-		}
-	}
-
-	/**
-	 * POST /api/plugin/clan-sync — upload the scraped clan roster. Authenticated with the
-	 * caller's per-user account token (must belong to a site admin).
-	 */
-	public ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
-	{
-		if (!site.isConfiguredUrl())
-		{
-			throw new IOException("Site URL is not configured");
-		}
-		JsonObject payload = new JsonObject();
-		payload.addProperty("clanName", clanName);
-		payload.add("members", gson.toJsonTree(members));
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(clanUrl("/api/plugin/clan-sync"))
-			.header("Authorization", "Bearer " + accountToken)
-			.post(body)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			String responseBody = response.body() != null ? response.body().string() : "";
-			if (response.code() == 401)
-			{
-				throw new AdminUnauthorizedException("Account token is not an admin (or was revoked)");
-			}
-			if (response.code() == 409)
-			{
-				String serverClan = null;
-				try
-				{
-					JsonObject err = new JsonParser().parse(responseBody).getAsJsonObject();
-					if (err.has("serverClanName"))
-					{
-						serverClan = err.get("serverClanName").getAsString();
-					}
-				}
-				catch (Exception ignored) {}
-				throw new ClanMismatchException(serverClan);
-			}
-			if (response.code() == 429)
-			{
-				// The site has a limit and told us how long it is; the caller waits exactly that
-				// long rather than backing off blindly from a message it couldn't read.
-				throw new RateLimitedException(ApiErrors.friendlyError(429, responseBody), ApiErrors.retryAfterFrom(responseBody));
-			}
-			if (!response.isSuccessful())
-			{
-				throw new IOException("HTTP " + response.code() + " — " + responseBody);
-			}
-			return gson.fromJson(responseBody, ClanSyncResponse.class);
-		}
 	}
 
 	/** 4xx client errors are permanent (don't retry) — except auth (401, token may refresh), request
