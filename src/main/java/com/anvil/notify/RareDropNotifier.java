@@ -100,6 +100,11 @@ public class RareDropNotifier
     }
 
     /** A pet post needs its own manual proof; the plugin owns capture, so it hands one in. */
+    /** The line a PvP kill posts — the death line's mirror, from the other side. */
+    public String buildKillMessage(String rsn, String victim) {
+        return AnvilEmbeds.who(rsn) + " killed **" + victim + "**";
+    }
+
     public String buildDeathMessage(String rsn) {
         return deathMessage(rsn);
     }
