@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.notify;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -22,15 +22,15 @@ public class ClogSourceTest
 {
 	private static final long WINDOW = 60_000;
 
-	private static Map<String, AnvilPlugin.RecentItem> seen(Object... triples)
+	private static Map<String, LootSourceMemory.RecentItem> seen(Object... triples)
 	{
-		Map<String, AnvilPlugin.RecentItem> m = new HashMap<>();
+		Map<String, LootSourceMemory.RecentItem> m = new HashMap<>();
 		for (int i = 0; i < triples.length; i += 3)
 		{
 			String name = (String) triples[i];
 			long at = ((Number) triples[i + 1]).longValue();
 			String source = (String) triples[i + 2];
-			m.put(name.toLowerCase(), new AnvilPlugin.RecentItem(1, at, source));
+			m.put(name.toLowerCase(), new LootSourceMemory.RecentItem(1, at, source));
 		}
 		return m;
 	}
@@ -39,27 +39,27 @@ public class ClogSourceTest
 	public void anItemIsCreditedToWhatItFellOutOf()
 	{
 		// Both happened inside the window; the casket is not the most recent, and is still correct.
-		Map<String, AnvilPlugin.RecentItem> m = seen(
+		Map<String, LootSourceMemory.RecentItem> m = seen(
 			"Enchanted top", 1_000L, "Clue Scroll (Medium)",
 			"Grimy guam leaf", 5_000L, "Saradomin wizard");
 
-		assertEquals("Clue Scroll (Medium)", AnvilPlugin.sourceOf(m, "Enchanted top", 5_000L, WINDOW));
-		assertEquals("Saradomin wizard", AnvilPlugin.sourceOf(m, "Grimy guam leaf", 5_000L, WINDOW));
+		assertEquals("Clue Scroll (Medium)", LootSourceMemory.sourceOf(m, "Enchanted top", 5_000L, WINDOW));
+		assertEquals("Saradomin wizard", LootSourceMemory.sourceOf(m, "Grimy guam leaf", 5_000L, WINDOW));
 	}
 
 	@Test
 	public void nameLookupIgnoresCase()
 	{
-		Map<String, AnvilPlugin.RecentItem> m = seen("Enchanted top", 0L, "Clue Scroll (Medium)");
-		assertEquals("Clue Scroll (Medium)", AnvilPlugin.sourceOf(m, "ENCHANTED TOP", 0L, WINDOW));
+		Map<String, LootSourceMemory.RecentItem> m = seen("Enchanted top", 0L, "Clue Scroll (Medium)");
+		assertEquals("Clue Scroll (Medium)", LootSourceMemory.sourceOf(m, "ENCHANTED TOP", 0L, WINDOW));
 	}
 
 	/** Past the window it is not this unlock's loot, and guessing is what caused the bug. */
 	@Test
 	public void anItemFromTooLongAgoNamesNothing()
 	{
-		Map<String, AnvilPlugin.RecentItem> m = seen("Enchanted top", 0L, "Clue Scroll (Medium)");
-		assertNull(AnvilPlugin.sourceOf(m, "Enchanted top", WINDOW + 1, WINDOW));
+		Map<String, LootSourceMemory.RecentItem> m = seen("Enchanted top", 0L, "Clue Scroll (Medium)");
+		assertNull(LootSourceMemory.sourceOf(m, "Enchanted top", WINDOW + 1, WINDOW));
 	}
 
 	@Test
@@ -67,8 +67,8 @@ public class ClogSourceTest
 	{
 		// A skilling pet or a quest reward: the caller falls back to the recent-loot source, which is
 		// the only signal there is when no loot event carried the item.
-		assertNull(AnvilPlugin.sourceOf(seen(), "Rocky", 0L, WINDOW));
-		assertNull(AnvilPlugin.sourceOf(seen("Rocky", 0L, ""), "Rocky", 0L, WINDOW));
-		assertNull(AnvilPlugin.sourceOf(seen("Rocky", 0L, "Thieving"), null, 0L, WINDOW));
+		assertNull(LootSourceMemory.sourceOf(seen(), "Rocky", 0L, WINDOW));
+		assertNull(LootSourceMemory.sourceOf(seen("Rocky", 0L, ""), "Rocky", 0L, WINDOW));
+		assertNull(LootSourceMemory.sourceOf(seen("Rocky", 0L, "Thieving"), null, 0L, WINDOW));
 	}
 }

@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.notify;
 
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.EventInfo;
@@ -43,16 +43,16 @@ public class EventNudgeTest
 	@Test
 	public void autoSubmitOffDuringALiveEventIsWorthSaying()
 	{
-		assertTrue(AnvilPlugin.autoSubmitBlocksEvent(live(), false));
+		assertTrue(NudgeService.autoSubmitBlocksEvent(live(), false));
 	}
 
 	@Test
 	public void aWorkingSetupIsNotLecturedAt()
 	{
-		assertFalse("nothing is being lost", AnvilPlugin.autoSubmitBlocksEvent(live(), true));
-		assertFalse("no board, nothing to miss", AnvilPlugin.autoSubmitBlocksEvent(null, false));
+		assertFalse("nothing is being lost", NudgeService.autoSubmitBlocksEvent(live(), true));
+		assertFalse("no board, nothing to miss", NudgeService.autoSubmitBlocksEvent(null, false));
 		assertFalse("a board that hasn't started loses nothing yet",
-			AnvilPlugin.autoSubmitBlocksEvent(notStarted(), false));
+			NudgeService.autoSubmitBlocksEvent(notStarted(), false));
 	}
 
 	@Test
@@ -60,7 +60,7 @@ public class EventNudgeTest
 	{
 		PluginConfigResponse cfg = live();
 		cfg.trackedDrops = Collections.singletonList(new TrackedDrop());
-		assertTrue(AnvilPlugin.eventNeedsDropLines(cfg));
+		assertTrue(NudgeService.eventNeedsDropLines(cfg));
 	}
 
 	@Test
@@ -69,17 +69,17 @@ public class EventNudgeTest
 		// Same signal, same reason: a haul from a corpse boss reaches neither tile kind without it.
 		PluginConfigResponse cfg = live();
 		cfg.trackedValues = Collections.singletonList(new TrackedValue());
-		assertTrue(AnvilPlugin.eventNeedsDropLines(cfg));
+		assertTrue(NudgeService.eventNeedsDropLines(cfg));
 	}
 
 	@Test
 	public void aBoardWithNeitherIsLeftAlone()
 	{
-		assertFalse("a KC-only board never reads that line", AnvilPlugin.eventNeedsDropLines(live()));
-		assertFalse(AnvilPlugin.eventNeedsDropLines(null));
+		assertFalse("a KC-only board never reads that line", NudgeService.eventNeedsDropLines(live()));
+		assertFalse(NudgeService.eventNeedsDropLines(null));
 
 		PluginConfigResponse upcoming = notStarted();
 		upcoming.trackedDrops = Collections.singletonList(new TrackedDrop());
-		assertFalse("not until it starts", AnvilPlugin.eventNeedsDropLines(upcoming));
+		assertFalse("not until it starts", NudgeService.eventNeedsDropLines(upcoming));
 	}
 }

@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.notify;
 
 import org.junit.Test;
 
@@ -20,19 +20,19 @@ public class RaidKillCountTest
 	@Test
 	public void aModeCreditsItsBaseRaid()
 	{
-		assertTrue(AnvilPlugin.kcLineBelongsTo("Tombs of Amascut", "Tombs of Amascut: Expert Mode"));
-		assertTrue(AnvilPlugin.kcLineBelongsTo("Tombs of Amascut", "Tombs of Amascut: Entry Mode"));
+		assertTrue(LootSourceMemory.kcLineBelongsTo("Tombs of Amascut", "Tombs of Amascut: Expert Mode"));
+		assertTrue(LootSourceMemory.kcLineBelongsTo("Tombs of Amascut", "Tombs of Amascut: Entry Mode"));
 		// CoX Challenge Mode carries no colon in the game's line — punctuation is normalised away, so
 		// the two spellings behave the same.
-		assertTrue(AnvilPlugin.kcLineBelongsTo("Chambers of Xeric", "Chambers of Xeric Challenge Mode"));
-		assertTrue(AnvilPlugin.kcLineBelongsTo("Theatre of Blood", "Theatre of Blood: Hard Mode"));
+		assertTrue(LootSourceMemory.kcLineBelongsTo("Chambers of Xeric", "Chambers of Xeric Challenge Mode"));
+		assertTrue(LootSourceMemory.kcLineBelongsTo("Theatre of Blood", "Theatre of Blood: Hard Mode"));
 	}
 
 	@Test
 	public void theSameActivityStillMatchesItself()
 	{
-		assertTrue(AnvilPlugin.kcLineBelongsTo("Zulrah", "Zulrah"));
-		assertTrue(AnvilPlugin.kcLineBelongsTo("Tombs of Amascut", "Tombs of Amascut"));
+		assertTrue(LootSourceMemory.kcLineBelongsTo("Zulrah", "Zulrah"));
+		assertTrue(LootSourceMemory.kcLineBelongsTo("Tombs of Amascut", "Tombs of Amascut"));
 	}
 
 	@Test
@@ -40,15 +40,15 @@ public class RaidKillCountTest
 	{
 		// The boundary is what stops a short name swallowing a longer one once punctuation is gone.
 		// A mode adds WORDS; it never merely extends one.
-		assertFalse(AnvilPlugin.kcLineBelongsTo("Kree", "Kree'Arra"));
-		assertFalse(AnvilPlugin.kcLineBelongsTo("Cerb", "Cerberus"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("Kree", "Kree'Arra"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("Cerb", "Cerberus"));
 	}
 
 	@Test
 	public void adifferentActivityNeverMatches()
 	{
-		assertFalse(AnvilPlugin.kcLineBelongsTo("Tombs of Amascut", "Chambers of Xeric"));
-		assertFalse(AnvilPlugin.kcLineBelongsTo("Zulrah", "Vorkath"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("Tombs of Amascut", "Chambers of Xeric"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("Zulrah", "Vorkath"));
 	}
 
 	@Test
@@ -56,14 +56,14 @@ public class RaidKillCountTest
 	{
 		// Direction matters. A drop from the mode should not be answered by the base raid's line —
 		// only the other way round, which is the direction RuneLite's naming actually produces.
-		assertFalse(AnvilPlugin.kcLineBelongsTo("Tombs of Amascut: Expert Mode", "Tombs of Amascut"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("Tombs of Amascut: Expert Mode", "Tombs of Amascut"));
 	}
 
 	@Test
 	public void nothingMatchesNothing()
 	{
-		assertFalse(AnvilPlugin.kcLineBelongsTo(null, "Zulrah"));
-		assertFalse(AnvilPlugin.kcLineBelongsTo("Zulrah", null));
-		assertFalse(AnvilPlugin.kcLineBelongsTo("", "Zulrah"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo(null, "Zulrah"));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("Zulrah", null));
+		assertFalse(LootSourceMemory.kcLineBelongsTo("", "Zulrah"));
 	}
 }

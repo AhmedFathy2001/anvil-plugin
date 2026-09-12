@@ -31,6 +31,16 @@ import com.anvil.api.dto.TrackedStat;
 import com.anvil.api.dto.TrackedTimed;
 import com.anvil.api.dto.TrackedValue;
 import com.anvil.api.dto.WeeklyInfo;
+import com.anvil.notify.AchievementNotifier;
+import com.anvil.notify.AnvilEmbeds;
+import com.anvil.notify.LootSourceMemory;
+import com.anvil.notify.MomentsService;
+import com.anvil.notify.NudgeService;
+import com.anvil.notify.PetNotifier;
+import com.anvil.notify.PetNotifier.PendingPet;
+import com.anvil.notify.RareDropNotifier;
+import com.anvil.track.RecapCounters;
+import com.anvil.util.Gp;
 import com.anvil.clan.ClanRosterService;
 import com.anvil.clip.ObsClipService;
 import com.anvil.clog.ClogFullSync;
@@ -57,10 +67,11 @@ import com.anvil.detect.ThievingService;
 import com.anvil.detect.TimedClearParser;
 import com.anvil.detect.VestigeRolls;
 import com.anvil.io.BannerSoundService;
-import com.anvil.io.DebugLogExporter;
+import com.anvil.io.DebugSupportLog;
 import com.anvil.io.DiscordWebhookClient;
 import com.anvil.io.ObsReplayClient;
 import com.anvil.io.PendingSubmissionStore;
+import com.anvil.notify.PendingCaTask;
 import com.anvil.ui.AnvilMoments;
 import com.anvil.ui.AnvilOverlay;
 import com.anvil.ui.AnvilSidebarDataSource;
@@ -274,7 +285,7 @@ public class AnvilPlugin extends Plugin {
     private KeyManager keyManager;
 
     @Inject
-    private DebugLogExporter debugLogExporter;
+    private DebugSupportLog supportLog;
 
     @Inject
     private AnvilChat anvilChat;
@@ -284,6 +295,33 @@ public class AnvilPlugin extends Plugin {
     // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
     // plugin's automatic event triggers.
     // Touched from the client thread (startup, hotkey, config change) and the executor's reconnect
+    /** The clan's Discord posts, by kind. */
+    @Inject
+    private RareDropNotifier rareDrops;
+
+    @Inject
+    private PetNotifier pets;
+
+    @Inject
+    private AchievementNotifier achievements;
+
+    @Inject
+    private AnvilEmbeds embeds;
+
+    @Inject
+    private MomentsService moments;
+
+    @Inject
+    private LootSourceMemory lootSource;
+
+    /** The cosmetic end-of-event numbers. Never scoring. */
+    @Inject
+    private RecapCounters counters;
+
+    /** The settings elsewhere that quietly stop this working. */
+    @Inject
+    private NudgeService nudges;
+
     /** Clips: OBS, the pending-request queue, and getting the file to Discord. */
     @Inject
     private ObsClipService clips;
@@ -322,7 +360,7 @@ public class AnvilPlugin extends Plugin {
     private final HotkeyListener exportDebugLogHotkeyListener = new HotkeyListener(() -> config.exportDebugLogHotkey()) {
         @Override
         public void hotkeyPressed() {
-            exportDebugLog();
+            supportLog.export();
         }
     };
 
@@ -382,14 +420,6 @@ public class AnvilPlugin extends Plugin {
     private static final long DEDUP_WINDOW_MS = 3_000;
     private final DedupWindow<String> lastSubmittedAt = new DedupWindow<>(DEDUP_WINDOW_MS);
 
-    // Item ids credited by a REAL loot event (raid chest / NPC drop), with the time last seen. The
-    // collection-log-unlock credit path (creditClogUnlock) skips these so a raid-chest item that
-    // already credited via its loot event can't ALSO credit when its "New item added to your
-    // collection log" line fires on pickup — same acquisition, but the two can land far more than the
-    // 3s loot dedup apart (open the chest, take the items later), which double-counted a CoX unique.
-    private static final long CLOG_LOOT_DEDUP_MS = 5 * 60_000;
-    private final DedupWindow<Integer> recentLootItemIds = new DedupWindow<>(CLOG_LOOT_DEDUP_MS);
-
     // PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
     // player then dies within the window, we count it as our kill (avoids screenshotting random
     // nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
@@ -402,33 +432,6 @@ public class AnvilPlugin extends Plugin {
     // PlayerLootReceived, so their entry just expires and the min-loot tile isn't credited (intended).
     private static final long PVP_MINLOOT_LOOT_WINDOW_MS = 20_000;
     private final DedupWindow<String> pendingMinLootKillAt = new DedupWindow<>(PVP_MINLOOT_LOOT_WINDOW_MS);
-
-    // Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
-    // suppress a repeat post of the same item within a short window. Keyed by itemId.
-    private static final long RARE_DEDUP_WINDOW_MS = 5_000;
-    private final DedupWindow<Integer> lastRareNotifyAt = new DedupWindow<>(RARE_DEDUP_WINDOW_MS);
-    // Aggregate-loot dedup keyed by source name (same NPC kill fires NpcLootReceived + LootReceived).
-    private final DedupWindow<String> lastAggregateNotifyAt = new DedupWindow<>(RARE_DEDUP_WINDOW_MS);
-    private static final int RARE_EMBED_COLOR = 0xD4A017; // gold, matches the site accent
-    private static final int CA_EMBED_COLOR = 0x4A90D9; // blue, distinct from rare-drop gold
-    // Combat Achievements crest + hub page — the embed's thumbnail and title link. Both are plain
-    // strings handed to Discord in the payload; the plugin never fetches either.
-    private static final String CA_ICON_URL = "https://oldschool.runescape.wiki/images/Combat_Achievements_icon.png";
-    private static final String CA_WIKI_URL = "https://oldschool.runescape.wiki/w/Combat_Achievements";
-
-
-
-
-
-
-    // Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
-    // collection-log unlock message fire for it.
-    private final DedupWindow<String> lastAllowlistNotifyAt = new DedupWindow<>(RARE_DEDUP_WINDOW_MS);
-
-    // Kill/clear count per source, scraped from "Your <X> kill count is: N" (and the raid
-    // "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
-    // landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
-    private final Map<String, Integer> killCounts = new HashMap<>();
 
     /**
      * The "Anvil" button in the collection log header.
@@ -448,21 +451,6 @@ public class AnvilPlugin extends Plugin {
      * where pressing it could only collect a 403.
      */
     private HeaderButton clanSyncButton;
-    /**
-     * The most recent "Your X kill count is: N" line, and when it landed.
-     *
-     * A collection-log unlock names the ITEM and nothing else, so on its own the server can't say
-     * which kill produced it — and it was left inferring the count from the hiscores snapshot, which
-     * only flushes on logout. That is how an Ancestral bottom taken on the 80th Chambers landed in
-     * the log as "at 79 KC" while the Discord post, reading this map, said 80.
-     *
-     * The kill line always precedes the loot, so the last one seen is the kill the unlock came from.
-     */
-    private String lastKcName = null;
-    private int lastKcValue = 0;
-    private long lastKcAtMs = 0L;
-    /** How recent that line has to be for an unlock to be attributed to it. */
-    private static final long KC_ATTRIBUTION_WINDOW_MS = 60_000L;
     // The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
     // Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
     // "Total Ticket" for the Brimhaven Agility Arena) and Wintertodt prefixes "subdued" — all must
@@ -592,14 +580,6 @@ public class AnvilPlugin extends Plugin {
         return msg == null ? "" : CHAT_TAG.matcher(msg).replaceAll("");
     }
 
-    // Combat achievement task completion, e.g.
-    // "Congratulations, you've completed an Elite combat task: Whack-a-Mole."
-    // Package-visible for CombatTaskLineTest — CA bingo-tile crediting keys off this line.
-    static final Pattern CA_TASK_PATTERN = Pattern.compile(
-            "Congratulations, you've completed an? (\\w+) combat task: (.+?)\\.?$");
-    // Trailing " (5 points)" appended when the in-game recompletion setting is on.
-    static final Pattern CA_TASK_POINTS = Pattern.compile(
-            "\\s*\\(\\d+ points?\\)$");
     // Skill level-up, e.g. "Congratulations, you just advanced your Mining level. You are now
     // level 99." Fires exactly once per level gained, so no dedup/baseline needed (unlike CA).
     // Accepts the modern "your" and the older "a/an" phrasing.
@@ -625,66 +605,22 @@ public class AnvilPlugin extends Plugin {
     private static final long DIARY_DEDUP_MS = 15_000;
     private final DedupWindow<String> lastDiaryHandledAt = new DedupWindow<>(DIARY_DEDUP_MS);
 
-    // Quest-completed scroll interface — gameval InterfaceID.QUESTSCROLL (153); child 4 is
-    // Questscroll.QUEST_TITLE, the "You have completed <Quest>!" line. Same signal RuneLite's
-    // screenshot plugin keys off.
-    private static final int QUEST_COMPLETED_GROUP_ID = 153;
-    private static final int QUEST_COMPLETED_TEXT_CHILD = 4;
-    // Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
-    private final Set<String> announcedQuests = new LinkedHashSet<>();
-
-    // Quest-name extraction, ported from RuneLite's ScreenshotPlugin (BSD-2) — the scroll text
-    // varies: "You have completed The Corsair Curse!", "'One Small Favour' completed!",
-    // "Congratulations! You have defeated the Culinaromancer!" (RFD subquests), and the
-    // "kind of"/"completely" phrasings of Hazeel Cult and Rag and Bone Man.
-    private static final Pattern QUEST_PATTERN_1 = Pattern.compile(
-            ".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$");
-    private static final Pattern QUEST_PATTERN_2 = Pattern.compile(
-            "'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
-
     // Parsed CA completions waiting one tick so the points varbit has settled before we read them.
     // A queue (not a single slot): one kill can complete several CA tasks in the same tick — the
     // game prints a message per task and we must post every one, not just the last.
     private final List<PendingCaTask> pendingCaTasks = new ArrayList<>();
-    // Task names already announced this session. Dedups recompletions (the in-game "repeat
-    // completion" message) by NAME — which also lets multiple completions in one tick all post,
-    // unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
-    private final Set<String> notifiedCaTasks = new LinkedHashSet<>();
     // CA tile-credit dedup — "<tileId>|<task name>" pairs already credited this session, so
     // repeating the SAME task (repeat-completion fires on every re-meet) can't farm a
     // multi-count wildcard tile ("any 5 Master tasks" needs 5 distinct tasks, not one task
     // five times). Cleared on the login screen so account swaps start fresh.
     private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
-    // One nudge per session about the in-game "Repeat completion" CA setting.
-    /** One per login: the event is live and auto-submit is off, so none of it is being counted. */
-    private boolean autoSubmitNudgeSent;
-    private boolean caRepeatNudgeSent;
-    // One nudge per session about the in-game loot drop notifications (rare-drop post dependency).
-    private boolean lootNotifyNudgeSent;
     // Once-per-session tracking-suppression notices, so a member's client.log answers "why did
     // nothing track" without a line per suppressed loot event. Keyed by reason; reset at login.
     private final Set<String> loggedSuppressions = new LinkedHashSet<>();
     // Last logged tracking summary — config refreshes every ~30s, so the summary only logs when
     // the tracking state actually changed (event, tile counts, autoSubmit, completions).
     private String lastTrackingFingerprint;
-    // Last-known total CA points, baselined at login; used only for tier-clear detection now.
-    private int lastCaPoints = -1;
-    private boolean caPointsInitialized;
 
-    private static final class PendingCaTask {
-
-        final CombatAchievementTier tier;
-        final String task;
-
-        PendingCaTask(CombatAchievementTier tier, String task) {
-            this.tier = tier;
-            this.task = task;
-        }
-    }
-    // Last-known total level, baselined at login so we only announce genuine crossings (not the
-    // total we logged in with). Total only ever rises on a skill level-up, so we check it there.
-    private int lastTotalLevel = -1;
-    private boolean totalLevelInitialized;
     // Per-skill real level, so a 99 is detected off the stat event — independent of the in-game
     // "Level-up interface" setting, which decides whether the chat line even carries the level number.
     // notified99 dedups a 99 arriving from both StatChanged and the chat line.
@@ -696,16 +632,6 @@ public class AnvilPlugin extends Plugin {
     // NOT on the burst of StatChanged RuneLite emits for every skill on login/resync (which otherwise
     // mislabels every tracked skill tile as "You"). The first sighting per skill just seeds the baseline.
     private final Map<Skill, Integer> lastSkillXp = new EnumMap<>(Skill.class);
-    private final Set<String> notified99 = new HashSet<>();
-    // NOTE on Skill.OVERALL, which four loops here used to skip by hand: it is not in
-    // Skill.values() any more. The client builds $VALUES and then assigns OVERALL = null as a
-    // source-compatibility tombstone, so every "skip OVERALL" guard was comparing against null and
-    // never fired. They are gone; Skill.values() is already the trainable skills and nothing else.
-    // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
-    // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
-    // ~1750 so it kicks in for high accounts without spamming every 50 levels.
-    private static final int TOTAL_MILESTONE_FLOOR = 1750;
-    private static final int TOTAL_MILESTONE_STEP = 100;
 
     // Drop coalescing — batch rapid same-tile drops into one screenshot + one submission.
     // Without this, killing 1 NPC that drops a stack of 2000 would fire 2000 captures and
@@ -796,56 +722,6 @@ public class AnvilPlugin extends Plugin {
     /** In-game boss name (as seen in chat) → latest ABSOLUTE kill count. */
     private final DebouncedPush kcPush = new DebouncedPush(
             "KC", "boss(es)", KC_PUSH_COALESCE_MS, batch -> apiClient.submitStatKc(batch), null);
-    // ── Recap "fun stat" counters (deaths + total loot GP) for the active event. Cosmetic only (feeds the
-    // end-of-event superlatives — never scoring). Held per-event and PERSISTED to the config store so a
-    // client restart mid-event keeps counting instead of resetting to zero; switching events resets both.
-    // Pushed as ABSOLUTE totals, debounced like KC, and max-merged server-side (idempotent).
-    private final Object counterLock = new Object();
-    private boolean countersLoaded = false;
-    private int counterEventId = 0;
-    private int eventDeaths = 0;
-    private long eventLootGp = 0;
-    private int eventPvpKills = 0;
-    /** Hardest single hitsplat we've landed this event — "Heavy Hitter". */
-    private int eventBiggestHit = 0;
-    /** Minutes logged in during the event. Turns every other counter into a rate. */
-    private int eventMinutes = 0;
-    /** Combat tasks FIRST completed during the event — "Task Master". Recompletions never count. */
-    private int eventCaTasks = 0;
-    /** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
-    private int eventTickAccumulator = 0;
-    private ScheduledFuture<?> counterPushTask;
-    private final DedupWindow<String> lastLootValueAt = new DedupWindow<>(DEDUP_WINDOW_MS);
-    // Item ids (by lowercased name) and the source from the last loot event, so a collection-log
-    // unlock line — which carries only text — can still draw the right sprite and name where it came
-    // from. Expired against CLOG_LOOT_DEDUP_MS; guarded by its own monitor.
-    private final Map<String, RecentItem> recentLootIds = new HashMap<>();
-    private String lastLootSource;
-    // Which rarity table the last loot came from ("npc" / "pickpocket" / …). Kept alongside the
-    // source name so a pet post can price its own drop rate — Rocky is a pickpocketing roll and a
-    // Baby mole an NPC one, and asking the wrong service returns nothing rather than a wrong number.
-    private String lastLootSourceKind;
-    private long lastLootSourceAt;
-    private static final long COUNTER_PUSH_COALESCE_MS = 15_000;
-    // ── Highlight feed (AnvilMoments). Pets, uniques, big hauls and deaths, queued as they happen and
-    // pushed in small batches; the SITE decides which competition week or board each one belongs to
-    // and throws away the rest. Cosmetic only — never scoring. Recorded at the event and never inside
-    // a notification gate, so a member with the drops channel off still lands on the clan's feed.
-    private final AnvilMoments moments = new AnvilMoments();
-    private ScheduledFuture<?> momentPushTask;
-    /** Long enough for a kill's two loot events (and a pet's chat lines) to settle into one entry. */
-    private static final long MOMENT_PUSH_COALESCE_MS = 8_000;
-    /**
-     * How stale the "what were we fighting" note may be and still name a killer.
-     *
-     * <p>Generous enough to cover a death you spent a few seconds losing, tight enough that the boss
-     * you killed a minute ago doesn't get the credit for a Wilderness PKer.
-     */
-    private static final long DEATH_ATTRIBUTION_MS = 30_000;
-    /** Game ticks in a minute (600ms each). */
-    private static final int TICKS_PER_MINUTE = 100;
-    /** Play time pushes on a slow cadence — the number only ever climbs by one. */
-    private static final int MINUTES_PER_PLAYTIME_PUSH = 10;
     // Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
     // persists every setting the moment a plugin first runs, so a new default alone reaches nobody
     // who has already used the plugin — the migration below is what actually moves them.
@@ -862,14 +738,6 @@ public class AnvilPlugin extends Plugin {
 
     /** How many times a never-configured install has been told where to sign in. See SetupNudge. */
     static final String CFG_FIRST_RUN_NUDGES = "firstRunNudges";
-
-    private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
-    private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
-    private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
-    private static final String CFG_COUNTER_PVP = "recapCounterPvpKills";
-    private static final String CFG_COUNTER_BIGHIT = "recapCounterBiggestHit";
-    private static final String CFG_COUNTER_MINUTES = "recapCounterMinutes";
-    private static final String CFG_COUNTER_CATASKS = "recapCounterCaTasks";
 
     // ── Profile sync (collection log + personal bests) ──────────────────────────────────────
     // Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —
@@ -1113,6 +981,20 @@ public class AnvilPlugin extends Plugin {
         // config (replaced wholesale on every poll, so a supplier and not the value) and who is
         // playing. Bound once here rather than passed through every call.
         clips.bind(() -> pluginConfig, this::getLocalPlayerName);
+        supportLog.bind(() -> pluginConfig);
+        // Everything that reads the live event config takes a supplier, not the value: the config is
+        // replaced wholesale on every poll, and a collaborator holding the old object would go on
+        // crediting an event that has ended.
+        embeds.bind(() -> pluginConfig);
+        lootSource.bind(() -> pluginConfig);
+        lootSource.bindNotableItems(() -> notableItemIds);
+        rareDrops.bind(() -> pluginConfig, this::getLocalPlayerName);
+        pets.bind(() -> pluginConfig, this::getLocalPlayerName, this::captureManualProof);
+        achievements.bind(() -> pluginConfig, this::getLocalPlayerName);
+        moments.bind(() -> pluginConfig, () -> itemDropIndex, () -> deathAttribution,
+                achievements::statsAreArtificial);
+        counters.bind(() -> pluginConfig, this::trackingGateReason);
+        nudges.bind(() -> pluginConfig);
         notifiedCompletedTiles.clear();
         locallyShownTiles.clear();
         completionBaselineEventId = null;
@@ -1288,10 +1170,7 @@ public class AnvilPlugin extends Plugin {
         kcPush.clear();
         // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
         // session days later would be filed against whatever happens to be running then.
-        synchronized (moments) {
-            moments.reset();
-            momentPushTask = null;
-        }
+        moments.reset();
         trackedSkillNames = Collections.emptySet();
         skillXpPush.clear();
         trackedActivityKeys = Collections.emptySet();
@@ -1301,15 +1180,7 @@ public class AnvilPlugin extends Plugin {
         }
         // Flush the recap counters to the config store (captures loot gained since the last push) and
         // stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
-        synchronized (counterLock) {
-            if (counterPushTask != null) {
-                counterPushTask.cancel(false);
-                counterPushTask = null;
-            }
-            if (countersLoaded) {
-                persistCounters();
-            }
-        }
+        counters.shutDown();
         recentTimedMessages.clear();
         pendingTimedSeconds = null;
         lastNpcDeathName = null;
@@ -1320,7 +1191,7 @@ public class AnvilPlugin extends Plugin {
     public void onCommandExecuted(CommandExecuted event) {
         String cmd = event.getCommand();
         if (cmd != null && cmd.equalsIgnoreCase("anvillog")) {
-            exportDebugLog();
+            supportLog.export();
         }
     }
 
@@ -1354,7 +1225,7 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
             lastSkillLevel.clear();
-            notified99.clear();
+            achievements.clear99s();
             for (Skill skill : Skill.values()) {
                 int level = client.getRealSkillLevel(skill);
                 if (level <= 0) {
@@ -1362,7 +1233,7 @@ public class AnvilPlugin extends Plugin {
                 }
                 lastSkillLevel.put(skill, level);
                 if (level >= 99) {
-                    notified99.add(skill.getName().toLowerCase());
+                    achievements.note99(skill.getName().toLowerCase());
                 }
             }
         });
@@ -1377,7 +1248,7 @@ public class AnvilPlugin extends Plugin {
         // Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels/XP that aren't the
         // player's real progression — never notify off them, never overwrite the real-level baseline
         // (lastSkillLevel), and never push their XP.
-        if (statsAreArtificial()) {
+        if (achievements.statsAreArtificial()) {
             return;
         }
         // Real-time skill-XP push (debounced), so skill-XP tiles move without waiting on the hourly
@@ -1396,7 +1267,7 @@ public class AnvilPlugin extends Plugin {
         if (prev == null) {
             // First sighting this session = baseline; remember pre-existing 99s so they never announce.
             if (level >= 99) {
-                notified99.add(skill.getName().toLowerCase());
+                achievements.note99(skill.getName().toLowerCase());
             }
             return;
         }
@@ -1404,86 +1275,10 @@ public class AnvilPlugin extends Plugin {
             return; // XP within a level, or no gain — nothing to announce
         }
         if (level >= 99 && prev < 99) {
-            recordLevelMoment(skill.getName(), 99, "skill");
-            handleLevelMilestone(skill.getName());
+            moments.recordLevelMoment(skill.getName(), 99, "skill");
+            achievements.handleLevelMilestone(skill.getName());
         }
-        handleTotalMilestone();
-    }
-
-    /**
-     * Save a shareable support log (a diagnostic header + the Anvil-relevant slice of client.log) and
-     * tell the player where it went. Header is built on the client thread (safe access to game/plugin
-     * state), then the disk work runs on the executor so we never touch the filesystem on the UI thread.
-     */
-    private void exportDebugLog() {
-        clientThread.invoke(() -> {
-            final String header = buildDiagnosticHeader();
-            final Runnable job = () -> {
-                DebugLogExporter.Result res = debugLogExporter.export(header);
-                clientThread.invokeLater(() -> {
-                    // Anvil's own chat styling, and only what actually happened: the folder no longer
-                    // opens (LinkBrowser::open is restricted for hub releases), so saying it did sent
-                    // people looking at a file manager that never appeared.
-                    if (res == null) {
-                        sendChatMessage("Couldn't save the debug log. Look in your .runelite/anvil-debug "
-                                + "folder, or ask your clan admin for help.");
-                    } else {
-                        sendChatMessage("Debug log saved — its path is on your clipboard. Paste that into "
-                                + "your file manager and send the newest 'anvil-debug' file to your clan admin.");
-                    }
-                });
-            };
-            // A false return is only reachable mid-shutdown, with the hotkey already unregistered —
-            // there is nothing left to export into, so there is nothing to say about it either.
-            tasks.run(job);
-        });
-    }
-
-    /** Non-secret diagnostics that make a support log actionable. Never includes tokens. */
-    private String buildDiagnosticHeader() {
-        String nl = System.lineSeparator();
-        StringBuilder sb = new StringBuilder();
-        sb.append("=== Anvil debug export ===").append(nl);
-        sb.append("Generated: ").append(ZonedDateTime.now()).append(nl);
-        sb.append("OS: ").append(System.getProperty("os.name")).append(' ')
-                .append(System.getProperty("os.version")).append(" (")
-                .append(System.getProperty("os.arch")).append(')').append(nl);
-        sb.append("Java: ").append(System.getProperty("java.version")).append(nl);
-        String pkgVer = getClass().getPackage() != null ? getClass().getPackage().getImplementationVersion() : null;
-        sb.append("Plugin version: ").append(pkgVer != null ? pkgVer : "(dev/unknown)").append(nl);
-
-        sb.append("Site URL: ").append(blankToNone(config.apiUrl())).append(nl);
-        sb.append("Account token set: ").append(config.playerToken().isEmpty() ? "no" : "yes").append(nl);
-        sb.append("API configured: ").append(apiClient.isConfigured() ? "yes" : "no").append(nl);
-        sb.append("Current RSN: ").append(blankToNone(apiClient.getCurrentRsn())).append(nl);
-        GameState gs = client.getGameState();
-        sb.append("Game state: ").append(gs != null ? gs.name() : "?").append(nl);
-
-        PluginConfigResponse pc = pluginConfig;
-        if (pc != null && pc.event != null) {
-            sb.append("Active event: ").append(pc.event.name).append(" (id ").append(pc.event.id).append(')').append(nl);
-        } else {
-            sb.append("Active event: none").append(nl);
-        }
-
-        try {
-            List<PendingSubmissionStore.PendingSubmission> pend = pendingSubmissionStore.loadAll();
-            sb.append("Pending submissions: ").append(pend.size()).append(nl);
-            long now = System.currentTimeMillis();
-            for (PendingSubmissionStore.PendingSubmission p : pend) {
-                sb.append("  - '").append(p.label).append("' tile ").append(p.tileId)
-                        .append(", event ").append(p.eventId)
-                        .append(", rsn ").append(p.capturedRsn)
-                        .append(", age ").append((now - p.timestamp) / 60000L).append("m").append(nl);
-            }
-        } catch (Exception e) {
-            sb.append("Pending submissions: (error reading: ").append(e.getMessage()).append(')').append(nl);
-        }
-        return sb.toString();
-    }
-
-    private static String blankToNone(String s) {
-        return (s == null || s.isEmpty()) ? "(none)" : s;
+        achievements.handleTotalMilestone();
     }
 
     private void showBingoToast(TrackedDrop drop, int current, int required) {
@@ -1587,10 +1382,10 @@ public class AnvilPlugin extends Plugin {
         if (event.getGroupId() == net.runelite.api.gameval.InterfaceID.CLANS_INFO && clanSyncButton != null) {
             clientThread.invokeLater(() -> clanSyncButton.render());
         }
-        if (event.getGroupId() == QUEST_COMPLETED_GROUP_ID) {
+        if (event.getGroupId() == AchievementNotifier.questScrollGroup()) {
             // The scroll's text child isn't populated yet on the load event — read it next tick,
             // with a couple of retries in case the text lands late.
-            scheduleQuestScrollRead(3);
+            achievements.scheduleQuestScrollRead(3);
         }
     }
 
@@ -1910,11 +1705,6 @@ public class AnvilPlugin extends Plugin {
     // Loaded lazily per RSN and written back after every counted roll.
     private VestigeRolls vestigeRolls;
     private String vestigeRollsRsn;
-    // The roll line from the loot event the drop post is about — postRareDrop runs off the same
-    // event a moment later, so a short window is enough to pair them without threading it through.
-    private volatile String lastVestigeLine;
-    private volatile long lastVestigeLineAt;
-    private static final long VESTIGE_LINE_WINDOW_MS = 5000;
 
     // Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
     // client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
@@ -1957,7 +1747,7 @@ public class AnvilPlugin extends Plugin {
         flushFullClogSyncWhenSettled();
         // Play time for the recap. Counted from ticks rather than wall-clock so it measures time
         // actually in-game — a client left open on the login screen doesn't earn anyone an award.
-        recordEventTick();
+        counters.recordEventTick();
         // Safety re-read of the activity counters. onVarbitChanged is what makes a finished clue
         // land in seconds; this catches anything that moved without one reaching us — most obviously
         // the counters that were already set before we logged in.
@@ -2009,27 +1799,13 @@ public class AnvilPlugin extends Plugin {
         lastRaidPartySize = raidParty;
         // Baseline CA points once after login (before any completion) so we can tell first
         // completions (points rise) from recompletions (points unchanged).
-        if (!caPointsInitialized && client.getGameState() == GameState.LOGGED_IN) {
-            int p = client.getVarbitValue(VarbitID.CA_POINTS);
-            if (p > 0 || client.getVarbitValue(VarbitID.CA_THRESHOLD_EASY) > 0) {
-                lastCaPoints = p;
-                caPointsInitialized = true;
-            }
-        }
-        // Baseline total level once after login so high-total posts fire on real crossings only. Defer
-        // it on preset/alt-save worlds (PvP Arena, Leagues, …) so their inflated total isn't taken as
-        // the real baseline — it seeds on the first normal world instead.
-        if (!totalLevelInitialized && client.getGameState() == GameState.LOGGED_IN && !statsAreArtificial()) {
-            int t = client.getTotalLevel();
-            if (t > 0) {
-                lastTotalLevel = t;
-                totalLevelInitialized = true;
-            }
-        }
+        achievements.seedBaselines(
+                () -> client.getVarbitValue(VarbitID.CA_POINTS),
+                client::getTotalLevel);
         if (!pendingCaTasks.isEmpty()) {
             List<PendingCaTask> batch = new ArrayList<>(pendingCaTasks);
             pendingCaTasks.clear();
-            handleCombatAchievements(batch);
+            achievements.handleCombatAchievements(batch);
         }
         // Gain tiles: diff held items (inventory + worn) once per tick, after any equip/unequip
         // has updated both containers, so a gear move never reads as a gain.
@@ -2207,9 +1983,7 @@ public class AnvilPlugin extends Plugin {
             // Nothing is attacking a logged-out player, and whatever was is not attacking the next
             // account either.
             deathAttribution.clear();
-            autoSubmitNudgeSent = false;
-            caRepeatNudgeSent = false;
-            lootNotifyNudgeSent = false;
+            nudges.onLogout();
             // Re-evaluate setup + linking for the next account that logs in.
             setupWarned = false;
             unlinkedWarnedFor = null;
@@ -2498,7 +2272,7 @@ public class AnvilPlugin extends Plugin {
         String name = event.getComposition().getName();
         trackVestigeRolls(name, event.getItems());
         processLoot(name, event.getItems(), "npc");
-        maybeNotifyRareDrop(name, event.getItems(), "npc");
+        rareDrops.maybeNotifyRareDrop(name, event.getItems(), "npc");
         // Count kills + value off the SERVER event — it fires once per real kill, so a barraged clump of
         // same-tick deaths is counted in full (NpcLootReceived under-fires those). See serverNpcLootSeen.
         processValueTiles(name, event.getItems(), "npc");
@@ -2510,8 +2284,8 @@ public class AnvilPlugin extends Plugin {
         String name = event.getNpc().getName();
         trackVestigeRolls(name, event.getItems());
         processLoot(name, event.getItems(), "npc");
-        recordEventLoot(name, event.getItems(), "npc");
-        maybeNotifyRareDrop(name, event.getItems(), "npc");
+        counters.recordEventLoot(name, event.getItems(), "npc");
+        rareDrops.maybeNotifyRareDrop(name, event.getItems(), "npc");
         // Kill + value counting is owned by ServerNpcLoot when the client emits it (accurate under
         // clumps); fall back to this client-side event only when it doesn't, so the two never
         // double-count a kill. Everything above runs either way — those are per-DROP, not per-kill,
@@ -2551,7 +2325,7 @@ public class AnvilPlugin extends Plugin {
         // EVENT (like a raid chest), not a PLAYER kill. Without this override it dodges the "PvP loot
         // rejected by default" drop-tile guard, so PK'd items (dragon boots, berserker ring, …) wrongly
         // credit PvM drop tiles. Treat key contents as pvp: PvM tiles reject them, pvp/value tiles keep them.
-        if (isLootKeyEvent(event.getName())) {
+        if (lootSource.isLootKeyEvent(event.getName())) {
             kind = "pvp";
         }
         // Clue caskets arrive under RuneLite's casket/trail name, which varies by version
@@ -2573,8 +2347,8 @@ public class AnvilPlugin extends Plugin {
         }
         processLoot(source, event.getItems(), kind);
         processValueTiles(source, event.getItems(), kind);
-        recordEventLoot(source, event.getItems(), kind);
-        maybeNotifyRareDrop(source, event.getItems(), kind);
+        counters.recordEventLoot(source, event.getItems(), kind);
+        rareDrops.maybeNotifyRareDrop(source, event.getItems(), kind);
     }
 
     private static final String[] CLUE_TIERS = {"beginner", "easy", "medium", "hard", "elite", "master"};
@@ -2606,11 +2380,11 @@ public class AnvilPlugin extends Plugin {
         }
         processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         processValueTiles(event.getPlayer().getName(), event.getItems(), "pvp");
-        recordEventLoot(event.getPlayer().getName(), event.getItems(), "pvp");
+        counters.recordEventLoot(event.getPlayer().getName(), event.getItems(), "pvp");
         // Credit any PvP kill tile with a min-loot floor that was parked at the death and whose loot
         // (priced here) reaches the floor. No-op unless such a kill is pending for this victim.
         creditPvpMinLootKillTiles(event.getPlayer().getName(), event.getItems());
-        maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
+        rareDrops.maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
     }
 
     /**
@@ -2658,7 +2432,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             final int amount = (int) Math.min(haulGp, Integer.MAX_VALUE);
-            final String gp = formatGp(haulGp);
+            final String gp = Gp.format(haulGp);
             if (total) {
                 // Accumulate toward the target: capture a proof screenshot per qualifying haul (same
                 // pipeline as single-haul value tiles) so every contribution to the aggregate is
@@ -2702,17 +2476,6 @@ public class AnvilPlugin extends Plugin {
         return false;
     }
 
-    /** Short human gp label for proof banners / logs (5.0M gp, 500k gp, 999 gp). */
-    private static String formatGp(long gp) {
-        if (gp >= 1_000_000) {
-            return String.format(Locale.ROOT, "%.1fM gp", gp / 1_000_000.0);
-        }
-        if (gp >= 1_000) {
-            return String.format(Locale.ROOT, "%.0fk gp", gp / 1_000.0);
-        }
-        return gp + " gp";
-    }
-
     /**
      * Something acquired or dropped us as its target.
      *
@@ -2750,7 +2513,7 @@ public class AnvilPlugin extends Plugin {
         // Biggest hit of the event — a recap superlative, so it counts every hit we land on anything,
         // player or NPC, and is independent of the PvP gates below. One int compare per hitsplat.
         if (ourHit != null && ourHit.isMine() && ourHit.getAmount() > 0) {
-            recordEventHit(ourHit.getAmount());
+            counters.recordEventHit(ourHit.getAmount());
             // Remember WHAT we're fighting, so a clip of a fight that didn't end in a kill still has
             // something true to say. Most clips are of the fight, not the loot — a wipe, a lucky
             // spec, a tick-perfect prayer — and none of those fire any of the events a clip moment
@@ -2983,12 +2746,10 @@ public class AnvilPlugin extends Plugin {
                 if (config.syncPersonalBests()) {
                     personalBests.onActivitySeen(kcName, System.currentTimeMillis());
                 }
-                boolean firstSeen = !killCounts.containsKey(kcKey);
+                boolean firstSeen = !lootSource.killCounts.containsKey(kcKey);
                 int kc = Integer.parseInt(kcMatcher.group(2).replace(",", ""));
-                killCounts.put(kcKey, kc);
-                lastKcName = kcName;
-                lastKcValue = kc;
-                lastKcAtMs = System.currentTimeMillis();
+                lootSource.killCounts.put(kcKey, kc);
+                lootSource.noteKillCount(kcName, kc);
                 // The single most-clipped thing there is. Only notable LOOT was recorded before, so
                 // a clip of the kill itself — the pull, the tick-perfect prayer, the near-death —
                 // captioned itself with nothing at all.
@@ -3044,26 +2805,26 @@ public class AnvilPlugin extends Plugin {
             // The site stamps kcAtUnlock when the collection log next syncs, and had nothing better
             // to read than the hiscores snapshot — which only flushes on logout, so it was routinely
             // a kill or more behind. That is how an Ancestral bottom taken on the 80th Chambers was
-            // filed as "at 79 KC" while the Discord post, reading killCounts, said 80.
+            // filed as "at 79 KC" while the Discord post, reading lootSource.killCounts, said 80.
             //
             // Pushed even when no tile tracks this boss (maybeQueueKcPush deliberately won't) and
             // regardless of whether an event is running: a collection log is a profile, not a board.
             // Once per unlock, which is once per account per item, ever.
             pushKcForUnlock();
-            PendingPet claimedPet = claimPetName(item);
+            PendingPet claimedPet = pets.claimPetName(item);
             if (claimedPet == null) {
                 // Not a pet, so this is the ungated route to the clan's feed for an unlock that the
                 // loot path can't see: an untradeable with no GE price to clear a floor, or anything
                 // handed over without a loot event at all.
-                recordClogUnlockMoment(item);
+                moments.recordClogUnlockMoment(item);
             }
             if (claimedPet == null || !claimedPet.announce) {
                 // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
                 // unlock at the drops channel, while every OTHER new slot goes quietly to the
                 // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
                 // so a Dizana's quiver never lands twice.
-                maybeNotifyCollectionUnlock(item);
-                maybeNotifyClogSlot(item);
+                rareDrops.maybeNotifyCollectionUnlock(item);
+                rareDrops.maybeNotifyClogSlot(item);
             }
             // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
             // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
@@ -3078,11 +2839,11 @@ public class AnvilPlugin extends Plugin {
         // a tier clear). With the in-game "Repeat completion" setting on, already-owned tasks
         // re-fire this exact line (plus a " (N points)" suffix), which is what lets CA tiles
         // count tasks the player completed before the event.
-        Matcher caMatcher = CA_TASK_PATTERN.matcher(plain);
+        Matcher caMatcher = AchievementNotifier.CA_TASK_PATTERN.matcher(plain);
         if (caMatcher.find()) {
             CombatAchievementTier caTier = CombatAchievementTier.byName(caMatcher.group(1));
             if (caTier != null) {
-                String caTask = CA_TASK_POINTS.matcher(caMatcher.group(2).trim()).replaceAll("").trim();
+                String caTask = AchievementNotifier.CA_TASK_POINTS.matcher(caMatcher.group(2).trim()).replaceAll("").trim();
                 // Breadcrumb so client.log shows the parse even when no tile matches.
                 log.info("Anvil combat task line: {} '{}'", caTier.getDisplayName(), caTask);
                 creditCombatTaskTiles(caTier, caTask);
@@ -3110,7 +2871,7 @@ public class AnvilPlugin extends Plugin {
                 // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
                 // even when no tile matches.
                 log.info("Anvil diary line: {} {}", area, tier);
-                maybeNotifyDiaryCompletion(area, tier);
+                achievements.maybeNotifyDiaryCompletion(area, tier);
                 creditDiaryTiles(area, tier);
             }
         }
@@ -3123,13 +2884,13 @@ public class AnvilPlugin extends Plugin {
                     if (Integer.parseInt(lvl.group(2)) == 99) {
                         // Same key as the StatChanged sighting, so whichever arrives first wins and
                         // the other collapses onto it rather than posting the 99 twice.
-                        recordLevelMoment(lvl.group(1).trim(), 99, "skill");
-                        handleLevelMilestone(lvl.group(1).trim());
+                        moments.recordLevelMoment(lvl.group(1).trim(), 99, "skill");
+                        achievements.handleLevelMilestone(lvl.group(1).trim());
                     }
                 } catch (NumberFormatException ignored) {
                 }
                 // Any level gain bumps total — check for a high-total milestone (or max) crossing.
-                handleTotalMilestone();
+                achievements.handleTotalMilestone();
             }
         }
         // Pet drops — no LootReceived fires for these. The third line is the duplicate ("would have
@@ -3143,7 +2904,7 @@ public class AnvilPlugin extends Plugin {
             // and note it for the clan's highlight feed, which is NOT gated on that channel.
             // A duplicate never fires a collection-log unlock (the slot is already filled), so it
             // posts unnamed — which is why the two cases are told apart rather than merged.
-            handlePetDrop(duplicatePet);
+            pets.handlePetDrop(duplicatePet);
             // Bingo: pets can't be auto-credited to a specific tile, so capture a proof for the player
             // to submit by hand (lands in "Saved proofs").
             if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
@@ -3202,7 +2963,7 @@ public class AnvilPlugin extends Plugin {
         // independent of whether any TILE tracks the item (the webhook shouldn't need a tile).
         Integer notableId = notableIdForName(itemName);
         if (notableId != null) {
-            maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
+            rareDrops.maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
         }
         List<ItemStack> synthetic = null;
         for (Integer id : itemDropIndex.keySet()) {
@@ -3212,7 +2973,7 @@ public class AnvilPlugin extends Plugin {
                 // acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
                 // double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
                 // when taken). Genuine clog-only unlocks (BA torso, gamble pets) never hit this.
-                if (recentLootItemIds.seen(id)) {
+                if (lootSource.recentlyLooted(id)) {
                     continue;
                 }
                 if (synthetic == null) {
@@ -3296,31 +3057,18 @@ public class AnvilPlugin extends Plugin {
         // Resolve untracked names against the GE item list; untradeables that reach this line
         // are covered by the prestige allowlist via the clog path instead.
         if (notifyId == null) {
-            notifyId = findTradeableItemId(itemName);
+            notifyId = lootSource.findTradeableItemId(itemName);
         }
         // Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
         // breadcrumb in the client log so a "why didn't my fang post?" is answerable after the fact.
         // The line is rare (local player's own attributed drops only), so INFO is not noisy.
         log.info("Anvil drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
                 itemName, qty, source, notifyId,
-                notifyId != null ? itemUnitValue(notifyId) : -1,
-                config.rareDropMinValue(), config.notifyRareDrops(), notifyEnabled("rareDrops"));
+                notifyId != null ? embeds.itemUnitValue(notifyId) : -1,
+                config.rareDropMinValue(), config.notifyRareDrops(), embeds.notifyEnabled("rareDrops"));
         if (notifyId != null) {
-            maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
+            rareDrops.maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
         }
-    }
-
-    /** Exact-name lookup against the GE item list (tradeables only); null when not found. */
-    private Integer findTradeableItemId(String name) {
-        try {
-            for (net.runelite.http.api.item.ItemPrice p : itemManager.search(name)) {
-                if (p != null && name.equalsIgnoreCase(p.getName())) {
-                    return p.getId();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
     }
 
     /**
@@ -3387,7 +3135,7 @@ public class AnvilPlugin extends Plugin {
             // Remember items that arrived via a REAL loot event so a later clog-unlock line for the
             // same acquisition can't re-credit the tile (see recentLootItemIds / creditClogUnlock).
             if (!"clog".equals(sourceKind)) {
-                recentLootItemIds.record(itemId);
+                lootSource.noteLooted(itemId);
             }
             List<TrackedDrop> matchingDrops = index.get(itemId);
             if (matchingDrops == null) {
@@ -3673,7 +3421,7 @@ public class AnvilPlugin extends Plugin {
         lastLootKillAt.record(key);
         // KC-driven boss (a "Your <X> kill count is:" line has fired for it) → the chat handler owns
         // the count. Skip here to avoid double-crediting the same kill.
-        if (killCounts.containsKey(key)) {
+        if (lootSource.killCounts.containsKey(key)) {
             return;
         }
         creditKillTiles(npcName, matches, 1); // one NpcLootReceived == one kill
@@ -5173,9 +4921,9 @@ public class AnvilPlugin extends Plugin {
             checkMissionAlerts(pluginConfig);
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
-            maybeNudgeAutoSubmit();
-            maybeNudgeCaRepeatSetting();
-            maybeNudgeLootNotifications();
+            nudges.maybeNudgeAutoSubmit();
+            nudges.maybeNudgeCaRepeatSetting();
+            nudges.maybeNudgeLootNotifications();
             maybeNudgeStartProof();
             roster.maybeReprobeAdmin();
 
@@ -5539,20 +5287,11 @@ public class AnvilPlugin extends Plugin {
         if (pluginConfig != null && pluginConfig.trackedKcNames != null) {
             for (String n : pluginConfig.trackedKcNames) {
                 if (n != null && !n.isEmpty()) {
-                    names.add(normalizeBossName(n));
+                    names.add(LootSourceMemory.normalizeBossName(n));
                 }
             }
         }
         trackedKcNames = names;
-    }
-
-    /**
-     * Normalize a boss name for matching: lowercase, non-alphanumeric → space, collapse. Mirrors the
-     * server's lib/pluginStats so a KC line's boss name lines up with the config's watch-list
-     * regardless of punctuation — e.g. "Tombs of Amascut: Expert Mode" ↔ "tombs of amascut expert mode".
-     */
-    private static String normalizeBossName(String s) {
-        return s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     /**
@@ -5571,13 +5310,11 @@ public class AnvilPlugin extends Plugin {
      * rather than attributing itself to whatever was killed an hour ago.
      */
     private void pushKcForUnlock() {
-        if (!statPushAllowed() || lastKcName == null) {
+        String kcName = lootSource.freshKcName();
+        if (!statPushAllowed() || kcName == null) {
             return;
         }
-        if (System.currentTimeMillis() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) {
-            return;
-        }
-        kcPush.queue(lastKcName, lastKcValue);
+        kcPush.queue(kcName, lootSource.freshKcValue());
     }
 
     /**
@@ -5591,7 +5328,7 @@ public class AnvilPlugin extends Plugin {
         if (!statPushAllowed()) {
             return;
         }
-        if (trackedKcNames.contains(normalizeBossName(bossName))) {
+        if (trackedKcNames.contains(LootSourceMemory.normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
         }
         kcPush.queue(bossName, kc);
@@ -5639,534 +5376,12 @@ public class AnvilPlugin extends Plugin {
     /* kills. Cosmetic superlatives only; never touch scoring.        */
     /* -------------------------------------------------------------- */
 
-    /**
-     * Make sure the in-memory counters belong to the CURRENT active event, loading the persisted values
-     * on first use (so a restart mid-event resumes counting) and zeroing them when the active event
-     * changes. Returns false — counting is skipped — when tracking is off (auto-submit disabled, no
-     * config, or the event isn't active), mirroring every other auto-tracking gate. Call under
-     * {@link #counterLock}.
-     */
-    private boolean ensureCounterEvent() {
-        if (!countersLoaded) {
-            counterEventId = readIntConfig(CFG_COUNTER_EVENT, 0);
-            eventDeaths = readIntConfig(CFG_COUNTER_DEATHS, 0);
-            eventLootGp = readLongConfig(CFG_COUNTER_LOOTGP, 0);
-            eventPvpKills = readIntConfig(CFG_COUNTER_PVP, 0);
-            eventBiggestHit = readIntConfig(CFG_COUNTER_BIGHIT, 0);
-            eventMinutes = readIntConfig(CFG_COUNTER_MINUTES, 0);
-            eventCaTasks = readIntConfig(CFG_COUNTER_CATASKS, 0);
-            countersLoaded = true;
-        }
-        if (trackingGateReason() != null) {
-            return false;
-        }
-        int active = (pluginConfig != null && pluginConfig.event != null) ? pluginConfig.event.id : 0;
-        if (active <= 0) {
-            return false;
-        }
-        if (active != counterEventId) {
-            counterEventId = active;
-            eventDeaths = 0;
-            eventLootGp = 0;
-            eventPvpKills = 0;
-            eventBiggestHit = 0;
-            eventCaTasks = 0;
-            eventMinutes = 0;
-            eventTickAccumulator = 0;
-            persistCounters();
-        }
-        return true;
-    }
-
-    /**
-     * A combat task the player just completed for the FIRST time (the caller has already checked the
-     * points varbit rose, so a "Repeat completion" echo never reaches here).
-     *
-     * Two jobs, neither of them a notification: queue it for the highlight feed, and count it for
-     * the event's Task Master award. The site decides which tiers are worth showing on which board —
-     * a floor that lives here would need a release to change, and it can't know that the clan is
-     * running a Zulrah week.
-     */
-    private void noteCombatTaskMoment(CombatAchievementTier tier, String task) {
-        if (task == null || task.isEmpty()) {
-            return;
-        }
-        // The tier is never absent: the completion line names it, and the parse above stands down
-        // when that word isn't a tier we recognise — so nothing reaches here without one. The site
-        // relies on that (a `ca` moment with no rankable tier is rejected at its ingest route).
-        moments.record(AnvilMoments.Moment.combatTask(
-                task, tier.getDisplayName(), System.currentTimeMillis()));
-        scheduleMomentPush();
-
-        synchronized (counterLock) {
-            if (!ensureCounterEvent()) {
-                return; // no live event of ours — the feed still took it, the counter has nowhere to go
-            }
-            eventCaTasks++;
-            persistCounters();
-        }
-        scheduleCounterPush();
-    }
-
-    /** Our own death happened during an active event → bump the per-event death counter and push. */
-    private void recordEventDeath() {
-        synchronized (counterLock) {
-            if (!ensureCounterEvent()) {
-                return;
-            }
-            eventDeaths++;
-            persistCounters();
-        }
-        scheduleCounterPush();
-    }
-
-    /**
-     * A hitsplat we landed → the per-event "hardest hit" high-water mark. Called from every one of
-     * our hitsplats, so it stays a cheap compare-and-return in the common case: only a genuine new
-     * record touches the lock, persists, or schedules a push.
-     */
-    private void recordEventHit(int damage) {
-        synchronized (counterLock) {
-            if (damage <= eventBiggestHit) {
-                return;
-            }
-            if (!ensureCounterEvent() || damage <= eventBiggestHit) {
-                return;
-            }
-            eventBiggestHit = damage;
-            persistCounters();
-        }
-        scheduleCounterPush();
-    }
-
-    /**
-     * Bank a minute of play. Driven from the game tick, so it measures time actually logged in
-     * during the event — the number that turns every other counter into a rate ("most kills" is
-     * usually just "played most"). Ticks are ~600ms; 100 of them make a minute.
-     */
-    private void recordEventTick() {
-        boolean bankedMinute;
-        synchronized (counterLock) {
-            if (!ensureCounterEvent()) {
-                // Not in a tracked event — don't let stale ticks bank into the next one.
-                eventTickAccumulator = 0;
-                return;
-            }
-            if (++eventTickAccumulator < TICKS_PER_MINUTE) {
-                return;
-            }
-            eventTickAccumulator = 0;
-            eventMinutes++;
-            persistCounters();
-            // Push on a slow cadence: a minute ticking over isn't worth a request every time.
-            bankedMinute = eventMinutes % MINUTES_PER_PLAYTIME_PUSH == 0;
-        }
-        if (bankedMinute) {
-            scheduleCounterPush();
-        }
-    }
-
-    /** One attributed dangerous-PvP kill (see onActorDeath) → the per-event PKer counter. */
-    private void recordEventPvpKill() {
-        synchronized (counterLock) {
-            if (!ensureCounterEvent()) {
-                return;
-            }
-            eventPvpKills++;
-            persistCounters();
-        }
-        scheduleCounterPush();
-    }
-
-    /**
-     * Price a whole loot haul and add its GE value to the per-event loot total. Called from the same
-     * loot events as {@link #processValueTiles} (which price only when a value tile exists) so EVERY
-     * haul counts, value tile or not. A short fingerprint dedup absorbs the known NpcLootReceived +
-     * LootReceived double-fire for the same haul. Client thread only (itemManager.getItemPrice).
-     */
-    /**
-     * Value floor for putting a haul on the clip trail. Deliberately far below the rare-drop
-     * notification floor (which is forced to 1m+, because that one spams a clan channel): this
-     * decides only whether a clip the player saved themselves can say what it caught, and nobody
-     * needs protecting from their own clip. 100k is roughly "worth mentioning" without letting a
-     * bank-standing clip caption itself with a stack of bones.
-     */
-    private static final long CLIP_LOOT_FLOOR_GP = 100_000L;
-
-    /**
-     * Note a haul on the clip trail, so a saved clip can say what dropped.
-     *
-     * NOT tied to the rare-drop notification settings: those decide what the clan channel hears,
-     * this decides whether the clip has a caption. A player who broadcasts nothing still wants
-     * their own clip to say "Twisted bow from Chambers of Xeric" rather than "Clip saved".
-     */
-    private void recordLootMoment(String source, Collection<ItemStack> items) {
-        if (items == null || items.isEmpty()) {
-            return;
-        }
-        long haulGp = 0;
-        int bestId = -1;
-        long bestValue = 0;
-        int bestQty = 1;
-        for (ItemStack it : items) {
-            if (it == null || it.getId() <= 0) {
-                continue;
-            }
-            int qty = Math.max(1, it.getQuantity());
-            long value = itemUnitValue(it.getId()) * qty;
-            haulGp += value;
-            if (value > bestValue) {
-                bestValue = value;
-                bestId = it.getId();
-                bestQty = qty;
-            }
-        }
-        if (haulGp < CLIP_LOOT_FLOOR_GP || bestId <= 0) {
-            return;
-        }
-        String where = (source != null && !source.isEmpty()) ? " from " + source : "";
-        // One item carrying most of the haul IS the story ("Twisted bow from CoX"); a spread of
-        // small stuff isn't, so that reads as a total instead of naming an arbitrary top item.
-        clipMoments.record(bestValue * 2 >= haulGp
-                ? "💰 " + (bestQty > 1 ? bestQty + "x " : "") + itemName(bestId) + where
-                        + " (" + formatGp(bestValue) + ")"
-                : "💰 " + formatGp(haulGp) + " haul" + where);
-    }
-
-    private void recordEventLoot(String source, Collection<ItemStack> items, String sourceKind) {
-        // Note the haul for the clog notifier BEFORE the event gate: a collection-log unlock is worth
-        // announcing whether or not a bingo is running, so its sprite/source lookup can't be gated on
-        // one. Cheap — a few map writes that expire on their own.
-        rememberLootForClog(source, sourceKind, items);
-        // Same reasoning for the clip trail — a clip is worth describing whether or not a bingo is
-        // running — so the moment is noted before the event gate too.
-        recordLootMoment(source, items);
-        // And for the clan's highlight feed: a competition week has no bingo to gate on, and a
-        // near-miss during one that DOES have a bingo is worth as much as a hit.
-        recordLootMoments(source, sourceKind, items);
-        if (items == null || items.isEmpty() || trackingGateReason() != null) {
-            return;
-        }
-        long haulGp = 0;
-        int count = 0;
-        for (ItemStack it : items) {
-            if (it == null || it.getId() <= 0) {
-                continue;
-            }
-            int price = itemManager.getItemPrice(it.getId());
-            if (price > 0) {
-                haulGp += (long) price * Math.max(1, it.getQuantity());
-            }
-            count++;
-        }
-        if (haulGp <= 0) {
-            return;
-        }
-        // Dedup identical hauls arriving on two loot events back-to-back (source + value + item count).
-        String fp = sourceKind + "|" + source + "|" + haulGp + "|" + count;
-        if (!lastLootValueAt.claim(fp)) {
-            return;
-        }
-        synchronized (counterLock) {
-            if (!ensureCounterEvent()) {
-                return;
-            }
-            eventLootGp += haulGp;
-        }
-        scheduleCounterPush();
-    }
-
-    /** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
-    private void scheduleCounterPush() {
-        if (!tasks.isLive()) {
-            return;
-        }
-        synchronized (counterLock) {
-            if (counterPushTask != null) {
-                counterPushTask.cancel(false);
-            }
-            counterPushTask = tasks.runLater(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
-        }
-    }
-
-    /** Push the current absolute per-event counters. Absolute + server max-merge → a failure just retries. */
-    private void flushCounterPush() {
-        int deaths;
-        long lootGp;
-        int pvpKills;
-        int biggestHit;
-        int minutes;
-        int caTasks;
-        synchronized (counterLock) {
-            persistCounters();
-            deaths = eventDeaths;
-            lootGp = eventLootGp;
-            pvpKills = eventPvpKills;
-            biggestHit = eventBiggestHit;
-            minutes = eventMinutes;
-            caTasks = eventCaTasks;
-        }
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
-            return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
-        }
-        try {
-            apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
-        } catch (IOException e) {
-            log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
-            synchronized (counterLock) {
-                if (tasks.isLive()) {
-                    if (counterPushTask != null) {
-                        counterPushTask.cancel(false);
-                    }
-                    counterPushTask = tasks.runLater(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
-                }
-            }
-        }
-    }
-
     // ── Highlight feed ────────────────────────────────────────────────────────────────────────────
     //
     // Everything below reports; nothing below decides. Which competition week or board a moment
     // belongs to, whether an item counts as a unique, and which pets belong to which skill are all
     // the site's business (src/lib/moments.ts) — so this sends generously and expects most of it to
     // be discarded, and a clan changing any of those rules costs no plugin release.
-
-    /** True when this member wants a feed and the site has one to put it on. */
-    private boolean momentsEnabled() {
-        PluginConfigResponse cfg = pluginConfig;
-        return config.shareMoments() && apiClient.isConfigured()
-                && cfg != null && cfg.serverSupports("moments");
-    }
-
-    /**
-     * Note a drop worth a line on the feed.
-     *
-     * <p>The value floor is the client's only filter and it is deliberately loose — the site knows
-     * what the board and the week care about, this only knows what would be silly to send (every
-     * rune from every kill). An item the site can't place costs one discarded row.
-     */
-    private void recordDropMoment(String source, String sourceKind, Integer itemId, String itemName, int quantity, long valueGp) {
-        if (!momentsEnabled() || (itemId == null && (itemName == null || itemName.isEmpty()))) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        moments.record(new AnvilMoments.Moment("drop", itemId, itemName, quantity, valueGp,
-                source, sourceKind, killCountFor(source), now,
-                AnvilMoments.keyFor("drop", source, itemId, now)));
-        scheduleMomentPush();
-    }
-
-    /**
-     * Pick what to report out of one kill's loot.
-     *
-     * <p>Two ways in, because they catch different things. PRICE catches the drop everyone in the
-     * clan would want to hear about, whatever dropped it. The BOARD's own item list catches the one
-     * worth nothing on the GE and everything to the people playing — an untradeable unique, or the
-     * piece a tile wanted that credited nothing because the tile was already finished or the source
-     * was wrong. That near-miss is half of what a highlight feed is for.
-     *
-     * <p>Capped at a few per haul, dearest first: a raid chest is not a reason to send twenty rows.
-     */
-    private void recordLootMoments(String source, String sourceKind, Collection<ItemStack> items) {
-        if (items == null || items.isEmpty() || !momentsEnabled()) {
-            return;
-        }
-        Map<Integer, List<TrackedDrop>> boardItems = itemDropIndex;
-        // Merge stacks first — a kill that drops coins twice is one line, not two.
-        Map<Integer, Integer> merged = new LinkedHashMap<>();
-        for (ItemStack item : items) {
-            if (item == null || item.getId() <= 0) {
-                continue;
-            }
-            merged.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
-        }
-
-        List<int[]> candidates = new ArrayList<>(); // {itemId, quantity, value}
-        for (Map.Entry<Integer, Integer> entry : merged.entrySet()) {
-            int itemId = entry.getKey();
-            int quantity = entry.getValue();
-            int price = itemManager.getItemPrice(itemId);
-            long value = (long) Math.max(0, price) * quantity;
-            boolean wanted = boardItems != null && boardItems.containsKey(itemId);
-            if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) {
-                continue;
-            }
-            candidates.add(new int[]{itemId, quantity, (int) Math.min(Integer.MAX_VALUE, value)});
-        }
-        candidates.sort((a, b) -> Integer.compare(b[2], a[2]));
-
-        int sent = 0;
-        for (int[] c : candidates) {
-            if (sent++ >= 3) {
-                break;
-            }
-            recordDropMoment(source, sourceKind, c[0], itemName(c[0]), c[1], c[2]);
-        }
-    }
-
-    /**
-     * Note a collection-log unlock for the feed.
-     *
-     * <p>This is the route for the unlocks the loot path can't see: an untradeable worth nothing on
-     * the GE will never clear a price floor, and some rewards are handed over with no loot event at
-     * all. It fires on the ungated chat line, so a member with every notification off still lands
-     * on the clan's feed.
-     *
-     * <p>Skips anything a real loot event just reported — that is the SAME acquisition arriving
-     * twice (the chest, then the pickup), and the loot copy already carries the price and stack.
-     */
-    private void recordClogUnlockMoment(String itemName) {
-        if (itemName == null || itemName.isEmpty() || !momentsEnabled()) {
-            return;
-        }
-        Integer itemId = resolveItemIdByName(itemName);
-        long now = System.currentTimeMillis();
-        if (itemId != null && recentLootItemIds.seen(itemId)) {
-            return;
-        }
-        String source;
-        String sourceKind;
-        synchronized (recentLootIds) {
-            boolean fresh = lastLootSource != null && now - lastLootSourceAt <= CLOG_LOOT_DEDUP_MS;
-            source = fresh ? lastLootSource : null;
-            sourceKind = fresh ? lastLootSourceKind : null;
-        }
-        long value = itemId != null ? Math.max(0, itemManager.getItemPrice(itemId)) : 0;
-        recordDropMoment(source, sourceKind, itemId, itemName, 1, value);
-    }
-
-    /**
-     * Note a pet. Called from the chat line itself, NOT from the notifier — a member with the drops
-     * channel switched off still got the pet, and the clan's feed is a different thing from their
-     * Discord settings.
-     *
-     * @return the queue key, so the collection-log line that names the pet can fill it in
-     */
-    private String recordPetMoment(String source, String sourceKind, Integer kc) {
-        if (!momentsEnabled()) {
-            return null;
-        }
-        long now = System.currentTimeMillis();
-        // Keyed WITHOUT an item id, because at this point nobody knows which pet it was — the name
-        // lands a tick or two later and nameQueued() fills it into this same entry.
-        String key = AnvilMoments.keyFor("pet", source, null, now);
-        moments.record(new AnvilMoments.Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key));
-        scheduleMomentPush();
-        return key;
-    }
-
-    /** Name a pet already queued, once the collection-log line says which one it was. */
-    private void namePetMoment(String key, String itemName, String source, Integer kc) {
-        if (key == null || !momentsEnabled()) {
-            return;
-        }
-        moments.nameQueued(key, itemName, resolveItemIdByName(itemName), source, kc);
-    }
-
-    /**
-     * Note a death, and what killed us.
-     *
-     * <p>The killer is inferred from what had us TARGETED when we last took damage, not from what we
-     * were hitting — see DeathAttribution for why the client cannot simply be asked, and for what
-     * the difference looked like in the feed ("died to Jug"). What we were fighting is still used,
-     * but only to break a tie between several things attacking us at once.
-     *
-     * <p>Null when nothing had us targeted, which is a mechanic or a fall, and the feed then says
-     * only that someone died. A death with no killer is a smaller story than one with the wrong.
-     */
-    private void recordDeathMoment() {
-        if (!momentsEnabled()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        CombatTarget.Seen seen = combatTarget.snapshot();
-        String fighting = seen.freshAt(now, DEATH_ATTRIBUTION_MS) ? seen.name : null;
-        String killer = deathAttribution.killer(fighting, now);
-        // Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
-        // and which one we picked, next to what we were hitting.
-        log.debug("Anvil death: killer='{}' (attackers={}, we were fighting '{}')",
-                killer, deathAttribution.attackerCount(), fighting);
-        moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, "npc",
-                killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
-        scheduleMomentPush();
-        // The fight is over: whatever had us targeted has no claim on the next one. Cleared here
-        // rather than waiting for each attacker to drop us, which an instance tear-down never
-        // reports — a stale attacker would otherwise be the prime suspect for the next death.
-        deathAttribution.clear();
-    }
-
-    /**
-     * Note a level worth remembering: a 99, a high total, or a max.
-     *
-     * <p>Called from the DETECTION, deliberately not from the announcer. Whether the clan has a
-     * Discord channel for level posts is a question about Discord; whether a 99 belongs on the clan's
-     * feed is a question about the feed, and answering the second with the first is how a member with
-     * notifications off vanishes from their own clan's history.</p>
-     *
-     * <p>Sent generously, like everything else here: the site decides whether a running board or
-     * competition week wants it, and drops it when nothing does.</p>
-     */
-    private void recordLevelMoment(String skill, int level, String scope) {
-        if (!momentsEnabled() || statsAreArtificial()) {
-            return;
-        }
-        moments.record(AnvilMoments.Moment.level(skill, level, scope, System.currentTimeMillis()));
-        scheduleMomentPush();
-    }
-
-    /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
-    private void scheduleMomentPush() {
-        if (!tasks.isLive()) {
-            return;
-        }
-        synchronized (moments) {
-            if (momentPushTask != null) {
-                momentPushTask.cancel(false);
-            }
-            momentPushTask = tasks.runLater(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS);
-        }
-    }
-
-    /**
-     * Send the queued moments.
-     *
-     * <p>The batch stays queued until the site confirms it, so a failed push retries with nothing
-     * lost — and since every entry is keyed, a push that succeeded but whose reply we never saw
-     * stores nothing the second time.
-     */
-    private void flushMomentPush() {
-        if (!momentsEnabled() || moments.isEmpty()) {
-            return;
-        }
-        List<AnvilMoments.Moment> batch = moments.nextBatch();
-        if (batch.isEmpty()) {
-            return;
-        }
-        try {
-            apiClient.submitMoments(batch);
-        } catch (IOException e) {
-            log.debug("Moment push failed ({} queued) — retrying: {}", moments.size(), e.getMessage());
-            scheduleMomentPush();
-            return;
-        }
-        moments.onSent(batch);
-        // More than one batch's worth waiting (a long offline stretch) — keep going.
-        if (!moments.isEmpty()) {
-            scheduleMomentPush();
-        }
-    }
-
-    /** Persist the per-event counters to the config store so a restart resumes them. Call under counterLock. */
-    private void persistCounters() {
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_EVENT, Integer.toString(counterEventId));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_DEATHS, Integer.toString(eventDeaths));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_LOOTGP, Long.toString(eventLootGp));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_PVP, Integer.toString(eventPvpKills));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_BIGHIT, Integer.toString(eventBiggestHit));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_MINUTES, Integer.toString(eventMinutes));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_CATASKS, Integer.toString(eventCaTasks));
-    }
 
     /**
      * Fold a kill's loot into the vestige rotation of whichever boss dropped it, and say where the
@@ -6203,8 +5418,7 @@ public class AnvilPlugin extends Plugin {
             configManager.setConfiguration("osrsbingo", CFG_VESTIGE_ROLLS + ":" + rsnKey, vestigeRolls.serialise());
             sendChatMessage(table.boss + ": " + r.line);
             // Remembered for the drop post, which is built moments later off the same loot event.
-            lastVestigeLine = r.line;
-            lastVestigeLineAt = System.currentTimeMillis();
+            rareDrops.noteVestigeLine(r.line);
         }
     }
 
@@ -6238,24 +5452,6 @@ public class AnvilPlugin extends Plugin {
         int party = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
         CoopFingerprint fp = new CoopFingerprint(teammates, party);
         return fp.isEmpty() ? null : fp;
-    }
-
-    private int readIntConfig(String key, int fallback) {
-        try {
-            String v = configManager.getConfiguration("osrsbingo", key);
-            return v == null || v.isEmpty() ? fallback : Integer.parseInt(v.trim());
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private long readLongConfig(String key, long fallback) {
-        try {
-            String v = configManager.getConfiguration("osrsbingo", key);
-            return v == null || v.isEmpty() ? fallback : Long.parseLong(v.trim());
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
     }
 
     /**
@@ -6486,21 +5682,21 @@ public class AnvilPlugin extends Plugin {
             }
             // Recap counter — count the death for the "Wipe Magnet" superlative even if death
             // notifications are off (still gated by auto-submit + an active event inside).
-            recordEventDeath();
+            counters.recordEventDeath();
             // Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
             // the boss everyone is racing that week is the story; dying in general is a number.
             // Recorded here rather than beside the post below, so the drops channel being off can't
             // erase it.
-            recordDeathMoment();
+            moments.recordDeathMoment();
             clipMoments.record("💀 Died");
             if (!config.notifyDeaths()) {
                 return;
             }
-            if (!notifyEnabled("deaths")) {
+            if (!embeds.notifyEnabled("deaths")) {
                 return;
             }
-            String message = buildDeathMessage(getLocalPlayerName());
-            captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
+            String message = rareDrops.buildDeathMessage(getLocalPlayerName());
+            embeds.captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
             return;
         }
 
@@ -6519,7 +5715,7 @@ public class AnvilPlugin extends Plugin {
                     // Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
                     // pvp tiles on the board or not. Tile credit + notify keep their own gates.
                     if (inDangerousPvp()) {
-                        recordEventPvpKill();
+                        counters.recordEventPvpKill();
                     }
                     // Clip trail gets the same treatment for the same reason: the kill is what the
                     // clip CAUGHT, whether or not the clan broadcasts PKs and whether or not the
@@ -6565,11 +5761,11 @@ public class AnvilPlugin extends Plugin {
      * posts. Runs on the client thread; screenshot + network send are deferred.
      */
     private void notifyPvpKill(String name) {
-        if (!notifyEnabled("pvpKills")) {
+        if (!embeds.notifyEnabled("pvpKills")) {
             return;
         }
         String message = buildKillMessage(getLocalPlayerName(), name);
-        captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
+        embeds.captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
     }
 
     /**
@@ -6708,486 +5904,6 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Posts any item worth at least the configured threshold to the rare-drops
-     * channel. Runs on the client thread (loot events fire there), so
-     * item-value lookups are safe; the screenshot and network send are deferred
-     * off-thread.
-     */
-    /**
-     * Reports loot to the rare-drops channel. Loot keys and regular drops are
-     * kept separate: - A loot key (the "Loot Chest" open) is reported as ONE
-     * unit, gated only by "Loot key value" (the contents' combined total).
-     * Per-item value / rarity don't apply. - Any other drop (NPC / raid chest /
-     * clue / pickpocket / PvP floor loot) posts its standout items — worth at
-     * least "Min drop value", OR rarer than the rarity threshold (NPC /
-     * pickpocket only, e.g. a cheap-but-rare unique) — bundled into a single
-     * post. The loot key item itself is skipped everywhere (its contents fire
-     * their own LootReceived on open). Runs on the client thread (loot fires
-     * there), so item-value and rarity lookups are safe; screenshots + network
-     * sends are deferred off-thread.
-     */
-    private void maybeNotifyRareDrop(String source, Collection<ItemStack> items, String sourceKind) {
-        if (!config.notifyRareDrops() || items == null || items.isEmpty()) {
-            return;
-        }
-        if (!notifyEnabled("rareDrops")) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-
-        // ---- Loot keys: one post for the whole key, gated only by its total value. ----
-        if (isLootKeyEvent(source)) {
-            long total = 0;
-            List<RareItem> contents = new ArrayList<>();
-            for (ItemStack item : items) {
-                int itemId = item.getId();
-                if (isLootKeyItem(itemId)) {
-                    continue;
-                }
-                int qty = Math.max(1, item.getQuantity());
-                long itemValue = itemUnitValue(itemId) * qty;
-                total += itemValue;
-                contents.add(new RareItem(itemId, qty, itemValue, null));
-            }
-            int keyThreshold = Math.max(0, config.lootKeyMinValue());
-            if (contents.isEmpty() || keyThreshold <= 0 || total < keyThreshold) {
-                return;
-            }
-            String key = source == null ? "" : source;
-            if (!lastAggregateNotifyAt.claim(key)) {
-                return;
-            }
-            if (contents.size() == 1) {
-                RareItem it = contents.get(0);
-                postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, null);
-            } else {
-                postCombinedRareDrop(source, sourceKind, contents, total);
-            }
-            return;
-        }
-
-        // ---- Regular drops: per-item value + rarity trigger. ----
-        // Enforced floors so a member can't spam the clan channel: drops must be worth at least
-        // 1m, and rarity posts must be rarer than 1/1000. 0 still means "disabled".
-        int rawValue = config.rareDropMinValue();
-        long valueThreshold = rawValue <= 0 ? 0 : Math.max(1_000_000, rawValue);
-        int rarityThreshold = effectiveRarityFloor();
-        AbstractRarityService rarity = raritySource(sourceKind);
-
-        // Standout items get bundled into one post so a single kill never produces a surge.
-        List<RareItem> qualifying = new ArrayList<>();
-
-        for (ItemStack item : items) {
-            int itemId = item.getId();
-            if (isLootKeyItem(itemId)) {
-                continue;
-            }
-            int qty = Math.max(1, item.getQuantity());
-            long itemValue = itemUnitValue(itemId) * qty;
-
-            // Prestige items always post, bypassing the value/rarity gates. Posted on their own so
-            // an untradeable like an Infernal cape never shows a misleading "0 gp" alongside others.
-            // An allowlist item NEVER also fires the value/rarity path — always continue, even when
-            // its own dedup suppresses this fire. Otherwise a second loot event for the same kill
-            // (NpcLootReceived + LootReceived) finds the allowlist already claimed, falls through,
-            // and posts a duplicate "Rare drop" for a high-value allowlist item (e.g. a Blood shard).
-            String iname = itemName(itemId);
-            // Match by item ID (server-resolved) first — reliable for untradeables like a ToA Cursed phalanx
-            // that have no value to gate on — then fall back to the name allowlist for back-compat.
-            if (notableItemIds.contains(itemId) || isAlwaysNotifyItem(iname)) {
-                if (claimAllowlistNotify(iname, now)) {
-                    postSpecialDrop(source, sourceKind, itemId, qty, itemValue);
-                }
-                continue;
-            }
-
-            boolean valueQualifies = valueThreshold > 0 && itemValue >= valueThreshold;
-
-            Double dropRate = null; // probability (1/N) when rare enough to report
-            if (rarityThreshold > 0 && rarity != null && source != null && !source.isEmpty()) {
-                OptionalDouble r = rarity.getRarity(source, itemId, qty);
-                if (r.isPresent()) {
-                    double p = r.getAsDouble();
-                    if (p > 0 && MathUtils.lessThanOrEqual(p, 1.0 / rarityThreshold)) {
-                        dropRate = p;
-                    }
-                }
-            }
-
-            if (!valueQualifies && dropRate == null) {
-                continue;
-            }
-
-            // Per-item dedup also suppresses the duplicate fire when a kill and a follow-up loot
-            // event both report the same item within the window.
-            if (!lastRareNotifyAt.claim(itemId)) {
-                continue;
-            }
-            qualifying.add(new RareItem(itemId, qty, itemValue, dropRate));
-        }
-
-        if (qualifying.size() == 1) {
-            RareItem it = qualifying.get(0);
-            postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, it.dropRate);
-        } else if (qualifying.size() > 1) {
-            long total = 0;
-            for (RareItem it : qualifying) {
-                total += it.value;
-            }
-            postCombinedRareDrop(source, sourceKind, qualifying, total);
-        }
-    }
-
-    /**
-     * True when the item is on the always-notify allowlist (baked-in defaults +
-     * server list).
-     */
-    private boolean isAlwaysNotifyItem(String name) {
-        if (name == null || name.isEmpty()) {
-            return false;
-        }
-        String n = name.toLowerCase();
-        for (String pattern : GamePools.ALWAYS_NOTIFY_FALLBACK) {
-            if (n.contains(pattern)) {
-                return true;
-            }
-        }
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg != null && cfg.alwaysNotifyItems != null) {
-            for (String pattern : cfg.alwaysNotifyItems) {
-                if (pattern != null && !pattern.isEmpty() && n.contains(pattern.toLowerCase())) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Reserves the right to post a prestige item, returning false if it was
-     * already posted within the dedup window. Keyed by name so the loot event
-     * and the collection-log unlock message can't both fire for the same item.
-     */
-    private boolean claimAllowlistNotify(String name, long now) {
-        String key = name.toLowerCase();
-        return lastAllowlistNotifyAt.claim(key);
-    }
-
-    /**
-     * Posts a notable collection-log unlock (a prestige item) when it lands via
-     * a loot event.
-     */
-    private void postSpecialDrop(String source, String sourceKind, int itemId, int qty, long value) {
-        String name = itemName(itemId);
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-        String desc = who(rsn) + " received " + name
-                + DropSource.fromPhrase(source, sourceKind) + "!";
-        // Two kinds of drop the lucky-drop line insults rather than celebrates. An EARNED award
-        // (Infernal cape, Dizana's quiver…) is the reward for finishing the content, so calling a
-        // hard-won clear "spooned" reads as a jab. A GUARANTEED drop was never rolled for at all —
-        // the boss owed it — so "someone drier deserved that" reads as not knowing the game. Notable
-        // items reach this path with no drop rate at all, which is why the line used to be
-        // unconditional: nothing here could tell the difference until the server started saying.
-        boolean earned = DropLuck.isEarnedAward(name);
-        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
-        if (!earned && !guaranteed) {
-            desc += "\n" + randomSpoonLine();
-        }
-        // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
-        JsonObject embed = buildDropEmbed(
-                earned ? "🏆 Earned!" : "💎 Notable drop!",
-                desc, name, itemId, qty, value, null, killCountFor(source), shotName,
-                DropSource.countLabel(source, sourceKind), guaranteed);
-
-        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
-    }
-
-    /**
-     * Posts a prestige item unlocked via the collection log — the reliable
-     * signal for awarded items (Infernal cape, Dizana's quiver, …) that don't
-     * fire a loot event. Only allowlisted items post; shared name-dedup with
-     * the loot path stops a double post.
-     */
-    private void maybeNotifyCollectionUnlock(String itemName) {
-        if (!config.notifyRareDrops() || itemName == null || itemName.isEmpty()) {
-            return;
-        }
-        if (!isAlwaysNotifyItem(itemName)) {
-            return;
-        }
-        if (!notifyEnabled("rareDrops")) {
-            return;
-        }
-        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-        String desc = who(rsn) + " unlocked " + itemName + "!";
-        boolean earned = DropLuck.isEarnedAward(itemName);
-        // No source came with this line — the collection log says what, never from where — so only a
-        // clan override that named no sources ("guaranteed wherever it drops") can answer here.
-        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), itemName, null);
-        if (!earned && !guaranteed) {
-            desc += "\n" + randomSpoonLine();
-        }
-        // No item id here (the message gives only a name), so value is unknown — omit it.
-        JsonObject embed = buildDropEmbed(
-                earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, -1, 1, 0, null, null, shotName,
-                "KC", guaranteed);
-
-        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
-    }
-
-    /**
-     * Posts a NEW collection-log slot to the clan achievements channel.
-     *
-     * The unlock line is already parsed here to credit bingo tiles; this turns the same signal into
-     * the post other notifiers have had for years. Deliberately separate from
-     * {@link #maybeNotifyCollectionUnlock}: that one is the prestige allowlist shouting at the drops
-     * channel, this is every other slot filling in quietly next to diaries and combat tasks. An
-     * allowlisted item is skipped here so the two never double-post the same unlock.
-     *
-     * Carries the log's own completion count ("548/1712 (32.0%)") when the client can answer for it,
-     * which it can't until the collection log has synced this session — the field is dropped in that
-     * case rather than guessed at.
-     */
-    private void maybeNotifyClogSlot(String itemName) {
-        if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) {
-            return;
-        }
-        if (!notifyEnabled("collectionLog")) {
-            return;
-        }
-        // The prestige path already posted this one to the drops channel.
-        if (isAlwaysNotifyItem(itemName)) {
-            return;
-        }
-        // The unlock line can echo on more than one chat channel; the shared name dedup keeps this
-        // to one post per item.
-        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
-            return;
-        }
-
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-clog.png";
-        JsonObject embed = new JsonObject();
-        addAuthor(embed, rsn);
-        embed.addProperty("title", "📕 " + itemName);
-        // No "new slot" / "New!" wording: every collection-log unlock is by definition the first
-        // one, so saying so is noise. "New" is reserved for pets in the drops channel, where it
-        // actually distinguishes something.
-        embed.addProperty("description",
-                who(rsn) + " added " + itemName + " to their collection.");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        addWikiUrl(embed, itemName);
-
-        JsonArray fields = new JsonArray();
-        // How much of the log this fills in, and what that's worth as a standing. Both are dropped
-        // rather than guessed when the log hasn't synced this session (the count reads 0 until then).
-        String logProgress = ActivityStats.clogProgress(client::getVarpValue);
-        if (logProgress != null) {
-            fields.add(statField("Completed", logProgress));
-        }
-        String rank = ClogRank.forSlots(
-                ActivityStats.clogSlots(client::getVarpValue),
-                ActivityStats.clogSlotsMax(client::getVarpValue));
-        if (rank != null) {
-            fields.add(statField("Rank", rank));
-        }
-        // This item's own source first. The fallback still answers for an unlock with no loot event
-        // behind it at all — a skilling pet, a quest reward — where "the last thing that dropped"
-        // is the only signal there is.
-        String source = sourceForLootedItem(itemName);
-        if (source == null) {
-            source = recentLootSource();
-        }
-        if (source != null) {
-            fields.add(statField("Source", source));
-            // How many times they'd killed it when it finally dropped — the number that turns
-            // "got the pet" into a story. Absent when the source keeps no kill count we can read.
-            Integer kc = killCountFor(source);
-            if (kc != null && kc > 0) {
-                fields.add(statField("Completion count", String.valueOf(kc)));
-            }
-        }
-        embed.add("fields", fields);
-
-        // The item's own sprite: resolved from the loot event that just delivered it (which covers
-        // untradeables the GE search can't find), falling back to the GE item list.
-        Integer itemId = resolveItemIdByName(itemName);
-        addItemThumbnail(embed, itemId);
-
-        if (config.clogScreenshot()) {
-            addAttachment(embed, shotName);
-            captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
-        } else {
-            apiClient.postNotification("collectionLog", null, embed, null, null);
-        }
-    }
-
-    /**
-     * Item id for a name we only know as text (the collection-log line gives no id). Prefers ids seen
-     * in a recent loot event — that covers untradeables the GE search will never return — and falls
-     * back to an exact-name GE lookup. Null when neither knows it; the post simply loses its sprite.
-     */
-    private Integer resolveItemIdByName(String name) {
-        String key = name.toLowerCase(Locale.ROOT);
-        long now = System.currentTimeMillis();
-        synchronized (recentLootIds) {
-            recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
-            RecentItem hit = recentLootIds.get(key);
-            if (hit != null) {
-                return hit.itemId;
-            }
-        }
-        return findTradeableItemId(name);
-    }
-
-    /**
-     * What this specific item fell out of.
-     *
-     * THE BUG THIS FIXES. The source used to be "whatever loot event happened most recently", which
-     * is right for a drop announced the instant it lands and wrong for anything that arrives on its
-     * own schedule. A clue reward is the clean example: kill a Saradomin wizard, open the casket it
-     * eventually led to, and the collection-log line for Enchanted top was stamped `Saradomin
-     * wizard` — the thing the player last hit, not the thing the item came out of.
-     *
-     * The per-item memory was already being kept for the sprite lookup; it simply did not record
-     * where each item came from. Now it does, so the answer is about the item rather than the clock.
-     */
-    private String sourceForLootedItem(String itemName) {
-        if (itemName == null || itemName.isEmpty()) {
-            return null;
-        }
-        long now = System.currentTimeMillis();
-        synchronized (recentLootIds) {
-            recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
-            return sourceOf(recentLootIds, itemName, now, CLOG_LOOT_DEDUP_MS);
-        }
-    }
-
-    /** The lookup itself, free of plugin state so the attribution can be tested directly. */
-    static String sourceOf(
-            Map<String, RecentItem> seen, String itemName, long now, long windowMs) {
-        if (itemName == null || itemName.isEmpty()) {
-            return null;
-        }
-        RecentItem hit = seen.get(itemName.toLowerCase(Locale.ROOT));
-        if (hit == null || now - hit.at > windowMs) {
-            return null;
-        }
-        return hit.source != null && !hit.source.isEmpty() ? hit.source : null;
-    }
-
-    /** Where the last loot came from, if it landed recently enough to be this unlock's source. */
-    private String recentLootSource() {
-        synchronized (recentLootIds) {
-            if (lastLootSource == null || System.currentTimeMillis() - lastLootSourceAt > CLOG_LOOT_DEDUP_MS) {
-                return null;
-            }
-            return lastLootSource;
-        }
-    }
-
-    /**
-     * Remember the items (and where they came from) in a loot event, so a collection-log line landing
-     * moments later can name the source and draw the right sprite. Bounded by the same window the
-     * clog/loot dedup already uses; entries expire rather than accumulating.
-     */
-    private void rememberLootForClog(String source, String sourceKind, Collection<ItemStack> items) {
-        if (items == null || items.isEmpty()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        synchronized (recentLootIds) {
-            recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
-            for (ItemStack it : items) {
-                if (it == null || it.getId() <= 0) {
-                    continue;
-                }
-                String name = itemName(it.getId());
-                if (name != null && !name.isEmpty()) {
-                    recentLootIds.put(
-                            name.toLowerCase(Locale.ROOT),
-                            new RecentItem(it.getId(), now, source));
-                }
-            }
-            if (source != null && !source.isEmpty()) {
-                lastLootSource = source;
-                lastLootSourceKind = sourceKind;
-                lastLootSourceAt = now;
-            }
-        }
-    }
-
-    /** An item id seen in a recent loot event, with the time it landed and what it fell out of. */
-    static final class RecentItem {
-
-        final int itemId;
-        final long at;
-        /** The loot event this item was actually in — not merely the latest one. */
-        final String source;
-
-        RecentItem(int itemId, long at, String source) {
-            this.itemId = itemId;
-            this.at = at;
-            this.source = source;
-        }
-    }
-
-    /**
-     * True when this loot event is an opened loot key ("Loot Chest"), not a
-     * regular drop.
-     */
-    private boolean isLootKeyEvent(String source) {
-        if (source == null) {
-            return false;
-        }
-        String s = source.toLowerCase();
-        return s.equals("loot chest") || s.contains("loot key");
-    }
-
-    /**
-     * Rarity dataset for a loot source kind, or null when rarity doesn't apply
-     * (pvp / events).
-     */
-    private AbstractRarityService raritySource(String sourceKind) {
-        if ("npc".equals(sourceKind)) {
-            return rarityService;
-        }
-        if ("pickpocket".equals(sourceKind)) {
-            return thievingService;
-        }
-        return null;
-    }
-
-    /**
-     * True when the item is a loot key — its contents fire a separate
-     * LootReceived when opened.
-     */
-    private boolean isLootKeyItem(int itemId) {
-        String name = itemName(itemId);
-        return name != null && name.toLowerCase().contains("loot key");
-    }
-
-    /**
-     * Item display name, or "Item {id}" as a fallback. Safe on the client
-     * thread.
-     */
-    private String itemName(int itemId) {
-        try {
-            ItemComposition comp = itemManager.getItemComposition(itemId);
-            if (comp != null && comp.getName() != null) {
-                return comp.getName();
-            }
-        } catch (Exception ignored) {
-        }
-        return "Item " + itemId;
-    }
-
-    /**
      * Most recent kill/clear count parsed for a loot source, or null if unknown
      * or the server has switched the KC display off.
      */
@@ -7215,606 +5931,6 @@ public class AnvilPlugin extends Plugin {
             // A migration hiccup must never stop the plugin loading.
             log.debug("Anvil config-defaults migration skipped: {}", e.getMessage());
         }
-    }
-
-    /**
-     * The rarity gate actually in force: rarer than 1-in-N, or 0 when rarity posts are off.
-     *
-     * Two inputs. The member's own setting is a preference; the clan's {@code dropRarityFloor} (from
-     * /api/plugin/config) is a floor the member can tighten but not loosen. That's what stops one
-     * person's 1/2000 setting from filling a shared channel with herb rolls, and it lets an admin
-     * fix the whole clan from the site instead of asking everyone to edit their config.
-     */
-    private int effectiveRarityFloor() {
-        int raw = config.rareDropMinRarity();
-        if (raw <= 0) {
-            return 0; // member disabled rarity posts entirely — the clan floor doesn't re-enable them
-        }
-        PluginConfigResponse cfg = pluginConfig;
-        int clanFloor = cfg != null && cfg.dropRarityFloor > 0 ? cfg.dropRarityFloor : 0;
-        return Math.max(Math.max(1000, raw), clanFloor);
-    }
-
-    /**
-     * The kill count to stamp on a drop from {@code source}.
-     *
-     * A RAID REPORTS ITS LOOT UNDER THE BASE NAME. RuneLite's loot event says "Tombs of Amascut"
-     * whichever mode you ran, while the game's kill-count line names the mode — "Your completed Tombs
-     * of Amascut: Expert Mode count is: 220". Those are different keys, so looking the base name up
-     * answered with whatever the NORMAL-mode count happened to be, and an Expert drop at 220 was
-     * posted to Discord as "KC 54". Same shape for CoX Challenge Mode and ToB Hard Mode.
-     *
-     * The kill line always precedes the loot, so a recent line naming this source — or any mode of it
-     * — is the one this drop belongs to. Outside that window nothing recent is claimed and the
-     * per-name map answers as before, which is what a drop with no kill line (a clue casket, an
-     * impling) still wants.
-     */
-    /**
-     * The raid modes the game appends to a base name. A CLOSED SET, deliberately.
-     *
-     * The first attempt at this accepted any extra words after the base, on the reasoning that "a
-     * mode always adds words". It does — but so does a longer unrelated name once punctuation is
-     * stripped for matching: "Kree'Arra" normalises to "kree arra", so the apostrophe manufactures
-     * exactly the word boundary the check was leaning on, and "Kree" would have matched it. There
-     * are four of these in the game and they never change without a raid release, so naming them is
-     * both safer and more honest than a shape test.
-     */
-    private static final Set<String> RAID_MODE_SUFFIXES = Collections.unmodifiableSet(
-            new HashSet<>(Arrays.asList(
-                    "challenge mode", "entry mode", "expert mode", "hard mode")));
-
-    /**
-     * Does a kill-count line for {@code kcName} describe a kill of {@code source}?
-     *
-     * True for the same activity, and for any MODE of it — "Tombs of Amascut" is credited by
-     * "Tombs of Amascut: Expert Mode", because RuneLite's loot event and the game's chat line are
-     * naming the same raid.
-     */
-    static boolean kcLineBelongsTo(String source, String kcName) {
-        if (source == null || kcName == null) {
-            return false;
-        }
-        String want = normalizeBossName(source);
-        String seen = normalizeBossName(kcName);
-        if (want.isEmpty() || seen.isEmpty()) {
-            return false;
-        }
-        if (seen.equals(want)) {
-            return true;
-        }
-        if (!seen.startsWith(want + " ")) {
-            return false;
-        }
-        return RAID_MODE_SUFFIXES.contains(seen.substring(want.length() + 1));
-    }
-
-    /**
-     * The server's drop knowledge, or null against a site that doesn't serve it. Read through a
-     * method rather than the field so every caller sees the same null-safety and the capability
-     * gate lives in one place.
-     */
-    /** "woodcutting" -> "Woodcutting". The skill keys arrive lowercased from the site's dataset. */
-    private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) {
-            return s;
-        }
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
-    }
-
-    private DropFacts dropFacts() {
-        PluginConfigResponse cfg = pluginConfig;
-        return cfg != null && cfg.serverSupports("drop-facts") ? cfg.dropFacts : null;
-    }
-
-    private Integer killCountFor(String source) {
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg != null && !cfg.showKillCount) {
-            return null;
-        }
-        if (source == null) {
-            return null;
-        }
-        if (lastKcName != null
-                && System.currentTimeMillis() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS
-                && kcLineBelongsTo(source, lastKcName)) {
-            return lastKcValue;
-        }
-        return killCounts.get(source.toLowerCase());
-    }
-
-    private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate) {
-        String name = itemName(itemId);
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-        Integer kc = killCountFor(source);
-        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
-        // A rare roll on something worthless is a punchline, not a prize — say so instead of
-        // dressing a Dragon spear up as treasure. A guaranteed drop is neither.
-        boolean troll = !guaranteed && DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
-        String desc = who(rsn)
-                + (troll ? " got robbed" : " received a valuable drop")
-                + DropSource.fromPhrase(source, sourceKind) + ".";
-        // The reaction line is about beating the odds. There were none to beat.
-        if (!guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, GamePools.SPOON_VALUE)) {
-            desc += "\n" + randomSpoonLine();
-        }
-        // Where this leaves their vestige rotation, when the drop was a roll of one (set moments
-        // ago by trackVestigeRolls off the same loot event).
-        String rollLine = lastVestigeLine;
-        if (rollLine != null && System.currentTimeMillis() - lastVestigeLineAt < VESTIGE_LINE_WINDOW_MS) {
-            desc += "\n" + rollLine;
-            lastVestigeLine = null;
-        }
-        JsonObject embed = buildDropEmbed(
-                troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName,
-                DropSource.countLabel(source, sourceKind), guaranteed);
-
-        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
-    }
-
-    /**
-     * One post for a whole drop / loot key that contained multiple items:
-     * highlights the single most valuable item, plus the combined total and
-     * item count — instead of a post per item or a huge per-item list.
-     */
-    private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total) {
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-
-        RareItem top = items.get(0);
-        for (RareItem it : items) {
-            if (it.value > top.value) {
-                top = it;
-            }
-        }
-        String topName = itemName(top.itemId);
-        String topLabel = (top.qty > 1 ? topName + " ×" + top.qty : topName)
-                + " (" + String.format("%,d gp", top.value) + ")";
-
-        String desc = who(rsn) + " received a valuable haul"
-                + DropSource.fromPhrase(source, sourceKind) + ".";
-        // No single rate to judge a mixed haul by, so the combined value decides.
-        if (total >= GamePools.SPOON_VALUE) {
-            desc += "\n" + randomSpoonLine();
-        }
-        JsonObject embed = new JsonObject();
-        addAuthor(embed, rsn);
-        embed.addProperty("title", "💰 Rare drop!");
-        embed.addProperty("description", desc);
-        embed.addProperty("color", RARE_EMBED_COLOR);
-
-        JsonArray fields = new JsonArray();
-        fields.add(embedField("Top item", topLabel, false));
-        fields.add(statField("Total value", String.format("%,d gp", total)));
-        fields.add(statField("Items", String.valueOf(items.size())));
-        Integer kc = killCountFor(source);
-        if (kc != null && kc > 0) {
-            fields.add(statField(DropSource.countLabel(source, sourceKind), String.format("%,d", kc)));
-        }
-        embed.add("fields", fields);
-
-        // Link the standout item to its wiki page, matching single-item posts.
-        addWikiUrl(embed, topName);
-
-        // The haul's headline item carries the thumbnail.
-        addThumbnail(embed, itemIconUrl(top.itemId));
-
-        addAttachment(embed, shotName);
-
-        postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
-    }
-
-    /**
-     * A standout item collected for a combined rare-drop post.
-     */
-    private static final class RareItem {
-
-        final int itemId;
-        final int qty;
-        final long value;
-        final Double dropRate;
-
-        RareItem(int itemId, int qty, long value, Double dropRate) {
-            this.itemId = itemId;
-            this.qty = qty;
-            this.value = value;
-            this.dropRate = dropRate;
-        }
-    }
-
-    /**
-     * A pet drop waiting on its name before it posts.
-     *
-     * <p>The chat line that announces a pet doesn't say WHICH pet — it's the same sentence for a
-     * Baby mole and a Tangleroot. The only line that names it is the collection-log unlock, which
-     * follows a tick or two later, so the post waits for it rather than going out as "a pet".
-     *
-     * <p>This assumes the pet line lands FIRST, which is the order the game sends them. If it ever
-     * arrived second the pet would post unnamed and the unlock would post separately — the same two
-     * posts this code replaces, so the failure mode is the old behaviour rather than a broken one.
-     */
-    private static final class PendingPet {
-
-        final boolean duplicate;
-        final String source;
-        final String sourceKind;
-        final Integer killCount;
-        /**
-         * Whether this pet will actually be POSTED. The wait for the name happens either way — the
-         * clan's site feed wants it too — so this is what tells the collection-log line whether
-         * standing down would leave the pet unannounced.
-         */
-        final boolean announce;
-        /** The queued feed entry waiting for the same name, if any. */
-        final String momentKey;
-        String name;
-        /**
-         * Where it really came from, and the count there — resolvable only once the name is known
-         * (see DropSource.resolvePetSource). Null until then, and null afterwards for a pet nothing
-         * can place, which is what makes the post fall back to {@link #source}.
-         */
-        String resolvedSource;
-        Integer resolvedKc;
-
-        PendingPet(boolean duplicate, String source, String sourceKind, Integer killCount,
-                   boolean announce, String momentKey) {
-            this.duplicate = duplicate;
-            this.source = source;
-            this.sourceKind = sourceKind;
-            this.killCount = killCount;
-            this.announce = announce;
-            this.momentKey = momentKey;
-        }
-    }
-
-    private final Object petLock = new Object();
-    private PendingPet pendingPet;
-    /**
-     * How long the pet post waits for its collection-log line. Long enough to cover the unlock
-     * landing a tick or two later, short enough that the post still reads as immediate — and short
-     * enough that it can't swallow an unrelated unlock from the next kill.
-     */
-    private static final long PET_NAME_WINDOW_MS = 2_000;
-
-    /**
-     * Claim a collection-log unlock as the name of the pet we just noticed.
-     *
-     * <p>Returns the pet when this line was its name — which tells the caller two different things
-     * it must not confuse: the unlock is already accounted for (so it is not ALSO a drop), and, if
-     * that pet is going to be posted, the ordinary collection-log posts should stand down or the
-     * same pet lands twice, once as 🐾 and once as 📕. A member who only wanted the site feed still
-     * gets their normal clog post, because for them nothing else is going to mention it.
-     */
-    private PendingPet claimPetName(String itemName) {
-        if (itemName == null || itemName.isEmpty()) {
-            return null;
-        }
-        PendingPet pet;
-        synchronized (petLock) {
-            if (pendingPet == null || pendingPet.name != null) {
-                return null;
-            }
-            pendingPet.name = itemName;
-            pet = pendingPet;
-        }
-        // Naming it is also what makes its SOURCE knowable: until now the only candidate was the
-        // last loot the client saw. Resolve once, here, so the clan feed and the Discord post can
-        // never disagree about which boss it came from.
-        String resolved = DropSource.resolvePetSource(dropFacts(), itemName, pet.source, killCounts);
-        synchronized (petLock) {
-            pet.resolvedSource = resolved;
-            pet.resolvedKc = resolved == null ? null
-                    : (resolved.equalsIgnoreCase(pet.source) ? pet.killCount : killCountFor(resolved));
-        }
-        namePetMoment(pet.momentKey, itemName, resolved, pet.resolvedKc);
-        return pet;
-    }
-
-    /**
-     * Note a pet drop. The source and kill count are captured NOW — by the time anything is sent the
-     * player may have moved on, and "from Callisto at 1,204 KC" is the whole story of the drop.
-     *
-     * <p>The clan's feed is recorded unconditionally; only the Discord post is gated. They are
-     * different things: switching off the drops channel is a statement about a channel, not about
-     * whether the pet happened.
-     */
-    private void handlePetDrop(boolean duplicate) {
-        String source;
-        String sourceKind;
-        synchronized (recentLootIds) {
-            boolean fresh = lastLootSource != null
-                    && System.currentTimeMillis() - lastLootSourceAt <= CLOG_LOOT_DEDUP_MS;
-            source = fresh ? lastLootSource : null;
-            sourceKind = fresh ? lastLootSourceKind : null;
-        }
-        Integer kc = killCountFor(source);
-        String momentKey = recordPetMoment(source, sourceKind, kc);
-        boolean announce = config.notifyPets() && notifyEnabled("pets");
-
-        // Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
-        // park a pet nothing will ever collect: the next collection-log line would claim it.
-        if (!announce && momentKey == null) {
-            return;
-        }
-        PendingPet pet = new PendingPet(duplicate, source, sourceKind, kc, announce, momentKey);
-        synchronized (petLock) {
-            pendingPet = pet;
-        }
-        if (tasks.isLive()) {
-            tasks.runLater(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS);
-        } else {
-            flushPetNotification(pet);
-        }
-    }
-
-    /**
-     * Post the pet, with whatever the wait turned up.
-     *
-     * <p>Every field here is omitted rather than guessed when it isn't known: a skilling pet fires no
-     * loot event, so it has no source, no KC and no drop rate, and inventing any of those for a clan
-     * channel would be worse than a shorter post.
-     */
-    private void flushPetNotification(PendingPet pet) {
-        synchronized (petLock) {
-            if (pendingPet == pet) {
-                pendingPet = null;
-            }
-        }
-        // The wait may have been for the site feed alone (drops channel off) — the name has been
-        // filled in by now either way, and there is nothing here to post.
-        if (!pet.announce) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-pet.png";
-        String petName = pet.name;
-
-        // Where it ACTUALLY came from, settled in claimPetName the moment the name arrived (the feed
-        // took the same answer). A pet that never got named, or one nothing can place, falls back to
-        // the observed loot source — which is all this ever had.
-        String source;
-        Integer killCount;
-        synchronized (petLock) {
-            source = pet.name == null ? pet.source : pet.resolvedSource;
-            killCount = pet.name == null ? pet.killCount : pet.resolvedKc;
-        }
-
-        JsonObject embed = new JsonObject();
-        addAuthor(embed, rsn);
-        embed.addProperty("title", petName != null ? "🐾 " + petName : "🐾 Pet drop!");
-        String name = who(rsn);
-        embed.addProperty("description", pet.duplicate
-                // The duplicate line is the game's own joke about a pet you already have.
-                ? name + " has a funny feeling like they would have been followed."
-                : name + " has a funny feeling like they're being followed.");
-        embed.addProperty("color", RARE_EMBED_COLOR);
-
-        JsonArray fields = new JsonArray();
-        fields.add(statField("Status", pet.duplicate ? "Duplicate" : "New!"));
-        if (source != null && !source.isEmpty()) {
-            fields.add(statField("From", source));
-        } else {
-            // A skilling pet has no monster; the skill is the only true thing there is to say, and
-            // saying nothing at all is still better than naming the last thing that dropped loot.
-            DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
-            if (entry != null && entry.skill != null && !entry.skill.isEmpty()) {
-                fields.add(statField("From", capitalize(entry.skill)));
-            }
-        }
-        if (killCount != null && killCount > 0) {
-            fields.add(statField("KC", String.format("%,d", killCount)));
-        }
-
-        // Real rarity or none: the rate comes from the same service the rare-drop posts price
-        // against, asked with this pet's own item id.
-        Integer itemId = petName != null ? resolveItemIdByName(petName) : null;
-        Double dropRate = petRarity(itemId, source, pet.sourceKind);
-        if (dropRate != null && dropRate > 0) {
-            fields.add(statField("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate)));
-            String luck = DropLuck.luckLabel(dropRate, killCount);
-            if (luck != null && !luck.isEmpty()) {
-                fields.add(statField("Luck", luck));
-            }
-        }
-        embed.add("fields", fields);
-
-        addItemThumbnail(embed, itemId);
-        if (petName != null) {
-            addWikiUrl(embed, petName);
-        }
-
-        if (config.petScreenshot()) {
-            addAttachment(embed, shotName);
-            postWithScreenshot("pets", embed, shotName);
-        } else {
-            apiClient.postNotification("pets", null, embed, null, null);
-        }
-    }
-
-    /** This pet's drop rate from the rarity table its source uses, or null when nothing can price it. */
-    private Double petRarity(Integer itemId, String source, String sourceKind) {
-        if (itemId == null || itemId <= 0 || source == null || source.isEmpty()) {
-            return null;
-        }
-        // The resolved source may be a monster the client never saw loot from, in which case there
-        // is no observed KIND either — but a pet the server files under a killable monster is by
-        // definition an npc drop, so the npc table is the right one to ask.
-        AbstractRarityService service = raritySource(sourceKind == null ? "npc" : sourceKind);
-        if (service == null) {
-            return null;
-        }
-        OptionalDouble r = service.getRarity(source, itemId, 1);
-        return r.isPresent() && r.getAsDouble() > 0 ? r.getAsDouble() : null;
-    }
-
-    /**
-     * Handles a parsed combat-task completion (run a tick after the chat line
-     * so the CA points varbit has settled). Posts the individual task if it
-     * clears the configured min tier, and a separate tier-clear post when this
-     * task pushed total points across a tier threshold.
-     */
-    private void handleCombatAchievements(List<PendingCaTask> batch) {
-        boolean announce = notifyEnabled("combatAchievements");
-
-        int total = client.getVarbitValue(VarbitID.CA_POINTS);
-        // Points before this batch — only used to detect a tier-threshold crossing. With no baseline
-        // yet, fall back to the current total so we never post a phantom tier clear.
-        int before = caPointsInitialized ? lastCaPoints : total;
-
-        // Tier clear: did the cumulative total cross any tier threshold across this batch?
-        CombatAchievementTier cleared = null;
-        for (CombatAchievementTier t : CombatAchievementTier.values()) {
-            int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-            if (threshold > 0 && before < threshold && threshold <= total) {
-                cleared = t; // values() ascend, so the last match is the highest tier crossed
-            }
-        }
-        if (cleared != null && announce) {
-            postCaTierClear(cleared);
-        }
-
-        // Individual tasks: post each FIRST-seen task at/above the configured floor, but only when
-        // this tick's completions actually raised the CA point total. Already-owned tasks re-fire the
-        // same chat line via the in-game "Repeat completion" setting — which we rely on so CA *tiles*
-        // can count tasks cleared before the event — without changing points, so gating on the delta
-        // keeps those recompletions out of the achievements channel. (A mixed tick containing both a
-        // genuine new task and a recompletion still posts the recompletion; the aggregate varbit can't
-        // attribute a per-task delta. That's rare — real spam is pure-recompletion ticks.) Dedup by
-        // task NAME so every genuinely new task in a multi-task tick still posts exactly once.
-        boolean pointsRose = total > before;
-        for (PendingCaTask pending : batch) {
-            String key = pending.task == null ? "" : pending.task.toLowerCase();
-            if (key.isEmpty() || !notifiedCaTasks.add(key)) {
-                continue; // unparseable, or already announced this session
-            }
-            if (!pointsRose) {
-                continue; // a recompletion: it changed nothing, so it is not news
-            }
-            // The feed and the counter take every genuinely new task and let the SITE decide which
-            // are worth showing — a tier floor belongs where the clan can change it without a
-            // plugin release. The chat announcement keeps its own local floor.
-            noteCombatTaskMoment(pending.tier, pending.task);
-            if (announce && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
-                postCombatTask(pending.tier, pending.task, total);
-            }
-        }
-
-        lastCaPoints = total;
-    }
-
-    /**
-     * Wiki link for a specific combat task.
-     *
-     * The wiki has no page per task — they live as rows in the per-tier task tables — so this lands
-     * on the tier's list with the task name as a fragment. Where the wiki has an anchor for it the
-     * browser jumps straight to the row; where it doesn't, the reader still arrives at the list
-     * containing it, which is strictly better than the Combat Achievements hub page.
-     */
-    private static String caTaskWikiUrl(CombatAchievementTier tier, String task) {
-        String tierPath = tier.getDisplayName().replace(' ', '_');
-        String base = CA_WIKI_URL + "/" + tierPath;
-        if (task == null || task.isEmpty()) {
-            return base;
-        }
-        return base + "#" + task.trim().replace(' ', '_');
-    }
-
-    /**
-     * Posts one completed combat task. Carries the numbers a CA grinder actually cares about: what
-     * the task was worth, where their running total sits, and how far the next tier unlock is —
-     * all read from the same varbits the tier-clear check uses, so no extra bookkeeping.
-     *
-     * Client thread (varbit reads happen in the caller); the screenshot + send are deferred.
-     */
-    private void postCombatTask(CombatAchievementTier tier, String task, int totalPoints) {
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-ca.png";
-        JsonObject embed = new JsonObject();
-        addAuthor(embed, rsn);
-        // Title names the TASK, not just its tier — "Into the Den of Giants" is the news; "Easy
-        // combat task" is the category. The link follows it to the tier's task list rather than the
-        // Combat Achievements hub, which told a reader nothing they didn't already know.
-        embed.addProperty("title", "⚔️ " + task);
-        embed.addProperty("description",
-                who(rsn) + " completed a " + tier.getDisplayName().toLowerCase()
-                        + " combat task.");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        embed.addProperty("url", caTaskWikiUrl(tier, task));
-
-        JsonArray fields = new JsonArray();
-        fields.add(statField("Points earned", "+" + tier.getPoints()));
-        if (totalPoints > 0) {
-            fields.add(statField("Total points", String.format("%,d", totalPoints)));
-            String progress = nextTierProgress(totalPoints);
-            if (progress != null) {
-                fields.add(statField("Next unlock", progress));
-            }
-        }
-        embed.add("fields", fields);
-
-        addThumbnail(embed, CA_ICON_URL);
-
-        if (config.caScreenshot()) {
-            addAttachment(embed, shotName);
-            captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
-        } else {
-            apiClient.postNotification("combatAchievements", null, embed, null, null);
-        }
-    }
-
-    /**
-     * "216/726 (29.8%)" — progress toward the next tier's reward unlock, or null once every tier is
-     * unlocked. Thresholds are cumulative point totals held in per-tier varbits; the next unlock is
-     * simply the lowest threshold still above the current total. Client thread (varbit reads).
-     */
-    private String nextTierProgress(int totalPoints) {
-        int next = 0;
-        for (CombatAchievementTier t : CombatAchievementTier.values()) {
-            int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-            if (threshold > totalPoints && (next == 0 || threshold < next)) {
-                next = threshold;
-            }
-        }
-        if (next <= 0) {
-            return null; // everything already unlocked — no bar left to fill
-        }
-        double pct = (100.0 * totalPoints) / next;
-        return String.format("%,d/%,d (%.1f%%)", totalPoints, next, pct);
-    }
-
-    private void postCaTierClear(CombatAchievementTier tier) {
-        String rsn = getLocalPlayerName();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🏆 Combat Achievement tier!");
-        embed.addProperty("description",
-                who(rsn) + " unlocked the **" + tier.getDisplayName()
-                + "** Combat Achievements tier!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        // Combat-achievement posts are message-only — no screenshot.
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
-    }
-
-    /**
-     * A skill hit level 99. Posts to the clan achievements channel (shared with
-     * combat achievements), gated on that channel having a webhook configured
-     * server-side.
-     */
-    /**
-     * Posts an achievement-diary tier completion to the clan achievements
-     * channel — same hook as combat achievements and 99s. Message-only.
-     */
-    private void maybeNotifyDiaryCompletion(String area, String tier) {
-        if (!config.notifyDiaries() || !notifyEnabled("diaries")) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "📜 Diary completed!");
-        embed.addProperty("description",
-                who(rsn) + " just completed the **" + area + " " + tier
-                        + "** achievement diary!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("diaries", null, embed, null, null);
     }
 
     /**
@@ -7926,801 +6042,6 @@ public class AnvilPlugin extends Plugin {
                         creditedCaTaskTiles.remove(dedupKey);
                     });
         }
-    }
-
-    /**
-     * Is a live event being tracked into a void because auto-submit is off?
-     *
-     * <p>THE SWITCH THAT TURNS EVERYTHING OFF. "Auto Submit Drops" reads like it governs drops, and
-     * it governs the lot: drop, value, kill, timed, LMS, gain, deathless, diary and combat-task
-     * tiles all check it, and so does {@link #statPushAllowed} — so a member who flicked it off
-     * months ago, or who never looked at the config because the plugin was set up for them, plays a
-     * whole bingo contributing nothing. Nothing on the board looks broken from their side: tiles
-     * simply never move, which is indistinguishable from not having got the drop.</p>
-     *
-     * <p>Only while an event is actually RUNNING. Outside one the toggle costs nothing, and a plugin
-     * that lectures about settings for something that is not happening is noise.</p>
-     */
-    static boolean autoSubmitBlocksEvent(PluginConfigResponse cfg, boolean autoSubmit) {
-        return !autoSubmit && cfg != null && AnvilOverlay.isEventActive(cfg.event);
-    }
-
-    /**
-     * Does this board have tiles that can only credit off the in-game drop-notification line?
-     *
-     * <p>Drop and value tiles both do, for the corpse-looted bosses whose loot bypasses every loot
-     * event the client raises (see {@link #creditDropFromChat}). The rest of the board does not care,
-     * but the plugin cannot tell in advance which boss a tile's drop will come from, and the cost of
-     * asking is one chat line against a silent 50m fang.</p>
-     */
-    static boolean eventNeedsDropLines(PluginConfigResponse cfg) {
-        if (cfg == null || !AnvilOverlay.isEventActive(cfg.event)) {
-            return false;
-        }
-        return (cfg.trackedDrops != null && !cfg.trackedDrops.isEmpty())
-                || (cfg.trackedValues != null && !cfg.trackedValues.isEmpty());
-    }
-
-    /** One chat nudge per login when a live event is being played with auto-submit switched off. */
-    private void maybeNudgeAutoSubmit() {
-        if (autoSubmitNudgeSent || !autoSubmitBlocksEvent(pluginConfig, config.autoSubmit())) {
-            return;
-        }
-        autoSubmitNudgeSent = true;
-        String event = pluginConfig.event != null && pluginConfig.event.name != null
-                ? pluginConfig.event.name : "this event";
-        sendChatMessage("\"Auto Submit Drops\" is off in the Anvil plugin config — nothing you do in \""
-                + event + "\" is being counted until you turn it back on.");
-    }
-
-    /**
-     * One-time (per session) reminder to enable the in-game "Repeat completion" Combat
-     * Achievement setting when the active event has incomplete CA tiles — without it, tasks
-     * the player already owns never re-fire the completion line, so those tiles can never
-     * track for them. Reads the setting's varbit, so the check runs on the client thread.
-     */
-    private void maybeNudgeCaRepeatSetting() {
-        if (caRepeatNudgeSent || pluginConfig == null || pluginConfig.trackedCombatTasks == null
-                || pluginConfig.trackedCombatTasks.isEmpty() || !AnvilOverlay.isEventActive(pluginConfig.event)) {
-            return;
-        }
-        boolean anyIncomplete = false;
-        for (TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
-            if (t != null && t.currentAmount < t.requiredAmount) {
-                anyIncomplete = true;
-                break;
-            }
-        }
-        if (!anyIncomplete) {
-            return;
-        }
-        clientThread.invokeLater(() -> {
-            if (client.getGameState() != GameState.LOGGED_IN) {
-                return;
-            }
-            if (client.getVarbitValue(VarbitID.CA_TASK_RECOMPLETION_NOTIFICATIONS) == 1) {
-                return; // setting already on — nothing to remind about
-            }
-            caRepeatNudgeSent = true;
-            sendChatMessage("This event has Combat Achievement tiles — enable Settings > Combat Achievements"
-                    + " > \"Repeat completion\" so tasks you've already done can still count.");
-        });
-    }
-
-    /**
-     * One-time (per session) reminder to enable the in-game loot drop notifications when clan
-     * rare-drop posts are on. The "&lt;player&gt; received a drop: …" chat line those posts key
-     * off for corpse-boss spill loot (Maggot King uniques — see creditDropFromChat) is Jagex's
-     * opt-in loot notification: with the setting off, or its value threshold above the drop's
-     * price, the line never prints and the plugin has nothing to parse — a 50m fang can pass
-     * completely silently. Varbit read requires the client thread.
-     */
-    private void maybeNudgeLootNotifications() {
-        if (lootNotifyNudgeSent) {
-            return;
-        }
-        // TWO REASONS TO CARE, and only one of them used to be asked about. Clan rare-drop posts
-        // need the line, and so does a BOARD with drop or value tiles on it: the same corpse-boss
-        // loot that never posts also never credits (creditDropFromChat is what feeds both). Gating
-        // the reminder on the clan-post toggle meant a member who had turned posts off — or whose
-        // clan doesn't run them — played a bingo whose spill-loot tiles could not fire, and was
-        // never told why.
-        boolean forPosts = config.notifyRareDrops() && notifyEnabled("rareDrops");
-        boolean forTiles = eventNeedsDropLines(pluginConfig);
-        if (!forPosts && !forTiles) {
-            return;
-        }
-        clientThread.invokeLater(() -> {
-            if (client.getGameState() != GameState.LOGGED_IN) {
-                return;
-            }
-            boolean settingOn = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_ON) == 1;
-            // The plugin's own posting floor (enforced minimum 1m) — an in-game threshold above
-            // it would swallow lines for drops the clan channel wants to see.
-            long plugFloor = Math.max(1_000_000, Math.max(0, config.rareDropMinValue()));
-            long gameThreshold = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_VALUE);
-            // The threshold half is a CLAN-POST concern only: it is measured against the posting
-            // floor, and there is no equivalent number for a tile — a tile wants whatever the drop
-            // happens to be worth. So a board-driven reminder ends at "the setting is off".
-            if (settingOn && (!forPosts || gameThreshold <= plugFloor)) {
-                return; // configured fine — the attribution line will fire for qualifying drops
-            }
-            lootNotifyNudgeSent = true;
-            if (!settingOn) {
-                sendChatMessage(forTiles
-                        ? "Enable Settings > Chat > \"Loot drop notifications\" — this board has drop tiles, and"
-                        + " bosses that spill their loot (Maggot King, Araxxor) only announce it on that line."
-                        : "Enable Settings > Chat > \"Loot drop notifications\" — clan rare-drop posts for corpse-boss"
-                        + " loot (Maggot King uniques) rely on that chat line.");
-            } else {
-                sendChatMessage("Your in-game loot notification threshold is above the clan rare-drop floor — lower it"
-                        + " (Settings > Chat > Loot drop notifications) or drops like Maggot King uniques won't post.");
-            }
-        });
-    }
-
-    /**
-     * Reads the quest-completed scroll and posts the completion, gated by the
-     * configured difficulty threshold (default Master &amp; up). Runs a tick
-     * after the widget loads so the text child is populated; retries a couple
-     * of ticks if the text lands late.
-     */
-    private void scheduleQuestScrollRead(int attemptsLeft) {
-        clientThread.invokeLater(() -> {
-            net.runelite.api.widgets.Widget text = client.getWidget(QUEST_COMPLETED_GROUP_ID, QUEST_COMPLETED_TEXT_CHILD);
-            String raw = text != null ? text.getText() : null;
-            if (raw == null || raw.isEmpty()) {
-                if (attemptsLeft > 0) {
-                    scheduleQuestScrollRead(attemptsLeft - 1);
-                }
-                return;
-            }
-            // A widget, so the angle-bracket form is what appears here — but it costs nothing to
-            // take the @ codes too, and the quest scroll is styled by the same game.
-            String plain = CHAT_TAG.matcher(raw).replaceAll(" ").replaceAll("\\s+", " ").trim();
-            String quest = parseQuestScroll(plain);
-            if (quest == null || quest.contains("partial completion")) {
-                return; // unparseable, or Hazeel Cult's "kind of completed" — not a completion
-            }
-            if (!announcedQuests.add(quest.toLowerCase())) {
-                return; // widget re-loaded for a quest already posted this session
-            }
-            postQuestCompletion(quest);
-        });
-    }
-
-    /**
-     * Parses the quest-completed scroll text into the quest name. Ported from
-     * RuneLite's ScreenshotPlugin (BSD-2) so all the scroll's text variants
-     * resolve correctly — RFD subquests become "Recipe for Disaster - X",
-     * "completely completed Rag and Bone Man" becomes "Rag and Bone Man II",
-     * and names genuinely containing "Quest" (Legends' Quest, Doric's Quest)
-     * keep the word. Returns null when nothing matches. Package-private for
-     * the unit test.
-     */
-    static String parseQuestScroll(String text) {
-        Matcher m1 = QUEST_PATTERN_1.matcher(text);
-        Matcher m2 = QUEST_PATTERN_2.matcher(text);
-        Matcher m = m1.matches() ? m1 : m2;
-        if (!m.matches()) {
-            return null;
-        }
-        String quest = m.group("quest");
-        String verb = m.group("verb") != null ? m.group("verb") : "";
-        if (verb.contains("kind of")) {
-            quest += " partial completion";
-        } else if (verb.contains("completely")) {
-            quest += " II";
-        }
-        final String questAndVerb = quest + verb;
-        if (GamePools.RFD_TAGS.stream().anyMatch(questAndVerb::contains)) {
-            quest = "Recipe for Disaster - " + quest;
-        }
-        final String questName = quest;
-        if (GamePools.WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) {
-            quest += " Quest";
-        }
-        return quest;
-    }
-
-    /**
-     * Posts a quest completion to the clan achievements channel. Tier comes
-     * from the baked name sets; a quest in neither set counts as below Master,
-     * so only the "All quests" setting posts it. Message-only, like CA posts.
-     */
-    private void postQuestCompletion(String questName) {
-        QuestAnnounceTier setting = config.questAnnounce();
-        if (setting == QuestAnnounceTier.OFF || !notifyEnabled("quests")) {
-            return;
-        }
-        String key = questName.toLowerCase();
-        boolean gm = GamePools.GRANDMASTER_QUESTS.contains(key);
-        boolean master = GamePools.MASTER_QUESTS.contains(key);
-        if (setting == QuestAnnounceTier.GRANDMASTER && !gm) {
-            return;
-        }
-        if (setting == QuestAnnounceTier.MASTER && !gm && !master) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String tierTag = gm ? " (Grandmaster)" : master ? " (Master)" : "";
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🗺️ Quest complete!");
-        embed.addProperty("description",
-                who(rsn) + " just completed **" + questName + "**" + tierTag + "!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("quests", null, embed, null, null);
-    }
-
-    /**
-     * True when the current world's stats aren't the player's real main-game progression, so level-up
-     * and total-level milestones must be suppressed. PvP Arena hands out a preset max-stat account;
-     * Leagues (SEASONAL) / Deadman / Tournament / Beta / Fresh Start / Quest Speedrunning / LMS / no-save
-     * worlds are separate saves or preset loadouts. Hopping onto one otherwise spams "level 99!" for
-     * stats the player never trained.
-     */
-    private boolean statsAreArtificial() {
-        Set<WorldType> w = client.getWorldType();
-        return w != null && (
-               w.contains(WorldType.PVP_ARENA)
-            || w.contains(WorldType.SEASONAL)
-            || w.contains(WorldType.DEADMAN)
-            || w.contains(WorldType.TOURNAMENT_WORLD)
-            || w.contains(WorldType.BETA_WORLD)
-            || w.contains(WorldType.FRESH_START_WORLD)
-            || w.contains(WorldType.QUEST_SPEEDRUNNING)
-            || w.contains(WorldType.LAST_MAN_STANDING)
-            || w.contains(WorldType.NOSAVE_MODE));
-    }
-
-    private void handleLevelMilestone(String skill) {
-        // A 99 happens once per skill per account, so when one does not reach Discord there has to be
-        // something in the log saying which step dropped it. Every gate below this used to be silent,
-        // and postNotification's own failure paths are log.debug — invisible at RuneLite's default
-        // level — which left "it just didn't post" as the entire diagnosis.
-        if (!notifyEnabled("levels")) {
-            log.info("Anvil: 99 {} not announced — this clan has no channel for level posts.", skill);
-            return;
-        }
-        if (statsAreArtificial()) {
-            log.info("Anvil: 99 {} not announced — levels on this world aren't real progression.", skill);
-            return;
-        }
-        // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
-        // level-up chat line, and StatChanged pre-seeds skills already 99 at login.
-        if (skill == null || !notified99.add(skill.toLowerCase())) {
-            return; // already announced this session, or already 99 when the session started
-        }
-        log.info("Anvil: announcing 99 {}.", skill);
-        String rsn = getLocalPlayerName();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🎉 Level 99!");
-        embed.addProperty("description",
-                who(rsn) + " just reached **level 99 " + skill + "**!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        // How far along they are. A 99 post is about skills rather than total, so it counts those —
-        // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
-        // what they have done rather than a distance from somebody else's goal.
-        embed.add("fields", oneField("Progress", ninetyNineProgressLine()));
-        postAchievement(embed, config.levelScreenshot());
-    }
-
-    /**
-     * Called on every skill level-up. Announces a high-total milestone (every
-     * {@code STEP} at or above {@code FLOOR}) or maxing, posting to the clan
-     * achievements channel. Uses the baselined total so we only fire on genuine
-     * crossings, and skips the round-100 post when this gain maxed.
-     */
-    private void handleTotalMilestone() {
-        // NOT gated on the Discord channel here. The gate moved down to the post itself, because this
-        // method also advances lastTotalLevel and feeds the clan's highlight feed — returning early
-        // for want of a webhook froze the baseline and lost the milestone from both.
-        if (statsAreArtificial()) {
-            return;
-        }
-        int total = client.getTotalLevel();
-        if (!totalLevelInitialized) {
-            // Login baseline missed (e.g. levelled before the first tick settled) — seed and skip.
-            lastTotalLevel = total;
-            totalLevelInitialized = true;
-            return;
-        }
-        if (total <= lastTotalLevel) {
-            return;
-        }
-        int prev = lastTotalLevel;
-        lastTotalLevel = total;
-
-        int max = maxTotalLevel();
-        if (prev < max && max <= total) {
-            recordLevelMoment(null, total, "max");
-            postTotalMilestone(total, true);
-            return; // maxing is the headline — don't also post the round-100 it passed
-        }
-        // Highest round-STEP value this gain reached, at/above the floor.
-        int milestone = (total / TOTAL_MILESTONE_STEP) * TOTAL_MILESTONE_STEP;
-        if (milestone >= TOTAL_MILESTONE_FLOOR && prev < milestone) {
-            recordLevelMoment(null, milestone, "total");
-            postTotalMilestone(milestone, false);
-        }
-    }
-
-    /**
-     * Maximum possible total level, summed from the live Skill enum (adapts as
-     * skills are added).
-     */
-    private int maxTotalLevel() {
-        return Skill.values().length * 99;
-    }
-
-    /**
-     * Is this account plainly not chasing 2277?
-     *
-     * THERE IS NO "PURE" ACCOUNT TYPE. RuneLite's AccountType knows Normal and the Ironman variants
-     * and nothing else, because a pure is a BUILD rather than a flag — the game does not record the
-     * intention, only the stats it produced. So this asks the one question the stats answer without
-     * ambiguity: Defence 1. Nobody arrives at 99 Strength with Defence 1 by accident, and a level-3
-     * skiller is the same answer for the same reason.
-     *
-     * It is used only to SUPPRESS a line, never to claim anything. Telling somebody who has chosen a
-     * build that they are "435 levels from max" measures them against a goal they rejected, and the
-     * cost of guessing wrong is a missing line rather than a wrong one.
-     */
-    private boolean buildIsNotChasingMax() {
-        return client.getRealSkillLevel(Skill.DEFENCE) == 1;
-    }
-
-    /** "1,842 / 2,277 — 435 to go", or null when the number would not mean anything. */
-    private String maxProgressLine(int total) {
-        if (buildIsNotChasingMax()) {
-            return null;
-        }
-        int max = maxTotalLevel();
-        int left = max - total;
-        if (left <= 0) {
-            return null; // already there; the Maxed! post is the whole message
-        }
-        return String.format(Locale.ROOT, "%,d / %,d — %,d to go", total, max, left);
-    }
-
-    /** "12 of 23 skills at 99", the progress a 99 post is actually about. */
-    private String ninetyNineProgressLine() {
-        int at99 = 0;
-        for (Skill sk : Skill.values()) {
-            if (client.getRealSkillLevel(sk) >= 99) {
-                at99++;
-            }
-        }
-        return at99 + " of " + Skill.values().length + " skills at 99";
-    }
-
-    private void postTotalMilestone(int total, boolean maxed) {
-        if (!notifyEnabled("levels")) {
-            log.info("Anvil: total-level milestone {} not announced — no channel for level posts.", total);
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String name = who(rsn);
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", maxed ? "🏆 Maxed!" : "📈 Total level milestone!");
-        embed.addProperty("description", maxed
-                ? name + " just **maxed** with a total level of **" + total + "**!"
-                : name + " just reached **" + total + " total level**!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        // Where this leaves them — from the LIVE total, not the milestone above.
-        //
-        // `total` is the rounded figure the post announces (1800), which is right in the sentence and
-        // wrong in the progress: somebody who crossed 1800 on a level that took them to 1803 is 474
-        // from max, not 477. The headline is the milestone; the progress is where they actually are.
-        //
-        // Omitted on a max — "0 to go" under "Maxed!" is noise — and on a build not chasing one.
-        String progress = maxed ? null : maxProgressLine(client.getTotalLevel());
-        if (progress != null) {
-            embed.add("fields", oneField("Progress to max", progress));
-        }
-        postAchievement(embed, config.levelScreenshot());
-    }
-
-    /** A one-entry Discord `fields` array, inline so it sits beside the description rather than under it. */
-    private static JsonArray oneField(String name, String value) {
-        JsonObject field = new JsonObject();
-        field.addProperty("name", name);
-        field.addProperty("value", value);
-        field.addProperty("inline", true);
-        JsonArray fields = new JsonArray();
-        fields.add(field);
-        return fields;
-    }
-
-    private JsonObject buildDropEmbed(String title, String description,
-            String itemName, int qty, long value, Double dropRate, Integer killCount, String shotName) {
-        return buildDropEmbed(title, description, itemName, -1, qty, value, dropRate, killCount, shotName);
-    }
-
-    private JsonObject buildDropEmbed(String title, String description,
-            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName) {
-        return buildDropEmbed(title, description, itemName, itemId, qty, value, dropRate, killCount, shotName,
-                "KC", false);
-    }
-
-    /**
-     * The drop embed. {@code itemId} (or -1 when unknown) adds the item's own sprite as the
-     * thumbnail — the same image the game draws, so a channel skim reads as icons rather than text.
-     * Numeric fields are wrapped in backticks so Discord boxes them; see the site's
-     * lib/discordEmbeds for the house style this matches.
-     */
-    private JsonObject buildDropEmbed(String title, String description,
-            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName,
-            String countLabel, boolean guaranteed) {
-        JsonObject embed = new JsonObject();
-        String rsn = getLocalPlayerName();
-        addAuthor(embed, rsn);
-        embed.addProperty("title", title);
-        embed.addProperty("description", description);
-        embed.addProperty("color", RARE_EMBED_COLOR);
-
-        JsonArray fields = new JsonArray();
-        fields.add(statField("Item", qty > 1 ? itemName + " ×" + qty : itemName));
-        if (value > 0) {
-            fields.add(statField("Value", String.format("%,d gp", value)));
-        }
-        // A guaranteed drop has no rate worth printing and no luck to speak of: "1/1" and "Top 100%"
-        // are both true and both noise. Say what it is instead, so the post still explains itself.
-        if (guaranteed) {
-            fields.add(statField("Drop rate", "Guaranteed"));
-        } else if (dropRate != null && dropRate > 0) {
-            long oneIn = Math.round(1.0 / dropRate);
-            fields.add(statField("Drop rate", "1/" + String.format("%,d", oneIn)));
-        }
-        if (killCount != null && killCount > 0) {
-            // Keys opened and caskets are not kills; calling either KC invites a comparison against
-            // a drop rate that has nothing to do with it (DropSource.countLabel).
-            fields.add(statField(countLabel == null || countLabel.isEmpty() ? "KC" : countLabel,
-                    String.format("%,d", killCount)));
-        }
-        // Luck reads the rate against the kill count — silent unless the result is worth a remark.
-        String luck = guaranteed ? null : DropLuck.luckLabel(dropRate, killCount);
-        if (luck != null) {
-            fields.add(statField("Luck", luck));
-        }
-        embed.add("fields", fields);
-
-        // Wiki link (OSRS wiki uses underscores for spaces).
-        addWikiUrl(embed, itemName);
-
-        addItemThumbnail(embed, itemId);
-
-        addAttachment(embed, shotName);
-        return embed;
-    }
-
-    /**
-     * RuneLite's static export of the game cache — the exact sprite the client renders, on a public
-     * CDN Discord can fetch. Mirrors the site's lib/tileIcons.itemIconUrl.
-     */
-    private static String itemIconUrl(int itemId) {
-        return "https://static.runelite.net/cache/item/icon/" + itemId + ".png";
-    }
-
-    /**
-     * Who this is about, in the embed's author line — omitted when we could not read a name.
-     *
-     * <p>Five posts carry it and five do not, which reads as an oversight rather than a decision;
-     * this is the shared copy, so whoever decides that only has to change one thing.</p>
-     */
-    static void addAuthor(JsonObject embed, String rsn) {
-        if (rsn == null || rsn.isEmpty()) {
-            return;
-        }
-        JsonObject author = new JsonObject();
-        author.addProperty("name", rsn);
-        embed.add("author", author);
-    }
-
-    /** The little picture in the embed's corner. */
-    static void addThumbnail(JsonObject embed, String url) {
-        JsonObject thumb = new JsonObject();
-        thumb.addProperty("url", url);
-        embed.add("thumbnail", thumb);
-    }
-
-    /** The item's own sprite as the thumbnail. Silent for an id we could not resolve. */
-    static void addItemThumbnail(JsonObject embed, Integer itemId) {
-        if (itemId != null && itemId > 0) {
-            addThumbnail(embed, itemIconUrl(itemId));
-        }
-    }
-
-    /**
-     * Point the embed's big image at the screenshot that will ride along with it.
-     *
-     * <p>Named rather than attached: the file goes up in the same multipart request, and Discord
-     * resolves {@code attachment://name} against it. If the capture then fails, the reference has to
-     * be removed or Discord renders a broken frame — see {@link #postWithOptionalShot}.</p>
-     */
-    static void addAttachment(JsonObject embed, String shotName) {
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
-    }
-
-    /** The OSRS wiki page for a thing, as the embed's title link. */
-    static void addWikiUrl(JsonObject embed, String pageName) {
-        // The OSRS wiki uses underscores for spaces.
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + pageName.replace(' ', '_'));
-    }
-
-    /**
-     * The name to say when we have one, and something that still reads as a sentence when we do not.
-     *
-     * <p>Thirteen copies of this ternary. A post that says "A clan member just got a Twisted bow" is
-     * worth making; one that says "null just got" is not.</p>
-     */
-    static String who(String rsn) {
-        return rsn != null && !rsn.isEmpty() ? rsn : "A clan member";
-    }
-
-    /**
-     * Post it, with the screenshot if the member wants one.
-     *
-     * <p>The embed arrives already pointing at {@code attachment://<shotName>}, so the no-screenshot
-     * path has to take that reference back out — an embed naming a file that never arrives renders
-     * as a broken image.</p>
-     */
-    private void postWithOptionalShot(String channel, JsonObject embed, String shotName, boolean wantShot) {
-        if (wantShot) {
-            postWithScreenshot(channel, embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification(channel, null, embed, null, null);
-        }
-    }
-
-    private static JsonObject embedField(String name, String value, boolean inline) {
-        JsonObject f = new JsonObject();
-        f.addProperty("name", name);
-        f.addProperty("value", value);
-        f.addProperty("inline", inline);
-        return f;
-    }
-
-    /** An inline field whose value is a number or short token — boxed with backticks. */
-    static JsonObject statField(String name, String value) {
-        return embedField(name, "`" + value.replace("`", "") + "`", true);
-    }
-
-    /**
-     * Higher of GE price and high-alch value for a single item. Safe to call on
-     * the client thread.
-     */
-    private long itemUnitValue(int itemId) {
-        long ge = 0;
-        long ha = 0;
-        try {
-            ge = Math.max(0, itemManager.getItemPrice(itemId));
-        } catch (Exception ignored) {
-        }
-        try {
-            ItemComposition comp = itemManager.getItemComposition(itemId);
-            if (comp != null) {
-                ha = Math.max(0, comp.getHaPrice());
-            }
-        } catch (Exception ignored) {
-        }
-        return Math.max(ge, ha);
-    }
-
-    /**
-     * Builds the death message: a 1/100 chance of a random fun line
-     * (server-served pool, with a baked-in fallback), otherwise the player's
-     * own configured message. {name} → RSN.
-     */
-    private String buildDeathMessage(String rsn) {
-        String name = (rsn == null || rsn.isEmpty()) ? "Someone" : rsn;
-        String base;
-        boolean fun = ThreadLocalRandom.current().nextInt(100) == 0;
-        if (fun) {
-            List<String> pool = GamePools.FUN_DEATHS_FALLBACK;
-            PluginConfigResponse cfg = pluginConfig;
-            if (cfg != null && cfg.funDeathMessages != null && !cfg.funDeathMessages.isEmpty()) {
-                pool = cfg.funDeathMessages;
-            }
-            base = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-        } else {
-            base = config.deathMessage();
-            if (base == null || base.isEmpty()) {
-                base = "{name} just died!";
-            }
-        }
-        base = base.replace("{name}", name);
-        // Funny lines are always on — a cheeky reaction line on every death.
-        base += "\n" + randomDeathTaunt();
-        return base;
-    }
-
-    private static String randomLine(List<String> pool) {
-        return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-    }
-
-    /**
-     * A death reaction line — the server pool when the clan has set one, else
-     * the baked-in list.
-     */
-    private String randomDeathTaunt() {
-        PluginConfigResponse cfg = pluginConfig;
-        List<String> pool = (cfg != null && cfg.deathTaunts != null && !cfg.deathTaunts.isEmpty())
-                ? cfg.deathTaunts : GamePools.DEATH_TAUNTS;
-        return randomLine(pool);
-    }
-
-    /**
-     * A lucky-drop reaction line — the server pool when set, else the baked-in
-     * list.
-     */
-    private String randomSpoonLine() {
-        PluginConfigResponse cfg = pluginConfig;
-        List<String> pool = (cfg != null && cfg.spoonTaunts != null && !cfg.spoonTaunts.isEmpty())
-                ? cfg.spoonTaunts : GamePools.SPOON_TAUNTS;
-        return randomLine(pool);
-    }
-
-    /**
-     * Whether a clan notification channel ("deaths", "pvpKills", "rareDrops",
-     * "combatAchievements") has a Discord webhook configured on the site. The
-     * flags are fetched on launch as part of the plugin config and refreshed
-     * periodically. When true, the plugin posts the notification to its own
-     * server (/api/plugin/notify), which forwards it to Discord — the plugin
-     * never sees the webhook URL itself.
-     */
-    /**
-     * Whether the clan has somewhere to put this kind of post.
-     *
-     * <p>Five kinds -- pets, levels, quests, diaries, collection-log slots -- used to be announced
-     * under the name of the channel they shared. Each has its own name now, and a site that predates
-     * that split sends no flag for it; a boxed null there means "ask the channel it came from"
-     * rather than "off", so an older site keeps posting 99s exactly where it always did.</p>
-     *
-     * <p>Unknown names return false. The old default arm answered {@code rareDrops} for anything it
-     * didn't recognise, which would have quietly routed every new channel through the drop flag.</p>
-     */
-    private boolean notifyEnabled(String channel) {
-        PluginConfigResponse cfg = pluginConfig;
-        if (cfg == null || cfg.notify == null) {
-            return false;
-        }
-        return channelEnabled(cfg.notify, channel);
-    }
-
-    /** The resolution itself, free of plugin state so the inheritance can be tested directly. */
-    static boolean channelEnabled(NotifyChannels n, String channel) {
-        if (n == null) {
-            return false;
-        }
-        switch (channel) {
-            case "rareDrops":
-                return n.rareDrops;
-            case "deaths":
-                return n.deaths;
-            case "combatAchievements":
-                return n.combatAchievements;
-            case "pvpKills":
-                return n.pvpKills;
-            case "pets":
-                return n.pets != null ? n.pets : n.rareDrops;
-            case "levels":
-                return n.levels != null ? n.levels : n.combatAchievements;
-            case "quests":
-                return n.quests != null ? n.quests : n.combatAchievements;
-            case "diaries":
-                return n.diaries != null ? n.diaries : n.combatAchievements;
-            case "collectionLog":
-                return n.collectionLog != null ? n.collectionLog : n.combatAchievements;
-            default:
-                return false;
-        }
-    }
-
-    // A stalled capture must not stall the notification: frames normally arrive within ~50ms,
-    // so a few seconds of grace is already generous before posting without the screenshot.
-    private static final long FRAME_CAPTURE_TIMEOUT_MS = 4000;
-
-    /**
-     * Captures the next rendered frame and hands the PNG bytes to
-     * {@code consumer} OFF the client thread. The frame listener fires on the
-     * client/AWT thread, so we immediately defer encoding to the executor; the
-     * consumer then sends via OkHttp async. The game loop never waits on
-     * either.
-     *
-     * <p>The consumer is guaranteed to run exactly once — with {@code null} when no frame
-     * arrives in time (a minimized client can stop rendering, and the next-frame listener
-     * then never fires) or the PNG encode fails. Callers post without the screenshot in
-     * that case; before this guarantee, a stalled capture silently dropped the whole
-     * notification (a Maggot King fang post vanished this way).
-     */
-    private void captureFrameAsync(Consumer<byte[]> consumer) {
-        AtomicBoolean delivered = new AtomicBoolean(false);
-        drawManager.requestNextFrameListener(image -> {
-            if (!tasks.isLive()) {
-                return;
-            }
-            tasks.run(() -> {
-                byte[] png = null;
-                try {
-                    BufferedImage buffered = (BufferedImage) image;
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-                    png = baos.toByteArray();
-                } catch (Exception e) {
-                    log.debug("Anvil frame capture failed: {}", e.getMessage());
-                }
-                if (delivered.compareAndSet(false, true)) {
-                    consumer.accept(png);
-                }
-            });
-        });
-        tasks.runLater(() -> {
-            if (delivered.compareAndSet(false, true)) {
-                log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
-                consumer.accept(null);
-            }
-        }, FRAME_CAPTURE_TIMEOUT_MS);
-    }
-
-    /**
-     * Captures a frame and posts a rareDrops embed; a failed or stalled capture posts the
-     * embed without its image (stripping the attachment reference so Discord renders clean)
-     * instead of not posting at all.
-     */
-    /**
-     * Post an achievement embed, with a screenshot when the member wants one.
-     *
-     * A 99 and a max are the most screenshotted moments in the game, and both went out as text. The
-     * comment that made it so said "matching combat-achievement posts" — which was simply untrue: CA
-     * posts have taken a screenshot since `caScreenshot` existed, so the 99 was out of step with the
-     * very thing it cited. Same shape as that path now, down to removing the image reference when the
-     * capture fails, so a dropped frame degrades to the text post rather than an embed with a hole.
-     */
-    private void postAchievement(JsonObject embed, boolean withShot) {
-        if (!withShot) {
-            apiClient.postNotification("levels", null, embed, null, null);
-            return;
-        }
-        String shotName = "anvil-achievement.png";
-        addAttachment(embed, shotName);
-        Runnable capture = () -> captureFrameAsync(png -> {
-            if (png == null) {
-                embed.remove("image");
-            }
-            apiClient.postNotification("levels", null, embed, png, shotName);
-        });
-
-        // Let the room react before the shutter.
-        //
-        // The instant a 99 lands the screen holds the fireworks and nothing else; the congratulations
-        // that make the screenshot worth keeping are still being typed. A beat's pause catches the
-        // clan chat with the moment instead of an empty chatbox beneath it.
-        //
-        // Scheduled, never slept: a sleep here would park a shared RuneLite worker for a second and a
-        // half, and the hub rejects Thread.sleep on sight. Without a usable executor -- shutting down
-        // mid-level-up -- we capture now, because a slightly emptier screenshot beats none.
-        if (!tasks.isLive()) {
-            capture.run();
-            return;
-        }
-        tasks.runLater(capture, ACHIEVEMENT_SHOT_DELAY_MS);
-    }
-
-    /** Pause between the achievement and its screenshot, long enough for clanmates' replies. */
-    private static final long ACHIEVEMENT_SHOT_DELAY_MS = 1500;
-
-    /** Capture, then post to {@code channel}; a failed capture drops the image and posts anyway. */
-    private void postWithScreenshot(String channel, JsonObject embed, String shotName) {
-        captureFrameAsync(png -> {
-            if (png == null) {
-                embed.remove("image");
-            }
-            apiClient.postNotification(channel, null, embed, png, shotName);
-        });
     }
 
     // Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text

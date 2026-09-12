@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.notify;
 
 import com.google.gson.JsonObject;
 import org.junit.Test;
@@ -21,7 +21,7 @@ public class EmbedPartsTest
 	public void theAuthorLineNamesThePlayer()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addAuthor(embed, "Zezima");
+		AnvilEmbeds.addAuthor(embed, "Zezima");
 		assertEquals("{\"author\":{\"name\":\"Zezima\"}}", embed.toString());
 	}
 
@@ -30,8 +30,8 @@ public class EmbedPartsTest
 	public void anUnreadableNameLeavesTheAuthorLineOff()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addAuthor(embed, null);
-		AnvilPlugin.addAuthor(embed, "");
+		AnvilEmbeds.addAuthor(embed, null);
+		AnvilEmbeds.addAuthor(embed, "");
 		assertEquals("{}", embed.toString());
 		assertFalse(embed.has("author"));
 	}
@@ -40,7 +40,7 @@ public class EmbedPartsTest
 	public void theThumbnailIsAUrlObject()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addThumbnail(embed, "https://example.invalid/icon.png");
+		AnvilEmbeds.addThumbnail(embed, "https://example.invalid/icon.png");
 		assertEquals("{\"thumbnail\":{\"url\":\"https://example.invalid/icon.png\"}}", embed.toString());
 	}
 
@@ -49,7 +49,7 @@ public class EmbedPartsTest
 	public void anItemThumbnailPointsAtTheRuneLiteCache()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addItemThumbnail(embed, 20997);
+		AnvilEmbeds.addItemThumbnail(embed, 20997);
 		assertEquals("{\"thumbnail\":{\"url\":\"https://static.runelite.net/cache/item/icon/20997.png\"}}",
 			embed.toString());
 	}
@@ -58,9 +58,9 @@ public class EmbedPartsTest
 	public void anUnresolvedItemGetsNoThumbnailRatherThanABrokenOne()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addItemThumbnail(embed, null);
-		AnvilPlugin.addItemThumbnail(embed, 0);
-		AnvilPlugin.addItemThumbnail(embed, -1);
+		AnvilEmbeds.addItemThumbnail(embed, null);
+		AnvilEmbeds.addItemThumbnail(embed, 0);
+		AnvilEmbeds.addItemThumbnail(embed, -1);
 		assertEquals("{}", embed.toString());
 	}
 
@@ -73,7 +73,7 @@ public class EmbedPartsTest
 	public void theImageNamesTheAttachmentTravellingWithIt()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addAttachment(embed, "anvil-drop.png");
+		AnvilEmbeds.addAttachment(embed, "anvil-drop.png");
 		assertEquals("{\"image\":{\"url\":\"attachment://anvil-drop.png\"}}", embed.toString());
 	}
 
@@ -81,16 +81,16 @@ public class EmbedPartsTest
 	public void theWikiLinkTurnsSpacesIntoUnderscores()
 	{
 		JsonObject embed = new JsonObject();
-		AnvilPlugin.addWikiUrl(embed, "Twisted bow");
+		AnvilEmbeds.addWikiUrl(embed, "Twisted bow");
 		assertEquals("{\"url\":\"https://oldschool.runescape.wiki/w/Twisted_bow\"}", embed.toString());
 	}
 
 	@Test
 	public void aNameWeCouldNotReadStillReadsAsASentence()
 	{
-		assertEquals("Zezima", AnvilPlugin.who("Zezima"));
-		assertEquals("A clan member", AnvilPlugin.who(null));
-		assertEquals("A clan member", AnvilPlugin.who(""));
+		assertEquals("Zezima", AnvilEmbeds.who("Zezima"));
+		assertEquals("A clan member", AnvilEmbeds.who(null));
+		assertEquals("A clan member", AnvilEmbeds.who(""));
 	}
 
 	/**
@@ -101,8 +101,8 @@ public class EmbedPartsTest
 	public void aStatFieldIsInlineAndBackticked()
 	{
 		assertEquals("{\"name\":\"KC\",\"value\":\"`1,204`\",\"inline\":true}",
-			AnvilPlugin.statField("KC", "1,204").toString());
+			AnvilEmbeds.statField("KC", "1,204").toString());
 		assertEquals("{\"name\":\"Item\",\"value\":\"`odd name`\",\"inline\":true}",
-			AnvilPlugin.statField("Item", "odd `name`").toString());
+			AnvilEmbeds.statField("Item", "odd `name`").toString());
 	}
 }
