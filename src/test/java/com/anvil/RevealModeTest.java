@@ -1,5 +1,6 @@
 package com.anvil;
 
+import com.anvil.ui.view.LadderView;
 import com.anvil.api.dto.EventInfo;
 import com.anvil.ui.ActivityEntry;
 import com.anvil.ui.AnvilSidebarDataSource;
@@ -46,42 +47,42 @@ public class RevealModeTest
 	@Test
 	public void revealNoteIsNullForClassicBoardsAndWhenNothingIsHidden()
 	{
-		assertNull(AnvilSidebarDataSource.revealNote(null));
-		assertNull(AnvilSidebarDataSource.revealNote(event(null, 5, null)));
-		assertNull(AnvilSidebarDataSource.revealNote(event("interval", 0, null)));
+		assertNull(LadderView.revealNote(null));
+		assertNull(LadderView.revealNote(event(null, 5, null)));
+		assertNull(LadderView.revealNote(event("interval", 0, null)));
 	}
 
 	@Test
 	public void revealNoteCountsTilesAndBounties()
 	{
-		String interval = AnvilSidebarDataSource.revealNote(
+		String interval = LadderView.revealNote(
 			event("interval", 4, java.time.Instant.now().plusSeconds(42 * 60 + 30).toString()));
 		assertTrue(interval, interval.startsWith("4 tiles hidden"));
 		assertTrue(interval, interval.contains("next in 42m"));
 
-		String scheduledNoClock = AnvilSidebarDataSource.revealNote(event("scheduled", 1, null));
+		String scheduledNoClock = LadderView.revealNote(event("scheduled", 1, null));
 		assertEquals("1 tile hidden", scheduledNoClock);
 
-		String bounty = AnvilSidebarDataSource.revealNote(event("bounty", 3, null));
+		String bounty = LadderView.revealNote(event("bounty", 3, null));
 		assertEquals("3 bounties left · next on claim", bounty);
 
-		String lastBounty = AnvilSidebarDataSource.revealNote(event("bounty", 1, null));
+		String lastBounty = LadderView.revealNote(event("bounty", 1, null));
 		assertEquals("1 bounty left · next on claim", lastBounty);
 	}
 
 	@Test
 	public void revealNoteHandlesImminentAndFarReveals()
 	{
-		String imminent = AnvilSidebarDataSource.revealNote(
+		String imminent = LadderView.revealNote(
 			event("interval", 2, java.time.Instant.now().plusSeconds(10).toString()));
 		assertTrue(imminent, imminent.endsWith("next any minute"));
 
-		String hours = AnvilSidebarDataSource.revealNote(
+		String hours = LadderView.revealNote(
 			event("interval", 2, java.time.Instant.now().plusSeconds((3 * 60 + 10) * 60 + 30).toString()));
 		assertTrue(hours, hours.contains("next in 3h 10m"));
 
 		// Malformed server stamp → drop the clock, keep the count.
-		String malformed = AnvilSidebarDataSource.revealNote(event("interval", 2, "not-a-time"));
+		String malformed = LadderView.revealNote(event("interval", 2, "not-a-time"));
 		assertEquals("2 tiles hidden", malformed);
 	}
 }

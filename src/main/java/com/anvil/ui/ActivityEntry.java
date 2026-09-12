@@ -1,5 +1,9 @@
 package com.anvil.ui;
 
+import java.util.List;
+import java.util.Collections;
+import java.util.ArrayList;
+import com.anvil.api.dto.ActivityItem;
 import com.anvil.clog.model.Kind;
 import com.anvil.clog.model.TaskRow;
 import com.google.gson.Gson;
@@ -92,5 +96,25 @@ public final class ActivityEntry
 			return tileLabel + " " + amt; // teammate partial with no attribution — lead with the tile
 		}
 		return who + " " + amt + " · " + tileLabel;
+	}
+
+	/** The feed as the site sends it, in the shape the panel draws. Nulls are skipped, not guessed. */
+	public static List<ActivityEntry> toEntries(List<ActivityItem> items)
+	{
+		if (items == null || items.isEmpty())
+		{
+			return Collections.emptyList();
+		}
+		List<ActivityEntry> out = new ArrayList<>(items.size());
+		for (ActivityItem it : items)
+		{
+			if (it == null)
+			{
+				continue;
+			}
+			out.add(new ActivityEntry(it.id, it.ts, it.player, it.tileId, it.tileLabel,
+				ActivityEntry.Kind.fromWire(it.kind), it.amount, it.isSelf));
+		}
+		return out;
 	}
 }

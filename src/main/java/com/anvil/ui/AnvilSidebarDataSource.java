@@ -6,38 +6,20 @@ import com.anvil.clan.ClanRosterService;
 import com.anvil.clog.ProfileSync;
 import com.anvil.io.BannerSoundActions;
 import com.anvil.api.PluginConfigResponse;
-import com.anvil.api.dto.ActiveWeekly;
-import com.anvil.api.dto.ActivityItem;
 import com.anvil.api.dto.ActivityResponse;
 import com.anvil.api.dto.ClanRef;
-import com.anvil.api.dto.EventInfo;
 import com.anvil.api.dto.HomeBoard;
-import com.anvil.api.dto.LeaderboardEntry;
-import com.anvil.api.dto.Mission;
-import com.anvil.api.dto.ScheduledBingo;
-import com.anvil.api.dto.ScheduledWeekly;
 import com.anvil.api.dto.StartProof;
-import com.anvil.api.dto.TrackedStat;
-import com.anvil.api.dto.WeeklyLeaderboard;
 import com.anvil.clog.ClogTaskModel;
 import com.anvil.clog.model.TaskRow;
-import com.anvil.detect.LadderMissions;
 import com.anvil.ui.view.ActiveTask;
 import com.anvil.ui.view.Ladder;
+import com.anvil.ui.view.LadderView;
 import com.anvil.ui.view.ScheduledView;
-import com.anvil.ui.view.Standing;
 import com.anvil.ui.view.TileProgressView;
 import com.anvil.ui.view.WeeklyView;
-import com.anvil.util.Rsn;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,18 +46,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/** Stable id for the plugin's one home. */
 	public static final String LOCAL_INSTANCE_ID = "local";
 
-	private static final int NEAREST_LIMIT = 10;
-	private static final int MAX_ACTIVE = 4;
 
-	/** How recent a signal counts as "active now" — matched to the Site's 5-min stat-worker window. */
-	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
 
-	/** How long a weekly's standings stay good. Way slacker than the 15 s panel poll — weekly gains are
-	 *  swept by the site's 15-min stats cron, so re-reading a leaderboard every refresh is pure noise. */
-	private static final long WEEKLY_STANDINGS_TTL_MS = 60_000L;
 
-	/** Leaderboard rows kept per weekly — the sidebar shows the head of the board, not all 50. */
-	private static final int WEEKLY_TOP_LIMIT = 10;
 
 	private final Supplier<PluginConfigResponse> configSupplier;
 
@@ -91,20 +64,17 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/** Is this account a real member of the HOME clan? {@code null} until the login handshake answers. */
 	private final Supplier<Boolean> homeMembership;
 
-	// Weekly standings cache (compId → last leaderboard read), the comps already read this generation,
-	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
-	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
-	private final Map<Integer, WeeklyLeaderboard> weeklyBoards = new HashMap<>();
-	private final Set<Integer> weeklyBoardsTried = new HashSet<>();
-	private long weeklyBoardsAt;
+	/** The competitions beside the board: what is running, scheduled, and who is winning. */
+	private final WeeklyBoards weeklyBoards;
+
+	/** What somebody is working on right now, and which of them is this account. */
+	private final ActiveNow activeNow;
+
 
 	// Live-sidebar state, scoped to the active event.
 	private final AnvilActivityLog activityLog = new AnvilActivityLog();
 	private int scopedEventId = -1;
 
-	// Config-delta signal state (per instance id): last-seen amount per tile + when each rose. Cleared on event change.
-	private final Map<String, Map<Integer, Integer>> lastAmounts = new HashMap<>();
-	private final Map<String, Map<Integer, Long>> roseAt = new HashMap<>();
 
 	/** Single-home binding — the plugin's live config + injected client. */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient)
@@ -136,6 +106,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
 		this.localRsn = localRsn == null ? () -> null : localRsn;
 		this.homeMembership = homeMembership == null ? () -> null : homeMembership;
+		this.weeklyBoards = new WeeklyBoards(apiClient, this.localRsn);
+		this.activeNow = new ActiveNow(LOCAL_INSTANCE_ID, this.localStatProgress);
 	}
 
 	/**
@@ -371,8 +343,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// SOTW/BOTW ride alongside the board as events of their own, so they show up whether or not the
 		// member is in a live bingo — a weekly-only clan still has something on the card. The clan's
 		// other/coming bingos ride along the same way, so "what's next" needs no site visit.
-		List<WeeklyView> weeklies = buildWeeklies(cfg, force);
-		List<ScheduledView> scheduled = buildScheduled(cfg);
+		List<WeeklyView> weeklies = weeklyBoards.buildWeeklies(cfg, force);
+		List<ScheduledView> scheduled = weeklyBoards.buildScheduled(cfg);
 
 		if (cfg.event == null)
 		{
@@ -435,7 +407,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			tilesTotal = cfg.board.tilesTotal;
 			tilesComplete = cfg.board.tilesComplete;
 		}
-		List<TileProgressView> nearest = nearestTiles(rows);
+		List<TileProgressView> nearest = TileProgressView.nearestTiles(rows);
 
 		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.
 		String error = null;
@@ -444,7 +416,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			ActivityResponse ar = apiClient.fetchActivity(activityLog.getCursor());
 			if (ar != null && !ar.noActiveEvent)
 			{
-				activityLog.ingest(ar.cursor, toEntries(ar.activity));
+				activityLog.ingest(ar.cursor, ActivityEntry.toEntries(ar.activity));
 			}
 		}
 		catch (RuntimeException e)
@@ -455,333 +427,23 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		List<ActivityEntry> feed = activityLog.snapshot();
 		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
-		List<ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
+		List<ActiveTask> active = activeNow.buildActiveNow(cfg, rows, feed);
 
 		// Ladder events render a DMM-All-Stars-style missions board instead of the tile-count reveal note:
 		// a live countdown, the open missions with their live grow/decay value, and your rank.
-		Ladder ladder = buildLadder(cfg.event);
+		Ladder ladder = LadderView.buildLadder(cfg.event);
 
 		// The clan filter is a CLAN switcher, so the label is the clan name (site-provided) — the
 		// event name lives on the card itself. Falls back to team/event for pre-clanName sites;
 		// ConnectionView maps "" → "(unnamed clan)".
 		return new ConnectionView(
 			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
-			null, ladder != null && ladder.ladderFormat ? null : revealNote(cfg.event),
+			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), active, boardUrlFor(cfg), pointsScored,
+			null, ladder != null && ladder.ladderFormat ? null : LadderView.revealNote(cfg.event),
 			ladder, weeklies, scheduled, homeMembership.get());
 	}
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
-
-	/**
-	 * The clan's weeklies — live ones folded with the caller's standing, upcoming ones as an
-	 * announcement. The comps themselves come from the config the plugin already polls (no extra
-	 * request); a LIVE comp's standings are one throttled read ({@link #WEEKLY_STANDINGS_TTL_MS}) that
-	 * degrades to a comp-only card when unreachable, and an upcoming one is never read at all (nothing
-	 * has happened yet). Live first, then soonest-starting.
-	 */
-	private List<WeeklyView> buildWeeklies(PluginConfigResponse cfg, boolean force)
-	{
-		List<ScheduledWeekly> weeklies = scheduledWeeklies(cfg);
-		if (weeklies.isEmpty())
-		{
-			weeklyBoards.clear();
-			weeklyBoardsTried.clear();
-			return Collections.emptyList();
-		}
-		List<ScheduledWeekly> live = new ArrayList<>();
-		for (ScheduledWeekly w : weeklies)
-		{
-			if (isLive(w.status))
-			{
-				live.add(w);
-			}
-		}
-		refreshWeeklyBoards(live, force);
-
-		String me = Rsn.normalize(localRsn.get());
-		List<WeeklyView> out = new ArrayList<>(weeklies.size());
-		for (ScheduledWeekly w : weeklies)
-		{
-			out.add(toWeeklyView(w, weeklyBoards.get(w.id), me));
-		}
-		return out;
-	}
-
-	/**
-	 * Every weekly the site is advertising (live AND upcoming), deduped by id, live first then by
-	 * soonest start. Reads the schedule — which carries both comps when a SOTW and a BOTW overlap —
-	 * and falls back to the single {@code activeWeekly} field so an older site still surfaces its one
-	 * live comp. The site only ships non-completed comps, so nothing here is over.
-	 */
-	private static List<ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
-	{
-		List<ScheduledWeekly> out = new ArrayList<>();
-		Set<Integer> seen = new HashSet<>();
-		if (cfg.schedule != null && cfg.schedule.weeklies != null)
-		{
-			for (ScheduledWeekly w : cfg.schedule.weeklies)
-			{
-				if (w != null && seen.add(w.id))
-				{
-					out.add(w);
-				}
-			}
-		}
-		ActiveWeekly a = cfg.activeWeekly;
-		if (a != null && seen.add(a.id))
-		{
-			ScheduledWeekly w = new ScheduledWeekly();
-			w.id = a.id;
-			w.title = a.title;
-			w.type = a.type;
-			w.metric = a.metric;
-			w.metricLabel = a.metricLabel;
-			w.status = "active";
-			w.startDate = a.startDate;
-			w.endDate = a.endDate;
-			out.add(w);
-		}
-		out.sort(SCHEDULE_ORDER);
-		return out;
-	}
-
-	/**
-	 * Bingo events on the clan's schedule other than the caller's own board — live ones they aren't in,
-	 * plus what's coming up. Straight off the polled config; the caller's own event is dropped because
-	 * the board card already IS that event.
-	 */
-	private List<ScheduledView> buildScheduled(PluginConfigResponse cfg)
-	{
-		if (cfg.schedule == null || cfg.schedule.bingos == null)
-		{
-			return Collections.emptyList();
-		}
-		int ownEventId = cfg.event != null ? cfg.event.id : -1;
-		List<ScheduledBingo> bingos = new ArrayList<>();
-		for (ScheduledBingo b : cfg.schedule.bingos)
-		{
-			if (b != null && b.id != ownEventId)
-			{
-				bingos.add(b);
-			}
-		}
-		bingos.sort((x, y) -> SCHEDULE_ORDER.compare(
-			asEntry(x.status, x.startDate), asEntry(y.status, y.startDate)));
-
-		String base = apiClient.getApiUrl();
-		List<ScheduledView> out = new ArrayList<>(bingos.size());
-		for (ScheduledBingo b : bingos)
-		{
-			out.add(new ScheduledView(b.id, b.title, b.startDate, b.endDate,
-				isLive(b.status), b.tileCount == null ? 0 : b.tileCount,
-				b.boardSize == null ? 0 : b.boardSize, b.format, b.scoringMode,
-				base == null || base.isEmpty() ? null : base + "/events/" + b.id));
-		}
-		return out;
-	}
-
-	/** Live first, then soonest start (ISO strings sort chronologically); undated last. */
-	private static final Comparator<ScheduledWeekly> SCHEDULE_ORDER = (a, b) ->
-	{
-		boolean la = isLive(a.status);
-		boolean lb = isLive(b.status);
-		if (la != lb)
-		{
-			return la ? -1 : 1;
-		}
-		String sa = a.startDate == null ? "" : a.startDate;
-		String sb = b.startDate == null ? "" : b.startDate;
-		if (sa.isEmpty() != sb.isEmpty())
-		{
-			return sa.isEmpty() ? 1 : -1;
-		}
-		return sa.compareTo(sb);
-	};
-
-	/** Adapter so the bingo list can reuse {@link #SCHEDULE_ORDER} (same status/start ordering). */
-	private static ScheduledWeekly asEntry(String status, String startDate)
-	{
-		ScheduledWeekly w = new ScheduledWeekly();
-		w.status = status;
-		w.startDate = startDate;
-		return w;
-	}
-
-	private static boolean isLive(String status)
-	{
-		return "active".equalsIgnoreCase(status);
-	}
-
-	/**
-	 * One standings read per live comp per {@link #WEEKLY_STANDINGS_TTL_MS} window (a member-forced
-	 * Refresh opens a new window immediately) — including a comp whose read FAILED, so an unreachable
-	 * leaderboard is retried on the same slow cadence instead of every poll. A comp that stopped
-	 * running is dropped, so the cache can't outlive it.
-	 */
-	private void refreshWeeklyBoards(List<ScheduledWeekly> live, boolean force)
-	{
-		final long now = System.currentTimeMillis();
-		if (force || now - weeklyBoardsAt >= WEEKLY_STANDINGS_TTL_MS)
-		{
-			weeklyBoardsTried.clear();
-			weeklyBoardsAt = now;
-		}
-		Set<Integer> liveIds = new HashSet<>();
-		for (ScheduledWeekly w : live)
-		{
-			liveIds.add(w.id);
-			if (!weeklyBoardsTried.add(w.id))
-			{
-				continue; // already read this window — the cached board stands
-			}
-			try
-			{
-				WeeklyLeaderboard lb = apiClient.fetchWeeklyLeaderboard(w.id);
-				if (lb != null)
-				{
-					weeklyBoards.put(w.id, lb);
-				}
-			}
-			catch (RuntimeException e)
-			{
-				// A weekly board is a nice-to-have: keep whatever we had and render the comp without it.
-				log.debug("weekly leaderboard fetch failed for {}", w.id, e);
-			}
-		}
-		weeklyBoards.keySet().retainAll(liveIds);
-		weeklyBoardsTried.retainAll(liveIds);
-	}
-
-	/** Fold one comp + its (possibly absent) leaderboard into the panel's weekly card. */
-	private WeeklyView toWeeklyView(ScheduledWeekly w,
-		WeeklyLeaderboard lb, String me)
-	{
-		List<Standing> top = new ArrayList<>();
-		int yourRank = 0;
-		long yourGained = 0;
-		int participants = 0;
-		if (lb != null && isLive(w.status))
-		{
-			participants = lb.total;
-			if (lb.entries != null)
-			{
-				for (LeaderboardEntry e : lb.entries)
-				{
-					if (e == null)
-					{
-						continue;
-					}
-					// Match on whitespace-normalized names — OSRS display names carry non-breaking
-					// spaces, so a raw equalsIgnoreCase both misses and mis-flags the local player.
-					boolean self = !me.isEmpty() && me.equals(Rsn.normalize(e.rsn));
-					if (self)
-					{
-						yourRank = e.rank;
-						yourGained = e.gained;
-					}
-					if (top.size() < WEEKLY_TOP_LIMIT || self)
-					{
-						top.add(new Standing(e.rank, e.rsn, e.gained, self));
-					}
-				}
-			}
-		}
-		return new WeeklyView(w.id, w.title, w.type, w.metric, w.metricLabel,
-			w.startDate, w.endDate, !isLive(w.status), yourRank, yourGained, participants, top,
-			weeklyUrlFor(w.id));
-	}
-
-	/** The comp's page on the site, or null when the base URL is unknown (offline / unconfigured). */
-	private String weeklyUrlFor(int competitionId)
-	{
-		String base = apiClient.getApiUrl();
-		return base == null || base.isEmpty() ? null : base + "/weekly/" + competitionId;
-	}
-
-	/**
-	 * Fold missions into the sidebar's {@link Ladder} view-model: the countdown target,
-	 * the caller's month + all-time rank, and the open missions.
-	 *
-	 * Built for a ladder (where it REPLACES the board summary) and, since a normal bingo can drop
-	 * hidden missions mid-event too, for any board that currently has missions — there it renders as
-	 * a strip under the usual summary. Null when neither applies, and the plain summary + reveal note
-	 * render on their own.
-	 */
-	static Ladder buildLadder(EventInfo event)
-	{
-		if (event == null)
-		{
-			return null;
-		}
-		boolean ladder = LadderMissions.isLadder(event.format);
-		boolean hasMissions = event.missions != null && !event.missions.isEmpty();
-		if (!ladder && !hasMissions)
-		{
-			return null;
-		}
-		List<Ladder.Mission> missions = new ArrayList<>();
-		if (event.missions != null)
-		{
-			for (Mission m : event.missions)
-			{
-				if (m != null)
-				{
-					missions.add(new Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt));
-				}
-			}
-		}
-		int monthRank = event.monthlyStandings != null ? event.monthlyStandings.yourRank : 0;
-		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
-		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
-		return new Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
-			event.decay, missions, ladder);
-	}
-
-	/**
-	 * Reveal-policy boards: the "still hidden" one-liner under the board summary, or null on classic
-	 * boards / older servers (no field). Bounty draws on claim, the others on a clock the server sends.
-	 */
-	public static String revealNote(EventInfo event)
-	{
-		if (event == null || event.revealPolicy == null || event.revealPolicy.isEmpty() || event.hiddenTileCount <= 0)
-		{
-			return null;
-		}
-		boolean bounty = "bounty".equalsIgnoreCase(event.revealPolicy);
-		String what = bounty
-			? event.hiddenTileCount + (event.hiddenTileCount == 1 ? " bounty" : " bounties") + " left"
-			: event.hiddenTileCount + (event.hiddenTileCount == 1 ? " tile" : " tiles") + " hidden";
-		String next = bounty ? "next on claim" : nextRevealLabel(event.nextRevealAt);
-		return what + (next == null ? "" : " · " + next);
-	}
-
-	/** "next in 42m" / "next in 3h 10m" from the server's ISO next-reveal stamp; null when absent/past. */
-	private static String nextRevealLabel(String nextRevealAt)
-	{
-		if (nextRevealAt == null || nextRevealAt.isEmpty())
-		{
-			return null;
-		}
-		try
-		{
-			long at = Instant.parse(nextRevealAt).toEpochMilli();
-			long mins = Math.max(0, (at - System.currentTimeMillis()) / 60_000);
-			if (mins < 1)
-			{
-				return "next any minute";
-			}
-			if (mins < 60)
-			{
-				return "next in " + mins + "m";
-			}
-			return "next in " + (mins / 60) + "h " + (mins % 60) + "m";
-		}
-		catch (RuntimeException e)
-		{
-			return null;
-		}
-	}
 
 	/** The home entry's clan-filter label: the site's clan name, else the old team/event fallback. */
 	private static String homeClanName(PluginConfigResponse cfg)
@@ -809,7 +471,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	{
 		activityLog.reset();
 		scopedEventId = -1;
-		forgetDeltas(LOCAL_INSTANCE_ID);
+		activeNow.forgetDeltas(LOCAL_INSTANCE_ID);
 	}
 
 	/** The clan/event label for the header: team name ?? event name ?? "". */
@@ -826,232 +488,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return "";
 	}
 
-	private void forgetDeltas(String instanceId)
-	{
-		lastAmounts.remove(instanceId);
-		roseAt.remove(instanceId);
-	}
-
-	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
-	private List<ActiveTask> buildActiveNow(PluginConfigResponse cfg,
-		List<TaskRow> rows, List<ActivityEntry> feed)
-	{
-		final long now = System.currentTimeMillis();
-		Map<Integer, TaskRow> incompleteById = new HashMap<>();
-		for (TaskRow r : rows)
-		{
-			if (!r.isCompleted())
-			{
-				incompleteById.put(r.tileId, r);
-			}
-		}
-
-		// Server-computed named teammates per stat tile (tileId → RSNs); absent on an older server (unnamed fallback).
-		Map<Integer, List<String>> namedByTile = new HashMap<>();
-		if (cfg.trackedStats != null)
-		{
-			for (TrackedStat s : cfg.trackedStats)
-			{
-				if (s != null && s.activeWorkers != null)
-				{
-					namedByTile.put(s.tileId, s.activeWorkers);
-				}
-			}
-		}
-		Map<Integer, Acc> acc = new HashMap<>();
-
-		// 1. Feed — submission tiles, named. Newest-first.
-		for (ActivityEntry e : feed)
-		{
-			if (e.kind != ActivityEntry.Kind.PROGRESS)
-			{
-				continue;
-			}
-			long t = parseTsMillis(e.ts);
-			if (t >= 0 && now - t > ACTIVE_WINDOW_MS)
-			{
-				continue;
-			}
-			String worker = e.self ? "You" : (e.player == null || e.player.isEmpty() ? null : e.player);
-			add(acc, incompleteById, e.tileId, worker, e.self, t < 0 ? now : t);
-		}
-
-		// 2. Local stat signal — "You" on stat tiles this account is grinding.
-		Map<Integer, Long> local = localStatProgress.get();
-		if (local != null)
-		{
-			for (Map.Entry<Integer, Long> en : local.entrySet())
-			{
-				long t = en.getValue() == null ? 0 : en.getValue();
-				if (now - t > ACTIVE_WINDOW_MS)
-				{
-					continue;
-				}
-				add(acc, incompleteById, en.getKey(), "You", true, t);
-			}
-		}
-
-		// 2b. Named teammates on stat tiles (server-computed) — the good version of "a teammate".
-		for (Map.Entry<Integer, List<String>> en : namedByTile.entrySet())
-		{
-			for (String name : en.getValue())
-			{
-				add(acc, incompleteById, en.getKey(), name, false, now);
-			}
-		}
-
-		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
-		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
-		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
-		Map<Integer, Long> rose = roseAt.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
-		Map<Integer, Integer> current = new HashMap<>();
-		for (TaskRow r : rows)
-		{
-			current.put(r.tileId, r.current);
-			if (r.isCompleted())
-			{
-				continue;
-			}
-			Integer prev = last.get(r.tileId);
-			if (prev != null && r.current > prev)
-			{
-				rose.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
-			}
-		}
-		for (Map.Entry<Integer, Long> en : rose.entrySet())
-		{
-			if (now - en.getValue() > ACTIVE_WINDOW_MS || !incompleteById.containsKey(en.getKey()))
-			{
-				continue;
-			}
-			if (namedByTile.containsKey(en.getKey()))
-			{
-				continue; // the server named this tile's teammates (stat tile) — don't add an unnamed one
-			}
-			Acc a = acc.get(en.getKey());
-			if (a != null && a.self)
-			{
-				continue; // you're already credited on this tile — don't also tag a teammate
-			}
-			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
-		}
-		lastAmounts.put(LOCAL_INSTANCE_ID, current);
-
-		// Newest-active first, capped; "You" leads each row's workers.
-		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());
-		ordered.sort((x, y) -> Long.compare(y.getValue().recency, x.getValue().recency));
-		List<ActiveTask> out = new ArrayList<>();
-		for (Map.Entry<Integer, Acc> en : ordered)
-		{
-			if (out.size() >= MAX_ACTIVE)
-			{
-				break;
-			}
-			Acc a = en.getValue();
-			List<String> workers = new ArrayList<>();
-			if (a.self)
-			{
-				workers.add("You");
-			}
-			for (String w : a.workers)
-			{
-				if (!"You".equals(w))
-				{
-					workers.add(w);
-				}
-			}
-			out.add(new ActiveTask(incompleteById.get(en.getKey()), workers, a.self));
-		}
-		return out;
-	}
-
-	/** Per-tile accumulator while fusing signals. */
-	private static final class Acc
-	{
-		final LinkedHashSet<String> workers = new LinkedHashSet<>();
-		boolean self;
-		long recency;
-	}
-
-	private static void add(Map<Integer, Acc> acc, Map<Integer, TaskRow> incompleteById,
-		int tileId, String worker, boolean self, long recency)
-	{
-		if (worker == null || !incompleteById.containsKey(tileId))
-		{
-			return;
-		}
-		Acc a = acc.computeIfAbsent(tileId, k -> new Acc());
-		a.workers.add(worker);
-		a.self |= self;
-		a.recency = Math.max(a.recency, recency);
-	}
 
 	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */
-	private static List<TileProgressView> nearestTiles(List<TaskRow> rows)
-	{
-		List<TaskRow> incomplete = new ArrayList<>();
-		for (TaskRow r : rows)
-		{
-			if (!r.isCompleted())
-			{
-				incomplete.add(r);
-			}
-		}
-		incomplete.sort(Comparator.comparingDouble(AnvilSidebarDataSource::fraction).reversed()
-			.thenComparingInt(r -> r.position));
-
-		List<TileProgressView> out = new ArrayList<>();
-		for (int i = 0; i < incomplete.size() && i < NEAREST_LIMIT; i++)
-		{
-			TaskRow r = incomplete.get(i);
-			out.add(new TileProgressView(r.label, r.current, r.goal, false));
-		}
-		return out;
-	}
-
-	private static double fraction(TaskRow r)
-	{
-		return r.goal > 0 ? Math.min(1.0, (double) r.current / r.goal) : 0.0;
-	}
-
-	/** Parse the server's {@code "yyyy-MM-dd HH:mm:ss"} UTC timestamp to epoch millis, or -1 if unparseable. */
-	private static long parseTsMillis(String ts)
-	{
-		if (ts == null || ts.isEmpty())
-		{
-			return -1;
-		}
-		String s = ts.trim().replace(' ', 'T');
-		if (s.endsWith("Z"))
-		{
-			s = s.substring(0, s.length() - 1);
-		}
-		try
-		{
-			return LocalDateTime.parse(s).toInstant(ZoneOffset.UTC).toEpochMilli();
-		}
-		catch (RuntimeException e)
-		{
-			return -1;
-		}
-	}
-
-	private static List<ActivityEntry> toEntries(List<ActivityItem> items)
-	{
-		if (items == null || items.isEmpty())
-		{
-			return Collections.emptyList();
-		}
-		List<ActivityEntry> out = new ArrayList<>(items.size());
-		for (ActivityItem it : items)
-		{
-			if (it == null)
-			{
-				continue;
-			}
-			out.add(new ActivityEntry(it.id, it.ts, it.player, it.tileId, it.tileLabel,
-				ActivityEntry.Kind.fromWire(it.kind), it.amount, it.isSelf));
-		}
-		return out;
-	}
 }
