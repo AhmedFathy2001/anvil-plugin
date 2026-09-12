@@ -5,11 +5,9 @@ import com.anvil.notify.AchievementNotifier;
 import com.anvil.notify.MomentsService;
 import com.anvil.notify.PetNotifier;
 import com.anvil.track.RecapCounters;
-import com.anvil.api.EventConfigStore;
 import com.anvil.chat.ChatRouter;
 import com.anvil.clan.ClanRosterService;
 import com.anvil.clog.ProfileSync;
-import com.anvil.io.BannerSoundActions;
 import com.anvil.session.SessionIdentity;
 import com.anvil.session.SessionLifecycle;
 import com.anvil.session.SettingsRouter;
@@ -20,17 +18,13 @@ import com.anvil.track.StatPushService;
 import com.anvil.track.DropTracker;
 import com.anvil.track.GainTracker;
 import com.anvil.track.KillTracker;
-import com.anvil.track.LocalProgress;
 import com.anvil.track.CombatRouter;
 import com.anvil.track.LootRouter;
 import com.anvil.track.PartyTracker;
-import com.anvil.track.ProofPipeline;
-import com.anvil.clip.ObsClipService;
 import com.anvil.detect.ActivityStats;
 import com.anvil.io.DebugSupportLog;
 import com.anvil.io.DiscordWebhookClient;
 import com.anvil.ui.AnvilOverlay;
-import com.anvil.ui.AnvilSidebarPanel;
 import com.anvil.ui.AnvilUi;
 import com.anvil.ui.GameTabButtons;
 import com.anvil.ui.view.Standing;
@@ -62,7 +56,6 @@ import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.events.WorldChanged;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
@@ -83,49 +76,17 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private Client client;
 
-
     @Inject
     private AnvilConfig config;
-
-
-
-    @Inject
-    private AnvilSidebarPanel sidebarPanel;
-
 
     @Inject
     private AnvilOverlay overlay;
 
-
-
-
-    @Inject
-    private ConfigManager configManager;
-
     @Inject
     private BingoApiClient apiClient;
 
-
-
-
-
-
-
-
-
     @Inject
     private DebugSupportLog supportLog;
-
-
-    // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
-    // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
-    // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
-    // plugin's automatic event triggers.
-    // Touched from the client thread (startup, hotkey, config change) and the executor's reconnect
-    // ── the rest of the plugin, one collaborator per job ───────────────────────────────────
-    /** The board as we currently understand it, re-fetched every thirty seconds. */
-    @Inject
-    private EventConfigStore configStore;
 
     /** Who is logged in, and whether the site agrees. */
     @Inject
@@ -155,10 +116,6 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private LmsTracker lms;
 
-    /** The in-game banner, its sound, and the folder buttons beside them. */
-    @Inject
-    private BannerSoundActions sounds;
-
     // ── what the plugin watches for, one tracker per kind of tile ──────────────────────────
     @Inject
     private DropTracker drops;
@@ -169,22 +126,9 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private GainTracker gains;
 
-
-
-
-    /** Capture, annotate, persist, upload, retry. */
-    @Inject
-    private ProofPipeline proofs;
-
-
-    /** Which tiles THIS account moved recently, for the panel's "Active now". */
-    @Inject
-    private LocalProgress progress;
-
     /** Who is in the instance with us, and whether anybody died. */
     @Inject
     private PartyTracker party;
-
 
     @Inject
     private PetNotifier pets;
@@ -192,25 +136,16 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private AchievementNotifier achievements;
 
-
     @Inject
     private MomentsService moments;
-
 
     /** The cosmetic end-of-event numbers. Never scoring. */
     @Inject
     private RecapCounters counters;
 
-
-    /** Clips: OBS, the pending-request queue, and getting the file to Discord. */
-    @Inject
-    private ObsClipService clips;
-
     /** Our own background thread for blocking network work. See {@link TaskRunner}. */
     @Inject
     private TaskRunner tasks;
-
-
 
     /**
      * Who this account is to the clan's site, and the roster push that answer gates.
@@ -510,16 +445,9 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-
     /* -------------------------------------------------------------- */
  /* Player/account helpers                                          */
  /* -------------------------------------------------------------- */
-
-
-
-
-
-
 
     /* -------------------------------------------------------------- */
     /* Recap "fun stat" counters — deaths, total loot value, PvP     */
@@ -532,7 +460,6 @@ public class AnvilPlugin extends Plugin {
     // belongs to, whether an item counts as a unique, and which pets belong to which skill are all
     // the site's business (src/lib/moments.ts) — so this sends generously and expects most of it to
     // be discarded, and a clan changing any of those rules costs no plugin release.
-
 
     /* -------------------------------------------------------------- */
  /* Clan notifications — deaths, rare drops, pets (posted direct to */
@@ -547,7 +474,6 @@ public class AnvilPlugin extends Plugin {
     // Both are the player's OWN data going to the player's OWN clan site -- the pattern the hub
     // accepts (nothing here reads or reports anybody else). Everything is opt-out in config, and
     // nothing is read at all while the toggles are off.
-
 
     /**
      * The clan channel loaded (or changed) — the moment the in-game roster becomes readable.
