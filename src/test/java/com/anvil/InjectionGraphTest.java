@@ -90,6 +90,45 @@ public class InjectionGraphTest
 		}
 	}
 
+	/**
+	 * Nothing asks Guice for a type nobody binds.
+	 *
+	 * <p>{@link AnvilModule} binds exactly three things of its own; everything else has to be a
+	 * com.anvil class with an {@code @Inject} constructor, or something RuneLite itself provides. A
+	 * bare {@code java.util.function.*} parameter is neither, and Guice only says so when a player
+	 * enables the plugin — which is why it is worth failing here instead.</p>
+	 */
+	@Test
+	public void noUnbindableFunctionalParameters() throws Exception
+	{
+		List<String> bad = new ArrayList<>();
+		for (Class<?> c : anvilClasses())
+		{
+			Constructor<?> ctor = injectConstructor(c);
+			if (ctor == null)
+			{
+				continue;
+			}
+			java.lang.reflect.Type[] generic = ctor.getGenericParameterTypes();
+			for (int i = 0; i < generic.length; i++)
+			{
+				String name = ctor.getParameterTypes()[i].getName();
+				if (!name.startsWith("java.util.function."))
+				{
+					continue;
+				}
+				// The one that IS bound, by AnvilModule.provideBoard.
+				if (generic[i].toString().contains("Supplier<com.anvil.api.PluginConfigResponse>"))
+				{
+					continue;
+				}
+				bad.add(c.getSimpleName() + " takes " + generic[i]);
+			}
+		}
+		assertTrue("no Guice binding exists for these — the plugin would fail to load: " + bad,
+			bad.isEmpty());
+	}
+
 	/** Depth-first, carrying the path so a hit can name the whole loop rather than just a class. */
 	private static List<Class<?>> findCycle(Class<?> start, Map<Class<?>, List<Class<?>>> edges,
 		Set<Class<?>> settled)
