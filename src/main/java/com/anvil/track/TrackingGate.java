@@ -27,16 +27,14 @@ public class TrackingGate
 {
     private final AnvilConfig config;
 
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
-    TrackingGate(AnvilConfig config) {
+    TrackingGate(AnvilConfig config, Supplier<PluginConfigResponse> pluginConfig) {
         this.config = config;
-    }
-
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
         this.pluginConfig = pluginConfig;
     }
+
 
     /** A new login may have different settings; let the reasons be said once more. */
     public void onLogout() {

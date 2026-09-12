@@ -1,5 +1,7 @@
 package com.anvil.track;
 
+import com.anvil.session.LocalPlayer;
+import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -44,7 +46,7 @@ import net.runelite.client.ui.DrawManager;
  */
 @Slf4j
 @Singleton
-public class KillTracker implements Tracker
+public class KillTracker
 {
     private final AnvilConfig config;
     private final BingoApiClient apiClient;
@@ -68,11 +70,11 @@ public class KillTracker implements Tracker
     private final ProofPipeline proofs;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
     /** Pull the board back after a credit, so the tile's new total is what the panel shows. */
-    private Runnable refreshConfig = () -> { };
+    private final Runnable refreshConfig;
     /** Who is playing. Read at capture time, not at draw time. */
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<String> localPlayerName;
 
     @Inject
     KillTracker(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
@@ -81,7 +83,8 @@ public class KillTracker implements Tracker
             TrackingGate gate, LocalProgress progress, PartyTracker party, Coalescer coalescer,
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
-            RecapCounters counters, ProofPipeline proofs) {
+            RecapCounters counters, ProofPipeline proofs,
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -102,6 +105,9 @@ public class KillTracker implements Tracker
         this.rareDrops = rareDrops;
         this.counters = counters;
         this.proofs = proofs;
+        this.pluginConfig = pluginConfig;
+        this.refreshConfig = boardRefresh::now;
+        this.localPlayerName = localPlayer::name;
     }
 
 
@@ -117,13 +123,6 @@ public class KillTracker implements Tracker
     /** Boss names whose KC lines this board wants pushed in real time. */
     private volatile Set<String> kcNames = java.util.Collections.emptySet();
 
-    @Override
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Runnable refreshConfig,
-            Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.refreshConfig = refreshConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
     // Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
     // handler can tell whether the very first KC message of the session is for a kill the loot path

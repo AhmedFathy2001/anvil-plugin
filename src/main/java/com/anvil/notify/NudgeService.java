@@ -35,21 +35,20 @@ public class NudgeService
     private final net.runelite.client.callback.ClientThread clientThread;
     private final AnvilEmbeds embeds;
 
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     NudgeService(Client client, AnvilConfig config, AnvilChat chat,
-            net.runelite.client.callback.ClientThread clientThread, AnvilEmbeds embeds) {
+            net.runelite.client.callback.ClientThread clientThread, AnvilEmbeds embeds,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.config = config;
         this.chat = chat;
         this.clientThread = clientThread;
         this.embeds = embeds;
-    }
-
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
         this.pluginConfig = pluginConfig;
     }
+
 
     /** A new login gets its nudges back — it may be a different account with different settings. */
     public void onLogout() {

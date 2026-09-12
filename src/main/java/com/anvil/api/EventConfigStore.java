@@ -1,5 +1,6 @@
 package com.anvil.api;
 
+import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -86,7 +87,8 @@ public class EventConfigStore
     EventConfigStore(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.ui.AnvilSidebarPanel sidebarPanel, com.anvil.ui.BingoClogBannerOverlay clogBanner, com.anvil.io.BannerSoundActions sounds,
-            com.anvil.session.SessionIdentity session, com.anvil.clan.ClanRosterService roster, com.anvil.util.ClipMoments clipMoments, com.anvil.track.DropTracker drops, com.anvil.track.GainTracker gains, com.anvil.track.KillTracker kills, com.anvil.notify.NudgeService nudges, com.anvil.track.ProofPipeline proofs) {
+            com.anvil.session.SessionIdentity session, com.anvil.clan.ClanRosterService roster, com.anvil.util.ClipMoments clipMoments, com.anvil.track.DropTracker drops, com.anvil.track.GainTracker gains, com.anvil.track.KillTracker kills, com.anvil.notify.NudgeService nudges, com.anvil.track.ProofPipeline proofs,
+        LocalPlayer localPlayer) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -106,6 +108,7 @@ public class EventConfigStore
         this.kills = kills;
         this.nudges = nudges;
         this.proofs = proofs;
+        this.localPlayerName = localPlayer::name;
     }
 
 
@@ -133,15 +136,8 @@ public class EventConfigStore
         return pluginConfig;
     }
 
-    /**
-     * Three things the plugin owns and this cannot be injected: who is logged in (it changes), and
-     * the refresh entry point the session handshake re-enters through (which would be a cycle).
-     */
-    public void bind(Supplier<String> localPlayerName) {
-        this.localPlayerName = localPlayerName;
-    }
 
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<String> localPlayerName;
 
     // Debounce config refresh — prevents spam when multiple config keys change at once
     private ScheduledFuture<?> pendingRefresh;

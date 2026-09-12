@@ -38,12 +38,13 @@ public class DebugSupportLog
     private final TaskRunner tasks;
 
     /** The live event config — replaced on every poll, so a supplier and not the value. */
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     DebugSupportLog(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             DebugLogExporter exporter, PendingSubmissionStore pendingSubmissionStore, AnvilChat chat,
-            TaskRunner tasks) {
+            TaskRunner tasks,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -52,11 +53,9 @@ public class DebugSupportLog
         this.pendingSubmissionStore = pendingSubmissionStore;
         this.chat = chat;
         this.tasks = tasks;
-    }
-
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
         this.pluginConfig = pluginConfig;
     }
+
 
     /**
      * Save a shareable support log (a diagnostic header + the Anvil-relevant slice of client.log) and

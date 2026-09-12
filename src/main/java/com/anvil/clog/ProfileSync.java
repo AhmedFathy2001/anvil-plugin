@@ -79,12 +79,13 @@ public class ProfileSync
     private final com.anvil.notify.MomentsService moments;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     ProfileSync(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.notify.MomentsService moments) {
+            com.anvil.notify.MomentsService moments,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -94,6 +95,7 @@ public class ProfileSync
         this.chat = chat;
         this.tasks = tasks;
         this.moments = moments;
+        this.pluginConfig = pluginConfig;
     }
 
 
@@ -166,9 +168,6 @@ public class ProfileSync
         TaskRunner.safely("flushPersonalBests", this::flushPersonalBests);
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
-        this.pluginConfig = pluginConfig;
-    }
 
     // ── Profile sync (collection log + personal bests) ──────────────────────────────────────
     // Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —

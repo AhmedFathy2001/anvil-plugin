@@ -7,7 +7,6 @@ import com.anvil.util.Rsn;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import javax.inject.Inject;
@@ -39,17 +38,15 @@ public class PartyTracker
     private final Client client;
 
     private Supplier<PluginConfigResponse> pluginConfig = () -> null;
-    private Supplier<Map<String, Integer>> pvpRoster = java.util.Collections::emptyMap;
+    private final javax.inject.Provider<PvpTracker> pvp;
 
     @Inject
-    PartyTracker(Client client) {
+    PartyTracker(Client client,
+        javax.inject.Provider<PvpTracker> pvp) {
         this.client = client;
+        this.pvp = pvp;
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Supplier<Map<String, Integer>> pvpRoster) {
-        this.pluginConfig = pluginConfig;
-        this.pvpRoster = pvpRoster;
-    }
 
     /** The party size we can actually vouch for: the exact varbit count when there is one, else seen. */
     public int observedSize() {

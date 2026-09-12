@@ -3,6 +3,7 @@ package com.anvil.track;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.notify.AnvilEmbeds;
+import com.anvil.session.LocalPlayer;
 import com.anvil.notify.MomentsService;
 import com.anvil.notify.RareDropNotifier;
 import com.anvil.util.ClipMoments;
@@ -54,7 +55,8 @@ public class CombatRouter
 	CombatRouter(Client client, AnvilConfig config, BingoApiClient apiClient, PvpTracker pvp,
 		PartyTracker party, TimedClearTracker timed, LmsTracker lms, RecapCounters counters,
 		MomentsService moments, RareDropNotifier rareDrops, AnvilEmbeds embeds,
-		ClipMoments clipMoments, CombatTarget combatTarget)
+		ClipMoments clipMoments, CombatTarget combatTarget,
+		DeathAttribution deathAttribution, LocalPlayer localPlayer)
 	{
 		this.client = client;
 		this.config = config;
@@ -69,20 +71,12 @@ public class CombatRouter
 		this.embeds = embeds;
 		this.clipMoments = clipMoments;
 		this.combatTarget = combatTarget;
-	}
-
-	/**
-	 * Two things the plugin owns and this cannot be injected: who is logged in, and the one
-	 * DeathAttribution instance the session lifecycle also clears on logout.
-	 */
-	public void bind(Supplier<String> localPlayerName, DeathAttribution deathAttribution)
-	{
-		this.localPlayerName = localPlayerName;
 		this.deathAttribution = deathAttribution;
+		this.localPlayerName = localPlayer::name;
 	}
 
-	private Supplier<String> localPlayerName = () -> null;
-	private DeathAttribution deathAttribution = new DeathAttribution();
+	private final Supplier<String> localPlayerName;
+	private final DeathAttribution deathAttribution;
 
 	/** Something acquired or dropped us as its target. */
 	public void onInteractingChanged(Actor source, Actor target)

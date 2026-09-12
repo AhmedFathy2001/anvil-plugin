@@ -48,11 +48,12 @@ public class PetNotifier
     private Supplier<PluginConfigResponse> pluginConfig = () -> null;
     private Supplier<String> localPlayerName = () -> null;
     /** Manual proofs are the plugin's job, not this one's — handed in so a pet can still get one. */
-    private java.util.function.BiConsumer<String, String> manualProof = (a, b) -> { };
+    private final com.anvil.track.ProofPipeline proofs;
 
     @Inject
     PetNotifier(AnvilConfig config, BingoApiClient apiClient, ItemManager itemManager, AnvilChat chat,
-            TaskRunner tasks, AnvilEmbeds embeds, LootSourceMemory lootSource, MomentsService moments) {
+            TaskRunner tasks, AnvilEmbeds embeds, LootSourceMemory lootSource, MomentsService moments,
+        com.anvil.track.ProofPipeline proofs) {
         this.config = config;
         this.apiClient = apiClient;
         this.itemManager = itemManager;
@@ -61,14 +62,9 @@ public class PetNotifier
         this.embeds = embeds;
         this.lootSource = lootSource;
         this.moments = moments;
+        this.proofs = proofs;
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Supplier<String> localPlayerName,
-            java.util.function.BiConsumer<String, String> manualProof) {
-        this.pluginConfig = pluginConfig;
-        this.localPlayerName = localPlayerName;
-        this.manualProof = manualProof;
-    }
 
     /**
      * A pet drop waiting on its name before it posts.

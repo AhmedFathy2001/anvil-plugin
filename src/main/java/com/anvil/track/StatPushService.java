@@ -1,5 +1,6 @@
 package com.anvil.track;
 
+import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -53,14 +54,15 @@ public class StatPushService
     private final com.anvil.track.KillTracker kills;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
     /** Pull the board back after a push — the tile's new total is what the panel shows. */
-    private Runnable refreshConfig = () -> { };
+    private final Runnable refreshConfig;
 
     @Inject
     StatPushService(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.track.LocalProgress progress, com.anvil.notify.LootSourceMemory lootSource, com.anvil.track.KillTracker kills) {
+            com.anvil.track.LocalProgress progress, com.anvil.notify.LootSourceMemory lootSource, com.anvil.track.KillTracker kills,
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -88,6 +90,8 @@ public class StatPushService
         this.progress = progress;
         this.lootSource = lootSource;
         this.kills = kills;
+        this.pluginConfig = pluginConfig;
+        this.refreshConfig = boardRefresh::now;
     }
 
 
@@ -114,10 +118,6 @@ public class StatPushService
         }
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Runnable refreshConfig) {
-        this.pluginConfig = pluginConfig;
-        this.refreshConfig = refreshConfig;
-    }
 
     // KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
     private static final long KC_PUSH_COALESCE_MS = 15_000;

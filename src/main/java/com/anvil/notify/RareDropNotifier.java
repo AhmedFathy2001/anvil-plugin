@@ -1,5 +1,6 @@
 package com.anvil.notify;
 
+import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -66,12 +67,13 @@ public class RareDropNotifier
     private final AnvilEmbeds embeds;
     private final LootSourceMemory lootSource;
 
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     RareDropNotifier(Client client, AnvilConfig config, BingoApiClient apiClient, ItemManager itemManager,
             RarityService rarityService, ThievingService thievingService, AnvilChat chat,
-            AnvilEmbeds embeds, LootSourceMemory lootSource) {
+            AnvilEmbeds embeds, LootSourceMemory lootSource,
+        Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer) {
         this.client = client;
         this.config = config;
         this.apiClient = apiClient;
@@ -81,10 +83,12 @@ public class RareDropNotifier
         this.chat = chat;
         this.embeds = embeds;
         this.lootSource = lootSource;
+        this.pluginConfig = pluginConfig;
+        this.localPlayerName = localPlayer::name;
     }
 
     /** Who is playing, for the post's author line. */
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<String> localPlayerName;
 
     /**
      * The DT2 vestige line just printed, which names a drop no loot event will.
@@ -106,10 +110,6 @@ public class RareDropNotifier
         return deathMessage(rsn);
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
     // Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
     // suppress a repeat post of the same item within a short window. Keyed by itemId.

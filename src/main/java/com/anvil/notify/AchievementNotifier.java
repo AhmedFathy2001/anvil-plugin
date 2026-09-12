@@ -1,5 +1,6 @@
 package com.anvil.notify;
 
+import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -72,13 +73,14 @@ public class AchievementNotifier
     private final MomentsService moments;
     private final com.anvil.track.RecapCounters counters;
 
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
+    private final Supplier<String> localPlayerName;
 
     @Inject
     AchievementNotifier(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             AnvilChat chat, AnvilEmbeds embeds, MomentsService moments,
-            com.anvil.track.RecapCounters counters) {
+            com.anvil.track.RecapCounters counters,
+        Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -87,12 +89,10 @@ public class AchievementNotifier
         this.embeds = embeds;
         this.moments = moments;
         this.counters = counters;
+        this.pluginConfig = pluginConfig;
+        this.localPlayerName = localPlayer::name;
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
     /**
      * Seed the baselines from the live client, once per login, saying nothing.

@@ -43,12 +43,13 @@ public class LmsTracker
     private final com.anvil.track.ProofPipeline proofs;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     LmsTracker(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.track.TrackingGate gate, com.anvil.track.ProofPipeline proofs) {
+            com.anvil.track.TrackingGate gate, com.anvil.track.ProofPipeline proofs,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -59,6 +60,7 @@ public class LmsTracker
         this.tasks = tasks;
         this.gate = gate;
         this.proofs = proofs;
+        this.pluginConfig = pluginConfig;
     }
 
 
@@ -84,9 +86,6 @@ public class LmsTracker
         return lmsInGame;
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
-        this.pluginConfig = pluginConfig;
-    }
 
     /* ------------------------- LMS placement tracking ------------------------- */
     // Last Man Standing is "BR" (battle royale) in the cache. While the BR_INGAME varbit is up

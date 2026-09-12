@@ -52,12 +52,13 @@ public class AccountProgressPush
     private final com.anvil.track.StatPushService statPush;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     AccountProgressPush(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.track.StatPushService statPush) {
+            com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.track.StatPushService statPush,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -69,6 +70,7 @@ public class AccountProgressPush
         this.achievements = achievements;
         this.moments = moments;
         this.statPush = statPush;
+        this.pluginConfig = pluginConfig;
     }
 
 
@@ -137,9 +139,6 @@ public class AccountProgressPush
         lastSkillXp.clear();
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
-        this.pluginConfig = pluginConfig;
-    }
 
     /** Account progress (quest points, CAs, diaries) as the site last accepted it — see AccountProgress. */
     private final Map<String, Integer> lastSentProgress = new LinkedHashMap<>();

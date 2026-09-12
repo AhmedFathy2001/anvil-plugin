@@ -1,5 +1,7 @@
 package com.anvil.track;
 
+import com.anvil.session.LocalPlayer;
+import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -53,7 +55,7 @@ import net.runelite.client.ui.DrawManager;
  */
 @Slf4j
 @Singleton
-public class ProofPipeline implements Tracker
+public class ProofPipeline
 {
     private final AnvilConfig config;
     private final BingoApiClient apiClient;
@@ -76,11 +78,11 @@ public class ProofPipeline implements Tracker
     private final RecapCounters counters;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
     /** Pull the board back after a credit, so the tile's new total is what the panel shows. */
-    private Runnable refreshConfig = () -> { };
+    private final Runnable refreshConfig;
     /** Who is playing. Read at capture time, not at draw time. */
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<String> localPlayerName;
 
     @Inject
     ProofPipeline(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
@@ -89,7 +91,8 @@ public class ProofPipeline implements Tracker
             TrackingGate gate, LocalProgress progress, PartyTracker party, Coalescer coalescer,
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
-            RecapCounters counters) {
+            RecapCounters counters,
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -109,6 +112,9 @@ public class ProofPipeline implements Tracker
         this.moments = moments;
         this.rareDrops = rareDrops;
         this.counters = counters;
+        this.pluginConfig = pluginConfig;
+        this.refreshConfig = boardRefresh::now;
+        this.localPlayerName = localPlayer::name;
     }
 
 
@@ -126,13 +132,6 @@ public class ProofPipeline implements Tracker
         this.sessionLoginAt = sessionLoginAt;
     }
 
-    @Override
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Runnable refreshConfig,
-            Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.refreshConfig = refreshConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
     // STARTING SHOT (site lib/startProof). `startProofFiled` latches the moment one is accepted by
     // the server so the button/nudge go away immediately instead of waiting on the next config poll;

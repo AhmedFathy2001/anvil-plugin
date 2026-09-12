@@ -1,5 +1,8 @@
 package com.anvil;
 
+import javax.inject.Provider;
+import java.util.function.Supplier;
+import com.anvil.api.BoardRefresh;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.StartProof;
@@ -33,7 +36,6 @@ import com.anvil.track.PartyTracker;
 import com.anvil.track.ProofPipeline;
 import com.anvil.track.PvpTracker;
 import com.anvil.track.TimedClearTracker;
-import com.anvil.track.Tracker;
 import com.anvil.track.TrackingGate;
 import com.anvil.track.ValueTracker;
 import com.anvil.clip.ObsClipService;
@@ -48,7 +50,6 @@ import com.anvil.ui.BingoClogBannerOverlay;
 import com.anvil.ui.GameTabButtons;
 import com.anvil.ui.SidebarDataSource;
 import com.anvil.ui.view.Standing;
-import com.anvil.util.DeathAttribution;
 import com.anvil.util.TaskRunner;
 import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
@@ -264,9 +265,6 @@ public class AnvilPlugin extends Plugin {
     private ObsClipService clips;
 
 
-    // Who is attacking US, which is a different question from what we are attacking and the only one
-    // a death should be answered with. See DeathAttribution.
-    private final DeathAttribution deathAttribution = new DeathAttribution();
 
     private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
         @Override
@@ -343,44 +341,7 @@ public class AnvilPlugin extends Plugin {
         clientToolbar.addNavigation(sidebarNavButton);
 
         bannerSound.ensureUserDir();
-        // The two things a clip's caption needs that only the plugin can answer: the live event
-        // config (replaced wholesale on every poll, so a supplier and not the value) and who is
-        // playing. Bound once here rather than passed through every call.
-        clips.bind(configStore::current, this::getLocalPlayerName);
-        supportLog.bind(configStore::current);
-        // Everything that reads the live event config takes a supplier, not the value: the config is
-        // replaced wholesale on every poll, and a collaborator holding the old object would go on
-        // crediting an event that has ended.
-        embeds.bind(configStore::current);
-        lootSource.bind(configStore::current);
         lootSource.bindNotableItems(drops::notableItems);
-        rareDrops.bind(configStore::current, this::getLocalPlayerName);
-        pets.bind(configStore::current, this::getLocalPlayerName, proofs::captureManualProof);
-        achievements.bind(configStore::current, this::getLocalPlayerName);
-        moments.bind(configStore::current, drops::itemIndex, () -> deathAttribution,
-                achievements::statsAreArtificial);
-        counters.bind(configStore::current, gate::reason);
-        nudges.bind(configStore::current);
-        combat.bind(this::getLocalPlayerName, deathAttribution);
-        // Every collaborator reads the LIVE config, which is replaced on each poll — so they take
-        // the supplier, never the object. See Tracker for the full reasoning.
-        configStore.bind(this::getLocalPlayerName);
-        session.bind(configStore::current, configStore::refreshConfig,
-                this::getLocalPlayerName);
-        chatRouter.bind(configStore::current);
-        profileSync.bind(configStore::current);
-        statPush.bind(configStore::current, configStore::refreshConfig);
-        accountProgress.bind(configStore::current);
-        achTiles.bind(configStore::current);
-        lms.bind(configStore::current);
-        sounds.bind(configStore::current);
-        gate.bind(configStore::current);
-        progress.bind(configStore::current);
-        party.bind(configStore::current, pvp::roster);
-        // Every tracker wants the same three things and none of them can be injected — see Tracker.
-        for (Tracker t : new Tracker[]{drops, kills, gains, values, timed, pvp, proofs}) {
-            t.bind(configStore::current, configStore::refreshConfig, this::getLocalPlayerName);
-        }
         configStore.onShutDown();
 
         tasks.start();
@@ -469,6 +430,31 @@ public class AnvilPlugin extends Plugin {
     @Provides
     AnvilConfig provideConfig(ConfigManager configManager) {
         return configManager.getConfig(AnvilConfig.class);
+    }
+
+    /**
+     * The board, as a view rather than a value.
+     *
+     * <p>{@code /config} is re-fetched every thirty seconds and the response object is replaced
+     * wholesale — so a collaborator handed the object at construction would go on crediting tiles
+     * from a board that has since ended, and would never see a tile somebody added this morning.
+     * Every read through this supplier is of the current one.</p>
+     *
+     * <p>A {@link Provider}, because almost every collaborator the store itself reaches for also
+     * wants the board: asking for the store here would be a dependency cycle. Nothing resolves it
+     * until something actually reads the board, by which time the graph is built.</p>
+     */
+    @Provides
+    @Singleton
+    Supplier<PluginConfigResponse> provideBoard(Provider<EventConfigStore> store) {
+        return () -> store.get().current();
+    }
+
+    /** Pull the board back after a credit. Same Provider reasoning as above. */
+    @Provides
+    @Singleton
+    BoardRefresh provideBoardRefresh(Provider<EventConfigStore> store) {
+        return () -> store.get().refreshConfig();
     }
 
     /**
@@ -641,7 +627,7 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onGameStateChanged(GameStateChanged event) {
-        lifecycle.onGameStateChanged(event.getGameState(), deathAttribution);
+        lifecycle.onGameStateChanged(event.getGameState());
     }
 
     /**

@@ -25,15 +25,13 @@ import lombok.extern.slf4j.Slf4j;
 @Singleton
 public class LocalProgress
 {
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
-    LocalProgress() {
-    }
-
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
+    LocalProgress(Supplier<PluginConfigResponse> pluginConfig) {
         this.pluginConfig = pluginConfig;
     }
+
 
     // Stat tiles (skill XP / boss KC) the LOCAL player has recently made progress on: tileId → last
     // gain millis. A stat tile's team total can rise from ANY teammate (the server aggregates the
