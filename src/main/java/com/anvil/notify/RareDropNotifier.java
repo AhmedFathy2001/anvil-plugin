@@ -4,9 +4,7 @@ import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
-import com.anvil.clog.ClogRank;
 import com.anvil.detect.AbstractRarityService;
-import com.anvil.detect.ActivityStats;
 import com.anvil.detect.DropLuck;
 import com.anvil.detect.DropSource;
 import com.anvil.detect.GamePools;
@@ -21,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.OptionalDouble;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -65,6 +62,8 @@ public class RareDropNotifier
     private final ThievingService thievingService;
     private final AnvilChat chat;
     private final AnvilEmbeds embeds;
+    /** The one-liners the feed uses instead of stating a fact twice. */
+    private final Taunts taunts;
     private final LootSourceMemory lootSource;
 
     private final Supplier<PluginConfigResponse> pluginConfig;
@@ -77,7 +76,8 @@ public class RareDropNotifier
             RarityService rarityService, ThievingService thievingService, AnvilChat chat,
             AnvilEmbeds embeds, LootSourceMemory lootSource,
         Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer,
-        com.anvil.api.MediaUploads media) {
+        com.anvil.api.MediaUploads media,
+            Taunts taunts) {
         this.client = client;
         this.config = config;
         this.apiClient = apiClient;
@@ -90,6 +90,7 @@ public class RareDropNotifier
         this.pluginConfig = pluginConfig;
         this.localPlayerName = localPlayer::name;
         this.media = media;
+        this.taunts = taunts;
     }
 
     /** Who is playing, for the post's author line. */
@@ -112,7 +113,7 @@ public class RareDropNotifier
     }
 
     public String buildDeathMessage(String rsn) {
-        return deathMessage(rsn);
+        return taunts.deathMessage(rsn);
     }
 
 
@@ -264,7 +265,7 @@ public class RareDropNotifier
      * True when the item is on the always-notify allowlist (baked-in defaults +
      * server list).
      */
-    private boolean isAlwaysNotifyItem(String name) {
+    boolean isAlwaysNotifyItem(String name) {
         if (name == null || name.isEmpty()) {
             return false;
         }
@@ -290,7 +291,7 @@ public class RareDropNotifier
      * already posted within the dedup window. Keyed by name so the loot event
      * and the collection-log unlock message can't both fire for the same item.
      */
-    private boolean claimAllowlistNotify(String name, long now) {
+    boolean claimAllowlistNotify(String name, long now) {
         String key = name.toLowerCase();
         return lastAllowlistNotifyAt.claim(key);
     }
@@ -314,7 +315,7 @@ public class RareDropNotifier
         boolean earned = DropLuck.isEarnedAward(name);
         boolean guaranteed = DropSource.isGuaranteed(lootSource.dropFacts(), name, source);
         if (!earned && !guaranteed) {
-            desc += "\n" + randomSpoonLine();
+            desc += "\n" + taunts.randomSpoonLine();
         }
         // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
         JsonObject embed = buildDropEmbed(
@@ -323,130 +324,6 @@ public class RareDropNotifier
                 DropSource.countLabel(source, sourceKind), guaranteed);
 
         embeds.postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
-    }
-
-    /**
-     * Posts a prestige item unlocked via the collection log — the reliable
-     * signal for awarded items (Infernal cape, Dizana's quiver, …) that don't
-     * fire a loot event. Only allowlisted items post; shared name-dedup with
-     * the loot path stops a double post.
-     */
-    public void maybeNotifyCollectionUnlock(String itemName) {
-        if (!config.notifyRareDrops() || itemName == null || itemName.isEmpty()) {
-            return;
-        }
-        if (!isAlwaysNotifyItem(itemName)) {
-            return;
-        }
-        if (!embeds.notifyEnabled("rareDrops")) {
-            return;
-        }
-        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
-            return;
-        }
-        String rsn = localPlayerName.get();
-        String shotName = "anvil-drop.png";
-        String desc = AnvilEmbeds.who(rsn) + " unlocked " + itemName + "!";
-        boolean earned = DropLuck.isEarnedAward(itemName);
-        // No source came with this line — the collection log says what, never from where — so only a
-        // clan override that named no sources ("guaranteed wherever it drops") can answer here.
-        boolean guaranteed = DropSource.isGuaranteed(lootSource.dropFacts(), itemName, null);
-        if (!earned && !guaranteed) {
-            desc += "\n" + randomSpoonLine();
-        }
-        // No item id here (the message gives only a name), so value is unknown — omit it.
-        JsonObject embed = buildDropEmbed(
-                earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, -1, 1, 0, null, null, shotName,
-                "KC", guaranteed);
-
-        embeds.postWithOptionalShot("rareDrops", embed, shotName, config.rareDropScreenshot());
-    }
-
-    /**
-     * Posts a NEW collection-log slot to the clan achievements channel.
-     *
-     * The unlock line is already parsed here to credit bingo tiles; this turns the same signal into
-     * the post other notifiers have had for years. Deliberately separate from
-     * {@link #maybeNotifyCollectionUnlock}: that one is the prestige allowlist shouting at the drops
-     * channel, this is every other slot filling in quietly next to diaries and combat tasks. An
-     * allowlisted item is skipped here so the two never double-post the same unlock.
-     *
-     * Carries the log's own completion count ("548/1712 (32.0%)") when the client can answer for it,
-     * which it can't until the collection log has synced this session — the field is dropped in that
-     * case rather than guessed at.
-     */
-    public void maybeNotifyClogSlot(String itemName) {
-        if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) {
-            return;
-        }
-        if (!embeds.notifyEnabled("collectionLog")) {
-            return;
-        }
-        // The prestige path already posted this one to the drops channel.
-        if (isAlwaysNotifyItem(itemName)) {
-            return;
-        }
-        // The unlock line can echo on more than one chat channel; the shared name dedup keeps this
-        // to one post per item.
-        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
-            return;
-        }
-
-        String rsn = localPlayerName.get();
-        String shotName = "anvil-clog.png";
-        JsonObject embed = new JsonObject();
-        AnvilEmbeds.addAuthor(embed, rsn);
-        embed.addProperty("title", "📕 " + itemName);
-        // No "new slot" / "New!" wording: every collection-log unlock is by definition the first
-        // one, so saying so is noise. "New" is reserved for pets in the drops channel, where it
-        // actually distinguishes something.
-        embed.addProperty("description",
-                AnvilEmbeds.who(rsn) + " added " + itemName + " to their collection.");
-        embed.addProperty("color", AnvilEmbeds.achievementColor());
-        AnvilEmbeds.addWikiUrl(embed, itemName);
-
-        JsonArray fields = new JsonArray();
-        // How much of the log this fills in, and what that's worth as a standing. Both are dropped
-        // rather than guessed when the log hasn't synced this session (the count reads 0 until then).
-        String logProgress = ActivityStats.clogProgress(client::getVarpValue);
-        if (logProgress != null) {
-            fields.add(AnvilEmbeds.statField("Completed", logProgress));
-        }
-        String rank = ClogRank.forSlots(
-                ActivityStats.clogSlots(client::getVarpValue),
-                ActivityStats.clogSlotsMax(client::getVarpValue));
-        if (rank != null) {
-            fields.add(AnvilEmbeds.statField("Rank", rank));
-        }
-        // This item's own source first. The fallback still answers for an unlock with no loot event
-        // behind it at all — a skilling pet, a quest reward — where "the last thing that dropped"
-        // is the only signal there is.
-        String source = lootSource.sourceForLootedItem(itemName);
-        if (source == null) {
-            source = lootSource.recentLootSource();
-        }
-        if (source != null) {
-            fields.add(AnvilEmbeds.statField("Source", source));
-            // How many times they'd killed it when it finally dropped — the number that turns
-            // "got the pet" into a story. Absent when the source keeps no kill count we can read.
-            Integer kc = lootSource.killCountFor(source);
-            if (kc != null && kc > 0) {
-                fields.add(AnvilEmbeds.statField("Completion count", String.valueOf(kc)));
-            }
-        }
-        embed.add("fields", fields);
-
-        // The item's own sprite: resolved from the loot event that just delivered it (which covers
-        // untradeables the GE search can't find), falling back to the GE item list.
-        Integer itemId = lootSource.resolveItemIdByName(itemName);
-        AnvilEmbeds.addItemThumbnail(embed, itemId);
-
-        if (config.clogScreenshot()) {
-            AnvilEmbeds.addAttachment(embed, shotName);
-            embeds.captureFrameAsync(png -> media.postNotification("collectionLog", null, embed, png, shotName));
-        } else {
-            media.postNotification("collectionLog", null, embed, null, null);
-        }
     }
 
     private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate) {
@@ -463,7 +340,7 @@ public class RareDropNotifier
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // The reaction line is about beating the odds. There were none to beat.
         if (!guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, GamePools.SPOON_VALUE)) {
-            desc += "\n" + randomSpoonLine();
+            desc += "\n" + taunts.randomSpoonLine();
         }
         // Where this leaves their vestige rotation, when the drop was a roll of one (set moments
         // ago by trackVestigeRolls off the same loot event).
@@ -502,7 +379,7 @@ public class RareDropNotifier
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // No single rate to judge a mixed haul by, so the combined value decides.
         if (total >= GamePools.SPOON_VALUE) {
-            desc += "\n" + randomSpoonLine();
+            desc += "\n" + taunts.randomSpoonLine();
         }
         JsonObject embed = new JsonObject();
         AnvilEmbeds.addAuthor(embed, rsn);
@@ -549,12 +426,12 @@ public class RareDropNotifier
         }
     }
 
-    private JsonObject buildDropEmbed(String title, String description,
+    JsonObject buildDropEmbed(String title, String description,
             String itemName, int qty, long value, Double dropRate, Integer killCount, String shotName) {
         return buildDropEmbed(title, description, itemName, -1, qty, value, dropRate, killCount, shotName);
     }
 
-    private JsonObject buildDropEmbed(String title, String description,
+    JsonObject buildDropEmbed(String title, String description,
             String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName) {
         return buildDropEmbed(title, description, itemName, itemId, qty, value, dropRate, killCount, shotName,
                 "KC", false);
@@ -566,7 +443,7 @@ public class RareDropNotifier
      * Numeric fields are wrapped in backticks so Discord boxes them; see the site's
      * lib/discordEmbeds for the house style this matches.
      */
-    private JsonObject buildDropEmbed(String title, String description,
+    JsonObject buildDropEmbed(String title, String description,
             String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName,
             String countLabel, boolean guaranteed) {
         JsonObject embed = new JsonObject();
@@ -619,57 +496,4 @@ public class RareDropNotifier
 
     private static final long VESTIGE_LINE_WINDOW_MS = 5000;
 
-    /**
-     * Builds the death message: a 1/100 chance of a random fun line
-     * (server-served pool, with a baked-in fallback), otherwise the player's
-     * own configured message. {name} → RSN.
-     */
-    private String deathMessage(String rsn) {
-        String name = (rsn == null || rsn.isEmpty()) ? "Someone" : rsn;
-        String base;
-        boolean fun = ThreadLocalRandom.current().nextInt(100) == 0;
-        if (fun) {
-            List<String> pool = GamePools.FUN_DEATHS_FALLBACK;
-            PluginConfigResponse cfg = pluginConfig.get();
-            if (cfg != null && cfg.funDeathMessages != null && !cfg.funDeathMessages.isEmpty()) {
-                pool = cfg.funDeathMessages;
-            }
-            base = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-        } else {
-            base = config.deathMessage();
-            if (base == null || base.isEmpty()) {
-                base = "{name} just died!";
-            }
-        }
-        base = base.replace("{name}", name);
-        // Funny lines are always on — a cheeky reaction line on every death.
-        base += "\n" + randomDeathTaunt();
-        return base;
-    }
-
-    /**
-     * A death reaction line — the server pool when the clan has set one, else
-     * the baked-in list.
-     */
-    private String randomDeathTaunt() {
-        PluginConfigResponse cfg = pluginConfig.get();
-        List<String> pool = (cfg != null && cfg.deathTaunts != null && !cfg.deathTaunts.isEmpty())
-                ? cfg.deathTaunts : GamePools.DEATH_TAUNTS;
-        return randomLine(pool);
-    }
-
-    /**
-     * A lucky-drop reaction line — the server pool when set, else the baked-in
-     * list.
-     */
-    private String randomSpoonLine() {
-        PluginConfigResponse cfg = pluginConfig.get();
-        List<String> pool = (cfg != null && cfg.spoonTaunts != null && !cfg.spoonTaunts.isEmpty())
-                ? cfg.spoonTaunts : GamePools.SPOON_TAUNTS;
-        return randomLine(pool);
-    }
-
-    private static String randomLine(List<String> pool) {
-        return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-    }
 }
