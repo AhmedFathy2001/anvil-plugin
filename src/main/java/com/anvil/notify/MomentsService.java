@@ -65,12 +65,16 @@ public class MomentsService
     private final javax.inject.Provider<AchievementNotifier> achievements;
     private final DeathAttribution deathAttribution;
 
+    /** The collection log, personal bests, and the moments feed. */
+    private final com.anvil.api.ProfileSubmissions profile;
+
     @Inject
     MomentsService(AnvilConfig config, BingoApiClient apiClient, ItemManager itemManager, TaskRunner tasks,
             CombatTarget combatTarget, LootSourceMemory lootSource,
             javax.inject.Provider<com.anvil.track.DropTracker> drops,
             javax.inject.Provider<AchievementNotifier> achievements,
-            DeathAttribution deathAttribution) {
+            DeathAttribution deathAttribution,
+        com.anvil.api.ProfileSubmissions profile) {
         this.config = config;
         this.apiClient = apiClient;
         this.itemManager = itemManager;
@@ -80,6 +84,7 @@ public class MomentsService
         this.drops = drops;
         this.achievements = achievements;
         this.deathAttribution = deathAttribution;
+        this.profile = profile;
     }
 
 
@@ -319,7 +324,7 @@ public class MomentsService
             return;
         }
         try {
-            apiClient.submitMoments(batch);
+            profile.submitMoments(batch);
         } catch (IOException e) {
             log.debug("Moment push failed ({} queued) — retrying: {}", moments.size(), e.getMessage());
             scheduleMomentPush();

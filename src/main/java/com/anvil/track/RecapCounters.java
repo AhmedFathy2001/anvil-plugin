@@ -57,11 +57,15 @@ public class RecapCounters
     private Supplier<PluginConfigResponse> pluginConfig = () -> null;
     private final TrackingGate gate;
 
+    /** Kill counts, XP, varbit counters and the recap totals. Absolute values, never deltas. */
+    private final com.anvil.api.StatSubmissions stats;
+
     @Inject
     RecapCounters(AnvilConfig config, BingoApiClient apiClient, ConfigManager configManager,
             ItemManager itemManager, TaskRunner tasks, ClipMoments clipMoments, MomentsService moments,
             LootSourceMemory lootSource, com.anvil.notify.AnvilEmbeds embeds,
-        TrackingGate gate) {
+        TrackingGate gate,
+        com.anvil.api.StatSubmissions stats) {
         this.config = config;
         this.apiClient = apiClient;
         this.configManager = configManager;
@@ -72,6 +76,7 @@ public class RecapCounters
         this.lootSource = lootSource;
         this.embeds = embeds;
         this.gate = gate;
+        this.stats = stats;
     }
 
     /**
@@ -422,7 +427,7 @@ public class RecapCounters
             return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
         }
         try {
-            apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
+            stats.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {

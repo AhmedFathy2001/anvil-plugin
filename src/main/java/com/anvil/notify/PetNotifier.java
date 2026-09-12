@@ -50,10 +50,14 @@ public class PetNotifier
     /** Manual proofs are the plugin's job, not this one's — handed in so a pet can still get one. */
     private final com.anvil.track.ProofPipeline proofs;
 
+    /** Notifications, proof screenshots and clips — the requests carrying a file. */
+    private final com.anvil.api.MediaUploads media;
+
     @Inject
     PetNotifier(AnvilConfig config, BingoApiClient apiClient, ItemManager itemManager, AnvilChat chat,
             TaskRunner tasks, AnvilEmbeds embeds, LootSourceMemory lootSource, MomentsService moments,
-        com.anvil.track.ProofPipeline proofs) {
+        com.anvil.track.ProofPipeline proofs,
+        com.anvil.api.MediaUploads media) {
         this.config = config;
         this.apiClient = apiClient;
         this.itemManager = itemManager;
@@ -63,6 +67,7 @@ public class PetNotifier
         this.lootSource = lootSource;
         this.moments = moments;
         this.proofs = proofs;
+        this.media = media;
     }
 
 
@@ -272,7 +277,7 @@ public class PetNotifier
             AnvilEmbeds.addAttachment(embed, shotName);
             embeds.postWithScreenshot("pets", embed, shotName);
         } else {
-            apiClient.postNotification("pets", null, embed, null, null);
+            media.postNotification("pets", null, embed, null, null);
         }
     }
 

@@ -52,14 +52,19 @@ public class AnvilEmbeds
     /** The live event config — replaced on every poll, so a supplier and not the value. */
     private final Supplier<PluginConfigResponse> pluginConfig;
 
+    /** Notifications, proof screenshots and clips — the requests carrying a file. */
+    private final com.anvil.api.MediaUploads media;
+
     @Inject
     AnvilEmbeds(BingoApiClient apiClient, ItemManager itemManager, DrawManager drawManager, TaskRunner tasks,
-        Supplier<PluginConfigResponse> pluginConfig) {
+        Supplier<PluginConfigResponse> pluginConfig,
+        com.anvil.api.MediaUploads media) {
         this.apiClient = apiClient;
         this.itemManager = itemManager;
         this.drawManager = drawManager;
         this.tasks = tasks;
         this.pluginConfig = pluginConfig;
+        this.media = media;
     }
 
 
@@ -178,7 +183,7 @@ public class AnvilEmbeds
             postWithScreenshot(channel, embed, shotName);
         } else {
             embed.remove("image");
-            apiClient.postNotification(channel, null, embed, null, null);
+            media.postNotification(channel, null, embed, null, null);
         }
     }
 
@@ -335,7 +340,7 @@ public class AnvilEmbeds
      */
     void postAchievement(JsonObject embed, boolean withShot) {
         if (!withShot) {
-            apiClient.postNotification("levels", null, embed, null, null);
+            media.postNotification("levels", null, embed, null, null);
             return;
         }
         String shotName = "anvil-achievement.png";
@@ -344,7 +349,7 @@ public class AnvilEmbeds
             if (png == null) {
                 embed.remove("image");
             }
-            apiClient.postNotification("levels", null, embed, png, shotName);
+            media.postNotification("levels", null, embed, png, shotName);
         });
 
         // Let the room react before the shutter.
@@ -372,7 +377,7 @@ public class AnvilEmbeds
             if (png == null) {
                 embed.remove("image");
             }
-            apiClient.postNotification(channel, null, embed, png, shotName);
+            media.postNotification(channel, null, embed, png, shotName);
         });
     }
 }

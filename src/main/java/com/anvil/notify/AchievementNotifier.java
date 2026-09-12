@@ -76,11 +76,15 @@ public class AchievementNotifier
     private final Supplier<PluginConfigResponse> pluginConfig;
     private final Supplier<String> localPlayerName;
 
+    /** Notifications, proof screenshots and clips — the requests carrying a file. */
+    private final com.anvil.api.MediaUploads media;
+
     @Inject
     AchievementNotifier(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             AnvilChat chat, AnvilEmbeds embeds, MomentsService moments,
             com.anvil.track.RecapCounters counters,
-        Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer) {
+        Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer,
+        com.anvil.api.MediaUploads media) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -91,6 +95,7 @@ public class AchievementNotifier
         this.counters = counters;
         this.pluginConfig = pluginConfig;
         this.localPlayerName = localPlayer::name;
+        this.media = media;
     }
 
 
@@ -318,9 +323,9 @@ public class AchievementNotifier
 
         if (config.caScreenshot()) {
             AnvilEmbeds.addAttachment(embed, shotName);
-            embeds.captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
+            embeds.captureFrameAsync(png -> media.postNotification("combatAchievements", null, embed, png, shotName));
         } else {
-            apiClient.postNotification("combatAchievements", null, embed, null, null);
+            media.postNotification("combatAchievements", null, embed, null, null);
         }
     }
 
@@ -353,7 +358,7 @@ public class AchievementNotifier
                 + "** Combat Achievements tier!");
         embed.addProperty("color", AnvilEmbeds.achievementColor());
         // Combat-achievement posts are message-only — no screenshot.
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+        media.postNotification("combatAchievements", null, embed, null, null);
     }
 
     /**
@@ -376,7 +381,7 @@ public class AchievementNotifier
                 AnvilEmbeds.who(rsn) + " just completed the **" + area + " " + tier
                         + "** achievement diary!");
         embed.addProperty("color", AnvilEmbeds.achievementColor());
-        apiClient.postNotification("diaries", null, embed, null, null);
+        media.postNotification("diaries", null, embed, null, null);
     }
 
     /**
@@ -469,7 +474,7 @@ public class AchievementNotifier
         embed.addProperty("description",
                 AnvilEmbeds.who(rsn) + " just completed **" + questName + "**" + tierTag + "!");
         embed.addProperty("color", AnvilEmbeds.achievementColor());
-        apiClient.postNotification("quests", null, embed, null, null);
+        media.postNotification("quests", null, embed, null, null);
     }
 
     /**

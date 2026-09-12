@@ -1,51 +1,29 @@
 package com.anvil.api;
 
-import com.anvil.AnvilPlugin;
 import com.anvil.api.dto.ActivityResponse;
 import com.anvil.api.dto.AdminUnauthorizedException;
 import com.anvil.api.dto.ClanMember;
 import com.anvil.api.dto.ClanMismatchException;
 import com.anvil.api.dto.ClanSyncResponse;
-import com.anvil.api.dto.ClipRelayResult;
-import com.anvil.api.dto.ClogPushResult;
-import com.anvil.api.dto.CoopFingerprint;
 import com.anvil.api.dto.DeviceAuthPoll;
 import com.anvil.api.dto.DeviceAuthStart;
 import com.anvil.api.dto.HelloResponse;
 import com.anvil.api.dto.PermanentSubmissionException;
 import com.anvil.api.dto.RateLimitedException;
 import com.anvil.api.dto.WeeklyLeaderboard;
-import com.anvil.clog.ClogPage;
-import com.anvil.clog.ClogSync;
-import com.anvil.detect.AccountProgress;
-import com.anvil.detect.StartProofRules;
-import com.anvil.ui.AnvilMoments;
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Player;
-import net.runelite.api.Skill;
-import okhttp3.Call;
-import okhttp3.Callback;
 import okhttp3.MediaType;
-import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -55,8 +33,8 @@ import okhttp3.Response;
 @Singleton
 public class BingoApiClient
 {
-	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-	private static final MediaType PNG = MediaType.parse("image/png");
+	static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+	static final MediaType PNG = MediaType.parse("image/png");
 
 	private final Gson gson;
 	private final OkHttpClient httpClient;
@@ -64,18 +42,6 @@ public class BingoApiClient
 	// mid-upload on a slow connection, so file posts get their own generous timeouts (the pool and
 	// dispatcher are still shared via newBuilder, so an extra client is cheap).
 	private final OkHttpClient uploadClient;
-	private String apiUrl;
-	private String playerToken;
-	// In-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
-	// request so the server can scope the per-user plugin token to the correct clan_member
-	// (and reject drops on accounts that aren't signed up for the active event).
-	private volatile String currentRsn;
-	// Stable Jagex account hash (client.getAccountHash()) of the locally logged-in account.
-	// Sent as `X-Account-Hash` so the server can anchor auto-verification to the account even
-	// across in-game renames. Null when logged out / unavailable.
-	private volatile String accountHash;
-	/** True while the logged-in world is a seasonal (Leagues) world. Set from the plugin on login/hop. */
-	private volatile boolean seasonal;
 
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
@@ -96,181 +62,6 @@ public class BingoApiClient
 			.build();
 	}
 
-	public void configure(String apiUrl, String playerToken)
-	{
-		this.apiUrl = normalizeBaseUrl(apiUrl);
-		this.playerToken = playerToken;
-	}
-
-	/** The configured site base URL (normalized, no trailing slash), or "" when unconfigured. */
-	public String getApiUrl()
-	{
-		return apiUrl == null ? "" : apiUrl;
-	}
-
-	// ── WHICH CLAN THIS CLIENT IS TALKING TO ────────────────────────────────────────────────
-	//
-	// The Site URL the member typed is one Anvil, and one Anvil serves every clan. On the canonical
-	// address it therefore names no clan at all, and the server picks one from the token — live event
-	// first, then latest start, then newest seat.
-	//
-	// Good defaults, but a guess re-made on every request. Once we have been TOLD which clan we are
-	// dealing with — either because the member chose one in the sidebar, or because /config answered
-	// and said which one it answered for — we say so outright, by addressing `/c/<slug>` instead of
-	// the bare root. Same canonical path a browser uses, and the site has resolved it since the day
-	// clans stopped being subdomains.
-	//
-	// Two things fall out of it that are worth having on purpose. A member in two live boards stops
-	// being at the mercy of "latest start wins". And the handful of routes outside /api/plugin that
-	// still resolve a clan from the ADDRESS rather than the token — filing a submission, filing the
-	// starting shot, uploading its image — resolve correctly on the bare apex, which they do not when
-	// nothing names a clan.
-
-	/** A clan slug as the site accepts one; anything else is treated as naming no clan. */
-	private static final Pattern CLAN_SLUG = Pattern.compile("[a-z0-9-]{2,32}");
-
-	// TWO SLUGS, and the difference between them is the whole design.
-	//
-	// `chosen` is the member's pick in the sidebar. Empty means "Auto" — they have not chosen, and
-	// the server should keep deciding.
-	//
-	// `resolved` is what the server last told us it answered for. In Auto we adopt it for every call
-	// EXCEPT the config poll itself, which stays unaddressed so the server keeps re-deciding: a member
-	// whose live board moves to their other clan should follow it without touching a dropdown. Adopting
-	// it everywhere else is what makes a submission, a starting shot and its upload land in the right
-	// clan on the canonical address, where nothing in the URL says which clan is meant.
-
-	/** The member's explicit pick, or "" for Auto. Survives restarts (AnvilPlugin persists it). */
-	private volatile String chosenClan = "";
-
-	/** The clan the site last said it answered for. In-memory: it is the server's judgement, not a setting. */
-	private volatile String resolvedClan = "";
-
-	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
-	public void setChosenClan(String slug)
-	{
-		this.chosenClan = cleanSlug(slug);
-	}
-
-	/** The member's explicit pick, or "" when they are on Auto. */
-	public String getChosenClan()
-	{
-		return chosenClan;
-	}
-
-	/** The site answered, and named the clan it answered for. */
-	public void setResolvedClan(String slug)
-	{
-		this.resolvedClan = cleanSlug(slug);
-	}
-
-	/** The clan this client is actually addressing right now — a pick beats the server's guess. */
-	public String getActiveClan()
-	{
-		return !chosenClan.isEmpty() ? chosenClan : resolvedClan;
-	}
-
-	/**
-	 * Validated rather than trusted: a slug arrives over the wire and is about to be pasted into every
-	 * URL this client builds. Anything that is not a slug names no clan — which is the behaviour we
-	 * already had, and so cannot break anything.
-	 */
-	private static String cleanSlug(String slug)
-	{
-		String clean = slug == null ? "" : slug.trim().toLowerCase();
-		return !clean.isEmpty() && CLAN_SLUG.matcher(clean).matches() ? clean : "";
-	}
-
-	/**
-	 * A clan-scoped URL: the base, the clan we are addressing, then the path.
-	 *
-	 * Everything the plugin calls is clan-scoped except signing in, which is about a person and happens
-	 * before any clan is known ({@link #rootUrl}), and the config poll in Auto ({@link #configUrl}).
-	 */
-	public String clanUrl(String path)
-	{
-		String slug = getActiveClan();
-		return slug.isEmpty() ? apiUrl + path : apiUrl + "/c/" + slug + path;
-	}
-
-	/**
-	 * Where to ask for the config.
-	 *
-	 * An explicit pick is addressed like everything else. On Auto this stays deliberately unaddressed,
-	 * so every poll is a fresh question — the answer names the clan, and the answer is allowed to
-	 * change when the member's live board does.
-	 */
-	public String configUrl(String path)
-	{
-		return chosenClan.isEmpty() ? apiUrl + path : apiUrl + "/c/" + chosenClan + path;
-	}
-
-	/** A URL that must NOT carry a clan: the device sign-in pair, which is identity, not membership. */
-	public String rootUrl(String path)
-	{
-		return apiUrl + path;
-	}
-
-	/**
-	 * Sets the in-game RSN of the locally logged-in account. The plugin should call this
-	 * on every login (and clear it on logout). Null/empty values are tolerated — the
-	 * server will fall back to "any active event" matching, but cross-account safety
-	 * degrades.
-	 */
-	public void setCurrentRsn(String rsn)
-	{
-		this.currentRsn = (rsn == null || rsn.isEmpty()) ? null : rsn;
-	}
-
-	/** The RSN currently stamped on requests (the logged-in character), or null. Thread-safe read. */
-	public String getCurrentRsn()
-	{
-		return currentRsn;
-	}
-
-	/**
-	 * Sets the stable Jagex account hash of the locally logged-in account. Call alongside
-	 * {@link #setCurrentRsn} on login (and clear on logout). Pass the raw value from
-	 * {@code client.getAccountHash()}; values that mean "not logged in" (null or -1) are
-	 * treated as cleared.
-	 */
-	public void setAccountHash(long hash)
-	{
-		this.accountHash = hash == -1L ? null : Long.toString(hash);
-	}
-
-	/** Called when the world changes: seasonal posts route to the clan's Leagues channel server-side. */
-	public void setSeasonal(boolean seasonal)
-	{
-		this.seasonal = seasonal;
-	}
-
-	/**
-	 * The canonical Anvil, offered when somebody signs in without having typed a site.
-	 *
-	 * NOT the config default, and that distinction is the whole point. `apiUrl` still defaults to ""
-	 * so the plugin contacts nothing on its own — every unauthenticated poll here (hello,
-	 * active-weekly, schedule, weekly-leaderboard) bails on an empty URL, so an install that is never
-	 * signed into never reaches the network at all. This constant is only ever written by an explicit
-	 * click on Sign in, which is the user choosing the server exactly as typing it was.
-	 */
-	public static final String CANONICAL_SITE = "https://anvilosrs.com";
-
-	/**
-	 * True when there is no Account Token yet — the state the Sign-in button serves.
-	 *
-	 * It used to also require a Site URL, which meant somebody who had just installed the plugin saw
-	 * no way in: the button that would have configured them was hidden until they configured
-	 * themselves. Sign in now offers to fill the site in (see CANONICAL_SITE), so the button is the
-	 * first step rather than the second.
-	 */
-	public boolean needsSignIn()
-	{
-		return playerToken == null || playerToken.isEmpty();
-	}
-
-	// ---- Device-code sign-in (home-native RFC 8628; see the site's /api/plugin/auth/*) ----------
-
 	/**
 	 * Run a request whose failure is not worth interrupting anybody over, and parse the reply.
 	 *
@@ -286,6 +77,121 @@ public class BingoApiClient
 	 * @return the parsed body, or null on any transport error, any non-2xx, a missing body, or a
 	 *         reply that is not the JSON we asked for.
 	 */
+	/**
+	 * Where requests go and who they say they are from.
+	 *
+	 * <p>Held rather than exposed: the rest of the plugin asks this client, which is the one object
+	 * everything already has. What follows is that façade — every method here is one line.</p>
+	 */
+	/**
+	 * Where the Sign-in button goes when no Site URL has been typed.
+	 *
+	 * <p>Named before the click rather than after: for somebody who has typed nothing, the click is
+	 * what chooses the server, so the button says where it is about to connect.</p>
+	 */
+	public static final String CANONICAL_SITE = SiteAddress.CANONICAL_SITE;
+
+	private final SiteAddress site = new SiteAddress();
+
+	public void configure(String apiUrl, String playerToken)
+	{
+		site.configure(apiUrl, playerToken);
+	}
+
+	/** The configured site base URL (normalized, no trailing slash), or "" when unconfigured. */
+	public String getApiUrl()
+	{
+		return site.getApiUrl();
+	}
+
+	public boolean isConfigured()
+	{
+		return site.isConfigured();
+	}
+
+	/** True when there is a site to sign into and no token yet — the one state the button shows in. */
+	public boolean needsSignIn()
+	{
+		return site.needsSignIn();
+	}
+
+	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
+	public void setChosenClan(String slug)
+	{
+		site.setChosenClan(slug);
+	}
+
+	/** The member's explicit pick, or "" when they are on Auto. */
+	public String getChosenClan()
+	{
+		return site.getChosenClan();
+	}
+
+	/** The site answered, and named the clan it answered for. */
+	public void setResolvedClan(String slug)
+	{
+		site.setResolvedClan(slug);
+	}
+
+	/** The clan this client is actually addressing right now — a pick beats the server's guess. */
+	public String getActiveClan()
+	{
+		return site.getActiveClan();
+	}
+
+	/** A clan-scoped URL: whatever clan this client is addressing. */
+	public String clanUrl(String path)
+	{
+		return site.clanUrl(path);
+	}
+
+	/** A URL for the config poll, which carries the pick rather than the resolved answer. */
+	public String configUrl(String path)
+	{
+		return site.configUrl(path);
+	}
+
+	/** A URL that must NOT carry a clan: the device sign-in pair, which is identity, not membership. */
+	public String rootUrl(String path)
+	{
+		return site.rootUrl(path);
+	}
+
+	/** The RSN to stamp on requests. Cleared on logout so we never speak for the previous account. */
+	public void setCurrentRsn(String rsn)
+	{
+		site.setCurrentRsn(rsn);
+	}
+
+	/** The RSN currently stamped on requests (the logged-in character), or null. */
+	public String getCurrentRsn()
+	{
+		return site.getCurrentRsn();
+	}
+
+	/** The account hash, which identifies the ACCOUNT rather than the character on it. */
+	public void setAccountHash(long hash)
+	{
+		site.setAccountHash(hash);
+	}
+
+	/** The world changed: seasonal posts route to the clan's Leagues channel server-side. */
+	public void setSeasonal(boolean seasonal)
+	{
+		site.setSeasonal(seasonal);
+	}
+
+	/** A request carrying this account's identity — token, RSN, account hash and plugin version. */
+	public Request.Builder authedRequest(String url)
+	{
+		return site.authedRequest(url);
+	}
+
+	public static String normalizeBaseUrl(String raw)
+	{
+		return SiteAddress.normalizeBaseUrl(raw);
+	}
+
 	private <T> T readOrNull(Request request, Class<T> type, String what)
 	{
 		try (Response response = httpClient.newCall(request).execute())
@@ -308,7 +214,7 @@ public class BingoApiClient
 	 * only the Site URL must be configured. Null on transport/HTTP failure. */
 	public DeviceAuthStart authStart()
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (!site.isConfiguredUrl())
 		{
 			return null;
 		}
@@ -321,7 +227,7 @@ public class BingoApiClient
 	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */
 	public DeviceAuthPoll authPoll(String deviceCode)
 	{
-		if (apiUrl == null || apiUrl.isEmpty() || deviceCode == null || deviceCode.isEmpty())
+		if (!site.isConfiguredUrl() || deviceCode == null || deviceCode.isEmpty())
 		{
 			return null;
 		}
@@ -337,231 +243,8 @@ public class BingoApiClient
 	 * (src/main/resources/com/anvil/version.txt). Sent on every site call as
 	 * X-Anvil-Plugin-Version so sites can see which plugin versions their members run.
 	 */
-	static final String PLUGIN_VERSION = loadPluginVersion();
+	static final String PLUGIN_VERSION = SiteAddress.PLUGIN_VERSION;
 
-	private static String loadPluginVersion()
-	{
-		try (InputStream in = BingoApiClient.class.getResourceAsStream("version.txt"))
-		{
-			if (in == null)
-			{
-				return "unknown";
-			}
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
-		}
-		catch (IOException e)
-		{
-			return "unknown";
-		}
-	}
-
-	private Request.Builder authedRequest(String url)
-	{
-		Request.Builder b = new Request.Builder().url(url)
-			.header("Authorization", "Bearer " + playerToken)
-			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
-		String rsn = currentRsn;
-		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
-		String hash = accountHash;
-		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
-		return b;
-	}
-
-	/**
-	 * Trim whitespace and strip any trailing slashes so callers can safely append
-	 * "/api/..." without producing "//" or other malformed URLs. Returns "" for
-	 * null/blank input so isConfigured() can detect it.
-	 */
-	public static String normalizeBaseUrl(String raw)
-	{
-		if (raw == null) return "";
-		String s = raw.trim();
-		while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
-		if (s.isEmpty()) return "";
-		// If the user left the scheme off (e.g. "your-clan.vercel.app"), assume https:// — that's the
-		// common case and, without it, the checks below would treat the whole URL as unconfigured. We
-		// only PREPEND when there's no scheme at all; an explicit http:// is left untouched (we never
-		// silently "upgrade" a deliberate http:// host), so the HTTPS gate below still governs it.
-		String lower = s.toLowerCase();
-		if (!lower.startsWith("http://") && !lower.startsWith("https://"))
-		{
-			s = "https://" + s;
-			lower = s.toLowerCase();
-		}
-		// Require HTTPS: the account token rides as an Authorization: Bearer header on every request,
-		// so a plaintext http:// host would leak it on the wire. Permit http only for local dev hosts.
-		// Anything else is treated as unconfigured (returns "") rather than sending the token in clear.
-		boolean https = lower.startsWith("https://");
-		boolean localHttp = lower.startsWith("http://localhost") || lower.startsWith("http://127.0.0.1");
-		if (!https && !localHttp)
-		{
-			return "";
-		}
-		return s;
-	}
-
-	public boolean isConfigured()
-	{
-		return apiUrl != null && !apiUrl.isEmpty()
-			&& playerToken != null && !playerToken.isEmpty();
-	}
-
-	/**
-	 * Fire-and-forget: POST a clan notification to our own site, which forwards it to the Discord
-	 * channel configured server-side. {@code channel} is one of "deaths", "pvpKills", "rareDrops",
-	 * "combatAchievements". Either {@code content} or {@code embed} may be null; {@code png} may be
-	 * null (text/embed-only). The plugin never holds or calls the Discord webhook URL itself — the
-	 * server owns it — which keeps every plugin request pointed at the one configured base URL
-	 * (RuneLite plugin-hub rule). Never blocks the caller: uses OkHttp's async dispatcher.
-	 */
-	public void postNotification(String channel, String content, JsonObject embed, byte[] png, String filename)
-	{
-		if (!isConfigured() || channel == null || channel.isEmpty())
-		{
-			return;
-		}
-		JsonObject payload = new JsonObject();
-		payload.addProperty("channel", channel);
-		// The player is on a Leagues world. The plugin reports only that fact — whether the clan has a
-		// separate Leagues channel, and what a seasonal post looks like, is the server's decision, so
-		// either can change without waiting for a plugin release. Carried as ambient state like the RSN
-		// and account hash, so every notification path gets it without threading a flag through each.
-		if (seasonal)
-		{
-			payload.addProperty("seasonal", true);
-		}
-		if (content != null && !content.isEmpty())
-		{
-			payload.addProperty("content", content);
-		}
-		if (embed != null)
-		{
-			payload.add("embed", embed);
-		}
-
-		RequestBody body;
-		if (png != null && png.length > 0)
-		{
-			body = new MultipartBody.Builder()
-				.setType(MultipartBody.FORM)
-				.addFormDataPart("payload_json", payload.toString())
-				.addFormDataPart("file", filename != null && !filename.isEmpty() ? filename : "image.png",
-					RequestBody.create(PNG, png))
-				.build();
-		}
-		else
-		{
-			body = RequestBody.create(JSON, payload.toString());
-		}
-
-		Request request = authedRequest(clanUrl("/api/plugin/notify")).post(body).build();
-		httpClient.newCall(request).enqueue(new Callback()
-		{
-			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
-			// that the server rejected looked exactly like one that was never sent, and the only
-			// honest answer to "why didn't my 99 post" was that nobody could tell.
-			@Override
-			public void onFailure(Call call, IOException e)
-			{
-				log.warn("Anvil: '{}' notification never reached the site: {}", channel, e.getMessage());
-			}
-
-			@Override
-			public void onResponse(Call call, Response response)
-			{
-				try (Response r = response)
-				{
-					if (!r.isSuccessful())
-					{
-						log.warn("Anvil: the site refused a '{}' notification (HTTP {}).", channel, r.code());
-					}
-				}
-			}
-		});
-	}
-
-	/**
-	 * POST /api/plugin/clip — upload a saved clip and let the SERVER post it to the clan's clips
-	 * channel. This is the one file upload that goes through the site rather than straight to
-	 * Discord: it means members don't each have to paste a webhook URL into their plugin config,
-	 * and it still never involves a URL a server response handed us — this is the same configured
-	 * base URL every other request uses.
-	 *
-	 * Streams the file from disk on the long-timeout upload client. Blocking, so callers run it off
-	 * the client thread; {@code moment} is the plugin's own summary of what the clip caught.
-	 */
-	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType)
-	{
-		return postClip(file, moment, eventName, seconds, contentType, 0, 0);
-	}
-
-	/**
-	 * As above, plus the clipper's current standing — which the plugin already holds for its own
-	 * sidebar, so sending it costs nothing and saves the server re-deriving the board on an upload.
-	 */
-	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType,
-		int rank, long points)
-	{
-		if (!isConfigured() || file == null || !file.exists() || file.length() == 0)
-		{
-			return ClipRelayResult.UNSUPPORTED;
-		}
-		JsonObject payload = new JsonObject();
-		if (moment != null && !moment.isEmpty())
-		{
-			payload.addProperty("moment", moment);
-		}
-		if (eventName != null && !eventName.isEmpty())
-		{
-			payload.addProperty("eventName", eventName);
-		}
-		if (seconds > 0)
-		{
-			payload.addProperty("seconds", seconds);
-		}
-		if (rank > 0)
-		{
-			payload.addProperty("rank", rank);
-			payload.addProperty("points", points);
-		}
-		MediaType type = MediaType.parse(contentType != null ? contentType : "application/octet-stream");
-		MultipartBody multipart = new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
-			.addFormDataPart("payload_json", payload.toString())
-			.addFormDataPart("file", file.getName(), RequestBody.create(type, file))
-			.build();
-		Request request = authedRequest(clanUrl("/api/plugin/clip")).post(multipart).build();
-		try (Response response = uploadClient.newCall(request).execute())
-		{
-			if (response.isSuccessful())
-			{
-				return ClipRelayResult.POSTED;
-			}
-			switch (response.code())
-			{
-				// 404 = a site that predates the route. Capability gating should have caught it, but
-				// a stale config poll can race a downgrade, so treat it as "not available here".
-				case 404:
-					return ClipRelayResult.UNSUPPORTED;
-				case 501:
-					return ClipRelayResult.NO_CHANNEL;
-				case 413:
-					return ClipRelayResult.TOO_LARGE;
-				default:
-					log.debug("clip relay returned HTTP {}", response.code());
-					return ClipRelayResult.FAILED;
-			}
-		}
-		catch (IOException e)
-		{
-			log.debug("clip relay failed: {}", e.getMessage());
-			return ClipRelayResult.FAILED;
-		}
-	}
-
-	/**
-	 * GET /api/plugin/config — fetches event, team, player, codeword, tracked drops.
-	 */
 	// Conditional-GET cache for the config poll. The plugin GETs /api/plugin/config every 30s, but a
 	// clan's board rarely changes between polls, so we keep the last ETag + parsed config and send
 	// If-None-Match. A 304 means "unchanged" — we reuse the cached config and the server sends no body,
@@ -646,49 +329,6 @@ public class BingoApiClient
 		}
 	}
 
-	/**
-	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
-	 */
-	public String uploadImage(byte[] pngBytes, String filename) throws IOException
-	{
-		RequestBody fileBody = RequestBody.create(PNG, pngBytes);
-		MultipartBody multipart = new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
-			.addFormDataPart("file", filename, fileBody)
-			.build();
-
-		Request request = authedRequest(clanUrl("/api/upload"))
-			.post(multipart)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				throw new IOException("Image upload failed: HTTP " + response.code());
-			}
-			String body = response.body().string();
-			JsonObject json = new JsonParser().parse(body).getAsJsonObject();
-			return json.get("url").getAsString();
-		}
-	}
-
-	/**
-	 * Attach the account token when we have one, on a request that does not require it.
-	 *
-	 * These reads were written against a deployment that WAS a clan, so the hostname answered
-	 * "whose schedule?" and no token was needed. One site now serves every clan, and the canonical
-	 * address names none — so on the apex the token is the only thing that can say which clan the
-	 * caller means. Still optional: a site addressed by subdomain or /c/<slug> ignores it, and a
-	 * caller without a token gets exactly what it got before.
-	 */
-	private Request.Builder withOptionalAuth(Request.Builder builder)
-	{
-		String token = playerToken;
-		return token == null || token.isEmpty()
-			? builder
-			: builder.header("Authorization", "Bearer " + token);
-	}
 
 	/**
 	 * GET /api/plugin/weekly-leaderboard[?id=] — ranked standings for a weekly competition (the
@@ -696,13 +336,13 @@ public class BingoApiClient
 	 */
 	public WeeklyLeaderboard fetchWeeklyLeaderboard(Integer competitionId)
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (!site.isConfiguredUrl())
 		{
 			return null;
 		}
 		String url = clanUrl("/api/plugin/weekly-leaderboard"
 			+ (competitionId != null ? "?id=" + competitionId : ""));
-		Request request = withOptionalAuth(new Request.Builder().url(url)).get().build();
+		Request request = site.optionalAuth(new Request.Builder().url(url)).get().build();
 		return readOrNull(request, WeeklyLeaderboard.class, "weekly-leaderboard fetch");
 	}
 
@@ -712,7 +352,7 @@ public class BingoApiClient
 	 */
 	public HelloResponse hello(String rsn)
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (!site.isConfiguredUrl())
 		{
 			return null;
 		}
@@ -724,7 +364,7 @@ public class BingoApiClient
 		// plugin may say hello — but on the canonical address, which names no clan, the token is the
 		// only thing left that can say which clan is being greeted. A site addressed by /c/<slug> or
 		// by an old per-clan hostname ignores it and answers exactly as before.
-		Request request = withOptionalAuth(new Request.Builder()
+		Request request = site.optionalAuth(new Request.Builder()
 			.url(clanUrl("/api/plugin/hello"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION))
 			.post(body)
@@ -742,7 +382,7 @@ public class BingoApiClient
 	 */
 	public boolean fetchIsAdmin(String accountToken)
 	{
-		if (apiUrl == null || apiUrl.isEmpty() || accountToken == null || accountToken.isEmpty())
+		if (!site.isConfiguredUrl() || accountToken == null || accountToken.isEmpty())
 		{
 			return false;
 		}
@@ -775,7 +415,7 @@ public class BingoApiClient
 	 */
 	public ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (!site.isConfiguredUrl())
 		{
 			throw new IOException("Site URL is not configured");
 		}
@@ -815,7 +455,7 @@ public class BingoApiClient
 			{
 				// The site has a limit and told us how long it is; the caller waits exactly that
 				// long rather than backing off blindly from a message it couldn't read.
-				throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
+				throw new RateLimitedException(ApiErrors.friendlyError(429, responseBody), ApiErrors.retryAfterFrom(responseBody));
 			}
 			if (!response.isSuccessful())
 			{
@@ -827,100 +467,6 @@ public class BingoApiClient
 
 	/** 4xx client errors are permanent (don't retry) — except auth (401, token may refresh), request
 	 *  timeout (408) and rate-limit (429), which can clear on their own. 5xx / network = retryable. */
-	private static boolean isPermanentFailure(int code)
-	{
-		return code >= 400 && code < 500 && code != 401 && code != 408 && code != 429;
-	}
-
-	/**
-	 * The one 4xx that is NOT permanent: the site requires a starting shot (site lib/startProof) and
-	 * this player hasn't filed one yet. The drop really happened — throwing it away because a
-	 * screenshot is outstanding is the worst possible outcome — so it stays in the pending store and
-	 * goes up on a later retry, once they've taken their shot.
-	 */
-	static final String START_PROOF_REQUIRED = "start_proof_required";
-
-	/**
-	 * The server's own words, or a plain sentence when it didn't offer any.
-	 *
-	 * Responses are JSON; players are not. "HTTP 429 — {"error":"...","retryAfterMs":49445}" in a
-	 * chat box is the shape of a bug report, not an explanation, so the message field is unwrapped
-	 * and everything else gets a sentence written for a person.
-	 */
-	static String friendlyError(int code, String body)
-	{
-		String serverSaid = null;
-		try
-		{
-			JsonObject json = new JsonParser().parse(body).getAsJsonObject();
-			if (json.has("error") && !json.get("error").isJsonNull())
-			{
-				serverSaid = json.get("error").getAsString();
-			}
-		}
-		catch (Exception ignored)
-		{
-			// Not JSON, or not the shape we expect — fall through to the generic wording.
-		}
-		if (serverSaid != null && !serverSaid.isEmpty())
-		{
-			return serverSaid;
-		}
-		switch (code)
-		{
-			case 401:
-			case 403:
-				return "your account token isn't valid for this clan's site";
-			case 404:
-				return "this clan's site doesn't have that endpoint yet";
-			case 413:
-				return "that was too large for the site to accept";
-			case 429:
-				return "the site is asking us to slow down";
-			default:
-				return code >= 500 ? "the clan's site is having trouble" : "the site refused it (HTTP " + code + ")";
-		}
-	}
-
-	/** Milliseconds the server asked us to wait, or 0 when it didn't say. */
-	static long retryAfterFrom(String body)
-	{
-		try
-		{
-			JsonObject json = new JsonParser().parse(body).getAsJsonObject();
-			if (json.has("retryAfterMs") && !json.get("retryAfterMs").isJsonNull())
-			{
-				return Math.max(0, json.get("retryAfterMs").getAsLong());
-			}
-		}
-		catch (Exception ignored)
-		{
-			// No hint; the caller falls back to its own backoff.
-		}
-		return 0;
-	}
-
-	/**
-	 * A failure a player will read: the site's own sentence, classified the same way as any other.
-	 *
-	 * The diagnostic form (status, body) still goes to the log via the caller — this is what ends up
-	 * in a chat box, where a JSON blob is worse than saying nothing.
-	 */
-	private static IOException friendlyFailure(int code, String body)
-	{
-		String message = friendlyError(code, body);
-		boolean awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
-		return isPermanentFailure(code) && !awaitingStartProof
-			? new PermanentSubmissionException(message)
-			: new IOException(message);
-	}
-
-	/** Test seam for the retry classification above — the rule is worth pinning, the call sites aren't. */
-	public static IOException submissionErrorForTest(String context, int code, String responseBody)
-	{
-		return submissionError(context, code, responseBody);
-	}
-
 	/**
 	 * Run a request that has to succeed, and turn anything else into an exception carrying the
 	 * server's own words.
@@ -938,7 +484,31 @@ public class BingoApiClient
 	 *         logs it, because what the server made of the request is the only way to tell which
 	 *         half went wrong.
 	 */
-	private String postExpectingOk(Request request, String context, boolean friendly) throws IOException
+	/**
+	 * The shared HTTP client, for the two submissions that read their own response.
+	 *
+	 * <p>Everything else goes through {@link #postExpectingOk}; these two need the body back — the
+	 * collection-log push reports what the server made of it, and a rate-limited clog sync carries a
+	 * retry hint the caller must respect.</p>
+	 */
+	/** True while the logged-in world is a seasonal (Leagues) one — posts route to Leagues channels. */
+	public boolean isSeasonal()
+	{
+		return site.isSeasonal();
+	}
+
+	/** The generous-timeout client, for multi-megabyte clip uploads. See its field comment. */
+	public okhttp3.Call newUploadCall(Request request)
+	{
+		return uploadClient.newCall(request);
+	}
+
+	public okhttp3.Call newCall(Request request)
+	{
+		return httpClient.newCall(request);
+	}
+
+	public String postExpectingOk(Request request, String context, boolean friendly) throws IOException
 	{
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -947,612 +517,13 @@ public class BingoApiClient
 			{
 				String detail = responseBody.isEmpty() ? "no body" : responseBody;
 				throw friendly
-					? submissionError(context, response.code(), detail)
+					? ApiErrors.submissionError(context, response.code(), detail)
 					: new IOException(context + " failed: HTTP " + response.code() + " — " + detail);
 			}
 			return responseBody;
 		}
 	}
 
-	private static IOException submissionError(String context, int code, String responseBody)
-	{
-		String message = context + ": HTTP " + code + " — " + responseBody;
-		boolean awaitingStartProof = responseBody != null && responseBody.contains(START_PROOF_REQUIRED);
-		return isPermanentFailure(code) && !awaitingStartProof
-			? new PermanentSubmissionException(message)
-			: new IOException(message);
-	}
 
-	public ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException
-	{
-		if (items == null || items.isEmpty())
-		{
-			return new ClogPushResult();
-		}
-		JsonArray arr = new JsonArray();
-		for (Map.Entry<Integer, Integer> e : items.entrySet())
-		{
-			JsonObject item = new JsonObject();
-			item.addProperty("id", e.getKey());
-			item.addProperty("q", e.getValue());
-			arr.add(item);
-		}
-		JsonObject payload = new JsonObject();
-		payload.add("items", arr);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/clog"))
-			.post(body)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				String responseBody = response.body() != null ? response.body().string() : "";
-				// The site's own sentence, not its JSON. A player reading chat should be told what to
-				// do, and "{"error":...,"retryAfterMs":49445}" tells them to file a bug.
-				if (response.code() == 429)
-				{
-					throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
-				}
-				log.debug("Collection log push refused: HTTP {} — {}", response.code(), responseBody);
-				throw friendlyFailure(response.code(), responseBody);
-			}
-			ClogPushResult result = new ClogPushResult();
-			try
-			{
-				JsonObject json = new JsonParser().parse(response.body().string()).getAsJsonObject();
-				result.added = json.has("added") ? json.get("added").getAsInt() : 0;
-				result.removed = json.has("removed") ? json.get("removed").getAsInt() : 0;
-				result.updated = json.has("updated") ? json.get("updated").getAsInt() : 0;
-			}
-			catch (Exception ignored)
-			{
-				// An older site doesn't report counts. The push still worked; we just can't say what
-				// it did, so an automatic sync stays quiet rather than guessing.
-			}
-			return result;
-		}
-	}
-
-	/**
-	 * POST /api/events/:id/start-proof — file this account's STARTING SHOT (site lib/startProof).
-	 *
-	 * The image has already been through {@link #uploadImage}; this hands over its URL plus the
-	 * keyword we baked into the banner, which the server recomputes. A capture from an authenticated
-	 * plugin whose keyword matches is accepted outright; anything else waits for staff.
-	 *
-	 * <p>The world position and session start ride along so the server can record what the two
-	 * client-side checks (StartProofRules) saw — it re-measures both rather than trusting our
-	 * verdict, and a shot that fails one lands `pending` instead of accepted. Both are optional:
-	 * pass null when we can't answer, and the server simply doesn't run that check.
-	 */
-	public void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt,
-		Integer x, Integer y, String loginAt) throws IOException
-	{
-		JsonObject payload = new JsonObject();
-		payload.addProperty("imageUrl", imageUrl);
-		if (keyword != null)
-		{
-			payload.addProperty("keyword", keyword);
-		}
-		if (capturedAt != null)
-		{
-			payload.addProperty("capturedAt", capturedAt);
-		}
-		if (x != null && y != null)
-		{
-			payload.addProperty("x", x);
-			payload.addProperty("y", y);
-		}
-		if (loginAt != null)
-		{
-			payload.addProperty("loginAt", loginAt);
-		}
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/start-proof"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Starting shot failed", true);
-		log.info("Starting shot filed for event {}", eventId);
-	}
-
-	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId, Integer itemId) throws IOException
-	{
-		submitDrop(eventId, tileId, teamId, amount, imageUrl, note, creditPlayerId, itemId, null);
-	}
-
-	/**
-	 * As above, plus the shared-kill fingerprint: what this client could see of its company when the
-	 * kill happened. The server correlates reports of the SAME kill from it (lib/coopRuns) — it never
-	 * decides anything locally, because two clients that can't see each other would both stay quiet
-	 * or both submit. Null on everything that isn't a shared-kill tile.
-	 */
-	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
-		int creditPlayerId, Integer itemId, CoopFingerprint coop) throws IOException
-	{
-		JsonObject payload = new JsonObject();
-		payload.addProperty("tileId", tileId);
-		payload.addProperty("teamId", teamId);
-		payload.addProperty("amount", amount);
-		payload.addProperty("imageUrl", imageUrl);
-		payload.addProperty("note", note);
-		payload.addProperty("creditPlayerId", creditPlayerId);
-		if (itemId != null)
-		{
-			payload.addProperty("itemId", itemId);
-		}
-		if (coop != null)
-		{
-			if (coop.teammates != null && !coop.teammates.isEmpty())
-			{
-				JsonArray names = new JsonArray();
-				for (String n : coop.teammates)
-				{
-					names.add(n);
-				}
-				payload.add("coopGroup", names);
-			}
-			if (coop.partySize > 1)
-			{
-				payload.addProperty("coopPartySize", coop.partySize);
-			}
-		}
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-
-		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/submissions"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Submission failed", true);
-		log.info("Drop submitted successfully for tile {}", tileId);
-	}
-
-	public void submitStatKc(Map<String, Integer> counts) throws IOException
-	{
-		submitStats(counts, "stats", "name", "kc", "KC push", "Real-time KC pushed for {} boss(es)");
-	}
-
-	/**
-	 * The three stat pushes, which are one request in three spellings.
-	 *
-	 * <p>They all POST to {@code /api/plugin/stats} with ABSOLUTE values and differ only in what the
-	 * array is called, what the name field is called, and what the value field is called. They were
-	 * three thirty-five-line methods that agreed on everything else, down to the log wording.</p>
-	 *
-	 * <p>Entries with a null key or a null value are dropped rather than sent — a half-read counter
-	 * would be stored by the server as a real one.</p>
-	 */
-	private void submitStats(Map<String, Integer> values, String arrayKey, String nameKey,
-		String valueKey, String failureLabel, String successLog) throws IOException
-	{
-		if (values == null || values.isEmpty())
-		{
-			return;
-		}
-		RequestBody body = RequestBody.create(JSON, statsPayload(values, arrayKey, nameKey, valueKey).toString());
-		Request request = authedRequest(clanUrl("/api/plugin/stats"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, failureLabel, false);
-		log.info(successLog, values.size());
-	}
-
-	/** The request body. Package-private so a test can hold the wire format to the byte. */
-	public static JsonObject statsPayload(Map<String, Integer> values, String arrayKey, String nameKey, String valueKey)
-	{
-		JsonArray entries = new JsonArray();
-		for (Map.Entry<String, Integer> e : values.entrySet())
-		{
-			if (e.getKey() == null || e.getValue() == null)
-			{
-				continue;
-			}
-			JsonObject entry = new JsonObject();
-			entry.addProperty(nameKey, e.getKey());
-			entry.addProperty(valueKey, e.getValue());
-			entries.add(entry);
-		}
-		JsonObject payload = new JsonObject();
-		payload.add(arrayKey, entries);
-		return payload;
-	}
-
-	/**
-	 * POST /api/plugin/stats — real-time skill-XP push (no screenshot). Body is
-	 * {@code {"skills":[{"name":"<skill>","xp":<absolute xp>}]}}. Same contract as {@link #submitStatKc}:
-	 * event/team/player resolved from the token, ABSOLUTE (idempotent) values, server keeps
-	 * max(hiscores, pushed) per skill and the hourly cron reconciles. Completes skill-XP tiles instantly
-	 * instead of waiting on the ~1h hiscores lag.
-	 */
-	public void submitStatXp(Map<String, Integer> xp) throws IOException
-	{
-		submitStats(xp, "skills", "name", "xp", "Skill XP push", "Real-time XP pushed for {} skill(s)");
-	}
-
-	/**
-	 * POST /api/plugin/stats — real-time activity push (no screenshot). Body is
-	 * {@code {"activities":[{"key":"<site stat key>","value":<absolute count>}]}} for the hiscores
-	 * counters that are neither a boss nor a skill: clue completions per tier, Colosseum glory,
-	 * collection-log slots.
-	 *
-	 * <p>Unlike {@link #submitStatKc} and {@link #submitStatXp}, which send the name the game printed
-	 * and let the server map it, these go by the site's own key — they're read from named varbits, so
-	 * the plugin already knows which counter it holds. Same contract otherwise: ABSOLUTE values, the
-	 * server keeps max(hiscores, pushed), and unknown keys are dropped rather than stored.
-	 */
-	public void submitStatActivities(Map<String, Integer> values) throws IOException
-	{
-		submitStats(values, "activities", "key", "value", "Activity push",
-			"Real-time activity counts pushed for {} key(s)");
-	}
-
-	/**
-	 * POST /api/plugin/counters — the fun end-of-event recap counters (total deaths, total loot GP and
-	 * PvP kills for the active event). Body is {@code {"deaths":<n>,"lootGp":<gp>,"pvpKills":<n>}} with
-	 * ABSOLUTE per-event totals.
-	 * Idempotent like {@link #submitStatKc}: event/team/player resolved from the token, the server keeps
-	 * max(stored, pushed) per counter, so a retry or client restart never double-counts. No screenshot.
-	 * Purely cosmetic (superlatives only — never scoring).
-	 */
-	public void submitEventCounters(int deaths, long lootGp, int pvpKills, int biggestHit, int minutesPlayed, int caTasks) throws IOException
-	{
-		JsonObject payload = new JsonObject();
-		payload.addProperty("deaths", deaths);
-		payload.addProperty("lootGp", lootGp);
-		payload.addProperty("pvpKills", pvpKills);
-		// Newer counters. A site that predates them ignores unknown JSON keys, so an updated plugin
-		// keeps working against an older instance — the extra awards simply don't appear there.
-		payload.addProperty("biggestHit", biggestHit);
-		payload.addProperty("minutesPlayed", minutesPlayed);
-		payload.addProperty("caTasks", caTasks);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/counters"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Counter push", false);
-		log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
-			deaths, lootGp, pvpKills, biggestHit, minutesPlayed, caTasks);
-	}
-
-	/**
-	 * POST /api/plugin/progress — quest points, combat-achievement points/tier, diary counts.
-	 *
-	 * <p>Account state the hiscores never publish (site: lib/memberProgress). Only keys whose value
-	 * actually moved since the last successful push are sent, so the steady state is no request at
-	 * all; the server max-merges what does arrive, which makes a retry free and stops a client that
-	 * read a varbit before the game populated it from walking somebody's account backwards.
-	 *
-	 * <p>Never scoring: nothing here completes a tile or moves a standing.
-	 */
-	public void submitProgress(Map<String, Integer> progress) throws IOException
-	{
-		submitProgress(progress, null, null);
-	}
-
-	/**
-	 * The same push, carrying an item list — every quest with its state, so the site can show which
-	 * are left rather than only how many are done. Sent whole and only when it changed, since half a
-	 * list is worse than none.
-	 */
-	public void submitProgress(Map<String, Integer> progress, String itemCategory,
-		List<AccountProgress.Item> items) throws IOException
-	{
-		submitProgress(progress, itemCategory, items, null, 0);
-	}
-
-	/**
-	 * The same push, carrying the raw combat-achievement varps.
-	 *
-	 * <p>We send the numbers and the game's own point total; the site decodes which task each bit is
-	 * and refuses the lot if the points don't reconcile. Nothing here knows what a combat task is,
-	 * which is the point: the catalogue lives where it can be updated without a release.
-	 */
-	public void submitProgress(Map<String, Integer> progress, String itemCategory,
-		List<AccountProgress.Item> items, Map<Integer, Integer> caVarps,
-		int caPoints) throws IOException
-	{
-		boolean hasItems = itemCategory != null && items != null && !items.isEmpty();
-		boolean hasVarps = caVarps != null && !caVarps.isEmpty() && caPoints > 0;
-		if ((progress == null || progress.isEmpty()) && !hasItems && !hasVarps)
-		{
-			return;
-		}
-		if (progress == null)
-		{
-			progress = Collections.emptyMap();
-		}
-		JsonArray rows = new JsonArray();
-		for (Map.Entry<String, Integer> e : progress.entrySet())
-		{
-			if (e.getKey() == null || e.getValue() == null)
-			{
-				continue;
-			}
-			JsonObject row = new JsonObject();
-			row.addProperty("key", e.getKey());
-			row.addProperty("value", e.getValue());
-			rows.add(row);
-		}
-		if (rows.size() == 0 && !hasItems && !hasVarps)
-		{
-			return;
-		}
-
-		JsonObject payload = new JsonObject();
-		payload.add("progress", rows);
-		if (hasItems)
-		{
-			JsonArray itemRows = new JsonArray();
-			for (AccountProgress.Item item : items)
-			{
-				if (item == null || item.name == null || item.name.isEmpty())
-				{
-					continue;
-				}
-				JsonObject row = new JsonObject();
-				row.addProperty("id", item.id);
-				row.addProperty("name", item.name);
-				row.addProperty("state", item.state);
-				itemRows.add(row);
-			}
-			JsonObject set = new JsonObject();
-			set.addProperty("category", itemCategory);
-			set.add("items", itemRows);
-			JsonArray sets = new JsonArray();
-			sets.add(set);
-			payload.add("items", sets);
-		}
-		if (hasVarps)
-		{
-			JsonObject varpObj = new JsonObject();
-			for (Map.Entry<Integer, Integer> e : caVarps.entrySet())
-			{
-				varpObj.addProperty(String.valueOf(e.getKey()), e.getValue());
-			}
-			payload.add("caVarps", varpObj);
-			payload.addProperty("caPoints", caPoints);
-		}
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/progress"))
-			.post(body)
-			.build();
-
-		// The reply says what the server made of it — including, for combat achievements, whether
-		// the bits reconciled against the point total and how many tasks it couldn't name. Logged
-		// at INFO because when this feature is quiet the only alternative is guessing which half
-		// went wrong, which has cost a day already.
-		String responseBody = postExpectingOk(request, "Progress push", false);
-		log.info("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(),
-			hasVarps ? caVarps.size() : 0, responseBody);
-	}
-
-	/**
-	 * POST /api/plugin/clog — collection-log pages the player has actually opened.
-	 *
-	 * <p>Sends ONLY obtained items, and only pages whose contents changed since the last successful
-	 * push ({@link ClogSync} owns that decision). The site already ships the full item catalogue, so
-	 * the missing half is derivable — transmitting it would double every payload to say "still
-	 * nothing here".
-	 *
-	 * <p>Idempotent: the server keys on (member, page) and replaces, so a retry or a client restart
-	 * mid-sync costs nothing. Profile data only — never scoring.
-	 */
-	public void submitClogPages(List<ClogPage> pages, int syncedPages) throws IOException
-	{
-		if (pages == null || pages.isEmpty())
-		{
-			return;
-		}
-		JsonArray out = new JsonArray();
-		for (ClogPage page : pages)
-		{
-			if (page == null || page.name == null || page.name.isEmpty())
-			{
-				continue;
-			}
-			JsonArray items = new JsonArray();
-			for (int i = 0; i < page.itemIds.length; i++)
-			{
-				JsonObject item = new JsonObject();
-				item.addProperty("id", page.itemIds[i]);
-				item.addProperty("q", page.quantities[i]);
-				items.add(item);
-			}
-			JsonObject p = new JsonObject();
-			p.addProperty("name", page.name);
-			p.addProperty("obtained", page.obtained);
-			p.addProperty("total", page.total);
-			p.add("items", items);
-			if (!page.counts.isEmpty())
-			{
-				JsonObject counts = new JsonObject();
-				for (Map.Entry<String, Integer> e : page.counts.entrySet())
-				{
-					counts.addProperty(e.getKey(), e.getValue());
-				}
-				p.add("counts", counts);
-			}
-			out.add(p);
-		}
-		if (out.size() == 0)
-		{
-			return;
-		}
-
-		JsonObject payload = new JsonObject();
-		payload.add("pages", out);
-		// How much of the log this account has opened at all — drives the site's "68% synced" note.
-		payload.addProperty("syncedPages", syncedPages);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/clog"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Collection log push failed", true);
-		log.debug("Collection log pushed: {} page(s), {} synced", out.size(), syncedPages);
-	}
-
-	/**
-	 * POST /api/plugin/pb — the account's best times, in centiseconds.
-	 *
-	 * <p>Centiseconds because the game separates runs by hundredths; whole seconds would tie times
-	 * the game itself doesn't. The server keeps the FASTEST of stored and pushed, so a retry, a
-	 * stale client or an out-of-order request can never raise somebody's record.
-	 */
-	public void submitPersonalBests(Map<String, Integer> bests) throws IOException
-	{
-		if (bests == null || bests.isEmpty())
-		{
-			return;
-		}
-		JsonArray out = new JsonArray();
-		for (Map.Entry<String, Integer> e : bests.entrySet())
-		{
-			if (e.getKey() == null || e.getKey().isEmpty() || e.getValue() == null || e.getValue() <= 0)
-			{
-				continue;
-			}
-			JsonObject b = new JsonObject();
-			b.addProperty("activity", e.getKey());
-			b.addProperty("centis", e.getValue());
-			out.add(b);
-		}
-		if (out.size() == 0)
-		{
-			return;
-		}
-
-		JsonObject payload = new JsonObject();
-		payload.add("bests", out);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/pb"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Personal best push failed", true);
-		log.debug("Personal bests pushed: {}", out.size());
-	}
-
-	/**
-	 * POST /api/plugin/moments — the clan's highlight feed: pets, uniques, big hauls and deaths.
-	 *
-	 * <p>Reports what the client SAW; the site decides what it meant. It knows which competition
-	 * week or board is running, what counts as a unique, and which pets belong to which skill — so
-	 * most of what goes up here is discarded there, on purpose, and a clan changing its mind about
-	 * any of it costs no plugin release.
-	 *
-	 * <p>Idempotent: every entry carries a key derived from what happened, so the two loot events
-	 * and three chat lines one occurrence fires — and a retry after a timeout — collapse into one
-	 * row. A failure therefore just retries with the queue intact.
-	 *
-	 * <p>Never scoring: nothing here completes a tile or moves a standing.
-	 */
-	public void submitMoments(List<AnvilMoments.Moment> batch) throws IOException
-	{
-		if (batch == null || batch.isEmpty())
-		{
-			return;
-		}
-		JsonArray out = new JsonArray();
-		for (AnvilMoments.Moment m : batch)
-		{
-			if (m == null || m.kind == null || m.key == null)
-			{
-				continue;
-			}
-			JsonObject o = new JsonObject();
-			o.addProperty("kind", m.kind);
-			o.addProperty("key", m.key);
-			o.addProperty("at", Instant.ofEpochMilli(m.at).toString());
-			o.addProperty("quantity", Math.max(1, m.quantity));
-			// Everything below is best-effort — a skilling pet has no source, no KC and no price, and
-			// inventing any of them would be worse than a shorter line on the feed.
-			if (m.itemId != null)
-			{
-				o.addProperty("itemId", m.itemId);
-			}
-			if (m.itemName != null && !m.itemName.isEmpty())
-			{
-				o.addProperty("itemName", m.itemName);
-			}
-			if (m.valueGp != null && m.valueGp > 0)
-			{
-				o.addProperty("valueGp", m.valueGp);
-			}
-			if (m.source != null && !m.source.isEmpty())
-			{
-				o.addProperty("source", m.source);
-			}
-			if (m.taskName != null && !m.taskName.isEmpty())
-			{
-				o.addProperty("taskName", m.taskName);
-			}
-			if (m.tier != null && !m.tier.isEmpty())
-			{
-				o.addProperty("tier", m.tier);
-			}
-			if (m.sourceKind != null && !m.sourceKind.isEmpty())
-			{
-				o.addProperty("sourceKind", m.sourceKind);
-			}
-			if (m.kc != null && m.kc > 0)
-			{
-				o.addProperty("kc", m.kc);
-			}
-			out.add(o);
-		}
-		if (out.size() == 0)
-		{
-			return;
-		}
-
-		JsonObject payload = new JsonObject();
-		payload.add("moments", out);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = authedRequest(clanUrl("/api/plugin/moments"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Moment push", false);
-		log.debug("Moments pushed: {}", out.size());
-	}
-
-	/**
-	 * POST /api/events/{eventId}/submissions — submits a timed-clear with image proof.
-	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
-	 * completes the tile when durationSeconds ≤ the tile's threshold.
-	 */
-	public void submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId) throws IOException
-	{
-		JsonObject payload = new JsonObject();
-		payload.addProperty("tileId", tileId);
-		payload.addProperty("teamId", teamId);
-		payload.addProperty("amount", 1);
-		payload.addProperty("durationSeconds", durationSeconds);
-		payload.addProperty("imageUrl", imageUrl);
-		payload.addProperty("note", note);
-		payload.addProperty("creditPlayerId", creditPlayerId);
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-
-		Request request = authedRequest(clanUrl("/api/events/" + eventId + "/submissions"))
-			.post(body)
-			.build();
-
-		postExpectingOk(request, "Timed submission failed", true);
-		log.info("Timed clear submitted successfully for tile {}", tileId);
-	}
 
 }

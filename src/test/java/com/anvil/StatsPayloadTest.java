@@ -1,6 +1,6 @@
 package com.anvil;
 
-import com.anvil.api.BingoApiClient;
+import com.anvil.api.StatSubmissions;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.Test;
@@ -33,14 +33,14 @@ public class StatsPayloadTest
 	public void bossKillCountsGoUnderStatsAsNameAndKc()
 	{
 		assertEquals("{\"stats\":[{\"name\":\"Vorkath\",\"kc\":412},{\"name\":\"Zulrah\",\"kc\":38}]}",
-			BingoApiClient.statsPayload(map("Vorkath", 412, "Zulrah", 38), "stats", "name", "kc").toString());
+			StatSubmissions.statsPayload(map("Vorkath", 412, "Zulrah", 38), "stats", "name", "kc").toString());
 	}
 
 	@Test
 	public void skillXpGoesUnderSkillsAsNameAndXp()
 	{
 		assertEquals("{\"skills\":[{\"name\":\"Slayer\",\"xp\":13034431}]}",
-			BingoApiClient.statsPayload(map("Slayer", 13034431), "skills", "name", "xp").toString());
+			StatSubmissions.statsPayload(map("Slayer", 13034431), "skills", "name", "xp").toString());
 	}
 
 	/** Activities are the odd one out: the plugin knows the site's own key, so it sends key/value. */
@@ -48,7 +48,7 @@ public class StatsPayloadTest
 	public void activitiesGoUnderActivitiesAsKeyAndValue()
 	{
 		assertEquals("{\"activities\":[{\"key\":\"clue_scrolls_master\",\"value\":91}]}",
-			BingoApiClient.statsPayload(map("clue_scrolls_master", 91), "activities", "key", "value").toString());
+			StatSubmissions.statsPayload(map("clue_scrolls_master", 91), "activities", "key", "value").toString());
 	}
 
 	/**
@@ -61,13 +61,13 @@ public class StatsPayloadTest
 		m.put("Zulrah", null);
 		m.put(null, 7);
 		assertEquals("{\"stats\":[{\"name\":\"Vorkath\",\"kc\":412}]}",
-			BingoApiClient.statsPayload(m, "stats", "name", "kc").toString());
+			StatSubmissions.statsPayload(m, "stats", "name", "kc").toString());
 	}
 
 	@Test
 	public void anEmptyMapStillSendsTheArrayRatherThanOmittingIt()
 	{
 		assertEquals("{\"stats\":[]}",
-			BingoApiClient.statsPayload(map(), "stats", "name", "kc").toString());
+			StatSubmissions.statsPayload(map(), "stats", "name", "kc").toString());
 	}
 }
