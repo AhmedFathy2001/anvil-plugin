@@ -1,5 +1,7 @@
 package com.anvil.session;
 
+import com.anvil.session.LocalPlayer;
+import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -63,12 +65,13 @@ public class SessionIdentity
     private final com.anvil.clan.ClanRosterService roster;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     SessionIdentity(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.clog.ProfileSync profileSync, com.anvil.clan.ClanRosterService roster) {
+            com.anvil.clog.ProfileSync profileSync, com.anvil.clan.ClanRosterService roster,
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -79,6 +82,9 @@ public class SessionIdentity
         this.tasks = tasks;
         this.profileSync = profileSync;
         this.roster = roster;
+        this.pluginConfig = pluginConfig;
+        this.refreshConfig = boardRefresh::now;
+        this.localPlayerName = localPlayer::name;
     }
 
 
@@ -152,21 +158,9 @@ public class SessionIdentity
         helloSent = false;
     }
 
-    /**
-     * Two things the plugin owns that cannot be injected: who is logged in (it changes every
-     * login), and the config refresh this handshake re-enters through (injecting it would be a
-     * cycle — the store already reaches back here to nag about a broken token).
-     */
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Runnable refreshConfig,
-            Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.refreshConfig = refreshConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
-    private Runnable refreshConfig = () -> {
-    };
-    private Supplier<String> localPlayerName = () -> null;
+    private final Runnable refreshConfig;
+    private final Supplier<String> localPlayerName;
 
     /**
      * When THIS game session began, for the starting shot's session window (see StartProofRules).

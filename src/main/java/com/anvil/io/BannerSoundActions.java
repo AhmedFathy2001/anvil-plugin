@@ -45,13 +45,14 @@ public class BannerSoundActions
     private final PendingSubmissionStore pendingSubmissionStore;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     BannerSoundActions(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.ui.BingoClogBannerOverlay clogBanner, BannerSoundService bannerSound,
-            PendingSubmissionStore pendingSubmissionStore) {
+            PendingSubmissionStore pendingSubmissionStore,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -63,6 +64,7 @@ public class BannerSoundActions
         this.clogBanner = clogBanner;
         this.bannerSound = bannerSound;
         this.pendingSubmissionStore = pendingSubmissionStore;
+        this.pluginConfig = pluginConfig;
     }
 
     /** Told when a banner fired locally, so the team-completion banner does not repeat it. */
@@ -72,9 +74,6 @@ public class BannerSoundActions
         this.shownLocally = shownLocally;
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
-        this.pluginConfig = pluginConfig;
-    }
 
     // One-shot guard so the "no banner clips yet" nudge prints at most once per session.
     private boolean bannerSoundHintShown;

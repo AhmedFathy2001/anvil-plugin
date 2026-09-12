@@ -87,21 +87,20 @@ public class LootSourceMemory
     private final com.anvil.detect.RarityService rarityService;
     private final com.anvil.detect.ThievingService thievingService;
 
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     LootSourceMemory(AnvilConfig config, ItemManager itemManager,
             com.anvil.detect.RarityService rarityService,
-            com.anvil.detect.ThievingService thievingService) {
+            com.anvil.detect.ThievingService thievingService,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.config = config;
         this.itemManager = itemManager;
         this.rarityService = rarityService;
         this.thievingService = thievingService;
-    }
-
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
         this.pluginConfig = pluginConfig;
     }
+
 
     /** The item ids a board's drop tiles care about, so an unlock line can be matched against them. */
     private Supplier<Set<Integer>> notableItemIds = java.util.Collections::emptySet;

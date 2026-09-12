@@ -50,19 +50,18 @@ public class AnvilEmbeds
     private final TaskRunner tasks;
 
     /** The live event config — replaced on every poll, so a supplier and not the value. */
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
-    AnvilEmbeds(BingoApiClient apiClient, ItemManager itemManager, DrawManager drawManager, TaskRunner tasks) {
+    AnvilEmbeds(BingoApiClient apiClient, ItemManager itemManager, DrawManager drawManager, TaskRunner tasks,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.apiClient = apiClient;
         this.itemManager = itemManager;
         this.drawManager = drawManager;
         this.tasks = tasks;
-    }
-
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
         this.pluginConfig = pluginConfig;
     }
+
 
     /** The site accent, on a rare-drop post. */
     public static int rareColor() {

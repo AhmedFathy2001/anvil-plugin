@@ -55,12 +55,13 @@ public class RecapCounters
     private final com.anvil.notify.AnvilEmbeds embeds;
 
     private Supplier<PluginConfigResponse> pluginConfig = () -> null;
-    private Supplier<String> trackingGateReason = () -> "no config";
+    private final TrackingGate gate;
 
     @Inject
     RecapCounters(AnvilConfig config, BingoApiClient apiClient, ConfigManager configManager,
             ItemManager itemManager, TaskRunner tasks, ClipMoments clipMoments, MomentsService moments,
-            LootSourceMemory lootSource, com.anvil.notify.AnvilEmbeds embeds) {
+            LootSourceMemory lootSource, com.anvil.notify.AnvilEmbeds embeds,
+        TrackingGate gate) {
         this.config = config;
         this.apiClient = apiClient;
         this.configManager = configManager;
@@ -70,6 +71,7 @@ public class RecapCounters
         this.moments = moments;
         this.lootSource = lootSource;
         this.embeds = embeds;
+        this.gate = gate;
     }
 
     /**
@@ -90,10 +92,6 @@ public class RecapCounters
         }
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Supplier<String> trackingGateReason) {
-        this.pluginConfig = pluginConfig;
-        this.trackingGateReason = trackingGateReason;
-    }
 
     // ── Recap "fun stat" counters (deaths + total loot GP) for the active event. Cosmetic only (feeds the
     // end-of-event superlatives — never scoring). Held per-event and PERSISTED to the config store so a
@@ -170,7 +168,7 @@ public class RecapCounters
             eventCaTasks = readIntConfig(CFG_COUNTER_CATASKS, 0);
             countersLoaded = true;
         }
-        if (trackingGateReason.get() != null) {
+        if (gate.reason() != null) {
             return false;
         }
         int active = (pluginConfig.get() != null && pluginConfig.get().event != null) ? pluginConfig.get().event.id : 0;
@@ -357,7 +355,7 @@ public class RecapCounters
         // And for the clan's highlight feed: a competition week has no bingo to gate on, and a
         // near-miss during one that DOES have a bingo is worth as much as a hit.
         moments.recordLootMoments(source, sourceKind, items);
-        if (items == null || items.isEmpty() || trackingGateReason.get() != null) {
+        if (items == null || items.isEmpty() || gate.reason() != null) {
             return;
         }
         long haulGp = 0;

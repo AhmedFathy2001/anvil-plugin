@@ -53,13 +53,14 @@ public class AchievementTiles
     private final com.anvil.notify.RareDropNotifier rareDrops;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     AchievementTiles(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.track.TrackingGate gate, com.anvil.track.ProofPipeline proofs, com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.AchievementNotifier achievements,
-            com.anvil.notify.RareDropNotifier rareDrops) {
+            com.anvil.notify.RareDropNotifier rareDrops,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -73,6 +74,7 @@ public class AchievementTiles
         this.embeds = embeds;
         this.achievements = achievements;
         this.rareDrops = rareDrops;
+        this.pluginConfig = pluginConfig;
     }
 
 
@@ -101,9 +103,6 @@ public class AchievementTiles
         creditedCaTaskTiles.clear();
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
-        this.pluginConfig = pluginConfig;
-    }
 
     // Parsed CA completions waiting one tick so the points varbit has settled before we read them.
     // A queue (not a single slot): one kill can complete several CA tasks in the same tick — the

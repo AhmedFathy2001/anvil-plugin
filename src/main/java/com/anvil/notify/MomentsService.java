@@ -58,30 +58,30 @@ public class MomentsService
     private final LootSourceMemory lootSource;
 
     private Supplier<PluginConfigResponse> pluginConfig = () -> null;
-    private Supplier<Map<Integer, List<TrackedDrop>>> itemDropIndex = java.util.Collections::emptyMap;
-    private Supplier<DeathAttribution> deathAttribution = () -> null;
-    private Supplier<Boolean> statsAreArtificial = () -> false;
+    // PROVIDERS for the two that point back at us: DropTracker and AchievementNotifier both
+    // inject this service, so asking for either directly would be a dependency cycle. Nothing
+    // is resolved until a moment is actually recorded, by which time the graph is built.
+    private final javax.inject.Provider<com.anvil.track.DropTracker> drops;
+    private final javax.inject.Provider<AchievementNotifier> achievements;
+    private final DeathAttribution deathAttribution;
 
     @Inject
     MomentsService(AnvilConfig config, BingoApiClient apiClient, ItemManager itemManager, TaskRunner tasks,
-            CombatTarget combatTarget, LootSourceMemory lootSource) {
+            CombatTarget combatTarget, LootSourceMemory lootSource,
+            javax.inject.Provider<com.anvil.track.DropTracker> drops,
+            javax.inject.Provider<AchievementNotifier> achievements,
+            DeathAttribution deathAttribution) {
         this.config = config;
         this.apiClient = apiClient;
         this.itemManager = itemManager;
         this.tasks = tasks;
         this.combatTarget = combatTarget;
         this.lootSource = lootSource;
+        this.drops = drops;
+        this.achievements = achievements;
+        this.deathAttribution = deathAttribution;
     }
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig,
-            Supplier<Map<Integer, List<TrackedDrop>>> itemDropIndex,
-            Supplier<DeathAttribution> deathAttribution,
-            Supplier<Boolean> statsAreArtificial) {
-        this.pluginConfig = pluginConfig;
-        this.itemDropIndex = itemDropIndex;
-        this.deathAttribution = deathAttribution;
-        this.statsAreArtificial = statsAreArtificial;
-    }
 
     /** File a moment directly — for the callers that build their own. */
     public void record(AnvilMoments.Moment moment) {
@@ -147,7 +147,7 @@ public class MomentsService
         if (items == null || items.isEmpty() || !momentsEnabled()) {
             return;
         }
-        Map<Integer, List<TrackedDrop>> boardItems = itemDropIndex.get();
+        Map<Integer, List<TrackedDrop>> boardItems = drops.get().itemIndex();
         // Merge stacks first — a kill that drops coins twice is one line, not two.
         Map<Integer, Integer> merged = new LinkedHashMap<>();
         for (ItemStack item : items) {
@@ -257,18 +257,18 @@ public class MomentsService
         long now = System.currentTimeMillis();
         CombatTarget.Seen seen = combatTarget.snapshot();
         String fighting = seen.freshAt(now, DEATH_ATTRIBUTION_MS) ? seen.name : null;
-        String killer = deathAttribution.get().killer(fighting, now);
+        String killer = deathAttribution.killer(fighting, now);
         // Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
         // and which one we picked, next to what we were hitting.
         log.debug("Anvil death: killer='{}' (attackers={}, we were fighting '{}')",
-                killer, deathAttribution.get().attackerCount(), fighting);
+                killer, deathAttribution.attackerCount(), fighting);
         moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, "npc",
                 lootSource.killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
         scheduleMomentPush();
         // The fight is over: whatever had us targeted has no claim on the next one. Cleared here
         // rather than waiting for each attacker to drop us, which an instance tear-down never
         // reports — a stale attacker would otherwise be the prime suspect for the next death.
-        deathAttribution.get().clear();
+        deathAttribution.clear();
     }
 
     /**
@@ -283,7 +283,7 @@ public class MomentsService
      * competition week wants it, and drops it when nothing does.</p>
      */
     public void recordLevelMoment(String skill, int level, String scope) {
-        if (!momentsEnabled() || statsAreArtificial.get()) {
+        if (!momentsEnabled() || achievements.get().statsAreArtificial()) {
             return;
         }
         moments.record(AnvilMoments.Moment.level(skill, level, scope, System.currentTimeMillis()));

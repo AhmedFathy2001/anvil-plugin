@@ -1,5 +1,7 @@
 package com.anvil.track;
 
+import com.anvil.session.LocalPlayer;
+import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -40,7 +42,7 @@ import net.runelite.client.ui.DrawManager;
  */
 @Slf4j
 @Singleton
-public class TimedClearTracker implements Tracker
+public class TimedClearTracker
 {
     private final AnvilConfig config;
     private final BingoApiClient apiClient;
@@ -64,11 +66,11 @@ public class TimedClearTracker implements Tracker
     private final ProofPipeline proofs;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
     /** Pull the board back after a credit, so the tile's new total is what the panel shows. */
-    private Runnable refreshConfig = () -> { };
+    private final Runnable refreshConfig;
     /** Who is playing. Read at capture time, not at draw time. */
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<String> localPlayerName;
 
     @Inject
     TimedClearTracker(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
@@ -77,7 +79,8 @@ public class TimedClearTracker implements Tracker
             TrackingGate gate, LocalProgress progress, PartyTracker party, Coalescer coalescer,
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
-            RecapCounters counters, ProofPipeline proofs) {
+            RecapCounters counters, ProofPipeline proofs,
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -98,6 +101,9 @@ public class TimedClearTracker implements Tracker
         this.rareDrops = rareDrops;
         this.counters = counters;
         this.proofs = proofs;
+        this.pluginConfig = pluginConfig;
+        this.refreshConfig = boardRefresh::now;
+        this.localPlayerName = localPlayer::name;
     }
 
 
@@ -122,13 +128,6 @@ public class TimedClearTracker implements Tracker
         lastNpcDeathName = null;
     }
 
-    @Override
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Runnable refreshConfig,
-            Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.refreshConfig = refreshConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
     // ---- Timed-clear tiles ---------------------------------------------------------------
     // Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,

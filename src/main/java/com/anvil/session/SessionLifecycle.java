@@ -50,12 +50,15 @@ public class SessionLifecycle
 	private final TrackingGate gate;
 	private final GainTracker gains;
 	private final PartyTracker party;
+	/** Nothing attacks a logged-out player, and whatever was is not attacking the next account. */
+	private final DeathAttribution deathAttribution;
 
 	@Inject
 	SessionLifecycle(BingoApiClient apiClient, TaskRunner tasks, SessionIdentity session,
 		EventConfigStore configStore, ClanRosterService roster, ProfileSync profileSync,
 		AccountProgressPush accountProgress, AchievementTiles achTiles, ProofPipeline proofs,
-		NudgeService nudges, TrackingGate gate, GainTracker gains, PartyTracker party)
+		NudgeService nudges, TrackingGate gate, GainTracker gains, PartyTracker party,
+		DeathAttribution deathAttribution)
 	{
 		this.apiClient = apiClient;
 		this.tasks = tasks;
@@ -70,16 +73,11 @@ public class SessionLifecycle
 		this.gate = gate;
 		this.gains = gains;
 		this.party = party;
+		this.deathAttribution = deathAttribution;
 	}
 
-	/**
-	 * The game state moved.
-	 *
-	 * <p>{@code deathAttribution} is passed rather than injected because the plugin owns the one
-	 * instance and hands the same object to the moments feed — nothing is attacking a logged-out
-	 * player, and whatever was is not attacking the next account either.</p>
-	 */
-	public void onGameStateChanged(GameState state, DeathAttribution deathAttribution)
+	/** The game state moved. */
+	public void onGameStateChanged(GameState state)
 	{
 		if (state == GameState.LOGGED_IN)
 		{

@@ -74,12 +74,13 @@ public class ChatRouter
     private final com.anvil.util.ClipMoments clipMoments;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    protected Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
 
     @Inject
     ChatRouter(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.track.DropTracker drops, com.anvil.track.KillTracker kills, com.anvil.track.TimedClearTracker timed, com.anvil.track.ProofPipeline proofs, com.anvil.track.StatPushService statPush, com.anvil.track.AchievementTiles achTiles, com.anvil.clog.ProfileSync profileSync, com.anvil.notify.LootSourceMemory lootSource, com.anvil.notify.PetNotifier pets, com.anvil.notify.RareDropNotifier rareDrops, com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.util.ClipMoments clipMoments) {
+            com.anvil.track.DropTracker drops, com.anvil.track.KillTracker kills, com.anvil.track.TimedClearTracker timed, com.anvil.track.ProofPipeline proofs, com.anvil.track.StatPushService statPush, com.anvil.track.AchievementTiles achTiles, com.anvil.clog.ProfileSync profileSync, com.anvil.notify.LootSourceMemory lootSource, com.anvil.notify.PetNotifier pets, com.anvil.notify.RareDropNotifier rareDrops, com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.util.ClipMoments clipMoments,
+        Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -101,6 +102,7 @@ public class ChatRouter
         this.achievements = achievements;
         this.moments = moments;
         this.clipMoments = clipMoments;
+        this.pluginConfig = pluginConfig;
     }
 
     //   "You have opened the Grand Hallowed Coffin 42 times!" ("1 time!" in the singular)
@@ -118,9 +120,6 @@ public class ChatRouter
     private static final String HUNTER_RUMOURS = "Hunter Rumours";
     private static final String EGG_OFFERINGS = "Bird's egg offerings";
 
-    public void bind(Supplier<PluginConfigResponse> pluginConfig) {
-        this.pluginConfig = pluginConfig;
-    }
 
     // The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
     // Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and

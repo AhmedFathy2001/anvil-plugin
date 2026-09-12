@@ -1,5 +1,6 @@
 package com.anvil.clip;
 
+import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -85,10 +86,10 @@ public class ObsClipService
 	private final CombatTarget combatTarget;
 
 	/** The live event config. A supplier rather than the value, because it is replaced on every poll. */
-	private Supplier<PluginConfigResponse> configSupplier = () -> null;
+	private final Supplier<PluginConfigResponse> configSupplier;
 
 	/** Who is playing, for the webhook caption. */
-	private Supplier<String> localPlayerName = () -> null;
+	private final Supplier<String> localPlayerName;
 
 	/** Volatile for visibility; connect/disconnect are synchronized on {@link #obsLock}. */
 	private volatile ObsReplayClient obsClip;
@@ -98,7 +99,8 @@ public class ObsClipService
 	@Inject
 	ObsClipService(OkHttpClient okHttpClient, Gson gson, AnvilConfig config, BingoApiClient apiClient,
 		DiscordWebhookClient discordClient, AnvilChat chat, ClipMoments clipMoments,
-		CombatTarget combatTarget)
+		CombatTarget combatTarget,
+		Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer)
 	{
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
@@ -108,14 +110,10 @@ public class ObsClipService
 		this.chat = chat;
 		this.clipMoments = clipMoments;
 		this.combatTarget = combatTarget;
+		this.configSupplier = pluginConfig;
+		this.localPlayerName = localPlayer::name;
 	}
 
-	/** Wire the two things only the plugin can answer. Called once, from startUp. */
-	public void bind(Supplier<PluginConfigResponse> configSupplier, Supplier<String> localPlayerName)
-	{
-		this.configSupplier = configSupplier;
-		this.localPlayerName = localPlayerName;
-	}
 
 	// ────────────────────────────────────────────────────────────── connection ──
 

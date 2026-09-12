@@ -1,5 +1,7 @@
 package com.anvil.track;
 
+import com.anvil.session.LocalPlayer;
+import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
@@ -29,7 +31,7 @@ import net.runelite.client.ui.DrawManager;
  */
 @Slf4j
 @Singleton
-public class ValueTracker implements Tracker
+public class ValueTracker
 {
     private final AnvilConfig config;
     private final BingoApiClient apiClient;
@@ -53,11 +55,11 @@ public class ValueTracker implements Tracker
     private final ProofPipeline proofs;
 
     /** The live event config. A supplier, because the object is replaced on every poll. */
-    private Supplier<PluginConfigResponse> pluginConfig = () -> null;
+    private final Supplier<PluginConfigResponse> pluginConfig;
     /** Pull the board back after a credit, so the tile's new total is what the panel shows. */
-    private Runnable refreshConfig = () -> { };
+    private final Runnable refreshConfig;
     /** Who is playing. Read at capture time, not at draw time. */
-    private Supplier<String> localPlayerName = () -> null;
+    private final Supplier<String> localPlayerName;
 
     @Inject
     ValueTracker(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
@@ -66,7 +68,8 @@ public class ValueTracker implements Tracker
             TrackingGate gate, LocalProgress progress, PartyTracker party, Coalescer coalescer,
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
-            RecapCounters counters, ProofPipeline proofs) {
+            RecapCounters counters, ProofPipeline proofs,
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -87,19 +90,15 @@ public class ValueTracker implements Tracker
         this.rareDrops = rareDrops;
         this.counters = counters;
         this.proofs = proofs;
+        this.pluginConfig = pluginConfig;
+        this.refreshConfig = boardRefresh::now;
+        this.localPlayerName = localPlayer::name;
     }
 
     /** One kill arrives as two loot events; a haul counted twice completes a tile on half of it. */
     private final com.anvil.util.DedupWindow<String> lastSubmittedAt =
             new com.anvil.util.DedupWindow<>(3_000);
 
-    @Override
-    public void bind(Supplier<PluginConfigResponse> pluginConfig, Runnable refreshConfig,
-            Supplier<String> localPlayerName) {
-        this.pluginConfig = pluginConfig;
-        this.refreshConfig = refreshConfig;
-        this.localPlayerName = localPlayerName;
-    }
 
     /**
      * Loot-value tiles ("loot worth ≥ X gp"): price the WHOLE haul (GE value of every item) and, when

@@ -1,6 +1,8 @@
 package com.anvil.util;
 
 import java.util.LinkedHashMap;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import java.util.Locale;
 import java.util.Map;
 import net.runelite.api.Actor;
@@ -27,8 +29,14 @@ import net.runelite.api.Actor;
  * <p>Pure and RuneLite-free so it is unit-tested directly (DeathAttributionTest). The plugin feeds
  * it names; it never holds an Actor, which would keep a dead NPC alive for as long as we did.
  */
+@Singleton
 public final class DeathAttribution
 {
+	@Inject
+	DeathAttribution()
+	{
+	}
+
 	/**
 	 * How long an attacker stays a candidate after we last took a hit. Long enough to cover the
 	 * gap between a killing blow and the death animation, short enough that the thing that killed
