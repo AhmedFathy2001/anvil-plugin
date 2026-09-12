@@ -10,11 +10,9 @@ import com.anvil.api.dto.ItemRequirement;
 import com.anvil.api.dto.TrackedDrop;
 import com.anvil.clog.ClogTaskModel;
 import com.anvil.io.PendingSubmissionStore;
-import com.anvil.ui.AnvilOverlay;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.DedupWindow;
 import com.anvil.util.TaskRunner;
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -75,6 +73,9 @@ public class DropTracker
     private final com.anvil.notify.AnvilEmbeds embeds;
     private final com.anvil.notify.LootSourceMemory lootSource;
     private final com.anvil.notify.MomentsService moments;
+
+    /** How many drops we hold before telling the server — a barrage is one thing, not six. */
+    private final DropBatch batch;
     private final com.anvil.notify.RareDropNotifier rareDrops;
     private final RecapCounters counters;
     private final ProofPipeline proofs;
@@ -94,7 +95,8 @@ public class DropTracker
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
             RecapCounters counters, ProofPipeline proofs,
-        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer,
+        DropBatch batch) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -118,6 +120,7 @@ public class DropTracker
         this.pluginConfig = pluginConfig;
         this.refreshConfig = boardRefresh::now;
         this.localPlayerName = localPlayer::name;
+        this.batch = batch;
     }
 
 
@@ -217,96 +220,6 @@ public class DropTracker
             "tzkal-zuk", "Infernal cape",
             "tztok-jad", "Fire cape");
 
-    // Drop coalescing — batch rapid same-tile drops into one screenshot + one submission.
-    // Without this, killing 1 NPC that drops a stack of 2000 would fire 2000 captures and
-    // hammer the server. Aggregates by (tileId, itemId), scheduled-flushed after a brief
-    // settle delay so a kill spree still results in one well-annotated PNG.
-    public static final long COALESCE_FLUSH_MS = 2_500;
-
-    private static class DropAggregate extends TileAggregate {
-
-        final TrackedDrop drop;
-        final Integer trackingItemId;
-        // Frame grabbed the moment the first drop of the burst landed. The flush shot fires
-        // COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
-        // hands listeners a copy of the graphics buffer, so holding it is safe.
-        volatile BufferedImage triggerFrame;
-
-        DropAggregate(TrackedDrop drop, Integer trackingItemId) {
-            this.drop = drop;
-            this.trackingItemId = trackingItemId;
-        }
-    }
-
-    // Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
-    private final Map<String, DropAggregate> pendingAggregates = new HashMap<>();
-
-    /**
-     * Credits drop/collection tiles from a "New item added to your collection
-     * log: X" chat line. The reliable signal for clog items that never fire a
-     * loot event: shop-bought minigame rewards (Barbarian Assault Fighter
-     * torso/hats/armour), gamble-only pets (Penance Queen), etc.
-     *
-     * The clog line names the item, so we resolve tracked item IDs → names via
-     * ItemManager and synthesise a single-item loot event through
-     * {@link #processLoot}. That reuses the whole drop pipeline
-     * (source/requirement filters, coalesce, screenshot + submit) AND its
-     * per-(tile,item) dedup — so an item that IS a real drop (fires a loot
-     * event AND a clog line the same tick) is still counted exactly once. Runs
-     * on the client thread (onChatMessage), where ItemManager is safe.
-     *
-     * Caveat: the clog line fires once per account, ever — a member who already
-     * owns the item won't re-trigger it. Surfaced to admins in the tile UI.
-     * Guaranteed completion awards (Infernal cape, Fire cape) sidestep this via
-     * {@link #creditGuaranteedAward}, which fires on every completion.
-     */
-    public void creditClogUnlock(String itemName) {
-        if (itemName == null || itemName.isEmpty()) {
-            return;
-        }
-        if (!config.autoSubmit() || pluginConfig.get() == null || pluginConfig.get().trackedDrops == null) {
-            String why = gate.reason();
-            if (why != null) {
-                gate.logSuppressed(why);
-            }
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.get().event)) {
-            return;
-        }
-        // Notable clog unlocks (a ToA Cursed phalanx, a raid ornament kit) that fire ONLY the clog line and
-        // no loot event still deserve a rare-drop post. Route through maybeNotifyRareDrop — its per-item +
-        // name-keyed dedup absorbs the duplicate if a loot event fired for the same item — and do it
-        // independent of whether any TILE tracks the item (the webhook shouldn't need a tile).
-        Integer notableId = notableIdForName(itemName);
-        if (notableId != null) {
-            rareDrops.maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
-        }
-        List<ItemStack> synthetic = null;
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                // Skip an item a real loot event just credited — the clog-unlock line is the same
-                // acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
-                // double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
-                // when taken). Genuine clog-only unlocks (BA torso, gamble pets) never hit this.
-                if (lootSource.recentlyLooted(id)) {
-                    continue;
-                }
-                if (synthetic == null) {
-                    synthetic = new ArrayList<>(1);
-                }
-                synthetic.add(new ItemStack(id, 1));
-            }
-        }
-        if (synthetic == null) {
-            return; // no tile tracks this clog item (or all matches were just looted)
-        }
-        // "clog" source kind passes the default (non-PvP) tile source filter. Source name is the
-        // item itself — a tile with a specific sourceNpcs list won't match, which is intended
-        // (clog rewards have no NPC source to whitelist against).
-        processLoot(itemName, synthetic, "clog");
-    }
 
     /** The notable-item id whose name matches {@code name} (case-insensitive), or null. Lets the clog-unlock
      *  path resolve an untradeable prestige item to its id for a rare-drop post without a GE search. */
@@ -321,107 +234,6 @@ public class DropTracker
             }
         }
         return null;
-    }
-
-    /**
-     * Fallback drop crediting off the server's drop-attribution chat line —
-     * "&lt;player&gt; received a drop: &lt;item&gt; (&lt;source&gt;)". Maggot King's uniques
-     * spill out beside its corpse: the corpse never despawns (no NpcLootReceived) and the
-     * in-game loot-tracker script behind ServerNpcLoot doesn't report the spill, so this
-     * line is the only signal that fires. It names the recipient, so crediting stays
-     * attribution-safe where other players' drops are also announced. When a loot event
-     * DOES also fire, processLoot's per-(tile,item) window and the rare-drop per-item
-     * window absorb the duplicate — same contract as creditGuaranteedAward.
-     */
-    public void creditDropFromChat(String recipient, String qtyText, String itemName, String source) {
-        String local = localPlayerName.get();
-        if (local == null || recipient == null || itemName == null || itemName.isEmpty()) {
-            return;
-        }
-        // Chat renders RSN spaces as non-breaking spaces; normalise both sides before comparing.
-        String who = recipient.replace('\u00A0', ' ').trim();
-        if (!who.equalsIgnoreCase(local.replace('\u00A0', ' ').trim()) && !who.equalsIgnoreCase("You")) {
-            return; // another player's drop
-        }
-        int qty = 1;
-        if (qtyText != null) {
-            try {
-                qty = Math.max(1, Integer.parseInt(qtyText.replace(",", "")));
-            } catch (NumberFormatException ignored) {
-            }
-        }
-
-        // Bingo tiles: synthesize loot for every tracked item id whose name matches, exactly
-        // like creditClogUnlock (item names are unique per family, ids aren't). Sourced as
-        // "npc" loot from the boss so tiles restricted to sourceNpcs=["Maggot King"] match.
-        List<ItemStack> synthetic = null;
-        Integer notifyId = null;
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                if (synthetic == null) {
-                    synthetic = new ArrayList<>(1);
-                }
-                synthetic.add(new ItemStack(id, qty));
-                notifyId = id;
-            }
-        }
-        if (synthetic != null) {
-            processLoot(source, synthetic, "npc");
-        }
-
-        // Clan rare-drop post — also for items no tile tracks (kill may pre-date any event).
-        // Resolve untracked names against the GE item list; untradeables that reach this line
-        // are covered by the prestige allowlist via the clog path instead.
-        if (notifyId == null) {
-            notifyId = lootSource.findTradeableItemId(itemName);
-        }
-        // Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
-        // breadcrumb in the client log so a "why didn't my fang post?" is answerable after the fact.
-        // The line is rare (local player's own attributed drops only), so INFO is not noisy.
-        log.info("Anvil drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
-                itemName, qty, source, notifyId,
-                notifyId != null ? embeds.itemUnitValue(notifyId) : -1,
-                config.rareDropMinValue(), config.notifyRareDrops(), embeds.notifyEnabled("rareDrops"));
-        if (notifyId != null) {
-            rareDrops.maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
-        }
-    }
-
-    /**
-     * Credits drop/collection tiles for a completion-awarded item (Infernal cape,
-     * Fire cape) off the Jagex kill-count chat line. These go straight to the
-     * inventory — no loot event — and the clog line only fires on the first-ever
-     * award, so repeat capes would otherwise need manual submission. The KC line
-     * fires on every completion.
-     *
-     * Synthesised as loot FROM the boss (sourceKind "npc"), so a tile restricted
-     * to e.g. sourceNpcs=["TzKal-Zuk"] still matches. On a first-ever award the
-     * clog line lands in the same message batch; processLoot's per-(tile,item)
-     * dedup counts the pair exactly once.
-     */
-    public void creditGuaranteedAward(String bossName, String itemName) {
-        String why = gate.reason();
-        if (why != null || pluginConfig.get().trackedDrops == null) {
-            if (why != null) {
-                gate.logSuppressed(why);
-            }
-            return;
-        }
-        List<ItemStack> synthetic = null;
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                if (synthetic == null) {
-                    synthetic = new ArrayList<>(1);
-                }
-                synthetic.add(new ItemStack(id, 1));
-            }
-        }
-        if (synthetic == null) {
-            return; // no tile tracks this award item
-        }
-        processLoot(bossName, synthetic, "npc");
     }
 
     public void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
@@ -602,7 +414,7 @@ public class DropTracker
                 // delayed flush. A second drop landing within COALESCE_FLUSH_MS extends
                 // the flush so we end up with one screenshot + one submission for the
                 // whole burst (e.g. 5 feathers from a chicken).
-                queueDropForFlush(drop, amount, snapshotCurrent, snapshotRequired, trackingItemId);
+                batch.queue(drop, amount, snapshotCurrent, snapshotRequired, trackingItemId);
                 // No break: one drop credits EVERY tile tracking this item (e.g. a sunfire
                 // piece counting toward both "any Colosseum unique" and "sunfire piece"
                 // tiles). Each tile has its own aggregate, so each gets its own proof —
@@ -611,40 +423,6 @@ public class DropTracker
         }
     }
 
-
-    private void queueDropForFlush(TrackedDrop drop, int amount,
-            int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
-        if (!tasks.isLive()) {
-            return;
-        }
-        final String key = drop.tileId + ":" + (trackingItemId == null ? "-" : trackingItemId);
-        synchronized (pendingAggregates) {
-            DropAggregate agg = pendingAggregates.get(key);
-            if (agg == null) {
-                agg = new DropAggregate(drop, trackingItemId);
-                pendingAggregates.put(key, agg);
-                // First drop of the burst: grab the at-drop frame now. The flush shot lands
-                // COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
-                // visible — the proof shows both moments.
-                if (config.dualProofFrames()) {
-                    final DropAggregate fresh = agg;
-                    drawManager.requestNextFrameListener(img -> fresh.triggerFrame = (BufferedImage) img);
-                }
-            }
-            coalescer.arm(agg, amount, snapshotCurrent, snapshotRequired,
-                    () -> flushAggregate(key), COALESCE_FLUSH_MS);
-        }
-    }
-
-    private void flushAggregate(String key) {
-        coalescer.flushThrottled(pendingAggregates, key, this::doSubmitAggregate);
-    }
-
-    private void doSubmitAggregate(DropAggregate agg) {
-        coalescer.noteUpload();
-        proofs.captureAndSubmit(agg.drop, agg.total, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId,
-                agg.triggerFrame);
-    }
 
     /**
      * Rebuild the itemId → TrackedDrop index for O(1) loot lookups.

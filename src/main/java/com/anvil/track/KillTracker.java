@@ -323,7 +323,7 @@ public class KillTracker
                 }
             }
             coalescer.arm(agg, amount, snapshotCurrent, snapshotRequired,
-                    () -> flushKillAggregate(key), DropTracker.COALESCE_FLUSH_MS);
+                    () -> flushKillAggregate(key), DropBatch.COALESCE_FLUSH_MS);
         }
     }
 
@@ -385,7 +385,7 @@ public class KillTracker
                         String retryKey = "kill:" + kill.tileId;
                         coalescer.arm(pendingKillAggregates.computeIfAbsent(retryKey, k -> new KillAggregate(kill)),
                                 amount, kill.currentAmount, kill.requiredAmount,
-                                () -> flushKillAggregate(retryKey), DropTracker.COALESCE_FLUSH_MS);
+                                () -> flushKillAggregate(retryKey), DropBatch.COALESCE_FLUSH_MS);
                     }
                 }
             });
