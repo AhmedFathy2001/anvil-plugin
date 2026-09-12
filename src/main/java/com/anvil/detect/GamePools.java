@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import net.runelite.api.Skill;
 
 /**
  * The word lists the plugin matches game text against, and the lines it says back.

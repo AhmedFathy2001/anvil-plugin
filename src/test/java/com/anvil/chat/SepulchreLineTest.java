@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.chat;
 
 import java.util.regex.Matcher;
 import org.junit.Test;
@@ -16,14 +16,14 @@ public class SepulchreLineTest
 {
 	private static String floorOf(String line)
 	{
-		Matcher m = AnvilPlugin.SEPULCHRE_FLOOR_PATTERN.matcher(line);
+		Matcher m = ChatRouter.SEPULCHRE_FLOOR_PATTERN.matcher(line);
 		return m.find() ? m.group(1) : null;
 	}
 
 	@Test
 	public void parsesFloorCompletion()
 	{
-		Matcher m = AnvilPlugin.SEPULCHRE_FLOOR_PATTERN.matcher(
+		Matcher m = ChatRouter.SEPULCHRE_FLOOR_PATTERN.matcher(
 			"You have completed Floor 3 of the Hallowed Sepulchre! Total completions: 1,234.");
 		assertTrue(m.find());
 		assertEquals("3", m.group(1));
@@ -45,7 +45,7 @@ public class SepulchreLineTest
 	@Test
 	public void parsesGrandHallowedCoffinPlural()
 	{
-		assertTrue(AnvilPlugin.SEPULCHRE_COFFIN_PATTERN
+		assertTrue(ChatRouter.SEPULCHRE_COFFIN_PATTERN
 			.matcher("You have opened the Grand Hallowed Coffin 42 times!").find());
 	}
 
@@ -53,7 +53,7 @@ public class SepulchreLineTest
 	@Test
 	public void parsesGrandHallowedCoffinSingular()
 	{
-		assertTrue(AnvilPlugin.SEPULCHRE_COFFIN_PATTERN
+		assertTrue(ChatRouter.SEPULCHRE_COFFIN_PATTERN
 			.matcher("You have opened the Grand Hallowed Coffin 1 time!").find());
 	}
 
@@ -64,9 +64,9 @@ public class SepulchreLineTest
 	@Test
 	public void sepulchreLinesDoNotMatchTheGenericKcParser()
 	{
-		assertFalse(AnvilPlugin.KILL_COUNT_PATTERN
+		assertFalse(ChatRouter.KILL_COUNT_PATTERN
 			.matcher("You have completed Floor 3 of the Hallowed Sepulchre! Total completions: 12.").find());
-		assertFalse(AnvilPlugin.KILL_COUNT_PATTERN
+		assertFalse(ChatRouter.KILL_COUNT_PATTERN
 			.matcher("You have opened the Grand Hallowed Coffin 42 times!").find());
 	}
 
@@ -74,7 +74,7 @@ public class SepulchreLineTest
 	public void ignoresUnrelatedChat()
 	{
 		assertEquals(null, floorOf("You have completed the Hallowed Sepulchre course."));
-		assertFalse(AnvilPlugin.SEPULCHRE_COFFIN_PATTERN
+		assertFalse(ChatRouter.SEPULCHRE_COFFIN_PATTERN
 			.matcher("You have opened the coffin.").find());
 	}
 
@@ -83,9 +83,9 @@ public class SepulchreLineTest
 	@Test
 	public void parsesRumourCompletion()
 	{
-		assertTrue(AnvilPlugin.HUNTER_RUMOUR_PATTERN
+		assertTrue(ChatRouter.HUNTER_RUMOUR_PATTERN
 			.matcher("You have completed 42 rumours for the Hunter Guild.").find());
-		assertTrue(AnvilPlugin.HUNTER_RUMOUR_PATTERN
+		assertTrue(ChatRouter.HUNTER_RUMOUR_PATTERN
 			.matcher("You have completed 1,250 rumours for the Hunter Guild.").find());
 	}
 
@@ -93,14 +93,14 @@ public class SepulchreLineTest
 	@Test
 	public void parsesSingularRumour()
 	{
-		assertTrue(AnvilPlugin.HUNTER_RUMOUR_PATTERN
+		assertTrue(ChatRouter.HUNTER_RUMOUR_PATTERN
 			.matcher("You have completed 1 rumour for the Hunter Guild.").find());
 	}
 
 	@Test
 	public void rumourLineIsNotConfusedWithTheSepulchreFloorLine()
 	{
-		assertFalse(AnvilPlugin.HUNTER_RUMOUR_PATTERN
+		assertFalse(ChatRouter.HUNTER_RUMOUR_PATTERN
 			.matcher("You have completed Floor 3 of the Hallowed Sepulchre! Total completions: 12.").find());
 		assertEquals(null, floorOf("You have completed 42 rumours for the Hunter Guild."));
 	}
@@ -110,15 +110,15 @@ public class SepulchreLineTest
 	@Test
 	public void parsesEggOfferings()
 	{
-		assertTrue(AnvilPlugin.EGG_OFFERING_PATTERN.matcher("You have made 7 offerings.").find());
-		assertTrue(AnvilPlugin.EGG_OFFERING_PATTERN.matcher("You have made 1,024 offerings.").find());
+		assertTrue(ChatRouter.EGG_OFFERING_PATTERN.matcher("You have made 7 offerings.").find());
+		assertTrue(ChatRouter.EGG_OFFERING_PATTERN.matcher("You have made 1,024 offerings.").find());
 	}
 
 	/** The first offering reads "one offering", spelled out — not a digit. */
 	@Test
 	public void parsesFirstEggOfferingSpelledOut()
 	{
-		assertTrue(AnvilPlugin.EGG_OFFERING_PATTERN.matcher("You have made one offering.").find());
+		assertTrue(ChatRouter.EGG_OFFERING_PATTERN.matcher("You have made one offering.").find());
 	}
 
 	/**
@@ -128,7 +128,7 @@ public class SepulchreLineTest
 	@Test
 	public void offeringLineDoesNotSwallowLongerSentences()
 	{
-		assertFalse(AnvilPlugin.EGG_OFFERING_PATTERN
+		assertFalse(ChatRouter.EGG_OFFERING_PATTERN
 			.matcher("You have made 3 offerings to the shrine and received nothing").find());
 	}
 
@@ -141,7 +141,7 @@ public class SepulchreLineTest
 	@Test
 	public void brimhavenTicketCounterWordStaysOutOfTheName()
 	{
-		Matcher m = AnvilPlugin.KILL_COUNT_PATTERN
+		Matcher m = ChatRouter.KILL_COUNT_PATTERN
 			.matcher("Your Agility Arena Total Ticket count is: 480.");
 		assertTrue(m.find());
 		assertEquals("Agility Arena", m.group(1).trim());

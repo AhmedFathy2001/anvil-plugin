@@ -1,6 +1,7 @@
 package com.anvil;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.track.StatPushService;
 import com.anvil.api.dto.EventInfo;
 import org.junit.Test;
 import static org.junit.Assert.assertFalse;
@@ -31,33 +32,33 @@ public class StatPushGateTest
 	@Test
 	public void aWeeklyOnlyConfigMaySend()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(new PluginConfigResponse(), true));
+		assertTrue(StatPushService.statPushAllowed(new PluginConfigResponse(), true));
 	}
 
 	/** The case that was broken: a board exists, has not started, and the weekly still has to move. */
 	@Test
 	public void aBoardThatHasNotStartedDoesNotSilenceTheWeekly()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(false), true));
+		assertTrue(StatPushService.statPushAllowed(cfgWithEvent(false), true));
 	}
 
 	@Test
 	public void aRunningBoardMaySendToo()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(true), true));
+		assertTrue(StatPushService.statPushAllowed(cfgWithEvent(true), true));
 	}
 
 	@Test
 	public void nothingSendsBeforeThereIsAConfig()
 	{
 		assertFalse("no config means nothing is known to be tracked",
-			AnvilPlugin.statPushAllowed(null, true));
+			StatPushService.statPushAllowed(null, true));
 	}
 
 	@Test
 	public void autoSubmitOffIsTheMembersOwnChoice()
 	{
-		assertFalse(AnvilPlugin.statPushAllowed(new PluginConfigResponse(), false));
-		assertFalse(AnvilPlugin.statPushAllowed(cfgWithEvent(true), false));
+		assertFalse(StatPushService.statPushAllowed(new PluginConfigResponse(), false));
+		assertFalse(StatPushService.statPushAllowed(cfgWithEvent(true), false));
 	}
 }

@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.chat;
 
 import java.util.regex.Matcher;
 import org.junit.Test;
@@ -18,7 +18,7 @@ public class KillCountLineTest
 	/** Runs a line through the plugin's KC parse: [bossName, count], or null when it doesn't match. */
 	private static String[] parse(String line)
 	{
-		Matcher m = AnvilPlugin.KILL_COUNT_PATTERN.matcher(line);
+		Matcher m = ChatRouter.KILL_COUNT_PATTERN.matcher(line);
 		if (!m.find())
 		{
 			return null;
