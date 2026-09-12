@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.notify;
 
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.NotifyChannels;
@@ -29,11 +29,11 @@ public class NotifyChannelTest
 	public void aSiteThatPredatesTheSplitKeepsPostingWhereItDid()
 	{
 		NotifyChannels n = legacySite();
-		assertTrue(AnvilPlugin.channelEnabled(n, "levels"));
-		assertTrue(AnvilPlugin.channelEnabled(n, "quests"));
-		assertTrue(AnvilPlugin.channelEnabled(n, "diaries"));
-		assertTrue(AnvilPlugin.channelEnabled(n, "collectionLog"));
-		assertTrue(AnvilPlugin.channelEnabled(n, "pets"));
+		assertTrue(AnvilEmbeds.channelEnabled(n, "levels"));
+		assertTrue(AnvilEmbeds.channelEnabled(n, "quests"));
+		assertTrue(AnvilEmbeds.channelEnabled(n, "diaries"));
+		assertTrue(AnvilEmbeds.channelEnabled(n, "collectionLog"));
+		assertTrue(AnvilEmbeds.channelEnabled(n, "pets"));
 	}
 
 	@Test
@@ -41,8 +41,8 @@ public class NotifyChannelTest
 	{
 		NotifyChannels n = new NotifyChannels();
 		n.rareDrops = true; // drops on, CAs off
-		assertTrue("pets rode with drops", AnvilPlugin.channelEnabled(n, "pets"));
-		assertFalse("levels rode with CAs", AnvilPlugin.channelEnabled(n, "levels"));
+		assertTrue("pets rode with drops", AnvilEmbeds.channelEnabled(n, "pets"));
+		assertFalse("levels rode with CAs", AnvilEmbeds.channelEnabled(n, "levels"));
 	}
 
 	@Test
@@ -50,12 +50,12 @@ public class NotifyChannelTest
 	{
 		NotifyChannels n = legacySite();
 		n.levels = false; // clan pointed levels nowhere, though CAs still have a home
-		assertFalse(AnvilPlugin.channelEnabled(n, "levels"));
-		assertTrue(AnvilPlugin.channelEnabled(n, "combatAchievements"));
+		assertFalse(AnvilEmbeds.channelEnabled(n, "levels"));
+		assertTrue(AnvilEmbeds.channelEnabled(n, "combatAchievements"));
 
 		NotifyChannels off = new NotifyChannels();
 		off.levels = true; // levels split out; the channel it came from is unset
-		assertTrue(AnvilPlugin.channelEnabled(off, "levels"));
+		assertTrue(AnvilEmbeds.channelEnabled(off, "levels"));
 	}
 
 	/**
@@ -68,12 +68,12 @@ public class NotifyChannelTest
 	{
 		NotifyChannels n = new NotifyChannels();
 		n.rareDrops = true;
-		assertFalse(AnvilPlugin.channelEnabled(n, "somethingLater"));
+		assertFalse(AnvilEmbeds.channelEnabled(n, "somethingLater"));
 	}
 
 	@Test
 	public void noConfigAtAllPostsNothing()
 	{
-		assertFalse(AnvilPlugin.channelEnabled(null, "levels"));
+		assertFalse(AnvilEmbeds.channelEnabled(null, "levels"));
 	}
 }

@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.notify;
 
 import com.anvil.detect.CombatAchievementTier;
 import java.util.regex.Matcher;
@@ -18,12 +18,12 @@ public class CombatTaskLineTest
 	/** Runs a line through the same parse the plugin does: match, then strip the points suffix. */
 	private static String[] parse(String line)
 	{
-		Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(line);
+		Matcher m = AchievementNotifier.CA_TASK_PATTERN.matcher(line);
 		if (!m.find())
 		{
 			return null;
 		}
-		String task = AnvilPlugin.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim();
+		String task = AchievementNotifier.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim();
 		return new String[]{m.group(1), task};
 	}
 
@@ -62,7 +62,7 @@ public class CombatTaskLineTest
 	@Test
 	public void ignoresUnrelatedCongratulationsLines()
 	{
-		assertFalse(AnvilPlugin.CA_TASK_PATTERN.matcher(
+		assertFalse(AchievementNotifier.CA_TASK_PATTERN.matcher(
 			"Congratulations, you've just advanced your Mining level. You are now level 99.").find());
 	}
 
@@ -77,9 +77,9 @@ public class CombatTaskLineTest
 	@Test
 	public void matcherRequiresTierWord()
 	{
-		assertTrue(AnvilPlugin.CA_TASK_PATTERN.matcher(
+		assertTrue(AchievementNotifier.CA_TASK_PATTERN.matcher(
 			"Congratulations, you've completed a Hard combat task: Whack-a-Mole.").find());
-		assertFalse(AnvilPlugin.CA_TASK_PATTERN.matcher(
+		assertFalse(AchievementNotifier.CA_TASK_PATTERN.matcher(
 			"you've completed a combat task").find());
 	}
 }

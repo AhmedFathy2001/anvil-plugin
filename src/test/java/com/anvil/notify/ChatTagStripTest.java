@@ -1,5 +1,6 @@
-package com.anvil;
+package com.anvil.notify;
 
+import com.anvil.util.ChatText;
 import java.util.regex.Matcher;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -19,18 +20,18 @@ public class ChatTagStripTest
 	@Test
 	public void stripsBothStylingForms()
 	{
-		assertEquals("Whack-a-Mole", AnvilPlugin.stripChatTags("<col=ff0000>Whack-a-Mole</col>"));
-		assertEquals("Whack-a-Mole", AnvilPlugin.stripChatTags("@red@Whack-a-Mole@whi@"));
-		assertEquals("Whack-a-Mole", AnvilPlugin.stripChatTags("@ach_comp@<col=ff0000>Whack-a-Mole</col>"));
-		assertEquals("", AnvilPlugin.stripChatTags(null));
+		assertEquals("Whack-a-Mole", ChatText.strip("<col=ff0000>Whack-a-Mole</col>"));
+		assertEquals("Whack-a-Mole", ChatText.strip("@red@Whack-a-Mole@whi@"));
+		assertEquals("Whack-a-Mole", ChatText.strip("@ach_comp@<col=ff0000>Whack-a-Mole</col>"));
+		assertEquals("", ChatText.strip(null));
 	}
 
 	@Test
 	public void leavesOrdinaryTextAlone()
 	{
 		// One @ is not a code — it takes a closing one, close behind, to be styling.
-		assertEquals("me@home", AnvilPlugin.stripChatTags("me@home"));
-		assertEquals("Phantom Muspah Speed-Chaser", AnvilPlugin.stripChatTags("Phantom Muspah Speed-Chaser"));
+		assertEquals("me@home", ChatText.strip("me@home"));
+		assertEquals("Phantom Muspah Speed-Chaser", ChatText.strip("Phantom Muspah Speed-Chaser"));
 	}
 
 	@Test
@@ -38,23 +39,23 @@ public class ChatTagStripTest
 	{
 		// The exact shape observed in game (the post that started this said
 		// "⚔️ @ach_comp@Phantom Muspah Speed-Chaser").
-		String plain = AnvilPlugin.stripChatTags(
+		String plain = ChatText.strip(
 			"Congratulations, you've completed a Master combat task: @ach_comp@Phantom Muspah Speed-Chaser.");
-		Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(plain);
+		Matcher m = AchievementNotifier.CA_TASK_PATTERN.matcher(plain);
 		assertEquals(true, m.find());
 		assertEquals("Master", m.group(1));
 		assertEquals("Phantom Muspah Speed-Chaser",
-			AnvilPlugin.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim());
+			AchievementNotifier.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim());
 	}
 
 	@Test
 	public void aStyledRecompletionStillLosesItsPointsSuffix()
 	{
-		String plain = AnvilPlugin.stripChatTags(
+		String plain = ChatText.strip(
 			"Congratulations, you've completed an Elite combat task: @ach_comp@Whack-a-Mole (5 points).");
-		Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(plain);
+		Matcher m = AchievementNotifier.CA_TASK_PATTERN.matcher(plain);
 		assertEquals(true, m.find());
 		assertEquals("Whack-a-Mole",
-			AnvilPlugin.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim());
+			AchievementNotifier.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim());
 	}
 }
