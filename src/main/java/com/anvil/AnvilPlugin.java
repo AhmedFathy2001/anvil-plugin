@@ -136,10 +136,6 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private AchievementNotifier achievements;
 
-    /** A finished quest, read off the reward scroll the game draws to announce it. */
-    @Inject
-    private com.anvil.notify.QuestNotifier quests;
-
     @Inject
     private MomentsService moments;
 
@@ -230,11 +226,7 @@ public class AnvilPlugin extends Plugin {
         if (event.getGroupId() == net.runelite.api.gameval.InterfaceID.CLANS_INFO) {
             tabButtons.onClanWindowLoaded();
         }
-        if (event.getGroupId() == AchievementNotifier.questScrollGroup()) {
-            // The scroll's text child isn't populated yet on the load event — read it next tick,
-            // with a couple of retries in case the text lands late.
-            quests.scheduleQuestScrollRead(3);
-        }
+        achievements.onQuestScrollMaybeLoaded(event.getGroupId());
     }
 
     @Subscribe

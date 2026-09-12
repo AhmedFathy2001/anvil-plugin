@@ -4,26 +4,17 @@ import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
-import com.anvil.api.dto.Claim;
 import com.anvil.api.dto.ClanRef;
 import com.anvil.api.dto.CompletedTile;
 import com.anvil.api.dto.EventInfo;
-import com.anvil.api.dto.Mission;
-import com.anvil.detect.LadderMissions;
 import com.anvil.ui.AnvilSidebarPanel;
-import com.anvil.ui.view.Ladder;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.Lists;
-import com.anvil.util.Rsn;
 import com.anvil.util.TaskRunner;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import javax.inject.Inject;
@@ -65,6 +56,9 @@ public class EventConfigStore
     private final com.anvil.ui.AnvilSidebarPanel sidebarPanel;
     private final com.anvil.ui.BingoClogBannerOverlay clogBanner;
     private final com.anvil.io.BannerSoundActions sounds;
+
+    /** What changed on the board since the last poll, and which of it is worth a banner. */
+    private final BoardAlerts alerts;
     private final com.anvil.session.SessionIdentity session;
     private final com.anvil.clan.ClanRosterService roster;
     private final com.anvil.util.ClipMoments clipMoments;
@@ -92,7 +86,8 @@ public class EventConfigStore
             com.anvil.ui.AnvilSidebarPanel sidebarPanel, com.anvil.ui.BingoClogBannerOverlay clogBanner, com.anvil.io.BannerSoundActions sounds,
             com.anvil.session.SessionIdentity session, com.anvil.clan.ClanRosterService roster, com.anvil.util.ClipMoments clipMoments, com.anvil.track.DropTracker drops, com.anvil.track.GainTracker gains, com.anvil.track.KillTracker kills, com.anvil.notify.NudgeService nudges, com.anvil.track.ProofPipeline proofs,
         LocalPlayer localPlayer,
-        com.anvil.track.StartProofCapture startProof) {
+        com.anvil.track.StartProofCapture startProof,
+            BoardAlerts alerts) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -114,14 +109,13 @@ public class EventConfigStore
         this.proofs = proofs;
         this.localPlayerName = localPlayer::name;
         this.startProof = startProof;
+        this.alerts = alerts;
     }
 
 
     /** Banners are per event: seeded silently on the first poll so a relog re-pops nothing. */
     public void onShutDown() {
-        notifiedCompletedTiles.clear();
-        locallyShownTiles.clear();
-        completionBaselineEventId = null;
+        alerts.onShutDown();
         pendingRefresh = null;
     }
 
@@ -152,6 +146,9 @@ public class EventConfigStore
     // Last logged tracking summary — config refreshes every ~30s, so the summary only logs when
     // the tracking state actually changed (event, tile counts, autoSubmit, completions).
     private String lastTrackingFingerprint;
+
+    /** One suggestion per session that the configured Site URL has a canonical form. */
+    private boolean urlMigrationSuggested;
 
     // Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
     // persists every setting the moment a plugin first runs, so a new default alone reaches nobody
@@ -215,149 +212,11 @@ public class EventConfigStore
         pendingRefresh = tasks.runLater(this::refreshConfig, REFRESH_DEBOUNCE_MS);
     }
 
-    // Team-level tile completions (drops, stats, manual — any tile type, completed by any member).
-    // Fire a banner once per newly-completed tile. Seeded silently on the first refresh per event so
-    // tiles completed before this session (or a relog) don't re-pop.
-    private final Set<Integer> notifiedCompletedTiles = new HashSet<>();
 
-    private Integer completionBaselineEventId;
 
-    // Tiles this client already showed a banner for via the player's own drop. Their completion is
-    // skipped here so the contributor doesn't see it twice; teammates still get the team banner.
-    private final Set<Integer> locallyShownTiles = new HashSet<>();
 
-    // Ladder missions board: mission tiles we've already alerted "new mission" for, and claim tiles
-    // we've already announced. Seeded on the first poll of an event (no backlog dump), cleared on change.
-    private final Set<Integer> notifiedMissionTiles = new HashSet<>();
 
-    private final Set<Integer> notifiedClaimTiles = new HashSet<>();
 
-    private Integer ladderBaselineEventId;
-
-    public void checkTileCompletions(PluginConfigResponse cfg) {
-        if (cfg == null || cfg.event == null || cfg.completedTiles == null) {
-            return;
-        }
-        boolean seeding = completionBaselineEventId == null || completionBaselineEventId != cfg.event.id;
-        if (seeding) {
-            notifiedCompletedTiles.clear();
-            locallyShownTiles.clear();
-            completionBaselineEventId = cfg.event.id;
-        }
-        // Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
-        // popup is toggled off, so flipping it on later won't dump a backlog.
-        List<CompletedTile> newlyDone = new ArrayList<>();
-        for (CompletedTile t : cfg.completedTiles) {
-            if (notifiedCompletedTiles.add(t.tileId) && !seeding && !locallyShownTiles.contains(t.tileId)) {
-                newlyDone.add(t);
-            }
-        }
-        if (newlyDone.isEmpty() || !config.teamCompletionBanner()) {
-            return;
-        }
-        // Banner only the hardest (most points) tile this poll to avoid a burst of banners.
-        CompletedTile hardest = newlyDone.get(0);
-        for (CompletedTile t : newlyDone) {
-            if (t.points > hardest.points) {
-                hardest = t;
-            }
-        }
-        clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label);
-        sounds.playBannerSound();
-        // A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
-        // banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
-        // carry no crediting player, so those just say "Tile complete: <label>!".
-        for (CompletedTile t : newlyDone) {
-            String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
-                    ? " — by " + t.completedBy.trim() : "";
-            clipMoments.record("✅ Tile complete: " + t.label);
-            chat.send("Tile complete: " + t.label + by + "!");
-        }
-    }
-
-    /**
-     * Missions board alerts, diffed across config polls like {@link #checkTileCompletions}: a banner +
-     * chat when a NEW mission drops, and when ANOTHER player claims a lock-out one (own claims skipped).
-     * Both pulse the sidebar card. Seeded on the first poll so opening the board doesn't dump the
-     * backlog. Fires for a ladder OR a classic bingo carrying missions — NOT for a reveal-policy board
-     * (showdown/rotating/bounty), whose reveals keep their existing sidebar-note behaviour.
-     */
-    public void checkMissionAlerts(PluginConfigResponse cfg) {
-        if (cfg == null || cfg.event == null) {
-            return;
-        }
-        boolean revealBoard = cfg.event.revealPolicy != null && !cfg.event.revealPolicy.isEmpty();
-        boolean surface = LadderMissions.isLadder(cfg.event.format)
-            || (!revealBoard && cfg.serverSupports("bingo-missions"));
-        if (!surface) {
-            return;
-        }
-        String tag = LadderMissions.isLadder(cfg.event.format) ? "Anvil Ladder" : "Anvil";
-        boolean seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
-        if (seeding) {
-            notifiedMissionTiles.clear();
-            notifiedClaimTiles.clear();
-            ladderBaselineEventId = cfg.event.id;
-        }
-
-        // --- new missions (revealed + open) ---
-        List<Mission> fresh = new ArrayList<>();
-        if (cfg.event.missions != null) {
-            for (Mission m : cfg.event.missions) {
-                if (m != null && notifiedMissionTiles.add(m.tileId) && !seeding) {
-                    fresh.add(m);
-                }
-            }
-        }
-        if (!fresh.isEmpty()) {
-            Mission top = fresh.get(0);
-            for (Mission m : fresh) {
-                if (m.points > top.points) {
-                    top = m;
-                }
-            }
-            clogBanner.show(tag, "New mission!", top.label);
-            sounds.playMissionSound(false);
-            for (Mission m : fresh) {
-                clipMoments.record("⚡ New mission: " + m.label);
-                chat.send("New mission: " + m.label + " - " + m.points + " pts!");
-            }
-            if (sidebarPanel != null) {
-                sidebarPanel.flashLadder();
-            }
-        }
-
-        // --- lock-out claims by OTHER players ---
-        String me = Rsn.normalize(localPlayerName.get());
-        List<Claim> claims = new ArrayList<>();
-        if (cfg.event.recentClaims != null) {
-            for (Claim c : cfg.event.recentClaims) {
-                if (c == null || !notifiedClaimTiles.add(c.tileId) || seeding) {
-                    continue;
-                }
-                boolean mine = c.rsn != null && !me.isEmpty() && me.equals(Rsn.normalize(c.rsn));
-                if (!mine) {
-                    claims.add(c);
-                }
-            }
-        }
-        if (!claims.isEmpty()) {
-            Claim latest = claims.get(0);
-            String who = latest.rsn != null && !latest.rsn.trim().isEmpty() ? latest.rsn.trim() : "Someone";
-            clogBanner.show(tag, "Mission claimed", who + ": " + latest.label);
-            sounds.playMissionSound(true);
-            for (Claim c : claims) {
-                String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
-                chat.send(by + " claimed " + c.label + " - " + c.points + " pts!");
-            }
-            if (sidebarPanel != null) {
-                sidebarPanel.flashLadder();
-            }
-        }
-    }
-
-    /** Set once we've mentioned the canonical URL, so a 30-second poll does not become a 30-second nag. */
-    private volatile boolean urlMigrationSuggested = false;
 
     /**
      * Mention the site's preferred address, once, when the configured one is a legacy alias.
@@ -537,8 +396,8 @@ public class EventConfigStore
                 log.info("Anvil tracking: {}", summary);
             }
 
-            checkTileCompletions(pluginConfig);
-            checkMissionAlerts(pluginConfig);
+            alerts.checkTileCompletions(pluginConfig);
+            alerts.checkMissionAlerts(pluginConfig);
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
             nudges.maybeNudgeAutoSubmit();

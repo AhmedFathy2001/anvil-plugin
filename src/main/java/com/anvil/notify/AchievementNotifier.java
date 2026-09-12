@@ -131,8 +131,16 @@ public class AchievementNotifier
     }
 
     /** The quest-completion scroll's interface group, for the widget hook. */
-    public static int questScrollGroup() {
-        return QuestNotifier.questScrollGroup();
+    /**
+     * A widget group loaded — if it is the quest reward scroll, read it.
+     *
+     * <p>Next tick, with a couple of retries: the scroll's text child is not populated on the load
+     * event, so the first read is usually blank.</p>
+     */
+    public void onQuestScrollMaybeLoaded(int groupId) {
+        if (groupId == QuestNotifier.questScrollGroup()) {
+            questsRef.get().scheduleQuestScrollRead(3);
+        }
     }
 
     /** A skill already announced at 99 this session — the chat line and StatChanged both fire. */
