@@ -81,6 +81,9 @@ public class GainTracker
     /** A drop, a timed clear, or the starting shot — each with a screenshot behind it. */
     private final com.anvil.api.TileSubmissions tiles;
 
+    /** The starting shot: its own rule, its own deadline, and the only proof the plugin nags about. */
+    private final com.anvil.track.StartProofCapture startProof;
+
     @Inject
     GainTracker(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
             ItemManager itemManager, DrawManager drawManager, ConfigManager configManager,
@@ -90,7 +93,8 @@ public class GainTracker
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
             RecapCounters counters, ProofPipeline proofs, DropTracker drops,
         Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer,
-        com.anvil.api.TileSubmissions tiles) {
+        com.anvil.api.TileSubmissions tiles,
+        com.anvil.track.StartProofCapture startProof) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -116,6 +120,7 @@ public class GainTracker
         this.refreshConfig = boardRefresh::now;
         this.localPlayerName = localPlayer::name;
         this.tiles = tiles;
+        this.startProof = startProof;
     }
 
 
@@ -350,7 +355,7 @@ public class GainTracker
             final int playerId = pluginConfig.get().player.id;
             tasks.run(() -> {
                 try {
-                    proofs.warnStartProofBeforeCredit();
+                    startProof.warnBeforeCredit();
                     tiles.submitDrop(eventId, gain.tileId, teamId,
                             amount, null, "[Auto] " + gain.label + " gain(s) counted by RuneLite plugin",
                             playerId, null);
