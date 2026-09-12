@@ -2,6 +2,10 @@ package com.anvil;
 
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.EventInfo;
+import com.anvil.api.dto.PermanentSubmissionException;
+import com.anvil.api.dto.StartProof;
+import com.anvil.api.dto.TeamInfo;
 import com.anvil.detect.StartProofRules;
 import com.anvil.ui.AnvilSidebarDataSource;
 import com.google.gson.Gson;
@@ -25,19 +29,19 @@ public class StartProofTest
 	private static PluginConfigResponse liveConfig()
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.event = new PluginConfigResponse.EventInfo();
+		cfg.event = new EventInfo();
 		cfg.event.id = 7;
 		cfg.event.name = "Summer Bingo";
 		cfg.event.startDate = Instant.now().minus(1, ChronoUnit.HOURS).toString();
 		cfg.event.endDate = Instant.now().plus(1, ChronoUnit.DAYS).toString();
-		cfg.team = new PluginConfigResponse.TeamInfo();
+		cfg.team = new TeamInfo();
 		cfg.team.name = "Team Molten";
 		return cfg;
 	}
 
-	private static PluginConfigResponse.StartProof owed()
+	private static StartProof owed()
 	{
-		PluginConfigResponse.StartProof sp = new PluginConfigResponse.StartProof();
+		StartProof sp = new StartProof();
 		sp.required = true;
 		sp.drawn = true;
 		sp.location = "Edgeville bank";
@@ -57,7 +61,7 @@ public class StartProofTest
 		PluginConfigResponse cfg = liveConfig();
 		cfg.startProof = owed();
 
-		PluginConfigResponse.StartProof offered = sourceFor(cfg).startProof();
+		StartProof offered = sourceFor(cfg).startProof();
 		assertNotNull(offered);
 		assertEquals("Edgeville bank", offered.location);
 		assertEquals("ANVIL-GRAPE-47", offered.keyword);
@@ -108,10 +112,10 @@ public class StartProofTest
 		assertEquals(1, fired.get());
 	}
 
-	private static PluginConfigResponse.StartProof checked()
+	private static StartProof checked()
 	{
-		PluginConfigResponse.StartProof sp = owed();
-		sp.spot = new PluginConfigResponse.StartProof.Spot();
+		StartProof sp = owed();
+		sp.spot = new StartProof.Spot();
 		sp.spot.x = 3094;
 		sp.spot.y = 3491;
 		sp.spot.radius = 25;
@@ -165,7 +169,7 @@ public class StartProofTest
 		assertNull(StartProofRules.blockReason(owed(), StartProofRules.UNKNOWN_LOGIN, NOW, 2400, 3489));
 
 		// Pinned spot, but logged out / no position to read — the distance check simply doesn't run.
-		PluginConfigResponse.StartProof spotOnly = checked();
+		StartProof spotOnly = checked();
 		spotOnly.maxSessionMinutes = 0;
 		assertNull(StartProofRules.blockReason(spotOnly, StartProofRules.UNKNOWN_LOGIN, NOW, null, null));
 
@@ -179,7 +183,7 @@ public class StartProofTest
 	@Test
 	public void distanceIsMeasuredTheWayTheGameMeasuresIt()
 	{
-		PluginConfigResponse.StartProof sp = checked();
+		StartProof sp = checked();
 		// The longer axis wins — 30 east and 4 north is 30 squares away, not 34.
 		assertEquals(30, StartProofRules.distance(sp, 3124, 3495));
 		assertEquals(0, StartProofRules.distance(sp, 3094, 3491));
@@ -191,7 +195,7 @@ public class StartProofTest
 	@Test
 	public void describeWindowCountsDownAndThenGivesUp()
 	{
-		PluginConfigResponse.StartProof sp = owed();
+		StartProof sp = owed();
 		long now = java.time.Instant.parse("2026-08-16T19:00:00Z").toEpochMilli();
 		sp.windowEndsAt = "2026-08-17T00:00:00Z";
 		assertEquals("5h 00m", StartProofRules.describeWindow(sp, now));
@@ -214,11 +218,11 @@ public class StartProofTest
 		// shot, and the pending drop must survive until then.
 		java.io.IOException awaiting = BingoApiClient.submissionErrorForTest(
 			"Submission failed", 409, "{\"error\":\"Upload your starting shot first\",\"code\":\"start_proof_required\"}");
-		assertTrue(!(awaiting instanceof BingoApiClient.PermanentSubmissionException));
+		assertTrue(!(awaiting instanceof PermanentSubmissionException));
 
 		// Any other 409 stays permanent (tile already complete, etc.) so it can't loop forever.
 		java.io.IOException other = BingoApiClient.submissionErrorForTest(
 			"Submission failed", 409, "{\"error\":\"Tile already complete\"}");
-		assertTrue(other instanceof BingoApiClient.PermanentSubmissionException);
+		assertTrue(other instanceof PermanentSubmissionException);
 	}
 }

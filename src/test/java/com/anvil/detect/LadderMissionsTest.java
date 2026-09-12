@@ -1,6 +1,8 @@
 package com.anvil.detect;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.Decay;
+import com.anvil.ui.view.Ladder;
 import java.time.Instant;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -14,9 +16,9 @@ import static org.junit.Assert.assertTrue;
  */
 public class LadderMissionsTest
 {
-	private static PluginConfigResponse.Decay decay(int targetPct, int hours)
+	private static Decay decay(int targetPct, int hours)
 	{
-		PluginConfigResponse.Decay d = new PluginConfigResponse.Decay();
+		Decay d = new Decay();
 		d.targetPct = targetPct;
 		d.hours = hours;
 		return d;
@@ -41,7 +43,7 @@ public class LadderMissionsTest
 	{
 		long now = System.currentTimeMillis();
 		// 200-pt mission, decays to 50% over 24h. At reveal → 200; half-way (12h) → 150; full → 100; past → 100.
-		PluginConfigResponse.Decay d = decay(50, 24);
+		Decay d = decay(50, 24);
 		assertEquals(200, LadderMissions.liveValue(200, isoAgo(0), d, now));
 		assertEquals(150, LadderMissions.liveValue(200, isoAgo(12L * 3_600_000), d, now));
 		assertEquals(100, LadderMissions.liveValue(200, isoAgo(24L * 3_600_000), d, now));
@@ -53,7 +55,7 @@ public class LadderMissionsTest
 	{
 		long now = System.currentTimeMillis();
 		// 100-pt mission that GROWS to 200% over 10h. Half-way → 150; full → 200; capped after.
-		PluginConfigResponse.Decay d = decay(200, 10);
+		Decay d = decay(200, 10);
 		assertEquals(150, LadderMissions.liveValue(100, isoAgo(5L * 3_600_000), d, now));
 		assertEquals(200, LadderMissions.liveValue(100, isoAgo(10L * 3_600_000), d, now));
 		assertEquals(200, LadderMissions.liveValue(100, isoAgo(20L * 3_600_000), d, now));

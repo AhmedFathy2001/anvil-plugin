@@ -1,6 +1,8 @@
 package com.anvil.ui;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.ClanRef;
+import com.anvil.api.dto.StartProof;
 import com.anvil.util.Clipboards;
 import java.util.Collections;
 import java.util.List;
@@ -53,7 +55,7 @@ public interface SidebarDataSource
 	// the panel, which offers it as a dropdown.
 
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
-	default List<PluginConfigResponse.ClanRef> clans()
+	default List<ClanRef> clans()
 	{
 		return Collections.emptyList();
 	}
@@ -107,7 +109,7 @@ public interface SidebarDataSource
 	 * authenticated against, not about each connected clan, and the view's constructors are already
 	 * positional enough to make an eighth optional field a hazard.</p>
 	 */
-	default PluginConfigResponse.StartProof startProof()
+	default StartProof startProof()
 	{
 		return null;
 	}

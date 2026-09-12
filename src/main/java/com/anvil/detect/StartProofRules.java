@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.StartProof;
 
 /**
  * The client-side half of the STARTING SHOT rule (site lib/startProof).
@@ -33,7 +34,7 @@ public final class StartProofRules
 	 * Squares from the drawn spot, the way OSRS measures "within N squares" — the longer axis, not
 	 * the diagonal. -1 when there is nothing to measure (no pin, or no position to compare).
 	 */
-	public static int distance(PluginConfigResponse.StartProof proof, Integer x, Integer y)
+	public static int distance(StartProof proof, Integer x, Integer y)
 	{
 		if (proof == null || proof.spot == null || x == null || y == null)
 		{
@@ -50,7 +51,7 @@ public final class StartProofRules
 	 * rule only ever blocks on something we positively know is wrong.
 	 */
 	public static String blockReason(
-		PluginConfigResponse.StartProof proof,
+		StartProof proof,
 		long sessionLoginAtMs,
 		long nowMs,
 		Integer x,
@@ -95,7 +96,7 @@ public final class StartProofRules
 	 * stamp). The window closing is not a failure state: the ask simply expires, so this reads as a
 	 * countdown rather than a threat.
 	 */
-	public static String describeWindow(PluginConfigResponse.StartProof proof, long nowMs)
+	public static String describeWindow(StartProof proof, long nowMs)
 	{
 		if (proof == null || proof.windowEndsAt == null || proof.windowEndsAt.isEmpty())
 		{

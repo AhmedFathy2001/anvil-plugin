@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.api.BingoApiClient;
+import com.anvil.clog.model.Kind;
 
 /**
  * What the plugin says in chat about its own setup, and how often.

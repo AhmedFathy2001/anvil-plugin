@@ -1,6 +1,8 @@
 package com.anvil.io;
 
 import com.anvil.api.BingoApiClient;
+import com.anvil.api.dto.DeviceAuthPoll;
+import com.anvil.api.dto.DeviceAuthStart;
 import com.anvil.util.BrowserOpener;
 import com.anvil.util.PollScheduler;
 import java.net.URI;
@@ -96,7 +98,7 @@ public final class DeviceSignIn
 
 	private void start(Consumer<String> status, Consumer<Result> done)
 	{
-		BingoApiClient.DeviceAuthStart start = apiClient.authStart();
+		DeviceAuthStart start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty())
 		{
 			status.accept("Couldn't reach the site — check the Site URL.");
@@ -145,7 +147,7 @@ public final class DeviceSignIn
 		schedule(() ->
 		{
 			long nextIntervalMs = intervalMs;
-			BingoApiClient.DeviceAuthPoll poll = apiClient.authPoll(deviceCode);
+			DeviceAuthPoll poll = apiClient.authPoll(deviceCode);
 			if (poll != null && poll.status != null)
 			{
 				switch (poll.status)

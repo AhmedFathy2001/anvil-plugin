@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.clog.ClogRank;
+import com.anvil.clog.model.Kind;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;

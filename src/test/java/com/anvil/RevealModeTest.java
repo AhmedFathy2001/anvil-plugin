@@ -1,6 +1,7 @@
 package com.anvil;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.EventInfo;
 import com.anvil.ui.ActivityEntry;
 import com.anvil.ui.AnvilSidebarDataSource;
 import org.junit.Test;
@@ -34,9 +35,9 @@ public class RevealModeTest
 		assertEquals("New tile revealed: 500 Zulrah KC", e.summary());
 	}
 
-	private static PluginConfigResponse.EventInfo event(String policy, int hidden, String nextAt)
+	private static EventInfo event(String policy, int hidden, String nextAt)
 	{
-		PluginConfigResponse.EventInfo ev = new PluginConfigResponse.EventInfo();
+		EventInfo ev = new EventInfo();
 		ev.revealPolicy = policy;
 		ev.hiddenTileCount = hidden;
 		ev.nextRevealAt = nextAt;

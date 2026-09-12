@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.Decay;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
@@ -28,7 +29,7 @@ public final class LadderMissions
 	 * (0 at reveal → 1 after {@code hours}). {@code targetPct < 100} decays, {@code > 100} grows. Returns
 	 * the plain face when there's no decay rule or the reveal time is unknown/unparseable.
 	 */
-	public static long liveValue(long face, String revealedAtIso, PluginConfigResponse.Decay decay, long nowMs)
+	public static long liveValue(long face, String revealedAtIso, Decay decay, long nowMs)
 	{
 		if (decay == null || decay.hours <= 0)
 		{

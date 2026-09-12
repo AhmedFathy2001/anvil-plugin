@@ -3,6 +3,8 @@ package com.anvil.clip;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.ClipRelayResult;
+import com.anvil.api.dto.Standings;
 import com.anvil.io.DiscordWebhookClient;
 import com.anvil.io.ObsReplayClient;
 import com.anvil.ui.AnvilOverlay;
@@ -303,8 +305,8 @@ public class ObsClipService
 		String eventName = eventRunning ? cfg.event.name : null;
 		// Their board position rides along: the footage can show the kill but not that it put them
 		// top of the month.
-		PluginConfigResponse.Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
-		BingoApiClient.ClipRelayResult result = apiClient.postClip(
+		Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
+		ClipRelayResult result = apiClient.postClip(
 			file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
 			standings != null ? standings.yourRank : 0,
 			standings != null ? standings.yourPoints : 0);

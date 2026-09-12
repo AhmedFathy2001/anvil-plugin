@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.DropFacts;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -115,7 +116,7 @@ public final class DropSource
 	 * <p>A {@code "*"} source in the list means "wherever it drops" — what a clan override without
 	 * named sources stores, and the only sane reading of one.
 	 */
-	public static boolean isGuaranteed(PluginConfigResponse.DropFacts facts, String itemName, String source)
+	public static boolean isGuaranteed(DropFacts facts, String itemName, String source)
 	{
 		if (facts == null || facts.guaranteed == null || itemName == null)
 		{
@@ -139,7 +140,7 @@ public final class DropSource
 	}
 
 	/** The server's entry for a pet, or null when it has nothing to say about it. */
-	public static PluginConfigResponse.DropFacts.Pet petEntry(PluginConfigResponse.DropFacts facts, String petName)
+	public static DropFacts.Pet petEntry(DropFacts facts, String petName)
 	{
 		if (facts == null || facts.pets == null || petName == null)
 		{
@@ -167,10 +168,10 @@ public final class DropSource
 	 * @param observed  the loot source the client saw around the drop; may be null
 	 * @param killCount source name -> the player's kill count there, for the tie-break; may be null
 	 */
-	public static String resolvePetSource(PluginConfigResponse.DropFacts facts, String petName, String observed,
+	public static String resolvePetSource(DropFacts facts, String petName, String observed,
 								   Map<String, Integer> killCount)
 	{
-		PluginConfigResponse.DropFacts.Pet pet = petEntry(facts, petName);
+		DropFacts.Pet pet = petEntry(facts, petName);
 		if (pet == null || pet.sources == null || pet.sources.isEmpty())
 		{
 			// Nothing known about this pet: an older site, or a pet the catalogue has not placed.

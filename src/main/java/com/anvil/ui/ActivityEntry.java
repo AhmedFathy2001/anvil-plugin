@@ -1,11 +1,13 @@
 package com.anvil.ui;
 
 import com.anvil.clog.ClogTaskModel;
+import com.anvil.clog.model.Kind;
+import com.anvil.clog.model.TaskRow;
 
 /**
  * One entry in the always-on sidebar's live team feed — the plugin-side mirror of the Site's
  * {@code /api/plugin/activity} JSON (see {@code Anvil.Site/src/lib/pluginActivity.ts}). RuneLite-free
- * and immutable, in the value-object style of {@link ClogTaskModel.TaskRow} / {@link ConnectionView}.
+ * and immutable, in the value-object style of {@link TaskRow} / {@link ConnectionView}.
  */
 public final class ActivityEntry
 {

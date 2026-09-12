@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.RollTable;
 import java.util.Arrays;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -10,9 +11,9 @@ import static org.junit.Assert.assertTrue;
 
 public class VestigeRollsTest
 {
-	private static PluginConfigResponse.RollTable duke()
+	private static RollTable duke()
 	{
-		PluginConfigResponse.RollTable t = new PluginConfigResponse.RollTable();
+		RollTable t = new RollTable();
 		t.boss = "Duke Sucellus";
 		// Virtus ×3, chromium ingot, Magus vestige, Eye of the duke.
 		t.rollItemIds = Arrays.asList(26241, 26243, 26245, 28276, 28281, 28321);
@@ -82,7 +83,7 @@ public class VestigeRollsTest
 	@Test
 	public void eachBossKeepsItsOwnCycle()
 	{
-		PluginConfigResponse.RollTable vard = new PluginConfigResponse.RollTable();
+		RollTable vard = new RollTable();
 		vard.boss = "Vardorvis";
 		vard.rollItemIds = Arrays.asList(26241, 28276, 28285, 28319);
 		vard.vestigeItemId = 28285;

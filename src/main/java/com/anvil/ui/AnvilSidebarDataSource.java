@@ -3,8 +3,28 @@ package com.anvil.ui;
 import com.anvil.AnvilPlugin;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.ActiveWeekly;
+import com.anvil.api.dto.ActivityItem;
+import com.anvil.api.dto.ActivityResponse;
+import com.anvil.api.dto.ClanRef;
+import com.anvil.api.dto.EventInfo;
+import com.anvil.api.dto.HomeBoard;
+import com.anvil.api.dto.LeaderboardEntry;
+import com.anvil.api.dto.Mission;
+import com.anvil.api.dto.ScheduledBingo;
+import com.anvil.api.dto.ScheduledWeekly;
+import com.anvil.api.dto.StartProof;
+import com.anvil.api.dto.TrackedStat;
+import com.anvil.api.dto.WeeklyLeaderboard;
 import com.anvil.clog.ClogTaskModel;
+import com.anvil.clog.model.TaskRow;
 import com.anvil.detect.LadderMissions;
+import com.anvil.ui.view.ActiveTask;
+import com.anvil.ui.view.Ladder;
+import com.anvil.ui.view.ScheduledView;
+import com.anvil.ui.view.Standing;
+import com.anvil.ui.view.TileProgressView;
+import com.anvil.ui.view.WeeklyView;
 import com.anvil.util.Rsn;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -70,7 +90,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	// Weekly standings cache (compId → last leaderboard read), the comps already read this generation,
 	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
 	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
-	private final Map<Integer, BingoApiClient.WeeklyLeaderboard> weeklyBoards = new HashMap<>();
+	private final Map<Integer, WeeklyLeaderboard> weeklyBoards = new HashMap<>();
 	private final Set<Integer> weeklyBoardsTried = new HashSet<>();
 	private long weeklyBoardsAt;
 
@@ -223,7 +243,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
-	public PluginConfigResponse.StartProof startProof()
+	public StartProof startProof()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
 		if (cfg == null || cfg.startProof == null || !cfg.startProof.required
@@ -265,7 +285,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	// Straight off the config this source already reads, so offering the dropdown costs no request.
 
 	@Override
-	public List<PluginConfigResponse.ClanRef> clans()
+	public List<ClanRef> clans()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
 		return cfg == null ? Collections.emptyList() : cfg.switchableClans();
@@ -328,8 +348,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// SOTW/BOTW ride alongside the board as events of their own, so they show up whether or not the
 		// member is in a live bingo — a weekly-only clan still has something on the card. The clan's
 		// other/coming bingos ride along the same way, so "what's next" needs no site visit.
-		List<ConnectionView.WeeklyView> weeklies = buildWeeklies(cfg, force);
-		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg);
+		List<WeeklyView> weeklies = buildWeeklies(cfg, force);
+		List<ScheduledView> scheduled = buildScheduled(cfg);
 
 		if (cfg.event == null)
 		{
@@ -341,7 +361,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
 			// home card — without it, a federated sidebar shows only the OTHER clans, which reads as
 			// "my main clan disappeared".
-			PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
+			HomeBoard hb = cfg.homeBoard;
 			if (hb != null)
 			{
 				// The site resolved the user's live enrollment server-side (token → linked member →
@@ -364,7 +384,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			scopedEventId = cfg.event.id;
 		}
 
-		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
+		List<TaskRow> rows = ClogTaskModel.build(cfg);
 		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
 		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
 		// and every optional tile inflates the denominator).
@@ -392,13 +412,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			tilesTotal = cfg.board.tilesTotal;
 			tilesComplete = cfg.board.tilesComplete;
 		}
-		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
+		List<TileProgressView> nearest = nearestTiles(rows);
 
 		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.
 		String error = null;
 		try
 		{
-			BingoApiClient.ActivityResponse ar = apiClient.fetchActivity(activityLog.getCursor());
+			ActivityResponse ar = apiClient.fetchActivity(activityLog.getCursor());
 			if (ar != null && !ar.noActiveEvent)
 			{
 				activityLog.ingest(ar.cursor, toEntries(ar.activity));
@@ -412,11 +432,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		List<ActivityEntry> feed = activityLog.snapshot();
 		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
-		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
+		List<ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
 
 		// Ladder events render a DMM-All-Stars-style missions board instead of the tile-count reveal note:
 		// a live countdown, the open missions with their live grow/decay value, and your rank.
-		ConnectionView.Ladder ladder = buildLadder(cfg.event);
+		Ladder ladder = buildLadder(cfg.event);
 
 		// The clan filter is a CLAN switcher, so the label is the clan name (site-provided) — the
 		// event name lives on the card itself. Falls back to team/event for pre-clanName sites;
@@ -437,17 +457,17 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * degrades to a comp-only card when unreachable, and an upcoming one is never read at all (nothing
 	 * has happened yet). Live first, then soonest-starting.
 	 */
-	private List<ConnectionView.WeeklyView> buildWeeklies(PluginConfigResponse cfg, boolean force)
+	private List<WeeklyView> buildWeeklies(PluginConfigResponse cfg, boolean force)
 	{
-		List<BingoApiClient.ScheduledWeekly> weeklies = scheduledWeeklies(cfg);
+		List<ScheduledWeekly> weeklies = scheduledWeeklies(cfg);
 		if (weeklies.isEmpty())
 		{
 			weeklyBoards.clear();
 			weeklyBoardsTried.clear();
 			return Collections.emptyList();
 		}
-		List<BingoApiClient.ScheduledWeekly> live = new ArrayList<>();
-		for (BingoApiClient.ScheduledWeekly w : weeklies)
+		List<ScheduledWeekly> live = new ArrayList<>();
+		for (ScheduledWeekly w : weeklies)
 		{
 			if (isLive(w.status))
 			{
@@ -457,8 +477,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		refreshWeeklyBoards(live, force);
 
 		String me = Rsn.normalize(localRsn.get());
-		List<ConnectionView.WeeklyView> out = new ArrayList<>(weeklies.size());
-		for (BingoApiClient.ScheduledWeekly w : weeklies)
+		List<WeeklyView> out = new ArrayList<>(weeklies.size());
+		for (ScheduledWeekly w : weeklies)
 		{
 			out.add(toWeeklyView(w, weeklyBoards.get(w.id), me));
 		}
@@ -471,13 +491,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * and falls back to the single {@code activeWeekly} field so an older site still surfaces its one
 	 * live comp. The site only ships non-completed comps, so nothing here is over.
 	 */
-	private static List<BingoApiClient.ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
+	private static List<ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
 	{
-		List<BingoApiClient.ScheduledWeekly> out = new ArrayList<>();
+		List<ScheduledWeekly> out = new ArrayList<>();
 		Set<Integer> seen = new HashSet<>();
 		if (cfg.schedule != null && cfg.schedule.weeklies != null)
 		{
-			for (BingoApiClient.ScheduledWeekly w : cfg.schedule.weeklies)
+			for (ScheduledWeekly w : cfg.schedule.weeklies)
 			{
 				if (w != null && seen.add(w.id))
 				{
@@ -485,10 +505,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				}
 			}
 		}
-		BingoApiClient.ActiveWeekly a = cfg.activeWeekly;
+		ActiveWeekly a = cfg.activeWeekly;
 		if (a != null && seen.add(a.id))
 		{
-			BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
+			ScheduledWeekly w = new ScheduledWeekly();
 			w.id = a.id;
 			w.title = a.title;
 			w.type = a.type;
@@ -508,15 +528,15 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * plus what's coming up. Straight off the polled config; the caller's own event is dropped because
 	 * the board card already IS that event.
 	 */
-	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg)
+	private List<ScheduledView> buildScheduled(PluginConfigResponse cfg)
 	{
 		if (cfg.schedule == null || cfg.schedule.bingos == null)
 		{
 			return Collections.emptyList();
 		}
 		int ownEventId = cfg.event != null ? cfg.event.id : -1;
-		List<BingoApiClient.ScheduledBingo> bingos = new ArrayList<>();
-		for (BingoApiClient.ScheduledBingo b : cfg.schedule.bingos)
+		List<ScheduledBingo> bingos = new ArrayList<>();
+		for (ScheduledBingo b : cfg.schedule.bingos)
 		{
 			if (b != null && b.id != ownEventId)
 			{
@@ -527,10 +547,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			asEntry(x.status, x.startDate), asEntry(y.status, y.startDate)));
 
 		String base = apiClient.getApiUrl();
-		List<ConnectionView.ScheduledView> out = new ArrayList<>(bingos.size());
-		for (BingoApiClient.ScheduledBingo b : bingos)
+		List<ScheduledView> out = new ArrayList<>(bingos.size());
+		for (ScheduledBingo b : bingos)
 		{
-			out.add(new ConnectionView.ScheduledView(b.id, b.title, b.startDate, b.endDate,
+			out.add(new ScheduledView(b.id, b.title, b.startDate, b.endDate,
 				isLive(b.status), b.tileCount == null ? 0 : b.tileCount,
 				b.boardSize == null ? 0 : b.boardSize, b.format, b.scoringMode,
 				base == null || base.isEmpty() ? null : base + "/events/" + b.id));
@@ -539,7 +559,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Live first, then soonest start (ISO strings sort chronologically); undated last. */
-	private static final Comparator<BingoApiClient.ScheduledWeekly> SCHEDULE_ORDER = (a, b) ->
+	private static final Comparator<ScheduledWeekly> SCHEDULE_ORDER = (a, b) ->
 	{
 		boolean la = isLive(a.status);
 		boolean lb = isLive(b.status);
@@ -557,9 +577,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	};
 
 	/** Adapter so the bingo list can reuse {@link #SCHEDULE_ORDER} (same status/start ordering). */
-	private static BingoApiClient.ScheduledWeekly asEntry(String status, String startDate)
+	private static ScheduledWeekly asEntry(String status, String startDate)
 	{
-		BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
+		ScheduledWeekly w = new ScheduledWeekly();
 		w.status = status;
 		w.startDate = startDate;
 		return w;
@@ -576,7 +596,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * leaderboard is retried on the same slow cadence instead of every poll. A comp that stopped
 	 * running is dropped, so the cache can't outlive it.
 	 */
-	private void refreshWeeklyBoards(List<BingoApiClient.ScheduledWeekly> live, boolean force)
+	private void refreshWeeklyBoards(List<ScheduledWeekly> live, boolean force)
 	{
 		final long now = System.currentTimeMillis();
 		if (force || now - weeklyBoardsAt >= WEEKLY_STANDINGS_TTL_MS)
@@ -585,7 +605,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			weeklyBoardsAt = now;
 		}
 		Set<Integer> liveIds = new HashSet<>();
-		for (BingoApiClient.ScheduledWeekly w : live)
+		for (ScheduledWeekly w : live)
 		{
 			liveIds.add(w.id);
 			if (!weeklyBoardsTried.add(w.id))
@@ -594,7 +614,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 			try
 			{
-				BingoApiClient.WeeklyLeaderboard lb = apiClient.fetchWeeklyLeaderboard(w.id);
+				WeeklyLeaderboard lb = apiClient.fetchWeeklyLeaderboard(w.id);
 				if (lb != null)
 				{
 					weeklyBoards.put(w.id, lb);
@@ -611,10 +631,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Fold one comp + its (possibly absent) leaderboard into the panel's weekly card. */
-	private ConnectionView.WeeklyView toWeeklyView(BingoApiClient.ScheduledWeekly w,
-		BingoApiClient.WeeklyLeaderboard lb, String me)
+	private WeeklyView toWeeklyView(ScheduledWeekly w,
+		WeeklyLeaderboard lb, String me)
 	{
-		List<ConnectionView.Standing> top = new ArrayList<>();
+		List<Standing> top = new ArrayList<>();
 		int yourRank = 0;
 		long yourGained = 0;
 		int participants = 0;
@@ -623,7 +643,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			participants = lb.total;
 			if (lb.entries != null)
 			{
-				for (BingoApiClient.LeaderboardEntry e : lb.entries)
+				for (LeaderboardEntry e : lb.entries)
 				{
 					if (e == null)
 					{
@@ -639,12 +659,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 					}
 					if (top.size() < WEEKLY_TOP_LIMIT || self)
 					{
-						top.add(new ConnectionView.Standing(e.rank, e.rsn, e.gained, self));
+						top.add(new Standing(e.rank, e.rsn, e.gained, self));
 					}
 				}
 			}
 		}
-		return new ConnectionView.WeeklyView(w.id, w.title, w.type, w.metric, w.metricLabel,
+		return new WeeklyView(w.id, w.title, w.type, w.metric, w.metricLabel,
 			w.startDate, w.endDate, !isLive(w.status), yourRank, yourGained, participants, top,
 			weeklyUrlFor(w.id));
 	}
@@ -657,7 +677,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/**
-	 * Fold missions into the sidebar's {@link ConnectionView.Ladder} view-model: the countdown target,
+	 * Fold missions into the sidebar's {@link Ladder} view-model: the countdown target,
 	 * the caller's month + all-time rank, and the open missions.
 	 *
 	 * Built for a ladder (where it REPLACES the board summary) and, since a normal bingo can drop
@@ -665,7 +685,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * a strip under the usual summary. Null when neither applies, and the plain summary + reveal note
 	 * render on their own.
 	 */
-	static ConnectionView.Ladder buildLadder(PluginConfigResponse.EventInfo event)
+	static Ladder buildLadder(EventInfo event)
 	{
 		if (event == null)
 		{
@@ -677,21 +697,21 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		{
 			return null;
 		}
-		List<ConnectionView.Ladder.Mission> missions = new ArrayList<>();
+		List<Ladder.Mission> missions = new ArrayList<>();
 		if (event.missions != null)
 		{
-			for (PluginConfigResponse.Mission m : event.missions)
+			for (Mission m : event.missions)
 			{
 				if (m != null)
 				{
-					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt));
+					missions.add(new Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt));
 				}
 			}
 		}
 		int monthRank = event.monthlyStandings != null ? event.monthlyStandings.yourRank : 0;
 		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
 		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
-		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
+		return new Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
 			event.decay, missions, ladder);
 	}
 
@@ -699,7 +719,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * Reveal-policy boards: the "still hidden" one-liner under the board summary, or null on classic
 	 * boards / older servers (no field). Bounty draws on claim, the others on a clock the server sends.
 	 */
-	public static String revealNote(PluginConfigResponse.EventInfo event)
+	public static String revealNote(EventInfo event)
 	{
 		if (event == null || event.revealPolicy == null || event.revealPolicy.isEmpty() || event.hiddenTileCount <= 0)
 		{
@@ -790,12 +810,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
-	private List<ConnectionView.ActiveTask> buildActiveNow(PluginConfigResponse cfg,
-		List<ClogTaskModel.TaskRow> rows, List<ActivityEntry> feed)
+	private List<ActiveTask> buildActiveNow(PluginConfigResponse cfg,
+		List<TaskRow> rows, List<ActivityEntry> feed)
 	{
 		final long now = System.currentTimeMillis();
-		Map<Integer, ClogTaskModel.TaskRow> incompleteById = new HashMap<>();
-		for (ClogTaskModel.TaskRow r : rows)
+		Map<Integer, TaskRow> incompleteById = new HashMap<>();
+		for (TaskRow r : rows)
 		{
 			if (!r.isCompleted())
 			{
@@ -807,7 +827,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		Map<Integer, List<String>> namedByTile = new HashMap<>();
 		if (cfg.trackedStats != null)
 		{
-			for (PluginConfigResponse.TrackedStat s : cfg.trackedStats)
+			for (TrackedStat s : cfg.trackedStats)
 			{
 				if (s != null && s.activeWorkers != null)
 				{
@@ -862,7 +882,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Long> rose = roseAt.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Integer> current = new HashMap<>();
-		for (ClogTaskModel.TaskRow r : rows)
+		for (TaskRow r : rows)
 		{
 			current.put(r.tileId, r.current);
 			if (r.isCompleted())
@@ -897,7 +917,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// Newest-active first, capped; "You" leads each row's workers.
 		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());
 		ordered.sort((x, y) -> Long.compare(y.getValue().recency, x.getValue().recency));
-		List<ConnectionView.ActiveTask> out = new ArrayList<>();
+		List<ActiveTask> out = new ArrayList<>();
 		for (Map.Entry<Integer, Acc> en : ordered)
 		{
 			if (out.size() >= MAX_ACTIVE)
@@ -917,7 +937,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 					workers.add(w);
 				}
 			}
-			out.add(new ConnectionView.ActiveTask(incompleteById.get(en.getKey()), workers, a.self));
+			out.add(new ActiveTask(incompleteById.get(en.getKey()), workers, a.self));
 		}
 		return out;
 	}
@@ -930,7 +950,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		long recency;
 	}
 
-	private static void add(Map<Integer, Acc> acc, Map<Integer, ClogTaskModel.TaskRow> incompleteById,
+	private static void add(Map<Integer, Acc> acc, Map<Integer, TaskRow> incompleteById,
 		int tileId, String worker, boolean self, long recency)
 	{
 		if (worker == null || !incompleteById.containsKey(tileId))
@@ -944,10 +964,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */
-	private static List<ConnectionView.TileProgressView> nearestTiles(List<ClogTaskModel.TaskRow> rows)
+	private static List<TileProgressView> nearestTiles(List<TaskRow> rows)
 	{
-		List<ClogTaskModel.TaskRow> incomplete = new ArrayList<>();
-		for (ClogTaskModel.TaskRow r : rows)
+		List<TaskRow> incomplete = new ArrayList<>();
+		for (TaskRow r : rows)
 		{
 			if (!r.isCompleted())
 			{
@@ -957,16 +977,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		incomplete.sort(Comparator.comparingDouble(AnvilSidebarDataSource::fraction).reversed()
 			.thenComparingInt(r -> r.position));
 
-		List<ConnectionView.TileProgressView> out = new ArrayList<>();
+		List<TileProgressView> out = new ArrayList<>();
 		for (int i = 0; i < incomplete.size() && i < NEAREST_LIMIT; i++)
 		{
-			ClogTaskModel.TaskRow r = incomplete.get(i);
-			out.add(new ConnectionView.TileProgressView(r.label, r.current, r.goal, false));
+			TaskRow r = incomplete.get(i);
+			out.add(new TileProgressView(r.label, r.current, r.goal, false));
 		}
 		return out;
 	}
 
-	private static double fraction(ClogTaskModel.TaskRow r)
+	private static double fraction(TaskRow r)
 	{
 		return r.goal > 0 ? Math.min(1.0, (double) r.current / r.goal) : 0.0;
 	}
@@ -993,14 +1013,14 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 	}
 
-	private static List<ActivityEntry> toEntries(List<BingoApiClient.ActivityItem> items)
+	private static List<ActivityEntry> toEntries(List<ActivityItem> items)
 	{
 		if (items == null || items.isEmpty())
 		{
 			return Collections.emptyList();
 		}
 		List<ActivityEntry> out = new ArrayList<>(items.size());
-		for (BingoApiClient.ActivityItem it : items)
+		for (ActivityItem it : items)
 		{
 			if (it == null)
 			{

@@ -2,6 +2,35 @@ package com.anvil;
 
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.BingoInfo;
+import com.anvil.api.dto.Claim;
+import com.anvil.api.dto.ClanRef;
+import com.anvil.api.dto.ClogPushResult;
+import com.anvil.api.dto.CompletedTile;
+import com.anvil.api.dto.CoopFingerprint;
+import com.anvil.api.dto.DropFacts;
+import com.anvil.api.dto.EventInfo;
+import com.anvil.api.dto.HelloResponse;
+import com.anvil.api.dto.ItemRequirement;
+import com.anvil.api.dto.Mission;
+import com.anvil.api.dto.NotifyChannels;
+import com.anvil.api.dto.PermanentSubmissionException;
+import com.anvil.api.dto.RateLimitedException;
+import com.anvil.api.dto.RollTable;
+import com.anvil.api.dto.RosterEntry;
+import com.anvil.api.dto.StartProof;
+import com.anvil.api.dto.TrackedCombatTask;
+import com.anvil.api.dto.TrackedDeathless;
+import com.anvil.api.dto.TrackedDiary;
+import com.anvil.api.dto.TrackedDrop;
+import com.anvil.api.dto.TrackedGain;
+import com.anvil.api.dto.TrackedKill;
+import com.anvil.api.dto.TrackedLms;
+import com.anvil.api.dto.TrackedPvp;
+import com.anvil.api.dto.TrackedStat;
+import com.anvil.api.dto.TrackedTimed;
+import com.anvil.api.dto.TrackedValue;
+import com.anvil.api.dto.WeeklyInfo;
 import com.anvil.clan.ClanRosterService;
 import com.anvil.clip.ObsClipService;
 import com.anvil.clog.ClogFullSync;
@@ -10,6 +39,7 @@ import com.anvil.clog.ClogPageReader;
 import com.anvil.clog.ClogRank;
 import com.anvil.clog.ClogSync;
 import com.anvil.clog.ClogTaskModel;
+import com.anvil.clog.model.Status;
 import com.anvil.detect.AbstractRarityService;
 import com.anvil.detect.AccountProgress;
 import com.anvil.detect.ActivityStats;
@@ -33,13 +63,16 @@ import com.anvil.io.ObsReplayClient;
 import com.anvil.io.PendingSubmissionStore;
 import com.anvil.ui.AnvilMoments;
 import com.anvil.ui.AnvilOverlay;
-import com.anvil.ui.ProofBanner;
 import com.anvil.ui.AnvilSidebarDataSource;
 import com.anvil.ui.AnvilSidebarPanel;
 import com.anvil.ui.BingoClogBannerOverlay;
 import com.anvil.ui.ConnectionView;
 import com.anvil.ui.HeaderButton;
+import com.anvil.ui.ProofBanner;
 import com.anvil.ui.SidebarDataSource;
+import com.anvil.ui.view.Ladder;
+import com.anvil.ui.view.Standing;
+import com.anvil.ui.view.WeeklyView;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.ClipMoments;
 import com.anvil.util.CombatTarget;
@@ -334,7 +367,7 @@ public class AnvilPlugin extends Plugin {
     private volatile boolean freshLoginPending;
 
     // Item ID → tracked drops lookup for O(1) loot matching
-    private volatile Map<Integer, List<PluginConfigResponse.TrackedDrop>> itemDropIndex = Collections.emptyMap();
+    private volatile Map<Integer, List<TrackedDrop>> itemDropIndex = Collections.emptyMap();
 
     // Item IDs whose drop ALWAYS posts to the rare-drop channel regardless of value/rarity. The server
     // resolves pluginConfig.alwaysNotifyItems (names) to ids so matching is by ID — not a fragile name
@@ -700,14 +733,14 @@ public class AnvilPlugin extends Plugin {
 
     private static class DropAggregate extends TileAggregate {
 
-        final PluginConfigResponse.TrackedDrop drop;
+        final TrackedDrop drop;
         final Integer trackingItemId;
         // Frame grabbed the moment the first drop of the burst landed. The flush shot fires
         // COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
         // hands listeners a copy of the graphics buffer, so holding it is safe.
         volatile BufferedImage triggerFrame;
 
-        DropAggregate(PluginConfigResponse.TrackedDrop drop, Integer trackingItemId) {
+        DropAggregate(TrackedDrop drop, Integer trackingItemId) {
             this.drop = drop;
             this.trackingItemId = trackingItemId;
         }
@@ -718,7 +751,7 @@ public class AnvilPlugin extends Plugin {
 
     // ---- Kill-count tiles ----------------------------------------------------------------
     // Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
-    private volatile Map<String, List<PluginConfigResponse.TrackedKill>> killNpcIndex = Collections.emptyMap();
+    private volatile Map<String, List<TrackedKill>> killNpcIndex = Collections.emptyMap();
 
     // ---- PvP-kill tiles --------------------------------------------------------------------
     // Normalised RSN -> teamId for every enrolled event player, so 'team:other' selectors can
@@ -727,12 +760,12 @@ public class AnvilPlugin extends Plugin {
 
     private static class KillAggregate extends TileAggregate {
 
-        final PluginConfigResponse.TrackedKill kill;
+        final TrackedKill kill;
         // Who was with us, captured when the kill happened — by the time the coalesced flush runs
         // the party has scattered and the scene says nothing.
-        BingoApiClient.CoopFingerprint coop;
+        CoopFingerprint coop;
 
-        KillAggregate(PluginConfigResponse.TrackedKill kill) {
+        KillAggregate(TrackedKill kill) {
             this.kill = kill;
         }
     }
@@ -743,16 +776,16 @@ public class AnvilPlugin extends Plugin {
     // ---- Item-gain tiles (catch/cook/gather — counted from inventory gains) ----------------
     private static class GainAggregate extends TileAggregate {
 
-        final PluginConfigResponse.TrackedGain gain;
+        final TrackedGain gain;
         final long firstQueuedAt = System.currentTimeMillis();
 
-        GainAggregate(PluginConfigResponse.TrackedGain gain) {
+        GainAggregate(TrackedGain gain) {
             this.gain = gain;
         }
     }
 
     // itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
-    private volatile Map<Integer, List<PluginConfigResponse.TrackedGain>> gainItemIndex = Collections.emptyMap();
+    private volatile Map<Integer, List<TrackedGain>> gainItemIndex = Collections.emptyMap();
 
     // ---- Real-time boss-KC push (hiscores tiles) -------------------------------------------
     // Lowercased in-game KC-line boss names the server tracks as boss-KC tiles. Rebuilt with the
@@ -1453,7 +1486,7 @@ public class AnvilPlugin extends Plugin {
         return (s == null || s.isEmpty()) ? "(none)" : s;
     }
 
-    private void showBingoToast(PluginConfigResponse.TrackedDrop drop, int current, int required) {
+    private void showBingoToast(TrackedDrop drop, int current, int required) {
         clogBanner.show(drop.label, current, required);
         playBannerSound();
         if (current >= required) {
@@ -2062,7 +2095,7 @@ public class AnvilPlugin extends Plugin {
         }
         final int kills = lmsKills;
         final String place = ordinal(placement);
-        for (PluginConfigResponse.TrackedLms tile : pluginConfig.trackedLms) {
+        for (TrackedLms tile : pluginConfig.trackedLms) {
             if (tile.completed) {
                 continue;
             }
@@ -2405,7 +2438,7 @@ public class AnvilPlugin extends Plugin {
         if (config.apiUrl() == null || config.apiUrl().isEmpty()) {
             return;
         }
-        BingoApiClient.HelloResponse resp = apiClient.hello(rsn);
+        HelloResponse resp = apiClient.hello(rsn);
         helloSent = true;
         if (resp == null) {
             return;
@@ -2433,13 +2466,13 @@ public class AnvilPlugin extends Plugin {
 
         // Greet with whatever's running right now so members know to jump in.
         if (resp.activeWeekly != null) {
-            for (BingoApiClient.WeeklyInfo w : resp.activeWeekly) {
-                String kind = ConnectionView.WeeklyView.kindLabel(w.type);
+            for (WeeklyInfo w : resp.activeWeekly) {
+                String kind = WeeklyView.kindLabel(w.type);
                 sendChatMessage(kind + " is live: " + w.title + "!");
             }
         }
         if (resp.activeBingos != null) {
-            for (BingoApiClient.BingoInfo b : resp.activeBingos) {
+            for (BingoInfo b : resp.activeBingos) {
                 sendChatMessage("Bingo running: " + b.name + ".");
             }
         }
@@ -2607,7 +2640,7 @@ public class AnvilPlugin extends Plugin {
         if (haulGp <= 0) {
             return;
         }
-        for (PluginConfigResponse.TrackedValue v : pluginConfig.trackedValues) {
+        for (TrackedValue v : pluginConfig.trackedValues) {
             if (v == null || v.completed) {
                 continue;
             }
@@ -2639,7 +2672,7 @@ public class AnvilPlugin extends Plugin {
                 // Single-haul completion: optimistically mark done so a follow-up haul in the same
                 // stint doesn't double-submit; capture a proof screenshot (rollback reverts on failure).
                 v.completed = true;
-                final PluginConfigResponse.TrackedValue tile = v;
+                final TrackedValue tile = v;
                 log.info("Value tile credited (single): '{}' haul {} gp (threshold {})", v.label, haulGp, v.thresholdGp);
                 captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
                         "[Auto] loot worth " + gp + " (" + v.label + ") detected by RuneLite plugin",
@@ -3342,7 +3375,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
 
-        Map<Integer, List<PluginConfigResponse.TrackedDrop>> index = itemDropIndex;
+        Map<Integer, List<TrackedDrop>> index = itemDropIndex;
 
         // Credits handed to each tile by THIS kill, for tiles that cap it (perKillCap). A kill is
         // one loot event, so the counter lives for one call: a boss that drops a vestige and an
@@ -3356,12 +3389,12 @@ public class AnvilPlugin extends Plugin {
             if (!"clog".equals(sourceKind)) {
                 recentLootItemIds.record(itemId);
             }
-            List<PluginConfigResponse.TrackedDrop> matchingDrops = index.get(itemId);
+            List<TrackedDrop> matchingDrops = index.get(itemId);
             if (matchingDrops == null) {
                 continue;
             }
 
-            for (PluginConfigResponse.TrackedDrop drop : matchingDrops) {
+            for (TrackedDrop drop : matchingDrops) {
                 // Per-item (collection/set) tiles can't use the aggregate short-circuit: requiredAmount
                 // is the SHORTEST path to completion (the smallest set on an any-one-set tile), so
                 // scattered pieces across sets pass it long before the tile is actually done — and the
@@ -3455,8 +3488,8 @@ public class AnvilPlugin extends Plugin {
                 Integer trackingItemId = null;
                 int amount;
                 if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-                    PluginConfigResponse.ItemRequirement req = null;
-                    for (PluginConfigResponse.ItemRequirement r : drop.itemRequirements) {
+                    ItemRequirement req = null;
+                    for (ItemRequirement r : drop.itemRequirements) {
                         if (r.itemId == itemId) {
                             req = r;
                             break;
@@ -3568,7 +3601,7 @@ public class AnvilPlugin extends Plugin {
         submit.accept(agg);
     }
 
-    private void queueDropForFlush(PluginConfigResponse.TrackedDrop drop, int amount,
+    private void queueDropForFlush(TrackedDrop drop, int amount,
             int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
         if (!tasks.isLive()) {
             return;
@@ -3633,7 +3666,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String key = npcName.toLowerCase();
-        List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(key);
+        List<TrackedKill> matches = killNpcIndex.get(key);
         if (matches == null || matches.isEmpty()) {
             return;
         }
@@ -3666,7 +3699,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String key = npcName.toLowerCase();
-        List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(key);
+        List<TrackedKill> matches = killNpcIndex.get(key);
         if (matches == null || matches.isEmpty()) {
             return;
         }
@@ -3706,15 +3739,15 @@ public class AnvilPlugin extends Plugin {
         }
         // Identity set: two DIFFERENT tiles with the same name must both credit, but the SAME tile
         // reached via two of its own names must not.
-        Set<PluginConfigResponse.TrackedKill> seen =
+        Set<TrackedKill> seen =
                 Collections.newSetFromMap(new IdentityHashMap<>());
-        List<PluginConfigResponse.TrackedKill> unique = new ArrayList<>();
+        List<TrackedKill> unique = new ArrayList<>();
         for (String name : names) {
-            List<PluginConfigResponse.TrackedKill> matches = killNpcIndex.get(name.toLowerCase());
+            List<TrackedKill> matches = killNpcIndex.get(name.toLowerCase());
             if (matches == null) {
                 continue;
             }
-            for (PluginConfigResponse.TrackedKill kill : matches) {
+            for (TrackedKill kill : matches) {
                 if (seen.add(kill)) {
                     unique.add(kill);
                 }
@@ -3725,8 +3758,8 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    private void creditKillTiles(String npcName, List<PluginConfigResponse.TrackedKill> matches, int amount) {
-        for (PluginConfigResponse.TrackedKill kill : matches) {
+    private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount) {
+        for (TrackedKill kill : matches) {
             if (kill.currentAmount >= kill.requiredAmount) {
                 continue;
             }
@@ -3744,7 +3777,7 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    private void queueKillForFlush(PluginConfigResponse.TrackedKill kill, int amount,
+    private void queueKillForFlush(TrackedKill kill, int amount,
             int snapshotCurrent, int snapshotRequired) {
         if (!tasks.isLive()) {
             return;
@@ -3757,7 +3790,7 @@ public class AnvilPlugin extends Plugin {
                 pendingKillAggregates.put(key, agg);
             }
             if (kill.needsCoopFingerprint()) {
-                BingoApiClient.CoopFingerprint fp = coopFingerprint();
+                CoopFingerprint fp = coopFingerprint();
                 // Keep the richest view across a coalesced burst: one kill in the window may have
                 // rendered a teammate another didn't.
                 if (fp != null && (agg.coop == null || fp.teammates.size() > agg.coop.teammates.size())) {
@@ -3794,9 +3827,9 @@ public class AnvilPlugin extends Plugin {
     // The count-only ping carries no image; the milestone/complete proof re-uses its PNG (below).
     private void doSubmitKillAggregate(KillAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
-        final PluginConfigResponse.TrackedKill kill = agg.kill;
+        final TrackedKill kill = agg.kill;
         final int amount = agg.total;
-        final BingoApiClient.CoopFingerprint coop = agg.coop;
+        final CoopFingerprint coop = agg.coop;
         final boolean complete = agg.snapshotCurrent >= agg.snapshotRequired;
 
         // Intermediate kills (not at a milestone, not completing) are count-only pings — no
@@ -3907,14 +3940,14 @@ public class AnvilPlugin extends Plugin {
             return;
         }
 
-        for (Map.Entry<Integer, List<PluginConfigResponse.TrackedGain>> entry : gainItemIndex.entrySet()) {
+        for (Map.Entry<Integer, List<TrackedGain>> entry : gainItemIndex.entrySet()) {
             int itemId = entry.getKey();
             int delta = counts.getOrDefault(itemId, 0) - previous.getOrDefault(itemId, 0);
             if (delta <= 0) {
                 continue;
             }
             // Every tile tracking this item credits, mirroring drops/kills.
-            for (PluginConfigResponse.TrackedGain gain : entry.getValue()) {
+            for (TrackedGain gain : entry.getValue()) {
                 if (gain.completed || gain.currentAmount >= gain.requiredAmount) {
                     continue;
                 }
@@ -3971,7 +4004,7 @@ public class AnvilPlugin extends Plugin {
      * (a catch every few seconds), so the settle window is long — one screenshot + one
      * submission per stint, with the running total baked on.
      */
-    private void queueGainForFlush(PluginConfigResponse.TrackedGain gain, int amount) {
+    private void queueGainForFlush(TrackedGain gain, int amount) {
         if (!tasks.isLive()) {
             return;
         }
@@ -4001,7 +4034,7 @@ public class AnvilPlugin extends Plugin {
 
     private void doSubmitGainAggregate(GainAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
-        final PluginConfigResponse.TrackedGain gain = agg.gain;
+        final TrackedGain gain = agg.gain;
         final int amount = agg.total;
 
         // Intermediate flushes are count-only pings — AFK gathering flushes every time the
@@ -4198,7 +4231,7 @@ public class AnvilPlugin extends Plugin {
             return false;
         }
         boolean any = false;
-        for (PluginConfigResponse.TrackedDeathless tile : pluginConfig.trackedDeathless) {
+        for (TrackedDeathless tile : pluginConfig.trackedDeathless) {
             if (tile == null || tile.completed || tile.activity == null
                     || tile.currentAmount >= Math.max(1, tile.requiredAmount)) {
                 continue;
@@ -4236,7 +4269,7 @@ public class AnvilPlugin extends Plugin {
             String detail = tile.activity + "  deathless"
                     + (tile.partySize > 0 ? "  party " + partySeen : "")
                     + "  (" + tile.currentAmount + "/" + goal + ")";
-            final PluginConfigResponse.TrackedDeathless credited = tile;
+            final TrackedDeathless credited = tile;
             captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO DEATHLESS", detail,
                     "[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
                     () -> credited.currentAmount = Math.max(0, credited.currentAmount - 1));
@@ -4252,7 +4285,7 @@ public class AnvilPlugin extends Plugin {
      */
     private boolean submitTimedForMessage(String lowerMessage, int seconds, long now) {
         boolean any = false;
-        for (PluginConfigResponse.TrackedTimed tile : pluginConfig.trackedTimed) {
+        for (TrackedTimed tile : pluginConfig.trackedTimed) {
             if (tile.completed || tile.activity == null) {
                 continue;
             }
@@ -4412,7 +4445,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** The drawn location + this player's keyword, for the sidebar's prompt. Null when nothing is owed. */
-    public PluginConfigResponse.StartProof getStartProof() {
+    public StartProof getStartProof() {
         PluginConfigResponse cfg = pluginConfig;
         return cfg != null ? cfg.startProof : null;
     }
@@ -4505,7 +4538,7 @@ public class AnvilPlugin extends Plugin {
         });
     }
 
-    private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
+    private void captureAndSubmit(TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
             BufferedImage triggerFrame) {
         noteLocalProgress(drop.tileId); // "Active now": this account credited this drop tile
         // Capture IDs now (before async) since pluginConfig could change
@@ -4642,7 +4675,7 @@ public class AnvilPlugin extends Plugin {
             log.info("Submission '{}' sent successfully!", pending.label);
             pendingSubmissionStore.remove(pending);
             return true;
-        } catch (BingoApiClient.PermanentSubmissionException e) {
+        } catch (PermanentSubmissionException e) {
             // The server rejected this for good (tile already complete, event ended, invalid) — retrying
             // will never work, so drop it instead of looping forever. Treat as handled, not a failure.
             log.info("Dropping pending '{}' — server rejected permanently: {}", pending.label, e.getMessage());
@@ -4839,8 +4872,8 @@ public class AnvilPlugin extends Plugin {
         }
         // Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
         // popup is toggled off, so flipping it on later won't dump a backlog.
-        List<PluginConfigResponse.CompletedTile> newlyDone = new ArrayList<>();
-        for (PluginConfigResponse.CompletedTile t : cfg.completedTiles) {
+        List<CompletedTile> newlyDone = new ArrayList<>();
+        for (CompletedTile t : cfg.completedTiles) {
             if (notifiedCompletedTiles.add(t.tileId) && !seeding && !locallyShownTiles.contains(t.tileId)) {
                 newlyDone.add(t);
             }
@@ -4849,8 +4882,8 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         // Banner only the hardest (most points) tile this poll to avoid a burst of banners.
-        PluginConfigResponse.CompletedTile hardest = newlyDone.get(0);
-        for (PluginConfigResponse.CompletedTile t : newlyDone) {
+        CompletedTile hardest = newlyDone.get(0);
+        for (CompletedTile t : newlyDone) {
             if (t.points > hardest.points) {
                 hardest = t;
             }
@@ -4860,7 +4893,7 @@ public class AnvilPlugin extends Plugin {
         // A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
         // banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
         // carry no crediting player, so those just say "Tile complete: <label>!".
-        for (PluginConfigResponse.CompletedTile t : newlyDone) {
+        for (CompletedTile t : newlyDone) {
             String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
                     ? " — by " + t.completedBy.trim() : "";
             clipMoments.record("✅ Tile complete: " + t.label);
@@ -4894,24 +4927,24 @@ public class AnvilPlugin extends Plugin {
         }
 
         // --- new missions (revealed + open) ---
-        List<PluginConfigResponse.Mission> fresh = new ArrayList<>();
+        List<Mission> fresh = new ArrayList<>();
         if (cfg.event.missions != null) {
-            for (PluginConfigResponse.Mission m : cfg.event.missions) {
+            for (Mission m : cfg.event.missions) {
                 if (m != null && notifiedMissionTiles.add(m.tileId) && !seeding) {
                     fresh.add(m);
                 }
             }
         }
         if (!fresh.isEmpty()) {
-            PluginConfigResponse.Mission top = fresh.get(0);
-            for (PluginConfigResponse.Mission m : fresh) {
+            Mission top = fresh.get(0);
+            for (Mission m : fresh) {
                 if (m.points > top.points) {
                     top = m;
                 }
             }
             clogBanner.show(tag, "New mission!", top.label);
             playMissionSound(false);
-            for (PluginConfigResponse.Mission m : fresh) {
+            for (Mission m : fresh) {
                 clipMoments.record("⚡ New mission: " + m.label);
                 sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
             }
@@ -4922,9 +4955,9 @@ public class AnvilPlugin extends Plugin {
 
         // --- lock-out claims by OTHER players ---
         String me = Rsn.normalize(getLocalPlayerName());
-        List<PluginConfigResponse.Claim> claims = new ArrayList<>();
+        List<Claim> claims = new ArrayList<>();
         if (cfg.event.recentClaims != null) {
-            for (PluginConfigResponse.Claim c : cfg.event.recentClaims) {
+            for (Claim c : cfg.event.recentClaims) {
                 if (c == null || !notifiedClaimTiles.add(c.tileId) || seeding) {
                     continue;
                 }
@@ -4935,11 +4968,11 @@ public class AnvilPlugin extends Plugin {
             }
         }
         if (!claims.isEmpty()) {
-            PluginConfigResponse.Claim latest = claims.get(0);
+            Claim latest = claims.get(0);
             String who = latest.rsn != null && !latest.rsn.trim().isEmpty() ? latest.rsn.trim() : "Someone";
             clogBanner.show(tag, "Mission claimed", who + ": " + latest.label);
             playMissionSound(true);
-            for (PluginConfigResponse.Claim c : claims) {
+            for (Claim c : claims) {
                 String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
                 sendChatMessage(by + " claimed " + c.label + " - " + c.points + " pts!");
             }
@@ -5017,7 +5050,7 @@ public class AnvilPlugin extends Plugin {
         if (chosen.isEmpty() || fresh.clans == null || fresh.clans.isEmpty()) {
             return;
         }
-        for (PluginConfigResponse.ClanRef c : fresh.clans) {
+        for (ClanRef c : fresh.clans) {
             if (c != null && chosen.equalsIgnoreCase(c.slug)) {
                 return;
             }
@@ -5161,7 +5194,7 @@ public class AnvilPlugin extends Plugin {
         if (startProofNudged || !needsStartProof()) {
             return;
         }
-        PluginConfigResponse.StartProof sp = pluginConfig.startProof;
+        StartProof sp = pluginConfig.startProof;
         startProofNudged = true;
         String left = StartProofRules.describeWindow(sp, System.currentTimeMillis());
         sendChatMessage("Starting shot needed before you play"
@@ -5195,7 +5228,7 @@ public class AnvilPlugin extends Plugin {
                 + " review until you take it. Anvil side panel → \"Take starting shot\".");
     }
 
-    private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {
+    private static boolean eventIsOver(EventInfo ev) {
         if (ev == null) {
             return false;
         }
@@ -5216,9 +5249,9 @@ public class AnvilPlugin extends Plugin {
      * Rebuild the itemId → TrackedDrop index for O(1) loot lookups.
      */
     private void rebuildItemDropIndex() {
-        Map<Integer, List<PluginConfigResponse.TrackedDrop>> index = new HashMap<>();
+        Map<Integer, List<TrackedDrop>> index = new HashMap<>();
         if (pluginConfig != null && pluginConfig.trackedDrops != null) {
-            for (PluginConfigResponse.TrackedDrop drop : pluginConfig.trackedDrops) {
+            for (TrackedDrop drop : pluginConfig.trackedDrops) {
                 if (drop.itemIds != null) {
                     for (Integer id : drop.itemIds) {
                         index.computeIfAbsent(id, k -> new ArrayList<>()).add(drop);
@@ -5295,7 +5328,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String n = name.toLowerCase(Locale.ROOT).trim();
-        for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
+        for (TrackedStat s : cfg.trackedStats) {
             if (s != null && s.statName != null
                     && n.equals(s.statName.toLowerCase(Locale.ROOT).trim())) {
                 noteLocalProgress(s.tileId);
@@ -5939,7 +5972,7 @@ public class AnvilPlugin extends Plugin {
         if (items == null || items.isEmpty() || !momentsEnabled()) {
             return;
         }
-        Map<Integer, List<PluginConfigResponse.TrackedDrop>> boardItems = itemDropIndex;
+        Map<Integer, List<TrackedDrop>> boardItems = itemDropIndex;
         // Merge stacks first — a kill that drops coins twice is one line, not two.
         Map<Integer, Integer> merged = new LinkedHashMap<>();
         for (ItemStack item : items) {
@@ -6144,8 +6177,8 @@ public class AnvilPlugin extends Plugin {
         if (pluginConfig == null || pluginConfig.rollTables == null || items == null || items.isEmpty()) {
             return;
         }
-        PluginConfigResponse.RollTable table = null;
-        for (PluginConfigResponse.RollTable t : pluginConfig.rollTables) {
+        RollTable table = null;
+        for (RollTable t : pluginConfig.rollTables) {
             if (t != null && t.boss != null && t.boss.equalsIgnoreCase(source)) {
                 table = t;
                 break;
@@ -6182,13 +6215,13 @@ public class AnvilPlugin extends Plugin {
      * reliable exactly there. The server decides what to do with them; a client never suppresses
      * its own submission, because two clients that can't see each other would both stay quiet.
      */
-    private BingoApiClient.CoopFingerprint coopFingerprint() {
+    private CoopFingerprint coopFingerprint() {
         List<String> teammates = new ArrayList<>();
         if (pluginConfig != null && pluginConfig.pvpRoster != null && !pluginConfig.pvpRoster.isEmpty()
                 && pluginConfig.team != null) {
             String me = Rsn.normalize(getLocalPlayerName());
             Set<String> mine = new HashSet<>();
-            for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
+            for (RosterEntry e : pluginConfig.pvpRoster) {
                 if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
                     mine.add(Rsn.normalize(e.name));
                 }
@@ -6203,7 +6236,7 @@ public class AnvilPlugin extends Plugin {
             }
         }
         int party = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
-        BingoApiClient.CoopFingerprint fp = new BingoApiClient.CoopFingerprint(teammates, party);
+        CoopFingerprint fp = new CoopFingerprint(teammates, party);
         return fp.isEmpty() ? null : fp;
     }
 
@@ -6233,7 +6266,7 @@ public class AnvilPlugin extends Plugin {
     private void rebuildPvpRosterIndex() {
         Map<String, Integer> index = new HashMap<>();
         if (pluginConfig != null && pluginConfig.pvpRoster != null) {
-            for (PluginConfigResponse.RosterEntry entry : pluginConfig.pvpRoster) {
+            for (RosterEntry entry : pluginConfig.pvpRoster) {
                 if (entry != null && entry.name != null && !entry.name.isEmpty()) {
                     index.put(Rsn.normalize(entry.name), entry.teamId);
                 }
@@ -6246,7 +6279,7 @@ public class AnvilPlugin extends Plugin {
     private Map<Integer, Integer> snapshotGainProgress(PluginConfigResponse cfg) {
         Map<Integer, Integer> m = new HashMap<>();
         if (cfg != null && cfg.trackedGains != null) {
-            for (PluginConfigResponse.TrackedGain g : cfg.trackedGains) {
+            for (TrackedGain g : cfg.trackedGains) {
                 if (g != null) {
                     m.put(g.tileId, g.currentAmount);
                 }
@@ -6263,7 +6296,7 @@ public class AnvilPlugin extends Plugin {
         if (fresh == null || fresh.trackedGains == null || local.isEmpty()) {
             return;
         }
-        for (PluginConfigResponse.TrackedGain g : fresh.trackedGains) {
+        for (TrackedGain g : fresh.trackedGains) {
             if (g == null) {
                 continue;
             }
@@ -6278,7 +6311,7 @@ public class AnvilPlugin extends Plugin {
     private Map<Integer, Integer> snapshotKillProgress(PluginConfigResponse cfg) {
         Map<Integer, Integer> m = new HashMap<>();
         if (cfg != null && cfg.trackedKills != null) {
-            for (PluginConfigResponse.TrackedKill k : cfg.trackedKills) {
+            for (TrackedKill k : cfg.trackedKills) {
                 if (k != null) {
                     m.put(k.tileId, k.currentAmount);
                 }
@@ -6302,7 +6335,7 @@ public class AnvilPlugin extends Plugin {
         if (fresh == null || fresh.trackedKills == null || local.isEmpty()) {
             return;
         }
-        for (PluginConfigResponse.TrackedKill k : fresh.trackedKills) {
+        for (TrackedKill k : fresh.trackedKills) {
             if (k == null) {
                 continue;
             }
@@ -6327,9 +6360,9 @@ public class AnvilPlugin extends Plugin {
 
     /** Rebuild the itemId → TrackedGain index; refreshed together with the drop index. */
     private void rebuildGainItemIndex() {
-        Map<Integer, List<PluginConfigResponse.TrackedGain>> index = new HashMap<>();
+        Map<Integer, List<TrackedGain>> index = new HashMap<>();
         if (pluginConfig != null && pluginConfig.trackedGains != null) {
-            for (PluginConfigResponse.TrackedGain gain : pluginConfig.trackedGains) {
+            for (TrackedGain gain : pluginConfig.trackedGains) {
                 if (gain.itemIds != null) {
                     for (Integer id : gain.itemIds) {
                         if (id != null) {
@@ -6348,9 +6381,9 @@ public class AnvilPlugin extends Plugin {
      * sync with the latest config.
      */
     private void rebuildKillNpcIndex() {
-        Map<String, List<PluginConfigResponse.TrackedKill>> index = new HashMap<>();
+        Map<String, List<TrackedKill>> index = new HashMap<>();
         if (pluginConfig != null && pluginConfig.trackedKills != null) {
-            for (PluginConfigResponse.TrackedKill kill : pluginConfig.trackedKills) {
+            for (TrackedKill kill : pluginConfig.trackedKills) {
                 if (kill.targetNpcs != null) {
                     for (String npc : kill.targetNpcs) {
                         if (npc != null && !npc.isEmpty()) {
@@ -6369,7 +6402,7 @@ public class AnvilPlugin extends Plugin {
         if (cfg == null || cfg.completedTiles == null) {
             return false;
         }
-        for (PluginConfigResponse.CompletedTile c : cfg.completedTiles) {
+        for (CompletedTile c : cfg.completedTiles) {
             if (c != null && c.tileId == tileId) {
                 return true;
             }
@@ -6410,7 +6443,7 @@ public class AnvilPlugin extends Plugin {
         if (pluginConfig == null || pluginConfig.trackedDrops == null || pluginConfig.trackedDrops.isEmpty()) {
             return false;
         }
-        for (PluginConfigResponse.TrackedDrop drop : pluginConfig.trackedDrops) {
+        for (TrackedDrop drop : pluginConfig.trackedDrops) {
             if (drop.currentAmount < drop.requiredAmount) {
                 return false;
             }
@@ -6565,7 +6598,7 @@ public class AnvilPlugin extends Plugin {
         String victim = Rsn.normalize(victimName);
         Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
         boolean anyDeferred = false;
-        for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
+        for (TrackedPvp tile : pluginConfig.trackedPvp) {
             if (tile == null || tile.targets == null || tile.currentAmount >= tile.requiredAmount
                     || isTileCompleted(tile.tileId) || !pvpVictimMatchesTile(tile, victim, myTeam)) {
                 continue;
@@ -6585,7 +6618,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** Selector match for a PvP tile against a normalised victim RSN ('any' / 'team:other' / 'rsn:&lt;name&gt;'). */
-    private boolean pvpVictimMatchesTile(PluginConfigResponse.TrackedPvp tile, String victimNorm, Integer myTeam) {
+    private boolean pvpVictimMatchesTile(TrackedPvp tile, String victimNorm, Integer myTeam) {
         if (tile.targets == null) {
             return false;
         }
@@ -6613,9 +6646,9 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** Optimistically bump a PvP tile and submit a baked kill screenshot (rollback reverts on failure). */
-    private void creditOnePvpTile(PluginConfigResponse.TrackedPvp tile, String victimName) {
+    private void creditOnePvpTile(TrackedPvp tile, String victimName) {
         tile.currentAmount += 1;
-        final PluginConfigResponse.TrackedPvp ft = tile;
+        final TrackedPvp ft = tile;
         log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
                 victimName, tile.label, tile.currentAmount, tile.requiredAmount);
         String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
@@ -6655,7 +6688,7 @@ public class AnvilPlugin extends Plugin {
             }
         }
         Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
-        for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
+        for (TrackedPvp tile : pluginConfig.trackedPvp) {
             if (tile == null || tile.minLootValue <= 0 || tile.currentAmount >= tile.requiredAmount
                     || isTileCompleted(tile.tileId) || !pvpVictimMatchesTile(tile, victim, myTeam)) {
                 continue;
@@ -7268,7 +7301,7 @@ public class AnvilPlugin extends Plugin {
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
-    private PluginConfigResponse.DropFacts dropFacts() {
+    private DropFacts dropFacts() {
         PluginConfigResponse cfg = pluginConfig;
         return cfg != null && cfg.serverSupports("drop-facts") ? cfg.dropFacts : null;
     }
@@ -7563,7 +7596,7 @@ public class AnvilPlugin extends Plugin {
         } else {
             // A skilling pet has no monster; the skill is the only true thing there is to say, and
             // saying nothing at all is still better than naming the last thing that dropped loot.
-            PluginConfigResponse.DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
+            DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
             if (entry != null && entry.skill != null && !entry.skill.isEmpty()) {
                 fields.add(statField("From", capitalize(entry.skill)));
             }
@@ -7802,7 +7835,7 @@ public class AnvilPlugin extends Plugin {
         }
         String areaLower = area.toLowerCase();
         String tierLower = tier.toLowerCase();
-        for (PluginConfigResponse.TrackedDiary d : pluginConfig.trackedDiaries) {
+        for (TrackedDiary d : pluginConfig.trackedDiaries) {
             if (d == null || d.diaries == null || d.currentAmount >= d.requiredAmount) {
                 continue;
             }
@@ -7829,7 +7862,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             d.currentAmount += 1;
-            final PluginConfigResponse.TrackedDiary fd = d;
+            final TrackedDiary fd = d;
             log.info("Tracked diary completion: {} {} → tile '{}' ({}/{})",
                     area, tier, d.label, d.currentAmount, d.requiredAmount);
             captureAndSubmitProof(d.tileId, d.label, 1, null,
@@ -7857,7 +7890,7 @@ public class AnvilPlugin extends Plugin {
         }
         String taskLower = task.toLowerCase();
         String anyTier = "any " + tier.getDisplayName().toLowerCase();
-        for (PluginConfigResponse.TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
+        for (TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
             if (t == null || t.tasks == null || t.currentAmount >= t.requiredAmount) {
                 continue;
             }
@@ -7881,7 +7914,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             t.currentAmount += 1;
-            final PluginConfigResponse.TrackedCombatTask ft = t;
+            final TrackedCombatTask ft = t;
             log.info("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
                     tier.getDisplayName(), task, t.label, t.currentAmount, t.requiredAmount);
             captureAndSubmitProof(t.tileId, t.label, 1, null,
@@ -7952,7 +7985,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         boolean anyIncomplete = false;
-        for (PluginConfigResponse.TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
+        for (TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
             if (t != null && t.currentAmount < t.requiredAmount) {
                 anyIncomplete = true;
                 break;
@@ -8559,7 +8592,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** The resolution itself, free of plugin state so the inheritance can be tested directly. */
-    static boolean channelEnabled(PluginConfigResponse.NotifyChannels n, String channel) {
+    static boolean channelEnabled(NotifyChannels n, String channel) {
         if (n == null) {
             return false;
         }
@@ -8890,12 +8923,12 @@ public class AnvilPlugin extends Plugin {
         List<ClogPage> batch = clogSync.nextBatch();
         try {
             apiClient.submitClogPages(batch, clogSync.syncedPages());
-        } catch (BingoApiClient.RateLimitedException e) {
+        } catch (RateLimitedException e) {
             // Background sync: nothing to tell the player, just wait as long as the site asked.
             clogPushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
             log.debug("Collection log pages rate-limited for {}ms", e.retryAfterMs);
             return;
-        } catch (BingoApiClient.PermanentSubmissionException e) {
+        } catch (PermanentSubmissionException e) {
             // Refused outright (a malformed page, a site that doesn't take these): dropping the batch
             // is the only way out of an otherwise permanent 30-second retry loop.
             log.info("Collection log pages refused, dropping the batch: {}", e.getMessage());
@@ -8950,10 +8983,10 @@ public class AnvilPlugin extends Plugin {
             }
             return;
         }
-        BingoApiClient.ClogPushResult result;
+        ClogPushResult result;
         try {
             result = apiClient.submitClogItems(clogFullSync.snapshot());
-        } catch (BingoApiClient.RateLimitedException e) {
+        } catch (RateLimitedException e) {
             // It said when. Wait exactly that long instead of doubling blindly, and keep the batch.
             clogPushAllowedAt = now + Math.max(e.retryAfterMs, 1_000L);
             clogFullSync.onSendFailed(now);
@@ -8964,7 +8997,7 @@ public class AnvilPlugin extends Plugin {
                         + Math.max(1, (e.retryAfterMs + 999) / 1000) + "s.");
             }
             return;
-        } catch (BingoApiClient.PermanentSubmissionException e) {
+        } catch (PermanentSubmissionException e) {
             // The site said no and will keep saying no — most often because it predates whole-log
             // pushes and wants pages instead. Retrying that forever is just noise on their server.
             log.info("Whole-log push refused, dropping it: {}", e.getMessage());
@@ -9023,12 +9056,12 @@ public class AnvilPlugin extends Plugin {
         Map<String, Integer> batch = personalBests.nextBatch();
         try {
             apiClient.submitPersonalBests(batch);
-        } catch (BingoApiClient.RateLimitedException e) {
+        } catch (RateLimitedException e) {
             // Bests ride the same limiter; the batch stays dirty and goes up when it clears.
             pbBackoff.onFailure(System.currentTimeMillis());
             log.debug("Personal bests rate-limited for {}ms", e.retryAfterMs);
             return;
-        } catch (BingoApiClient.PermanentSubmissionException e) {
+        } catch (PermanentSubmissionException e) {
             log.info("Personal bests refused, dropping the batch: {}", e.getMessage());
             personalBests.onSent(batch);
             return;
