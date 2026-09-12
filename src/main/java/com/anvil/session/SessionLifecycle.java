@@ -46,6 +46,9 @@ public class SessionLifecycle
 	private final AccountProgressPush accountProgress;
 	private final AchievementTiles achTiles;
 	private final ProofPipeline proofs;
+
+	/** Proofs captured but never landed, tried again on the same thirty-second loop. */
+	private final com.anvil.track.PendingRetry retries;
 	private final NudgeService nudges;
 	private final TrackingGate gate;
 	private final GainTracker gains;
@@ -70,7 +73,8 @@ public class SessionLifecycle
 		AccountProgressPush accountProgress, AchievementTiles achTiles, ProofPipeline proofs,
 		NudgeService nudges, TrackingGate gate, GainTracker gains, PartyTracker party,
 		DeathAttribution deathAttribution,
-		net.runelite.api.Client client, com.anvil.AnvilConfig config, com.anvil.session.SettingsRouter settings, com.anvil.clip.ObsClipService clips, com.anvil.notify.LootSourceMemory lootSource, com.anvil.track.DropTracker drops, com.anvil.track.KillTracker kills, com.anvil.track.StatPushService statPush, com.anvil.notify.MomentsService moments, com.anvil.track.RecapCounters counters, com.anvil.track.TimedClearTracker timed)
+		net.runelite.api.Client client, com.anvil.AnvilConfig config, com.anvil.session.SettingsRouter settings, com.anvil.clip.ObsClipService clips, com.anvil.notify.LootSourceMemory lootSource, com.anvil.track.DropTracker drops, com.anvil.track.KillTracker kills, com.anvil.track.StatPushService statPush, com.anvil.notify.MomentsService moments, com.anvil.track.RecapCounters counters, com.anvil.track.TimedClearTracker timed,
+		com.anvil.track.PendingRetry retries)
 	{
 		this.apiClient = apiClient;
 		this.tasks = tasks;
@@ -97,6 +101,7 @@ public class SessionLifecycle
 		this.moments = moments;
 		this.counters = counters;
 		this.timed = timed;
+		this.retries = retries;
 	}
 
 	/**
@@ -143,7 +148,7 @@ public class SessionLifecycle
 			tasks.run(configStore::refreshConfig);
 		}
 
-		tasks.runLater(() -> TaskRunner.safely("initial retry", proofs::retryPendingSubmissions), 3_000);
+		tasks.runLater(() -> TaskRunner.safely("initial retry", retries::run), 3_000);
 
 		// Every thirty seconds, and each step guarded on its own: an uncaught throw inside a
 		// repeating task silently cancels the task forever, so one hiccup would stop all future
@@ -151,7 +156,7 @@ public class SessionLifecycle
 		tasks.runEvery(() ->
 		{
 			TaskRunner.safely("refreshConfig", configStore::refreshConfig);
-			TaskRunner.safely("retryPendingSubmissions", proofs::retryPendingSubmissions);
+			TaskRunner.safely("retryPendingSubmissions", retries::run);
 			TaskRunner.safely("obsReconnect", clips::maybeReconnect);
 			TaskRunner.safely("profileSync", profileSync::onPoll);
 			TaskRunner.safely("pushAccountProgress", accountProgress::pushAccountProgress);

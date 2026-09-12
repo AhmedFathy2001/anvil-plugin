@@ -5,12 +5,8 @@ import com.anvil.api.BoardRefresh;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
-import com.anvil.api.dto.PermanentSubmissionException;
-import com.anvil.api.dto.StartProof;
 import com.anvil.api.dto.TrackedDrop;
-import com.anvil.detect.StartProofRules;
 import com.anvil.io.PendingSubmissionStore;
-import com.anvil.ui.AnvilOverlay;
 import com.anvil.ui.ProofBanner;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.TaskRunner;
@@ -18,8 +14,6 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.Instant;
-import java.util.List;
 import java.util.function.Supplier;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
@@ -65,6 +59,17 @@ public class ProofPipeline
     private final DrawManager drawManager;
     private final ConfigManager configManager;
     private final PendingSubmissionStore pendingSubmissionStore;
+
+    /**
+     * The starting shot: its own rule, its own deadline, and the one proof we nag about.
+     *
+     * <p>A Provider because it reaches back here for the proof banner's context.</p>
+     */
+    private final javax.inject.Provider<StartProofCapture> startProofRef;
+
+    /** Proofs that were captured but never landed. A Provider: it nags via the start proof. */
+    private final javax.inject.Provider<PendingRetry> retryRef;
+
     private final AnvilChat chat;
     private final TaskRunner tasks;
     private final TrackingGate gate;
@@ -100,7 +105,9 @@ public class ProofPipeline
             RecapCounters counters,
         Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer,
         com.anvil.api.TileSubmissions tiles,
-        com.anvil.api.MediaUploads media) {
+        com.anvil.api.MediaUploads media,
+            javax.inject.Provider<StartProofCapture> startProofRef,
+            javax.inject.Provider<PendingRetry> retryRef) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -125,37 +132,20 @@ public class ProofPipeline
         this.localPlayerName = localPlayer::name;
         this.tiles = tiles;
         this.media = media;
+        this.startProofRef = startProofRef;
+        this.retryRef = retryRef;
     }
 
 
     /** A new account may owe its own starting shot, and has not been nudged about it. */
     public void onLogout() {
-        startProofFiled = false;
-        startProofNudged = false;
-        startProofCreditWarned = false;
-    }
-
-    /** When this session logged in, which is what the starting-shot rule is measured against. */
-    private java.util.function.LongSupplier sessionLoginAt = () -> StartProofRules.UNKNOWN_LOGIN;
-
-    public void bindSessionClock(java.util.function.LongSupplier sessionLoginAt) {
-        this.sessionLoginAt = sessionLoginAt;
+        startProofRef.get().onLogout();
     }
 
 
-    // STARTING SHOT (site lib/startProof). `startProofFiled` latches the moment one is accepted by
-    // the server so the button/nudge go away immediately instead of waiting on the next config poll;
-    // `startProofInFlight` keeps an impatient double-click from filing two. Both reset on logout,
-    // since the next login may be a different account with a different obligation.
-    public volatile boolean startProofFiled;
 
-    private volatile boolean startProofInFlight;
 
-    /** One nudge per login — a reminder that repeats every poll is just noise. */
-    public volatile boolean startProofNudged;
 
-    /** One "this credit is being held" line per login — see {@link #warnStartProofBeforeCredit()}. */
-    public volatile boolean startProofCreditWarned;
 
     // Server-upload throttle. Submissions go through a tiny gap so we never burst the
     // upload + submit endpoints if multiple aggregates flush close together.
@@ -163,8 +153,6 @@ public class ProofPipeline
 
     private volatile long lastUploadAt = 0;
 
-    // Exponential backoff for pending submission retries
-    private long retryBackoffMs = 30_000; // Start at 30s
     private static final long MAX_RETRY_BACKOFF_MS = 300_000; // Cap at 5 minutes
 
     // Hello/membership flow state
@@ -222,10 +210,10 @@ public class ProofPipeline
                     }
 
                     chat.send("Uploading proof: " + label + "...");
-                    boolean success = processPendingSubmission(pending);
+                    boolean success = retryRef.get().processPendingSubmission(pending);
                     if (success) {
                         chat.send("Submitted: " + label);
-                        retryBackoffMs = 30_000;
+                        retryRef.get().resetBackoff();
                     } else {
                         notifyUploadFailed(label);
                     }
@@ -263,7 +251,7 @@ public class ProofPipeline
      * <p>Read at capture time, not at draw time: the config is replaced wholesale on every poll, and
      * a proof that spends two seconds in the encoder should still say which event it belonged to.</p>
      */
-    private ProofBanner.Context proofContext(String rsn) {
+    ProofBanner.Context proofContext(String rsn) {
         PluginConfigResponse cfg = pluginConfig.get();
         return new ProofBanner.Context(rsn,
                 cfg != null && cfg.team != null ? cfg.team.name : null,
@@ -328,110 +316,6 @@ public class ProofPipeline
         });
     }
 
-    /**
-     * Is a STARTING SHOT outstanding for this account right now? Drives the sidebar button and the
-     * login nudge. False on every site/event that doesn't ask for one, and the moment one is filed.
-     */
-    public boolean needsStartProof() {
-        PluginConfigResponse cfg = pluginConfig.get();
-        return cfg != null
-                && cfg.startProof != null
-                && cfg.startProof.required
-                && cfg.startProof.drawn
-                && cfg.startProof.needsUpload
-                && !startProofFiled
-                && cfg.event != null
-                && AnvilOverlay.isEventActive(cfg.event);
-    }
-
-    /**
-     * Take the STARTING SHOT (site lib/startProof): grab the next frame, burn the standard proof
-     * banner onto it (RSN / team / event / UTC) with the drawn location and this player's keyword,
-     * upload it and file it. The keyword is derived server-side from a stamp that didn't exist before
-     * the event went live, so a shot carrying it could not have been staged in advance.
-     *
-     * Filed exactly once — {@link #startProofFiled} latches on success and the button disappears the
-     * moment the next config poll agrees. A failure says so in chat and leaves the button up, since
-     * the whole action is one keypress to repeat.
-     */
-    public void captureStartProof() {
-        PluginConfigResponse cfg = pluginConfig.get();
-        if (cfg == null || cfg.startProof == null || cfg.event == null || !cfg.startProof.drawn) {
-            chat.send("No starting shot is being asked for right now.");
-            return;
-        }
-        if (drawManager == null || !tasks.isLive()) {
-            return;
-        }
-        if (startProofInFlight) {
-            return;
-        }
-
-        // Where this account is standing, for the drawn spot's position check. Read before anything
-        // async: by the time the frame arrives the player may have taken a step.
-        final Integer worldX = localWorldX();
-        final Integer worldY = localWorldY();
-        final long loginAtMs = sessionLoginAt.getAsLong();
-
-        // Refuse rather than file something staff will only have to chase: standing in the wrong
-        // place or on a session too old to have flushed the hiscores are both fixable in-game, in
-        // seconds, and the message says how.
-        String blocked = StartProofRules.blockReason(
-                cfg.startProof, loginAtMs, System.currentTimeMillis(), worldX, worldY);
-        if (blocked != null) {
-            chat.send(blocked);
-            return;
-        }
-
-        startProofInFlight = true;
-
-        final int eventId = cfg.event.id;
-        final String location = cfg.startProof.location;
-        final String keyword = cfg.startProof.keyword;
-        final String capturedRsn = localPlayerName.get();
-        final String capturedAt = Instant.now().toString();
-        final String loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN
-                ? null
-                : Instant.ofEpochMilli(loginAtMs).toString();
-
-        drawManager.requestNextFrameListener(image -> {
-            if (!tasks.isLive()) {
-                startProofInFlight = false;
-                return;
-            }
-            tasks.run(() -> {
-                try {
-                    // Copy the shared frame before annotating — never mutate the draw manager's buffer.
-                    BufferedImage src = (BufferedImage) image;
-                    BufferedImage buffered = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
-                    Graphics2D g = buffered.createGraphics();
-                    g.drawImage(src, 0, 0, null);
-                    g.dispose();
-
-                    String detail = keyword != null ? keyword : "";
-                    if (location != null && !location.isEmpty()) {
-                        detail = detail.isEmpty() ? location : detail + "  @  " + location;
-                    }
-                    ProofBanner.draw(buffered, "STARTING SHOT", detail, proofContext(capturedRsn), null);
-
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-
-                    String imageUrl = media.uploadImage(baos.toByteArray(), "start-proof-" + eventId + ".png");
-                    tiles.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
-                    startProofFiled = true;
-                    chat.send("Starting shot sent. You're clear to play.");
-                    refreshConfig.run();
-                } catch (IOException e) {
-                    log.error("Failed to file starting shot: {}", e.getMessage());
-                    chat.send("Starting shot failed: " + e.getMessage() + " — try again.");
-                } finally {
-                    startProofInFlight = false;
-                }
-            });
-        });
-    }
-
     public void captureAndSubmit(TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
             BufferedImage triggerFrame) {
         progress.noteTile(drop.tileId); // "Active now": this account credited this drop tile
@@ -491,12 +375,12 @@ public class ProofPipeline
 
                     // Now upload and submit
                     chat.send("Uploading proof: " + drop.label + "...");
-                    boolean success = processPendingSubmission(pending);
+                    boolean success = retryRef.get().processPendingSubmission(pending);
 
                     if (success) {
                         chat.send("Drop submitted: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
                         // Reset backoff on success
-                        retryBackoffMs = 30_000;
+                        retryRef.get().resetBackoff();
                     } else {
                         notifyUploadFailed(drop.label);
                     }
@@ -512,177 +396,4 @@ public class ProofPipeline
         });
     }
 
-    /**
-     * Uploads screenshot and submits a pending drop. Removes from disk on
-     * success. Returns true on success, false on failure.
-     */
-    private boolean processPendingSubmission(PendingSubmissionStore.PendingSubmission pending) {
-        // Only submit while logged into the account that obtained the drop. Guards the multi-account
-        // case: a drop caught on a non-enrolled alt is never credited to the enrolled account, even
-        // if it was queued during the brief window after switching characters.
-        if (pending.capturedRsn != null && !pending.capturedRsn.isEmpty()) {
-            String current = apiClient.getCurrentRsn();
-            if (current == null || !pending.capturedRsn.equalsIgnoreCase(current)) {
-                log.debug("Holding pending '{}' — captured on '{}', currently '{}'", pending.label, pending.capturedRsn, current);
-                return false;
-            }
-        }
-        byte[] pngBytes = pendingSubmissionStore.readScreenshot(pending);
-        if (pngBytes == null) {
-            log.error("No screenshot found for pending submission (tile '{}')", pending.label);
-            pendingSubmissionStore.remove(pending);
-            return false;
-        }
-
-        try {
-            String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + ".png";
-
-            warnStartProofBeforeCredit();
-            log.info("Uploading screenshot for tile '{}'...", pending.label);
-            String imageUrl = media.uploadImage(pngBytes, filename);
-
-            if (pending.durationSeconds != null) {
-                log.info("Submitting timed clear for tile '{}'...", pending.label);
-                tiles.submitTimed(
-                        pending.eventId,
-                        pending.tileId,
-                        pending.teamId,
-                        pending.durationSeconds,
-                        imageUrl,
-                        pending.note,
-                        pending.playerId
-                );
-            } else {
-                log.info("Submitting drop for tile '{}'...", pending.label);
-                tiles.submitDrop(
-                        pending.eventId,
-                        pending.tileId,
-                        pending.teamId,
-                        pending.amount,
-                        imageUrl,
-                        pending.note,
-                        pending.playerId,
-                        pending.itemId
-                );
-            }
-
-            log.info("Submission '{}' sent successfully!", pending.label);
-            pendingSubmissionStore.remove(pending);
-            return true;
-        } catch (PermanentSubmissionException e) {
-            // The server rejected this for good (tile already complete, event ended, invalid) — retrying
-            // will never work, so drop it instead of looping forever. Treat as handled, not a failure.
-            log.info("Dropping pending '{}' — server rejected permanently: {}", pending.label, e.getMessage());
-            pendingSubmissionStore.remove(pending);
-            return true;
-        } catch (IOException e) {
-            log.error("Failed to submit pending drop '{}': {} (will retry with backoff)", pending.label, e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Retries any pending submissions with exponential backoff.
-     */
-    public void retryPendingSubmissions() {
-        if (!apiClient.isConfigured()) {
-            return;
-        }
-
-        List<PendingSubmissionStore.PendingSubmission> pending = pendingSubmissionStore.loadAll();
-        if (pending.isEmpty()) {
-            return;
-        }
-
-        log.info("Found {} pending submission(s), retrying...", pending.size());
-        boolean anyFailed = false;
-        for (PendingSubmissionStore.PendingSubmission sub : pending) {
-            // Manual proofs (pet / duplicate Champion's scroll) have no tile to auto-submit to — they
-            // just sit in "Saved proofs" for the player to attach by hand on the site. Never upload.
-            if (sub.manual) {
-                continue;
-            }
-            boolean success = processPendingSubmission(sub);
-            if (!success) {
-                anyFailed = true;
-            } else {
-                // A previously-failed proof finally made it — say so, since the original
-                // "submitted" message never fired.
-                chat.send("Queued proof submitted: " + sub.label);
-            }
-        }
-
-        if (anyFailed) {
-            // Increase backoff (capped)
-            retryBackoffMs = Math.min(retryBackoffMs * 2, MAX_RETRY_BACKOFF_MS);
-            log.info("Some pending submissions failed, next retry backoff: {}s", retryBackoffMs / 1000);
-        } else {
-            // Reset backoff on full success
-            retryBackoffMs = 30_000;
-        }
-
-        // Refresh config to get updated counts from server
-        refreshConfig.run();
-    }
-
-    /**
-     * This account's world position, for the starting shot's position check (StartProofRules).
-     * Null while logged out — which simply means the check doesn't run.
-     */
-    private Integer localWorldX() {
-        if (client == null || client.getLocalPlayer() == null || client.getLocalPlayer().getWorldLocation() == null) {
-            return null;
-        }
-        return client.getLocalPlayer().getWorldLocation().getX();
-    }
-
-    private Integer localWorldY() {
-        if (client == null || client.getLocalPlayer() == null || client.getLocalPlayer().getWorldLocation() == null) {
-            return null;
-        }
-        return client.getLocalPlayer().getWorldLocation().getY();
-    }
-
-    /**
-     * One chat nudge per login when this account still owes a STARTING SHOT — the event is live, the
-     * location is drawn, and nothing has been filed. Says where to stand and that the panel button
-     * does the rest; repeating it every 30s refresh would just be noise, so it latches.
-     */
-    public void maybeNudgeStartProof() {
-        if (startProofNudged || !needsStartProof()) {
-            return;
-        }
-        StartProof sp = pluginConfig.get().startProof;
-        startProofNudged = true;
-        String left = StartProofRules.describeWindow(sp, System.currentTimeMillis());
-        chat.send("Starting shot needed before you play"
-                + (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
-                + ". Open the Anvil side panel and press \"Take starting shot\"."
-                + (sp.maxSessionMinutes > 0
-                        ? " Take it within " + sp.maxSessionMinutes + " min of logging in — hiscores only save"
-                        + " on logout, so that's what sets your starting totals."
-                        : "")
-                // The consequence, which the nudge never spelled out: a player told only that
-                // something is "needed" has no reason to do it before their next drop.
-                + " Until it's filed your drops are held for review"
-                + (left != null ? ", and it's only asked for another " + left : "")
-                + ".");
-    }
-
-    /**
-     * Say it once, at the moment it starts costing them something: a credit is going up while this
-     * account still owes a STARTING SHOT, so the site will hold it for review.
-     *
-     * The login nudge fires before anyone has done anything, which is the easiest message in the
-     * world to scroll past. This one lands on the drop itself. Once per login — the point is to be
-     * noticed, and a line per kill is how a plugin gets turned off.
-     */
-    public void warnStartProofBeforeCredit() {
-        if (startProofCreditWarned || !needsStartProof()) {
-            return;
-        }
-        startProofCreditWarned = true;
-        chat.send("That's recorded, but your starting shot is still missing — it stays held for"
-                + " review until you take it. Anvil side panel → \"Take starting shot\".");
-    }
 }

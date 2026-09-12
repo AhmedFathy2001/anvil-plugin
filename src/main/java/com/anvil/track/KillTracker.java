@@ -79,6 +79,9 @@ public class KillTracker
     /** A drop, a timed clear, or the starting shot — each with a screenshot behind it. */
     private final com.anvil.api.TileSubmissions tiles;
 
+    /** The starting shot: its own rule, its own deadline, and the only proof the plugin nags about. */
+    private final com.anvil.track.StartProofCapture startProof;
+
     @Inject
     KillTracker(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
             ItemManager itemManager, DrawManager drawManager, ConfigManager configManager,
@@ -88,7 +91,8 @@ public class KillTracker
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
             RecapCounters counters, ProofPipeline proofs,
         Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer,
-        com.anvil.api.TileSubmissions tiles) {
+        com.anvil.api.TileSubmissions tiles,
+        com.anvil.track.StartProofCapture startProof) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -113,6 +117,7 @@ public class KillTracker
         this.refreshConfig = boardRefresh::now;
         this.localPlayerName = localPlayer::name;
         this.tiles = tiles;
+        this.startProof = startProof;
     }
 
 
@@ -367,7 +372,7 @@ public class KillTracker
             final int playerId = pluginConfig.get().player.id;
             tasks.run(() -> {
                 try {
-                    proofs.warnStartProofBeforeCredit();
+                    startProof.warnBeforeCredit();
                     tiles.submitDrop(eventId, kill.tileId, teamId,
                             amount, null, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin",
                             playerId, null, coop);

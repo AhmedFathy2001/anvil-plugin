@@ -83,7 +83,7 @@ public class AnvilModule extends AbstractModule
 	@Singleton
 	SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient,
 		Provider<EventConfigStore> board, Provider<LocalProgress> progress,
-		Provider<ProofPipeline> proofs, Provider<SessionIdentity> session,
+		Provider<com.anvil.track.StartProofCapture> startProof, Provider<SessionIdentity> session,
 		Provider<ClanRosterService> roster, Provider<ProfileSync> profileSync,
 		Provider<BannerSoundActions> sounds, Provider<LocalPlayer> localPlayer)
 	{
@@ -93,7 +93,7 @@ public class AnvilModule extends AbstractModule
 			() -> session.get().homeMembership());
 		// The starting-shot button's action, bound after construction: the capture only ever fires
 		// from a click, long after everything here has resolved.
-		delegate.setStartProofCapture(() -> proofs.get().captureStartProof());
+		delegate.setStartProofCapture(() -> startProof.get().capture());
 		// The panel's buttons: roster sync, profile sync, the clan picker, and the local banner clips
 		// (which live in a folder on this machine, not on any account).
 		delegate.setHost(roster::get, profileSync::get, sounds::get, board::get);

@@ -83,12 +83,16 @@ public class EventConfigStore
      */
     private volatile PluginConfigResponse pluginConfig;
 
+    /** The starting shot: its own rule, its own deadline, and the only proof the plugin nags about. */
+    private final com.anvil.track.StartProofCapture startProof;
+
     @Inject
     EventConfigStore(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.ui.AnvilSidebarPanel sidebarPanel, com.anvil.ui.BingoClogBannerOverlay clogBanner, com.anvil.io.BannerSoundActions sounds,
             com.anvil.session.SessionIdentity session, com.anvil.clan.ClanRosterService roster, com.anvil.util.ClipMoments clipMoments, com.anvil.track.DropTracker drops, com.anvil.track.GainTracker gains, com.anvil.track.KillTracker kills, com.anvil.notify.NudgeService nudges, com.anvil.track.ProofPipeline proofs,
-        LocalPlayer localPlayer) {
+        LocalPlayer localPlayer,
+        com.anvil.track.StartProofCapture startProof) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -109,6 +113,7 @@ public class EventConfigStore
         this.nudges = nudges;
         this.proofs = proofs;
         this.localPlayerName = localPlayer::name;
+        this.startProof = startProof;
     }
 
 
@@ -539,7 +544,7 @@ public class EventConfigStore
             nudges.maybeNudgeAutoSubmit();
             nudges.maybeNudgeCaRepeatSetting();
             nudges.maybeNudgeLootNotifications();
-            proofs.maybeNudgeStartProof();
+            startProof.maybeNudge();
             roster.maybeReprobeAdmin();
 
         } catch (IOException e) {
