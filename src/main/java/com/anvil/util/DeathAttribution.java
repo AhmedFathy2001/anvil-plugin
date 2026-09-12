@@ -3,6 +3,7 @@ package com.anvil.util;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import net.runelite.api.Actor;
 
 /**
  * What killed us — as opposed to what we were killing.

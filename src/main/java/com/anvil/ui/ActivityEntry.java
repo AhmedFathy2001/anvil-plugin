@@ -3,6 +3,8 @@ package com.anvil.ui;
 import com.anvil.clog.ClogTaskModel;
 import com.anvil.clog.model.Kind;
 import com.anvil.clog.model.TaskRow;
+import com.google.gson.Gson;
+import java.util.Map;
 
 /**
  * One entry in the always-on sidebar's live team feed — the plugin-side mirror of the Site's

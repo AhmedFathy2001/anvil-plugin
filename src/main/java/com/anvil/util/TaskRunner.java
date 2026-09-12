@@ -3,6 +3,7 @@ package com.anvil.util;
 import com.anvil.AnvilPlugin;
 import java.util.concurrent.Executors;
 import javax.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  * {@code if}.</p>
  */
 @Singleton
+@Slf4j
 public final class TaskRunner
 {
 	/**
@@ -85,6 +87,22 @@ public final class TaskRunner
 	 * @return false when the plugin is stopping and the task will never run, so the caller can take
 	 *         whatever other path it has (most have none, and simply return).
 	 */
+	/**
+	 * Runs a periodic task and swallows any RuntimeException so that one bad
+	 * tick doesn't cancel the whole scheduleAtFixedRate chain.
+	 */
+	public static void safely(String name, Runnable task)
+	{
+		try
+		{
+			task.run();
+		}
+		catch (Exception e)
+		{
+			log.warn("Scheduled task '{}' threw, continuing: {}", name, e.getMessage());
+		}
+	}
+
 	public boolean run(Runnable task)
 	{
 		ScheduledExecutorService ex = executor;

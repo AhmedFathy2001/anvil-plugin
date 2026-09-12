@@ -10,6 +10,7 @@ import com.anvil.util.CombatTarget;
 import com.anvil.util.DeathAttribution;
 import com.anvil.util.DedupWindow;
 import com.anvil.util.TaskRunner;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;

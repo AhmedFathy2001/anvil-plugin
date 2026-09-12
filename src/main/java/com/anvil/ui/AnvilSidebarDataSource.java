@@ -1,7 +1,10 @@
 package com.anvil.ui;
 
-import com.anvil.AnvilPlugin;
 import com.anvil.api.BingoApiClient;
+import com.anvil.api.EventConfigStore;
+import com.anvil.clan.ClanRosterService;
+import com.anvil.clog.ProfileSync;
+import com.anvil.io.BannerSoundActions;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.ActiveWeekly;
 import com.anvil.api.dto.ActivityItem;
@@ -37,6 +40,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -147,98 +151,117 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this.startProofCapture = capture;
 	}
 
-	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
-	private volatile AnvilPlugin plugin;
+	// The collaborators behind the panel's buttons, bound after construction for the same reason
+	// the capture above is: Guice builds this source inside the plugin's own @Provides method, which
+	// runs before the plugin's injected fields exist. All null in tests and anywhere the panel is
+	// driven without a live plugin — every action below then no-ops and every question answers "no".
+	// SUPPLIERS, not the objects: a bound reference taken here captures a field Guice has not
+	// filled in yet, so every button would act on null for the life of the session.
+	private volatile Supplier<ClanRosterService> rosterRef = () -> null;
+	private volatile Supplier<ProfileSync> profileSyncRef = () -> null;
+	private volatile Supplier<BannerSoundActions> soundsRef = () -> null;
+	private volatile Supplier<EventConfigStore> boardRef = () -> null;
 
-	public void setPlugin(AnvilPlugin plugin)
+	/** Bind the panel's buttons to a running plugin. Idempotent. */
+	public void setHost(Supplier<ClanRosterService> roster, Supplier<ProfileSync> profileSync,
+		Supplier<BannerSoundActions> sounds, Supplier<EventConfigStore> board)
 	{
-		this.plugin = plugin;
+		this.rosterRef = roster;
+		this.profileSyncRef = profileSync;
+		this.soundsRef = sounds;
+		this.boardRef = board;
 	}
 
 	@Override
 	public PanelActions actionsFor(String instanceId)
 	{
-		AnvilPlugin p = plugin;
-		if (p == null || !LOCAL_INSTANCE_ID.equals(instanceId))
+		ClanRosterService r = rosterRef.get();
+		if (r == null || !LOCAL_INSTANCE_ID.equals(instanceId))
 		{
 			// Another clan's card. A roster sync there is impossible (you can only read the clan
 			// channel you're in) and a profile sync has nowhere to go yet, so the panel offers
 			// neither rather than offering something that would fail.
 			return new PanelActions(false, false, null);
 		}
-		boolean profile = p.supportsProfileSync();
-		if (!p.isAdmin())
+		boolean profile = profileSyncRef.get() != null && profileSyncRef.get().supportsProfileSync();
+		if (!r.isAdmin())
 		{
 			return new PanelActions(false, profile, null);
 		}
 		// Admin, at home — but the roster comes from the clan channel, so it has to be readable. The
 		// CACHED answer: this runs while the panel paints, on the EDT, where asking the client
 		// directly is a thread violation.
-		boolean scrape = p.isClanRosterReadable();
+		boolean scrape = r.isClanRosterReadable();
 		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
 	}
 
 	@Override
 	public void syncRoster()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
+		ClanRosterService r = rosterRef.get();
+		if (r != null)
 		{
-			p.syncClanRosterFromPanel();
+			r.syncFromPanel(() -> {
+				EventConfigStore b = boardRef.get();
+				if (b != null)
+				{
+					b.repaintSidebar();
+				}
+			});
 		}
 	}
 
 	@Override
 	public void syncProfile()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
+		ProfileSync ps = profileSyncRef.get();
+		if (ps != null)
 		{
-			p.syncProfileNow();
+			ps.syncProfileNow();
 		}
 	}
 
 	@Override
 	public List<String> bannerSounds()
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? Collections.emptyList() : p.bannerSoundClips();
+		BannerSoundActions b = soundsRef.get();
+		return b == null ? Collections.emptyList() : b.bannerSoundClips();
 	}
 
 	@Override
 	public boolean bannerSoundOn(String clip)
 	{
-		AnvilPlugin p = plugin;
-		return p != null && p.bannerSoundSelected(clip);
+		BannerSoundActions b = soundsRef.get();
+		return b != null && b.bannerSoundSelected(clip);
 	}
 
 	@Override
 	public void toggleBannerSound(String clip)
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
+		BannerSoundActions b = soundsRef.get();
+		if (b != null)
 		{
-			p.toggleBannerSound(clip);
+			b.toggleBannerSound(clip);
 		}
 	}
 
 	@Override
 	public void copyBannerSoundsPath()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
+		BannerSoundActions b = soundsRef.get();
+		if (b != null)
 		{
-			p.copyBannerSoundsPath();
+			b.copyBannerSoundsPath();
 		}
 	}
 
 	@Override
 	public void importBannerSounds()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
+		BannerSoundActions b = soundsRef.get();
+		if (b != null)
 		{
-			p.importBannerSounds();
+			b.importBannerSounds();
 		}
 	}
 
@@ -294,8 +317,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	@Override
 	public String chosenClan()
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? "" : p.getChosenClan();
+		EventConfigStore b = boardRef.get();
+		return b == null ? "" : b.chosenClan();
 	}
 
 	@Override
@@ -326,10 +349,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	@Override
 	public void chooseClan(String slug)
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
+		EventConfigStore b = boardRef.get();
+		if (b != null)
 		{
-			p.setChosenClan(slug);
+			b.setChosenClan(slug);
 		}
 	}
 

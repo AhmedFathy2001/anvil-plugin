@@ -2,6 +2,7 @@ package com.anvil.api.dto;
 
 import java.util.List;
 import java.util.Map;
+import net.runelite.api.Item;
 
 /**
  * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for

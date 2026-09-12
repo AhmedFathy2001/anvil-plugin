@@ -2,6 +2,7 @@ package com.anvil.ui;
 
 import com.anvil.AnvilConfig;
 import com.anvil.AnvilPlugin;
+import com.anvil.api.EventConfigStore;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.EventInfo;
 import java.awt.Color;
@@ -23,14 +24,14 @@ public class AnvilOverlay extends OverlayPanel {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'");
 
-    private final AnvilPlugin plugin;
     private final AnvilConfig config;
+    private final EventConfigStore configStore;
 
     @Inject
-    public AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
+    public AnvilOverlay(AnvilPlugin plugin, AnvilConfig config, EventConfigStore configStore) {
         super(plugin);
-        this.plugin = plugin;
         this.config = config;
+        this.configStore = configStore;
         setPosition(OverlayPosition.TOP_LEFT);
         setPriority(PRIORITY_LOW);
     }
@@ -41,7 +42,7 @@ public class AnvilOverlay extends OverlayPanel {
             return null;
         }
 
-        PluginConfigResponse pluginConfig = plugin.getPluginConfig();
+        PluginConfigResponse pluginConfig = configStore.current();
         if (pluginConfig == null || pluginConfig.event == null) {
             return null;
         }

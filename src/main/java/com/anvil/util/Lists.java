@@ -22,6 +22,12 @@ public final class Lists
 	 * <p>Empty rather than null because every caller renders a list, and "nothing to show" is a
 	 * normal state, not an absence to guard at each use.</p>
 	 */
+	/** How long is it? A null list is empty, not an exception. */
+	public static int sizeOf(List<?> list)
+	{
+		return list == null ? 0 : list.size();
+	}
+
 	public static <T> List<T> copyOrEmpty(List<T> src)
 	{
 		return src == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(src));

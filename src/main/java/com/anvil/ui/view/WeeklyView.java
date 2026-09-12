@@ -4,6 +4,7 @@ import com.anvil.ui.ConnectionView;
 import com.anvil.util.Lists;
 import java.util.List;
 import java.util.Locale;
+import net.runelite.api.Skill;
 
 /**
  * One live weekly competition (Skill / Boss of the Week) as the sidebar shows it: the comp itself,

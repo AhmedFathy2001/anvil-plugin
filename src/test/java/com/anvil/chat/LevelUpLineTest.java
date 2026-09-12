@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.chat;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -22,7 +22,7 @@ public class LevelUpLineTest
 {
 	private static Matcher match(String line)
 	{
-		Matcher m = AnvilPlugin.LEVEL_UP_PATTERN.matcher(line);
+		Matcher m = ChatRouter.LEVEL_UP_PATTERN.matcher(line);
 		assertTrue("should match: " + line, m.find());
 		return m;
 	}
@@ -60,7 +60,7 @@ public class LevelUpLineTest
 	@Test
 	public void doesNotMatchAnUnrelatedCongratulation()
 	{
-		assertFalse(AnvilPlugin.LEVEL_UP_PATTERN
+		assertFalse(ChatRouter.LEVEL_UP_PATTERN
 			.matcher("Congratulations, you've completed a combat task: Peach Conjurer.").find());
 	}
 }

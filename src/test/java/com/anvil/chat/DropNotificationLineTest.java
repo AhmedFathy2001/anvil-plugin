@@ -1,4 +1,4 @@
-package com.anvil;
+package com.anvil.chat;
 
 import java.util.regex.Matcher;
 import org.junit.Test;
@@ -20,7 +20,7 @@ public class DropNotificationLineTest
 	{
 		// Exact line observed in game, following "Some loot spills out alongside the Maggot
 		// King's guts. Yuck."
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		Matcher m = ChatRouter.DROP_NOTIFICATION_PATTERN.matcher(
 			"Nisbro received a drop: Elder venator fang (Maggot King)");
 		assertTrue(m.matches());
 		assertEquals("Nisbro", m.group(1));
@@ -32,7 +32,7 @@ public class DropNotificationLineTest
 	@Test
 	public void parsesQuantityPrefixAndTrailingPeriod()
 	{
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		Matcher m = ChatRouter.DROP_NOTIFICATION_PATTERN.matcher(
 			"Nisbro received a drop: 1,500 x Cannonball (Maggot King).");
 		assertTrue(m.matches());
 		assertEquals("1,500", m.group(2));
@@ -44,7 +44,7 @@ public class DropNotificationLineTest
 	public void keepsParenthesesInsideItemNames()
 	{
 		// Greedy item group: only the LAST parenthetical is the source.
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		Matcher m = ChatRouter.DROP_NOTIFICATION_PATTERN.matcher(
 			"Nisbro received a drop: Rune platebody (g) (Maggot King)");
 		assertTrue(m.matches());
 		assertEquals("Rune platebody (g)", m.group(3));
@@ -57,7 +57,7 @@ public class DropNotificationLineTest
 		// The CLAN_MESSAGE broadcast carries a value and a "from <source>" suffix. The personal
 		// pattern must not match it — the broadcast has its own pattern (below) whose handler is
 		// recipient-checked, and a personal-pattern match would mis-parse the source group.
-		assertFalse(AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		assertFalse(ChatRouter.DROP_NOTIFICATION_PATTERN.matcher(
 			"Nisbro received a drop: Elder venator fang (50,000,000 coins) from Maggot King.").matches());
 	}
 
@@ -66,7 +66,7 @@ public class DropNotificationLineTest
 	{
 		// Exact clan broadcast observed in game alongside (and independently of) the personal
 		// line — the fallback signal when a member's in-game loot notifications are off.
-		Matcher m = AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
+		Matcher m = ChatRouter.CLAN_DROP_BROADCAST_PATTERN.matcher(
 			"Nisbro received a drop: Elder venator fang (50,000,000 coins) from Maggot King.");
 		assertTrue(m.matches());
 		assertEquals("Nisbro", m.group(1));
@@ -78,7 +78,7 @@ public class DropNotificationLineTest
 	@Test
 	public void clanBroadcastKeepsParenthesesInsideItemNames()
 	{
-		Matcher m = AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
+		Matcher m = ChatRouter.CLAN_DROP_BROADCAST_PATTERN.matcher(
 			"Nisbro received a drop: Rune platebody (g) (39,000 coins) from Maggot King.");
 		assertTrue(m.matches());
 		assertEquals("Rune platebody (g)", m.group(3));
@@ -90,7 +90,7 @@ public class DropNotificationLineTest
 	{
 		// The personal line has no "(N coins) from" tail — each pattern matches only its own
 		// variant so one chat line can never be parsed twice by both handlers.
-		assertFalse(AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
+		assertFalse(ChatRouter.CLAN_DROP_BROADCAST_PATTERN.matcher(
 			"Nisbro received a drop: Elder venator fang (Maggot King)").matches());
 	}
 }

@@ -3,6 +3,7 @@ package com.anvil.clog;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * One collection-log page as the game drew it: the entry name, every item the account has obtained
