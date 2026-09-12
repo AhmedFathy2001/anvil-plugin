@@ -1,6 +1,5 @@
 package com.anvil;
 
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.ClanBoard;
 import com.anvil.api.dto.ClanRef;
 import com.anvil.ui.AnvilSidebarPanel;

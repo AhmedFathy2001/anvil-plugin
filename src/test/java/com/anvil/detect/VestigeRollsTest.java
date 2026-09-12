@@ -1,6 +1,5 @@
 package com.anvil.detect;
 
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.RollTable;
 import java.util.Arrays;
 import org.junit.Test;

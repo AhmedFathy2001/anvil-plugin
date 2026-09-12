@@ -88,6 +88,46 @@ public class AccountProgressPush
         return lastSkillLevel.put(skill, level);
     }
 
+    /**
+     * A skill's level or XP moved.
+     *
+     * <p>Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels and XP that
+     * are not the player's real progression — never notify off them, never overwrite the real-level
+     * baseline, and never push their XP.</p>
+     *
+     * <p>The XP push runs regardless of the level-up notifier toggle, so skill-XP tiles move without
+     * waiting on the hourly hiscores cron (mirroring the boss-KC push). Hiscores stays the source of
+     * truth: the server keeps max(hiscores, pushed) and reconciles. A real gain (XP rose) is told
+     * apart from the login/resync baseline burst, because only the former marks the tile "You".</p>
+     */
+    public void onStatChanged(Skill skill, int level, int xp) {
+        if (skill == null || achievements.statsAreArtificial()) {
+            return;
+        }
+        boolean realGain = noteXp(skill, xp);
+        statPush.maybeQueueSkillXpPush(skill.getName(), xp, realGain);
+
+        if (!config.notifyLevelUps()) {
+            return;
+        }
+        Integer prev = noteLevel(skill, level);
+        if (prev == null) {
+            // First sighting this session = baseline; remember pre-existing 99s so they never announce.
+            if (level >= 99) {
+                achievements.note99(skill.getName().toLowerCase());
+            }
+            return;
+        }
+        if (level <= prev) {
+            return; // XP within a level, or no gain — nothing to announce
+        }
+        if (level >= 99 && prev < 99) {
+            moments.recordLevelMoment(skill.getName(), 99, "skill");
+            achievements.handleLevelMilestone(skill.getName());
+        }
+        achievements.handleTotalMilestone();
+    }
+
     /** Progress is per ACCOUNT: the next login may be an alt, whose quest points are not this one's. */
     public void onLogout() {
         lastSentProgress.clear();

@@ -1,9 +1,5 @@
 package com.anvil.ui;
 
-import com.anvil.api.PluginConfigResponse;
-import com.anvil.api.dto.Decay;
-import com.anvil.api.dto.Mission;
-import com.anvil.clog.ClogTaskModel;
 import com.anvil.clog.model.TaskRow;
 import com.anvil.detect.LadderMissions;
 import com.anvil.ui.view.ActiveTask;
@@ -12,8 +8,6 @@ import com.anvil.ui.view.ScheduledView;
 import com.anvil.ui.view.TileProgressView;
 import com.anvil.ui.view.WeeklyView;
 import com.anvil.util.Lists;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 

@@ -7,10 +7,8 @@ import com.anvil.ui.SidebarDataSource;
 import com.google.gson.Gson;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 /**
  * What the side panel is allowed to offer, per clan.

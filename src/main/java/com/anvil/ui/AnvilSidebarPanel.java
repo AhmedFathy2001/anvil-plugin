@@ -1,11 +1,9 @@
 package com.anvil.ui;
 
 import com.anvil.api.BingoApiClient;
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.ClanRef;
 import com.anvil.api.dto.Standings;
 import com.anvil.api.dto.StartProof;
-import com.anvil.clog.ClogTaskModel;
 import com.anvil.clog.model.TaskRow;
 import com.anvil.detect.LadderMissions;
 import com.anvil.detect.StartProofRules;

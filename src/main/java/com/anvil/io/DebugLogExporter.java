@@ -1,8 +1,6 @@
 package com.anvil.io;
 
 import com.anvil.util.Clipboards;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;

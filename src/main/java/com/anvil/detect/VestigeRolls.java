@@ -1,7 +1,6 @@
 package com.anvil.detect;
 
 import com.anvil.AnvilPlugin;
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.RollTable;
 import java.util.HashMap;
 import java.util.Locale;

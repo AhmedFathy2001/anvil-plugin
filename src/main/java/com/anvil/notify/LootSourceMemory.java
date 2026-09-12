@@ -4,7 +4,6 @@ import com.anvil.AnvilConfig;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.DropFacts;
 import com.anvil.detect.AbstractRarityService;
-import com.anvil.detect.DropSource;
 import com.anvil.util.DedupWindow;
 import java.util.Arrays;
 import java.util.Collection;

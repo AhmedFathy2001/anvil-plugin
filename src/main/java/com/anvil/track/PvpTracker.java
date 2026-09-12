@@ -5,62 +5,25 @@ import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.Claim;
 import com.anvil.api.dto.CompletedTile;
-import com.anvil.api.dto.CoopFingerprint;
-import com.anvil.api.dto.ItemRequirement;
 import com.anvil.api.dto.RosterEntry;
-import com.anvil.api.dto.TrackedDeathless;
-import com.anvil.api.dto.TrackedDrop;
-import com.anvil.api.dto.TrackedGain;
-import com.anvil.api.dto.TrackedKill;
-import com.anvil.api.dto.TrackedLms;
 import com.anvil.api.dto.TrackedPvp;
-import com.anvil.api.dto.TrackedTimed;
-import com.anvil.api.dto.TrackedValue;
-import com.anvil.clog.ClogTaskModel;
-import com.anvil.detect.DropSource;
-import com.anvil.detect.GamePools;
-import com.anvil.detect.StartProofRules;
-import com.anvil.detect.TimedClearParser;
 import com.anvil.io.PendingSubmissionStore;
-import com.anvil.notify.AnvilEmbeds;
-import com.anvil.notify.LootSourceMemory;
-import com.anvil.notify.MomentsService;
-import com.anvil.notify.RareDropNotifier;
 import com.anvil.ui.AnvilOverlay;
-import com.anvil.ui.ProofBanner;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.DedupWindow;
-import com.anvil.util.Gp;
 import com.anvil.util.Rsn;
 import com.anvil.util.TaskRunner;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
-import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.ItemComposition;
 import net.runelite.api.WorldType;
-import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
@@ -223,6 +186,12 @@ public class PvpTracker implements Tracker
      * with auto-tracking on. Kept to cheap reference checks — this runs per hitsplat; the full
      * tracking gate applies later inside ensureCounterEvent().
      */
+    /** True when the current event config carries any PvP-kill tiles. */
+    public boolean boardHasPvpTiles() {
+        PluginConfigResponse cfg = pluginConfig.get();
+        return cfg != null && cfg.trackedPvp != null && !cfg.trackedPvp.isEmpty();
+    }
+
     public boolean pvpCounterActive() {
         PluginConfigResponse cfg = pluginConfig.get();
         return config.autoSubmit() && cfg != null && cfg.event != null && AnvilOverlay.isEventActive(cfg.event);

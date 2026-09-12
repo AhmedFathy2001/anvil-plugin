@@ -26,7 +26,6 @@ import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
-import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 
 /**
@@ -102,6 +101,19 @@ public class AchievementNotifier
      * set of numbers the moment you log in, and every one of these posts is "did a number go up".
      * The first reading sets the mark; only a crossing after that is news.</p>
      */
+    /**
+     * Baseline CA points once after login (before any completion), so a first completion (points
+     * rise) can be told from a recompletion (points unchanged) — then hand over whatever the chat
+     * router parked last tick.
+     */
+    public void onGameTick(java.util.List<PendingCaTask> parked) {
+        seedBaselines(() -> client.getVarbitValue(net.runelite.api.gameval.VarbitID.CA_POINTS),
+                client::getTotalLevel);
+        if (!parked.isEmpty()) {
+            handleCombatAchievements(parked);
+        }
+    }
+
     public void seedBaselines(java.util.function.IntSupplier caPoints, java.util.function.IntSupplier totalLevel) {
         if (!caPointsInitialized) {
             int p = caPoints.getAsInt();
