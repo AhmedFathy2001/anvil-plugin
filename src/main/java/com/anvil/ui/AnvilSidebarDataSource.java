@@ -1,5 +1,6 @@
 package com.anvil.ui;
 
+import com.anvil.clog.TaskRows;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.EventConfigStore;
 import com.anvil.clan.ClanRosterService;
@@ -390,13 +391,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
 		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
 		boolean pointsScored = "points".equalsIgnoreCase(cfg.event.scoringMode)
-			&& ClogTaskModel.totalPoints(rows, optionalIds) > 0;
+			&& TaskRows.totalPoints(rows, optionalIds) > 0;
 		int tilesTotal = pointsScored
-			? ClogTaskModel.totalPoints(rows, optionalIds)
-			: ClogTaskModel.scoredCount(rows, optionalIds);
+			? TaskRows.totalPoints(rows, optionalIds)
+			: TaskRows.scoredCount(rows, optionalIds);
 		int tilesComplete = pointsScored
-			? ClogTaskModel.earnedPoints(rows, optionalIds)
-			: ClogTaskModel.completedCount(rows, optionalIds);
+			? TaskRows.earnedPoints(rows, optionalIds)
+			: TaskRows.completedCount(rows, optionalIds);
 		// THE BOARD, NOT THE PART OF IT THIS PLUGIN CAN SEE. The rows above are the tiles it can
 		// DETECT — a drop, a KC, an XP goal — so a board carrying manual tiles counted 10 of its 25
 		// and called that 50% while every other surface said 20%. When the site sends the board's own

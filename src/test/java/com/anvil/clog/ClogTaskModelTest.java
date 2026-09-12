@@ -1,5 +1,6 @@
 package com.anvil.clog;
 
+import com.anvil.util.Gp;
 import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.ItemRequirement;
 import com.anvil.api.dto.TierBand;
@@ -58,7 +59,7 @@ public class ClogTaskModelTest
 		rows.add(new TaskRow(3, "Nex drop", Type.DROP, 0, 1, -1, 5, null, "pvm"));
 
 		// Each tag contributes to the dropdown once, case-insensitively deduped.
-		List<String> cats = ClogTaskModel.categories(rows);
+		List<String> cats = TaskRows.categories(rows);
 		assertEquals(3, cats.size());
 		assertTrue(cats.contains("Inferno"));
 		assertTrue(cats.contains("Skilling"));
@@ -66,10 +67,10 @@ public class ClogTaskModelTest
 		assertTrue(cats.contains("PvM"));
 
 		// Filtering by one tag matches every tile carrying it, whatever its other tags.
-		List<TaskRow> pvm = ClogTaskModel.filter(
+		List<TaskRow> pvm = TaskRows.filter(
 			rows, StatusFilter.ALL, TypeFilter.ALL, "", "PvM");
 		assertEquals(2, pvm.size());
-		List<TaskRow> inferno = ClogTaskModel.filter(
+		List<TaskRow> inferno = TaskRows.filter(
 			rows, StatusFilter.ALL, TypeFilter.ALL, "", "Inferno");
 		assertEquals(1, inferno.size());
 		assertEquals(1, inferno.get(0).tileId);
@@ -125,13 +126,13 @@ public class ClogTaskModelTest
 		rows.add(new TaskRow(2, "Partial drop", Type.DROP, 1, 5, 101));
 		rows.add(new TaskRow(3, "Fresh stat", Type.STAT, 0, 10, -1));
 
-		List<TaskRow> completed = ClogTaskModel.filter(rows,
+		List<TaskRow> completed = TaskRows.filter(rows,
 			StatusFilter.COMPLETED, TypeFilter.ALL, null);
 		assertEquals(1, completed.size());
 		assertEquals(1, completed.get(0).tileId);
 
 		// A bare STAT row classifies as the SKILL kind (the legacy constructor's default for stats).
-		List<TaskRow> stats = ClogTaskModel.filter(rows,
+		List<TaskRow> stats = TaskRows.filter(rows,
 			StatusFilter.ALL, TypeFilter.SKILL, null);
 		assertEquals(1, stats.size());
 		assertEquals(3, stats.get(0).tileId);
@@ -189,7 +190,7 @@ public class ClogTaskModelTest
 		assertTrue(rowOf(rows, 6).isCompleted());
 
 		// Type filter narrows to a single kind.
-		List<TaskRow> kills = ClogTaskModel.filter(rows,
+		List<TaskRow> kills = TaskRows.filter(rows,
 			StatusFilter.ALL, TypeFilter.KILL, null);
 		assertEquals(1, kills.size());
 		assertEquals(5, kills.get(0).tileId);
@@ -198,12 +199,12 @@ public class ClogTaskModelTest
 	@Test
 	public void tierKeyMatchesDefaultBands()
 	{
-		List<TierBand> bands = ClogTaskModel.defaultTierBands();
-		assertEquals("troll", ClogTaskModel.tierKeyOf(10, bands));
-		assertEquals("easy", ClogTaskModel.tierKeyOf(50, bands));
-		assertEquals("medium", ClogTaskModel.tierKeyOf(250, bands));
-		assertEquals("hard", ClogTaskModel.tierKeyOf(400, bands));
-		assertEquals("ultra", ClogTaskModel.tierKeyOf(800, bands));
+		List<TierBand> bands = TierBands.defaultTierBands();
+		assertEquals("troll", TierBands.tierKeyOf(10, bands));
+		assertEquals("easy", TierBands.tierKeyOf(50, bands));
+		assertEquals("medium", TierBands.tierKeyOf(250, bands));
+		assertEquals("hard", TierBands.tierKeyOf(400, bands));
+		assertEquals("ultra", TierBands.tierKeyOf(800, bands));
 	}
 
 	@Test
@@ -213,13 +214,13 @@ public class ClogTaskModelTest
 		bands.add(band("baby", "Baby", 0));
 		bands.add(band("spicy", "Spicy", 200));
 		bands.add(band("death", "Death", 600));
-		assertEquals("baby", ClogTaskModel.tierKeyOf(50, bands));
-		assertEquals("spicy", ClogTaskModel.tierKeyOf(200, bands));
-		assertEquals("spicy", ClogTaskModel.tierKeyOf(599, bands));
-		assertEquals("death", ClogTaskModel.tierKeyOf(600, bands));
-		assertEquals("Death", ClogTaskModel.tierLabel("death", bands));
+		assertEquals("baby", TierBands.tierKeyOf(50, bands));
+		assertEquals("spicy", TierBands.tierKeyOf(200, bands));
+		assertEquals("spicy", TierBands.tierKeyOf(599, bands));
+		assertEquals("death", TierBands.tierKeyOf(600, bands));
+		assertEquals("Death", TierBands.tierLabel("death", bands));
 		// Empty/missing served bands fall back to the baked-in defaults.
-		assertEquals(ClogTaskModel.defaultTierBands().size(), ClogTaskModel.tierBandsOrDefault(null).size());
+		assertEquals(TierBands.defaultTierBands().size(), TierBands.tierBandsOrDefault(null).size());
 	}
 
 	@Test
@@ -229,8 +230,8 @@ public class ClogTaskModelTest
 		rows.add(new TaskRow(1, "Troll", Type.DROP, 0, 1, 100, 10));
 		rows.add(new TaskRow(2, "Ultra", Type.DROP, 0, 1, 101, 800));
 
-		List<TierBand> bands = ClogTaskModel.defaultTierBands();
-		List<TaskRow> ultra = ClogTaskModel.filter(rows,
+		List<TierBand> bands = TierBands.defaultTierBands();
+		List<TaskRow> ultra = TaskRows.filter(rows,
 			StatusFilter.ALL, TypeFilter.ALL, null, null, "ultra", bands);
 		assertEquals(1, ultra.size());
 		assertEquals(2, ultra.get(0).tileId);
@@ -269,7 +270,7 @@ public class ClogTaskModelTest
 		rows.add(new TaskRow(1, "Vorkath head", Type.DROP, 0, 1, 100));
 		rows.add(new TaskRow(2, "Zulrah scales", Type.DROP, 0, 1, 101));
 
-		List<TaskRow> hit = ClogTaskModel.filter(rows,
+		List<TaskRow> hit = TaskRows.filter(rows,
 			StatusFilter.ALL, TypeFilter.ALL, "VORK");
 		assertEquals(1, hit.size());
 		assertEquals(1, hit.get(0).tileId);
@@ -283,7 +284,7 @@ public class ClogTaskModelTest
 		rows.add(new TaskRow(2, "Beta open", Type.DROP, 0, 1, 101));
 		rows.add(new TaskRow(3, "Alpha progress", Type.DROP, 1, 2, 102));
 
-		List<TaskRow> sorted = ClogTaskModel.filter(rows,
+		List<TaskRow> sorted = TaskRows.filter(rows,
 			StatusFilter.ALL, TypeFilter.ALL, null);
 		// IN_PROGRESS first, then NOT_STARTED, then COMPLETED.
 		assertEquals(3, sorted.get(0).tileId); // Alpha progress (in progress)
@@ -297,7 +298,7 @@ public class ClogTaskModelTest
 		List<TaskRow> rows = new ArrayList<>();
 		rows.add(new TaskRow(1, "a", Type.DROP, 5, 5, 100));
 		rows.add(new TaskRow(2, "b", Type.DROP, 1, 5, 101));
-		assertEquals(1, ClogTaskModel.completedCount(rows));
+		assertEquals(1, TaskRows.completedCount(rows));
 		assertFalse(rows.get(1).isCompleted());
 	}
 
@@ -445,22 +446,22 @@ public class ClogTaskModelTest
 	@Test
 	public void gpReadsShortAndDropsAPointlessDecimal()
 	{
-		assertEquals("0", ClogTaskModel.formatGp(0));
-		assertEquals("999", ClogTaskModel.formatGp(999));
-		assertEquals("1K", ClogTaskModel.formatGp(1_000));
-		assertEquals("12.5K", ClogTaskModel.formatGp(12_500));
-		assertEquals("3.4M", ClogTaskModel.formatGp(3_400_000));
-		assertEquals("50M", ClogTaskModel.formatGp(50_000_000));
-		assertEquals("2.1B", ClogTaskModel.formatGp(2_150_000_000L));
+		assertEquals("0", Gp.tally(0));
+		assertEquals("999", Gp.tally(999));
+		assertEquals("1K", Gp.tally(1_000));
+		assertEquals("12.5K", Gp.tally(12_500));
+		assertEquals("3.4M", Gp.tally(3_400_000));
+		assertEquals("50M", Gp.tally(50_000_000));
+		assertEquals("2.1B", Gp.tally(2_150_000_000L));
 		// Negative can't happen from the server, but must not render as "-1" either.
-		assertEquals("0", ClogTaskModel.formatGp(-5));
+		assertEquals("0", Gp.tally(-5));
 	}
 
 	/** Truncating rather than rounding: 49.99m must never read "50M/50M" while the tile is short. */
 	@Test
 	public void gpNeverRoundsUpToLookFinished()
 	{
-		assertEquals("49.9M", ClogTaskModel.formatGp(49_990_000));
-		assertEquals("999.9M", ClogTaskModel.formatGp(999_999_999));
+		assertEquals("49.9M", Gp.tally(49_990_000));
+		assertEquals("999.9M", Gp.tally(999_999_999));
 	}
 }
