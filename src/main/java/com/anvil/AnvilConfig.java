@@ -11,12 +11,29 @@ import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Keybind;
 
+/**
+ * Every setting the plugin has: forty-seven items in eight collapsible sections.
+ *
+ * <h2>Why this one file does not split</h2>
+ *
+ * <p>It is long, and it stays long. RuneLite's {@code ConfigManager.setDefaultConfiguration} reads
+ * {@code getClass().getInterfaces()[0].getDeclaredMethods()} — the FIRST interface, and only the
+ * methods DECLARED on it. Split this into {@code AnvilConfig extends AnvilNotifyConfig} and the
+ * inherited items would still appear in the panel ({@code getConfigDescriptor} uses
+ * {@code getMethods()}, which does inherit) but would never have their defaults written. The
+ * settings would look present and behave as though nobody had ever chosen anything.</p>
+ *
+ * <p>The group name is load-bearing too: {@code "osrsbingo"} is where every existing install's
+ * settings already live, so it can never change.</p>
+ *
+ * <p>What makes it readable instead is the section split below — Setup and Bingo are about taking
+ * part in an event; the "Notifications:" sections are clan-wide Discord posts that fire with or
+ * without one.</p>
+ */
 @ConfigGroup("osrsbingo")
 public interface AnvilConfig extends Config
 {
 	// ---- Sections (collapsible groups, top to bottom) ----
-	// Split by purpose: Setup + Bingo are event-participation; the "Notifications:" sections are
-	// clan-wide Discord posts that fire with or without an active bingo.
 
 	@ConfigSection(
 		name = "Setup",
