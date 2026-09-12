@@ -13,7 +13,6 @@ import com.anvil.util.AnvilChat;
 import com.anvil.util.TaskRunner;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import java.util.Locale;
 import java.util.OptionalDouble;
 import java.util.function.Supplier;
 import javax.inject.Inject;

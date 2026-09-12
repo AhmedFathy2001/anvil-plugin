@@ -19,7 +19,6 @@ import com.anvil.clog.model.Kind;
 import com.anvil.clog.model.Status;
 import com.anvil.clog.model.StatusFilter;
 import com.anvil.clog.model.TaskRow;
-import com.anvil.clog.model.Type;
 import com.anvil.clog.model.TypeFilter;
 import com.anvil.ui.AnvilSidebarPanel;
 import java.util.ArrayList;

@@ -1,6 +1,5 @@
 package com.anvil.ui.view;
 
-import com.anvil.clog.ClogTaskModel;
 import com.anvil.clog.model.TaskRow;
 
 /**

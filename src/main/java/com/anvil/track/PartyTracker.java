@@ -73,6 +73,59 @@ public class PartyTracker
     }
 
     /** Entering an instance: a previous raid's party and deaths are not this one's. */
+    /**
+     * Am I in an instance, who else is in it, and how big is the raid party?
+     *
+     * <p>Deathless raids reset the party-death counter and roster on every instance ENTRY (CoX/ToB/
+     * ToA runs are instanced, and each attempt is a fresh entry). While inside, the distinct players
+     * seen are the party size for tiles that pin one.</p>
+     *
+     * <p>Raid party size comes from client varbits instead, each raid scoped by its own "am I in
+     * this raid" signal so a stale value from a prior raid cannot bleed into another's gating. Only
+     * one raid's varbits are ever read — you cannot be in two raids at once.</p>
+     */
+    public void onGameTick() {
+        // Off the top-level view rather than the deprecated Client.getPlayers() — same players, and
+        // it is the view we already asked whether we are inside an instance of.
+        WorldView topView = client.getTopLevelWorldView();
+        boolean inInstance = topView != null && topView.isInstance();
+        if (inInstance && !inInstance()) {
+            onInstanceEntered();
+        }
+        setInInstance(inInstance);
+        if (inInstance) {
+            for (Player p : topView.players()) {
+                if (p != null && p.getName() != null) {
+                    seePlayer(p.getName().toLowerCase());
+                }
+            }
+        }
+        setRaidPartySize(readRaidPartySize());
+    }
+
+    private int readRaidPartySize() {
+        int raidParty = 0;
+        if (client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) > 0) {
+            // ToA: scoped by a non-zero raid level. Count occupied party slots.
+            for (int slot : TOA_PARTY_SLOTS) {
+                if (client.getVarbitValue(slot) > 0) {
+                    raidParty++;
+                }
+            }
+        } else if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) {
+            // CoX: the client exposes the party size directly while inside the dungeon.
+            raidParty = client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE);
+        } else if (client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0) {
+            // ToB: scoped by an active party status. Count occupied party slots.
+            for (int slot : TOB_PARTY_SLOTS) {
+                if (client.getVarbitValue(slot) > 0) {
+                    raidParty++;
+                }
+            }
+        }
+        return raidParty;
+    }
+
     public void onInstanceEntered() {
         instancePlayerDeaths = 0;
         instancePlayersSeen.clear();

@@ -1,6 +1,5 @@
 package com.anvil.ui;
 
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.ClanRef;
 import com.anvil.api.dto.StartProof;
 import com.anvil.util.Clipboards;

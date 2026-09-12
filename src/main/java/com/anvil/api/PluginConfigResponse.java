@@ -1,6 +1,5 @@
 package com.anvil.api;
 
-import com.anvil.AnvilPlugin;
 import com.anvil.api.dto.ActiveWeekly;
 import com.anvil.api.dto.BoardTally;
 import com.anvil.api.dto.ClanBoard;
@@ -30,14 +29,11 @@ import com.anvil.api.dto.TrackedStat;
 import com.anvil.api.dto.TrackedTimed;
 import com.anvil.api.dto.TrackedValue;
 import com.anvil.detect.ActivityStats;
-import com.anvil.detect.StartProofRules;
-import com.anvil.ui.AnvilSidebarDataSource;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import net.runelite.api.Skill;
 

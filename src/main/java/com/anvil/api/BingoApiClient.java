@@ -15,12 +15,10 @@ import com.anvil.api.dto.HelloResponse;
 import com.anvil.api.dto.PermanentSubmissionException;
 import com.anvil.api.dto.RateLimitedException;
 import com.anvil.api.dto.WeeklyLeaderboard;
-import com.anvil.clog.ClogFullSync;
 import com.anvil.clog.ClogPage;
 import com.anvil.clog.ClogSync;
 import com.anvil.detect.AccountProgress;
 import com.anvil.detect.StartProofRules;
-import com.anvil.ui.ActivityEntry;
 import com.anvil.ui.AnvilMoments;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -52,7 +50,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import okhttp3.ResponseBody;
 
 @Slf4j
 @Singleton

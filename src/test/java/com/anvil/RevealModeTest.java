@@ -1,6 +1,5 @@
 package com.anvil;
 
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.EventInfo;
 import com.anvil.ui.ActivityEntry;
 import com.anvil.ui.AnvilSidebarDataSource;

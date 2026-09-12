@@ -1,6 +1,5 @@
 package com.anvil.detect;
 
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.Decay;
 import com.anvil.ui.view.Ladder;
 import java.time.Instant;

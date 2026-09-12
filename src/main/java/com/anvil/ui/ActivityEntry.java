@@ -1,6 +1,5 @@
 package com.anvil.ui;
 
-import com.anvil.clog.ClogTaskModel;
 import com.anvil.clog.model.Kind;
 import com.anvil.clog.model.TaskRow;
 import com.google.gson.Gson;

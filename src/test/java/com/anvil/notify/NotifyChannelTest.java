@@ -1,6 +1,5 @@
 package com.anvil.notify;
 
-import com.anvil.api.PluginConfigResponse;
 import com.anvil.api.dto.NotifyChannels;
 import org.junit.Test;
 import static org.junit.Assert.assertFalse;
