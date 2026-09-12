@@ -58,11 +58,15 @@ public class StatPushService
     /** Pull the board back after a push — the tile's new total is what the panel shows. */
     private final Runnable refreshConfig;
 
+    /** Kill counts, XP, varbit counters and the recap totals. Absolute values, never deltas. */
+    private final com.anvil.api.StatSubmissions stats;
+
     @Inject
     StatPushService(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.track.LocalProgress progress, com.anvil.notify.LootSourceMemory lootSource, com.anvil.track.KillTracker kills,
-        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh) {
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh,
+        com.anvil.api.StatSubmissions stats) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -75,11 +79,11 @@ public class StatPushService
         // field initialiser runs before it is assigned. The compiler catches that now; it used to be
         // a null captured in a lambda and an NPE on the first push.
         this.kcPush = new DebouncedPush("KC", "boss(es)", KC_PUSH_COALESCE_MS,
-                batch -> apiClient.submitStatKc(batch), null);
+                batch -> stats.submitStatKc(batch), null);
         this.skillXpPush = new DebouncedPush("Skill XP", "skill(s)", KC_PUSH_COALESCE_MS,
-                batch -> apiClient.submitStatXp(batch), null);
+                batch -> stats.submitStatXp(batch), null);
         this.activityPush = new DebouncedPush("Activity", "key(s)", KC_PUSH_COALESCE_MS,
-                batch -> apiClient.submitStatActivities(batch),
+                batch -> stats.submitStatActivities(batch),
                 batch -> {
                     synchronized (lastPushedActivity) {
                         for (Map.Entry<String, Integer> e : batch.entrySet()) {
@@ -92,6 +96,7 @@ public class StatPushService
         this.kills = kills;
         this.pluginConfig = pluginConfig;
         this.refreshConfig = boardRefresh::now;
+        this.stats = stats;
     }
 
 

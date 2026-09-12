@@ -51,12 +51,16 @@ public class CombatRouter
 	private final ClipMoments clipMoments;
 	private final CombatTarget combatTarget;
 
+	/** Notifications, proof screenshots and clips — the requests carrying a file. */
+	private final com.anvil.api.MediaUploads media;
+
 	@Inject
 	CombatRouter(Client client, AnvilConfig config, BingoApiClient apiClient, PvpTracker pvp,
 		PartyTracker party, TimedClearTracker timed, LmsTracker lms, RecapCounters counters,
 		MomentsService moments, RareDropNotifier rareDrops, AnvilEmbeds embeds,
 		ClipMoments clipMoments, CombatTarget combatTarget,
-		DeathAttribution deathAttribution, LocalPlayer localPlayer)
+		DeathAttribution deathAttribution, LocalPlayer localPlayer,
+		com.anvil.api.MediaUploads media)
 	{
 		this.client = client;
 		this.config = config;
@@ -73,6 +77,7 @@ public class CombatRouter
 		this.combatTarget = combatTarget;
 		this.deathAttribution = deathAttribution;
 		this.localPlayerName = localPlayer::name;
+		this.media = media;
 	}
 
 	private final Supplier<String> localPlayerName;
@@ -220,7 +225,7 @@ public class CombatRouter
 		}
 		String message = rareDrops.buildDeathMessage(localPlayerName.get());
 		embeds.captureFrameAsync(png ->
-			apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
+			media.postNotification("deaths", message, null, png, "anvil-death.png"));
 	}
 
 	private void creditPvpKill(String victim)

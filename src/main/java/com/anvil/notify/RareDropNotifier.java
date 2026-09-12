@@ -69,11 +69,15 @@ public class RareDropNotifier
 
     private final Supplier<PluginConfigResponse> pluginConfig;
 
+    /** Notifications, proof screenshots and clips — the requests carrying a file. */
+    private final com.anvil.api.MediaUploads media;
+
     @Inject
     RareDropNotifier(Client client, AnvilConfig config, BingoApiClient apiClient, ItemManager itemManager,
             RarityService rarityService, ThievingService thievingService, AnvilChat chat,
             AnvilEmbeds embeds, LootSourceMemory lootSource,
-        Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer) {
+        Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer,
+        com.anvil.api.MediaUploads media) {
         this.client = client;
         this.config = config;
         this.apiClient = apiClient;
@@ -85,6 +89,7 @@ public class RareDropNotifier
         this.lootSource = lootSource;
         this.pluginConfig = pluginConfig;
         this.localPlayerName = localPlayer::name;
+        this.media = media;
     }
 
     /** Who is playing, for the post's author line. */
@@ -438,9 +443,9 @@ public class RareDropNotifier
 
         if (config.clogScreenshot()) {
             AnvilEmbeds.addAttachment(embed, shotName);
-            embeds.captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
+            embeds.captureFrameAsync(png -> media.postNotification("collectionLog", null, embed, png, shotName));
         } else {
-            apiClient.postNotification("collectionLog", null, embed, null, null);
+            media.postNotification("collectionLog", null, embed, null, null);
         }
     }
 

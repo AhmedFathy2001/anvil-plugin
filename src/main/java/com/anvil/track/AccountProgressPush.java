@@ -54,11 +54,15 @@ public class AccountProgressPush
     /** The live event config. A supplier, because the object is replaced on every poll. */
     private final Supplier<PluginConfigResponse> pluginConfig;
 
+    /** Kill counts, XP, varbit counters and the recap totals. Absolute values, never deltas. */
+    private final com.anvil.api.StatSubmissions stats;
+
     @Inject
     AccountProgressPush(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.track.StatPushService statPush,
-        Supplier<PluginConfigResponse> pluginConfig) {
+        Supplier<PluginConfigResponse> pluginConfig,
+        com.anvil.api.StatSubmissions stats) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -71,6 +75,7 @@ public class AccountProgressPush
         this.moments = moments;
         this.statPush = statPush;
         this.pluginConfig = pluginConfig;
+        this.stats = stats;
     }
 
 
@@ -230,13 +235,13 @@ public class AccountProgressPush
                 try {
                     // One request each: the endpoint takes a category at a time, and these two move
                     // independently.
-                    apiClient.submitProgress(changed, quests != null ? "quest" : null, quests);
+                    stats.submitProgress(changed, quests != null ? "quest" : null, quests);
                     lastSentProgress.putAll(changed);
                     if (quests != null) {
                         lastSentQuestCount = questsNow;
                     }
                     if (caVarps != null && !caVarps.isEmpty()) {
-                        apiClient.submitProgress(Collections.emptyMap(), null, null, caVarps, caPointsNow);
+                        stats.submitProgress(Collections.emptyMap(), null, null, caVarps, caPointsNow);
                         lastSentCaPoints = caNow;
                     }
                 } catch (IOException e) {

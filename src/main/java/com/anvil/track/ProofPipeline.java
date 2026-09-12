@@ -84,6 +84,12 @@ public class ProofPipeline
     /** Who is playing. Read at capture time, not at draw time. */
     private final Supplier<String> localPlayerName;
 
+    /** A drop, a timed clear, or the starting shot — each with a screenshot behind it. */
+    private final com.anvil.api.TileSubmissions tiles;
+
+    /** Notifications, proof screenshots and clips — the requests carrying a file. */
+    private final com.anvil.api.MediaUploads media;
+
     @Inject
     ProofPipeline(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
             ItemManager itemManager, DrawManager drawManager, ConfigManager configManager,
@@ -92,7 +98,9 @@ public class ProofPipeline
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
             RecapCounters counters,
-        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer,
+        com.anvil.api.TileSubmissions tiles,
+        com.anvil.api.MediaUploads media) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -115,6 +123,8 @@ public class ProofPipeline
         this.pluginConfig = pluginConfig;
         this.refreshConfig = boardRefresh::now;
         this.localPlayerName = localPlayer::name;
+        this.tiles = tiles;
+        this.media = media;
     }
 
 
@@ -407,8 +417,8 @@ public class ProofPipeline
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     ImageIO.write(buffered, "png", baos);
 
-                    String imageUrl = apiClient.uploadImage(baos.toByteArray(), "start-proof-" + eventId + ".png");
-                    apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
+                    String imageUrl = media.uploadImage(baos.toByteArray(), "start-proof-" + eventId + ".png");
+                    tiles.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
                     startProofFiled = true;
                     chat.send("Starting shot sent. You're clear to play.");
                     refreshConfig.run();
@@ -529,11 +539,11 @@ public class ProofPipeline
 
             warnStartProofBeforeCredit();
             log.info("Uploading screenshot for tile '{}'...", pending.label);
-            String imageUrl = apiClient.uploadImage(pngBytes, filename);
+            String imageUrl = media.uploadImage(pngBytes, filename);
 
             if (pending.durationSeconds != null) {
                 log.info("Submitting timed clear for tile '{}'...", pending.label);
-                apiClient.submitTimed(
+                tiles.submitTimed(
                         pending.eventId,
                         pending.tileId,
                         pending.teamId,
@@ -544,7 +554,7 @@ public class ProofPipeline
                 );
             } else {
                 log.info("Submitting drop for tile '{}'...", pending.label);
-                apiClient.submitDrop(
+                tiles.submitDrop(
                         pending.eventId,
                         pending.tileId,
                         pending.teamId,

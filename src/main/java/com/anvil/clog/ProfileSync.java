@@ -81,11 +81,15 @@ public class ProfileSync
     /** The live event config. A supplier, because the object is replaced on every poll. */
     private final Supplier<PluginConfigResponse> pluginConfig;
 
+    /** The collection log, personal bests, and the moments feed. */
+    private final com.anvil.api.ProfileSubmissions profile;
+
     @Inject
     ProfileSync(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
             com.anvil.notify.MomentsService moments,
-        Supplier<PluginConfigResponse> pluginConfig) {
+        Supplier<PluginConfigResponse> pluginConfig,
+        com.anvil.api.ProfileSubmissions profile) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -96,6 +100,7 @@ public class ProfileSync
         this.tasks = tasks;
         this.moments = moments;
         this.pluginConfig = pluginConfig;
+        this.profile = profile;
     }
 
 
@@ -607,7 +612,7 @@ public class ProfileSync
         }
         List<ClogPage> batch = clogSync.nextBatch();
         try {
-            apiClient.submitClogPages(batch, clogSync.syncedPages());
+            profile.submitClogPages(batch, clogSync.syncedPages());
         } catch (RateLimitedException e) {
             // Background sync: nothing to tell the player, just wait as long as the site asked.
             clogPushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
@@ -670,7 +675,7 @@ public class ProfileSync
         }
         ClogPushResult result;
         try {
-            result = apiClient.submitClogItems(clogFullSync.snapshot());
+            result = profile.submitClogItems(clogFullSync.snapshot());
         } catch (RateLimitedException e) {
             // It said when. Wait exactly that long instead of doubling blindly, and keep the batch.
             clogPushAllowedAt = now + Math.max(e.retryAfterMs, 1_000L);
@@ -740,7 +745,7 @@ public class ProfileSync
         }
         Map<String, Integer> batch = personalBests.nextBatch();
         try {
-            apiClient.submitPersonalBests(batch);
+            profile.submitPersonalBests(batch);
         } catch (RateLimitedException e) {
             // Bests ride the same limiter; the batch stays dirty and goes up when it clears.
             pbBackoff.onFailure(System.currentTimeMillis());

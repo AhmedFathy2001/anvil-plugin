@@ -96,11 +96,15 @@ public class ObsClipService
 	private final Object obsLock = new Object();
 	private final Deque<PendingClip> pendingClips = new ArrayDeque<>();
 
+	/** Notifications, proof screenshots and clips — the requests carrying a file. */
+	private final com.anvil.api.MediaUploads media;
+
 	@Inject
 	ObsClipService(OkHttpClient okHttpClient, Gson gson, AnvilConfig config, BingoApiClient apiClient,
 		DiscordWebhookClient discordClient, AnvilChat chat, ClipMoments clipMoments,
 		CombatTarget combatTarget,
-		Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer)
+		Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer,
+		com.anvil.api.MediaUploads media)
 	{
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
@@ -112,6 +116,7 @@ public class ObsClipService
 		this.combatTarget = combatTarget;
 		this.configSupplier = pluginConfig;
 		this.localPlayerName = localPlayer::name;
+		this.media = media;
 	}
 
 
@@ -304,7 +309,7 @@ public class ObsClipService
 		// Their board position rides along: the footage can show the kill but not that it put them
 		// top of the month.
 		Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
-		ClipRelayResult result = apiClient.postClip(
+		ClipRelayResult result = media.postClip(
 			file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
 			standings != null ? standings.yourRank : 0,
 			standings != null ? standings.yourPoints : 0);

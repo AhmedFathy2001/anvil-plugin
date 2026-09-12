@@ -74,6 +74,9 @@ public class PvpTracker
     /** Who is playing. Read at capture time, not at draw time. */
     private final Supplier<String> localPlayerName;
 
+    /** Notifications, proof screenshots and clips — the requests carrying a file. */
+    private final com.anvil.api.MediaUploads media;
+
     @Inject
     PvpTracker(AnvilConfig config, BingoApiClient apiClient, Client client, ClientThread clientThread,
             ItemManager itemManager, DrawManager drawManager, ConfigManager configManager,
@@ -82,7 +85,8 @@ public class PvpTracker
             com.anvil.notify.AnvilEmbeds embeds, com.anvil.notify.LootSourceMemory lootSource,
             com.anvil.notify.MomentsService moments, com.anvil.notify.RareDropNotifier rareDrops,
             RecapCounters counters, ProofPipeline proofs,
-        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer) {
+        Supplier<PluginConfigResponse> pluginConfig, BoardRefresh boardRefresh, LocalPlayer localPlayer,
+        com.anvil.api.MediaUploads media) {
         this.config = config;
         this.apiClient = apiClient;
         this.client = client;
@@ -106,6 +110,7 @@ public class PvpTracker
         this.pluginConfig = pluginConfig;
         this.refreshConfig = boardRefresh::now;
         this.localPlayerName = localPlayer::name;
+        this.media = media;
     }
 
     /** Normalised RSN -> teamId for every enrolled player, so 'team:other' can classify. */
@@ -213,7 +218,7 @@ public class PvpTracker
             return;
         }
         String message = rareDrops.buildKillMessage(localPlayerName.get(), name);
-        embeds.captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
+        embeds.captureFrameAsync(png -> media.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
     }
 
     /**
