@@ -70,6 +70,8 @@ public class ChatRouter
     private final com.anvil.notify.LootSourceMemory lootSource;
     private final com.anvil.notify.PetNotifier pets;
     private final com.anvil.notify.RareDropNotifier rareDrops;
+    /** A new collection-log slot, which is a different event from a rare drop. */
+    private final com.anvil.notify.ClogUnlockNotifier clogUnlocks;
     private final com.anvil.notify.AchievementNotifier achievements;
     private final com.anvil.notify.MomentsService moments;
     private final com.anvil.util.ClipMoments clipMoments;
@@ -80,7 +82,7 @@ public class ChatRouter
     @Inject
     ChatRouter(Client client, ClientThread clientThread, AnvilConfig config, BingoApiClient apiClient,
             ConfigManager configManager, ItemManager itemManager, AnvilChat chat, TaskRunner tasks,
-            com.anvil.track.DropTracker drops, com.anvil.track.DropCredit dropCredit, com.anvil.track.KillTracker kills, com.anvil.track.TimedClearTracker timed, com.anvil.track.ProofPipeline proofs, com.anvil.track.StatPushService statPush, com.anvil.track.AchievementTiles achTiles, com.anvil.clog.ProfileSync profileSync, com.anvil.notify.LootSourceMemory lootSource, com.anvil.notify.PetNotifier pets, com.anvil.notify.RareDropNotifier rareDrops, com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.util.ClipMoments clipMoments,
+            com.anvil.track.DropTracker drops, com.anvil.track.DropCredit dropCredit, com.anvil.track.KillTracker kills, com.anvil.track.TimedClearTracker timed, com.anvil.track.ProofPipeline proofs, com.anvil.track.StatPushService statPush, com.anvil.track.AchievementTiles achTiles, com.anvil.clog.ProfileSync profileSync, com.anvil.notify.LootSourceMemory lootSource, com.anvil.notify.PetNotifier pets, com.anvil.notify.RareDropNotifier rareDrops, com.anvil.notify.ClogUnlockNotifier clogUnlocks, com.anvil.notify.AchievementNotifier achievements, com.anvil.notify.MomentsService moments, com.anvil.util.ClipMoments clipMoments,
         Supplier<PluginConfigResponse> pluginConfig) {
         this.client = client;
         this.clientThread = clientThread;
@@ -101,6 +103,7 @@ public class ChatRouter
         this.lootSource = lootSource;
         this.pets = pets;
         this.rareDrops = rareDrops;
+        this.clogUnlocks = clogUnlocks;
         this.achievements = achievements;
         this.moments = moments;
         this.clipMoments = clipMoments;
@@ -365,8 +368,8 @@ public class ChatRouter
                 // unlock at the drops channel, while every OTHER new slot goes quietly to the
                 // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
                 // so a Dizana's quiver never lands twice.
-                rareDrops.maybeNotifyCollectionUnlock(item);
-                rareDrops.maybeNotifyClogSlot(item);
+                clogUnlocks.maybeNotifyCollectionUnlock(item);
+                clogUnlocks.maybeNotifyClogSlot(item);
             }
             // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
             // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any

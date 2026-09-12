@@ -4,20 +4,12 @@ import com.anvil.session.LocalPlayer;
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
-import com.anvil.detect.CombatAchievementTier;
-import com.anvil.detect.GamePools;
-import com.anvil.detect.QuestAnnounceTier;
 import com.anvil.util.AnvilChat;
-import com.anvil.util.ChatText;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -25,8 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
-import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.callback.ClientThread;
 
 /**
@@ -71,6 +61,12 @@ public class AchievementNotifier
     private final AnvilChat chat;
     private final AnvilEmbeds embeds;
     private final MomentsService moments;
+
+    /** Combat achievements, which need the baseline this class seeds. A Provider: it asks back. */
+    private final javax.inject.Provider<CombatTaskNotifier> combatTasks;
+
+    /** Quests, which dedup against this class's own session state. A Provider: it asks back. */
+    private final javax.inject.Provider<QuestNotifier> questsRef;
     private final com.anvil.track.RecapCounters counters;
 
     private final Supplier<PluginConfigResponse> pluginConfig;
@@ -84,7 +80,9 @@ public class AchievementNotifier
             AnvilChat chat, AnvilEmbeds embeds, MomentsService moments,
             com.anvil.track.RecapCounters counters,
         Supplier<PluginConfigResponse> pluginConfig, LocalPlayer localPlayer,
-        com.anvil.api.MediaUploads media) {
+        com.anvil.api.MediaUploads media,
+            javax.inject.Provider<CombatTaskNotifier> combatTasks,
+            javax.inject.Provider<QuestNotifier> questsRef) {
         this.client = client;
         this.clientThread = clientThread;
         this.config = config;
@@ -96,6 +94,8 @@ public class AchievementNotifier
         this.pluginConfig = pluginConfig;
         this.localPlayerName = localPlayer::name;
         this.media = media;
+        this.combatTasks = combatTasks;
+        this.questsRef = questsRef;
     }
 
 
@@ -115,18 +115,12 @@ public class AchievementNotifier
         seedBaselines(() -> client.getVarbitValue(net.runelite.api.gameval.VarbitID.CA_POINTS),
                 client::getTotalLevel);
         if (!parked.isEmpty()) {
-            handleCombatAchievements(parked);
+            combatTasks.get().handleCombatAchievements(parked);
         }
     }
 
     public void seedBaselines(java.util.function.IntSupplier caPoints, java.util.function.IntSupplier totalLevel) {
-        if (!caPointsInitialized) {
-            int p = caPoints.getAsInt();
-            if (p > 0) {
-                lastCaPoints = p;
-                caPointsInitialized = true;
-            }
-        }
+        combatTasks.get().seedPointsBaseline(caPoints);
         if (!totalLevelInitialized && !statsAreArtificial()) {
             int t = totalLevel.getAsInt();
             if (t > 0) {
@@ -138,7 +132,7 @@ public class AchievementNotifier
 
     /** The quest-completion scroll's interface group, for the widget hook. */
     public static int questScrollGroup() {
-        return QUEST_COMPLETED_GROUP_ID;
+        return QuestNotifier.questScrollGroup();
     }
 
     /** A skill already announced at 99 this session — the chat line and StatChanged both fire. */
@@ -156,44 +150,22 @@ public class AchievementNotifier
 
     /** A new account is logging in: forget what the last one had already been announced for. */
     public void onLogout() {
-        notifiedCaTasks.clear();
-        announcedQuests.clear();
+        combatTasks.get().onLogout();
+        questsRef.get().onLogout();
         notified99.clear();
-        lastCaPoints = -1;
-        caPointsInitialized = false;
+
+
         lastTotalLevel = -1;
         totalLevelInitialized = false;
     }
 
-    // Quest-completed scroll interface — gameval InterfaceID.QUESTSCROLL (153); child 4 is
-    // Questscroll.QUEST_TITLE, the "You have completed <Quest>!" line. Same signal RuneLite's
-    // screenshot plugin keys off.
-    private static final int QUEST_COMPLETED_GROUP_ID = 153;
 
-    private static final int QUEST_COMPLETED_TEXT_CHILD = 4;
 
-    // Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
-    private final Set<String> announcedQuests = new LinkedHashSet<>();
 
-    // Quest-name extraction, ported from RuneLite's ScreenshotPlugin (BSD-2) — the scroll text
-    // varies: "You have completed The Corsair Curse!", "'One Small Favour' completed!",
-    // "Congratulations! You have defeated the Culinaromancer!" (RFD subquests), and the
-    // "kind of"/"completely" phrasings of Hazeel Cult and Rag and Bone Man.
-    private static final Pattern QUEST_PATTERN_1 = Pattern.compile(
-            ".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$");
 
-    private static final Pattern QUEST_PATTERN_2 = Pattern.compile(
-            "'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
 
-    // Task names already announced this session. Dedups recompletions (the in-game "repeat
-    // completion" message) by NAME — which also lets multiple completions in one tick all post,
-    // unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
-    private final Set<String> notifiedCaTasks = new LinkedHashSet<>();
 
-    // Last-known total CA points, baselined at login; used only for tier-clear detection now.
-    private int lastCaPoints = -1;
 
-    private boolean caPointsInitialized;
 
     // Last-known total level, baselined at login so we only announce genuine crossings (not the
     // total we logged in with). Total only ever rises on a skill level-up, so we check it there.
@@ -213,153 +185,6 @@ public class AchievementNotifier
     private static final int TOTAL_MILESTONE_FLOOR = 1750;
 
     private static final int TOTAL_MILESTONE_STEP = 100;
-
-    /**
-     * Handles a parsed combat-task completion (run a tick after the chat line
-     * so the CA points varbit has settled). Posts the individual task if it
-     * clears the configured min tier, and a separate tier-clear post when this
-     * task pushed total points across a tier threshold.
-     */
-    public void handleCombatAchievements(List<PendingCaTask> batch) {
-        boolean announce = embeds.notifyEnabled("combatAchievements");
-
-        int total = client.getVarbitValue(VarbitID.CA_POINTS);
-        // Points before this batch — only used to detect a tier-threshold crossing. With no baseline
-        // yet, fall back to the current total so we never post a phantom tier clear.
-        int before = caPointsInitialized ? lastCaPoints : total;
-
-        // Tier clear: did the cumulative total cross any tier threshold across this batch?
-        CombatAchievementTier cleared = null;
-        for (CombatAchievementTier t : CombatAchievementTier.values()) {
-            int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-            if (threshold > 0 && before < threshold && threshold <= total) {
-                cleared = t; // values() ascend, so the last match is the highest tier crossed
-            }
-        }
-        if (cleared != null && announce) {
-            postCaTierClear(cleared);
-        }
-
-        // Individual tasks: post each FIRST-seen task at/above the configured floor, but only when
-        // this tick's completions actually raised the CA point total. Already-owned tasks re-fire the
-        // same chat line via the in-game "Repeat completion" setting — which we rely on so CA *tiles*
-        // can count tasks cleared before the event — without changing points, so gating on the delta
-        // keeps those recompletions out of the achievements channel. (A mixed tick containing both a
-        // genuine new task and a recompletion still posts the recompletion; the aggregate varbit can't
-        // attribute a per-task delta. That's rare — real spam is pure-recompletion ticks.) Dedup by
-        // task NAME so every genuinely new task in a multi-task tick still posts exactly once.
-        boolean pointsRose = total > before;
-        for (PendingCaTask pending : batch) {
-            String key = pending.task == null ? "" : pending.task.toLowerCase();
-            if (key.isEmpty() || !notifiedCaTasks.add(key)) {
-                continue; // unparseable, or already announced this session
-            }
-            if (!pointsRose) {
-                continue; // a recompletion: it changed nothing, so it is not news
-            }
-            // The feed and the counter take every genuinely new task and let the SITE decide which
-            // are worth showing — a tier floor belongs where the clan can change it without a
-            // plugin release. The chat announcement keeps its own local floor.
-            counters.noteCombatTaskMoment(pending.tier, pending.task);
-            if (announce && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
-                postCombatTask(pending.tier, pending.task, total);
-            }
-        }
-
-        lastCaPoints = total;
-    }
-
-    /**
-     * Wiki link for a specific combat task.
-     *
-     * The wiki has no page per task — they live as rows in the per-tier task tables — so this lands
-     * on the tier's list with the task name as a fragment. Where the wiki has an anchor for it the
-     * browser jumps straight to the row; where it doesn't, the reader still arrives at the list
-     * containing it, which is strictly better than the Combat Achievements hub page.
-     */
-    private static String caTaskWikiUrl(CombatAchievementTier tier, String task) {
-        String tierPath = tier.getDisplayName().replace(' ', '_');
-        String base = AnvilEmbeds.caWikiUrl() + "/" + tierPath;
-        if (task == null || task.isEmpty()) {
-            return base;
-        }
-        return base + "#" + task.trim().replace(' ', '_');
-    }
-
-    /**
-     * Posts one completed combat task. Carries the numbers a CA grinder actually cares about: what
-     * the task was worth, where their running total sits, and how far the next tier unlock is —
-     * all read from the same varbits the tier-clear check uses, so no extra bookkeeping.
-     *
-     * Client thread (varbit reads happen in the caller); the screenshot + send are deferred.
-     */
-    private void postCombatTask(CombatAchievementTier tier, String task, int totalPoints) {
-        String rsn = localPlayerName.get();
-        String shotName = "anvil-ca.png";
-        JsonObject embed = new JsonObject();
-        AnvilEmbeds.addAuthor(embed, rsn);
-        // Title names the TASK, not just its tier — "Into the Den of Giants" is the news; "Easy
-        // combat task" is the category. The link follows it to the tier's task list rather than the
-        // Combat Achievements hub, which told a reader nothing they didn't already know.
-        embed.addProperty("title", "⚔️ " + task);
-        embed.addProperty("description",
-                AnvilEmbeds.who(rsn) + " completed a " + tier.getDisplayName().toLowerCase()
-                        + " combat task.");
-        embed.addProperty("color", AnvilEmbeds.achievementColor());
-        embed.addProperty("url", caTaskWikiUrl(tier, task));
-
-        JsonArray fields = new JsonArray();
-        fields.add(AnvilEmbeds.statField("Points earned", "+" + tier.getPoints()));
-        if (totalPoints > 0) {
-            fields.add(AnvilEmbeds.statField("Total points", String.format("%,d", totalPoints)));
-            String progress = nextTierProgress(totalPoints);
-            if (progress != null) {
-                fields.add(AnvilEmbeds.statField("Next unlock", progress));
-            }
-        }
-        embed.add("fields", fields);
-
-        AnvilEmbeds.addThumbnail(embed, AnvilEmbeds.caIconUrl());
-
-        if (config.caScreenshot()) {
-            AnvilEmbeds.addAttachment(embed, shotName);
-            embeds.captureFrameAsync(png -> media.postNotification("combatAchievements", null, embed, png, shotName));
-        } else {
-            media.postNotification("combatAchievements", null, embed, null, null);
-        }
-    }
-
-    /**
-     * "216/726 (29.8%)" — progress toward the next tier's reward unlock, or null once every tier is
-     * unlocked. Thresholds are cumulative point totals held in per-tier varbits; the next unlock is
-     * simply the lowest threshold still above the current total. Client thread (varbit reads).
-     */
-    private String nextTierProgress(int totalPoints) {
-        int next = 0;
-        for (CombatAchievementTier t : CombatAchievementTier.values()) {
-            int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-            if (threshold > totalPoints && (next == 0 || threshold < next)) {
-                next = threshold;
-            }
-        }
-        if (next <= 0) {
-            return null; // everything already unlocked — no bar left to fill
-        }
-        double pct = (100.0 * totalPoints) / next;
-        return String.format("%,d/%,d (%.1f%%)", totalPoints, next, pct);
-    }
-
-    private void postCaTierClear(CombatAchievementTier tier) {
-        String rsn = localPlayerName.get();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🏆 Combat Achievement tier!");
-        embed.addProperty("description",
-                AnvilEmbeds.who(rsn) + " unlocked the **" + tier.getDisplayName()
-                + "** Combat Achievements tier!");
-        embed.addProperty("color", AnvilEmbeds.achievementColor());
-        // Combat-achievement posts are message-only — no screenshot.
-        media.postNotification("combatAchievements", null, embed, null, null);
-    }
 
     /**
      * A skill hit level 99. Posts to the clan achievements channel (shared with
@@ -382,99 +207,6 @@ public class AchievementNotifier
                         + "** achievement diary!");
         embed.addProperty("color", AnvilEmbeds.achievementColor());
         media.postNotification("diaries", null, embed, null, null);
-    }
-
-    /**
-     * Reads the quest-completed scroll and posts the completion, gated by the
-     * configured difficulty threshold (default Master &amp; up). Runs a tick
-     * after the widget loads so the text child is populated; retries a couple
-     * of ticks if the text lands late.
-     */
-    public void scheduleQuestScrollRead(int attemptsLeft) {
-        clientThread.invokeLater(() -> {
-            net.runelite.api.widgets.Widget text = client.getWidget(QUEST_COMPLETED_GROUP_ID, QUEST_COMPLETED_TEXT_CHILD);
-            String raw = text != null ? text.getText() : null;
-            if (raw == null || raw.isEmpty()) {
-                if (attemptsLeft > 0) {
-                    scheduleQuestScrollRead(attemptsLeft - 1);
-                }
-                return;
-            }
-            // A widget, so the angle-bracket form is what appears here — but it costs nothing to
-            // take the @ codes too, and the quest scroll is styled by the same game.
-            String plain = ChatText.CHAT_TAG.matcher(raw).replaceAll(" ").replaceAll("\\s+", " ").trim();
-            String quest = parseQuestScroll(plain);
-            if (quest == null || quest.contains("partial completion")) {
-                return; // unparseable, or Hazeel Cult's "kind of completed" — not a completion
-            }
-            if (!announcedQuests.add(quest.toLowerCase())) {
-                return; // widget re-loaded for a quest already posted this session
-            }
-            postQuestCompletion(quest);
-        });
-    }
-
-    /**
-     * Parses the quest-completed scroll text into the quest name. Ported from
-     * RuneLite's ScreenshotPlugin (BSD-2) so all the scroll's text variants
-     * resolve correctly — RFD subquests become "Recipe for Disaster - X",
-     * "completely completed Rag and Bone Man" becomes "Rag and Bone Man II",
-     * and names genuinely containing "Quest" (Legends' Quest, Doric's Quest)
-     * keep the word. Returns null when nothing matches. Package-private for
-     * the unit test.
-     */
-    static String parseQuestScroll(String text) {
-        Matcher m1 = QUEST_PATTERN_1.matcher(text);
-        Matcher m2 = QUEST_PATTERN_2.matcher(text);
-        Matcher m = m1.matches() ? m1 : m2;
-        if (!m.matches()) {
-            return null;
-        }
-        String quest = m.group("quest");
-        String verb = m.group("verb") != null ? m.group("verb") : "";
-        if (verb.contains("kind of")) {
-            quest += " partial completion";
-        } else if (verb.contains("completely")) {
-            quest += " II";
-        }
-        final String questAndVerb = quest + verb;
-        if (GamePools.RFD_TAGS.stream().anyMatch(questAndVerb::contains)) {
-            quest = "Recipe for Disaster - " + quest;
-        }
-        final String questName = quest;
-        if (GamePools.WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) {
-            quest += " Quest";
-        }
-        return quest;
-    }
-
-    /**
-     * Posts a quest completion to the clan achievements channel. Tier comes
-     * from the baked name sets; a quest in neither set counts as below Master,
-     * so only the "All quests" setting posts it. Message-only, like CA posts.
-     */
-    private void postQuestCompletion(String questName) {
-        QuestAnnounceTier setting = config.questAnnounce();
-        if (setting == QuestAnnounceTier.OFF || !embeds.notifyEnabled("quests")) {
-            return;
-        }
-        String key = questName.toLowerCase();
-        boolean gm = GamePools.GRANDMASTER_QUESTS.contains(key);
-        boolean master = GamePools.MASTER_QUESTS.contains(key);
-        if (setting == QuestAnnounceTier.GRANDMASTER && !gm) {
-            return;
-        }
-        if (setting == QuestAnnounceTier.MASTER && !gm && !master) {
-            return;
-        }
-        String rsn = localPlayerName.get();
-        String tierTag = gm ? " (Grandmaster)" : master ? " (Master)" : "";
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🗺️ Quest complete!");
-        embed.addProperty("description",
-                AnvilEmbeds.who(rsn) + " just completed **" + questName + "**" + tierTag + "!");
-        embed.addProperty("color", AnvilEmbeds.achievementColor());
-        media.postNotification("quests", null, embed, null, null);
     }
 
     /**
