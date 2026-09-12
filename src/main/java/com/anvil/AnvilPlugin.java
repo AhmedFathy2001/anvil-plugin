@@ -1,18 +1,9 @@
 package com.anvil;
 
-import javax.inject.Provider;
-import java.util.function.Supplier;
-import com.anvil.api.BoardRefresh;
 import com.anvil.api.BingoApiClient;
-import com.anvil.api.PluginConfigResponse;
-import com.anvil.api.dto.StartProof;
 import com.anvil.notify.AchievementNotifier;
-import com.anvil.notify.AnvilEmbeds;
-import com.anvil.notify.LootSourceMemory;
 import com.anvil.notify.MomentsService;
-import com.anvil.notify.NudgeService;
 import com.anvil.notify.PetNotifier;
-import com.anvil.notify.RareDropNotifier;
 import com.anvil.track.RecapCounters;
 import com.anvil.api.EventConfigStore;
 import com.anvil.chat.ChatRouter;
@@ -34,36 +25,26 @@ import com.anvil.track.CombatRouter;
 import com.anvil.track.LootRouter;
 import com.anvil.track.PartyTracker;
 import com.anvil.track.ProofPipeline;
-import com.anvil.track.PvpTracker;
-import com.anvil.track.TimedClearTracker;
-import com.anvil.track.TrackingGate;
-import com.anvil.track.ValueTracker;
 import com.anvil.clip.ObsClipService;
 import com.anvil.detect.ActivityStats;
-import com.anvil.io.BannerSoundService;
 import com.anvil.io.DebugSupportLog;
 import com.anvil.io.DiscordWebhookClient;
 import com.anvil.ui.AnvilOverlay;
-import com.anvil.ui.AnvilSidebarDataSource;
 import com.anvil.ui.AnvilSidebarPanel;
-import com.anvil.ui.BingoClogBannerOverlay;
+import com.anvil.ui.AnvilUi;
 import com.anvil.ui.GameTabButtons;
-import com.anvil.ui.SidebarDataSource;
 import com.anvil.ui.view.Standing;
 import com.anvil.util.TaskRunner;
-import com.google.inject.Provides;
-import java.awt.image.BufferedImage;
+import com.google.inject.Binder;
 import java.util.Collection;
-import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
-import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.Player;
 import net.runelite.api.ScriptID;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ClanChannelChanged;
 import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.GameStateChanged;
@@ -87,15 +68,9 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.events.ServerNpcLoot;
-import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.loottracker.LootReceived;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.NavigationButton;
-import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.HotkeyListener;
-import net.runelite.client.util.ImageUtil;
 
 @Slf4j
 @PluginDescriptor(
@@ -112,28 +87,16 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private AnvilConfig config;
 
-    @Inject
-    private OverlayManager overlayManager;
 
-    // Always-on progress sidebar — a toolbar PluginPanel showing per-clan tile progress. Reads
-    // through SidebarDataSource (mock for now; see provideSidebarDataSource) so it's independent
-    // of the multi-home backend track.
-    @Inject
-    private ClientToolbar clientToolbar;
 
     @Inject
     private AnvilSidebarPanel sidebarPanel;
 
-    private NavigationButton sidebarNavButton;
 
     @Inject
     private AnvilOverlay overlay;
 
-    @Inject
-    private BingoClogBannerOverlay clogBanner;
 
-    @Inject
-    private BannerSoundService bannerSound;
 
 
     @Inject
@@ -149,8 +112,6 @@ public class AnvilPlugin extends Plugin {
 
 
 
-    @Inject
-    private KeyManager keyManager;
 
     @Inject
     private DebugSupportLog supportLog;
@@ -208,22 +169,13 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private GainTracker gains;
 
-    @Inject
-    private ValueTracker values;
 
-    @Inject
-    private TimedClearTracker timed;
 
-    @Inject
-    private PvpTracker pvp;
 
     /** Capture, annotate, persist, upload, retry. */
     @Inject
     private ProofPipeline proofs;
 
-    /** The three reasons nothing is being credited, asked in one place. */
-    @Inject
-    private TrackingGate gate;
 
     /** Which tiles THIS account moved recently, for the panel's "Active now". */
     @Inject
@@ -233,9 +185,6 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private PartyTracker party;
 
-    /** The clan's Discord posts, by kind. */
-    @Inject
-    private RareDropNotifier rareDrops;
 
     @Inject
     private PetNotifier pets;
@@ -243,42 +192,19 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private AchievementNotifier achievements;
 
-    @Inject
-    private AnvilEmbeds embeds;
 
     @Inject
     private MomentsService moments;
 
-    @Inject
-    private LootSourceMemory lootSource;
 
     /** The cosmetic end-of-event numbers. Never scoring. */
     @Inject
     private RecapCounters counters;
 
-    /** The settings elsewhere that quietly stop this working. */
-    @Inject
-    private NudgeService nudges;
 
     /** Clips: OBS, the pending-request queue, and getting the file to Discord. */
     @Inject
     private ObsClipService clips;
-
-
-
-    private final HotkeyListener clipHotkeyListener = new HotkeyListener(() -> config.clipHotkey()) {
-        @Override
-        public void hotkeyPressed() {
-            clips.capture();
-        }
-    };
-
-    private final HotkeyListener exportDebugLogHotkeyListener = new HotkeyListener(() -> config.exportDebugLogHotkey()) {
-        @Override
-        public void hotkeyPressed() {
-            supportLog.export();
-        }
-    };
 
     /** Our own background thread for blocking network work. See {@link TaskRunner}. */
     @Inject
@@ -299,9 +225,13 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private GameTabButtons tabButtons;
 
-    /** What a login starts and a logout ends — twelve collaborators' worth of per-account state. */
+    /** What the plugin's life starts and ends, and what a login starts and a logout ends. */
     @Inject
     private SessionLifecycle lifecycle;
+
+    /** Two overlays, the sidebar, the two in-game title-bar buttons, and two hotkeys. */
+    @Inject
+    private AnvilUi ui;
 
     /** Four overlapping loot events, and the rules about which of them may count a kill. */
     @Inject
@@ -317,103 +247,16 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
-        tabButtons.onStartUp(this::syncClanRosterFromPanel);
-        // The stat table as it stands right now, before any XP arrives. A plugin started mid-session
-        // — every reload during development, every enable from the sidebar — has no other chance to
-        // learn it, and what it doesn't know it mistakes for a level-up that already happened.
-        accountProgress.seedSkillLevels();
-        configStore.migrateConfigDefaults();
-        // Restore the clan the member last picked, BEFORE the first fetch — otherwise the opening poll
-        // goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
-        // then jumps to theirs a few seconds later.
-        apiClient.setChosenClan(configStore.chosenClan());
-        overlayManager.add(overlay);
-        overlayManager.add(clogBanner);
-
-        // Mount the always-on progress sidebar in the RuneLite toolbar.
-        final BufferedImage sidebarIcon = ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png");
-        sidebarNavButton = NavigationButton.builder()
-                .tooltip("Anvil progress")
-                .icon(sidebarIcon)
-                .priority(7)
-                .panel(sidebarPanel)
-                .build();
-        clientToolbar.addNavigation(sidebarNavButton);
-
-        bannerSound.ensureUserDir();
-        lootSource.bindNotableItems(drops::notableItems);
-        configStore.onShutDown();
-
-        tasks.start();
-        keyManager.registerKeyListener(clipHotkeyListener);
-        keyManager.registerKeyListener(exportDebugLogHotkeyListener);
-        if (config.clipsEnabled()) {
-            clips.connect();
-        }
-
-        settings.configureApiClient();
-
-        // Session clock for the starting shot: starting up AT the login screen means the next
-        // LOGGED_IN is a real login we can vouch for — the ordinary "launched the client" case.
-        // Starting up already in-game leaves it unknown, which the rule reads as "log out and back
-        // in", since we can't say when the last hiscores flush was.
-        session.setFreshLoginPending(client.getGameState() == GameState.LOGIN_SCREEN);
-        session.clearSessionClock();
-
-        // Initial config fetch. If the plugin was enabled mid-session (already logged in),
-        // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
-        // the very first authed request carries the identity headers.
-        if (client.getGameState() == GameState.LOGGED_IN) {
-            tasks.run(session::stampIdentityAndGreet);
-        } else if (apiClient.isConfigured()) {
-            tasks.run(configStore::refreshConfig);
-        }
-
-        // Retry any pending submissions from a previous session
-        tasks.runLater(() -> TaskRunner.safely("initial retry", proofs::retryPendingSubmissions), 3_000);
-
-        // Refresh config every 30 seconds + retry pending submissions.
-        // Wrap in try/catch — an uncaught throw inside a repeating task silently
-        // cancels the task forever, so a single hiccup would stop all future refreshes.
-        tasks.runEvery(() -> {
-            TaskRunner.safely("refreshConfig", configStore::refreshConfig);
-            TaskRunner.safely("retryPendingSubmissions", proofs::retryPendingSubmissions);
-            TaskRunner.safely("obsReconnect", clips::maybeReconnect);
-            TaskRunner.safely("profileSync", profileSync::onPoll);
-            TaskRunner.safely("pushAccountProgress", accountProgress::pushAccountProgress);
-        }, 30_000);
+        ui.mount(this);
+        lifecycle.onStartUp();
     }
-
 
     @Override
     protected void shutDown() {
-        overlayManager.remove(overlay);
-        overlayManager.remove(clogBanner);
-        tabButtons.onShutDown();
-        if (sidebarNavButton != null) {
-            clientToolbar.removeNavigation(sidebarNavButton);
-            sidebarNavButton = null;
-        }
-        bannerSound.shutdown();
-        keyManager.unregisterKeyListener(clipHotkeyListener);
-        keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
-        clips.disconnect();
-        tasks.stop();
-        configStore.onShutDown();
-        drops.clearIndex();
-        kills.clearIndex();
-        gains.clearIndex();
-        statPush.onShutDown();
-        // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
-        // session days later would be filed against whatever happens to be running then.
-        moments.reset();
-        // The recap counters are written to the config store first (capturing loot gained since the
-        // last push) — the in-memory totals survive, so a same-event re-login keeps counting.
-        counters.shutDown();
-        timed.reset();
+        ui.unmount();
+        lifecycle.onShutDown();
     }
 
-    /** Members can type ::anvillog in chat to export a support log (mirrors the Support hotkey). */
     @Subscribe
     public void onCommandExecuted(CommandExecuted event) {
         String cmd = event.getCommand();
@@ -427,72 +270,10 @@ public class AnvilPlugin extends Plugin {
         accountProgress.onStatChanged(event.getSkill(), event.getLevel(), event.getXp());
     }
 
-    @Provides
-    AnvilConfig provideConfig(ConfigManager configManager) {
-        return configManager.getConfig(AnvilConfig.class);
-    }
-
-    /**
-     * The board, as a view rather than a value.
-     *
-     * <p>{@code /config} is re-fetched every thirty seconds and the response object is replaced
-     * wholesale — so a collaborator handed the object at construction would go on crediting tiles
-     * from a board that has since ended, and would never see a tile somebody added this morning.
-     * Every read through this supplier is of the current one.</p>
-     *
-     * <p>A {@link Provider}, because almost every collaborator the store itself reaches for also
-     * wants the board: asking for the store here would be a dependency cycle. Nothing resolves it
-     * until something actually reads the board, by which time the graph is built.</p>
-     */
-    @Provides
-    @Singleton
-    Supplier<PluginConfigResponse> provideBoard(Provider<EventConfigStore> store) {
-        return () -> store.get().current();
-    }
-
-    /** Pull the board back after a credit. Same Provider reasoning as above. */
-    @Provides
-    @Singleton
-    BoardRefresh provideBoardRefresh(Provider<EventConfigStore> store) {
-        return () -> store.get().refreshConfig();
-    }
-
-    /**
-     * Data source for the progress sidebar. This is the single wiring seam between the panel and its
-     * data — the panel only knows the {@link SidebarDataSource} interface.
-     *
-     * <p>One {@link AnvilSidebarDataSource} over the config THIS plugin already polls, so rendering the
-     * board costs no extra request. It used to sit under a federation layer that fanned several sites
-     * out; one Anvil now serves every clan, so the clans a member can switch between arrive in that
-     * same config response ({@code clans[]}) and the switch is an address, not a second data source.
-     * Offline (no Site URL/token) it resolves to the empty state.</p>
-     */
-    @Provides
-    @Singleton
-    SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, ScheduledExecutorService sharedExecutor) {
-        // Take the (singleton) client as a PARAMETER, not this.field: Guice can invoke this provider to
-        // satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are populated, so
-        // reading this.apiClient here would NPE and the whole plugin would fail to load. The param is
-        // resolved (and the singleton constructed) by Guice first, so it's non-null; the config/stat
-        // method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
-        // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
-        // Kept in the signature because the sidebar's device sign-in still paces its poll on it.
-        // LAMBDAS, not bound method references, for the collaborator calls: `progress::snapshot`
-        // evaluates `this.progress` NOW, and now is before Guice has injected it. The lambda reads the
-        // field when the sidebar actually asks — which is the whole reason this provider takes its
-        // client as a parameter in the first place.
-        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(
-            () -> configStore == null ? null : configStore.current(), apiClient,
-            () -> progress.snapshot(), this::getLocalPlayerName, this::homeMembership);
-        // The starting-shot button's action. Bound after construction for the same reason the
-        // suppliers above are method references: this provider can run before the plugin's own
-        // @Inject fields exist, and the capture only ever fires from a click, long after that.
-        delegate.setStartProofCapture(() -> proofs.captureStartProof());
-        // The panel's buttons: roster sync, profile sync, the clan picker, and the local banner
-        // clips (which live in a folder on this machine, not on any account). Lambdas for the same
-        // reason as above — these fields are still null while this provider runs.
-        delegate.setHost(() -> roster, () -> profileSync, () -> sounds, () -> configStore);
-        return delegate;
+    /** See {@link AnvilModule} — the bindings live there so they cannot read a this.-field. */
+    @Override
+    public void configure(Binder binder) {
+        binder.install(new AnvilModule());
     }
 
     @Subscribe
@@ -641,6 +422,18 @@ public class AnvilPlugin extends Plugin {
      * on NpcLootReceived + the Jagex KC chat line (which already covers these bosses), so
      * kills never double.
      */
+    /**
+     * One chat line, read by everything that cares — in an order that matters.
+     *
+     * <p>The kill-count branch runs before the collection-log branch, because the unlock is stamped
+     * with the count the KC line just recorded; splitting them into unordered listeners would stamp
+     * every unlock with the PREVIOUS kill's count. See {@link ChatRouter}.</p>
+     */
+    @Subscribe
+    public void onChatMessage(ChatMessage event) {
+        chatRouter.onChatMessage(event);
+    }
+
     @Subscribe
     public void onServerNpcLoot(ServerNpcLoot event) {
         if (event.getComposition() == null) {
@@ -717,56 +510,16 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** The drawn location + this player's keyword, for the sidebar's prompt. Null when nothing is owed. */
-    public StartProof getStartProof() {
-        PluginConfigResponse cfg = configStore.current();
-        return cfg != null ? cfg.startProof : null;
-    }
 
     /* -------------------------------------------------------------- */
  /* Player/account helpers                                          */
  /* -------------------------------------------------------------- */
-    public String getLocalPlayerName() {
-        if (client == null || client.getLocalPlayer() == null) {
-            return null;
-        }
-        return client.getLocalPlayer().getName();
-    }
 
-    /**
-     * Is the account we're playing a real member of the HOME clan, or only a guest? Answered by the
-     * login handshake (POST /api/plugin/hello), so it's null until that lands — and null is meaningful:
-     * the sidebar only moves its landing clan off the configured home when it KNOWS we're a guest here
-     * and a member somewhere federated. Cleared on logout with the rest of the hello state.
-     */
-    public Boolean homeMembership() {
-        return session.homeMembership();
-    }
 
-    /** Client thread only — is there a clan roster to scrape? Used by the in-game tab button. */
-    public boolean isClanScrapeAvailable() {
-        return roster.isClanScrapeAvailable();
-    }
 
-    /** Client thread only — the clan's name, or null. */
-    public String getClanName() {
-        return roster.getClanName();
-    }
 
-    /** Cached "is there a roster to sync", safe from the Swing EDT. See {@link ClanRosterService}. */
-    /** Is a whole-log sync available at all? The panel greys its button out when it isn't. */
-    public boolean supportsProfileSync() {
-        return profileSync.supportsProfileSync();
-    }
 
-    public boolean isClanRosterReadable() {
-        return roster.isClanRosterReadable();
-    }
 
-    /** Does the site call this account a clan admin? Read by the sidebar. */
-    public boolean isAdmin() {
-        return roster.isAdmin();
-    }
 
     /* -------------------------------------------------------------- */
     /* Recap "fun stat" counters — deaths, total loot value, PvP     */
@@ -795,28 +548,6 @@ public class AnvilPlugin extends Plugin {
     // accepts (nothing here reads or reports anybody else). Everything is opt-out in config, and
     // nothing is read at all while the toggles are off.
 
-    /**
-     * Whether the clan site can store profile data at all.
-     *
-     * <p>Gated on the capability rather than discovered by 404ing: a site that predates these
-     * endpoints would otherwise be asked every 30 seconds, forever, by every member of the clan.
-     * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
-     * no batching and no requests.
-     */
-    /**
-     * The sidebar's "Sync clan roster" button.
-     *
-     * <p>Same work as the in-game one, with its own in-flight guard so a double click is one push,
-     * and the result reported in chat where the player is looking. Refused outright when the clan
-     * channel isn't readable — the roster is scraped from it, so there is nothing to send.
-     */
-    public void syncClanRosterFromPanel() {
-        roster.syncFromPanel(() -> {
-            if (sidebarPanel != null) {
-                sidebarPanel.refresh();
-            }
-        });
-    }
 
     /**
      * The clan channel loaded (or changed) — the moment the in-game roster becomes readable.

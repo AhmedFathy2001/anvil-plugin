@@ -2,6 +2,7 @@ package com.anvil.ui;
 
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
+import com.anvil.api.EventConfigStore;
 import com.anvil.clan.ClanRosterService;
 import com.anvil.clog.ProfileSync;
 import javax.inject.Inject;
@@ -50,10 +51,12 @@ public class GameTabButtons
 	private final BingoApiClient apiClient;
 	private final ProfileSync profileSync;
 	private final ClanRosterService roster;
+	private final EventConfigStore board;
 
 	@Inject
 	GameTabButtons(Client client, ClientThread clientThread, AnvilConfig config,
-		BingoApiClient apiClient, ProfileSync profileSync, ClanRosterService roster)
+		BingoApiClient apiClient, ProfileSync profileSync, ClanRosterService roster,
+		EventConfigStore board)
 	{
 		this.client = client;
 		this.clientThread = clientThread;
@@ -61,6 +64,7 @@ public class GameTabButtons
 		this.apiClient = apiClient;
 		this.profileSync = profileSync;
 		this.roster = roster;
+		this.board = board;
 	}
 
 	/**
@@ -97,7 +101,7 @@ public class GameTabButtons
 	 * 33..104, and we take the next slot along. An absolute-right offset holds at any window size,
 	 * where measuring off a neighbour moves the moment they move.</p>
 	 */
-	public void onStartUp(Runnable syncRosterFromPanel)
+	public void onStartUp()
 	{
 		clogSyncButton = new HeaderButton(
 			client, InterfaceID.Collection.UNIVERSE, InterfaceID.Collection.SEARCH_TOGGLE,
@@ -107,7 +111,19 @@ public class GameTabButtons
 			client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE,
 			CLAN_BUTTON_OFFSET, "Anvil", "Sync roster to",
 			() -> apiClient.isConfigured() && roster.isAdmin() && roster.isClanRosterReadable(),
-			syncRosterFromPanel);
+			this::syncRosterFromPanel);
+	}
+
+	/**
+	 * The clan window's button, pressed.
+	 *
+	 * <p>Same work as the sidebar's, with its own in-flight guard so a double click is one push, and
+	 * the result reported in chat where the player is looking. Refused outright when the clan channel
+	 * isn't readable — the roster is scraped from it, so there is nothing to send.</p>
+	 */
+	private void syncRosterFromPanel()
+	{
+		roster.syncFromPanel(board::repaintSidebar);
 	}
 
 	/**

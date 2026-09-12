@@ -28,7 +28,6 @@ import net.runelite.api.Skill;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 
 /**
@@ -223,7 +222,6 @@ public class ChatRouter
 
     private final DedupWindow<String> lastDiaryHandledAt = new DedupWindow<>(DIARY_DEDUP_MS);
 
-    @Subscribe
     public void onChatMessage(ChatMessage event) {
         String msg = event.getMessage();
         if (msg == null || msg.isEmpty()) {

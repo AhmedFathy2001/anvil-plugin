@@ -7,11 +7,10 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Provides;
-import java.lang.reflect.Method;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Singleton;
 import okhttp3.OkHttpClient;
+import java.lang.reflect.Method;
+import javax.inject.Provider;
 import org.junit.Test;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -53,25 +52,66 @@ public class InjectionSmokeTest
 	}
 
 	@Test
-	public void sidebarGraphResolvesAndProviderTakesDepsAsParams() throws Exception
+	public void sidebarProviderResolvesNothingEagerly() throws Exception
 	{
-		Injector inj = sidebarGraph();
-
 		// The @Inject-constructor graph resolves under a real injector.
-		BingoApiClient client = inj.getInstance(BingoApiClient.class);
+		BingoApiClient client = sidebarGraph().getInstance(BingoApiClient.class);
 		assertNotNull(client);
 
-		// getDeclaredMethod fails if the provider drops a param; invoking on an uninjected plugin reproduces the bug.
-		AnvilPlugin uninjectedPlugin = new AnvilPlugin();
-		Method provider = AnvilPlugin.class.getDeclaredMethod(
-			"provideSidebarDataSource", BingoApiClient.class, ScheduledExecutorService.class);
+		// Every collaborator the sidebar binding reaches back for arrives as a Provider, and none of
+		// them may be resolved while the binding is being built — the panel is constructed early,
+		// and resolving the board there would drag half the graph up with it. Providers that throw
+		// on sight prove it: if the method touches one, this fails.
+		Provider<Object> explodes = () ->
+		{
+			throw new AssertionError("the sidebar binding must resolve nothing until it is used");
+		};
+		Method provider = null;
+		for (Method m : AnvilModule.class.getDeclaredMethods())
+		{
+			if (m.getName().equals("provideSidebarDataSource"))
+			{
+				provider = m;
+			}
+		}
+		assertNotNull("AnvilModule must provide the sidebar data source", provider);
 		provider.setAccessible(true);
-		Object sds = provider.invoke(uninjectedPlugin, client, Executors.newSingleThreadScheduledExecutor());
-		assertNotNull("provider must not read not-yet-injected this.-fields", sds);
-		assertTrue(sds instanceof SidebarDataSource);
 
-		// A resolved SidebarDataSource is usable straight away (single-home; unconfigured ⇒ empty).
-		assertTrue(((SidebarDataSource) sds).fetchConnections().isEmpty());
+		Object[] args = new Object[provider.getParameterCount()];
+		for (int i = 0; i < args.length; i++)
+		{
+			Class<?> t = provider.getParameterTypes()[i];
+			args[i] = BingoApiClient.class.equals(t) ? client
+				: Provider.class.equals(t) ? explodes
+					: null;
+		}
+		Object sds = provider.invoke(new AnvilModule(), args);
+		assertNotNull(sds);
+		assertTrue(sds instanceof SidebarDataSource);
+	}
+
+	/**
+	 * The bindings live on a module, not on the plugin — and the module has no fields to read.
+	 *
+	 * <p>This is the structural half of the bug this class was written for. A {@code @Provides}
+	 * method on the plugin can be invoked before the plugin's own {@code @Inject} fields are
+	 * populated, so reading one NPEs and the whole plugin fails to load. A module with no instance
+	 * fields cannot do it at all.</p>
+	 */
+	@Test
+	public void bindingsLiveOnAFieldlessModule()
+	{
+		for (java.lang.reflect.Method m : AnvilPlugin.class.getDeclaredMethods())
+		{
+			assertTrue("@Provides belongs on AnvilModule, not the plugin: " + m.getName(),
+				!m.isAnnotationPresent(com.google.inject.Provides.class));
+		}
+		for (java.lang.reflect.Field f : AnvilModule.class.getDeclaredFields())
+		{
+			assertTrue("AnvilModule must hold no instance state — a @Provides method could read it "
+					+ "before Guice has filled it in: " + f.getName(),
+				java.lang.reflect.Modifier.isStatic(f.getModifiers()) || f.isSynthetic());
+		}
 	}
 
 	/**
