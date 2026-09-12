@@ -1,6 +1,7 @@
 package com.anvil;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.EventInfo;
 import org.junit.Test;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -22,7 +23,7 @@ public class StatPushGateTest
 	private static PluginConfigResponse cfgWithEvent(boolean started)
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.event = new PluginConfigResponse.EventInfo();
+		cfg.event = new EventInfo();
 		cfg.event.startDate = started ? "2020-01-01T00:00:00.000Z" : "2099-01-01T00:00:00.000Z";
 		return cfg;
 	}

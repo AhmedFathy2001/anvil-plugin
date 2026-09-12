@@ -1,6 +1,7 @@
 package com.anvil;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.NotifyChannels;
 import org.junit.Test;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -16,9 +17,9 @@ import static org.junit.Assert.assertTrue;
  */
 public class NotifyChannelTest
 {
-	private static PluginConfigResponse.NotifyChannels legacySite()
+	private static NotifyChannels legacySite()
 	{
-		PluginConfigResponse.NotifyChannels n = new PluginConfigResponse.NotifyChannels();
+		NotifyChannels n = new NotifyChannels();
 		n.rareDrops = true;
 		n.combatAchievements = true;
 		return n; // pets/levels/quests/diaries/collectionLog absent, as an older site leaves them
@@ -27,7 +28,7 @@ public class NotifyChannelTest
 	@Test
 	public void aSiteThatPredatesTheSplitKeepsPostingWhereItDid()
 	{
-		PluginConfigResponse.NotifyChannels n = legacySite();
+		NotifyChannels n = legacySite();
 		assertTrue(AnvilPlugin.channelEnabled(n, "levels"));
 		assertTrue(AnvilPlugin.channelEnabled(n, "quests"));
 		assertTrue(AnvilPlugin.channelEnabled(n, "diaries"));
@@ -38,7 +39,7 @@ public class NotifyChannelTest
 	@Test
 	public void inheritanceFollowsTheChannelEachOneUsedToShare()
 	{
-		PluginConfigResponse.NotifyChannels n = new PluginConfigResponse.NotifyChannels();
+		NotifyChannels n = new NotifyChannels();
 		n.rareDrops = true; // drops on, CAs off
 		assertTrue("pets rode with drops", AnvilPlugin.channelEnabled(n, "pets"));
 		assertFalse("levels rode with CAs", AnvilPlugin.channelEnabled(n, "levels"));
@@ -47,12 +48,12 @@ public class NotifyChannelTest
 	@Test
 	public void anExplicitAnswerBeatsTheChannelItSplitFrom()
 	{
-		PluginConfigResponse.NotifyChannels n = legacySite();
+		NotifyChannels n = legacySite();
 		n.levels = false; // clan pointed levels nowhere, though CAs still have a home
 		assertFalse(AnvilPlugin.channelEnabled(n, "levels"));
 		assertTrue(AnvilPlugin.channelEnabled(n, "combatAchievements"));
 
-		PluginConfigResponse.NotifyChannels off = new PluginConfigResponse.NotifyChannels();
+		NotifyChannels off = new NotifyChannels();
 		off.levels = true; // levels split out; the channel it came from is unset
 		assertTrue(AnvilPlugin.channelEnabled(off, "levels"));
 	}
@@ -65,7 +66,7 @@ public class NotifyChannelTest
 	@Test
 	public void anUnknownChannelIsOffRatherThanTreatedAsDrops()
 	{
-		PluginConfigResponse.NotifyChannels n = new PluginConfigResponse.NotifyChannels();
+		NotifyChannels n = new NotifyChannels();
 		n.rareDrops = true;
 		assertFalse(AnvilPlugin.channelEnabled(n, "somethingLater"));
 	}

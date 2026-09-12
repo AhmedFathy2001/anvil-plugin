@@ -1,6 +1,26 @@
 package com.anvil.clog;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.CompletedTile;
+import com.anvil.api.dto.ItemRequirement;
+import com.anvil.api.dto.TierBand;
+import com.anvil.api.dto.TrackedCombatTask;
+import com.anvil.api.dto.TrackedDeathless;
+import com.anvil.api.dto.TrackedDiary;
+import com.anvil.api.dto.TrackedDrop;
+import com.anvil.api.dto.TrackedGain;
+import com.anvil.api.dto.TrackedKill;
+import com.anvil.api.dto.TrackedLms;
+import com.anvil.api.dto.TrackedPvp;
+import com.anvil.api.dto.TrackedStat;
+import com.anvil.api.dto.TrackedTimed;
+import com.anvil.api.dto.TrackedValue;
+import com.anvil.clog.model.Kind;
+import com.anvil.clog.model.Status;
+import com.anvil.clog.model.StatusFilter;
+import com.anvil.clog.model.TaskRow;
+import com.anvil.clog.model.Type;
+import com.anvil.clog.model.TypeFilter;
 import com.anvil.ui.AnvilSidebarPanel;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,44 +41,22 @@ import java.util.Set;
  */
 public final class ClogTaskModel
 {
-	private ClogTaskModel() {}
-
-	/** Coarse data shape — drives only the icon fallback (DROP → item icon, STAT → sprite). */
-	public enum Type { DROP, STAT }
-
-	/**
-	 * Fine-grained tile mechanic, mirroring the web admin's kind filter (standard / skill /
-	 * boss / drop / collection / kill / timed / diary / lms / value). Drives the in-clog Type
-	 * filter. STANDARD never originates from the plugin config today (manual tiles aren't
-	 * synced) but is kept for parity with the web so the cycle order matches.
-	 */
-	public enum Kind { STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, PVP, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
-
-	public enum Status
+	/** Moved to {@link TaskRow} with the rest of a row's own logic; kept for existing callers. */
+	public static Status statusOf(int current, int goal)
 	{
-		// Order matters: used as the primary sort key so incomplete tasks surface first.
-		IN_PROGRESS,
-		NOT_STARTED,
-		COMPLETED
+		return TaskRow.statusOf(current, goal);
 	}
 
-	/** Status filter options exposed by the in-clog filter bar (Phase 4). */
-	public enum StatusFilter { ALL, COMPLETED, IN_PROGRESS, NOT_STARTED }
-
-	/**
-	 * Type filter options — ALL plus the seven {@link Kind}s, in the same order the web admin
-	 * cycles them. Cycling steps through these on the in-clog "Type" chip.
-	 */
-	public enum TypeFilter { ALL, STANDARD, SKILL, BOSS, DROP, COLLECTION, KILL, PVP, TIMED, DIARY, COMBAT_TASK, LMS, VALUE, GAIN, DEATHLESS }
+	private ClogTaskModel() {}
 
 	/**
 	 * Difficulty-tier bands are no longer hardcoded — the server sends them (admin-configurable) in
 	 * the config/board payload. The Tier filter is the selected band's key, or "" for all tiers.
 	 * {@link #defaultTierBands()} is the baked-in fallback for older/offline servers.
 	 */
-	public static List<PluginConfigResponse.TierBand> defaultTierBands()
+	public static List<TierBand> defaultTierBands()
 	{
-		List<PluginConfigResponse.TierBand> bands = new ArrayList<>();
+		List<TierBand> bands = new ArrayList<>();
 		bands.add(tierBand("troll", "Troll", 0));
 		bands.add(tierBand("easy", "Easy", 11));
 		bands.add(tierBand("medium", "Medium", 100));
@@ -67,9 +65,9 @@ public final class ClogTaskModel
 		return bands;
 	}
 
-	private static PluginConfigResponse.TierBand tierBand(String key, String label, int min)
+	private static TierBand tierBand(String key, String label, int min)
 	{
-		PluginConfigResponse.TierBand b = new PluginConfigResponse.TierBand();
+		TierBand b = new TierBand();
 		b.key = key;
 		b.label = label;
 		b.min = min;
@@ -77,14 +75,14 @@ public final class ClogTaskModel
 	}
 
 	/** Served bands with blanks dropped, falling back to the baked-in defaults when empty/null. */
-	public static List<PluginConfigResponse.TierBand> tierBandsOrDefault(List<PluginConfigResponse.TierBand> bands)
+	public static List<TierBand> tierBandsOrDefault(List<TierBand> bands)
 	{
 		if (bands == null)
 		{
 			return defaultTierBands();
 		}
-		List<PluginConfigResponse.TierBand> clean = new ArrayList<>();
-		for (PluginConfigResponse.TierBand b : bands)
+		List<TierBand> clean = new ArrayList<>();
+		for (TierBand b : bands)
 		{
 			if (b != null && b.key != null && !b.key.isEmpty())
 			{
@@ -98,15 +96,15 @@ public final class ClogTaskModel
 	 * The key of the band a point value falls into — the highest band whose {@code min} it meets,
 	 * with the lowest band as the floor. Returns null only when there are no bands.
 	 */
-	public static String tierKeyOf(int points, List<PluginConfigResponse.TierBand> bands)
+	public static String tierKeyOf(int points, List<TierBand> bands)
 	{
 		if (bands == null || bands.isEmpty())
 		{
 			return null;
 		}
-		PluginConfigResponse.TierBand chosen = null;
-		PluginConfigResponse.TierBand lowest = null;
-		for (PluginConfigResponse.TierBand b : bands)
+		TierBand chosen = null;
+		TierBand lowest = null;
+		for (TierBand b : bands)
 		{
 			if (b == null)
 			{
@@ -129,13 +127,13 @@ public final class ClogTaskModel
 	}
 
 	/** Human label for a band key (falls back to "" when not found). */
-	public static String tierLabel(String key, List<PluginConfigResponse.TierBand> bands)
+	public static String tierLabel(String key, List<TierBand> bands)
 	{
 		if (key == null || key.isEmpty() || bands == null)
 		{
 			return "";
 		}
-		for (PluginConfigResponse.TierBand b : bands)
+		for (TierBand b : bands)
 		{
 			if (b != null && key.equalsIgnoreCase(b.key))
 			{
@@ -143,132 +141,6 @@ public final class ClogTaskModel
 			}
 		}
 		return "";
-	}
-
-	/** The coarse {@link Type} implied by a {@link Kind} — DROP-family kinds show an item icon. */
-	private static Type typeOf(Kind kind)
-	{
-		return (kind == Kind.DROP || kind == Kind.COLLECTION || kind == Kind.VALUE || kind == Kind.GAIN) ? Type.DROP : Type.STAT;
-	}
-
-	/** Default {@link Kind} for the legacy constructors (board previews / tests) that only know Type. */
-	private static Kind kindOf(Type type)
-	{
-		return type == Type.DROP ? Kind.DROP : Kind.SKILL;
-	}
-
-	/**
-	 * A single renderable task. Immutable. {@code itemId < 0} means "no item icon" (stat tiles);
-	 * {@code points} is the tile's Leagues-style reward value (0 when the event isn't points-scored
-	 * or the value isn't known to the plugin yet).
-	 */
-	public static final class TaskRow
-	{
-		public final int tileId;
-		public final String label;
-		public final Type type;
-		public final Kind kind;
-		public final int current;
-		public final int goal;
-		public final int itemId;
-		public final int points;
-		public final String description;
-		public final String category; // free-text grouping (boss/skill); "" = uncategorised
-		public final String skillName; // hiscores skill for SKILL tiles ("mining"); null otherwise
-		// Pre-formatted "current/goal" for tiles whose progress isn't a plain count — a cumulative
-		// value tile is measured in gp, and "12500000/50000000" is a number nobody reads. Null on
-		// every other kind, which means the renderer prints current/goal itself.
-		public final String progressText;
-		public final Status status;
-		// Board position — the within-status-group sort key, so the in-game list mirrors the
-		// site's tile order (difficulty sort, shuffle). Set after construction (0 on old
-		// servers, where the sort falls through to the label tiebreak — the old behavior).
-		public int position;
-
-		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId)
-		{
-			this(tileId, label, type, current, goal, itemId, 0, null, null);
-		}
-
-		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points)
-		{
-			this(tileId, label, type, current, goal, itemId, points, null, null);
-		}
-
-		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points,
-			String description)
-		{
-			this(tileId, label, type, current, goal, itemId, points, description, null);
-		}
-
-		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points,
-			String description, String category)
-		{
-			this(tileId, label, type, current, goal, itemId, points, description, category, false);
-		}
-
-		public TaskRow(int tileId, String label, Type type, int current, int goal, int itemId, int points,
-			String description, String category, boolean forceCompleted)
-		{
-			// Legacy entry point (board previews / tests): infer the fine-grained kind from Type.
-			this(tileId, label, kindOf(type), current, goal, itemId, points, description, category, forceCompleted);
-		}
-
-		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
-			String description, String category, boolean forceCompleted)
-		{
-			this(tileId, label, kind, current, goal, itemId, points, description, category, forceCompleted, null);
-		}
-
-		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
-			String description, String category, boolean forceCompleted, String skillName)
-		{
-			this(tileId, label, kind, current, goal, itemId, points, description, category, forceCompleted,
-				skillName, null);
-		}
-
-		/** Canonical constructor — callers that know the precise {@link Kind} (e.g. {@link #build}) use this. */
-		public TaskRow(int tileId, String label, Kind kind, int current, int goal, int itemId, int points,
-			String description, String category, boolean forceCompleted, String skillName, String progressText)
-		{
-			this.progressText = progressText;
-			this.tileId = tileId;
-			this.label = label == null ? "" : label;
-			this.kind = kind == null ? Kind.STANDARD : kind;
-			this.type = typeOf(this.kind);
-			this.current = current;
-			this.goal = goal;
-			this.itemId = itemId;
-			this.points = points;
-			this.description = description == null ? "" : description;
-			this.category = category == null ? "" : category.trim();
-			this.skillName = skillName;
-			// A team-level completion (any member / manual) is authoritative even when this client's
-			// own current < goal — e.g. an individual-mode tile a teammate finished first.
-			this.status = forceCompleted ? Status.COMPLETED : statusOf(current, goal);
-		}
-
-		public boolean isCompleted()
-		{
-			return status == Status.COMPLETED;
-		}
-	}
-
-	/**
-	 * Derive completion status from progress. A goal of {@code <= 0} (an untargeted tile)
-	 * counts as completed the moment there's any progress, otherwise not-started.
-	 */
-	public static Status statusOf(int current, int goal)
-	{
-		if (goal > 0)
-		{
-			if (current >= goal)
-			{
-				return Status.COMPLETED;
-			}
-			return current > 0 ? Status.IN_PROGRESS : Status.NOT_STARTED;
-		}
-		return current > 0 ? Status.COMPLETED : Status.NOT_STARTED;
 	}
 
 	/** Build the full task list from the plugin config (drops + stats). Null-safe. */
@@ -283,7 +155,7 @@ public final class ClogTaskModel
 		Set<Integer> completed = new HashSet<>();
 		if (cfg.completedTiles != null)
 		{
-			for (PluginConfigResponse.CompletedTile c : cfg.completedTiles)
+			for (CompletedTile c : cfg.completedTiles)
 			{
 				if (c != null)
 				{
@@ -294,7 +166,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedDrops != null)
 		{
-			for (PluginConfigResponse.TrackedDrop d : cfg.trackedDrops)
+			for (TrackedDrop d : cfg.trackedDrops)
 			{
 				if (d == null)
 				{
@@ -325,7 +197,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedStats != null)
 		{
-			for (PluginConfigResponse.TrackedStat s : cfg.trackedStats)
+			for (TrackedStat s : cfg.trackedStats)
 			{
 				if (s == null)
 				{
@@ -347,7 +219,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedKills != null)
 		{
-			for (PluginConfigResponse.TrackedKill k : cfg.trackedKills)
+			for (TrackedKill k : cfg.trackedKills)
 			{
 				if (k == null)
 				{
@@ -361,7 +233,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedPvp != null)
 		{
-			for (PluginConfigResponse.TrackedPvp p : cfg.trackedPvp)
+			for (TrackedPvp p : cfg.trackedPvp)
 			{
 				if (p == null)
 				{
@@ -375,7 +247,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedDiaries != null)
 		{
-			for (PluginConfigResponse.TrackedDiary d : cfg.trackedDiaries)
+			for (TrackedDiary d : cfg.trackedDiaries)
 			{
 				if (d == null)
 				{
@@ -389,7 +261,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedCombatTasks != null)
 		{
-			for (PluginConfigResponse.TrackedCombatTask t : cfg.trackedCombatTasks)
+			for (TrackedCombatTask t : cfg.trackedCombatTasks)
 			{
 				if (t == null)
 				{
@@ -403,7 +275,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedTimed != null)
 		{
-			for (PluginConfigResponse.TrackedTimed t : cfg.trackedTimed)
+			for (TrackedTimed t : cfg.trackedTimed)
 			{
 				if (t == null)
 				{
@@ -419,7 +291,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedLms != null)
 		{
-			for (PluginConfigResponse.TrackedLms l : cfg.trackedLms)
+			for (TrackedLms l : cfg.trackedLms)
 			{
 				if (l == null)
 				{
@@ -434,7 +306,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedValues != null)
 		{
-			for (PluginConfigResponse.TrackedValue v : cfg.trackedValues)
+			for (TrackedValue v : cfg.trackedValues)
 			{
 				if (v == null)
 				{
@@ -467,7 +339,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedGains != null)
 		{
-			for (PluginConfigResponse.TrackedGain g : cfg.trackedGains)
+			for (TrackedGain g : cfg.trackedGains)
 			{
 				if (g == null)
 				{
@@ -484,7 +356,7 @@ public final class ClogTaskModel
 
 		if (cfg.trackedDeathless != null)
 		{
-			for (PluginConfigResponse.TrackedDeathless d : cfg.trackedDeathless)
+			for (TrackedDeathless d : cfg.trackedDeathless)
 			{
 				if (d == null)
 				{
@@ -504,7 +376,7 @@ public final class ClogTaskModel
 	 * True when a value tile accumulates toward its target rather than needing one qualifying haul.
 	 * An older server sends no mode at all, which means single — the only behaviour it had.
 	 */
-	static boolean isTotalValue(PluginConfigResponse.TrackedValue v)
+	static boolean isTotalValue(TrackedValue v)
 	{
 		return v != null && "total".equalsIgnoreCase(v.mode);
 	}
@@ -576,7 +448,7 @@ public final class ClogTaskModel
 	 * Pick the icon to show for a drop tile: the first per-item requirement if present,
 	 * else the first raw tracked item id, else -1.
 	 */
-	private static int representativeItemId(PluginConfigResponse.TrackedDrop d)
+	private static int representativeItemId(TrackedDrop d)
 	{
 		if (d.itemRequirements != null && !d.itemRequirements.isEmpty()
 			&& d.itemRequirements.get(0) != null)
@@ -609,16 +481,16 @@ public final class ClogTaskModel
 	 * <p>Returns {current, goal, done}. An older server sends no groupMode/groupRequire, which lands
 	 * on exactly the previous behaviour: OR-ed full sets.
 	 */
-	public static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs)
+	public static int[] collectionProgress(List<ItemRequirement> reqs)
 	{
 		return collectionProgress(reqs, null);
 	}
 
-	public static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs, String groupMode)
+	public static int[] collectionProgress(List<ItemRequirement> reqs, String groupMode)
 	{
-		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
-		LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new LinkedHashMap<>();
-		for (PluginConfigResponse.ItemRequirement r : reqs)
+		List<ItemRequirement> ungrouped = new ArrayList<>();
+		LinkedHashMap<String, List<ItemRequirement>> groups = new LinkedHashMap<>();
+		for (ItemRequirement r : reqs)
 		{
 			if (r == null)
 			{
@@ -652,7 +524,7 @@ public final class ClogTaskModel
 			int sat = ungroupedSat;
 			int goal = ungroupedSize;
 			boolean allSetsDone = true;
-			for (List<PluginConfigResponse.ItemRequirement> grp : groups.values())
+			for (List<ItemRequirement> grp : groups.values())
 			{
 				int need = requireCount(grp);
 				int met = Math.min(satisfied(grp), need);
@@ -670,7 +542,7 @@ public final class ClogTaskModel
 		int bestSat = 0;
 		int bestGoal = 1;
 		int bestRemaining = Integer.MAX_VALUE;
-		for (List<PluginConfigResponse.ItemRequirement> grp : groups.values())
+		for (List<ItemRequirement> grp : groups.values())
 		{
 			int need = requireCount(grp);
 			int sat = ungroupedSat + Math.min(satisfied(grp), need);
@@ -695,10 +567,10 @@ public final class ClogTaskModel
 	}
 
 	/** How many of these requirements the player has met. */
-	private static int satisfied(List<PluginConfigResponse.ItemRequirement> reqs)
+	private static int satisfied(List<ItemRequirement> reqs)
 	{
 		int n = 0;
-		for (PluginConfigResponse.ItemRequirement r : reqs)
+		for (ItemRequirement r : reqs)
 		{
 			if (r.currentAmount >= Math.max(1, r.requiredAmount))
 			{
@@ -713,10 +585,10 @@ public final class ClogTaskModel
 	 * config) the strictest wins, clamped to the set's size so a stale "any 4 of" on a set that has
 	 * since shrunk to 3 items stays satisfiable. Same resolution as the server's.
 	 */
-	private static int requireCount(List<PluginConfigResponse.ItemRequirement> grp)
+	private static int requireCount(List<ItemRequirement> grp)
 	{
 		int declared = 0;
-		for (PluginConfigResponse.ItemRequirement r : grp)
+		for (ItemRequirement r : grp)
 		{
 			if (r.groupRequire > declared)
 			{
@@ -754,7 +626,7 @@ public final class ClogTaskModel
 	 */
 	public static List<TaskRow> filter(List<TaskRow> rows, StatusFilter statusFilter,
 		TypeFilter typeFilter, String search, String category, String tierKey,
-		List<PluginConfigResponse.TierBand> tierBands)
+		List<TierBand> tierBands)
 	{
 		final String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
 		final StatusFilter sf = statusFilter == null ? StatusFilter.ALL : statusFilter;
@@ -843,7 +715,7 @@ public final class ClogTaskModel
 		}
 	}
 
-	private static boolean matchesTier(TaskRow r, String tierKey, List<PluginConfigResponse.TierBand> bands)
+	private static boolean matchesTier(TaskRow r, String tierKey, List<TierBand> bands)
 	{
 		if (tierKey == null || tierKey.isEmpty())
 		{

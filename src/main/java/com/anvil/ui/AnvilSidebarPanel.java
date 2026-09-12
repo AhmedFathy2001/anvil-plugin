@@ -2,11 +2,21 @@ package com.anvil.ui;
 
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.ClanRef;
+import com.anvil.api.dto.Standings;
+import com.anvil.api.dto.StartProof;
 import com.anvil.clog.ClogTaskModel;
+import com.anvil.clog.model.TaskRow;
 import com.anvil.detect.LadderMissions;
 import com.anvil.detect.StartProofRules;
 import com.anvil.io.BannerSoundService;
 import com.anvil.io.DeviceSignIn;
+import com.anvil.ui.view.ActiveTask;
+import com.anvil.ui.view.Ladder;
+import com.anvil.ui.view.ScheduledView;
+import com.anvil.ui.view.Standing;
+import com.anvil.ui.view.TileProgressView;
+import com.anvil.ui.view.WeeklyView;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -138,7 +148,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Ticks the live countdown + per-mission grow/decay value once a second, with NO refetch. */
 	private final Timer ladderTick = new Timer(1000, e -> tickLadder());
 	/** The currently-rendered ladder card's data (countdown target, decay, missions), or null. */
-	private ConnectionView.Ladder ladderState;
+	private Ladder ladderState;
 	/** Held label refs for the rendered ladder card so the tick updates them in place. */
 	private JLabel ladderCountdownLabel;
 	private final List<LadderValueLabel> ladderValueLabels = new ArrayList<>();
@@ -551,10 +561,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * @param shownBoard identity of the board the card above is rendering ({@code "bingo:<id>"}), or
 	 *                   null/"" when there is none
 	 */
-	public static List<PluginConfigResponse.ClanRef> otherLiveBoards(
-		List<PluginConfigResponse.ClanRef> clans, String addressedSlug, String shownBoard)
+	public static List<ClanRef> otherLiveBoards(
+		List<ClanRef> clans, String addressedSlug, String shownBoard)
 	{
-		List<PluginConfigResponse.ClanRef> out = new ArrayList<>();
+		List<ClanRef> out = new ArrayList<>();
 		if (clans == null || clans.isEmpty())
 		{
 			return out;
@@ -565,14 +575,14 @@ public class AnvilSidebarPanel extends PluginPanel
 			seen.add(shownBoard); // the board on screen, whichever clan's row also reports it
 		}
 		String addressed = addressedSlug == null ? "" : addressedSlug;
-		for (PluginConfigResponse.ClanRef c : clans)
+		for (ClanRef c : clans)
 		{
 			if (c != null && addressed.equalsIgnoreCase(c.slug) && c.live != null)
 			{
 				seen.add(c.live.identity()); // whatever else the addressed clan is running
 			}
 		}
-		for (PluginConfigResponse.ClanRef c : clans)
+		for (ClanRef c : clans)
 		{
 			if (c == null || c.live == null || c.slug == null || c.slug.isEmpty())
 			{
@@ -615,7 +625,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		/** Auto first, then the clans in the order the site sent them (newest seat first). */
-		public static List<ClanChoice> of(List<PluginConfigResponse.ClanRef> clans)
+		public static List<ClanChoice> of(List<ClanRef> clans)
 		{
 			List<ClanChoice> out = new ArrayList<>();
 			if (clans == null || clans.isEmpty())
@@ -623,7 +633,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				return out;
 			}
 			out.add(new ClanChoice("", "All clans", "Everything you're playing"));
-			for (PluginConfigResponse.ClanRef c : clans)
+			for (ClanRef c : clans)
 			{
 				if (c == null || c.slug == null || c.slug.isEmpty())
 				{
@@ -635,7 +645,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		/** What is happening in this clan, in one short line — the reason to pick it or not. */
-		private static String detailOf(PluginConfigResponse.ClanRef c)
+		private static String detailOf(ClanRef c)
 		{
 			if (c.live == null || c.live.eventName == null || c.live.eventName.isEmpty())
 			{
@@ -817,7 +827,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		// STARTING SHOT — the one thing here that blocks play, so it sits directly under the board
 		// summary rather than below the feed. Home clan only: it's an obligation on THIS account at
 		// the site we're authenticated against, not something a relayed clan can ask for.
-		PluginConfigResponse.StartProof startProof =
+		StartProof startProof =
 			AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(selected.instanceId) ? dataSource.startProof() : null;
 		if (startProof != null)
 		{
@@ -831,7 +841,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(sectionHeader("Active now"));
 			body.add(gap(6));
 			boolean firstActive = true;
-			for (ConnectionView.ActiveTask task : selected.activeNow)
+			for (ActiveTask task : selected.activeNow)
 			{
 				if (!firstActive)
 				{
@@ -901,7 +911,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			else
 			{
 				boolean first = true;
-				for (ConnectionView.TileProgressView tile : selected.nearestTiles)
+				for (TileProgressView tile : selected.nearestTiles)
 				{
 					if (!first)
 					{
@@ -941,11 +951,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			out.add(new EventEntry(BOARD_EVENT_KEY, title,
 				c.ladder != null && c.ladder.ladderFormat ? "Ladder" : "Bingo", null, null));
 		}
-		for (ConnectionView.WeeklyView w : c.weeklies)
+		for (WeeklyView w : c.weeklies)
 		{
 			out.add(new EventEntry("weekly:" + w.id, w.title, w.kindLabel(), w, null));
 		}
-		for (ConnectionView.ScheduledView s : c.scheduled)
+		for (ScheduledView s : c.scheduled)
 		{
 			// NOT THE BOARD ABOVE, AGAIN. The live board is keyed by a constant and a scheduled entry
 			// by its event id, so nothing stopped the same event appearing twice — once as your board
@@ -992,12 +1002,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		/** "Bingo" / "Ladder" / "Skill of the Week" / "Boss of the Week". */
 		public final String kind;
 		/** The weekly this entry stands for; null unless it IS a weekly. */
-		final ConnectionView.WeeklyView weekly;
+		final WeeklyView weekly;
 		/** The scheduled bingo this entry stands for; null unless it IS one. */
-		final ConnectionView.ScheduledView scheduled;
+		final ScheduledView scheduled;
 
-		EventEntry(String key, String title, String kind, ConnectionView.WeeklyView weekly,
-			ConnectionView.ScheduledView scheduled)
+		EventEntry(String key, String title, String kind, WeeklyView weekly,
+			ScheduledView scheduled)
 		{
 			this.key = key;
 			this.title = title == null ? "" : title;
@@ -1089,7 +1099,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildOtherClanBoards()
 	{
-		List<PluginConfigResponse.ClanRef> others =
+		List<ClanRef> others =
 			otherLiveBoards(dataSource.clans(), dataSource.activeClan(), dataSource.addressedBoard());
 		if (others.isEmpty())
 		{
@@ -1104,7 +1114,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.add(gap(6));
 
 		boolean first = true;
-		for (PluginConfigResponse.ClanRef c : others)
+		for (ClanRef c : others)
 		{
 			if (!first)
 			{
@@ -1117,7 +1127,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** One "also live" row: whose board it is, what it is, and how far along. Click to go there. */
-	private JPanel buildOtherClanRow(PluginConfigResponse.ClanRef c)
+	private JPanel buildOtherClanRow(ClanRef c)
 	{
 		String clanName = c.name == null || c.name.isEmpty() ? c.slug : c.name;
 
@@ -1446,7 +1456,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		else if (entry.weekly != null)
 		{
-			ConnectionView.WeeklyView w = entry.weekly;
+			WeeklyView w = entry.weekly;
 			card.add(leftLabel(ellipsize(w.metricLabel() + timingSuffix(w.upcoming, w.startDate, w.endDate),
 				CARD_LINE_CHARS), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 			if (!w.upcoming)
@@ -1458,7 +1468,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		else
 		{
-			ConnectionView.ScheduledView s = entry.scheduled;
+			ScheduledView s = entry.scheduled;
 			String timing = timingLabel(!s.live, s.startDate, s.endDate);
 			card.add(leftLabel(ellipsize(timing == null ? s.sizeLabel() : timing, CARD_LINE_CHARS),
 				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
@@ -1531,7 +1541,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// ---- Weekly competition card (SOTW / BOTW) -----------------------------------------------------
 
 	/** The weekly's own summary: what it tracks, how long is left, and where you stand in it. */
-	private JPanel buildWeeklyCard(ConnectionView.WeeklyView w)
+	private JPanel buildWeeklyCard(WeeklyView w)
 	{
 		JPanel panel = new JPanel();
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -1574,7 +1584,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * A bingo on the schedule that isn't yours: what it is, when it runs, how big, and a link to the
 	 * site to sign up. No progress section — there's no board of yours to track yet.
 	 */
-	private JPanel buildScheduledCard(ConnectionView.ScheduledView s)
+	private JPanel buildScheduledCard(ScheduledView s)
 	{
 		JPanel panel = new JPanel();
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -1610,7 +1620,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** "You: #3 · +1.2M xp", or an honest line when the caller isn't on the board (or it wouldn't load). */
-	private static String yourStandingLine(ConnectionView.WeeklyView w)
+	private static String yourStandingLine(WeeklyView w)
 	{
 		if (w.yourRank > 0)
 		{
@@ -1620,7 +1630,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** The head of the weekly's leaderboard, with the caller's row spliced in when it's further down. */
-	private JPanel buildWeeklyStandings(ConnectionView.WeeklyView w)
+	private JPanel buildWeeklyStandings(WeeklyView w)
 	{
 		JPanel list = new JPanel();
 		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
@@ -1638,7 +1648,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		int shown = 0;
-		for (ConnectionView.Standing s : w.top)
+		for (Standing s : w.top)
 		{
 			if (shown >= WEEKLY_ROWS_SHOWN && !s.self)
 			{
@@ -1660,7 +1670,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** One standings row: rank, RSN, gain. The caller's row leads in gold like their own activity does. */
-	private JPanel buildStandingRow(ConnectionView.Standing s, ConnectionView.WeeklyView w)
+	private JPanel buildStandingRow(Standing s, WeeklyView w)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1778,7 +1788,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * captures the frame, burns the proof banner onto it and files it. Rendered only while a shot is
 	 * actually owed — {@link SidebarDataSource#startProof()} returns null the moment one is filed.
 	 */
-	private JPanel buildStartProofCard(PluginConfigResponse.StartProof proof)
+	private JPanel buildStartProofCard(StartProof proof)
 	{
 		JPanel card = new JPanel();
 		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
@@ -1878,9 +1888,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		return card;
 	}
 
-	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
+	private JPanel buildActiveRow(ActiveTask task)
 	{
-		ClogTaskModel.TaskRow tile = task.tile;
+		TaskRow tile = task.tile;
 		Color accent = task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR;
 
 		JPanel row = new JPanel(new GridBagLayout());
@@ -1937,13 +1947,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** "1.5M / 2M", "248 / 500", or "" for an untargeted tile — big numbers abbreviated for the narrow panel. */
-	private static String progressValue(ClogTaskModel.TaskRow tile)
+	private static String progressValue(TaskRow tile)
 	{
 		return tile.goal > 0 ? formatCount(tile.current) + " / " + formatCount(tile.goal) : "";
 	}
 
 	/** Compact count: 1_507_300 → "1.5M", 2_000_000 → "2M", 15_000 → "15K", 500 → "500". */
-	// One definition, shared with ConnectionView.WeeklyView's gain formatting (which also has to know
+	// One definition, shared with WeeklyView's gain formatting (which also has to know
 	// about EHP/EHB milli-hours) so the card and the standings rows can't drift apart.
 	private static String formatCount(long n)
 	{
@@ -2148,7 +2158,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * card and the bingo mission strip so both age their values on the same per-second tick — the
 	 * label is registered with {@link #ladderValueLabels} either way.
 	 */
-	private JPanel buildMissionRow(ConnectionView.Ladder.Mission m, ConnectionView.Ladder l, long now)
+	private JPanel buildMissionRow(Ladder.Mission m, Ladder l, long now)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -2176,7 +2186,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * the same live values a ladder shows. No rank line: a bingo scores by team, not by a personal
 	 * ladder position.
 	 */
-	private JPanel buildMissionStrip(ConnectionView.Ladder l)
+	private JPanel buildMissionStrip(Ladder l)
 	{
 		final long now = System.currentTimeMillis();
 		JPanel panel = new JPanel();
@@ -2188,7 +2198,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel countdown = leftLabel(countdownText(l, now), FontManager.getRunescapeBoldFont(), ColorScheme.BRAND_ORANGE);
 		panel.add(countdown);
 		panel.add(gap(4));
-		for (ConnectionView.Ladder.Mission m : l.missions)
+		for (Ladder.Mission m : l.missions)
 		{
 			panel.add(buildMissionRow(m, l, now));
 		}
@@ -2210,7 +2220,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildLadderCard(ConnectionView c)
 	{
-		ConnectionView.Ladder l = c.ladder;
+		Ladder l = c.ladder;
 		final long now = System.currentTimeMillis();
 
 		JPanel panel = new JPanel();
@@ -2236,7 +2246,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			panel.add(leftLabel("Active missions", FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
 			panel.add(gap(2));
-			for (ConnectionView.Ladder.Mission m : l.missions)
+			for (Ladder.Mission m : l.missions)
 			{
 				panel.add(buildMissionRow(m, l, now));
 			}
@@ -2268,7 +2278,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** "You: #4 this month · #12 all-time", or an encouraging line when the caller hasn't scored yet. */
-	private static String rankLine(ConnectionView.Ladder l)
+	private static String rankLine(Ladder l)
 	{
 		if (l.monthRank <= 0)
 		{
@@ -2283,7 +2293,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** "Next mission in 12:34" / "New mission dropping…" / "Next mission: on a claim" (bounty, no clock). */
-	private static String countdownText(ConnectionView.Ladder l, long now)
+	private static String countdownText(Ladder l, long now)
 	{
 		String cd = LadderMissions.countdown(l.nextRevealAtIso, now);
 		if (cd == null)
@@ -2307,7 +2317,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void tickLadder()
 	{
 		final long now = System.currentTimeMillis();
-		ConnectionView.Ladder l = ladderState;
+		Ladder l = ladderState;
 		if (l != null)
 		{
 			if (ladderCountdownLabel != null)
@@ -2424,7 +2434,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
-	private JPanel buildTileRow(ConnectionView.TileProgressView tile)
+	private JPanel buildTileRow(TileProgressView tile)
 	{
 		JPanel row = new JPanel(new GridBagLayout());
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -2472,7 +2482,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** "c / t" for counted tiles, "42%" for very large targets (XP), or "Done"/"—". */
-	private static String progressText(ConnectionView.TileProgressView tile)
+	private static String progressText(TileProgressView tile)
 	{
 		if (tile.complete)
 		{

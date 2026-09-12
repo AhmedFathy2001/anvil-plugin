@@ -2,6 +2,21 @@ package com.anvil.ui;
 
 import com.anvil.api.BingoApiClient;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.ActiveWeekly;
+import com.anvil.api.dto.EventInfo;
+import com.anvil.api.dto.HomeBoard;
+import com.anvil.api.dto.LeaderboardEntry;
+import com.anvil.api.dto.ScheduleResponse;
+import com.anvil.api.dto.ScheduledBingo;
+import com.anvil.api.dto.ScheduledWeekly;
+import com.anvil.api.dto.TeamInfo;
+import com.anvil.api.dto.TrackedDrop;
+import com.anvil.api.dto.TrackedStat;
+import com.anvil.api.dto.WeeklyComp;
+import com.anvil.api.dto.WeeklyLeaderboard;
+import com.anvil.ui.view.ActiveTask;
+import com.anvil.ui.view.ScheduledView;
+import com.anvil.ui.view.WeeklyView;
 import com.google.gson.Gson;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,15 +42,15 @@ public class AnvilSidebarDataSourceTest
 	private static void assertSingleActive(ConnectionView c, int tileId, boolean self, String worker)
 	{
 		assertEquals(1, c.activeNow.size());
-		ConnectionView.ActiveTask t = c.activeNow.get(0);
+		ActiveTask t = c.activeNow.get(0);
 		assertEquals(tileId, t.tile.tileId);
 		assertEquals(self, t.includesSelf);
 		assertEquals(worker, t.workers.get(0));
 	}
 
-	private static PluginConfigResponse.TrackedDrop drop(int id, String label, int cur, int req)
+	private static TrackedDrop drop(int id, String label, int cur, int req)
 	{
-		PluginConfigResponse.TrackedDrop d = new PluginConfigResponse.TrackedDrop();
+		TrackedDrop d = new TrackedDrop();
 		d.tileId = id;
 		d.label = label;
 		d.currentAmount = cur;
@@ -44,9 +59,9 @@ public class AnvilSidebarDataSourceTest
 		return d;
 	}
 
-	private static PluginConfigResponse.TrackedStat stat(int id, String label, String statName, int cur, int goal)
+	private static TrackedStat stat(int id, String label, String statName, int cur, int goal)
 	{
-		PluginConfigResponse.TrackedStat s = new PluginConfigResponse.TrackedStat();
+		TrackedStat s = new TrackedStat();
 		s.tileId = id;
 		s.label = label;
 		s.statName = statName;
@@ -59,10 +74,10 @@ public class AnvilSidebarDataSourceTest
 	private static PluginConfigResponse eventConfig()
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.event = new PluginConfigResponse.EventInfo();
+		cfg.event = new EventInfo();
 		cfg.event.id = 5;
 		cfg.event.name = "Summer Bingo";
-		cfg.team = new PluginConfigResponse.TeamInfo();
+		cfg.team = new TeamInfo();
 		cfg.team.name = "Team Molten";
 		cfg.trackedDrops = new ArrayList<>(Arrays.asList(
 			drop(101, "500 Zulrah KC", 5, 10),     // 50% — incomplete
@@ -125,7 +140,7 @@ public class AnvilSidebarDataSourceTest
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
 		cfg.clanName = "The AFK Spot";
-		cfg.homeBoard = new PluginConfigResponse.HomeBoard();
+		cfg.homeBoard = new HomeBoard();
 		cfg.homeBoard.eventName = "July Bingo";
 		cfg.homeBoard.tilesComplete = 14_200;
 		cfg.homeBoard.tilesTotal = 30_000;
@@ -251,9 +266,9 @@ public class AnvilSidebarDataSourceTest
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
 
-	private static BingoApiClient.ScheduledWeekly weekly(int id, String title, String type, String metric, String status)
+	private static ScheduledWeekly weekly(int id, String title, String type, String metric, String status)
 	{
-		BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
+		ScheduledWeekly w = new ScheduledWeekly();
 		w.id = id;
 		w.title = title;
 		w.type = type;
@@ -264,9 +279,9 @@ public class AnvilSidebarDataSourceTest
 		return w;
 	}
 
-	private static BingoApiClient.ScheduledBingo bingo(int id, String title, String status, String start)
+	private static ScheduledBingo bingo(int id, String title, String status, String start)
 	{
-		BingoApiClient.ScheduledBingo b = new BingoApiClient.ScheduledBingo();
+		ScheduledBingo b = new ScheduledBingo();
 		b.id = id;
 		b.title = title;
 		b.status = status;
@@ -279,9 +294,9 @@ public class AnvilSidebarDataSourceTest
 		return b;
 	}
 
-	private static PluginConfigResponse withSchedule(PluginConfigResponse cfg, BingoApiClient.ScheduledWeekly... weeklies)
+	private static PluginConfigResponse withSchedule(PluginConfigResponse cfg, ScheduledWeekly... weeklies)
 	{
-		cfg.schedule = new BingoApiClient.ScheduleResponse();
+		cfg.schedule = new ScheduleResponse();
 		cfg.schedule.weeklies = new ArrayList<>(Arrays.asList(weeklies));
 		return cfg;
 	}
@@ -320,7 +335,7 @@ public class AnvilSidebarDataSourceTest
 		// week, with the raw metric key and a milli-hour gain shown as a five-digit kill count.
 		PluginConfigResponse cfg = withSchedule(eventConfig(),
 			weekly(11, "Efficiency Week", "efficiency", "ehb", "active"));
-		ConnectionView.WeeklyView w = newSource(() -> cfg).fetchConnections().get(0).weeklies.get(0);
+		WeeklyView w = newSource(() -> cfg).fetchConnections().get(0).weeklies.get(0);
 
 		assertTrue(w.isEfficiency());
 		assertEquals("Efficiency of the Week", w.kindLabel());
@@ -334,9 +349,9 @@ public class AnvilSidebarDataSourceTest
 	@Test
 	public void skillAndBossGainsKeepTheirCompactCounts()
 	{
-		assertEquals("1.2M xp", ConnectionView.WeeklyView.formatGain("skill", 1_200_000));
-		assertEquals("340K xp", ConnectionView.WeeklyView.formatGain("skill", 340_000));
-		assertEquals("184 kc", ConnectionView.WeeklyView.formatGain("boss", 184));
+		assertEquals("1.2M xp", WeeklyView.formatGain("skill", 1_200_000));
+		assertEquals("340K xp", WeeklyView.formatGain("skill", 340_000));
+		assertEquals("184 kc", WeeklyView.formatGain("boss", 184));
 	}
 
 	@Test
@@ -358,7 +373,7 @@ public class AnvilSidebarDataSourceTest
 	public void olderSiteWithoutScheduleStillSurfacesItsActiveWeekly() throws Exception
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.activeWeekly = new BingoApiClient.ActiveWeekly();
+		cfg.activeWeekly = new ActiveWeekly();
 		cfg.activeWeekly.id = 12;
 		cfg.activeWeekly.title = "Chambers Week";
 		cfg.activeWeekly.type = "boss";
@@ -376,7 +391,7 @@ public class AnvilSidebarDataSourceTest
 	{
 		PluginConfigResponse cfg = withSchedule(new PluginConfigResponse(),
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
-		cfg.activeWeekly = new BingoApiClient.ActiveWeekly();
+		cfg.activeWeekly = new ActiveWeekly();
 		cfg.activeWeekly.id = 7;
 		cfg.activeWeekly.title = "Mining Madness";
 		cfg.activeWeekly.type = "skill";
@@ -406,9 +421,9 @@ public class AnvilSidebarDataSourceTest
 		}
 	}
 
-	private static BingoApiClient.LeaderboardEntry entry(int rank, String rsn, long gained)
+	private static LeaderboardEntry entry(int rank, String rsn, long gained)
 	{
-		BingoApiClient.LeaderboardEntry e = new BingoApiClient.LeaderboardEntry();
+		LeaderboardEntry e = new LeaderboardEntry();
 		e.rank = rank;
 		e.rsn = rsn;
 		e.gained = gained;
@@ -416,9 +431,9 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	/** A 12-deep board with the caller sitting at #12, below the sidebar's top-10 cut. */
-	private static BingoApiClient.WeeklyLeaderboard deepBoard()
+	private static WeeklyLeaderboard deepBoard()
 	{
-		BingoApiClient.WeeklyLeaderboard lb = new BingoApiClient.WeeklyLeaderboard();
+		WeeklyLeaderboard lb = new WeeklyLeaderboard();
 		lb.total = 30;
 		lb.entries = new ArrayList<>();
 		for (int i = 1; i <= 11; i++)
@@ -427,7 +442,7 @@ public class AnvilSidebarDataSourceTest
 		}
 		// OSRS display names carry non-breaking spaces — the "you" match must see through that.
 		lb.entries.add(entry(12, "Ahmed Two", 4200));
-		lb.competition = new BingoApiClient.WeeklyComp();
+		lb.competition = new WeeklyComp();
 		return lb;
 	}
 
@@ -440,7 +455,7 @@ public class AnvilSidebarDataSourceTest
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
 			java.util.Collections::emptyMap, () -> "ahmed two");
 
-		ConnectionView.WeeklyView w = ds.fetchConnections().get(0).weeklies.get(0);
+		WeeklyView w = ds.fetchConnections().get(0).weeklies.get(0);
 		assertEquals(12, w.yourRank);
 		assertEquals(4200, w.yourGained);
 		assertEquals(30, w.participants);
@@ -481,7 +496,7 @@ public class AnvilSidebarDataSourceTest
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
 			java.util.Collections::emptyMap, () -> "ahmed two");
 
-		ConnectionView.WeeklyView w = ds.fetchConnections().get(0).weeklies.get(0);
+		WeeklyView w = ds.fetchConnections().get(0).weeklies.get(0);
 		assertTrue(w.upcoming);
 		// Nothing has happened in it yet, so there's no leaderboard worth a request.
 		assertTrue(client.reads.isEmpty());
@@ -500,13 +515,13 @@ public class AnvilSidebarDataSourceTest
 	public void otherAndUpcomingBingosRideAlongWithoutYourOwn() throws Exception
 	{
 		PluginConfigResponse cfg = eventConfig();   // the caller's own event is id 5
-		cfg.schedule = new BingoApiClient.ScheduleResponse();
+		cfg.schedule = new ScheduleResponse();
 		cfg.schedule.bingos = new ArrayList<>(Arrays.asList(
 			bingo(9, "Autumn Bingo", "upcoming", "2026-09-01T00:00:00Z"),
 			bingo(5, "Summer Bingo", "active", "2026-07-01T00:00:00Z"),   // the caller's own board
 			bingo(6, "Someone else's", "active", "2026-07-20T00:00:00Z")));
 
-		List<ConnectionView.ScheduledView> scheduled = newSource(() -> cfg).fetchConnections().get(0).scheduled;
+		List<ScheduledView> scheduled = newSource(() -> cfg).fetchConnections().get(0).scheduled;
 		// Own event dropped (the board card IS that event); live first, then soonest upcoming.
 		assertEquals(2, scheduled.size());
 		assertEquals(6, scheduled.get(0).id);

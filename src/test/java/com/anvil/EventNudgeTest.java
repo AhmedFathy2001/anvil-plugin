@@ -1,6 +1,9 @@
 package com.anvil;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.EventInfo;
+import com.anvil.api.dto.TrackedDrop;
+import com.anvil.api.dto.TrackedValue;
 import java.util.Collections;
 import org.junit.Test;
 import static org.junit.Assert.assertFalse;
@@ -24,7 +27,7 @@ public class EventNudgeTest
 	private static PluginConfigResponse live()
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.event = new PluginConfigResponse.EventInfo();
+		cfg.event = new EventInfo();
 		cfg.event.name = "July Bingo";
 		cfg.event.startDate = "2020-01-01T00:00:00.000Z";
 		return cfg;
@@ -56,7 +59,7 @@ public class EventNudgeTest
 	public void aBoardWithDropTilesNeedsTheInGameDropLine()
 	{
 		PluginConfigResponse cfg = live();
-		cfg.trackedDrops = Collections.singletonList(new PluginConfigResponse.TrackedDrop());
+		cfg.trackedDrops = Collections.singletonList(new TrackedDrop());
 		assertTrue(AnvilPlugin.eventNeedsDropLines(cfg));
 	}
 
@@ -65,7 +68,7 @@ public class EventNudgeTest
 	{
 		// Same signal, same reason: a haul from a corpse boss reaches neither tile kind without it.
 		PluginConfigResponse cfg = live();
-		cfg.trackedValues = Collections.singletonList(new PluginConfigResponse.TrackedValue());
+		cfg.trackedValues = Collections.singletonList(new TrackedValue());
 		assertTrue(AnvilPlugin.eventNeedsDropLines(cfg));
 	}
 
@@ -76,7 +79,7 @@ public class EventNudgeTest
 		assertFalse(AnvilPlugin.eventNeedsDropLines(null));
 
 		PluginConfigResponse upcoming = notStarted();
-		upcoming.trackedDrops = Collections.singletonList(new PluginConfigResponse.TrackedDrop());
+		upcoming.trackedDrops = Collections.singletonList(new TrackedDrop());
 		assertFalse("not until it starts", AnvilPlugin.eventNeedsDropLines(upcoming));
 	}
 }

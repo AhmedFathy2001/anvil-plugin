@@ -3,6 +3,7 @@ package com.anvil.ui;
 import com.anvil.AnvilConfig;
 import com.anvil.AnvilPlugin;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.EventInfo;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
@@ -84,7 +85,7 @@ public class AnvilOverlay extends OverlayPanel {
         return super.render(graphics);
     }
 
-    public static boolean isEventActive(PluginConfigResponse.EventInfo event) {
+    public static boolean isEventActive(EventInfo event) {
         if (event == null) {
             return false;
         }

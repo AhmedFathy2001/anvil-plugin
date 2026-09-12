@@ -2,6 +2,7 @@ package com.anvil.detect;
 
 import com.anvil.AnvilPlugin;
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.RollTable;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -81,7 +82,7 @@ public final class VestigeRolls
 	 * Fold one unique-table drop into the boss's cycle. Returns null when the item isn't part of
 	 * this boss's roll table (nothing to count) or the table is unusable.
 	 */
-	public Result record(PluginConfigResponse.RollTable table, int itemId)
+	public Result record(RollTable table, int itemId)
 	{
 		if (table == null || table.rollItemIds == null || !table.rollItemIds.contains(itemId))
 		{

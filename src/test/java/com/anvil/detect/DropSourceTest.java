@@ -1,6 +1,7 @@
 package com.anvil.detect;
 
 import com.anvil.api.PluginConfigResponse;
+import com.anvil.api.dto.DropFacts;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -16,17 +17,17 @@ import static org.junit.Assert.assertTrue;
  */
 public class DropSourceTest
 {
-	private static PluginConfigResponse.DropFacts facts()
+	private static DropFacts facts()
 	{
-		PluginConfigResponse.DropFacts f = new PluginConfigResponse.DropFacts();
+		DropFacts f = new DropFacts();
 		f.pets = new HashMap<>();
 		f.guaranteed = new HashMap<>();
 		return f;
 	}
 
-	private static PluginConfigResponse.DropFacts.Pet pet(String kind, String... sources)
+	private static DropFacts.Pet pet(String kind, String... sources)
 	{
-		PluginConfigResponse.DropFacts.Pet p = new PluginConfigResponse.DropFacts.Pet();
+		DropFacts.Pet p = new DropFacts.Pet();
 		p.kind = kind;
 		p.sources = Arrays.asList(sources);
 		return p;
@@ -78,7 +79,7 @@ public class DropSourceTest
 	@Test
 	public void aGuaranteedDropIsRecognisedFromTheSourceThatOwesIt()
 	{
-		PluginConfigResponse.DropFacts f = facts();
+		DropFacts f = facts();
 		f.guaranteed.put("ancient blood ornament kit", Arrays.asList("duke sucellus", "vardorvis"));
 		assertTrue(DropSource.isGuaranteed(f, "Ancient blood ornament kit", "Duke Sucellus"));
 		assertTrue(DropSource.isGuaranteed(f, "ANCIENT BLOOD ORNAMENT KIT", "vardorvis"));
@@ -90,7 +91,7 @@ public class DropSourceTest
 	public void aStarSourceMeansWhereverItDrops()
 	{
 		// What a clan override that named no sources stores.
-		PluginConfigResponse.DropFacts f = facts();
+		DropFacts f = facts();
 		f.guaranteed.put("some kit", Collections.singletonList("*"));
 		assertTrue(DropSource.isGuaranteed(f, "Some kit", "Anything"));
 		assertTrue(DropSource.isGuaranteed(f, "Some kit", null));
@@ -109,7 +110,7 @@ public class DropSourceTest
 	@Test
 	public void aPetComesFromItsOwnBossNotFromWhateverDroppedLootLast()
 	{
-		PluginConfigResponse.DropFacts f = facts();
+		DropFacts f = facts();
 		f.pets.put("baby mole", pet("npc", "Giant Mole"));
 		// The client had just seen loot from something else entirely — a stray kill on the way out.
 		assertEquals("Giant Mole", DropSource.resolvePetSource(f, "Baby mole", "Hill Giant", null));
@@ -120,7 +121,7 @@ public class DropSourceTest
 	@Test
 	public void whatTheClientSawWinsWhenItIsOneOfTheRealSources()
 	{
-		PluginConfigResponse.DropFacts f = facts();
+		DropFacts f = facts();
 		f.pets.put("vet'ion jr.", pet("npc", "Calvar'ion", "Vet'ion"));
 		assertEquals("Vet'ion", DropSource.resolvePetSource(f, "Vet'ion jr.", "vet'ion", null));
 		assertEquals("Calvar'ion", DropSource.resolvePetSource(f, "Vet'ion jr.", "Calvar'ion", null));
@@ -129,7 +130,7 @@ public class DropSourceTest
 	@Test
 	public void severalSourcesAndNoSightingFallBackToWhereTheyActuallyGrind()
 	{
-		PluginConfigResponse.DropFacts f = facts();
+		DropFacts f = facts();
 		f.pets.put("vet'ion jr.", pet("npc", "Calvar'ion", "Vet'ion"));
 		Map<String, Integer> kc = new HashMap<>();
 		kc.put("calvar'ion", 12);
@@ -142,7 +143,7 @@ public class DropSourceTest
 	@Test
 	public void aSkillingPetHasNoMonsterAndDoesNotBorrowOne()
 	{
-		PluginConfigResponse.DropFacts f = facts();
+		DropFacts f = facts();
 		f.pets.put("beaver", pet("skill"));
 		// Whatever loot the client saw, a Beaver did not come from it.
 		assertNull(DropSource.resolvePetSource(f, "Beaver", "Hill Giant", null));

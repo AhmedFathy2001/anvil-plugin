@@ -1,6 +1,20 @@
 package com.anvil.api;
 
 import com.anvil.AnvilPlugin;
+import com.anvil.api.dto.ActivityResponse;
+import com.anvil.api.dto.AdminUnauthorizedException;
+import com.anvil.api.dto.ClanMember;
+import com.anvil.api.dto.ClanMismatchException;
+import com.anvil.api.dto.ClanSyncResponse;
+import com.anvil.api.dto.ClipRelayResult;
+import com.anvil.api.dto.ClogPushResult;
+import com.anvil.api.dto.CoopFingerprint;
+import com.anvil.api.dto.DeviceAuthPoll;
+import com.anvil.api.dto.DeviceAuthStart;
+import com.anvil.api.dto.HelloResponse;
+import com.anvil.api.dto.PermanentSubmissionException;
+import com.anvil.api.dto.RateLimitedException;
+import com.anvil.api.dto.WeeklyLeaderboard;
 import com.anvil.clog.ClogFullSync;
 import com.anvil.clog.ClogPage;
 import com.anvil.clog.ClogSync;
@@ -12,9 +26,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
-// NOTE on JsonParser below: `new JsonParser().parse(...)` is deprecated in favour of the static
-// `JsonParser.parseString`, which arrived in Gson 2.8.6. RuneLite's client pins 2.8.5, so the
-// static form does not exist on the classpath we compile against. Leave those call sites alone.
 import com.google.gson.JsonParser;
 import java.io.File;
 import java.io.IOException;
@@ -259,25 +270,6 @@ public class BingoApiClient
 
 	// ---- Device-code sign-in (home-native RFC 8628; see the site's /api/plugin/auth/*) ----------
 
-	/** POST /api/plugin/auth/start response. */
-	public static class DeviceAuthStart
-	{
-		public String device_code;
-		public String user_code;
-		public String verification_url;
-		public String verification_url_complete;
-		public int interval;
-		public int expires_in;
-	}
-
-	/** POST /api/plugin/auth/poll response — status: pending | slow_down | expired | denied | complete. */
-	public static class DeviceAuthPoll
-	{
-		public String status;
-		public String token;
-		public int interval;
-	}
-
 	/**
 	 * Run a request whose failure is not worth interrupting anybody over, and parse the reply.
 	 *
@@ -487,21 +479,6 @@ public class BingoApiClient
 		});
 	}
 
-	/** Outcome of a clip relay attempt, so the caller can tell the player something true. */
-	public enum ClipRelayResult
-	{
-		/** Posted to the clan's clips channel. */
-		POSTED,
-		/** This site is too old for the relay, or isn't configured — fall back to a user webhook. */
-		UNSUPPORTED,
-		/** The clan has no clips channel set up (server said 501). */
-		NO_CHANNEL,
-		/** Too big for the server to post anywhere (413). */
-		TOO_LARGE,
-		/** Rate-limited, Discord refused, or the upload failed. */
-		FAILED
-	}
-
 	/**
 	 * POST /api/plugin/clip — upload a saved clip and let the SERVER post it to the clan's clips
 	 * channel. This is the one file upload that goes through the site rather than straight to
@@ -668,28 +645,6 @@ public class BingoApiClient
 		}
 	}
 
-	/** Response of GET /api/plugin/activity — Gson-mapped; see Anvil.Site/src/lib/pluginActivity.ts. */
-	public static class ActivityResponse
-	{
-		public String cursor;                       // send back as ?since= next poll
-		public List<ActivityItem> activity; // ascending by id (oldest→newest); may be null
-		public boolean truncated;                   // true = a gap; caller may want to refetch the board
-		public boolean noActiveEvent;               // true = valid token, not enrolled (empty feed, not an error)
-	}
-
-	/** One raw feed row from the endpoint. Built into an {@link ActivityEntry} via the constructor. */
-	public static class ActivityItem
-	{
-		public String id;
-		public String ts;
-		public String player;
-		public int tileId;
-		public String tileLabel;
-		public String kind;   // "progress" | "complete" | "reveal" — map with ActivityEntry.Kind.fromWire
-		public int amount;
-		public boolean isSelf;
-	}
-
 	/**
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */
@@ -717,18 +672,6 @@ public class BingoApiClient
 		}
 	}
 
-	public static class ActiveWeekly
-	{
-		public int id;
-		public String title;
-		public String type;
-		public String metric;
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
-		public String startDate;
-		public String endDate;
-	}
-
 	/**
 	 * Attach the account token when we have one, on a request that does not require it.
 	 *
@@ -746,38 +689,6 @@ public class BingoApiClient
 			: builder.header("Authorization", "Bearer " + token);
 	}
 
-	public static class ScheduleResponse
-	{
-		public List<ScheduledBingo> bingos;
-		public List<ScheduledWeekly> weeklies;
-	}
-
-	public static class ScheduledBingo
-	{
-		public int id;
-		public String title;
-		public String startDate;
-		public String endDate;
-		public String status; // "active" | "upcoming"
-		public Integer boardSize; // N for an N×N board
-		public Integer tileCount; // count of tiles configured for this event
-		public String format;      // "bingo" | "tilerace" — picks the in-game view
-		public String scoringMode; // "tiles" | "points"
-	}
-
-	public static class ScheduledWeekly
-	{
-		public int id;
-		public String title;
-		public String type;
-		public String metric;
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
-		public String status;
-		public String startDate;
-		public String endDate;
-	}
-
 	/**
 	 * GET /api/plugin/weekly-leaderboard[?id=] — ranked standings for a weekly competition (the
 	 * active one when id is null). Unauthenticated. Never throws — returns null on any failure.
@@ -792,32 +703,6 @@ public class BingoApiClient
 			+ (competitionId != null ? "?id=" + competitionId : ""));
 		Request request = withOptionalAuth(new Request.Builder().url(url)).get().build();
 		return readOrNull(request, WeeklyLeaderboard.class, "weekly-leaderboard fetch");
-	}
-
-	public static class WeeklyLeaderboard
-	{
-		public WeeklyComp competition;
-		public int total;
-		public List<LeaderboardEntry> entries;
-	}
-
-	public static class WeeklyComp
-	{
-		public int id;
-		public String title;
-		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
-		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
-		public String startDate;
-		public String endDate;
-	}
-
-	public static class LeaderboardEntry
-	{
-		public int rank;
-		public String rsn;
-		public long gained;
 	}
 
 	/**
@@ -845,38 +730,6 @@ public class BingoApiClient
 			.build();
 
 		return readOrNull(request, HelloResponse.class, "plugin/hello");
-	}
-
-	public static class HelloResponse
-	{
-		public boolean knownMember;
-		public boolean isGuest;
-		// WHICH CLAN ANSWERED, and about whom. "Tracked as a guest" is a claim about one person in one
-		// clan and the message named neither, so somebody in two clans could not tell a wrong answer
-		// from a surprising one. Null on a site that predates this — the log line says so rather than
-		// printing "null".
-		public String clanName;
-		public String clanSlug;
-		public String rsn;
-		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
-		public String seatKind;
-		// What's running right now, for an in-game greeting on login.
-		public List<WeeklyInfo> activeWeekly;
-		public List<BingoInfo> activeBingos;
-	}
-
-	public static class WeeklyInfo
-	{
-		public String type;   // "skill" | "boss"
-		public String title;
-		public String metric;
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
-	}
-
-	public static class BingoInfo
-	{
-		public String name;
 	}
 
 	/**
@@ -971,72 +824,6 @@ public class BingoApiClient
 		}
 	}
 
-	public static class ClanMember
-	{
-		public String rsn;
-		public String rank;
-		public Integer joinedDays;
-		// Only set for the locally-logged-in player — used by the site for stable identity /
-		// rename detection. Null for everyone else; gson omits it from the payload.
-		public String accountHash;
-	}
-
-	public static class ClanSyncResponse
-	{
-		public int added;
-		public int updated;
-		public int markedLeft;
-		public int renamed;
-		public int returned;
-		public List<ClanChange> changes;
-		// Plan-limit state, added later. A site that predates it sends neither field and GSON leaves
-		// them null/empty, so an older instance simply produces no cap line.
-		//   capNotice         — one ready-to-show sentence, or null when there's nothing to say.
-		//   refusedNewMembers — RSNs the plan limit kept off the roster on this sweep.
-		public String capNotice;
-		public List<String> refusedNewMembers;
-	}
-
-	public static class ClanChange
-	{
-		public String type;     // "joined" | "left" | "returned" | "renamed" | "rank_changed"
-		public String rsn;
-		public String oldRsn;   // populated only on rename
-		public String oldRank;  // populated only on rank_changed
-		public String newRank;  // populated only on rank_changed
-	}
-
-	public static class ClanMismatchException extends Exception
-	{
-		public final String serverClanName;
-		public ClanMismatchException(String serverClanName)
-		{
-			super("Clan name mismatch");
-			this.serverClanName = serverClanName;
-		}
-	}
-
-	public static class AdminUnauthorizedException extends Exception
-	{
-		public AdminUnauthorizedException(String message) { super(message); }
-	}
-
-	/**
-	 * POST /api/events/{eventId}/submissions — submits a drop with image proof.
-	 */
-	/**
-	 * A submission the server rejected for good — the tile's already complete, the event ended, the
-	 * data's invalid — so retrying it will never succeed. The retry loop drops these instead of
-	 * looping forever (the "Get 5M in PvP Loot already complete, keeps retrying" bug).
-	 */
-	public static class PermanentSubmissionException extends IOException
-	{
-		PermanentSubmissionException(String message)
-		{
-			super(message);
-		}
-	}
-
 	/** 4xx client errors are permanent (don't retry) — except auth (401, token may refresh), request
 	 *  timeout (408) and rate-limit (429), which can clear on their own. 5xx / network = retryable. */
 	private static boolean isPermanentFailure(int code)
@@ -1051,24 +838,6 @@ public class BingoApiClient
 	 * goes up on a later retry, once they've taken their shot.
 	 */
 	static final String START_PROOF_REQUIRED = "start_proof_required";
-
-	/**
-	 * A server that told us to wait, and for how long.
-	 *
-	 * The site limits a whole-log push to one a minute per member; a client that keeps firing into
-	 * that learns nothing and costs the clan's server a request every time. Carrying the wait means
-	 * the plugin can hold off instead of guessing, and tell the player a number.
-	 */
-	public static class RateLimitedException extends IOException
-	{
-		public final long retryAfterMs;
-
-		RateLimitedException(String message, long retryAfterMs)
-		{
-			super(message);
-			this.retryAfterMs = retryAfterMs;
-		}
-	}
 
 	/**
 	 * The server's own words, or a plain sentence when it didn't offer any.
@@ -1191,26 +960,6 @@ public class BingoApiClient
 		return isPermanentFailure(code) && !awaitingStartProof
 			? new PermanentSubmissionException(message)
 			: new IOException(message);
-	}
-
-	/**
-	 * POST /api/plugin/clog — push the WHOLE collection log as a flat obtained-item list.
-	 *
-	 * The page-by-page route sends what the player has drawn; this sends everything the server
-	 * transmitted (see {@link ClogFullSync}). No page names travel: the site owns the catalogue and
-	 * maps ids onto pages, so a Jagex reshuffle is a dataset rebuild there rather than a release here.
-	 */
-	/** What a whole-log push changed, so an automatic sync can stay quiet when it changed nothing. */
-	public static final class ClogPushResult
-	{
-		public int added;
-		public int removed;
-		public int updated;
-
-		public boolean movedAnything()
-		{
-			return added > 0 || removed > 0 || updated > 0;
-		}
 	}
 
 	public ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException
@@ -1360,35 +1109,6 @@ public class BingoApiClient
 
 		postExpectingOk(request, "Submission failed", true);
 		log.info("Drop submitted successfully for tile {}", tileId);
-	}
-
-	/**
-	 * POST /api/plugin/stats — real-time boss KC push (no screenshot). Body is
-	 * {@code {"stats":[{"name":"<in-game boss name>","kc":<absolute count>}]}}. The event, team, and
-	 * player are resolved server-side from the account-token auth (Bearer + X-RSN + X-Account-Hash),
-	 * so a caller can only ever report its own KC. Counts are ABSOLUTE (idempotent): the server takes
-	 * max(hiscores, pushed) per boss, so a debounced "latest value" is all that's needed and the
-	 * hourly hiscores cron reconciles it. Used to complete boss-KC tiles instantly instead of waiting
-	 * on the ~1h hiscores lag.
-	 */
-	/** What a client could see of its company at kill time. Both halves are best-effort. */
-	public static final class CoopFingerprint
-	{
-		/** Lowercased RSNs of ROSTER teammates seen in the instance — empty when none could be named. */
-		public final List<String> teammates;
-		/** Instance/raid party headcount, which is reliable exactly where names aren't. 0 = unknown. */
-		public final int partySize;
-
-		public CoopFingerprint(List<String> teammates, int partySize)
-		{
-			this.teammates = teammates;
-			this.partySize = partySize;
-		}
-
-		public boolean isEmpty()
-		{
-			return (teammates == null || teammates.isEmpty()) && partySize <= 1;
-		}
 	}
 
 	public void submitStatKc(Map<String, Integer> counts) throws IOException

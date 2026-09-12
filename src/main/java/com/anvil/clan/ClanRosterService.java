@@ -2,6 +2,12 @@ package com.anvil.clan;
 
 import com.anvil.AnvilConfig;
 import com.anvil.api.BingoApiClient;
+import com.anvil.api.dto.AdminUnauthorizedException;
+import com.anvil.api.dto.ClanChange;
+import com.anvil.api.dto.ClanMember;
+import com.anvil.api.dto.ClanMismatchException;
+import com.anvil.api.dto.ClanSyncResponse;
+import com.anvil.api.dto.RateLimitedException;
 import com.anvil.util.AnvilChat;
 import com.anvil.util.SyncBackoff;
 import com.anvil.util.TaskRunner;
@@ -392,10 +398,10 @@ public class ClanRosterService
 			}
 			ClanSettings settings = client.getClanSettings();
 			String clanName = settings.getName();
-			List<BingoApiClient.ClanMember> members = new ArrayList<>();
+			List<ClanMember> members = new ArrayList<>();
 			for (net.runelite.api.clan.ClanMember m : settings.getMembers())
 			{
-				BingoApiClient.ClanMember out = new BingoApiClient.ClanMember();
+				ClanMember out = new ClanMember();
 				out.rsn = m.getName();
 				ClanRank rank = m.getRank();
 				if (rank != null)
@@ -415,11 +421,11 @@ public class ClanRosterService
 		});
 	}
 
-	private void post(String clanName, List<BingoApiClient.ClanMember> members, boolean automatic, Callback cb)
+	private void post(String clanName, List<ClanMember> members, boolean automatic, Callback cb)
 	{
 		try
 		{
-			BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
+			ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
 			backoff.onSuccess();
 			pushAllowedAt = System.currentTimeMillis() + ROSTER_PUSH_COOLDOWN_MS;
 			lastSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
@@ -436,20 +442,20 @@ public class ClanRosterService
 			reportPlanLimit(r);
 			cb.onResult(true, lastSummary);
 		}
-		catch (BingoApiClient.AdminUnauthorizedException e)
+		catch (AdminUnauthorizedException e)
 		{
 			// Not (or no longer) an admin — hide the button until the next login probe.
 			admin = false;
 			chat.send("Clan sync failed: your account token isn't an admin (or was revoked).");
 			cb.onResult(false, "Your account token isn't an admin (or was revoked).");
 		}
-		catch (BingoApiClient.ClanMismatchException e)
+		catch (ClanMismatchException e)
 		{
 			String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
 			chat.send("Clan sync failed: clan name doesn't match site config (" + server + ").");
 			cb.onResult(false, "Clan name doesn't match site config (" + server + ").");
 		}
-		catch (BingoApiClient.RateLimitedException e)
+		catch (RateLimitedException e)
 		{
 			// The site said when. Hold exactly that long rather than guessing at it.
 			pushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
@@ -479,7 +485,7 @@ public class ClanRosterService
 	 * A sync nobody asked for reports itself only when the roster actually MOVED — except for the
 	 * first of a login, which speaks either way so you know the plugin is talking to your site.
 	 */
-	private void reportAutomatic(BingoApiClient.ClanSyncResponse r)
+	private void reportAutomatic(ClanSyncResponse r)
 	{
 		List<String> parts = new ArrayList<>();
 		if (r.added > 0)
@@ -515,7 +521,7 @@ public class ClanRosterService
 	 * One chat line per member change, capped so a busy sync doesn't flood the chatbox. Only for a
 	 * sync somebody asked for: the automatic one has said its piece.
 	 */
-	private void reportPerMemberChanges(BingoApiClient.ClanSyncResponse r)
+	private void reportPerMemberChanges(ClanSyncResponse r)
 	{
 		if (r.changes == null || r.changes.isEmpty())
 		{
@@ -523,7 +529,7 @@ public class ClanRosterService
 		}
 		int cap = 12;
 		int shown = 0;
-		for (BingoApiClient.ClanChange ch : r.changes)
+		for (ClanChange ch : r.changes)
 		{
 			if (shown >= cap)
 			{
@@ -544,7 +550,7 @@ public class ClanRosterService
 	}
 
 	/** One member change as a sentence, or null for a kind we have nothing to say about. */
-	private static String changeLine(BingoApiClient.ClanChange ch)
+	private static String changeLine(ClanChange ch)
 	{
 		switch (ch.type == null ? "" : ch.type)
 		{
@@ -569,7 +575,7 @@ public class ClanRosterService
 	 * here, so say it in-game rather than leaving it to a banner they would have to open the site to
 	 * see. Names first, because "6 members were not added" is only useful if you know WHICH six.
 	 */
-	private void reportPlanLimit(BingoApiClient.ClanSyncResponse r)
+	private void reportPlanLimit(ClanSyncResponse r)
 	{
 		if (r.refusedNewMembers != null && !r.refusedNewMembers.isEmpty())
 		{
