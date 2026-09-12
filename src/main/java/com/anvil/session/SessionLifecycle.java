@@ -18,7 +18,7 @@ import javax.inject.Singleton;
 import net.runelite.api.GameState;
 
 /**
- * What a login starts and a logout ends.
+ * What the plugin's life starts and ends, and what a login starts and a logout ends.
  *
  * <h2>Why only the login screen counts as a logout</h2>
  *
@@ -52,13 +52,25 @@ public class SessionLifecycle
 	private final PartyTracker party;
 	/** Nothing attacks a logged-out player, and whatever was is not attacking the next account. */
 	private final DeathAttribution deathAttribution;
+	private final net.runelite.api.Client client;
+	private final com.anvil.AnvilConfig config;
+	private final com.anvil.session.SettingsRouter settings;
+	private final com.anvil.clip.ObsClipService clips;
+	private final com.anvil.notify.LootSourceMemory lootSource;
+	private final com.anvil.track.DropTracker drops;
+	private final com.anvil.track.KillTracker kills;
+	private final com.anvil.track.StatPushService statPush;
+	private final com.anvil.notify.MomentsService moments;
+	private final com.anvil.track.RecapCounters counters;
+	private final com.anvil.track.TimedClearTracker timed;
 
 	@Inject
 	SessionLifecycle(BingoApiClient apiClient, TaskRunner tasks, SessionIdentity session,
 		EventConfigStore configStore, ClanRosterService roster, ProfileSync profileSync,
 		AccountProgressPush accountProgress, AchievementTiles achTiles, ProofPipeline proofs,
 		NudgeService nudges, TrackingGate gate, GainTracker gains, PartyTracker party,
-		DeathAttribution deathAttribution)
+		DeathAttribution deathAttribution,
+		net.runelite.api.Client client, com.anvil.AnvilConfig config, com.anvil.session.SettingsRouter settings, com.anvil.clip.ObsClipService clips, com.anvil.notify.LootSourceMemory lootSource, com.anvil.track.DropTracker drops, com.anvil.track.KillTracker kills, com.anvil.track.StatPushService statPush, com.anvil.notify.MomentsService moments, com.anvil.track.RecapCounters counters, com.anvil.track.TimedClearTracker timed)
 	{
 		this.apiClient = apiClient;
 		this.tasks = tasks;
@@ -74,6 +86,95 @@ public class SessionLifecycle
 		this.gains = gains;
 		this.party = party;
 		this.deathAttribution = deathAttribution;
+		this.client = client;
+		this.config = config;
+		this.settings = settings;
+		this.clips = clips;
+		this.lootSource = lootSource;
+		this.drops = drops;
+		this.kills = kills;
+		this.statPush = statPush;
+		this.moments = moments;
+		this.counters = counters;
+		this.timed = timed;
+	}
+
+	/**
+	 * Enabled, or the client just launched.
+	 *
+	 * <p>The order here is load-bearing twice. The stat table is read BEFORE anything else so a
+	 * plugin started mid-session — every reload during development, every enable from the sidebar —
+	 * learns the levels it would otherwise mistake for level-ups that already happened. And the clan
+	 * the member last picked is restored BEFORE the first fetch, or the opening poll goes out
+	 * unaddressed and the sidebar shows whichever clan the token happens to resolve to, then jumps to
+	 * theirs a few seconds later.</p>
+	 */
+	public void onStartUp()
+	{
+		accountProgress.seedSkillLevels();
+		configStore.migrateConfigDefaults();
+		apiClient.setChosenClan(configStore.chosenClan());
+		lootSource.bindNotableItems(drops::notableItems);
+		configStore.onShutDown();
+
+		tasks.start();
+		if (config.clipsEnabled())
+		{
+			clips.connect();
+		}
+		settings.configureApiClient();
+
+		// SESSION CLOCK for the starting shot: starting up AT the login screen means the next
+		// LOGGED_IN is a real login we can vouch for — the ordinary "launched the client" case.
+		// Starting up already in-game leaves it unknown, which the rule reads as "log out and back
+		// in", since we cannot say when the last hiscores flush was.
+		session.setFreshLoginPending(client.getGameState() == GameState.LOGIN_SCREEN);
+		session.clearSessionClock();
+
+		// Initial config fetch. If the plugin was enabled mid-session (already logged in), no
+		// LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so the very
+		// first authed request carries the identity headers.
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			tasks.run(session::stampIdentityAndGreet);
+		}
+		else if (apiClient.isConfigured())
+		{
+			tasks.run(configStore::refreshConfig);
+		}
+
+		tasks.runLater(() -> TaskRunner.safely("initial retry", proofs::retryPendingSubmissions), 3_000);
+
+		// Every thirty seconds, and each step guarded on its own: an uncaught throw inside a
+		// repeating task silently cancels the task forever, so one hiccup would stop all future
+		// refreshes — and one failing step should not take the other four down with it.
+		tasks.runEvery(() ->
+		{
+			TaskRunner.safely("refreshConfig", configStore::refreshConfig);
+			TaskRunner.safely("retryPendingSubmissions", proofs::retryPendingSubmissions);
+			TaskRunner.safely("obsReconnect", clips::maybeReconnect);
+			TaskRunner.safely("profileSync", profileSync::onPoll);
+			TaskRunner.safely("pushAccountProgress", accountProgress::pushAccountProgress);
+		}, 30_000);
+	}
+
+	/** Disabled, or the client is closing. */
+	public void onShutDown()
+	{
+		clips.disconnect();
+		tasks.stop();
+		configStore.onShutDown();
+		drops.clearIndex();
+		kills.clearIndex();
+		gains.clearIndex();
+		statPush.onShutDown();
+		// Queued highlights die with the plugin: they are cosmetic, and a moment restored into a
+		// session days later would be filed against whatever happens to be running then.
+		moments.reset();
+		// The recap counters are written to the config store first (capturing loot gained since the
+		// last push) — the in-memory totals survive, so a same-event re-login keeps counting.
+		counters.shutDown();
+		timed.reset();
 	}
 
 	/** The game state moved. */
