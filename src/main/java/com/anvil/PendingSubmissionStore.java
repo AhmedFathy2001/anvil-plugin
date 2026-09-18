@@ -4,28 +4,37 @@ import com.google.gson.Gson;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.RuneLite;
+import net.runelite.client.util.Filepath;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Reader;
 import java.io.Writer;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Singleton
 public class PendingSubmissionStore
 {
-	private static final File PENDING_DIR = new File(RuneLite.RUNELITE_DIR, "osrs-bingo-pending");
-
 	// Garbage-collect pending submissions older than this. Prevents unbounded disk growth
 	// when retries keep failing (e.g. site URL permanently wrong) and the user never clears.
 	private static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
+
+	/**
+	 * The plugin's own directory, handed over by AnvilPlugin — the only class allowed to ask for it.
+	 *
+	 * THE ROOT ITSELF, not a subfolder, and that is the migration's doing rather than a preference:
+	 * `legacyDataDirectory` MOVES `.runelite/osrs-bingo-pending` to BE the plugin directory, so
+	 * everything that folder held arrives at its root. Reading from anywhere else would mean not
+	 * finding the very files the migration exists to carry across.
+	 *
+	 * Null until startUp resolves it, and null forever if that failed. Every method treats that as
+	 * "no store": nothing queues, nothing loads, and the caller's own error path takes over — which
+	 * is the same thing that happened when the disk was full.
+	 */
+	private volatile Filepath root;
 
 	private final Gson gson;
 
@@ -55,23 +64,47 @@ public class PendingSubmissionStore
 		public boolean manual;
 	}
 
-	public void init()
+	public void setRoot(Filepath dir)
 	{
-		if (!PENDING_DIR.exists())
+		this.root = dir;
+	}
+
+	/** The directory, created on demand, or null when there is nowhere to write. */
+	private Filepath dir()
+	{
+		Filepath d = root;
+		if (d == null)
 		{
-			PENDING_DIR.mkdirs();
+			return null;
+		}
+		try
+		{
+			if (!d.exists())
+			{
+				d.createDirectories();
+			}
+			return d;
+		}
+		catch (IOException e)
+		{
+			log.warn("Anvil: cannot create the pending-submission directory: {}", e.getMessage());
+			return null;
 		}
 	}
 
 	public String save(PendingSubmission sub, byte[] pngBytes)
 	{
-		init();
+		Filepath dir = dir();
+		if (dir == null)
+		{
+			return null;
+		}
 		String id = sub.tileId + "-" + sub.timestamp;
 
-		File pngFile = new File(PENDING_DIR, id + ".png");
-		try (FileOutputStream fos = new FileOutputStream(pngFile))
+		Filepath png = dir.joinSegment(id + ".png");
+		try
 		{
-			fos.write(pngBytes);
+			png.write(pngBytes);
 		}
 		catch (IOException e)
 		{
@@ -80,15 +113,22 @@ public class PendingSubmissionStore
 		}
 
 		sub.screenshotFile = id + ".png";
-		File jsonFile = new File(PENDING_DIR, id + ".json");
-		try (Writer w = new FileWriter(jsonFile))
+		try (Writer w = dir.joinSegment(id + ".json").openWriter())
 		{
 			gson.toJson(sub, w);
 		}
 		catch (IOException e)
 		{
 			log.error("Failed to save pending submission metadata: {}", e.getMessage());
-			pngFile.delete();
+			// The PNG without its metadata is an orphan nothing will ever read.
+			try
+			{
+				png.deleteIfExists();
+			}
+			catch (IOException ignored)
+			{
+				// Already logged the real failure; a leftover file is the lesser problem.
+			}
 			return null;
 		}
 
@@ -98,17 +138,12 @@ public class PendingSubmissionStore
 
 	public List<PendingSubmission> loadAll()
 	{
-		init();
 		List<PendingSubmission> result = new ArrayList<>();
-		File[] jsonFiles = PENDING_DIR.listFiles((dir, name) -> name.endsWith(".json"));
-		if (jsonFiles == null)
-		{
-			return result;
-		}
+		List<Filepath> jsonFiles = listJson();
 		long now = System.currentTimeMillis();
-		for (File f : jsonFiles)
+		for (Filepath f : jsonFiles)
 		{
-			try (Reader r = new FileReader(f))
+			try (Reader r = f.openReader())
 			{
 				PendingSubmission sub = gson.fromJson(r, PendingSubmission.class);
 				if (sub != null && sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS)
@@ -122,48 +157,107 @@ public class PendingSubmissionStore
 			}
 			catch (Exception e)
 			{
-				log.warn("Failed to read pending submission {}: {}", f.getName(), e.getMessage());
+				log.warn("Failed to read pending submission {}: {}", f.getFileName(), e.getMessage());
 			}
 		}
 		return result;
 	}
 
-	public byte[] readScreenshot(PendingSubmission sub)
+	/**
+	 * The queued metadata files, one per waiting submission.
+	 *
+	 * Depth 1 rather than a full walk: the migration drops these at the root of the plugin directory
+	 * alongside `sounds/` and `debug/`, and descending would read a banner clip's neighbours looking
+	 * for JSON.
+	 */
+	private List<Filepath> listJson()
 	{
-		File pngFile = new File(PENDING_DIR, sub.screenshotFile);
-		try
+		Filepath dir = dir();
+		if (dir == null)
 		{
-			return Files.readAllBytes(pngFile.toPath());
+			return new ArrayList<>();
+		}
+		try (java.util.stream.Stream<Filepath> walk = dir.walk(1))
+		{
+			return walk
+				.filter(f -> f.isFile() && f.getFileName().endsWith(".json"))
+				.collect(Collectors.toList());
 		}
 		catch (IOException e)
+		{
+			log.warn("Failed to list pending submissions: {}", e.getMessage());
+			return new ArrayList<>();
+		}
+	}
+
+	public byte[] readScreenshot(PendingSubmission sub)
+	{
+		Filepath dir = dir();
+		if (dir == null || sub.screenshotFile == null)
+		{
+			return null;
+		}
+		// joinSegment, not join: it refuses a separator, so a screenshotFile read back out of a JSON
+		// file cannot walk anywhere with "../" in it.
+		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream())
+		{
+			return readAll(in);
+		}
+		catch (IOException | RuntimeException e)
 		{
 			log.error("Failed to read pending screenshot {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
 	}
 
+	private static byte[] readAll(InputStream in) throws IOException
+	{
+		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+		byte[] buf = new byte[8192];
+		int n;
+		while ((n = in.read(buf)) > 0)
+		{
+			out.write(buf, 0, n);
+		}
+		return out.toByteArray();
+	}
+
 	public void remove(PendingSubmission sub)
 	{
+		Filepath dir = dir();
+		if (dir == null || sub.screenshotFile == null)
+		{
+			return;
+		}
 		String baseName = sub.screenshotFile.replace(".png", "");
-		new File(PENDING_DIR, baseName + ".png").delete();
-		new File(PENDING_DIR, baseName + ".json").delete();
-		log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
+		try
+		{
+			dir.joinSegment(baseName + ".png").deleteIfExists();
+			dir.joinSegment(baseName + ".json").deleteIfExists();
+			log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.warn("Failed to remove pending submission {}: {}", baseName, e.getMessage());
+		}
 	}
 
-	/** Number of submissions still waiting to upload (cheap — a directory listing, no parsing). */
+	/** Number of submissions still waiting to upload. */
 	public int count()
 	{
-		init();
-		String[] names = PENDING_DIR.list((dir, name) -> name.endsWith(".json"));
-		return names == null ? 0 : names.length;
+		return listJson().size();
 	}
 
-	/** Opens the pending-proofs folder in the OS file manager, off the calling thread. */
+	/** Puts the pending-proofs folder on the clipboard, off the calling thread. */
 	public void copyFolderPath()
 	{
-		init();
+		Filepath dir = dir();
+		if (dir == null)
+		{
+			return;
+		}
 		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
 		// player pastes it wherever they were going to open it.
-		Clipboards.copy(PENDING_DIR.getAbsolutePath());
+		Clipboards.copy(dir.toString());
 	}
 }

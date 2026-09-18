@@ -2,41 +2,36 @@ package com.anvil;
 
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
-import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.RuneLite;
+import net.runelite.client.util.Filepath;
 
 /**
- * One-click support-log export. Members who hit a problem (a drop that never submits, login trouble)
- * shouldn't have to hunt for {@code .runelite/logs/client.log} by hand. This bundles a caller-supplied
- * diagnostic header with the Anvil-relevant slice of RuneLite's client.log into a single shareable
- * .txt in {@code .runelite/anvil-debug/}, copies its path to the clipboard, and opens the folder so
- * they can just drag the file into Discord. All file work runs off the client thread by the caller.
+ * One-click support export: a caller-supplied diagnostic header written to a shareable .txt in the
+ * plugin's own {@code debug/} folder, with its path on the clipboard so it can be dragged into
+ * Discord. All file work runs off the client thread by the caller.
+ *
+ * <p>IT USED TO CARRY THE CLIENT LOG, and that was most of its value — the Anvil-tagged lines out of
+ * {@code .runelite/logs/client.log} plus the recent tail, so "my drop never submitted" arrived with
+ * the stack trace already attached. A plugin can no longer open that file: {@link Filepath} cannot
+ * escape the directory it is rooted at, and client.log belongs to RuneLite, not to us.
+ *
+ * <p>What is left is the header — site URL set, token set, RSN, queue depth, versions — which
+ * answers the configuration half of most reports and none of the "it threw something" half. The
+ * honest fallback is to keep asking for the log in the message, since the member can still attach it
+ * themselves.
  */
 @Slf4j
 @Singleton
 public class DebugLogExporter
 {
-	private static final File OUT_DIR = new File(RuneLite.RUNELITE_DIR, "anvil-debug");
-	private static final File LOG_FILE = new File(new File(RuneLite.RUNELITE_DIR, "logs"), "client.log");
-
-	// Read at most the tail of client.log — the file can be many MB across a long session and only the
-	// recent end is relevant to a just-now problem.
-	private static final long MAX_LOG_TAIL_BYTES = 512 * 1024;
-	// Keep the raw tail bounded so the bundle stays small enough to share easily.
-	private static final int RAW_TAIL_LINES = 200;
-
 	private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+
+	/** The plugin's own `debug/` folder, handed over by AnvilPlugin at startUp. Null = no export. */
+	private volatile Filepath root;
 
 	@Inject
 	public DebugLogExporter()
@@ -45,16 +40,18 @@ public class DebugLogExporter
 
 	public static class Result
 	{
-		public final File file;
-		public final int anvilLineCount;
-		public final boolean clientLogFound;
+		/** Where it landed, as text — the same string that went on the clipboard. */
+		public final String path;
 
-		Result(File file, int anvilLineCount, boolean clientLogFound)
+		Result(String path)
 		{
-			this.file = file;
-			this.anvilLineCount = anvilLineCount;
-			this.clientLogFound = clientLogFound;
+			this.path = path;
 		}
+	}
+
+	public void setRoot(Filepath dir)
+	{
+		this.root = dir;
 	}
 
 	/**
@@ -63,103 +60,43 @@ public class DebugLogExporter
 	 */
 	public Result export(String header)
 	{
+		Filepath dir = root;
+		if (dir == null)
+		{
+			log.warn("Anvil: no plugin directory, cannot export a debug log");
+			return null;
+		}
 		try
 		{
-			if (!OUT_DIR.exists() && !OUT_DIR.mkdirs())
+			if (!dir.exists())
 			{
-				log.warn("Anvil: could not create debug-export dir {}", OUT_DIR);
+				dir.createDirectories();
 			}
-
-			List<String> anvilLines = new ArrayList<>();
-			List<String> rawTail = new ArrayList<>();
-			boolean logFound = readLogTail(anvilLines, rawTail);
 
 			String nl = System.lineSeparator();
 			StringBuilder sb = new StringBuilder();
 			sb.append(header).append(nl).append(nl);
-			sb.append("=== Anvil log lines (").append(anvilLines.size()).append(") ===").append(nl);
-			if (anvilLines.isEmpty())
-			{
-				sb.append(logFound
-					? "(no Anvil lines found in the recent log — the action may not have run, or logs rotated)"
-					: "(client.log not found at " + LOG_FILE + ")").append(nl);
-			}
-			else
-			{
-				for (String l : anvilLines)
-				{
-					sb.append(l).append(nl);
-				}
-			}
-			sb.append(nl).append("=== Recent client.log tail (last ").append(rawTail.size())
-				.append(" lines) ===").append(nl);
-			for (String l : rawTail)
-			{
-				sb.append(l).append(nl);
-			}
+			// Said here rather than left as an absence, because the person reading this file is a
+			// clan admin wondering where the stack trace went.
+			sb.append("=== Client log ===").append(nl);
+			sb.append("Not included: plugins can no longer read RuneLite's client.log.").append(nl);
+			sb.append("If this is a crash or a drop that never submitted, attach your own copy too —")
+				.append(nl);
+			sb.append("it is in the 'logs' folder next to this one, named client.log.").append(nl);
 
-			File out = new File(OUT_DIR, "anvil-debug-" + LocalDateTime.now().format(FILE_TS) + ".txt");
-			Files.write(out.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+			Filepath out = dir.joinSegment("anvil-debug-" + LocalDateTime.now().format(FILE_TS) + ".txt");
+			out.write(sb.toString());
 
-			copyToClipboard(out.getAbsolutePath());
+			String path = out.toString();
+			copyToClipboard(path);
 
-			log.info("Anvil: exported debug log to {} ({} Anvil lines)", out, anvilLines.size());
-			return new Result(out, anvilLines.size(), logFound);
+			log.info("Anvil: exported debug log to {}", path);
+			return new Result(path);
 		}
 		catch (Exception e)
 		{
 			log.warn("Anvil: debug log export failed: {}", e.getMessage());
 			return null;
-		}
-	}
-
-	/**
-	 * Reads the tail of client.log into {@code rawTail} (last {@link #RAW_TAIL_LINES}) and every
-	 * Anvil-related line into {@code anvilLines}. Matching on "anvil" catches the logger name
-	 * (com.anvil.*) that logback prefixes onto every plugin log line. Returns false if no log file.
-	 */
-	private boolean readLogTail(List<String> anvilLines, List<String> rawTail)
-	{
-		if (!LOG_FILE.isFile())
-		{
-			return false;
-		}
-		try (RandomAccessFile raf = new RandomAccessFile(LOG_FILE, "r"))
-		{
-			long len = raf.length();
-			long from = Math.max(0, len - MAX_LOG_TAIL_BYTES);
-			raf.seek(from);
-			byte[] buf = new byte[(int) (len - from)];
-			raf.readFully(buf);
-			String text = new String(buf, StandardCharsets.UTF_8);
-			// If we started mid-file, drop the first partial line.
-			if (from > 0)
-			{
-				int firstNl = text.indexOf('\n');
-				if (firstNl >= 0)
-				{
-					text = text.substring(firstNl + 1);
-				}
-			}
-			String[] lines = text.split("\r?\n");
-			for (String line : lines)
-			{
-				if (line.toLowerCase().contains("anvil"))
-				{
-					anvilLines.add(line);
-				}
-			}
-			int start = Math.max(0, lines.length - RAW_TAIL_LINES);
-			for (int i = start; i < lines.length; i++)
-			{
-				rawTail.add(lines[i]);
-			}
-			return true;
-		}
-		catch (IOException e)
-		{
-			log.warn("Anvil: could not read client.log: {}", e.getMessage());
-			return false;
 		}
 	}
 

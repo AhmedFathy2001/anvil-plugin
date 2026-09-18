@@ -142,10 +142,11 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "bannerSound",
 		name = "Banner sound",
-		description = "Play a sound clip when the bingo banner fires. Add your own .wav files via the "
-			+ "'Banner sounds' button in the Anvil side panel, or drop them into the '"
-			+ BannerSoundService.USER_DIR_NAME + "' folder in your RuneLite directory. Nothing plays "
-			+ "until you add at least one.",
+		// No longer names a folder to drop files into. The clips live in the plugin's own directory
+		// now, which is not somewhere to send people rummaging — "Add sounds" copies them in, and
+		// "Copy folder path" in the same panel hands over the location for anyone who wants it.
+		description = "Play a sound clip when the bingo banner fires. Add your own .wav files with the "
+			+ "'Banner sounds' button in the Anvil side panel. Nothing plays until you add at least one.",
 		position = 5,
 		section = "bingoSection"
 	)

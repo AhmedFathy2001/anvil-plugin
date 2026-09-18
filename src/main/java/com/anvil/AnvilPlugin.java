@@ -59,6 +59,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.util.Filepath;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.DrawManager;
 import net.runelite.client.ui.NavigationButton;
@@ -94,7 +95,24 @@ import java.util.function.Consumer;
 @PluginDescriptor(
         name = "Anvil",
         description = "Companion plugin for the Anvil clan-events platform — codeword overlay, auto-submits tracked bingo drops, clan Discord notifications",
-        tags = {"anvil", "bingo", "overlay", "drops", "loot", "clan", "event"}
+        tags = {"anvil", "bingo", "overlay", "drops", "loot", "clan", "event"},
+        // Required by getPluginDirectory(), which throws without it — the directory is named after it.
+        internalName = "anvil",
+        // ONE FOLDER MOVES, AND THIS IS THE ONLY ONE WORTH MOVING.
+        //
+        // The client migrates exactly one `.runelite` subfolder into the plugin directory, and it
+        // does it by MOVING that folder to BE the plugin directory — so these files land at its root
+        // rather than in a subfolder, and only when the plugin directory does not already exist.
+        //
+        // Spent on the pending queue because it is the only one of our three folders holding
+        // anything a user cannot recreate: each entry is a drop that already happened, with the
+        // screenshot that proves it, waiting for a site that was unreachable at the time. The boss
+        // is dead and the moment is gone; that PNG is the evidence.
+        //
+        // The other two are fine to leave behind. Banner sounds are .wav files the user still has
+        // and re-imports through the same picker they first used; `anvil-debug` only ever held
+        // output that was already dragged into Discord.
+        legacyDataDirectory = "osrs-bingo-pending"
 )
 public class AnvilPlugin extends Plugin {
 
@@ -1113,6 +1131,24 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        // WHERE THIS PLUGIN IS ALLOWED TO TOUCH DISK, resolved once and handed out.
+        //
+        // `getPluginDirectory()` is protected on Plugin, so this class is the only one that can ask
+        // for it — the services that actually read and write get handed the Filepath rather than
+        // reaching for RuneLite.RUNELITE_DIR themselves, which is the whole point of the sandbox.
+        //
+        // A failure here is not fatal: each service treats a null root as "disabled" and the rest of
+        // the plugin — overlay, tracking, submissions over the network — never touches disk at all.
+        try {
+            Filepath pluginDir = getPluginDirectory();
+            pendingSubmissionStore.setRoot(pluginDir);
+            bannerSound.setRoot(pluginDir.join("sounds"));
+            debugLogExporter.setRoot(pluginDir.join("debug"));
+        } catch (IOException | RuntimeException e) {
+            log.warn("Anvil: no plugin directory — pending submissions, banner sounds and the debug "
+                    + "export are unavailable this session", e);
+        }
+
         // The window's TITLE BAR, not the entry pane's header the log also calls a header — that one
         // is the strip naming the boss you have selected, which is where this button spent its first
         // release squeezed against the item count. The bar is where WikiSync and RuneProfile put
@@ -1159,7 +1195,6 @@ public class AnvilPlugin extends Plugin {
                 .build();
         clientToolbar.addNavigation(sidebarNavButton);
 
-        bannerSound.ensureUserDir();
         notifiedCompletedTiles.clear();
         locallyShownTiles.clear();
         completionBaselineEventId = null;

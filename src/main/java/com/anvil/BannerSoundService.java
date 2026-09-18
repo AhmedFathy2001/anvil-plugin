@@ -1,16 +1,13 @@
 package com.anvil;
 
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.RuneLite;
 import net.runelite.client.audio.AudioPlayer;
+import net.runelite.client.util.Filepath;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
-import javax.swing.filechooser.FileNameExtensionFilter;
-import java.io.File;
-import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -20,6 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Plays a clip when the bingo banner fires. No clips ship with the plugin — users supply their own
@@ -32,7 +31,15 @@ import java.util.function.Consumer;
 @Singleton
 public class BannerSoundService
 {
-	static final String USER_DIR_NAME = "anvil-bingo-sounds";
+	/**
+	 * The plugin's own `sounds/` folder, handed over by AnvilPlugin at startUp.
+	 *
+	 * NOT MIGRATED, and deliberately so: the client moves exactly one legacy folder and that slot is
+	 * spent on the pending queue, which holds screenshots of drops that cannot be taken again. A .wav
+	 * is still wherever the user got it, and Add sounds re-imports it through the same picker they
+	 * used the first time.
+	 */
+	private volatile Filepath root;
 
 	private final AnvilConfig config;
 	private final AudioPlayer audioPlayer;
@@ -50,41 +57,70 @@ public class BannerSoundService
 		this.audioPlayer = audioPlayer;
 	}
 
-	public static File userDir()
+	public void setRoot(Filepath dir)
 	{
-		return new File(RuneLite.RUNELITE_DIR, USER_DIR_NAME);
+		this.root = dir;
 	}
 
-	public void ensureUserDir()
+	/** The sounds directory, created on demand, or null when there is nowhere to read or write. */
+	private Filepath dir()
 	{
-		File dir = userDir();
-		if (!dir.exists())
+		Filepath d = root;
+		if (d == null)
 		{
-			//noinspection ResultOfMethodCallIgnored
-			dir.mkdirs();
+			return null;
+		}
+		try
+		{
+			if (!d.exists())
+			{
+				d.createDirectories();
+			}
+			return d;
+		}
+		catch (IOException e)
+		{
+			log.warn("Anvil: cannot create the banner-sounds directory: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** Every .wav in the sounds folder. Depth 1 — a clip is a file in it, never in a subfolder. */
+	private List<Filepath> wavFiles()
+	{
+		Filepath dir = dir();
+		if (dir == null)
+		{
+			return new ArrayList<>();
+		}
+		try (Stream<Filepath> walk = dir.walk(1))
+		{
+			return walk
+				.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav"))
+				.collect(Collectors.toList());
+		}
+		catch (IOException e)
+		{
+			log.debug("Could not list banner sounds: {}", e.getMessage());
+			return new ArrayList<>();
 		}
 	}
 
 	/** True if the user has at least one .wav in their sounds folder (i.e. a banner could play). */
 	public boolean hasClips()
 	{
-		File[] files = userDir().listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
-		return files != null && files.length > 0;
+		return !wavFiles().isEmpty();
 	}
 
 	/** All .wav filenames in the user folder, case-insensitively sorted (for the in-tab manager). */
 	public List<String> listClips()
 	{
-		File[] files = userDir().listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
 		List<String> out = new ArrayList<>();
-		if (files != null)
+		for (Filepath f : wavFiles())
 		{
-			for (File f : files)
-			{
-				out.add(f.getName());
-			}
-			out.sort(String.CASE_INSENSITIVE_ORDER);
+			out.add(f.getFileName());
 		}
+		out.sort(String.CASE_INSENSITIVE_ORDER);
 		return out;
 	}
 
@@ -158,8 +194,8 @@ public class BannerSoundService
 	{
 		try
 		{
-			File[] files = userDir().listFiles((d, name) -> name.toLowerCase().endsWith(".wav"));
-			if (files == null || files.length == 0)
+			List<Filepath> files = wavFiles();
+			if (files.isEmpty())
 			{
 				return;
 			}
@@ -167,10 +203,10 @@ public class BannerSoundService
 			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
 			// Each banner plays one at random from the eligible set, so a multi-clip cycle varies.
 			Set<String> selected = parseSelected(config.bannerSoundClip());
-			List<File> candidates = new ArrayList<>();
-			for (File f : files)
+			List<Filepath> candidates = new ArrayList<>();
+			for (Filepath f : files)
 			{
-				if (selected.isEmpty() || selected.contains(f.getName().toLowerCase()))
+				if (selected.isEmpty() || selected.contains(f.getFileName().toLowerCase()))
 				{
 					candidates.add(f);
 				}
@@ -188,8 +224,9 @@ public class BannerSoundService
 		}
 	}
 
-	private void playFile(File file) throws Exception
+	private void playFile(Filepath file) throws Exception
 	{
+		// AudioPlayer takes a Filepath directly as of 1.12.39, so the clip never leaves the sandbox.
 		audioPlayer.play(file, gainDb());
 	}
 
@@ -213,27 +250,38 @@ public class BannerSoundService
 	{
 		SwingUtilities.invokeLater(() ->
 		{
-			JFileChooser chooser = new JFileChooser();
-			chooser.setDialogTitle("Add banner sounds");
-			chooser.setMultiSelectionEnabled(true);
-			chooser.setFileFilter(new FileNameExtensionFilter("WAV audio (*.wav)", "wav"));
-			if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION)
+			// Filepath.Chooser rather than a bare JFileChooser: the user picking a file is how a
+			// plugin is granted anything outside its own directory, and it is the same dialog they
+			// were already looking at. Nothing else about this flow changes — the clips are copied
+			// in, and playback still only ever reads our own folder.
+			List<Filepath> chosen = new Filepath.Chooser()
+				.setIsOpen()
+				.setAcceptsFiles()
+				.setMultiSelectionEnabled(true)
+				.setDialogTitle("Add banner sounds")
+				.addExtensionFilter("WAV audio", "wav")
+				.showDialog((java.awt.Component) null);
+			if (chosen == null || chosen.isEmpty())
 			{
 				return;
 			}
-			ensureUserDir();
-			List<String> imported = new ArrayList<>();
-			for (File src : chooser.getSelectedFiles())
+			Filepath dir = dir();
+			if (dir == null)
 			{
+				return;
+			}
+			List<String> imported = new ArrayList<>();
+			for (Filepath src : chosen)
+			{
+				String name = src.getFileName();
 				try
 				{
-					Files.copy(src.toPath(), new File(userDir(), src.getName()).toPath(),
-						StandardCopyOption.REPLACE_EXISTING);
-					imported.add(src.getName());
+					src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);
+					imported.add(name);
 				}
 				catch (Exception e)
 				{
-					log.warn("Could not import sound {}: {}", src.getName(), e.getMessage());
+					log.warn("Could not import sound {}: {}", name, e.getMessage());
 				}
 			}
 			if (onImported != null && !imported.isEmpty())
@@ -246,10 +294,14 @@ public class BannerSoundService
 	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */
 	public void copyFolderPath()
 	{
-		ensureUserDir();
+		Filepath dir = dir();
+		if (dir == null)
+		{
+			return;
+		}
 		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
 		// player pastes it wherever they were going to open it.
-		Clipboards.copy(userDir().getAbsolutePath());
+		Clipboards.copy(dir.toString());
 	}
 
 	public void shutdown()
