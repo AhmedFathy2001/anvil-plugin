@@ -564,21 +564,6 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "clipsWebhookUrl",
-		name = "Clips Discord webhook URL",
-		description = "Optional fallback. Clips normally go to your clan's clips channel through the Anvil "
-			+ "site, with no setup on your side. Paste your own Discord webhook URL here to post clips when "
-			+ "your clan hasn't set a clips channel up (or its site is too old to relay them) — those upload "
-			+ "straight from your machine to this webhook. Leave blank to keep clips local in that case.",
-		position = 9,
-		section = "clipsSection"
-	)
-	default String clipsWebhookUrl()
-	{
-		return "";
-	}
-
-	@ConfigItem(
 		keyName = "postObsTriggeredClips",
 		name = "Post OBS-triggered clips too",
 		description = "Also handle replay-buffer saves triggered by OBS itself or the \"Save Replay Buffer for OBS\" "

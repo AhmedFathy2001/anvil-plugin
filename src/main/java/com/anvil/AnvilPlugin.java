@@ -9396,20 +9396,10 @@ public class AnvilPlugin extends Plugin {
         if (path == null || path.isEmpty()) {
             return;
         }
-        File file = new File(path);
-        if (!file.exists()) {
-            sendChatMessage("Clip saved by OBS, but the file couldn't be found to post.");
-            return;
-        }
-        long maxBytes = (long) Math.max(1, config.clipMaxMb()) * 1024L * 1024L;
-        long size = file.length();
-        if (size > maxBytes) {
-            sendChatMessage("Clip saved locally (" + (size / (1024L * 1024L)) + "MB) — too big to auto-post to Discord.");
-            return;
-        }
+
         // What the clip actually caught — drops, kills, completions, deaths and missions the plugin
         // saw inside the buffer's own window. Null when nothing notable happened, in which case the
-        // post falls back to naming the event.
+        // message falls back to naming the event.
         int clipSeconds = Math.max(1, config.clipLengthSeconds());
         // The request this file answers, oldest first. Absent when OBS saved a clip we didn't ask
         // for (someone pressed OBS's own hotkey), in which case "now" is the best we know.
@@ -9435,97 +9425,27 @@ public class AnvilPlugin extends Plugin {
             }
         }
 
-        // Preferred route: hand the clip to the clan's own site and let IT post to the clips channel.
-        // That means members don't each have to paste a webhook URL, and it still isn't a URL handed
-        // to us by a server response — it's the same configured base URL every other request uses.
-        // Gated on the capability so older self-hosted sites (which have no such route) fall straight
-        // through to the user's own webhook.
-        PluginConfigResponse cfg = pluginConfig;
-        boolean relayAvailable = cfg != null && cfg.serverSupports("clip-relay") && apiClient.isConfigured();
-        if (relayAvailable) {
-            sendChatMessage("Uploading clip to your clan's Discord...");
-            // Only an event that is actually RUNNING. The config carries whatever board this
-            // account is enrolled in, and enrolment starts when sign-ups open — so a clip taken
-            // eight weeks before the first tile went up was captioned "Clipped during <that board>",
-            // which is a claim about a competition that hasn't happened yet.
-            boolean eventRunning = AnvilOverlay.isEventActive(cfg.event);
-            String eventName = eventRunning ? cfg.event.name : null;
-            // Their board position rides along: the footage can show the kill but not that it put
-            // them top of the month.
-            PluginConfigResponse.Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
-            BingoApiClient.ClipRelayResult result = apiClient.postClip(
-                    file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
-                    standings != null ? standings.yourRank : 0,
-                    standings != null ? standings.yourPoints : 0);
-            switch (result) {
-                case POSTED:
-                    sendChatMessage("Clip posted to the clan Discord.");
-                    return;
-                case TOO_LARGE:
-                    sendChatMessage("Clip saved locally — too big for Discord ("
-                            + (size / (1024L * 1024L)) + "MB). Try a shorter clip length.");
-                    return;
-                case NO_CHANNEL:
-                    // The clan hasn't set a clips channel. A personal webhook still works, so only
-                    // stop here when there isn't one.
-                    if (clipsWebhook().isEmpty()) {
-                        sendChatMessage("Clip saved locally — your clan has no clips channel set up yet.");
-                        return;
-                    }
-                    break;
-                case UNSUPPORTED:
-                case FAILED:
-                default:
-                    break; // fall through to the personal webhook below
-            }
-        }
-
-        // Fallback: upload straight from the user's machine to a webhook THEY pasted into plugin
-        // config. Blank = keep clips local.
-        String webhook = clipsWebhook();
-        if (webhook.isEmpty()) {
-            sendChatMessage(relayAvailable
-                    ? "Clip saved locally — couldn't reach your clan's Discord just now."
-                    : "Clip saved locally — paste a Clips Discord webhook URL in the plugin config to auto-post.");
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String content = (rsn != null ? rsn : "A clan member") + " clipped 🎬"
-                + (moment != null ? "\n" + moment : "");
-        sendChatMessage("Uploading clip to Discord...");
-        // Stream the file straight from disk on the upload client (generous timeouts); only claim
-        // success once Discord actually accepts it, so a 413/429/timeout reads as a failure, not silence.
-        discordClient.sendWithFile(webhook, content, file, file.getName(), contentTypeForClip(file.getName()), ok -> {
-            if (ok) {
-                sendChatMessage("Clip posted to Discord.");
-            } else {
-                sendChatMessage("Clip saved locally, but Discord didn't accept the upload (too big, rate-limited, or timed out).");
-            }
-        });
+        // THE UPLOAD IS GONE, AND IT CANNOT COME BACK THIS WAY.
+        //
+        // OBS writes the clip wherever OBS is configured to write it and reports that path over the
+        // websocket. A Filepath cannot be built from a string and cannot escape the directory it is
+        // rooted at — which is the sandbox working as intended, not a gap to route around: "open the
+        // file another program named" is exactly what it exists to prevent. So the plugin no longer
+        // reads the clip, and therefore no longer posts it to the clan channel or to a webhook.
+        //
+        // WHAT IS WORTH KEEPING SURVIVED. The hard part was never the upload — it was knowing that
+        // something worth clipping had just happened and catching the seconds around it. That still
+        // works: the buffer is still triggered on the moment, the moment is still named, and the
+        // path goes on the clipboard so it is one paste from the Discord message box.
+        //
+        // Full automation could return by asking OBS to record into our own directory
+        // (SetRecordDirectory over the same socket), but that repoints the user's recordings too and
+        // a crash would leave them there — not a trade to make on the reviewer's behalf.
+        Clipboards.copy(path);
+        String caption = moment != null ? moment : "Clip saved";
+        sendChatMessage(caption + " — saved by OBS, path copied. Paste it into Discord to share.");
     }
 
-    /** The user's own clips webhook, trimmed; empty when unset. */
-    private String clipsWebhook() {
-        String webhook = config.clipsWebhookUrl();
-        return webhook == null ? "" : webhook.trim();
-    }
-
-    private static String contentTypeForClip(String name) {
-        String lower = name.toLowerCase();
-        if (lower.endsWith(".mp4")) {
-            return "video/mp4";
-        }
-        if (lower.endsWith(".mkv")) {
-            return "video/x-matroska";
-        }
-        if (lower.endsWith(".mov")) {
-            return "video/quicktime";
-        }
-        if (lower.endsWith(".webm")) {
-            return "video/webm";
-        }
-        return "application/octet-stream";
-    }
 
     // A stalled capture must not stall the notification: frames normally arrive within ~50ms,
     // so a few seconds of grace is already generous before posting without the screenshot.

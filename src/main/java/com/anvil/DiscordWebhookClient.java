@@ -70,32 +70,7 @@ public class DiscordWebhookClient
 			.build();
 	}
 
-	/**
-	 * Post a text message with a file attached (e.g. a video clip) via Discord multipart, streaming
-	 * straight from disk on the long-timeout upload client. {@code onComplete} receives true only on a
-	 * 2xx (after any retries) so the caller can report real success/failure instead of guessing.
-	 * Discord infers preview from the filename extension; {@code contentType} is the part's media type.
-	 */
-	public void sendWithFile(String webhookUrl, String content, File file, String filename, String contentType, Consumer<Boolean> onComplete)
-	{
-		if (isBlank(webhookUrl) || file == null || !file.exists() || file.length() == 0)
-		{
-			if (onComplete != null)
-			{
-				onComplete.accept(false);
-			}
-			return;
-		}
-		MediaType type = MediaType.parse(contentType != null ? contentType : "application/octet-stream");
-		JsonObject payload = buildPayload(content, null);
-		MultipartBody multipart = new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
-			.addFormDataPart("payload_json", payload.toString())
-			.addFormDataPart("files[0]", filename, RequestBody.create(type, file))
-			.build();
-		enqueue(uploadClient, new Request.Builder().url(webhookUrl).post(multipart).build(), onComplete);
-	}
-
+	
 	private JsonObject buildPayload(String content, JsonObject embed)
 	{
 		JsonObject payload = new JsonObject();
