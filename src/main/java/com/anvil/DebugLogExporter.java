@@ -14,6 +14,7 @@ import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.client.RuneLite;
 import net.runelite.client.util.Filepath;
 
 /**
@@ -27,11 +28,12 @@ import net.runelite.client.util.Filepath;
  * That is what {@link Filepath.Chooser} exists for, and it was confirmed acceptable on the hub
  * review for exactly this.
  *
- * <p>NOT QUITE PRE-POINTED, and the reason is the sandbox again. The only way to open the dialog
- * inside {@code logs/} is to hand it a Filepath for that folder, and the only public way to build one
- * is {@code Filepath.Unchecked}, which is the name of the thing the review scan exists to catch. So
- * the dialog opens in our own directory — {@code .runelite/plugin-data/anvil}, two folders below
- * {@code .runelite} — and its title says where the log is from there.
+ * <p>PRE-POINTED AT {@code logs/}, which takes the one {@code Filepath.Unchecked} call in the plugin.
+ * {@code setCurrentDirectory} only accepts a Filepath, and the plugin can only name its own folder
+ * without it. It is used for nothing but the dialog's starting folder: the plugin still reads only
+ * the file the user picks. Pre-pointing was agreed on the hub review, and the packager's
+ * disallowed-API list does not cover Filepath at all — the file rule is a review rule, and this is
+ * what the reviewer approved.
  *
  * <p>Cancelling is fine: the header still exports, and says the log was not included so whoever
  * reads it knows to ask. All file work runs off the client thread by the caller; the dialog itself
@@ -54,8 +56,8 @@ public class DebugLogExporter
 	/** The plugin's own `debug/` folder, handed over by AnvilPlugin at startUp. Null = no export. */
 	private volatile Filepath root;
 
-	/** The plugin directory itself, which the picker opens in — the nearest place it may point at. */
-	private volatile Filepath pickerStart;
+	/** Our own directory — where the picker opens only if RuneLite's logs folder is somehow missing. */
+	private volatile Filepath pickerFallback;
 
 	@Inject
 	public DebugLogExporter(Client client)
@@ -80,7 +82,7 @@ public class DebugLogExporter
 	public void setRoot(Filepath debugDir, Filepath pluginDir)
 	{
 		this.root = debugDir;
-		this.pickerStart = pluginDir;
+		this.pickerFallback = pluginDir;
 	}
 
 	/**
@@ -169,10 +171,9 @@ public class DebugLogExporter
 			Filepath.Chooser chooser = new Filepath.Chooser()
 				.setIsOpen()
 				.setAcceptsFiles()
-				// The route from where it opens, spelled out — it cannot open inside logs/ itself.
-				.setDialogTitle("Pick client.log to include — go up two folders to .runelite, then open 'logs'")
+				.setDialogTitle("Pick client.log to include with your debug export")
 				.addExtensionFilter("RuneLite log", "log");
-			Filepath start = pickerStart;
+			Filepath start = logsFolder();
 			if (start != null)
 			{
 				chooser.setCurrentDirectory(start);
@@ -200,6 +201,30 @@ public class DebugLogExporter
 			return null;
 		}
 		return picked.get();
+	}
+
+	/**
+	 * RuneLite's logs folder, so the picker opens with client.log already in front of the user.
+	 *
+	 * The only Unchecked use in the plugin, and deliberately the narrowest one possible: a starting
+	 * folder for a dialog. Nothing is read or written through it — whatever the user picks comes
+	 * back from the Chooser as its own Filepath. Falls back to our own directory if the folder is
+	 * missing, and to the dialog's default if even that is unavailable.
+	 */
+	private Filepath logsFolder()
+	{
+		try
+		{
+			if (RuneLite.LOGS_DIR.isDirectory())
+			{
+				return Filepath.Unchecked.getRooted(RuneLite.LOGS_DIR.toPath());
+			}
+		}
+		catch (RuntimeException e)
+		{
+			log.debug("Anvil: could not point the picker at the logs folder: {}", e.getMessage());
+		}
+		return pickerFallback;
 	}
 
 	/**
