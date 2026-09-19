@@ -1143,7 +1143,7 @@ public class AnvilPlugin extends Plugin {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
             bannerSound.setRoot(pluginDir.join("sounds"));
-            debugLogExporter.setRoot(pluginDir.join("debug"));
+            debugLogExporter.setRoot(pluginDir.join("debug"), pluginDir);
         } catch (IOException | RuntimeException e) {
             log.warn("Anvil: no plugin directory — pending submissions, banner sounds and the debug "
                     + "export are unavailable this session", e);
@@ -1529,12 +1529,16 @@ public class AnvilPlugin extends Plugin {
                     // Anvil's own chat styling, and only what actually happened: the folder no longer
                     // opens (LinkBrowser::open is restricted for hub releases), so saying it did sent
                     // people looking at a file manager that never appeared.
+                    // The folder is not named: it lives under plugin-data now, and the path is on the
+                    // clipboard anyway — which is the one thing a person can act on without looking.
                     if (res == null) {
-                        sendChatMessage("Couldn't save the debug log. Look in your .runelite/anvil-debug "
-                                + "folder, or ask your clan admin for help.");
+                        sendChatMessage("Couldn't save the debug log — ask your clan admin for help.");
+                    } else if (res.logIncluded) {
+                        sendChatMessage("Debug log saved with your client log — its path is on your clipboard. "
+                                + "Send that file to your clan admin.");
                     } else {
-                        sendChatMessage("Debug log saved — its path is on your clipboard. Paste that into "
-                                + "your file manager and send the newest 'anvil-debug' file to your clan admin.");
+                        sendChatMessage("Debug log saved without the client log — its path is on your clipboard. "
+                                + "Send it, and attach .runelite/logs/client.log too if something crashed.");
                     }
                 });
             };
