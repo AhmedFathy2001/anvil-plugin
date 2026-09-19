@@ -17,7 +17,7 @@ import java.util.function.Consumer;
 
 /**
  * Minimal obs-websocket v5 client — connects to OBS, saves the replay buffer on demand, and reports
- * the saved file path back via {@code onClipSaved} so the plugin can post it. Independent of the
+ * the saved file path back via {@code onClipSaved} so the plugin can hand it on. Independent of the
  * "Save Replay Buffer for OBS" plugin (we run our own connection because we need the saved path,
  * which that plugin never exposes). All callbacks fire off the client thread.
  *
@@ -46,7 +46,7 @@ public class ObsReplayClient extends WebSocketListener
 	private volatile boolean connected;
 	// True between our own SaveReplayBuffer request and the matching ReplayBufferSaved event. OBS
 	// broadcasts ReplayBufferSaved to EVERY connected obs-websocket client, so without this guard a
-	// second RuneLite client sharing the same OBS would also upload a clip it never triggered.
+	// second RuneLite client sharing the same OBS would also act on a clip it never triggered.
 	private volatile boolean awaitingSave;
 
 	public ObsReplayClient(OkHttpClient http, Gson gson, String host, int port, String password,
@@ -232,7 +232,7 @@ public class ObsReplayClient extends WebSocketListener
 				{
 					// OBS broadcasts this to ALL connected clients. By default only act on a save WE asked
 					// for; otherwise another client (e.g. a second RuneLite on the same OBS) triggering it
-					// would double-post. When the player opts in to OBS-triggered clips (they rely on OBS or
+					// would double-handle it. When the player opts in to OBS-triggered clips (they rely on OBS or
 					// the "Save Replay Buffer for OBS" plugin to auto-save), also act on saves we didn't
 					// trigger. self=true means it was our own SaveReplayBuffer.
 					boolean self = awaitingSave;

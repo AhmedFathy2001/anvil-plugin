@@ -398,7 +398,7 @@ public class PluginConfigResponse
 		// posts notifications to its OWN server (POST /api/plugin/config's sibling /api/plugin/notify),
 		// which forwards them to Discord server-side — the plugin never receives or calls the webhook
 		// URL itself. (RuneLite plugin-hub rule: a plugin may not take a URL from a response and call
-		// it.) Clips are the exception: they upload straight to a user-pasted webhook in plugin config.
+		// it.)
 		public boolean rareDrops;
 		public boolean deaths;
 		public boolean combatAchievements;

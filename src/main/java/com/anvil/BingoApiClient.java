@@ -32,10 +32,6 @@ public class BingoApiClient
 
 	private final Gson gson;
 	private final OkHttpClient httpClient;
-	// Clip relay uploads are multi-MB video. The normal client's 30s write timeout aborts those
-	// mid-upload on a slow connection, so file posts get their own generous timeouts (the pool and
-	// dispatcher are still shared via newBuilder, so an extra client is cheap).
-	private final OkHttpClient uploadClient;
 	private String apiUrl;
 	private String playerToken;
 	// In-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
@@ -59,12 +55,6 @@ public class BingoApiClient
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
-			.build();
-		this.uploadClient = client.newBuilder()
-			.connectTimeout(10, TimeUnit.SECONDS)
-			.callTimeout(120, TimeUnit.SECONDS)
-			.writeTimeout(120, TimeUnit.SECONDS)
-			.readTimeout(60, TimeUnit.SECONDS)
 			.build();
 	}
 

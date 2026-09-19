@@ -165,9 +165,6 @@ public class AnvilPlugin extends Plugin {
     private ItemManager itemManager;
 
     @Inject
-    private DiscordWebhookClient discordClient;
-
-    @Inject
     private RarityService rarityService;
 
     @Inject
@@ -7117,8 +7114,8 @@ public class AnvilPlugin extends Plugin {
     }
 
     /* -------------------------------------------------------------- */
- /* Clan notifications — deaths, rare drops, pets (posted direct to */
- /* Discord, independent of bingo state). See DiscordWebhookClient. */
+ /* Clan notifications — deaths, rare drops, pets (sent to our own  */
+ /* server, which forwards to Discord; independent of bingo state).  */
  /* -------------------------------------------------------------- */
     @Subscribe
     public void onActorDeath(ActorDeath event) {
@@ -9393,8 +9390,8 @@ public class AnvilPlugin extends Plugin {
 
     /**
      * Fires (off the client thread) once OBS has written the clip to disk.
-     * Posts it to the clan clips channel when it's small enough for Discord;
-     * otherwise just a quiet in-game notice.
+     * Names what the clip caught and puts the clip on the clipboard, ready to
+     * paste into Discord.
      */
     private void onClipSaved(String path) {
         if (path == null || path.isEmpty()) {
@@ -9440,14 +9437,20 @@ public class AnvilPlugin extends Plugin {
         // WHAT IS WORTH KEEPING SURVIVED. The hard part was never the upload — it was knowing that
         // something worth clipping had just happened and catching the seconds around it. That still
         // works: the buffer is still triggered on the moment, the moment is still named, and the
-        // path goes on the clipboard so it is one paste from the Discord message box.
+        // CLIP ITSELF goes on the clipboard — a file reference, the same thing a file manager's copy
+        // makes — so one paste in Discord attaches the video. Copying the path as text put a
+        // `C:\...\Replay.mkv` string in the message box instead, which shared nothing.
         //
         // Full automation could return by asking OBS to record into our own directory
         // (SetRecordDirectory over the same socket), but that repoints the user's recordings too and
         // a crash would leave them there — not a trade to make on the reviewer's behalf.
-        Clipboards.copy(path);
         String caption = moment != null ? moment : "Clip saved";
-        sendChatMessage(caption + " — saved by OBS, path copied. Paste it into Discord to share.");
+        if (Clipboards.copyFile(path)) {
+            sendChatMessage(caption + " — clip copied. Paste into Discord to attach it.");
+        } else {
+            // No usable clipboard (headless, locked down): say where it went instead.
+            sendChatMessage(caption + " — saved by OBS to " + path);
+        }
     }
 
 
