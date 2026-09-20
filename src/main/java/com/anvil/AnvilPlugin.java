@@ -1213,7 +1213,13 @@ public class AnvilPlugin extends Plugin {
         executor = Executors.newSingleThreadScheduledExecutor();
         // Clips we kept but never managed to send. Off the client thread, and only ever our own
         // folder — a plugin data directory quietly filling with video is nobody's idea of a feature.
-        executor.execute(clipFolder::prune);
+        //
+        // ONLY WHILE WE ARE THE ONES PUTTING THEM THERE. OBS keeps writing to the folder it started
+        // with, so after RuneLite closes their clips can still land in ours until OBS's buffer is
+        // restarted. Sweeping then would delete footage the player saved for themselves.
+        if (config.manageObsFolder()) {
+            executor.execute(clipFolder::prune);
+        }
         keyManager.registerKeyListener(clipHotkeyListener);
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
@@ -1382,8 +1388,9 @@ public class AnvilPlugin extends Plugin {
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
         // Before the socket goes: we borrowed their recording folder, and a plugin that doesn't hand
-        // it back leaves every future OBS recording in a RuneLite data directory.
-        restoreObsRecordDirectory();
+        // it back leaves every future OBS recording in a RuneLite data directory. No cycle here —
+        // restarting the buffer needs a reply we won't be around to receive.
+        restoreObsRecordDirectory(false);
         disconnectObs();
         if (executor != null) {
             executor.shutdownNow();
@@ -1696,6 +1703,9 @@ public class AnvilPlugin extends Plugin {
             if (config.clipsEnabled()) {
                 connectObs();
             } else {
+                // Their recording folder first: after disconnectObs there is no socket to say it on,
+                // and OBS would keep writing into a RuneLite data directory.
+                restoreObsRecordDirectory();
                 disconnectObs();
             }
         } else if ("manageObsFolder".equals(key)) {
@@ -9662,6 +9672,10 @@ public class AnvilPlugin extends Plugin {
 
     /** Hand the player's recording folder back to them, and forget we ever held it. */
     private void restoreObsRecordDirectory() {
+        restoreObsRecordDirectory(true);
+    }
+
+    private void restoreObsRecordDirectory(boolean cycle) {
         String backup = configManager.getConfiguration("osrsbingo", OBS_PATH_BACKUP);
         if (backup == null || backup.isEmpty()) {
             return;
@@ -9675,6 +9689,13 @@ public class AnvilPlugin extends Plugin {
         }
         obs.setRecordDirectory(backup);
         configManager.unsetConfiguration("osrsbingo", OBS_PATH_BACKUP);
+        // A running buffer holds the folder it STARTED with, so the setting alone would leave their
+        // next clips in ours. Cycling it makes the restore take effect now rather than whenever OBS
+        // is next restarted. Skipped on the way out: the restart is driven by the stop's reply, and
+        // there is no socket left to carry it.
+        if (cycle && obs.isConnected()) {
+            obs.applyClipLength();
+        }
         log.debug("Anvil: OBS recording folder restored");
     }
 

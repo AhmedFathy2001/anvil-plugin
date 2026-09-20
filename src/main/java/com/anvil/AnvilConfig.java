@@ -602,8 +602,9 @@ public interface AnvilConfig extends Config
 			+ "lets it read its own folder or one you pick in a dialog each session. Turn this on and the plugin "
 			+ "points OBS at its own clips folder while RuneLite runs, so clips post with nothing to click — and "
 			+ "puts your setting back when you turn this off or close RuneLite. Note this is OBS's RECORDING "
-			+ "folder, so your ordinary recordings save there too while it's on. Leave it off to be asked for the "
-			+ "folder once per session instead — the question at the login screen offers both.",
+			+ "folder, so your ordinary recordings save there too while it's on. Anything Anvil couldn't post is "
+			+ "cleared out of its folder after a week. Leave it off to be asked for the folder once per session "
+			+ "instead — the question at the login screen offers both.",
 		position = 11,
 		section = "clipsSection"
 	)
