@@ -164,6 +164,10 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private ItemManager itemManager;
 
+    // Where a clip is, and whether the plugin is allowed to open it. See ClipFolder.
+    @Inject
+    private ClipFolder clipFolder;
+
     @Inject
     private DiscordWebhookClient discordClient;
 
@@ -227,6 +231,13 @@ public class AnvilPlugin extends Plugin {
 
     private static final int MAX_PENDING_CLIPS = 8;
     private final java.util.Deque<PendingClip> pendingClips = new java.util.ArrayDeque<>();
+    /** Clips OBS wrote somewhere we may not read, waiting for the folder to be granted. */
+    private final List<Runnable> heldClips = new ArrayList<>();
+    private static final int MAX_HELD_CLIPS = 5;
+    /** Where OBS says it records. Shown in the chooser's title — we may name it, not open it. */
+    private volatile String obsRecordDir;
+    /** The recording path that was the player's before we claimed it, so shutdown can give it back. */
+    private static final String OBS_PATH_BACKUP = "obsRecordPathBackup";
 
     private volatile String lastCombatTarget;
     private volatile long lastCombatTargetAt;
@@ -1142,6 +1153,7 @@ public class AnvilPlugin extends Plugin {
         try {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
+            clipFolder.setRoot(pluginDir.join("clips"));
             bannerSound.setRoot(pluginDir.join("sounds"));
             debugLogExporter.setRoot(pluginDir.join("debug"), pluginDir);
         } catch (IOException | RuntimeException e) {
@@ -1199,6 +1211,9 @@ public class AnvilPlugin extends Plugin {
         locallyShownTiles.clear();
         completionBaselineEventId = null;
         executor = Executors.newSingleThreadScheduledExecutor();
+        // Clips we kept but never managed to send. Off the client thread, and only ever our own
+        // folder — a plugin data directory quietly filling with video is nobody's idea of a feature.
+        executor.execute(clipFolder::prune);
         keyManager.registerKeyListener(clipHotkeyListener);
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
@@ -1366,6 +1381,9 @@ public class AnvilPlugin extends Plugin {
         bannerSound.shutdown();
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
+        // Before the socket goes: we borrowed their recording folder, and a plugin that doesn't hand
+        // it back leaves every future OBS recording in a RuneLite data directory.
+        restoreObsRecordDirectory();
         disconnectObs();
         if (executor != null) {
             executor.shutdownNow();
@@ -1679,6 +1697,16 @@ public class AnvilPlugin extends Plugin {
                 connectObs();
             } else {
                 disconnectObs();
+            }
+        } else if ("manageObsFolder".equals(key)) {
+            if (config.manageObsFolder()) {
+                // Ours from the next buffer start — the recording path is read when the buffer starts,
+                // so restarting it is what actually moves the clips.
+                if (config.clipsEnabled() && obsClip != null && obsClip.isConnected()) {
+                    obsClip.applyClipLength();
+                }
+            } else {
+                restoreObsRecordDirectory();
             }
         } else if (("clipLengthSeconds".equals(key) || "clipMp4".equals(key))
                 && config.clipsEnabled() && obsClip != null && obsClip.isConnected()) {
@@ -2283,6 +2311,9 @@ public class AnvilPlugin extends Plugin {
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
+            // Nothing is happening here, which is the entire reason the ask lives at this transition
+            // rather than on the clip that needs it.
+            maybeAskForClipFolder();
             // Back at the login screen: the next LOGGED_IN really is a new session, and until it
             // arrives we don't have one at all.
             freshLoginPending = true;
@@ -9329,12 +9360,21 @@ public class AnvilPlugin extends Plugin {
                     config.obsPassword(),
                     this::onClipSaved,
                     () -> {
-                        /* connected — no chat spam */ },
+                        // OBS is usually still starting when RuneLite reaches the login screen, so the
+                        // ask there finds no connection and skips. This is the second chance, and it
+                        // only fires while nothing is happening on screen.
+                        if (client.getGameState() == GameState.LOGIN_SCREEN) {
+                            maybeAskForClipFolder();
+                        }
+                    },
                     // Per-save failures (e.g. the Replay Buffer isn't started) — tell the player why.
                     this::sendChatMessage,
                     config::clipLengthSeconds,
                     () -> config.clipMp4() ? "mp4" : null,
-                    config::postObsTriggeredClips
+                    config::postObsTriggeredClips,
+                    // Only when the player asked us to manage it; otherwise null leaves their path alone.
+                    () -> config.manageObsFolder() ? clipFolder.managedPath() : null,
+                    this::onObsRecordDirectory
             );
             obsClip.connect();
         }
@@ -9400,17 +9440,6 @@ public class AnvilPlugin extends Plugin {
         if (path == null || path.isEmpty()) {
             return;
         }
-        File file = new File(path);
-        if (!file.exists()) {
-            sendChatMessage("Clip saved by OBS, but the file couldn't be found to post.");
-            return;
-        }
-        long maxBytes = (long) Math.max(1, config.clipMaxMb()) * 1024L * 1024L;
-        long size = file.length();
-        if (size > maxBytes) {
-            sendChatMessage("Clip saved locally (" + (size / (1024L * 1024L)) + "MB) — too big to auto-post to Discord.");
-            return;
-        }
         // What the clip actually caught — drops, kills, completions, deaths and missions the plugin
         // saw inside the buffer's own window. Null when nothing notable happened, in which case the
         // post falls back to naming the event.
@@ -9439,6 +9468,43 @@ public class AnvilPlugin extends Plugin {
             }
         }
 
+        submitClip(path, moment, clipSeconds);
+    }
+
+    /**
+     * Post a clip — IF the plugin is allowed to open it.
+     *
+     * <p>OBS reports an absolute path, and a path is exactly what a plugin may not act on: a Filepath
+     * cannot be built from a string. So the clip has to be somewhere we already hold — our own folder
+     * (when the player let us point OBS at it) or the recordings folder they granted this session.
+     * Anywhere else and it goes in the queue instead of being read.
+     */
+    private void submitClip(String path, String moment, int clipSeconds) {
+        Filepath clip = clipFolder.locate(path);
+        if (clip == null) {
+            queueClip(path, moment, clipSeconds);
+            return;
+        }
+
+        long size;
+        byte[] data;
+        try {
+            size = clip.size();
+            long maxBytes = (long) Math.max(1, config.clipMaxMb()) * 1024L * 1024L;
+            if (size > maxBytes) {
+                sendChatMessage("Clip saved locally (" + (size / (1024L * 1024L)) + "MB) — too big to auto-post to Discord.");
+                return;
+            }
+            try (java.io.InputStream in = clip.openInputStream()) {
+                data = in.readAllBytes();
+            }
+        } catch (IOException e) {
+            log.debug("Anvil: couldn't read clip: {}", e.getMessage());
+            sendChatMessage("Clip saved by OBS, but it couldn't be read to post.");
+            return;
+        }
+        String fileName = clip.getFileName();
+
         // Preferred route: hand the clip to the clan's own site and let IT post to the clips channel.
         // That means members don't each have to paste a webhook URL, and it still isn't a URL handed
         // to us by a server response — it's the same configured base URL every other request uses.
@@ -9458,12 +9524,13 @@ public class AnvilPlugin extends Plugin {
             // them top of the month.
             PluginConfigResponse.Standings standings = eventRunning ? cfg.event.monthlyStandings : null;
             BingoApiClient.ClipRelayResult result = apiClient.postClip(
-                    file, moment, eventName, clipSeconds, contentTypeForClip(file.getName()),
+                    data, fileName, moment, eventName, clipSeconds, contentTypeForClip(fileName),
                     standings != null ? standings.yourRank : 0,
                     standings != null ? standings.yourPoints : 0);
             switch (result) {
                 case POSTED:
                     sendChatMessage("Clip posted to the clan Discord.");
+                    discardIfOurs(clip);
                     return;
                 case TOO_LARGE:
                     sendChatMessage("Clip saved locally — too big for Discord ("
@@ -9497,15 +9564,177 @@ public class AnvilPlugin extends Plugin {
         String content = (rsn != null ? rsn : "A clan member") + " clipped 🎬"
                 + (moment != null ? "\n" + moment : "");
         sendChatMessage("Uploading clip to Discord...");
-        // Stream the file straight from disk on the upload client (generous timeouts); only claim
-        // success once Discord actually accepts it, so a 413/429/timeout reads as a failure, not silence.
-        discordClient.sendWithFile(webhook, content, file, file.getName(), contentTypeForClip(file.getName()), ok -> {
+        // Only claim success once Discord actually accepts it, so a 413/429/timeout reads as a
+        // failure, not silence.
+        discordClient.sendWithFile(webhook, content, data, fileName, contentTypeForClip(fileName), ok -> {
             if (ok) {
                 sendChatMessage("Clip posted to Discord.");
+                discardIfOurs(clip);
             } else {
                 sendChatMessage("Clip saved locally, but Discord didn't accept the upload (too big, rate-limited, or timed out).");
             }
         });
+    }
+
+    /**
+     * A clip we may not open — because OBS wrote it somewhere the plugin has no claim to.
+     *
+     * <p>Held, not dropped: the file stays where OBS put it, and granting the folder later in the
+     * session posts it retroactively. Meanwhile the clip itself goes on the clipboard, so it is one
+     * paste into Discord whatever happens next.
+     */
+    private void queueClip(String path, String moment, int clipSeconds) {
+        synchronized (heldClips) {
+            if (heldClips.size() >= MAX_HELD_CLIPS) {
+                heldClips.remove(0);
+            }
+            heldClips.add(() -> submitClip(path, moment, clipSeconds));
+        }
+        String caption = moment != null ? moment : "Clip saved";
+        boolean copied = Clipboards.copyFile(path);
+        if (config.manageObsFolder()) {
+            // Managing, yet the clip landed elsewhere: OBS was already running its buffer with the
+            // old path when we connected. It will land in our folder from the next buffer start.
+            sendChatMessage(caption + (copied
+                    ? " — clip copied, paste it into Discord. Restart OBS's replay buffer so Anvil can post these for you."
+                    : " — saved by OBS. Restart OBS's replay buffer so Anvil can post these for you."));
+            return;
+        }
+        sendChatMessage(caption + (copied
+                ? " — clip copied, paste it into Discord. To post these automatically, point Anvil at your OBS folder at the login screen."
+                : " — saved by OBS. To post these automatically, point Anvil at your OBS folder at the login screen."));
+    }
+
+    /** Let go of clips we will never be able to read — they are in a folder that is not ours. */
+    private void dropHeldClips() {
+        synchronized (heldClips) {
+            heldClips.clear();
+        }
+    }
+
+    /** Post anything that arrived before we were allowed to read it. */
+    private void flushPendingClips() {
+        List<Runnable> queued;
+        synchronized (heldClips) {
+            if (heldClips.isEmpty()) {
+                return;
+            }
+            queued = new ArrayList<>(heldClips);
+            heldClips.clear();
+        }
+        for (Runnable r : queued) {
+            try {
+                r.run();
+            } catch (Exception e) {
+                log.debug("Anvil: queued clip failed: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * OBS has told us where it records. Two jobs, both of which must happen BEFORE the replay buffer
+     * is started with our folder applied.
+     *
+     * <p>Remember it, so the chooser can name the folder the player is looking for. And, when we are
+     * managing the path, keep a copy of THEIR value so shutdown can put it back. Only when it isn't
+     * already ours: after a crash OBS still points at us, and overwriting the backup then would make
+     * our own folder "the user's setting" and strand them there permanently.
+     */
+    private void onObsRecordDirectory(String dir) {
+        if (dir == null || dir.isEmpty()) {
+            return;
+        }
+        obsRecordDir = dir;
+        String ours = clipFolder.managedPath();
+        boolean isOurs = ours != null && ours.equalsIgnoreCase(dir);
+        if (config.manageObsFolder()) {
+            if (!isOurs) {
+                configManager.setConfiguration("osrsbingo", OBS_PATH_BACKUP, dir);
+            }
+            return;
+        }
+        // Not managing any more, but OBS is still pointed at us — a toggle flipped while RuneLite was
+        // closed, or a crash before shutdown could restore it. Give it back now.
+        if (isOurs) {
+            restoreObsRecordDirectory();
+        }
+    }
+
+    /** Hand the player's recording folder back to them, and forget we ever held it. */
+    private void restoreObsRecordDirectory() {
+        String backup = configManager.getConfiguration("osrsbingo", OBS_PATH_BACKUP);
+        if (backup == null || backup.isEmpty()) {
+            return;
+        }
+        ObsReplayClient obs;
+        synchronized (obsLock) {
+            obs = obsClip;
+        }
+        if (obs == null) {
+            return;
+        }
+        obs.setRecordDirectory(backup);
+        configManager.unsetConfiguration("osrsbingo", OBS_PATH_BACKUP);
+        log.debug("Anvil: OBS recording folder restored");
+    }
+
+    /**
+     * Ask for the OBS recordings folder — at the login screen, and nowhere else.
+     *
+     * <p>A clip is saved at the one moment the player is busiest, so prompting there would throw a
+     * modal dialog over a kill. The login screen is the opposite: nothing is happening, and a grant
+     * made now covers the whole session. Dismissing it is final for the session; clips fall back to
+     * the clipboard.
+     *
+     * <p>Runs off the client thread — the dialog blocks until answered.
+     */
+    private void maybeAskForClipFolder() {
+        if (!config.clipsEnabled() || config.manageObsFolder() || clipFolder.asked()) {
+            return;
+        }
+        // No OBS, no question: asking someone who isn't running it to pick a recordings folder is a
+        // dialog about a feature they aren't using yet.
+        synchronized (obsLock) {
+            if (obsClip == null || !obsClip.isConnected()) {
+                return;
+            }
+        }
+        ScheduledExecutorService ex = executor;
+        if (ex == null) {
+            return;
+        }
+        ex.execute(() -> {
+            switch (clipFolder.ask(client, obsRecordDir)) {
+                case MANAGE:
+                    // Permanent, and it takes effect on the next buffer start — which onConfigChanged
+                    // triggers. Clips already taken stay where OBS put them: unreachable, and already
+                    // on the clipboard, so say so once rather than failing them one by one.
+                    configManager.setConfiguration("osrsbingo", "manageObsFolder", true);
+                    dropHeldClips();
+                    sendChatMessage("Anvil will save clips to its own folder and post them for you. "
+                            + "Your OBS recording folder goes back when RuneLite closes.");
+                    break;
+                case GRANTED:
+                    sendChatMessage("Anvil will post your clips to Discord for this session.");
+                    flushPendingClips();
+                    break;
+                case DISMISSED:
+                default:
+                    break;
+            }
+        });
+    }
+
+    /** Clean up after ourselves — but only in our OWN folder. The player's recordings stay put. */
+    private void discardIfOurs(Filepath clip) {
+        if (!clipFolder.isOurs(clip)) {
+            return;
+        }
+        try {
+            clip.deleteIfExists();
+        } catch (IOException e) {
+            log.debug("Anvil: couldn't remove sent clip: {}", e.getMessage());
+        }
     }
 
     /** The user's own clips webhook, trimmed; empty when unset. */

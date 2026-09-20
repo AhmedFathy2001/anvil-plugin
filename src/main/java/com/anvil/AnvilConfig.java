@@ -593,6 +593,23 @@ public interface AnvilConfig extends Config
 		return false;
 	}
 
+	@ConfigItem(
+		keyName = "manageObsFolder",
+		name = "Let Anvil manage OBS's recording folder",
+		description = "Auto-posting needs the clip to be somewhere the plugin is allowed to read, and RuneLite only "
+			+ "lets it read its own folder or one you pick in a dialog each session. Turn this on and the plugin "
+			+ "points OBS at its own clips folder while RuneLite runs, so clips post with nothing to click — and "
+			+ "puts your setting back when you turn this off or close RuneLite. Note this is OBS's RECORDING "
+			+ "folder, so your ordinary recordings save there too while it's on. Leave it off to be asked for the "
+			+ "folder once per session instead — the question at the login screen offers both.",
+		position = 11,
+		section = "clipsSection"
+	)
+	default boolean manageObsFolder()
+	{
+		return false;
+	}
+
 	// ---- Support ----
 
 	@ConfigItem(

@@ -41,9 +41,18 @@ public class ObsReplayClient extends WebSocketListener
 	private final java.util.function.Supplier<String> clipFormat; // OBS RecFormat value, or null to leave as-is
 	// When true, also act on ReplayBufferSaved events we didn't trigger (OBS's own hotkey/triggers).
 	private final java.util.function.BooleanSupplier postExternalSaves;
+	// Where the plugin wants OBS to write clips — its own folder, the only place it may read them
+	// from without asking. Null/empty leaves the user's recording path alone.
+	private final java.util.function.Supplier<String> managedClipDir;
+	// Reports the folder OBS is recording to, as OBS itself sees it. Needed to put back what we
+	// changed, and to name the folder in the chooser when we are NOT managing it.
+	private final Consumer<String> onRecordDirectory;
 
 	private WebSocket webSocket;
 	private volatile boolean connected;
+	// Where OBS says it is recording, as of the last GetRecordDirectory. Compared against the folder
+	// we want so a buffer that is already running with the wrong path can be cycled onto the right one.
+	private volatile String recordDir;
 	// True between our own SaveReplayBuffer request and the matching ReplayBufferSaved event. OBS
 	// broadcasts ReplayBufferSaved to EVERY connected obs-websocket client, so without this guard a
 	// second RuneLite client sharing the same OBS would also upload a clip it never triggered.
@@ -52,7 +61,8 @@ public class ObsReplayClient extends WebSocketListener
 	public ObsReplayClient(OkHttpClient http, Gson gson, String host, int port, String password,
 		Consumer<String> onClipSaved, Runnable onConnected, Consumer<String> onError,
 		java.util.function.IntSupplier clipSeconds, java.util.function.Supplier<String> clipFormat,
-		java.util.function.BooleanSupplier postExternalSaves)
+		java.util.function.BooleanSupplier postExternalSaves,
+		java.util.function.Supplier<String> managedClipDir, Consumer<String> onRecordDirectory)
 	{
 		this.http = http;
 		this.gson = gson;
@@ -64,6 +74,8 @@ public class ObsReplayClient extends WebSocketListener
 		this.clipSeconds = clipSeconds;
 		this.clipFormat = clipFormat;
 		this.postExternalSaves = postExternalSaves;
+		this.managedClipDir = managedClipDir;
+		this.onRecordDirectory = onRecordDirectory;
 	}
 
 	public void connect()
@@ -129,6 +141,13 @@ public class ObsReplayClient extends WebSocketListener
 			setProfileParameter("AdvOut", "RecFormat2", format);
 			setProfileParameter("AdvOut", "RecFormat", format);
 		}
+		// The recording path is read when the buffer STARTS, never at save time, so this is the only
+		// moment it can be changed — and it is why the plugin cannot repoint OBS per clip.
+		String managed = managedClipDir == null ? null : managedClipDir.get();
+		if (managed != null && !managed.isEmpty())
+		{
+			setRecordDirectory(managed);
+		}
 		if (clipSeconds != null)
 		{
 			int secs = Math.max(5, Math.min(600, clipSeconds.getAsInt()));
@@ -137,11 +156,34 @@ public class ObsReplayClient extends WebSocketListener
 		}
 	}
 
+	/** True when clips are meant to land in our folder but OBS is currently writing somewhere else. */
+	private boolean wantsRedirect()
+	{
+		String managed = managedClipDir == null ? null : managedClipDir.get();
+		return managed != null && !managed.isEmpty() && !managed.equalsIgnoreCase(recordDir);
+	}
+
 	/** Apply params, then start. Only call when the buffer is known stopped (status check / post-stop). */
 	private void startBuffer()
 	{
 		applyParams();
 		sendRequest("StartReplayBuffer", "anvil-rb-start");
+	}
+
+	/**
+	 * Point OBS's recording path somewhere. Written through SetProfileParameter rather than
+	 * SetRecordDirectory: the dedicated request only arrived in obs-websocket 5.3, and this writes the
+	 * same two profile keys that request writes (AdvOut/RecFilePath + SimpleOutput/FilePath), so it
+	 * works back to 5.0. Used both to claim the folder and to give the user's own back.
+	 */
+	public void setRecordDirectory(String dir)
+	{
+		if (dir == null || dir.isEmpty())
+		{
+			return;
+		}
+		setProfileParameter("SimpleOutput", "FilePath", dir);
+		setProfileParameter("AdvOut", "RecFilePath", dir);
 	}
 
 	private void setProfileParameter(String category, String name, String value)
@@ -223,9 +265,10 @@ public class ObsReplayClient extends WebSocketListener
 				{
 					onConnected.run();
 				}
-				// Don't blindly stop/start (racy + disrupts a healthy buffer). Ask OBS whether the
-				// buffer is active; the op-7 handler starts it only if it's stopped.
-				sendRequest("GetReplayBufferStatus", "anvil-rb-status");
+				// THE DIRECTORY COMES FIRST, and the buffer check waits for its answer. Starting the
+				// buffer is what applies a recording path, so asking afterwards would read back OUR
+				// folder and save that as "the user's setting" — then restore it to us on shutdown.
+				sendRequest("GetRecordDirectory", "anvil-recdir");
 				break;
 			case 5: // Event
 				if (d != null && "ReplayBufferSaved".equals(optString(d, "eventType")))
@@ -274,6 +317,20 @@ public class ObsReplayClient extends WebSocketListener
 						}
 					}
 				}
+				else if ("GetRecordDirectory".equals(rt))
+				{
+					JsonObject rd = d != null && d.has("responseData") && d.get("responseData").isJsonObject()
+						? d.getAsJsonObject("responseData") : null;
+					String dir = rd == null ? null : optString(rd, "recordDirectory");
+					recordDir = dir;
+					log.debug("Anvil OBS: record directory is {}", dir);
+					if (onRecordDirectory != null)
+					{
+						onRecordDirectory.accept(dir);
+					}
+					// Now it is safe to start the buffer: whatever we apply next can be undone.
+					sendRequest("GetReplayBufferStatus", "anvil-rb-status");
+				}
 				else if ("GetReplayBufferStatus".equals(rt))
 				{
 					JsonObject rd = d != null && d.has("responseData") && d.get("responseData").isJsonObject()
@@ -283,6 +340,16 @@ public class ObsReplayClient extends WebSocketListener
 					if (!active)
 					{
 						startBuffer();
+					}
+					else if (wantsRedirect())
+					{
+						// ALREADY RUNNING, AND WRITING SOMEWHERE WE CANNOT READ. The recording path is
+						// read when the buffer starts, so a buffer started before us keeps the old one
+						// for as long as it runs — every clip would land out of reach and have to be
+						// pasted by hand. Cycle it now, at RuneLite startup, where the few seconds of
+						// footage being discarded are seconds of the login screen.
+						log.info("Anvil OBS: buffer is running on another folder — restarting it on ours");
+						sendRequest("StopReplayBuffer", "anvil-rb-stop");
 					}
 				}
 				else if ("StopReplayBuffer".equals(rt))

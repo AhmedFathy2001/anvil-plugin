@@ -108,6 +108,12 @@ A few worth knowing about:
 Press a key, and the last few seconds are saved out of OBS and posted to your clan's clips channel.
 Needs OBS 28+ with the WebSocket server and Replay Buffer on; the plugin starts the buffer for you.
 
+RuneLite only lets a plugin read its own folder, so the first time you play with clips on, Anvil asks
+at the login screen how to reach them: let it point OBS at its own clips folder (set once, never
+asked again — your ordinary recordings save there too, and your setting is restored when RuneLite
+closes), or pick your OBS folder yourself for that session. Decline and each clip lands on your
+clipboard instead, one paste from Discord.
+
 Clips go **straight from your PC to Discord** — they never pass through the site, and with the
 webhook field blank nothing uploads at all.
 

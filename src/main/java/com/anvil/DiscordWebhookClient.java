@@ -14,7 +14,6 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.ScheduledExecutorService;
@@ -76,9 +75,9 @@ public class DiscordWebhookClient
 	 * 2xx (after any retries) so the caller can report real success/failure instead of guessing.
 	 * Discord infers preview from the filename extension; {@code contentType} is the part's media type.
 	 */
-	public void sendWithFile(String webhookUrl, String content, File file, String filename, String contentType, Consumer<Boolean> onComplete)
+	public void sendWithFile(String webhookUrl, String content, byte[] data, String filename, String contentType, Consumer<Boolean> onComplete)
 	{
-		if (isBlank(webhookUrl) || file == null || !file.exists() || file.length() == 0)
+		if (isBlank(webhookUrl) || data == null || data.length == 0)
 		{
 			if (onComplete != null)
 			{
@@ -91,7 +90,7 @@ public class DiscordWebhookClient
 		MultipartBody multipart = new MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
 			.addFormDataPart("payload_json", payload.toString())
-			.addFormDataPart("files[0]", filename, RequestBody.create(type, file))
+			.addFormDataPart("files[0]", filename, RequestBody.create(type, data))
 			.build();
 		enqueue(uploadClient, new Request.Builder().url(webhookUrl).post(multipart).build(), onComplete);
 	}

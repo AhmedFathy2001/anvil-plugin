@@ -17,7 +17,6 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -487,19 +486,20 @@ public class BingoApiClient
 	 * Streams the file from disk on the long-timeout upload client. Blocking, so callers run it off
 	 * the client thread; {@code moment} is the plugin's own summary of what the clip caught.
 	 */
-	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType)
+	public ClipRelayResult postClip(byte[] data, String fileName, String moment, String eventName, int seconds,
+		String contentType)
 	{
-		return postClip(file, moment, eventName, seconds, contentType, 0, 0);
+		return postClip(data, fileName, moment, eventName, seconds, contentType, 0, 0);
 	}
 
 	/**
 	 * As above, plus the clipper's current standing — which the plugin already holds for its own
 	 * sidebar, so sending it costs nothing and saves the server re-deriving the board on an upload.
 	 */
-	public ClipRelayResult postClip(File file, String moment, String eventName, int seconds, String contentType,
-		int rank, long points)
+	public ClipRelayResult postClip(byte[] data, String fileName, String moment, String eventName, int seconds,
+		String contentType, int rank, long points)
 	{
-		if (!isConfigured() || file == null || !file.exists() || file.length() == 0)
+		if (!isConfigured() || data == null || data.length == 0 || fileName == null)
 		{
 			return ClipRelayResult.UNSUPPORTED;
 		}
@@ -525,7 +525,7 @@ public class BingoApiClient
 		MultipartBody multipart = new MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
 			.addFormDataPart("payload_json", payload.toString())
-			.addFormDataPart("file", file.getName(), RequestBody.create(type, file))
+			.addFormDataPart("file", fileName, RequestBody.create(type, data))
 			.build();
 		Request request = authedRequest(clanUrl("/api/plugin/clip")).post(multipart).build();
 		try (Response response = uploadClient.newCall(request).execute())
