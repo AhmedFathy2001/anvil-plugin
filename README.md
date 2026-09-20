@@ -85,7 +85,7 @@ has a description in the plugin itself; this is the shape of it.
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, pets, and whether each carries a screenshot. |
 | **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |
-| **Clips** | OBS replay-buffer clips on a hotkey, captioned and copied ready to paste into Discord. Off by default. |
+| **Clips** | OBS replay-buffer clips on a hotkey, posted to a clips webhook. Off by default. |
 | **Profile sync** | Collection log, personal bests, clan roster, and sharing highlights with the clan. |
 | **Support** | Export a debug log to send an admin. |
 
@@ -105,11 +105,11 @@ A few worth knowing about:
 
 <img src="docs/images/settings-clips-sync.png" alt="The Clips and Profile sync settings sections" width="230" align="right">
 
-Press a key, and the last few seconds are saved out of OBS. The plugin names what the clip caught — the
-drop, kill or death inside it — and copies the clip itself, so pressing Ctrl+V in Discord attaches it.
+Press a key, and the last few seconds are saved out of OBS and posted to your clan's clips channel.
 Needs OBS 28+ with the WebSocket server and Replay Buffer on; the plugin starts the buffer for you.
 
-The plugin never opens or uploads the clip — it stays where OBS saved it until you paste it.
+Clips go **straight from your PC to Discord** — they never pass through the site, and with the
+webhook field blank nothing uploads at all.
 
 ### Profile sync
 
@@ -164,7 +164,7 @@ All of them are available in 16 languages — pick one from the top of any guide
 - Screenshots upload only when a tracked drop is detected, or when you ask for one.
 - Your Account Token is stored locally in your RuneLite config, marked secret. Rotate it from your
   profile on the site if you think it leaked.
-- Clips are never uploaded by the plugin; you paste them into Discord yourself.
+- Clips go from your PC to your clan's Discord webhook, never through the site.
 - On login the plugin sends your RSN so the site can recognise you. You can remove yourself from a
   clan's roster on the site at any time.
 
