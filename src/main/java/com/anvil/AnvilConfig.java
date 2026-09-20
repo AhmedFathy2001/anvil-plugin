@@ -146,7 +146,9 @@ public interface AnvilConfig extends Config
 		// now, which is not somewhere to send people rummaging — "Add sounds" copies them in, and
 		// "Copy folder path" in the same panel hands over the location for anyone who wants it.
 		description = "Play a sound clip when the bingo banner fires. Add your own .wav files with the "
-			+ "'Banner sounds' button in the Anvil side panel. Nothing plays until you add at least one.",
+			+ "'Banner sounds' button in the Anvil side panel. Nothing plays until you add at least one. If you "
+			+ "had sounds in the old .runelite/anvil-bingo-sounds folder, add them again with that button — the "
+			+ "plugin keeps its files in its own folder now and can't reach the old one.",
 		position = 5,
 		section = "bingoSection"
 	)
@@ -616,8 +618,8 @@ public interface AnvilConfig extends Config
 		keyName = "exportDebugLogHotkey",
 		name = "Export debug log hotkey",
 		description = "Press this to save a debug log you can send your clan admin. You can also just type "
-			+ "::anvillog in the game chat. The log is saved to your .runelite/anvil-debug folder, which opens "
-			+ "automatically, and its location is copied to your clipboard.",
+			+ "::anvillog in the game chat. The log is saved inside Anvil's own plugin folder and its location "
+			+ "is copied to your clipboard, ready to paste into a file manager or Discord.",
 		position = 1,
 		section = "supportSection"
 	)

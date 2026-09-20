@@ -22,9 +22,10 @@ import java.util.stream.Stream;
 
 /**
  * Plays a clip when the bingo banner fires. No clips ship with the plugin — users supply their own
- * WAV/PCM files (the only format stock Java decodes) by dropping them into
- * {@code <RuneLite dir>/anvil-bingo-sounds/} (or via {@link #importSounds()}). Nothing plays until a
- * file is added. Playback goes through RuneLite's {@link AudioPlayer} (plugin-hub policy requires
+ * WAV/PCM files (the only format stock Java decodes) through {@link #importSounds()}, which copies
+ * them into the plugin's own {@code sounds/} directory. The old {@code .runelite/anvil-bingo-sounds}
+ * folder is not readable from here and is not the one legacy directory the migration could carry, so
+ * anyone who used it re-imports. Nothing plays until a file is added. Playback goes through RuneLite's {@link AudioPlayer} (plugin-hub policy requires
  * this over the raw Java Sound API).
  */
 @Slf4j
