@@ -135,10 +135,11 @@ public interface AnvilConfig extends Config
 		// No longer names a folder to drop files into. The clips live in the plugin's own directory
 		// now, which is not somewhere to send people rummaging — "Add sounds" copies them in, and
 		// "Copy folder path" in the same panel hands over the location for anyone who wants it.
-		description = "Play a sound clip when the bingo banner fires. Add your own .wav files with the "
-			+ "'Banner sounds' button in the Anvil side panel. Nothing plays until you add at least one. If you "
-			+ "had sounds in the old .runelite/anvil-bingo-sounds folder, add them again with that button — the "
-			+ "plugin keeps its files in its own folder now and can't reach the old one.",
+		description = "Play a sound when the bingo banner fires, and when a mission drops. Add your own .wav files "
+			+ "with the 'Banner sounds' and 'Mission sounds' buttons in the Anvil side panel — they go in a folder "
+			+ "each, and which folder a clip is in is what makes it a banner clip or a mission clip. No banner "
+			+ "clips means no banner sound; no mission clips means missions use a short built-in chime, so they "
+			+ "never sound like a finished tile. Master switch: off is silence for both.",
 		position = 5,
 		section = "bingoSection"
 	)
@@ -150,7 +151,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "bannerSoundVolume",
 		name = "Banner volume",
-		description = "Volume of the banner sound clip (0–100).",
+		description = "Volume of your banner and mission clips (0–100).",
 		position = 6,
 		section = "bingoSection"
 	)
@@ -159,19 +160,6 @@ public interface AnvilConfig extends Config
 		return 70;
 	}
 
-	@ConfigItem(
-		keyName = "missionSound",
-		name = "Distinct mission sound",
-		description = "Play a short in-game chime when a mission drops or is claimed, instead of the same "
-			+ "clip a completed tile plays — so you can tell a new objective from a finished one without "
-			+ "looking. Turn off to use your banner clip for missions too.",
-		position = 8,
-		section = "bingoSection"
-	)
-	default boolean missionSound()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "bannerSoundClip",

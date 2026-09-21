@@ -185,6 +185,17 @@ public interface SidebarDataSource
 	{
 	}
 
+	/** Mission clips — the folder that decides whether missions play a clip or the built-in chime. */
+	default java.util.List<String> missionSounds()
+	{
+		return java.util.Collections.emptyList();
+	}
+
+	/** Import a .wav into the mission clips folder. */
+	default void importMissionSounds()
+	{
+	}
+
 	/** Total-failure signal for {@link #fetchConnections()} — carries a member-facing message for the error view. */
 	class SidebarDataException extends Exception
 	{

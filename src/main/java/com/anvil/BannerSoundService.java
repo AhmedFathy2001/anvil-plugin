@@ -10,6 +10,7 @@ import javax.swing.SwingUtilities;
 import java.io.IOException;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,9 +22,11 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Plays a clip when the bingo banner fires. No clips ship with the plugin — users supply their own
- * WAV/PCM files (the only format stock Java decodes) through {@link #importSounds()}, which copies
- * them into the plugin's own {@code sounds/} directory. The old {@code .runelite/anvil-bingo-sounds}
+ * Plays a clip when the bingo banner fires, and another when a mission drops. No clips ship with the
+ * plugin — users supply their own WAV/PCM files (the only format stock Java decodes) through
+ * {@link #importSounds}, which copies them into {@code sounds/banner/} or {@code sounds/mission/}.
+ * The folder is what makes a clip a banner clip or a mission clip; there is no setting to keep in
+ * step with it, and a mission folder left empty simply keeps the built-in chime. The old {@code .runelite/anvil-bingo-sounds}
  * folder is not readable from here and is not the one legacy directory the migration could carry, so
  * anyone who used it re-imports. Nothing plays until a file is added. Playback goes through RuneLite's {@link AudioPlayer} (plugin-hub policy requires
  * this over the raw Java Sound API).
@@ -61,10 +64,33 @@ public class BannerSoundService
 	public void setRoot(Filepath dir)
 	{
 		this.root = dir;
+		migrateLooseClips();
 	}
 
-	/** The sounds directory, created on demand, or null when there is nowhere to read or write. */
-	private Filepath dir()
+	/**
+	 * WHICH CLIP IS THIS? Answered by the folder it is in, not by a setting.
+	 *
+	 * <p>A mission dropping is the opposite kind of news from a tile being finished, so the two
+	 * should not sound alike — but "different how?" used to be a toggle choosing between the banner
+	 * clip and a built-in chime, with no way to supply a mission clip at all. A folder each answers
+	 * it without asking anything: drop a .wav in {@code mission/} and missions play it, leave it
+	 * empty and they keep the built-in chime.</p>
+	 */
+	public enum Kind
+	{
+		BANNER("banner"),
+		MISSION("mission");
+
+		private final String folder;
+
+		Kind(String folder)
+		{
+			this.folder = folder;
+		}
+	}
+
+	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
+	private Filepath dir(Kind kind)
 	{
 		Filepath d = root;
 		if (d == null)
@@ -73,23 +99,70 @@ public class BannerSoundService
 		}
 		try
 		{
-			if (!d.exists())
+			Filepath sub = d.joinSegment(kind.folder);
+			if (!sub.exists())
 			{
-				d.createDirectories();
+				sub.createDirectories();
 			}
-			return d;
+			return sub;
 		}
 		catch (IOException e)
 		{
-			log.warn("Anvil: cannot create the banner-sounds directory: {}", e.getMessage());
+			log.warn("Anvil: cannot create the {} sounds directory: {}", kind.folder, e.getMessage());
 			return null;
 		}
 	}
 
-	/** Every .wav in the sounds folder. Depth 1 — a clip is a file in it, never in a subfolder. */
-	private List<Filepath> wavFiles()
+	/**
+	 * Clips added before the folders existed sat loose in {@code sounds/}, where nothing looks any
+	 * more. They are banner clips — that is all there was — so they are moved once, quietly. Doing it
+	 * here rather than asking means nobody's sounds stop working because the layout changed under
+	 * them.
+	 */
+	private void migrateLooseClips()
 	{
-		Filepath dir = dir();
+		Filepath d = root;
+		if (d == null || !d.isDirectory())
+		{
+			return;
+		}
+		try (Stream<Filepath> walk = d.walk(1))
+		{
+			List<Filepath> loose = walk
+				.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav"))
+				.collect(Collectors.toList());
+			if (loose.isEmpty())
+			{
+				return;
+			}
+			Filepath banner = dir(Kind.BANNER);
+			if (banner == null)
+			{
+				return;
+			}
+			for (Filepath f : loose)
+			{
+				try
+				{
+					f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+				}
+				catch (Exception e)
+				{
+					log.debug("Could not move {} into banner/: {}", f.getFileName(), e.getMessage());
+				}
+			}
+			log.debug("Anvil: moved {} clip(s) into banner/", loose.size());
+		}
+		catch (IOException e)
+		{
+			log.debug("Could not migrate loose clips: {}", e.getMessage());
+		}
+	}
+
+	/** Every .wav in one kind's folder. Depth 1 — a clip is a file in it, never deeper. */
+	private List<Filepath> wavFiles(Kind kind)
+	{
+		Filepath dir = dir(kind);
 		if (dir == null)
 		{
 			return new ArrayList<>();
@@ -102,22 +175,22 @@ public class BannerSoundService
 		}
 		catch (IOException e)
 		{
-			log.debug("Could not list banner sounds: {}", e.getMessage());
+			log.debug("Could not list {} sounds: {}", kind.folder, e.getMessage());
 			return new ArrayList<>();
 		}
 	}
 
-	/** True if the user has at least one .wav in their sounds folder (i.e. a banner could play). */
-	public boolean hasClips()
+	/** True if this kind has at least one .wav (i.e. it could play something of its own). */
+	public boolean hasClips(Kind kind)
 	{
-		return !wavFiles().isEmpty();
+		return !wavFiles(kind).isEmpty();
 	}
 
-	/** All .wav filenames in the user folder, case-insensitively sorted (for the in-tab manager). */
-	public List<String> listClips()
+	/** All .wav filenames for one kind, case-insensitively sorted (for the in-tab manager). */
+	public List<String> listClips(Kind kind)
 	{
 		List<String> out = new ArrayList<>();
-		for (Filepath f : wavFiles())
+		for (Filepath f : wavFiles(kind))
 		{
 			out.add(f.getFileName());
 		}
@@ -182,20 +255,20 @@ public class BannerSoundService
 		return out;
 	}
 
-	public void play()
+	public void play(Kind kind)
 	{
 		if (!config.bannerSound())
 		{
 			return;
 		}
-		audioExecutor.submit(this::playBlocking);
+		audioExecutor.submit(() -> playBlocking(kind));
 	}
 
-	private void playBlocking()
+	private void playBlocking(Kind kind)
 	{
 		try
 		{
-			List<Filepath> files = wavFiles();
+			List<Filepath> files = wavFiles(kind);
 			if (files.isEmpty())
 			{
 				return;
@@ -203,7 +276,8 @@ public class BannerSoundService
 
 			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
 			// Each banner plays one at random from the eligible set, so a multi-clip cycle varies.
-			Set<String> selected = parseSelected(config.bannerSoundClip());
+			// Mission clips have no allowlist: the folder is already the choice of what plays.
+			Set<String> selected = kind == Kind.BANNER ? parseSelected(config.bannerSoundClip()) : Collections.emptySet();
 			List<Filepath> candidates = new ArrayList<>();
 			for (Filepath f : files)
 			{
@@ -247,7 +321,7 @@ public class BannerSoundService
 	 * (may be null) is invoked with the successfully-copied filenames so the caller can confirm in chat;
 	 * it's skipped when the user cancels or nothing copied.
 	 */
-	public void importSounds(Consumer<List<String>> onImported)
+	public void importSounds(Kind kind, Consumer<List<String>> onImported)
 	{
 		SwingUtilities.invokeLater(() ->
 		{
@@ -259,14 +333,14 @@ public class BannerSoundService
 				.setIsOpen()
 				.setAcceptsFiles()
 				.setMultiSelectionEnabled(true)
-				.setDialogTitle("Add banner sounds")
+				.setDialogTitle(kind == Kind.MISSION ? "Add mission sounds" : "Add banner sounds")
 				.addExtensionFilter("WAV audio", "wav")
 				.showDialog((java.awt.Component) null);
 			if (chosen == null || chosen.isEmpty())
 			{
 				return;
 			}
-			Filepath dir = dir();
+			Filepath dir = dir(kind);
 			if (dir == null)
 			{
 				return;
@@ -295,9 +369,23 @@ public class BannerSoundService
 	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */
 	public void copyFolderPath()
 	{
-		Filepath dir = dir();
+		Filepath dir = root;
 		if (dir == null)
 		{
+			return;
+		}
+		// The PARENT, not one kind's folder: both `banner/` and `mission/` are inside it, so one
+		// paste lands somewhere the player can see the whole arrangement and drag files between them.
+		try
+		{
+			if (!dir.exists())
+			{
+				dir.createDirectories();
+			}
+		}
+		catch (IOException e)
+		{
+			log.debug("Could not create the sounds folder: {}", e.getMessage());
 			return;
 		}
 		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the

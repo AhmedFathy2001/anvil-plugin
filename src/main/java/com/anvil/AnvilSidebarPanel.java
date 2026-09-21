@@ -1301,13 +1301,32 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		JButton add = new JButton("Add clip");
 		styleFlatButton(add, Color.WHITE);
-		add.setToolTipText("Pick .wav files to copy into the sounds folder");
+		add.setToolTipText("Pick .wav files to copy into the banner sounds folder");
 		add.addActionListener(e -> dataSource.importBannerSounds());
 		JButton open = new JButton("Copy folder path");
 		styleFlatButton(open, Color.WHITE);
 		open.setToolTipText("Copy the sounds folder's path — paste it into your file manager to rename or delete clips");
 		open.addActionListener(e -> dataSource.copyBannerSoundsPath());
 		panel.add(buttonRow(add, open));
+
+		// MISSIONS, stated rather than configured. A mission dropping should not sound like a tile
+		// being finished, and what it sounds like is decided by whether this folder has anything in
+		// it — so the panel says which of the two is happening, and the button is how you change it.
+		panel.add(gap(8));
+		int missions = dataSource.missionSounds().size();
+		JLabel missionState = new JLabel(missions == 0
+			? "Missions: built-in chime"
+			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"));
+		missionState.setFont(FontManager.getRunescapeSmallFont());
+		missionState.setForeground(VALUE_COLOR);
+		missionState.setAlignmentX(LEFT_ALIGNMENT);
+		panel.add(missionState);
+		panel.add(gap(4));
+		JButton addMission = new JButton(missions == 0 ? "Add mission clip" : "Add mission clips");
+		styleFlatButton(addMission, Color.WHITE);
+		addMission.setToolTipText("Pick .wav files for missions — they play instead of the built-in chime");
+		addMission.addActionListener(e -> dataSource.importMissionSounds());
+		panel.add(fullWidth(addMission));
 		return panel;
 	}
 

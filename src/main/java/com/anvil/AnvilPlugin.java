@@ -2995,7 +2995,7 @@ public class AnvilPlugin extends Plugin {
      * see AnvilSidebarPanel.buildPanelActions.
      */
     public void importBannerSounds() {
-        bannerSound.importSounds(names -> {
+        bannerSound.importSounds(BannerSoundService.Kind.BANNER, names -> {
             // New files join the cycle automatically (empty allowlist = all clips play). Users curate
             // which ones cycle by tapping them in the tab list; no need to touch config on import.
             sendChatMessage("Added to banner sounds: " + String.join(", ", names)
@@ -3004,11 +3004,30 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
+     * The same, for the clip a MISSION plays. Wired to "Mission sounds" in the side panel.
+     *
+     * <p>A separate folder rather than a separate setting: adding a clip here is the whole act of
+     * choosing one, and an empty folder means missions keep the built-in chime that tells them apart
+     * from a completed tile.</p>
+     */
+    public void importMissionSounds() {
+        bannerSound.importSounds(BannerSoundService.Kind.MISSION, names -> {
+            sendChatMessage("Added to mission sounds: " + String.join(", ", names)
+                    + ". Missions now play these instead of the built-in chime.");
+        });
+    }
+
+    /**
      * Clip filenames in the user's sounds folder — backs the in-tab manager
      * list.
      */
     public List<String> bannerSoundClips() {
-        return bannerSound.listClips();
+        return bannerSound.listClips(BannerSoundService.Kind.BANNER);
+    }
+
+    /** Clip filenames in the mission folder — the panel says "chime" when this is empty. */
+    public List<String> missionSoundClips() {
+        return bannerSound.listClips(BannerSoundService.Kind.MISSION);
     }
 
     /**
@@ -3026,7 +3045,7 @@ public class AnvilPlugin extends Plugin {
      * removing one, and collapse back to empty when everything's on.
      */
     public void toggleBannerSound(String name) {
-        List<String> all = bannerSound.listClips();
+        List<String> all = bannerSound.listClips(BannerSoundService.Kind.BANNER);
         Set<String> sel = new LinkedHashSet<>();
         String csv = config.bannerSoundClip();
         if (csv != null && !csv.trim().isEmpty()) {
@@ -3090,8 +3109,8 @@ public class AnvilPlugin extends Plugin {
      * spams.
      */
     private void playBannerSound() {
-        bannerSound.play();
-        if (!bannerSoundHintShown && config.bannerSound() && !bannerSound.hasClips()) {
+        bannerSound.play(BannerSoundService.Kind.BANNER);
+        if (!bannerSoundHintShown && config.bannerSound() && !bannerSound.hasClips(BannerSoundService.Kind.BANNER)) {
             bannerSoundHintShown = true;
             sendChatMessage("Banner sound is on but you have no clips yet — open the Anvil side panel "
                     + "and click \"Banner sounds\" to add a .wav.");
@@ -3100,9 +3119,13 @@ public class AnvilPlugin extends Plugin {
 
     /**
      * The mission cue. A mission DROPPING is the opposite kind of news from a tile being finished, so
-     * sharing the completion clip made the two indistinguishable. This is a short built-in game chime
-     * instead — no clip to install, and unmistakably not the completion sound. Turning the option off
-     * falls back to the banner clip, for anyone who liked it that way.
+     * sharing the completion clip made the two indistinguishable.
+     *
+     * <p>THE FOLDER DECIDES, not a setting. A .wav in {@code sounds/mission/} is played for missions;
+     * an empty folder falls back to a short built-in game chime, which needs nothing installed and is
+     * unmistakably not the completion sound. This used to be a toggle choosing between that chime and
+     * the banner clip — which meant the one thing nobody could do was give missions a clip of their
+     * own.</p>
      *
      * Runs from the config-poll executor, so the actual play hops to the client thread.
      *
@@ -3110,12 +3133,12 @@ public class AnvilPlugin extends Plugin {
      *                different chime, so "new thing to do" and "someone beat you to it" don't sound alike.
      */
     private void playMissionSound(boolean claimed) {
-        if (!config.missionSound()) {
-            playBannerSound();
-            return;
-        }
         if (!config.bannerSound()) {
             return; // the master "make noise at me" switch still wins
+        }
+        if (bannerSound.hasClips(BannerSoundService.Kind.MISSION)) {
+            bannerSound.play(BannerSoundService.Kind.MISSION);
+            return;
         }
         final int id = claimed ? SoundEffectID.GE_COLLECT_BLOOP : SoundEffectID.GE_ADD_OFFER_DINGALING;
         clientThread.invoke(() -> client.playSoundEffect(id));

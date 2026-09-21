@@ -212,6 +212,23 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public java.util.List<String> missionSounds()
+	{
+		AnvilPlugin p = plugin;
+		return p == null ? java.util.Collections.emptyList() : p.missionSoundClips();
+	}
+
+	@Override
+	public void importMissionSounds()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.importMissionSounds();
+		}
+	}
+
+	@Override
 	public PluginConfigResponse.StartProof startProof()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
