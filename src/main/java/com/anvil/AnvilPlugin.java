@@ -3189,6 +3189,23 @@ public class AnvilPlugin extends Plugin {
             }
         }
 
+        // THE CLAN'S COPY OF A COLLECTION-LOG UNLOCK, and it has to be read UP HERE.
+        //
+        // Same shape as the drop broadcast above and for the same reason: the personal line depends
+        // on an in-game setting the player may never have turned on, the clan's copy depends on the
+        // clan's settings instead. It also has to be read before the type gate below, which accepts
+        // only GAMEMESSAGE/SPAM/MESBOX/FRIENDSCHATNOTIFICATION — a clan broadcast is none of those,
+        // so a check placed with the personal line would compile, read correctly, and never once run.
+        //
+        // Only ever acted on for the LOCAL player: a clanmate's unlock is their own client's to
+        // report, and posting it from here would file their slot under this account.
+        if (!PLAYER_AUTHORED_CHAT.contains(event.getType()) && msg.contains("received a new collection log item")) {
+            java.util.regex.Matcher clogBroadcast = CLAN_CLOG_BROADCAST_PATTERN.matcher(stripChatTags(msg));
+            if (clogBroadcast.matches() && Rsn.same(clogBroadcast.group(1), getLocalPlayerName())) {
+                handleClogUnlock(clogBroadcast.group(2).trim());
+            }
+        }
+
         // FRIENDSCHATNOTIFICATION carries the ToA/ToB raid completion-TIME summary lines
         // ("… total completion time: mm:ss") — a legacy channel, NOT GAMEMESSAGE — so it must
         // be accepted or timed raid clears never see the real raid time and mis-correlate a
@@ -3272,16 +3289,6 @@ public class AnvilPlugin extends Plugin {
                 item = item.substring(0, item.length() - 1).trim();
             }
             handleClogUnlock(item);
-        } else {
-            // THE CLAN'S COPY OF THE SAME NEWS, for anyone whose in-game collection-log notification
-            // is switched off. That setting is what prints the personal line, and with it off the
-            // plugin saw nothing at all — no post, no tile credit, no kc stamp — while the clan chat
-            // announced the unlock to everybody else. Only ever acted on for the LOCAL player: a
-            // clanmate's unlock is their own client's to report.
-            java.util.regex.Matcher clogBroadcast = CLAN_CLOG_BROADCAST_PATTERN.matcher(plain);
-            if (clogBroadcast.matches() && Rsn.same(clogBroadcast.group(1), getLocalPlayerName())) {
-                handleClogUnlock(clogBroadcast.group(2).trim());
-            }
         }
         // (Drop-attribution lines are handled ABOVE the type gate — they parse from any
         // non-player-authored channel, not just the three types this section accepts.)
