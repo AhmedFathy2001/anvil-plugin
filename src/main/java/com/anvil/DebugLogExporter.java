@@ -28,7 +28,9 @@ import net.runelite.client.util.Filepath;
  * That is what {@link Filepath.Chooser} exists for, and it was confirmed acceptable on the hub
  * review for exactly this.
  *
- * <p>PRE-POINTED AT {@code logs/}, which takes the one {@code Filepath.Unchecked} call in the plugin.
+ * <p>THE PICKER CANNOT BE PRE-POINTED: a plugin may only turn its own directory, or what the user
+ * picks, into a Filepath, so the logs folder is named in the dialog title and copied to the clipboard
+ * instead of opened.
  * {@code setCurrentDirectory} only accepts a Filepath, and the plugin can only name its own folder
  * without it. It is used for nothing but the dialog's starting folder: the plugin still reads only
  * the file the user picks. Pre-pointing was agreed on the hub review, and the packager's
@@ -56,9 +58,6 @@ public class DebugLogExporter
 	/** The plugin's own `debug/` folder, handed over by AnvilPlugin at startUp. Null = no export. */
 	private volatile Filepath root;
 
-	/** Our own directory — where the picker opens only if RuneLite's logs folder is somehow missing. */
-	private volatile Filepath pickerFallback;
-
 	@Inject
 	public DebugLogExporter(Client client)
 	{
@@ -79,10 +78,9 @@ public class DebugLogExporter
 		}
 	}
 
-	public void setRoot(Filepath debugDir, Filepath pluginDir)
+	public void setRoot(Filepath debugDir)
 	{
 		this.root = debugDir;
-		this.pickerFallback = pluginDir;
 	}
 
 	/**
@@ -166,18 +164,20 @@ public class DebugLogExporter
 	private Filepath pickClientLog()
 	{
 		AtomicReference<Filepath> picked = new AtomicReference<>();
+		// The folder is NAMED rather than opened. A plugin gets a Filepath from exactly two places —
+		// its own directory, and what the user picks here — so pointing the dialog at RuneLite's logs
+		// folder needs Filepath.Unchecked, which the hub review rules out. Saying where it is, and
+		// putting the path on the clipboard, is what is left: most file dialogs take a pasted path
+		// (Ctrl+L on GTK, straight into the name box on Windows).
+		String logsPath = logsPath();
+		Clipboards.copy(logsPath);
 		Runnable show = () ->
 		{
 			Filepath.Chooser chooser = new Filepath.Chooser()
 				.setIsOpen()
 				.setAcceptsFiles()
-				.setDialogTitle("Pick client.log to include with your debug export")
+				.setDialogTitle("Pick client.log — it lives in " + logsPath + " (path copied, paste it in)")
 				.addExtensionFilter("RuneLite log", "log");
-			Filepath start = logsFolder();
-			if (start != null)
-			{
-				chooser.setCurrentDirectory(start);
-			}
 			List<Filepath> result = chooser.showDialog(client);
 			if (result != null && !result.isEmpty())
 			{
@@ -204,27 +204,23 @@ public class DebugLogExporter
 	}
 
 	/**
-	 * RuneLite's logs folder, so the picker opens with client.log already in front of the user.
+	 * Where RuneLite keeps its logs, as TEXT to tell the user — never as something to open.
 	 *
-	 * The only Unchecked use in the plugin, and deliberately the narrowest one possible: a starting
-	 * folder for a dialog. Nothing is read or written through it — whatever the user picks comes
-	 * back from the Chooser as its own Filepath. Falls back to our own directory if the folder is
-	 * missing, and to the dialog's default if even that is unavailable.
+	 * <p>No file is touched here: this reads the path RuneLite already holds and hands it back as a
+	 * string. Turning it into a Filepath would take Unchecked, which is exactly what the hub review
+	 * ruled out, and the file still arrives the sanctioned way — the user picks it.</p>
 	 */
-	private Filepath logsFolder()
+	private String logsPath()
 	{
 		try
 		{
-			if (RuneLite.LOGS_DIR.isDirectory())
-			{
-				return Filepath.Unchecked.getRooted(RuneLite.LOGS_DIR.toPath());
-			}
+			return RuneLite.LOGS_DIR.getAbsolutePath();
 		}
 		catch (RuntimeException e)
 		{
-			log.debug("Anvil: could not point the picker at the logs folder: {}", e.getMessage());
+			log.debug("Anvil: could not name the logs folder: {}", e.getMessage());
+			return "your .runelite/logs folder";
 		}
-		return pickerFallback;
 	}
 
 	/**

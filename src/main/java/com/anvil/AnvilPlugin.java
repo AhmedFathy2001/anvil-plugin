@@ -1153,7 +1153,7 @@ public class AnvilPlugin extends Plugin {
             pendingSubmissionStore.setRoot(pluginDir);
             clipFolder.setRoot(pluginDir.join("clips"));
             bannerSound.setRoot(pluginDir.join("sounds"));
-            debugLogExporter.setRoot(pluginDir.join("debug"), pluginDir);
+            debugLogExporter.setRoot(pluginDir.join("debug"));
         } catch (IOException | RuntimeException e) {
             log.warn("Anvil: no plugin directory — pending submissions, banner sounds and the debug "
                     + "export are unavailable this session", e);
