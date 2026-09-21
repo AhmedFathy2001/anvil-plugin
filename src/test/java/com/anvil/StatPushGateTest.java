@@ -30,41 +30,27 @@ public class StatPushGateTest
 	@Test
 	public void aWeeklyOnlyConfigMaySend()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(new PluginConfigResponse(), true));
+		assertTrue(AnvilPlugin.statPushAllowed(new PluginConfigResponse()));
 	}
 
 	/** The case that was broken: a board exists, has not started, and the weekly still has to move. */
 	@Test
 	public void aBoardThatHasNotStartedDoesNotSilenceTheWeekly()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(false), true));
+		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(false)));
 	}
 
 	@Test
 	public void aRunningBoardMaySendToo()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(true), true));
+		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(true)));
 	}
 
 	@Test
 	public void nothingSendsBeforeThereIsAConfig()
 	{
 		assertFalse("no config means nothing is known to be tracked",
-			AnvilPlugin.statPushAllowed(null, true));
+			AnvilPlugin.statPushAllowed(null));
 	}
 
-	/**
-	 * The member may still switch live updates off — but it is now the setting that SAYS so.
-	 *
-	 * This used to read config.autoSubmit(), which is about screenshotting a drop and filing it
-	 * against a tile. Somebody who turned that off to file their own drops also, silently, stopped
-	 * their own SOTW row from moving while they trained: the client kept working for everything
-	 * else, so the only symptom was a leaderboard that never updated.
-	 */
-	@Test
-	public void liveUpdatesOffIsTheMembersOwnChoice()
-	{
-		assertFalse(AnvilPlugin.statPushAllowed(new PluginConfigResponse(), false));
-		assertFalse(AnvilPlugin.statPushAllowed(cfgWithEvent(true), false));
-	}
 }

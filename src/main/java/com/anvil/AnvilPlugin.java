@@ -2427,11 +2427,13 @@ public class AnvilPlugin extends Plugin {
      * reports where the player is. Read from the world's own flags rather than a toggle someone has
      * to remember, so hopping onto a league world mid-session is picked up without them doing
      * anything (and, more importantly, hopping OFF one is too).
+     *
+     * <p>WHETHER that routing happens is the CLAN's setting, not the member's: the site sends
+     * seasonal posts to the leagues channel when one is configured and to the normal channels when
+     * it isn't. A per-member switch here could only disagree with the clan that owns the channels,
+     * and a member who turned it off silently mixed their league drops back into the main feed.</p>
      */
     private boolean onSeasonalWorld() {
-        if (!config.leagueRouting()) {
-            return false;
-        }
         java.util.EnumSet<WorldType> types = client.getWorldType();
         return types != null && types.contains(WorldType.SEASONAL);
     }
@@ -6056,25 +6058,20 @@ public class AnvilPlugin extends Plugin {
      * Sending during an inactive event is safe on the other side: lib/completionGate refuses any
      * completion before a board starts, and stat baselines re-anchor at the start, so a pre-event
      * push cannot score. Withholding it was the only thing that could go wrong, and did.
-     */
-    /**
-     * Whether live XP/KC may be sent at all.
      *
-     * This used to ask "Auto Submit Drops" — a setting about screenshotting a drop and filing it
-     * against a tile, which said nothing about stats. Turning it off also stopped SOTW and BOTW
-     * moving while you played, and the failure was silent on both ends: the member sees a
-     * leaderboard that never updates, and the site sees an account gaining XP with no client
-     * attached, because the only trace a missing push leaves is an absence. (That setting has since
-     * been removed outright — submitting is what the plugin is for.)
-     *
-     * Its own setting now, defaulting on, so the choice is the one the label describes.
+     * NO SETTING SITS IN FRONT OF THIS. It briefly had its own, and before that it rode on "Auto
+     * Submit Drops" — a switch about screenshotting a drop, which said nothing about stats and yet
+     * stopped SOTW and BOTW moving while you played. Both failed the same way: silently. The member
+     * sees a leaderboard that never updates, and the site sees an account gaining XP with no client
+     * attached, because the only trace a missing push leaves is an absence. Moving the board you are
+     * on is what this plugin is FOR.
      */
-    static boolean statPushAllowed(PluginConfigResponse cfg, boolean liveStatUpdates) {
-        return cfg != null && liveStatUpdates;
+    static boolean statPushAllowed(PluginConfigResponse cfg) {
+        return cfg != null;
     }
 
     private boolean statPushAllowed() {
-        return statPushAllowed(pluginConfig, config.liveStatUpdates());
+        return statPushAllowed(pluginConfig);
     }
 
     /**
@@ -6122,7 +6119,7 @@ public class AnvilPlugin extends Plugin {
             pendingSkillXpPush.clear();
         }
         if (!statPushAllowed()) {
-            return; // event ended / live updates switched off between queue and flush — the XP is safe on the hiscores side
+            return; // event ended between queue and flush — the XP is safe on the hiscores side
         }
         try {
             apiClient.submitStatXp(batch);
@@ -6236,7 +6233,7 @@ public class AnvilPlugin extends Plugin {
             pendingKcPush.clear();
         }
         if (!statPushAllowed()) {
-            return; // event ended / live updates switched off between queue and flush — the count is safe on the hiscores side
+            return; // event ended between queue and flush — the count is safe on the hiscores side
         }
         try {
             apiClient.submitStatKc(batch);
@@ -6310,7 +6307,7 @@ public class AnvilPlugin extends Plugin {
             pendingActivityPush.clear();
         }
         if (!statPushAllowed()) {
-            return; // event ended / live updates switched off between queue and flush — the count is safe on the hiscores side
+            return; // event ended between queue and flush — the count is safe on the hiscores side
         }
         try {
             apiClient.submitStatActivities(batch);

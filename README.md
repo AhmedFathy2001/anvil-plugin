@@ -81,7 +81,7 @@ has a description in the plugin itself; this is the shape of it.
 | Section | What's in it |
 | --- | --- |
 | **Setup** | Site URL and your Account Token. The only two that matter. |
-| **Bingo** | Live XP & KC updates, the verification overlay, team-completion banners and their sounds. |
+| **Bingo** | The verification overlay, team-completion banners and their sounds. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
 | **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |

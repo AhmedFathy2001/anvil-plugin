@@ -103,20 +103,6 @@ public interface AnvilConfig extends Config
 	// ---- Bingo ----
 
 
-	@ConfigItem(
-		keyName = "liveStatUpdates",
-		name = "Send live XP & KC",
-		description = "Send your XP and boss KC to your clan's site as you play, so SOTW/BOTW standings and stat "
-			+ "tiles move while you train instead of waiting on the hiscores. Turn this off and your progress only "
-			+ "appears when the site's hiscores sweep next reads your account, which can be up to half an hour "
-			+ "later — and never at all for anything the hiscores don't publish. No screenshots are sent by this.",
-		position = 4,
-		section = "bingoSection"
-	)
-	default boolean liveStatUpdates()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "showOverlay",
@@ -243,19 +229,6 @@ public interface AnvilConfig extends Config
 
 	// ---- Notifications: Drops & pets ----
 
-	@ConfigItem(
-		keyName = "leagueRouting",
-		name = "Separate Leagues posts",
-		description = "While you're on a seasonal (Leagues) world, send your notifications to your clan's "
-			+ "Leagues channel instead of the normal ones, and mark them as seasonal. Falls back to the "
-			+ "normal channels if your clan hasn't set one up. Turn off to post everything together.",
-		position = 0,
-		section = "dropsSection"
-	)
-	default boolean leagueRouting()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "notifyRareDrops",
