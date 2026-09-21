@@ -516,6 +516,13 @@ public class AnvilPlugin extends Plugin {
 
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
+    // The clan's version of the same event: "hyperi0n received a new collection log item: Lost bag
+    // (356/1717)". The personal line above only prints when the player has the in-game collection-log
+    // notification switched on, so for anyone who doesn't, this is the only sighting the plugin gets.
+    // The count tail is optional because it is a clan setting, and the name is captured lazily so an
+    // item with a bracket in it survives. Package-private for ClogUnlockLineTest.
+    static final java.util.regex.Pattern CLAN_CLOG_BROADCAST_PATTERN = java.util.regex.Pattern.compile(
+            "^(.{1,20}?) received a new collection log item: (.+?)(?: \\(\\d+/\\d+\\))?\\.?$");
 
     // Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
     // Fired for drops handed out through channels that produce NO loot event — Maggot King's
@@ -688,10 +695,17 @@ public class AnvilPlugin extends Plugin {
     // multi-count wildcard tile ("any 5 Master tasks" needs 5 distinct tasks, not one task
     // five times). Cleared on the login screen so account swaps start fresh.
     private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
+    // Slots announced this session, so the personal line and the clan broadcast — which can both
+    // arrive for the same unlock — post it once. Item names, lowercased; cleared per account.
+    private final Set<String> recentClogUnlocks = new LinkedHashSet<>();
+    private static final int MAX_RECENT_CLOG_UNLOCKS = 64;
     // One nudge per session about the in-game "Repeat completion" CA setting.
     private boolean caRepeatNudgeSent;
     // One nudge per session about the in-game loot drop notifications (rare-drop post dependency).
     private boolean lootNotifyNudgeSent;
+    // One per login: the in-game collection-log notification is off, so unlocks arrive only if the
+    // clan happens to broadcast them.
+    private boolean clogNotifyNudgeSent;
     // Once-per-session tracking-suppression notices, so a member's client.log answers "why did
     // nothing track" without a line per suppressed loot event. Keyed by reason; reset at login.
     private final Set<String> loggedSuppressions = new LinkedHashSet<>();
@@ -2354,11 +2368,13 @@ public class AnvilPlugin extends Plugin {
             // CA per-session state: the next account may legitimately re-credit the same task
             // (a teammate's alt), and deserves its own repeat-setting reminder.
             creditedCaTaskTiles.clear();
+            recentClogUnlocks.clear();
             // Nothing is attacking a logged-out player, and whatever was is not attacking the next
             // account either.
             deathAttribution.clear();
             caRepeatNudgeSent = false;
             lootNotifyNudgeSent = false;
+            clogNotifyNudgeSent = false;
             // Re-evaluate setup + linking for the next account that logs in.
             setupWarned = false;
             unlinkedWarnedFor = null;
@@ -3255,45 +3271,17 @@ public class AnvilPlugin extends Plugin {
             if (item.endsWith(".")) {
                 item = item.substring(0, item.length() - 1).trim();
             }
-            // A pet drop moments ago is still waiting to learn WHICH pet it was — this line is the
-            // only thing that says so. It takes the name and both clog posts stand down, or the same
-            // pet lands twice, once as 🐾 and once as 📕.
-            // Clip trail: a new collection-log slot is the single most clip-worthy thing that
-            // can happen and carries no gp value, so the loot floor above would never catch an
-            // untradeable one (Infernal cape, a pet). Recorded here, off the ungated chat line,
-            // rather than in the rare-drop notifier where it used to sit behind that channel's
-            // toggle. Pets are excluded — claimPetName routes those to their own post.
-            clipMoments.record("📕 New clog slot: " + item);
-            // Tell the server the killcount this unlock happened at, while we still know it.
-            //
-            // The site stamps kcAtUnlock when the collection log next syncs, and had nothing better
-            // to read than the hiscores snapshot — which only flushes on logout, so it was routinely
-            // a kill or more behind. That is how an Ancestral bottom taken on the 80th Chambers was
-            // filed as "at 79 KC" while the Discord post, reading killCounts, said 80.
-            //
-            // Pushed even when no tile tracks this boss (maybeQueueKcPush deliberately won't) and
-            // regardless of whether an event is running: a collection log is a profile, not a board.
-            // Once per unlock, which is once per account per item, ever.
-            pushKcForUnlock();
-            PendingPet claimedPet = claimPetName(item);
-            if (claimedPet == null) {
-                // Not a pet, so this is the ungated route to the clan's feed for an unlock that the
-                // loot path can't see: an untradeable with no GE price to clear a floor, or anything
-                // handed over without a loot event at all.
-                recordClogUnlockMoment(item);
+            handleClogUnlock(item);
+        } else {
+            // THE CLAN'S COPY OF THE SAME NEWS, for anyone whose in-game collection-log notification
+            // is switched off. That setting is what prints the personal line, and with it off the
+            // plugin saw nothing at all — no post, no tile credit, no kc stamp — while the clan chat
+            // announced the unlock to everybody else. Only ever acted on for the LOCAL player: a
+            // clanmate's unlock is their own client's to report.
+            java.util.regex.Matcher clogBroadcast = CLAN_CLOG_BROADCAST_PATTERN.matcher(plain);
+            if (clogBroadcast.matches() && Rsn.same(clogBroadcast.group(1), getLocalPlayerName())) {
+                handleClogUnlock(clogBroadcast.group(2).trim());
             }
-            if (claimedPet == null || !claimedPet.announce) {
-                // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
-                // unlock at the drops channel, while every OTHER new slot goes quietly to the
-                // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
-                // so a Dizana's quiver never lands twice.
-                maybeNotifyCollectionUnlock(item);
-                maybeNotifyClogSlot(item);
-            }
-            // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
-            // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
-            // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
-            creditClogUnlock(item);
         }
         // (Drop-attribution lines are handled ABOVE the type gate — they parse from any
         // non-player-authored channel, not just the three types this section accepts.)
@@ -3390,6 +3378,69 @@ public class AnvilPlugin extends Plugin {
         }
         // Timed-clear tiles: pull a clear time out of completion/boss-kill messages.
         handleTimedChat(plain);
+    }
+
+
+    /**
+     * One new collection-log slot, however we heard about it.
+     *
+     * <p>Two lines say the same thing: the personal "New item added to your collection log: X",
+     * which only prints when the player's in-game notification setting is on, and the clan
+     * broadcast, which depends on the clan's settings instead. Either can be the only one that
+     * arrives, so both route here and a short memory of recent names keeps a slot from being
+     * announced twice when both do.</p>
+     */
+    private void handleClogUnlock(String item) {
+        if (item == null || item.isEmpty()) {
+            return;
+        }
+        if (!recentClogUnlocks.add(item.toLowerCase(java.util.Locale.ROOT))) {
+            return; // already handled this session — the other line got here first
+        }
+        if (recentClogUnlocks.size() > MAX_RECENT_CLOG_UNLOCKS) {
+            java.util.Iterator<String> it = recentClogUnlocks.iterator();
+            it.next();
+            it.remove();
+        }
+        // A pet drop moments ago is still waiting to learn WHICH pet it was — this line is the
+        // only thing that says so. It takes the name and both clog posts stand down, or the same
+        // pet lands twice, once as 🐾 and once as 📕.
+        // Clip trail: a new collection-log slot is the single most clip-worthy thing that
+        // can happen and carries no gp value, so the loot floor above would never catch an
+        // untradeable one (Infernal cape, a pet). Recorded here, off the ungated chat line,
+        // rather than in the rare-drop notifier where it used to sit behind that channel's
+        // toggle. Pets are excluded — claimPetName routes those to their own post.
+        clipMoments.record("📕 New clog slot: " + item);
+        // Tell the server the killcount this unlock happened at, while we still know it.
+        //
+        // The site stamps kcAtUnlock when the collection log next syncs, and had nothing better
+        // to read than the hiscores snapshot — which only flushes on logout, so it was routinely
+        // a kill or more behind. That is how an Ancestral bottom taken on the 80th Chambers was
+        // filed as "at 79 KC" while the Discord post, reading killCounts, said 80.
+        //
+        // Pushed even when no tile tracks this boss (maybeQueueKcPush deliberately won't) and
+        // regardless of whether an event is running: a collection log is a profile, not a board.
+        // Once per unlock, which is once per account per item, ever.
+        pushKcForUnlock();
+        PendingPet claimedPet = claimPetName(item);
+        if (claimedPet == null) {
+            // Not a pet, so this is the ungated route to the clan's feed for an unlock that the
+            // loot path can't see: an untradeable with no GE price to clear a floor, or anything
+            // handed over without a loot event at all.
+            recordClogUnlockMoment(item);
+        }
+        if (claimedPet == null || !claimedPet.announce) {
+            // Two posts, deliberately different audiences: the prestige allowlist shouts a notable
+            // unlock at the drops channel, while every OTHER new slot goes quietly to the
+            // achievements channel. maybeNotifyClogSlot skips anything the allowlist just claimed,
+            // so a Dizana's quiver never lands twice.
+            maybeNotifyCollectionUnlock(item);
+            maybeNotifyClogSlot(item);
+        }
+        // Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
+        // minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
+        // other collection-log-only unlock. Loot-fired items are deduped by processLoot.
+        creditClogUnlock(item);
     }
 
     /**
@@ -5856,6 +5907,7 @@ public class AnvilPlugin extends Plugin {
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
             maybeNudgeCaRepeatSetting();
             maybeNudgeLootNotifications();
+            maybeNudgeClogNotifications();
             maybeNudgeStartProof();
             maybeReprobeAdmin();
 
@@ -8768,6 +8820,37 @@ public class AnvilPlugin extends Plugin {
      * price, the line never prints and the plugin has nothing to parse — a 50m fang can pass
      * completely silently. Varbit read requires the client thread.
      */
+    /**
+     * The in-game collection-log notification, which is what prints the line the plugin reads.
+     *
+     * <p>With it off, an unlock is invisible here: no achievements post, no tile credit, no
+     * kill-count stamp. The clan broadcast covers it for anyone in a clan that announces slots —
+     * that is the fallback in {@link #handleClogUnlock} — but a solo player, or a clan that doesn't
+     * broadcast them, has nothing at all. Worth one line per account, since the cost of not saying
+     * it is a log that silently never fills in.</p>
+     *
+     * <p>Only when the setting is OFF outright. The option has more than two values and the others
+     * are not worth guessing at: a nudge that fires for a correctly-configured client is the kind
+     * that teaches people to ignore the next one.</p>
+     */
+    private void maybeNudgeClogNotifications() {
+        if (clogNotifyNudgeSent || !config.notifyClogSlots() || !notifyEnabled("collectionLog")) {
+            return;
+        }
+        clientThread.invokeLater(() -> {
+            if (client.getGameState() != GameState.LOGGED_IN) {
+                return;
+            }
+            if (client.getVarbitValue(VarbitID.OPTION_COLLECTION_NEW_ITEM) != 0) {
+                return;
+            }
+            clogNotifyNudgeSent = true;
+            sendChatMessage("Your collection log notifications are off in game (Settings > All settings > Chat"
+                    + " > \"Collection log - New addition notification\") — new slots won't post to the clan"
+                    + " unless your clan broadcasts them.");
+        });
+    }
+
     private void maybeNudgeLootNotifications() {
         if (lootNotifyNudgeSent) {
             return;
