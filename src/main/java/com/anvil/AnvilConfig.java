@@ -102,17 +102,6 @@ public interface AnvilConfig extends Config
 
 	// ---- Bingo ----
 
-	@ConfigItem(
-		keyName = "autoSubmit",
-		name = "Auto Submit Drops",
-		description = "Automatically screenshot and submit when a tracked bingo drop is received",
-		position = 1,
-		section = "bingoSection"
-	)
-	default boolean autoSubmit()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "liveStatUpdates",
@@ -213,18 +202,6 @@ public interface AnvilConfig extends Config
 		return "";
 	}
 
-	@ConfigItem(
-		keyName = "dualProofFrames",
-		name = "Two-frame drop proof",
-		description = "Bake two frames into each drop screenshot — one the moment the drop lands, and one "
-			+ "a couple of seconds later once the loot has settled on the floor.",
-		position = 8,
-		section = "bingoSection"
-	)
-	default boolean dualProofFrames()
-	{
-		return true;
-	}
 
 	// ---- Notifications: Deaths & kills ----
 
@@ -283,7 +260,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyRareDrops",
 		name = "Notify on rare drops",
-		description = "Post valuable or very rare drops to the clan rare-drops channel.",
+		description = "Post valuable or very rare drops to the clan rare-drops channel, with a screenshot of the drop.",
 		position = 1,
 		section = "dropsSection"
 	)
@@ -318,17 +295,6 @@ public interface AnvilConfig extends Config
 		return 10_000;
 	}
 
-	@ConfigItem(
-		keyName = "rareDropScreenshot",
-		name = "Screenshot rare drops",
-		description = "Attach a screenshot to rare-drop posts. Requires 'Notify on rare drops'.",
-		position = 4,
-		section = "dropsSection"
-	)
-	default boolean rareDropScreenshot()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "lootKeyMinValue",
@@ -345,7 +311,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyPets",
 		name = "Notify on pets",
-		description = "Post to the clan rare-drops channel when you receive a pet.",
+		description = "Post to the clan rare-drops channel, with a screenshot, when you receive a pet.",
 		position = 6,
 		section = "dropsSection"
 	)
@@ -354,24 +320,13 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(
-		keyName = "petScreenshot",
-		name = "Screenshot pets",
-		description = "Attach a screenshot to pet posts. Requires 'Notify on pets'.",
-		position = 7,
-		section = "dropsSection"
-	)
-	default boolean petScreenshot()
-	{
-		return true;
-	}
 
 	// ---- Notifications: Combat achievements ----
 
 	@ConfigItem(
 		keyName = "notifyCombatAchievements",
 		name = "Notify on combat achievements",
-		description = "Post a message to the clan combat-achievements channel when you clear a CA tier (and high-tier individual tasks).",
+		description = "Post to the clan combat-achievements channel, with a screenshot, when you clear a CA tier (and high-tier individual tasks).",
 		position = 1,
 		section = "caSection"
 	)
@@ -392,22 +347,11 @@ public interface AnvilConfig extends Config
 		return CombatAchievementTier.MASTER;
 	}
 
-	@ConfigItem(
-		keyName = "caScreenshot",
-		name = "Screenshot combat tasks",
-		description = "Attach a screenshot to combat-achievement posts, the way drop posts work. Requires 'Notify on combat achievements'.",
-		position = 3,
-		section = "caSection"
-	)
-	default boolean caScreenshot()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "notifyClogSlots",
 		name = "Notify on collection log slots",
-		description = "Post every NEW collection-log slot to the clan achievements channel. Prestige items (Infernal cape, quivers, …) still go to the drops channel instead, so nothing posts twice.",
+		description = "Post every NEW collection-log slot to the clan achievements channel, with a screenshot. Prestige items (Infernal cape, quivers, …) still go to the drops channel instead, so nothing posts twice.",
 		position = 4,
 		section = "caSection"
 	)
@@ -416,22 +360,11 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(
-		keyName = "clogScreenshot",
-		name = "Screenshot collection log slots",
-		description = "Attach a screenshot to collection-log posts. Requires 'Notify on collection log slots'.",
-		position = 5,
-		section = "caSection"
-	)
-	default boolean clogScreenshot()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "notifyLevelUps",
 		name = "Notify on 99s & high totals",
-		description = "Post to the clan combat-achievements channel when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
+		description = "Post to the clan combat-achievements channel, with a screenshot, when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
 		position = 6,
 		section = "caSection"
 	)
@@ -440,17 +373,6 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(
-		keyName = "levelScreenshot",
-		name = "Screenshot 99s & totals",
-		description = "Attach a screenshot to level-99, high-total and max posts, the way drop and combat-task posts work. Requires 'Notify on 99s & high totals'.",
-		position = 7,
-		section = "caSection"
-	)
-	default boolean levelScreenshot()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "notifyDiaries",

@@ -689,8 +689,6 @@ public class AnvilPlugin extends Plugin {
     // five times). Cleared on the login screen so account swaps start fresh.
     private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
     // One nudge per session about the in-game "Repeat completion" CA setting.
-    /** One per login: the event is live and auto-submit is off, so none of it is being counted. */
-    private boolean autoSubmitNudgeSent;
     private boolean caRepeatNudgeSent;
     // One nudge per session about the in-game loot drop notifications (rare-drop post dependency).
     private boolean lootNotifyNudgeSent;
@@ -698,7 +696,7 @@ public class AnvilPlugin extends Plugin {
     // nothing track" without a line per suppressed loot event. Keyed by reason; reset at login.
     private final Set<String> loggedSuppressions = new LinkedHashSet<>();
     // Last logged tracking summary — config refreshes every ~30s, so the summary only logs when
-    // the tracking state actually changed (event, tile counts, autoSubmit, completions).
+    // the tracking state actually changed (event, tile counts, completions).
     private String lastTrackingFingerprint;
     // Last-known total CA points, baselined at login; used only for tier-clear detection now.
     private int lastCaPoints = -1;
@@ -2232,7 +2230,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void recordLmsPlacement(int placement) {
         lmsPlacementRecorded = true;
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedLms == null
+        if (pluginConfig == null || pluginConfig.trackedLms == null
                 || pluginConfig.trackedLms.isEmpty()) {
             return;
         }
@@ -2359,7 +2357,6 @@ public class AnvilPlugin extends Plugin {
             // Nothing is attacking a logged-out player, and whatever was is not attacking the next
             // account either.
             deathAttribution.clear();
-            autoSubmitNudgeSent = false;
             caRepeatNudgeSent = false;
             lootNotifyNudgeSent = false;
             // Re-evaluate setup + linking for the next account that logs in.
@@ -2816,7 +2813,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
         String gate = trackingGateReason();
-        if (gate != null || !config.autoSubmit() || pluginConfig == null
+        if (gate != null || pluginConfig == null
                 || pluginConfig.trackedValues == null || pluginConfig.trackedValues.isEmpty()
                 || items == null || items.isEmpty()) {
             return;
@@ -3353,7 +3350,7 @@ public class AnvilPlugin extends Plugin {
             handlePetDrop(duplicatePet);
             // Bingo: pets can't be auto-credited to a specific tile, so capture a proof for the player
             // to submit by hand (lands in "Saved proofs").
-            if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
+            if (pluginConfig != null && pluginConfig.event != null) {
                 captureManualProof("Pet drop", "[Auto] Pet drop detected by RuneLite plugin");
             }
         }
@@ -3362,7 +3359,7 @@ public class AnvilPlugin extends Plugin {
         // real-drop tile would never see it. The line names no specific champion, so (like pets) we
         // capture a proof for manual submission rather than auto-credit.
         if (msg.contains("funny feeling that you would have received a Champion")) {
-            if (config.autoSubmit() && pluginConfig != null && pluginConfig.event != null) {
+            if (pluginConfig != null && pluginConfig.event != null) {
                 captureManualProof("Champion's scroll", "[Auto] Champion's scroll (duplicate) detected by RuneLite plugin");
             }
         }
@@ -3393,7 +3390,7 @@ public class AnvilPlugin extends Plugin {
         if (itemName == null || itemName.isEmpty()) {
             return;
         }
-        if (!config.autoSubmit() || pluginConfig == null || pluginConfig.trackedDrops == null) {
+        if (pluginConfig == null || pluginConfig.trackedDrops == null) {
             String gate = trackingGateReason();
             if (gate != null) {
                 logTrackingSuppressed(gate);
@@ -3787,7 +3784,7 @@ public class AnvilPlugin extends Plugin {
                 // First drop of the burst: grab the at-drop frame now. The flush shot lands
                 // COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
                 // visible — the proof shows both moments.
-                if (config.dualProofFrames()) {
+                {
                     final DropAggregate fresh = agg;
                     drawManager.requestNextFrameListener(img -> fresh.triggerFrame = (BufferedImage) img);
                 }
@@ -3852,7 +3849,7 @@ public class AnvilPlugin extends Plugin {
         if (npcName == null || npcName.isEmpty()) {
             return;
         }
-        if (!config.autoSubmit() || pluginConfig == null) {
+        if (pluginConfig == null) {
             String gate = trackingGateReason();
             if (gate != null) {
                 logTrackingSuppressed(gate);
@@ -3885,7 +3882,7 @@ public class AnvilPlugin extends Plugin {
         if (npcName == null || npcName.isEmpty()) {
             return;
         }
-        if (!config.autoSubmit() || pluginConfig == null) {
+        if (pluginConfig == null) {
             String gate = trackingGateReason();
             if (gate != null) {
                 logTrackingSuppressed(gate);
@@ -3925,7 +3922,7 @@ public class AnvilPlugin extends Plugin {
      * bucket its names put it in) and credit each exactly once.
      */
     private void creditNamedCounter(String... names) {
-        if (!config.autoSubmit() || pluginConfig == null) {
+        if (pluginConfig == null) {
             String gate = trackingGateReason();
             if (gate != null) {
                 logTrackingSuppressed(gate);
@@ -4134,7 +4131,6 @@ public class AnvilPlugin extends Plugin {
         String suppress =
                 previous == null ? "baseline snapshot"
                 : gainItemIndex.isEmpty() ? "no gain tiles configured"
-                : !config.autoSubmit() ? "autoSubmit off"
                 : (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) ? "no active event"
                 : isBlackout() ? "blackout"
                 : gainSuppressingInterfaceOpen() ? "bank/GE/trade/seed-vault open"
@@ -4404,7 +4400,7 @@ public class AnvilPlugin extends Plugin {
      * onChatMessage).
      */
     private void handleTimedChat(String plain) {
-        if (!config.autoSubmit() || pluginConfig == null) {
+        if (pluginConfig == null) {
             return;
         }
         // Deathless tiles piggyback on the same correlation: a raid's completion is announced
@@ -5815,9 +5811,9 @@ public class AnvilPlugin extends Plugin {
             // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
             // what the plugin believed it was tracking, and when that belief changed.
             String summary = String.format(java.util.Locale.ROOT,
-                    "event='%s' team='%s' autoSubmit=%b drops=%d kills=%d pvp=%d gains=%d timed=%d"
+                    "event='%s' team='%s' drops=%d kills=%d pvp=%d gains=%d timed=%d"
                             + " deathless=%d lms=%d values=%d diaries=%d combatTasks=%d completed=%d",
-                    pluginConfig.event.name, pluginConfig.team.name, config.autoSubmit(),
+                    pluginConfig.event.name, pluginConfig.team.name,
                     sizeOf(pluginConfig.trackedDrops), sizeOf(pluginConfig.trackedKills),
                     sizeOf(pluginConfig.trackedPvp),
                     sizeOf(pluginConfig.trackedGains), sizeOf(pluginConfig.trackedTimed),
@@ -5833,7 +5829,6 @@ public class AnvilPlugin extends Plugin {
             checkMissionAlerts(pluginConfig);
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA
             // tiles going live mid-session via the periodic refresh. No-ops once sent.
-            maybeNudgeAutoSubmit();
             maybeNudgeCaRepeatSetting();
             maybeNudgeLootNotifications();
             maybeNudgeStartProof();
@@ -6065,12 +6060,12 @@ public class AnvilPlugin extends Plugin {
     /**
      * Whether live XP/KC may be sent at all.
      *
-     * NOT "Auto Submit Drops", which is what this used to ask. That setting is about screenshotting a
-     * drop and filing it against a tile; it says nothing about stats, and nothing in its name or
-     * description suggests that turning it off also stops SOTW and BOTW updating while you play. The
-     * failure was silent on both ends: the member sees a leaderboard that never moves, and the site
-     * sees an account that gains XP with no client attached, because the only trace a missing push
-     * leaves is an absence.
+     * This used to ask "Auto Submit Drops" — a setting about screenshotting a drop and filing it
+     * against a tile, which said nothing about stats. Turning it off also stopped SOTW and BOTW
+     * moving while you played, and the failure was silent on both ends: the member sees a
+     * leaderboard that never updates, and the site sees an account gaining XP with no client
+     * attached, because the only trace a missing push leaves is an absence. (That setting has since
+     * been removed outright — submitting is what the plugin is for.)
      *
      * Its own setting now, defaulting on, so the choice is the one the label describes.
      */
@@ -6127,7 +6122,7 @@ public class AnvilPlugin extends Plugin {
             pendingSkillXpPush.clear();
         }
         if (!statPushAllowed()) {
-            return; // event ended / auto-submit off between queue and flush — drop; the XP is safe on the hiscores side
+            return; // event ended / live updates switched off between queue and flush — the XP is safe on the hiscores side
         }
         try {
             apiClient.submitStatXp(batch);
@@ -6241,7 +6236,7 @@ public class AnvilPlugin extends Plugin {
             pendingKcPush.clear();
         }
         if (!statPushAllowed()) {
-            return; // event ended / auto-submit off between queue and flush — drop; the count is safe on the hiscores side
+            return; // event ended / live updates switched off between queue and flush — the count is safe on the hiscores side
         }
         try {
             apiClient.submitStatKc(batch);
@@ -6315,7 +6310,7 @@ public class AnvilPlugin extends Plugin {
             pendingActivityPush.clear();
         }
         if (!statPushAllowed()) {
-            return; // event ended / auto-submit off between queue and flush — drop; the count is safe on the hiscores side
+            return; // event ended / live updates switched off between queue and flush — the count is safe on the hiscores side
         }
         try {
             apiClient.submitStatActivities(batch);
@@ -6349,8 +6344,8 @@ public class AnvilPlugin extends Plugin {
     /**
      * Make sure the in-memory counters belong to the CURRENT active event, loading the persisted values
      * on first use (so a restart mid-event resumes counting) and zeroing them when the active event
-     * changes. Returns false — counting is skipped — when tracking is off (auto-submit disabled, no
-     * config, or the event isn't active), mirroring every other auto-tracking gate. Call under
+     * changes. Returns false — counting is skipped — when tracking is off (no config, or the event
+     * isn't active), mirroring every other auto-tracking gate. Call under
      * {@link #counterLock}.
      */
     private boolean ensureCounterEvent() {
@@ -7145,9 +7140,6 @@ public class AnvilPlugin extends Plugin {
 
     /** The suppression reason for the shared config gates, or null when tracking is live. */
     private String trackingGateReason() {
-        if (!config.autoSubmit()) {
-            return "auto-submit disabled in plugin settings";
-        }
         if (pluginConfig == null) {
             return "no event config loaded (not enrolled, or token/RSN not resolved)";
         }
@@ -7203,7 +7195,7 @@ public class AnvilPlugin extends Plugin {
                 recordLmsPlacement(Math.max(lmsSurvivors, 2));
             }
             // Recap counter — count the death for the "Wipe Magnet" superlative even if death
-            // notifications are off (still gated by auto-submit + an active event inside).
+            // notifications are off (still gated on an active event inside).
             recordEventDeath();
             // Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
             // the boss everyone is racing that week is the story; dying in general is a number.
@@ -7273,7 +7265,7 @@ public class AnvilPlugin extends Plugin {
      */
     private boolean pvpCounterActive() {
         PluginConfigResponse cfg = pluginConfig;
-        return config.autoSubmit() && cfg != null && cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
+        return cfg != null && cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
     }
 
     /** Dangerous PvP only — the Wilderness or a PvP world. Safe minigames (LMS, Soul Wars,
@@ -7646,12 +7638,7 @@ public class AnvilPlugin extends Plugin {
                 desc, name, itemId, qty, value, null, killCountFor(source), shotName,
                 DropSource.countLabel(source, sourceKind), guaranteed);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithScreenshot("rareDrops", embed, shotName);
     }
 
     /**
@@ -7688,12 +7675,7 @@ public class AnvilPlugin extends Plugin {
                 earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, -1, 1, 0, null, null, shotName,
                 "KC", guaranteed);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithScreenshot("rareDrops", embed, shotName);
     }
 
     /**
@@ -7783,14 +7765,10 @@ public class AnvilPlugin extends Plugin {
             embed.add("thumbnail", thumb);
         }
 
-        if (config.clogScreenshot()) {
-            com.google.gson.JsonObject image = new com.google.gson.JsonObject();
-            image.addProperty("url", "attachment://" + shotName);
-            embed.add("image", image);
-            captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
-        } else {
-            apiClient.postNotification("collectionLog", null, embed, null, null);
-        }
+        com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+        image.addProperty("url", "attachment://" + shotName);
+        embed.add("image", image);
+        captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
     }
 
     /**
@@ -8115,13 +8093,7 @@ public class AnvilPlugin extends Plugin {
                 troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName,
                 DropSource.countLabel(source, sourceKind), guaranteed);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            // No screenshot — strip the attachment image reference so the embed renders cleanly.
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithScreenshot("rareDrops", embed, shotName);
     }
 
     /**
@@ -8181,12 +8153,7 @@ public class AnvilPlugin extends Plugin {
         image.addProperty("url", "attachment://" + shotName);
         embed.add("image", image);
 
-        if (config.rareDropScreenshot()) {
-            postWithScreenshot("rareDrops", embed, shotName);
-        } else {
-            embed.remove("image");
-            apiClient.postNotification("rareDrops", null, embed, null, null);
-        }
+        postWithScreenshot("rareDrops", embed, shotName);
     }
 
     /**
@@ -8416,14 +8383,10 @@ public class AnvilPlugin extends Plugin {
             embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + petName.replace(' ', '_'));
         }
 
-        if (config.petScreenshot()) {
-            com.google.gson.JsonObject image = new com.google.gson.JsonObject();
-            image.addProperty("url", "attachment://" + shotName);
-            embed.add("image", image);
-            postWithScreenshot("pets", embed, shotName);
-        } else {
-            apiClient.postNotification("pets", null, embed, null, null);
-        }
+        com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+        image.addProperty("url", "attachment://" + shotName);
+        embed.add("image", image);
+        postWithScreenshot("pets", embed, shotName);
     }
 
     /** This pet's drop rate from the rarity table its source uses, or null when nothing can price it. */
@@ -8555,14 +8518,10 @@ public class AnvilPlugin extends Plugin {
         thumb.addProperty("url", CA_ICON_URL);
         embed.add("thumbnail", thumb);
 
-        if (config.caScreenshot()) {
-            com.google.gson.JsonObject image = new com.google.gson.JsonObject();
-            image.addProperty("url", "attachment://" + shotName);
-            embed.add("image", image);
-            captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
-        } else {
-            apiClient.postNotification("combatAchievements", null, embed, null, null);
-        }
+        com.google.gson.JsonObject image = new com.google.gson.JsonObject();
+        image.addProperty("url", "attachment://" + shotName);
+        embed.add("image", image);
+        captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
     }
 
     /**
@@ -8732,23 +8691,6 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Is a live event being tracked into a void because auto-submit is off?
-     *
-     * <p>THE SWITCH THAT TURNS EVERYTHING OFF. "Auto Submit Drops" reads like it governs drops, and
-     * it governs the lot: drop, value, kill, timed, LMS, gain, deathless, diary and combat-task
-     * tiles all check it, and so does {@link #statPushAllowed} — so a member who flicked it off
-     * months ago, or who never looked at the config because the plugin was set up for them, plays a
-     * whole bingo contributing nothing. Nothing on the board looks broken from their side: tiles
-     * simply never move, which is indistinguishable from not having got the drop.</p>
-     *
-     * <p>Only while an event is actually RUNNING. Outside one the toggle costs nothing, and a plugin
-     * that lectures about settings for something that is not happening is noise.</p>
-     */
-    static boolean autoSubmitBlocksEvent(PluginConfigResponse cfg, boolean autoSubmit) {
-        return !autoSubmit && cfg != null && AnvilOverlay.isEventActive(cfg.event);
-    }
-
-    /**
      * Does this board have tiles that can only credit off the in-game drop-notification line?
      *
      * <p>Drop and value tiles both do, for the corpse-looted bosses whose loot bypasses every loot
@@ -8762,18 +8704,6 @@ public class AnvilPlugin extends Plugin {
         }
         return (cfg.trackedDrops != null && !cfg.trackedDrops.isEmpty())
                 || (cfg.trackedValues != null && !cfg.trackedValues.isEmpty());
-    }
-
-    /** One chat nudge per login when a live event is being played with auto-submit switched off. */
-    private void maybeNudgeAutoSubmit() {
-        if (autoSubmitNudgeSent || !autoSubmitBlocksEvent(pluginConfig, config.autoSubmit())) {
-            return;
-        }
-        autoSubmitNudgeSent = true;
-        String event = pluginConfig.event != null && pluginConfig.event.name != null
-                ? pluginConfig.event.name : "this event";
-        sendChatMessage("\"Auto Submit Drops\" is off in the Anvil plugin config — nothing you do in \""
-                + event + "\" is being counted until you turn it back on.");
     }
 
     /**
@@ -9005,7 +8935,7 @@ public class AnvilPlugin extends Plugin {
         // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
         // what they have done rather than a distance from somebody else's goal.
         embed.add("fields", oneField("Progress", ninetyNineProgressLine()));
-        postAchievement(embed, config.levelScreenshot());
+        postAchievement(embed);
     }
 
     /**
@@ -9132,7 +9062,7 @@ public class AnvilPlugin extends Plugin {
         if (progress != null) {
             embed.add("fields", oneField("Progress to max", progress));
         }
-        postAchievement(embed, config.levelScreenshot());
+        postAchievement(embed);
     }
 
     /** A one-entry Discord `fields` array, inline so it sits beside the description rather than under it. */
@@ -9855,11 +9785,7 @@ public class AnvilPlugin extends Plugin {
      * very thing it cited. Same shape as that path now, down to removing the image reference when the
      * capture fails, so a dropped frame degrades to the text post rather than an embed with a hole.
      */
-    private void postAchievement(com.google.gson.JsonObject embed, boolean withShot) {
-        if (!withShot) {
-            apiClient.postNotification("levels", null, embed, null, null);
-            return;
-        }
+    private void postAchievement(com.google.gson.JsonObject embed) {
         String shotName = "anvil-achievement.png";
         com.google.gson.JsonObject image = new com.google.gson.JsonObject();
         image.addProperty("url", "attachment://" + shotName);

@@ -7,17 +7,20 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The two client settings a live board silently depends on.
+ * The client setting a live board silently depends on.
  *
- * <p>THE SHAPE OF BOTH BUGS IS THE SAME: a switch the member is not looking at turns their whole
- * event off, and the board gives them no way to tell. "Auto Submit Drops" governs every tile kind
- * and the stat pushes, not just drops — so one flick of it plays a whole bingo for nothing. The
- * in-game loot-drop line is what corpse-boss loot credits off, and the reminder to enable it used to
- * be gated on clan rare-drop POSTS being on, which has nothing to do with whether the board needs
- * it.</p>
+ * <p>A switch the member is not looking at turns their event off, and the board gives them no way to
+ * tell. The in-game loot-drop line is what corpse-boss loot credits off, and the reminder to enable
+ * it used to be gated on clan rare-drop POSTS being on, which has nothing to do with whether the
+ * board needs it.</p>
  *
- * <p>Both are asked only while an event is actually running: a plugin that lectures about settings
- * for something that is not happening is noise, and noise is what gets a nudge ignored.</p>
+ * <p>There used to be a second one here: "Auto Submit Drops" governed every tile kind and the stat
+ * pushes, not just drops, so one flick of it played a whole bingo for nothing — and the nudge was
+ * the apology for a switch that should not have existed. The setting is gone, and submitting is
+ * simply what the plugin does, so the nudge went with it.</p>
+ *
+ * <p>Asked only while an event is actually running: a plugin that lectures about settings for
+ * something that is not happening is noise, and noise is what gets a nudge ignored.</p>
  */
 public class EventNudgeTest
 {
@@ -35,21 +38,6 @@ public class EventNudgeTest
 		PluginConfigResponse cfg = live();
 		cfg.event.startDate = "2099-01-01T00:00:00.000Z";
 		return cfg;
-	}
-
-	@Test
-	public void autoSubmitOffDuringALiveEventIsWorthSaying()
-	{
-		assertTrue(AnvilPlugin.autoSubmitBlocksEvent(live(), false));
-	}
-
-	@Test
-	public void aWorkingSetupIsNotLecturedAt()
-	{
-		assertFalse("nothing is being lost", AnvilPlugin.autoSubmitBlocksEvent(live(), true));
-		assertFalse("no board, nothing to miss", AnvilPlugin.autoSubmitBlocksEvent(null, false));
-		assertFalse("a board that hasn't started loses nothing yet",
-			AnvilPlugin.autoSubmitBlocksEvent(notStarted(), false));
 	}
 
 	@Test

@@ -81,9 +81,9 @@ has a description in the plugin itself; this is the shape of it.
 | Section | What's in it |
 | --- | --- |
 | **Setup** | Site URL and your Account Token. The only two that matter. |
-| **Bingo** | Auto-submit, the verification overlay, team-completion banners and their sounds, two-frame drop proofs. |
+| **Bingo** | Live XP & KC updates, the verification overlay, team-completion banners and their sounds. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
-| **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, pets, and whether each carries a screenshot. |
+| **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
 | **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |
 | **Clips** | OBS replay-buffer clips on a hotkey, posted to a clips webhook. Off by default. |
 | **Profile sync** | Collection log, personal bests, clan roster, and sharing highlights with the clan. |
@@ -99,7 +99,6 @@ A few worth knowing about:
 | Loot key value | 1,000,000 | A loot key posts once, for its whole contents. |
 | CA task min tier | Master | Set to Grandmaster for only the rarest tasks. Tier clears always post. |
 | Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
-| Two-frame drop proof | on | Off makes drop shots single-frame. Keep it on. |
 
 ### Clips (optional)
 
