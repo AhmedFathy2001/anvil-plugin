@@ -6062,12 +6062,24 @@ public class AnvilPlugin extends Plugin {
      * completion before a board starts, and stat baselines re-anchor at the start, so a pre-event
      * push cannot score. Withholding it was the only thing that could go wrong, and did.
      */
-    static boolean statPushAllowed(PluginConfigResponse cfg, boolean autoSubmit) {
-        return cfg != null && autoSubmit;
+    /**
+     * Whether live XP/KC may be sent at all.
+     *
+     * NOT "Auto Submit Drops", which is what this used to ask. That setting is about screenshotting a
+     * drop and filing it against a tile; it says nothing about stats, and nothing in its name or
+     * description suggests that turning it off also stops SOTW and BOTW updating while you play. The
+     * failure was silent on both ends: the member sees a leaderboard that never moves, and the site
+     * sees an account that gains XP with no client attached, because the only trace a missing push
+     * leaves is an absence.
+     *
+     * Its own setting now, defaulting on, so the choice is the one the label describes.
+     */
+    static boolean statPushAllowed(PluginConfigResponse cfg, boolean liveStatUpdates) {
+        return cfg != null && liveStatUpdates;
     }
 
     private boolean statPushAllowed() {
-        return statPushAllowed(pluginConfig, config.autoSubmit());
+        return statPushAllowed(pluginConfig, config.liveStatUpdates());
     }
 
     /**
