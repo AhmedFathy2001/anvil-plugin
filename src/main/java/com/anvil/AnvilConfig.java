@@ -138,8 +138,8 @@ public interface AnvilConfig extends Config
 		description = "Play a sound when the bingo banner fires, and when a mission drops. Add your own .wav files "
 			+ "with the 'Banner sounds' and 'Mission sounds' buttons in the Anvil side panel — they go in a folder "
 			+ "each, and which folder a clip is in is what makes it a banner clip or a mission clip. No banner "
-			+ "clips means no banner sound; no mission clips means missions use a short built-in chime, so they "
-			+ "never sound like a finished tile. Master switch: off is silence for both.",
+			+ "clips means no banner sound; no mission clips means missions play one of the game\u2019s own short "
+			+ "sounds, so they never sound like a finished tile. Master switch: off is silence for both.",
 		position = 5,
 		section = "bingoSection"
 	)
@@ -471,6 +471,9 @@ public interface AnvilConfig extends Config
 			+ "your clan hasn't set a clips channel up (or its site is too old to relay them) — those upload "
 			+ "straight from your machine to this webhook. Leave blank to keep clips local in that case.",
 		position = 9,
+		// Masked like the Account Token: a webhook URL IS the credential — anyone holding it can post
+		// into that channel — and this one sat in plain text where a settings screenshot published it.
+		secret = true,
 		section = "clipsSection"
 	)
 	default String clipsWebhookUrl()

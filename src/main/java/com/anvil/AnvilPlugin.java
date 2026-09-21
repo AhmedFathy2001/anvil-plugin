@@ -3013,7 +3013,7 @@ public class AnvilPlugin extends Plugin {
     public void importMissionSounds() {
         bannerSound.importSounds(BannerSoundService.Kind.MISSION, names -> {
             sendChatMessage("Added to mission sounds: " + String.join(", ", names)
-                    + ". Missions now play these instead of the built-in chime.");
+                    + ". Missions play these now, instead of the game sound they used before.");
         });
     }
 

@@ -1273,7 +1273,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		if (clips.isEmpty())
 		{
-			JLabel none = new JLabel("None added — drop .wav files in the folder.");
+			JLabel none = new JLabel("None added — use Add clip, or the banner folder.");
 			none.setFont(FontManager.getRunescapeSmallFont());
 			none.setForeground(VALUE_COLOR);
 			none.setAlignmentX(LEFT_ALIGNMENT);
@@ -1315,7 +1315,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.add(gap(8));
 		int missions = dataSource.missionSounds().size();
 		JLabel missionState = new JLabel(missions == 0
-			? "Missions: built-in chime"
+			? "Missions: a game sound (no clip added)"
 			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"));
 		missionState.setFont(FontManager.getRunescapeSmallFont());
 		missionState.setForeground(VALUE_COLOR);
@@ -1324,7 +1324,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.add(gap(4));
 		JButton addMission = new JButton(missions == 0 ? "Add mission clip" : "Add mission clips");
 		styleFlatButton(addMission, Color.WHITE);
-		addMission.setToolTipText("Pick .wav files for missions — they play instead of the built-in chime");
+		addMission.setToolTipText("Pick .wav files to play when a mission drops, instead of the game sound used by default");
 		addMission.addActionListener(e -> dataSource.importMissionSounds());
 		panel.add(fullWidth(addMission));
 		return panel;
