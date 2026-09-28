@@ -67,7 +67,6 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 
 import javax.imageio.ImageIO;
-import java.io.File;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.awt.image.BufferedImage;
@@ -2841,7 +2840,7 @@ public class AnvilPlugin extends Plugin {
             if (it == null || it.getId() <= 0) {
                 continue;
             }
-            int price = itemManager.getItemPrice(it.getId());
+            long price = itemManager.getItemPrice(it.getId());
             if (price > 0) {
                 haulGp += (long) price * Math.max(1, it.getQuantity());
             }
@@ -6634,7 +6633,7 @@ public class AnvilPlugin extends Plugin {
             if (it == null || it.getId() <= 0) {
                 continue;
             }
-            int price = itemManager.getItemPrice(it.getId());
+            long price = itemManager.getItemPrice(it.getId());
             if (price > 0) {
                 haulGp += (long) price * Math.max(1, it.getQuantity());
             }
@@ -6773,7 +6772,7 @@ public class AnvilPlugin extends Plugin {
         for (Map.Entry<Integer, Integer> entry : merged.entrySet()) {
             int itemId = entry.getKey();
             int quantity = entry.getValue();
-            int price = itemManager.getItemPrice(itemId);
+            long price = itemManager.getItemPrice(itemId);
             long value = (long) Math.max(0, price) * quantity;
             boolean wanted = boardItems != null && boardItems.containsKey(itemId);
             if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) {
@@ -7484,7 +7483,7 @@ public class AnvilPlugin extends Plugin {
             if (it == null || it.getId() <= 0) {
                 continue;
             }
-            int price = itemManager.getItemPrice(it.getId());
+            long price = itemManager.getItemPrice(it.getId());
             if (price > 0) {
                 haulGp += (long) price * Math.max(1, it.getQuantity());
             }
@@ -9642,8 +9641,8 @@ public class AnvilPlugin extends Plugin {
      * A clip we may not open — because OBS wrote it somewhere the plugin has no claim to.
      *
      * <p>Held, not dropped: the file stays where OBS put it, and granting the folder later in the
-     * session posts it retroactively. Meanwhile the clip itself goes on the clipboard, so it is one
-     * paste into Discord whatever happens next.
+     * session posts it retroactively. Meanwhile the clip's path goes on the clipboard, so finding it
+     * is one paste into a file manager or Discord's upload dialog whatever happens next.
      */
     private void queueClip(String path, String moment, int clipSeconds) {
         synchronized (heldClips) {
@@ -9653,17 +9652,17 @@ public class AnvilPlugin extends Plugin {
             heldClips.add(() -> submitClip(path, moment, clipSeconds));
         }
         String caption = moment != null ? moment : "Clip saved";
-        boolean copied = Clipboards.copyFile(path);
+        boolean copied = Clipboards.copy(path);
         if (config.manageObsFolder()) {
             // Managing, yet the clip landed elsewhere: OBS was already running its buffer with the
             // old path when we connected. It will land in our folder from the next buffer start.
             sendChatMessage(caption + (copied
-                    ? " — clip copied, paste it into Discord. Restart OBS's replay buffer so Anvil can post these for you."
+                    ? " — clip path copied, paste it into Discord's upload dialog. Restart OBS's replay buffer so Anvil can post these for you."
                     : " — saved by OBS. Restart OBS's replay buffer so Anvil can post these for you."));
             return;
         }
         sendChatMessage(caption + (copied
-                ? " — clip copied, paste it into Discord. To post these automatically, point Anvil at your OBS folder at the login screen."
+                ? " — clip path copied, paste it into Discord's upload dialog. To post these automatically, point Anvil at your OBS folder at the login screen."
                 : " — saved by OBS. To post these automatically, point Anvil at your OBS folder at the login screen."));
     }
 
