@@ -9641,8 +9641,7 @@ public class AnvilPlugin extends Plugin {
      * A clip we may not open — because OBS wrote it somewhere the plugin has no claim to.
      *
      * <p>Held, not dropped: the file stays where OBS put it, and granting the folder later in the
-     * session posts it retroactively. Meanwhile the clip's path goes on the clipboard, so finding it
-     * is one paste into a file manager or Discord's upload dialog whatever happens next.
+     * session posts it retroactively. Meanwhile chat just says OBS saved it.
      */
     private void queueClip(String path, String moment, int clipSeconds) {
         synchronized (heldClips) {
@@ -9652,18 +9651,13 @@ public class AnvilPlugin extends Plugin {
             heldClips.add(() -> submitClip(path, moment, clipSeconds));
         }
         String caption = moment != null ? moment : "Clip saved";
-        boolean copied = Clipboards.copy(path);
         if (config.manageObsFolder()) {
             // Managing, yet the clip landed elsewhere: OBS was already running its buffer with the
             // old path when we connected. It will land in our folder from the next buffer start.
-            sendChatMessage(caption + (copied
-                    ? " — clip path copied, paste it into Discord's upload dialog. Restart OBS's replay buffer so Anvil can post these for you."
-                    : " — saved by OBS. Restart OBS's replay buffer so Anvil can post these for you."));
+            sendChatMessage(caption + " — saved by OBS. Restart OBS's replay buffer so Anvil can post these for you.");
             return;
         }
-        sendChatMessage(caption + (copied
-                ? " — clip path copied, paste it into Discord's upload dialog. To post these automatically, point Anvil at your OBS folder at the login screen."
-                : " — saved by OBS. To post these automatically, point Anvil at your OBS folder at the login screen."));
+        sendChatMessage(caption + " — saved by OBS. To post these automatically, point Anvil at your OBS folder at the login screen.");
     }
 
     /** Let go of clips we will never be able to read — they are in a folder that is not ours. */
