@@ -141,6 +141,22 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
+	public void upcomingEventCannotRenderBoardProgressOrActivity() throws Exception
+	{
+		PluginConfigResponse cfg = eventConfig();
+		cfg.event.startDate = "2999-01-01T00:00:00Z";
+		cfg.clanName = "The AFK Spot";
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		ConnectionView c = ds.fetchConnections().get(0);
+		assertEquals(0, c.tilesTotal);
+		assertEquals(0, c.tilesComplete);
+		assertTrue(c.recentActivity.isEmpty());
+		assertTrue(c.activeNow.isEmpty());
+		assertNull(c.eventName);
+	}
+
+	@Test
 	public void nullConfigYieldsEmptyList() throws Exception
 	{
 		AnvilSidebarDataSource ds = newSource(() -> null);

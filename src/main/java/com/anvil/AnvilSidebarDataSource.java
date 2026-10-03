@@ -300,7 +300,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 		// The member-scoped event when one resolved, else the board the site resolved from the token
 		// alone (the logged-out card). Both are the SAME board a clan row may also be reporting.
-		if (cfg.event != null)
+		if (cfg.event != null && AnvilOverlay.isEventActive(cfg.event))
 		{
 			return PluginConfigResponse.boardIdentity(cfg.event.id);
 		}
@@ -337,7 +337,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		List<ConnectionView.WeeklyView> weeklies = buildWeeklies(cfg, force);
 		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg);
 
-		if (cfg.event == null)
+		// A current Site never sends an upcoming board as event-scoped config, but older/self-hosted
+		// versions can. Treat it exactly like no live event: the schedule card already carries what is
+		// coming, while fetching/rendering its activity feed can show prepared completion rows before
+		// the whistle ("Team completed 2m Woodcutting XP" on a board that has not started).
+		if (cfg.event == null || !AnvilOverlay.isEventActive(cfg.event))
 		{
 			if (scopedEventId != -1)
 			{
