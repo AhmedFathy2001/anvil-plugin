@@ -67,13 +67,21 @@ public class BingoApiClient
 			.build();
 	}
 
-	public void configure(String apiUrl, String playerToken)
+	/**
+	 * Point the client at Anvil with this Account Token.
+	 *
+	 * THE SITE IS FIXED ({@link #CANONICAL_SITE}); there is no Site URL to configure. What the client
+	 * still holds back on is WHEN it uses it: the address is only live once there is a token, so an
+	 * install nobody has signed into reaches nothing — every poll bails on an empty {@code apiUrl}.
+	 * Sign-in itself goes to the constant directly ({@link #authUrl}), since it runs before any token.
+	 */
+	public void configure(String playerToken)
 	{
-		this.apiUrl = normalizeBaseUrl(apiUrl);
 		this.playerToken = playerToken;
+		this.apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : CANONICAL_SITE;
 	}
 
-	/** The configured site base URL (normalized, no trailing slash), or "" when unconfigured. */
+	/** The site base URL in use, or "" while signed out (see {@link #configure}). */
 	public String getApiUrl()
 	{
 		return apiUrl == null ? "" : apiUrl;
@@ -81,7 +89,7 @@ public class BingoApiClient
 
 	// ── WHICH CLAN THIS CLIENT IS TALKING TO ────────────────────────────────────────────────
 	//
-	// The Site URL the member typed is one Anvil, and one Anvil serves every clan. On the canonical
+	// The site is one Anvil, and one Anvil serves every clan. On the canonical
 	// address it therefore names no clan at all, and the server picks one from the token — live event
 	// first, then latest start, then newest seat.
 	//
@@ -176,10 +184,17 @@ public class BingoApiClient
 		return chosenClan.isEmpty() ? apiUrl + path : apiUrl + "/c/" + chosenClan + path;
 	}
 
-	/** A URL that must NOT carry a clan: the device sign-in pair, which is identity, not membership. */
+	/** A URL that must NOT carry a clan. */
 	String rootUrl(String path)
 	{
 		return apiUrl + path;
+	}
+
+	/** The device sign-in pair — identity, not membership, and run BEFORE there is a token, so it
+	 * cannot wait for {@code apiUrl}: always the fixed site. */
+	static String authUrl(String path)
+	{
+		return CANONICAL_SITE + path;
 	}
 
 	/**
@@ -217,23 +232,20 @@ public class BingoApiClient
 	}
 
 	/**
-	 * The canonical Anvil, offered when somebody signs in without having typed a site.
+	 * Anvil — the only server this plugin talks to. There is no Site URL setting: one site serves every
+	 * clan, and the clan is resolved from the Account Token.
 	 *
-	 * NOT the config default, and that distinction is the whole point. `apiUrl` still defaults to ""
-	 * so the plugin contacts nothing on its own — every unauthenticated poll here (hello,
-	 * active-weekly, schedule, weekly-leaderboard) bails on an empty URL, so an install that is never
-	 * signed into never reaches the network at all. This constant is only ever written by an explicit
-	 * click on Sign in, which is the user choosing the server exactly as typing it was.
+	 * Talking to a fixed third-party server is why the Plugin Hub shows its "submits your IP address
+	 * to a 3rd party website" warning on install (the manifest's `warning=`). The plugin still contacts
+	 * nothing until someone signs in: see {@link #configure}.
 	 */
 	public static final String CANONICAL_SITE = "https://anvilosrs.com";
 
 	/**
 	 * True when there is no Account Token yet — the state the Sign-in button serves.
 	 *
-	 * It used to also require a Site URL, which meant somebody who had just installed the plugin saw
-	 * no way in: the button that would have configured them was hidden until they configured
-	 * themselves. Sign in now offers to fill the site in (see CANONICAL_SITE), so the button is the
-	 * first step rather than the second.
+	 * The Sign-in button is the way in for a fresh install — it fills the token in itself
+	 * (DeviceSignIn), so nobody has to copy anything out of the site.
 	 */
 	public boolean needsSignIn()
 	{
@@ -261,16 +273,12 @@ public class BingoApiClient
 		public int interval;
 	}
 
-	/** Begin the device sign-in. Deliberately UNAUTHENTICATED (the whole point is no token yet) —
-	 * only the Site URL must be configured. Null on transport/HTTP failure. */
+	/** Begin the device sign-in. Deliberately UNAUTHENTICATED (the whole point is no token yet), and
+	 * only ever started by a click on Sign in. Null on transport/HTTP failure. */
 	public DeviceAuthStart authStart()
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
 		RequestBody empty = RequestBody.create(null, new byte[0]);
-		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/start"))
+		Request request = new Request.Builder().url(authUrl("/api/plugin/auth/start"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(empty).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -290,13 +298,13 @@ public class BingoApiClient
 	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */
 	public DeviceAuthPoll authPoll(String deviceCode)
 	{
-		if (apiUrl == null || apiUrl.isEmpty() || deviceCode == null || deviceCode.isEmpty())
+		if (deviceCode == null || deviceCode.isEmpty())
 		{
 			return null;
 		}
 		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
 			gson.toJson(java.util.Collections.singletonMap("device_code", deviceCode)));
-		Request request = new Request.Builder().url(rootUrl("/api/plugin/auth/poll"))
+		Request request = new Request.Builder().url(authUrl("/api/plugin/auth/poll"))
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).post(body).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -346,39 +354,6 @@ public class BingoApiClient
 		String hash = accountHash;
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
 		return b;
-	}
-
-	/**
-	 * Trim whitespace and strip any trailing slashes so callers can safely append
-	 * "/api/..." without producing "//" or other malformed URLs. Returns "" for
-	 * null/blank input so isConfigured() can detect it.
-	 */
-	static String normalizeBaseUrl(String raw)
-	{
-		if (raw == null) return "";
-		String s = raw.trim();
-		while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
-		if (s.isEmpty()) return "";
-		// If the user left the scheme off (e.g. "your-clan.vercel.app"), assume https:// — that's the
-		// common case and, without it, the checks below would treat the whole URL as unconfigured. We
-		// only PREPEND when there's no scheme at all; an explicit http:// is left untouched (we never
-		// silently "upgrade" a deliberate http:// host), so the HTTPS gate below still governs it.
-		String lower = s.toLowerCase();
-		if (!lower.startsWith("http://") && !lower.startsWith("https://"))
-		{
-			s = "https://" + s;
-			lower = s.toLowerCase();
-		}
-		// Require HTTPS: the account token rides as an Authorization: Bearer header on every request,
-		// so a plaintext http:// host would leak it on the wire. Permit http only for local dev hosts.
-		// Anything else is treated as unconfigured (returns "") rather than sending the token in clear.
-		boolean https = lower.startsWith("https://");
-		boolean localHttp = lower.startsWith("http://localhost") || lower.startsWith("http://127.0.0.1");
-		if (!https && !localHttp)
-		{
-			return "";
-		}
-		return s;
 	}
 
 	public boolean isConfigured()
@@ -1033,7 +1008,7 @@ public class BingoApiClient
 	{
 		if (apiUrl == null || apiUrl.isEmpty())
 		{
-			throw new IOException("Site URL is not configured");
+			throw new IOException("Not signed in to Anvil");
 		}
 		JsonObject payload = new JsonObject();
 		payload.addProperty("clanName", clanName);

@@ -75,22 +75,12 @@ public interface AnvilConfig extends Config
 
 	// ---- Setup ----
 
-	@ConfigItem(
-		keyName = "apiUrl",
-		name = "Site URL",
-		description = "Your Anvil site, e.g. https://anvilosrs.com (no trailing slash). One address covers every clan you are in, so you do not need a per-clan URL. Older per-clan addresses still work. Self-hosted? Use your own site's URL. If you leave off https://, it is added automatically.",
-		position = 1,
-		section = "setupSection"
-	)
-	default String apiUrl()
-	{
-		return "";
-	}
+	// No Site URL: the plugin only talks to https://anvilosrs.com (BingoApiClient.CANONICAL_SITE).
 
 	@ConfigItem(
 		keyName = "playerToken",
 		name = "Account Token",
-		description = "Your account token from the bingo site (Profile → Plugin). One token works across every event you're signed up for.",
+		description = "Filled in for you when you press Sign in in the Anvil side panel. You can also paste it from anvilosrs.com (Profile → Plugin). One token works for every clan and event you're in.",
 		position = 2,
 		secret = true,
 		section = "setupSection"

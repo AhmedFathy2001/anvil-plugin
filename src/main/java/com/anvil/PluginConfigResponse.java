@@ -34,47 +34,6 @@ public class PluginConfigResponse
 		public String canonicalUrl;
 	}
 
-	/**
-	 * Whether the configured URL should be swapped for the one the site prefers.
-	 *
-	 * Only when the site both advertises a canonical address AND says it can resolve a clan without
-	 * one — otherwise moving someone to the apex would break them, which is a far worse outcome
-	 * than an out-of-date URL that works.
-	 *
-	 * Compared on host alone: scheme and trailing slashes are noise, and a user who typed a path is
-	 * still on a working address.
-	 */
-	public String suggestedUrlMigration(String configuredUrl)
-	{
-		if (server == null || server.canonicalUrl == null || server.canonicalUrl.isEmpty()) return null;
-		if (!serverSupports("apex-routing")) return null;
-		if (configuredUrl == null || configuredUrl.isEmpty()) return null;
-
-		String have = hostOf(configuredUrl);
-		String want = hostOf(server.canonicalUrl);
-		if (have == null || want == null || have.equalsIgnoreCase(want)) return null;
-		return server.canonicalUrl;
-	}
-
-	/** Host portion of a URL, lowercased, or null if it cannot be read as one. */
-	static String hostOf(String url)
-	{
-		try
-		{
-			String s = url.trim();
-			if (!s.toLowerCase().startsWith("http://") && !s.toLowerCase().startsWith("https://"))
-			{
-				s = "https://" + s;
-			}
-			String host = new java.net.URI(s).getHost();
-			return host == null ? null : host.toLowerCase();
-		}
-		catch (Exception e)
-		{
-			return null;
-		}
-	}
-
 	/** Everything the plugin-facing API already supported when the handshake first shipped (site v1.0.0). */
 	private static final Set<String> BASELINE_CAPABILITIES = new HashSet<>(Arrays.asList(
 		"stats-live", "drop-tiles", "kill-tiles", "timed-tiles", "lms-tiles", "value-tiles",
@@ -99,7 +58,7 @@ public class PluginConfigResponse
 
 	// ── WHICH CLAN, AND WHICH OTHERS ──────────────────────────────────────────────────────────
 	//
-	// One Anvil serves every clan, so the canonical Site URL names none of them and the server picks
+	// One Anvil serves every clan, so the site address names none of them and the server picks
 	// one from the token: a live event first, then the latest-started of several, then the newest
 	// seat. That guess is nearly always right and completely invisible, which is the problem — a
 	// member on two boards had no way to see which one their drops were filing into.

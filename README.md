@@ -3,7 +3,7 @@
 The RuneLite companion for **[anvilosrs.com](https://anvilosrs.com)** — where OSRS clans run their
 bingos, their weekly SotW/BotW competitions, and their roster.
 
-You install it once and point it at the site. After that it does the boring half of an event for
+You install it once and sign in. After that it does the boring half of an event for
 you: your drops get screenshotted and filed against the right tile, your kill counts and XP move the
 board as you earn them, and the things worth shouting about land in your clan's Discord.
 
@@ -11,20 +11,21 @@ board as you earn them, and the things worth shouting about land in your clan's 
   <img src="docs/images/side-panel.png" alt="The Anvil side panel: your clans, live events, your placing, and sync buttons" width="260">
 </p>
 
-## Get set up in two fields
+## Get set up in one click
 
 1. **Install** — RuneLite → Configuration (the wrench) → **Plugin Hub** → search **Anvil** → Install.
-2. **Point it at the site** — Configuration → Anvil → **Setup** → set **Site URL** to
-   `https://anvilosrs.com`.
-3. **Sign in** — open the Anvil side panel and click **Sign in with Discord**. Approve the code in
-   your browser and the plugin fills your token in for you.
+   RuneLite will show a third-party warning first — [here's why](#why-runelite-shows-a-warning).
+2. **Sign in** — open the Anvil side panel (the anvil icon on the right) and click **Sign in with
+   Discord**. Approve the code in your browser and the plugin fills your Account Token in for you.
+
+That's it. (If the browser step won't work for you, copy your token from **Profile → Plugin** on
+anvilosrs.com and paste it into Configuration → Anvil → **Setup** → **Account Token** instead.)
 
 <p align="center">
   <img src="docs/images/settings-main.png" alt="The Anvil settings panel: Setup, Bingo and the notification sections" width="240">
 </p>
 
-One address covers **every clan you're in** — there's no per-clan URL and no per-event token. (Older
-per-clan addresses still work, and self-hosters point at their own site instead.)
+One sign-in covers **every clan you're in** — there's no per-clan address and no per-event token.
 
 Can't run the plugin? You can verify an account on the website instead — see the
 **[player setup guide](https://anvilosrs.com/guide/plugin)**, which walks through all of this with
@@ -75,12 +76,12 @@ roster to the site, keeping ranks and guest/member status right without anyone t
 
 ## Settings
 
-Defaults are sensible — you can install it, set two fields and never open this again. Every setting
+Defaults are sensible — you can install it, sign in and never open this again. Every setting
 has a description in the plugin itself; this is the shape of it.
 
 | Section | What's in it |
 | --- | --- |
-| **Setup** | Site URL and your Account Token. The only two that matter. |
+| **Setup** | Your Account Token — filled in by Sign in. The only one that matters. |
 | **Bingo** | The verification overlay, team-completion banners and their sounds. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
@@ -162,10 +163,26 @@ Written against the live site, with screenshots:
 
 All of them are available in 16 languages — pick one from the top of any guide page.
 
+## Why RuneLite shows a warning
+
+When you install Anvil, the Plugin Hub warns that it *"submits your IP address to a 3rd party website
+not controlled or verified by the RuneLite Developers."* RuneLite shows that for every plugin that
+talks to a server outside RuneLite, and it's accurate for this one:
+
+- **Anvil is a third-party site.** anvilosrs.com isn't run by RuneLite or Jagex — it's where your clan's
+  events, boards and rosters live.
+- **The plugin has to talk to it.** Filing a drop against a tile, moving the board with your KC and XP,
+  or syncing your collection log are all web requests to anvilosrs.com — and any web request shows the
+  server your IP address. That's all the warning means; it isn't something extra the plugin collects.
+- **What's sent is your own play.** Your RSN, and the drops, kill counts, XP and progress of the
+  account you're logged into, for the clans and events you're in — tied to your Account Token. The IP
+  address is used the way any website uses it: to answer the request and to rate-limit abuse.
+- **Nothing is sent until you sign in.** A fresh install contacts nobody until you click **Sign in**.
+
 ## Privacy
 
-- The plugin only ever talks to the **Site URL you set**. It refuses to open a sign-in page anywhere
-  else, and nothing goes to a third party.
+- The plugin only ever talks to **anvilosrs.com**, and only once you've signed in. It refuses to
+  open a sign-in page anywhere else, and nothing goes to any other third party.
 - Screenshots upload only when a tracked drop is detected, or when you ask for one.
 - Your Account Token is stored locally in your RuneLite config, marked secret. Rotate it from your
   profile on the site if you think it leaked.

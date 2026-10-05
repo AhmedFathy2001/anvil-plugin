@@ -1598,7 +1598,7 @@ public class AnvilPlugin extends Plugin {
         String pkgVer = getClass().getPackage() != null ? getClass().getPackage().getImplementationVersion() : null;
         sb.append("Plugin version: ").append(pkgVer != null ? pkgVer : "(dev/unknown)").append(nl);
 
-        sb.append("Site URL: ").append(blankToNone(config.apiUrl())).append(nl);
+        sb.append("Site: ").append(BingoApiClient.CANONICAL_SITE).append(nl);
         sb.append("Account token set: ").append(config.playerToken().isEmpty() ? "no" : "yes").append(nl);
         sb.append("API configured: ").append(apiClient.isConfigured() ? "yes" : "no").append(nl);
         sb.append("Current RSN: ").append(blankToNone(apiClient.getCurrentRsn())).append(nl);
@@ -1654,7 +1654,7 @@ public class AnvilPlugin extends Plugin {
      * board costs no extra request. It used to sit under a federation layer that fanned several sites
      * out; one Anvil now serves every clan, so the clans a member can switch between arrive in that
      * same config response ({@code clans[]}) and the switch is an address, not a second data source.
-     * Offline (no Site URL/token) it resolves to the empty state.</p>
+     * Offline (signed out) it resolves to the empty state.</p>
      */
     @Provides
     @Singleton
@@ -1684,12 +1684,12 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         configureApiClient();
-        // Setting the Site URL or Account Token is a deliberate one-shot edit — a paste, or the
+        // Setting the Account Token is a deliberate one-shot edit — a paste, or the
         // sign-in flow storing the token — not the rapid churn the debounce exists to coalesce.
         // Waiting on it left the sidebar looking dead for up to POLL_INTERVAL_MS (15s): the token
         // was live, the cache filled ~1s later, but the panel only repaints on its own timer. Fetch
         // now and poke the panel when it lands.
-        if ("apiUrl".equals(event.getKey()) || "playerToken".equals(event.getKey())) {
+        if ("playerToken".equals(event.getKey())) {
             refreshNowAndRepaint();
         } else {
             scheduleRefresh();
@@ -1697,15 +1697,15 @@ public class AnvilPlugin extends Plugin {
 
         String key = event.getKey();
         // Setup pasted mid-session (the typical first install: enable the plugin while
-        // logged in, then enter Site URL + Account Token): stamp the RSN/account hash and
+        // logged in, then sign in or paste the Account Token): stamp the RSN/account hash and
         // greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
         // probe so a new token gets re-checked. The single-threaded executor runs this
         // before the debounced refresh, so that refresh already carries the headers.
-        if (("apiUrl".equals(key) || "playerToken".equals(key))
+        if ("playerToken".equals(key)
                 && client.getGameState() == GameState.LOGGED_IN
                 && executor != null && !executor.isShutdown()) {
             adminProbeAttempted = false;
-            setupWarned = false; // re-evaluate the URL/token pair after an edit
+            setupWarned = false; // re-evaluate setup after a token edit
             executor.submit(this::stampIdentityAndGreet);
         }
 
@@ -1989,7 +1989,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         if (!apiClient.isConfigured()) {
-            sendChatMessage("Set your Site URL and Account Token first (Configuration → Anvil → Setup).");
+            sendChatMessage("Sign in first — open the Anvil panel (the anvil icon on the right) and press \"Sign in with Discord\".");
             return;
         }
         if (!serverSupportsProfileSync()) {
@@ -2028,7 +2028,7 @@ public class AnvilPlugin extends Plugin {
                 break;
             case UNAVAILABLE:
             default:
-                sendChatMessage("Profile sync isn't available right now — check your Site URL and token.");
+                sendChatMessage("Profile sync isn't available right now — check that you're signed in to Anvil.");
                 break;
         }
     }
@@ -2454,9 +2454,8 @@ public class AnvilPlugin extends Plugin {
     }
 
     // One-shot per login: say something about the plugin's own setup when there is something to say.
-    // A half-finished one (only the Site URL or only the Account Token) is a misconfiguration and is
-    // named as such; a completely empty one is a fresh install, which used to get silence and now
-    // gets pointed at the way in. Both set = connected, nothing to say. See SetupNudge for the rule
+    // Not signed in is a fresh install, which used to get silence and now gets pointed at the way in;
+    // signed in = connected, nothing to say. See SetupNudge for the rule
     // and the copy, and for why the fresh-install line is capped instead of repeating forever.
     private boolean setupWarned;
 
@@ -2465,7 +2464,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         int shown = firstRunNudgesShown();
-        SetupNudge.Kind kind = SetupNudge.decide(config.apiUrl(), config.playerToken(), shown);
+        SetupNudge.Kind kind = SetupNudge.decide(config.playerToken(), shown);
         if (kind == SetupNudge.Kind.NONE) {
             return;
         }
@@ -2505,7 +2504,7 @@ public class AnvilPlugin extends Plugin {
                 + "\" but isn't linked to your Anvil account — your drops won't count. Verify this RSN on the Anvil site.");
     }
 
-    // ---- Connection-health nag: broken Account Token / unreachable Site URL ----
+    // ---- Connection-health nag: broken Account Token / unreachable site ----
     // A configured plugin whose token is rejected (401/403) or whose site won't resolve tracks
     // nothing, silently. We surface that in chat — but only after the failure has PERSISTED past a
     // grace window (so a brief blip, e.g. right after the PC wakes, doesn't nag), then at most once
@@ -2556,10 +2555,10 @@ public class AnvilPlugin extends Plugin {
         connLastWarnedMs = now;
         if (problem == ConnProblem.TOKEN) {
             sendChatMessage("Anvil: your Account Token was rejected — tracking is OFF. "
-                    + "Re-copy your token from the Anvil site into the plugin config.");
+                    + "Sign in again from the Anvil panel.");
         } else {
             sendChatMessage("Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
-                    + "Check the Site URL in the plugin config and your connection.");
+                    + "Check your connection.");
         }
     }
 
@@ -2577,20 +2576,9 @@ public class AnvilPlugin extends Plugin {
         return ConnProblem.NONE; // e.g. a 5xx / other transient — logged, but not a config problem
     }
 
-    /** " (host)" for the unreachable message, best-effort from the configured Site URL. */
+    /** " (host)" for the unreachable message. */
     private String configuredHostSuffix() {
-        try {
-            String url = config.apiUrl();
-            if (url != null && !url.trim().isEmpty()) {
-                String host = java.net.URI.create(url.trim()).getHost();
-                if (host != null && !host.isEmpty()) {
-                    return " (" + host + ")";
-                }
-            }
-        } catch (Exception ignored) {
-            // fall through to no host
-        }
-        return "";
+        return " (" + BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "") + ")";
     }
 
     private void sendHello() {
@@ -2601,8 +2589,8 @@ public class AnvilPlugin extends Plugin {
         if (rsn == null || rsn.isEmpty()) {
             return;
         }
-        if (config.apiUrl() == null || config.apiUrl().isEmpty()) {
-            return;
+        if (apiClient.getApiUrl().isEmpty()) {
+            return; // signed out: the plugin contacts nothing (BingoApiClient.configure)
         }
         BingoApiClient.HelloResponse resp = apiClient.hello(rsn);
         helloSent = true;
@@ -2659,10 +2647,9 @@ public class AnvilPlugin extends Plugin {
      * every thirty seconds, plus an ordering dependency between two tasks in the same loop that
      * nobody wants to have to think about.
      *
-     * It cannot simply go, though. refreshConfig returns immediately without a token, so for somebody
-     * who has entered a Site URL and not yet signed in, this endpoint is the ONLY thing that fills the
-     * in-game tab's schedule — and browsing what a clan has coming up before linking an account is a
-     * reasonable thing to want to do. So it runs exactly in that gap.
+     * Signed out, it is a no-op too: the client has no address until there is a token
+     * (BingoApiClient.configure), so a fresh install contacts nothing. It runs only in the gap where
+     * the config poll is not carrying the schedule.
      */
     private void refreshSchedule() {
         if (apiClient.isConfigured()) {
@@ -5284,7 +5271,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void configureApiClient() {
-        apiClient.configure(config.apiUrl(), config.playerToken());
+        apiClient.configure(config.playerToken());
     }
 
     // ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
@@ -5303,8 +5290,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         String token = config.playerToken();
-        String url = config.apiUrl();
-        if (token == null || token.isEmpty() || url == null || url.isEmpty()) {
+        if (token == null || token.isEmpty()) {
             return;
         }
         adminProbeAttempted = true;
@@ -5690,35 +5676,6 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** Set once we've mentioned the canonical URL, so a 30-second poll does not become a 30-second nag. */
-    private volatile boolean urlMigrationSuggested = false;
-
-    /**
-     * Mention the site's preferred address, once, when the configured one is a legacy alias.
-     *
-     * A per-clan subdomain resolves the clan from the hostname; the canonical address resolves it
-     * from your token, which is what keeps working when you join a second clan. The old address is
-     * NOT broken and we do not change it for them — silently rewriting a URL somebody typed is how
-     * you turn a working setup into a support ticket. We say it once and leave it to them.
-     *
-     * The server decides what "canonical" is (see PluginConfigResponse.suggestedUrlMigration), so a
-     * self-hosted site sends its own and nobody is ever pointed at a server that is not theirs.
-     */
-    private void maybeSuggestUrlMigration(PluginConfigResponse fresh) {
-        if (fresh == null || urlMigrationSuggested) {
-            return;
-        }
-        String suggested = fresh.suggestedUrlMigration(config.apiUrl());
-        if (suggested == null) {
-            return;
-        }
-        urlMigrationSuggested = true;
-        log.info("Anvil: configured site URL '{}' is a legacy address; '{}' is the current one.",
-                config.apiUrl(), suggested);
-        sendChatMessage("Anvil now runs one site for every clan. You can change your Site URL to "
-                + suggested + " in Configuration \u2192 Anvil \u2014 your current one still works.");
-    }
-
     /**
      * Take the clan the site says it answered for, so everything AFTER this call is addressed.
      *
@@ -5836,10 +5793,9 @@ public class AnvilPlugin extends Plugin {
         }
         try {
             PluginConfigResponse fresh = apiClient.fetchConfig();
-            // A refresh that returned (HTTP 200/304, no throw) proves the token + Site URL are good —
-            // clear any connection-failure streak and announce recovery if we'd nagged.
+            // A refresh that returned (HTTP 200/304, no throw) proves the token is good — clear any
+            // connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();
-            maybeSuggestUrlMigration(fresh);
             adoptResolvedClan(fresh);
             // The config response now carries the schedule + active weekly (merged reads), so adopt
             // them here — saves the separate schedule/active-weekly round-trips for token-holders.

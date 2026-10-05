@@ -11,14 +11,10 @@ import static org.junit.Assert.assertTrue;
 /**
  * When the plugin is allowed to reach the network, and when it offers to sign in.
  *
- * THE PROPERTY THAT MATTERS FOR THE HUB. An install nobody signs into must contact nothing: the Site
- * URL defaults to "" and every unauthenticated poll — hello, active-weekly, schedule,
- * weekly-leaderboard — bails on an empty URL. So the first request is always downstream of an
- * explicit click, and the button names its destination before it is pressed.
- *
- * The canonical site is therefore a constant offered on that click, NOT a config default. The
- * distinction is the whole compliance argument, and a future "simplification" that moves the address
- * into {@code AnvilConfig.apiUrl()} would quietly undo it — which is what this test is here to stop.
+ * The site is fixed (BingoApiClient.CANONICAL_SITE) — the Plugin Hub's third-party warning covers
+ * that. What this pins is the courtesy on top: an install nobody signs into contacts nothing. The
+ * client only takes the address once it holds a token, every poll bails on an empty address, and
+ * sign-in itself (run before a token exists) goes to the constant directly on an explicit click.
  */
 public class SignInGateTest
 {
@@ -47,27 +43,33 @@ public class SignInGateTest
 	public void signInStopsBeingOfferedOnceThereIsAToken()
 	{
 		BingoApiClient c = client();
-		c.configure(BingoApiClient.CANONICAL_SITE, "tok");
+		c.configure("tok");
 		assertFalse(c.needsSignIn());
+		assertEquals("signed in: talking to the one site", BingoApiClient.CANONICAL_SITE, c.getApiUrl());
 	}
 
 	@Test
-	public void aTypedSiteIsStillTheirSiteAndKeepsTheOffer()
+	public void signingOutTakesTheAddressAway()
 	{
-		// Somebody running their own Anvil, or an older per-clan address: signed out, so still offered
-		// the sign-in — and the auto-fill must not touch a URL they chose (asserted in the panel by
-		// only writing when empty; here we pin that a set URL survives configure()).
 		BingoApiClient c = client();
-		c.configure("https://bingo.myclan.example", "");
+		c.configure("tok");
+		c.configure("");
 		assertTrue(c.needsSignIn());
-		assertEquals("https://bingo.myclan.example", c.getApiUrl());
+		assertEquals("no token, no address — nothing polls", "", c.getApiUrl());
+		c.configure("   ");
+		assertEquals("blank is no token", "", c.getApiUrl());
+	}
+
+	@Test
+	public void signInGoesToTheFixedSiteBeforeThereIsAToken()
+	{
+		assertEquals("https://anvilosrs.com/api/plugin/auth/start", BingoApiClient.authUrl("/api/plugin/auth/start"));
 	}
 
 	@Test
 	public void theCanonicalSiteIsAnAbsoluteHttpsAddress()
 	{
-		// It is written into config on click, so it has to be usable verbatim — a bare hostname would
-		// be normalised somewhere and a trailing slash would double up in every built URL.
+		// Every request URL is built by appending a path to it, so a trailing slash would double up.
 		assertEquals("https://anvilosrs.com", BingoApiClient.CANONICAL_SITE);
 		assertTrue(BingoApiClient.CANONICAL_SITE.startsWith("https://"));
 		assertFalse(BingoApiClient.CANONICAL_SITE.endsWith("/"));

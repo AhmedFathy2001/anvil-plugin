@@ -31,7 +31,7 @@ public class ClanAddressingTest
 	public void setUp()
 	{
 		client = new BingoApiClient(new Gson(), new OkHttpClient());
-		client.configure("https://anvilosrs.com", "tok");
+		client.configure("tok");
 	}
 
 	// ---- Auto: nothing chosen, nothing heard yet ---------------------------------------------------
@@ -133,23 +133,8 @@ public class ClanAddressingTest
 
 		// The member has no clan yet at this point — that is the whole reason they are signing in — and
 		// the site's device-auth pair is a platform route that a clan prefix would only redirect out of.
-		assertEquals("https://anvilosrs.com/api/plugin/auth/start", client.rootUrl("/api/plugin/auth/start"));
-		assertEquals("https://anvilosrs.com/api/plugin/auth/poll", client.rootUrl("/api/plugin/auth/poll"));
-	}
-
-	// ---- Old addresses are untouched, which is the point of keeping them ---------------------------
-
-	@Test
-	public void aPerClanSubdomainStillWorksAndIsNotDoublyAddressed()
-	{
-		// A jar installed before any of this has its clan's own hostname stored. The site resolves the
-		// clan from that host and ignores what the token says — but it still ANSWERS with a slug, and
-		// prefixing on top of a host that already names the clan is harmless: /c/<same slug> resolves to
-		// the same clan. Pinned so nobody 'optimises' the prefix away and breaks the apex instead.
-		client.configure("https://theafkspot.anvilosrs.com", "tok");
-		client.setResolvedClan("theafkspot");
-		assertEquals("https://theafkspot.anvilosrs.com/c/theafkspot/api/plugin/stats",
-			client.clanUrl("/api/plugin/stats"));
+		assertEquals("https://anvilosrs.com/api/plugin/auth/start", BingoApiClient.authUrl("/api/plugin/auth/start"));
+		assertEquals("https://anvilosrs.com/api/plugin/auth/poll", BingoApiClient.authUrl("/api/plugin/auth/poll"));
 	}
 
 	@Test

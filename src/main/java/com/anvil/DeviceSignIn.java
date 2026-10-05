@@ -96,14 +96,16 @@ public final class DeviceSignIn
 		BingoApiClient.DeviceAuthStart start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty())
 		{
-			status.accept("Couldn't reach the site — check the Site URL.");
+			status.accept("Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.");
 			done.accept(new Result(Outcome.UNAVAILABLE, null));
 			return;
 		}
 
 		String url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
 			? start.verification_url_complete : start.verification_url;
-		if (!isConfiguredHomeUrl(apiClient.getApiUrl(), url))
+		// Checked against the fixed site, not the client's address — that stays empty until there is a
+		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
+		if (!isConfiguredHomeUrl(BingoApiClient.CANONICAL_SITE, url))
 		{
 			// A response steering the browser anywhere but the member's own configured site is hostile.
 			log.warn("refusing sign-in URL not on the configured home: {}", url);
@@ -197,9 +199,9 @@ public final class DeviceSignIn
 	}
 
 	/**
-	 * True only for an HTTPS/HTTP URL on the EXACT configured home origin (scheme + host + port all
-	 * matching the member-typed Site URL) with the fixed {@link #LINK_PATH} path. No credentials.
-	 * HTTP is tolerated only when the configured home itself is HTTP (self-host dev setups).
+	 * True only for an HTTPS/HTTP URL on the EXACT home origin (scheme + host + port all matching
+	 * {@link BingoApiClient#CANONICAL_SITE}) with the fixed {@link #LINK_PATH} path. No credentials.
+	 * HTTP is tolerated only when the home itself is HTTP (local dev builds).
 	 */
 	static boolean isConfiguredHomeUrl(String configuredApiUrl, String url)
 	{

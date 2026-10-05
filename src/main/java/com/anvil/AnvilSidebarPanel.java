@@ -98,8 +98,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JComboBox<ClanChoice> clanPicker = new JComboBox<>();
 	private final JButton refreshButton = new JButton("Refresh");
 
-	// Device sign-in (home-native, DeviceSignIn): shown when a Site URL is configured but no
-	// Account Token yet — replaces the copy-the-token-from-your-profile step.
+	// Device sign-in (home-native, DeviceSignIn): shown whenever there is no Account Token yet — the
+	// main way in, so nobody has to copy a token out of the site.
 	private final BingoApiClient apiClient;
 	private final net.runelite.client.config.ConfigManager configManager;
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
@@ -187,7 +187,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
 		titleRow.setAlignmentX(LEFT_ALIGNMENT);
 
-		// Sign-in affordance — visible only in the "Site URL set, no token" state (see refreshSignInRow).
+		// Sign-in affordance — visible whenever there is no token (see refreshSignInRow).
 		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
 		signInButton.addActionListener(e -> startSignIn());
 		signInStatus.setFont(FontManager.getRunescapeSmallFont());
@@ -260,10 +260,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	/**
 	 * Show the Sign-in button whenever there is no Account Token — and say where it will connect.
 	 *
-	 * The destination is stated BEFORE the click, not after, because for somebody who has typed no
-	 * site the click is what chooses the server. A button that quietly picked one and then contacted
-	 * it would be the plugin making that decision; naming it first makes the press the answer to a
-	 * question they have been asked.
+	 * The destination is stated BEFORE the click: nothing is sent to it until then, and the press is
+	 * the member agreeing to connect (the hub's third-party warning says the same at install).
 	 */
 	private void refreshSignInRow()
 	{
@@ -273,9 +271,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			signInRow.setVisible(show);
 			if (show)
 			{
-				setSignInStatus(apiClient.getApiUrl().isEmpty()
-					? "Connects to " + BingoApiClient.CANONICAL_SITE + ". Using your own Anvil? Put its address in Site URL first."
-					: "Connects to " + apiClient.getApiUrl() + ".");
+				setSignInStatus("Connects to " + SetupNudge.SITE_HOST + ".");
 			}
 			signInRow.revalidate();
 			signInRow.repaint();
@@ -290,23 +286,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		// THE SITE, IF THEY HAVE NOT NAMED ONE. Only when empty — somebody who typed their own address
-		// (a self-hosted Anvil, or an older per-clan one) has already answered this question, and
-		// overwriting their answer because they pressed the obvious button would be its own bug.
-		//
-		// Writing it here rather than defaulting the config item is deliberate: the plugin reaches the
-		// network only after this click, so an install nobody signs into contacts nothing at all. The
-		// click IS the disclosure, which is why the button says where it goes.
-		if (apiClient.getApiUrl().isEmpty())
-		{
-			configManager.setConfiguration("osrsbingo", "apiUrl", BingoApiClient.CANONICAL_SITE);
-			// Straight onto the client too. The config write reaches it through onConfigChanged, and
-			// the sign-in below starts on this thread — without this the first request would go out
-			// against the empty URL it was holding a moment ago.
-			apiClient.configure(
-				BingoApiClient.CANONICAL_SITE, configManager.getConfiguration("osrsbingo", "playerToken"));
-		}
-
 		signInInFlight = true;
 		signInButton.setEnabled(false);
 		setSignInStatus("Starting…");
@@ -374,7 +353,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/**
 	 * Forget everything on screen, because it belongs to a site or an account we are no longer using.
 	 *
-	 * <p>Called the moment the Site URL or the token changes. Without it the panel kept rendering the
+	 * <p>Called the moment the token changes. Without it the panel kept rendering the
 	 * previous clan's events, board and roster until a fetch against the NEW credentials succeeded —
 	 * which is indefinitely when the new ones are wrong, so the member sits looking at a clan they
 	 * just left and reasonably concludes the change didn't take.

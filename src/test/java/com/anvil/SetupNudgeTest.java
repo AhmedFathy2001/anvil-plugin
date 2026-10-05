@@ -20,35 +20,26 @@ public class SetupNudgeTest
 	@Test
 	public void aFreshInstallIsToldWhereToGo()
 	{
-		assertEquals(SetupNudge.Kind.FIRST_RUN, SetupNudge.decide("", "", 0));
-		assertEquals(SetupNudge.Kind.FIRST_RUN, SetupNudge.decide(null, null, 0));
+		assertEquals(SetupNudge.Kind.FIRST_RUN, SetupNudge.decide("", 0));
+		assertEquals(SetupNudge.Kind.FIRST_RUN, SetupNudge.decide(null, 0));
 		assertEquals("blank is empty, whitespace included", SetupNudge.Kind.FIRST_RUN,
-			SetupNudge.decide("  ", "\t", 0));
+			SetupNudge.decide("\t", 0));
 	}
 
 	@Test
 	public void theFreshInstallLineStopsAfterTheCap()
 	{
-		assertEquals(SetupNudge.Kind.FIRST_RUN, SetupNudge.decide("", "", SetupNudge.FIRST_RUN_NUDGES - 1));
-		assertEquals(SetupNudge.Kind.NONE, SetupNudge.decide("", "", SetupNudge.FIRST_RUN_NUDGES));
+		assertEquals(SetupNudge.Kind.FIRST_RUN, SetupNudge.decide("", SetupNudge.FIRST_RUN_NUDGES - 1));
+		assertEquals(SetupNudge.Kind.NONE, SetupNudge.decide("", SetupNudge.FIRST_RUN_NUDGES));
 		assertEquals("a count from a mangled config never re-arms it", SetupNudge.Kind.NONE,
-			SetupNudge.decide("", "", 99));
+			SetupNudge.decide("", 99));
 	}
 
 	@Test
 	public void aConnectedInstallIsLeftAlone()
 	{
-		assertEquals(SetupNudge.Kind.NONE, SetupNudge.decide(BingoApiClient.CANONICAL_SITE, "tok", 0));
+		assertEquals(SetupNudge.Kind.NONE, SetupNudge.decide("tok", 0));
 		assertArrayEquals(new String[0], SetupNudge.lines(SetupNudge.Kind.NONE));
-	}
-
-	@Test
-	public void halfConfiguredIsStillNamedAsTheErrorItIs()
-	{
-		// The cap does not apply to these: they are a misconfiguration the member created by filling
-		// in one box, and they stay once-per-login the way they always were.
-		assertEquals(SetupNudge.Kind.MISSING_TOKEN, SetupNudge.decide(BingoApiClient.CANONICAL_SITE, "", 99));
-		assertEquals(SetupNudge.Kind.MISSING_URL, SetupNudge.decide("", "tok", 99));
 	}
 
 	@Test
@@ -62,10 +53,9 @@ public class SetupNudgeTest
 	}
 
 	@Test
-	public void theSiteHostIsTheAddressSignInWrites()
+	public void theSiteHostIsTheAddressThePluginUses()
 	{
-		// One source of truth: the chat line and the button's destination cannot drift into naming
-		// different sites.
+		// One source of truth: the chat line and the plugin's only server cannot drift apart.
 		assertEquals("anvilosrs.com", SetupNudge.SITE_HOST);
 		assertTrue(BingoApiClient.CANONICAL_SITE.endsWith(SetupNudge.SITE_HOST));
 	}
