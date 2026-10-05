@@ -533,10 +533,22 @@ public final class ConnectionView
 		public final String scoringMode;
 		/** The event's page on the Anvil site, or {@code null} when the base URL is unknown. */
 		public final String url;
+		/**
+		 * Where the LOGGED-IN CHARACTER stands: "entered", "pending", or null (not signed up, or a site
+		 * that doesn't say). Per character — a person's main and alt get different answers.
+		 */
+		public final String yourEntry;
 
 		public ScheduledView(int id, String title, String startDate, String endDate, boolean live,
 			int tileCount, int boardSize, String format, String scoringMode, String url)
 		{
+			this(id, title, startDate, endDate, live, tileCount, boardSize, format, scoringMode, url, null);
+		}
+
+		public ScheduledView(int id, String title, String startDate, String endDate, boolean live,
+			int tileCount, int boardSize, String format, String scoringMode, String url, String yourEntry)
+		{
+			this.yourEntry = yourEntry;
 			this.id = id;
 			this.title = title == null || title.isEmpty() ? "Bingo" : title;
 			this.startDate = startDate;

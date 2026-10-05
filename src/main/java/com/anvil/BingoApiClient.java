@@ -812,6 +812,8 @@ public class BingoApiClient
 		public Integer tileCount; // count of tiles configured for this event
 		public String format;      // "bingo" | "tilerace" — picks the in-game view
 		public String scoringMode; // "tiles" | "points"
+		/** The logged-in character's entry: "entered" | "pending" | null. Absent on older sites. */
+		public String yourEntry;
 	}
 
 	public static class ScheduledWeekly

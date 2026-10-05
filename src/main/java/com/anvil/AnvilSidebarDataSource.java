@@ -543,7 +543,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			out.add(new ConnectionView.ScheduledView(b.id, b.title, b.startDate, b.endDate,
 				isLive(b.status), b.tileCount == null ? 0 : b.tileCount,
 				b.boardSize == null ? 0 : b.boardSize, b.format, b.scoringMode,
-				base == null || base.isEmpty() ? null : base + "/events/" + b.id));
+				base == null || base.isEmpty() ? null : apiClient.clanUrl("/events/" + b.id), b.yourEntry));
 		}
 		return out;
 	}
@@ -768,7 +768,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		{
 			return null;
 		}
-		return base + "/events/" + cfg.event.id;
+		// Under the clan this board was served for (/c/<slug>/events/<id>) — a bare /events/<id> names no
+		// clan and the site can only redirect it.
+		return apiClient.clanUrl("/events/" + cfg.event.id);
 	}
 
 	/** Reset the feed + delta state when the active event changes (or clears). */

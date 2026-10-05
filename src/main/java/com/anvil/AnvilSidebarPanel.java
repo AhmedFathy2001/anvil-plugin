@@ -1578,8 +1578,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		panel.add(gap(4));
-		panel.add(leftLabel(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
-			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		// Per CHARACTER: the site answers for the account you're logged into, so a main that's entered
+		// and an alt that isn't read differently here.
+		if ("entered".equals(s.yourEntry))
+		{
+			panel.add(leftLabel(s.live ? "You're in — your board shows once it loads." : "You're signed up — waiting for it to start.",
+				FontManager.getRunescapeSmallFont(), ColorScheme.PROGRESS_COMPLETE_COLOR));
+		}
+		else if ("pending".equals(s.yourEntry))
+		{
+			panel.add(leftLabel("Signed up — waiting for the host to approve.",
+				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+		else
+		{
+			panel.add(leftLabel(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
+				FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		}
 
 		if (s.url != null && !s.url.isEmpty())
 		{
