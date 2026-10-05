@@ -1696,10 +1696,18 @@ public class BingoApiClient
 			progress = java.util.Collections.emptyMap();
 		}
 		JsonArray rows = new JsonArray();
+		Integer accountType = null;
 		for (java.util.Map.Entry<String, Integer> e : progress.entrySet())
 		{
 			if (e.getKey() == null || e.getValue() == null)
 			{
+				continue;
+			}
+			// The game mode is not a progress row: rows are max-merged, and a mode goes down. It has
+			// its own top-level field, which a server that doesn't know it simply ignores.
+			if (AccountProgress.ACCOUNT_TYPE_KEY.equals(e.getKey()))
+			{
+				accountType = e.getValue();
 				continue;
 			}
 			JsonObject row = new JsonObject();
@@ -1707,13 +1715,17 @@ public class BingoApiClient
 			row.addProperty("value", e.getValue());
 			rows.add(row);
 		}
-		if (rows.size() == 0 && !hasItems && !hasVarps)
+		if (rows.size() == 0 && !hasItems && !hasVarps && accountType == null)
 		{
 			return;
 		}
 
 		JsonObject payload = new JsonObject();
 		payload.add("progress", rows);
+		if (accountType != null)
+		{
+			payload.addProperty("accountType", accountType);
+		}
 		if (hasItems)
 		{
 			JsonArray itemRows = new JsonArray();

@@ -108,8 +108,17 @@ final class AccountProgress
 			out.put(DIARY_REGION_KEYS[region], regionMask(client, DIARY_VARBITS[region]));
 		}
 		out.put(KARAMJA_KEY, client.getVarbitValue(KARAMJA_ELITE) > 0 ? DIARY_ELITE_BIT : 0);
+		// Game mode, raw (0 regular, 1 ironman, 2 ultimate, 3 hardcore, 4 group, 5 hardcore group,
+		// 6 unranked group). Read here, past the all-zero guard above, so a login's unpopulated
+		// client can't report an ironman as regular. The site maps it and keeps the latest value —
+		// unlike the rest of this map it can go down (de-ironing, a hardcore death). Sent top-level,
+		// not as a progress row: see BingoApiClient.submitProgress.
+		out.put(ACCOUNT_TYPE_KEY, client.getVarbitValue(VarbitID.IRONMAN));
 		return out;
 	}
+
+	/** The map key the game mode rides under; pulled out into its own field when pushed. */
+	static final String ACCOUNT_TYPE_KEY = "accountType";
 
 	/** Tier bits inside a region mask — the same numbering the site uses. */
 	private static final int DIARY_EASY_BIT = 1;
