@@ -165,9 +165,10 @@ All of them are available in 16 languages — pick one from the top of any guide
 
 ## Why RuneLite shows a warning
 
-When you install Anvil, the Plugin Hub warns that it *"submits your IP address to a 3rd party website
-not controlled or verified by the RuneLite Developers."* RuneLite shows that for every plugin that
-talks to a server outside RuneLite, and it's accurate for this one:
+When you install Anvil, the Plugin Hub warns: *"This plugin submits your IP address and your
+account's gameplay data (RSN, drops, kill counts, XP and progress) to anvilosrs.com, a 3rd-party
+server not controlled or verified by the RuneLite developers."* RuneLite asks every plugin that talks
+to a server outside RuneLite to say so, and it's accurate for this one:
 
 - **Anvil is a third-party site.** anvilosrs.com isn't run by RuneLite or Jagex — it's where your clan's
   events, boards and rosters live.
