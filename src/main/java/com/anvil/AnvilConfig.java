@@ -120,6 +120,20 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "selfTileBanner",
+		name = "My tile popups",
+		description = "Show the collection-log style popup (and its sound) when YOUR drop progresses or completes a "
+			+ "bingo tile. Turn off to keep tracking quietly — the tile still counts, and your team's popup for "
+			+ "a tile you completed stays off too.",
+		position = 4,
+		section = "bingoSection"
+	)
+	default boolean selfTileBanner()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "bannerSound",
 		name = "Banner sound",
 		// No longer names a folder to drop files into. The clips live in the plugin's own directory

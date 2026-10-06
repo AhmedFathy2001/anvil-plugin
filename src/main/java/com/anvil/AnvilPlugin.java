@@ -1633,9 +1633,15 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void showBingoToast(PluginConfigResponse.TrackedDrop drop, int current, int required) {
-        clogBanner.show(drop.label, current, required);
-        playBannerSound();
+        // Opted out of popups for their own drops: the drop still counts, only the banner and its
+        // sound are skipped.
+        if (config.selfTileBanner()) {
+            clogBanner.show(drop.label, current, required);
+            playBannerSound();
+        }
         if (current >= required) {
+            // Marked even when the popup is off — otherwise the TEAM banner would announce the same
+            // tile a poll later, which is the popup they just turned off arriving by another door.
             // This drop completed the tile locally — suppress the duplicate team-completion banner.
             locallyShownTiles.add(drop.tileId);
         }
