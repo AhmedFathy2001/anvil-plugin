@@ -167,6 +167,11 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private ClipFolder clipFolder;
 
+    // The OBS folder we borrowed — the player's own value and which clients are running, on THIS
+    // machine. See ObsFolderState for why neither may live in (synced) config.
+    @Inject
+    private ObsFolderState obsFolderState;
+
     @Inject
     private DiscordWebhookClient discordClient;
 
@@ -1165,6 +1170,12 @@ public class AnvilPlugin extends Plugin {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
             clipFolder.setRoot(pluginDir.join("clips"));
+            obsFolderState.setRoot(pluginDir);
+            obsFolderState.heartbeat();
+            // The old backup lived in (synced) config, so it may name another machine's folder — the
+            // /Users/... path a Mac left for a Linux OBS. Never restore it; the next connect re-reads
+            // the real one from OBS.
+            configManager.unsetConfiguration("osrsbingo", OBS_PATH_BACKUP);
             bannerSound.setRoot(pluginDir.join("sounds"));
             debugLogExporter.setRoot(pluginDir.join("debug"));
         } catch (IOException | RuntimeException e) {
@@ -1272,6 +1283,8 @@ public class AnvilPlugin extends Plugin {
             safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
             safely("pushAccountProgress", this::pushAccountProgress);
+            safely("obsHeartbeat", obsFolderState::heartbeat);
+            safely("obsFolderCheck", this::checkObsFolder);
         }, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -1401,7 +1414,16 @@ public class AnvilPlugin extends Plugin {
         // Before the socket goes: we borrowed their recording folder, and a plugin that doesn't hand
         // it back leaves every future OBS recording in a RuneLite data directory. No cycle here —
         // restarting the buffer needs a reply we won't be around to receive.
-        restoreObsRecordDirectory(false);
+        //
+        // UNLESS ANOTHER CLIENT IS STILL PLAYING. Two RuneLite clients share one OBS; handing the folder
+        // back here pulled it out from under the survivor, whose clips then went out of reach for the
+        // rest of its session. The last client to close restores it.
+        if (obsFolderState.othersAlive()) {
+            log.debug("Anvil OBS: another client is still running — leaving OBS on our folder");
+        } else {
+            restoreObsRecordDirectory(false);
+        }
+        obsFolderState.leave();
         disconnectObs();
         if (executor != null) {
             executor.shutdownNow();
@@ -9666,7 +9688,7 @@ public class AnvilPlugin extends Plugin {
         boolean isOurs = ours != null && ours.equalsIgnoreCase(dir);
         if (config.manageObsFolder()) {
             if (!isOurs) {
-                configManager.setConfiguration("osrsbingo", OBS_PATH_BACKUP, dir);
+                obsFolderState.saveBackup(dir);
             }
             return;
         }
@@ -9677,13 +9699,31 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /**
+     * Mid-session self-heal: is OBS still writing to our folder? Something can move it while we run —
+     * another client closing, or the player editing OBS — and a running buffer then saves where we
+     * can't read. Cheap (two status requests); the client only cycles the buffer when it really moved.
+     */
+    private void checkObsFolder() {
+        if (!config.clipsEnabled() || !config.manageObsFolder()) {
+            return;
+        }
+        ObsReplayClient obs;
+        synchronized (obsLock) {
+            obs = obsClip;
+        }
+        if (obs != null && obs.isConnected()) {
+            obs.checkRecordDirectory();
+        }
+    }
+
     /** Hand the player's recording folder back to them, and forget we ever held it. */
     private void restoreObsRecordDirectory() {
         restoreObsRecordDirectory(true);
     }
 
     private void restoreObsRecordDirectory(boolean cycle) {
-        String backup = configManager.getConfiguration("osrsbingo", OBS_PATH_BACKUP);
+        String backup = obsFolderState.backup();
         if (backup == null || backup.isEmpty()) {
             return;
         }
@@ -9695,7 +9735,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         obs.setRecordDirectory(backup);
-        configManager.unsetConfiguration("osrsbingo", OBS_PATH_BACKUP);
+        obsFolderState.clearBackup();
         // A running buffer holds the folder it STARTED with, so the setting alone would leave their
         // next clips in ours. Cycling it makes the restore take effect now rather than whenever OBS
         // is next restarted. Skipped on the way out: the restart is driven by the stop's reply, and

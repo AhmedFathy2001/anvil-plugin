@@ -99,6 +99,20 @@ public class ObsReplayClient extends WebSocketListener
 		return connected;
 	}
 
+	/**
+	 * Re-read where OBS records, and move a RUNNING buffer back onto our folder if it has drifted.
+	 * Unlike the connect-time check this never starts a stopped buffer — stopping it is the player's
+	 * call, and a minute-by-minute restart would fight them.
+	 */
+	public void checkRecordDirectory()
+	{
+		if (!connected)
+		{
+			return;
+		}
+		sendRequest("GetRecordDirectory", "anvil-recdir-check");
+	}
+
 	/** Ask OBS to flush the replay buffer to disk. The path comes back via the ReplayBufferSaved event. */
 	public void saveReplayBuffer()
 	{
@@ -329,7 +343,11 @@ public class ObsReplayClient extends WebSocketListener
 						onRecordDirectory.accept(dir);
 					}
 					// Now it is safe to start the buffer: whatever we apply next can be undone.
-					sendRequest("GetReplayBufferStatus", "anvil-rb-status");
+					boolean check = "anvil-recdir-check".equals(optString(d, "requestId"));
+					if (!check || wantsRedirect())
+					{
+						sendRequest("GetReplayBufferStatus", check ? "anvil-rb-status-check" : "anvil-rb-status");
+					}
 				}
 				else if ("GetReplayBufferStatus".equals(rt))
 				{
@@ -337,6 +355,12 @@ public class ObsReplayClient extends WebSocketListener
 						? d.getAsJsonObject("responseData") : null;
 					boolean active = rd != null && rd.has("outputActive") && rd.get("outputActive").getAsBoolean();
 					log.info("Anvil OBS: replay buffer active={}", active);
+					boolean check = "anvil-rb-status-check".equals(optString(d, "requestId"));
+					if (!active && check)
+					{
+						// The periodic check never starts a buffer the player stopped.
+						break;
+					}
 					if (!active)
 					{
 						startBuffer();
