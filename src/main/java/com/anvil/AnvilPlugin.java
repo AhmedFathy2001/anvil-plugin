@@ -5975,6 +5975,24 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /**
+     * Ask whether this account is an admin right now, skipping the re-probe interval — for the
+     * sidebar's Refresh button. Off the EDT (the panel's worker calls it). Unlike the timed re-probe
+     * it also takes a no: a member who clicks Refresh gets the site's current answer either way.
+     */
+    void reprobeAdminNow() {
+        if (!apiClient.isConfigured()) {
+            return;
+        }
+        lastAdminProbeAt = System.currentTimeMillis();
+        adminProbeAttempted = true;
+        boolean admin = apiClient.fetchIsAdmin(config.playerToken());
+        if (admin != isAdmin) {
+            log.info("Anvil: admin re-checked on Refresh — now {}", admin ? "admin" : "not admin");
+        }
+        isAdmin = admin;
+    }
+
     private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {
         if (ev == null) {
             return false;

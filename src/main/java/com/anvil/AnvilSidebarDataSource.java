@@ -262,6 +262,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	@Override
 	public List<ConnectionView> fetchConnections(boolean force) throws SidebarDataException
 	{
+		// A clicked Refresh is the member saying "I just changed something" — often that they were
+		// made a clan admin. Ask now, not on the five-minute re-probe, so the roster-sync button shows.
+		AnvilPlugin p = plugin;
+		if (force && p != null)
+		{
+			p.reprobeAdminNow();
+		}
 		ConnectionView view = buildView(force);
 		return view == null ? Collections.emptyList() : Collections.singletonList(view);
 	}
