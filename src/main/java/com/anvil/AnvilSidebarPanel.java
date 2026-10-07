@@ -260,8 +260,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	/**
 	 * Show the Sign-in button whenever there is no Account Token — and say where it will connect.
 	 *
-	 * The destination is stated BEFORE the click: nothing is sent to it until then, and the press is
-	 * the member agreeing to connect (the hub's third-party warning says the same at install).
+	 * The destination is stated BEFORE the click: nothing is sent to it until then, and pressing the
+	 * button is the member explicitly choosing to connect.
 	 */
 	private void refreshSignInRow()
 	{

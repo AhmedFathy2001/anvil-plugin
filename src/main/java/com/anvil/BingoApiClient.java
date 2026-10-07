@@ -235,9 +235,9 @@ public class BingoApiClient
 	 * Anvil — the only server this plugin talks to. There is no Site URL setting: one site serves every
 	 * clan, and the clan is resolved from the Account Token.
 	 *
-	 * Talking to a fixed third-party server is why the Plugin Hub shows its "submits your IP address
-	 * to a 3rd party website" warning on install (the manifest's `warning=`). The plugin still contacts
-	 * nothing until someone signs in: see {@link #configure}.
+	 * A fresh install contacts no server until someone starts sign-in. The sign-in UI names the
+	 * destination before the click; after authentication, {@link #configure} enables requests with the
+	 * resulting Account Token.
 	 */
 	public static final String CANONICAL_SITE = "https://anvilosrs.com";
 

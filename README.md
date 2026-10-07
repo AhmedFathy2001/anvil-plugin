@@ -14,7 +14,6 @@ board as you earn them, and the things worth shouting about land in your clan's 
 ## Get set up in one click
 
 1. **Install** — RuneLite → Configuration (the wrench) → **Plugin Hub** → search **Anvil** → Install.
-   RuneLite will show a third-party warning first — [here's why](#why-runelite-shows-a-warning).
 2. **Sign in** — open the Anvil side panel (the anvil icon on the right) and click **Sign in with
    Discord**. Approve the code in your browser and the plugin fills your Account Token in for you.
 
@@ -163,18 +162,15 @@ Written against the live site, with screenshots:
 
 All of them are available in 16 languages — pick one from the top of any guide page.
 
-## Why RuneLite shows a warning
+## How Anvil connects
 
-When you install Anvil, the Plugin Hub warns: *"This plugin submits your IP address and your
-account's gameplay data (RSN, drops, kill counts, XP and progress) to anvilosrs.com, a 3rd-party
-server not controlled or verified by the RuneLite developers."* RuneLite asks every plugin that talks
-to a server outside RuneLite to say so, and it's accurate for this one:
+Anvil connects to **anvilosrs.com** after you sign in:
 
 - **Anvil is a third-party site.** anvilosrs.com isn't run by RuneLite or Jagex — it's where your clan's
   events, boards and rosters live.
 - **The plugin has to talk to it.** Filing a drop against a tile, moving the board with your KC and XP,
   or syncing your collection log are all web requests to anvilosrs.com — and any web request shows the
-  server your IP address. That's all the warning means; it isn't something extra the plugin collects.
+  server your IP address. The plugin doesn't collect it separately.
 - **What's sent is your own play.** Your RSN, and the drops, kill counts, XP and progress of the
   account you're logged into, for the clans and events you're in — tied to your Account Token. The IP
   address is used the way any website uses it: to answer the request and to rate-limit abuse.

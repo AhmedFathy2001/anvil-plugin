@@ -11,10 +11,10 @@ import static org.junit.Assert.assertTrue;
 /**
  * When the plugin is allowed to reach the network, and when it offers to sign in.
  *
- * The site is fixed (BingoApiClient.CANONICAL_SITE) — the Plugin Hub's third-party warning covers
- * that. What this pins is the courtesy on top: an install nobody signs into contacts nothing. The
- * client only takes the address once it holds a token, every poll bails on an empty address, and
- * sign-in itself (run before a token exists) goes to the constant directly on an explicit click.
+ * The site is fixed (BingoApiClient.CANONICAL_SITE). What this pins is the explicit sign-in gate: an
+ * install nobody signs into contacts nothing. The client only takes the address once it holds a
+ * token, every poll bails on an empty address, and sign-in itself (run before a token exists) goes to
+ * the constant directly on an explicit click.
  */
 public class SignInGateTest
 {
