@@ -14,12 +14,40 @@ public class SidebarTileCatalogueTest
 	{
 		BingoApiClient.BoardTile tile = new BingoApiClient.BoardTile();
 		tile.tileId = id;
+		tile.position = id;
 		tile.label = label;
 		tile.description = description;
 		tile.requirement = requirement;
 		tile.category = category;
 		tile.complete = complete;
 		return tile;
+	}
+
+	@Test
+	public void multiWordSearchRanksTileNamesAheadOfDescriptionNoise()
+	{
+		List<BingoApiClient.BoardTile> tiles = Arrays.asList(
+			tile(1, "Lucky drop", "A dragon warhammer would be nice", null, "Drops", false),
+			tile(2, "Dragon warhammer", "Shaman unique", null, "Drops", false),
+			tile(3, "Dragon task", null, "Obtain a warhammer", "Combat", false));
+
+		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
+			tiles, "dragon warhammer", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(Arrays.asList(2, 3, 1), Arrays.asList(
+			result.get(0).tileId, result.get(1).tileId, result.get(2).tileId));
+	}
+
+	@Test
+	public void searchWordsCanMatchAcrossNameAndCategoryAndIgnorePunctuation()
+	{
+		List<BingoApiClient.BoardTile> tiles = Arrays.asList(
+			tile(1, "Barrows—chest", null, null, "Treasure trails", false),
+			tile(2, "Barrows gloves", null, null, "Quest", false));
+
+		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
+			tiles, "barrows treasure", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(1, result.size());
+		assertEquals(1, result.get(0).tileId);
 	}
 
 	@Test

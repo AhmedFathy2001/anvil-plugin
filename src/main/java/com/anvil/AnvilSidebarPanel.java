@@ -155,6 +155,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final Map<String, Integer> boardCataloguePages = new HashMap<>();
 	private boolean showAllActiveTiles;
 	private int boardCatalogueGeneration;
+	/** Do not replace the whole Swing tree underneath somebody who is typing in the tile search. */
+	private boolean boardSearchFocused;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
 	private boolean rebuildingPicker;
@@ -180,7 +182,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		add(content, BorderLayout.CENTER);
 
-		autoRefresh = new Timer(POLL_INTERVAL_MS, e -> refresh());
+		autoRefresh = new Timer(POLL_INTERVAL_MS, e ->
+		{
+			if (!boardSearchFocused)
+			{
+				refresh();
+			}
+		});
 		autoRefresh.setCoalesce(true);
 
 		renderLoading();
@@ -453,6 +461,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			selectedEventKey = null;
 			renderEmpty();
+			return;
+		}
+		// A refresh that began just before the member focused Search may finish while they are typing.
+		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.
+		if (boardSearchFocused)
+		{
 			return;
 		}
 		// Refresh an already-visible catalogue too. ETags make unchanged boards cheap, while completed
@@ -2576,7 +2590,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		String search, TileStatusFilter status, boolean preStart)
 	{
 		List<BingoApiClient.BoardTile> out = new ArrayList<>();
-		String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+		String needle = normalizeTileSearch(search);
+		String[] terms = needle.isEmpty() ? new String[0] : needle.split(" ");
 		TileStatusFilter wanted = status == null ? TileStatusFilter.ALL : status;
 		if (tiles == null)
 		{
@@ -2593,16 +2608,101 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				continue;
 			}
-			String haystack = ((tile.label == null ? "" : tile.label) + " "
-				+ (tile.description == null ? "" : tile.description) + " "
+			String haystack = normalizeTileSearch((tile.label == null ? "" : tile.label) + " "
+				+ (tile.category == null ? "" : tile.category) + " "
 				+ (tile.requirement == null ? "" : tile.requirement) + " "
-				+ (tile.category == null ? "" : tile.category)).toLowerCase(Locale.ROOT);
-			if (needle.isEmpty() || haystack.contains(needle))
+				+ (tile.description == null ? "" : tile.description));
+			boolean matches = true;
+			for (String term : terms)
+			{
+				if (!haystack.contains(term))
+				{
+					matches = false;
+					break;
+				}
+			}
+			if (matches)
 			{
 				out.add(tile);
 			}
 		}
+		if (!needle.isEmpty())
+		{
+			out.sort((a, b) ->
+			{
+				int relevance = Integer.compare(tileSearchRank(a, needle, terms), tileSearchRank(b, needle, terms));
+				return relevance != 0 ? relevance : Integer.compare(a.position, b.position);
+			});
+		}
 		return out;
+	}
+
+	/** Lowercase words with punctuation collapsed, so "Barrows—chest" matches "barrows chest". */
+	private static String normalizeTileSearch(String value)
+	{
+		return (value == null ? "" : value)
+			.toLowerCase(Locale.ROOT)
+			.replaceAll("[^a-z0-9]+", " ")
+			.trim();
+	}
+
+	/** Lower is better: label phrase → label words → category → requirement → description. */
+	private static int tileSearchRank(BingoApiClient.BoardTile tile, String phrase, String[] terms)
+	{
+		String label = normalizeTileSearch(tile.label);
+		if (label.equals(phrase)) return 0;
+		if (label.startsWith(phrase)) return 5;
+		if (label.contains(phrase)) return 10;
+
+		String category = normalizeTileSearch(tile.category);
+		String requirement = normalizeTileSearch(tile.requirement);
+		String description = normalizeTileSearch(tile.description);
+		int score = 20;
+		for (String term : terms)
+		{
+			if (label.startsWith(term)) score += 0;
+			else if (label.contains(term)) score += 2;
+			else if (category.contains(term)) score += 8;
+			else if (requirement.contains(term)) score += 14;
+			else if (description.contains(term)) score += 22;
+			else score += 100;
+		}
+		return score;
+	}
+
+	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
+	private static final class TileSearchField extends JTextField
+	{
+		private final String placeholder;
+
+		TileSearchField(String placeholder, String value)
+		{
+			super(value == null ? "" : value);
+			this.placeholder = placeholder;
+			addFocusListener(new java.awt.event.FocusAdapter()
+			{
+				@Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
+				@Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
+			});
+		}
+
+		@Override
+		protected void paintComponent(java.awt.Graphics graphics)
+		{
+			super.paintComponent(graphics);
+			if (!getText().isEmpty() || isFocusOwner())
+			{
+				return;
+			}
+			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+			g.setColor(VALUE_COLOR);
+			g.setFont(getFont());
+			java.awt.FontMetrics metrics = g.getFontMetrics();
+			java.awt.Insets insets = getInsets();
+			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
+			g.drawString(placeholder, insets.left, y);
+			g.dispose();
+		}
 	}
 
 	private JPanel buildBoardCatalogue(String key, int eventId, String boardUrl, boolean preStart)
@@ -2645,7 +2745,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			return panel;
 		}
 
-		JTextField search = new JTextField(boardSearches.getOrDefault(key, ""));
+		TileSearchField search = new TileSearchField(
+			"Search " + all.size() + " tiles…", boardSearches.getOrDefault(key, ""));
 		search.setToolTipText("Search tile names, descriptions, requirements and categories");
 		search.setFont(FontManager.getRunescapeSmallFont());
 		search.setForeground(Color.WHITE);
@@ -2653,6 +2754,16 @@ public class AnvilSidebarPanel extends PluginPanel
 		search.setBackground(WIDGET_BG);
 		search.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(WIDGET_BORDER), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
+		search.addFocusListener(new java.awt.event.FocusAdapter()
+		{
+			@Override public void focusGained(java.awt.event.FocusEvent e) { boardSearchFocused = true; }
+			@Override public void focusLost(java.awt.event.FocusEvent e) { boardSearchFocused = false; }
+		});
+
+		JButton clearSearch = actionButton("×", "Clear tile search", () -> search.setText(""));
+		clearSearch.setEnabled(!search.getText().isEmpty());
+		clearSearch.setPreferredSize(new Dimension(30, search.getPreferredSize().height));
+		clearSearch.setBorder(BorderFactory.createLineBorder(WIDGET_BORDER));
 
 		JComboBox<TileStatusFilter> status = preStart ? null : new JComboBox<>(TileStatusFilter.values());
 		if (status != null)
@@ -2666,10 +2777,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		controls.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		controls.setAlignmentX(LEFT_ALIGNMENT);
 		controls.add(search, BorderLayout.CENTER);
-		if (status != null)
-		{
-			controls.add(status, BorderLayout.EAST);
-		}
+		controls.add(clearSearch, BorderLayout.EAST);
 		controls.setMaximumSize(new Dimension(Integer.MAX_VALUE, controls.getPreferredSize().height));
 		String countLine = all.size() + (all.size() == 1 ? " visible tile" : " visible tiles");
 		if (board.hiddenTileCount > 0)
@@ -2681,9 +2789,18 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.add(leftLabel("Click a tile to open its details on Anvil.",
 			FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 		panel.add(gap(7));
-		panel.add(leftLabel("Search tiles", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
-		panel.add(gap(3));
 		panel.add(controls);
+		if (status != null)
+		{
+			JPanel filterRow = new JPanel(new BorderLayout(6, 0));
+			filterRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			filterRow.setAlignmentX(LEFT_ALIGNMENT);
+			filterRow.add(leftLabel("Show", FontManager.getRunescapeSmallFont(), VALUE_COLOR), BorderLayout.WEST);
+			filterRow.add(status, BorderLayout.CENTER);
+			filterRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, filterRow.getPreferredSize().height));
+			panel.add(gap(5));
+			panel.add(filterRow);
+		}
 		panel.add(gap(7));
 
 		JPanel rows = new JPanel();
@@ -2697,12 +2814,13 @@ public class AnvilSidebarPanel extends PluginPanel
 			TileStatusFilter selected = status == null
 				? TileStatusFilter.ALL : (TileStatusFilter) status.getSelectedItem();
 			boardStatusFilters.put(key, selected == null ? TileStatusFilter.ALL : selected);
-			renderBoardCatalogueRows(rows, key, all, search.getText(), selected, preStart, boardUrl);
+			renderBoardCatalogueRows(panel, rows, key, all, search.getText(), selected, preStart, boardUrl);
 		};
 		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
 		{
 			private void changed()
 			{
+				clearSearch.setEnabled(!search.getText().isEmpty());
 				boardCataloguePages.put(key, 0);
 				repaintRows.run();
 			}
@@ -2718,14 +2836,14 @@ public class AnvilSidebarPanel extends PluginPanel
 				repaintRows.run();
 			});
 		}
-		repaintRows.run();
 		panel.add(rows);
+		repaintRows.run();
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 		return panel;
 	}
 
-	private void renderBoardCatalogueRows(JPanel rows, String key, List<BingoApiClient.BoardTile> all, String search,
-		TileStatusFilter status, boolean preStart, String boardUrl)
+	private void renderBoardCatalogueRows(JPanel catalogue, JPanel rows, String key,
+		List<BingoApiClient.BoardTile> all, String search, TileStatusFilter status, boolean preStart, String boardUrl)
 	{
 		rows.removeAll();
 		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart);
@@ -2761,21 +2879,25 @@ public class AnvilSidebarPanel extends PluginPanel
 				JButton previous = actionButton("‹ Previous", "Show the previous tiles", () ->
 				{
 					boardCataloguePages.put(key, shownPage - 1);
-					renderBoardCatalogueRows(rows, key, all, search, status, preStart, boardUrl);
+					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
 				});
 				previous.setEnabled(page > 0);
 				JButton next = actionButton("Next ›", "Show the next tiles", () ->
 				{
 					boardCataloguePages.put(key, shownPage + 1);
-					renderBoardCatalogueRows(rows, key, all, search, status, preStart, boardUrl);
+					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
 				});
 				next.setEnabled(page < pageCount - 1);
 				rows.add(buttonRow(previous, next));
 			}
 		}
-		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
 		rows.revalidate();
+		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
+		catalogue.revalidate();
+		catalogue.setMaximumSize(new Dimension(Integer.MAX_VALUE, catalogue.getPreferredSize().height));
+		content.revalidate();
 		rows.repaint();
+		content.repaint();
 	}
 
 	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, String boardUrl, boolean preStart)
@@ -2868,7 +2990,10 @@ public class AnvilSidebarPanel extends PluginPanel
 					failedBoardCatalogues.add(key);
 					log.debug("tile catalogue fetch failed", ex);
 				}
-				renderSelected();
+				if (!boardSearchFocused)
+				{
+					renderSelected();
+				}
 			}
 		}.execute();
 	}
@@ -2883,6 +3008,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		boardStatusFilters.clear();
 		boardCataloguePages.clear();
 		showAllActiveTiles = false;
+		boardSearchFocused = false;
 	}
 
 	private JLabel warningLabel(String message)
