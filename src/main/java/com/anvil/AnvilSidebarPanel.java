@@ -88,6 +88,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Leaderboard rows rendered on a weekly card before the caller's own (out-of-view) row is spliced in. */
 	private static final int WEEKLY_ROWS_SHOWN = 10;
 
+	/** Full-board catalogue rows per page. Large Leagues boards can contain hundreds of tasks. */
+	private static final int TILE_CATALOGUE_PAGE_SIZE = 15;
+
 	/** Selection key for a clan's own bingo/ladder board in the events list. */
 	private static final String BOARD_EVENT_KEY = "board";
 
@@ -149,6 +152,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final Set<String> failedBoardCatalogues = new HashSet<>();
 	private final Map<String, String> boardSearches = new HashMap<>();
 	private final Map<String, TileStatusFilter> boardStatusFilters = new HashMap<>();
+	private final Map<String, Integer> boardCataloguePages = new HashMap<>();
 	private boolean showAllActiveTiles;
 	private int boardCatalogueGeneration;
 
@@ -2650,17 +2654,33 @@ public class AnvilSidebarPanel extends PluginPanel
 		search.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(WIDGET_BORDER), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
 
-		JComboBox<TileStatusFilter> status = new JComboBox<>(TileStatusFilter.values());
-		status.setSelectedItem(boardStatusFilters.getOrDefault(key, TileStatusFilter.ALL));
-		styleCombo(status);
-		status.setToolTipText("Filter tiles by completion state");
+		JComboBox<TileStatusFilter> status = preStart ? null : new JComboBox<>(TileStatusFilter.values());
+		if (status != null)
+		{
+			status.setSelectedItem(boardStatusFilters.getOrDefault(key, TileStatusFilter.ALL));
+			styleCombo(status);
+			status.setToolTipText("Filter tiles by completion state");
+		}
 
 		JPanel controls = new JPanel(new BorderLayout(5, 0));
 		controls.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		controls.setAlignmentX(LEFT_ALIGNMENT);
 		controls.add(search, BorderLayout.CENTER);
-		controls.add(status, BorderLayout.EAST);
+		if (status != null)
+		{
+			controls.add(status, BorderLayout.EAST);
+		}
 		controls.setMaximumSize(new Dimension(Integer.MAX_VALUE, controls.getPreferredSize().height));
+		String countLine = all.size() + (all.size() == 1 ? " visible tile" : " visible tiles");
+		if (board.hiddenTileCount > 0)
+		{
+			countLine += " · " + board.hiddenTileCount + " still hidden";
+		}
+		panel.add(leftLabel(countLine, FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		panel.add(gap(2));
+		panel.add(leftLabel("Click a tile to open its details on Anvil.",
+			FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		panel.add(gap(7));
 		panel.add(leftLabel("Search tiles", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 		panel.add(gap(3));
 		panel.add(controls);
@@ -2674,24 +2694,37 @@ public class AnvilSidebarPanel extends PluginPanel
 		Runnable repaintRows = () ->
 		{
 			boardSearches.put(key, search.getText());
-			TileStatusFilter selected = (TileStatusFilter) status.getSelectedItem();
+			TileStatusFilter selected = status == null
+				? TileStatusFilter.ALL : (TileStatusFilter) status.getSelectedItem();
 			boardStatusFilters.put(key, selected == null ? TileStatusFilter.ALL : selected);
-			renderBoardCatalogueRows(rows, all, search.getText(), selected, preStart, boardUrl);
+			renderBoardCatalogueRows(rows, key, all, search.getText(), selected, preStart, boardUrl);
 		};
 		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
 		{
-			@Override public void insertUpdate(javax.swing.event.DocumentEvent e) { repaintRows.run(); }
-			@Override public void removeUpdate(javax.swing.event.DocumentEvent e) { repaintRows.run(); }
-			@Override public void changedUpdate(javax.swing.event.DocumentEvent e) { repaintRows.run(); }
+			private void changed()
+			{
+				boardCataloguePages.put(key, 0);
+				repaintRows.run();
+			}
+			@Override public void insertUpdate(javax.swing.event.DocumentEvent e) { changed(); }
+			@Override public void removeUpdate(javax.swing.event.DocumentEvent e) { changed(); }
+			@Override public void changedUpdate(javax.swing.event.DocumentEvent e) { changed(); }
 		});
-		status.addActionListener(e -> repaintRows.run());
+		if (status != null)
+		{
+			status.addActionListener(e ->
+			{
+				boardCataloguePages.put(key, 0);
+				repaintRows.run();
+			});
+		}
 		repaintRows.run();
 		panel.add(rows);
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 		return panel;
 	}
 
-	private void renderBoardCatalogueRows(JPanel rows, List<BingoApiClient.BoardTile> all, String search,
+	private void renderBoardCatalogueRows(JPanel rows, String key, List<BingoApiClient.BoardTile> all, String search,
 		TileStatusFilter status, boolean preStart, String boardUrl)
 	{
 		rows.removeAll();
@@ -2702,8 +2735,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		else
 		{
+			int pageCount = Math.max(1,
+				(int) Math.ceil(filtered.size() / (double) TILE_CATALOGUE_PAGE_SIZE));
+			int page = Math.max(0, Math.min(boardCataloguePages.getOrDefault(key, 0), pageCount - 1));
+			boardCataloguePages.put(key, page);
+			int from = page * TILE_CATALOGUE_PAGE_SIZE;
+			int to = Math.min(filtered.size(), from + TILE_CATALOGUE_PAGE_SIZE);
+			rows.add(leftLabel((from + 1) + "–" + to + " of " + filtered.size(),
+				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			rows.add(gap(5));
 			boolean first = true;
-			for (BingoApiClient.BoardTile tile : filtered)
+			for (BingoApiClient.BoardTile tile : filtered.subList(from, to))
 			{
 				if (!first)
 				{
@@ -2711,6 +2753,24 @@ public class AnvilSidebarPanel extends PluginPanel
 				}
 				rows.add(buildCatalogueTileRow(tile, boardUrl, preStart));
 				first = false;
+			}
+			if (pageCount > 1)
+			{
+				rows.add(gap(7));
+				final int shownPage = page;
+				JButton previous = actionButton("‹ Previous", "Show the previous tiles", () ->
+				{
+					boardCataloguePages.put(key, shownPage - 1);
+					renderBoardCatalogueRows(rows, key, all, search, status, preStart, boardUrl);
+				});
+				previous.setEnabled(page > 0);
+				JButton next = actionButton("Next ›", "Show the next tiles", () ->
+				{
+					boardCataloguePages.put(key, shownPage + 1);
+					renderBoardCatalogueRows(rows, key, all, search, status, preStart, boardUrl);
+				});
+				next.setEnabled(page < pageCount - 1);
+				rows.add(buttonRow(previous, next));
 			}
 		}
 		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
@@ -2734,10 +2794,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		name.setToolTipText(plainText(details == null || details.isEmpty() ? label : label + " — " + details));
 		row.add(name, BorderLayout.CENTER);
 
-		JLabel state = new JLabel(preStart ? "Not started" : (tile.complete ? "Done" : "Open"));
-		state.setFont(FontManager.getRunescapeSmallFont());
-		state.setForeground(!preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
-		row.add(state, BorderLayout.EAST);
+		if (!preStart)
+		{
+			JLabel state = new JLabel(tile.complete ? "✓ Done" : "Open");
+			state.setFont(FontManager.getRunescapeSmallFont());
+			state.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
+			row.add(state, BorderLayout.EAST);
+		}
 
 		String tileUrl = tileUrl(boardUrl, tile.tileId);
 		if (isSafeHttpUrl(tileUrl))
@@ -2818,6 +2881,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		failedBoardCatalogues.clear();
 		boardSearches.clear();
 		boardStatusFilters.clear();
+		boardCataloguePages.clear();
 		showAllActiveTiles = false;
 	}
 
