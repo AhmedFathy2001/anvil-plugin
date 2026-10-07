@@ -10,8 +10,12 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -26,6 +30,7 @@ import javax.swing.JList;
 import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -137,6 +142,16 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
 	private String selectedEventKey;
 
+	// Full-board catalogue state. The compact nearest-ten list remains the default live view; this is
+	// fetched only when a member opens all tiles, or when a revealed pre-start board is opened.
+	private final Map<String, BingoApiClient.BoardResponse> boardCatalogues = new HashMap<>();
+	private final Set<String> loadingBoardCatalogues = new HashSet<>();
+	private final Set<String> failedBoardCatalogues = new HashSet<>();
+	private final Map<String, String> boardSearches = new HashMap<>();
+	private final Map<String, TileStatusFilter> boardStatusFilters = new HashMap<>();
+	private boolean showAllActiveTiles;
+	private int boardCatalogueGeneration;
+
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
 	private boolean rebuildingPicker;
 	private boolean fetchInFlight;
@@ -227,6 +242,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			// so this hands the choice to the plugin (which persists it and re-addresses the client)
 			// and shows the loading state until the answer comes back.
 			selectedEventKey = null; // another clan's events are a different list — start at the top
+			clearBoardCatalogueState();
 			// No refresh() here on purpose. The source renders from the config the plugin holds, and
 			// that config is still the old clan's until the refetch lands — refreshing now would repaint
 			// the clan they just switched away from. The plugin repaints once it has the new answer.
@@ -362,6 +378,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		connections = java.util.Collections.emptyList();
 		selectedEventKey = null;
+		clearBoardCatalogueState();
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
 		rebuildingPicker = false;
@@ -433,6 +450,17 @@ public class AnvilSidebarPanel extends PluginPanel
 			selectedEventKey = null;
 			renderEmpty();
 			return;
+		}
+		// Refresh an already-visible catalogue too. ETags make unchanged boards cheap, while completed
+		// states and scheduled reveals still arrive without making the member close/reopen the list.
+		if (showAllActiveTiles)
+		{
+			loadBoardCatalogue("active", 0, true);
+		}
+		EventEntry selected = findEvent(eventsOf(addressedClan()), selectedEventKey);
+		if (selected != null && selected.scheduled != null && selected.scheduled.tileCount > 0)
+		{
+			loadBoardCatalogue("preview:" + selected.scheduled.id, selected.scheduled.id, true);
 		}
 		renderSelected();
 	}
@@ -763,6 +791,20 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			clearLadderRefs();
 			body.add(buildScheduledCard(entry.scheduled));
+			if (entry.scheduled.tileCount > 0)
+			{
+				body.add(gap(12));
+				body.add(sectionHeader(entry.scheduled.live ? "Tiles" : "Revealed tiles"));
+				body.add(gap(6));
+				body.add(buildBoardCatalogue("preview:" + entry.scheduled.id, entry.scheduled.id,
+					entry.scheduled.url, !entry.scheduled.live));
+			}
+			else if (!entry.scheduled.live)
+			{
+				body.add(gap(10));
+				body.add(leftLabel("Tiles will appear here when the host reveals them.",
+					FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			}
 			setContent(body);
 			return;
 		}
@@ -872,6 +914,24 @@ public class AnvilSidebarPanel extends PluginPanel
 					body.add(buildTileRow(tile));
 					first = false;
 				}
+			}
+
+			body.add(gap(8));
+			JButton allTiles = actionButton(showAllActiveTiles ? "Hide all tiles" : "View all " + selected.tilesTotal + " tiles",
+				"Search the full board, including manual tiles", () ->
+				{
+					showAllActiveTiles = !showAllActiveTiles;
+					if (showAllActiveTiles)
+					{
+						loadBoardCatalogue("active", 0, false);
+					}
+					renderSelected();
+				});
+			body.add(fullWidth(allTiles));
+			if (showAllActiveTiles)
+			{
+				body.add(gap(8));
+				body.add(buildBoardCatalogue("active", 0, selected.boardUrl, false));
 			}
 		}
 
@@ -1149,6 +1209,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			public void mouseClicked(java.awt.event.MouseEvent e)
 			{
 				selectedEventKey = null;
+				clearBoardCatalogueState();
 				dataSource.chooseClan(slug);
 				renderLoading();
 			}
@@ -2486,6 +2547,280 @@ public class AnvilSidebarPanel extends PluginPanel
 		return tile.current + " / " + tile.target;
 	}
 
+	// ---- Full tile catalogue ---------------------------------------------------------------------
+
+	enum TileStatusFilter
+	{
+		ALL("All"), OPEN("Not done"), DONE("Done");
+
+		private final String label;
+
+		TileStatusFilter(String label)
+		{
+			this.label = label;
+		}
+
+		@Override
+		public String toString()
+		{
+			return label;
+		}
+	}
+
+	/** Pure filter used by the Swing view and unit tests. Pre-start boards deliberately have no done state. */
+	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
+		String search, TileStatusFilter status, boolean preStart)
+	{
+		List<BingoApiClient.BoardTile> out = new ArrayList<>();
+		String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+		TileStatusFilter wanted = status == null ? TileStatusFilter.ALL : status;
+		if (tiles == null)
+		{
+			return out;
+		}
+		for (BingoApiClient.BoardTile tile : tiles)
+		{
+			if (tile == null)
+			{
+				continue;
+			}
+			boolean done = !preStart && tile.complete;
+			if ((wanted == TileStatusFilter.OPEN && done) || (wanted == TileStatusFilter.DONE && !done))
+			{
+				continue;
+			}
+			String haystack = ((tile.label == null ? "" : tile.label) + " "
+				+ (tile.description == null ? "" : tile.description) + " "
+				+ (tile.requirement == null ? "" : tile.requirement) + " "
+				+ (tile.category == null ? "" : tile.category)).toLowerCase(Locale.ROOT);
+			if (needle.isEmpty() || haystack.contains(needle))
+			{
+				out.add(tile);
+			}
+		}
+		return out;
+	}
+
+	private JPanel buildBoardCatalogue(String key, int eventId, String boardUrl, boolean preStart)
+	{
+		JPanel panel = new JPanel();
+		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		panel.setAlignmentX(LEFT_ALIGNMENT);
+
+		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
+		if (board == null)
+		{
+			if (!loadingBoardCatalogues.contains(key) && !failedBoardCatalogues.contains(key))
+			{
+				loadBoardCatalogue(key, eventId, false);
+			}
+			if (failedBoardCatalogues.contains(key))
+			{
+				panel.add(leftLabel("Couldn't load the board.", FontManager.getRunescapeSmallFont(),
+					ColorScheme.PROGRESS_ERROR_COLOR));
+				panel.add(gap(5));
+				panel.add(fullWidth(actionButton("Retry", "Try loading all tiles again", () ->
+					loadBoardCatalogue(key, eventId, true))));
+			}
+			else
+			{
+				panel.add(leftLabel("Loading tiles…", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			}
+			panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+			return panel;
+		}
+
+		List<BingoApiClient.BoardTile> all = board.tiles == null
+			? java.util.Collections.emptyList() : board.tiles;
+		if (all.isEmpty())
+		{
+			panel.add(leftLabel(board.tilesRevealed ? "No visible tiles." : "Tiles haven't been revealed yet.",
+				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+			return panel;
+		}
+
+		JTextField search = new JTextField(boardSearches.getOrDefault(key, ""));
+		search.setToolTipText("Search tile names, descriptions, requirements and categories");
+		search.setFont(FontManager.getRunescapeSmallFont());
+		search.setForeground(Color.WHITE);
+		search.setCaretColor(Color.WHITE);
+		search.setBackground(WIDGET_BG);
+		search.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(WIDGET_BORDER), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
+
+		JComboBox<TileStatusFilter> status = new JComboBox<>(TileStatusFilter.values());
+		status.setSelectedItem(boardStatusFilters.getOrDefault(key, TileStatusFilter.ALL));
+		styleCombo(status);
+		status.setToolTipText("Filter tiles by completion state");
+
+		JPanel controls = new JPanel(new BorderLayout(5, 0));
+		controls.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		controls.setAlignmentX(LEFT_ALIGNMENT);
+		controls.add(search, BorderLayout.CENTER);
+		controls.add(status, BorderLayout.EAST);
+		controls.setMaximumSize(new Dimension(Integer.MAX_VALUE, controls.getPreferredSize().height));
+		panel.add(leftLabel("Search tiles", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		panel.add(gap(3));
+		panel.add(controls);
+		panel.add(gap(7));
+
+		JPanel rows = new JPanel();
+		rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+		rows.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		rows.setAlignmentX(LEFT_ALIGNMENT);
+
+		Runnable repaintRows = () ->
+		{
+			boardSearches.put(key, search.getText());
+			TileStatusFilter selected = (TileStatusFilter) status.getSelectedItem();
+			boardStatusFilters.put(key, selected == null ? TileStatusFilter.ALL : selected);
+			renderBoardCatalogueRows(rows, all, search.getText(), selected, preStart, boardUrl);
+		};
+		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
+		{
+			@Override public void insertUpdate(javax.swing.event.DocumentEvent e) { repaintRows.run(); }
+			@Override public void removeUpdate(javax.swing.event.DocumentEvent e) { repaintRows.run(); }
+			@Override public void changedUpdate(javax.swing.event.DocumentEvent e) { repaintRows.run(); }
+		});
+		status.addActionListener(e -> repaintRows.run());
+		repaintRows.run();
+		panel.add(rows);
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		return panel;
+	}
+
+	private void renderBoardCatalogueRows(JPanel rows, List<BingoApiClient.BoardTile> all, String search,
+		TileStatusFilter status, boolean preStart, String boardUrl)
+	{
+		rows.removeAll();
+		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart);
+		if (filtered.isEmpty())
+		{
+			rows.add(leftLabel("No matching tiles.", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		}
+		else
+		{
+			boolean first = true;
+			for (BingoApiClient.BoardTile tile : filtered)
+			{
+				if (!first)
+				{
+					rows.add(gap(5));
+				}
+				rows.add(buildCatalogueTileRow(tile, boardUrl, preStart));
+				first = false;
+			}
+		}
+		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
+		rows.revalidate();
+		rows.repaint();
+	}
+
+	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, String boardUrl, boolean preStart)
+	{
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(BorderFactory.createEmptyBorder(6, 7, 6, 7));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+
+		String label = tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
+		JLabel name = new JLabel(plainText(ellipsize(label, 28)));
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(!preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
+		String details = tile.description == null || tile.description.trim().isEmpty()
+			? tile.requirement : tile.description;
+		name.setToolTipText(plainText(details == null || details.isEmpty() ? label : label + " — " + details));
+		row.add(name, BorderLayout.CENTER);
+
+		JLabel state = new JLabel(preStart ? "Not started" : (tile.complete ? "Done" : "Open"));
+		state.setFont(FontManager.getRunescapeSmallFont());
+		state.setForeground(!preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
+		row.add(state, BorderLayout.EAST);
+
+		String tileUrl = tileUrl(boardUrl, tile.tileId);
+		if (isSafeHttpUrl(tileUrl))
+		{
+			row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			row.addMouseListener(new MouseAdapter()
+			{
+				@Override public void mouseClicked(MouseEvent e) { LinkBrowser.browse(tileUrl); }
+				@Override public void mouseEntered(MouseEvent e) { row.setBackground(WIDGET_BG_HOVER); }
+				@Override public void mouseExited(MouseEvent e) { row.setBackground(ColorScheme.DARKER_GRAY_COLOR); }
+			});
+		}
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
+	static String tileUrl(String boardUrl, int tileId)
+	{
+		if (!isSafeHttpUrl(boardUrl) || tileId <= 0)
+		{
+			return null;
+		}
+		return boardUrl + (boardUrl.contains("?") ? "&" : "?") + "tile=" + tileId;
+	}
+
+	private void loadBoardCatalogue(String key, int eventId, boolean force)
+	{
+		if (loadingBoardCatalogues.contains(key) || (!force && boardCatalogues.containsKey(key)))
+		{
+			return;
+		}
+		loadingBoardCatalogues.add(key);
+		failedBoardCatalogues.remove(key);
+		final int generation = boardCatalogueGeneration;
+		new SwingWorker<BingoApiClient.BoardResponse, Void>()
+		{
+			@Override
+			protected BingoApiClient.BoardResponse doInBackground()
+			{
+				return dataSource.fetchBoard(eventId);
+			}
+
+			@Override
+			protected void done()
+			{
+				if (generation != boardCatalogueGeneration)
+				{
+					return;
+				}
+				loadingBoardCatalogues.remove(key);
+				try
+				{
+					BingoApiClient.BoardResponse board = get();
+					if (board == null)
+					{
+						failedBoardCatalogues.add(key);
+					}
+					else
+					{
+						boardCatalogues.put(key, board);
+					}
+				}
+				catch (Exception ex)
+				{
+					failedBoardCatalogues.add(key);
+					log.debug("tile catalogue fetch failed", ex);
+				}
+				renderSelected();
+			}
+		}.execute();
+	}
+
+	private void clearBoardCatalogueState()
+	{
+		boardCatalogueGeneration++;
+		boardCatalogues.clear();
+		loadingBoardCatalogues.clear();
+		failedBoardCatalogues.clear();
+		boardSearches.clear();
+		boardStatusFilters.clear();
+		showAllActiveTiles = false;
+	}
+
 	private JLabel warningLabel(String message)
 	{
 		JLabel warn = new JLabel(plainText(message));
@@ -2590,6 +2925,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	/** Theme the clan-filter combo: dark flat field, gold arrow, dark popup — default Swing sticks out. */
 	private static void styleClanPicker(JComboBox<ClanChoice> combo)
+	{
+		styleCombo(combo);
+	}
+
+	/** Shared flat combo treatment for the clan selector and tile-status filter. */
+	private static void styleCombo(JComboBox<?> combo)
 	{
 		combo.setBackground(WIDGET_BG);
 		combo.setForeground(Color.WHITE);

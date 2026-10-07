@@ -568,6 +568,88 @@ public class BingoApiClient
 		}
 	}
 
+	// Full board catalogue for the sidebar's opt-in "All tiles" view. Kept separate from /config:
+	// /config contains only things the client may TRACK, while /board also carries manual tiles and is
+	// safe to fetch before the whistle. ETags keep a repeatedly-opened live board to header bytes.
+	private volatile String lastBoardEtag;
+	private volatile BoardResponse lastBoard;
+	private final java.util.Map<Integer, String> previewBoardEtags = new java.util.concurrent.ConcurrentHashMap<>();
+	private final java.util.Map<Integer, BoardResponse> previewBoards = new java.util.concurrent.ConcurrentHashMap<>();
+
+	/** The signed-in character's active board, with their team's completion state. */
+	public BoardResponse fetchBoard()
+	{
+		if (!isConfigured())
+		{
+			return null;
+		}
+		Request.Builder rb = authedRequest(clanUrl("/api/plugin/board")).get();
+		String etag = lastBoardEtag;
+		BoardResponse cached = lastBoard;
+		if (etag != null && cached != null)
+		{
+			rb.header("If-None-Match", etag);
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 304 && cached != null)
+			{
+				return cached;
+			}
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			BoardResponse parsed = gson.fromJson(response.body().string(), BoardResponse.class);
+			lastBoardEtag = response.header("ETag");
+			lastBoard = parsed;
+			return parsed;
+		}
+		catch (IOException e)
+		{
+			log.debug("board fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** A revealed upcoming/live board the caller is not actively playing; never enables tracking. */
+	public BoardResponse fetchBoardPreview(int eventId)
+	{
+		if (!isConfigured() || eventId <= 0)
+		{
+			return null;
+		}
+		Request.Builder rb = withOptionalAuth(new Request.Builder()
+			.url(clanUrl("/api/plugin/board?eventId=" + eventId))).get();
+		String etag = previewBoardEtags.get(eventId);
+		BoardResponse cached = previewBoards.get(eventId);
+		if (etag != null && cached != null)
+		{
+			rb.header("If-None-Match", etag);
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 304 && cached != null)
+			{
+				return cached;
+			}
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			BoardResponse parsed = gson.fromJson(response.body().string(), BoardResponse.class);
+			String nextEtag = response.header("ETag");
+			if (nextEtag != null) previewBoardEtags.put(eventId, nextEtag);
+			previewBoards.put(eventId, parsed);
+			return parsed;
+		}
+		catch (IOException e)
+		{
+			log.debug("board preview fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	/**
 	 * GET /api/plugin/activity?since=&lt;cursor&gt; — the always-on sidebar's live team feed (submissions +
 	 * completions after the cursor, attributed and bounded). Player-token authed. Never throws — returns
@@ -638,6 +720,59 @@ public class BingoApiClient
 		public String kind;   // "progress" | "complete" | "reveal" — map with ActivityEntry.Kind.fromWire
 		public int amount;
 		public boolean isSelf;
+	}
+
+	/** Gson shape of GET /api/plugin/board. Hidden staged tiles never arrive from the server. */
+	public static class BoardResponse
+	{
+		public int eventId;
+		public String name;
+		public boolean readOnly;
+		public String format;
+		public String scoringMode;
+		public int boardSize;
+		public int yourTeamId;
+		public boolean tilesRevealed = true;
+		public String revealPolicy;
+		public int hiddenTileCount;
+		public String nextRevealAt;
+		public java.util.List<BoardTile> tiles;
+		public java.util.List<BoardTeam> teams;
+	}
+
+	public static class BoardTile
+	{
+		public int tileId;
+		public int position;
+		public int index;
+		public int row;
+		public int col;
+		public String label;
+		public String description;
+		public int points;
+		public int itemId;
+		public java.util.List<Integer> itemIds;
+		public int requiredAmount;
+		public String requirement;
+		public int optional;
+		public int autoTrackDisabled;
+		public java.util.List<String> sources;
+		public String category;
+		public String tileType;
+		public String statType;
+		public String statName;
+		public boolean complete;
+		public String revealedAt;
+		public String closedAt;
+		public java.util.List<PluginConfigResponse.ItemRequirement> itemRequirements;
+	}
+
+	public static class BoardTeam
+	{
+		public int teamId;
+		public String name;
+		public String color;
+		public java.util.List<Integer> completedTileIds;
 	}
 
 	/**

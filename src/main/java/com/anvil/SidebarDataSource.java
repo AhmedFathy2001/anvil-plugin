@@ -109,6 +109,16 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/**
+	 * Full visible board for the sidebar catalogue. {@code eventId <= 0} means the caller's active,
+	 * team-scoped board; a positive id is a read-only preview (including a revealed pre-start board).
+	 * Blocking; the panel always calls it from a SwingWorker.
+	 */
+	default BingoApiClient.BoardResponse fetchBoard(int eventId)
+	{
+		return null;
+	}
+
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	default void captureStartProof()
 	{

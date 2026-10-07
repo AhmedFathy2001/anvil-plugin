@@ -253,6 +253,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public BingoApiClient.BoardResponse fetchBoard(int eventId)
+	{
+		return eventId > 0 ? apiClient.fetchBoardPreview(eventId) : apiClient.fetchBoard();
+	}
+
+	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
 		return fetchConnections(false);
