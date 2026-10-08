@@ -9955,14 +9955,26 @@ public class AnvilPlugin extends Plugin {
     private static final String CHAT_BODY_COLOR = "ffffff";
 
     private void sendChatMessage(String message) {
+        if (message == null || message.isEmpty()) {
+            return;
+        }
         // A raw '|' in a chat line gets mangled by the chat pipeline (an event named
         // "The AFK Spot | July Bingo" printed as a bare "July Bingo."). Interpolated names are
         // admin-authored, so swap in the visually-identical broken bar instead.
         String safe = message.replace('|', '\u00A6');
         String line = "<col=" + CHAT_PREFIX_COLOR + ">[Anvil]</col> <col=" + CHAT_BODY_COLOR + ">" + safe + "</col>";
-        clientThread.invokeLater(()
-                -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null)
-        );
+        clientThread.invokeLater(() -> {
+            // addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
+            // RuneLite has neither a local player nor its varbit array yet, and a surprising number
+            // of third-party subscribers assume both exist. Never inject an Anvil line into that
+            // half-initialised state: doing so can cascade into unrelated plugin exceptions and an
+            // injected-client crash.
+            if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null) {
+                log.debug("Anvil: skipped chat message while the game client was not ready");
+                return;
+            }
+            client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null);
+        });
     }
 
     // -- Profile sync: collection log + personal bests ---------------------------------------
