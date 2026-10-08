@@ -509,7 +509,8 @@ public interface AnvilConfig extends Config
 			+ "puts your setting back when you turn this off or close RuneLite. Note this is OBS's RECORDING "
 			+ "folder, so your ordinary recordings save there too while it's on. Anything Anvil couldn't post is "
 			+ "cleared out of its folder after a week. Leave it off to be asked for the folder once per session "
-			+ "instead — the question at the login screen offers both.",
+			+ "instead — the question at the login screen offers both. This is available only when OBS runs "
+			+ "on this same computer (localhost or one of its own addresses); a remote OBS keeps its folder untouched.",
 		position = 11,
 		section = "clipsSection"
 	)
@@ -550,10 +551,22 @@ public interface AnvilConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "syncClanCoffer",
+		name = "Sync Clan Coffer",
+		description = "While you have the in-game Clan Coffer open, send its coin balance changes to your clan site so deposits and withdrawals update the audited coffer automatically. The first reading is only a baseline and is never credited as a donation.",
+		position = 1,
+		section = "profileSection"
+	)
+	default boolean syncClanCoffer()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "syncClog",
 		name = "Sync collection log",
 		description = "Send the collection-log pages you open to your clan site, so your profile there shows them. Only pages you actually open can be read — the game doesn't hand the client the rest.",
-		position = 1,
+		position = 2,
 		section = "profileSection"
 	)
 	default boolean syncClog()
@@ -565,7 +578,7 @@ public interface AnvilConfig extends Config
 		keyName = "autoFullClogSync",
 		name = "Sync the whole log on open",
 		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil side panel yourself.",
-		position = 3,
+		position = 4,
 		section = "profileSection"
 	)
 	default boolean autoFullClogSync()
@@ -577,7 +590,7 @@ public interface AnvilConfig extends Config
 		keyName = "syncPersonalBests",
 		name = "Sync personal bests",
 		description = "Send your best boss and raid times to your clan site as you set them.",
-		position = 2,
+		position = 3,
 		section = "profileSection"
 	)
 	default boolean syncPersonalBests()
@@ -589,7 +602,7 @@ public interface AnvilConfig extends Config
 		keyName = "importRuneLitePbs",
 		name = "Import existing bests once",
 		description = "On first login, copy the personal bests RuneLite's own chat commands plugin has already recorded for this account, so your profile starts complete instead of empty. Reads local config only; runs once per account.",
-		position = 3,
+		position = 5,
 		section = "profileSection"
 	)
 	default boolean importRuneLitePbs()
@@ -601,7 +614,7 @@ public interface AnvilConfig extends Config
 		keyName = "shareMoments",
 		name = "Share highlights with the clan",
 		description = "Send the pets, uniques, big drops and deaths that happen while your clan's competition week or bingo is running, so they appear on the site's feed. Separate from the Discord channels above — turning those off doesn't turn this off, and vice versa. Nothing sent here scores anything.",
-		position = 4,
+		position = 6,
 		section = "profileSection"
 	)
 	default boolean shareMoments()

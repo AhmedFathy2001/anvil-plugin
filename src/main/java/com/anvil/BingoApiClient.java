@@ -423,13 +423,39 @@ public class BingoApiClient
 			}
 
 			@Override
-			public void onResponse(Call call, Response response)
+			public void onResponse(Call call, Response response) throws IOException
 			{
 				try (Response r = response)
 				{
 					if (!r.isSuccessful())
 					{
 						log.warn("Anvil: the site refused a '{}' notification (HTTP {}).", channel, r.code());
+						return;
+					}
+					// A destination disappearing between config refresh and send used to answer 204,
+					// while a failed Discord fan-out answered {ok:false} with HTTP 200. Both looked
+					// exactly like a successful post in the only log a player can share with us.
+					if (r.code() == 204)
+					{
+						log.warn("Anvil: '{}' notification had no configured Discord destination.", channel);
+						return;
+					}
+					ResponseBody responseBody = r.body();
+					if (responseBody != null)
+					{
+						String json = responseBody.string();
+						try
+						{
+							JsonObject result = new JsonParser().parse(json).getAsJsonObject();
+							if (result.has("ok") && !result.get("ok").getAsBoolean())
+							{
+								log.warn("Anvil: Discord refused every '{}' notification destination.", channel);
+							}
+						}
+						catch (RuntimeException ignored)
+						{
+							// A successful older site may return no JSON contract. Success is still success.
+						}
 					}
 				}
 			}
@@ -1628,6 +1654,39 @@ public class BingoApiClient
 				throw new IOException("KC push failed: HTTP " + response.code() + " — " + responseBody);
 			}
 			log.info("Real-time KC pushed for {} boss(es)", counts.size());
+		}
+	}
+
+	/**
+	 * POST /api/plugin/coffer — one absolute in-game Clan Coffer transition. The event key makes a
+	 * retry idempotent; the server also serializes distinct clients observing the same final balance.
+	 */
+	public void submitClanCoffer(String eventKey, ClanCofferTracker.Observation observation) throws IOException
+	{
+		if (observation == null)
+		{
+			return;
+		}
+		JsonObject payload = new JsonObject();
+		payload.addProperty("eventKey", eventKey);
+		payload.addProperty("kind", observation.kind.wire);
+		payload.addProperty("beforeBalance", observation.beforeBalance);
+		payload.addProperty("afterBalance", observation.afterBalance);
+		payload.addProperty("actorConfirmed", observation.actorConfirmed);
+
+		Request request = authedRequest(clanUrl("/api/plugin/coffer"))
+			.post(RequestBody.create(JSON, payload.toString()))
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String responseBody = response.body() != null ? response.body().string() : "no body";
+				throw new IOException("Coffer sync failed: HTTP " + response.code() + " — " + responseBody);
+			}
+			log.info("Clan Coffer {} synced: {} -> {}{}", observation.kind.wire,
+				observation.beforeBalance, observation.afterBalance,
+				observation.actorConfirmed ? " (local actor confirmed)" : "");
 		}
 	}
 

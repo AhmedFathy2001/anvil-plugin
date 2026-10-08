@@ -86,7 +86,7 @@ has a description in the plugin itself; this is the shape of it.
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
 | **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |
 | **Clips** | OBS replay-buffer clips on a hotkey, posted to a clips webhook. Off by default. |
-| **Profile sync** | Collection log, personal bests, clan roster, and sharing highlights with the clan. |
+| **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 | **Support** | Export a debug log to send an admin. |
 
 A few worth knowing about:
@@ -171,7 +171,8 @@ Anvil connects to **anvilosrs.com** after you sign in:
 - **The plugin has to talk to it.** Filing a drop against a tile, moving the board with your KC and XP,
   or syncing your collection log are all web requests to anvilosrs.com — and any web request shows the
   server your IP address. The plugin doesn't collect it separately.
-- **What's sent is your own play.** Your RSN, and the drops, kill counts, XP and progress of the
+- **What's sent is your own play.** Your RSN, in-game Clan Coffer balance changes while you have it
+  open, and the drops, kill counts, XP and progress of the
   account you're logged into, for the clans and events you're in — tied to your Account Token. The IP
   address is used the way any website uses it: to answer the request and to rate-limit abuse.
 - **Nothing is sent until you sign in.** A fresh install contacts nobody until you click **Sign in**.

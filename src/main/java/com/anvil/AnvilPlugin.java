@@ -7,6 +7,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.api.MenuAction;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
@@ -78,6 +79,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -204,6 +206,8 @@ public class AnvilPlugin extends Plugin {
     // Touched from the client thread (startup, hotkey, config change) and the executor's reconnect
     // tick — volatile for visibility, and connect/disconnect are synchronized on obsLock.
     private volatile ObsReplayClient obsClip;
+    /** Host the current socket was opened against; config may already hold the next host. */
+    private volatile String obsConnectedHost;
     private final Object obsLock = new Object();
     // What happened in the last N seconds, so a saved clip can name what it caught instead of
     // posting a bare "<rsn> saved a clip". Fed from the same points that already notify the clan.
@@ -263,6 +267,16 @@ public class AnvilPlugin extends Plugin {
     };
 
     private ScheduledExecutorService executor;
+
+    // The in-game Clan Coffer is an absolute coin stack. The tracker converts widget reads into a
+    // baseline or signed transition; the server owns cross-client dedupe and the audited ledger.
+    private final ClanCofferTracker clanCofferTracker = new ClanCofferTracker();
+    private boolean clanCofferOpen;
+    private int clanCofferOpenTicks;
+
+    // A synced OBS host can point at a different computer. Folder management is intentionally local
+    // only; this guard keeps the one explanation from repeating on every reconnect tick.
+    private boolean remoteObsFolderWarned;
 
     // Debounce config refresh — prevents spam when multiple config keys change at once
     private ScheduledFuture<?> pendingRefresh;
@@ -1176,6 +1190,11 @@ public class AnvilPlugin extends Plugin {
             // /Users/... path a Mac left for a Linux OBS. Never restore it; the next connect re-reads
             // the real one from OBS.
             configManager.unsetConfiguration("osrsbingo", OBS_PATH_BACKUP);
+            String obsBackup = obsFolderState.backup();
+            if (obsBackup != null && !ObsPathPolicy.isCompatible(obsBackup)) {
+                log.warn("Anvil OBS: discarded a recording-folder backup from another operating system: {}", obsBackup);
+                obsFolderState.clearBackup();
+            }
             bannerSound.setRoot(pluginDir.join("sounds"));
             debugLogExporter.setRoot(pluginDir.join("debug"));
         } catch (IOException | RuntimeException e) {
@@ -1239,9 +1258,10 @@ public class AnvilPlugin extends Plugin {
         // ONLY WHILE WE ARE THE ONES PUTTING THEM THERE. OBS keeps writing to the folder it started
         // with, so after RuneLite closes their clips can still land in ours until OBS's buffer is
         // restarted. Sweeping then would delete footage the player saved for themselves.
-        if (config.manageObsFolder()) {
+        if (managesObsFolder()) {
             executor.execute(clipFolder::prune);
         }
+        guardRemoteObsFolderManagement();
         keyManager.registerKeyListener(clipHotkeyListener);
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
@@ -1409,6 +1429,9 @@ public class AnvilPlugin extends Plugin {
             sidebarNavButton = null;
         }
         bannerSound.shutdown();
+        clanCofferOpen = false;
+        clanCofferOpenTicks = 0;
+        clanCofferTracker.reset();
         keyManager.unregisterKeyListener(clipHotkeyListener);
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
         // Before the socket goes: we borrowed their recording folder, and a plugin that doesn't hand
@@ -1724,6 +1747,12 @@ public class AnvilPlugin extends Plugin {
         }
 
         String key = event.getKey();
+        if ("syncClanCoffer".equals(key)) {
+            // Enabling starts with a fresh baseline; changes made while opted out must not be
+            // replayed as one large movement when the setting comes back on.
+            clanCofferOpenTicks = 0;
+            clanCofferTracker.reset();
+        }
         // Setup pasted mid-session (the typical first install: enable the plugin while
         // logged in, then sign in or paste the Account Token): stamp the RSN/account hash and
         // greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
@@ -1748,7 +1777,8 @@ public class AnvilPlugin extends Plugin {
                 disconnectObs();
             }
         } else if ("manageObsFolder".equals(key)) {
-            if (config.manageObsFolder()) {
+            guardRemoteObsFolderManagement();
+            if (managesObsFolder()) {
                 // Ours from the next buffer start — the recording path is read when the buffer starts,
                 // so restarting it is what actually moves the clips.
                 if (config.clipsEnabled() && obsClip != null && obsClip.isConnected()) {
@@ -1779,6 +1809,11 @@ public class AnvilPlugin extends Plugin {
             // with a couple of retries in case the text lands late.
             scheduleQuestScrollRead(3);
         }
+        if (event.getGroupId() == InterfaceID.CLANS_STORAGE_MAIN) {
+            clanCofferOpen = true;
+            clanCofferOpenTicks = 0;
+            clanCofferTracker.reset();
+        }
     }
 
     @Subscribe
@@ -1786,6 +1821,11 @@ public class AnvilPlugin extends Plugin {
         // Gain tiles: trade/bank items can land the tick their interface closes — keep those
         // inventory changes suppressed (see onItemContainerChanged).
         int g = event.getGroupId();
+        if (g == InterfaceID.CLANS_STORAGE_MAIN) {
+            clanCofferOpen = false;
+            clanCofferOpenTicks = 0;
+            clanCofferTracker.reset();
+        }
         if (g == InterfaceID.BANKMAIN || g == InterfaceID.BANK_DEPOSITBOX
                 || g == InterfaceID.GE_OFFERS || g == InterfaceID.GE_COLLECT
                 || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM
@@ -2120,6 +2160,69 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /** Read the visible coffer after its item widgets have had a few ticks to populate. */
+    private void pollClanCoffer() {
+        if (!config.syncClanCoffer() || !clanCofferOpen
+                || client.getGameState() != GameState.LOGGED_IN || !apiClient.isConfigured()) {
+            return;
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || !cfg.serverSupports("coffer-sync")) {
+            return;
+        }
+        if (++clanCofferOpenTicks < 3) {
+            return;
+        }
+        Integer balance = readClanCofferBalance();
+        if (balance == null) {
+            return;
+        }
+        ClanCofferTracker.Observation observation = clanCofferTracker.observe(balance, System.currentTimeMillis());
+        ScheduledExecutorService ex = executor;
+        if (observation == null || ex == null || ex.isShutdown()) {
+            return;
+        }
+        final String eventKey = java.util.UUID.randomUUID().toString();
+        ex.submit(() -> {
+            try {
+                apiClient.submitClanCoffer(eventKey, observation);
+            } catch (IOException e) {
+                // A later open sends an absolute snapshot, so a lost transition reconciles without
+                // manufacturing an actor. Never block the client thread retrying a money endpoint.
+                log.warn("Anvil: Clan Coffer sync failed; the next observation will reconcile it: {}", e.getMessage());
+            }
+        });
+    }
+
+    /** Coin quantity in the Clan Coffer item container; zero is a valid empty coffer. */
+    private Integer readClanCofferBalance() {
+        Widget root = client.getWidget(InterfaceID.ClansStorageMain.ITEMS);
+        if (root == null || root.isHidden()) {
+            return null;
+        }
+        long total = cofferCoins(root, Collections.newSetFromMap(new IdentityHashMap<>()));
+        return total > Integer.MAX_VALUE ? null : (int) total;
+    }
+
+    private static long cofferCoins(Widget widget, Set<Widget> visited) {
+        if (widget == null || !visited.add(widget)) {
+            return 0L;
+        }
+        long total = widget.getItemId() == ItemID.COINS ? Math.max(0, widget.getItemQuantity()) : 0L;
+        Widget[][] childSets = {
+                widget.getChildren(), widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()
+        };
+        for (Widget[] children : childSets) {
+            if (children == null) {
+                continue;
+            }
+            for (Widget child : children) {
+                total += cofferCoins(child, visited);
+            }
+        }
+        return total;
+    }
+
     @Subscribe
     public void onGameTick(GameTick event) {
         // KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
@@ -2138,6 +2241,7 @@ public class AnvilPlugin extends Plugin {
         if (clanSyncButton != null) {
             clanSyncButton.refresh();
         }
+        pollClanCoffer();
         tickClogTransmitGuard();
         tickManualSyncWatchdog();
         updateClanRosterReadable();
@@ -2370,6 +2474,9 @@ public class AnvilPlugin extends Plugin {
             // Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
             // the answer rather than let the sidebar rank clans on the previous account's standing.
             knownMember = null;
+            clanCofferOpen = false;
+            clanCofferOpenTicks = 0;
+            clanCofferTracker.reset();
             isGuest = false;
             weeklyEnrollAttempted = false;
             adminProbeAttempted = false;
@@ -3179,6 +3286,15 @@ public class AnvilPlugin extends Plugin {
         String msg = event.getMessage();
         if (msg == null || msg.isEmpty()) {
             return;
+        }
+
+        // Deposits are private to the depositor; withdrawals may be clan broadcasts. Either way the
+        // line is attribution only — the widget's before/after amount is what can move the ledger.
+        // Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
+        if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
+            String sender = event.getName();
+            String cofferLine = sender == null || sender.trim().isEmpty() ? msg : sender + " " + msg;
+            clanCofferTracker.onChatLine(stripChatTags(cofferLine), getLocalPlayerName(), System.currentTimeMillis());
         }
 
         // Server drop-attribution lines — the ONLY signal for drops that bypass both loot
@@ -8268,6 +8384,8 @@ public class AnvilPlugin extends Plugin {
     private static final class PendingPet {
 
         final boolean duplicate;
+        /** Captured on the client thread when the pet line arrives. */
+        final String rsn;
         final String source;
         final String sourceKind;
         final Integer killCount;
@@ -8287,10 +8405,14 @@ public class AnvilPlugin extends Plugin {
          */
         String resolvedSource;
         Integer resolvedKc;
+        /** Resolved on the client thread with the collection-log name. */
+        Integer itemId;
+        Double dropRate;
 
-        PendingPet(boolean duplicate, String source, String sourceKind, Integer killCount,
+        PendingPet(boolean duplicate, String rsn, String source, String sourceKind, Integer killCount,
                    boolean announce, String momentKey) {
             this.duplicate = duplicate;
+            this.rsn = rsn;
             this.source = source;
             this.sourceKind = sourceKind;
             this.killCount = killCount;
@@ -8337,6 +8459,10 @@ public class AnvilPlugin extends Plugin {
             pet.resolvedSource = resolved;
             pet.resolvedKc = resolved == null ? null
                     : (resolved.equalsIgnoreCase(pet.source) ? pet.killCount : killCountFor(resolved));
+            // ItemManager and the rarity services ultimately read game/cache state. Resolve those
+            // here, on the chat-event client thread, rather than two seconds later on our executor.
+            pet.itemId = resolveItemIdByName(itemName);
+            pet.dropRate = petRarity(pet.itemId, resolved, pet.sourceKind);
         }
         namePetMoment(pet.momentKey, itemName, resolved, pet.resolvedKc);
         return pet;
@@ -8361,22 +8487,39 @@ public class AnvilPlugin extends Plugin {
         }
         Integer kc = killCountFor(source);
         String momentKey = recordPetMoment(source, sourceKind, kc);
-        boolean announce = config.notifyPets() && notifyEnabled("pets");
+        // The server is the authority on whether a clan or personal destination exists. The cached
+        // notify flag can be stale (or only describe clan hooks while the player has a personal
+        // hook), and a pet is far too rare to discard because that snapshot said "none". Keep the
+        // player's own switch, then let /api/plugin/notify make the live routing decision.
+        boolean announce = petAnnouncementEnabled(config.notifyPets(), apiClient.isConfigured(), pluginConfig);
 
         // Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
         // park a pet nothing will ever collect: the next collection-log line would claim it.
         if (!announce && momentKey == null) {
             return;
         }
-        PendingPet pet = new PendingPet(duplicate, source, sourceKind, kc, announce, momentKey);
+        PendingPet pet = new PendingPet(duplicate, getLocalPlayerName(), source, sourceKind, kc,
+                announce, momentKey);
         synchronized (petLock) {
             pendingPet = pet;
         }
         if (executor != null && !executor.isShutdown()) {
-            executor.schedule(() -> flushPetNotification(pet), PET_NAME_WINDOW_MS, TimeUnit.MILLISECONDS);
+            executor.schedule(
+                    () -> safely("petNotification", () -> flushPetNotification(pet)),
+                    PET_NAME_WINDOW_MS,
+                    TimeUnit.MILLISECONDS);
         } else {
-            flushPetNotification(pet);
+            safely("petNotification", () -> flushPetNotification(pet));
         }
+    }
+
+    /**
+     * Whether to attempt the rare pet post. The site, not its last config snapshot, owns the live
+     * destination decision; this gate only answers whether the player asked and the endpoint exists.
+     */
+    static boolean petAnnouncementEnabled(boolean playerEnabled, boolean apiConfigured,
+                                          PluginConfigResponse cfg) {
+        return playerEnabled && apiConfigured && cfg != null && cfg.serverSupports("notify");
     }
 
     /**
@@ -8397,7 +8540,7 @@ public class AnvilPlugin extends Plugin {
         if (!pet.announce) {
             return;
         }
-        String rsn = getLocalPlayerName();
+        String rsn = pet.rsn;
         String shotName = "anvil-pet.png";
         String petName = pet.name;
 
@@ -8443,8 +8586,8 @@ public class AnvilPlugin extends Plugin {
 
         // Real rarity or none: the rate comes from the same service the rare-drop posts price
         // against, asked with this pet's own item id.
-        Integer itemId = petName != null ? resolveItemIdByName(petName) : null;
-        Double dropRate = petRarity(itemId, source, pet.sourceKind);
+        Integer itemId = petName != null ? pet.itemId : null;
+        Double dropRate = petName != null ? pet.dropRate : null;
         if (dropRate != null && dropRate > 0) {
             fields.add(statField("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate)));
             String luck = DropLuck.luckLabel(dropRate, killCount);
@@ -9412,8 +9555,41 @@ public class AnvilPlugin extends Plugin {
     }
 
     // ---- OBS clip capture ----
+    /** The requested setting after enforcing that OBS and RuneLite share this filesystem. */
+    private boolean managesObsFolder() {
+        return ObsHostPolicy.canManage(config.manageObsFolder(), config.obsHost());
+    }
+
+    /**
+     * A remote OBS reports paths belonging to its own OS. Never save, restore, or replace one with
+     * this machine's plugin directory — that is how a synced Mac /Users path broke Linux OBS.
+     */
+    private void guardRemoteObsFolderManagement() {
+        if (!config.manageObsFolder() || ObsHostPolicy.isLocal(config.obsHost())) {
+            remoteObsFolderWarned = false;
+            return;
+        }
+        obsFolderState.clearBackup();
+        if (remoteObsFolderWarned) {
+            return;
+        }
+        remoteObsFolderWarned = true;
+        log.warn("Anvil OBS: folder management disabled because OBS host '{}' is remote", config.obsHost());
+        sendChatMessage("Anvil left OBS's folder alone because OBS is on another computer. "
+                + "Use localhost only when OBS runs on this computer.");
+    }
+
     private void connectObs() {
         synchronized (obsLock) {
+            String targetHost = config.obsHost();
+            // Config already contains the NEW host here. The open socket still reaches the old
+            // one, so hand a local OBS its folder back before moving the connection elsewhere.
+            if (obsClip != null && ObsHostPolicy.isLocal(obsConnectedHost)
+                    && (obsConnectedHost == null || !obsConnectedHost.trim().equalsIgnoreCase(
+                            targetHost == null ? "" : targetHost.trim()))) {
+                restoreObsRecordDirectory();
+            }
+            guardRemoteObsFolderManagement();
             disconnectObs();
             obsClip = new ObsReplayClient(
                     okHttpClient,
@@ -9429,6 +9605,7 @@ public class AnvilPlugin extends Plugin {
                         if (client.getGameState() == GameState.LOGIN_SCREEN) {
                             maybeAskForClipFolder();
                         }
+                        guardRemoteObsFolderManagement();
                     },
                     // Per-save failures (e.g. the Replay Buffer isn't started) — tell the player why.
                     this::sendChatMessage,
@@ -9436,9 +9613,10 @@ public class AnvilPlugin extends Plugin {
                     () -> config.clipMp4() ? "mp4" : null,
                     config::postObsTriggeredClips,
                     // Only when the player asked us to manage it; otherwise null leaves their path alone.
-                    () -> config.manageObsFolder() ? clipFolder.managedPath() : null,
+                    () -> managesObsFolder() ? clipFolder.managedPath() : null,
                     this::onObsRecordDirectory
             );
+            obsConnectedHost = targetHost;
             obsClip.connect();
         }
     }
@@ -9467,6 +9645,7 @@ public class AnvilPlugin extends Plugin {
                 obsClip.disconnect();
                 obsClip = null;
             }
+            obsConnectedHost = null;
         }
     }
 
@@ -9653,10 +9832,14 @@ public class AnvilPlugin extends Plugin {
             heldClips.add(() -> submitClip(path, moment, clipSeconds));
         }
         String caption = moment != null ? moment : "Clip saved";
-        if (config.manageObsFolder()) {
+        if (managesObsFolder()) {
             // Managing, yet the clip landed elsewhere: OBS was already running its buffer with the
             // old path when we connected. It will land in our folder from the next buffer start.
             sendChatMessage(caption + " — saved by OBS. Restart OBS's replay buffer so Anvil can post these for you.");
+            return;
+        }
+        if (config.manageObsFolder() && !ObsHostPolicy.isLocal(config.obsHost())) {
+            sendChatMessage(caption + " — saved on the remote OBS computer. Anvil cannot read that computer's folder.");
             return;
         }
         sendChatMessage(caption + " — saved by OBS. To post these automatically, point Anvil at your OBS folder at the login screen.");
@@ -9704,10 +9887,24 @@ public class AnvilPlugin extends Plugin {
         obsRecordDir = dir;
         String ours = clipFolder.managedPath();
         boolean isOurs = ours != null && ours.equalsIgnoreCase(dir);
-        if (config.manageObsFolder()) {
+        if (managesObsFolder()) {
             if (!isOurs) {
-                obsFolderState.saveBackup(dir);
+                if (ObsPathPolicy.isCompatible(dir)) {
+                    obsFolderState.saveBackup(dir);
+                } else {
+                    // OBS itself may still hold the stale path a synced config wrote in an older
+                    // release. Use our valid managed path, but never preserve that value to restore.
+                    obsFolderState.clearBackup();
+                    log.warn("Anvil OBS: refusing to back up a recording path from another OS: {}", dir);
+                }
             }
+            return;
+        }
+        if (!ObsHostPolicy.isLocal(config.obsHost())) {
+            // The path belongs to the remote OBS machine. It is neither a backup for this machine
+            // nor a path RuneLite may read, and must never be written back over the socket.
+            obsFolderState.clearBackup();
+            guardRemoteObsFolderManagement();
             return;
         }
         // Not managing any more, but OBS is still pointed at us — a toggle flipped while RuneLite was
@@ -9723,7 +9920,7 @@ public class AnvilPlugin extends Plugin {
      * can't read. Cheap (two status requests); the client only cycles the buffer when it really moved.
      */
     private void checkObsFolder() {
-        if (!config.clipsEnabled() || !config.manageObsFolder()) {
+        if (!config.clipsEnabled() || !managesObsFolder()) {
             return;
         }
         ObsReplayClient obs;
@@ -9741,8 +9938,18 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void restoreObsRecordDirectory(boolean cycle) {
+        String host = obsConnectedHost != null ? obsConnectedHost : config.obsHost();
+        if (!ObsHostPolicy.isLocal(host)) {
+            obsFolderState.clearBackup();
+            return;
+        }
         String backup = obsFolderState.backup();
         if (backup == null || backup.isEmpty()) {
+            return;
+        }
+        if (!ObsPathPolicy.isCompatible(backup)) {
+            log.warn("Anvil OBS: refusing to restore a recording path from another OS: {}", backup);
+            obsFolderState.clearBackup();
             return;
         }
         ObsReplayClient obs;

@@ -75,4 +75,17 @@ public class NotifyChannelTest
 	{
 		assertFalse(AnvilPlugin.channelEnabled(null, "levels"));
 	}
+
+	@Test
+	public void aPetPostUsesTheLiveServerDecisionInsteadOfTheCachedChannelFlag()
+	{
+		PluginConfigResponse cfg = new PluginConfigResponse();
+		cfg.notify = new PluginConfigResponse.NotifyChannels();
+		cfg.notify.pets = false; // stale/no clan hook; a personal destination may still exist
+
+		assertTrue(AnvilPlugin.petAnnouncementEnabled(true, true, cfg));
+		assertFalse(AnvilPlugin.petAnnouncementEnabled(false, true, cfg));
+		assertFalse(AnvilPlugin.petAnnouncementEnabled(true, false, cfg));
+		assertFalse(AnvilPlugin.petAnnouncementEnabled(true, true, null));
+	}
 }

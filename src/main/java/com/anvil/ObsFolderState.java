@@ -18,7 +18,9 @@ import net.runelite.client.util.Filepath;
  *   a RuneLite config key, and RuneLite syncs config across machines on the same account — so a folder
  *   saved on one computer was "restored" into OBS on another. A Mac's
  *   {@code /Users/<name>/.runelite/plugin-data/anvil/clips} landed in a Linux OBS, where it doesn't
- *   exist, and every clip after that failed to save where we could read it.
+ *   exist, and every clip after that failed to save where we could read it. {@link ObsPathPolicy}
+ *   is the second boundary: an OBS process already poisoned with that path must not teach it back
+ *   to this machine as though it were a legitimate local backup.
  *   <li><b>Which clients are running.</b> Two RuneLite clients share one OBS. When one closed it handed
  *   OBS back to the player's folder while the other was still playing, and the survivor's clips went
  *   out of reach mid-session. Each client keeps a heartbeat file here; the one that closes LAST is the
