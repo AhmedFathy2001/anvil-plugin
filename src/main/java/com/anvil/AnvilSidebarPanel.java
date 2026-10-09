@@ -378,7 +378,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		String plain = text == null ? "" : text;
 		boolean show = !plain.isEmpty();
 		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-		signInStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "px'>" + escaped + "</body></html>" : "");
+		signInStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + escaped + "</body></html>" : "");
 		signInStatus.setToolTipText(show ? plain : null);
 		signInStatus.setVisible(show);
 		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
@@ -753,7 +753,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** A wrapped grey paragraph at the panel's width — long copy clips rather than wraps without it. */
 	private static JLabel note(String text)
 	{
-		JLabel label = new JLabel("<html><body style='width:" + STATUS_WRAP_PX + "px'>"
+		JLabel label = new JLabel("<html><body style='width:" + STATUS_WRAP_PX + "pt'>"
 			+ text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</body></html>");
 		label.setFont(FontManager.getRunescapeSmallFont());
 		label.setForeground(VALUE_COLOR);
@@ -1671,17 +1671,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		// and an alt that isn't read differently here.
 		if ("entered".equals(s.yourEntry))
 		{
-			panel.add(leftLabel(s.live ? "You're in — your board shows once it loads." : "You're signed up — waiting for it to start.",
+			panel.add(wrappedLabel(s.live ? "You're in — your board shows once it loads." : "You're signed up — waiting for it to start.",
 				FontManager.getRunescapeSmallFont(), ColorScheme.PROGRESS_COMPLETE_COLOR));
 		}
 		else if ("pending".equals(s.yourEntry))
 		{
-			panel.add(leftLabel("Signed up — waiting for the host to approve.",
+			panel.add(wrappedLabel("Signed up — waiting for the host to approve.",
 				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 		}
 		else
 		{
-			panel.add(leftLabel(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
+			panel.add(wrappedLabel(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
 				FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
 		}
 
@@ -2346,6 +2346,17 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JLabel leftLabel(String text, Font font, Color color)
 	{
 		JLabel label = new JLabel(plainText(text));
+		label.setFont(font);
+		label.setForeground(color);
+		label.setAlignmentX(LEFT_ALIGNMENT);
+		return label;
+	}
+
+	/** A left-aligned label that wraps at the usable sidebar width instead of losing its last words. */
+	private static JLabel wrappedLabel(String text, Font font, Color color)
+	{
+		String safe = text == null ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+		JLabel label = new JLabel("<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + safe + "</body></html>");
 		label.setFont(font);
 		label.setForeground(color);
 		label.setAlignmentX(LEFT_ALIGNMENT);
@@ -3093,7 +3104,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
 	{
 		rows.removeAll();
-		JButton back = actionButton("‹ Back to tiles", "Return to the searchable tile list", backToTiles);
+		JButton back = actionButton("Back to tiles", "Return to the searchable tile list", backToTiles);
 		rows.add(fullWidth(back));
 		rows.add(gap(7));
 
@@ -3193,6 +3204,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		card.setAlignmentX(LEFT_ALIGNMENT);
 		rows.add(card);
 		rows.revalidate();
 		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));

@@ -284,6 +284,8 @@ public class AnvilPlugin extends Plugin {
 
     @Getter
     private volatile PluginConfigResponse pluginConfig;
+    /** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
+    private volatile long lastConfigRefreshAt;
 
     // STARTING SHOT (site lib/startProof). `startProofFiled` latches the moment one is accepted by
     // the server so the button/nudge go away immediately instead of waiting on the next config poll;
@@ -5939,12 +5941,26 @@ public class AnvilPlugin extends Plugin {
         return stored == null ? "" : stored.trim();
     }
 
-    private void refreshConfig() {
+    /**
+     * The sidebar's visible refresh cadence is tighter than the always-on tracker poll. A manual
+     * click always re-reads; background sidebar paints only do so when the last config is genuinely
+     * stale, avoiding two requests landing together around the regular 30-second poll.
+     */
+    void refreshConfigForSidebar(boolean force) {
+        // The provider smoke test deliberately invokes the sidebar graph on an uninjected plugin;
+        // the source must remain usable in that state just as it was before this freshness hook.
+        if (apiClient != null && (force || System.currentTimeMillis() - lastConfigRefreshAt >= 10_000L)) {
+            refreshConfig();
+        }
+    }
+
+    private synchronized void refreshConfig() {
         if (!apiClient.isConfigured()) {
             return;
         }
         try {
             PluginConfigResponse fresh = apiClient.fetchConfig();
+            lastConfigRefreshAt = System.currentTimeMillis();
             // A refresh that returned (HTTP 200/304, no throw) proves the token is good — clear any
             // connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();

@@ -13,8 +13,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * The live {@link SidebarDataSource} behind the sidebar: renders the plugin's one home — a view over the
  * already-polled {@link PluginConfigResponse} plus the injected {@link BingoApiClient} — into a single
- * {@link ConnectionView}. Board summary + nearest tiles come from the polled config (no extra request); the
- * feed is the source's only network call (one conditional GET to {@code /api/plugin/activity}, 304 while idle).
+ * {@link ConnectionView}. Board summary + nearest tiles come from config; while the sidebar is open it may
+ * tighten the config refresh window so browser-side sign-ups appear promptly. The feed remains a conditional
+ * GET to {@code /api/plugin/activity} (304 while idle).
  *
  * <p><b>"Active now"</b> fuses three signals so it works for every tile kind: config-count deltas (the only
  * signal for stat grinds, and the unnamed "a teammate" fallback for any kind), the local stat signal
@@ -283,16 +284,20 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return fetchConnections(false);
 	}
 
-	/** {@code force} = the member clicked Refresh — bypasses the weekly-standings throttle too. */
+	/** {@code force} = the member clicked Refresh — re-reads config and bypasses the weekly throttle. */
 	@Override
 	public List<ConnectionView> fetchConnections(boolean force) throws SidebarDataException
 	{
 		// A clicked Refresh is the member saying "I just changed something" — often that they were
 		// made a clan admin. Ask now, not on the five-minute re-probe, so the roster-sync button shows.
 		AnvilPlugin p = plugin;
-		if (force && p != null)
+		if (p != null)
 		{
-			p.reprobeAdminNow();
+			p.refreshConfigForSidebar(force);
+			if (force)
+			{
+				p.reprobeAdminNow();
+			}
 		}
 		ConnectionView view = buildView(force);
 		return view == null ? Collections.emptyList() : Collections.singletonList(view);
