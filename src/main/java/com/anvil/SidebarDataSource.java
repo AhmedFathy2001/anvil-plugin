@@ -111,7 +111,8 @@ public interface SidebarDataSource
 
 	/**
 	 * Full visible board for the sidebar catalogue. {@code eventId <= 0} means the caller's active,
-	 * team-scoped board; a positive id is a read-only preview (including a revealed pre-start board).
+	 * team-scoped board; a positive id is a named board (team-scoped when the caller is enrolled,
+	 * otherwise a read-only preview, including a revealed pre-start board).
 	 * Blocking; the panel always calls it from a SwingWorker.
 	 */
 	default BingoApiClient.BoardResponse fetchBoard(int eventId)
@@ -129,13 +130,13 @@ public interface SidebarDataSource
 	}
 
 	/** Claim a tile on your own team, or update your note. Blocking; call from a SwingWorker. */
-	default void claimTile(int tileId, String note) throws java.io.IOException
+	default void claimTile(int eventId, int tileId, String note) throws java.io.IOException
 	{
 		throw new java.io.IOException("This site doesn't support tile claims.");
 	}
 
 	/** Drop your own claim on a tile. Blocking; call from a SwingWorker. */
-	default void unclaimTile(int tileId) throws java.io.IOException
+	default void unclaimTile(int eventId, int tileId) throws java.io.IOException
 	{
 		throw new java.io.IOException("This site doesn't support tile claims.");
 	}

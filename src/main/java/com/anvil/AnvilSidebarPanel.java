@@ -160,6 +160,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final Map<String, String> boardSearches = new HashMap<>();
 	private final Map<String, TileStatusFilter> boardStatusFilters = new HashMap<>();
 	private final Map<String, Integer> boardCataloguePages = new HashMap<>();
+	/** Tile detail currently drilled into. Kept across the 15-second refresh instead of snapping shut. */
+	private String openCatalogueDetailKey;
+	private int openCatalogueDetailTileId = -1;
 	private boolean showAllActiveTiles;
 	private int boardCatalogueGeneration;
 	/** Do not replace the whole Swing tree underneath somebody who is typing in the tile search. */
@@ -2833,9 +2836,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			countLine += " · " + board.hiddenTileCount + " still hidden";
 		}
+		boolean catalogueClaimable = !board.readOnly && dataSource.supportsTileClaims();
 		panel.add(leftLabel(countLine, FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
 		panel.add(gap(2));
-		panel.add(leftLabel("Click a tile to open its details on Anvil.",
+		panel.add(leftLabel(catalogueClaimable
+			? "Click for details · right-click to claim."
+			: (board.readOnly ? "Click for details · join this event to claim tiles."
+				: "Click for details · claims aren't available on this site."),
 			FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 		panel.add(gap(7));
 		panel.add(controls);
@@ -2895,6 +2902,36 @@ public class AnvilSidebarPanel extends PluginPanel
 		List<BingoApiClient.BoardTile> all, String search, TileStatusFilter status, boolean preStart, String boardUrl)
 	{
 		rows.removeAll();
+		BingoApiClient.BoardResponse shownBoard = boardCatalogues.get(key);
+		boolean claimable = shownBoard != null
+			&& !shownBoard.readOnly && dataSource.supportsTileClaims();
+		if (key.equals(openCatalogueDetailKey) && openCatalogueDetailTileId > 0)
+		{
+			BingoApiClient.BoardTile detailTile = null;
+			for (BingoApiClient.BoardTile tile : all)
+			{
+				if (tile.tileId == openCatalogueDetailTileId)
+				{
+					detailTile = tile;
+					break;
+				}
+			}
+			if (detailTile != null)
+			{
+				boolean canClaim = claimable && !detailTile.complete;
+				BingoApiClient.BoardTile selected = detailTile;
+				Runnable backToTiles = () ->
+				{
+					openCatalogueDetailKey = null;
+					openCatalogueDetailTileId = -1;
+					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
+				};
+				renderTileDetail(catalogue, rows, selected, boardUrl, preStart, key, canClaim, backToTiles);
+				return;
+			}
+			openCatalogueDetailKey = null;
+			openCatalogueDetailTileId = -1;
+		}
 		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart);
 		if (filtered.isEmpty())
 		{
@@ -2911,11 +2948,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			rows.add(leftLabel((from + 1) + "–" + to + " of " + filtered.size(),
 				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 			rows.add(gap(5));
-			// Claims are your own team's plan, so only on the active (team-scoped) board — never a
-			// preview — and only once it's running, on a site that takes them.
-			BingoApiClient.BoardResponse shownBoard = boardCatalogues.get(key);
-			boolean claimable = ACTIVE_CATALOGUE_KEY.equals(key) && !preStart && shownBoard != null
-				&& !shownBoard.readOnly && dataSource.supportsTileClaims();
+			// A writable response is already scoped by the server to the enrolled player's team. Public
+			// and non-member previews remain read-only, including before the event starts.
 			boolean first = true;
 			for (BingoApiClient.BoardTile tile : filtered.subList(from, to))
 			{
@@ -2923,7 +2957,18 @@ public class AnvilSidebarPanel extends PluginPanel
 				{
 					rows.add(gap(5));
 				}
-				rows.add(buildCatalogueTileRow(tile, boardUrl, preStart, key, claimable));
+				boolean canClaim = claimable && !tile.complete;
+				String claimUnavailable = canClaim ? null : (tile.complete
+					? "This tile is already complete."
+					: (shownBoard != null && shownBoard.readOnly
+						? "Join this event to claim tiles."
+						: "Claims aren't available on this site."));
+				rows.add(buildCatalogueTileRow(tile, preStart, key, canClaim, claimUnavailable, () ->
+				{
+					openCatalogueDetailKey = key;
+					openCatalogueDetailTileId = tile.tileId;
+					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
+				}));
 				first = false;
 			}
 			if (pageCount > 1)
@@ -2954,8 +2999,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		content.repaint();
 	}
 
-	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, String boardUrl, boolean preStart,
-		String key, boolean claimable)
+	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, boolean preStart,
+		String key, boolean canClaim, String claimUnavailable, Runnable viewDetails)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -2969,7 +3014,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		String details = tile.description == null || tile.description.trim().isEmpty()
 			? tile.requirement : tile.description;
 		String tooltip = details == null || details.isEmpty() ? label : label + " — " + details;
-		boolean canClaim = claimable && !tile.complete;
 		if (canClaim)
 		{
 			tooltip += " (right-click to claim)";
@@ -2977,9 +3021,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		name.setToolTipText(plainText(tooltip));
 		row.add(name, BorderLayout.CENTER);
 
-		if (!preStart)
+		String rowState = tileRowStateText(tile, preStart);
+		if (rowState != null)
 		{
-			JLabel state = new JLabel(tile.complete ? "✓ Done" : "Open");
+			JLabel state = new JLabel(rowState);
 			state.setFont(FontManager.getRunescapeSmallFont());
 			state.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
 			row.add(state, BorderLayout.EAST);
@@ -2996,40 +3041,319 @@ public class AnvilSidebarPanel extends PluginPanel
 			row.add(who, BorderLayout.SOUTH);
 		}
 
-		String tileUrl = tileUrl(boardUrl, tile.tileId);
-		boolean opens = isSafeHttpUrl(tileUrl);
-		if (opens || canClaim)
+		if (viewDetails != null || canClaim)
 		{
-			if (opens)
+			if (viewDetails != null)
 			{
 				row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			}
-			row.addMouseListener(new MouseAdapter()
+			MouseAdapter listener = new MouseAdapter()
 			{
 				@Override public void mouseClicked(MouseEvent e)
 				{
-					// Left-click opens the tile; right-click is the claim menu, not a second browser tab.
-					if (opens && SwingUtilities.isLeftMouseButton(e))
+					// Left-click stays in RuneLite; the detail view carries the explicit site link.
+					if (viewDetails != null && SwingUtilities.isLeftMouseButton(e))
 					{
-						LinkBrowser.browse(tileUrl);
+						viewDetails.run();
 					}
 				}
 				@Override public void mousePressed(MouseEvent e) { maybeClaimMenu(e); }
 				@Override public void mouseReleased(MouseEvent e) { maybeClaimMenu(e); }
 				@Override public void mouseEntered(MouseEvent e) { row.setBackground(WIDGET_BG_HOVER); }
-				@Override public void mouseExited(MouseEvent e) { row.setBackground(ColorScheme.DARKER_GRAY_COLOR); }
+				@Override public void mouseExited(MouseEvent e)
+				{
+					// Moving between the row and one of its labels is still inside the same clickable tile.
+					Component source = e.getComponent();
+					if (!row.contains(SwingUtilities.convertPoint(source, e.getPoint(), row)))
+					{
+						row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+					}
+				}
 
 				private void maybeClaimMenu(MouseEvent e)
 				{
-					if (canClaim && e.isPopupTrigger())
+					if (e.isPopupTrigger())
 					{
-						claimMenu(tile, key).show(e.getComponent(), e.getX(), e.getY());
+						JPopupMenu menu = canClaim ? claimMenu(tile, key) : claimUnavailableMenu(claimUnavailable);
+						menu.show(e.getComponent(), e.getX(), e.getY());
 					}
 				}
-			});
+			};
+			// Swing sends a mouse event to the deepest component under the pointer; it does not bubble
+			// through the JLabel text to this JPanel. Wire the full visible row so its text is not a dead
+			// overlay over the apparent button (and right-click works on the same whole target).
+			addMouseListenerToTree(row, listener);
 		}
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		return row;
+	}
+
+	/** One tile's full in-sidebar view. The browser is an explicit choice, not the row's default action. */
+	private void renderTileDetail(JPanel catalogue, JPanel rows, BingoApiClient.BoardTile tile,
+		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
+	{
+		rows.removeAll();
+		JButton back = actionButton("‹ Back to tiles", "Return to the searchable tile list", backToTiles);
+		rows.add(fullWidth(back));
+		rows.add(gap(7));
+
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		card.setBorder(BorderFactory.createEmptyBorder(9, 9, 9, 9));
+		card.setAlignmentX(LEFT_ALIGNMENT);
+
+		String label = tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
+		JLabel title = note(label);
+		title.setFont(FontManager.getRunescapeBoldFont());
+		title.setForeground(ColorScheme.TEXT_COLOR);
+		card.add(title);
+		card.add(gap(4));
+
+		List<String> facts = tileDetailFacts(tile, preStart);
+		if (!facts.isEmpty())
+		{
+			card.add(sectionHeader("Details"));
+			card.add(gap(2));
+			for (String fact : facts)
+			{
+				card.add(note(fact));
+			}
+		}
+		if (tile.description != null && !tile.description.trim().isEmpty())
+		{
+			card.add(gap(9));
+			card.add(sectionHeader("Objective"));
+			card.add(gap(2));
+			card.add(note(tile.description.trim()));
+		}
+
+		List<String> tracked = tileTrackingDetails(tile);
+		if (tileIsManual(tile))
+		{
+			card.add(gap(9));
+			card.add(sectionHeader("Manual completion"));
+			card.add(gap(2));
+			card.add(note("This task is not completed automatically. A captain or admin marks it done."));
+		}
+		else if (!tracked.isEmpty())
+		{
+			card.add(gap(9));
+			card.add(sectionHeader("Tracked automatically"));
+			card.add(gap(2));
+			for (String line : tracked)
+			{
+				card.add(note(line));
+			}
+		}
+		if (tile.requirement != null && !tile.requirement.trim().isEmpty()
+			&& !tile.requirement.trim().equals(tile.description == null ? "" : tile.description.trim())
+			&& !tracked.contains(tile.requirement.trim()))
+		{
+			card.add(gap(9));
+			card.add(sectionHeader("Requirements"));
+			card.add(gap(2));
+			card.add(note(tile.requirement.trim()));
+		}
+
+		String planning = claimTooltip(tile.claims);
+		if (planning != null && !planning.isEmpty())
+		{
+			card.add(gap(7));
+			JLabel plan = note(planning.replace("\n", " · "));
+			plan.setForeground(claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR);
+			card.add(plan);
+		}
+
+		if (canClaim)
+		{
+			card.add(gap(8));
+			JButton primary;
+			JButton secondary;
+			if (claimedByMe(tile.claims))
+			{
+				primary = actionButton("Change note…", "Edit the note your team sees", () -> askNoteAndClaim(tile, key));
+				secondary = actionButton("Drop claim", "Stop planning this tile", () ->
+					runClaimChange(key, () -> dataSource.unclaimTile(catalogueEventId(key), tile.tileId)));
+			}
+			else
+			{
+				primary = actionButton("Claim tile", "Tell your team you're going for this", () ->
+					runClaimChange(key, () -> dataSource.claimTile(catalogueEventId(key), tile.tileId, null)));
+				secondary = actionButton("Add note…", "Claim it with a note for your team", () -> askNoteAndClaim(tile, key));
+			}
+			card.add(buttonRow(primary, secondary));
+		}
+
+		String tileUrl = tileUrl(boardUrl, tile.tileId);
+		if (isSafeHttpUrl(tileUrl))
+		{
+			card.add(gap(5));
+			card.add(siteLink("Open on Anvil ↗", "Open this tile on the Anvil site", tileUrl));
+		}
+
+		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		rows.add(card);
+		rows.revalidate();
+		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
+		catalogue.revalidate();
+		catalogue.setMaximumSize(new Dimension(Integer.MAX_VALUE, catalogue.getPreferredSize().height));
+		content.revalidate();
+		rows.repaint();
+		content.repaint();
+	}
+
+	/** Stable compact metadata used by the detail view and its regression tests. */
+	static List<String> tileDetailFacts(BingoApiClient.BoardTile tile, boolean preStart)
+	{
+		List<String> facts = new ArrayList<>();
+		if (!preStart)
+		{
+			facts.add("Status: " + tileStateText(tile));
+		}
+		else if (tileIsManual(tile))
+		{
+			facts.add("Completion: manual");
+		}
+		if (tile.points > 0)
+		{
+			facts.add("Points: " + tile.points);
+		}
+		if (tile.tier != null && !tile.tier.trim().isEmpty())
+		{
+			facts.add("Tier: " + tile.tier.trim());
+		}
+		if (tile.category != null && !tile.category.trim().isEmpty())
+		{
+			facts.add("Category: " + tile.category.trim().replace(",", " ·"));
+		}
+		return facts;
+	}
+
+	/** Pre-start rows hide completion, but a manual-only task must still identify itself. */
+	static String tileRowStateText(BingoApiClient.BoardTile tile, boolean preStart)
+	{
+		return preStart ? (tileIsManual(tile) ? "(manual)" : null) : tileStateText(tile);
+	}
+
+	/** Compact state shown at the right edge of a catalogue row. */
+	static String tileStateText(BingoApiClient.BoardTile tile)
+	{
+		return (tile.complete ? "✓ Done" : "Open") + (tileIsManual(tile) ? " (manual)" : "");
+	}
+
+	/**
+	 * A tile can be manual because the host flipped off otherwise-valid tracking, or because its
+	 * shape has no plugin tracker at all. The board API has always sent the former; deriving the
+	 * latter here keeps old sites honest too.
+	 */
+	static boolean tileIsManual(BingoApiClient.BoardTile tile)
+	{
+		if (tile.autoTrackDisabled != 0)
+		{
+			return true;
+		}
+		if (tile.statName != null && !tile.statName.trim().isEmpty())
+		{
+			return false;
+		}
+		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
+		switch (type)
+		{
+			case "drop":
+			case "gain":
+				return (tile.itemIds == null || tile.itemIds.isEmpty())
+					&& (tile.trackedItems == null || tile.trackedItems.isEmpty())
+					&& (tile.itemRequirements == null || tile.itemRequirements.isEmpty());
+			case "kill":
+			case "lap":
+			case "pvp":
+			case "diary":
+			case "ca":
+			case "timed":
+			case "lms":
+			case "value":
+			case "valuetotal":
+			case "deathless":
+				return false;
+			default:
+				return true;
+		}
+	}
+
+	/** Exact inputs the plugin watches, shown in the detail view instead of hiding them behind prose. */
+	static List<String> tileTrackingDetails(BingoApiClient.BoardTile tile)
+	{
+		List<String> lines = new ArrayList<>();
+		if (tileIsManual(tile))
+		{
+			return lines;
+		}
+		if (tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
+		{
+			for (PluginConfigResponse.ItemRequirement req : tile.itemRequirements)
+			{
+				String name = req.name == null || req.name.trim().isEmpty()
+					? "Item " + req.itemId : req.name.trim();
+				String amount = req.currentAmount > 0
+					? req.currentAmount + " / " + Math.max(1, req.requiredAmount)
+					: Math.max(1, req.requiredAmount) + "×";
+				String group = req.group == null || req.group.trim().isEmpty() ? "" : req.group.trim() + ": ";
+				lines.add(group + amount + " " + name);
+			}
+		}
+		else if (tile.trackedItems != null && !tile.trackedItems.isEmpty())
+		{
+			if (tile.trackedItems.size() == 1)
+			{
+				BingoApiClient.TrackedItem item = tile.trackedItems.get(0);
+				String name = item.name == null || item.name.trim().isEmpty()
+					? "Item " + item.itemId : item.name.trim();
+				lines.add(Math.max(1, tile.requiredAmount) + "× " + name);
+			}
+			else
+			{
+				lines.add("Need any " + Math.max(1, tile.requiredAmount) + " of:");
+				for (BingoApiClient.TrackedItem item : tile.trackedItems)
+				{
+					String name = item.name == null || item.name.trim().isEmpty()
+						? "Item " + item.itemId : item.name.trim();
+					lines.add("- " + name);
+				}
+			}
+		}
+		else if (tile.itemIds != null && !tile.itemIds.isEmpty())
+		{
+			lines.add("Tracked item IDs: " + tile.itemIds.toString().replace("[", "").replace("]", ""));
+		}
+		else if (tile.statName != null && !tile.statName.trim().isEmpty())
+		{
+			String unit = "boss".equalsIgnoreCase(tile.statType) || "kc".equalsIgnoreCase(tile.statType)
+				? " KC" : " XP";
+			lines.add(tile.statName.trim() + unit);
+		}
+		else if (tile.requirement != null && !tile.requirement.trim().isEmpty())
+		{
+			lines.add(tile.requirement.trim());
+		}
+		if (tile.sources != null && !tile.sources.isEmpty())
+		{
+			lines.add("Only from: " + String.join(", ", tile.sources));
+		}
+		return lines;
+	}
+
+	/** Install one row listener on the panel and every label nested inside it. */
+	static void addMouseListenerToTree(Component component, MouseAdapter listener)
+	{
+		component.addMouseListener(listener);
+		if (component instanceof java.awt.Container)
+		{
+			for (Component child : ((java.awt.Container) component).getComponents())
+			{
+				addMouseListenerToTree(child, listener);
+			}
+		}
 	}
 
 	/** Right-click on a tile row: claim it (optionally with a note), or drop your own claim. */
@@ -3042,18 +3366,30 @@ public class AnvilSidebarPanel extends PluginPanel
 			note.addActionListener(ev -> askNoteAndClaim(tile, key));
 			menu.add(note);
 			JMenuItem drop = new JMenuItem("Drop my claim");
-			drop.addActionListener(ev -> runClaimChange(key, () -> dataSource.unclaimTile(tile.tileId)));
+			drop.addActionListener(ev -> runClaimChange(key, () ->
+				dataSource.unclaimTile(catalogueEventId(key), tile.tileId)));
 			menu.add(drop);
 		}
 		else
 		{
 			JMenuItem go = new JMenuItem("I'm going for this");
-			go.addActionListener(ev -> runClaimChange(key, () -> dataSource.claimTile(tile.tileId, null)));
+			go.addActionListener(ev -> runClaimChange(key, () ->
+				dataSource.claimTile(catalogueEventId(key), tile.tileId, null)));
 			menu.add(go);
 			JMenuItem withNote = new JMenuItem("I'm going for this, with a note…");
 			withNote.addActionListener(ev -> askNoteAndClaim(tile, key));
 			menu.add(withNote);
 		}
+		return menu;
+	}
+
+	/** Right-click should explain an unavailable action rather than silently doing nothing. */
+	private static JPopupMenu claimUnavailableMenu(String reason)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem item = new JMenuItem(reason == null ? "Claims aren't available here." : reason);
+		item.setEnabled(false);
+		menu.add(item);
 		return menu;
 	}
 
@@ -3067,7 +3403,14 @@ public class AnvilSidebarPanel extends PluginPanel
 			return; // cancelled
 		}
 		String note = answer.toString();
-		runClaimChange(key, () -> dataSource.claimTile(tile.tileId, note));
+		runClaimChange(key, () -> dataSource.claimTile(catalogueEventId(key), tile.tileId, note));
+	}
+
+	/** Event identity travels with claim mutations so an enrolled upcoming preview stays scoped. */
+	private int catalogueEventId(String key)
+	{
+		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
+		return board == null ? 0 : board.eventId;
 	}
 
 	@FunctionalInterface
@@ -3101,7 +3444,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					JOptionPane.showMessageDialog(AnvilSidebarPanel.this, cause.getMessage(), "Claim",
 						JOptionPane.WARNING_MESSAGE);
 				}
-				loadBoardCatalogue(key, 0, true);
+				loadBoardCatalogue(key, catalogueEventId(key), true);
 			}
 		}.execute();
 	}
@@ -3141,6 +3484,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Every claimer with their note, one per line, for the hover. */
 	static String claimTooltip(java.util.List<BingoApiClient.BoardClaim> claims)
 	{
+		if (claims == null || claims.isEmpty())
+		{
+			return "";
+		}
 		StringBuilder sb = new StringBuilder();
 		for (BingoApiClient.BoardClaim c : claims)
 		{
@@ -3250,6 +3597,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		boardSearches.clear();
 		boardStatusFilters.clear();
 		boardCataloguePages.clear();
+		openCatalogueDetailKey = null;
+		openCatalogueDetailTileId = -1;
 		showAllActiveTiles = false;
 		boardSearchFocused = false;
 	}

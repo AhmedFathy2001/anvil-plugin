@@ -266,15 +266,15 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
-	public void claimTile(int tileId, String note) throws java.io.IOException
+	public void claimTile(int eventId, int tileId, String note) throws java.io.IOException
 	{
-		apiClient.claimTile(tileId, note);
+		apiClient.claimTile(eventId, tileId, note);
 	}
 
 	@Override
-	public void unclaimTile(int tileId) throws java.io.IOException
+	public void unclaimTile(int eventId, int tileId) throws java.io.IOException
 	{
-		apiClient.unclaimTile(tileId);
+		apiClient.unclaimTile(eventId, tileId);
 	}
 
 	@Override

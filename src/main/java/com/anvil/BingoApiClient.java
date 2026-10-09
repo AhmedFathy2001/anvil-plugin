@@ -643,9 +643,13 @@ public class BingoApiClient
 	 * takes the team from the token. Throws with the server's own explanation on refusal (tile
 	 * completed, event over, rate limited) so the panel can show it as-is.
 	 */
-	public void claimTile(int tileId, String note) throws IOException
+	public void claimTile(int eventId, int tileId, String note) throws IOException
 	{
 		JsonObject payload = new JsonObject();
+		if (eventId > 0)
+		{
+			payload.addProperty("eventId", eventId);
+		}
 		payload.addProperty("tileId", tileId);
 		if (note != null && !note.trim().isEmpty())
 		{
@@ -658,9 +662,10 @@ public class BingoApiClient
 	}
 
 	/** Drop your own claim on a tile. */
-	public void unclaimTile(int tileId) throws IOException
+	public void unclaimTile(int eventId, int tileId) throws IOException
 	{
-		Request request = authedRequest(clanUrl("/api/plugin/claims?tileId=" + tileId)).delete().build();
+		String query = "/api/plugin/claims?tileId=" + tileId + (eventId > 0 ? "&eventId=" + eventId : "");
+		Request request = authedRequest(clanUrl(query)).delete().build();
 		executeClaim(request);
 	}
 
@@ -698,15 +703,19 @@ public class BingoApiClient
 		return "Couldn't update your claim (HTTP " + code + ").";
 	}
 
-	/** A revealed upcoming/live board the caller is not actively playing; never enables tracking. */
+	/**
+	 * A revealed named board. Enrolled callers receive their team-scoped planning state; everyone
+	 * else receives the public read-only preview. This never enables automatic progress tracking.
+	 */
 	public BoardResponse fetchBoardPreview(int eventId)
 	{
 		if (!isConfigured() || eventId <= 0)
 		{
 			return null;
 		}
-		Request.Builder rb = withOptionalAuth(new Request.Builder()
-			.url(clanUrl("/api/plugin/board?eventId=" + eventId))).get();
+		// The event endpoint can only identify an enrolled character when it receives the same RSN and
+		// account-hash hints as the active-board endpoint, not merely the person's bearer token.
+		Request.Builder rb = authedRequest(clanUrl("/api/plugin/board?eventId=" + eventId)).get();
 		String etag = previewBoardEtags.get(eventId);
 		BoardResponse cached = previewBoards.get(eventId);
 		if (etag != null && cached != null)
@@ -840,6 +849,7 @@ public class BingoApiClient
 		public String tier;
 		public int itemId;
 		public java.util.List<Integer> itemIds;
+		public java.util.List<TrackedItem> trackedItems;
 		public int requiredAmount;
 		public String requirement;
 		public int optional;
@@ -859,6 +869,13 @@ public class BingoApiClient
 		 * caller's own team. Null when nobody has claimed it, and always on older sites.
 		 */
 		public java.util.List<BoardClaim> claims;
+	}
+
+	/** Canonical display name for one numeric item id the tile tracker accepts. */
+	public static class TrackedItem
+	{
+		public int itemId;
+		public String name;
 	}
 
 	/** One teammate's "I'm going for this" on a tile. */
