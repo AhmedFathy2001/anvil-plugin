@@ -2541,13 +2541,21 @@ public class AnvilPlugin extends Plugin {
     private int identityStampRetries;
     private static final int MAX_IDENTITY_STAMP_RETRIES = 5;
 
+    /** Both values are needed for the first-play claim: an RSN finds the synced row and the stable
+     * account hash is the continuity anchor that lets the site merge it without a manual step. */
+    static boolean identityReady(String rsn, long accountHash) {
+        return rsn != null && !rsn.isEmpty() && accountHash != -1L;
+    }
+
     private void stampIdentityAndGreet() {
         String rsn = getLocalPlayerName();
+        long accountHash = client.getAccountHash();
         // Right after the LOGGED_IN transition the local player name (and account hash) can still be
         // unpopulated. Firing the first resolve with no X-RSN leaves the server unable to scope the
-        // token to a clan_member — so the panel would sit unresolved until the 30s cycle. Retry a few
-        // times a couple seconds apart instead, so resolution really does land ON login.
-        if ((rsn == null || rsn.isEmpty())
+        // token to a clan_member; firing it with no account hash turns a safe first-use merge into a
+        // manual verification suggestion. Retry either incomplete value a few times so the ordinary
+        // path really does resolve and merge on login.
+        if (!identityReady(rsn, accountHash)
                 && client.getGameState() == GameState.LOGGED_IN
                 && executor != null && !executor.isShutdown()
                 && identityStampRetries < MAX_IDENTITY_STAMP_RETRIES) {
@@ -2557,7 +2565,7 @@ public class AnvilPlugin extends Plugin {
         }
         identityStampRetries = 0;
         apiClient.setCurrentRsn(rsn);
-        apiClient.setAccountHash(client.getAccountHash());
+        apiClient.setAccountHash(accountHash);
         apiClient.setSeasonal(onSeasonalWorld());
         loadProfileSyncState(rsn);
         // Refresh config for the character we just logged into so tracking reflects THIS
