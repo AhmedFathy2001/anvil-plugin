@@ -26,6 +26,9 @@ import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPopupMenu;
 import javax.swing.JList;
 import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
@@ -68,6 +71,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final int POLL_INTERVAL_MS = 15_000;
 
 	private static final Color VALUE_COLOR = new Color(0x98_98_98);
+	/** A teammate's claim on a tile — a calm blue, so it reads as a plan rather than progress. */
+	private static final Color CLAIM_COLOR = new Color(0x7D_C4_F0);
+	/** The catalogue key for the caller's own, team-scoped board (previews are "preview:<id>"). */
+	private static final String ACTIVE_CATALOGUE_KEY = "active";
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
 	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
@@ -2904,6 +2911,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			rows.add(leftLabel((from + 1) + "–" + to + " of " + filtered.size(),
 				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
 			rows.add(gap(5));
+			// Claims are your own team's plan, so only on the active (team-scoped) board — never a
+			// preview — and only once it's running, on a site that takes them.
+			BingoApiClient.BoardResponse shownBoard = boardCatalogues.get(key);
+			boolean claimable = ACTIVE_CATALOGUE_KEY.equals(key) && !preStart && shownBoard != null
+				&& !shownBoard.readOnly && dataSource.supportsTileClaims();
 			boolean first = true;
 			for (BingoApiClient.BoardTile tile : filtered.subList(from, to))
 			{
@@ -2911,7 +2923,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				{
 					rows.add(gap(5));
 				}
-				rows.add(buildCatalogueTileRow(tile, boardUrl, preStart));
+				rows.add(buildCatalogueTileRow(tile, boardUrl, preStart, key, claimable));
 				first = false;
 			}
 			if (pageCount > 1)
@@ -2942,7 +2954,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		content.repaint();
 	}
 
-	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, String boardUrl, boolean preStart)
+	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, String boardUrl, boolean preStart,
+		String key, boolean claimable)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -2955,7 +2968,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		name.setForeground(!preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
 		String details = tile.description == null || tile.description.trim().isEmpty()
 			? tile.requirement : tile.description;
-		name.setToolTipText(plainText(details == null || details.isEmpty() ? label : label + " — " + details));
+		String tooltip = details == null || details.isEmpty() ? label : label + " — " + details;
+		boolean canClaim = claimable && !tile.complete;
+		if (canClaim)
+		{
+			tooltip += " (right-click to claim)";
+		}
+		name.setToolTipText(plainText(tooltip));
 		row.add(name, BorderLayout.CENTER);
 
 		if (!preStart)
@@ -2966,19 +2985,201 @@ public class AnvilSidebarPanel extends PluginPanel
 			row.add(state, BorderLayout.EAST);
 		}
 
-		String tileUrl = tileUrl(boardUrl, tile.tileId);
-		if (isSafeHttpUrl(tileUrl))
+		// Who on your team is going for it. Plain text: the RuneScape font has no emoji.
+		String planning = claimLine(tile.claims);
+		if (planning != null)
 		{
-			row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			JLabel who = new JLabel(plainText(ellipsize(planning, 36)));
+			who.setFont(FontManager.getRunescapeSmallFont());
+			who.setForeground(claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR);
+			who.setToolTipText(plainText(claimTooltip(tile.claims)));
+			row.add(who, BorderLayout.SOUTH);
+		}
+
+		String tileUrl = tileUrl(boardUrl, tile.tileId);
+		boolean opens = isSafeHttpUrl(tileUrl);
+		if (opens || canClaim)
+		{
+			if (opens)
+			{
+				row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			}
 			row.addMouseListener(new MouseAdapter()
 			{
-				@Override public void mouseClicked(MouseEvent e) { LinkBrowser.browse(tileUrl); }
+				@Override public void mouseClicked(MouseEvent e)
+				{
+					// Left-click opens the tile; right-click is the claim menu, not a second browser tab.
+					if (opens && SwingUtilities.isLeftMouseButton(e))
+					{
+						LinkBrowser.browse(tileUrl);
+					}
+				}
+				@Override public void mousePressed(MouseEvent e) { maybeClaimMenu(e); }
+				@Override public void mouseReleased(MouseEvent e) { maybeClaimMenu(e); }
 				@Override public void mouseEntered(MouseEvent e) { row.setBackground(WIDGET_BG_HOVER); }
 				@Override public void mouseExited(MouseEvent e) { row.setBackground(ColorScheme.DARKER_GRAY_COLOR); }
+
+				private void maybeClaimMenu(MouseEvent e)
+				{
+					if (canClaim && e.isPopupTrigger())
+					{
+						claimMenu(tile, key).show(e.getComponent(), e.getX(), e.getY());
+					}
+				}
 			});
 		}
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		return row;
+	}
+
+	/** Right-click on a tile row: claim it (optionally with a note), or drop your own claim. */
+	private JPopupMenu claimMenu(BingoApiClient.BoardTile tile, String key)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		if (claimedByMe(tile.claims))
+		{
+			JMenuItem note = new JMenuItem("Change my note…");
+			note.addActionListener(ev -> askNoteAndClaim(tile, key));
+			menu.add(note);
+			JMenuItem drop = new JMenuItem("Drop my claim");
+			drop.addActionListener(ev -> runClaimChange(key, () -> dataSource.unclaimTile(tile.tileId)));
+			menu.add(drop);
+		}
+		else
+		{
+			JMenuItem go = new JMenuItem("I'm going for this");
+			go.addActionListener(ev -> runClaimChange(key, () -> dataSource.claimTile(tile.tileId, null)));
+			menu.add(go);
+			JMenuItem withNote = new JMenuItem("I'm going for this, with a note…");
+			withNote.addActionListener(ev -> askNoteAndClaim(tile, key));
+			menu.add(withNote);
+		}
+		return menu;
+	}
+
+	private void askNoteAndClaim(BingoApiClient.BoardTile tile, String key)
+	{
+		String current = myClaimNote(tile.claims);
+		Object answer = JOptionPane.showInputDialog(this, "Note for your team (optional, e.g. \"doing it tonight\"):",
+			"Claim tile", JOptionPane.PLAIN_MESSAGE, null, null, current == null ? "" : current);
+		if (answer == null)
+		{
+			return; // cancelled
+		}
+		String note = answer.toString();
+		runClaimChange(key, () -> dataSource.claimTile(tile.tileId, note));
+	}
+
+	@FunctionalInterface
+	private interface ClaimCall
+	{
+		void run() throws java.io.IOException;
+	}
+
+	/** Do the claim change off the EDT, then reload the board so every row shows the new state. */
+	private void runClaimChange(String key, ClaimCall call)
+	{
+		new SwingWorker<Void, Void>()
+		{
+			@Override
+			protected Void doInBackground() throws Exception
+			{
+				call.run();
+				return null;
+			}
+
+			@Override
+			protected void done()
+			{
+				try
+				{
+					get();
+				}
+				catch (Exception ex)
+				{
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					JOptionPane.showMessageDialog(AnvilSidebarPanel.this, cause.getMessage(), "Claim",
+						JOptionPane.WARNING_MESSAGE);
+				}
+				loadBoardCatalogue(key, 0, true);
+			}
+		}.execute();
+	}
+
+	/** "Planning: You, Alice +2" for a tile's claims, or null when nobody has claimed it. */
+	static String claimLine(java.util.List<BingoApiClient.BoardClaim> claims)
+	{
+		if (claims == null || claims.isEmpty())
+		{
+			return null;
+		}
+		java.util.List<String> names = new java.util.ArrayList<>();
+		for (BingoApiClient.BoardClaim c : claims)
+		{
+			if (c == null)
+			{
+				continue;
+			}
+			// Yours first: it's the one you most need to notice.
+			if (c.mine)
+			{
+				names.add(0, "You");
+			}
+			else if (c.name != null && !c.name.trim().isEmpty())
+			{
+				names.add(c.name.trim());
+			}
+		}
+		if (names.isEmpty())
+		{
+			return null;
+		}
+		String shown = String.join(", ", names.subList(0, Math.min(2, names.size())));
+		return "Planning: " + shown + (names.size() > 2 ? " +" + (names.size() - 2) : "");
+	}
+
+	/** Every claimer with their note, one per line, for the hover. */
+	static String claimTooltip(java.util.List<BingoApiClient.BoardClaim> claims)
+	{
+		StringBuilder sb = new StringBuilder();
+		for (BingoApiClient.BoardClaim c : claims)
+		{
+			if (c == null)
+			{
+				continue;
+			}
+			if (sb.length() > 0)
+			{
+				sb.append(" · ");
+			}
+			sb.append(c.mine ? "You" : (c.name == null ? "A teammate" : c.name));
+			if (c.note != null && !c.note.trim().isEmpty())
+			{
+				sb.append(" (").append(c.note.trim()).append(')');
+			}
+		}
+		return sb.toString();
+	}
+
+	static boolean claimedByMe(java.util.List<BingoApiClient.BoardClaim> claims)
+	{
+		return claims != null && claims.stream().anyMatch(c -> c != null && c.mine);
+	}
+
+	private static String myClaimNote(java.util.List<BingoApiClient.BoardClaim> claims)
+	{
+		if (claims == null)
+		{
+			return null;
+		}
+		for (BingoApiClient.BoardClaim c : claims)
+		{
+			if (c != null && c.mine)
+			{
+				return c.note;
+			}
+		}
+		return null;
 	}
 
 	static String tileUrl(String boardUrl, int tileId)

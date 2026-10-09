@@ -259,6 +259,25 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public boolean supportsTileClaims()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg != null && cfg.serverSupports("tile-claims");
+	}
+
+	@Override
+	public void claimTile(int tileId, String note) throws java.io.IOException
+	{
+		apiClient.claimTile(tileId, note);
+	}
+
+	@Override
+	public void unclaimTile(int tileId) throws java.io.IOException
+	{
+		apiClient.unclaimTile(tileId);
+	}
+
+	@Override
 	public List<ConnectionView> fetchConnections() throws SidebarDataException
 	{
 		return fetchConnections(false);

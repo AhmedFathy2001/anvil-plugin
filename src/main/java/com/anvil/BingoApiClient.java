@@ -638,6 +638,66 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * Claim a tile on your own team ("I'm going for this"), or update your note on it. The server
+	 * takes the team from the token. Throws with the server's own explanation on refusal (tile
+	 * completed, event over, rate limited) so the panel can show it as-is.
+	 */
+	public void claimTile(int tileId, String note) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("tileId", tileId);
+		if (note != null && !note.trim().isEmpty())
+		{
+			payload.addProperty("note", note.trim());
+		}
+		Request request = authedRequest(clanUrl("/api/plugin/claims"))
+			.post(RequestBody.create(JSON, payload.toString()))
+			.build();
+		executeClaim(request);
+	}
+
+	/** Drop your own claim on a tile. */
+	public void unclaimTile(int tileId) throws IOException
+	{
+		Request request = authedRequest(clanUrl("/api/plugin/claims?tileId=" + tileId)).delete().build();
+		executeClaim(request);
+	}
+
+	private void executeClaim(Request request) throws IOException
+	{
+		if (!isConfigured())
+		{
+			throw new IOException("Connect Anvil to your clan first.");
+		}
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful())
+			{
+				String body = response.body() != null ? response.body().string() : "";
+				throw new IOException(claimErrorMessage(gson, response.code(), body));
+			}
+		}
+	}
+
+	/** The server's {@code {"error": "..."}} sentence when it sent one, else a plain fallback. */
+	static String claimErrorMessage(Gson gson, int code, String body)
+	{
+		try
+		{
+			JsonObject obj = gson.fromJson(body, JsonObject.class);
+			if (obj != null && obj.has("error") && obj.get("error").isJsonPrimitive())
+			{
+				return obj.get("error").getAsString();
+			}
+		}
+		catch (RuntimeException ignored)
+		{
+			// Not JSON (a proxy page, a 502): fall through.
+		}
+		return "Couldn't update your claim (HTTP " + code + ").";
+	}
+
 	/** A revealed upcoming/live board the caller is not actively playing; never enables tracking. */
 	public BoardResponse fetchBoardPreview(int eventId)
 	{
@@ -793,6 +853,20 @@ public class BingoApiClient
 		public String revealedAt;
 		public String closedAt;
 		public java.util.List<PluginConfigResponse.ItemRequirement> itemRequirements;
+		/**
+		 * Teammates planning to go for this tile, oldest claim first (server capability
+		 * {@code tile-claims}). Team-private: only the authed board carries it, and only for the
+		 * caller's own team. Null when nobody has claimed it, and always on older sites.
+		 */
+		public java.util.List<BoardClaim> claims;
+	}
+
+	/** One teammate's "I'm going for this" on a tile. */
+	public static class BoardClaim
+	{
+		public String name;
+		public String note;
+		public boolean mine;
 	}
 
 	public static class BoardTeam

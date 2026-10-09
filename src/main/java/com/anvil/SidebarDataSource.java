@@ -119,6 +119,27 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/**
+	 * Whether the site takes tile claims (capability {@code tile-claims}). The catalogue only offers
+	 * "I'm going for this" when it does, so an older site never sees a click it can't answer.
+	 */
+	default boolean supportsTileClaims()
+	{
+		return false;
+	}
+
+	/** Claim a tile on your own team, or update your note. Blocking; call from a SwingWorker. */
+	default void claimTile(int tileId, String note) throws java.io.IOException
+	{
+		throw new java.io.IOException("This site doesn't support tile claims.");
+	}
+
+	/** Drop your own claim on a tile. Blocking; call from a SwingWorker. */
+	default void unclaimTile(int tileId) throws java.io.IOException
+	{
+		throw new java.io.IOException("This site doesn't support tile claims.");
+	}
+
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	default void captureStartProof()
 	{
