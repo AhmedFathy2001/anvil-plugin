@@ -64,6 +64,34 @@ public class SidebarTileCatalogueTest
 	}
 
 	@Test
+	public void exactCategoryActsAsASmartFacetInsteadOfMatchingUnrelatedText()
+	{
+		BingoApiClient.BoardTile pvm = tile(1, "Yama unique", null, null, "PvM, Yama", false);
+		BingoApiClient.BoardTile noisy = tile(2, "PvM starter kit", null, null, "Skilling", false);
+
+		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
+			Arrays.asList(pvm, noisy), "pvm", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(1, result.size());
+		assertEquals(1, result.get(0).tileId);
+	}
+
+	@Test
+	public void exactTierActsAsASmartFacetAndWinsOverSameNamedCategory()
+	{
+		BingoApiClient.BoardTile trollTier = tile(1, "Mine some rocks", null, null, "Skilling", false);
+		trollTier.tier = "Troll";
+		trollTier.tierKey = "troll";
+		BingoApiClient.BoardTile trollCategory = tile(2, "Fight the troll king", null, null, "Troll", false);
+		trollCategory.tier = "Easy";
+		trollCategory.tierKey = "easy";
+
+		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
+			Arrays.asList(trollTier, trollCategory), "troll", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(1, result.size());
+		assertEquals(1, result.get(0).tileId);
+	}
+
+	@Test
 	public void filtersLiveCompletionButPreStartHasNoCompletedTiles()
 	{
 		List<BingoApiClient.BoardTile> tiles = Arrays.asList(

@@ -2597,6 +2597,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return out;
 		}
+		// A complete category/tier name behaves like the filter the player meant, without adding a
+		// second wall of filter controls to a 240px sidebar. Tier wins when names collide ("Troll" is
+		// both a common category and the default lowest difficulty); arbitrary words stay free text.
+		boolean tierFacet = !needle.isEmpty() && tiles.stream().filter(java.util.Objects::nonNull)
+			.anyMatch(tile -> tileHasTier(tile, needle));
+		boolean categoryFacet = !tierFacet && !needle.isEmpty()
+			&& tiles.stream().filter(java.util.Objects::nonNull)
+				.anyMatch(tile -> tileHasCategory(tile.category, needle));
 		for (BingoApiClient.BoardTile tile : tiles)
 		{
 			if (tile == null)
@@ -2608,14 +2616,21 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				continue;
 			}
+			if ((tierFacet && !tileHasTier(tile, needle))
+				|| (categoryFacet && !tileHasCategory(tile.category, needle)))
+			{
+				continue;
+			}
 			String haystack = normalizeTileSearch((tile.label == null ? "" : tile.label) + " "
 				+ (tile.category == null ? "" : tile.category) + " "
+				+ (tile.tier == null ? "" : tile.tier) + " "
+				+ (tile.tierKey == null ? "" : tile.tierKey) + " "
 				+ (tile.requirement == null ? "" : tile.requirement) + " "
 				+ (tile.description == null ? "" : tile.description));
 			boolean matches = true;
 			for (String term : terms)
 			{
-				if (!haystack.contains(term))
+				if (!tierFacet && !categoryFacet && !haystack.contains(term))
 				{
 					matches = false;
 					break;
@@ -2637,6 +2652,28 @@ public class AnvilSidebarPanel extends PluginPanel
 		return out;
 	}
 
+	private static boolean tileHasTier(BingoApiClient.BoardTile tile, String normalized)
+	{
+		return tile != null && (normalizeTileSearch(tile.tier).equals(normalized)
+			|| normalizeTileSearch(tile.tierKey).equals(normalized));
+	}
+
+	private static boolean tileHasCategory(String categories, String normalized)
+	{
+		if (categories == null || normalized.isEmpty())
+		{
+			return false;
+		}
+		for (String category : categories.split(","))
+		{
+			if (normalizeTileSearch(category).equals(normalized))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Lowercase words with punctuation collapsed, so "Barrows—chest" matches "barrows chest". */
 	private static String normalizeTileSearch(String value)
 	{
@@ -2649,12 +2686,16 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Lower is better: label phrase → label words → category → requirement → description. */
 	private static int tileSearchRank(BingoApiClient.BoardTile tile, String phrase, String[] terms)
 	{
+		if (tileHasTier(tile, phrase)) return 0;
+		if (tileHasCategory(tile.category, phrase)) return 2;
 		String label = normalizeTileSearch(tile.label);
-		if (label.equals(phrase)) return 0;
+		if (label.equals(phrase)) return 4;
 		if (label.startsWith(phrase)) return 5;
 		if (label.contains(phrase)) return 10;
 
 		String category = normalizeTileSearch(tile.category);
+		String tier = normalizeTileSearch((tile.tier == null ? "" : tile.tier) + " "
+			+ (tile.tierKey == null ? "" : tile.tierKey));
 		String requirement = normalizeTileSearch(tile.requirement);
 		String description = normalizeTileSearch(tile.description);
 		int score = 20;
@@ -2663,6 +2704,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (label.startsWith(term)) score += 0;
 			else if (label.contains(term)) score += 2;
 			else if (category.contains(term)) score += 8;
+			else if (tier.contains(term)) score += 10;
 			else if (requirement.contains(term)) score += 14;
 			else if (description.contains(term)) score += 22;
 			else score += 100;

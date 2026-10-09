@@ -776,6 +776,8 @@ public class BingoApiClient
 		public String label;
 		public String description;
 		public int points;
+		public String tierKey;
+		public String tier;
 		public int itemId;
 		public java.util.List<Integer> itemIds;
 		public int requiredAmount;
