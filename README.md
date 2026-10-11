@@ -8,23 +8,25 @@ you: your drops get screenshotted and filed against the right tile, your kill co
 board as you earn them, and the things worth shouting about land in your clan's Discord.
 
 <p align="center">
-  <img src="docs/images/side-panel.png" alt="The Anvil side panel: your clans, live events, your placing, and sync buttons" width="260">
+  <img src="docs/images/panel-home.png" alt="The Anvil side panel: who you're tracking, your clan's events and your weekly placing" width="244">
 </p>
 
 ## Get set up in one click
 
+<img src="docs/images/sign-in.png" alt="The side panel before signing in: Sign in with Discord, and Paste a token instead" width="230" align="right">
+
 1. **Install** — RuneLite → Configuration (the wrench) → **Plugin Hub** → search **Anvil** → Install.
 2. **Sign in** — open the Anvil side panel (the anvil icon on the right) and click **Sign in with
-   Discord**. Approve the code in your browser and the plugin fills your Account Token in for you.
+   Discord**. Approve the code in your browser and you're done.
 
-That's it. (If the browser step won't work for you, copy your token from **Profile → Plugin** on
-anvilosrs.com and paste it into Configuration → Anvil → **Setup** → **Account Token** instead.)
-
-<p align="center">
-  <img src="docs/images/settings-main.png" alt="The Anvil settings panel: Setup, Bingo and the notification sections" width="240">
-</p>
+That's it — there's nothing to type into settings. If the browser step won't work for you, copy your
+token from **Profile → RuneLite plugin** on anvilosrs.com and use **Paste a token instead**, right
+under the button.
 
 One sign-in covers **every clan you're in** — there's no per-clan address and no per-event token.
+To sign this computer out, open the **⋯** menu next to your name at the top of the panel.
+
+<br clear="right">
 
 Can't run the plugin? You can verify an account on the website instead — see the
 **[player setup guide](https://anvilosrs.com/guide/plugin)**, which walks through all of this with
@@ -57,6 +59,42 @@ choose which channel it lands in.
 **Keeps your profile current.** Your collection log and personal bests sync to the site, so your
 profile there shows what you've actually done.
 
+## The side panel
+
+The top of the panel says which character is being tracked. Started from the Jagex Launcher, it
+already knows who's about to log in, so your clan's events and board are there at the login screen —
+before you've pressed Play.
+
+<img src="docs/images/event-signed-up.png" alt="An upcoming bingo in the side panel: You're signed up, waiting for it to start" width="237" align="right">
+
+**Your events.** Every live and upcoming bingo and weekly competition for the clan you're looking at,
+with where you stand: signed up, waiting on approval, or your placing in this week's SotW/BotW.
+Several clans? Switch between them from the dropdown, or leave it on **All clans**.
+
+**The whole board, searchable.** Open an event and every revealed tile is listed — search it by name or
+by kind (`timed`, `kill`, `drop`…). Each tile shows who on your team is planning to go for it.
+
+<br clear="right">
+
+<p align="center">
+  <img src="docs/images/tile-search.png" alt="Searching the tile list for timed tiles, with teammates' plans under each" width="238">
+  &nbsp;
+  <img src="docs/images/tile-detail-sets.png" alt="A tile's detail: how it counts, and every item the plugin tracks for it" width="239">
+  &nbsp;
+  <img src="docs/images/tile-detail-manual.png" alt="A manual tile's detail: why the plugin can't see it, and how to submit it" width="236">
+</p>
+
+**What each tile wants.** Click a tile for its points, objective and *how it counts* — every set and
+item the plugin is watching for, or, for a tile it can't see (bought or handed-over items), a plain
+note to screenshot it and submit it on the site.
+
+**Claim it.** Right-click a tile (or use **Claim tile** in its detail) to tell your team you're going
+for it, with an optional note. Claiming needs you logged in as the character on the team.
+
+**Not your account?** If someone else plays a character on your RuneLite — a sibling, a friend — open
+the **⋯** menu and pick **Not my account**. Nothing is sent for that character on this computer
+until you press **Track again** in the same strip.
+
 ### In-game, where you already are
 
 An **Anvil** button sits in the collection log's title bar next to WikiSync and RuneProfile — one
@@ -75,12 +113,12 @@ roster to the site, keeping ranks and guest/member status right without anyone t
 
 ## Settings
 
-Defaults are sensible — you can install it, sign in and never open this again. Every setting
-has a description in the plugin itself; this is the shape of it.
+Defaults are sensible — you can install it, sign in and never open this again. Signing in and out
+lives in the side panel, not here. Every setting has a description in the plugin itself; this is the
+shape of it.
 
 | Section | What's in it |
 | --- | --- |
-| **Setup** | Your Account Token — filled in by Sign in. The only one that matters. |
 | **Bingo** | The verification overlay, team-completion banners and their sounds. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
@@ -88,6 +126,10 @@ has a description in the plugin itself; this is the shape of it.
 | **Clips** | OBS replay-buffer clips on a hotkey, posted to a clips webhook. Off by default. |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 | **Support** | Export a debug log to send an admin. |
+
+<p align="center">
+  <img src="docs/images/settings-main.png" alt="The Anvil settings: Bingo and the notification sections" width="238">
+</p>
 
 A few worth knowing about:
 
@@ -101,8 +143,6 @@ A few worth knowing about:
 | Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
 
 ### Clips (optional)
-
-<img src="docs/images/settings-clips-sync.png" alt="The Clips and Profile sync settings sections" width="230" align="right">
 
 Press a key, and the last few seconds are saved out of OBS and posted to your clan's clips channel.
 Needs OBS 28+ with the WebSocket server and Replay Buffer on; the plugin starts the buffer for you.
@@ -118,8 +158,10 @@ webhook field blank nothing uploads at all.
 
 ### Profile sync
 
+<img src="docs/images/settings-sync.png" alt="The Profile sync settings section" width="223" align="right">
+
 Your collection log and personal bests, kept current on your profile. The whole log syncs when you
-open it in game, or on the **Sync profile** button in the side panel. **Share highlights with the
+open it in game, or on the **Sync profile** button the side panel shows while the log is open. **Share highlights with the
 clan** is what puts your pets, big drops and combat tasks on the clan's feed.
 
 <br clear="right">
@@ -140,9 +182,12 @@ The plugin says so in chat when one of these is off and it matters:
 The plugin tells you in chat when tracking stops, and why. Nothing to check on a dashboard.
 
 Failed submissions are kept on disk and retried with backoff, so a dropped connection or a server
-restart doesn't lose a drop. Anything the plugin can screenshot but can't file against a tile — pets,
-duplicate Champion's scrolls — is saved for you to attach on the site instead of scrambling for a
-shot after the fact.
+restart doesn't lose a drop.
+
+A pet or Champion's scroll you already own only gives the game's "funny feeling" line, which never
+says which one. The plugin works it out from what you just killed or trained, credits the tile, and
+flags it so event staff take a look. When it can't be sure, the screenshot is saved for you to attach
+on the site instead of scrambling for a shot after the fact.
 
 Still stuck? Type `::anvillog` in game chat. It writes a log inside Anvil's own plugin folder and
 copies the path to your clipboard — send that to your clan admin.
@@ -182,8 +227,11 @@ Anvil connects to **anvilosrs.com** after you sign in:
 - The plugin only ever talks to **anvilosrs.com**, and only once you've signed in. It refuses to
   open a sign-in page anywhere else, and nothing goes to any other third party.
 - Screenshots upload only when a tracked drop is detected, or when you ask for one.
-- Your Account Token is stored locally in your RuneLite config, marked secret. Rotate it from your
-  profile on the site if you think it leaked.
+- Your Account Token is stored locally in your RuneLite config, marked secret, and never shown in the
+  settings page. Sign out from the side panel's **⋯** menu, and rotate it from your profile on the
+  site if you think it leaked.
+- Before you log in, the plugin may send the character name the Jagex Launcher gave it, only so the
+  panel can show that character's events. It never links or claims an account with it.
 - Clips go from your PC to your clan's Discord webhook, never through the site.
 - On login the plugin sends your RSN so the site can recognise you. You can remove yourself from a
   clan's roster on the site at any time.
