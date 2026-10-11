@@ -1774,7 +1774,22 @@ public class BingoApiClient
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
 		int creditPlayerId, Integer itemId, CoopFingerprint coop) throws IOException
 	{
+		submitDrop(eventId, tileId, teamId, amount, imageUrl, note, creditPlayerId, itemId, coop, null);
+	}
+
+	/**
+	 * As above, for an item the plugin worked out rather than saw — a duplicate pet or champion's
+	 * scroll, which the game never names. {@code inferred} is the reason the site stores so staff
+	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
+	 */
+	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
+		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred) throws IOException
+	{
 		JsonObject payload = new JsonObject();
+		if (inferred != null)
+		{
+			payload.addProperty("inferred", inferred);
+		}
 		payload.addProperty("tileId", tileId);
 		payload.addProperty("teamId", teamId);
 		payload.addProperty("amount", amount);

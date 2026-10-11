@@ -786,6 +786,8 @@ public class AnvilPlugin extends Plugin {
         // COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
         // hands listeners a copy of the graphics buffer, so holding it is safe.
         volatile BufferedImage triggerFrame;
+        /** Set when any drop in the burst was inferred (DuplicateInference) — the submission is flagged. */
+        volatile String inferred;
 
         DropAggregate(PluginConfigResponse.TrackedDrop drop, Integer trackingItemId) {
             this.drop = drop;
@@ -1630,6 +1632,11 @@ public class AnvilPlugin extends Plugin {
         // A real gain (XP rose) vs the login/resync baseline burst — only the former marks the tile "You".
         Integer prevXp = lastSkillXp.put(skill, event.getXp());
         boolean realGain = prevXp != null && event.getXp() > prevXp;
+        if (realGain) {
+            // What a duplicate skilling pet came from: the game's line names nothing (DuplicateInference).
+            lastXpSkill = skill.getName();
+            lastXpAt = System.currentTimeMillis();
+        }
         maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
 
         if (!config.notifyLevelUps()) {
@@ -2290,6 +2297,7 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         maybeStampIdentityOnTick();
+        resolveDuplicateScroll();
         trackClogOpen();
         // KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
         //
@@ -3800,9 +3808,16 @@ public class AnvilPlugin extends Plugin {
             // A duplicate never fires a collection-log unlock (the slot is already filled), so it
             // posts unnamed — which is why the two cases are told apart rather than merged.
             handlePetDrop(duplicatePet);
-            // Bingo: pets can't be auto-credited to a specific tile, so capture a proof for the player
-            // to submit by hand (lands in "Saved proofs").
-            if (pluginConfig != null && pluginConfig.event != null) {
+            // A NEW pet credits its tile off the collection-log line that follows. A duplicate gets no
+            // such line, so work out which pet from what was just killed or trained: named, the post
+            // says so and the tile is credited — flagged for staff, since it's a guess. Unnamed, a
+            // proof goes to "Saved proofs" for the player to submit by hand.
+            String inferredPet = duplicatePet ? inferDuplicatePet() : null;
+            if (inferredPet != null) {
+                claimPetName(inferredPet);
+            }
+            if (pluginConfig != null && pluginConfig.event != null
+                    && (inferredPet == null || !creditInferredByName(inferredPet, freshLootSource(), "inferred_duplicate_pet"))) {
                 captureManualProof("Pet drop", "[Auto] Pet drop detected by RuneLite plugin");
             }
         }
@@ -3811,8 +3826,11 @@ public class AnvilPlugin extends Plugin {
         // real-drop tile would never see it. The line names no specific champion, so (like pets) we
         // capture a proof for manual submission rather than auto-credit.
         if (msg.contains("funny feeling that you would have received a Champion")) {
+            // The kill's loot can land a tick after this line, so name it on the next ticks
+            // (resolveDuplicateScroll) from whatever was just killed.
             if (pluginConfig != null && pluginConfig.event != null) {
-                captureManualProof("Champion's scroll", "[Auto] Champion's scroll (duplicate) detected by RuneLite plugin");
+                dupScrollLineAt = System.currentTimeMillis();
+                dupScrollTick = client.getTickCount();
             }
         }
         // Timed-clear tiles: pull a clear time out of completion/boss-kill messages.
@@ -4059,6 +4077,96 @@ public class AnvilPlugin extends Plugin {
      * clog line lands in the same message batch; processLoot's per-(tile,item)
      * dedup counts the pair exactly once.
      */
+    // ---- Duplicates the game doesn't name (DuplicateInference) ----------------------------------
+    // Set only around the synthetic processLoot call below, on the client thread: queueDropForFlush
+    // copies it onto the aggregate, and from there it rides the pending submission to the site.
+    private String inferringFlag;
+    private String lastXpSkill;
+    private long lastXpAt;
+    private long dupScrollLineAt;
+    private int dupScrollTick = -1;
+    private static final long INFER_SKILL_WINDOW_MS = 10_000;
+    private static final int DUP_SCROLL_WAIT_TICKS = 3;
+
+    /** The last loot source, if it landed recently enough to be what this chat line is about. */
+    private String freshLootSource() {
+        synchronized (recentLootIds) {
+            return lastLootSource != null && System.currentTimeMillis() - lastLootSourceAt <= CLOG_LOOT_DEDUP_MS
+                    ? lastLootSource : null;
+        }
+    }
+
+    /** Which pet a duplicate line was: from the fresh kill/loot, else from the skill just trained. */
+    private String inferDuplicatePet() {
+        String pet = DuplicateInference.petForSource(dropFacts(), freshLootSource());
+        if (pet == null && lastXpSkill != null && System.currentTimeMillis() - lastXpAt <= INFER_SKILL_WINDOW_MS) {
+            pet = DuplicateInference.petForSkill(dropFacts(), lastXpSkill);
+        }
+        // Drop facts key pets lowercased; the game writes them in sentence case ("Rock golem").
+        return pet == null || pet.isEmpty() ? null : Character.toUpperCase(pet.charAt(0)) + pet.substring(1);
+    }
+
+    /**
+     * Name the champion's scroll from what was just killed, a few ticks after the line so a kill whose
+     * loot lands late still counts. Nothing nameable means a manual proof, as before.
+     */
+    private void resolveDuplicateScroll() {
+        if (dupScrollTick < 0) {
+            return;
+        }
+        String source;
+        synchronized (recentLootIds) {
+            source = lastLootSource != null && lastLootSourceAt >= dupScrollLineAt - CLOG_LOOT_DEDUP_MS
+                    ? lastLootSource : null;
+        }
+        Integer scroll = DuplicateInference.championScrollFor(source);
+        if (scroll == null && client.getTickCount() - dupScrollTick < DUP_SCROLL_WAIT_TICKS) {
+            return; // the kill's loot may still be on its way
+        }
+        dupScrollTick = -1;
+        if (pluginConfig == null || pluginConfig.event == null) {
+            return;
+        }
+        if (scroll == null || !creditInferredById(scroll, source, "inferred_duplicate_scroll")) {
+            captureManualProof("Champion's scroll", "[Auto] Champion's scroll (duplicate) detected by RuneLite plugin");
+        }
+    }
+
+    private boolean creditInferredByName(String itemName, String source, String flag) {
+        if (itemName == null || trackingGateReason() != null || pluginConfig.trackedDrops == null) {
+            return false;
+        }
+        List<ItemStack> synthetic = new ArrayList<>(1);
+        for (Integer id : itemDropIndex.keySet()) {
+            ItemComposition comp = itemManager.getItemComposition(id);
+            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
+                synthetic.add(new ItemStack(id, 1));
+            }
+        }
+        return creditInferred(synthetic, source, flag);
+    }
+
+    private boolean creditInferredById(int itemId, String source, String flag) {
+        if (trackingGateReason() != null || pluginConfig.trackedDrops == null || !itemDropIndex.containsKey(itemId)) {
+            return false;
+        }
+        return creditInferred(Collections.singletonList(new ItemStack(itemId, 1)), source, flag);
+    }
+
+    /** Credit through the ordinary drop path, marked so the site flags it. False when no tile tracks it. */
+    private boolean creditInferred(List<ItemStack> synthetic, String source, String flag) {
+        if (synthetic.isEmpty()) {
+            return false;
+        }
+        inferringFlag = flag;
+        try {
+            processLoot(source, synthetic, "npc");
+        } finally {
+            inferringFlag = null;
+        }
+        return true;
+    }
+
     private void creditGuaranteedAward(String bossName, String itemName) {
         String gate = trackingGateReason();
         if (gate != null || pluginConfig.trackedDrops == null) {
@@ -4321,6 +4429,9 @@ public class AnvilPlugin extends Plugin {
                 }
             }
             agg.totalAmount += amount;
+            if (inferringFlag != null) {
+                agg.inferred = inferringFlag;
+            }
             agg.snapshotCurrent = snapshotCurrent;
             agg.snapshotRequired = snapshotRequired;
             // Cancel any pending flush and reschedule — drop bursts that span >COALESCE_FLUSH_MS
@@ -4357,7 +4468,7 @@ public class AnvilPlugin extends Plugin {
     private void doSubmitAggregate(DropAggregate agg) {
         lastUploadAt = System.currentTimeMillis();
         captureAndSubmit(agg.drop, agg.totalAmount, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId,
-                agg.triggerFrame);
+                agg.triggerFrame, agg.inferred);
     }
 
     /* ----------------------------- Kill-count tiles ----------------------------- */
@@ -5534,7 +5645,7 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
-            BufferedImage triggerFrame) {
+            BufferedImage triggerFrame, String inferred) {
         noteLocalProgress(drop.tileId); // "Active now": this account credited this drop tile
         // Capture IDs now (before async) since pluginConfig could change
         final int eventId = pluginConfig.event.id;
@@ -5582,6 +5693,7 @@ public class AnvilPlugin extends Plugin {
                     pending.timestamp = System.currentTimeMillis();
                     pending.itemId = trackingItemId;
                     pending.capturedRsn = capturedRsn;
+                    pending.inferred = inferred;
 
                     String savedId = pendingSubmissionStore.save(pending, pngBytes);
                     if (savedId == null) {
@@ -5662,7 +5774,9 @@ public class AnvilPlugin extends Plugin {
                         imageUrl,
                         pending.note,
                         pending.playerId,
-                        pending.itemId
+                        pending.itemId,
+                        null,
+                        pending.inferred
                 );
             }
 
