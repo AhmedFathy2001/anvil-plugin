@@ -1319,6 +1319,8 @@ public class AnvilPlugin extends Plugin {
         // Withheld for a character marked Not my account: nothing about it goes to Anvil.
         String launcherName = client.getLauncherDisplayName();
         apiClient.setRsnHint(optedOutAccounts.containsName(launcherName) ? null : launcherName);
+        // Undecided until the first stamp (see the logout reset): closed if anything is opted out.
+        apiClient.setAccountPaused(!optedOutAccounts.isEmpty());
 
         // Session clock for the starting shot: starting up AT the login screen means the next
         // LOGGED_IN is a real login we can vouch for — the ordinary "launched the client" case.
@@ -2599,8 +2601,11 @@ public class AnvilPlugin extends Plugin {
             // onto requests that fire before the next login completes.
             apiClient.setCurrentRsn(null);
             apiClient.setAccountHash(-1L);
-            // A paused character is paused only while it is logged in; the next one decides afresh.
-            apiClient.setAccountPaused(false);
+            // FAIL CLOSED until the next character is known. Whoever logs in (or comes back from a
+            // hop) is undecided for the few seconds before stampIdentityAndGreet can read their name
+            // and hash — and drops, deaths and chat posts fire in that window. If this install has
+            // marked any character Not my account, send nothing until the stamp has said which.
+            apiClient.setAccountPaused(!optedOutAccounts.isEmpty());
             // Re-seed the team-completion baseline on the next login: while logged out a teammate
             // may finish tiles, and those shouldn't fire a completion banner when you come back —
             // only tiles completed while you're actually online should. Clearing the baseline makes
@@ -2649,6 +2654,17 @@ public class AnvilPlugin extends Plugin {
         return rsn != null && !rsn.isEmpty() && accountHash != -1L;
     }
 
+    /**
+     * Send nothing for this character? Yes if it's marked Not my account — and, when the install has
+     * marked anything at all, also when the character can't be identified yet (fail closed).
+     */
+    static boolean shouldPauseAccount(AccountOptOut optedOut, String rsn, long accountHash) {
+        if (optedOut.isEmpty()) {
+            return false;
+        }
+        return optedOut.contains(accountHash, rsn) || !identityReady(rsn, accountHash);
+    }
+
     /** The stamped name is set and the live one differs from it — an in-game rename mid-session. */
     static boolean renamedMidSession(String stamped, String live) {
         return !Rsn.normalize(stamped).isEmpty() && !Rsn.normalize(live).isEmpty() && !Rsn.same(stamped, live);
@@ -2692,8 +2708,10 @@ public class AnvilPlugin extends Plugin {
         apiClient.setAccountHash(accountHash);
         apiClient.setSeasonal(onSeasonalWorld());
         // "Not my account" on this install: send nothing at all while this character is logged in —
-        // no config, no hello, no drops. Set before anything below can fire a request.
-        boolean paused = optedOutAccounts.contains(accountHash, rsn);
+        // no config, no hello, no drops. Set before anything below can fire a request. If the
+        // retries ran out without a name or hash we can't tell whose character this is, so with
+        // anything opted out it stays closed (shouldPauseAccount).
+        boolean paused = shouldPauseAccount(optedOutAccounts, rsn, accountHash);
         apiClient.setAccountPaused(paused);
         if (paused) {
             log.info("Anvil: {} is marked Not my account on this computer — sending nothing for it", rsn);

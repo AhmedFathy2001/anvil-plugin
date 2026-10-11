@@ -79,4 +79,16 @@ public class AccountOptOutTest
 		assertTrue(client.isConfigured());
 		assertEquals("Sibling Main", client.getCurrentRsn());
 	}
+
+	@Test
+	public void failsClosedWhileTheCharacterIsUnknown()
+	{
+		AccountOptOut none = AccountOptOut.EMPTY;
+		AccountOptOut some = AccountOptOut.EMPTY.with(1L, "Sibling Main");
+		assertFalse("nothing opted out: an install behaves as before", AnvilPlugin.shouldPauseAccount(none, null, -1L));
+		assertTrue("opted-out character", AnvilPlugin.shouldPauseAccount(some, "Sibling Main", 1L));
+		assertFalse("your own character", AnvilPlugin.shouldPauseAccount(some, "My Main", 2L));
+		assertTrue("name/hash never loaded: can't tell, so closed", AnvilPlugin.shouldPauseAccount(some, null, -1L));
+		assertTrue(AnvilPlugin.shouldPauseAccount(some, "My Main", -1L));
+	}
 }
