@@ -298,4 +298,22 @@ public class SidebarTileCatalogueTest
 		org.junit.Assert.assertTrue(AnvilSidebarPanel.tileIsManual(mace));
 		assertEquals("Open (manual)", AnvilSidebarPanel.tileStateText(mace));
 	}
+
+	@Test
+	public void typingATileTypeShowsEveryTileOfThatType()
+	{
+		BingoApiClient.BoardTile timed = tile(1, "Sub-20 Inferno", null, null, null, false);
+		timed.tileType = "timed";
+		BingoApiClient.BoardTile drop = tile(2, "Dragon warhammer", null, null, null, false);
+		drop.tileType = "drop";
+		BingoApiClient.TrackedItem dwh = new BingoApiClient.TrackedItem();
+		dwh.itemId = 13576;
+		dwh.name = "Dragon warhammer";
+		drop.trackedItems = Arrays.asList(dwh);
+		java.util.List<BingoApiClient.BoardTile> all = Arrays.asList(timed, drop);
+
+		assertEquals(Arrays.asList(timed), AnvilSidebarPanel.filterBoardTiles(all, "timed", null, false));
+		assertEquals(Arrays.asList(drop), AnvilSidebarPanel.filterBoardTiles(all, "Drop", null, false));
+		assertEquals(Arrays.asList(drop), AnvilSidebarPanel.filterBoardTiles(all, "warhammer", null, false));
+	}
 }

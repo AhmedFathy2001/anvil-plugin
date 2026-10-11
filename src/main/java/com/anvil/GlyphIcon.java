@@ -1,0 +1,129 @@
+package com.anvil;
+
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.Path2D;
+import javax.swing.Icon;
+
+/**
+ * The sidebar's small symbols — chevrons, the external-link arrow, a tick, a cross, an ellipsis —
+ * drawn as vector shapes instead of typed as characters.
+ *
+ * <p>Typed, they depended on the font: the RuneScape font has none of ‹ › ↗ ✓ ⋯, so each platform
+ * substituted whatever its own fallback had. On macOS that was often nothing (an empty box or a
+ * blank), and where a glyph did appear it sat on the text baseline, below the middle of the words
+ * beside it. Drawn, they look the same everywhere, and Swing centres an icon against its label.
+ *
+ * <p>The colour follows the component's foreground (a hovered button's orange, a done tick's green)
+ * unless one is fixed at construction.
+ */
+final class GlyphIcon implements Icon
+{
+	enum Shape
+	{
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS
+	}
+
+	private final Shape shape;
+	private final int size;
+	private final Color color;
+
+	GlyphIcon(Shape shape, int size)
+	{
+		this(shape, size, null);
+	}
+
+	GlyphIcon(Shape shape, int size, Color color)
+	{
+		this.shape = shape;
+		this.size = size;
+		this.color = color;
+	}
+
+	@Override
+	public int getIconWidth()
+	{
+		return size;
+	}
+
+	@Override
+	public int getIconHeight()
+	{
+		return size;
+	}
+
+	@Override
+	public void paintIcon(Component c, Graphics graphics, int x, int y)
+	{
+		Graphics2D g = (Graphics2D) graphics.create();
+		try
+		{
+			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+			Color ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
+			if (c != null && !c.isEnabled())
+			{
+				ink = ink.darker();
+			}
+			g.setColor(ink);
+			float s = size;
+			g.setStroke(new BasicStroke(Math.max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g.translate(x, y);
+			Path2D p = new Path2D.Float();
+			switch (shape)
+			{
+				case CHEVRON_LEFT:
+					p.moveTo(s * 0.62, s * 0.22);
+					p.lineTo(s * 0.34, s * 0.5);
+					p.lineTo(s * 0.62, s * 0.78);
+					g.draw(p);
+					break;
+				case CHEVRON_RIGHT:
+					p.moveTo(s * 0.38, s * 0.22);
+					p.lineTo(s * 0.66, s * 0.5);
+					p.lineTo(s * 0.38, s * 0.78);
+					g.draw(p);
+					break;
+				case EXTERNAL:
+					p.moveTo(s * 0.28, s * 0.72);
+					p.lineTo(s * 0.72, s * 0.28);
+					p.moveTo(s * 0.4, s * 0.28);
+					p.lineTo(s * 0.72, s * 0.28);
+					p.lineTo(s * 0.72, s * 0.6);
+					g.draw(p);
+					break;
+				case CHECK:
+					p.moveTo(s * 0.2, s * 0.52);
+					p.lineTo(s * 0.42, s * 0.74);
+					p.lineTo(s * 0.8, s * 0.28);
+					g.draw(p);
+					break;
+				case CLOSE:
+					p.moveTo(s * 0.28, s * 0.28);
+					p.lineTo(s * 0.72, s * 0.72);
+					p.moveTo(s * 0.72, s * 0.28);
+					p.lineTo(s * 0.28, s * 0.72);
+					g.draw(p);
+					break;
+				case ELLIPSIS:
+					float d = Math.max(2f, s / 6f);
+					for (int i = 0; i < 3; i++)
+					{
+						float cx = s * (0.25f + 0.25f * i);
+						g.fill(new java.awt.geom.Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
+					}
+					break;
+				default:
+					break;
+			}
+		}
+		finally
+		{
+			g.dispose();
+		}
+	}
+}

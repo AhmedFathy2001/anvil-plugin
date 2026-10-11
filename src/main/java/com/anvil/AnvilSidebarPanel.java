@@ -351,7 +351,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					{
 						log.warn("Anvil: signed in but the token did not persist to the RuneLite config");
 						setSignInStatus("Signed in, but RuneLite didn't save the token — paste it "
-							+ "from Profile → RuneLite plugin on the site.");
+							+ "from Profile > RuneLite plugin on the site.");
 					}
 					else
 					{
@@ -1185,8 +1185,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel title = new JLabel(plainText(ellipsize(clanName, 22)));
 		title.setFont(FontManager.getRunescapeFont());
 		title.setForeground(ColorScheme.TEXT_COLOR);
-		JLabel chevron = new JLabel("›");
-		chevron.setFont(FontManager.getRunescapeBoldFont());
+		JLabel chevron = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 12));
 		chevron.setForeground(ColorScheme.BRAND_ORANGE);
 		titleRow.add(title, BorderLayout.CENTER);
 		titleRow.add(chevron, BorderLayout.EAST);
@@ -1483,8 +1482,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel title = new JLabel(plainText(ellipsize(entry.title, 22)));
 		title.setFont(FontManager.getRunescapeFont());
 		title.setForeground(ColorScheme.TEXT_COLOR);
-		JLabel chevron = new JLabel("›");
-		chevron.setFont(FontManager.getRunescapeBoldFont());
+		JLabel chevron = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 12));
 		chevron.setForeground(ColorScheme.BRAND_ORANGE);
 		titleRow.add(title, BorderLayout.CENTER);
 		titleRow.add(chevron, BorderLayout.EAST);
@@ -1581,7 +1579,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** "‹ All events" — back out of a drilled-into event to the clan's list. */
 	private JLabel backLink()
 	{
-		JLabel back = new JLabel("‹ All events");
+		JLabel back = new JLabel("All events", new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11), SwingConstants.LEADING);
+		back.setIconTextGap(2);
 		back.setFont(FontManager.getRunescapeSmallFont());
 		back.setForeground(ColorScheme.BRAND_ORANGE);
 		back.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -1733,7 +1732,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (shown >= WEEKLY_ROWS_SHOWN)
 			{
 				list.add(gap(3));
-				list.add(leftLabel("⋯", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+				JLabel more = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
+				more.setForeground(VALUE_COLOR);
+				more.setAlignmentX(LEFT_ALIGNMENT);
+				list.add(more);
 			}
 			list.add(gap(3));
 			list.add(buildStandingRow(s, w));
@@ -2479,7 +2481,14 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JLabel siteLink(String text, String tooltip, String url)
 	{
-		JLabel link = new JLabel(text);
+		JLabel link = new JLabel(text.replace(" ↗", "").trim());
+		if (text.endsWith("↗"))
+		{
+			// Drawn, not typed — the RuneScape font has no ↗ and macOS often substitutes nothing.
+			link.setIcon(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11));
+			link.setHorizontalTextPosition(SwingConstants.LEADING);
+			link.setIconTextGap(2);
+		}
 		link.setFont(FontManager.getRunescapeSmallFont());
 		link.setForeground(ColorScheme.BRAND_ORANGE);
 		link.setToolTipText(tooltip);
@@ -2626,6 +2635,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		boolean categoryFacet = !tierFacet && !needle.isEmpty()
 			&& tiles.stream().filter(java.util.Objects::nonNull)
 				.anyMatch(tile -> tileHasCategory(tile.category, needle));
+		// A tile TYPE ("timed", "drop", "boss", "manual") is a facet too. When the word is also a
+		// category name both readings are kept — "pvp" shows the PvP-kill tiles and the PvP category.
+		boolean kindFacet = !tierFacet && !needle.isEmpty()
+			&& tiles.stream().filter(java.util.Objects::nonNull)
+				.anyMatch(tile -> tileKindNames(tile).contains(needle));
 		for (BingoApiClient.BoardTile tile : tiles)
 		{
 			if (tile == null)
@@ -2637,7 +2651,14 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				continue;
 			}
-			if ((tierFacet && !tileHasTier(tile, needle))
+			if (kindFacet)
+			{
+				if (!tileKindNames(tile).contains(needle) && !tileHasCategory(tile.category, needle))
+				{
+					continue;
+				}
+			}
+			else if ((tierFacet && !tileHasTier(tile, needle))
 				|| (categoryFacet && !tileHasCategory(tile.category, needle)))
 			{
 				continue;
@@ -2651,7 +2672,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			boolean matches = true;
 			for (String term : terms)
 			{
-				if (!tierFacet && !categoryFacet && !haystack.contains(term))
+				if (!tierFacet && !categoryFacet && !kindFacet && !haystack.contains(term))
 				{
 					matches = false;
 					break;
@@ -2669,6 +2690,81 @@ public class AnvilSidebarPanel extends PluginPanel
 				int relevance = Integer.compare(tileSearchRank(a, needle, terms), tileSearchRank(b, needle, terms));
 				return relevance != 0 ? relevance : Integer.compare(a.position, b.position);
 			});
+		}
+		return out;
+	}
+
+	/**
+	 * The words a player might type for this tile's TYPE, normalised like the search. Several per
+	 * type on purpose — "boss", "kc" and "boss kc" are one thing to a player.
+	 */
+	static java.util.Set<String> tileKindNames(BingoApiClient.BoardTile tile)
+	{
+		java.util.Set<String> out = new java.util.HashSet<>();
+		if (tile == null)
+		{
+			return out;
+		}
+		if (tileIsManual(tile))
+		{
+			out.add("manual");
+		}
+		String stat = tile.statType == null ? "" : tile.statType.trim().toLowerCase(Locale.ROOT);
+		if (tile.statName != null && !tile.statName.trim().isEmpty())
+		{
+			if ("boss".equals(stat) || "kc".equals(stat))
+			{
+				java.util.Collections.addAll(out, "boss", "kc", "boss kc", "bosses");
+			}
+			else
+			{
+				java.util.Collections.addAll(out, "skill", "xp", "skilling", "skills");
+			}
+		}
+		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
+		switch (type)
+		{
+			case "drop":
+				out.add("drop");
+				out.add("drops");
+				if (tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
+				{
+					java.util.Collections.addAll(out, "set", "sets", "item set", "collection");
+				}
+				break;
+			case "kill":
+				java.util.Collections.addAll(out, "kill", "kills");
+				break;
+			case "lap":
+				java.util.Collections.addAll(out, "lap", "laps", "agility");
+				break;
+			case "pvp":
+				out.add("pvp");
+				break;
+			case "gain":
+				java.util.Collections.addAll(out, "gain", "gains", "item gain", "gather");
+				break;
+			case "timed":
+				java.util.Collections.addAll(out, "timed", "time", "speedrun");
+				break;
+			case "deathless":
+				out.add("deathless");
+				break;
+			case "diary":
+				java.util.Collections.addAll(out, "diary", "diaries", "achievement diary");
+				break;
+			case "ca":
+				java.util.Collections.addAll(out, "ca", "cas", "combat task", "combat achievement");
+				break;
+			case "lms":
+				out.add("lms");
+				break;
+			case "value":
+			case "valuetotal":
+				java.util.Collections.addAll(out, "value", "loot value", "gp");
+				break;
+			default:
+				break;
 		}
 		return out;
 	}
@@ -2823,7 +2919,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override public void focusLost(java.awt.event.FocusEvent e) { boardSearchFocused = false; }
 		});
 
-		JButton clearSearch = actionButton("×", "Clear tile search", () -> search.setText(""));
+		JButton clearSearch = actionButton("", "Clear tile search", () -> search.setText(""));
+		clearSearch.setIcon(new GlyphIcon(GlyphIcon.Shape.CLOSE, 12));
 		clearSearch.setEnabled(!search.getText().isEmpty());
 		clearSearch.setPreferredSize(new Dimension(30, search.getPreferredSize().height));
 		clearSearch.setBorder(BorderFactory.createLineBorder(WIDGET_BORDER));
@@ -2998,18 +3095,21 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				rows.add(gap(7));
 				final int shownPage = page;
-				JButton previous = actionButton("‹ Previous", "Show the previous tiles", () ->
+				JButton previous = actionButton("Previous", "Show the previous tiles", () ->
 				{
 					boardCataloguePages.put(key, shownPage - 1);
 					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
 				});
 				previous.setEnabled(page > 0);
-				JButton next = actionButton("Next ›", "Show the next tiles", () ->
+				previous.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11));
+				JButton next = actionButton("Next", "Show the next tiles", () ->
 				{
 					boardCataloguePages.put(key, shownPage + 1);
 					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
 				});
 				next.setEnabled(page < pageCount - 1);
+				next.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 11));
+				next.setHorizontalTextPosition(SwingConstants.LEADING);
 				rows.add(buttonRow(previous, next));
 			}
 		}
@@ -3047,7 +3147,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		String rowState = tileRowStateText(tile, preStart);
 		if (rowState != null)
 		{
-			JLabel state = new JLabel(rowState);
+			JLabel state = new JLabel(rowState.startsWith("✓ ") ? rowState.substring(2) : rowState);
+			if (rowState.startsWith("✓ "))
+			{
+				state.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 11));
+				state.setIconTextGap(2);
+			}
 			state.setFont(FontManager.getRunescapeSmallFont());
 			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
 			state.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR
@@ -3255,7 +3360,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		List<String> facts = new ArrayList<>();
 		if (!preStart)
 		{
-			facts.add("Status: " + tileStateText(tile));
+			facts.add("Status: " + tileStateText(tile).replace("✓ ", ""));
 		}
 		else if (tileIsManual(tile))
 		{
@@ -3347,12 +3452,25 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		boolean header = line.endsWith(":");
 		boolean item = line.startsWith("  ");
-		JLabel label = note(line.trim());
+		String text = line.trim();
+		boolean ticked = text.startsWith("✓");
+		if (ticked)
+		{
+			text = text.substring(1).trim();
+		}
+		// A done set's "✓" / "✓×2" reads as words in the header; the item ticks become drawn icons.
+		text = text.replace(" ✓×", " · done ×").replace(" ✓:", " · done:");
+		JLabel label = note(text);
+		if (ticked)
+		{
+			label.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 11, DONE_COLOR));
+			label.setIconTextGap(3);
+		}
 		if (header)
 		{
 			label.setForeground(SET_HEADER_COLORS[headerIndex % SET_HEADER_COLORS.length]);
 		}
-		else if (line.trim().startsWith("✓"))
+		else if (ticked)
 		{
 			label.setForeground(DONE_COLOR);
 		}
