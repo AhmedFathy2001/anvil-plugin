@@ -14,6 +14,13 @@ public interface AnvilConfig extends Config
 	// clan-wide Discord posts that fire with or without an active bingo.
 
 	@ConfigSection(
+		name = "General",
+		description = "Anvil across the client, with or without an event.",
+		position = 1
+	)
+	String generalSection = "generalSection";
+
+	@ConfigSection(
 		name = "Bingo",
 		description = "In-event behaviour — only matters while you're in a bingo.",
 		position = 2
@@ -90,7 +97,8 @@ public interface AnvilConfig extends Config
 		keyName = "profileLookupMenu",
 		name = "Anvil lookup on players",
 		description = "Adds \"Anvil\" to the right-click menu on players, friends, clan and chat names — opens their Anvil profile in your browser.",
-		position = 3
+		position = 1,
+		section = "generalSection"
 	)
 	default boolean profileLookupMenu()
 	{
