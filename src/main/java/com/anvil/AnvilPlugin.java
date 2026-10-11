@@ -199,6 +199,9 @@ public class AnvilPlugin extends Plugin {
     @Inject
     private DebugLogExporter debugLogExporter;
 
+    @Inject
+    private ProfileLookup profileLookup;
+
     // On-demand OBS replay-buffer clip capture. Strictly opt-in (config.clipsEnabled): we only open
     // our own OBS WebSocket connection while enabled. Independent of the "Save Replay Buffer for OBS"
     // plugin — both can coexist; ours is driven by a manual hotkey so it won't double-fire with that
@@ -1307,6 +1310,7 @@ public class AnvilPlugin extends Plugin {
         }
         guardRemoteObsFolderManagement();
         keyManager.registerKeyListener(clipHotkeyListener);
+        profileLookup.startUp();
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {
             connectObs();
@@ -1494,6 +1498,7 @@ public class AnvilPlugin extends Plugin {
         clanCofferOpenTicks = 0;
         clanCofferTracker.reset();
         keyManager.unregisterKeyListener(clipHotkeyListener);
+        profileLookup.shutDown();
         keyManager.unregisterKeyListener(exportDebugLogHotkeyListener);
         // Before the socket goes: we borrowed their recording folder, and a plugin that doesn't hand
         // it back leaves every future OBS recording in a RuneLite data directory. No cycle here —
@@ -1806,6 +1811,9 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         configureApiClient();
+        if ("profileLookupMenu".equals(event.getKey())) {
+            profileLookup.syncPlayerItem();
+        }
         // Setting the Account Token is a deliberate one-shot edit — a paste, or the
         // sign-in flow storing the token — not the rapid churn the debounce exists to coalesce.
         // Waiting on it left the sidebar looking dead for up to POLL_INTERVAL_MS (15s): the token

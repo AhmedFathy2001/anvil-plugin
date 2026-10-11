@@ -86,6 +86,17 @@ public interface AnvilConfig extends Config
 		return "";
 	}
 
+	@ConfigItem(
+		keyName = "profileLookupMenu",
+		name = "Anvil lookup on players",
+		description = "Adds \"Anvil\" to the right-click menu on players, friends, clan and chat names — opens their Anvil profile in your browser.",
+		position = 3
+	)
+	default boolean profileLookupMenu()
+	{
+		return true;
+	}
+
 	// ---- Bingo ----
 
 

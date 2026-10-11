@@ -1,0 +1,185 @@
+package com.anvil;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import net.runelite.api.Client;
+import net.runelite.api.MenuAction;
+import net.runelite.api.Player;
+import net.runelite.api.events.MenuEntryAdded;
+import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.WidgetUtil;
+import net.runelite.client.eventbus.EventBus;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.menus.MenuManager;
+import net.runelite.client.util.LinkBrowser;
+import net.runelite.client.util.Text;
+
+/**
+ * "Anvil" on a player's right-click menu: opens their character page, {@code /p/<rsn>}.
+ *
+ * <p>Two places a name can be clicked, wired the two ways RuneLite allows. A player standing in the
+ * world gets a player-menu item (MenuManager owns those slots, shared with every other plugin). A name
+ * in a list — friends, ignore, chat channel, clan panels, the chatbox, private messages — gets an
+ * entry slotted next to the game's own options, the same placement the hiscores "Lookup" uses, so it
+ * sits where a person already looks for "who is this".</p>
+ *
+ * <p>Your own page is the side panel's account menu, not this: the game offers no player menu on
+ * yourself.</p>
+ *
+ * <p>The URL is built here and nowhere else. It always points at {@link BingoApiClient#CANONICAL_SITE}
+ * — character pages are not clan-scoped, a character belongs to its player wherever they play.</p>
+ */
+@Singleton
+final class ProfileLookup
+{
+	static final String OPTION = "Anvil";
+
+	/** List options our entry goes AFTER (below) / BEFORE (above), matching the hiscores plugin. */
+	private static final Set<String> AFTER_OPTIONS = Set.of("Message", "Add ignore", "Remove friend", "Delete", "Kick", "Reply");
+	private static final Set<String> BEFORE_OPTIONS = Set.of("Add friend", "Remove ignore");
+
+	private final Client client;
+	private final MenuManager menuManager;
+	private final AnvilConfig config;
+	private final EventBus eventBus;
+
+	private boolean playerItemShown;
+
+	@Inject
+	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus)
+	{
+		this.client = client;
+		this.menuManager = menuManager;
+		this.config = config;
+		this.eventBus = eventBus;
+	}
+
+	/** The character page for {@code rsn}, or null when there is no name to look up. */
+	static String profileUrl(String rsn)
+	{
+		if (rsn == null)
+		{
+			return null;
+		}
+		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
+		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
+		String name = rsn.replace(' ', ' ').trim();
+		if (name.isEmpty())
+		{
+			return null;
+		}
+		return BingoApiClient.CANONICAL_SITE + "/p/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+	}
+
+	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
+	static boolean open(String rsn)
+	{
+		String url = profileUrl(rsn);
+		if (url == null)
+		{
+			return false;
+		}
+		LinkBrowser.browse(url);
+		return true;
+	}
+
+	/**
+	 * Which side of a list option our entry goes on: +1 after it, -1 before it, 0 not a list entry we
+	 * add to. The chatbox's "Kick" is a clan-chat moderation entry, not a name menu, so it is skipped
+	 * there — the same carve-out the hiscores plugin makes.
+	 */
+	static int listPlacement(int groupId, String option)
+	{
+		boolean nameList = groupId == InterfaceID.FRIENDS
+			|| groupId == InterfaceID.IGNORE
+			|| groupId == InterfaceID.CHATCHANNEL_CURRENT
+			|| groupId == InterfaceID.CLANS_SIDEPANEL
+			|| groupId == InterfaceID.CLANS_GUEST_SIDEPANEL
+			|| groupId == InterfaceID.RAIDS_SIDEPANEL
+			|| groupId == InterfaceID.PM_CHAT
+			|| (groupId == InterfaceID.CHATBOX && !"Kick".equals(option));
+		if (!nameList || option == null)
+		{
+			return 0;
+		}
+		if (AFTER_OPTIONS.contains(option))
+		{
+			return 1;
+		}
+		return BEFORE_OPTIONS.contains(option) ? -1 : 0;
+	}
+
+	void startUp()
+	{
+		eventBus.register(this);
+		syncPlayerItem();
+	}
+
+	void shutDown()
+	{
+		eventBus.unregister(this);
+		if (playerItemShown)
+		{
+			menuManager.removePlayerMenuItem(OPTION);
+			playerItemShown = false;
+		}
+	}
+
+	/** Add or remove the in-world player item to match the setting. Called on start and config change. */
+	void syncPlayerItem()
+	{
+		boolean want = config.profileLookupMenu();
+		if (want == playerItemShown)
+		{
+			return;
+		}
+		if (want)
+		{
+			menuManager.addPlayerMenuItem(OPTION);
+		}
+		else
+		{
+			menuManager.removePlayerMenuItem(OPTION);
+		}
+		playerItemShown = want;
+	}
+
+	@Subscribe
+	public void onMenuEntryAdded(MenuEntryAdded event)
+	{
+		if (!config.profileLookupMenu())
+		{
+			return;
+		}
+		int groupId = WidgetUtil.componentToInterface(event.getActionParam1());
+		int placement = listPlacement(groupId, event.getOption());
+		if (placement == 0)
+		{
+			return;
+		}
+		client.getMenu().createMenuEntry(placement > 0 ? -2 : -1)
+			.setOption(OPTION)
+			.setTarget(event.getTarget())
+			.setType(MenuAction.RUNELITE)
+			.setIdentifier(event.getIdentifier())
+			.onClick(e -> open(Text.removeTags(e.getTarget())));
+	}
+
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		if (event.getMenuAction() != MenuAction.RUNELITE_PLAYER || !OPTION.equals(event.getMenuOption()))
+		{
+			return;
+		}
+		Player player = event.getMenuEntry().getPlayer();
+		if (player != null)
+		{
+			open(player.getName());
+		}
+	}
+}

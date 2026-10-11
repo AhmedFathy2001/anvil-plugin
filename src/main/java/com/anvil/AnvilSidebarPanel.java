@@ -273,7 +273,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		accountStatus.setFont(FontManager.getRunescapeSmallFont());
 		accountStatus.setForeground(VALUE_COLOR);
 		accountStatus.setVisible(false);
-		styleLink(accountMenuLink, "Account: Not my account, Sign out", () -> showAccountMenu(accountMenuLink));
+		styleLink(accountMenuLink, "Account: View my profile, Not my account, Sign out", () -> showAccountMenu(accountMenuLink));
 		// One strip for who you are here: the character being tracked on the left, and everything
 		// about the sign-in itself behind the ⋯ menu on the right. BorderLayout, not FlowLayout: every
 		// label is centred on the same line, where FlowLayout sat the link on its own baseline.
@@ -466,6 +466,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		JPopupMenu menu = new JPopupMenu();
 		SidebarDataSource.AccountRow row = shownAccountRow;
+		if (row != null && row.state == SidebarDataSource.AccountRow.State.TRACKING)
+		{
+			JMenuItem profile = new JMenuItem("View my profile on Anvil");
+			profile.setToolTipText("Open " + row.rsn + "'s Anvil profile in your browser");
+			profile.addActionListener(e -> ProfileLookup.open(row.rsn));
+			menu.add(profile);
+		}
 		if (row != null && row.state == SidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight)
 		{
 			JMenuItem notMine = new JMenuItem("Not my account…");
