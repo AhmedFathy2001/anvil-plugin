@@ -705,6 +705,12 @@ public class BingoApiClient
 	/** The server's {@code {"error": "..."}} sentence when it sent one, else a plain fallback. */
 	static String claimErrorMessage(Gson gson, int code, String body)
 	{
+		// The site's 401 sentence is written for developers ("Provide Authorization: Bearer …"). A claim
+		// is refused that way when no character is logged in yet, so say that instead.
+		if (code == 401)
+		{
+			return "Log in to claim tiles.";
+		}
 		try
 		{
 			JsonObject obj = gson.fromJson(body, JsonObject.class);

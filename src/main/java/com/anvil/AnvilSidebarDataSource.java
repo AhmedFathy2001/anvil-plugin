@@ -260,6 +260,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public boolean canClaimNow()
+	{
+		return apiClient.getCurrentRsn() != null;
+	}
+
+	@Override
 	public boolean supportsTileClaims()
 	{
 		PluginConfigResponse cfg = configSupplier.get();

@@ -2945,9 +2945,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			countLine += " · " + board.hiddenTileCount + " still hidden";
 		}
 		boolean catalogueClaimable = !board.readOnly && dataSource.supportsTileClaims();
+		boolean loggedOut = catalogueClaimable && !dataSource.canClaimNow();
 		panel.add(leftLabel(countLine, FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
 		panel.add(gap(2));
-		panel.add(leftLabel(catalogueClaimable
+		panel.add(leftLabel(loggedOut
+			? "Click for details · log in to claim tiles."
+			: catalogueClaimable
 			? "Click for details · right-click to claim."
 			: (board.readOnly ? "Click for details · join this event to claim tiles."
 				: "Click for details · claims aren't available on this site."),
@@ -3024,7 +3027,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		rows.removeAll();
 		BingoApiClient.BoardResponse shownBoard = boardCatalogues.get(key);
 		boolean claimable = shownBoard != null
-			&& !shownBoard.readOnly && dataSource.supportsTileClaims();
+			&& !shownBoard.readOnly && dataSource.supportsTileClaims() && dataSource.canClaimNow();
 		if (key.equals(openCatalogueDetailKey) && openCatalogueDetailTileId > 0)
 		{
 			BingoApiClient.BoardTile detailTile = null;
@@ -3082,7 +3085,8 @@ public class AnvilSidebarPanel extends PluginPanel
 					? "This tile is already complete."
 					: (shownBoard != null && shownBoard.readOnly
 						? "Join this event to claim tiles."
-						: "Claims aren't available on this site."));
+						: (!dataSource.canClaimNow() ? "Log in to claim tiles."
+							: "Claims aren't available on this site.")));
 				rows.add(buildCatalogueTileRow(tile, preStart, key, canClaim, claimUnavailable, () ->
 				{
 					openCatalogueDetailKey = key;

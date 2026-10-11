@@ -129,6 +129,15 @@ public interface SidebarDataSource
 		return false;
 	}
 
+	/**
+	 * Logged in as a character the site can name. A claim is that character's, so it needs the played
+	 * name; at the login screen the board can still be shown (off the launcher hint) but not claimed on.
+	 */
+	default boolean canClaimNow()
+	{
+		return true;
+	}
+
 	/** Claim a tile on your own team, or update your note. Blocking; call from a SwingWorker. */
 	default void claimTile(int eventId, int tileId, String note) throws java.io.IOException
 	{
