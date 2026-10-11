@@ -6017,6 +6017,11 @@ public class AnvilPlugin extends Plugin {
         }
         // The roster button follows this; the clan channel usually loads a few seconds after login.
         if (before != clanRosterReadable) {
+            ClanSettings cs = client.getClanSettings();
+            log.info("Anvil: clan roster {} (channel={}, settings={}, members={})",
+                    clanRosterReadable ? "readable" : "not readable",
+                    client.getClanChannel() != null, cs != null,
+                    cs == null || cs.getMembers() == null ? 0 : cs.getMembers().size());
             redrawSidebarLocal();
         }
     }
@@ -6044,20 +6049,25 @@ public class AnvilPlugin extends Plugin {
      * token.
      */
     public void syncClanRoster(AdminActionCallback cb) {
+        // Every way out of here says why when somebody pressed the button: after "Syncing the clan
+        // roster..." a silent return reads as a sync that never finished.
+        boolean automatic = autoRosterAnnounce;
         if (executor == null || executor.isShutdown()) {
             cb.onResult(false, "Plugin not running");
             return;
         }
         String token = config.playerToken();
         if (token == null || token.isEmpty()) {
-            cb.onResult(false, "Set your account token in plugin config first.");
+            if (!automatic) {
+                sendChatMessage("Clan sync failed: sign in from the Anvil side panel first.");
+            }
+            cb.onResult(false, "Sign in from the Anvil side panel first.");
             return;
         }
 
         // Wait your turn. Both buttons and the login-time push come through here, so this is the one
         // place that can hold the line — a cooldown after a push that worked, and a doubling wait
         // after one that didn't, so a site that's down isn't asked again every time someone clicks.
-        boolean automatic = autoRosterAnnounce;
         long gate = System.currentTimeMillis();
         boolean backedOff = !rosterBackoff.ready(gate);
         long waitMs = backedOff
@@ -6080,7 +6090,16 @@ public class AnvilPlugin extends Plugin {
         // Read clan data on the client thread, then POST on the executor thread.
         clientThread.invokeLater(() -> {
             if (!isClanScrapeAvailable()) {
-                cb.onResult(false, "Open the clan tab in OSRS first so the roster is loaded.");
+                autoRosterAnnounce = false;
+                // The panel offered the button off a cached answer; this is the live one, so believe
+                // it and take the button away now rather than after the grace period.
+                clanRosterReadable = false;
+                clanRosterMissingTicks = CLAN_ROSTER_GRACE_TICKS;
+                redrawSidebarLocal();
+                if (!automatic) {
+                    sendChatMessage("Clan sync failed: join your clan channel first — the roster is read from it.");
+                }
+                cb.onResult(false, "Join your clan channel first — the roster is read from it.");
                 return;
             }
             ClanSettings settings = client.getClanSettings();
@@ -6219,6 +6238,14 @@ public class AnvilPlugin extends Plugin {
                         sendChatMessage("Clan sync failed: " + e.getMessage());
                     }
                     cb.onResult(false, "Sync failed: " + e.getMessage());
+                } catch (RuntimeException e) {
+                    // Anything unexpected still has to release the button, or it says "Already
+                    // syncing" until the next login.
+                    log.warn("Clan sync failed unexpectedly", e);
+                    if (!automatic) {
+                        sendChatMessage("Clan sync failed — try again in a moment.");
+                    }
+                    cb.onResult(false, "Sync failed unexpectedly.");
                 }
             });
         });
