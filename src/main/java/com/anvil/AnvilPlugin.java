@@ -1299,6 +1299,10 @@ public class AnvilPlugin extends Plugin {
         }
 
         configureApiClient();
+        // Off the Jagex Launcher, the character about to log in is known before Play: requests made at
+        // the login screen carry it as a read-only hint, so the panel loads that character's board
+        // instead of nothing. Fixed for the life of the client — the launcher starts one character.
+        apiClient.setRsnHint(client.getLauncherDisplayName());
 
         // Session clock for the starting shot: starting up AT the login screen means the next
         // LOGGED_IN is a real login we can vouch for — the ordinary "launched the client" case.
@@ -1677,6 +1681,7 @@ public class AnvilPlugin extends Plugin {
         sb.append("Account token set: ").append(config.playerToken().isEmpty() ? "no" : "yes").append(nl);
         sb.append("API configured: ").append(apiClient.isConfigured() ? "yes" : "no").append(nl);
         sb.append("Current RSN: ").append(blankToNone(apiClient.getCurrentRsn())).append(nl);
+        sb.append("Launcher name: ").append(blankToNone(apiClient.getRsnHint())).append(nl);
         GameState gs = client.getGameState();
         sb.append("Game state: ").append(gs != null ? gs.name() : "?").append(nl);
 
@@ -6203,6 +6208,13 @@ public class AnvilPlugin extends Plugin {
                 log.info("Anvil tracking: {}", summary);
             }
 
+            // Before login stamps an RSN, the event can only have come off the launcher hint. Everything
+            // below speaks in chat or seeds the completion baseline, and each latches once per login —
+            // run now, the line would go nowhere and the latch would eat the real one. The refresh
+            // stampIdentityAndGreet makes after login does it for real.
+            if (apiClient.getCurrentRsn() == null) {
+                return;
+            }
             checkTileCompletions(pluginConfig);
             checkMissionAlerts(pluginConfig);
             // Covers login (stampIdentityAndGreet calls refreshConfig) AND an event with CA

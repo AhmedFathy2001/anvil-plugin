@@ -45,6 +45,11 @@ public class BingoApiClient
 	// Sent as `X-Account-Hash` so the server can anchor auto-verification to the account even
 	// across in-game renames. Null when logged out / unavailable.
 	private volatile String accountHash;
+	// The character the Jagex Launcher says is about to log in (client.getLauncherDisplayName()), sent
+	// as `X-RSN-Hint` only while no RSN is stamped. The site uses it to pick which of this person's own
+	// characters a read is about, so the panel shows the right board before Play; it never claims,
+	// links or verifies anything — that stays with X-RSN after the real login. Null off the launcher.
+	private volatile String rsnHint;
 	/** True while the logged-in world is a seasonal (Leagues) world. Set from the plugin on login/hop. */
 	private volatile boolean seasonal;
 
@@ -225,6 +230,17 @@ public class BingoApiClient
 		this.accountHash = hash == -1L ? null : Long.toString(hash);
 	}
 
+	/** The Jagex Launcher's character name, or null when RuneLite wasn't started from the launcher. */
+	public void setRsnHint(String name)
+	{
+		this.rsnHint = (name == null || name.trim().isEmpty()) ? null : name.trim();
+	}
+
+	public String getRsnHint()
+	{
+		return rsnHint;
+	}
+
 	/** Called when the world changes: seasonal posts route to the clan's Leagues channel server-side. */
 	public void setSeasonal(boolean seasonal)
 	{
@@ -344,13 +360,14 @@ public class BingoApiClient
 		}
 	}
 
-	private Request.Builder authedRequest(String url)
+	Request.Builder authedRequest(String url)
 	{
 		Request.Builder b = new Request.Builder().url(url)
 			.header("Authorization", "Bearer " + playerToken)
 			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
 		String rsn = currentRsn;
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
+		else if (rsnHint != null) b.header("X-RSN-Hint", rsnHint);
 		String hash = accountHash;
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
 		return b;
