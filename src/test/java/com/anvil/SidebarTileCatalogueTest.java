@@ -203,9 +203,60 @@ public class SidebarTileCatalogueTest
 		collection.itemRequirements = Arrays.asList(first, second);
 
 		assertEquals(Arrays.asList(
-			"Fortis Colosseum: 1× Tonalztics of ralos (uncharged)",
-			"Fortis Colosseum: 1 / 1 Sunfire fanatic cuirass"),
+			"Fortis Colosseum set — all 2:",
+			"  1× Tonalztics of ralos (uncharged)",
+			"  ✓ Sunfire fanatic cuirass"),
 			AnvilSidebarPanel.tileTrackingDetails(collection));
+	}
+
+	@Test
+	public void setsShowHowMuchOfEachIsNeededAndHowManyAreDone()
+	{
+		BingoApiClient.BoardTile barrows = tile(1, "Two Barrows sets", null, null, null, false);
+		barrows.tileType = "drop";
+		java.util.List<PluginConfigResponse.ItemRequirement> reqs = new java.util.ArrayList<>();
+		for (String set : new String[]{"Ahrim's", "Dharok's"})
+		{
+			for (String piece : new String[]{"hood", "staff"})
+			{
+				PluginConfigResponse.ItemRequirement r = new PluginConfigResponse.ItemRequirement();
+				r.itemId = reqs.size() + 1;
+				r.name = set + " " + piece;
+				r.requiredAmount = 1;
+				r.currentAmount = set.startsWith("A") ? 2 : 0;
+				r.group = set;
+				reqs.add(r);
+			}
+		}
+		barrows.itemRequirements = reqs;
+
+		assertEquals(Arrays.asList(
+			"Ahrim's set — all 2 ✓×2:",
+			"  ✓ 2× Ahrim's hood",
+			"  ✓ 2× Ahrim's staff",
+			"Dharok's set — all 2:",
+			"  1× Dharok's hood",
+			"  1× Dharok's staff"),
+			AnvilSidebarPanel.tileTrackingDetails(barrows));
+	}
+
+	@Test
+	public void distinctPoolsSayDifferentItemsAndTickWhatCounts()
+	{
+		BingoApiClient.BoardTile pool = tile(1, "3 different uniques", null, null, null, false);
+		pool.tileType = "drop";
+		pool.requiredAmount = 3;
+		pool.countMode = "distinct";
+		pool.countedItemIds = Arrays.asList(2);
+		BingoApiClient.TrackedItem a = new BingoApiClient.TrackedItem();
+		a.itemId = 1;
+		a.name = "A";
+		BingoApiClient.TrackedItem b = new BingoApiClient.TrackedItem();
+		b.itemId = 2;
+		b.name = "B";
+		pool.trackedItems = Arrays.asList(a, b);
+
+		assertEquals(Arrays.asList("3 DIFFERENT items from:", "- A", "✓ B"), AnvilSidebarPanel.tileTrackingDetails(pool));
 	}
 
 	@Test
@@ -226,10 +277,25 @@ public class SidebarTileCatalogueTest
 		pool.trackedItems = Arrays.asList(first, second, third);
 
 		assertEquals(Arrays.asList(
-			"Need any 2 of:",
+			"Any 2 drops (repeats count) from:",
 			"- Tonalztics of ralos (uncharged)",
 			"- Sunfire fanatic cuirass",
 			"- Sunfire fanatic chausses"),
 			AnvilSidebarPanel.tileTrackingDetails(pool));
+	}
+
+	@Test
+	public void aTileTheSiteMarksManualOnlyIsManualHereToo()
+	{
+		BingoApiClient.BoardTile mace = tile(1, "Barronite mace", null, null, null, false);
+		mace.tileType = "drop";
+		BingoApiClient.TrackedItem item = new BingoApiClient.TrackedItem();
+		item.itemId = 25641;
+		item.name = "Barronite mace";
+		mace.trackedItems = Arrays.asList(item);
+		org.junit.Assert.assertFalse(AnvilSidebarPanel.tileIsManual(mace));
+		mace.manualOnly = true;
+		org.junit.Assert.assertTrue(AnvilSidebarPanel.tileIsManual(mace));
+		assertEquals("Open (manual)", AnvilSidebarPanel.tileStateText(mace));
 	}
 }

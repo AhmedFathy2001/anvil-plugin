@@ -2889,6 +2889,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				clearSearch.setEnabled(!search.getText().isEmpty());
 				boardCataloguePages.put(key, 0);
+				// Searching from a tile's detail means "find another one" — show the results.
+				closeCatalogueDetail(key);
 				repaintRows.run();
 			}
 			@Override public void insertUpdate(javax.swing.event.DocumentEvent e) { changed(); }
@@ -2900,6 +2902,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			status.addActionListener(e ->
 			{
 				boardCataloguePages.put(key, 0);
+				closeCatalogueDetail(key);
 				repaintRows.run();
 			});
 		}
@@ -2907,6 +2910,15 @@ public class AnvilSidebarPanel extends PluginPanel
 		repaintRows.run();
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
 		return panel;
+	}
+
+	private void closeCatalogueDetail(String key)
+	{
+		if (key.equals(openCatalogueDetailKey))
+		{
+			openCatalogueDetailKey = null;
+			openCatalogueDetailTileId = -1;
+		}
 	}
 
 	private void renderBoardCatalogueRows(JPanel catalogue, JPanel rows, String key,
@@ -3037,7 +3049,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			JLabel state = new JLabel(rowState);
 			state.setFont(FontManager.getRunescapeSmallFont());
-			state.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR);
+			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
+			state.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR
+				: tileIsManual(tile) ? MANUAL_COLOR : VALUE_COLOR);
 			row.add(state, BorderLayout.EAST);
 		}
 
@@ -3145,16 +3159,36 @@ public class AnvilSidebarPanel extends PluginPanel
 			card.add(gap(9));
 			card.add(sectionHeader("Manual completion"));
 			card.add(gap(2));
-			card.add(note("This task is not completed automatically. A captain or admin marks it done."));
+			card.add(note(tile.manualOnly
+				? "The plugin can't see this item arrive — it isn't a drop (it's bought, made or handed over), so it isn't tracked. Screenshot it and submit it on the site."
+				: "This task is not completed automatically. A captain or admin marks it done."));
 		}
 		else if (!tracked.isEmpty())
 		{
+			// The rule in plain words before the list — the same sentence the site's board shows, so
+			// "one set" vs "any of" vs "different items" is never left to be inferred from a list.
+			if (tile.howItCounts != null && !tile.howItCounts.trim().isEmpty())
+			{
+				card.add(gap(9));
+				card.add(sectionHeader("How it counts"));
+				card.add(gap(2));
+				JLabel rule = note(tile.howItCounts.trim());
+				rule.setForeground(ColorScheme.BRAND_ORANGE);
+				card.add(rule);
+			}
 			card.add(gap(9));
 			card.add(sectionHeader("Tracked automatically"));
 			card.add(gap(2));
+			boolean first = true;
+			int headers = 0;
 			for (String line : tracked)
 			{
-				card.add(note(line));
+				card.add(trackedLine(line, first, headers));
+				if (line.endsWith(":"))
+				{
+					headers++;
+				}
+				first = false;
 			}
 		}
 		if (tile.requirement != null && !tile.requirement.trim().isEmpty()
@@ -3261,7 +3295,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	static boolean tileIsManual(BingoApiClient.BoardTile tile)
 	{
-		if (tile.autoTrackDisabled != 0)
+		if (tile.autoTrackDisabled != 0 || tile.manualOnly)
 		{
 			return true;
 		}
@@ -3293,6 +3327,110 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
+	// Set headers ("Ahrim's set — all 4:") stand out from the items under them: their own colour, a
+	// gap above, and the items indented. HTML collapses the leading spaces tileTrackingDetails uses to
+	// mark an item line, so the indent is a border, not whitespace.
+	// Each header its own colour, cycling — six Barrows sets read as six blocks. Green is kept for
+	// "collected" and orange for the How-it-counts rule, so neither is in the palette.
+	private static final Color[] SET_HEADER_COLORS = {
+		new Color(0xE0_C0_6A), // gold
+		new Color(0x6A_C8_E0), // sky
+		new Color(0xE0_8A_C4), // pink
+		new Color(0xA8_9A_F0), // lavender
+		new Color(0x5F_D4_BE), // teal
+		new Color(0xE8_A8_7A), // peach
+	};
+	private static final Color DONE_COLOR = new Color(0x6F_C2_6F);
+	private static final Color MANUAL_COLOR = new Color(0xE8_B8_3A);
+
+	private JLabel trackedLine(String line, boolean first, int headerIndex)
+	{
+		boolean header = line.endsWith(":");
+		boolean item = line.startsWith("  ");
+		JLabel label = note(line.trim());
+		if (header)
+		{
+			label.setForeground(SET_HEADER_COLORS[headerIndex % SET_HEADER_COLORS.length]);
+		}
+		else if (line.trim().startsWith("✓"))
+		{
+			label.setForeground(DONE_COLOR);
+		}
+		int top = header && !first ? 6 : 0;
+		int left = item ? 8 : 0;
+		label.setBorder(javax.swing.BorderFactory.createEmptyBorder(top, left, 0, 0));
+		return label;
+	}
+
+	private static String itemName(int itemId, String name)
+	{
+		return name == null || name.trim().isEmpty() ? "Item " + itemId : name.trim();
+	}
+
+	/**
+	 * A collection's items, grouped the way the site's board groups them: always-required items
+	 * first, then one header per set saying how much of it is needed, with a ✓ on what's in. A flat
+	 * "all of these" list gets one header too, so it can't be mistaken for "any of".
+	 */
+	static void itemSetLines(BingoApiClient.BoardTile tile, List<String> lines)
+	{
+		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
+		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
+		java.util.Map<String, String> displayName = new java.util.HashMap<>();
+		for (PluginConfigResponse.ItemRequirement req : tile.itemRequirements)
+		{
+			if (req == null)
+			{
+				continue;
+			}
+			String g = req.group == null ? "" : req.group.trim();
+			if (g.isEmpty())
+			{
+				ungrouped.add(req);
+				continue;
+			}
+			String key = g.toLowerCase(java.util.Locale.ROOT);
+			groups.computeIfAbsent(key, k -> new ArrayList<>()).add(req);
+			displayName.putIfAbsent(key, g);
+		}
+		if (!ungrouped.isEmpty())
+		{
+			lines.add(groups.isEmpty() ? "All of these:" : "Always required:");
+			for (PluginConfigResponse.ItemRequirement req : ungrouped)
+			{
+				lines.add(itemLine(req));
+			}
+		}
+		for (java.util.Map.Entry<String, List<PluginConfigResponse.ItemRequirement>> e : groups.entrySet())
+		{
+			List<PluginConfigResponse.ItemRequirement> set = e.getValue();
+			int need = 0;
+			for (PluginConfigResponse.ItemRequirement r : set)
+			{
+				need = Math.max(need, r.groupRequire);
+			}
+			need = need <= 0 ? set.size() : Math.min(need, set.size());
+			int times = ClogTaskModel.setTimes(set, need);
+			String howMuch = need < set.size() ? "any " + need + " of " + set.size() : "all " + set.size();
+			lines.add(displayName.get(e.getKey()) + " set — " + howMuch + (times > 0 ? (times > 1 ? " ✓×" + times : " ✓") : "") + ":");
+			for (PluginConfigResponse.ItemRequirement req : set)
+			{
+				lines.add(itemLine(req));
+			}
+		}
+	}
+
+	private static String itemLine(PluginConfigResponse.ItemRequirement req)
+	{
+		int need = Math.max(1, req.requiredAmount);
+		String name = itemName(req.itemId, req.name);
+		if (req.currentAmount >= need)
+		{
+			return "  ✓ " + (need > 1 || req.currentAmount > need ? req.currentAmount + "× " : "") + name;
+		}
+		return "  " + (req.currentAmount > 0 ? req.currentAmount + "/" + need : need + "×") + " " + name;
+	}
+
 	/** Exact inputs the plugin watches, shown in the detail view instead of hiding them behind prose. */
 	static List<String> tileTrackingDetails(BingoApiClient.BoardTile tile)
 	{
@@ -3303,34 +3441,26 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		if (tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
 		{
-			for (PluginConfigResponse.ItemRequirement req : tile.itemRequirements)
-			{
-				String name = req.name == null || req.name.trim().isEmpty()
-					? "Item " + req.itemId : req.name.trim();
-				String amount = req.currentAmount > 0
-					? req.currentAmount + " / " + Math.max(1, req.requiredAmount)
-					: Math.max(1, req.requiredAmount) + "×";
-				String group = req.group == null || req.group.trim().isEmpty() ? "" : req.group.trim() + ": ";
-				lines.add(group + amount + " " + name);
-			}
+			itemSetLines(tile, lines);
 		}
 		else if (tile.trackedItems != null && !tile.trackedItems.isEmpty())
 		{
 			if (tile.trackedItems.size() == 1)
 			{
 				BingoApiClient.TrackedItem item = tile.trackedItems.get(0);
-				String name = item.name == null || item.name.trim().isEmpty()
-					? "Item " + item.itemId : item.name.trim();
-				lines.add(Math.max(1, tile.requiredAmount) + "× " + name);
+				lines.add(Math.max(1, tile.requiredAmount) + "× " + itemName(item.itemId, item.name));
 			}
 			else
 			{
-				lines.add("Need any " + Math.max(1, tile.requiredAmount) + " of:");
+				boolean distinct = "distinct".equals(tile.countMode);
+				int need = Math.max(1, tile.requiredAmount);
+				lines.add(distinct
+					? need + " DIFFERENT items from:"
+					: need == 1 ? "Any ONE of:" : "Any " + need + " drops (repeats count) from:");
 				for (BingoApiClient.TrackedItem item : tile.trackedItems)
 				{
-					String name = item.name == null || item.name.trim().isEmpty()
-						? "Item " + item.itemId : item.name.trim();
-					lines.add("- " + name);
+					boolean counted = distinct && tile.countedItemIds != null && tile.countedItemIds.contains(item.itemId);
+					lines.add((counted ? "✓ " : "- ") + itemName(item.itemId, item.name));
 				}
 			}
 		}

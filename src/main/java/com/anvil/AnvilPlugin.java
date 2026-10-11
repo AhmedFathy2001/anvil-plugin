@@ -1059,6 +1059,23 @@ public class AnvilPlugin extends Plugin {
     // Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
     // both containers in one tick) is evaluated once, after both have updated.
     private boolean heldItemsDirty = false;
+
+    // LOOTING-BAG CHEST LOOT. RuneLite's loot tracker reads a Larran's chest by diffing the INVENTORY
+    // around the "You have opened Larran's … chest" line, so whatever the game puts straight into an
+    // open looting bag never reaches its LootReceived — and so never reached any tile. We keep the
+    // bag's last known contents and, around that same line, credit what the bag gained. Only ever
+    // the bag's part: the inventory part still comes through RuneLite, so nothing counts twice.
+    static final java.util.regex.Pattern LARRAN_OPENED =
+            java.util.regex.Pattern.compile("You have opened Larran's (big|small) chest.*");
+    private static final int LOOTING_BAG_WATCH_TICKS = 5;
+    // Contents before the most recent bag change, and after it; null = the client hasn't been told.
+    private Map<Integer, Integer> lootingBagBefore;
+    private Map<Integer, Integer> lootingBagNow;
+    private int lootingBagChangedTick = -1;
+    // An armed watch: which chest, the bag as it stood at the chat line, and ticks left.
+    private String lootingBagWatchSource;
+    private Map<Integer, Integer> lootingBagWatchBase;
+    private int lootingBagWatchTicks;
     private final Map<Integer, GainAggregate> pendingGainAggregates = new HashMap<>();
     // Gathering is a slow trickle (a catch every few seconds), so the settle window is much
     // longer than drops' — one screenshot + submission per fishing stint, not per catch.
@@ -1077,6 +1094,11 @@ public class AnvilPlugin extends Plugin {
     // Trade/bank items can land in the inventory on the same tick their interface closes —
     // remember the close so those gains stay suppressed too.
     private volatile int lastSuppressCloseTick = -10;
+    // Storage guard: emptying a fish barrel / log basket / coal bag / gem bag / herb sack (or taking
+    // out of any item container) puts items in the inventory that were already gathered — and since
+    // "Fill" moves them back, counting it would let the same fish complete a tile forever. Only items
+    // straight from the source count; anything out of storage is a move.
+    private volatile int lastStorageMoveTick = -10;
 
     // ---- Deathless-raid tiles --------------------------------------------------------------
     // Player deaths (anyone — raid instances are private, so any player is a party member)
@@ -2338,6 +2360,11 @@ public class AnvilPlugin extends Plugin {
             heldItemsDirty = false;
             updateHeldItemGains();
         }
+        if (lootingBagWatchSource != null && --lootingBagWatchTicks <= 0) {
+            // Nothing went to the bag this time — the loot all landed in the inventory.
+            lootingBagWatchSource = null;
+            lootingBagWatchBase = null;
+        }
         trackLmsTick();
     }
 
@@ -2473,6 +2500,11 @@ public class AnvilPlugin extends Plugin {
             lastHeldItemCounts = null;
             heldItemsDirty = false;
             wasInInstance = false;
+            // The bag's contents are per account and re-sent after login; forget them.
+            lootingBagBefore = null;
+            lootingBagNow = null;
+            lootingBagWatchSource = null;
+            lootingBagWatchBase = null;
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
@@ -3348,6 +3380,13 @@ public class AnvilPlugin extends Plugin {
         //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
         //             Maggot King." — fallback for members whose in-game loot-notification
         //             setting is off; guests outside the clan rely on the personal line.
+        if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
+            java.util.regex.Matcher larran = LARRAN_OPENED.matcher(msg.replaceAll("<[^>]*>", ""));
+            if (larran.matches()) {
+                onLarranChestOpened(larran.group(1));
+            }
+        }
+
         if (!PLAYER_AUTHORED_CHAT.contains(event.getType()) && msg.contains("received a drop")) {
             String stripped = msg.replaceAll("<[^>]*>", "");
             // Each line shape matches exactly one of the two patterns (DropNotificationLineTest
@@ -3966,14 +4005,30 @@ public class AnvilPlugin extends Plugin {
                             break;
                         }
                     }
-                    if (req == null || req.currentAmount >= req.requiredAmount) {
+                    // A tile needing N sets can use a set's piece N times (Ahrim's twice).
+                    int cap = req == null ? 0 : ClogTaskModel.itemCap(req, drop.groupMode, drop.setsRequired);
+                    if (req == null || req.currentAmount >= cap) {
                         continue;
                     }
                     trackingItemId = itemId;
-                    int perItemRoom = Math.max(1, req.requiredAmount - req.currentAmount);
+                    int perItemRoom = Math.max(1, cap - req.currentAmount);
                     int tileRoom = Math.max(1, drop.requiredAmount - drop.currentAmount);
                     amount = Math.min(stackQty, Math.min(perItemRoom, tileRoom));
                     req.currentAmount += amount;
+                } else if ("distinct".equals(drop.countMode)) {
+                    // "Different items only": an item already counted adds nothing (the site would
+                    // refuse it), and a new one is worth exactly 1 however big the stack. The item
+                    // id rides along so the site can tell items apart.
+                    if (drop.countedItemIds == null) {
+                        drop.countedItemIds = new java.util.ArrayList<>();
+                    }
+                    if (drop.countedItemIds.contains(itemId)) {
+                        log.debug("Skipping {} for tile '{}' — already counted (different items only)", itemId, drop.label);
+                        continue;
+                    }
+                    drop.countedItemIds.add(itemId);
+                    trackingItemId = itemId;
+                    amount = 1;
                 } else {
                     amount = Math.min(stackQty, Math.max(1, drop.requiredAmount - drop.currentAmount));
                 }
@@ -3994,7 +4049,7 @@ public class AnvilPlugin extends Plugin {
                 // over the smallest-set total (which read as "4/1"). Set-aware maths;
                 // it reflects the highest set collected, and a stray item toward a different set won't shrink it.
                 if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-                    int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode);
+                    int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode, drop.setsRequired);
                     snapshotCurrent = pg[0];
                     snapshotRequired = pg[1];
                 }
@@ -4366,6 +4421,73 @@ public class AnvilPlugin extends Plugin {
                 || id == net.runelite.api.gameval.InventoryID.WORN) {
             heldItemsDirty = true;
         }
+        if (id == net.runelite.api.gameval.InventoryID.LOOTING_BAG) {
+            onLootingBagChanged(event.getItemContainer());
+        }
+    }
+
+    private void onLootingBagChanged(ItemContainer bag) {
+        Map<Integer, Integer> now = new HashMap<>();
+        if (bag != null) {
+            for (Item it : bag.getItems()) {
+                if (it != null && it.getId() > 0 && it.getQuantity() > 0) {
+                    now.merge(it.getId(), it.getQuantity(), Integer::sum);
+                }
+            }
+        }
+        lootingBagBefore = lootingBagNow;
+        lootingBagNow = now;
+        lootingBagChangedTick = client.getTickCount();
+        // A watch armed by the chest line — only against a bag we already knew. The first contents
+        // the client is ever sent are the whole bag, not what the chest added.
+        if (lootingBagWatchSource != null && lootingBagWatchBase != null) {
+            creditLootingBagGain(lootingBagWatchSource, lootingBagWatchBase, now);
+            lootingBagWatchSource = null;
+            lootingBagWatchBase = null;
+        }
+    }
+
+    /** The chest line: credit a bag change that landed this tick, or watch for one in the next few. */
+    private void onLarranChestOpened(String size) {
+        String source = "Larran's " + size + " chest";
+        if (lootingBagChangedTick == client.getTickCount() && lootingBagBefore != null) {
+            creditLootingBagGain(source, lootingBagBefore, lootingBagNow);
+            return;
+        }
+        if (lootingBagNow == null) {
+            log.debug("Anvil: {} opened but the looting bag's contents are unknown — bag loot not counted", source);
+            return;
+        }
+        lootingBagWatchSource = source;
+        lootingBagWatchBase = lootingBagNow;
+        lootingBagWatchTicks = LOOTING_BAG_WATCH_TICKS;
+    }
+
+    private void creditLootingBagGain(String source, Map<Integer, Integer> before, Map<Integer, Integer> after) {
+        List<ItemStack> gained = lootingBagGains(before, after);
+        if (gained.isEmpty()) {
+            return;
+        }
+        log.info("Anvil: {} put {} item stack(s) straight into the looting bag", source, gained.size());
+        processLoot(source, gained, "event");
+        processValueTiles(source, gained, "event");
+        recordEventLoot(source, gained, "event");
+        maybeNotifyRareDrop(source, gained, "event");
+    }
+
+    /** What the bag gained between two snapshots — increases only (a withdrawal isn't loot). */
+    static List<ItemStack> lootingBagGains(Map<Integer, Integer> before, Map<Integer, Integer> after) {
+        List<ItemStack> out = new ArrayList<>();
+        if (before == null || after == null) {
+            return out;
+        }
+        for (Map.Entry<Integer, Integer> e : after.entrySet()) {
+            int added = e.getValue() - before.getOrDefault(e.getKey(), 0);
+            if (added > 0) {
+                out.add(new ItemStack(e.getKey(), added));
+            }
+        }
+        return out;
     }
 
     /**
@@ -4392,6 +4514,7 @@ public class AnvilPlugin extends Plugin {
                 : (client.getTickCount() - lastGroundTakeTick <= 2) ? "recent ground Take"
                 : (client.getTickCount() - lastTelegrabTick <= TELEGRAB_GUARD_TICKS) ? "recent telegrab"
                 : (client.getTickCount() - lastSuppressCloseTick <= 2) ? "interface just closed"
+                : (client.getTickCount() - lastStorageMoveTick <= 2) ? "emptied from storage"
                 : null;
 
         // Diagnostic (debug-level so it doesn't spam a normal log): every item whose held count ROSE
@@ -4454,11 +4577,26 @@ public class AnvilPlugin extends Plugin {
     public void onMenuOptionClicked(MenuOptionClicked event) {
         if ("Take".equalsIgnoreCase(event.getMenuOption())) {
             lastGroundTakeTick = client.getTickCount();
+        } else if (isStorageMove(event.getMenuOption())) {
+            lastStorageMoveTick = client.getTickCount();
         } else if ("Cast".equalsIgnoreCase(event.getMenuOption())
                 && event.getMenuTarget() != null
                 && event.getMenuTarget().contains("Telekinetic Grab")) {
             lastTelegrabTick = client.getTickCount();
         }
+    }
+
+    /**
+     * Options that take items OUT of a storage item into the inventory: "Empty" (fish barrel, log
+     * basket, coal/gem bag, herb sack, seed box, plank sack…), "Withdraw…" and "Remove…" from an
+     * item's own interface. A move, never a gather.
+     */
+    static boolean isStorageMove(String option) {
+        if (option == null) {
+            return false;
+        }
+        String o = option.trim().toLowerCase(java.util.Locale.ROOT);
+        return o.startsWith("empty") || o.startsWith("withdraw") || o.startsWith("remove");
     }
 
     /** True while an interface whose item flows aren't "gathering" is open. */
@@ -4469,7 +4607,9 @@ public class AnvilPlugin extends Plugin {
                 || client.getWidget(InterfaceID.GE_COLLECT, 0) != null
                 || client.getWidget(InterfaceID.TRADEMAIN, 0) != null
                 || client.getWidget(InterfaceID.TRADECONFIRM, 0) != null
-                || client.getWidget(InterfaceID.SEED_VAULT, 0) != null;
+                || client.getWidget(InterfaceID.SEED_VAULT, 0) != null
+                // Bought isn't gathered: a shop would otherwise sell a "catch 100 karambwan" tile.
+                || client.getWidget(InterfaceID.SHOPMAIN, 0) != null;
     }
 
     /**

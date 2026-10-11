@@ -307,7 +307,7 @@ public final class ClogTaskModel
 					// count reaches requiredAmount (the server stores that as a shortest-path total, often
 					// 1, so a 3-of-4 rings set read as 3/1 = done). Drive progress off the per-item
 					// requirements, their sets, and how the tile says those sets combine.
-					int[] pg = collectionProgress(d.itemRequirements, d.groupMode);
+					int[] pg = collectionProgress(d.itemRequirements, d.groupMode, d.setsRequired);
 					current = pg[0];
 					goal = pg[1];
 					done = done || pg[2] == 1;
@@ -610,6 +610,25 @@ public final class ClogTaskModel
 
 	static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs, String groupMode)
 	{
+		return collectionProgress(reqs, groupMode, 1);
+	}
+
+	/**
+	 * As above, for an "any" tile that needs {@code setsRequired} sets. Sets are COUNTED, the site's
+	 * rule (lib/collectionSets setTimes): a set counts once per full batch of its pieces, across sets
+	 * and within one, so 2 is "Ahrim's + Dharok's, or Ahrim's twice". Progress is in pieces: N times
+	 * the smallest set, with the sets already done counted in full and the closest next one partly.
+	 */
+	static int[] collectionProgress(List<PluginConfigResponse.ItemRequirement> reqs, String groupMode, int setsRequired)
+	{
+		if (setsRequired > 1 && !"all".equalsIgnoreCase(groupMode))
+		{
+			int[] multi = multiSetProgress(reqs, setsRequired);
+			if (multi != null)
+			{
+				return multi;
+			}
+		}
 		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
 		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
 		for (PluginConfigResponse.ItemRequirement r : reqs)
@@ -686,6 +705,87 @@ public final class ClogTaskModel
 			}
 		}
 		return new int[]{ bestSat, Math.max(1, bestGoal), 0 };
+	}
+
+	/** {@link #collectionProgress(List, String, int)} for N > 1 sets; null when there are no sets. */
+	private static int[] multiSetProgress(List<PluginConfigResponse.ItemRequirement> reqs, int n)
+	{
+		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
+		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
+		for (PluginConfigResponse.ItemRequirement r : reqs)
+		{
+			if (r == null)
+			{
+				continue;
+			}
+			String g = r.group == null ? "" : r.group.trim();
+			if (g.isEmpty())
+			{
+				ungrouped.add(r);
+			}
+			else
+			{
+				groups.computeIfAbsent(g.toLowerCase(java.util.Locale.ROOT), k -> new ArrayList<>()).add(r);
+			}
+		}
+		if (groups.isEmpty())
+		{
+			return null;
+		}
+		int setsDone = 0;
+		int unit = Integer.MAX_VALUE;
+		int bestPartial = 0;
+		for (List<PluginConfigResponse.ItemRequirement> grp : groups.values())
+		{
+			int need = requireCount(grp);
+			int times = setTimes(grp, need);
+			setsDone += times;
+			unit = Math.min(unit, need);
+			// Pieces toward this set's NEXT copy.
+			int partial = 0;
+			for (PluginConfigResponse.ItemRequirement r : grp)
+			{
+				if (r.currentAmount >= (times + 1) * Math.max(1, r.requiredAmount))
+				{
+					partial++;
+				}
+			}
+			bestPartial = Math.max(bestPartial, Math.min(partial, need - 1));
+		}
+		int ungroupedSat = satisfied(ungrouped);
+		int goal = ungrouped.size() + n * unit;
+		int done = Math.min(setsDone, n);
+		int current = ungroupedSat + done * unit + (done < n ? Math.min(bestPartial, unit - 1) : 0);
+		boolean complete = setsDone >= n && ungroupedSat >= ungrouped.size();
+		return new int[]{ complete ? goal : Math.min(current, goal - 1), Math.max(1, goal), complete ? 1 : 0 };
+	}
+
+	/** Times over a set is done: the largest k with {@code need} of its items at k × their amount. */
+	static int setTimes(List<PluginConfigResponse.ItemRequirement> grp, int need)
+	{
+		List<Integer> perItem = new ArrayList<>();
+		for (PluginConfigResponse.ItemRequirement r : grp)
+		{
+			perItem.add(r.currentAmount / Math.max(1, r.requiredAmount));
+		}
+		perItem.sort(java.util.Collections.reverseOrder());
+		int idx = Math.min(need, perItem.size()) - 1;
+		return idx < 0 ? 0 : perItem.get(idx);
+	}
+
+	/**
+	 * The most of one item a tile can use — the site's lib/collectionSets itemCap. Normally its own
+	 * amount; a grouped piece on an "any" tile needing N sets is useful N times over.
+	 */
+	static int itemCap(PluginConfigResponse.ItemRequirement req, String groupMode, int setsRequired)
+	{
+		int amount = Math.max(1, req.requiredAmount);
+		boolean grouped = req.group != null && !req.group.trim().isEmpty();
+		if (!grouped || "all".equalsIgnoreCase(groupMode))
+		{
+			return amount;
+		}
+		return amount * Math.max(1, setsRequired);
 	}
 
 	/** How many of these requirements the player has met. */

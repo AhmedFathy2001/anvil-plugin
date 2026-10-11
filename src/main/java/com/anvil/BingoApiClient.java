@@ -854,6 +854,11 @@ public class BingoApiClient
 		public String requirement;
 		public int optional;
 		public int autoTrackDisabled;
+		/**
+		 * The tile's item(s) never arrive as a drop (bought, made, handed over by a reward screen), so
+		 * the plugin can't track it — the site's "Manual" badge. False on older sites.
+		 */
+		public boolean manualOnly;
 		public java.util.List<String> sources;
 		public String category;
 		public String tileType;
@@ -863,6 +868,14 @@ public class BingoApiClient
 		public String revealedAt;
 		public String closedAt;
 		public java.util.List<PluginConfigResponse.ItemRequirement> itemRequirements;
+		/** The site's one-sentence rule for an item tile — shown first in the detail view. Null on older sites. */
+		public String howItCounts;
+		/** Collections: "any" / "all", and sets needed in "any" mode (0 = 1). Absent on older sites. */
+		public String groupMode;
+		public int setsRequired;
+		/** "distinct" pools: only different items count; countedItemIds are the ones already counted. */
+		public String countMode;
+		public java.util.List<Integer> countedItemIds;
 		/**
 		 * Teammates planning to go for this tile, oldest claim first (server capability
 		 * {@code tile-claims}). Team-private: only the authed board carries it, and only for the

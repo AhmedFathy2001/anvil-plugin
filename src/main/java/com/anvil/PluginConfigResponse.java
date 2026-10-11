@@ -505,6 +505,16 @@ public class PluginConfigResponse
 		// tile count ROLLS: a DT2 kill handing you a vestige and an ingot rolled its unique table
 		// once, so it credits once.
 		public int perKillCap;
+		// How many sets the tile needs when groupMode is "any" (0/absent on older servers = 1). Sets
+		// are COUNTED — 2 is two different sets or the same one twice — so a set's piece is useful up
+		// to this many times over.
+		public int setsRequired;
+		// Plain pools only: "distinct" = only DIFFERENT items count; null = every drop counts.
+		public String countMode;
+		// "distinct" pools: the items the team already has counted. A repeat of one adds nothing.
+		public List<Integer> countedItemIds;
+		// The site's one-sentence rule for this tile ("Complete 2 sets — …"). Null on older servers.
+		public String howItCounts;
 	}
 
 	public static class ItemRequirement

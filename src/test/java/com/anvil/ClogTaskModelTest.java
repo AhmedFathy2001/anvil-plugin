@@ -449,4 +449,35 @@ public class ClogTaskModelTest
 		assertEquals("49.9M", ClogTaskModel.formatGp(49_990_000));
 		assertEquals("999.9M", ClogTaskModel.formatGp(999_999_999));
 	}
+
+	@Test
+	public void multipleSetsCountAcrossSetsAndWithinOne()
+	{
+		java.util.List<PluginConfigResponse.ItemRequirement> reqs = new java.util.ArrayList<>();
+		for (String set : new String[]{"Ahrim", "Dharok"})
+		{
+			for (int p = 0; p < 2; p++)
+			{
+				PluginConfigResponse.ItemRequirement r = new PluginConfigResponse.ItemRequirement();
+				r.itemId = reqs.size() + 1;
+				r.requiredAmount = 1;
+				r.group = set;
+				reqs.add(r);
+			}
+		}
+		reqs.get(0).currentAmount = 1;
+		reqs.get(1).currentAmount = 1;
+		assertArrayEquals(new int[]{ 2, 4, 0 }, ClogTaskModel.collectionProgress(reqs, "any", 2));
+		reqs.get(2).currentAmount = 1;
+		assertArrayEquals(new int[]{ 3, 4, 0 }, ClogTaskModel.collectionProgress(reqs, "any", 2));
+		reqs.get(3).currentAmount = 1;
+		assertArrayEquals(new int[]{ 4, 4, 1 }, ClogTaskModel.collectionProgress(reqs, "any", 2));
+		reqs.get(2).currentAmount = 0;
+		reqs.get(3).currentAmount = 0;
+		reqs.get(0).currentAmount = 2;
+		reqs.get(1).currentAmount = 2;
+		assertArrayEquals("one set twice", new int[]{ 4, 4, 1 }, ClogTaskModel.collectionProgress(reqs, "any", 2));
+		assertEquals(2, ClogTaskModel.itemCap(reqs.get(0), "any", 2));
+		assertEquals(1, ClogTaskModel.itemCap(reqs.get(0), "all", 2));
+	}
 }
