@@ -1317,7 +1317,14 @@ public class AnvilPlugin extends Plugin {
         if (client.getGameState() == GameState.LOGGED_IN) {
             executor.submit(this::stampIdentityAndGreet);
         } else if (apiClient.isConfigured()) {
-            executor.submit(this::refreshConfig);
+            // At the login screen. Admin is a question about the PERSON, so it needn't wait for a
+            // character; with the launcher hint the config is this character's already. Paint both now
+            // rather than on the panel's next 15s poll.
+            executor.submit(() -> {
+                safely("refreshConfig", this::refreshConfig);
+                safely("probeAdmin", this::probeAdmin);
+                repaintSidebar();
+            });
         }
 
         // Retry any pending submissions from a previous session
@@ -2260,6 +2267,7 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onGameTick(GameTick event) {
+        maybeStampIdentityOnTick();
         // KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
         //
         // They were drawn on two scripts and never reconsidered, so anything that changed while the
@@ -2491,10 +2499,10 @@ public class AnvilPlugin extends Plugin {
             seedSkillLevels();
         }
         if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
-            // Delay slightly so local player name is populated
-            if (executor != null && !executor.isShutdown()) {
-                executor.schedule(this::stampIdentityAndGreet, 3, TimeUnit.SECONDS);
-            }
+            // The name and account hash aren't populated at this transition. onGameTick stamps on the
+            // first tick that has both, usually the next one, instead of a blind three-second wait.
+            identityStampPending = true;
+            identityWaitTicks = 0;
         } else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
             // Flush any gains still coalescing before we tear down — a logout/hop mid-gather would
             // otherwise lose them (the aggregate lives only in memory). The executor is still alive here.
@@ -2513,6 +2521,7 @@ public class AnvilPlugin extends Plugin {
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
+            identityStampPending = false;
             // Nothing is happening here, which is the entire reason the ask lives at this transition
             // rather than on the clip that needs it.
             maybeAskForClipFolder();
@@ -2588,6 +2597,26 @@ public class AnvilPlugin extends Plugin {
      * the site could never capture the account.
      */
     private int identityStampRetries;
+    // Set on LOGGED_IN; the first tick with a name and account hash (or the cap) runs the stamp.
+    private boolean identityStampPending;
+    private int identityWaitTicks;
+    private static final int MAX_IDENTITY_WAIT_TICKS = 5;
+
+    private void maybeStampIdentityOnTick() {
+        if (!identityStampPending) {
+            return;
+        }
+        // Past the cap, stamp anyway: stampIdentityAndGreet has its own retry for whatever is missing.
+        if (!identityReady(getLocalPlayerName(), client.getAccountHash())
+                && ++identityWaitTicks < MAX_IDENTITY_WAIT_TICKS) {
+            return;
+        }
+        identityStampPending = false;
+        if (executor != null && !executor.isShutdown()) {
+            executor.submit(this::stampIdentityAndGreet);
+        }
+    }
+
     private static final int MAX_IDENTITY_STAMP_RETRIES = 5;
 
     /** Both values are needed for the first-play claim: an RSN finds the synced row and the stable
@@ -2643,8 +2672,11 @@ public class AnvilPlugin extends Plugin {
         // account's enrollment right away — when one person plays several accounts, only
         // the enrolled one should track drops (don't wait for the 30s refresh cycle).
         safely("refreshConfig", this::refreshConfig);
+        // The board and event are what the member is waiting for; show them before hello + admin.
+        repaintSidebar();
         sendHello();
         safely("probeAdmin", this::probeAdmin);
+        repaintSidebar();
         checkSetup();
     }
 
