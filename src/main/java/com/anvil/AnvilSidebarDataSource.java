@@ -149,6 +149,23 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public AccountRow accountRow()
+	{
+		AnvilPlugin p = plugin;
+		return p == null ? null : p.accountRow();
+	}
+
+	@Override
+	public void accountAction(AccountRow.Action action, java.util.function.Consumer<String> done)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.accountAction(action, done);
+		}
+	}
+
+	@Override
 	public void syncRoster()
 	{
 		AnvilPlugin p = plugin;

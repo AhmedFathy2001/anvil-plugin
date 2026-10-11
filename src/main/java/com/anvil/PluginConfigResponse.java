@@ -274,6 +274,13 @@ public class PluginConfigResponse
 	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
 	// account isn't linked to it — the plugin warns so tracking isn't silently off. Null otherwise.
 	public String unlinkedActiveEvent;
+
+	/**
+	 * Whose the logged-in character is: {@code yours} | {@code other} (claimed by another Anvil
+	 * account — nothing tracks for this token) | {@code ignored} (marked Not my account) |
+	 * {@code unclaimed}. {@code null} at the login screen and on older sites.
+	 */
+	public String accountStanding;
 	public List<TrackedDrop> trackedDrops;
 	public List<TrackedStat> trackedStats;
 	// Lowercased in-game KC-line boss names ("zulrah", "chambers of xeric challenge mode") for the

@@ -919,6 +919,18 @@ public class AnvilPlugin extends Plugin {
     /** How many times a never-configured install has been told where to sign in. See SetupNudge. */
     static final String CFG_FIRST_RUN_NUDGES = "firstRunNudges";
 
+    /** Characters marked "Not my account" on this install (AccountOptOut digests). */
+    static final String CFG_OPTED_OUT_ACCOUNTS = "optedOutAccounts";
+    /** Characters this install has already said "tracking X for your Anvil account" about, once. */
+    static final String CFG_ANNOUNCED_ACCOUNTS = "announcedAccounts";
+
+    // The Account Token names whoever set this RuneLite up, not whoever is playing. Every character
+    // links by default; these two are the way out for a sibling or a visitor (see AccountOptOut).
+    private volatile AccountOptOut optedOutAccounts = AccountOptOut.EMPTY;
+    private volatile AccountOptOut announcedAccounts = AccountOptOut.EMPTY;
+    /** One account action at a time from the panel; a double click is one request. */
+    private volatile boolean accountActionRunning;
+
     private static final String CFG_COUNTER_EVENT = "recapCounterEventId";
     private static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
     private static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
@@ -1299,10 +1311,14 @@ public class AnvilPlugin extends Plugin {
         }
 
         configureApiClient();
+        optedOutAccounts = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS));
+        announcedAccounts = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_ANNOUNCED_ACCOUNTS));
         // Off the Jagex Launcher, the character about to log in is known before Play: requests made at
         // the login screen carry it as a read-only hint, so the panel loads that character's board
         // instead of nothing. Fixed for the life of the client — the launcher starts one character.
-        apiClient.setRsnHint(client.getLauncherDisplayName());
+        // Withheld for a character marked Not my account: nothing about it goes to Anvil.
+        String launcherName = client.getLauncherDisplayName();
+        apiClient.setRsnHint(optedOutAccounts.containsName(launcherName) ? null : launcherName);
 
         // Session clock for the starting shot: starting up AT the login screen means the next
         // LOGGED_IN is a real login we can vouch for — the ordinary "launched the client" case.
@@ -2583,6 +2599,8 @@ public class AnvilPlugin extends Plugin {
             // onto requests that fire before the next login completes.
             apiClient.setCurrentRsn(null);
             apiClient.setAccountHash(-1L);
+            // A paused character is paused only while it is logged in; the next one decides afresh.
+            apiClient.setAccountPaused(false);
             // Re-seed the team-completion baseline on the next login: while logged out a teammate
             // may finish tiles, and those shouldn't fire a completion banner when you come back —
             // only tiles completed while you're actually online should. Clearing the baseline makes
@@ -2673,6 +2691,16 @@ public class AnvilPlugin extends Plugin {
         apiClient.setCurrentRsn(rsn);
         apiClient.setAccountHash(accountHash);
         apiClient.setSeasonal(onSeasonalWorld());
+        // "Not my account" on this install: send nothing at all while this character is logged in —
+        // no config, no hello, no drops. Set before anything below can fire a request.
+        boolean paused = optedOutAccounts.contains(accountHash, rsn);
+        apiClient.setAccountPaused(paused);
+        if (paused) {
+            log.info("Anvil: {} is marked Not my account on this computer — sending nothing for it", rsn);
+            dropConfigForPausedAccount();
+            refreshSidebarLater();
+            return;
+        }
         loadProfileSyncState(rsn);
         // Refresh config for the character we just logged into so tracking reflects THIS
         // account's enrollment right away — when one person plays several accounts, only
@@ -2684,6 +2712,138 @@ public class AnvilPlugin extends Plugin {
         safely("probeAdmin", this::probeAdmin);
         repaintSidebar();
         checkSetup();
+        announceAccountOnce(rsn, accountHash);
+        refreshSidebarLater();
+    }
+
+    /**
+     * Say once per character, per install, whose Anvil account it's being tracked for — so a sibling
+     * or a visitor on this PC finds out, and knows where the way out is. After the config refresh,
+     * which is what says whether the character is someone else's.
+     */
+    private void announceAccountOnce(String rsn, long accountHash) {
+        if (!apiClient.isConfigured() || announcedAccounts.contains(accountHash, rsn)) {
+            return;
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        String standing = cfg == null ? null : cfg.accountStanding;
+        if (standing == null) {
+            // Older site, or the refresh failed — nothing reliable to say yet; try at the next login.
+            return;
+        }
+        announcedAccounts = announcedAccounts.with(accountHash, rsn);
+        configManager.setConfiguration("osrsbingo", CFG_ANNOUNCED_ACCOUNTS, announcedAccounts.serialize());
+        if ("other".equals(standing)) {
+            sendChatMessage(rsn + " is linked to another Anvil account, so nothing is tracked here. "
+                    + "If it's yours, open the Anvil side panel and press \"It's mine\".");
+        } else if (!"ignored".equals(standing)) {
+            sendChatMessage("Tracking " + rsn + " for your Anvil account. Not yours? "
+                    + "Open the Anvil side panel and press \"Not my account\".");
+        }
+    }
+
+    /** Forget the previous character's event state so nothing of it lingers while this one is paused. */
+    private void dropConfigForPausedAccount() {
+        pluginConfig = null;
+        rebuildItemDropIndex();
+    }
+
+    private void refreshSidebarLater() {
+        AnvilSidebarPanel panel = sidebarPanel;
+        if (panel != null) {
+            javax.swing.SwingUtilities.invokeLater(panel::refresh);
+        }
+    }
+
+    // -- The sidebar's account row ---------------------------------------------------------------
+
+    /** What the side panel says about the logged-in character, or null when there's nothing to say. */
+    public SidebarDataSource.AccountRow accountRow() {
+        String rsn = apiClient.getCurrentRsn();
+        if (rsn == null || !apiClient.isSignedIn()) {
+            return null;
+        }
+        if (apiClient.isAccountPaused()) {
+            return new SidebarDataSource.AccountRow(rsn, SidebarDataSource.AccountRow.State.PAUSED);
+        }
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg != null && "other".equals(cfg.accountStanding)) {
+            return new SidebarDataSource.AccountRow(rsn, SidebarDataSource.AccountRow.State.OTHER);
+        }
+        return new SidebarDataSource.AccountRow(rsn, SidebarDataSource.AccountRow.State.TRACKING);
+    }
+
+    /**
+     * Run one of the account row's buttons off the EDT and report a one-line outcome to {@code done}
+     * (called on the executor — the panel marshals it).
+     */
+    public void accountAction(SidebarDataSource.AccountRow.Action action, java.util.function.Consumer<String> done) {
+        if (accountActionRunning || executor == null || executor.isShutdown()) {
+            return;
+        }
+        accountActionRunning = true;
+        executor.submit(() -> {
+            try {
+                done.accept(runAccountAction(action));
+            } catch (RuntimeException e) {
+                log.warn("Anvil: account action {} failed", action, e);
+                done.accept("Something went wrong — try again.");
+            } finally {
+                accountActionRunning = false;
+                refreshSidebarLater();
+            }
+        });
+    }
+
+    private String runAccountAction(SidebarDataSource.AccountRow.Action action) {
+        String rsn = apiClient.getCurrentRsn();
+        long hash = client.getAccountHash();
+        if (rsn == null) {
+            return "Log in to the account first.";
+        }
+        switch (action) {
+            case NOT_MINE: {
+                // Local first: whatever the site says, this computer stops sending for it now.
+                optedOutAccounts = optedOutAccounts.with(hash, rsn);
+                configManager.setConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
+                BingoApiClient.AccountActionResult r = apiClient.postAccountAction("release");
+                apiClient.setAccountPaused(true);
+                dropConfigForPausedAccount();
+                if (r.ok) {
+                    sendChatMessage("Stopped tracking " + rsn + " on this computer, and unlinked it from your Anvil account.");
+                    return "Unlinked. Nothing is sent while you're on it.";
+                }
+                if ("live-event".equals(r.reason)) {
+                    sendChatMessage("Stopped tracking " + rsn + " on this computer. It's in a live event, so it stays "
+                            + "linked on the site until the event ends — ask your clan staff if it isn't yours.");
+                    return "Stopped here. Still linked on the site until the event ends.";
+                }
+                sendChatMessage("Stopped tracking " + rsn + " on this computer. Couldn't reach Anvil to unlink it — "
+                        + "remove it from your profile on the site.");
+                return "Stopped here. " + (r.error == null ? "" : r.error);
+            }
+            case TRACK_AGAIN: {
+                optedOutAccounts = optedOutAccounts.without(hash, rsn);
+                configManager.setConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
+                apiClient.setAccountPaused(false);
+                BingoApiClient.AccountActionResult r = apiClient.postAccountAction("resume");
+                // The normal login round-trip re-links it (the site's auto-link, now that it's no
+                // longer ignored) and loads its board.
+                stampIdentityAndGreet();
+                return r.ok ? "Tracking " + rsn + " again." : "Tracking again here. " + (r.error == null ? "" : r.error);
+            }
+            case DISPUTE: {
+                BingoApiClient.AccountActionResult r = apiClient.postAccountAction("dispute");
+                if (r.ok) {
+                    return r.alreadyOpen
+                            ? "Already with Anvil staff — they'll sort it out."
+                            : "Sent to Anvil staff. They'll check and move it to you if it's yours.";
+                }
+                return r.error == null ? "Couldn't send that — try again." : r.error;
+            }
+            default:
+                return "";
+        }
     }
 
     /**

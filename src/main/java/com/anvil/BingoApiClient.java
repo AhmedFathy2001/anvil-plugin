@@ -30,7 +30,8 @@ public class BingoApiClient
 	private static final MediaType PNG = MediaType.parse("image/png");
 
 	private final Gson gson;
-	private final OkHttpClient httpClient;
+	// Package-private so tests can drive a request through the pause gate (AccountOptOutTest).
+	final OkHttpClient httpClient;
 	// Clip relay uploads are multi-MB video. The normal client's 30s write timeout aborts those
 	// mid-upload on a slow connection, so file posts get their own generous timeouts (the pool and
 	// dispatcher are still shared via newBuilder, so an extra client is cheap).
@@ -52,6 +53,31 @@ public class BingoApiClient
 	private volatile String rsnHint;
 	/** True while the logged-in world is a seasonal (Leagues) world. Set from the plugin on login/hop. */
 	private volatile boolean seasonal;
+	// The logged-in character was marked "Not my account" on this install (AccountOptOut). While set,
+	// NOTHING carrying the Account Token leaves the client — isConfigured() says no, so every gated
+	// path stays quiet, and an interceptor refuses anything that slips past a gate. The one exception
+	// is the account action itself (tagged ACCOUNT_ACTION), which is how the choice reaches the site.
+	private volatile boolean accountPaused;
+
+	/** Request tag that lets an account action through while {@link #accountPaused} is set. */
+	private static final class AccountAction
+	{
+	}
+
+	private static final AccountAction ACCOUNT_ACTION = new AccountAction();
+
+	private okhttp3.Interceptor pauseGate()
+	{
+		return chain ->
+		{
+			Request r = chain.request();
+			if (accountPaused && r.header("Authorization") != null && r.tag(AccountAction.class) == null)
+			{
+				throw new IOException("Anvil is off for this account on this computer (Not my account).");
+			}
+			return chain.proceed(r);
+		};
+	}
 
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
@@ -60,11 +86,13 @@ public class BingoApiClient
 		// Read timeout is generous because some server reads do several round-trips to Turso
 		// and can take a while; tighter timeouts here will trip even on healthy servers.
 		this.httpClient = client.newBuilder()
+			.addInterceptor(pauseGate())
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
 			.build();
 		this.uploadClient = client.newBuilder()
+			.addInterceptor(pauseGate())
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.callTimeout(120, TimeUnit.SECONDS)
 			.writeTimeout(120, TimeUnit.SECONDS)
@@ -376,7 +404,78 @@ public class BingoApiClient
 	public boolean isConfigured()
 	{
 		return apiUrl != null && !apiUrl.isEmpty()
-			&& playerToken != null && !playerToken.isEmpty();
+			&& playerToken != null && !playerToken.isEmpty()
+			&& !accountPaused;
+	}
+
+	/** Signed in at all, whether or not the logged-in character is paused. For the panel's account row. */
+	public boolean isSignedIn()
+	{
+		return apiUrl != null && !apiUrl.isEmpty() && playerToken != null && !playerToken.isEmpty();
+	}
+
+	/** Stop (or resume) every Anvil request for the logged-in character. See {@link #accountPaused}. */
+	public void setAccountPaused(boolean paused)
+	{
+		this.accountPaused = paused;
+	}
+
+	public boolean isAccountPaused()
+	{
+		return accountPaused;
+	}
+
+	/** Result of POST /api/plugin/account. {@code standing}: yours | other | ignored | unclaimed. */
+	public static class AccountActionResult
+	{
+		public boolean ok;
+		public String standing;
+		public String error;
+		public String reason;
+		public boolean alreadyOpen;
+	}
+
+	/**
+	 * The side panel's account row: {@code release} ("Not my account"), {@code resume} (undo) or
+	 * {@code dispute} ("It's mine" on a character linked to somebody else). Runs on the caller's
+	 * thread — call it off the EDT. Allowed through while paused: it is how the choice gets there.
+	 * Never throws; a network failure comes back as {@code ok=false} with the reason.
+	 */
+	public AccountActionResult postAccountAction(String action)
+	{
+		AccountActionResult out = new AccountActionResult();
+		if (!isSignedIn() || currentRsn == null)
+		{
+			out.error = "Sign in and log in to the account first.";
+			return out;
+		}
+		JsonObject payload = new JsonObject();
+		payload.addProperty("action", action);
+		Request request = authedRequest(clanUrl("/api/plugin/account"))
+			.tag(AccountAction.class, ACCOUNT_ACTION)
+			.post(RequestBody.create(JSON, gson.toJson(payload)))
+			.build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			ResponseBody body = response.body();
+			String text = body == null ? "" : body.string();
+			AccountActionResult parsed = text.isEmpty() ? null : gson.fromJson(text, AccountActionResult.class);
+			if (parsed != null)
+			{
+				out = parsed;
+			}
+			out.ok = response.isSuccessful();
+			if (!out.ok && out.error == null)
+			{
+				out.error = "The site said " + response.code() + ".";
+			}
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			out.ok = false;
+			out.error = "Couldn't reach Anvil: " + e.getMessage();
+		}
+		return out;
 	}
 
 	/**

@@ -124,6 +124,16 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	private boolean signInInFlight;
 
+	// The logged-in character's row (SidebarDataSource.AccountRow): "Tracking X · Not my account",
+	// "Not tracking X on this computer · Track it again", or "X is linked to another Anvil account ·
+	// It's mine". The way out for a sibling or a visitor on a RuneLite someone else signed in.
+	private final JLabel accountLabel = new JLabel();
+	private final JButton accountButton = new JButton();
+	private final JLabel accountStatus = new JLabel();
+	private final JPanel accountRowPanel = new JPanel(new BorderLayout(0, 4));
+	private SidebarDataSource.AccountRow shownAccountRow;
+	private boolean accountActionInFlight;
+
 	private final JPanel content = new JPanel();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
@@ -237,12 +247,30 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInRow.setAlignmentX(LEFT_ALIGNMENT);
 		signInRow.setVisible(false);
 
+		accountLabel.setFont(FontManager.getRunescapeSmallFont());
+		accountLabel.setForeground(VALUE_COLOR);
+		styleFlatButton(accountButton, Color.WHITE);
+		accountButton.addActionListener(e -> onAccountButton());
+		accountStatus.setFont(FontManager.getRunescapeSmallFont());
+		accountStatus.setForeground(VALUE_COLOR);
+		accountStatus.setVisible(false);
+		JPanel accountButtonRow = new JPanel(new BorderLayout());
+		accountButtonRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		accountButtonRow.add(accountButton, BorderLayout.WEST);
+		accountRowPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		accountRowPanel.add(accountLabel, BorderLayout.NORTH);
+		accountRowPanel.add(accountButtonRow, BorderLayout.CENTER);
+		accountRowPanel.add(accountStatus, BorderLayout.SOUTH);
+		accountRowPanel.setAlignmentX(LEFT_ALIGNMENT);
+		accountRowPanel.setVisible(false);
+
 		JPanel top = new JPanel();
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
 		top.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(signInRow);
+		top.add(accountRowPanel);
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
@@ -386,6 +414,112 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInRow.repaint();
 	}
 
+	// ---- The logged-in character's account row -----------------------------------------------------
+
+	private void refreshAccountRow()
+	{
+		SidebarDataSource.AccountRow row = dataSource.accountRow();
+		boolean changed = shownAccountRow == null || row == null
+			|| shownAccountRow.state != row.state || !shownAccountRow.rsn.equals(row.rsn);
+		shownAccountRow = row;
+		accountRowPanel.setVisible(row != null);
+		if (row == null)
+		{
+			setAccountStatus("");
+			accountRowPanel.revalidate();
+			return;
+		}
+		if (changed && !accountActionInFlight)
+		{
+			setAccountStatus("");
+		}
+		String name = escapeHtml(row.rsn);
+		switch (row.state)
+		{
+			case PAUSED:
+				setAccountLabel("Not tracking <b>" + name + "</b> on this computer.");
+				accountButton.setText("Track it again");
+				break;
+			case OTHER:
+				setAccountLabel("<b>" + name + "</b> is linked to another Anvil account, so nothing is tracked.");
+				accountButton.setText("It's mine");
+				break;
+			default:
+				setAccountLabel("Tracking <b>" + name + "</b> for your Anvil account.");
+				accountButton.setText("Not my account");
+				break;
+		}
+		accountButton.setEnabled(!accountActionInFlight);
+		accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
+		accountRowPanel.revalidate();
+		accountRowPanel.repaint();
+	}
+
+	private void onAccountButton()
+	{
+		SidebarDataSource.AccountRow row = shownAccountRow;
+		if (row == null || accountActionInFlight)
+		{
+			return;
+		}
+		SidebarDataSource.AccountRow.Action action;
+		String question;
+		switch (row.state)
+		{
+			case PAUSED:
+				action = SidebarDataSource.AccountRow.Action.TRACK_AGAIN;
+				question = null; // undoing is harmless — no confirm
+				break;
+			case OTHER:
+				action = SidebarDataSource.AccountRow.Action.DISPUTE;
+				question = "Ask Anvil staff to move " + row.rsn + " to your Anvil account?\n\n"
+					+ "It's linked to someone else right now. Staff will check and move it if it's yours.";
+				break;
+			default:
+				action = SidebarDataSource.AccountRow.Action.NOT_MINE;
+				question = "Stop tracking " + row.rsn + " on this computer?\n\n"
+					+ "Use this if someone else plays it here — a sibling, a friend. It's unlinked from your "
+					+ "Anvil account and nothing is sent while it's logged in. Your other accounts aren't affected, "
+					+ "and you can undo it from this panel.";
+				break;
+		}
+		if (question != null && JOptionPane.showConfirmDialog(this, question, "Anvil",
+			JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE) != JOptionPane.OK_OPTION)
+		{
+			return;
+		}
+		accountActionInFlight = true;
+		accountButton.setEnabled(false);
+		setAccountStatus("Working…");
+		dataSource.accountAction(action, outcome -> SwingUtilities.invokeLater(() ->
+		{
+			accountActionInFlight = false;
+			refreshAccountRow();
+			setAccountStatus(outcome);
+			refresh();
+		}));
+	}
+
+	private void setAccountLabel(String html)
+	{
+		accountLabel.setText("<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + html + "</body></html>");
+	}
+
+	private void setAccountStatus(String text)
+	{
+		String plain = text == null ? "" : text;
+		boolean show = !plain.isEmpty();
+		accountStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + escapeHtml(plain) + "</body></html>" : "");
+		accountStatus.setVisible(show);
+		accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
+		accountRowPanel.revalidate();
+	}
+
+	private static String escapeHtml(String s)
+	{
+		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+	}
+
 	// ---- Refresh flow -----------------------------------------------------------------------------
 
 	/**
@@ -426,6 +560,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		fetchInFlight = true;
 		refreshButton.setEnabled(false);
+		refreshAccountRow();
 		if (connections.isEmpty())
 		{
 			// Nothing on screen yet — show loading. A background poll keeps the current list visible (no flicker).
@@ -457,6 +592,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					renderError(cause.getMessage());
 				}
 				refreshSignInRow();
+				refreshAccountRow();
 			}
 		}.execute();
 	}
