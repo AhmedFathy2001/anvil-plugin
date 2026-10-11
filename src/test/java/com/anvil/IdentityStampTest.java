@@ -16,4 +16,13 @@ public class IdentityStampTest
 		assertFalse(AnvilPlugin.identityReady("Hells Taco", -1L));
 		assertTrue(AnvilPlugin.identityReady("Hells Taco", 42L));
 	}
+
+	@Test
+	public void spotsAnInGameRenameButNotAMissingName()
+	{
+		assertTrue(AnvilPlugin.renamedMidSession("1BM", "LEARNING TOB"));
+		assertFalse(AnvilPlugin.renamedMidSession("Hells Taco", "hells_taco"));
+		assertFalse(AnvilPlugin.renamedMidSession(null, "Hells Taco"));
+		assertFalse(AnvilPlugin.renamedMidSession("Hells Taco", null));
+	}
 }

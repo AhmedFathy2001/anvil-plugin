@@ -1037,6 +1037,12 @@ public class AnvilPlugin extends Plugin {
     // completes), which is cheap enough at one pass a minute to be worth not having to be sure.
     private static final int ACTIVITY_POLL_TICKS = 100;
     private int activityPollCountdown = ACTIVITY_POLL_TICKS;
+    // OSRS lets a player change their name in game, without logging out, so the RSN stamped at login
+    // can go stale mid-session. Every request would then keep reporting the OLD name (with the right
+    // hash), the site would never see the rename, and the next roster sync would split the character
+    // into the dead name and a stranger holding the new one. Re-read it every few ticks.
+    private static final int NAME_CHECK_TICKS = 10;
+    private int nameCheckCountdown = NAME_CHECK_TICKS;
     // Stat tiles (skill XP / boss KC) the LOCAL player has recently made progress on: tileId → last
     // gain millis. A stat tile's team total can rise from ANY teammate (the server aggregates the
     // hiscores overlay), so the config alone can't say who's grinding it. This records what THIS
@@ -2258,6 +2264,10 @@ public class AnvilPlugin extends Plugin {
             activityPollCountdown = ACTIVITY_POLL_TICKS;
             maybeQueueActivityPush();
         }
+        if (--nameCheckCountdown <= 0) {
+            nameCheckCountdown = NAME_CHECK_TICKS;
+            restampIfRenamed();
+        }
         // Deathless raids: reset the party-death counter + roster on every instance entry
         // (CoX/ToB/ToA runs are instanced; each attempt is a fresh entry). While inside,
         // collect the distinct players seen — that's the party size for tiles that pin one.
@@ -2547,6 +2557,28 @@ public class AnvilPlugin extends Plugin {
      * account hash is the continuity anchor that lets the site merge it without a manual step. */
     static boolean identityReady(String rsn, long accountHash) {
         return rsn != null && !rsn.isEmpty() && accountHash != -1L;
+    }
+
+    /** The stamped name is set and the live one differs from it — an in-game rename mid-session. */
+    static boolean renamedMidSession(String stamped, String live) {
+        return !Rsn.normalize(stamped).isEmpty() && !Rsn.normalize(live).isEmpty() && !Rsn.same(stamped, live);
+    }
+
+    /**
+     * Re-stamp identity when the logged-in name no longer matches what requests carry. Re-running
+     * the login round-trips (config, hello) is what lets the site's hash-matched rename path see the
+     * new name. The stamp is updated here first, on the client thread, so the next check doesn't fire
+     * a second re-greet while this one is still in flight.
+     */
+    private void restampIfRenamed() {
+        String live = getLocalPlayerName();
+        if (!renamedMidSession(apiClient.getCurrentRsn(), live)
+                || executor == null || executor.isShutdown()) {
+            return;
+        }
+        log.info("Anvil: in-game name changed to {} — re-stamping identity", live);
+        apiClient.setCurrentRsn(live);
+        executor.submit(this::stampIdentityAndGreet);
     }
 
     private void stampIdentityAndGreet() {
