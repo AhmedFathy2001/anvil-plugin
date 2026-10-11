@@ -189,6 +189,10 @@ says which one. The plugin works it out from what you just killed or trained, cr
 flags it so event staff take a look. When it can't be sure, the screenshot is saved for you to attach
 on the site instead of scrambling for a shot after the fact.
 
+A few things can't be tracked perfectly, almost always because of what the game reports — multi-target
+kills, repeat combat achievements, storage like fish barrels. They're listed, with what to do instead,
+under **[Known limitations](https://anvilosrs.com/guide/plugin#limits)** in the player guide.
+
 Still stuck? Type `::anvillog` in game chat. It writes a log inside Anvil's own plugin folder and
 copies the path to your clipboard — send that to your clan admin.
 
