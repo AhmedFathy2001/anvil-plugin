@@ -1022,6 +1022,21 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * events list until the member picks one. A drilled-into event that stopped running (a weekly ended
 	 * mid-session) falls back to the list rather than a blank card.
 	 */
+	/**
+	 * Redraw from what's already held — the account strip and the clan's actions — with no fetch. For
+	 * answers that change locally (name stamped, clan channel loaded, admin confirmed, log opened),
+	 * which used to wait for the next 15s poll. Call on the EDT.
+	 */
+	public void redrawLocal()
+	{
+		refreshSignInRow();
+		refreshAccountRow();
+		if (!connections.isEmpty() && !boardSearchFocused)
+		{
+			renderSelected();
+		}
+	}
+
 	private void renderSelected()
 	{
 		ConnectionView selected = addressedClan();

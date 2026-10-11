@@ -2735,6 +2735,8 @@ public class AnvilPlugin extends Plugin {
             refreshSidebarLater();
             return;
         }
+        // The name is known now; say so before the config round trip rather than after it.
+        redrawSidebarLocal();
         loadProfileSyncState(rsn);
         // Refresh config for the character we just logged into so tracking reflects THIS
         // account's enrollment right away — when one person plays several accounts, only
@@ -5964,7 +5966,11 @@ public class AnvilPlugin extends Plugin {
         }
         adminProbeAttempted = true;
         lastAdminProbeAt = System.currentTimeMillis();
+        boolean wasAdmin = isAdmin;
         isAdmin = apiClient.fetchIsAdmin(token);
+        if (wasAdmin != isAdmin) {
+            redrawSidebarLocal();
+        }
         // Repaint the side panel so the admin button appears/disappears.
     }
 
@@ -5994,15 +6000,17 @@ public class AnvilPlugin extends Plugin {
      * before we withdraw the button — while it comes back the instant the channel does.
      */
     private void updateClanRosterReadable() {
+        boolean before = clanRosterReadable;
         if (isClanScrapeAvailable()) {
             clanRosterReadable = true;
             clanRosterMissingTicks = 0;
-            return;
+        } else if (!clanRosterReadable || ++clanRosterMissingTicks >= CLAN_ROSTER_GRACE_TICKS) {
+            clanRosterReadable = false;
         }
-        if (clanRosterReadable && ++clanRosterMissingTicks < CLAN_ROSTER_GRACE_TICKS) {
-            return; // a blink, not a departure
+        // The roster button follows this; the clan channel usually loads a few seconds after login.
+        if (before != clanRosterReadable) {
+            redrawSidebarLocal();
         }
-        clanRosterReadable = false;
     }
 
     public boolean isClanScrapeAvailable() {
@@ -6439,6 +6447,14 @@ public class AnvilPlugin extends Plugin {
         } else {
             // No executor means startUp hasn't run, so there is no panel waiting on a fetch either.
             repaintSidebar();
+        }
+    }
+
+    /** Redraw the sidebar from what it holds, no fetch (AnvilSidebarPanel.redrawLocal). Any thread. */
+    private void redrawSidebarLocal() {
+        AnvilSidebarPanel panel = sidebarPanel;
+        if (panel != null) {
+            SwingUtilities.invokeLater(panel::redrawLocal);
         }
     }
 
@@ -10794,7 +10810,7 @@ public class AnvilPlugin extends Plugin {
         boolean open = client.getWidget(InterfaceID.Collection.FRAME) != null;
         if (open != clogOpen) {
             clogOpen = open;
-            repaintSidebar();
+            redrawSidebarLocal();
         }
     }
 
