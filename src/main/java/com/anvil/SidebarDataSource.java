@@ -197,6 +197,11 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/** Hide the TRACKING row for the logged-in character (its ×). */
+	default void dismissAccountRow()
+	{
+	}
+
 	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
 	default void accountAction(AccountRow.Action action, java.util.function.Consumer<String> done)
 	{

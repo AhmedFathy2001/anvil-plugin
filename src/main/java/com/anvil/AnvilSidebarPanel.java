@@ -124,13 +124,15 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	private boolean signInInFlight;
 
-	// The logged-in character's row (SidebarDataSource.AccountRow): "Tracking X · Not my account",
-	// "Not tracking X on this computer · Track it again", or "X is linked to another Anvil account ·
-	// It's mine". The way out for a sibling or a visitor on a RuneLite someone else signed in.
+	// The logged-in character's row (SidebarDataSource.AccountRow) — one quiet line, because almost
+	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
+	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
+	// tracking line for that character for good.
 	private final JLabel accountLabel = new JLabel();
-	private final JButton accountButton = new JButton();
+	private final JLabel accountLink = new JLabel();
+	private final JLabel accountDismiss = new JLabel("\u00D7");
 	private final JLabel accountStatus = new JLabel();
-	private final JPanel accountRowPanel = new JPanel(new BorderLayout(0, 4));
+	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	private SidebarDataSource.AccountRow shownAccountRow;
 	private boolean accountActionInFlight;
 
@@ -249,17 +251,53 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		accountLabel.setFont(FontManager.getRunescapeSmallFont());
 		accountLabel.setForeground(VALUE_COLOR);
-		styleFlatButton(accountButton, Color.WHITE);
-		accountButton.addActionListener(e -> onAccountButton());
+		accountLink.setFont(FontManager.getRunescapeSmallFont());
+		accountLink.setForeground(ColorScheme.BRAND_ORANGE);
+		accountLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		accountLink.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				onAccountButton();
+			}
+		});
+		accountDismiss.setFont(FontManager.getRunescapeSmallFont());
+		accountDismiss.setForeground(VALUE_COLOR);
+		accountDismiss.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		accountDismiss.setToolTipText("It's mine — hide this for this account");
+		accountDismiss.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				accountRowPanel.setVisible(false);
+				dataSource.dismissAccountRow();
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				accountDismiss.setForeground(Color.WHITE);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				accountDismiss.setForeground(VALUE_COLOR);
+			}
+		});
 		accountStatus.setFont(FontManager.getRunescapeSmallFont());
 		accountStatus.setForeground(VALUE_COLOR);
 		accountStatus.setVisible(false);
-		JPanel accountButtonRow = new JPanel(new BorderLayout());
-		accountButtonRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		accountButtonRow.add(accountButton, BorderLayout.WEST);
+		JPanel accountActions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+		accountActions.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		accountActions.add(accountLink);
+		accountActions.add(accountDismiss);
 		accountRowPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		accountRowPanel.add(accountLabel, BorderLayout.NORTH);
-		accountRowPanel.add(accountButtonRow, BorderLayout.CENTER);
+		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+		accountRowPanel.add(accountLabel, BorderLayout.CENTER);
+		accountRowPanel.add(accountActions, BorderLayout.EAST);
 		accountRowPanel.add(accountStatus, BorderLayout.SOUTH);
 		accountRowPanel.setAlignmentX(LEFT_ALIGNMENT);
 		accountRowPanel.setVisible(false);
@@ -437,19 +475,22 @@ public class AnvilSidebarPanel extends PluginPanel
 		switch (row.state)
 		{
 			case PAUSED:
-				setAccountLabel("Not tracking <b>" + name + "</b> on this computer.");
-				accountButton.setText("Track it again");
+				setAccountLabel("Not tracking <b>" + name + "</b> on this computer", row.rsn + " is marked Not my account here — nothing is sent for it.", true);
+				accountLink.setText("Track again");
+				accountDismiss.setVisible(false);
 				break;
 			case OTHER:
-				setAccountLabel("<b>" + name + "</b> is linked to another Anvil account, so nothing is tracked.");
-				accountButton.setText("It's mine");
+				setAccountLabel("<b>" + name + "</b> is linked to another Anvil account", row.rsn + " is linked to another Anvil account, so nothing is tracked for you.", true);
+				accountLink.setText("It's mine?");
+				accountDismiss.setVisible(false);
 				break;
 			default:
-				setAccountLabel("Tracking <b>" + name + "</b> for your Anvil account.");
-				accountButton.setText("Not my account");
+				setAccountLabel("Tracking <b>" + name + "</b>", "Tracking " + row.rsn + " for your Anvil account.", false);
+				accountLink.setText("Not you?");
+				accountDismiss.setVisible(true);
 				break;
 		}
-		accountButton.setEnabled(!accountActionInFlight);
+		accountLink.setEnabled(!accountActionInFlight);
 		accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
 		accountRowPanel.revalidate();
 		accountRowPanel.repaint();
@@ -489,7 +530,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 		accountActionInFlight = true;
-		accountButton.setEnabled(false);
+		accountLink.setEnabled(false);
 		setAccountStatus("Working…");
 		dataSource.accountAction(action, outcome -> SwingUtilities.invokeLater(() ->
 		{
@@ -500,9 +541,19 @@ public class AnvilSidebarPanel extends PluginPanel
 		}));
 	}
 
-	private void setAccountLabel(String html)
+	/** Room the label leaves for the link (and ×) to its right. */
+	private static final int ACCOUNT_LINK_ROOM_PX = 72;
+
+	/**
+	 * The everyday "Tracking X" stays one quiet line (a long name is clipped; the tooltip has it all).
+	 * The rare states that ask for a decision wrap instead, so they're read in full.
+	 */
+	private void setAccountLabel(String html, String tooltip, boolean wrap)
 	{
-		accountLabel.setText("<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + html + "</body></html>");
+		accountLabel.setText(wrap
+			? "<html><body style='width:" + (STATUS_WRAP_PX - ACCOUNT_LINK_ROOM_PX) + "pt'>" + html + "</body></html>"
+			: "<html><nobr>" + html + "</nobr></html>");
+		accountLabel.setToolTipText(tooltip);
 	}
 
 	private void setAccountStatus(String text)

@@ -156,6 +156,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public void dismissAccountRow()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.dismissAccountRow();
+		}
+	}
+
+	@Override
 	public void accountAction(AccountRow.Action action, java.util.function.Consumer<String> done)
 	{
 		AnvilPlugin p = plugin;

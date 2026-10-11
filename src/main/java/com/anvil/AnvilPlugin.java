@@ -925,11 +925,15 @@ public class AnvilPlugin extends Plugin {
     static final String CFG_OPTED_OUT_ACCOUNTS = "optedOutAccounts";
     /** Characters this install has already said "tracking X for your Anvil account" about, once. */
     static final String CFG_ANNOUNCED_ACCOUNTS = "announcedAccounts";
+    /** Characters whose "Tracking X · Not you?" row was dismissed with ×. Only that row — never the
+     * paused / someone-else's rows, which need a decision. */
+    static final String CFG_ACCOUNT_ROW_DISMISSED = "accountRowDismissed";
 
     // The Account Token names whoever set this RuneLite up, not whoever is playing. Every character
     // links by default; these two are the way out for a sibling or a visitor (see AccountOptOut).
     private volatile AccountOptOut optedOutAccounts = AccountOptOut.EMPTY;
     private volatile AccountOptOut announcedAccounts = AccountOptOut.EMPTY;
+    private volatile AccountOptOut accountRowDismissed = AccountOptOut.EMPTY;
     /** One account action at a time from the panel; a double click is one request. */
     private volatile boolean accountActionRunning;
 
@@ -1315,6 +1319,7 @@ public class AnvilPlugin extends Plugin {
         configureApiClient();
         optedOutAccounts = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS));
         announcedAccounts = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_ANNOUNCED_ACCOUNTS));
+        accountRowDismissed = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_ACCOUNT_ROW_DISMISSED));
         // Off the Jagex Launcher, the character about to log in is known before Play: requests made at
         // the login screen carry it as a read-only hint, so the panel loads that character's board
         // instead of nothing. Fixed for the life of the client — the launcher starts one character.
@@ -2804,7 +2809,26 @@ public class AnvilPlugin extends Plugin {
         if (cfg != null && "other".equals(cfg.accountStanding)) {
             return new SidebarDataSource.AccountRow(rsn, SidebarDataSource.AccountRow.State.OTHER);
         }
+        if (accountRowDismissed.contains(client.getAccountHash(), rsn)) {
+            return null;
+        }
         return new SidebarDataSource.AccountRow(rsn, SidebarDataSource.AccountRow.State.TRACKING);
+    }
+
+    /**
+     * The row's ×: "yes, it's mine — stop showing this" for the logged-in character only. Not my
+     * account stays one step away on the site (Remove on the profile) for the rare day it changes.
+     */
+    public void dismissAccountRow() {
+        String rsn = apiClient.getCurrentRsn();
+        if (rsn == null || executor == null || executor.isShutdown()) {
+            return;
+        }
+        executor.submit(() -> {
+            accountRowDismissed = accountRowDismissed.with(client.getAccountHash(), rsn);
+            configManager.setConfiguration("osrsbingo", CFG_ACCOUNT_ROW_DISMISSED, accountRowDismissed.serialize());
+            refreshSidebarLater();
+        });
     }
 
     /**
