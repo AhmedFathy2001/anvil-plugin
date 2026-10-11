@@ -136,7 +136,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			// neither rather than offering something that would fail.
 			return new PanelActions(false, false, null);
 		}
-		boolean profile = p.supportsProfileSync();
+		boolean profile = p.canSyncProfileFromPanel();
 		if (!p.isAdmin())
 		{
 			return new PanelActions(false, profile, null);

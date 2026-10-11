@@ -2272,6 +2272,7 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         maybeStampIdentityOnTick();
+        trackClogOpen();
         // KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
         //
         // They were drawn on two scripts and never reconsidered, so anything that changed while the
@@ -2526,6 +2527,7 @@ public class AnvilPlugin extends Plugin {
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             helloSent = false;
             identityStampPending = false;
+            clogOpen = false;
             // Nothing is happening here, which is the entire reason the ask lives at this transition
             // rather than on the clip that needs it.
             maybeAskForClipFolder();
@@ -10476,6 +10478,24 @@ public class AnvilPlugin extends Plugin {
     /** Does this clan's site take profile data? Drives the in-tab "Sync profile" row. */
     public boolean supportsProfileSync() {
         return config.syncClog() && apiClient.isConfigured() && serverSupportsProfileSync();
+    }
+
+    // Whether the collection log is on screen, as last seen on a tick. The panel's "Sync profile" can
+    // only work then (requestFullClogTransmit reads the log's own widgets); offered anywhere else it
+    // was a button whose only answer was "open your collection log".
+    private volatile boolean clogOpen;
+
+    /** "Sync profile" in the side panel: supported, and the log is open to read from. */
+    public boolean canSyncProfileFromPanel() {
+        return clogOpen && supportsProfileSync();
+    }
+
+    private void trackClogOpen() {
+        boolean open = client.getWidget(InterfaceID.Collection.FRAME) != null;
+        if (open != clogOpen) {
+            clogOpen = open;
+            repaintSidebar();
+        }
     }
 
     private boolean serverSupportsProfileSync() {
