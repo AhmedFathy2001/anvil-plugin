@@ -125,8 +125,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
 	private final JLabel pasteTokenLink = new JLabel("Paste a token instead");
-	private final JLabel signOutLink = new JLabel("Sign out");
-	private final JPanel signOutRow = new JPanel(new BorderLayout());
+	/** Opens the account menu: Not my account / Sign out. */
+	private final JLabel accountMenuLink = new JLabel("Account \u25BE");
+	/** A refresh asked for while one was running — run it when that one lands, don't drop it. */
+	private boolean refreshQueued;
 	private boolean signInInFlight;
 
 	// The logged-in character's row (SidebarDataSource.AccountRow) — one quiet line, because almost
@@ -135,7 +137,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	// tracking line for that character for good.
 	private final JLabel accountLabel = new JLabel();
 	private final JLabel accountLink = new JLabel();
-	private final JLabel accountDismiss = new JLabel("\u00D7");
 	private final JLabel accountStatus = new JLabel();
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	private SidebarDataSource.AccountRow shownAccountRow;
@@ -252,12 +253,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInRow.add(signInStatus, BorderLayout.CENTER);
 		styleLink(pasteTokenLink, "Paste the token from anvilosrs.com (Profile → RuneLite plugin)", this::pasteToken);
 		signInRow.add(pasteTokenLink, BorderLayout.SOUTH);
-		styleLink(signOutLink, "Remove this computer's Anvil sign-in", this::signOut);
-		signOutRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		signOutRow.add(signOutLink, BorderLayout.EAST);
-		signOutRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signOutRow.getPreferredSize().height));
-		signOutRow.setAlignmentX(LEFT_ALIGNMENT);
-		signOutRow.setVisible(false);
 		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
 		signInRow.setAlignmentX(LEFT_ALIGNMENT);
 		signInRow.setVisible(false);
@@ -275,40 +270,18 @@ public class AnvilSidebarPanel extends PluginPanel
 				onAccountButton();
 			}
 		});
-		accountDismiss.setFont(FontManager.getRunescapeSmallFont());
-		accountDismiss.setForeground(VALUE_COLOR);
-		accountDismiss.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		accountDismiss.setToolTipText("It's mine — hide this for this account");
-		accountDismiss.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				accountRowPanel.setVisible(false);
-				dataSource.dismissAccountRow();
-			}
-
-			@Override
-			public void mouseEntered(MouseEvent e)
-			{
-				accountDismiss.setForeground(Color.WHITE);
-			}
-
-			@Override
-			public void mouseExited(MouseEvent e)
-			{
-				accountDismiss.setForeground(VALUE_COLOR);
-			}
-		});
 		accountStatus.setFont(FontManager.getRunescapeSmallFont());
 		accountStatus.setForeground(VALUE_COLOR);
 		accountStatus.setVisible(false);
-		JPanel accountActions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
-		accountActions.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		styleLink(accountMenuLink, "Your Anvil sign-in on this computer", () -> showAccountMenu(accountMenuLink));
+		// One strip for who you are here: the character being tracked on the left, and everything
+		// about the sign-in itself behind the Account menu on the right.
+		JPanel accountActions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0));
+		accountActions.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		accountActions.add(accountLink);
-		accountActions.add(accountDismiss);
-		accountRowPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+		accountActions.add(accountMenuLink);
+		accountRowPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
 		accountRowPanel.add(accountLabel, BorderLayout.CENTER);
 		accountRowPanel.add(accountActions, BorderLayout.EAST);
 		accountRowPanel.add(accountStatus, BorderLayout.SOUTH);
@@ -321,8 +294,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(signInRow);
-		top.add(signOutRow);
 		top.add(accountRowPanel);
+		top.add(Box.createVerticalStrut(4));
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
@@ -387,7 +360,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			boolean show = apiClient.needsSignIn();
 			signInRow.setVisible(show);
-			signOutRow.setVisible(!show);
 			if (show)
 			{
 				setSignInStatus("Connects to " + SetupNudge.SITE_HOST + ".");
@@ -489,6 +461,24 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh();
 	}
 
+	private void showAccountMenu(java.awt.Component anchor)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		SidebarDataSource.AccountRow row = shownAccountRow;
+		if (row != null && row.state == SidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight)
+		{
+			JMenuItem notMine = new JMenuItem("Not my account…");
+			notMine.setToolTipText("Someone else plays " + row.rsn + " here — stop tracking it on this computer");
+			notMine.addActionListener(e -> onAccountButton());
+			menu.add(notMine);
+			menu.addSeparator();
+		}
+		JMenuItem signOut = new JMenuItem("Sign out…");
+		signOut.addActionListener(e -> signOut());
+		menu.add(signOut);
+		menu.show(anchor, 0, anchor.getHeight());
+	}
+
 	private void signOut()
 	{
 		int choice = JOptionPane.showConfirmDialog(this,
@@ -525,11 +515,16 @@ public class AnvilSidebarPanel extends PluginPanel
 		boolean changed = shownAccountRow == null || row == null
 			|| shownAccountRow.state != row.state || !shownAccountRow.rsn.equals(row.rsn);
 		shownAccountRow = row;
-		accountRowPanel.setVisible(row != null);
+		// Shown whenever this computer is signed in — it is also where Sign out lives.
+		accountRowPanel.setVisible(!apiClient.needsSignIn());
 		if (row == null)
 		{
+			setAccountLabel("Signed in · log in to track a character", "Signed in to Anvil on this computer.", false);
+			accountLink.setVisible(false);
 			setAccountStatus("");
+			accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
 			accountRowPanel.revalidate();
+			accountRowPanel.repaint();
 			return;
 		}
 		if (changed && !accountActionInFlight)
@@ -542,17 +537,17 @@ public class AnvilSidebarPanel extends PluginPanel
 			case PAUSED:
 				setAccountLabel("Not tracking <b>" + name + "</b> on this computer", row.rsn + " is marked Not my account here — nothing is sent for it.", true);
 				accountLink.setText("Track again");
-				accountDismiss.setVisible(false);
+				accountLink.setVisible(true);
 				break;
 			case OTHER:
 				setAccountLabel("<b>" + name + "</b> is linked to another Anvil account", row.rsn + " is linked to another Anvil account, so nothing is tracked for you.", true);
 				accountLink.setText("It's mine?");
-				accountDismiss.setVisible(false);
+				accountLink.setVisible(true);
 				break;
 			default:
-				setAccountLabel("Tracking <b>" + name + "</b>", "Tracking " + row.rsn + " for your Anvil account.", false);
-				accountLink.setText("Not you?");
-				accountDismiss.setVisible(true);
+				setAccountLabel("Tracking <font color='#ffffff'><b>" + name + "</b></font>", "Tracking " + row.rsn + " for your Anvil account.", false);
+				// Everyday state: nothing to decide, so the action lives in the Account menu.
+				accountLink.setVisible(false);
 				break;
 		}
 		accountLink.setEnabled(!accountActionInFlight);
@@ -672,6 +667,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		if (fetchInFlight)
 		{
+			// The login burst asks twice in a row (config, then hello + admin). Dropping the second
+			// left the admin button and account strip missing until a manual Refresh.
+			refreshQueued = true;
 			return;
 		}
 		fetchInFlight = true;
@@ -709,6 +707,11 @@ public class AnvilSidebarPanel extends PluginPanel
 				}
 				refreshSignInRow();
 				refreshAccountRow();
+				if (refreshQueued)
+				{
+					refreshQueued = false;
+					refresh();
+				}
 			}
 		}.execute();
 	}

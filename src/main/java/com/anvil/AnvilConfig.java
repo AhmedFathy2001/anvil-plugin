@@ -14,13 +14,6 @@ public interface AnvilConfig extends Config
 	// clan-wide Discord posts that fire with or without an active bingo.
 
 	@ConfigSection(
-		name = "Setup",
-		description = "Connect the plugin to your bingo site.",
-		position = 1
-	)
-	String setupSection = "setupSection";
-
-	@ConfigSection(
 		name = "Bingo",
 		description = "In-event behaviour — only matters while you're in a bingo.",
 		position = 2
@@ -86,8 +79,7 @@ public interface AnvilConfig extends Config
 		// Not shown in settings. RuneLite only draws a plugin's settings page when it's opened, so a page
 		// left open across a sign-in kept showing an empty box — and its focus-out save could write that
 		// empty value back and sign the member out. The side panel owns signing in and out instead.
-		hidden = true,
-		section = "setupSection"
+		hidden = true
 	)
 	default String playerToken()
 	{
