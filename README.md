@@ -194,7 +194,9 @@ kills, repeat combat achievements, storage like fish barrels. They're listed, wi
 under **[Known limitations](https://anvilosrs.com/guide/plugin#limits)** in the player guide.
 
 Still stuck? Type `::anvillog` in game chat. It writes a log inside Anvil's own plugin folder and
-copies the path to your clipboard — send that to your clan admin.
+copies the path to your clipboard — send that to your clan admin, or bring it to the
+**[Anvil support Discord](https://discord.gg/p9NkrTQmxN)**, where you can ask anything about the plugin
+or the site.
 
 ## Guides
 
@@ -210,6 +212,8 @@ Written against the live site, with screenshots:
 - **[Fees and payouts](https://anvilosrs.com/guide/fees)** — entry fees through to paid placements
 
 All of them are available in 16 languages — pick one from the top of any guide page.
+
+Questions, bugs or ideas: **[join the Anvil support Discord](https://discord.gg/p9NkrTQmxN)**.
 
 ## How Anvil connects
 
