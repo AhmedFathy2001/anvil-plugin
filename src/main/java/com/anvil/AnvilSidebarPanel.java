@@ -122,6 +122,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JButton signInButton = new JButton("Sign in with Discord");
 	private final JLabel signInStatus = new JLabel();
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
+	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
+	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
+	private final JLabel pasteTokenLink = new JLabel("Paste a token instead");
+	private final JLabel signOutLink = new JLabel("Sign out");
+	private final JPanel signOutRow = new JPanel(new BorderLayout());
 	private boolean signInInFlight;
 
 	// The logged-in character's row (SidebarDataSource.AccountRow) — one quiet line, because almost
@@ -244,7 +249,15 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInStatus.setVisible(false);
 		signInRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		signInRow.add(signInButton, BorderLayout.NORTH);
-		signInRow.add(signInStatus, BorderLayout.SOUTH);
+		signInRow.add(signInStatus, BorderLayout.CENTER);
+		styleLink(pasteTokenLink, "Paste the token from anvilosrs.com (Profile → RuneLite plugin)", this::pasteToken);
+		signInRow.add(pasteTokenLink, BorderLayout.SOUTH);
+		styleLink(signOutLink, "Remove this computer's Anvil sign-in", this::signOut);
+		signOutRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		signOutRow.add(signOutLink, BorderLayout.EAST);
+		signOutRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signOutRow.getPreferredSize().height));
+		signOutRow.setAlignmentX(LEFT_ALIGNMENT);
+		signOutRow.setVisible(false);
 		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
 		signInRow.setAlignmentX(LEFT_ALIGNMENT);
 		signInRow.setVisible(false);
@@ -308,6 +321,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(signInRow);
+		top.add(signOutRow);
 		top.add(accountRowPanel);
 		header.add(top, BorderLayout.NORTH);
 
@@ -373,6 +387,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			boolean show = apiClient.needsSignIn();
 			signInRow.setVisible(show);
+			signOutRow.setVisible(!show);
 			if (show)
 			{
 				setSignInStatus("Connects to " + SetupNudge.SITE_HOST + ".");
@@ -416,8 +431,8 @@ public class AnvilSidebarPanel extends PluginPanel
 					if (stored == null || stored.isEmpty())
 					{
 						log.warn("Anvil: signed in but the token did not persist to the RuneLite config");
-						setSignInStatus("Signed in, but RuneLite didn't save the token — paste it "
-							+ "from Profile > RuneLite plugin on the site.");
+						setSignInStatus("Signed in, but RuneLite didn't save the token — copy it "
+							+ "from Profile > RuneLite plugin on the site and use Paste a token below.");
 					}
 					else
 					{
@@ -439,6 +454,56 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * row already does, and wrap as HTML so a long line breaks instead of being clipped at the edge
 	 * of a narrow sidebar.
 	 */
+	private void styleLink(JLabel link, String tooltip, Runnable action)
+	{
+		link.setFont(FontManager.getRunescapeSmallFont());
+		link.setForeground(ColorScheme.BRAND_ORANGE);
+		link.setToolTipText(tooltip);
+		link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		link.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				action.run();
+			}
+		});
+	}
+
+	/** The manual route: paste the token from the site. Storing it runs the same path as Sign in. */
+	private void pasteToken()
+	{
+		if (signInInFlight)
+		{
+			return;
+		}
+		String token = JOptionPane.showInputDialog(this,
+			"Paste your token from anvilosrs.com (Profile → RuneLite plugin):", "Anvil", JOptionPane.PLAIN_MESSAGE);
+		if (token == null || token.trim().isEmpty())
+		{
+			return;
+		}
+		configManager.setConfiguration("osrsbingo", "playerToken", token.trim());
+		setSignInStatus("");
+		refreshSignInRow();
+		refresh();
+	}
+
+	private void signOut()
+	{
+		int choice = JOptionPane.showConfirmDialog(this,
+			"Sign this computer out of Anvil? Tracking stops until you sign in again.",
+			"Anvil", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+		if (choice != JOptionPane.OK_OPTION)
+		{
+			return;
+		}
+		// Clearing the token fires onConfigChanged, which drops the session state (configureApiClient).
+		configManager.setConfiguration("osrsbingo", "playerToken", "");
+		refreshSignInRow();
+		refresh();
+	}
+
 	private void setSignInStatus(String text)
 	{
 		String plain = text == null ? "" : text;

@@ -3025,7 +3025,7 @@ public class AnvilPlugin extends Plugin {
         connLastWarnedMs = now;
         if (problem == ConnProblem.TOKEN) {
             sendChatMessage("Anvil: your Account Token was rejected — tracking is OFF. "
-                    + "Clear the Account Token in Configuration \u2192 Anvil, then press Sign in in the Anvil panel.");
+                    + "Press Sign out in the Anvil side panel, then Sign in again.");
         } else {
             sendChatMessage("Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
                     + "Check your connection.");

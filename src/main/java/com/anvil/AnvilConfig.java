@@ -80,9 +80,13 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "playerToken",
 		name = "Account Token",
-		description = "Filled in for you when you press Sign in in the Anvil side panel. You can also paste it from anvilosrs.com (Profile → Plugin). One token works for every clan and event you're in.",
+		description = "Set by Sign in (or Paste a token) in the Anvil side panel. One token works for every clan and event you're in.",
 		position = 2,
 		secret = true,
+		// Not shown in settings. RuneLite only draws a plugin's settings page when it's opened, so a page
+		// left open across a sign-in kept showing an empty box — and its focus-out save could write that
+		// empty value back and sign the member out. The side panel owns signing in and out instead.
+		hidden = true,
 		section = "setupSection"
 	)
 	default String playerToken()
