@@ -1759,8 +1759,12 @@ public class AnvilPlugin extends Plugin {
         // method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
         // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
         // Kept in the signature because the sidebar's device sign-in still paces its poll on it.
+        // "You" on the weekly boards: the logged-in name, else the launcher's character at the login screen.
         AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient,
-            this::localStatProgress, this::getLocalPlayerName, this::homeMembership);
+            this::localStatProgress, () -> {
+                String name = getLocalPlayerName();
+                return name != null && !name.isEmpty() ? name : apiClient.getRsnHint();
+            }, this::homeMembership);
         // The starting-shot button's action. Bound after construction for the same reason the
         // suppliers above are method references: this provider can run before the plugin's own
         // @Inject fields exist, and the capture only ever fires from a click, long after that.
