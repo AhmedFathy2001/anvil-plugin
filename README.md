@@ -95,6 +95,18 @@ for it, with an optional note. Claiming needs you logged in as the character on 
 the **⋯** menu and pick **Not my account**. Nothing is sent for that character on this computer
 until you press **Track again** in the same strip.
 
+### Look anyone up
+
+<img src="docs/images/lookup-menu.png" alt="A player's right-click menu with an Anvil entry under Lookup and RuneProfile" width="240" align="right">
+
+Right-click a player — standing next to you, or by name in chat, your friends list or the clan
+panel — and pick **Anvil** to open their profile on the site. For your own, open the **⋯** menu at
+the top of the panel and pick **View my profile on Anvil**.
+
+Rather keep your menus short? Untick **Anvil lookup on players** under **General** in the settings.
+
+<br clear="right">
+
 ### In-game, where you already are
 
 An **Anvil** button sits in the collection log's title bar next to WikiSync and RuneProfile — one
@@ -119,6 +131,7 @@ shape of it.
 
 | Section | What's in it |
 | --- | --- |
+| **General** | The **Anvil** lookup on players' right-click menus. |
 | **Bingo** | The verification overlay, team-completion banners and their sounds. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
@@ -128,6 +141,8 @@ shape of it.
 | **Support** | Export a debug log to send an admin. |
 
 <p align="center">
+  <img src="docs/images/settings-general.png" alt="The General settings section: Anvil lookup on players" width="240">
+  <br>
   <img src="docs/images/settings-main.png" alt="The Anvil settings: Bingo and the notification sections" width="238">
 </p>
 
@@ -135,6 +150,7 @@ A few worth knowing about:
 
 | Setting | Default | Why you'd change it |
 | --- | --- | --- |
+| Anvil lookup on players | on | Turn it off to keep **Anvil** out of players' right-click menus. |
 | Show Overlay | on | Turn it off if you don't want the codeword panel on screen — proofs are still stamped. |
 | Min drop value | 5,000,000 | The gp floor for a drop post. `0` switches value posts off. |
 | Min drop rarity (1 in N) | 10,000 | Catches cheap-but-rare uniques. Looser than this and the channel fills with herb rolls. Your clan can set a floor; yours applies when it's stricter. |
