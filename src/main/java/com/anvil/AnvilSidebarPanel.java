@@ -126,7 +126,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
 	private final JLabel pasteTokenLink = new JLabel("Paste a token instead");
 	/** Opens the account menu: Not my account / Sign out. */
-	private final JLabel accountMenuLink = new JLabel("Account \u25BE");
+	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/** A refresh asked for while one was running — run it when that one lands, don't drop it. */
 	private boolean refreshQueued;
 	private boolean signInInFlight;
@@ -273,13 +273,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		accountStatus.setFont(FontManager.getRunescapeSmallFont());
 		accountStatus.setForeground(VALUE_COLOR);
 		accountStatus.setVisible(false);
-		styleLink(accountMenuLink, "Your Anvil sign-in on this computer", () -> showAccountMenu(accountMenuLink));
+		styleLink(accountMenuLink, "Account: Not my account, Sign out", () -> showAccountMenu(accountMenuLink));
 		// One strip for who you are here: the character being tracked on the left, and everything
-		// about the sign-in itself behind the Account menu on the right.
-		JPanel accountActions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0));
+		// about the sign-in itself behind the ⋯ menu on the right. BorderLayout, not FlowLayout: every
+		// label is centred on the same line, where FlowLayout sat the link on its own baseline.
+		JPanel accountActions = new JPanel(new BorderLayout(8, 0));
 		accountActions.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		accountActions.add(accountLink);
-		accountActions.add(accountMenuLink);
+		accountActions.add(accountLink, BorderLayout.CENTER);
+		accountActions.add(accountMenuLink, BorderLayout.EAST);
 		accountRowPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
 		accountRowPanel.add(accountLabel, BorderLayout.CENTER);
@@ -519,7 +520,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		accountRowPanel.setVisible(!apiClient.needsSignIn());
 		if (row == null)
 		{
-			setAccountLabel("Signed in · log in to track a character", "Signed in to Anvil on this computer.", false);
+			setAccountLabel("Signed in", "Signed in to Anvil on this computer. Log in to a character to start tracking it.", false);
 			accountLink.setVisible(false);
 			setAccountStatus("");
 			accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
@@ -601,7 +602,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}));
 	}
 
-	/** Room the label leaves for the link (and ×) to its right. */
+	/** Room the label leaves for the link (and ⋯) to its right. */
 	private static final int ACCOUNT_LINK_ROOM_PX = 72;
 
 	/**
