@@ -217,4 +217,68 @@ public class StartProofTest
 			"Submission failed", 409, "{\"error\":\"Tile already complete\"}");
 		assertTrue(other instanceof BingoApiClient.PermanentSubmissionException);
 	}
+
+	// ── Live checks on the card — the same thresholds the button refuses on ───────────────────────
+
+	private static PluginConfigResponse.StartProof pinned(int maxMinutes)
+	{
+		PluginConfigResponse.StartProof sp = owed();
+		sp.maxSessionMinutes = maxMinutes;
+		sp.spot = new PluginConfigResponse.StartProof.Spot();
+		sp.spot.x = 3329;
+		sp.spot.y = 3233;
+		sp.spot.radius = 25;
+		return sp;
+	}
+
+	@Test
+	public void freshSessionIsGreenStaleOrUnknownIsRed()
+	{
+		long now = 10_000_000L;
+		PluginConfigResponse.StartProof sp = pinned(15);
+		assertEquals(StartProofRules.Check.State.OK,
+			StartProofRules.sessionCheck(sp, now - 3 * 60_000L, now).state);
+		assertEquals(StartProofRules.Check.State.BAD,
+			StartProofRules.sessionCheck(sp, now - 24 * 60_000L, now).state);
+		assertEquals(StartProofRules.Check.State.BAD,
+			StartProofRules.sessionCheck(sp, StartProofRules.UNKNOWN_LOGIN, now).state);
+		assertNull("not asked for", StartProofRules.sessionCheck(pinned(0), now, now));
+	}
+
+	@Test
+	public void positionIsGreenInsideTheRadiusOnly()
+	{
+		PluginConfigResponse.StartProof sp = pinned(15);
+		assertEquals(StartProofRules.Check.State.OK, StartProofRules.positionCheck(sp, 3340, 3250).state);
+		assertEquals(StartProofRules.Check.State.BAD, StartProofRules.positionCheck(sp, 3290, 3170).state);
+		assertEquals(StartProofRules.Check.State.UNKNOWN, StartProofRules.positionCheck(sp, null, null).state);
+		assertNull("no pin, nothing to measure", StartProofRules.positionCheck(owed(), 3340, 3250));
+	}
+
+	@Test
+	public void greenChecksMeanTheButtonWontRefuse()
+	{
+		long now = 10_000_000L;
+		PluginConfigResponse.StartProof sp = pinned(15);
+		long login = now - 5 * 60_000L;
+		assertEquals(StartProofRules.Check.State.OK, StartProofRules.sessionCheck(sp, login, now).state);
+		assertEquals(StartProofRules.Check.State.OK, StartProofRules.positionCheck(sp, 3329, 3233).state);
+		assertNull(StartProofRules.blockReason(sp, login, now, 3329, 3233));
+	}
+
+	@Test
+	public void autoShotOnlyWhenPinnedFreshStillAndThere()
+	{
+		long now = 10_000_000L;
+		long fresh = now - 2 * 60_000L;
+		PluginConfigResponse.StartProof sp = pinned(15);
+		int still = StartProofRules.AUTO_STILL_TICKS;
+		assertTrue(StartProofRules.autoReady(sp, fresh, now, 3329, 3233, still));
+		assertTrue("not yet standing still", !StartProofRules.autoReady(sp, fresh, now, 3329, 3233, still - 1));
+		assertTrue("too far", !StartProofRules.autoReady(sp, fresh, now, 3200, 3233, still));
+		assertTrue("stale session", !StartProofRules.autoReady(sp, now - 30 * 60_000L, now, 3329, 3233, still));
+		assertTrue("unknown session", !StartProofRules.autoReady(sp, StartProofRules.UNKNOWN_LOGIN, now, 3329, 3233, still));
+		assertTrue("no pin, nobody vouching", !StartProofRules.autoReady(owed(), fresh, now, 3329, 3233, still));
+	}
 }
+

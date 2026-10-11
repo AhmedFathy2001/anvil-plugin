@@ -150,6 +150,21 @@ public interface SidebarDataSource
 		throw new java.io.IOException("This site doesn't support tile claims.");
 	}
 
+	/**
+	 * The starting shot's live requirements (session age, position) for the card, in display order.
+	 * Empty where nothing is checked. Cheap and non-blocking: the panel polls it every second.
+	 */
+	default java.util.List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
+	{
+		return java.util.Collections.emptyList();
+	}
+
+	/** Will the plugin take the starting shot by itself once the checks pass? (config autoStartShot) */
+	default boolean autoStartShot()
+	{
+		return false;
+	}
+
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	default void captureStartProof()
 	{

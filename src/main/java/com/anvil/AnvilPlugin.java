@@ -15,6 +15,7 @@ import net.runelite.api.Actor;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.Player;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
 import net.runelite.api.SoundEffectID;
@@ -1334,6 +1335,7 @@ public class AnvilPlugin extends Plugin {
         // in", since we can't say when the last hiscores flush was.
         freshLoginPending = client.getGameState() == GameState.LOGIN_SCREEN;
         sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
+        autoStartProofTried = false;
 
         // Initial config fetch. If the plugin was enabled mid-session (already logged in),
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
@@ -2305,6 +2307,10 @@ public class AnvilPlugin extends Plugin {
     @Subscribe
     public void onGameTick(GameTick event) {
         maybeStampIdentityOnTick();
+        WorldPoint here = needsStartProof() ? realWorldPosition() : null;
+        startProofStillTicks = here != null && here.equals(startProofPosition) ? startProofStillTicks + 1 : 0;
+        startProofPosition = here;
+        maybeAutoStartProof(here);
         resolveDuplicateScroll();
         trackClogOpen();
         // KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
@@ -2574,6 +2580,7 @@ public class AnvilPlugin extends Plugin {
             // arrives we don't have one at all.
             freshLoginPending = true;
             sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
+            autoStartProofTried = false;
             // Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
             // the answer rather than let the sidebar rank clans on the previous account's standing.
             knownMember = null;
@@ -5585,6 +5592,11 @@ public class AnvilPlugin extends Plugin {
      * the whole action is one keypress to repeat.
      */
     public void captureStartProof() {
+        // The click arrives on the Swing thread; where the player stands is client-thread state.
+        clientThread.invokeLater(this::captureStartProofOnClientThread);
+    }
+
+    private void captureStartProofOnClientThread() {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.startProof == null || cfg.event == null || !cfg.startProof.drawn) {
             sendChatMessage("No starting shot is being asked for right now.");
@@ -5925,18 +5937,69 @@ public class AnvilPlugin extends Plugin {
      * This account's world position, for the starting shot's position check (StartProofRules).
      * Null while logged out — which simply means the check doesn't run.
      */
-    private Integer localWorldX() {
-        if (client == null || client.getLocalPlayer() == null || client.getLocalPlayer().getWorldLocation() == null) {
+    // Where the player really stands, refreshed every tick for the starting-shot card's live checks
+    // (the panel reads it off the Swing thread, where the client can't be asked). Null when unknown.
+    private volatile WorldPoint startProofPosition;
+
+    /** Client thread. The real-world square, not the instance copy — a POH or raid reads as itself. */
+    private WorldPoint realWorldPosition() {
+        Player me = client.getLocalPlayer();
+        if (me == null || me.getLocalLocation() == null) {
             return null;
         }
-        return client.getLocalPlayer().getWorldLocation().getX();
+        return WorldPoint.fromLocalInstance(client, me.getLocalLocation());
+    }
+
+    private Integer localWorldX() {
+        WorldPoint p = realWorldPosition();
+        return p == null ? null : p.getX();
     }
 
     private Integer localWorldY() {
-        if (client == null || client.getLocalPlayer() == null || client.getLocalPlayer().getWorldLocation() == null) {
-            return null;
+        WorldPoint p = realWorldPosition();
+        return p == null ? null : p.getY();
+    }
+
+    private int startProofStillTicks;
+    // One automatic attempt per login: a failure says so in chat and leaves the button, rather than
+    // retrying a broken upload every tick. Reset with the session clock.
+    private boolean autoStartProofTried;
+
+    /** Client thread, every tick: take the starting shot unprompted once every check is green. */
+    private void maybeAutoStartProof(WorldPoint here) {
+        if (here == null || autoStartProofTried || startProofInFlight || !config.autoStartShot()) {
+            return;
         }
-        return client.getLocalPlayer().getWorldLocation().getY();
+        PluginConfigResponse cfg = pluginConfig;
+        PluginConfigResponse.StartProof proof = cfg == null ? null : cfg.startProof;
+        if (!StartProofRules.autoReady(proof, sessionLoginAtMs, System.currentTimeMillis(),
+                here.getX(), here.getY(), startProofStillTicks)) {
+            return;
+        }
+        autoStartProofTried = true;
+        sendChatMessage("Checks passed at " + (proof.location != null ? proof.location : "the start spot")
+                + " — taking your starting shot.");
+        captureStartProofOnClientThread();
+    }
+
+    boolean autoStartShotEnabled() {
+        return config.autoStartShot();
+    }
+
+    /** The starting-shot card's live requirements: session age, then position. Any thread. */
+    java.util.List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof) {
+        java.util.List<StartProofRules.Check> checks = new java.util.ArrayList<>(2);
+        StartProofRules.Check session = StartProofRules.sessionCheck(proof, sessionLoginAtMs, System.currentTimeMillis());
+        if (session != null) {
+            checks.add(session);
+        }
+        WorldPoint p = client.getGameState() == GameState.LOGGED_IN ? startProofPosition : null;
+        StartProofRules.Check where = StartProofRules.positionCheck(proof,
+                p == null ? null : p.getX(), p == null ? null : p.getY());
+        if (where != null) {
+            checks.add(where);
+        }
+        return checks;
     }
 
     /**
@@ -6634,7 +6697,9 @@ public class AnvilPlugin extends Plugin {
         String left = StartProofRules.describeWindow(sp, System.currentTimeMillis());
         sendChatMessage("Starting shot needed before you play"
                 + (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
-                + ". Open the Anvil side panel and press \"Take starting shot\"."
+                + (sp.spot != null && config.autoStartShot()
+                        ? ". Stand there and it's taken and sent for you (or press \"Take starting shot\" in the Anvil side panel)."
+                        : ". Open the Anvil side panel and press \"Take starting shot\".")
                 + (sp.maxSessionMinutes > 0
                         ? " Take it within " + sp.maxSessionMinutes + " min of logging in — hiscores only save"
                         + " on logout, so that's what sets your starting totals."

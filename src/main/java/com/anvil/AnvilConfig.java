@@ -195,6 +195,18 @@ public interface AnvilConfig extends Config
 		return "";
 	}
 
+	@ConfigItem(
+		keyName = "autoStartShot",
+		name = "Auto starting shot",
+		description = "When an event asks for a starting shot at a pinned spot, take and send it automatically once you're standing there on a fresh session. The side panel button still works either way.",
+		position = 8,
+		section = "bingoSection"
+	)
+	default boolean autoStartShot()
+	{
+		return true;
+	}
+
 
 	// ---- Notifications: Deaths & kills ----
 

@@ -261,6 +261,20 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public java.util.List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
+	{
+		AnvilPlugin p = plugin;
+		return p == null ? java.util.Collections.emptyList() : p.startProofChecks(proof);
+	}
+
+	@Override
+	public boolean autoStartShot()
+	{
+		AnvilPlugin p = plugin;
+		return p != null && p.autoStartShotEnabled();
+	}
+
+	@Override
 	public void captureStartProof()
 	{
 		Runnable capture = startProofCapture;

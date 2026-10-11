@@ -88,6 +88,86 @@ final class StartProofRules
 	}
 
 	/**
+	 * May the plugin take the shot by itself right now? Stricter than {@link #blockReason}, which fails
+	 * open: a manual click on an unpinned spot is the player vouching they're there, but nobody is
+	 * vouching for an automatic one — so it needs a pin, a known position inside it, and (when the
+	 * host asks) a known, fresh session. {@code stillTicks} is how long the player has stood on this
+	 * square; a moment's pause keeps the frame from catching them mid-run or mid-teleport.
+	 */
+	static boolean autoReady(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs,
+		Integer x, Integer y, int stillTicks)
+	{
+		if (proof == null || proof.spot == null || x == null || y == null || stillTicks < AUTO_STILL_TICKS)
+		{
+			return false;
+		}
+		return blockReason(proof, sessionLoginAtMs, nowMs, x, y) == null;
+	}
+
+	/** Ticks (0.6s each) standing on one square before an automatic shot. */
+	static final int AUTO_STILL_TICKS = 3;
+
+	/** One live requirement on the starting-shot card: met, not met, or not knowable yet. */
+	static final class Check
+	{
+		enum State
+		{
+			OK, BAD, UNKNOWN
+		}
+
+		final State state;
+		final String text;
+
+		Check(State state, String text)
+		{
+			this.state = state;
+			this.text = text;
+		}
+	}
+
+	/**
+	 * The session-age requirement as the card shows it, or null when the host isn't asking. Same
+	 * thresholds as {@link #blockReason}, so the card going green means the button won't refuse.
+	 */
+	static Check sessionCheck(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs)
+	{
+		if (proof == null || proof.maxSessionMinutes <= 0)
+		{
+			return null;
+		}
+		if (sessionLoginAtMs == UNKNOWN_LOGIN)
+		{
+			return new Check(Check.State.BAD, "Log out and back in (then under " + proof.maxSessionMinutes + " min)");
+		}
+		long minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
+		if (minutes > proof.maxSessionMinutes)
+		{
+			return new Check(Check.State.BAD, "Session " + describeMinutes(minutes) + ": relog (under "
+				+ proof.maxSessionMinutes + " min)");
+		}
+		return new Check(Check.State.OK, "Fresh session: " + describeMinutes(minutes) + " of " + proof.maxSessionMinutes + " min");
+	}
+
+	/** The position requirement as the card shows it, or null when the spot has no pin to measure from. */
+	static Check positionCheck(PluginConfigResponse.StartProof proof, Integer x, Integer y)
+	{
+		if (proof == null || proof.spot == null)
+		{
+			return null;
+		}
+		int away = distance(proof, x, y);
+		if (away < 0)
+		{
+			return new Check(Check.State.UNKNOWN, "Position unknown until you're logged in");
+		}
+		if (away > proof.spot.radius)
+		{
+			return new Check(Check.State.BAD, away + " squares away (within " + proof.spot.radius + ")");
+		}
+		return new Check(Check.State.OK, "At the spot");
+	}
+
+	/**
 	 * How long is left before the site stops asking for a shot, as a sentence fragment — or null
 	 * when there is no deadline to quote (an older site that doesn't send one, or an unreadable
 	 * stamp). The window closing is not a failure state: the ask simply expires, so this reads as a

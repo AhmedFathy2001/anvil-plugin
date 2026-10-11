@@ -205,6 +205,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 
 		add(buildHeader(), BorderLayout.NORTH);
+		SlimScrollBarUI.applyTo(getWrappedPanel());
 
 		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
 		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1115,6 +1116,21 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 
+		// The full board is its own page rather than an expansion under the event: twenty-odd tile rows
+		// pushed everything else off a small client, and "back" is a clearer way out than "Hide".
+		if (showAllActiveTiles && selected.tilesTotal > 0)
+		{
+			body.removeAll();
+			String title = entry != null && !entry.title.isEmpty() ? entry.title : "Event";
+			body.add(backLink(title, () -> showAllActiveTiles = false));
+			body.add(gap(8));
+			body.add(sectionHeader("All tiles"));
+			body.add(gap(6));
+			body.add(buildBoardCatalogue("active", 0, selected.boardUrl, false));
+			setContent(body);
+			return;
+		}
+
 		if (selected.hasError())
 		{
 			body.add(warningLabel(selected.error));
@@ -1223,30 +1239,18 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			body.add(gap(8));
-			JButton allTiles = actionButton(showAllActiveTiles ? "Hide all tiles" : "View all " + selected.tilesTotal + " tiles",
+			JButton allTiles = actionButton("View all " + selected.tilesTotal + " tiles",
 				"Search the full board, including manual tiles", () ->
 				{
-					showAllActiveTiles = !showAllActiveTiles;
-					if (showAllActiveTiles)
-					{
-						loadBoardCatalogue("active", 0, false);
-					}
+					showAllActiveTiles = true;
+					loadBoardCatalogue("active", 0, false);
 					renderSelected();
 				});
 			body.add(fullWidth(allTiles));
-			if (showAllActiveTiles)
-			{
-				body.add(gap(8));
-				body.add(buildBoardCatalogue("active", 0, selected.boardUrl, false));
-			}
 		}
 
-		// Clan actions ride at the bottom of an event view too. They belong to the clan, not to the
-		// page you happen to be on — losing them the moment you opened an event was half of why the
-		// roster button looked like it came and went.
-		body.add(gap(12));
-		body.add(buildPanelActions(selected));
-
+		// Clan actions (roster/profile sync) live on the clan's home page only: an event view is about
+		// that event, and the home page is one click away on "All events".
 		setContent(body);
 	}
 
@@ -1820,6 +1824,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			public void mouseClicked(MouseEvent e)
 			{
 				selectedEventKey = entry.key;
+				showAllActiveTiles = false;
 				renderSelected();
 			}
 
@@ -1857,7 +1862,17 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** "‹ All events" — back out of a drilled-into event to the clan's list. */
 	private JLabel backLink()
 	{
-		JLabel back = new JLabel("All events", new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11), SwingConstants.LEADING);
+		return backLink("All events", () ->
+		{
+			selectedEventKey = null;
+			showAllActiveTiles = false;
+		});
+	}
+
+	/** "‹ {label}" — one level up: {@code up} resets whatever drilled in, then the view redraws. */
+	private JLabel backLink(String label, Runnable up)
+	{
+		JLabel back = new JLabel(plainText(label), new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11), SwingConstants.LEADING);
 		back.setIconTextGap(2);
 		back.setFont(FontManager.getRunescapeSmallFont());
 		back.setForeground(ColorScheme.BRAND_ORANGE);
@@ -1868,7 +1883,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override
 			public void mouseClicked(MouseEvent e)
 			{
-				selectedEventKey = null;
+				up.run();
 				renderSelected();
 			}
 		});
@@ -2180,17 +2195,29 @@ public class AnvilSidebarPanel extends PluginPanel
 			card.add(word);
 		}
 
-		if (proof.maxSessionMinutes > 0)
+		// The requirements the button checks — session age, position — shown live, so a player can
+		// see each one go green instead of finding out from a refusal in chat. Ticks every second
+		// while the card is on screen; the timer stops itself once the card is replaced.
+		JPanel checks = new JPanel();
+		checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
+		checks.setOpaque(false);
+		checks.setAlignmentX(LEFT_ALIGNMENT);
+		renderStartProofChecks(checks, proof);
+		if (checks.getComponentCount() > 0)
 		{
-			// Said here as well as in chat, because it's the one requirement you can't fix after the
-			// fact: the logout is what flushes the hiscores the event's baseline is read from.
-			JLabel relog = new JLabel(plainText("Log out and back in first (within " + proof.maxSessionMinutes + " min)"));
-			relog.setFont(FontManager.getRunescapeSmallFont());
-			relog.setForeground(Color.WHITE);
-			relog.setAlignmentX(LEFT_ALIGNMENT);
-			relog.setToolTipText("Hiscores only save when you log out, so this is what sets your starting totals.");
-			card.add(gap(2));
-			card.add(relog);
+			card.add(gap(4));
+			card.add(checks);
+			javax.swing.Timer live = new javax.swing.Timer(1000, null);
+			live.addActionListener(ev ->
+			{
+				if (!checks.isDisplayable())
+				{
+					live.stop();
+					return;
+				}
+				renderStartProofChecks(checks, proof);
+			});
+			live.start();
 		}
 
 		if ("rejected".equals(proof.status))
@@ -2214,6 +2241,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			expires.setToolTipText("Six hours in, the game has logged everyone out anyway, so the shot stops being asked for.");
 			card.add(gap(2));
 			card.add(expires);
+		}
+
+		if (proof.spot != null && dataSource.autoStartShot())
+		{
+			JLabel auto = new JLabel(plainText("Taken and sent automatically once both are green."));
+			auto.setFont(FontManager.getRunescapeSmallFont());
+			auto.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			auto.setAlignmentX(LEFT_ALIGNMENT);
+			card.add(gap(2));
+			card.add(auto);
 		}
 
 		JButton take = new JButton("Take starting shot");
@@ -2241,6 +2278,28 @@ public class AnvilSidebarPanel extends PluginPanel
 		card.add(take);
 
 		return card;
+	}
+
+	private void renderStartProofChecks(JPanel into, PluginConfigResponse.StartProof proof)
+	{
+		java.util.List<StartProofRules.Check> list = dataSource.startProofChecks(proof);
+		into.removeAll();
+		for (StartProofRules.Check c : list)
+		{
+			Color color = c.state == StartProofRules.Check.State.OK ? ColorScheme.PROGRESS_COMPLETE_COLOR
+				: c.state == StartProofRules.Check.State.BAD ? ColorScheme.PROGRESS_ERROR_COLOR
+				: ColorScheme.LIGHT_GRAY_COLOR;
+			GlyphIcon.Shape shape = c.state == StartProofRules.Check.State.OK ? GlyphIcon.Shape.CHECK : GlyphIcon.Shape.CLOSE;
+			JLabel row = new JLabel(plainText(c.text), new GlyphIcon(shape, 9, color), SwingConstants.LEFT);
+			row.setIconTextGap(4);
+			row.setFont(FontManager.getRunescapeSmallFont());
+			row.setForeground(color);
+			row.setAlignmentX(LEFT_ALIGNMENT);
+			row.setToolTipText("Hiscores only save when you log out, so a fresh session is what sets your starting totals.");
+			into.add(row);
+		}
+		into.revalidate();
+		into.repaint();
 	}
 
 	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
