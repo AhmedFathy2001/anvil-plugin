@@ -2554,6 +2554,11 @@ public class AnvilPlugin extends Plugin {
             helloSent = false;
             identityStampPending = false;
             clogOpen = false;
+            // Refreshed on game ticks, and none run at the login screen — so the last in-game answer
+            // would stand and keep "Sync clan roster" on offer while logged out. There is no clan
+            // channel to read here.
+            clanRosterReadable = false;
+            clanRosterMissingTicks = 0;
             // Nothing is happening here, which is the entire reason the ask lives at this transition
             // rather than on the clip that needs it.
             maybeAskForClipFolder();
@@ -2621,6 +2626,9 @@ public class AnvilPlugin extends Plugin {
             completionBaselineEventId = null;
             notifiedCompletedTiles.clear();
             locallyShownTiles.clear();
+            // Logged out: claims and roster sync need a character in game, so redraw now rather than
+            // leaving their buttons up until the panel's next 15s poll.
+            repaintSidebar();
         }
     }
 
