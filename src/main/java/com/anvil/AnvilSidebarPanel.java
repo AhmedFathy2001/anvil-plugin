@@ -152,6 +152,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * rebuild it (that reset the open section's layout and collapsed any open log category). */
 	private JPanel youCardView;
 	private PlayerCard youCardViewOf;
+	/** Your goals as last fetched (null until the first fetch lands), and the last thing the site refused. */
+	private java.util.List<BingoApiClient.PlayerGoal> youGoals;
+	private String goalsError;
 	private String youCardRsn;
 
 	// Header controls (persistent across state changes).
@@ -706,6 +709,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				fetchYou(me);
 			}
+			if (dataSource.supportsGoals())
+			{
+				youPanel.add(gap(6));
+				youPanel.add(GoalsView.render(youGoals, youCard, this::addGoal, this::removeGoal, goalsError));
+				if (refetch || youGoals == null)
+				{
+					fetchGoals();
+				}
+			}
 		}
 
 		ConnectionView c = lastConnection;
@@ -724,8 +736,57 @@ public class AnvilSidebarPanel extends PluginPanel
 		youPanel.repaint();
 	}
 
+	private void fetchGoals()
+	{
+		executor.execute(() -> applyGoals(dataSource.fetchGoals(), false));
+	}
+
+	private void addGoal()
+	{
+		GoalsView.NewGoal goal = GoalsView.ask(this, youCard);
+		if (goal == null)
+		{
+			return;
+		}
+		executor.execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target), true));
+	}
+
+	private void removeGoal(int id)
+	{
+		executor.execute(() -> applyGoals(dataSource.removeGoal(id), true));
+	}
+
+	/** Off the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
+	private void applyGoals(BingoApiClient.GoalsResult result, boolean userAction)
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			if (result == null)
+			{
+				goalsError = userAction ? "Couldn't reach Anvil — try again in a moment." : goalsError;
+			}
+			else
+			{
+				goalsError = result.error;
+				if (result.goals != null)
+				{
+					youGoals = result.goals;
+				}
+			}
+			if (tab == Tab.YOU)
+			{
+				renderYou(false);
+			}
+		});
+	}
+
 	private void fetchYou(String me)
 	{
+		if (youCardRsn != null && !Rsn.same(youCardRsn, me))
+		{
+			youGoals = null; // another character: their goals, not the last one's
+			goalsError = null;
+		}
 		int seq = ++youSeq;
 		executor.execute(() ->
 		{

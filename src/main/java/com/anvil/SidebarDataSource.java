@@ -132,6 +132,28 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/** Whether the site keeps goals (the You tab's targets). */
+	default boolean supportsGoals()
+	{
+		return false;
+	}
+
+	/** Blocking; off the EDT. Null on a network failure. */
+	default BingoApiClient.GoalsResult fetchGoals()
+	{
+		return null;
+	}
+
+	default BingoApiClient.GoalsResult addGoal(String kind, String metric, int target)
+	{
+		return null;
+	}
+
+	default BingoApiClient.GoalsResult removeGoal(int id)
+	{
+		return null;
+	}
+
 	/** The character logged in right now, or null at the login screen. */
 	default String myRsn()
 	{

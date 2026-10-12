@@ -695,6 +695,49 @@ public class BingoApiClient
 		return isConfigured() && lastConfigNoClan;
 	}
 
+	// What the site can do, for someone the config can't tell: a person in no clan gets a 404 config
+	// and so no `server.capabilities`. /api/version is public and tiny; read at most every 10 minutes,
+	// only on that path, from the config poll (already off the EDT).
+	private static final long VERSION_CAPS_TTL_MS = 10 * 60_000L;
+	private volatile java.util.Set<String> versionCaps = java.util.Collections.emptySet();
+	private volatile long versionCapsAt;
+
+	/** A capability /api/version advertised (the no-clan fallback for {@link PluginConfigResponse#serverSupports}). */
+	public boolean siteAdvertises(String capability)
+	{
+		return versionCaps.contains(capability);
+	}
+
+	private void refreshVersionCaps()
+	{
+		long now = System.currentTimeMillis();
+		if (now - versionCapsAt < VERSION_CAPS_TTL_MS)
+		{
+			return;
+		}
+		versionCapsAt = now;
+		Request request = new Request.Builder().url(CANONICAL_SITE + "/api/version").get()
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION).build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return;
+			}
+			JsonObject json = gson.fromJson(response.body().string(), JsonObject.class);
+			java.util.Set<String> caps = new java.util.HashSet<>();
+			if (json != null && json.has("capabilities") && json.get("capabilities").isJsonArray())
+			{
+				json.getAsJsonArray("capabilities").forEach(e -> caps.add(e.getAsString()));
+			}
+			versionCaps = caps;
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.debug("version capabilities fetch failed: {}", e.getMessage());
+		}
+	}
+
 	public PluginConfigResponse fetchConfig() throws IOException
 	{
 		Request.Builder rb = authedRequest(configUrl("/api/plugin/config")).get();
@@ -714,6 +757,10 @@ public class BingoApiClient
 			if (!response.isSuccessful())
 			{
 				lastConfigNoClan = response.code() == 404;
+				if (lastConfigNoClan)
+				{
+					refreshVersionCaps();
+				}
 				throw new IOException("Config fetch failed: HTTP " + response.code());
 			}
 			lastConfigNoClan = false;
@@ -766,6 +813,83 @@ public class BingoApiClient
 			log.debug("board fetch failed: {}", e.getMessage());
 			return null;
 		}
+	}
+
+	/** One of the player's goals ({@code goals} capability). */
+	public static final class PlayerGoal
+	{
+		public int id;
+		/** "skill" (target = level), "boss" (target = kill count) or "clog" (a whole page). */
+		public String kind;
+		/** Skill key, boss key, or log page name. */
+		public String metric;
+		public int target;
+	}
+
+	/** The goals list after a call, or the site's reason it refused. */
+	public static final class GoalsResult
+	{
+		public java.util.List<PlayerGoal> goals;
+		public String error;
+	}
+
+	/** List ({@code null} body), add ({@code POST}) or remove ({@code DELETE ?id=}) — always the full list back. */
+	private GoalsResult goalsCall(String method, String query, JsonObject body)
+	{
+		if (!isConfigured())
+		{
+			return null;
+		}
+		Request.Builder rb = authedRequest(rootUrl("/api/plugin/goals" + (query == null ? "" : query)));
+		if ("POST".equals(method))
+		{
+			rb.post(RequestBody.create(JSON, body.toString()));
+		}
+		else if ("DELETE".equals(method))
+		{
+			rb.delete();
+		}
+		else
+		{
+			rb.get();
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.body() == null)
+			{
+				return null;
+			}
+			GoalsResult r = gson.fromJson(response.body().string(), GoalsResult.class);
+			if (r != null && !response.isSuccessful() && r.error == null)
+			{
+				r.error = "Couldn't save that goal (HTTP " + response.code() + ").";
+			}
+			return r;
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("goals call failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	public GoalsResult fetchGoals()
+	{
+		return goalsCall("GET", null, null);
+	}
+
+	public GoalsResult addGoal(String kind, String metric, int target)
+	{
+		JsonObject body = new JsonObject();
+		body.addProperty("kind", kind);
+		body.addProperty("metric", metric);
+		body.addProperty("target", target);
+		return goalsCall("POST", null, body);
+	}
+
+	public GoalsResult removeGoal(int id)
+	{
+		return goalsCall("DELETE", "?id=" + id, null);
 	}
 
 	/** What {@link #fetchPlayerCard} found: the card, or why there isn't one. */

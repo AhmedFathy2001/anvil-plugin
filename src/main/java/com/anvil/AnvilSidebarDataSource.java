@@ -299,8 +299,46 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	@Override
 	public boolean supportsPlayerCard()
 	{
+		return siteSupports("player-card");
+	}
+
+	@Override
+	public boolean supportsGoals()
+	{
+		return siteSupports("goals");
+	}
+
+	/**
+	 * The config's capability list when there is a config; /api/version's when the person is in no
+	 * clan (a 404 config carries none). The You and Lookup tabs are exactly what someone without a
+	 * clan should still get.
+	 */
+	private boolean siteSupports(String capability)
+	{
 		PluginConfigResponse cfg = configSupplier.get();
-		return cfg != null && cfg.serverSupports("player-card");
+		if (cfg != null)
+		{
+			return cfg.serverSupports(capability);
+		}
+		return apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
+	}
+
+	@Override
+	public BingoApiClient.GoalsResult fetchGoals()
+	{
+		return apiClient.fetchGoals();
+	}
+
+	@Override
+	public BingoApiClient.GoalsResult addGoal(String kind, String metric, int target)
+	{
+		return apiClient.addGoal(kind, metric, target);
+	}
+
+	@Override
+	public BingoApiClient.GoalsResult removeGoal(int id)
+	{
+		return apiClient.removeGoal(id);
 	}
 
 	@Override
