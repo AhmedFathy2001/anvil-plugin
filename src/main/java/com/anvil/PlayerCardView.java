@@ -196,7 +196,7 @@ final class PlayerCardView
 			cell.setForeground(Color.WHITE);
 			cell.setHorizontalTextPosition(SwingConstants.RIGHT);
 			cell.setIconTextGap(4);
-			cell.setToolTipText(String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc));
+			cell.setToolTipText(safe(String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc)));
 			HiscoreSkill skill = hiscoreSkill(boss.label);
 			if (skill != null && spriteManager != null)
 			{
@@ -204,7 +204,7 @@ final class PlayerCardView
 			}
 			else
 			{
-				cell.setText(shortName(boss.label) + " " + compact(boss.kc));
+				cell.setText(safe(shortName(boss.label) + " " + compact(boss.kc)));
 			}
 			grid.add(cell);
 		}
@@ -233,9 +233,17 @@ final class PlayerCardView
 		return p;
 	}
 
+	// Every string on the card comes from the site — RSNs, a clan's own name, item and boss labels — and a
+	// Swing label renders HTML when its text opens with <html>. AnvilSidebarPanel.plainText neutralises
+	// that; labels and tooltips below all go through it.
+	private static String safe(String text)
+	{
+		return AnvilSidebarPanel.plainText(text);
+	}
+
 	private static JLabel title(String text)
 	{
-		JLabel l = new JLabel(text);
+		JLabel l = new JLabel(safe(text));
 		l.setFont(FontManager.getRunescapeBoldFont());
 		l.setForeground(Color.WHITE);
 		l.setAlignmentX(JComponent.LEFT_ALIGNMENT);
@@ -244,7 +252,7 @@ final class PlayerCardView
 
 	private static JLabel small(String text, Color color)
 	{
-		JLabel l = new JLabel(text);
+		JLabel l = new JLabel(safe(text));
 		l.setFont(FontManager.getRunescapeSmallFont());
 		l.setForeground(color);
 		l.setAlignmentX(JComponent.LEFT_ALIGNMENT);
@@ -274,7 +282,7 @@ final class PlayerCardView
 		int pct = percent(obtained, total);
 		JPanel cell = new JPanel(new BorderLayout(0, 2));
 		cell.setOpaque(false);
-		cell.setToolTipText(String.format(Locale.ROOT, "%s: %,d / %,d", name, obtained, total));
+		cell.setToolTipText(safe(String.format(Locale.ROOT, "%s: %,d / %,d", name, obtained, total)));
 		JPanel text = new JPanel(new BorderLayout());
 		text.setOpaque(false);
 		text.add(small(name, MUTED), BorderLayout.WEST);
@@ -406,6 +414,7 @@ final class PlayerCardView
 			case "group_ironman":
 				return "Group iron";
 			case "main":
+			case "normal":
 				return "Main";
 			default:
 				return Character.toUpperCase(type.charAt(0)) + type.substring(1).replace('_', ' ');

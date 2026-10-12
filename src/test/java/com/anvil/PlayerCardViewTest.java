@@ -77,7 +77,38 @@ public class PlayerCardViewTest
 	public void accountTypes()
 	{
 		assertEquals("Main", PlayerCardView.accountTypeLabel("main"));
+		assertEquals("Main", PlayerCardView.accountTypeLabel("normal"));
 		assertEquals("Hardcore", PlayerCardView.accountTypeLabel("hardcore_ironman"));
 		assertEquals("Some mode", PlayerCardView.accountTypeLabel("some_mode"));
+	}
+
+	@Test
+	public void serverTextCannotInjectHtml()
+	{
+		PlayerCard card = new PlayerCard();
+		card.rsn = "<html><img src='http://evil/x'>";
+		card.clan = new PlayerCard.Clan();
+		card.clan.name = "  <HTML><b>pwned";
+		assertNoHtml(PlayerCardView.render(card, null, null));
+		assertNoHtml(PlayerCardView.notFound("<html>x"));
+	}
+
+	private static void assertNoHtml(java.awt.Container c)
+	{
+		for (java.awt.Component child : c.getComponents())
+		{
+			if (child instanceof javax.swing.JLabel)
+			{
+				String text = ((javax.swing.JLabel) child).getText();
+				if (text != null)
+				{
+					org.junit.Assert.assertFalse(text, text.trim().toLowerCase(java.util.Locale.ROOT).startsWith("<html"));
+				}
+			}
+			if (child instanceof java.awt.Container)
+			{
+				assertNoHtml((java.awt.Container) child);
+			}
+		}
 	}
 }

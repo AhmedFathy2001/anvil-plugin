@@ -583,9 +583,9 @@ public class AnvilSidebarPanel extends PluginPanel
 					wrap.add(dot);
 				}
 				first = false;
-				JLabel link = new JLabel(n);
+				JLabel link = new JLabel(plainText(n));
 				link.setFont(FontManager.getRunescapeSmallFont());
-				styleLink(link, "Look up " + n, () -> showLookup(n));
+				styleLink(link, plainText("Look up " + n), () -> showLookup(n));
 				wrap.add(link);
 			}
 			wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrap.getPreferredSize().height * 2));
@@ -687,7 +687,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		p.setBorder(BorderFactory.createEmptyBorder(10, 8, 10, 8));
 		p.setAlignmentX(LEFT_ALIGNMENT);
-		JLabel l = new JLabel(text);
+		JLabel l = new JLabel(plainText(text));
 		l.setFont(FontManager.getRunescapeSmallFont());
 		l.setForeground(VALUE_COLOR);
 		p.add(l, BorderLayout.CENTER);
