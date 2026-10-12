@@ -7002,8 +7002,17 @@ public class AnvilPlugin extends Plugin {
         return cfg != null;
     }
 
+    /**
+     * Also when signed in with no clan: the site keeps a person's stats on their own account with or
+     * without one (the stats route's account-only path), and it alone decides whether the character
+     * is theirs — an unclaimed or someone else's character is simply not stored.
+     */
+    static boolean statPushAllowed(PluginConfigResponse cfg, boolean signedInWithoutClan) {
+        return statPushAllowed(cfg) || signedInWithoutClan;
+    }
+
     private boolean statPushAllowed() {
-        return statPushAllowed(pluginConfig);
+        return statPushAllowed(pluginConfig, apiClient != null && apiClient.signedInWithoutClan());
     }
 
     /**

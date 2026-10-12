@@ -682,6 +682,18 @@ public class BingoApiClient
 	// so an unchanged poll costs a few header bytes instead of the whole board.
 	private volatile String lastConfigEtag;
 	private volatile PluginConfigResponse lastConfig;
+	/** The last config poll was the site's "no clan for this account yet" (lib/pluginNoClan). */
+	private volatile boolean lastConfigNoClan;
+
+	/**
+	 * Signed in, and the site says this person is in no clan. Not an error state: their stats are still
+	 * theirs, and the stats route takes a push for a character the token owns (the site's account-only
+	 * path), so the plugin keeps reporting — that's what makes the profile useful without a clan.
+	 */
+	public boolean signedInWithoutClan()
+	{
+		return isConfigured() && lastConfigNoClan;
+	}
 
 	public PluginConfigResponse fetchConfig() throws IOException
 	{
@@ -701,8 +713,10 @@ public class BingoApiClient
 			}
 			if (!response.isSuccessful())
 			{
+				lastConfigNoClan = response.code() == 404;
 				throw new IOException("Config fetch failed: HTTP " + response.code());
 			}
+			lastConfigNoClan = false;
 			PluginConfigResponse parsed = gson.fromJson(response.body().string(), PluginConfigResponse.class);
 			lastConfigEtag = response.header("ETag");
 			lastConfig = parsed;

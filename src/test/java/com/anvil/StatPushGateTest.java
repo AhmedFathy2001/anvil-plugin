@@ -53,4 +53,11 @@ public class StatPushGateTest
 			AnvilPlugin.statPushAllowed(null));
 	}
 
+	@Test
+	public void signedInWithNoClanStillReports()
+	{
+		assertTrue("no clan is an answer, not a stop: the stats are the person's",
+			AnvilPlugin.statPushAllowed(null, true));
+		assertFalse(AnvilPlugin.statPushAllowed(null, false));
+	}
 }
