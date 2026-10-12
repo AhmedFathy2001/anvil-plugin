@@ -53,6 +53,8 @@ public final class PlayerCard
 		public String group;
 		public int obtained;
 		public int total;
+		/** An item to draw the page by — its first slot. Null on an older site. */
+		public Integer iconItemId;
 	}
 
 	public static final class Clan
@@ -90,5 +92,7 @@ public final class PlayerCard
 		/** The game's name, matched to RuneLite's hiscore sprites. */
 		public String label;
 		public int kc;
+		/** The log page its kills fill (a raid's modes share one); null when it has none. */
+		public String clogPage;
 	}
 }

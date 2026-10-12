@@ -111,8 +111,28 @@ final class PlayerCardView
 		if (card.latest != null && !card.latest.isEmpty())
 		{
 			root.add(gap(BLOCK_GAP));
-			root.add(latest(card.latest, ic));
+			root.add(latest(card.rsn, card.latest, ic));
 		}
+
+		// Built before the switcher so a boss can jump into it: clicking a boss opens the log page its
+		// kills fill, which means switching to Log and opening that page in one move.
+		JPanel log = card.clogPages != null && !card.clogPages.isEmpty() ? logPages(card.rsn, card.clogPages, ic) : null;
+		Runnable[] showLog = new Runnable[1];
+		Consumer<String> openLogPage = log == null || ic.pageLoader == null ? null : name ->
+		{
+			for (PlayerCard.Page p : card.clogPages)
+			{
+				if (p.name.equalsIgnoreCase(name))
+				{
+					if (showLog[0] != null)
+					{
+						showLog[0].run();
+					}
+					showPage(card.rsn, p, ic, log, (JComponent) log.getClientProperty(LOG_ROOT));
+					return;
+				}
+			}
+		};
 
 		Map<String, JPanel> sections = new LinkedHashMap<>();
 		if (card.skills != null && !card.skills.isEmpty())
@@ -122,11 +142,11 @@ final class PlayerCardView
 		List<PlayerCard.Boss> bosses = card.bosses != null ? card.bosses : card.topBosses;
 		if (bosses != null && !bosses.isEmpty())
 		{
-			sections.put("Bosses", bosses(bosses, ic));
+			sections.put("Bosses", bosses(bosses, ic, openLogPage));
 		}
-		if (card.clogPages != null && !card.clogPages.isEmpty())
+		if (log != null)
 		{
-			sections.put("Log", logPages(card.rsn, card.clogPages, ic));
+			sections.put("Log", log);
 		}
 		if (card.activities != null && !card.activities.isEmpty())
 		{
@@ -135,7 +155,7 @@ final class PlayerCardView
 		if (!sections.isEmpty())
 		{
 			root.add(gap(BLOCK_GAP));
-			root.add(sectionSwitcher(sections, section, onSection));
+			root.add(sectionSwitcher(sections, section, onSection, showLog));
 		}
 		return root;
 	}
@@ -260,10 +280,41 @@ final class PlayerCardView
 		return block;
 	}
 
-	private static JPanel latest(List<PlayerCard.Latest> rows, Icons ic)
+	private static JPanel latest(String rsn, List<PlayerCard.Latest> rows, Icons ic)
 	{
 		JPanel block = block();
-		block.add(header("Latest", null));
+		JPanel head = header("Latest", null);
+		JLabel all = new JLabel("See all ›");
+		all.setFont(FontManager.getRunescapeSmallFont());
+		all.setForeground(MUTED);
+		all.setToolTipText("Everything they've done lately, on the Anvil website");
+		all.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		all.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				String url = ProfileLookup.profileUrl(rsn);
+				if (url != null)
+				{
+					net.runelite.client.util.LinkBrowser.browse(url + "?tab=records");
+				}
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				all.setForeground(ColorScheme.BRAND_ORANGE);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				all.setForeground(MUTED);
+			}
+		});
+		head.add(all, BorderLayout.EAST);
+		block.add(head);
 		block.add(gap(4));
 		for (PlayerCard.Latest row : rows)
 		{
@@ -293,7 +344,8 @@ final class PlayerCardView
 
 	// ---- The profile: one section at a time --------------------------------------------------------
 
-	private static JPanel sectionSwitcher(Map<String, JPanel> sections, String wanted, Consumer<String> onSection)
+	private static JPanel sectionSwitcher(Map<String, JPanel> sections, String wanted, Consumer<String> onSection,
+		Runnable[] showLog)
 	{
 		String first = sections.containsKey(wanted) ? wanted : sections.keySet().iterator().next();
 
@@ -335,6 +387,18 @@ final class PlayerCardView
 		}
 		styleSwitch(labels, first);
 		show(body, sections.get(first));
+		if (showLog != null && sections.containsKey("Log"))
+		{
+			showLog[0] = () ->
+			{
+				styleSwitch(labels, "Log");
+				show(body, sections.get("Log"));
+				if (onSection != null)
+				{
+					onSection.accept("Log");
+				}
+			};
+		}
 
 		strip.setMaximumSize(new Dimension(Integer.MAX_VALUE, strip.getPreferredSize().height));
 		wrap.add(strip);
@@ -404,7 +468,7 @@ final class PlayerCardView
 	}
 
 	/** Every boss with a kill: the game's own sprite and the count, three across. */
-	private static JPanel bosses(List<PlayerCard.Boss> rows, Icons ic)
+	private static JPanel bosses(List<PlayerCard.Boss> rows, Icons ic, Consumer<String> openLogPage)
 	{
 		JPanel block = block();
 		JPanel grid = new JPanel(new GridLayout(0, 3, 2, 2));
@@ -412,8 +476,14 @@ final class PlayerCardView
 		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 		for (PlayerCard.Boss boss : rows)
 		{
-			grid.add(iconCell(hiscoreSkill(boss.key, boss.label), boss.label, boss.kc,
-				String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc), ic));
+			boolean opens = openLogPage != null && boss.clogPage != null;
+			JLabel cell = iconCell(hiscoreSkill(boss.key, boss.label), boss.label, boss.kc,
+				String.format(Locale.ROOT, "%s — %,d kills%s", boss.label, boss.kc, opens ? " · click for its log" : ""), ic);
+			if (opens)
+			{
+				hoverable(cell, ColorScheme.DARK_GRAY_COLOR, () -> openLogPage.accept(boss.clogPage));
+			}
+			grid.add(cell);
 		}
 		block.add(grid);
 		return block;
@@ -489,23 +559,46 @@ final class PlayerCardView
 		return cell;
 	}
 
+	/** Client property on the Log holder: its top level (the category grid), for "back" from a jump. */
+	private static final String LOG_ROOT = "anvil.logRoot";
+
+	/** A picture per log category — the thing people think of when they think of that shelf. */
+	static int categoryItem(String group)
+	{
+		switch (group == null ? "" : group)
+		{
+			case "Bosses":
+				return 11832; // Bandos chestplate
+			case "Raids":
+				return 20997; // Twisted bow
+			case "Clues":
+				return 19835; // Clue scroll (master)
+			case "Minigames":
+				return 6570; // Fire cape
+			case "Skilling":
+				return 13320; // Heron
+			default:
+				return 995; // Coins
+		}
+	}
+
 	/**
-	 * Log categories with their bar; click one to open its pages, click a page to see its items —
-	 * the game's own log, owned slots lit and the rest dim.
+	 * The log as three levels, each one obviously clickable: categories as tiles → that category's
+	 * pages (icon, count, ›) → the page's items, lit and dim. A long list that expanded in place didn't
+	 * say it could open, and mixed every shelf into one scroll.
 	 */
 	private static JPanel logPages(String rsn, List<PlayerCard.Page> pages, Icons ic)
 	{
-		// One child at a time: the category list, or one page. Swapped in place so Back returns to
-		// the list as it was left — open categories stay open.
 		JPanel holder = new JPanel(new BorderLayout());
 		holder.setOpaque(false);
 		holder.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		JPanel list = logList(rsn, pages, ic, holder);
-		holder.add(list, BorderLayout.CENTER);
+		JPanel root = categoryGrid(rsn, pages, ic, holder);
+		holder.putClientProperty(LOG_ROOT, root);
+		holder.add(root, BorderLayout.CENTER);
 		return holder;
 	}
 
-	private static JPanel logList(String rsn, List<PlayerCard.Page> pages, Icons ic, JPanel holder)
+	private static JPanel categoryGrid(String rsn, List<PlayerCard.Page> pages, Icons ic, JPanel holder)
 	{
 		Map<String, List<PlayerCard.Page>> byGroup = new LinkedHashMap<>();
 		for (PlayerCard.Page p : pages)
@@ -513,7 +606,9 @@ final class PlayerCardView
 			byGroup.computeIfAbsent(p.group == null ? "Other" : p.group, k -> new ArrayList<>()).add(p);
 		}
 		JPanel block = block();
-		boolean first = true;
+		JPanel grid = new JPanel(new GridLayout(0, 2, 6, 6));
+		grid.setOpaque(false);
+		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 		for (Map.Entry<String, List<PlayerCard.Page>> e : byGroup.entrySet())
 		{
 			int got = 0;
@@ -523,68 +618,136 @@ final class PlayerCardView
 				got += p.obtained;
 				of += p.total;
 			}
-			if (!first)
+			JPanel tile = new JPanel(new BorderLayout(6, 3));
+			tile.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+			JLabel icon = new JLabel();
+			icon.setPreferredSize(new Dimension(28, 26));
+			icon.setHorizontalAlignment(SwingConstants.CENTER);
+			if (ic.items != null)
 			{
-				block.add(gap(10));
+				ic.items.getImage(categoryItem(e.getKey())).addTo(icon);
 			}
-			first = false;
-			JPanel head = miniBar(e.getKey() + "  ›", got, of);
-			head.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-			head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
-			JPanel rows = column();
-			rows.setOpaque(false);
-			rows.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 0));
-			for (PlayerCard.Page p : e.getValue())
-			{
-				rows.add(pageRow(rsn, p, ic, holder, block));
-			}
-			rows.setVisible(false);
-			head.addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mouseClicked(MouseEvent ev)
-				{
-					rows.setVisible(!rows.isVisible());
-					block.revalidate();
-					block.repaint();
-				}
-			});
-			block.add(head);
-			block.add(rows);
+			tile.add(icon, BorderLayout.WEST);
+			JPanel text = column();
+			text.setOpaque(false);
+			JLabel name = small(e.getKey() + "  ›", Color.WHITE);
+			text.add(name);
+			text.add(small(got + "/" + of + " · " + percent(got, of) + "%", MUTED));
+			tile.add(text, BorderLayout.CENTER);
+			tile.add(thinBar(got, of), BorderLayout.SOUTH);
+			List<PlayerCard.Page> list = e.getValue();
+			String group = e.getKey();
+			int g = got;
+			int o = of;
+			hoverable(tile, ColorScheme.DARK_GRAY_COLOR, () -> swap(holder, categoryView(rsn, group, g, o, list, ic, holder, block)));
+			grid.add(tile);
 		}
+		block.add(grid);
 		return block;
 	}
 
-	private static JPanel pageRow(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JPanel list)
+	private static JPanel categoryView(String rsn, String group, int got, int of, List<PlayerCard.Page> pages, Icons ic,
+		JPanel holder, JComponent back)
+	{
+		JPanel view = block();
+		view.add(backHeader(group, got + "/" + of, got >= of, () -> swap(holder, back), null));
+		view.add(gap(6));
+		for (PlayerCard.Page p : pages)
+		{
+			view.add(pageRow(rsn, p, ic, holder, view));
+			view.add(gap(2));
+		}
+		return view;
+	}
+
+	private static JPanel pageRow(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JComponent back)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
-		row.setOpaque(false);
 		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		row.setBorder(BorderFactory.createEmptyBorder(3, 0, 3, 0));
-		row.add(small(p.name, p.obtained >= p.total ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED), BorderLayout.CENTER);
-		row.add(small(p.obtained + "/" + p.total, Color.WHITE), BorderLayout.EAST);
+		row.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
+		JLabel icon = new JLabel();
+		icon.setPreferredSize(new Dimension(26, 24));
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		if (ic.items != null && p.iconItemId != null)
+		{
+			ic.items.getImage(p.iconItemId).addTo(icon);
+		}
+		row.add(icon, BorderLayout.WEST);
+		boolean complete = p.total > 0 && p.obtained >= p.total;
+		row.add(small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
+		JPanel right = new JPanel(new BorderLayout(6, 0));
+		right.setOpaque(false);
+		right.add(small(p.obtained + "/" + p.total, MUTED), BorderLayout.CENTER);
+		if (ic.pageLoader != null)
+		{
+			right.add(new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 9, MUTED)), BorderLayout.EAST);
+		}
+		row.add(right, BorderLayout.EAST);
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		if (ic.pageLoader != null)
 		{
-			row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			row.setToolTipText("See the items on this page");
-			row.addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mouseClicked(MouseEvent ev)
-				{
-					showPage(rsn, p, ic, holder, list);
-				}
-			});
+			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> showPage(rsn, p, ic, holder, back));
+		}
+		else
+		{
+			row.setOpaque(false);
 		}
 		return row;
 	}
 
-	private static void showPage(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JPanel list)
+	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
+	private static void hoverable(JComponent c, Color base, Runnable onClick)
+	{
+		Color hover = ColorScheme.DARK_GRAY_HOVER_COLOR;
+		c.setOpaque(true);
+		c.setBackground(base);
+		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		c.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				onClick.run();
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent e)
+			{
+				c.setBackground(hover);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				c.setBackground(base);
+			}
+		});
+	}
+
+	private static JPanel thinBar(int obtained, int total)
+	{
+		int pct = percent(obtained, total);
+		JPanel bar = new JPanel()
+		{
+			@Override
+			protected void paintComponent(Graphics g)
+			{
+				g.setColor(ColorScheme.DARKER_GRAY_COLOR);
+				g.fillRect(0, 0, getWidth(), getHeight());
+				g.setColor(pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
+				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
+			}
+		};
+		bar.setPreferredSize(new Dimension(0, 3));
+		return bar;
+	}
+
+	private static void showPage(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JComponent back)
 	{
 		JPanel page = block();
-		page.add(pageHeader(rsn, p.name, p.obtained, p.total, () -> swap(holder, list)));
+		page.add(backHeader(p.name, p.obtained + "/" + p.total, p.total > 0 && p.obtained >= p.total,
+			() -> swap(holder, back == null ? (JComponent) holder.getClientProperty(LOG_ROOT) : back), rsn));
 		page.add(gap(8));
 		page.add(small("Loading…", MUTED));
 		swap(holder, page);
@@ -608,7 +771,11 @@ final class PlayerCardView
 		});
 	}
 
-	private static JPanel pageHeader(String rsn, String name, int obtained, int total, Runnable back)
+	/**
+	 * "‹ Name   12/30  ↗": back on the left, the count, and — for a page, when {@code rsn} is given —
+	 * the same page on the website.
+	 */
+	private static JPanel backHeader(String name, String count, boolean complete, Runnable back, String rsn)
 	{
 		JPanel head = new JPanel(new BorderLayout(6, 0));
 		head.setOpaque(false);
@@ -616,10 +783,10 @@ final class PlayerCardView
 		JLabel left = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 10, Color.WHITE));
 		left.setText(safe(name));
 		left.setFont(FontManager.getRunescapeBoldFont());
-		left.setForeground(obtained >= total ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE);
+		left.setForeground(complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE);
 		left.setIconTextGap(6);
 		left.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		left.setToolTipText("Back to the log");
+		left.setToolTipText("Back");
 		left.addMouseListener(new MouseAdapter()
 		{
 			@Override
@@ -632,24 +799,27 @@ final class PlayerCardView
 
 		JPanel right = new JPanel(new GridLayout(1, 0, 6, 0));
 		right.setOpaque(false);
-		right.add(small(obtained + "/" + total, Color.WHITE));
-		JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11, MUTED));
-		web.setToolTipText("Open this page on the Anvil website");
-		web.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		web.addMouseListener(new MouseAdapter()
+		right.add(small(count, Color.WHITE));
+		if (rsn != null)
 		{
-			@Override
-			public void mouseClicked(MouseEvent e)
+			JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11, MUTED));
+			web.setToolTipText("Open this page on the Anvil website");
+			web.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			web.addMouseListener(new MouseAdapter()
 			{
-				String url = ProfileLookup.profileUrl(rsn);
-				if (url != null)
+				@Override
+				public void mouseClicked(MouseEvent e)
 				{
-					net.runelite.client.util.LinkBrowser.browse(url + "?tab=collection&page="
-						+ java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+					String url = ProfileLookup.profileUrl(rsn);
+					if (url != null)
+					{
+						net.runelite.client.util.LinkBrowser.browse(url + "?tab=collection&page="
+							+ java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+					}
 				}
-			}
-		});
-		right.add(web);
+			});
+			right.add(web);
+		}
 		head.add(right, BorderLayout.EAST);
 		head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
 		return head;

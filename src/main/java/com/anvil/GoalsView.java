@@ -133,7 +133,19 @@ final class GoalsView
 		remove.addMouseListener(click(() -> onRemove.accept(g.id)));
 		line.add(right, BorderLayout.EAST);
 		line.add(remove, BorderLayout.WEST);
-		row.add(line, BorderLayout.NORTH);
+		String due = p.done() ? null : dueText(g.dueOn, java.time.LocalDate.now(java.time.ZoneOffset.UTC));
+		if (due != null)
+		{
+			JPanel top = new JPanel(new BorderLayout(0, 1));
+			top.setOpaque(false);
+			top.add(line, BorderLayout.NORTH);
+			top.add(small(due, due.startsWith("overdue") ? ColorScheme.PROGRESS_ERROR_COLOR : MUTED), BorderLayout.SOUTH);
+			row.add(top, BorderLayout.NORTH);
+		}
+		else
+		{
+			row.add(line, BorderLayout.NORTH);
+		}
 
 		if (p.known)
 		{
@@ -201,6 +213,39 @@ final class GoalsView
 		return new Progress(page.obtained, page.total, page.obtained + " / " + page.total, true);
 	}
 
+	/**
+	 * "by 1 Dec · 50d left", "due today", "overdue by 3d" — calendar days, as the site counts them.
+	 * Null when there's no deadline (or it can't be read).
+	 */
+	static String dueText(String dueOn, java.time.LocalDate today)
+	{
+		if (dueOn == null || dueOn.isEmpty())
+		{
+			return null;
+		}
+		java.time.LocalDate due;
+		try
+		{
+			due = java.time.LocalDate.parse(dueOn);
+		}
+		catch (java.time.format.DateTimeParseException e)
+		{
+			return null;
+		}
+		long days = java.time.temporal.ChronoUnit.DAYS.between(today, due);
+		if (days < 0)
+		{
+			return "overdue by " + (-days) + "d";
+		}
+		if (days == 0)
+		{
+			return "due today";
+		}
+		String when = due.format(java.time.format.DateTimeFormatter.ofPattern(
+			due.getYear() == today.getYear() ? "d MMM" : "d MMM yyyy", Locale.ENGLISH));
+		return "by " + when + " · " + days + "d left";
+	}
+
 	/** The game's XP table: XP needed for {@code level}, 1–99. */
 	static long xpForLevel(int level)
 	{
@@ -248,12 +293,15 @@ final class GoalsView
 		final String kind;
 		final String metric;
 		final int target;
+		/** YYYY-MM-DD, or null for no deadline. */
+		final String dueOn;
 
-		NewGoal(String kind, String metric, int target)
+		NewGoal(String kind, String metric, int target, String dueOn)
 		{
 			this.kind = kind;
 			this.metric = metric;
 			this.target = target;
+			this.dueOn = dueOn;
 		}
 	}
 
@@ -319,12 +367,24 @@ final class GoalsView
 			}
 		});
 
+		// A deadline is optional, so it's behind a tick: an always-on date field would set one by accident.
+		javax.swing.JCheckBox hasDue = new javax.swing.JCheckBox("Set a deadline");
+		java.util.Calendar inAMonth = java.util.Calendar.getInstance();
+		inAMonth.add(java.util.Calendar.MONTH, 1);
+		JSpinner due = new JSpinner(new javax.swing.SpinnerDateModel(inAMonth.getTime(), new java.util.Date(), null,
+			java.util.Calendar.DAY_OF_MONTH));
+		due.setEditor(new JSpinner.DateEditor(due, "d MMM yyyy"));
+		due.setEnabled(false);
+		hasDue.addActionListener(e -> due.setEnabled(hasDue.isSelected()));
+
 		JPanel form = new JPanel(new GridLayout(0, 1, 0, 4));
 		form.add(new JLabel("Goal"));
 		form.add(kind);
 		form.add(what);
 		form.add(targetLabel);
 		form.add(target);
+		form.add(hasDue);
+		form.add(due);
 
 		int choice = JOptionPane.showConfirmDialog(parent, form, "New goal", JOptionPane.OK_CANCEL_OPTION,
 			JOptionPane.PLAIN_MESSAGE);
@@ -340,7 +400,10 @@ final class GoalsView
 			metric = metric.toLowerCase(Locale.ROOT);
 		}
 		int t = "clog".equals(wireKind) ? 0 : ((Number) target.getValue()).intValue();
-		return new NewGoal(wireKind, metric, t);
+		String dueOn = hasDue.isSelected()
+			? new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format((java.util.Date) due.getValue())
+			: null;
+		return new NewGoal(wireKind, metric, t, dueOn);
 	}
 
 	// ---- Pieces ------------------------------------------------------------------------------------

@@ -150,7 +150,7 @@ public interface SidebarDataSource
 		return null;
 	}
 
-	default BingoApiClient.GoalsResult addGoal(String kind, String metric, int target)
+	default BingoApiClient.GoalsResult addGoal(String kind, String metric, int target, String dueOn)
 	{
 		return null;
 	}

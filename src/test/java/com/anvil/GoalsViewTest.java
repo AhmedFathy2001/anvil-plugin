@@ -88,4 +88,16 @@ public class GoalsViewTest
 		assertEquals("1,000 Alchemical Hydra", GoalsView.label(goal("boss", "alchemicalHydra", 1000)));
 		assertEquals("Barrows Chests log", GoalsView.label(goal("clog", "Barrows Chests", 0)));
 	}
+
+	@Test
+	public void deadlines()
+	{
+		java.time.LocalDate today = java.time.LocalDate.of(2026, 10, 12);
+		assertEquals("by 1 Dec · 50d left", GoalsView.dueText("2026-12-01", today));
+		assertEquals("by 1 Jan 2027 · 81d left", GoalsView.dueText("2027-01-01", today));
+		assertEquals("due today", GoalsView.dueText("2026-10-12", today));
+		assertEquals("overdue by 3d", GoalsView.dueText("2026-10-09", today));
+		assertEquals(null, GoalsView.dueText(null, today));
+		assertEquals(null, GoalsView.dueText("nonsense", today));
+	}
 }

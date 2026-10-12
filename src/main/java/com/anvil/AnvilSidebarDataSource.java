@@ -336,9 +336,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
-	public BingoApiClient.GoalsResult addGoal(String kind, String metric, int target)
+	public BingoApiClient.GoalsResult addGoal(String kind, String metric, int target, String dueOn)
 	{
-		return apiClient.addGoal(kind, metric, target);
+		return apiClient.addGoal(kind, metric, target, dueOn);
 	}
 
 	@Override

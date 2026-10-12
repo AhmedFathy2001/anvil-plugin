@@ -824,6 +824,8 @@ public class BingoApiClient
 		/** Skill key, boss key, or log page name. */
 		public String metric;
 		public int target;
+		/** Optional deadline, YYYY-MM-DD. */
+		public String dueOn;
 	}
 
 	/** The goals list after a call, or the site's reason it refused. */
@@ -878,12 +880,16 @@ public class BingoApiClient
 		return goalsCall("GET", null, null);
 	}
 
-	public GoalsResult addGoal(String kind, String metric, int target)
+	public GoalsResult addGoal(String kind, String metric, int target, String dueOn)
 	{
 		JsonObject body = new JsonObject();
 		body.addProperty("kind", kind);
 		body.addProperty("metric", metric);
 		body.addProperty("target", target);
+		if (dueOn != null && !dueOn.isEmpty())
+		{
+			body.addProperty("dueOn", dueOn);
+		}
 		return goalsCall("POST", null, body);
 	}
 

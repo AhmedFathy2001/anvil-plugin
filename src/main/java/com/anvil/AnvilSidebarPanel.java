@@ -748,7 +748,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		executor.execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target), true));
+		executor.execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), true));
 	}
 
 	private void removeGoal(int id)
