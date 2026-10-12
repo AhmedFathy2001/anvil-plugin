@@ -68,12 +68,21 @@ final class PlayerCardView
 		final ItemManager items;
 		final SpriteManager sprites;
 		final SkillIconManager skills;
+		/** Loads one log page (off the EDT) and hands it back ON the EDT; null = pages don't open. */
+		final java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader;
 
 		Icons(ItemManager items, SpriteManager sprites, SkillIconManager skills)
+		{
+			this(items, sprites, skills, null);
+		}
+
+		Icons(ItemManager items, SpriteManager sprites, SkillIconManager skills,
+			java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader)
 		{
 			this.items = items;
 			this.sprites = sprites;
 			this.skills = skills;
+			this.pageLoader = pageLoader;
 		}
 
 		static final Icons NONE = new Icons(null, null, null);
@@ -117,7 +126,7 @@ final class PlayerCardView
 		}
 		if (card.clogPages != null && !card.clogPages.isEmpty())
 		{
-			sections.put("Log", logPages(card.clogPages));
+			sections.put("Log", logPages(card.rsn, card.clogPages, ic));
 		}
 		if (card.activities != null && !card.activities.isEmpty())
 		{
@@ -420,14 +429,41 @@ final class PlayerCardView
 		for (PlayerCard.Activity a : rows)
 		{
 			String name = a.shortLabel != null && !a.shortLabel.isEmpty() ? a.shortLabel : a.label;
-			grid.add(iconCell(hiscoreSkill(a.key, a.label), name, a.score,
+			grid.add(iconCell(hiscoreSkill(a.key, a.label), clueItemFor(a.key), name, a.score,
 				String.format(Locale.ROOT, "%s — %,d", a.label, a.score), ic));
 		}
 		block.add(grid);
 		return block;
 	}
 
+	/** Clue tiers have no hiscore sprite; the game's own clue scroll items stand in. */
+	static int clueItemFor(String key)
+	{
+		switch (key == null ? "" : key)
+		{
+			case "cluesBeginner":
+				return 23182;
+			case "cluesEasy":
+				return 2677;
+			case "cluesMedium":
+				return 2801;
+			case "cluesHard":
+				return 2722;
+			case "cluesElite":
+				return 12073;
+			case "cluesMaster":
+				return 19835;
+			default:
+				return -1;
+		}
+	}
+
 	private static JLabel iconCell(HiscoreSkill skill, String name, long count, String tooltip, Icons ic)
+	{
+		return iconCell(skill, -1, name, count, tooltip, ic);
+	}
+
+	private static JLabel iconCell(HiscoreSkill skill, int itemId, String name, long count, String tooltip, Icons ic)
 	{
 		JLabel cell = new JLabel(compact(count));
 		cell.setFont(FontManager.getRunescapeSmallFont());
@@ -437,19 +473,39 @@ final class PlayerCardView
 		cell.setOpaque(true);
 		cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		cell.setToolTipText(safe(tooltip));
-		if (skill != null && ic.sprites != null)
+		if (itemId > 0 && ic.items != null)
+		{
+			ic.items.getImage(itemId).addTo(cell);
+		}
+		else if (skill != null && skill.getSpriteId() > 0 && ic.sprites != null)
 		{
 			ic.sprites.addSpriteTo(cell, skill.getSpriteId(), 0);
 		}
 		else
 		{
+			// No picture for it: the name has to carry it, or it's an unlabelled number.
 			cell.setText(safe(abbrev(name) + " " + compact(count)));
 		}
 		return cell;
 	}
 
-	/** Log categories with their bar; click one to open its pages. */
-	private static JPanel logPages(List<PlayerCard.Page> pages)
+	/**
+	 * Log categories with their bar; click one to open its pages, click a page to see its items —
+	 * the game's own log, owned slots lit and the rest dim.
+	 */
+	private static JPanel logPages(String rsn, List<PlayerCard.Page> pages, Icons ic)
+	{
+		// One child at a time: the category list, or one page. Swapped in place so Back returns to
+		// the list as it was left — open categories stay open.
+		JPanel holder = new JPanel(new BorderLayout());
+		holder.setOpaque(false);
+		holder.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel list = logList(rsn, pages, ic, holder);
+		holder.add(list, BorderLayout.CENTER);
+		return holder;
+	}
+
+	private static JPanel logList(String rsn, List<PlayerCard.Page> pages, Icons ic, JPanel holder)
 	{
 		Map<String, List<PlayerCard.Page>> byGroup = new LinkedHashMap<>();
 		for (PlayerCard.Page p : pages)
@@ -457,6 +513,7 @@ final class PlayerCardView
 			byGroup.computeIfAbsent(p.group == null ? "Other" : p.group, k -> new ArrayList<>()).add(p);
 		}
 		JPanel block = block();
+		boolean first = true;
 		for (Map.Entry<String, List<PlayerCard.Page>> e : byGroup.entrySet())
 		{
 			int got = 0;
@@ -466,42 +523,187 @@ final class PlayerCardView
 				got += p.obtained;
 				of += p.total;
 			}
-			JPanel group = column();
-			group.setOpaque(false);
+			if (!first)
+			{
+				block.add(gap(10));
+			}
+			first = false;
 			JPanel head = miniBar(e.getKey() + "  ›", got, of);
 			head.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 			head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
-			JPanel list = column();
-			list.setOpaque(false);
-			list.setBorder(BorderFactory.createEmptyBorder(2, 8, 0, 0));
+			JPanel rows = column();
+			rows.setOpaque(false);
+			rows.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 0));
 			for (PlayerCard.Page p : e.getValue())
 			{
-				JPanel row = new JPanel(new BorderLayout(6, 0));
-				row.setOpaque(false);
-				row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-				row.add(small(p.name, p.obtained >= p.total ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED), BorderLayout.CENTER);
-				row.add(small(p.obtained + "/" + p.total, Color.WHITE), BorderLayout.EAST);
-				row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-				list.add(row);
+				rows.add(pageRow(rsn, p, ic, holder, block));
 			}
-			list.setVisible(false);
+			rows.setVisible(false);
 			head.addMouseListener(new MouseAdapter()
 			{
 				@Override
 				public void mouseClicked(MouseEvent ev)
 				{
-					list.setVisible(!list.isVisible());
+					rows.setVisible(!rows.isVisible());
 					block.revalidate();
 					block.repaint();
 				}
 			});
-			group.add(head);
-			group.add(list);
-			group.add(gap(6));
-			block.add(group);
+			block.add(head);
+			block.add(rows);
 		}
 		return block;
+	}
+
+	private static JPanel pageRow(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JPanel list)
+	{
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setOpaque(false);
+		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		row.setBorder(BorderFactory.createEmptyBorder(3, 0, 3, 0));
+		row.add(small(p.name, p.obtained >= p.total ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED), BorderLayout.CENTER);
+		row.add(small(p.obtained + "/" + p.total, Color.WHITE), BorderLayout.EAST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		if (ic.pageLoader != null)
+		{
+			row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			row.setToolTipText("See the items on this page");
+			row.addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mouseClicked(MouseEvent ev)
+				{
+					showPage(rsn, p, ic, holder, list);
+				}
+			});
+		}
+		return row;
+	}
+
+	private static void showPage(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JPanel list)
+	{
+		JPanel page = block();
+		page.add(pageHeader(rsn, p.name, p.obtained, p.total, () -> swap(holder, list)));
+		page.add(gap(8));
+		page.add(small("Loading…", MUTED));
+		swap(holder, page);
+		ic.pageLoader.accept(p.name, view ->
+		{
+			if (holder.getComponentCount() == 0 || holder.getComponent(0) != page)
+			{
+				return; // they went Back (or elsewhere) before it landed
+			}
+			page.remove(page.getComponentCount() - 1);
+			if (view == null || view.items == null)
+			{
+				page.add(small("Couldn't load this page — try again in a moment.", MUTED));
+			}
+			else
+			{
+				page.add(itemGrid(view.items, ic));
+			}
+			page.revalidate();
+			page.repaint();
+		});
+	}
+
+	private static JPanel pageHeader(String rsn, String name, int obtained, int total, Runnable back)
+	{
+		JPanel head = new JPanel(new BorderLayout(6, 0));
+		head.setOpaque(false);
+		head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JLabel left = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 10, Color.WHITE));
+		left.setText(safe(name));
+		left.setFont(FontManager.getRunescapeBoldFont());
+		left.setForeground(obtained >= total ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE);
+		left.setIconTextGap(6);
+		left.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		left.setToolTipText("Back to the log");
+		left.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				back.run();
+			}
+		});
+		head.add(left, BorderLayout.CENTER);
+
+		JPanel right = new JPanel(new GridLayout(1, 0, 6, 0));
+		right.setOpaque(false);
+		right.add(small(obtained + "/" + total, Color.WHITE));
+		JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11, MUTED));
+		web.setToolTipText("Open this page on the Anvil website");
+		web.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		web.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				String url = ProfileLookup.profileUrl(rsn);
+				if (url != null)
+				{
+					net.runelite.client.util.LinkBrowser.browse(url + "?tab=collection&page="
+						+ java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+				}
+			}
+		});
+		right.add(web);
+		head.add(right, BorderLayout.EAST);
+		head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
+		return head;
+	}
+
+	/** The page's slots in the game's order: owned in full colour, the rest dim — as the log draws them. */
+	private static JPanel itemGrid(List<BingoApiClient.ClogPageItem> items, Icons ic)
+	{
+		JPanel grid = new JPanel(new GridLayout(0, 5, 3, 3));
+		grid.setOpaque(false);
+		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		for (BingoApiClient.ClogPageItem item : items)
+		{
+			JLabel cell = new JLabel()
+			{
+				@Override
+				protected void paintComponent(Graphics g)
+				{
+					if (!item.owned)
+					{
+						java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+						g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.25f));
+						super.paintComponent(g2);
+						g2.dispose();
+						return;
+					}
+					super.paintComponent(g);
+				}
+			};
+			cell.setHorizontalAlignment(SwingConstants.CENTER);
+			cell.setPreferredSize(new Dimension(36, 32));
+			cell.setOpaque(false);
+			cell.setToolTipText(safe(item.owned && item.quantity > 1
+				? String.format(Locale.ROOT, "%s × %,d", item.name, item.quantity)
+				: item.owned ? item.name : item.name + " — not yet"));
+			if (ic.items != null)
+			{
+				ic.items.getImage(item.id, Math.max(1, item.quantity), item.quantity > 1).addTo(cell);
+			}
+			else
+			{
+				cell.setText(item.owned ? "■" : "□");
+			}
+			grid.add(cell);
+		}
+		return grid;
+	}
+
+	private static void swap(JPanel holder, JComponent next)
+	{
+		holder.removeAll();
+		holder.add(next, BorderLayout.CENTER);
+		holder.revalidate();
+		holder.repaint();
 	}
 
 	// ---- Pieces ------------------------------------------------------------------------------------
@@ -733,17 +935,30 @@ final class PlayerCardView
 				return s;
 			}
 		}
-		if (!k.isEmpty())
+		if (k.isEmpty())
 		{
-			for (HiscoreSkill s : HiscoreSkill.values())
+			return null;
+		}
+		// RuneLite says "THE_" where we don't (corruptedGauntlet ↔ THE_CORRUPTED_GAUNTLET), says more
+		// than we do (barrows ↔ BARROWS_CHESTS), or less (tombsOfAmascutExpertMode ↔ TOMBS_OF_AMASCUT_EXPERT).
+		// Longest match wins, so the expert raid doesn't settle for the plain one.
+		HiscoreSkill best = null;
+		int bestLen = 0;
+		for (HiscoreSkill s : HiscoreSkill.values())
+		{
+			String e = fold(s.name());
+			if (e.equals("the" + k))
 			{
-				if (fold(s.name()).startsWith(k))
-				{
-					return s;
-				}
+				return s;
+			}
+			boolean fits = e.startsWith(k) || (e.length() >= 6 && k.startsWith(e));
+			if (fits && e.length() > bestLen)
+			{
+				best = s;
+				bestLen = e.length();
 			}
 		}
-		return null;
+		return best;
 	}
 
 	/** Label-only lookup — kept for the summary's older callers and tests. */

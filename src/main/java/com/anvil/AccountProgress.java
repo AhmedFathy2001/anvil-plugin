@@ -38,18 +38,20 @@ final class AccountProgress
 	};
 
 	/**
-	 * Karamja is the odd one out: only its ELITE tier has a completion varbit. Easy, medium and hard
-	 * are tracked as task COUNTS whose totals we would have to hardcode — and would then be wrong
-	 * about after any update that adds a task — so they are left out rather than guessed at. The site
-	 * says as much next to the number.
+	 * Karamja's easy, medium and hard tiers predate the other diaries and are flagged under their old
+	 * names (ATJUN_*_DONE), apart from their reward-claimed flags (ATJUN_*_REWARD) — the same shape as
+	 * every other region's *_COMPLETE. Only elite uses the newer name. They were once believed to have
+	 * no completion flag at all, which left three of Karamja's four tiers reading as unknown.
 	 */
-	private static final int KARAMJA_ELITE = VarbitID.KARAMJA_DIARY_ELITE_COMPLETE;
+	private static final int[] KARAMJA_VARBITS = {
+		VarbitID.ATJUN_EASY_DONE, VarbitID.ATJUN_MED_DONE, VarbitID.ATJUN_HARD_DONE, VarbitID.KARAMJA_DIARY_ELITE_COMPLETE,
+	};
 
 	private static final String[] DIARY_KEYS = {"diaryEasy", "diaryMedium", "diaryHard", "diaryElite"};
 
 	/**
 	 * The key each region's tier mask is stored under, in the same order as {@link #DIARY_VARBITS},
-	 * with Karamja last — it only contributes its elite bit. Matches DIARY_REGIONS on the site.
+	 * with Karamja kept apart (its flags have older names). Matches DIARY_REGIONS on the site.
 	 */
 	private static final String[] DIARY_REGION_KEYS = {
 		"diaryArdougne", "diaryDesert", "diaryFalador", "diaryFremennik", "diaryKandarin",
@@ -107,7 +109,10 @@ final class AccountProgress
 		{
 			out.put(DIARY_REGION_KEYS[region], regionMask(client, DIARY_VARBITS[region]));
 		}
-		out.put(KARAMJA_KEY, client.getVarbitValue(KARAMJA_ELITE) > 0 ? DIARY_ELITE_BIT : 0);
+		out.put(KARAMJA_KEY, regionMask(client, KARAMJA_VARBITS));
+		// Says the mask above includes the lower three tiers. Its own key: an older site drops it and
+		// keeps treating them as unknown, a current one trusts them (site memberProgress).
+		out.put("diaryKaramjaFull", 1);
 		// Game mode, raw (0 regular, 1 ironman, 2 ultimate, 3 hardcore, 4 group, 5 hardcore group,
 		// 6 unranked group). Read here, past the all-zero guard above, so a login's unpopulated
 		// client can't report an ironman as regular. The site maps it and keeps the latest value —
@@ -260,9 +265,12 @@ final class AccountProgress
 				}
 			}
 		}
-		if (client.getVarbitValue(KARAMJA_ELITE) > 0)
+		for (int tier = 0; tier < KARAMJA_VARBITS.length; tier++)
 		{
-			counts[3]++;
+			if (client.getVarbitValue(KARAMJA_VARBITS[tier]) > 0)
+			{
+				counts[tier]++;
+			}
 		}
 		return counts;
 	}

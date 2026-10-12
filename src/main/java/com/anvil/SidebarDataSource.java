@@ -132,6 +132,12 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/** One log page's items for the card. Blocking; off the EDT. Null on failure. */
+	default BingoApiClient.ClogPageView fetchClogPage(String rsn, String page)
+	{
+		return null;
+	}
+
 	/** Whether the site keeps goals (the You tab's targets). */
 	default boolean supportsGoals()
 	{

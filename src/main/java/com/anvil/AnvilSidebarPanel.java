@@ -701,7 +701,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			boolean cached = youCard != null && Rsn.same(youCardRsn, me);
 			if (cached && youCardViewOf != youCard)
 			{
-				youCardView = PlayerCardView.render(youCard, cardIcons(), youSection, sec -> youSection = sec);
+				youCardView = PlayerCardView.render(youCard, cardIcons(youCard.rsn), youSection, sec -> youSection = sec);
 				youCardViewOf = youCard;
 			}
 			youPanel.add(cached ? youCardView : cardMessage("Loading your card…"));
@@ -817,9 +817,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private PlayerCardView.Icons cardIcons()
+	private PlayerCardView.Icons cardIcons(String rsn)
 	{
-		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager);
+		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
+			(page, done) -> executor.execute(() ->
+			{
+				BingoApiClient.ClogPageView view = dataSource.fetchClogPage(rsn, page);
+				SwingUtilities.invokeLater(() -> done.accept(view));
+			}));
 	}
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
@@ -833,8 +838,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			return PlayerCardView.notFound(name);
 		}
 		return you
-			? PlayerCardView.render(result.card, cardIcons(), youSection, sec -> youSection = sec)
-			: PlayerCardView.render(result.card, cardIcons(), lookupSection, sec -> lookupSection = sec);
+			? PlayerCardView.render(result.card, cardIcons(result.card.rsn), youSection, sec -> youSection = sec)
+			: PlayerCardView.render(result.card, cardIcons(result.card.rsn), lookupSection, sec -> lookupSection = sec);
 	}
 
 	private static JPanel cardMessage(String text)

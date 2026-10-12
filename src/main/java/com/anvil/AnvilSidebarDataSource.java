@@ -324,6 +324,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public BingoApiClient.ClogPageView fetchClogPage(String rsn, String page)
+	{
+		return apiClient.fetchClogPage(rsn, page);
+	}
+
+	@Override
 	public BingoApiClient.GoalsResult fetchGoals()
 	{
 		return apiClient.fetchGoals();

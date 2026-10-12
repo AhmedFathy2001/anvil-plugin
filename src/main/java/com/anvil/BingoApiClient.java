@@ -892,6 +892,55 @@ public class BingoApiClient
 		return goalsCall("DELETE", "?id=" + id, null);
 	}
 
+	/** One collection log page as the card's Log section opens it. */
+	public static final class ClogPageView
+	{
+		public String page;
+		public int obtained;
+		public int total;
+		public boolean synced;
+		public java.util.List<ClogPageItem> items;
+	}
+
+	public static final class ClogPageItem
+	{
+		public int id;
+		public String name;
+		public boolean owned;
+		public int quantity;
+	}
+
+	/** {@code GET /api/players/<rsn>/clog-page?name=} — null on failure or 404. Blocking; off the EDT. */
+	public ClogPageView fetchClogPage(String rsn, String page)
+	{
+		String card = ProfileLookup.apiCardUrl(rsn);
+		if (card == null || page == null)
+		{
+			return null;
+		}
+		String url = card.substring(0, card.length() - "/card".length()) + "/clog-page?name="
+			+ java.net.URLEncoder.encode(page, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+		Request.Builder rb = new Request.Builder().url(url).get().header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
+		String token = playerToken;
+		if (token != null && !token.trim().isEmpty())
+		{
+			rb.header("Authorization", "Bearer " + token.trim());
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().string(), ClogPageView.class);
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("clog page fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	/** What {@link #fetchPlayerCard} found: the card, or why there isn't one. */
 	public static final class PlayerCardResult
 	{

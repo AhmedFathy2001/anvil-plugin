@@ -56,6 +56,12 @@ public class PlayerCardViewTest
 		assertEquals(HiscoreSkill.CLUE_SCROLL_BEGINNER, PlayerCardView.hiscoreSkill("cluesBeginner", "Clues (beginner)"));
 		assertEquals(HiscoreSkill.CLUE_SCROLL_ALL, PlayerCardView.hiscoreSkill("cluesAll", "Clues (all)"));
 		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.hiscoreSkill("chambersOfXeric", "Chambers of Xeric"));
+		assertEquals(HiscoreSkill.TOMBS_OF_AMASCUT_EXPERT, PlayerCardView.hiscoreSkill("tombsOfAmascutExpertMode", "ToA: Expert"));
+		assertEquals(HiscoreSkill.THE_CORRUPTED_GAUNTLET, PlayerCardView.hiscoreSkill("corruptedGauntlet", "Corrupted Gauntlet"));
+		assertEquals(HiscoreSkill.THE_GAUNTLET, PlayerCardView.hiscoreSkill("gauntlet", "The Gauntlet"));
+		assertEquals(HiscoreSkill.THEATRE_OF_BLOOD_HARD_MODE, PlayerCardView.hiscoreSkill("theatreOfBloodHardMode", "ToB: HM"));
+		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC_CHALLENGE_MODE, PlayerCardView.hiscoreSkill("chambersOfXericChallengeMode", "CoX: CM"));
+		assertEquals(HiscoreSkill.TZKAL_ZUK, PlayerCardView.hiscoreSkill("tzKalZuk", "TzKal-Zuk"));
 	}
 
 	@Test
