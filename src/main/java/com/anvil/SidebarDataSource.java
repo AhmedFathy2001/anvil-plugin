@@ -120,6 +120,24 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/** Whether the site serves player cards (the Lookup and You tabs). False ⇒ fall back to the browser. */
+	default boolean supportsPlayerCard()
+	{
+		return false;
+	}
+
+	/** One character's card. Blocking; call off the EDT. Null on a network failure. */
+	default BingoApiClient.PlayerCardResult fetchPlayerCard(String rsn)
+	{
+		return null;
+	}
+
+	/** The character logged in right now, or null at the login screen. */
+	default String myRsn()
+	{
+		return null;
+	}
+
 	/**
 	 * Whether the site takes tile claims (capability {@code tile-claims}). The catalogue only offers
 	 * "I'm going for this" when it does, so an older site never sees a click it can't answer.

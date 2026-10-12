@@ -1,0 +1,64 @@
+package com.anvil;
+
+import java.util.List;
+
+/**
+ * One character as the side panel's Lookup and You tabs show it — the JSON of
+ * {@code GET /api/players/<rsn>/card} (the {@code player-card} capability).
+ *
+ * <p>What's notable about the account and nothing that's zero: the site already left out empty boss
+ * rows and log groups, so the panel draws whatever arrives.</p>
+ */
+public final class PlayerCard
+{
+	public String rsn;
+	public String accountType;
+	public Clan clan;
+	public int totalLevel;
+	public Integer combatLevel;
+	public Long overallXp;
+	public Double ehp;
+	public Double ehb;
+	public String statsAt;
+	/** Null until they've synced their collection log. */
+	public Clog clog;
+	public List<Latest> latest;
+	public List<Boss> topBosses;
+
+	public static final class Clan
+	{
+		public String slug;
+		public String name;
+	}
+
+	public static final class Clog
+	{
+		public int obtained;
+		public int total;
+		public List<Group> groups;
+	}
+
+	public static final class Group
+	{
+		public String name;
+		public int obtained;
+		public int total;
+	}
+
+	public static final class Latest
+	{
+		/** "item" or "milestone". */
+		public String kind;
+		public String label;
+		public Integer itemId;
+		public String at;
+	}
+
+	public static final class Boss
+	{
+		public String key;
+		/** The game's name, matched to RuneLite's hiscore sprites. */
+		public String label;
+		public int kc;
+	}
+}

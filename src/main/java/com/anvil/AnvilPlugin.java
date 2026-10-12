@@ -1323,6 +1323,15 @@ public class AnvilPlugin extends Plugin {
         }
         guardRemoteObsFolderManagement();
         keyManager.registerKeyListener(clipHotkeyListener);
+        profileLookup.setPanelOpener(name -> {
+            NavigationButton nav = sidebarNavButton;
+            if (nav == null || !sidebarPanel.playerCardsAvailable()) {
+                return false;
+            }
+            SwingUtilities.invokeLater(() -> clientToolbar.openPanel(nav));
+            sidebarPanel.showLookup(name);
+            return true;
+        });
         profileLookup.startUp();
         keyManager.registerKeyListener(exportDebugLogHotkeyListener);
         if (config.clipsEnabled()) {

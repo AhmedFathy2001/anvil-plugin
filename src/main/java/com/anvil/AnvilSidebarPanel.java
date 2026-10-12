@@ -48,6 +48,10 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.components.PluginErrorPanel;
+import net.runelite.client.ui.components.IconTextField;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SpriteManager;
+import java.awt.CardLayout;
 
 /**
  * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
@@ -105,6 +109,39 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final int CARD_LINE_CHARS = 30;
 
 	private final SidebarDataSource dataSource;
+	/** Item and boss icons for the player card. Null in tests that build the panel by hand. */
+	private final ItemManager itemManager;
+	private final SpriteManager spriteManager;
+
+	// ---- Tabs: Clan · You · Lookup ----------------------------------------------------------------
+	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are the
+	// player card (PlayerCardView), and only exist while the site serves cards (the `player-card`
+	// capability): without it the strip hides and the panel is exactly what it was, Sync profile and
+	// the sound lists included. That is the rollback — pull the capability and every client goes back.
+	enum Tab { CLAN, YOU, LOOKUP }
+	private Tab tab = Tab.CLAN;
+	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
+	private boolean tabsOn;
+	private final CardLayout tabCards = new CardLayout();
+	private final JPanel tabBody = new JPanel(tabCards);
+	private final JPanel tabStrip = new JPanel(new GridLayout(1, 3));
+	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
+	private final JPanel youPanel = new JPanel();
+	private final JPanel lookupPanel = new JPanel();
+	private final JPanel lookupResult = new JPanel();
+	private final JPanel lookupRecentRow = new JPanel();
+	private final IconTextField lookupSearch = new IconTextField();
+	/** Newest first, at most five, this session only. */
+	private final java.util.LinkedList<String> recentLookups = new java.util.LinkedList<>();
+	/** The clan dropdown is wanted by the clan logic AND only shown on the Clan tab. */
+	private boolean pickerWanted;
+	/** Latest clan view, so the You tab can offer Sync profile for the clan being addressed. */
+	private ConnectionView lastConnection;
+	/** Discards a card that lands after a newer request was made. */
+	private int lookupSeq;
+	private int youSeq;
+	private PlayerCard youCard;
+	private String youCardRsn;
 
 	// Header controls (persistent across state changes).
 	// Which clan the plugin is pointed at. One Anvil serves every clan and a person can hold seats in
@@ -190,12 +227,21 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean rebuildingPicker;
 	private boolean fetchInFlight;
 
+	AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
+		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor)
+	{
+		this(dataSource, apiClient, configManager, executor, null, null);
+	}
+
 	@Inject
 	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
-		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor)
+		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor,
+		ItemManager itemManager, SpriteManager spriteManager)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
+		this.itemManager = itemManager;
+		this.spriteManager = spriteManager;
 		this.apiClient = apiClient;
 		this.configManager = configManager;
 		this.executor = executor;
@@ -209,7 +255,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
 		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		add(content, BorderLayout.CENTER);
+		buildTabBodies();
+		tabBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		tabBody.add(content, Tab.CLAN.name());
+		tabBody.add(youPanel, Tab.YOU.name());
+		tabBody.add(lookupPanel, Tab.LOOKUP.name());
+		add(tabBody, BorderLayout.CENTER);
 
 		autoRefresh = new Timer(POLL_INTERVAL_MS, e ->
 		{
@@ -326,9 +377,322 @@ public class AnvilSidebarPanel extends PluginPanel
 			dataSource.chooseClan(sel.slug);
 			renderLoading();
 		});
-		header.add(clanPicker, BorderLayout.SOUTH);
+		JPanel south = new JPanel(new BorderLayout(0, 6));
+		south.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		south.add(buildTabStrip(), BorderLayout.NORTH);
+		south.add(clanPicker, BorderLayout.SOUTH);
+		header.add(south, BorderLayout.SOUTH);
 
 		return header;
+	}
+
+	// ---- Tabs ---------------------------------------------------------------------------------------
+
+	private JPanel buildTabStrip()
+	{
+		tabStrip.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		for (Tab t : Tab.values())
+		{
+			String name = t == Tab.CLAN ? "Clan" : t == Tab.YOU ? "You" : "Lookup";
+			JLabel label = new JLabel(name, SwingConstants.CENTER);
+			label.setFont(FontManager.getRunescapeSmallFont());
+			label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			label.addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mouseClicked(MouseEvent e)
+				{
+					selectTab(t);
+				}
+			});
+			tabLabels.put(t, label);
+			tabStrip.add(label);
+		}
+		styleTabs();
+		tabStrip.setVisible(false);
+		return tabStrip;
+	}
+
+	/** Selected: white with an orange underline. The rest: grey over a hairline, like WOM's tabs. */
+	private void styleTabs()
+	{
+		for (Map.Entry<Tab, JLabel> e : tabLabels.entrySet())
+		{
+			boolean on = e.getKey() == tab;
+			e.getValue().setForeground(on ? Color.WHITE : VALUE_COLOR);
+			e.getValue().setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createMatteBorder(0, 0, on ? 2 : 1, 0, on ? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR),
+				BorderFactory.createEmptyBorder(4, 0, on ? 3 : 4, 0)));
+		}
+	}
+
+	private void buildTabBodies()
+	{
+		for (JPanel p : new JPanel[]{youPanel, lookupPanel, lookupResult, lookupRecentRow})
+		{
+			p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+			p.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			p.setAlignmentX(LEFT_ALIGNMENT);
+		}
+
+		lookupSearch.setIcon(IconTextField.Icon.SEARCH);
+		lookupSearch.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		lookupSearch.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
+		lookupSearch.setPreferredSize(new Dimension(PluginPanel.PANEL_WIDTH - 20, 30));
+		lookupSearch.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+		lookupSearch.setAlignmentX(LEFT_ALIGNMENT);
+		lookupSearch.addActionListener(e -> showLookup(lookupSearch.getText()));
+		lookupSearch.addClearListener(() ->
+		{
+			lookupSeq++;
+			lookupResult.removeAll();
+			lookupResult.revalidate();
+			lookupResult.repaint();
+		});
+
+		lookupPanel.add(lookupSearch);
+		lookupPanel.add(gap(6));
+		lookupPanel.add(lookupRecentRow);
+		lookupPanel.add(lookupResult);
+	}
+
+	/** Signed in to a site that serves player cards — the condition for the strip to show at all. */
+	private boolean playerCardsOn()
+	{
+		return !apiClient.needsSignIn() && dataSource.supportsPlayerCard();
+	}
+
+	/** Re-checked on every render: the capability arrives with the config, and sign-out takes it away. */
+	private void updateTabStrip()
+	{
+		boolean on = playerCardsOn();
+		if (on != tabsOn)
+		{
+			tabsOn = on;
+			tabStrip.setVisible(on);
+			if (!on && tab != Tab.CLAN)
+			{
+				selectTab(Tab.CLAN);
+			}
+		}
+		applyPicker();
+	}
+
+	private void setPickerWanted(boolean wanted)
+	{
+		pickerWanted = wanted;
+		applyPicker();
+	}
+
+	private void applyPicker()
+	{
+		clanPicker.setVisible(pickerWanted && tab == Tab.CLAN);
+	}
+
+	private void selectTab(Tab next)
+	{
+		tab = next;
+		tabCards.show(tabBody, next.name());
+		styleTabs();
+		applyPicker();
+		if (next == Tab.YOU)
+		{
+			renderYou(true);
+		}
+		revalidate();
+		repaint();
+	}
+
+	/** The ⋯ menu's "View my profile": your own card. */
+	public void showYou()
+	{
+		SwingUtilities.invokeLater(() -> selectTab(Tab.YOU));
+	}
+
+	/** Whether a lookup can open in the panel; false ⇒ the caller opens the browser instead. */
+	public boolean playerCardsAvailable()
+	{
+		return playerCardsOn();
+	}
+
+	/** Look a character up in the Lookup tab — the right-click "Anvil" entry lands here. */
+	public void showLookup(String rawName)
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			String name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
+			if (tab != Tab.LOOKUP)
+			{
+				selectTab(Tab.LOOKUP);
+			}
+			if (name.isEmpty())
+			{
+				return;
+			}
+			lookupSearch.setText(name);
+			remember(name);
+			int seq = ++lookupSeq;
+			lookupResult.removeAll();
+			lookupResult.add(cardMessage("Looking up " + name + "…"));
+			lookupResult.revalidate();
+			lookupResult.repaint();
+			executor.execute(() ->
+			{
+				BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(name);
+				SwingUtilities.invokeLater(() ->
+				{
+					if (seq != lookupSeq)
+					{
+						return; // a newer lookup has started; this answer is for a name nobody's looking at
+					}
+					lookupResult.removeAll();
+					lookupResult.add(cardFor(name, result));
+					lookupResult.revalidate();
+					lookupResult.repaint();
+				});
+			});
+		});
+	}
+
+	private void remember(String name)
+	{
+		recentLookups.removeIf(n -> Rsn.same(n, name));
+		recentLookups.addFirst(name);
+		while (recentLookups.size() > 5)
+		{
+			recentLookups.removeLast();
+		}
+		lookupRecentRow.removeAll();
+		if (recentLookups.size() > 1)
+		{
+			JPanel wrap = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+			wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			wrap.setAlignmentX(LEFT_ALIGNMENT);
+			JLabel intro = new JLabel("Recent: ");
+			intro.setFont(FontManager.getRunescapeSmallFont());
+			intro.setForeground(VALUE_COLOR);
+			wrap.add(intro);
+			boolean first = true;
+			for (String n : recentLookups.subList(1, recentLookups.size()))
+			{
+				if (!first)
+				{
+					JLabel dot = new JLabel(" · ");
+					dot.setFont(FontManager.getRunescapeSmallFont());
+					dot.setForeground(VALUE_COLOR);
+					wrap.add(dot);
+				}
+				first = false;
+				JLabel link = new JLabel(n);
+				link.setFont(FontManager.getRunescapeSmallFont());
+				styleLink(link, "Look up " + n, () -> showLookup(n));
+				wrap.add(link);
+			}
+			wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrap.getPreferredSize().height * 2));
+			lookupRecentRow.add(wrap);
+			lookupRecentRow.add(gap(6));
+		}
+		lookupRecentRow.revalidate();
+	}
+
+	/**
+	 * Your own card, Sync profile and your sounds.
+	 *
+	 * @param refetch fetch the card again (opening the tab) rather than redraw what we hold (a refresh)
+	 */
+	private void renderYou(boolean refetch)
+	{
+		youPanel.removeAll();
+		String me = dataSource.myRsn();
+		if (me == null)
+		{
+			youPanel.add(cardMessage("Log in to a character to see your card."));
+		}
+		else
+		{
+			boolean cached = youCard != null && Rsn.same(youCardRsn, me);
+			youPanel.add(cached
+				? PlayerCardView.render(youCard, itemManager, spriteManager)
+				: cardMessage("Loading your card…"));
+			if (refetch || !cached)
+			{
+				fetchYou(me);
+			}
+		}
+
+		ConnectionView c = lastConnection;
+		if (c != null && dataSource.actionsFor(c.instanceId).canSyncProfile)
+		{
+			youPanel.add(gap(12));
+			youPanel.add(sectionHeader("Your profile"));
+			youPanel.add(gap(6));
+			youPanel.add(fullWidth(actionButton("Sync profile",
+				"Send your collection log and best times to Anvil", dataSource::syncProfile)));
+		}
+
+		youPanel.add(gap(12));
+		youPanel.add(buildBannerSounds());
+		youPanel.revalidate();
+		youPanel.repaint();
+	}
+
+	private void fetchYou(String me)
+	{
+		int seq = ++youSeq;
+		executor.execute(() ->
+		{
+			BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(me);
+			SwingUtilities.invokeLater(() ->
+			{
+				if (seq != youSeq)
+				{
+					return;
+				}
+				if (result != null && result.card != null)
+				{
+					youCard = result.card;
+					youCardRsn = me;
+					if (tab == Tab.YOU)
+					{
+						renderYou(false);
+					}
+				}
+				else if (tab == Tab.YOU)
+				{
+					youPanel.remove(0);
+					youPanel.add(cardFor(me, result), 0);
+					youPanel.revalidate();
+					youPanel.repaint();
+				}
+			});
+		});
+	}
+
+	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result)
+	{
+		if (result == null)
+		{
+			return cardMessage("Couldn't reach Anvil — try again in a moment.");
+		}
+		if (result.notFound || result.card == null)
+		{
+			return PlayerCardView.notFound(name);
+		}
+		return PlayerCardView.render(result.card, itemManager, spriteManager);
+	}
+
+	private static JPanel cardMessage(String text)
+	{
+		JPanel p = new JPanel(new BorderLayout());
+		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		p.setBorder(BorderFactory.createEmptyBorder(10, 8, 10, 8));
+		p.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel l = new JLabel(text);
+		l.setFont(FontManager.getRunescapeSmallFont());
+		l.setForeground(VALUE_COLOR);
+		p.add(l, BorderLayout.CENTER);
+		p.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.getPreferredSize().height));
+		return p;
 	}
 
 	// ---- Lifecycle (Activatable) — poll only while the panel is on screen -------------------------
@@ -471,7 +835,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			JMenuItem profile = new JMenuItem("View my profile on Anvil");
 			profile.setToolTipText("Open " + row.rsn + "'s Anvil profile in your browser");
-			profile.addActionListener(e -> ProfileLookup.open(row.rsn));
+			profile.addActionListener(e ->
+			{
+				if (tabsOn)
+				{
+					showYou();
+				}
+				else
+				{
+					ProfileLookup.open(row.rsn);
+				}
+			});
 			menu.add(profile);
 		}
 		if (row != null && row.state == SidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight)
@@ -658,7 +1032,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
 		rebuildingPicker = false;
-		clanPicker.setVisible(false); // no config for the new credentials yet, so no clans to choose between
+		setPickerWanted(false); // no config for the new credentials yet, so no clans to choose between
 		setSignInStatus("");
 		refreshSignInRow();
 		renderLoading();
@@ -801,7 +1175,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			clanPicker.setModel(model);
 			// Nothing chosen — the site is deciding, which is the Auto row.
 			clanPicker.setSelectedItem(toSelect != null ? toSelect : choices.isEmpty() ? null : choices.get(0));
-			clanPicker.setVisible(choices.size() > 2);
+			setPickerWanted(choices.size() > 2);
 		}
 		finally
 		{
@@ -1400,9 +1774,14 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		// The clan's own controls, under whatever is running. Home only, and only what this account
 		// can actually do — see SidebarDataSource.actionsFor.
-		body.add(buildPanelActions(c));
-		body.add(gap(12));
-		body.add(buildBannerSounds());
+		lastConnection = c;
+		body.add(buildPanelActions(c, !playerCardsOn()));
+		if (!playerCardsOn())
+		{
+			// With tabs on, your sounds are yours, not the clan's: they live on the You tab.
+			body.add(gap(12));
+			body.add(buildBannerSounds());
+		}
 		setContent(body);
 	}
 
@@ -1546,14 +1925,17 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * says why rather than vanishing without explanation. Both buttons carry the same limits as
 	 * their in-game counterparts, which live in the plugin, not here.
 	 */
-	private JPanel buildPanelActions(ConnectionView c)
+	private JPanel buildPanelActions(ConnectionView c, boolean withProfile)
 	{
 		JPanel panel = new JPanel();
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		panel.setAlignmentX(LEFT_ALIGNMENT);
 
-		SidebarDataSource.PanelActions actions = dataSource.actionsFor(c.instanceId);
+		SidebarDataSource.PanelActions full = dataSource.actionsFor(c.instanceId);
+		// Sync profile sends YOUR log and best times; with the You tab showing it lives there.
+		SidebarDataSource.PanelActions actions = withProfile ? full
+			: new SidebarDataSource.PanelActions(full.canSyncRoster, false, full.rosterNote);
 		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null)
 		{
 			return panel; // nothing this account can do here; no empty heading either
@@ -1729,6 +2111,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				dataSource.toggleBannerSound(clip);
 				renderSelected();
+				if (tab == Tab.YOU)
+				{
+					renderYou(false);
+				}
 			}
 
 			@Override
@@ -4218,6 +4604,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		SwingUtilities.invokeLater(() ->
 		{
+			updateTabStrip();
+			if (tab == Tab.YOU)
+			{
+				renderYou(false); // a refresh can change what You shows: the character, Sync profile, sounds
+			}
 			content.removeAll();
 			if (component instanceof javax.swing.JComponent)
 			{

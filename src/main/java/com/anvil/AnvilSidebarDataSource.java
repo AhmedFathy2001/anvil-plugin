@@ -297,6 +297,25 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public boolean supportsPlayerCard()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg != null && cfg.serverSupports("player-card");
+	}
+
+	@Override
+	public BingoApiClient.PlayerCardResult fetchPlayerCard(String rsn)
+	{
+		return apiClient.fetchPlayerCard(rsn);
+	}
+
+	@Override
+	public String myRsn()
+	{
+		return apiClient.getCurrentRsn();
+	}
+
+	@Override
 	public boolean supportsTileClaims()
 	{
 		PluginConfigResponse cfg = configSupplier.get();

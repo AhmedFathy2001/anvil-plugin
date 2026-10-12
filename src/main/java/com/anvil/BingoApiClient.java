@@ -754,6 +754,62 @@ public class BingoApiClient
 		}
 	}
 
+	/** What {@link #fetchPlayerCard} found: the card, or why there isn't one. */
+	public static final class PlayerCardResult
+	{
+		public final PlayerCard card;
+		/** True when the site answered 404 — not on Anvil, or not shared. */
+		public final boolean notFound;
+
+		PlayerCardResult(PlayerCard card, boolean notFound)
+		{
+			this.card = card;
+			this.notFound = notFound;
+		}
+	}
+
+	/**
+	 * One character's card for the Lookup / You tabs ({@code player-card} capability). Blocking; call
+	 * off the EDT. Null on a network failure, a result with {@code notFound} on a 404.
+	 *
+	 * <p>Only the Account Token travels — no X-RSN, no account hash. The route reads the token to let
+	 * you see your own unshared characters and does nothing else with it, and a lookup is about
+	 * somebody else, so the identity headers that drive claims and linking have no business here.</p>
+	 */
+	public PlayerCardResult fetchPlayerCard(String rsn)
+	{
+		String url = ProfileLookup.apiCardUrl(rsn);
+		if (url == null)
+		{
+			return null;
+		}
+		Request.Builder rb = new Request.Builder().url(url).get()
+			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
+		String token = playerToken;
+		if (token != null && !token.trim().isEmpty())
+		{
+			rb.header("Authorization", "Bearer " + token.trim());
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 404)
+			{
+				return new PlayerCardResult(null, true);
+			}
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			PlayerCard card = gson.fromJson(response.body().string(), PlayerCard.class);
+			return card == null ? null : new PlayerCardResult(card, false);
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("player card fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	/**
 	 * Claim a tile on your own team ("I'm going for this"), or update your note on it. The server
 	 * takes the team from the token. Throws with the server's own explanation on refusal (tile

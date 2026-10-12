@@ -27,7 +27,10 @@ import net.runelite.client.util.Text;
  * entry slotted next to the game's own options, the same placement the hiscores "Lookup" uses, so it
  * sits where a person already looks for "who is this".</p>
  *
- * <p>Your own page is the side panel's account menu, not this: the game offers no player menu on
+ * <p>Where it lands: the side panel's Lookup tab when the site serves player cards, the browser when
+ * it doesn't (an older site, or signed out).</p>
+ *
+ * <p>Your own card is the side panel's You tab, not this: the game offers no player menu on
  * yourself.</p>
  *
  * <p>The URL is built here and nowhere else. It always points at {@link BingoApiClient#CANONICAL_SITE}
@@ -48,6 +51,8 @@ final class ProfileLookup
 	private final EventBus eventBus;
 
 	private boolean playerItemShown;
+	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
+	private volatile java.util.function.Predicate<String> panelOpener;
 
 	@Inject
 	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus)
@@ -73,6 +78,14 @@ final class ProfileLookup
 			return null;
 		}
 		return BingoApiClient.CANONICAL_SITE + "/p/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+	}
+
+	/** The card API for {@code rsn} ({@code player-card} capability), or null when there is no name. */
+	static String apiCardUrl(String rsn)
+	{
+		String page = profileUrl(rsn);
+		return page == null ? null
+			: BingoApiClient.CANONICAL_SITE + "/api/players/" + page.substring(page.lastIndexOf('/') + 1) + "/card";
 	}
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
@@ -129,6 +142,22 @@ final class ProfileLookup
 		}
 	}
 
+	void setPanelOpener(java.util.function.Predicate<String> opener)
+	{
+		this.panelOpener = opener;
+	}
+
+	/** The panel's Lookup tab when it can show cards, the browser when it can't. */
+	private void lookUp(String rsn)
+	{
+		java.util.function.Predicate<String> opener = panelOpener;
+		if (opener != null && rsn != null && opener.test(rsn))
+		{
+			return;
+		}
+		open(rsn);
+	}
+
 	/** Add or remove the in-world player item to match the setting. Called on start and config change. */
 	void syncPlayerItem()
 	{
@@ -166,7 +195,7 @@ final class ProfileLookup
 			.setTarget(event.getTarget())
 			.setType(MenuAction.RUNELITE)
 			.setIdentifier(event.getIdentifier())
-			.onClick(e -> open(Text.removeTags(e.getTarget())));
+			.onClick(e -> lookUp(Text.removeTags(e.getTarget())));
 	}
 
 	@Subscribe
@@ -179,7 +208,7 @@ final class ProfileLookup
 		Player player = event.getMenuEntry().getPlayer();
 		if (player != null)
 		{
-			open(player.getName());
+			lookUp(player.getName());
 		}
 	}
 }
