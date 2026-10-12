@@ -13,6 +13,8 @@ public final class ClanCard
 	public String logoUrl;
 	public int members;
 	public int activeThisWeek;
+	/** EHP + EHB gained by the members in the last 7 days. */
+	public double weekHours;
 	public double totalEhp;
 	public double totalEhb;
 	public List<Gainer> topWeek;

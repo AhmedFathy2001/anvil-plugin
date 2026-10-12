@@ -929,6 +929,12 @@ public class AnvilSidebarPanel extends PluginPanel
 				lookupResult.removeAll();
 				lookupResult.add(backRow("Back to " + theirs.name, () -> showClan(theirs.slug)));
 				lookupResult.add(mine == null ? cardMessage("Couldn't load your clan — try again in a moment.") : ClanCardView.compare(mine, theirs));
+				if (mine != null)
+				{
+					lookupResult.add(gap(6));
+					lookupResult.add(fullWidth(actionButton("Full comparison on the site ↗", "Top players, gainers and highlights side by side",
+						() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare/clans?a=" + urlPart(mine.slug) + "&b=" + urlPart(theirs.slug)))));
+				}
 				lookupResult.revalidate();
 				lookupResult.repaint();
 			});
@@ -965,10 +971,23 @@ public class AnvilSidebarPanel extends PluginPanel
 				lookupResult.add(backRow("Back to " + them.rsn, () -> showLookup(them.rsn)));
 				lookupResult.add(myCard == null ? cardMessage("Couldn't load your card — try again in a moment.")
 					: CompareView.players(myCard, them, cardIcons(null)));
+				if (myCard != null)
+				{
+					lookupResult.add(gap(6));
+					// The panel shows the headline and the biggest gaps; the page has every skill, boss and page.
+					lookupResult.add(fullWidth(actionButton("Full comparison on the site ↗", "Every skill, boss and log page side by side",
+						() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare?a=" + urlPart(myCard.rsn) + "&b=" + urlPart(them.rsn)))));
+				}
 				lookupResult.revalidate();
 				lookupResult.repaint();
 			});
 		});
+	}
+
+	private static String urlPart(String s)
+	{
+		return java.net.URLEncoder.encode(s == null ? "" : s.replace('\u00A0', ' ').trim(), java.nio.charset.StandardCharsets.UTF_8)
+			.replace("+", "%20");
 	}
 
 	private JPanel backRow(String text, Runnable back)

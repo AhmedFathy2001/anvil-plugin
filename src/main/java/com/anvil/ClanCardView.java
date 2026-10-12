@@ -89,7 +89,7 @@ final class ClanCardView
 		{
 			root.add(gap(6));
 			JPanel week = block();
-			week.add(header("This week", String.format(Locale.ROOT, "%.0fh EHP+EHB total", card.totalEhp + card.totalEhb)));
+			week.add(header("This week", String.format(Locale.ROOT, "+%,.0fh gained", card.weekHours)));
 			week.add(gap(4));
 			int place = 1;
 			for (ClanCard.Gainer g : card.topWeek)
@@ -194,23 +194,9 @@ final class ClanCardView
 		block.add(CompareView.row("Total EHB", Math.round(a.totalEhb), Math.round(b.totalEhb), n -> String.format(Locale.ROOT, "%,dh", n)));
 		block.add(CompareView.row("Avg log slots", a.clog == null ? -1 : a.clog.average, b.clog == null ? -1 : b.clog.average,
 			n -> n < 0 ? "—" : String.format(Locale.ROOT, "%,d", n)));
-		long weekA = sumHours(a.topWeek);
-		long weekB = sumHours(b.topWeek);
-		block.add(CompareView.row("Top 3 this week", weekA, weekB, n -> n + "h"));
+		block.add(CompareView.row("Gained this week", Math.round(a.weekHours), Math.round(b.weekHours),
+			n -> String.format(Locale.ROOT, "%,dh", n)));
 		return block;
-	}
-
-	private static long sumHours(List<ClanCard.Gainer> g)
-	{
-		double t = 0;
-		if (g != null)
-		{
-			for (ClanCard.Gainer x : g)
-			{
-				t += x.hours;
-			}
-		}
-		return Math.round(t);
 	}
 
 }
