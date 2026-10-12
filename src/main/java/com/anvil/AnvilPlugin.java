@@ -766,6 +766,15 @@ public class AnvilPlugin extends Plugin {
     // mislabels every tracked skill tile as "You"). The first sighting per skill just seeds the baseline.
     private final java.util.Map<Skill, Integer> lastSkillXp = new java.util.EnumMap<>(Skill.class);
     private final java.util.Set<String> notified99 = new java.util.HashSet<>();
+    // True from the login screen until the game has sent this account's stat table. Until then the
+    // client's levels are placeholders (every skill 1, total 24-ish) and the login burst of StatChanged
+    // is the table ARRIVING, not anyone levelling — so nothing announces and nothing is baselined off
+    // it. Without this, the seed taken at LOGGED_IN read those placeholders and every existing 99
+    // "happened" again on the welcome screen (2026-10-12, a maxed-ish account posted 99 after 99).
+    private boolean statsUnsettled;
+    private int statsSettleTicks;
+    // Ticks after login before the table counts as arrived (it lands in a burst; this is margin).
+    private static final int STATS_SETTLE_TICKS = 3;
     // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
     // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
     // ~1750 so it kicks in for high accounts without spamming every 50 levels.
@@ -1334,6 +1343,9 @@ public class AnvilPlugin extends Plugin {
         // Starting up already in-game leaves it unknown, which the rule reads as "log out and back
         // in", since we can't say when the last hiscores flush was.
         freshLoginPending = client.getGameState() == GameState.LOGIN_SCREEN;
+        if (client.getGameState() != GameState.LOGGED_IN) {
+            unsettleStats();
+        }
         sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
         autoStartProofTried = false;
 
@@ -1600,7 +1612,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void seedSkillLevels() {
         clientThread.invokeLater(() -> {
-            if (client.getGameState() != GameState.LOGGED_IN) {
+            if (client.getGameState() != GameState.LOGGED_IN || !statTableLoaded()) {
                 return;
             }
             lastSkillLevel.clear();
@@ -1619,6 +1631,45 @@ public class AnvilPlugin extends Plugin {
                 }
             }
         });
+    }
+
+    /**
+     * Whether the client holds this account's real stat table rather than the placeholder it shows
+     * before the game sends it. Hitpoints starts at 10 on every account, so anything under it means
+     * the table hasn't arrived.
+     */
+    private boolean statTableLoaded() {
+        return client.getRealSkillLevel(Skill.HITPOINTS) >= 10;
+    }
+
+    /** Back at the login screen (or starting there): the next stat burst is a table arriving. */
+    private void unsettleStats() {
+        statsUnsettled = true;
+        statsSettleTicks = 0;
+        lastSkillLevel.clear();
+        lastSkillXp.clear();
+        notified99.clear();
+        totalLevelInitialized = false;
+        lastTotalLevel = -1;
+    }
+
+    /**
+     * Once the login burst is over, take the table as the session's starting point: existing 99s
+     * marked announced, the total baselined. From here a rise is a real level-up.
+     */
+    private void maybeSettleStats() {
+        if (!statsUnsettled || client.getGameState() != GameState.LOGGED_IN) {
+            return;
+        }
+        if (++statsSettleTicks < STATS_SETTLE_TICKS || !statTableLoaded()) {
+            return;
+        }
+        statsUnsettled = false;
+        seedSkillLevels();
+        if (!statsAreArtificial()) {
+            lastTotalLevel = client.getTotalLevel();
+            totalLevelInitialized = true;
+        }
     }
 
     @Subscribe
@@ -1646,8 +1697,8 @@ public class AnvilPlugin extends Plugin {
         }
         maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
 
-        if (!config.notifyLevelUps()) {
-            return;
+        if (!config.notifyLevelUps() || statsUnsettled) {
+            return; // unsettled: the table arriving after login, not a level-up (maybeSettleStats)
         }
         int level = event.getLevel();
         Integer prev = lastSkillLevel.put(skill, level);
@@ -2306,6 +2357,7 @@ public class AnvilPlugin extends Plugin {
 
     @Subscribe
     public void onGameTick(GameTick event) {
+        maybeSettleStats();
         maybeStampIdentityOnTick();
         WorldPoint here = needsStartProof() ? realWorldPosition() : null;
         startProofStillTicks = here != null && here.equals(startProofPosition) ? startProofStillTicks + 1 : 0;
@@ -2400,7 +2452,7 @@ public class AnvilPlugin extends Plugin {
         // Baseline total level once after login so high-total posts fire on real crossings only. Defer
         // it on preset/alt-save worlds (PvP Arena, Leagues, …) so their inflated total isn't taken as
         // the real baseline — it seeds on the first normal world instead.
-        if (!totalLevelInitialized && client.getGameState() == GameState.LOGGED_IN && !statsAreArtificial()) {
+        if (!totalLevelInitialized && !statsUnsettled && client.getGameState() == GameState.LOGGED_IN && !statsAreArtificial()) {
             int t = client.getTotalLevel();
             if (t > 0) {
                 lastTotalLevel = t;
@@ -2565,6 +2617,9 @@ public class AnvilPlugin extends Plugin {
             lootingBagWatchBase = null;
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
+            // The next account's stats haven't been sent yet; what the client holds until then is
+            // either a placeholder or the previous account's.
+            unsettleStats();
             helloSent = false;
             identityStampPending = false;
             clogOpen = false;
@@ -9864,7 +9919,7 @@ public class AnvilPlugin extends Plugin {
         // NOT gated on the Discord channel here. The gate moved down to the post itself, because this
         // method also advances lastTotalLevel and feeds the clan's highlight feed — returning early
         // for want of a webhook froze the baseline and lost the milestone from both.
-        if (statsAreArtificial()) {
+        if (statsAreArtificial() || statsUnsettled) {
             return;
         }
         int total = client.getTotalLevel();
