@@ -157,4 +157,18 @@ public class PlayerCardViewTest
 		assertEquals(24, PlayerCardView.SKILL_GRID.length);
 		assertEquals(24, new java.util.HashSet<>(java.util.Arrays.asList(PlayerCardView.SKILL_GRID)).size());
 	}
+
+	@Test
+	public void timesRenderGroupedAndSafe()
+	{
+		String json = "{\"rsn\":\"Drenvox\",\"times\":[{\"base\":\"Chambers of Xeric\",\"modes\":["
+			+ "{\"mode\":\"\",\"variants\":[{\"team\":\"Solo\",\"time\":\"16:43.00\",\"activity\":\"Chambers of Xeric Solo\"}]},"
+			+ "{\"mode\":\"Challenge Mode\",\"variants\":[{\"team\":\"5\",\"time\":\"36:32.00\",\"activity\":\"<html>x\"}]}]},"
+			+ "{\"base\":\"<html>Vorkath\",\"modes\":[{\"mode\":\"\",\"variants\":[{\"team\":\"\",\"time\":\"1:10.00\",\"activity\":\"Vorkath\"}]}]}]}";
+		PlayerCard card = new Gson().fromJson(json, PlayerCard.class);
+		assertEquals(2, card.times.size());
+		assertEquals("Challenge Mode", card.times.get(0).modes.get(1).mode);
+		javax.swing.JPanel panel = PlayerCardView.render(card, PlayerCardView.Icons.NONE, "Times", s -> { });
+		assertNoHtml(panel);
+	}
 }

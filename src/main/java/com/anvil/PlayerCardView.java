@@ -152,6 +152,10 @@ final class PlayerCardView
 		{
 			sections.put("Clues", activities(card.activities, ic));
 		}
+		if (card.times != null && !card.times.isEmpty())
+		{
+			sections.put("Times", times(card.times, ic));
+		}
 		if (!sections.isEmpty())
 		{
 			root.add(gap(BLOCK_GAP));
@@ -487,6 +491,86 @@ final class PlayerCardView
 		}
 		block.add(grid);
 		return block;
+	}
+
+	/**
+	 * Personal bests, one entry per boss: a raid's modes as lines, each team size a chip — the dozen
+	 * near-identical "Chambers of Xeric … Players" rows read as one thing.
+	 */
+	private static JPanel times(List<PlayerCard.PbGroup> groups, Icons ic)
+	{
+		JPanel block = block();
+		boolean first = true;
+		for (PlayerCard.PbGroup g : groups)
+		{
+			if (g.modes == null || g.modes.isEmpty())
+			{
+				continue;
+			}
+			if (!first)
+			{
+				block.add(gap(8));
+			}
+			first = false;
+			boolean single = g.modes.size() == 1 && g.modes.get(0).variants != null
+				&& g.modes.get(0).variants.size() == 1 && isBlank(g.modes.get(0).variants.get(0).team);
+
+			JPanel head = new JPanel(new BorderLayout(6, 0));
+			head.setOpaque(false);
+			head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			JLabel icon = new JLabel();
+			icon.setPreferredSize(new Dimension(24, 22));
+			icon.setHorizontalAlignment(SwingConstants.CENTER);
+			HiscoreSkill skill = hiscoreSkill(null, g.base);
+			if (skill != null && skill.getSpriteId() > 0 && ic.sprites != null)
+			{
+				ic.sprites.addSpriteTo(icon, skill.getSpriteId(), 0);
+			}
+			head.add(icon, BorderLayout.WEST);
+			head.add(small(g.base, Color.WHITE), BorderLayout.CENTER);
+			if (single)
+			{
+				head.add(small(g.modes.get(0).variants.get(0).time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
+			}
+			head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
+			block.add(head);
+			if (single)
+			{
+				continue;
+			}
+			for (PlayerCard.PbMode m : g.modes)
+			{
+				if (g.modes.size() > 1 || !isBlank(m.mode))
+				{
+					JLabel mode = small(isBlank(m.mode) ? "Normal" : m.mode, MUTED);
+					mode.setBorder(BorderFactory.createEmptyBorder(3, 30, 1, 0));
+					block.add(mode);
+				}
+				JPanel chips = new JPanel(new GridLayout(0, 2, 4, 3));
+				chips.setOpaque(false);
+				chips.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+				chips.setBorder(BorderFactory.createEmptyBorder(2, 30, 0, 0));
+				for (PlayerCard.PbVariant v : m.variants == null ? java.util.Collections.<PlayerCard.PbVariant>emptyList() : m.variants)
+				{
+					JPanel chip = new JPanel(new BorderLayout(4, 0));
+					chip.setBackground(ColorScheme.DARK_GRAY_COLOR);
+					chip.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+					chip.setToolTipText(safe(v.activity));
+					String team = isBlank(v.team) ? "" : "Solo".equalsIgnoreCase(v.team) ? "Solo" : v.team + "p";
+					chip.add(small(team, MUTED), BorderLayout.WEST);
+					chip.add(small(v.time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
+					chips.add(chip);
+				}
+				chips.setMaximumSize(new Dimension(Integer.MAX_VALUE, chips.getPreferredSize().height));
+				block.add(chips);
+			}
+		}
+		return block;
+	}
+
+	private static boolean isBlank(String s)
+	{
+		return s == null || s.trim().isEmpty();
 	}
 
 	/** Clues, minigames and the rest with a score — same grid as bosses. */

@@ -29,6 +29,30 @@ public final class PlayerCard
 	public List<Boss> bosses;
 	public List<Activity> activities;
 	public List<Page> clogPages;
+	/** Uploaded personal bests, one group per boss — a raid's modes and team sizes folded in. */
+	public List<PbGroup> times;
+
+	public static final class PbGroup
+	{
+		/** The boss or raid: "Chambers of Xeric". */
+		public String base;
+		public List<PbMode> modes;
+	}
+
+	public static final class PbMode
+	{
+		/** "" for the normal mode, else "Challenge Mode", "Expert Mode", "Awakened"… */
+		public String mode;
+		public List<PbVariant> variants;
+	}
+
+	public static final class PbVariant
+	{
+		/** "Solo", "2", "11-15", or "" when the time has no team size. */
+		public String team;
+		public String time;
+		public String activity;
+	}
 
 	public static final class Skill
 	{
