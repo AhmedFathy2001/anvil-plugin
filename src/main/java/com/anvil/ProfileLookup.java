@@ -126,6 +126,11 @@ final class ProfileLookup
 		return BEFORE_OPTIONS.contains(option) ? -1 : 0;
 	}
 
+	static boolean sameTarget(String a, String b)
+	{
+		return Text.removeTags(a == null ? "" : a).equals(Text.removeTags(b == null ? "" : b));
+	}
+
 	void startUp()
 	{
 		eventBus.register(this);
@@ -189,6 +194,15 @@ final class ProfileLookup
 		if (placement == 0)
 		{
 			return;
+		}
+		// One per name. A name's menu often carries two of the options we sit beside ("Add friend" and
+		// "Add ignore" on a stranger in chat), and each used to add its own "Anvil".
+		for (net.runelite.api.MenuEntry existing : client.getMenu().getMenuEntries())
+		{
+			if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget()))
+			{
+				return;
+			}
 		}
 		client.getMenu().createMenuEntry(placement > 0 ? -2 : -1)
 			.setOption(OPTION)

@@ -57,4 +57,11 @@ public class ProfileLookupTest
 		assertEquals(0, ProfileLookup.listPlacement(InterfaceID.FRIENDS, "Walk here"));
 		assertEquals(0, ProfileLookup.listPlacement(InterfaceID.INVENTORY, "Message"));
 	}
+
+	@Test
+	public void sameNameIgnoresColourTags()
+	{
+		org.junit.Assert.assertTrue(ProfileLookup.sameTarget("<col=ffffff>Drenvox</col>", "Drenvox"));
+		org.junit.Assert.assertFalse(ProfileLookup.sameTarget("Drenvox", "Molokhiya"));
+	}
 }
