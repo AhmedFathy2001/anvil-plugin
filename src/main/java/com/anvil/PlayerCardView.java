@@ -116,7 +116,9 @@ final class PlayerCardView
 
 		// Built before the switcher so a boss can jump into it: clicking a boss opens the log page its
 		// kills fill, which means switching to Log and opening that page in one move.
-		JPanel log = card.clogPages != null && !card.clogPages.isEmpty() ? logPages(card.rsn, card.clogPages, ic) : null;
+		JPanel log = card.clogPages != null && !card.clogPages.isEmpty()
+			? logPages(card.rsn, card.clogPages, ic, pageKills(card.bosses))
+			: null;
 		Runnable[] showLog = new Runnable[1];
 		Consumer<String> openLogPage = log == null || ic.pageLoader == null ? null : name ->
 		{
@@ -494,78 +496,109 @@ final class PlayerCardView
 	}
 
 	/**
-	 * Personal bests, one entry per boss: a raid's modes as lines, each team size a chip — the dozen
-	 * near-identical "Chambers of Xeric … Players" rows read as one thing.
+	 * Personal bests: one row per boss and mode with its best time — a raid's Challenge Mode and an
+	 * awakened boss are rows of their own. A row with several team sizes opens to list them.
 	 */
-	private static JPanel times(List<PlayerCard.PbGroup> groups, Icons ic)
+	private static JPanel times(List<PlayerCard.PbEntry> entries, Icons ic)
 	{
 		JPanel block = block();
-		boolean first = true;
-		for (PlayerCard.PbGroup g : groups)
+		for (PlayerCard.PbEntry e : entries)
 		{
-			if (g.modes == null || g.modes.isEmpty())
-			{
-				continue;
-			}
-			if (!first)
-			{
-				block.add(gap(8));
-			}
-			first = false;
-			boolean single = g.modes.size() == 1 && g.modes.get(0).variants != null
-				&& g.modes.get(0).variants.size() == 1 && isBlank(g.modes.get(0).variants.get(0).team);
-
-			JPanel head = new JPanel(new BorderLayout(6, 0));
-			head.setOpaque(false);
-			head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			boolean expandable = e.variants != null && !e.variants.isEmpty();
+			JPanel row = new JPanel(new BorderLayout(6, 0));
+			row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			row.setBorder(BorderFactory.createEmptyBorder(3, 2, 3, 4));
 			JLabel icon = new JLabel();
 			icon.setPreferredSize(new Dimension(24, 22));
 			icon.setHorizontalAlignment(SwingConstants.CENTER);
-			HiscoreSkill skill = hiscoreSkill(null, g.base);
-			if (skill != null && skill.getSpriteId() > 0 && ic.sprites != null)
+			bossIcon(icon, e.base, ic);
+			row.add(icon, BorderLayout.WEST);
+			row.add(small(e.name, Color.WHITE), BorderLayout.CENTER);
+			JPanel right = new JPanel(new BorderLayout(5, 0));
+			right.setOpaque(false);
+			right.add(small(e.best, ColorScheme.BRAND_ORANGE), BorderLayout.CENTER);
+			JLabel chevron = new JLabel(expandable ? new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED) : null);
+			chevron.setPreferredSize(new Dimension(8, 8));
+			right.add(chevron, BorderLayout.EAST);
+			row.add(right, BorderLayout.EAST);
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+			block.add(row);
+			if (!expandable)
 			{
-				ic.sprites.addSpriteTo(icon, skill.getSpriteId(), 0);
-			}
-			head.add(icon, BorderLayout.WEST);
-			head.add(small(g.base, Color.WHITE), BorderLayout.CENTER);
-			if (single)
-			{
-				head.add(small(g.modes.get(0).variants.get(0).time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
-			}
-			head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
-			block.add(head);
-			if (single)
-			{
+				row.setOpaque(false);
 				continue;
 			}
-			for (PlayerCard.PbMode m : g.modes)
+			JPanel teams = column();
+			teams.setOpaque(false);
+			teams.setBorder(BorderFactory.createEmptyBorder(0, 32, 4, 16));
+			for (PlayerCard.PbVariant v : e.variants)
 			{
-				if (g.modes.size() > 1 || !isBlank(m.mode))
-				{
-					JLabel mode = small(isBlank(m.mode) ? "Normal" : m.mode, MUTED);
-					mode.setBorder(BorderFactory.createEmptyBorder(3, 30, 1, 0));
-					block.add(mode);
-				}
-				JPanel chips = new JPanel(new GridLayout(0, 2, 4, 3));
-				chips.setOpaque(false);
-				chips.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-				chips.setBorder(BorderFactory.createEmptyBorder(2, 30, 0, 0));
-				for (PlayerCard.PbVariant v : m.variants == null ? java.util.Collections.<PlayerCard.PbVariant>emptyList() : m.variants)
-				{
-					JPanel chip = new JPanel(new BorderLayout(4, 0));
-					chip.setBackground(ColorScheme.DARK_GRAY_COLOR);
-					chip.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-					chip.setToolTipText(safe(v.activity));
-					String team = isBlank(v.team) ? "" : "Solo".equalsIgnoreCase(v.team) ? "Solo" : v.team + "p";
-					chip.add(small(team, MUTED), BorderLayout.WEST);
-					chip.add(small(v.time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
-					chips.add(chip);
-				}
-				chips.setMaximumSize(new Dimension(Integer.MAX_VALUE, chips.getPreferredSize().height));
-				block.add(chips);
+				JPanel line = new JPanel(new BorderLayout());
+				line.setOpaque(false);
+				line.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+				line.setToolTipText(safe(v.activity));
+				line.add(small("Solo".equalsIgnoreCase(v.team) ? "Solo" : v.team + " players", MUTED), BorderLayout.WEST);
+				line.add(small(v.time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
+				line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
+				teams.add(line);
 			}
+			teams.setVisible(false);
+			block.add(teams);
+			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () ->
+			{
+				teams.setVisible(!teams.isVisible());
+				chevron.setIcon(new GlyphIcon(teams.isVisible() ? GlyphIcon.Shape.CHEVRON_LEFT : GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED));
+				block.revalidate();
+				block.repaint();
+			});
 		}
 		return block;
+	}
+
+	/**
+	 * The game's own picture for a boss named the way a personal best names it: the matcher first
+	 * (RuneLite's "THE_" names, modes), then a boss whose name it contains ("Demonic Brutus" → Brutus),
+	 * then a skill it names (agility courses). Nothing at all leaves the cell empty.
+	 */
+	static HiscoreSkill bossFor(String name)
+	{
+		HiscoreSkill direct = hiscoreSkill(name, name);
+		if (direct != null)
+		{
+			return direct;
+		}
+		String f = fold(name);
+		HiscoreSkill best = null;
+		for (HiscoreSkill s : HiscoreSkill.values())
+		{
+			String n = fold(s.getName());
+			if (n.length() >= 4 && f.contains(n) && (best == null || n.length() > fold(best.getName()).length()))
+			{
+				best = s;
+			}
+		}
+		return best;
+	}
+
+	private static void bossIcon(JLabel icon, String name, Icons ic)
+	{
+		HiscoreSkill boss = bossFor(name);
+		if (boss != null && boss.getSpriteId() > 0 && ic.sprites != null)
+		{
+			ic.sprites.addSpriteTo(icon, boss.getSpriteId(), 0);
+			return;
+		}
+		if (ic.skills != null && name != null)
+		{
+			for (Skill skill : SKILL_GRID)
+			{
+				if (name.toLowerCase(Locale.ROOT).contains(skill.getName().toLowerCase(Locale.ROOT)))
+				{
+					icon.setIcon(new ImageIcon(ic.skills.getSkillImage(skill, true)));
+					return;
+				}
+			}
+		}
 	}
 
 	private static boolean isBlank(String s)
@@ -671,11 +704,41 @@ final class PlayerCardView
 	 * pages (icon, count, ›) → the page's items, lit and dim. A long list that expanded in place didn't
 	 * say it could open, and mixed every shelf into one scroll.
 	 */
-	private static JPanel logPages(String rsn, List<PlayerCard.Page> pages, Icons ic)
+	/**
+	 * Kills behind each log page — a raid's page counts every mode (bosses carry the page their kills
+	 * fill), so "Chambers of Xeric" is normal and Challenge Mode together, as the game's log counts it.
+	 */
+	static Map<String, Integer> pageKills(List<PlayerCard.Boss> bosses)
+	{
+		Map<String, Integer> out = new java.util.HashMap<>();
+		if (bosses != null)
+		{
+			for (PlayerCard.Boss b : bosses)
+			{
+				if (b.clogPage != null && b.kc > 0)
+				{
+					out.merge(b.clogPage.toLowerCase(Locale.ROOT), b.kc, Integer::sum);
+				}
+			}
+		}
+		return out;
+	}
+
+	private static final String PAGE_KC = "anvil.pageKc";
+
+	private static Integer killsFor(JPanel holder, String page)
+	{
+		@SuppressWarnings("unchecked")
+		Map<String, Integer> kc = (Map<String, Integer>) holder.getClientProperty(PAGE_KC);
+		return kc == null || page == null ? null : kc.get(page.toLowerCase(Locale.ROOT));
+	}
+
+	private static JPanel logPages(String rsn, List<PlayerCard.Page> pages, Icons ic, Map<String, Integer> kills)
 	{
 		JPanel holder = new JPanel(new BorderLayout());
 		holder.setOpaque(false);
 		holder.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		holder.putClientProperty(PAGE_KC, kills);
 		JPanel root = categoryGrid(rsn, pages, ic, holder);
 		holder.putClientProperty(LOG_ROOT, root);
 		holder.add(root, BorderLayout.CENTER);
@@ -758,7 +821,19 @@ final class PlayerCardView
 		}
 		row.add(icon, BorderLayout.WEST);
 		boolean complete = p.total > 0 && p.obtained >= p.total;
-		row.add(small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
+		Integer kc = killsFor(holder, p.name);
+		if (kc != null)
+		{
+			JPanel text = column();
+			text.setOpaque(false);
+			text.add(small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE));
+			text.add(small(String.format(Locale.ROOT, "%,d kc", kc), MUTED));
+			row.add(text, BorderLayout.CENTER);
+		}
+		else
+		{
+			row.add(small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
+		}
 		JPanel right = new JPanel(new BorderLayout(6, 0));
 		right.setOpaque(false);
 		right.add(small(p.obtained + "/" + p.total, MUTED), BorderLayout.CENTER);
@@ -830,7 +905,9 @@ final class PlayerCardView
 	private static void showPage(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JComponent back)
 	{
 		JPanel page = block();
-		page.add(backHeader(p.name, p.obtained + "/" + p.total, p.total > 0 && p.obtained >= p.total,
+		Integer kc = killsFor(holder, p.name);
+		page.add(backHeader(p.name, p.obtained + "/" + p.total + (kc != null ? String.format(Locale.ROOT, " · %,d kc", kc) : ""),
+			p.total > 0 && p.obtained >= p.total,
 			() -> swap(holder, back == null ? (JComponent) holder.getClientProperty(LOG_ROOT) : back), rsn));
 		page.add(gap(8));
 		page.add(small("Loading…", MUTED));

@@ -118,7 +118,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// player card (PlayerCardView), and only exist while the site serves cards (the `player-card`
 	// capability): without it the strip hides and the panel is exactly what it was, Sync profile and
 	// the sound lists included. That is the rollback — pull the capability and every client goes back.
-	enum Tab { CLAN, YOU, LOOKUP }
+	enum Tab { CLAN, YOU, LOOKUP, SETTINGS }
 	private Tab tab = Tab.CLAN;
 	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
 	private boolean tabsOn;
@@ -126,10 +126,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	// Clan mid-event — and BoxLayout spread that extra height through the You card: log bars drifted
 	// apart and the grids were squeezed until their last row clipped.
 	private final JPanel tabBody = new JPanel(new BorderLayout());
-	private final JPanel tabStrip = new JPanel(new GridLayout(1, 3));
+	private final JPanel tabStrip = new JPanel(new GridBagLayout());
 	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
 	private final JPanel youPanel = new JPanel();
 	private final JPanel lookupPanel = new JPanel();
+	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
+	private final JPanel settingsPanel = new JPanel();
 	private final JPanel lookupResult = new JPanel();
 	private final JPanel lookupRecentRow = new JPanel();
 	private final JTextField lookupSearch = new JTextField();
@@ -403,11 +405,26 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildTabStrip()
 	{
 		tabStrip.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		GridBagConstraints gc = new GridBagConstraints();
+		gc.fill = GridBagConstraints.BOTH;
+		gc.gridy = 0;
 		for (Tab t : Tab.values())
 		{
-			String name = t == Tab.CLAN ? "Clan" : t == Tab.YOU ? "You" : "Lookup";
-			JLabel label = new JLabel(name, SwingConstants.CENTER);
-			label.setFont(FontManager.getRunescapeSmallFont());
+			JLabel label;
+			if (t == Tab.SETTINGS)
+			{
+				// An icon, not a fourth word: three named tabs and a narrow gear keep the strip calm.
+				label = new JLabel(new GlyphIcon(GlyphIcon.Shape.GEAR, 13), SwingConstants.CENTER);
+				label.setToolTipText("Syncing and settings");
+				label.setPreferredSize(new Dimension(34, label.getPreferredSize().height));
+				gc.weightx = 0;
+			}
+			else
+			{
+				label = new JLabel(t == Tab.CLAN ? "Clan" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
+				label.setFont(FontManager.getRunescapeSmallFont());
+				gc.weightx = 1;
+			}
 			label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			label.addMouseListener(new MouseAdapter()
 			{
@@ -418,7 +435,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				}
 			});
 			tabLabels.put(t, label);
-			tabStrip.add(label);
+			gc.gridx = t.ordinal();
+			tabStrip.add(label, gc);
 		}
 		styleTabs();
 		tabStrip.setVisible(false);
@@ -440,7 +458,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void buildTabBodies()
 	{
-		for (JPanel p : new JPanel[]{youPanel, lookupPanel, lookupResult, lookupRecentRow})
+		for (JPanel p : new JPanel[]{youPanel, lookupPanel, lookupResult, lookupRecentRow, settingsPanel})
 		{
 			p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
 			p.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -579,13 +597,18 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		tab = next;
 		tabBody.removeAll();
-		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youPanel : lookupPanel, BorderLayout.NORTH);
+		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youPanel : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
+			BorderLayout.NORTH);
 		tabBody.revalidate();
 		styleTabs();
 		applyPicker();
 		if (next == Tab.YOU)
 		{
 			renderYou(true);
+		}
+		else if (next == Tab.SETTINGS)
+		{
+			renderSettings();
 		}
 		revalidate();
 		repaint();
@@ -720,20 +743,37 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		}
 
-		ConnectionView c = lastConnection;
-		if (c != null && dataSource.actionsFor(c.instanceId).canSyncProfile)
-		{
-			youPanel.add(gap(12));
-			youPanel.add(sectionHeader("Your profile"));
-			youPanel.add(gap(6));
-			youPanel.add(fullWidth(actionButton("Sync profile",
-				"Send your collection log and best times to Anvil", dataSource::syncProfile)));
-		}
-
-		youPanel.add(gap(12));
-		youPanel.add(buildBannerSounds());
 		youPanel.revalidate();
 		youPanel.repaint();
+	}
+
+	/** ⚙ — everything that's syncing or a setting rather than something to look at. */
+	private void renderSettings()
+	{
+		settingsPanel.removeAll();
+		ConnectionView c = lastConnection;
+		SidebarDataSource.PanelActions actions = c == null ? SidebarDataSource.PanelActions.NONE : dataSource.actionsFor(c.instanceId);
+		if (actions.canSyncProfile)
+		{
+			settingsPanel.add(sectionHeader("Your profile"));
+			settingsPanel.add(gap(6));
+			settingsPanel.add(fullWidth(actionButton("Sync profile",
+				"Send your collection log and best times to Anvil", dataSource::syncProfile)));
+			settingsPanel.add(gap(12));
+		}
+		if (c != null)
+		{
+			// The roster button for an admin at home, or the reason it's absent (buildPanelActions).
+			JPanel roster = buildPanelActions(c, false);
+			if (roster.getComponentCount() > 0)
+			{
+				settingsPanel.add(roster);
+				settingsPanel.add(gap(12));
+			}
+		}
+		settingsPanel.add(buildBannerSounds());
+		settingsPanel.revalidate();
+		settingsPanel.repaint();
 	}
 
 	private void fetchGoals()
@@ -1936,10 +1976,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		// The clan's own controls, under whatever is running. Home only, and only what this account
 		// can actually do — see SidebarDataSource.actionsFor.
 		lastConnection = c;
-		body.add(buildPanelActions(c, !playerCardsOn()));
 		if (!playerCardsOn())
 		{
-			// With tabs on, your sounds are yours, not the clan's: they live on the You tab.
+			// With tabs on, syncing and sounds live under ⚙; without them (an older site) they stay here.
+			body.add(buildPanelActions(c, true));
 			body.add(gap(12));
 			body.add(buildBannerSounds());
 		}
@@ -2272,9 +2312,9 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				dataSource.toggleBannerSound(clip);
 				renderSelected();
-				if (tab == Tab.YOU)
+				if (tab == Tab.SETTINGS)
 				{
-					renderYou(false);
+					renderSettings();
 				}
 			}
 
@@ -4768,7 +4808,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			updateTabStrip();
 			if (tab == Tab.YOU)
 			{
-				renderYou(false); // a refresh can change what You shows: the character, Sync profile, sounds
+				renderYou(false); // a refresh can change what You shows: the character, the card
+			}
+			else if (tab == Tab.SETTINGS)
+			{
+				renderSettings(); // admin rights and the sound list can change under it
 			}
 			content.removeAll();
 			if (component instanceof javax.swing.JComponent)

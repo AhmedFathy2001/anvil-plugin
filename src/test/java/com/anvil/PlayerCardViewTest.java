@@ -159,16 +159,41 @@ public class PlayerCardViewTest
 	}
 
 	@Test
-	public void timesRenderGroupedAndSafe()
+	public void timesRenderAsEntriesAndSafe()
 	{
-		String json = "{\"rsn\":\"Drenvox\",\"times\":[{\"base\":\"Chambers of Xeric\",\"modes\":["
-			+ "{\"mode\":\"\",\"variants\":[{\"team\":\"Solo\",\"time\":\"16:43.00\",\"activity\":\"Chambers of Xeric Solo\"}]},"
-			+ "{\"mode\":\"Challenge Mode\",\"variants\":[{\"team\":\"5\",\"time\":\"36:32.00\",\"activity\":\"<html>x\"}]}]},"
-			+ "{\"base\":\"<html>Vorkath\",\"modes\":[{\"mode\":\"\",\"variants\":[{\"team\":\"\",\"time\":\"1:10.00\",\"activity\":\"Vorkath\"}]}]}]}";
+		String json = "{\"rsn\":\"Drenvox\",\"times\":["
+			+ "{\"name\":\"Chambers of Xeric\",\"base\":\"Chambers of Xeric\",\"mode\":\"\",\"best\":\"16:43.00\",\"variants\":["
+			+ "{\"team\":\"Solo\",\"time\":\"16:43.00\",\"activity\":\"Chambers of Xeric Solo\"},"
+			+ "{\"team\":\"2\",\"time\":\"20:02.00\",\"activity\":\"<html>x\"}]},"
+			+ "{\"name\":\"<html>Vorkath\",\"base\":\"Vorkath\",\"mode\":\"\",\"best\":\"1:10.00\",\"variants\":[]}]}";
 		PlayerCard card = new Gson().fromJson(json, PlayerCard.class);
 		assertEquals(2, card.times.size());
-		assertEquals("Challenge Mode", card.times.get(0).modes.get(1).mode);
-		javax.swing.JPanel panel = PlayerCardView.render(card, PlayerCardView.Icons.NONE, "Times", s -> { });
-		assertNoHtml(panel);
+		assertEquals("16:43.00", card.times.get(0).best);
+		assertNoHtml(PlayerCardView.render(card, PlayerCardView.Icons.NONE, "Times", s -> { }));
+	}
+
+	@Test
+	public void bossIconsForPersonalBestNames()
+	{
+		assertEquals(HiscoreSkill.THE_GAUNTLET, PlayerCardView.bossFor("Gauntlet"));
+		assertEquals(HiscoreSkill.THE_CORRUPTED_GAUNTLET, PlayerCardView.bossFor("Corrupted Gauntlet"));
+		assertEquals(HiscoreSkill.THE_HUEYCOATL, PlayerCardView.bossFor("Hueycoatl"));
+		assertEquals(HiscoreSkill.THE_LEVIATHAN, PlayerCardView.bossFor("Leviathan"));
+		assertEquals(HiscoreSkill.THE_ROYAL_TITANS, PlayerCardView.bossFor("Royal Titans"));
+		assertEquals(HiscoreSkill.SOL_HEREDIT, PlayerCardView.bossFor("Sol Heredit"));
+		assertEquals(HiscoreSkill.BRUTUS, PlayerCardView.bossFor("Demonic Brutus"));
+		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.bossFor("Chambers of Xeric"));
+	}
+
+	@Test
+	public void killsAddUpPerLogPage()
+	{
+		PlayerCard.Boss cox = new PlayerCard.Boss();
+		cox.kc = 111;
+		cox.clogPage = "Chambers of Xeric";
+		PlayerCard.Boss cm = new PlayerCard.Boss();
+		cm.kc = 56;
+		cm.clogPage = "Chambers of Xeric";
+		assertEquals(Integer.valueOf(167), PlayerCardView.pageKills(java.util.Arrays.asList(cox, cm)).get("chambers of xeric"));
 	}
 }

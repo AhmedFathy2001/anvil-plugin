@@ -25,7 +25,7 @@ final class GlyphIcon implements Icon
 {
 	enum Shape
 	{
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR
 	}
 
 	private final Shape shape;
@@ -116,6 +116,19 @@ final class GlyphIcon implements Icon
 						float cx = s * (0.25f + 0.25f * i);
 						g.fill(new java.awt.geom.Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
 					}
+					break;
+				case GEAR:
+					// A ring with eight short teeth — the settings mark everyone reads without a label.
+					float cx = s / 2f;
+					float r = s * 0.24f;
+					g.draw(new java.awt.geom.Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
+					for (int i = 0; i < 8; i++)
+					{
+						double a = Math.PI / 4 * i;
+						p.moveTo(cx + Math.cos(a) * s * 0.33, cx + Math.sin(a) * s * 0.33);
+						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
+					}
+					g.draw(p);
 					break;
 				default:
 					break;

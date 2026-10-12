@@ -29,20 +29,18 @@ public final class PlayerCard
 	public List<Boss> bosses;
 	public List<Activity> activities;
 	public List<Page> clogPages;
-	/** Uploaded personal bests, one group per boss — a raid's modes and team sizes folded in. */
-	public List<PbGroup> times;
+	/** Uploaded personal bests: one entry per boss and mode, its best time first, team sizes behind it. */
+	public List<PbEntry> times;
 
-	public static final class PbGroup
+	public static final class PbEntry
 	{
-		/** The boss or raid: "Chambers of Xeric". */
+		/** "Chambers of Xeric: Challenge Mode", "Duke Sucellus (Awakened)", "Vorkath". */
+		public String name;
+		/** The boss alone — what the icon is found by. */
 		public String base;
-		public List<PbMode> modes;
-	}
-
-	public static final class PbMode
-	{
-		/** "" for the normal mode, else "Challenge Mode", "Expert Mode", "Awakened"… */
 		public String mode;
+		public String best;
+		/** Team sizes, Solo first; empty when there's only the one time. */
 		public List<PbVariant> variants;
 	}
 
