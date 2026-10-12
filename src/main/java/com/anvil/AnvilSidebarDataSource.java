@@ -303,6 +303,24 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	@Override
+	public boolean supportsClanCard()
+	{
+		return siteSupports("clan-card");
+	}
+
+	@Override
+	public ClanCard fetchClanCard(String slug)
+	{
+		return apiClient.fetchClanCard(slug);
+	}
+
+	@Override
+	public java.util.List<ClanCard.Found> lookupClans(String q)
+	{
+		return apiClient.lookupClans(q);
+	}
+
+	@Override
 	public boolean supportsGoals()
 	{
 		return siteSupports("goals");

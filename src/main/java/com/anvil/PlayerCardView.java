@@ -47,7 +47,7 @@ import net.runelite.client.ui.components.ProgressBar;
  */
 final class PlayerCardView
 {
-	private static final Color MUTED = new Color(0x98_98_98);
+	static final Color MUTED = new Color(0x98_98_98);
 	private static final int BLOCK_GAP = 6;
 
 	/** The game's skill tab, read left to right: what a player's eye already knows. */
@@ -103,10 +103,15 @@ final class PlayerCardView
 		JPanel root = column();
 		root.add(identity(card));
 
+		// The log lives in its summary block: the total, then the category tiles, which open in place to
+		// a category's pages and a page's items. It used to be a second copy under the switcher.
+		JPanel log = card.clogPages != null && !card.clogPages.isEmpty()
+			? logPages(card.rsn, card.clogPages, ic, pageKills(card.bosses))
+			: null;
 		if (card.clog != null && card.clog.total > 0)
 		{
 			root.add(gap(BLOCK_GAP));
-			root.add(clogSummary(card.clog));
+			root.add(clogSummary(card.clog, log));
 		}
 		if (card.latest != null && !card.latest.isEmpty())
 		{
@@ -114,11 +119,7 @@ final class PlayerCardView
 			root.add(latest(card.rsn, card.latest, ic));
 		}
 
-		// Built before the switcher so a boss can jump into it: clicking a boss opens the log page its
-		// kills fill, which means switching to Log and opening that page in one move.
-		JPanel log = card.clogPages != null && !card.clogPages.isEmpty()
-			? logPages(card.rsn, card.clogPages, ic, pageKills(card.bosses))
-			: null;
+		// A boss (or a clue tier) opens the log page it fills, in the log block above.
 		Runnable[] showLog = new Runnable[1];
 		Consumer<String> openLogPage = log == null || ic.pageLoader == null ? null : name ->
 		{
@@ -126,11 +127,8 @@ final class PlayerCardView
 			{
 				if (p.name.equalsIgnoreCase(name))
 				{
-					if (showLog[0] != null)
-					{
-						showLog[0].run();
-					}
 					showPage(card.rsn, p, ic, log, (JComponent) log.getClientProperty(LOG_ROOT));
+					log.scrollRectToVisible(new java.awt.Rectangle(0, 0, 1, 1));
 					return;
 				}
 			}
@@ -146,13 +144,9 @@ final class PlayerCardView
 		{
 			sections.put("Bosses", bosses(bosses, ic, openLogPage));
 		}
-		if (log != null)
-		{
-			sections.put("Log", log);
-		}
 		if (card.activities != null && !card.activities.isEmpty())
 		{
-			sections.put("Clues", activities(card.activities, ic));
+			sections.put("Clues", activities(card.activities, ic, openLogPage));
 		}
 		if (card.times != null && !card.times.isEmpty())
 		{
@@ -251,7 +245,7 @@ final class PlayerCardView
 			&& (card.topBosses == null || card.topBosses.isEmpty());
 	}
 
-	private static JPanel clogSummary(PlayerCard.Clog clog)
+	private static JPanel clogSummary(PlayerCard.Clog clog, JPanel log)
 	{
 		JPanel block = block();
 		block.add(header("Collection log", String.format(Locale.ROOT, "%,d / %,d", clog.obtained, clog.total)));
@@ -270,10 +264,16 @@ final class PlayerCardView
 		bar.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 		block.add(bar);
 
-		if (clog.groups != null && !clog.groups.isEmpty())
+		if (log != null)
+		{
+			// The categories as tiles that open — the bars that sat here only said how far each was.
+			block.add(gap(6));
+			log.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			block.add(log);
+		}
+		else if (clog.groups != null && !clog.groups.isEmpty())
 		{
 			block.add(gap(6));
-			// Two per row: six groups as six full-width rows is a second table, which is what we're avoiding.
 			JPanel grid = new JPanel(new GridLayout(0, 2, 8, 4));
 			grid.setOpaque(false);
 			grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
@@ -580,7 +580,7 @@ final class PlayerCardView
 		return best;
 	}
 
-	private static void bossIcon(JLabel icon, String name, Icons ic)
+	static void bossIcon(JLabel icon, String name, Icons ic)
 	{
 		HiscoreSkill boss = bossFor(name);
 		if (boss != null && boss.getSpriteId() > 0 && ic.sprites != null)
@@ -607,7 +607,18 @@ final class PlayerCardView
 	}
 
 	/** Clues, minigames and the rest with a score — same grid as bosses. */
-	private static JPanel activities(List<PlayerCard.Activity> rows, Icons ic)
+	/** The log page a clue tier fills: cluesHard → "Hard Treasure Trails". "All tiers" has none. */
+	static String cluePage(String key)
+	{
+		if (key == null || !key.startsWith("clues") || "cluesAll".equals(key))
+		{
+			return null;
+		}
+		String tier = key.substring("clues".length());
+		return tier.isEmpty() ? null : tier + " Treasure Trails";
+	}
+
+	private static JPanel activities(List<PlayerCard.Activity> rows, Icons ic, Consumer<String> openLogPage)
 	{
 		JPanel block = block();
 		JPanel grid = new JPanel(new GridLayout(0, 3, 2, 2));
@@ -616,8 +627,15 @@ final class PlayerCardView
 		for (PlayerCard.Activity a : rows)
 		{
 			String name = a.shortLabel != null && !a.shortLabel.isEmpty() ? a.shortLabel : a.label;
-			grid.add(iconCell(hiscoreSkill(a.key, a.label), clueItemFor(a.key), name, a.score,
-				String.format(Locale.ROOT, "%s — %,d", a.label, a.score), ic));
+			String page = cluePage(a.key);
+			boolean opens = openLogPage != null && page != null;
+			JLabel cell = iconCell(hiscoreSkill(a.key, a.label), clueItemFor(a.key), name, a.score,
+				String.format(Locale.ROOT, "%s — %,d%s", a.label, a.score, opens ? " · click for its log" : ""), ic);
+			if (opens)
+			{
+				hoverable(cell, ColorScheme.DARK_GRAY_COLOR, () -> openLogPage.accept(page));
+			}
+			grid.add(cell);
 		}
 		block.add(grid);
 		return block;
@@ -745,6 +763,14 @@ final class PlayerCardView
 		return holder;
 	}
 
+	/** A log level inside the summary block: no second background or padding of its own. */
+	private static JPanel inner()
+	{
+		JPanel p = column();
+		p.setOpaque(false);
+		return p;
+	}
+
 	private static JPanel categoryGrid(String rsn, List<PlayerCard.Page> pages, Icons ic, JPanel holder)
 	{
 		Map<String, List<PlayerCard.Page>> byGroup = new LinkedHashMap<>();
@@ -752,7 +778,7 @@ final class PlayerCardView
 		{
 			byGroup.computeIfAbsent(p.group == null ? "Other" : p.group, k -> new ArrayList<>()).add(p);
 		}
-		JPanel block = block();
+		JPanel block = inner();
 		JPanel grid = new JPanel(new GridLayout(0, 2, 6, 6));
 		grid.setOpaque(false);
 		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
@@ -796,7 +822,7 @@ final class PlayerCardView
 	private static JPanel categoryView(String rsn, String group, int got, int of, List<PlayerCard.Page> pages, Icons ic,
 		JPanel holder, JComponent back)
 	{
-		JPanel view = block();
+		JPanel view = inner();
 		view.add(backHeader(group, got + "/" + of, got >= of, () -> swap(holder, back), null));
 		view.add(gap(6));
 		for (PlayerCard.Page p : pages)
@@ -856,7 +882,7 @@ final class PlayerCardView
 	}
 
 	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
-	private static void hoverable(JComponent c, Color base, Runnable onClick)
+	static void hoverable(JComponent c, Color base, Runnable onClick)
 	{
 		Color hover = ColorScheme.DARK_GRAY_HOVER_COLOR;
 		c.setOpaque(true);
@@ -904,7 +930,7 @@ final class PlayerCardView
 
 	private static void showPage(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JComponent back)
 	{
-		JPanel page = block();
+		JPanel page = inner();
 		Integer kc = killsFor(holder, p.name);
 		page.add(backHeader(p.name, p.obtained + "/" + p.total + (kc != null ? String.format(Locale.ROOT, " · %,d kc", kc) : ""),
 			p.total > 0 && p.obtained >= p.total,
@@ -938,14 +964,16 @@ final class PlayerCardView
 	 */
 	private static JPanel backHeader(String name, String count, boolean complete, Runnable back, String rsn)
 	{
-		JPanel head = new JPanel(new BorderLayout(6, 0));
+		// Two lines: the name on its own (it was cut to "Tom…" beside the count), then the count, the
+		// kills and the website link under it.
+		JPanel head = column();
 		head.setOpaque(false);
-		head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 		JLabel left = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 10, Color.WHITE));
 		left.setText(safe(name));
 		left.setFont(FontManager.getRunescapeBoldFont());
 		left.setForeground(complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE);
 		left.setIconTextGap(6);
+		left.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 		left.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		left.setToolTipText("Back");
 		left.addMouseListener(new MouseAdapter()
@@ -956,11 +984,13 @@ final class PlayerCardView
 				back.run();
 			}
 		});
-		head.add(left, BorderLayout.CENTER);
+		head.add(left);
 
-		JPanel right = new JPanel(new GridLayout(1, 0, 6, 0));
-		right.setOpaque(false);
-		right.add(small(count, Color.WHITE));
+		JPanel sub = new JPanel(new BorderLayout(6, 0));
+		sub.setOpaque(false);
+		sub.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		sub.setBorder(BorderFactory.createEmptyBorder(1, 16, 0, 0));
+		sub.add(small(count, MUTED), BorderLayout.CENTER);
 		if (rsn != null)
 		{
 			JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11, MUTED));
@@ -979,9 +1009,10 @@ final class PlayerCardView
 					}
 				}
 			});
-			right.add(web);
+			sub.add(web, BorderLayout.EAST);
 		}
-		head.add(right, BorderLayout.EAST);
+		sub.setMaximumSize(new Dimension(Integer.MAX_VALUE, sub.getPreferredSize().height));
+		head.add(sub);
 		head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
 		return head;
 	}
@@ -1039,7 +1070,7 @@ final class PlayerCardView
 
 	// ---- Pieces ------------------------------------------------------------------------------------
 
-	private static JPanel column()
+	static JPanel column()
 	{
 		JPanel p = new JPanel();
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
@@ -1048,7 +1079,7 @@ final class PlayerCardView
 		return p;
 	}
 
-	private static JPanel block()
+	static JPanel block()
 	{
 		JPanel p = new JPanel();
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
@@ -1061,12 +1092,12 @@ final class PlayerCardView
 	// Every string on the card comes from the site — RSNs, a clan's own name, item and boss labels — and a
 	// Swing label renders HTML when its text opens with <html>. AnvilSidebarPanel.plainText neutralises
 	// that; labels and tooltips below all go through it.
-	private static String safe(String text)
+	static String safe(String text)
 	{
 		return AnvilSidebarPanel.plainText(text);
 	}
 
-	private static JLabel title(String text)
+	static JLabel title(String text)
 	{
 		JLabel l = new JLabel(safe(text));
 		l.setFont(FontManager.getRunescapeBoldFont());
@@ -1075,7 +1106,7 @@ final class PlayerCardView
 		return l;
 	}
 
-	private static JLabel small(String text, Color color)
+	static JLabel small(String text, Color color)
 	{
 		JLabel l = new JLabel(safe(text));
 		l.setFont(FontManager.getRunescapeSmallFont());
@@ -1084,7 +1115,7 @@ final class PlayerCardView
 		return l;
 	}
 
-	private static JPanel header(String left, String right)
+	static JPanel header(String left, String right)
 	{
 		JPanel row = new JPanel(new BorderLayout());
 		row.setOpaque(false);
@@ -1102,7 +1133,7 @@ final class PlayerCardView
 	}
 
 	/** "Bosses  62%" over a 3px bar — a share of the log at a glance. */
-	private static JPanel miniBar(String name, int obtained, int total)
+	static JPanel miniBar(String name, int obtained, int total)
 	{
 		int pct = percent(obtained, total);
 		JPanel cell = new JPanel(new BorderLayout(0, 2));
@@ -1129,7 +1160,7 @@ final class PlayerCardView
 		return cell;
 	}
 
-	private static Component gap(int h)
+	static Component gap(int h)
 	{
 		return Box.createVerticalStrut(h);
 	}

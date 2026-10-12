@@ -138,6 +138,24 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/** Whether the site serves clan cards and clan lookup. */
+	default boolean supportsClanCard()
+	{
+		return false;
+	}
+
+	/** Blocking; off the EDT. Null when not visible or on failure. */
+	default ClanCard fetchClanCard(String slug)
+	{
+		return null;
+	}
+
+	/** Blocking; off the EDT. */
+	default java.util.List<ClanCard.Found> lookupClans(String q)
+	{
+		return java.util.Collections.emptyList();
+	}
+
 	/** Whether the site keeps goals (the You tab's targets). */
 	default boolean supportsGoals()
 	{

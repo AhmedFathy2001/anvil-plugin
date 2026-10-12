@@ -130,6 +130,17 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
 	private final JPanel youPanel = new JPanel();
 	private final JPanel lookupPanel = new JPanel();
+	/** Lookup is for a player or a clan; this says which the search box means. */
+	private boolean lookupClans;
+	private final JLabel lookupModePlayers = new JLabel("Players", SwingConstants.CENTER);
+	private final JLabel lookupModeClans = new JLabel("Clans", SwingConstants.CENTER);
+	/** The player card on screen in Lookup, for "Compare with me". */
+	private PlayerCard lookupCard;
+	/** Your clan's card under Events — cached per slug for a few minutes; the clan doesn't change by the second. */
+	private ClanCard ownClanCard;
+	private String ownClanSlug;
+	private long ownClanAt;
+	private boolean ownClanLoading;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
 	private final JPanel settingsPanel = new JPanel();
 	private final JPanel lookupResult = new JPanel();
@@ -475,7 +486,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupSearch.setFont(FontManager.getRunescapeFont());
 		lookupSearch.setBorder(BorderFactory.createEmptyBorder());
 		lookupSearch.setToolTipText("A player's name — press Enter");
-		lookupSearch.addActionListener(e -> showLookup(lookupSearch.getText()));
+		lookupSearch.addActionListener(e ->
+		{
+			if (lookupClans)
+			{
+				searchClans(lookupSearch.getText());
+			}
+			else
+			{
+				showLookup(lookupSearch.getText());
+			}
+		});
 		lookupSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
 		{
 			private void changed()
@@ -546,6 +567,37 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		});
 
+		JPanel modes = new JPanel(new GridLayout(1, 2, 4, 0));
+		modes.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		modes.setAlignmentX(LEFT_ALIGNMENT);
+		for (JLabel m : new JLabel[]{lookupModePlayers, lookupModeClans})
+		{
+			m.setFont(FontManager.getRunescapeSmallFont());
+			m.setOpaque(true);
+			m.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
+			m.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			modes.add(m);
+		}
+		lookupModePlayers.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				setLookupMode(false);
+			}
+		});
+		lookupModeClans.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				setLookupMode(true);
+			}
+		});
+		modes.setMaximumSize(new Dimension(Integer.MAX_VALUE, modes.getPreferredSize().height));
+		styleLookupModes();
+		lookupPanel.add(modes);
+		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupBox);
 		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupRecentRow);
@@ -569,6 +621,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Re-checked on every render: the capability arrives with the config, and sign-out takes it away. */
 	private void updateTabStrip()
 	{
+		styleLookupModes(); // the Clans switch appears once the site says it has clan cards
 		boolean on = playerCardsOn();
 		if (on != tabsOn)
 		{
@@ -658,6 +711,14 @@ public class AnvilSidebarPanel extends PluginPanel
 					}
 					lookupResult.removeAll();
 					lookupResult.add(cardFor(name, result, false));
+					lookupCard = result != null ? result.card : null;
+					String me = dataSource.myRsn();
+					if (lookupCard != null && me != null && !Rsn.same(me, lookupCard.rsn))
+					{
+						lookupResult.add(gap(6));
+						lookupResult.add(fullWidth(actionButton("Compare with me",
+							"Side by side: levels, bosses and the log", () -> showPlayerCompare(lookupCard))));
+					}
 					lookupResult.revalidate();
 					lookupResult.repaint();
 				});
@@ -745,6 +806,241 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		youPanel.revalidate();
 		youPanel.repaint();
+	}
+
+	private void setLookupMode(boolean clans)
+	{
+		lookupClans = clans;
+		styleLookupModes();
+		lookupSeq++;
+		lookupResult.removeAll();
+		lookupResult.add(cardMessage(clans ? "Search a clan by name." : "Search a name — or right-click anyone in game and pick Anvil."));
+		lookupResult.revalidate();
+		lookupResult.repaint();
+	}
+
+	private void styleLookupModes()
+	{
+		for (JLabel m : new JLabel[]{lookupModePlayers, lookupModeClans})
+		{
+			boolean on = (m == lookupModeClans) == lookupClans;
+			m.setForeground(on ? Color.WHITE : VALUE_COLOR);
+			m.setBackground(on ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
+		}
+		// Clans only where the site has them; otherwise Lookup stays players-only, as it was.
+		lookupModeClans.setVisible(dataSource.supportsClanCard());
+		lookupModePlayers.setVisible(dataSource.supportsClanCard());
+	}
+
+	private void searchClans(String q)
+	{
+		String query = q == null ? "" : q.trim();
+		int seq = ++lookupSeq;
+		lookupResult.removeAll();
+		lookupResult.add(cardMessage("Searching…"));
+		lookupResult.revalidate();
+		executor.execute(() ->
+		{
+			java.util.List<ClanCard.Found> found = dataSource.lookupClans(query);
+			SwingUtilities.invokeLater(() ->
+			{
+				if (seq != lookupSeq)
+				{
+					return;
+				}
+				lookupResult.removeAll();
+				if (found.isEmpty())
+				{
+					lookupResult.add(cardMessage("No listed clan matches \"" + query + "\"."));
+				}
+				for (ClanCard.Found f : found)
+				{
+					JPanel row = new JPanel(new BorderLayout(6, 0));
+					row.setAlignmentX(LEFT_ALIGNMENT);
+					row.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+					JLabel name = new JLabel(plainText(f.name));
+					name.setFont(FontManager.getRunescapeSmallFont());
+					name.setForeground(Color.WHITE);
+					row.add(name, BorderLayout.CENTER);
+					row.add(new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 9, VALUE_COLOR)), BorderLayout.EAST);
+					row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+					PlayerCardView.hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> showClan(f.slug));
+					lookupResult.add(row);
+					lookupResult.add(gap(2));
+				}
+				lookupResult.revalidate();
+				lookupResult.repaint();
+			});
+		});
+	}
+
+	/** A clan's card in Lookup — its members open as player cards, and it compares with yours. */
+	private void showClan(String slug)
+	{
+		int seq = ++lookupSeq;
+		lookupResult.removeAll();
+		lookupResult.add(cardMessage("Loading the clan…"));
+		lookupResult.revalidate();
+		executor.execute(() ->
+		{
+			ClanCard card = dataSource.fetchClanCard(slug);
+			SwingUtilities.invokeLater(() ->
+			{
+				if (seq != lookupSeq)
+				{
+					return;
+				}
+				lookupResult.removeAll();
+				if (card == null)
+				{
+					lookupResult.add(cardMessage("That clan isn't listed on Anvil."));
+				}
+				else
+				{
+					String mine = dataSource.activeClan();
+					boolean own = mine != null && mine.equalsIgnoreCase(card.slug);
+					lookupResult.add(ClanCardView.render(card, cardIcons(null), name ->
+					{
+						setLookupMode(false);
+						showLookup(name);
+					}, own || mine == null || mine.isEmpty() ? null : () -> showClanCompare(card, mine)));
+				}
+				lookupResult.revalidate();
+				lookupResult.repaint();
+			});
+		});
+	}
+
+	private void showClanCompare(ClanCard theirs, String mySlug)
+	{
+		int seq = ++lookupSeq;
+		lookupResult.removeAll();
+		lookupResult.add(cardMessage("Comparing…"));
+		lookupResult.revalidate();
+		executor.execute(() ->
+		{
+			ClanCard mine = dataSource.fetchClanCard(mySlug);
+			SwingUtilities.invokeLater(() ->
+			{
+				if (seq != lookupSeq)
+				{
+					return;
+				}
+				lookupResult.removeAll();
+				lookupResult.add(backRow("Back to " + theirs.name, () -> showClan(theirs.slug)));
+				lookupResult.add(mine == null ? cardMessage("Couldn't load your clan — try again in a moment.") : ClanCardView.compare(mine, theirs));
+				lookupResult.revalidate();
+				lookupResult.repaint();
+			});
+		});
+	}
+
+	private void showPlayerCompare(PlayerCard them)
+	{
+		String me = dataSource.myRsn();
+		if (me == null)
+		{
+			return;
+		}
+		int seq = ++lookupSeq;
+		lookupResult.removeAll();
+		lookupResult.add(cardMessage("Comparing…"));
+		lookupResult.revalidate();
+		executor.execute(() ->
+		{
+			PlayerCard mine = youCard != null && Rsn.same(youCardRsn, me) ? youCard : null;
+			if (mine == null)
+			{
+				BingoApiClient.PlayerCardResult r = dataSource.fetchPlayerCard(me);
+				mine = r == null ? null : r.card;
+			}
+			PlayerCard myCard = mine;
+			SwingUtilities.invokeLater(() ->
+			{
+				if (seq != lookupSeq)
+				{
+					return;
+				}
+				lookupResult.removeAll();
+				lookupResult.add(backRow("Back to " + them.rsn, () -> showLookup(them.rsn)));
+				lookupResult.add(myCard == null ? cardMessage("Couldn't load your card — try again in a moment.")
+					: CompareView.players(myCard, them, cardIcons(null)));
+				lookupResult.revalidate();
+				lookupResult.repaint();
+			});
+		});
+	}
+
+	private JPanel backRow(String text, Runnable back)
+	{
+		JPanel row = new JPanel(new BorderLayout());
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setBorder(BorderFactory.createEmptyBorder(4, 4, 6, 4));
+		JLabel l = new JLabel(plainText(text), new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 9, VALUE_COLOR), SwingConstants.LEFT);
+		l.setFont(FontManager.getRunescapeSmallFont());
+		l.setForeground(VALUE_COLOR);
+		row.add(l, BorderLayout.WEST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		PlayerCardView.hoverable(row, ColorScheme.DARK_GRAY_COLOR, back);
+		return row;
+	}
+
+	/** Your clan's card for the Clan tab, or null when the site has none or there's no clan. Cached. */
+	private JPanel ownClanBlock()
+	{
+		if (!dataSource.supportsClanCard())
+		{
+			return null;
+		}
+		String slug = dataSource.activeClan();
+		if (slug == null || slug.isEmpty())
+		{
+			return null;
+		}
+		boolean fresh = ownClanCard != null && slug.equalsIgnoreCase(ownClanSlug)
+			&& System.currentTimeMillis() - ownClanAt < 5 * 60_000L;
+		if (!fresh && !ownClanLoading)
+		{
+			ownClanLoading = true;
+			executor.execute(() ->
+			{
+				ClanCard card = dataSource.fetchClanCard(slug);
+				SwingUtilities.invokeLater(() ->
+				{
+					ownClanLoading = false;
+					ownClanAt = System.currentTimeMillis();
+					if (card != null)
+					{
+						ownClanCard = card;
+						ownClanSlug = slug;
+						if (tab == Tab.CLAN)
+						{
+							renderSelected();
+						}
+					}
+				});
+			});
+		}
+		if (ownClanCard == null || !slug.equalsIgnoreCase(ownClanSlug))
+		{
+			return null;
+		}
+		JPanel wrap = new JPanel();
+		wrap.setLayout(new BoxLayout(wrap, BoxLayout.Y_AXIS));
+		wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		wrap.setAlignmentX(LEFT_ALIGNMENT);
+		wrap.add(sectionHeader("Your clan"));
+		wrap.add(gap(6));
+		wrap.add(ClanCardView.render(ownClanCard, cardIcons(null), name ->
+		{
+			if (tabsOn)
+			{
+				selectTab(Tab.LOOKUP);
+				setLookupMode(false);
+				showLookup(name);
+			}
+		}, null));
+		return wrap;
 	}
 
 	/** ⚙ — everything that's syncing or a setting rather than something to look at. */
@@ -1971,6 +2267,14 @@ public class AnvilSidebarPanel extends PluginPanel
 				body.add(elsewhere);
 				body.add(gap(12));
 			}
+		}
+
+		// Your clan, under its events — who's carrying the week, what dropped, what's running.
+		JPanel clan = ownClanBlock();
+		if (clan != null)
+		{
+			body.add(clan);
+			body.add(gap(12));
 		}
 
 		// The clan's own controls, under whatever is running. Home only, and only what this account

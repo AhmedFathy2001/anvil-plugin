@@ -947,6 +947,62 @@ public class BingoApiClient
 		}
 	}
 
+	/** A clan's card ({@code clan-card}); null when it isn't visible or the call failed. Off the EDT. */
+	public ClanCard fetchClanCard(String slug)
+	{
+		if (slug == null || slug.trim().isEmpty())
+		{
+			return null;
+		}
+		String url = CANONICAL_SITE + "/api/clans/"
+			+ java.net.URLEncoder.encode(slug.trim().toLowerCase(java.util.Locale.ROOT), java.nio.charset.StandardCharsets.UTF_8) + "/card";
+		Request.Builder rb = new Request.Builder().url(url).get().header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
+		String token = playerToken;
+		if (token != null && !token.trim().isEmpty())
+		{
+			rb.header("Authorization", "Bearer " + token.trim());
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			return gson.fromJson(response.body().string(), ClanCard.class);
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("clan card fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/** Listed clans whose name matches {@code q}; empty on failure. Off the EDT. */
+	public java.util.List<ClanCard.Found> lookupClans(String q)
+	{
+		if (q == null || q.trim().length() < 2)
+		{
+			return java.util.Collections.emptyList();
+		}
+		String url = CANONICAL_SITE + "/api/clans/lookup?q="
+			+ java.net.URLEncoder.encode(q.trim(), java.nio.charset.StandardCharsets.UTF_8);
+		Request request = new Request.Builder().url(url).get().header("X-Anvil-Plugin-Version", PLUGIN_VERSION).build();
+		try (Response response = httpClient.newCall(request).execute())
+		{
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return java.util.Collections.emptyList();
+			}
+			ClanCard.LookupResult r = gson.fromJson(response.body().string(), ClanCard.LookupResult.class);
+			return r == null || r.clans == null ? java.util.Collections.emptyList() : r.clans;
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("clan lookup failed: {}", e.getMessage());
+			return java.util.Collections.emptyList();
+		}
+	}
+
 	/** What {@link #fetchPlayerCard} found: the card, or why there isn't one. */
 	public static final class PlayerCardResult
 	{
