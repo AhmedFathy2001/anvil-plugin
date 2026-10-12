@@ -773,7 +773,10 @@ public class AnvilPlugin extends Plugin {
     // "happened" again on the welcome screen (2026-10-12, a maxed-ish account posted 99 after 99).
     private boolean statsUnsettled;
     private int statsSettleTicks;
-    // Ticks after login before the table counts as arrived (it lands in a burst; this is margin).
+    // Quiet ticks (no stat update) after login before the table counts as arrived. Counted from the
+    // LAST update, not from login: a client switching accounts (legacy logins, several on one RuneLite)
+    // still holds the previous account's real-looking table, so "hitpoints looks loaded" alone would
+    // seed the alt's levels if the new burst landed a tick late.
     private static final int STATS_SETTLE_TICKS = 3;
     // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
     // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
@@ -1697,8 +1700,12 @@ public class AnvilPlugin extends Plugin {
         }
         maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
 
-        if (!config.notifyLevelUps() || statsUnsettled) {
-            return; // unsettled: the table arriving after login, not a level-up (maybeSettleStats)
+        if (statsUnsettled) {
+            statsSettleTicks = 0; // the table is still arriving — restart the quiet count
+            return;
+        }
+        if (!config.notifyLevelUps()) {
+            return;
         }
         int level = event.getLevel();
         Integer prev = lastSkillLevel.put(skill, level);
