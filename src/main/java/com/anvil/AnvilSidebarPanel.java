@@ -254,6 +254,15 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean rebuildingPicker;
 	private boolean fetchInFlight;
 
+	/**
+	 * The executor for fetches somebody clicked and is now watching a spinner for — off RuneLite's
+	 * single shared thread (see {@link BingoApiClient#interactiveExecutor}).
+	 */
+	private java.util.concurrent.Executor interactive()
+	{
+		return apiClient != null ? apiClient.interactiveExecutor() : executor;
+	}
+
 	AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
 		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor)
 	{
@@ -700,7 +709,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			lookupResult.add(cardMessage("Looking up " + name + "…"));
 			lookupResult.revalidate();
 			lookupResult.repaint();
-			executor.execute(() ->
+			interactive().execute(() ->
 			{
 				BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(name);
 				SwingUtilities.invokeLater(() ->
@@ -839,7 +848,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupResult.removeAll();
 		lookupResult.add(cardMessage("Searching…"));
 		lookupResult.revalidate();
-		executor.execute(() ->
+		interactive().execute(() ->
 		{
 			java.util.List<ClanCard.Found> found = dataSource.lookupClans(query);
 			SwingUtilities.invokeLater(() ->
@@ -881,7 +890,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupResult.removeAll();
 		lookupResult.add(cardMessage("Loading the clan…"));
 		lookupResult.revalidate();
-		executor.execute(() ->
+		interactive().execute(() ->
 		{
 			ClanCard card = dataSource.fetchClanCard(slug);
 			SwingUtilities.invokeLater(() ->
@@ -917,7 +926,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupResult.removeAll();
 		lookupResult.add(cardMessage("Comparing…"));
 		lookupResult.revalidate();
-		executor.execute(() ->
+		interactive().execute(() ->
 		{
 			ClanCard mine = dataSource.fetchClanCard(mySlug);
 			SwingUtilities.invokeLater(() ->
@@ -952,7 +961,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupResult.removeAll();
 		lookupResult.add(cardMessage("Comparing…"));
 		lookupResult.revalidate();
-		executor.execute(() ->
+		interactive().execute(() ->
 		{
 			PlayerCard mine = youCard != null && Rsn.same(youCardRsn, me) ? youCard : null;
 			if (mine == null)
@@ -1021,7 +1030,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (!fresh && !ownClanLoading)
 		{
 			ownClanLoading = true;
-			executor.execute(() ->
+			interactive().execute(() ->
 			{
 				ClanCard card = dataSource.fetchClanCard(slug);
 				SwingUtilities.invokeLater(() ->
@@ -1093,7 +1102,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void fetchGoals()
 	{
-		executor.execute(() -> applyGoals(dataSource.fetchGoals(), false));
+		interactive().execute(() -> applyGoals(dataSource.fetchGoals(), false));
 	}
 
 	private void addGoal()
@@ -1103,12 +1112,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		executor.execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), true));
+		interactive().execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), true));
 	}
 
 	private void removeGoal(int id)
 	{
-		executor.execute(() -> applyGoals(dataSource.removeGoal(id), true));
+		interactive().execute(() -> applyGoals(dataSource.removeGoal(id), true));
 	}
 
 	/** Off the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
@@ -1143,7 +1152,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			goalsError = null;
 		}
 		int seq = ++youSeq;
-		executor.execute(() ->
+		interactive().execute(() ->
 		{
 			BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(me);
 			SwingUtilities.invokeLater(() ->
@@ -1175,7 +1184,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private PlayerCardView.Icons cardIcons(String rsn)
 	{
 		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> executor.execute(() ->
+			(page, done) -> interactive().execute(() ->
 			{
 				BingoApiClient.ClogPageView view = dataSource.fetchClogPage(rsn, page);
 				SwingUtilities.invokeLater(() -> done.accept(view));

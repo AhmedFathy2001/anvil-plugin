@@ -1025,6 +1025,20 @@ public class BingoApiClient
 	 * you see your own unshared characters and does nothing else with it, and a lookup is about
 	 * somebody else, so the identity headers that drive claims and linking have no business here.</p>
 	 */
+	/**
+	 * Where to run a fetch a person is waiting on (a lookup, a compare, a log page).
+	 *
+	 * NOT RuneLite's injected ScheduledExecutorService: that is ONE thread shared by every plugin, so
+	 * a blocking call queued there waits behind every other plugin's work and our own polls and
+	 * uploads — a right-click lookup could sit for seconds behind a screenshot upload. OkHttp's
+	 * dispatcher pool belongs to the client's own HTTP stack (the pool its async calls run on), so
+	 * this adds no thread of ours and the shared thread stays free.
+	 */
+	public java.util.concurrent.ExecutorService interactiveExecutor()
+	{
+		return httpClient.dispatcher().executorService();
+	}
+
 	public PlayerCardResult fetchPlayerCard(String rsn)
 	{
 		String url = ProfileLookup.apiCardUrl(rsn);
