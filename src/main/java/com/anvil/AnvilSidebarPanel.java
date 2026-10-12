@@ -48,11 +48,9 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.components.PluginErrorPanel;
-import net.runelite.client.ui.components.IconTextField;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.game.SkillIconManager;
-import java.awt.CardLayout;
 
 /**
  * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
@@ -124,15 +122,19 @@ public class AnvilSidebarPanel extends PluginPanel
 	private Tab tab = Tab.CLAN;
 	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
 	private boolean tabsOn;
-	private final CardLayout tabCards = new CardLayout();
-	private final JPanel tabBody = new JPanel(tabCards);
+	// Holds ONLY the selected tab's panel. A CardLayout sized every tab to the tallest one — usually
+	// Clan mid-event — and BoxLayout spread that extra height through the You card: log bars drifted
+	// apart and the grids were squeezed until their last row clipped.
+	private final JPanel tabBody = new JPanel(new BorderLayout());
 	private final JPanel tabStrip = new JPanel(new GridLayout(1, 3));
 	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
 	private final JPanel youPanel = new JPanel();
 	private final JPanel lookupPanel = new JPanel();
 	private final JPanel lookupResult = new JPanel();
 	private final JPanel lookupRecentRow = new JPanel();
-	private final IconTextField lookupSearch = new IconTextField();
+	private final JTextField lookupSearch = new JTextField();
+	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, VALUE_COLOR));
+	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
 	private final java.util.LinkedList<String> recentLookups = new java.util.LinkedList<>();
 	/** The clan dropdown is wanted by the clan logic AND only shown on the Clan tab. */
@@ -146,6 +148,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	private String youSection;
 	private String lookupSection;
 	private PlayerCard youCard;
+	/** The You card as last built, reused while {@link #youCard} is unchanged — a 15s refresh must not
+	 * rebuild it (that reset the open section's layout and collapsed any open log category). */
+	private JPanel youCardView;
+	private PlayerCard youCardViewOf;
 	private String youCardRsn;
 
 	// Header controls (persistent across state changes).
@@ -263,9 +269,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		buildTabBodies();
 		tabBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		tabBody.add(content, Tab.CLAN.name());
-		tabBody.add(youPanel, Tab.YOU.name());
-		tabBody.add(lookupPanel, Tab.LOOKUP.name());
+		tabBody.add(content, BorderLayout.NORTH);
 		add(tabBody, BorderLayout.CENTER);
 
 		autoRefresh = new Timer(POLL_INTERVAL_MS, e ->
@@ -440,27 +444,99 @@ public class AnvilSidebarPanel extends PluginPanel
 			p.setAlignmentX(LEFT_ALIGNMENT);
 		}
 
-		lookupSearch.setIcon(IconTextField.Icon.SEARCH);
+		// Our own field rather than RuneLite's IconTextField: that one draws typed text grey and a
+		// light-grey clear button with a red cross, neither of which can be restyled from outside.
 		lookupSearch.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		lookupSearch.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
-		lookupSearch.setPreferredSize(new Dimension(PluginPanel.PANEL_WIDTH - 20, 30));
-		lookupSearch.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-		lookupSearch.setAlignmentX(LEFT_ALIGNMENT);
+		lookupSearch.setForeground(Color.WHITE);
+		lookupSearch.setCaretColor(Color.WHITE);
+		lookupSearch.setSelectionColor(ColorScheme.BRAND_ORANGE);
+		lookupSearch.setSelectedTextColor(Color.BLACK);
+		lookupSearch.setFont(FontManager.getRunescapeFont());
+		lookupSearch.setBorder(BorderFactory.createEmptyBorder());
+		lookupSearch.setToolTipText("A player's name — press Enter");
 		lookupSearch.addActionListener(e -> showLookup(lookupSearch.getText()));
-		lookupSearch.addClearListener(() ->
+		lookupSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
 		{
-			lookupSeq++;
-			lookupResult.removeAll();
-			lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
-			lookupResult.revalidate();
-			lookupResult.repaint();
+			private void changed()
+			{
+				lookupClear.setVisible(!lookupSearch.getText().isEmpty());
+			}
+
+			@Override
+			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			{
+				changed();
+			}
+
+			@Override
+			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			{
+				changed();
+			}
+
+			@Override
+			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			{
+				changed();
+			}
+		});
+		lookupClear.setVisible(false);
+		lookupClear.setToolTipText("Clear");
+		lookupClear.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		lookupClear.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				lookupSearch.setText("");
+				lookupSearch.requestFocusInWindow();
+				lookupSeq++;
+				lookupResult.removeAll();
+				lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
+				lookupResult.revalidate();
+				lookupResult.repaint();
+			}
+		});
+		JLabel prompt = new JLabel("Name");
+		prompt.setFont(FontManager.getRunescapeSmallFont());
+		prompt.setForeground(VALUE_COLOR);
+		lookupBox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		lookupBox.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.MEDIUM_GRAY_COLOR),
+			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+		lookupBox.add(prompt, BorderLayout.WEST);
+		lookupBox.add(lookupSearch, BorderLayout.CENTER);
+		lookupBox.add(lookupClear, BorderLayout.EAST);
+		lookupBox.setAlignmentX(LEFT_ALIGNMENT);
+		lookupBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, lookupBox.getPreferredSize().height));
+		// Focus shows as the underline turning orange.
+		lookupSearch.addFocusListener(new java.awt.event.FocusAdapter()
+		{
+			@Override
+			public void focusGained(java.awt.event.FocusEvent e)
+			{
+				setBoxLine(ColorScheme.BRAND_ORANGE);
+			}
+
+			@Override
+			public void focusLost(java.awt.event.FocusEvent e)
+			{
+				setBoxLine(ColorScheme.MEDIUM_GRAY_COLOR);
+			}
 		});
 
-		lookupPanel.add(lookupSearch);
+		lookupPanel.add(lookupBox);
 		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupRecentRow);
 		lookupPanel.add(lookupResult);
 		lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
+	}
+
+	private void setBoxLine(Color c)
+	{
+		lookupBox.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createMatteBorder(0, 0, 1, 0, c),
+			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
 	}
 
 	/** Signed in to a site that serves player cards — the condition for the strip to show at all. */
@@ -499,7 +575,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void selectTab(Tab next)
 	{
 		tab = next;
-		tabCards.show(tabBody, next.name());
+		tabBody.removeAll();
+		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youPanel : lookupPanel, BorderLayout.NORTH);
+		tabBody.revalidate();
 		styleTabs();
 		applyPicker();
 		if (next == Tab.YOU)
@@ -618,9 +696,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		else
 		{
 			boolean cached = youCard != null && Rsn.same(youCardRsn, me);
-			youPanel.add(cached
-				? PlayerCardView.render(youCard, cardIcons(), youSection, sec -> youSection = sec)
-				: cardMessage("Loading your card…"));
+			if (cached && youCardViewOf != youCard)
+			{
+				youCardView = PlayerCardView.render(youCard, cardIcons(), youSection, sec -> youSection = sec);
+				youCardViewOf = youCard;
+			}
+			youPanel.add(cached ? youCardView : cardMessage("Loading your card…"));
 			if (refetch || !cached)
 			{
 				fetchYou(me);

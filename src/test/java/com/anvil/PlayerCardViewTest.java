@@ -53,6 +53,8 @@ public class PlayerCardViewTest
 		assertEquals(HiscoreSkill.ALCHEMICAL_HYDRA, PlayerCardView.hiscoreSkill("alchemicalHydra", "Alchemical Hydra"));
 		assertEquals(HiscoreSkill.BARROWS_CHESTS, PlayerCardView.hiscoreSkill("barrows", "Barrows"));
 		assertEquals(HiscoreSkill.CLUE_SCROLL_ELITE, PlayerCardView.hiscoreSkill("x", "Clue Scrolls (elite)"));
+		assertEquals(HiscoreSkill.CLUE_SCROLL_BEGINNER, PlayerCardView.hiscoreSkill("cluesBeginner", "Clues (beginner)"));
+		assertEquals(HiscoreSkill.CLUE_SCROLL_ALL, PlayerCardView.hiscoreSkill("cluesAll", "Clues (all)"));
 		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.hiscoreSkill("chambersOfXeric", "Chambers of Xeric"));
 	}
 
@@ -83,7 +85,11 @@ public class PlayerCardViewTest
 	{
 		assertEquals("Main", PlayerCardView.accountTypeLabel("main"));
 		assertEquals("Main", PlayerCardView.accountTypeLabel("normal"));
-		assertEquals("Hardcore", PlayerCardView.accountTypeLabel("hardcore_ironman"));
+		assertEquals("HCIM", PlayerCardView.accountTypeLabel("hardcore"));
+		assertEquals("UIM", PlayerCardView.accountTypeLabel("ultimate"));
+		assertEquals("GIM", PlayerCardView.accountTypeLabel("group"));
+		assertEquals("HCGIM", PlayerCardView.accountTypeLabel("hardcore_group"));
+		assertEquals("UGIM", PlayerCardView.accountTypeLabel("unranked_group"));
 		assertEquals("Some mode", PlayerCardView.accountTypeLabel("some_mode"));
 	}
 

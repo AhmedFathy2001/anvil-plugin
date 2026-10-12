@@ -1,7 +1,6 @@
 package com.anvil;
 
 import java.awt.BorderLayout;
-import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -293,8 +292,10 @@ final class PlayerCardView
 		JPanel strip = new JPanel(new GridLayout(1, sections.size()));
 		strip.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		strip.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		CardLayout cards = new CardLayout();
-		JPanel body = new JPanel(cards);
+		// One child at a time, swapped on click — not a CardLayout. A CardLayout has to be told its height,
+		// and the boss and clue sprites arrive asynchronously AFTER it's measured, so the grid outgrew the
+		// space it was given and the last row was cut off. A plain parent re-lays out when they land.
+		JPanel body = new JPanel(new BorderLayout());
 		body.setOpaque(false);
 		body.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 
@@ -306,9 +307,7 @@ final class PlayerCardView
 			l.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			labels.add(l);
 			strip.add(l);
-			body.add(e.getValue(), e.getKey());
 		}
-		Runnable[] select = new Runnable[1];
 		for (JLabel l : labels)
 		{
 			l.addMouseListener(new MouseAdapter()
@@ -317,10 +316,7 @@ final class PlayerCardView
 				public void mouseClicked(MouseEvent e)
 				{
 					styleSwitch(labels, l.getText());
-					cards.show(body, l.getText());
-					// CardLayout sizes to the tallest card; size this one to itself so a short section
-					// doesn't leave a tall gap under it.
-					fitTo(body, sections.get(l.getText()));
+					show(body, sections.get(l.getText()));
 					if (onSection != null)
 					{
 						onSection.accept(l.getText());
@@ -329,8 +325,7 @@ final class PlayerCardView
 			});
 		}
 		styleSwitch(labels, first);
-		cards.show(body, first);
-		fitTo(body, sections.get(first));
+		show(body, sections.get(first));
 
 		strip.setMaximumSize(new Dimension(Integer.MAX_VALUE, strip.getPreferredSize().height));
 		wrap.add(strip);
@@ -339,12 +334,12 @@ final class PlayerCardView
 		return wrap;
 	}
 
-	private static void fitTo(JPanel body, JPanel shown)
+	private static void show(JPanel body, JPanel section)
 	{
-		Dimension d = shown.getPreferredSize();
-		body.setPreferredSize(new Dimension(d.width, d.height));
-		body.setMaximumSize(new Dimension(Integer.MAX_VALUE, d.height));
+		body.removeAll();
+		body.add(section, BorderLayout.CENTER);
 		body.revalidate();
+		body.repaint();
 	}
 
 	private static void styleSwitch(List<JLabel> labels, String selected)
@@ -497,17 +492,6 @@ final class PlayerCardView
 				public void mouseClicked(MouseEvent ev)
 				{
 					list.setVisible(!list.isVisible());
-					// The section's height changed; let the switcher re-fit and the scroll pane catch up.
-					Component c = block;
-					while (c != null)
-					{
-						if (c.getParent() != null && c.getParent().getLayout() instanceof CardLayout)
-						{
-							fitTo((JPanel) c.getParent(), block);
-							break;
-						}
-						c = c.getParent();
-					}
 					block.revalidate();
 					block.repaint();
 				}
@@ -697,23 +681,30 @@ final class PlayerCardView
 		}
 	}
 
+	/**
+	 * The site's account types (lib/accountType: the game's varbit, reported by the plugin — the
+	 * hiscores can't tell the group modes apart) in the short form players use. Null type never gets
+	 * here: an account the plugin hasn't seen shows no type rather than a guessed "Main".
+	 */
 	static String accountTypeLabel(String type)
 	{
 		switch (type)
 		{
+			case "normal":
+			case "main":
+				return "Main";
 			case "ironman":
 				return "Ironman";
-			case "hardcore":
-			case "hardcore_ironman":
-				return "Hardcore";
 			case "ultimate":
-			case "ultimate_ironman":
-				return "Ultimate";
-			case "group_ironman":
-				return "Group iron";
-			case "main":
-			case "normal":
-				return "Main";
+				return "UIM";
+			case "hardcore":
+				return "HCIM";
+			case "group":
+				return "GIM";
+			case "hardcore_group":
+				return "HCGIM";
+			case "unranked_group":
+				return "UGIM";
 			default:
 				return Character.toUpperCase(type.charAt(0)) + type.substring(1).replace('_', ' ');
 		}
@@ -731,7 +722,8 @@ final class PlayerCardView
 	 */
 	static HiscoreSkill hiscoreSkill(String key, String label)
 	{
-		String k = fold(key);
+		// The site says "cluesBeginner", RuneLite says CLUE_SCROLL_BEGINNER.
+		String k = fold(key).replaceFirst("^clues", "cluescroll");
 		String l = fold(label);
 		for (HiscoreSkill s : HiscoreSkill.values())
 		{
