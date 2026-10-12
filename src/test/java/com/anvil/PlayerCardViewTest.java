@@ -49,6 +49,11 @@ public class PlayerCardViewTest
 		assertEquals(HiscoreSkill.VORKATH, PlayerCardView.hiscoreSkill("Vorkath"));
 		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.hiscoreSkill("Chambers of Xeric"));
 		assertNull(PlayerCardView.hiscoreSkill("Not a boss"));
+		// The site's keys, folded against RuneLite's enum — with a prefix for renames.
+		assertEquals(HiscoreSkill.ALCHEMICAL_HYDRA, PlayerCardView.hiscoreSkill("alchemicalHydra", "Alchemical Hydra"));
+		assertEquals(HiscoreSkill.BARROWS_CHESTS, PlayerCardView.hiscoreSkill("barrows", "Barrows"));
+		assertEquals(HiscoreSkill.CLUE_SCROLL_ELITE, PlayerCardView.hiscoreSkill("x", "Clue Scrolls (elite)"));
+		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.hiscoreSkill("chambersOfXeric", "Chambers of Xeric"));
 	}
 
 	@Test
@@ -91,6 +96,18 @@ public class PlayerCardViewTest
 		card.clan.name = "  <HTML><b>pwned";
 		assertNoHtml(PlayerCardView.render(card, null, null));
 		assertNoHtml(PlayerCardView.notFound("<html>x"));
+		PlayerCard.Page page = new PlayerCard.Page();
+		page.name = "<html>evil page";
+		page.group = "Bosses";
+		page.total = 1;
+		card.clogPages = java.util.Collections.singletonList(page);
+		PlayerCard.Activity act = new PlayerCard.Activity();
+		act.key = "x";
+		act.label = "<html>evil";
+		act.shortLabel = "<html>evil";
+		act.score = 3;
+		card.activities = java.util.Collections.singletonList(act);
+		assertNoHtml(PlayerCardView.render(card, PlayerCardView.Icons.NONE, "Log", s -> { }));
 	}
 
 	private static void assertNoHtml(java.awt.Container c)
@@ -110,5 +127,22 @@ public class PlayerCardViewTest
 				assertNoHtml((java.awt.Container) child);
 			}
 		}
+	}
+
+	@Test
+	public void emptyAccountSaysSo()
+	{
+		PlayerCard card = new PlayerCard();
+		card.rsn = "Drenvox";
+		org.junit.Assert.assertTrue(PlayerCardView.isEmpty(card));
+		card.totalLevel = 32;
+		org.junit.Assert.assertFalse(PlayerCardView.isEmpty(card));
+	}
+
+	@Test
+	public void skillGridIsTheGamesTwentyFour()
+	{
+		assertEquals(24, PlayerCardView.SKILL_GRID.length);
+		assertEquals(24, new java.util.HashSet<>(java.util.Arrays.asList(PlayerCardView.SKILL_GRID)).size());
 	}
 }

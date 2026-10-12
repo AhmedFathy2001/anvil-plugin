@@ -24,6 +24,36 @@ public final class PlayerCard
 	public Clog clog;
 	public List<Latest> latest;
 	public List<Boss> topBosses;
+	// The in-panel profile behind the summary. Absent from an older site; treat null as empty.
+	public List<Skill> skills;
+	public List<Boss> bosses;
+	public List<Activity> activities;
+	public List<Page> clogPages;
+
+	public static final class Skill
+	{
+		public String key;
+		public int level;
+		public long xp;
+	}
+
+	public static final class Activity
+	{
+		public String key;
+		public String label;
+		public String shortLabel;
+		/** "clues", "minigames" or "collection". */
+		public String group;
+		public int score;
+	}
+
+	public static final class Page
+	{
+		public String name;
+		public String group;
+		public int obtained;
+		public int total;
+	}
 
 	public static final class Clan
 	{

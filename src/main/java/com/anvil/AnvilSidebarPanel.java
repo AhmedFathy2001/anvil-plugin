@@ -51,6 +51,7 @@ import net.runelite.client.ui.components.PluginErrorPanel;
 import net.runelite.client.ui.components.IconTextField;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SpriteManager;
+import net.runelite.client.game.SkillIconManager;
 import java.awt.CardLayout;
 
 /**
@@ -112,6 +113,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Item and boss icons for the player card. Null in tests that build the panel by hand. */
 	private final ItemManager itemManager;
 	private final SpriteManager spriteManager;
+	private final SkillIconManager skillIconManager;
 
 	// ---- Tabs: Clan · You · Lookup ----------------------------------------------------------------
 	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are the
@@ -140,6 +142,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Discards a card that lands after a newer request was made. */
 	private int lookupSeq;
 	private int youSeq;
+	/** Which profile section each tab's card has open, so a refresh doesn't snap it back. */
+	private String youSection;
+	private String lookupSection;
 	private PlayerCard youCard;
 	private String youCardRsn;
 
@@ -230,18 +235,19 @@ public class AnvilSidebarPanel extends PluginPanel
 	AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
 		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor)
 	{
-		this(dataSource, apiClient, configManager, executor, null, null);
+		this(dataSource, apiClient, configManager, executor, null, null, null);
 	}
 
 	@Inject
 	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
 		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor,
-		ItemManager itemManager, SpriteManager spriteManager)
+		ItemManager itemManager, SpriteManager spriteManager, SkillIconManager skillIconManager)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
 		this.dataSource = dataSource;
 		this.itemManager = itemManager;
 		this.spriteManager = spriteManager;
+		this.skillIconManager = skillIconManager;
 		this.apiClient = apiClient;
 		this.configManager = configManager;
 		this.executor = executor;
@@ -348,7 +354,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		top.add(Box.createVerticalStrut(6));
 		top.add(signInRow);
 		top.add(accountRowPanel);
-		top.add(Box.createVerticalStrut(4));
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
@@ -377,7 +382,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			dataSource.chooseClan(sel.slug);
 			renderLoading();
 		});
-		JPanel south = new JPanel(new BorderLayout(0, 6));
+		JPanel south = new JPanel(new BorderLayout(0, 8));
 		south.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		south.add(buildTabStrip(), BorderLayout.NORTH);
 		south.add(clanPicker, BorderLayout.SOUTH);
@@ -446,6 +451,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			lookupSeq++;
 			lookupResult.removeAll();
+			lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
 			lookupResult.revalidate();
 			lookupResult.repaint();
 		});
@@ -454,6 +460,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupRecentRow);
 		lookupPanel.add(lookupResult);
+		lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
 	}
 
 	/** Signed in to a site that serves player cards — the condition for the strip to show at all. */
@@ -546,7 +553,7 @@ public class AnvilSidebarPanel extends PluginPanel
 						return; // a newer lookup has started; this answer is for a name nobody's looking at
 					}
 					lookupResult.removeAll();
-					lookupResult.add(cardFor(name, result));
+					lookupResult.add(cardFor(name, result, false));
 					lookupResult.revalidate();
 					lookupResult.repaint();
 				});
@@ -612,7 +619,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			boolean cached = youCard != null && Rsn.same(youCardRsn, me);
 			youPanel.add(cached
-				? PlayerCardView.render(youCard, itemManager, spriteManager)
+				? PlayerCardView.render(youCard, cardIcons(), youSection, sec -> youSection = sec)
 				: cardMessage("Loading your card…"));
 			if (refetch || !cached)
 			{
@@ -660,7 +667,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				else if (tab == Tab.YOU)
 				{
 					youPanel.remove(0);
-					youPanel.add(cardFor(me, result), 0);
+					youPanel.add(cardFor(me, result, true), 0);
 					youPanel.revalidate();
 					youPanel.repaint();
 				}
@@ -668,7 +675,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result)
+	private PlayerCardView.Icons cardIcons()
+	{
+		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager);
+	}
+
+	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
 	{
 		if (result == null)
 		{
@@ -678,7 +690,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return PlayerCardView.notFound(name);
 		}
-		return PlayerCardView.render(result.card, itemManager, spriteManager);
+		return you
+			? PlayerCardView.render(result.card, cardIcons(), youSection, sec -> youSection = sec)
+			: PlayerCardView.render(result.card, cardIcons(), lookupSection, sec -> lookupSection = sec);
 	}
 
 	private static JPanel cardMessage(String text)
