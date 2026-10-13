@@ -101,6 +101,10 @@ final class ProfileLookup
 		return true;
 	}
 
+	/** The name lists (friends, ignores, chat channels, clans, raid party, private chat) that get the entry. */
+	private static final Set<Integer> NAME_LISTS = Set.of(InterfaceID.FRIENDS, InterfaceID.IGNORE, InterfaceID.CHATCHANNEL_CURRENT,
+		InterfaceID.CLANS_SIDEPANEL, InterfaceID.CLANS_GUEST_SIDEPANEL, InterfaceID.RAIDS_SIDEPANEL, InterfaceID.PM_CHAT);
+
 	/**
 	 * Which side of a list option our entry goes on: +1 after it, -1 before it, 0 not a list entry we
 	 * add to. The chatbox's "Kick" is a clan-chat moderation entry, not a name menu, so it is skipped
@@ -108,14 +112,7 @@ final class ProfileLookup
 	 */
 	static int listPlacement(int groupId, String option)
 	{
-		boolean nameList = groupId == InterfaceID.FRIENDS
-			|| groupId == InterfaceID.IGNORE
-			|| groupId == InterfaceID.CHATCHANNEL_CURRENT
-			|| groupId == InterfaceID.CLANS_SIDEPANEL
-			|| groupId == InterfaceID.CLANS_GUEST_SIDEPANEL
-			|| groupId == InterfaceID.RAIDS_SIDEPANEL
-			|| groupId == InterfaceID.PM_CHAT
-			|| (groupId == InterfaceID.CHATBOX && !"Kick".equals(option));
+		boolean nameList = NAME_LISTS.contains(groupId) || (groupId == InterfaceID.CHATBOX && !"Kick".equals(option));
 		if (!nameList || option == null)
 		{
 			return 0;

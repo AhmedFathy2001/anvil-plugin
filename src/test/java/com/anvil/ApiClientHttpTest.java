@@ -180,4 +180,19 @@ public class ApiClientHttpTest
 		assertEquals("Bearer tok", seen.get(1).header("Authorization"));
 		assertNull(seen.get(1).header("X-RSN"));
 	}
+
+	@Test
+	public void progressPushKeepsItsWireShape() throws IOException
+	{
+		BingoApiClient c = client();
+		Map<String, Integer> progress = new LinkedHashMap<>();
+		progress.put("questPoints", 300);
+		progress.put(AccountProgress.ACCOUNT_TYPE_KEY, 1);
+		Map<Integer, Integer> varps = new LinkedHashMap<>();
+		varps.put(3116, 7);
+		c.submitProgress(progress, "quest", Collections.singletonList(new AccountProgress.Item(5, "Cook's Assistant", 2)), varps, 40);
+		assertEquals("{\"progress\":[{\"key\":\"questPoints\",\"value\":300}],\"accountType\":1,"
+			+ "\"items\":[{\"category\":\"quest\",\"items\":[{\"id\":5,\"name\":\"Cook's Assistant\",\"state\":2}]}],"
+			+ "\"caVarps\":{\"3116\":7},\"caPoints\":40}", bodies.get(0));
+	}
 }

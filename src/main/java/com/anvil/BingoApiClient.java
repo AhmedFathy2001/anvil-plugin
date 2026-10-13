@@ -459,7 +459,7 @@ public class BingoApiClient
 		payload.addProperty("action", action);
 		Request request = authedRequest(clanUrl("/api/plugin/account"))
 			.tag(AccountAction.class, ACCOUNT_ACTION)
-			.post(RequestBody.create(JSON, gson.toJson(payload)))
+			.post(json(payload))
 			.build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
@@ -528,7 +528,7 @@ public class BingoApiClient
 		}
 		else
 		{
-			body = RequestBody.create(JSON, payload.toString());
+			body = json(payload);
 		}
 
 		Request request = authedRequest(clanUrl("/api/plugin/notify")).post(body).build();
@@ -787,7 +787,7 @@ public class BingoApiClient
 		{
 			body.addProperty("dueOn", dueOn);
 		}
-		return goalsCall(authedRequest(rootUrl("/api/plugin/goals")).post(RequestBody.create(JSON, body.toString())));
+		return goalsCall(authedRequest(rootUrl("/api/plugin/goals")).post(json(body)));
 	}
 
 	public GoalsResult removeGoal(int id)
@@ -927,7 +927,7 @@ public class BingoApiClient
 		{
 			payload.addProperty("note", note.trim());
 		}
-		executeClaim(authedRequest(clanUrl("/api/plugin/claims")).post(RequestBody.create(JSON, payload.toString())));
+		executeClaim(authedRequest(clanUrl("/api/plugin/claims")).post(json(payload)));
 	}
 
 	/** Drop your own claim on a tile. */
@@ -984,6 +984,11 @@ public class BingoApiClient
 	{
 		JsonElement e = json == null ? null : json.get(key);
 		return e != null && e.isJsonPrimitive() ? e.getAsString() : null;
+	}
+
+	private static RequestBody json(JsonObject payload)
+	{
+		return RequestBody.create(JSON, payload.toString());
 	}
 
 	/** The response body as text, "" when there is none. */
@@ -1318,7 +1323,7 @@ public class BingoApiClient
 		// only thing left that can say which clan is being greeted. A site addressed by /c/<slug> or
 		// by an old per-clan hostname ignores it and answers exactly as before.
 		return getOrNull(withOptionalAuth(plainRequest(clanUrl("/api/plugin/hello")))
-			.post(RequestBody.create(JSON, payload.toString())), HelloResponse.class, "plugin/hello");
+			.post(json(payload)), HelloResponse.class, "plugin/hello");
 	}
 
 	public static class HelloResponse
@@ -1406,7 +1411,7 @@ public class BingoApiClient
 		payload.addProperty("clanName", clanName);
 		payload.add("members", gson.toJsonTree(members));
 		Request request = tokenRequest("/api/plugin/clan-sync", accountToken)
-			.post(RequestBody.create(JSON, payload.toString())).build();
+			.post(json(payload)).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			String responseBody = bodyText(response);
@@ -1617,7 +1622,7 @@ public class BingoApiClient
 	 */
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException
 	{
-		Request request = authedRequest(clanUrl(path)).post(RequestBody.create(JSON, payload.toString())).build();
+		Request request = authedRequest(clanUrl(path)).post(json(payload)).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			String body = bodyText(response);
@@ -1975,11 +1980,7 @@ public class BingoApiClient
 				{
 					continue;
 				}
-				JsonObject row = new JsonObject();
-				row.addProperty("id", item.id);
-				row.addProperty("name", item.name);
-				row.addProperty("state", item.state);
-				itemRows.add(row);
+				itemRows.add(gson.toJsonTree(item)); // {id, name, state}
 			}
 			JsonObject set = new JsonObject();
 			set.addProperty("category", itemCategory);
@@ -1990,12 +1991,7 @@ public class BingoApiClient
 		}
 		if (hasVarps)
 		{
-			JsonObject varpObj = new JsonObject();
-			for (Map.Entry<Integer, Integer> e : caVarps.entrySet())
-			{
-				varpObj.addProperty(String.valueOf(e.getKey()), e.getValue());
-			}
-			payload.add("caVarps", varpObj);
+			payload.add("caVarps", gson.toJsonTree(caVarps)); // {"<varp id>": value}
 			payload.addProperty("caPoints", caPoints);
 		}
 		String reply = postJson("/api/plugin/progress", payload, "Progress push failed", false);

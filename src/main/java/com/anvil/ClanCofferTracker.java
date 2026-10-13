@@ -105,7 +105,7 @@ final class ClanCofferTracker
 		{
 			return null;
 		}
-		boolean namesSelf = lower.startsWith("you ") || lower.startsWith("you've ") || lower.startsWith("you have ");
+		boolean namesSelf = lower.startsWith("you ") || lower.startsWith("you've ");
 		String self = Rsn.normalize(localRsn);
 		if (!namesSelf && !self.isEmpty())
 		{
