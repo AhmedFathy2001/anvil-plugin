@@ -1791,7 +1791,7 @@ public class AnvilPlugin extends Plugin {
     private enum TransmitResult { STARTED, BUSY, COOLING_DOWN, LOG_CLOSED, UNAVAILABLE }
 
     private TransmitResult requestFullClogTransmit() {
-        if (!config.syncClog() || !apiClient.isConfigured() || !serverSupportsProfileSync()) {
+        if (!supportsProfileSync()) {
             return TransmitResult.UNAVAILABLE;
         }
         if (client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1) {
@@ -1958,7 +1958,7 @@ public class AnvilPlugin extends Plugin {
      *
      */
     private void captureClogPage() {
-        if (!config.syncClog() || !apiClient.isConfigured() || !serverSupportsProfileSync()) {
+        if (!supportsProfileSync()) {
             return;
         }
         ClogPage page = ClogPageReader.read(client);
@@ -2702,12 +2702,7 @@ public class AnvilPlugin extends Plugin {
 
     /** How many first-run nudges this install has already printed. Absent/garbage reads as none. */
     private int firstRunNudgesShown() {
-        try {
-            String raw = cfgGet(CFG_FIRST_RUN_NUDGES);
-            return raw == null || raw.isEmpty() ? 0 : Math.max(0, Integer.parseInt(raw.trim()));
-        } catch (RuntimeException e) {
-            return 0;
-        }
+        return (int) Math.max(0, cfgLong(CFG_FIRST_RUN_NUDGES));
     }
 
     // Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
@@ -6428,13 +6423,13 @@ public class AnvilPlugin extends Plugin {
      */
     private boolean ensureCounterEvent() {
         if (!countersLoaded) {
-            counterEventId = readIntConfig(CFG_COUNTER_EVENT, 0);
-            eventDeaths = readIntConfig(CFG_COUNTER_DEATHS, 0);
-            eventLootGp = readLongConfig(CFG_COUNTER_LOOTGP, 0);
-            eventPvpKills = readIntConfig(CFG_COUNTER_PVP, 0);
-            eventBiggestHit = readIntConfig(CFG_COUNTER_BIGHIT, 0);
-            eventMinutes = readIntConfig(CFG_COUNTER_MINUTES, 0);
-            eventCaTasks = readIntConfig(CFG_COUNTER_CATASKS, 0);
+            counterEventId = (int) cfgLong(CFG_COUNTER_EVENT);
+            eventDeaths = (int) cfgLong(CFG_COUNTER_DEATHS);
+            eventLootGp = cfgLong(CFG_COUNTER_LOOTGP);
+            eventPvpKills = (int) cfgLong(CFG_COUNTER_PVP);
+            eventBiggestHit = (int) cfgLong(CFG_COUNTER_BIGHIT);
+            eventMinutes = (int) cfgLong(CFG_COUNTER_MINUTES);
+            eventCaTasks = (int) cfgLong(CFG_COUNTER_CATASKS);
             countersLoaded = true;
         }
         if (trackingGateReason() != null) {
@@ -6957,21 +6952,13 @@ public class AnvilPlugin extends Plugin {
         return fp.isEmpty() ? null : fp;
     }
 
-    private int readIntConfig(String key, int fallback) {
+    /** A number this plugin stored in config; 0 when it's missing or corrupt. */
+    private long cfgLong(String key) {
         try {
             String v = cfgGet(key);
-            return v == null || v.isEmpty() ? fallback : Integer.parseInt(v.trim());
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private long readLongConfig(String key, long fallback) {
-        try {
-            String v = cfgGet(key);
-            return v == null || v.isEmpty() ? fallback : Long.parseLong(v.trim());
-        } catch (NumberFormatException e) {
-            return fallback;
+            return v == null || v.isEmpty() ? 0 : Long.parseLong(v.trim());
+        } catch (RuntimeException e) {
+            return 0;
         }
     }
 
@@ -9275,7 +9262,7 @@ public class AnvilPlugin extends Plugin {
         // The whole-log fingerprint survives a restart: opening the collection log re-transmits
         // everything every time, and without this each session's first open re-sent a log the site
         // already had, byte for byte.
-        lastClogFingerprint = parseLongOrZero(cfgGet(CFG_CLOG_FINGERPRINT + ":" + key));
+        lastClogFingerprint = cfgLong(CFG_CLOG_FINGERPRINT + ":" + key);
         personalBests.restoreState(cfgGet(CFG_PB_STATE + ":" + key));
         importRuneLitePersonalBests(key);
     }
@@ -9364,18 +9351,6 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** Config values are text; a missing or corrupt one just means "no fingerprint yet". */
-    private static long parseLongOrZero(String raw) {
-        if (raw == null || raw.isEmpty()) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(raw.trim());
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
-    }
-
     /** Read one stored best, if RuneLite has it for this account. Times are seconds; ours centis. */
     private void probeRuneLitePb(String activity, Map<String, Integer> into) {
         String raw = configManager.getRSProfileConfiguration(RUNELITE_PB_GROUP, activity);
@@ -9397,8 +9372,7 @@ public class AnvilPlugin extends Plugin {
      * no thread of our own, and nothing on the client thread.
      */
     private void flushClogSync() {
-        if (!config.syncClog() || !apiClient.isConfigured() || profileSyncRsn == null
-                || !serverSupportsProfileSync()) {
+        if (profileSyncRsn == null || !supportsProfileSync()) {
             return;
         }
         long now = now();
@@ -9438,8 +9412,7 @@ public class AnvilPlugin extends Plugin {
      * the kill-count lines that only appear on a drawn page.
      */
     private void flushFullClogSync() {
-        if (!config.syncClog() || !apiClient.isConfigured() || profileSyncRsn == null
-                || !serverSupportsProfileSync()) {
+        if (profileSyncRsn == null || !supportsProfileSync()) {
             return;
         }
         long now = now();
