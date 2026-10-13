@@ -608,7 +608,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		SwingUtilities.invokeLater(() ->
 		{
-			String name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
+			String name = rawName == null ? "" : rawName.replace('\u00A0', ' ').trim();
 			if (tab != Tab.LOOKUP)
 			{
 				selectTab(Tab.LOOKUP);
@@ -2140,8 +2140,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			// This card shows one of them. Switching is how you reach the rest, so the row has to admit
 			// there ARE others rather than presenting the freshest as everything happening there.
-			card.add(label("+ " + (c.liveCount - 1) + " more here",
-				SMALL, ColorScheme.BRAND_ORANGE));
+			card.add(small("+ " + (c.liveCount - 1) + " more here", ColorScheme.BRAND_ORANGE));
 		}
 
 		if (!c.live.isWeekly() && c.live.tilesTotal > 0)
