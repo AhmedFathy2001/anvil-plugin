@@ -10,7 +10,6 @@ public final class ClanCard
 {
 	public String slug;
 	public String name;
-	public String logoUrl;
 	public int members;
 	public int activeThisWeek;
 	/** EHP + EHB gained by the members in the last 7 days. */

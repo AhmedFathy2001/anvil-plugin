@@ -16,22 +16,7 @@ public class PluginConfigResponse
 
 	public static class ServerInfo
 	{
-		public String version;      // site semver, e.g. "1.0.0"
-		public String sha;          // exact commit the site image was built from
-		public int apiLevel;        // breaking-change counter; bumps are rare and loud
 		public List<String> capabilities;
-		/**
-		 * The address this deployment would rather be reached at, e.g. "https://anvilosrs.com".
-		 *
-		 * One site now serves every clan, so a per-clan subdomain is a legacy address: it works, but
-		 * it resolves the clan from the hostname instead of from your token, which stops being
-		 * right the moment you join a second clan. The canonical address keeps working either way.
-		 *
-		 * SENT BY THE SERVER rather than baked in here, because Anvil is self-hostable — a
-		 * hard-coded anvilosrs.com would tell every self-hoster to point at somebody else's site.
-		 * Null on older sites and on any deployment that names none, in which case we say nothing.
-		 */
-		public String canonicalUrl;
 	}
 
 	/** Everything the plugin-facing API already supported when the handshake first shipped (site v1.0.0). */
@@ -97,12 +82,11 @@ public class PluginConfigResponse
 	/**
 	 * A live board in one of the person's clans.
 	 *
-	 * Shaped like {@link HomeBoard} but a type of its own because it carries the event id, and the id
-	 * is load-bearing: a co-hosted event belongs to every host, so the same board arrives listed under
-	 * each of them and the id is the only thing that says so. {@link HomeBoard} is the summary for the
-	 * clan the plugin is addressing, where the question never comes up.
+	 * A {@link HomeBoard} plus its kind. The event id is load-bearing: a co-hosted event belongs to
+	 * every host, so the same board arrives listed under each of them and the id is the only thing
+	 * that says so.
 	 */
-	public static class ClanBoard
+	public static class ClanBoard extends HomeBoard
 	{
 		/**
 		 * "bingo" or "weekly" — and half of this thing's identity.
@@ -112,12 +96,7 @@ public class PluginConfigResponse
 		 * only boards were ever reported.
 		 */
 		public String kind;
-		public int eventId;
-		public String eventName;
-		/** Zero on a weekly: a competition has a leaderboard, not a board to fill. */
-		public int tilesComplete;
-		public int tilesTotal;
-		public boolean pointsScored;
+		// tilesComplete is zero on a weekly: a competition has a leaderboard, not a board to fill.
 
 		/** True for a SOTW/BOTW — no board to fill, so no progress bar and no tile tally. */
 		public boolean isWeekly()
@@ -163,7 +142,7 @@ public class PluginConfigResponse
 	 */
 	public HomeBoard homeBoard;
 
-	public static class HomeBoard
+	public static class HomeBoard extends BoardTally
 	{
 		/**
 		 * WHICH board this is. Zero on a site that predates the field.
@@ -174,9 +153,6 @@ public class PluginConfigResponse
 		 */
 		public int eventId;
 		public String eventName;
-		public int tilesComplete;
-		public int tilesTotal;
-		public boolean pointsScored;
 	}
 
 	/**
@@ -207,7 +183,6 @@ public class PluginConfigResponse
 	{
 		return "bingo:" + eventId;
 	}
-	public String codeword;
 
 	// Activity names for the personal-best import. RuneLite files its stored bests in a config scope
 	// a plugin can READ by key but cannot LIST, so the import has to ask by name — and the names come
@@ -250,18 +225,10 @@ public class PluginConfigResponse
 		public String keyword;
 		/** True while this player still owes a shot (never filed one, or theirs was rejected). */
 		public boolean needsUpload;
-		/**
-		 * Is a shot still being ASKED for? The site stops asking six hours after the start: OSRS
-		 * force-logs everyone by then, so nobody is still sitting on the stack the shot exists to
-		 * catch. `needsUpload` already folds this in — this is here so the panel can say how long
-		 * is left rather than having the card vanish without explanation.
-		 */
-		public boolean windowOpen;
 		/** ISO instant when the ask lapses. Null before the draw, and on sites too old to send it. */
 		public String windowEndsAt;
 		/** "pending" | "accepted" | "rejected", or null when nothing is on file. */
 		public String status;
-		public String imageUrl;
 
 		/** The drawn spot on the world map: where, and how many squares from it still counts. */
 		public static class Spot
@@ -309,7 +276,6 @@ public class PluginConfigResponse
 	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
-	public List<TierBand> tiers;                 // admin-configured difficulty bands (points -> tier)
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
@@ -437,17 +403,15 @@ public class PluginConfigResponse
 		public String revealedAt; // ISO time this mission went live; null when unknown
 		public String category;
 		// Per-mission scoring so a bingo can mix missions with different behaviour. `decay` (may be
-		// null) drives this mission's live grow/decay value; `lockout` marks first-to-clear-locks.
-		// Absent on older sites — fall back to the event-level decay.
+		// null) drives this mission's live grow/decay value. Absent on older sites — fall back to the
+		// event-level decay.
 		public Decay decay;
-		public boolean lockout;
 	}
 
 	public static class Standings
 	{
 		public int yourRank;      // caller's 1-based rank; 0 when they have no scoring row yet
 		public long yourPoints;
-		public int yourTasks;
 		public int total;         // full board length (entries is capped)
 		public List<StandingEntry> entries;
 	}
@@ -490,7 +454,8 @@ public class PluginConfigResponse
 		public int min;       // inclusive lower bound on points
 	}
 
-	public static class TrackedDrop
+	/** What every tracked tile shares. */
+	public abstract static class TrackedTile
 	{
 		public int tileId;
 		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
@@ -498,9 +463,18 @@ public class PluginConfigResponse
 		public String description;   // tile description, for the clog task accordion
 		public int points;           // Leagues-style reward value (0 = not a points event)
 		public String category;      // free-text grouping (boss/skill) for the clog task filter
-		public List<Integer> itemIds;
+	}
+
+	/** A tracked tile that completes at a count. */
+	public abstract static class CountedTile extends TrackedTile
+	{
 		public int requiredAmount;
-		public int currentAmount;
+		public int currentAmount;     // the team's submitted progress so far
+	}
+
+	public static class TrackedDrop extends CountedTile
+	{
+		public List<Integer> itemIds;
 		public List<ItemRequirement> itemRequirements;
 		// null = accept any source. Otherwise must match one of: "npc", "event", "pvp".
 		public List<String> acceptedSources;
@@ -573,18 +547,9 @@ public class PluginConfigResponse
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
 	// need NOT be on the hiscores) toward requiredAmount. Same submission flow as a simple drop.
-	public static class TrackedKill
+	public static class TrackedKill extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public List<String> targetNpcs;   // any of these NPC names counts a kill
-		public int requiredAmount;
-		public int currentAmount;
-		public String trackingMode;        // "team" | "individual"/"solo"
 		// Shared kills. "per-kill" = a kill several members were in credits ONCE (the server
 		// correlates their reports); coopMinMembers = the kill only counts with at least that many
 		// of the team in it. Either one makes this client attach what it could see of its company.
@@ -614,18 +579,9 @@ public class PluginConfigResponse
 	// minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM never do. The victim must match
 	// a selector: "any" = any player at all, "team:other" = any member of a rival team (resolved against pvpRoster),
 	// "rsn:<name>" = a named bounty (need not be in the event). Same submission flow as kill.
-	public static class TrackedPvp
+	public static class TrackedPvp extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public List<String> targets;      // selectors — "any", "team:other" or "rsn:<name>" entries
-		public int requiredAmount;
-		public int currentAmount;
-		public String trackingMode;        // "team" | "individual"/"solo"
 		// Minimum loot value (gp) a kill must yield to count. 0 = no minimum (credit off the death,
 		// including loot-key kills). > 0 defers the credit to PlayerLootReceived and only counts a
 		// kill whose priced loot reaches this floor (so loot-key / no-loot kills never credit it).
@@ -642,48 +598,24 @@ public class PluginConfigResponse
 	// Achievement-diary tile: the plugin credits a completion when the in-game diary completion
 	// line matches one of the selectors — "<Area> <Tier>" strings with "Any" as a wildcard on
 	// either side ("Ardougne Elite", "Any Elite", "Wilderness Any"). Same submission flow as kill.
-	public static class TrackedDiary
+	public static class TrackedDiary extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public List<String> diaries;      // selectors — any matching one counts a completion
-		public int requiredAmount;
-		public int currentAmount;
-		public String trackingMode;        // "team" | "individual"/"solo"
 	}
 
 	// Combat Achievement tile: the plugin credits a completion when the in-game "you've completed
 	// a <tier> combat task" line matches one of the selectors — exact task names ("Whack-a-Mole")
 	// or "Any <Tier>" wildcards ("Any Master"). Players who already own a task re-fire the line by
 	// enabling the in-game "Repeat completion" setting. Same submission flow as diary.
-	public static class TrackedCombatTask
+	public static class TrackedCombatTask extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public List<String> tasks;        // selectors — any matching one counts a completion
-		public int requiredAmount;
-		public int currentAmount;
-		public String trackingMode;        // "team" | "individual"/"solo"
 	}
 
 	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
 	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
-	public static class TrackedTimed
+	public static class TrackedTimed extends TrackedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
 		public int partySize;              // raids — exact party size required; 0/absent = any size
@@ -691,58 +623,28 @@ public class PluginConfigResponse
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedLms
+	public static class TrackedLms extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public int placementCap;           // finish at or under this placement (1 = win)
-		public int requiredAmount;         // qualifying games needed to complete the tile
-		public int currentAmount;          // team's submitted qualifying games so far
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedGain
+	public static class TrackedGain extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public List<Integer> itemIds;      // pool — any of these appearing in the inventory counts
-		public int requiredAmount;         // total gains needed across the pool
-		public int currentAmount;          // team's submitted gains so far
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedDeathless
+	public static class TrackedDeathless extends CountedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public String activity;            // the raid, e.g. "Theatre of Blood"
-		public int requiredAmount;         // deathless runs needed
-		public int currentAmount;          // team's submitted runs so far
 		public int partySize;              // exact party size required; 0/absent = any size
 		public int itemId = -1;            // activity's signature reward (icon), -1 = book sprite
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedValue
+	public static class TrackedValue extends TrackedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;
-		public int points;
-		public String category;
 		public long thresholdGp;           // single: a haul must be worth ≥ this; total: the gp target to reach
 		public String mode;                // "single" (one haul ≥ threshold) | "total" (hauls sum to threshold)
 		public long currentGp;             // total mode: gp banked so far (the server's sum of submissions); 0 on single
@@ -751,18 +653,11 @@ public class PluginConfigResponse
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedStat
+	public static class TrackedStat extends TrackedTile
 	{
-		public int tileId;
-		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		public String label;
-		public String description;   // tile description, for the clog task accordion
-		public int points;           // Leagues-style reward value (0 = not a points event)
-		public String category;      // free-text grouping (boss/skill) for the clog task filter
 		public String statName;     // e.g. "mining", "zulrah"
 		public String statType;     // "skill" | "boss" | "kc"
 		public int itemId = -1;     // boss KC tiles: the boss's representative clog item (icon); -1 for skills
-		public String trackingMode; // "team" | "individual"
 		public int currentAmount;   // gained XP / KC since baseline
 		public int goalAmount;
 		// Teammates (RSNs) actively grinding this stat tile right now, for the sidebar's "Active now".

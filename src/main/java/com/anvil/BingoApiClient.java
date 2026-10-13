@@ -1101,7 +1101,6 @@ public class BingoApiClient
 	{
 		public int tileId;
 		public int position;
-		public int row;
 		public String label;
 		public String description;
 		public int points;
@@ -1722,8 +1721,6 @@ public class BingoApiClient
 	public static final class ClogPushResult
 	{
 		public int added;
-		public int removed;
-		public int updated;
 	}
 
 	public ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException

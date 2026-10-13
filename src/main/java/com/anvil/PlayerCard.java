@@ -19,7 +19,6 @@ public final class PlayerCard
 	public Long overallXp;
 	public Double ehp;
 	public Double ehb;
-	public String statsAt;
 	/** Null until they've synced their collection log. */
 	public Clog clog;
 	public List<Latest> latest;
