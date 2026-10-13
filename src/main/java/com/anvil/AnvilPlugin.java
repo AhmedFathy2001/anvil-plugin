@@ -5193,29 +5193,12 @@ public class AnvilPlugin extends Plugin {
 
             if (pending.durationSeconds != null) {
                 log.info("Submitting timed clear for tile '{}'...", pending.label);
-                apiClient.submitTimed(
-                        pending.eventId,
-                        pending.tileId,
-                        pending.teamId,
-                        pending.durationSeconds,
-                        imageUrl,
-                        pending.note,
-                        pending.playerId
-                );
+                apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
+                        imageUrl, pending.note, pending.playerId);
             } else {
                 log.info("Submitting drop for tile '{}'...", pending.label);
-                apiClient.submitDrop(
-                        pending.eventId,
-                        pending.tileId,
-                        pending.teamId,
-                        pending.amount,
-                        imageUrl,
-                        pending.note,
-                        pending.playerId,
-                        pending.itemId,
-                        null,
-                        pending.inferred
-                );
+                apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
+                        pending.note, pending.playerId, pending.itemId, null, pending.inferred);
             }
 
             log.info("Submission '{}' sent successfully!", pending.label);
@@ -8468,6 +8451,15 @@ public class AnvilPlugin extends Plugin {
      * the player already owns never re-fire the completion line, so those tiles can never
      * track for them. Reads the setting's varbit, so the check runs on the client thread.
      */
+    /** On the client thread, and only while logged in — the nudges read settings varbits. */
+    private void whenLoggedIn(Runnable r) {
+        clientThread.invokeLater(() -> {
+            if (loggedIn()) {
+                r.run();
+            }
+        });
+    }
+
     private void maybeNudgeCaRepeatSetting() {
         if (caRepeatNudgeSent || pluginConfig == null || pluginConfig.trackedCombatTasks == null
                 || pluginConfig.trackedCombatTasks.isEmpty() || !AnvilOverlay.isEventActive(pluginConfig.event)) {
@@ -8483,10 +8475,7 @@ public class AnvilPlugin extends Plugin {
         if (!anyIncomplete) {
             return;
         }
-        clientThread.invokeLater(() -> {
-            if (!loggedIn()) {
-                return;
-            }
+        whenLoggedIn(() -> {
             if (client.getVarbitValue(VarbitID.CA_TASK_RECOMPLETION_NOTIFICATIONS) == 1) {
                 return; // setting already on — nothing to remind about
             }
@@ -8521,10 +8510,7 @@ public class AnvilPlugin extends Plugin {
         if (clogNotifyNudgeSent || !config.notifyClogSlots() || !notifyEnabled("collectionLog")) {
             return;
         }
-        clientThread.invokeLater(() -> {
-            if (!loggedIn()) {
-                return;
-            }
+        whenLoggedIn(() -> {
             if (client.getVarbitValue(VarbitID.OPTION_COLLECTION_NEW_ITEM) != 0) {
                 return;
             }
@@ -8550,10 +8536,7 @@ public class AnvilPlugin extends Plugin {
         if (!forPosts && !forTiles) {
             return;
         }
-        clientThread.invokeLater(() -> {
-            if (!loggedIn()) {
-                return;
-            }
+        whenLoggedIn(() -> {
             boolean settingOn = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_ON) == 1;
             // The plugin's own posting floor (enforced minimum 1m) — an in-game threshold above
             // it would swallow lines for drops the clan channel wants to see.
