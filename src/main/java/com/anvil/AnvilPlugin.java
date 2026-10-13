@@ -174,7 +174,6 @@ public class AnvilPlugin extends Plugin {
     private ConfigManager configManager;
 
     @Inject
-    @Getter
     private BingoApiClient apiClient;
 
     @Inject
@@ -187,7 +186,6 @@ public class AnvilPlugin extends Plugin {
     private ThievingService thievingService;
 
     @Inject
-    @Getter
     private PendingSubmissionStore pendingSubmissionStore;
 
     @Inject
@@ -1111,9 +1109,7 @@ public class AnvilPlugin extends Plugin {
     private static final long MAX_RETRY_BACKOFF_MS = 300_000; // Cap at 5 minutes
 
     // Hello/membership flow state
-    @Getter
     private volatile Boolean knownMember; // null = unknown, true = in clanMembers
-    @Getter
     private volatile boolean isGuest;
     private volatile boolean helloSent;
 
@@ -1148,16 +1144,6 @@ public class AnvilPlugin extends Plugin {
         void onResult(boolean ok, String message);
     }
 
-    // Weekly auto-enroll state (backlog #4)
-    @Getter
-    private volatile BingoApiClient.ActiveWeekly activeWeekly;
-    @Getter
-    private volatile String weeklyEnrollmentSummary; // e.g. "Enrolled in X — baseline 12,345"
-    private volatile boolean weeklyEnrollAttempted;
-
-    // Upcoming schedule (from GET /api/plugin/schedule)
-    @Getter
-    private volatile BingoApiClient.ScheduleResponse schedule;
 
     @Override
     protected void startUp() {
@@ -1210,7 +1196,7 @@ public class AnvilPlugin extends Plugin {
         // Restore the clan the member last picked, BEFORE the first fetch — otherwise the opening poll
         // goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
         // then jumps to theirs a few seconds later.
-        apiClient.setChosenClan(configManager.getConfiguration("osrsbingo", CFG_ACTIVE_CLAN));
+        apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
 
@@ -1240,8 +1226,8 @@ public class AnvilPlugin extends Plugin {
         profileLookup.startUp();
 
         configureApiClient();
-        optedOutAccounts = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS));
-        announcedAccounts = AccountOptOut.parse(configManager.getConfiguration("osrsbingo", CFG_ANNOUNCED_ACCOUNTS));
+        optedOutAccounts = AccountOptOut.parse(cfgGet(CFG_OPTED_OUT_ACCOUNTS));
+        announcedAccounts = AccountOptOut.parse(cfgGet(CFG_ANNOUNCED_ACCOUNTS));
         // Off the Jagex Launcher, the character about to log in is known before Play: requests made at
         // the login screen carry it as a read-only hint, so the panel loads that character's board
         // instead of nothing. Fixed for the life of the client — the launcher starts one character.
@@ -1287,7 +1273,7 @@ public class AnvilPlugin extends Plugin {
         executor.scheduleAtFixedRate(() -> {
             safely("refreshConfig", this::refreshConfig);
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
-            safely("refreshSchedule", this::refreshSchedule);
+
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("importRuneLitePbs", this::retryPersonalBestImport);
             safely("flushClogSync", this::flushClogSync);
@@ -1358,10 +1344,7 @@ public class AnvilPlugin extends Plugin {
             if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) {
                 return;
             }
-            if (executor == null || executor.isShutdown()) {
-                return;
-            }
-            executor.submit(() -> {
+            submit(() -> {
                 try {
                     // One request each: the endpoint takes a category at a time, and these two move
                     // independently.
@@ -1391,6 +1374,39 @@ public class AnvilPlugin extends Plugin {
         } catch (Exception e) {
             log.warn("Scheduled task '{}' threw, continuing: {}", name, e.getMessage());
         }
+    }
+
+    /** Whether the executor is up — it only exists between startUp and shutDown. */
+    private boolean execLive() {
+        return executor != null && !executor.isShutdown();
+    }
+
+    /** Run {@code task} on the executor, if it is up. */
+    private void submit(Runnable task) {
+        if (execLive()) {
+            executor.submit(task);
+        }
+    }
+
+    /** Run {@code task} on the executor in {@code ms}, if it is up; null when it isn't. */
+    private ScheduledFuture<?> later(Runnable task, long ms) {
+        return execLive() ? executor.schedule(task, ms, TimeUnit.MILLISECONDS) : null;
+    }
+
+    /** Cancel a pending task and schedule its replacement — the debounce every push here uses. */
+    private ScheduledFuture<?> reschedule(ScheduledFuture<?> pending, Runnable task, long ms) {
+        if (pending != null) {
+            pending.cancel(false);
+        }
+        return later(task, ms);
+    }
+
+    private String cfgGet(String key) {
+        return configManager.getConfiguration("osrsbingo", key);
+    }
+
+    private void cfgSet(String key, String value) {
+        configManager.setConfiguration("osrsbingo", key, value);
     }
 
     private void pruneDedupMap() {
@@ -1696,12 +1712,10 @@ public class AnvilPlugin extends Plugin {
         // greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
         // probe so a new token gets re-checked. The single-threaded executor runs this
         // before the debounced refresh, so that refresh already carries the headers.
-        if ("playerToken".equals(key)
-                && client.getGameState() == GameState.LOGGED_IN
-                && executor != null && !executor.isShutdown()) {
+        if ("playerToken".equals(key) && client.getGameState() == GameState.LOGGED_IN && execLive()) {
             adminProbeAttempted = false;
             setupWarned = false; // re-evaluate setup after a token edit
-            executor.submit(this::stampIdentityAndGreet);
+            submit(this::stampIdentityAndGreet);
         }
     }
 
@@ -1895,14 +1909,11 @@ public class AnvilPlugin extends Plugin {
      * gets the push away within one of them.
      */
     private void flushFullClogSyncWhenSettled() {
-        if (clogFlushQueued || executor == null || executor.isShutdown()) {
-            return;
-        }
-        if (!clogFullSync.isDue(System.currentTimeMillis())) {
+        if (clogFlushQueued || !execLive() || !clogFullSync.isDue(System.currentTimeMillis())) {
             return;
         }
         clogFlushQueued = true;
-        executor.submit(() -> {
+        submit(() -> {
             try {
                 safely("flushFullClogSync", this::flushFullClogSync);
             } finally {
@@ -2419,7 +2430,7 @@ public class AnvilPlugin extends Plugin {
             clanCofferOpenTicks = 0;
             clanCofferTracker.reset();
             isGuest = false;
-            weeklyEnrollAttempted = false;
+
             adminProbeAttempted = false;
             identityStampRetries = 0;
             // Progress is per ACCOUNT: the next login may be an alt, whose quest points are not
@@ -2503,9 +2514,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         identityStampPending = false;
-        if (executor != null && !executor.isShutdown()) {
-            executor.submit(this::stampIdentityAndGreet);
-        }
+        submit(this::stampIdentityAndGreet);
     }
 
     private static final int MAX_IDENTITY_STAMP_RETRIES = 5;
@@ -2540,13 +2549,12 @@ public class AnvilPlugin extends Plugin {
      */
     private void restampIfRenamed() {
         String live = getLocalPlayerName();
-        if (!renamedMidSession(apiClient.getCurrentRsn(), live)
-                || executor == null || executor.isShutdown()) {
+        if (!renamedMidSession(apiClient.getCurrentRsn(), live) || !execLive()) {
             return;
         }
-        log.info("Anvil: in-game name changed to {} — re-stamping identity", live);
+        log.info("In-game name changed to {} — re-stamping identity", live);
         apiClient.setCurrentRsn(live);
-        executor.submit(this::stampIdentityAndGreet);
+        submit(this::stampIdentityAndGreet);
     }
 
     private void stampIdentityAndGreet() {
@@ -2559,10 +2567,10 @@ public class AnvilPlugin extends Plugin {
         // path really does resolve and merge on login.
         if (!identityReady(rsn, accountHash)
                 && client.getGameState() == GameState.LOGGED_IN
-                && executor != null && !executor.isShutdown()
+                && execLive()
                 && identityStampRetries < MAX_IDENTITY_STAMP_RETRIES) {
             identityStampRetries++;
-            executor.schedule(this::stampIdentityAndGreet, 2, TimeUnit.SECONDS);
+            later(this::stampIdentityAndGreet, 2000);
             return;
         }
         identityStampRetries = 0;
@@ -2614,7 +2622,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         announcedAccounts = announcedAccounts.with(accountHash, rsn);
-        configManager.setConfiguration("osrsbingo", CFG_ANNOUNCED_ACCOUNTS, announcedAccounts.serialize());
+        cfgSet(CFG_ANNOUNCED_ACCOUNTS, announcedAccounts.serialize());
         if ("other".equals(standing)) {
             sendChatMessage(rsn + " is linked to another Anvil account, so nothing is tracked here. "
                     + "If it's yours, open the Anvil side panel and press \"It's mine\".");
@@ -2660,11 +2668,11 @@ public class AnvilPlugin extends Plugin {
      * (called on the executor — the panel marshals it).
      */
     public void accountAction(SidebarDataSource.AccountRow.Action action, Consumer<String> done) {
-        if (accountActionRunning || executor == null || executor.isShutdown()) {
+        if (accountActionRunning || !execLive()) {
             return;
         }
         accountActionRunning = true;
-        executor.submit(() -> {
+        submit(() -> {
             try {
                 done.accept(runAccountAction(action));
             } catch (RuntimeException e) {
@@ -2687,7 +2695,7 @@ public class AnvilPlugin extends Plugin {
             case NOT_MINE: {
                 // Local first: whatever the site says, this computer stops sending for it now.
                 optedOutAccounts = optedOutAccounts.with(hash, rsn);
-                configManager.setConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
+                cfgSet(CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
                 BingoApiClient.AccountActionResult r = apiClient.postAccountAction("release");
                 apiClient.setAccountPaused(true);
                 dropConfigForPausedAccount();
@@ -2706,7 +2714,7 @@ public class AnvilPlugin extends Plugin {
             }
             case TRACK_AGAIN: {
                 optedOutAccounts = optedOutAccounts.without(hash, rsn);
-                configManager.setConfiguration("osrsbingo", CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
+                cfgSet(CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
                 apiClient.setAccountPaused(false);
                 BingoApiClient.AccountActionResult r = apiClient.postAccountAction("resume");
                 // The normal login round-trip re-links it (the site's auto-link, now that it's no
@@ -2770,14 +2778,14 @@ public class AnvilPlugin extends Plugin {
             // Counted on the install, not in memory: the point of the cap is that it survives the
             // restarts, and an in-memory count would re-arm every time RuneLite opened — which is
             // the nag the cap exists to prevent.
-            configManager.setConfiguration("osrsbingo", CFG_FIRST_RUN_NUDGES, String.valueOf(shown + 1));
+            cfgSet(CFG_FIRST_RUN_NUDGES, String.valueOf(shown + 1));
         }
     }
 
     /** How many first-run nudges this install has already printed. Absent/garbage reads as none. */
     private int firstRunNudgesShown() {
         try {
-            String raw = configManager.getConfiguration("osrsbingo", CFG_FIRST_RUN_NUDGES);
+            String raw = cfgGet(CFG_FIRST_RUN_NUDGES);
             return raw == null || raw.isEmpty() ? 0 : Math.max(0, Integer.parseInt(raw.trim()));
         } catch (RuntimeException e) {
             return 0;
@@ -2924,47 +2932,6 @@ public class AnvilPlugin extends Plugin {
                 sendChatMessage("Bingo running: " + b.name + ".");
             }
         }
-
-        // Fire weekly auto-enroll on the same login (site treats enroll as a weaker hello, so order is cosmetic)
-        tryAutoEnrollWeekly(rsn);
-
-        // Prime the schedule for the in-game collection-log tab
-        refreshSchedule();
-    }
-
-    /**
-     * Fetch the schedule separately — but only when nothing else is going to bring it.
-     *
-     * {@code /config} has carried the schedule since the reads were merged, and refreshConfig adopts
-     * it. Both run on the same 30-second tick, config first, so this was re-fetching data the client
-     * had just been handed and overwriting it with an identical copy: one wasted request per client
-     * every thirty seconds, plus an ordering dependency between two tasks in the same loop that
-     * nobody wants to have to think about.
-     *
-     * Signed out, it is a no-op too: the client has no address until there is a token
-     * (BingoApiClient.configure), so a fresh install contacts nothing. It runs only in the gap where
-     * the config poll is not carrying the schedule.
-     */
-    private void refreshSchedule() {
-        if (apiClient.isConfigured()) {
-            return; // the config poll already brought it, on this same tick
-        }
-        BingoApiClient.ScheduleResponse s = apiClient.fetchSchedule();
-        if (s != null) {
-            schedule = s;
-        }
-    }
-
-    private void tryAutoEnrollWeekly(String rsn) {
-        // The site auto-enrolls every active clan member into the running weekly competition,
-        // so the plugin no longer enrolls. We still fetch the active comp once per session to
-        // surface it in the in-game collection-log tab.
-        if (weeklyEnrollAttempted) {
-            return;
-        }
-        weeklyEnrollAttempted = true;
-
-        activeWeekly = apiClient.fetchActiveWeekly();
     }
 
     /**
@@ -3370,7 +3337,7 @@ public class AnvilPlugin extends Plugin {
         // If every clip ends up selected, store blank ("all") to keep the value tidy and future-proof
         // against newly-added files (which should default to on).
         String value = (sel.size() == all.size() && all.size() > 0) ? "" : String.join(", ", sel);
-        configManager.setConfiguration("osrsbingo", "bannerSoundClip", value);
+        cfgSet("bannerSoundClip", value);
     }
 
     /**
@@ -3385,16 +3352,6 @@ public class AnvilPlugin extends Plugin {
         sendChatMessage("Sounds folder path copied — paste it into your file manager.");
     }
 
-    /** Same, for the folder holding proofs that haven't uploaded yet (baked PNGs + metadata). */
-    public void copyPendingProofsPath() {
-        pendingSubmissionStore.copyFolderPath();
-        sendChatMessage("Saved-proofs folder path copied — paste it into your file manager.");
-    }
-
-    /** Proofs still waiting to upload — drives the "Saved proofs" row in the Anvil side panel. */
-    public int pendingProofCount() {
-        return pendingSubmissionStore.count();
-    }
 
     /**
      * Plays the banner sound and, the first time it fires with sound enabled
@@ -5394,11 +5351,6 @@ public class AnvilPlugin extends Plugin {
                 && AnvilOverlay.isEventActive(cfg.event);
     }
 
-    /** The drawn location + this player's keyword, for the sidebar's prompt. Null when nothing is owed. */
-    public PluginConfigResponse.StartProof getStartProof() {
-        PluginConfigResponse cfg = pluginConfig;
-        return cfg != null ? cfg.startProof : null;
-    }
 
     /**
      * Take the STARTING SHOT (site lib/startProof): grab the next frame, burn the standard proof
@@ -5701,7 +5653,7 @@ public class AnvilPlugin extends Plugin {
         // anything else: on a wrong URL or a bad token nothing ever arrives to replace it, and a
         // member who just changed their settings would sit looking at the clan they left.
         SwingUtilities.invokeLater(sidebarPanel::clearForCredentialChange);
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             return;
         }
         if (pendingRefresh != null && !pendingRefresh.isDone()) {
@@ -5714,8 +5666,7 @@ public class AnvilPlugin extends Plugin {
             // longer identify anyone in, and the admin-only roster-sync button. Nothing leaves the
             // machine, and it still asserts a session that no longer exists.
             pluginConfig = null;
-            schedule = null;
-            activeWeekly = null;
+
             knownMember = false;
             isGuest = false;
             isAdmin = false;
@@ -5726,20 +5677,16 @@ public class AnvilPlugin extends Plugin {
             SwingUtilities.invokeLater(sidebarPanel::refresh);
             return;
         }
-        executor.submit(() -> {
+        submit(() -> {
             safely("refreshConfig", this::refreshConfig);
             SwingUtilities.invokeLater(sidebarPanel::refresh);
         });
     }
 
     private synchronized void scheduleRefresh() {
-        if (!apiClient.isConfigured() || executor == null || executor.isShutdown()) {
-            return;
+        if (apiClient.isConfigured() && execLive()) {
+            pendingRefresh = reschedule(pendingRefresh, this::refreshConfig, REFRESH_DEBOUNCE_MS);
         }
-        if (pendingRefresh != null && !pendingRefresh.isDone()) {
-            pendingRefresh.cancel(false);
-        }
-        pendingRefresh = executor.schedule(this::refreshConfig, REFRESH_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
     }
 
     /* -------------------------------------------------------------- */
@@ -5917,13 +5864,6 @@ public class AnvilPlugin extends Plugin {
         return ch != null && settings != null && settings.getMembers() != null && !settings.getMembers().isEmpty();
     }
 
-    public String getClanName() {
-        if (client == null) {
-            return null;
-        }
-        ClanSettings settings = client.getClanSettings();
-        return settings == null ? null : settings.getName();
-    }
 
     /**
      * Scrape the in-game clan roster (on the client thread) then POST it to the
@@ -5934,7 +5874,7 @@ public class AnvilPlugin extends Plugin {
         // Every way out of here says why when somebody pressed the button: after "Syncing the clan
         // roster..." a silent return reads as a sync that never finished.
         boolean automatic = autoRosterAnnounce;
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             cb.onResult(false, "Plugin not running");
             return;
         }
@@ -6332,7 +6272,7 @@ public class AnvilPlugin extends Plugin {
             }
         }
         log.info("Anvil: no seat in '{}' any more — following your live board again.", chosen);
-        configManager.setConfiguration("osrsbingo", CFG_ACTIVE_CLAN, "");
+        cfgSet(CFG_ACTIVE_CLAN, "");
         apiClient.setChosenClan("");
     }
 
@@ -6344,7 +6284,7 @@ public class AnvilPlugin extends Plugin {
      */
     void setChosenClan(String slug) {
         String clean = slug == null ? "" : slug.trim();
-        configManager.setConfiguration("osrsbingo", CFG_ACTIVE_CLAN, clean);
+        cfgSet(CFG_ACTIVE_CLAN, clean);
         apiClient.setChosenClan(clean);
         // Re-ask immediately rather than waiting out the poll: the member just told us they wanted a
         // different board, and showing them the old one for another thirty seconds reads as a no-op.
@@ -6383,7 +6323,7 @@ public class AnvilPlugin extends Plugin {
 
     /** The member's clan pick, or "" when they are on Auto. */
     String getChosenClan() {
-        String stored = configManager.getConfiguration("osrsbingo", CFG_ACTIVE_CLAN);
+        String stored = cfgGet(CFG_ACTIVE_CLAN);
         return stored == null ? "" : stored.trim();
     }
 
@@ -6411,16 +6351,7 @@ public class AnvilPlugin extends Plugin {
             // connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();
             adoptResolvedClan(fresh);
-            // The config response now carries the schedule + active weekly (merged reads), so adopt
-            // them here — saves the separate schedule/active-weekly round-trips for token-holders.
-            if (fresh != null) {
-                if (fresh.schedule != null) {
-                    schedule = fresh.schedule;
-                }
-                if (fresh.activeWeekly != null) {
-                    activeWeekly = fresh.activeWeekly;
-                }
-            }
+
             // Token validated but the caller has no active event right now (server
             // returns event: null + noActiveEvent: true). Clear local state so tracking
             // reflects no active event rather than a stale one.
@@ -6446,7 +6377,7 @@ public class AnvilPlugin extends Plugin {
                         fresh.event.name);
                 pluginConfig = null;
                 rebuildItemDropIndex();
-                configManager.setConfiguration("osrsbingo", "playerToken", "");
+                cfgSet("playerToken", "");
                 return;
             }
             // Preserve locally-counted gain progress across the refresh. The server's copy lags while
@@ -7513,13 +7444,13 @@ public class AnvilPlugin extends Plugin {
 
     /** Persist the per-event counters to the config store so a restart resumes them. Call under counterLock. */
     private void persistCounters() {
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_EVENT, Integer.toString(counterEventId));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_DEATHS, Integer.toString(eventDeaths));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_LOOTGP, Long.toString(eventLootGp));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_PVP, Integer.toString(eventPvpKills));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_BIGHIT, Integer.toString(eventBiggestHit));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_MINUTES, Integer.toString(eventMinutes));
-        configManager.setConfiguration("osrsbingo", CFG_COUNTER_CATASKS, Integer.toString(eventCaTasks));
+        cfgSet(CFG_COUNTER_EVENT, Integer.toString(counterEventId));
+        cfgSet(CFG_COUNTER_DEATHS, Integer.toString(eventDeaths));
+        cfgSet(CFG_COUNTER_LOOTGP, Long.toString(eventLootGp));
+        cfgSet(CFG_COUNTER_PVP, Integer.toString(eventPvpKills));
+        cfgSet(CFG_COUNTER_BIGHIT, Integer.toString(eventBiggestHit));
+        cfgSet(CFG_COUNTER_MINUTES, Integer.toString(eventMinutes));
+        cfgSet(CFG_COUNTER_CATASKS, Integer.toString(eventCaTasks));
     }
 
     /**
@@ -7544,7 +7475,7 @@ public class AnvilPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         String rsnKey = rsn == null ? "" : rsn.trim().toLowerCase(Locale.ROOT);
         if (vestigeRolls == null || !rsnKey.equals(vestigeRollsRsn)) {
-            vestigeRolls = VestigeRolls.parse(configManager.getConfiguration("osrsbingo", CFG_VESTIGE_ROLLS + ":" + rsnKey));
+            vestigeRolls = VestigeRolls.parse(cfgGet(CFG_VESTIGE_ROLLS + ":" + rsnKey));
             vestigeRollsRsn = rsnKey;
         }
         for (ItemStack item : items) {
@@ -7554,7 +7485,7 @@ public class AnvilPlugin extends Plugin {
             if (r == null) {
                 continue;
             }
-            configManager.setConfiguration("osrsbingo", CFG_VESTIGE_ROLLS + ":" + rsnKey, vestigeRolls.serialise());
+            cfgSet(CFG_VESTIGE_ROLLS + ":" + rsnKey, vestigeRolls.serialise());
             sendChatMessage(table.boss + ": " + r.line);
             // Remembered for the drop post, which is built moments later off the same loot event.
             lastVestigeLine = r.line;
@@ -7596,7 +7527,7 @@ public class AnvilPlugin extends Plugin {
 
     private int readIntConfig(String key, int fallback) {
         try {
-            String v = configManager.getConfiguration("osrsbingo", key);
+            String v = cfgGet(key);
             return v == null || v.isEmpty() ? fallback : Integer.parseInt(v.trim());
         } catch (NumberFormatException e) {
             return fallback;
@@ -7605,7 +7536,7 @@ public class AnvilPlugin extends Plugin {
 
     private long readLongConfig(String key, long fallback) {
         try {
-            String v = configManager.getConfiguration("osrsbingo", key);
+            String v = cfgGet(key);
             return v == null || v.isEmpty() ? fallback : Long.parseLong(v.trim());
         } catch (NumberFormatException e) {
             return fallback;
@@ -8941,13 +8872,9 @@ public class AnvilPlugin extends Plugin {
         synchronized (petLock) {
             pendingPet = pet;
         }
-        if (executor != null && !executor.isShutdown()) {
-            executor.schedule(
-                    () -> safely("petNotification", () -> flushPetNotification(pet)),
-                    PET_NAME_WINDOW_MS,
-                    TimeUnit.MILLISECONDS);
-        } else {
-            safely("petNotification", () -> flushPetNotification(pet));
+        Runnable flush = () -> safely("petNotification", () -> flushPetNotification(pet));
+        if (later(flush, PET_NAME_WINDOW_MS) == null) {
+            flush.run();
         }
     }
 
@@ -9768,16 +9695,6 @@ public class AnvilPlugin extends Plugin {
         return fields;
     }
 
-    private JsonObject buildDropEmbed(String title, String description,
-            String itemName, int qty, long value, Double dropRate, Integer killCount, String shotName) {
-        return buildDropEmbed(title, description, itemName, -1, qty, value, dropRate, killCount, shotName);
-    }
-
-    private JsonObject buildDropEmbed(String title, String description,
-            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName) {
-        return buildDropEmbed(title, description, itemName, itemId, qty, value, dropRate, killCount, shotName,
-                "KC", false);
-    }
 
     /**
      * The drop embed. {@code itemId} (or -1 when unknown) adds the item's own sprite as the
@@ -10030,14 +9947,12 @@ public class AnvilPlugin extends Plugin {
                 }
             });
         });
-        if (executor != null && !executor.isShutdown()) {
-            executor.schedule(() -> {
-                if (delivered.compareAndSet(false, true)) {
-                    log.info("Anvil: no frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
-                    consumer.accept(null);
-                }
-            }, FRAME_CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        }
+        later(() -> {
+            if (delivered.compareAndSet(false, true)) {
+                log.info("No frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
+                consumer.accept(null);
+            }
+        }, FRAME_CAPTURE_TIMEOUT_MS);
     }
 
     /**
@@ -10075,11 +9990,9 @@ public class AnvilPlugin extends Plugin {
         // Scheduled, never slept: a sleep here would park a shared RuneLite worker for a second and a
         // half, and the hub rejects Thread.sleep on sight. Without a usable executor -- shutting down
         // mid-level-up -- we capture now, because a slightly emptier screenshot beats none.
-        if (executor == null || executor.isShutdown()) {
+        if (later(capture, ACHIEVEMENT_SHOT_DELAY_MS) == null) {
             capture.run();
-            return;
         }
-        executor.schedule(capture, ACHIEVEMENT_SHOT_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
     /** Pause between the achievement and its screenshot, long enough for clanmates' replies. */
@@ -10213,12 +10126,12 @@ public class AnvilPlugin extends Plugin {
         // A different character doesn't inherit this one's unsent highlights — the site files them
         // against whoever the request authenticates as, which would now be the wrong person.
         moments.reset();
-        clogSync.restoreState(configManager.getConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + key));
+        clogSync.restoreState(cfgGet(CFG_CLOG_STATE + ":" + key));
         // The whole-log fingerprint survives a restart: opening the collection log re-transmits
         // everything every time, and without this each session's first open re-sent a log the site
         // already had, byte for byte.
-        lastClogFingerprint = parseLongOrZero(configManager.getConfiguration("osrsbingo", CFG_CLOG_FINGERPRINT + ":" + key));
-        personalBests.restoreState(configManager.getConfiguration("osrsbingo", CFG_PB_STATE + ":" + key));
+        lastClogFingerprint = parseLongOrZero(cfgGet(CFG_CLOG_FINGERPRINT + ":" + key));
+        personalBests.restoreState(cfgGet(CFG_PB_STATE + ":" + key));
         importRuneLitePersonalBests(key);
     }
 
@@ -10253,7 +10166,7 @@ public class AnvilPlugin extends Plugin {
         // String.hashCode is specified, so the same list gives the same signature on every client
         // and every release. An older flag ("1", or an earlier list) simply doesn't match.
         String signature = Integer.toString(activities.hashCode());
-        String done = configManager.getConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey);
+        String done = cfgGet(CFG_PB_IMPORTED + ":" + rsnKey);
         if (signature.equals(done)) {
             return;
         }
@@ -10282,7 +10195,7 @@ public class AnvilPlugin extends Plugin {
         }
 
         int adopted = personalBests.seed(imported, System.currentTimeMillis());
-        configManager.setConfiguration("osrsbingo", CFG_PB_IMPORTED + ":" + rsnKey, signature);
+        cfgSet(CFG_PB_IMPORTED + ":" + rsnKey, signature);
         log.info("Anvil: imported {} existing personal best(s) from RuneLite ({} probed)",
                 adopted, imported.size());
         if (adopted > 0) {
@@ -10370,7 +10283,7 @@ public class AnvilPlugin extends Plugin {
         }
         clogBackoff.onSuccess();
         clogSync.onSent(batch);
-        configManager.setConfiguration("osrsbingo", CFG_CLOG_STATE + ":" + profileSyncRsn,
+        cfgSet(CFG_CLOG_STATE + ":" + profileSyncRsn,
                 clogSync.serializeState());
     }
 
@@ -10451,7 +10364,7 @@ public class AnvilPlugin extends Plugin {
         clogPushAllowedAt = now + SERVER_CLOG_COOLDOWN_MS;
         lastClogFingerprint = fingerprint;
         if (profileSyncRsn != null) {
-            configManager.setConfiguration("osrsbingo", CFG_CLOG_FINGERPRINT + ":" + profileSyncRsn,
+            cfgSet(CFG_CLOG_FINGERPRINT + ":" + profileSyncRsn,
                     Long.toString(fingerprint));
         }
         clogFullSync.onSent();
@@ -10500,7 +10413,7 @@ public class AnvilPlugin extends Plugin {
         }
         pbBackoff.onSuccess();
         personalBests.onSent(batch);
-        configManager.setConfiguration("osrsbingo", CFG_PB_STATE + ":" + profileSyncRsn,
+        cfgSet(CFG_PB_STATE + ":" + profileSyncRsn,
                 personalBests.serializeState());
     }
 
@@ -10515,15 +10428,10 @@ public class AnvilPlugin extends Plugin {
      */
     @Subscribe
     public void onClanChannelChanged(ClanChannelChanged event) {
-        if (event.isGuest() || !config.autoSyncClanRoster()) {
-            return;
+        if (!event.isGuest() && config.autoSyncClanRoster()) {
+            // The member list arrives just after the channel; a delay is cheaper than polling for it.
+            later(() -> safely("autoRosterSync", this::autoSyncClanRoster), AUTO_ROSTER_DELAY_MS);
         }
-        if (executor == null || executor.isShutdown()) {
-            return;
-        }
-        // The member list arrives just after the channel; a delay is cheaper than polling for it.
-        executor.schedule(() -> safely("autoRosterSync", this::autoSyncClanRoster),
-                AUTO_ROSTER_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
     /**
