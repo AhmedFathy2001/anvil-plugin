@@ -208,12 +208,12 @@ public class StartProofTest
 	{
 		// 409 is normally a permanent 4xx — but this one clears the moment the player files their
 		// shot, and the pending drop must survive until then.
-		java.io.IOException awaiting = BingoApiClient.submissionErrorForTest(
+		java.io.IOException awaiting = BingoApiClient.submissionError(
 			"Submission failed", 409, "{\"error\":\"Upload your starting shot first\",\"code\":\"start_proof_required\"}");
 		assertTrue(!(awaiting instanceof BingoApiClient.PermanentSubmissionException));
 
 		// Any other 409 stays permanent (tile already complete, etc.) so it can't loop forever.
-		java.io.IOException other = BingoApiClient.submissionErrorForTest(
+		java.io.IOException other = BingoApiClient.submissionError(
 			"Submission failed", 409, "{\"error\":\"Tile already complete\"}");
 		assertTrue(other instanceof BingoApiClient.PermanentSubmissionException);
 	}

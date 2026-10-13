@@ -69,12 +69,11 @@ public class TileClaimsTest
 	@Test
 	public void claimErrorsShowTheServersOwnSentence()
 	{
-		Gson gson = new Gson();
 		assertEquals("Your team already completed this tile.",
-			BingoApiClient.claimErrorMessage(gson, 409, "{\"error\":\"Your team already completed this tile.\"}"));
-		assertEquals("Couldn't update your claim (HTTP 502).", BingoApiClient.claimErrorMessage(gson, 502, "<html>Bad gateway</html>"));
-		assertEquals("Couldn't update your claim (HTTP 404).", BingoApiClient.claimErrorMessage(gson, 404, ""));
+			BingoApiClient.claimErrorMessage(409, "{\"error\":\"Your team already completed this tile.\"}"));
+		assertEquals("Couldn't update your claim (HTTP 502).", BingoApiClient.claimErrorMessage(502, "<html>Bad gateway</html>"));
+		assertEquals("Couldn't update your claim (HTTP 404).", BingoApiClient.claimErrorMessage(404, ""));
 		assertEquals("Log in to claim tiles.",
-			BingoApiClient.claimErrorMessage(gson, 401, "{\"error\":\"Unauthorized. Provide Authorization: Bearer <accountToken>\"}"));
+			BingoApiClient.claimErrorMessage(401, "{\"error\":\"Unauthorized. Provide Authorization: Bearer <accountToken>\"}"));
 	}
 }
