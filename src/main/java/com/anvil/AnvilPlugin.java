@@ -291,6 +291,7 @@ public class AnvilPlugin extends Plugin {
     private final Map<String, Long> lastAggregateNotifyAt = new HashMap<>();
     private static final long RARE_DEDUP_WINDOW_MS = 5_000;
     private static final int RARE_EMBED_COLOR = 0xD4A017; // gold, matches the site accent
+    private static final String DROP_SHOT = "anvil-drop.png";
     private static final int CA_EMBED_COLOR = 0x4A90D9; // blue, distinct from rare-drop gold
     // Combat Achievements crest + hub page — the embed's thumbnail and title link. Both are plain
     // strings handed to Discord in the payload; the plugin never fetches either.
@@ -8182,28 +8183,9 @@ public class AnvilPlugin extends Plugin {
      */
     private void postSpecialDrop(String source, String sourceKind, int itemId, int qty, long value) {
         String name = itemName(itemId);
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-        String desc = (rsn != null ? rsn : "A clan member") + " received " + name
-                + DropSource.fromPhrase(source, sourceKind) + "!";
-        // Two kinds of drop the lucky-drop line insults rather than celebrates. An EARNED award
-        // (Infernal cape, Dizana's quiver…) is the reward for finishing the content, so calling a
-        // hard-won clear "spooned" reads as a jab. A GUARANTEED drop was never rolled for at all —
-        // the boss owed it — so "someone drier deserved that" reads as not knowing the game. Notable
-        // items reach this path with no drop rate at all, which is why the line used to be
-        // unconditional: nothing here could tell the difference until the server started saying.
-        boolean earned = DropLuck.isEarnedAward(name);
-        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
-        if (!earned && !guaranteed) {
-            desc += "\n" + randomSpoonLine();
-        }
-        // value can be 0 for untradeables — buildDropEmbed omits the value field when it's 0.
-        JsonObject embed = buildDropEmbed(
-                earned ? "🏆 Earned!" : "💎 Notable drop!",
-                desc, name, itemId, qty, value, null, killCountFor(source), shotName,
-                DropSource.countLabel(source, sourceKind), guaranteed);
-
-        postWithScreenshot("rareDrops", embed, shotName);
+        // value can be 0 for untradeables — the drop embed omits the value field when it's 0.
+        postNotable(name, " received " + name + DropSource.fromPhrase(source, sourceKind) + "!", source,
+                itemId, qty, value, killCountFor(source), DropSource.countLabel(source, sourceKind));
     }
 
     /**
@@ -8213,34 +8195,36 @@ public class AnvilPlugin extends Plugin {
      * the loot path stops a double post.
      */
     private void maybeNotifyCollectionUnlock(String itemName) {
-        if (!config.notifyRareDrops() || itemName == null || itemName.isEmpty()) {
+        if (!config.notifyRareDrops() || itemName == null || itemName.isEmpty() || !isAlwaysNotifyItem(itemName)
+                || !notifyEnabled("rareDrops") || !claimAllowlistNotify(itemName, System.currentTimeMillis())) {
             return;
         }
-        if (!isAlwaysNotifyItem(itemName)) {
-            return;
-        }
-        if (!notifyEnabled("rareDrops")) {
-            return;
-        }
-        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-        String desc = (rsn != null ? rsn : "A clan member") + " unlocked " + itemName + "!";
-        boolean earned = DropLuck.isEarnedAward(itemName);
         // No source came with this line — the collection log says what, never from where — so only a
-        // clan override that named no sources ("guaranteed wherever it drops") can answer here.
-        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), itemName, null);
+        // clan override that named no sources ("guaranteed wherever it drops") can answer the
+        // guaranteed question. No item id either (the message gives only a name), so no value.
+        postNotable(itemName, " unlocked " + itemName + "!", null, -1, 1, 0, null, "KC");
+    }
+
+    /**
+     * A notable item's drop post.
+     *
+     * <p>Two kinds of drop the lucky-drop line insults rather than celebrates. An EARNED award
+     * (Infernal cape, Dizana's quiver…) is the reward for finishing the content, so calling a
+     * hard-won clear "spooned" reads as a jab. A GUARANTEED drop was never rolled for at all —
+     * the boss owed it — so "someone drier deserved that" reads as not knowing the game. Notable
+     * items reach this path with no drop rate at all, which is why the line used to be
+     * unconditional: nothing here could tell the difference until the server started saying.
+     */
+    private void postNotable(String name, String what, String source, int itemId, int qty, long value,
+            Integer kc, String countLabel) {
+        String desc = who(getLocalPlayerName()) + what;
+        boolean earned = DropLuck.isEarnedAward(name);
+        boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
         if (!earned && !guaranteed) {
             desc += "\n" + randomSpoonLine();
         }
-        // No item id here (the message gives only a name), so value is unknown — omit it.
-        JsonObject embed = buildDropEmbed(
-                earned ? "🏆 Earned!" : "💎 Notable drop!", desc, itemName, -1, 1, 0, null, null, shotName,
-                "KC", guaranteed);
-
-        postWithScreenshot("rareDrops", embed, shotName);
+        postDrop(earned ? "🏆 Earned!" : "💎 Notable drop!", desc, name, itemId, qty, value, null, kc, countLabel,
+                guaranteed);
     }
 
     /**
@@ -8260,79 +8244,52 @@ public class AnvilPlugin extends Plugin {
         if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) {
             return;
         }
-        if (!notifyEnabled("collectionLog")) {
-            return;
-        }
-        // The prestige path already posted this one to the drops channel.
-        if (isAlwaysNotifyItem(itemName)) {
-            return;
-        }
-        // The unlock line can echo on more than one chat channel; the shared name dedup keeps this
-        // to one post per item.
-        if (!claimAllowlistNotify(itemName, System.currentTimeMillis())) {
+        // The prestige path already posted this one to the drops channel. And the unlock line can echo
+        // on more than one chat channel; the shared name dedup keeps this to one post per item.
+        if (!notifyEnabled("collectionLog") || isAlwaysNotifyItem(itemName)
+                || !claimAllowlistNotify(itemName, System.currentTimeMillis())) {
             return;
         }
 
         String rsn = getLocalPlayerName();
         String shotName = "anvil-clog.png";
-        JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
-        embed.addProperty("title", "📕 " + itemName);
         // No "new slot" / "New!" wording: every collection-log unlock is by definition the first
         // one, so saying so is noise. "New" is reserved for pets in the drops channel, where it
         // actually distinguishes something.
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " added " + itemName + " to their collection.");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
-
-        JsonArray fields = new JsonArray();
+        Embed e = new Embed().author(rsn).title("📕 " + itemName)
+                .desc(who(rsn) + " added " + itemName + " to their collection.")
+                .color(CA_EMBED_COLOR).wiki(itemName).fields();
         // How much of the log this fills in, and what that's worth as a standing. Both are dropped
         // rather than guessed when the log hasn't synced this session (the count reads 0 until then).
         String logProgress = ActivityStats.clogProgress(client::getVarpValue);
         if (logProgress != null) {
-            fields.add(statField("Completed", logProgress));
+            e.stat("Completed", logProgress);
         }
         String rank = ClogRank.forSlots(
                 ActivityStats.clogSlots(client::getVarpValue),
                 ActivityStats.clogSlotsMax(client::getVarpValue));
         if (rank != null) {
-            fields.add(statField("Rank", rank));
+            e.stat("Rank", rank);
         }
         // This item's own source first. The fallback still answers for an unlock with no loot event
         // behind it at all — a skilling pet, a quest reward — where "the last thing that dropped"
         // is the only signal there is.
         String source = sourceForLootedItem(itemName);
         if (source == null) {
-            source = recentLootSource();
+            source = freshLootSource();
         }
         if (source != null) {
-            fields.add(statField("Source", source));
+            e.stat("Source", source);
             // How many times they'd killed it when it finally dropped — the number that turns
             // "got the pet" into a story. Absent when the source keeps no kill count we can read.
             Integer kc = killCountFor(source);
             if (kc != null && kc > 0) {
-                fields.add(statField("Completion count", String.valueOf(kc)));
+                e.stat("Completion count", String.valueOf(kc));
             }
         }
-        embed.add("fields", fields);
-
         // The item's own sprite: resolved from the loot event that just delivered it (which covers
         // untradeables the GE search can't find), falling back to the GE item list.
-        Integer itemId = resolveItemIdByName(itemName);
-        if (itemId != null && itemId > 0) {
-            JsonObject thumb = new JsonObject();
-            thumb.addProperty("url", itemIconUrl(itemId));
-            embed.add("thumbnail", thumb);
-        }
-
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+        JsonObject embed = e.icon(resolveItemIdByName(itemName)).image(shotName).json;
         captureFrameAsync(png -> apiClient.postNotification("collectionLog", null, embed, png, shotName));
     }
 
@@ -8388,16 +8345,6 @@ public class AnvilPlugin extends Plugin {
             return null;
         }
         return hit.source != null && !hit.source.isEmpty() ? hit.source : null;
-    }
-
-    /** Where the last loot came from, if it landed recently enough to be this unlock's source. */
-    private String recentLootSource() {
-        synchronized (recentLootIds) {
-            if (lastLootSource == null || System.currentTimeMillis() - lastLootSourceAt > CLOG_LOOT_DEDUP_MS) {
-                return null;
-            }
-            return lastLootSource;
-        }
     }
 
     /**
@@ -8633,14 +8580,12 @@ public class AnvilPlugin extends Plugin {
 
     private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate) {
         String name = itemName(itemId);
-        String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
         Integer kc = killCountFor(source);
         boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
         // A rare roll on something worthless is a punchline, not a prize — say so instead of
         // dressing a Dragon spear up as treasure. A guaranteed drop is neither.
         boolean troll = !guaranteed && DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
-        String desc = (rsn != null ? rsn : "A clan member")
+        String desc = who(getLocalPlayerName())
                 + (troll ? " got robbed" : " received a valuable drop")
                 + DropSource.fromPhrase(source, sourceKind) + ".";
         // The reaction line is about beating the odds. There were none to beat.
@@ -8654,11 +8599,8 @@ public class AnvilPlugin extends Plugin {
             desc += "\n" + rollLine;
             lastVestigeLine = null;
         }
-        JsonObject embed = buildDropEmbed(
-                troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc, shotName,
+        postDrop(troll ? "🎣 Troll drop!" : "💰 Rare drop!", desc, name, itemId, qty, value, dropRate, kc,
                 DropSource.countLabel(source, sourceKind), guaranteed);
-
-        postWithScreenshot("rareDrops", embed, shotName);
     }
 
     /**
@@ -8668,8 +8610,6 @@ public class AnvilPlugin extends Plugin {
      */
     private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total) {
         String rsn = getLocalPlayerName();
-        String shotName = "anvil-drop.png";
-
         RareItem top = items.get(0);
         for (RareItem it : items) {
             if (it.value > top.value) {
@@ -8677,48 +8617,23 @@ public class AnvilPlugin extends Plugin {
             }
         }
         String topName = itemName(top.itemId);
-        String topLabel = (top.qty > 1 ? topName + " ×" + top.qty : topName)
-                + " (" + String.format("%,d gp", top.value) + ")";
-
-        String desc = (rsn != null ? rsn : "A clan member") + " received a valuable haul"
-                + DropSource.fromPhrase(source, sourceKind) + ".";
+        String desc = who(rsn) + " received a valuable haul" + DropSource.fromPhrase(source, sourceKind) + ".";
         // No single rate to judge a mixed haul by, so the combined value decides.
         if (total >= SPOON_VALUE) {
             desc += "\n" + randomSpoonLine();
         }
-        JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
-        embed.addProperty("title", "💰 Rare drop!");
-        embed.addProperty("description", desc);
-        embed.addProperty("color", RARE_EMBED_COLOR);
-
-        JsonArray fields = new JsonArray();
-        fields.add(embedField("Top item", topLabel, false));
-        fields.add(statField("Total value", String.format("%,d gp", total)));
-        fields.add(statField("Items", String.valueOf(items.size())));
+        Embed e = new Embed().author(rsn).title("💰 Rare drop!").desc(desc).color(RARE_EMBED_COLOR)
+                .field("Top item", (top.qty > 1 ? topName + " ×" + top.qty : topName)
+                        + " (" + commas(top.value) + " gp)", false)
+                .stat("Total value", commas(total) + " gp")
+                .stat("Items", String.valueOf(items.size()));
         Integer kc = killCountFor(source);
         if (kc != null && kc > 0) {
-            fields.add(statField(DropSource.countLabel(source, sourceKind), String.format("%,d", kc)));
+            e.stat(DropSource.countLabel(source, sourceKind), commas(kc));
         }
-        embed.add("fields", fields);
-
-        // Link the standout item to its wiki page, matching single-item posts.
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + topName.replace(' ', '_'));
-
-        // The haul's headline item carries the thumbnail.
-        JsonObject thumb = new JsonObject();
-        thumb.addProperty("url", itemIconUrl(top.itemId));
-        embed.add("thumbnail", thumb);
-
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
-
-        postWithScreenshot("rareDrops", embed, shotName);
+        // Link the standout item to its wiki page, matching single-item posts; it carries the thumbnail.
+        e.wiki(topName).thumb(Embed.iconUrl(top.itemId)).image(DROP_SHOT);
+        postWithScreenshot("rareDrops", e.json, DROP_SHOT);
     }
 
     /**
@@ -8919,62 +8834,42 @@ public class AnvilPlugin extends Plugin {
             killCount = pet.name == null ? pet.killCount : pet.resolvedKc;
         }
 
-        JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
-        embed.addProperty("title", petName != null ? "🐾 " + petName : "🐾 Pet drop!");
-        String who = rsn != null ? rsn : "A clan member";
-        embed.addProperty("description", pet.duplicate
-                // The duplicate line is the game's own joke about a pet you already have.
-                ? who + " has a funny feeling like they would have been followed."
-                : who + " has a funny feeling like they're being followed.");
-        embed.addProperty("color", RARE_EMBED_COLOR);
-
-        JsonArray fields = new JsonArray();
-        fields.add(statField("Status", pet.duplicate ? "Duplicate" : "New!"));
+        Embed e = new Embed().author(rsn).title(petName != null ? "🐾 " + petName : "🐾 Pet drop!")
+                .desc(pet.duplicate
+                        // The duplicate line is the game's own joke about a pet you already have.
+                        ? who(rsn) + " has a funny feeling like they would have been followed."
+                        : who(rsn) + " has a funny feeling like they're being followed.")
+                .color(RARE_EMBED_COLOR)
+                .stat("Status", pet.duplicate ? "Duplicate" : "New!");
         if (source != null && !source.isEmpty()) {
-            fields.add(statField("From", source));
+            e.stat("From", source);
         } else {
             // A skilling pet has no monster; the skill is the only true thing there is to say, and
             // saying nothing at all is still better than naming the last thing that dropped loot.
             PluginConfigResponse.DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
             if (entry != null && entry.skill != null && !entry.skill.isEmpty()) {
-                fields.add(statField("From", capitalize(entry.skill)));
+                e.stat("From", capitalize(entry.skill));
             }
         }
         if (killCount != null && killCount > 0) {
-            fields.add(statField("KC", String.format("%,d", killCount)));
+            e.stat("KC", commas(killCount));
         }
 
         // Real rarity or none: the rate comes from the same service the rare-drop posts price
         // against, asked with this pet's own item id.
-        Integer itemId = petName != null ? pet.itemId : null;
         Double dropRate = petName != null ? pet.dropRate : null;
         if (dropRate != null && dropRate > 0) {
-            fields.add(statField("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate)));
+            e.stat("Rarity", "1 in " + String.format("%,.0f", 1.0 / dropRate));
             String luck = DropLuck.luckLabel(dropRate, killCount);
             if (luck != null && !luck.isEmpty()) {
-                fields.add(statField("Luck", luck));
+                e.stat("Luck", luck);
             }
         }
-        embed.add("fields", fields);
-
-        if (itemId != null && itemId > 0) {
-            JsonObject thumb = new JsonObject();
-            thumb.addProperty("url", itemIconUrl(itemId));
-            embed.add("thumbnail", thumb);
-        }
+        e.icon(petName != null ? pet.itemId : null);
         if (petName != null) {
-            embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + petName.replace(' ', '_'));
+            e.wiki(petName);
         }
-
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
-        postWithScreenshot("pets", embed, shotName);
+        postWithScreenshot("pets", e.image(shotName).json, shotName);
     }
 
     /** This pet's drop rate from the rarity table its source uses, or null when nothing can price it. */
@@ -9075,40 +8970,21 @@ public class AnvilPlugin extends Plugin {
     private void postCombatTask(CombatAchievementTier tier, String task, int totalPoints) {
         String rsn = getLocalPlayerName();
         String shotName = "anvil-ca.png";
-        JsonObject embed = new JsonObject();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
         // Title names the TASK, not just its tier — "Into the Den of Giants" is the news; "Easy
         // combat task" is the category. The link follows it to the tier's task list rather than the
         // Combat Achievements hub, which told a reader nothing they didn't already know.
-        embed.addProperty("title", "⚔️ " + task);
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " completed a " + tier.getDisplayName().toLowerCase()
-                        + " combat task.");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        embed.addProperty("url", caTaskWikiUrl(tier, task));
-
-        JsonArray fields = new JsonArray();
-        fields.add(statField("Points earned", "+" + tier.getPoints()));
+        Embed e = new Embed().author(rsn).title("⚔️ " + task)
+                .desc(who(rsn) + " completed a " + tier.getDisplayName().toLowerCase() + " combat task.")
+                .color(CA_EMBED_COLOR).url(caTaskWikiUrl(tier, task))
+                .stat("Points earned", "+" + tier.getPoints());
         if (totalPoints > 0) {
-            fields.add(statField("Total points", String.format("%,d", totalPoints)));
+            e.stat("Total points", commas(totalPoints));
             String progress = nextTierProgress(totalPoints);
             if (progress != null) {
-                fields.add(statField("Next unlock", progress));
+                e.stat("Next unlock", progress);
             }
         }
-        embed.add("fields", fields);
-
-        JsonObject thumb = new JsonObject();
-        thumb.addProperty("url", CA_ICON_URL);
-        embed.add("thumbnail", thumb);
-
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+        JsonObject embed = e.thumb(CA_ICON_URL).image(shotName).json;
         captureFrameAsync(png -> apiClient.postNotification("combatAchievements", null, embed, png, shotName));
     }
 
@@ -9133,38 +9009,26 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void postCaTierClear(CombatAchievementTier tier) {
-        String rsn = getLocalPlayerName();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🏆 Combat Achievement tier!");
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " unlocked the **" + tier.getDisplayName()
-                + "** Combat Achievements tier!");
-        embed.addProperty("color", CA_EMBED_COLOR);
         // Combat-achievement posts are message-only — no screenshot.
-        apiClient.postNotification("combatAchievements", null, embed, null, null);
+        postText("combatAchievements", "🏆 Combat Achievement tier!", who(getLocalPlayerName())
+                + " unlocked the **" + tier.getDisplayName() + "** Combat Achievements tier!");
     }
 
-    /**
-     * A skill hit level 99. Posts to the clan achievements channel (shared with
-     * combat achievements), gated on that channel having a webhook configured
-     * server-side.
-     */
+    /** A message-only post: title and line, in the achievements colour. */
+    private void postText(String channel, String title, String desc) {
+        apiClient.postNotification(channel, null, new Embed().title(title).desc(desc).color(CA_EMBED_COLOR).json,
+                null, null);
+    }
+
     /**
      * Posts an achievement-diary tier completion to the clan achievements
      * channel — same hook as combat achievements and 99s. Message-only.
      */
     private void maybeNotifyDiaryCompletion(String area, String tier) {
-        if (!config.notifyDiaries() || !notifyEnabled("diaries")) {
-            return;
+        if (config.notifyDiaries() && notifyEnabled("diaries")) {
+            postText("diaries", "📜 Diary completed!", who(getLocalPlayerName()) + " just completed the **" + area
+                    + " " + tier + "** achievement diary!");
         }
-        String rsn = getLocalPlayerName();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "📜 Diary completed!");
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just completed the **" + area + " " + tier
-                        + "** achievement diary!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("diaries", null, embed, null, null);
     }
 
     /**
@@ -9488,20 +9352,13 @@ public class AnvilPlugin extends Plugin {
         String key = questName.toLowerCase();
         boolean gm = GRANDMASTER_QUESTS.contains(key);
         boolean master = MASTER_QUESTS.contains(key);
-        if (setting == QuestAnnounceTier.GRANDMASTER && !gm) {
+        if (setting == QuestAnnounceTier.GRANDMASTER && !gm
+                || setting == QuestAnnounceTier.MASTER && !gm && !master) {
             return;
         }
-        if (setting == QuestAnnounceTier.MASTER && !gm && !master) {
-            return;
-        }
-        String rsn = getLocalPlayerName();
         String tierTag = gm ? " (Grandmaster)" : master ? " (Master)" : "";
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🗺️ Quest complete!");
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just completed **" + questName + "**" + tierTag + "!");
-        embed.addProperty("color", CA_EMBED_COLOR);
-        apiClient.postNotification("quests", null, embed, null, null);
+        postText("quests", "🗺️ Quest complete!",
+                who(getLocalPlayerName()) + " just completed **" + questName + "**" + tierTag + "!");
     }
 
     /**
@@ -9544,17 +9401,12 @@ public class AnvilPlugin extends Plugin {
             return; // already announced this session, or already 99 when the session started
         }
         log.info("Anvil: announcing 99 {}.", skill);
-        String rsn = getLocalPlayerName();
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "🎉 Level 99!");
-        embed.addProperty("description",
-                (rsn != null ? rsn : "A clan member") + " just reached **level 99 " + skill + "**!");
-        embed.addProperty("color", CA_EMBED_COLOR);
         // How far along they are. A 99 post is about skills rather than total, so it counts those —
         // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
         // what they have done rather than a distance from somebody else's goal.
-        embed.add("fields", oneField("Progress", ninetyNineProgressLine()));
-        postAchievement(embed);
+        postAchievement(new Embed().title("🎉 Level 99!")
+                .desc(who(getLocalPlayerName()) + " just reached **level 99 " + skill + "**!")
+                .color(CA_EMBED_COLOR).field("Progress", ninetyNineProgressLine(), true));
     }
 
     /**
@@ -9662,14 +9514,12 @@ public class AnvilPlugin extends Plugin {
             log.info("Anvil: total-level milestone {} not announced — no channel for level posts.", total);
             return;
         }
-        String rsn = getLocalPlayerName();
-        String who = rsn != null ? rsn : "A clan member";
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", maxed ? "🏆 Maxed!" : "📈 Total level milestone!");
-        embed.addProperty("description", maxed
-                ? who + " just **maxed** with a total level of **" + total + "**!"
-                : who + " just reached **" + total + " total level**!");
-        embed.addProperty("color", CA_EMBED_COLOR);
+        String who = who(getLocalPlayerName());
+        Embed e = new Embed().title(maxed ? "🏆 Maxed!" : "📈 Total level milestone!")
+                .desc(maxed
+                        ? who + " just **maxed** with a total level of **" + total + "**!"
+                        : who + " just reached **" + total + " total level**!")
+                .color(CA_EMBED_COLOR);
         // Where this leaves them — from the LIVE total, not the milestone above.
         //
         // `total` is the rounded figure the post announces (1800), which is right in the sentence and
@@ -9679,22 +9529,25 @@ public class AnvilPlugin extends Plugin {
         // Omitted on a max — "0 to go" under "Maxed!" is noise — and on a build not chasing one.
         String progress = maxed ? null : maxProgressLine(client.getTotalLevel());
         if (progress != null) {
-            embed.add("fields", oneField("Progress to max", progress));
+            e.field("Progress to max", progress, true);
         }
-        postAchievement(embed);
+        postAchievement(e);
     }
 
-    /** A one-entry Discord `fields` array, inline so it sits beside the description rather than under it. */
-    private static JsonArray oneField(String name, String value) {
-        JsonObject field = new JsonObject();
-        field.addProperty("name", name);
-        field.addProperty("value", value);
-        field.addProperty("inline", true);
-        JsonArray fields = new JsonArray();
-        fields.add(field);
-        return fields;
+    private static String who(String rsn) {
+        return rsn != null ? rsn : "A clan member";
     }
 
+    private static String commas(long n) {
+        return String.format("%,d", n);
+    }
+
+    /** A drop post to the drops channel, with its screenshot. */
+    private void postDrop(String title, String desc, String itemName, int itemId, int qty, long value,
+            Double dropRate, Integer killCount, String countLabel, boolean guaranteed) {
+        postWithScreenshot("rareDrops", dropEmbed(getLocalPlayerName(), title, desc, itemName, itemId, qty, value,
+                dropRate, killCount, countLabel, guaranteed), DROP_SHOT);
+    }
 
     /**
      * The drop embed. {@code itemId} (or -1 when unknown) adds the item's own sprite as the
@@ -9702,80 +9555,31 @@ public class AnvilPlugin extends Plugin {
      * Numeric fields are wrapped in backticks so Discord boxes them; see the site's
      * lib/discordEmbeds for the house style this matches.
      */
-    private JsonObject buildDropEmbed(String title, String description,
-            String itemName, int itemId, int qty, long value, Double dropRate, Integer killCount, String shotName,
-            String countLabel, boolean guaranteed) {
-        JsonObject embed = new JsonObject();
-        String rsn = getLocalPlayerName();
-        if (rsn != null && !rsn.isEmpty()) {
-            JsonObject author = new JsonObject();
-            author.addProperty("name", rsn);
-            embed.add("author", author);
-        }
-        embed.addProperty("title", title);
-        embed.addProperty("description", description);
-        embed.addProperty("color", RARE_EMBED_COLOR);
-
-        JsonArray fields = new JsonArray();
-        fields.add(statField("Item", qty > 1 ? itemName + " ×" + qty : itemName));
+    static JsonObject dropEmbed(String rsn, String title, String description, String itemName, int itemId, int qty,
+            long value, Double dropRate, Integer killCount, String countLabel, boolean guaranteed) {
+        Embed e = new Embed().author(rsn).title(title).desc(description).color(RARE_EMBED_COLOR)
+                .stat("Item", qty > 1 ? itemName + " ×" + qty : itemName);
         if (value > 0) {
-            fields.add(statField("Value", String.format("%,d gp", value)));
+            e.stat("Value", commas(value) + " gp");
         }
         // A guaranteed drop has no rate worth printing and no luck to speak of: "1/1" and "Top 100%"
         // are both true and both noise. Say what it is instead, so the post still explains itself.
         if (guaranteed) {
-            fields.add(statField("Drop rate", "Guaranteed"));
+            e.stat("Drop rate", "Guaranteed");
         } else if (dropRate != null && dropRate > 0) {
-            long oneIn = Math.round(1.0 / dropRate);
-            fields.add(statField("Drop rate", "1/" + String.format("%,d", oneIn)));
+            e.stat("Drop rate", "1/" + commas(Math.round(1.0 / dropRate)));
         }
         if (killCount != null && killCount > 0) {
             // Keys opened and caskets are not kills; calling either KC invites a comparison against
             // a drop rate that has nothing to do with it (DropSource.countLabel).
-            fields.add(statField(countLabel == null || countLabel.isEmpty() ? "KC" : countLabel,
-                    String.format("%,d", killCount)));
+            e.stat(countLabel == null || countLabel.isEmpty() ? "KC" : countLabel, commas(killCount));
         }
         // Luck reads the rate against the kill count — silent unless the result is worth a remark.
         String luck = guaranteed ? null : DropLuck.luckLabel(dropRate, killCount);
         if (luck != null) {
-            fields.add(statField("Luck", luck));
+            e.stat("Luck", luck);
         }
-        embed.add("fields", fields);
-
-        // Wiki link (OSRS wiki uses underscores for spaces).
-        embed.addProperty("url", "https://oldschool.runescape.wiki/w/" + itemName.replace(' ', '_'));
-
-        if (itemId > 0) {
-            JsonObject thumb = new JsonObject();
-            thumb.addProperty("url", itemIconUrl(itemId));
-            embed.add("thumbnail", thumb);
-        }
-
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
-        return embed;
-    }
-
-    /**
-     * RuneLite's static export of the game cache — the exact sprite the client renders, on a public
-     * CDN Discord can fetch. Mirrors the site's lib/tileIcons.itemIconUrl.
-     */
-    private static String itemIconUrl(int itemId) {
-        return "https://static.runelite.net/cache/item/icon/" + itemId + ".png";
-    }
-
-    private static JsonObject embedField(String name, String value, boolean inline) {
-        JsonObject f = new JsonObject();
-        f.addProperty("name", name);
-        f.addProperty("value", value);
-        f.addProperty("inline", inline);
-        return f;
-    }
-
-    /** An inline field whose value is a number or short token — boxed with backticks. */
-    private static JsonObject statField(String name, String value) {
-        return embedField(name, "`" + value.replace("`", "") + "`", true);
+        return e.wiki(itemName).icon(itemId).image(DROP_SHOT).json;
     }
 
     /**
@@ -9969,11 +9773,9 @@ public class AnvilPlugin extends Plugin {
      * very thing it cited. Same shape as that path now, down to removing the image reference when the
      * capture fails, so a dropped frame degrades to the text post rather than an embed with a hole.
      */
-    private void postAchievement(JsonObject embed) {
+    private void postAchievement(Embed e) {
         String shotName = "anvil-achievement.png";
-        JsonObject image = new JsonObject();
-        image.addProperty("url", "attachment://" + shotName);
-        embed.add("image", image);
+        JsonObject embed = e.image(shotName).json;
         Runnable capture = () -> captureFrameAsync(png -> {
             if (png == null) {
                 embed.remove("image");
