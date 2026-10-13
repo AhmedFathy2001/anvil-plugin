@@ -100,10 +100,12 @@ until you press **Track again** in the same strip.
 <img src="docs/images/lookup-menu.png" alt="A player's right-click menu with an Anvil entry under Lookup and RuneProfile" width="240" align="right">
 
 Right-click a player — standing next to you, or by name in chat, your friends list or the clan
-panel — and pick **Anvil** to open their profile on the site. For your own, open the **⋯** menu at
-the top of the panel and pick **View my profile on Anvil**.
+panel — and pick **Anvil** to open their card in the side panel's **Lookup** tab. Your own is the
+**You** tab. On a name in chat it's never the left-click option, so clicking a name still does what
+the game does.
 
-Rather keep your menus short? Untick **Anvil lookup on players** under **General** in the settings.
+Rather keep your menus short? Pick where it shows under **Player lookup** in the settings, or untick
+**Anvil lookup on players** to hide it everywhere.
 
 <br clear="right">
 
@@ -131,34 +133,36 @@ shape of it.
 
 | Section | What's in it |
 | --- | --- |
-| **General** | The **Anvil** lookup on players' right-click menus. |
-| **Bingo** | The verification overlay, team-completion banners and their sounds. |
+| **Player lookup** | The **Anvil** entry on player names, and where it shows: players in the world, the chatbox and private messages, clan panels, friends chat, and your friends, ignore and party lists. In chat it's never the left-click option. |
+| **Bingo** | The verification overlay, team and personal tile popups, banner sounds, and the automatic starting shot. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
-| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, level milestones (your clan's rules), diaries, quests. |
+| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, level milestones (your clan's rules), diaries (with a screenshot), quests by difficulty. |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 
 <p align="center">
-  <img src="docs/images/settings-general.png" alt="The General settings section: Anvil lookup on players" width="240">
+  <img src="docs/images/settings-lookup.png" alt="The Player lookup settings section: the Anvil lookup switch and where it shows" width="242">
   <br>
-  <img src="docs/images/settings-main.png" alt="The Anvil settings: Bingo and the notification sections" width="238">
+  <img src="docs/images/settings-main.png" alt="The Anvil settings: Bingo and the notification sections" width="242">
 </p>
 
 A few worth knowing about:
 
 | Setting | Default | Why you'd change it |
 | --- | --- | --- |
-| Anvil lookup on players | on | Turn it off to keep **Anvil** out of players' right-click menus. |
+| Anvil lookup on players | on | Turn it off to keep **Anvil** out of every menu, or untick just the places you don't want it under **Player lookup**. |
 | Show Overlay | on | Turn it off if you don't want the codeword panel on screen — proofs are still stamped. |
 | Min drop value | 5,000,000 | The gp floor for a drop post. `0` switches value posts off. |
 | Min drop rarity (1 in N) | 10,000 | Catches cheap-but-rare uniques. Looser than this and the channel fills with herb rolls. Your clan can set a floor; yours applies when it's stricter. |
 | Loot key value | 1,000,000 | A loot key posts once, for its whole contents. |
-| CA task min tier | Master | Set to Grandmaster for only the rarest tasks. Tier clears always post. |
+| CA post tier | Master | The lowest task tier that posts, tier clears included. Grandmaster for only the rarest, **Off** for none. Bingo CA tiles count either way. |
+| Quest post tier | Master | Quests at or above this difficulty, from **All** to Grandmaster, or **Off**. |
+| Notify on level milestones | on | Which levels post is your clan's call (99s and high totals by default). Post less, or set your own rules for your personal webhooks, under Announcements on your Anvil profile. |
 | Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
 
 ### Profile sync
 
-<img src="docs/images/settings-sync.png" alt="The Profile sync settings section" width="223" align="right">
+<img src="docs/images/settings-sync.png" alt="The Profile sync settings section" width="242" align="right">
 
 Your collection log and personal bests, kept current on your profile. The whole log syncs when you
 open it in game, or on the **Sync profile** button the side panel shows while the log is open. **Share highlights with the
