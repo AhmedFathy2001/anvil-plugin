@@ -66,13 +66,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private Map<Integer, Integer> lastAmounts = new HashMap<>();
 	private final Map<Integer, Long> roseAt = new HashMap<>();
 
-	/**
-	 * The plugin binding. {@code homeMembership} (is this account a member, not a guest, at home) is
-	 * no longer read: it steered the federated multi-clan view, which is gone.
-	 */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
-		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn,
-		Supplier<Boolean> homeMembership)
+		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn)
 	{
 		this.configSupplier = configSupplier;
 		this.apiClient = apiClient;

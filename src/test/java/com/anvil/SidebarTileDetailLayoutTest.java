@@ -24,7 +24,7 @@ public class SidebarTileDetailLayoutTest
 	private static AnvilSidebarPanel panel()
 	{
 		BingoApiClient client = new BingoApiClient(new Gson(), new OkHttpClient());
-		return new AnvilSidebarPanel(new AnvilSidebarDataSource(() -> null, client, null, null, null), client,
+		return new AnvilSidebarPanel(new AnvilSidebarDataSource(() -> null, client, null, null), client,
 			null, Executors.newSingleThreadScheduledExecutor(), null, null, null);
 	}
 

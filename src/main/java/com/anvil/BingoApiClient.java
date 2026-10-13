@@ -1163,48 +1163,10 @@ public class BingoApiClient
 		}
 	}
 
-	/**
-	 * GET /api/plugin/active-weekly — returns the currently live weekly competition, or null.
-	 * Unauthenticated. Never throws — returns null on any failure.
-	 */
-	public ActiveWeekly fetchActiveWeekly()
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
-		Request request = withOptionalAuth(new Request.Builder()
-			.url(clanUrl("/api/plugin/active-weekly")))
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				return null;
-			}
-			String body = response.body().string();
-			if (body == null || body.isEmpty() || "null".equals(body.trim()))
-			{
-				return null;
-			}
-			return gson.fromJson(body, ActiveWeekly.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("active-weekly fetch failed: {}", e.getMessage());
-			return null;
-		}
-	}
-
 	public static class ActiveWeekly extends DatedWeekly
 	{
 	}
 
-	/**
-	 * GET /api/plugin/schedule — returns upcoming + active bingo events and weekly competitions.
-	 * Unauthenticated. Never throws — returns null on any failure.
-	 */
 	/**
 	 * Attach the account token when we have one, on a request that does not require it.
 	 *
@@ -1220,32 +1182,6 @@ public class BingoApiClient
 		return token == null || token.isEmpty()
 			? builder
 			: builder.header("Authorization", "Bearer " + token);
-	}
-
-	public ScheduleResponse fetchSchedule()
-	{
-		if (apiUrl == null || apiUrl.isEmpty())
-		{
-			return null;
-		}
-		Request request = withOptionalAuth(new Request.Builder()
-			.url(clanUrl("/api/plugin/schedule")))
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
-		{
-			if (!response.isSuccessful())
-			{
-				return null;
-			}
-			String body = response.body().string();
-			return gson.fromJson(body, ScheduleResponse.class);
-		}
-		catch (IOException e)
-		{
-			log.debug("schedule fetch failed: {}", e.getMessage());
-			return null;
-		}
 	}
 
 	public static class ScheduleResponse
@@ -1736,27 +1672,12 @@ public class BingoApiClient
 		log.info("Starting shot filed for event {}", eventId);
 	}
 
-	/** POST /api/events/{eventId}/submissions — submits a drop with image proof. */
-	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId, Integer itemId) throws IOException
-	{
-		submitDrop(eventId, tileId, teamId, amount, imageUrl, note, creditPlayerId, itemId, null);
-	}
-
 	/**
-	 * As above, plus the shared-kill fingerprint: what this client could see of its company when the
-	 * kill happened. The server correlates reports of the SAME kill from it (lib/coopRuns) — it never
-	 * decides anything locally, because two clients that can't see each other would both stay quiet
-	 * or both submit. Null on everything that isn't a shared-kill tile.
-	 */
-	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
-		int creditPlayerId, Integer itemId, CoopFingerprint coop) throws IOException
-	{
-		submitDrop(eventId, tileId, teamId, amount, imageUrl, note, creditPlayerId, itemId, coop, null);
-	}
-
-	/**
-	 * As above, for an item the plugin worked out rather than saw — a duplicate pet or champion's
-	 * scroll, which the game never names. {@code inferred} is the reason the site stores so staff
+	 * POST /api/events/{eventId}/submissions — submits a drop with image proof. {@code coop} is the
+	 * shared-kill fingerprint (what this client could see of its company; the server correlates
+	 * reports of the SAME kill, lib/coopRuns), null on everything else. {@code itemId} may be an item
+	 * the plugin worked out rather than saw — a duplicate pet or champion's scroll, which the game
+	 * never names. {@code inferred} is the reason the site stores so staff
 	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
 	 */
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,

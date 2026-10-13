@@ -1587,7 +1587,7 @@ public class AnvilPlugin extends Plugin {
             this::localStatProgress, () -> {
                 String name = getLocalPlayerName();
                 return name != null && !name.isEmpty() ? name : apiClient.getRsnHint();
-            }, this::homeMembership);
+            });
         // The starting-shot button's action. Bound after construction for the same reason the
         // suppliers above are method references: this provider can run before the plugin's own
         // @Inject fields exist, and the capture only ever fires from a click, long after that.
@@ -5386,16 +5386,6 @@ public class AnvilPlugin extends Plugin {
             checks.add(where);
         }
         return checks;
-    }
-
-    /**
-     * Is the account we're playing a real member of the HOME clan, or only a guest? Answered by the
-     * login handshake (POST /api/plugin/hello), so it's null until that lands — and null is meaningful:
-     * the sidebar only moves its landing clan off the configured home when it KNOWS we're a guest here
-     * and a member somewhere federated. Cleared on logout with the rest of the hello state.
-     */
-    public Boolean homeMembership() {
-        return knownMember == null ? null : !isGuest;
     }
 
     private void configureApiClient() {

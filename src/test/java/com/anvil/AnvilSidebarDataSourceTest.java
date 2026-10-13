@@ -86,7 +86,7 @@ public class AnvilSidebarDataSourceTest
 
 	private static AnvilSidebarDataSource newSource(java.util.function.Supplier<PluginConfigResponse> cfg)
 	{
-		return new AnvilSidebarDataSource(cfg, unconfigured(), null, null, null);
+		return new AnvilSidebarDataSource(cfg, unconfigured(), null, null);
 	}
 
 	@Test
@@ -198,7 +198,7 @@ public class AnvilSidebarDataSourceTest
 		// The local submit signal attributes your own kill/drop to YOU, even though the config count also rose.
 		PluginConfigResponse cfg = eventConfig();
 		Map<Integer, Long> local = new HashMap<>();
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null, null);
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null);
 
 		ds.fetch(false);                        // seed
 		local.put(101, System.currentTimeMillis());   // you credited the tile
@@ -224,7 +224,7 @@ public class AnvilSidebarDataSourceTest
 		// The local stat signal attributes the same tile to YOU, even though the team total also rose.
 		PluginConfigResponse cfg = statConfig();
 		Map<Integer, Long> local = new HashMap<>();
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null, null);
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null);
 
 		ds.fetch(false);                                 // seed
 		local.put(201, System.currentTimeMillis());            // this account gains Fishing XP now
@@ -452,7 +452,7 @@ public class AnvilSidebarDataSourceTest
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> "ahmed two", null);
+			java.util.Collections::emptyMap, () -> "ahmed two");
 
 		ConnectionView.WeeklyView w = ds.fetch(false).weeklies.get(0);
 		assertEquals(12, w.yourRank);
@@ -472,7 +472,7 @@ public class AnvilSidebarDataSourceTest
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> null, null);
+			java.util.Collections::emptyMap, () -> null);
 
 		ds.fetch(false);   // first read
 		ds.fetch(false);   // 15 s poll — must reuse the cached board
@@ -493,7 +493,7 @@ public class AnvilSidebarDataSourceTest
 			weekly(9, "Next week's comp", "skill", "fishing", "upcoming"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> "ahmed two", null);
+			java.util.Collections::emptyMap, () -> "ahmed two");
 
 		ConnectionView.WeeklyView w = ds.fetch(false).weeklies.get(0);
 		assertTrue(w.upcoming);

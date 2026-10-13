@@ -230,22 +230,4 @@ public class PendingSubmissionStore
 		}
 	}
 
-	/** Number of submissions still waiting to upload. */
-	public int count()
-	{
-		return listJson().size();
-	}
-
-	/** Puts the pending-proofs folder on the clipboard, off the calling thread. */
-	public void copyFolderPath()
-	{
-		Filepath dir = dir();
-		if (dir == null)
-		{
-			return;
-		}
-		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
-		// player pastes it wherever they were going to open it.
-		Clipboards.copy(dir.toString());
-	}
 }

@@ -19,7 +19,7 @@ public class SidebarActionsTest
 	private static AnvilSidebarDataSource source()
 	{
 		return new AnvilSidebarDataSource(() -> new PluginConfigResponse(),
-			new BingoApiClient(new Gson(), new OkHttpClient()), null, null, null);
+			new BingoApiClient(new Gson(), new OkHttpClient()), null, null);
 	}
 
 	@Test
