@@ -53,7 +53,7 @@ it.
 and baked into every screenshot — so evidence can't be quietly back-dated.
 
 **Posts to your clan's Discord.** Deaths, PvP kills, rare and valuable drops, pets, combat
-achievements, collection-log slots, 99s, diaries and quests. You choose what you send; your admins
+achievements, collection-log slots, level milestones, diaries and quests. You choose what you send; your admins
 choose which channel it lands in.
 
 **Keeps your profile current.** Your collection log and personal bests sync to the site, so your
@@ -135,7 +135,7 @@ shape of it.
 | **Bingo** | The verification overlay, team-completion banners and their sounds. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
-| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |
+| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, level milestones (your clan's rules), diaries, quests. |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 
 <p align="center">
