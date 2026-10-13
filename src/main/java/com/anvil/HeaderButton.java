@@ -178,20 +178,13 @@ final class HeaderButton
 
 		// The text covers the whole button, so it is what the mouse actually meets: one layer owns
 		// the click, the hover and the label, and the nine underneath are decoration.
-		Widget text = parent.createChild(-1, WidgetType.TEXT);
-		text.setName(NAME);
+		Widget text = child(parent, WidgetType.TEXT, x, y, WIDTH, h, yMode);
 		text.setText(label);
 		text.setTextColor(TEXT_IDLE);
 		text.setFontId(FontID.PLAIN_11);
 		text.setTextShadowed(true);
-		text.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
-		text.setYPositionMode(yMode);
 		text.setXTextAlignment(WidgetTextAlignment.CENTER);
 		text.setYTextAlignment(WidgetTextAlignment.CENTER);
-		text.setOriginalX(x);
-		text.setOriginalY(y);
-		text.setOriginalWidth(WIDTH);
-		text.setOriginalHeight(h);
 		text.setHasListener(true);
 		text.setAction(0, action);
 		text.setOnOpListener((JavaScriptCallback) e -> onClick.run());
@@ -249,17 +242,24 @@ final class HeaderButton
 	/** One piece of the frame, by its index into the sprite sets. */
 	private Widget piece(Widget parent, int index, int x, int y, int w, int h, int yMode)
 	{
-		Widget piece = parent.createChild(-1, WidgetType.GRAPHIC);
-		piece.setName(NAME);
+		Widget piece = child(parent, WidgetType.GRAPHIC, x, y, w, h, yMode);
 		piece.setSpriteId(SPRITES_IDLE[index]);
-		piece.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
-		piece.setYPositionMode(yMode);
-		piece.setOriginalX(x);
-		piece.setOriginalY(y);
-		piece.setOriginalWidth(w);
-		piece.setOriginalHeight(h);
 		piece.revalidate();
 		return piece;
+	}
+
+	/** One of our widgets, named as ours and placed from the parent's right edge. */
+	private static Widget child(Widget parent, int type, int x, int y, int w, int h, int yMode)
+	{
+		Widget c = parent.createChild(-1, type);
+		c.setName(NAME);
+		c.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
+		c.setYPositionMode(yMode);
+		c.setOriginalX(x);
+		c.setOriginalY(y);
+		c.setOriginalWidth(w);
+		c.setOriginalHeight(h);
+		return c;
 	}
 
 	/**

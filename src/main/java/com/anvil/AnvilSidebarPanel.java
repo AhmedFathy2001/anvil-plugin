@@ -5,7 +5,6 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
@@ -19,9 +18,7 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import javax.swing.Box;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -77,8 +74,6 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	/** A teammate's claim on a tile — a calm blue, so it reads as a plan rather than progress. */
 	private static final Color CLAIM_COLOR = new Color(0x7D_C4_F0);
-	/** The catalogue key for the caller's own, team-scoped board (previews are "preview:<id>"). */
-	private static final String ACTIVE_CATALOGUE_KEY = "active";
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
 	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
@@ -129,8 +124,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel tabBody = new JPanel(new BorderLayout());
 	private final JPanel tabStrip = new JPanel(new GridBagLayout());
 	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
-	private final JPanel youPanel = new JPanel();
-	private final JPanel lookupPanel = new JPanel();
+	private final JPanel youPanel = column();
+	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	private boolean lookupClans;
 	private final JLabel lookupModePlayers = new JLabel("Players", SwingConstants.CENTER);
@@ -143,9 +138,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private long ownClanAt;
 	private boolean ownClanLoading;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
-	private final JPanel settingsPanel = new JPanel();
-	private final JPanel lookupResult = new JPanel();
-	private final JPanel lookupRecentRow = new JPanel();
+	private final JPanel settingsPanel = column();
+	private final JPanel lookupResult = column();
+	private final JPanel lookupRecentRow = column();
 	private final JTextField lookupSearch = new JTextField();
 	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
@@ -185,7 +180,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
 	private final ScheduledExecutorService executor;
 	private final JButton signInButton = new JButton("Sign in with Discord");
-	private final JLabel signInStatus = new JLabel();
+	private final JLabel signInStatus = small("", MUTED);
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
@@ -200,14 +195,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
 	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
 	// tracking line for that character for good.
-	private final JLabel accountLabel = new JLabel();
-	private final JLabel accountLink = new JLabel();
-	private final JLabel accountStatus = new JLabel();
+	private final JLabel accountLabel = small("", MUTED);
+	private final JLabel accountLink = small("", ColorScheme.BRAND_ORANGE);
+	private final JLabel accountStatus = small("", MUTED);
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	private SidebarDataSource.AccountRow shownAccountRow;
 	private boolean accountActionInFlight;
 
-	private final JPanel content = new JPanel();
+	private final JPanel content = column();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
 	private final Timer autoRefresh;
@@ -289,8 +284,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		add(buildHeader(), BorderLayout.NORTH);
 		SlimScrollBarUI.applyTo(getWrappedPanel());
 
-		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		buildTabBodies();
 		tabBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		tabBody.add(content, BorderLayout.NORTH);
@@ -328,8 +321,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		// Sign-in affordance — visible whenever there is no token (see refreshSignInRow).
 		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
 		signInButton.addActionListener(e -> startSignIn());
-		signInStatus.setFont(SMALL);
-		signInStatus.setForeground(MUTED);
 		signInStatus.setVisible(false);
 		signInRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		signInRow.add(signInButton, BorderLayout.NORTH);
@@ -338,13 +329,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInRow.add(pasteTokenLink, BorderLayout.SOUTH);
 		left(capH(signInRow)).setVisible(false);
 
-		accountLabel.setFont(SMALL);
-		accountLabel.setForeground(MUTED);
-		accountLink.setFont(SMALL);
-		accountLink.setForeground(ColorScheme.BRAND_ORANGE);
 		onClick(accountLink, this::onAccountButton);
-		accountStatus.setFont(SMALL);
-		accountStatus.setForeground(MUTED);
 		accountStatus.setVisible(false);
 		styleLink(accountMenuLink, "Account: View my profile, Not my account, Sign out", () -> showAccountMenu(accountMenuLink));
 		// One strip for who you are here: the character being tracked on the left, and everything
@@ -363,8 +348,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		JPanel top = column();
 		top.add(titleRow);
-
-		top.add(Box.createVerticalStrut(6));
+		top.add(gap(6));
 		top.add(signInRow);
 		top.add(accountRowPanel);
 		header.add(top, BorderLayout.NORTH);
@@ -384,16 +368,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				return;
 			}
-			// Not a filter over a snapshot we already hold — the other clan's board lives on the site,
-			// so this hands the choice to the plugin (which persists it and re-addresses the client)
-			// and shows the loading state until the answer comes back.
-			selectedEventKey = null; // another clan's events are a different list — start at the top
-			clearBoardCatalogueState();
-			// No refresh() here on purpose. The source renders from the config the plugin holds, and
-			// that config is still the old clan's until the refetch lands — refreshing now would repaint
-			// the clan they just switched away from. The plugin repaints once it has the new answer.
-			dataSource.chooseClan(sel.slug);
-			renderLoading();
+			switchClan(sel.slug);
 		});
 		JPanel south = new JPanel(new BorderLayout(0, 8));
 		south.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -402,6 +377,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		header.add(south, BorderLayout.SOUTH);
 
 		return header;
+	}
+
+	/**
+	 * Address another clan. Not a filter over a snapshot we already hold — the other clan's board lives
+	 * on the site, so this hands the choice to the plugin (which persists it and re-addresses the
+	 * client) and shows the loading state until the answer comes back.
+	 *
+	 * <p>No refresh() here on purpose. The source renders from the config the plugin holds, and that
+	 * config is still the old clan's until the refetch lands — refreshing now would repaint the clan
+	 * they just switched away from. The plugin repaints once it has the new answer.</p>
+	 */
+	private void switchClan(String slug)
+	{
+		selectedEventKey = null; // another clan's events are a different list — start at the top
+		clearBoardCatalogueState();
+		dataSource.chooseClan(slug);
+		renderLoading();
 	}
 
 	// ---- Tabs ---------------------------------------------------------------------------------------
@@ -453,12 +445,6 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void buildTabBodies()
 	{
-		for (JPanel p : new JPanel[]{youPanel, lookupPanel, lookupResult, lookupRecentRow, settingsPanel})
-		{
-			p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-			p.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			p.setAlignmentX(LEFT_ALIGNMENT);
-		}
 
 		// Our own field rather than RuneLite's IconTextField: that one draws typed text grey and a
 		// light-grey clear button with a red cross, neither of which can be restyled from outside.
@@ -653,20 +639,26 @@ public class AnvilSidebarPanel extends PluginPanel
 	private <T> void lookupThen(String waiting, java.util.function.Supplier<T> fetch, java.util.function.Consumer<T> show)
 	{
 		int seq = showLookupMessage(waiting);
+		async(fetch, result ->
+		{
+			if (seq != lookupSeq)
+			{
+				return;
+			}
+			lookupResult.removeAll();
+			show.accept(result);
+			lookupResult.revalidate();
+			lookupResult.repaint();
+		});
+	}
+
+	/** {@code fetch} on the interactive executor, then {@code then} with its answer on the EDT. */
+	private <T> void async(java.util.function.Supplier<T> fetch, java.util.function.Consumer<T> then)
+	{
 		interactive().execute(() ->
 		{
 			T result = fetch.get();
-			SwingUtilities.invokeLater(() ->
-			{
-				if (seq != lookupSeq)
-				{
-					return;
-				}
-				lookupResult.removeAll();
-				show.accept(result);
-				lookupResult.revalidate();
-				lookupResult.repaint();
-			});
+			SwingUtilities.invokeLater(() -> then.accept(result));
 		});
 	}
 
@@ -887,23 +879,19 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (!fresh && !ownClanLoading)
 		{
 			ownClanLoading = true;
-			interactive().execute(() ->
+			async(() -> dataSource.fetchClanCard(slug), card ->
 			{
-				ClanCard card = dataSource.fetchClanCard(slug);
-				SwingUtilities.invokeLater(() ->
+				ownClanLoading = false;
+				ownClanAt = System.currentTimeMillis();
+				if (card != null)
 				{
-					ownClanLoading = false;
-					ownClanAt = System.currentTimeMillis();
-					if (card != null)
+					ownClanCard = card;
+					ownClanSlug = slug;
+					if (tab == Tab.CLAN)
 					{
-						ownClanCard = card;
-						ownClanSlug = slug;
-						if (tab == Tab.CLAN)
-						{
-							renderSelected();
-						}
+						renderSelected();
 					}
-				});
+				}
 			});
 		}
 		if (ownClanCard == null || !slug.equalsIgnoreCase(ownClanSlug))
@@ -953,7 +941,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void fetchGoals()
 	{
-		interactive().execute(() -> applyGoals(dataSource.fetchGoals(), false));
+		async(dataSource::fetchGoals, r -> applyGoals(r, false));
 	}
 
 	private void addGoal()
@@ -963,36 +951,33 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		interactive().execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), true));
+		async(() -> dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), r -> applyGoals(r, true));
 	}
 
 	private void removeGoal(int id)
 	{
-		interactive().execute(() -> applyGoals(dataSource.removeGoal(id), true));
+		async(() -> dataSource.removeGoal(id), r -> applyGoals(r, true));
 	}
 
-	/** Off the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
+	/** On the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
 	private void applyGoals(BingoApiClient.GoalsResult result, boolean userAction)
 	{
-		SwingUtilities.invokeLater(() ->
+		if (result == null)
 		{
-			if (result == null)
+			goalsError = userAction ? "Couldn't reach Anvil — try again in a moment." : goalsError;
+		}
+		else
+		{
+			goalsError = result.error;
+			if (result.goals != null)
 			{
-				goalsError = userAction ? "Couldn't reach Anvil — try again in a moment." : goalsError;
+				youGoals = result.goals;
 			}
-			else
-			{
-				goalsError = result.error;
-				if (result.goals != null)
-				{
-					youGoals = result.goals;
-				}
-			}
-			if (tab == Tab.YOU)
-			{
-				renderYou(false);
-			}
-		});
+		}
+		if (tab == Tab.YOU)
+		{
+			renderYou(false);
+		}
 	}
 
 	private void fetchYou(String me)
@@ -1003,43 +988,35 @@ public class AnvilSidebarPanel extends PluginPanel
 			goalsError = null;
 		}
 		int seq = ++youSeq;
-		interactive().execute(() ->
+		async(() -> dataSource.fetchPlayerCard(me), result ->
 		{
-			BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(me);
-			SwingUtilities.invokeLater(() ->
+			if (seq != youSeq)
 			{
-				if (seq != youSeq)
+				return;
+			}
+			if (result != null && result.card != null)
+			{
+				youCard = result.card;
+				youCardRsn = me;
+				if (tab == Tab.YOU)
 				{
-					return;
+					renderYou(false);
 				}
-				if (result != null && result.card != null)
-				{
-					youCard = result.card;
-					youCardRsn = me;
-					if (tab == Tab.YOU)
-					{
-						renderYou(false);
-					}
-				}
-				else if (tab == Tab.YOU)
-				{
-					youPanel.remove(0);
-					youPanel.add(cardFor(me, result, true), 0);
-					youPanel.revalidate();
-					youPanel.repaint();
-				}
-			});
+			}
+			else if (tab == Tab.YOU)
+			{
+				youPanel.remove(0);
+				youPanel.add(cardFor(me, result, true), 0);
+				youPanel.revalidate();
+				youPanel.repaint();
+			}
 		});
 	}
 
 	private PlayerCardView.Icons cardIcons(String rsn)
 	{
 		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> interactive().execute(() ->
-			{
-				BingoApiClient.ClogPageView view = dataSource.fetchClogPage(rsn, page);
-				SwingUtilities.invokeLater(() -> done.accept(view));
-			}));
+			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done));
 	}
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
@@ -2145,14 +2122,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		String clanName = c.name == null || c.name.isEmpty() ? c.slug : c.name;
 
-		final String slug = c.slug;
-		JPanel card = drillCard(clanName, "Switch to " + plainText(clanName) + " — the sidebar and your submissions follow", () ->
-		{
-			selectedEventKey = null;
-			clearBoardCatalogueState();
-			dataSource.chooseClan(slug);
-			renderLoading();
-		});
+		JPanel card = drillCard(clanName, "Switch to " + plainText(clanName) + " — the sidebar and your submissions follow",
+			() -> switchClan(c.slug));
 		card.add(cardLine(c.live.eventName, ColorScheme.LIGHT_GRAY_COLOR));
 		if (c.live.isWeekly() || c.live.tilesTotal <= 0)
 		{
@@ -3388,52 +3359,35 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		}
 		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
-		switch (type)
+		for (String[] words : TYPE_WORDS)
 		{
-			case "drop":
-				out.add("drop");
-				out.add("drops");
-				if (tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
-				{
-					java.util.Collections.addAll(out, "set", "sets", "item set", "collection");
-				}
-				break;
-			case "kill":
-				java.util.Collections.addAll(out, "kill", "kills");
-				break;
-			case "lap":
-				java.util.Collections.addAll(out, "lap", "laps", "agility");
-				break;
-			case "pvp":
-				out.add("pvp");
-				break;
-			case "gain":
-				java.util.Collections.addAll(out, "gain", "gains", "item gain", "gather");
-				break;
-			case "timed":
-				java.util.Collections.addAll(out, "timed", "time", "speedrun");
-				break;
-			case "deathless":
-				out.add("deathless");
-				break;
-			case "diary":
-				java.util.Collections.addAll(out, "diary", "diaries", "achievement diary");
-				break;
-			case "ca":
-				java.util.Collections.addAll(out, "ca", "cas", "combat task", "combat achievement");
-				break;
-			case "lms":
-				out.add("lms");
-				break;
-			case "value":
-			case "valuetotal":
-				java.util.Collections.addAll(out, "value", "loot value", "gp");
-				break;
-			default:
-				break;
+			if (words[0].equals(type))
+			{
+				out.addAll(java.util.Arrays.asList(words).subList(1, words.length));
+			}
+		}
+		if ("drop".equals(type) && tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
+		{
+			java.util.Collections.addAll(out, "set", "sets", "item set", "collection");
 		}
 		return out;
 	}
+
+	/** Per tile type (the first word), what a player might type to find it. */
+	private static final String[][] TYPE_WORDS = {
+		{"drop", "drop", "drops"},
+		{"kill", "kill", "kills"},
+		{"lap", "lap", "laps", "agility"},
+		{"pvp", "pvp"},
+		{"gain", "gain", "gains", "item gain", "gather"},
+		{"timed", "timed", "time", "speedrun"},
+		{"deathless", "deathless"},
+		{"diary", "diary", "diaries", "achievement diary"},
+		{"ca", "ca", "cas", "combat task", "combat achievement"},
+		{"lms", "lms"},
+		{"value", "value", "loot value", "gp"},
+		{"valuetotal", "value", "loot value", "gp"},
+	};
 
 	private static boolean tileHasTier(BingoApiClient.BoardTile tile, String normalized)
 	{
@@ -4034,28 +3988,18 @@ public class AnvilSidebarPanel extends PluginPanel
 			return false;
 		}
 		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
-		switch (type)
+		if ("drop".equals(type) || "gain".equals(type))
 		{
-			case "drop":
-			case "gain":
-				return (tile.itemIds == null || tile.itemIds.isEmpty())
-					&& (tile.trackedItems == null || tile.trackedItems.isEmpty())
-					&& (tile.itemRequirements == null || tile.itemRequirements.isEmpty());
-			case "kill":
-			case "lap":
-			case "pvp":
-			case "diary":
-			case "ca":
-			case "timed":
-			case "lms":
-			case "value":
-			case "valuetotal":
-			case "deathless":
-				return false;
-			default:
-				return true;
+			return (tile.itemIds == null || tile.itemIds.isEmpty())
+				&& (tile.trackedItems == null || tile.trackedItems.isEmpty())
+				&& (tile.itemRequirements == null || tile.itemRequirements.isEmpty());
 		}
+		return !TRACKED_TYPES.contains(type);
 	}
+
+	/** Tile types the plugin tracks off something other than an item list. */
+	private static final Set<String> TRACKED_TYPES = Set.of(
+		"kill", "lap", "pvp", "diary", "ca", "timed", "lms", "value", "valuetotal", "deathless");
 
 	// Set headers ("Ahrim's set — all 4:") stand out from the items under them: their own colour, a
 	// gap above, and the items indented. HTML collapses the leading spaces tileTrackingDetails uses to

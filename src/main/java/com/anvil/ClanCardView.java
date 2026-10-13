@@ -3,7 +3,6 @@ package com.anvil;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
-import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 import javax.swing.BorderFactory;
