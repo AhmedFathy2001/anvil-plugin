@@ -63,25 +63,11 @@ public class BingoClogBannerOverlay extends Overlay
 	private static final Color SHADOW = new Color(0, 0, 0, 255);
 	private static final Color LINE_COLOR = Color.BLACK; // the thin opening/closing line
 
-	private static final class Banner
-	{
-		final String top;
-		final String middle;
-		final String bottom;
-
-		Banner(String top, String middle, String bottom)
-		{
-			this.top = top;
-			this.middle = middle;
-			this.bottom = bottom;
-		}
-	}
-
-	private final ConcurrentLinkedQueue<Banner> queue = new ConcurrentLinkedQueue<>();
+	private final ConcurrentLinkedQueue<String[]> queue = new ConcurrentLinkedQueue<>();
 	private final BufferedImage background;
 	private final Font headerFont;
 	private final Font bodyFont;
-	private Banner active;
+	private String[] active; // {top, middle, bottom}
 	private long startedAt;
 
 	@Inject
@@ -122,7 +108,7 @@ public class BingoClogBannerOverlay extends Overlay
 	/** Full three-line control. */
 	public void show(String top, String middle, String bottom)
 	{
-		queue.add(new Banner(top, middle, bottom));
+		queue.add(new String[]{top, middle, bottom});
 	}
 
 	@Override
@@ -206,9 +192,9 @@ public class BingoClogBannerOverlay extends Overlay
 			{
 				g2.clipRect(x, y, iw, ih);
 				int maxTextW = BASE_W - 2 * TEXT_MARGIN_X;
-				drawWrapped(g2, active.top, headerFont, ORANGE, maxTextW, TOP_Y, 1);
-				drawWrapped(g2, active.middle, bodyFont, ORANGE, maxTextW, MID_Y, 1);
-				drawWrapped(g2, active.bottom, bodyFont, WHITE, maxTextW, BOTTOM_Y, BOTTOM_MAX_LINES);
+				drawWrapped(g2, active[0], headerFont, ORANGE, maxTextW, TOP_Y, 1);
+				drawWrapped(g2, active[1], bodyFont, ORANGE, maxTextW, MID_Y, 1);
+				drawWrapped(g2, active[2], bodyFont, WHITE, maxTextW, BOTTOM_Y, BOTTOM_MAX_LINES);
 			}
 		}
 

@@ -2,6 +2,7 @@ package com.anvil;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Predicate;
 import net.runelite.api.gameval.ItemID;
 
 /**
@@ -24,46 +25,29 @@ final class DuplicateInference
 	/** The one pet {@code source} drops, or null when it drops none or several. */
 	static String petForSource(PluginConfigResponse.DropFacts facts, String source)
 	{
-		if (facts == null || facts.pets == null || source == null || source.trim().isEmpty())
-		{
-			return null;
-		}
-		String want = source.trim().toLowerCase(Locale.ROOT);
-		String found = null;
-		for (Map.Entry<String, PluginConfigResponse.DropFacts.Pet> e : facts.pets.entrySet())
-		{
-			PluginConfigResponse.DropFacts.Pet pet = e.getValue();
-			if (pet == null || pet.sources == null)
-			{
-				continue;
-			}
-			for (String s : pet.sources)
-			{
-				if (s != null && s.trim().toLowerCase(Locale.ROOT).equals(want))
-				{
-					if (found != null && !found.equals(e.getKey()))
-					{
-						return null;
-					}
-					found = e.getKey();
-				}
-			}
-		}
-		return found;
+		String want = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);
+		return onlyPet(facts, want, pet -> pet.sources != null
+			&& pet.sources.stream().anyMatch(s -> s != null && s.trim().toLowerCase(Locale.ROOT).equals(want)));
 	}
 
 	/** The one skilling pet {@code skill} gives, or null. */
 	static String petForSkill(PluginConfigResponse.DropFacts facts, String skill)
 	{
-		if (facts == null || facts.pets == null || skill == null || skill.trim().isEmpty())
+		String want = skill == null ? "" : skill.trim();
+		return onlyPet(facts, want, pet -> "skill".equals(pet.kind) && want.equalsIgnoreCase(pet.skill));
+	}
+
+	/** The single pet matching {@code test}, or null when none or several do (or {@code want} is blank). */
+	private static String onlyPet(PluginConfigResponse.DropFacts facts, String want, Predicate<PluginConfigResponse.DropFacts.Pet> test)
+	{
+		if (facts == null || facts.pets == null || want.isEmpty())
 		{
 			return null;
 		}
 		String found = null;
 		for (Map.Entry<String, PluginConfigResponse.DropFacts.Pet> e : facts.pets.entrySet())
 		{
-			PluginConfigResponse.DropFacts.Pet pet = e.getValue();
-			if (pet != null && "skill".equals(pet.kind) && skill.trim().equalsIgnoreCase(pet.skill))
+			if (e.getValue() != null && test.test(e.getValue()))
 			{
 				if (found != null)
 				{

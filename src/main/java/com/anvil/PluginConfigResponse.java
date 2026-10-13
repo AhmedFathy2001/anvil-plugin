@@ -454,7 +454,7 @@ public class PluginConfigResponse
 		public int min;       // inclusive lower bound on points
 	}
 
-	/** What every tracked tile shares. */
+	/** What every tile on the wire shares (tracked tiles and the board's). */
 	public abstract static class TrackedTile
 	{
 		public int tileId;

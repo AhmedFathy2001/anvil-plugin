@@ -1081,13 +1081,8 @@ public class BingoApiClient
 		public List<BoardTeam> teams;
 	}
 
-	public static class BoardTile
+	public static class BoardTile extends PluginConfigResponse.TrackedTile
 	{
-		public int tileId;
-		public int position;
-		public String label;
-		public String description;
-		public int points;
 		public String tierKey;
 		public String tier;
 		public int itemId;
@@ -1102,7 +1097,6 @@ public class BingoApiClient
 		 */
 		public boolean manualOnly;
 		public List<String> sources;
-		public String category;
 		public String tileType;
 		public String statType;
 		public String statName;

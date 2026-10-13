@@ -209,30 +209,18 @@ public final class DeviceSignIn
 		{
 			return false;
 		}
-		final URI home;
-		final URI target;
 		try
 		{
-			home = new URI(configuredApiUrl);
-			target = new URI(url);
+			URI home = new URI(configuredApiUrl);
+			URI target = new URI(url);
+			return target.getScheme() != null && target.getHost() != null && target.getUserInfo() == null
+				&& target.getScheme().equalsIgnoreCase(home.getScheme())
+				&& target.getHost().equalsIgnoreCase(home.getHost()) && target.getPort() == home.getPort()
+				&& target.getPath() != null && target.getPath().startsWith(LINK_PATH);
 		}
 		catch (URISyntaxException e)
 		{
 			return false;
 		}
-		if (target.getScheme() == null || target.getHost() == null || target.getUserInfo() != null)
-		{
-			return false;
-		}
-		if (!target.getScheme().equalsIgnoreCase(home.getScheme()))
-		{
-			return false;
-		}
-		if (!target.getHost().equalsIgnoreCase(home.getHost()) || target.getPort() != home.getPort())
-		{
-			return false;
-		}
-		String path = target.getPath();
-		return path != null && path.startsWith(LINK_PATH);
 	}
 }

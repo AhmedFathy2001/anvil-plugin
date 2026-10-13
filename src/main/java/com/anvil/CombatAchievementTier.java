@@ -1,5 +1,6 @@
 package com.anvil;
 
+import java.util.Locale;
 import net.runelite.api.gameval.VarbitID;
 
 /**
@@ -10,32 +11,30 @@ import net.runelite.api.gameval.VarbitID;
  */
 public enum CombatAchievementTier
 {
-	EASY("Easy", 1, VarbitID.CA_THRESHOLD_EASY),
-	MEDIUM("Medium", 2, VarbitID.CA_THRESHOLD_MEDIUM),
-	HARD("Hard", 3, VarbitID.CA_THRESHOLD_HARD),
-	ELITE("Elite", 4, VarbitID.CA_THRESHOLD_ELITE),
-	MASTER("Master", 5, VarbitID.CA_THRESHOLD_MASTER),
-	GRANDMASTER("Grandmaster", 6, VarbitID.CA_THRESHOLD_GRANDMASTER);
+	EASY(VarbitID.CA_THRESHOLD_EASY),
+	MEDIUM(VarbitID.CA_THRESHOLD_MEDIUM),
+	HARD(VarbitID.CA_THRESHOLD_HARD),
+	ELITE(VarbitID.CA_THRESHOLD_ELITE),
+	MASTER(VarbitID.CA_THRESHOLD_MASTER),
+	GRANDMASTER(VarbitID.CA_THRESHOLD_GRANDMASTER);
 
-	private final String displayName;
-	private final int points;
 	private final int thresholdVarbitId;
 
-	CombatAchievementTier(String displayName, int points, int thresholdVarbitId)
+	CombatAchievementTier(int thresholdVarbitId)
 	{
-		this.displayName = displayName;
-		this.points = points;
 		this.thresholdVarbitId = thresholdVarbitId;
 	}
 
+	/** "Easy" … "Grandmaster". */
 	public String getDisplayName()
 	{
-		return displayName;
+		return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
 	}
 
+	/** Points a task at this tier is worth: 1 (Easy) through 6 (Grandmaster), in declaration order. */
 	public int getPoints()
 	{
-		return points;
+		return ordinal() + 1;
 	}
 
 	public int getThresholdVarbitId()
@@ -46,7 +45,7 @@ public enum CombatAchievementTier
 	@Override
 	public String toString()
 	{
-		return displayName;
+		return getDisplayName();
 	}
 
 	/** Resolves the tier from the word used in the completion message ("easy", "elite", …). */
@@ -58,7 +57,7 @@ public enum CombatAchievementTier
 		}
 		for (CombatAchievementTier t : values())
 		{
-			if (t.displayName.equalsIgnoreCase(name) || t.name().equalsIgnoreCase(name))
+			if (t.name().equalsIgnoreCase(name))
 			{
 				return t;
 			}
