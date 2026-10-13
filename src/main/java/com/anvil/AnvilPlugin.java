@@ -326,8 +326,7 @@ public class AnvilPlugin extends Plugin {
         List<String> funDeaths = Collections.emptyList();
         List<String> deathTaunts = Collections.emptyList();
         List<String> spoonTaunts = Collections.emptyList();
-        Set<String> grandmasterQuests = Collections.emptySet();
-        Set<String> masterQuests = Collections.emptySet();
+        Map<String, String> questTiers = Collections.emptyMap();
     }
 
     private ShippedText text = new ShippedText();
@@ -8623,23 +8622,17 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Posts a quest completion to the clan achievements channel. Tier comes
-     * from the baked name sets; a quest in neither set counts as below Master,
-     * so only the "All quests" setting posts it. Message-only, like CA posts.
+     * Posts a quest completion to the clan achievements channel when its difficulty (questTiers in
+     * anvil_text.json) clears the setting; an unlisted quest only posts on "All". Message-only.
      */
     private void postQuestCompletion(String questName) {
         QuestAnnounceTier setting = config.questAnnounce();
-        if (setting == QuestAnnounceTier.OFF || !notifyEnabled("quests")) {
+        String difficulty = text.questTiers.get(questName.toLowerCase());
+        if (!setting.posts(difficulty) || !notifyEnabled("quests")) {
             return;
         }
-        String key = questName.toLowerCase();
-        boolean gm = text.grandmasterQuests.contains(key);
-        boolean master = text.masterQuests.contains(key);
-        if (setting == QuestAnnounceTier.GRANDMASTER && !gm
-                || setting == QuestAnnounceTier.MASTER && !gm && !master) {
-            return;
-        }
-        String tierTag = gm ? " (Grandmaster)" : master ? " (Master)" : "";
+        String tierTag = difficulty == null ? ""
+                : " (" + difficulty.charAt(0) + difficulty.substring(1).toLowerCase() + ")";
         postText("quests", "🗺️ Quest complete!",
                 who(getLocalPlayerName()) + " just completed **" + questName + "**" + tierTag + "!");
     }

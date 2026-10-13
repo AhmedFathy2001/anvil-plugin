@@ -39,10 +39,12 @@ public class ShippedTextTest
 			"SPOONED. 🥄", "Way under rate — absolute spoon.", "RNG said \"here you go champ\".",
 			"Some of us are 5x dry. Disgusting.", "No skill, all luck. Congrats. 🥄",
 			"Hand it over — someone drier deserved that."), text.spoonTaunts);
-		assertEquals(7, text.grandmasterQuests.size());
-		assertTrue(text.grandmasterQuests.contains("desert treasure ii"));
-		assertEquals(20, text.masterQuests.size());
-		assertTrue(text.masterQuests.contains("recipe for disaster - culinaromancer"));
-		assertTrue(text.masterQuests.contains("legends' quest"));
+		assertEquals("GRANDMASTER", text.questTiers.get("desert treasure ii"));
+		assertEquals("MASTER", text.questTiers.get("recipe for disaster - culinaromancer"));
+		assertEquals("MASTER", text.questTiers.get("legends' quest"));
+		assertEquals("MASTER", text.questTiers.get("desert treasure"));
+		assertEquals("NOVICE", text.questTiers.get("cook's assistant"));
+		assertEquals("EXPERIENCED", text.questTiers.get("rag and bone man ii"));
+		assertTrue(text.questTiers.size() > 200);
 	}
 }
