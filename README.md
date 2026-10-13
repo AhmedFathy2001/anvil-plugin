@@ -136,9 +136,7 @@ shape of it.
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
 | **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, 99s and totals, diaries, quests. |
-| **Clips** | OBS replay-buffer clips on a hotkey, posted to a clips webhook. Off by default. |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
-| **Support** | Export a debug log to send an admin. |
 
 <p align="center">
   <img src="docs/images/settings-general.png" alt="The General settings section: Anvil lookup on players" width="240">
@@ -157,20 +155,6 @@ A few worth knowing about:
 | Loot key value | 1,000,000 | A loot key posts once, for its whole contents. |
 | CA task min tier | Master | Set to Grandmaster for only the rarest tasks. Tier clears always post. |
 | Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
-
-### Clips (optional)
-
-Press a key, and the last few seconds are saved out of OBS and posted to your clan's clips channel.
-Needs OBS 28+ with the WebSocket server and Replay Buffer on; the plugin starts the buffer for you.
-
-RuneLite only lets a plugin read its own folder, so the first time you play with clips on, Anvil asks
-at the login screen how to reach them: let it point OBS at its own clips folder (set once, never
-asked again — your ordinary recordings save there too, and your setting is restored when RuneLite
-closes), or pick your OBS folder yourself for that session. Decline and each clip lands on your
-clipboard instead, one paste from Discord.
-
-Clips go **straight from your PC to Discord** — they never pass through the site, and with the
-webhook field blank nothing uploads at all.
 
 ### Profile sync
 
@@ -209,8 +193,7 @@ A few things can't be tracked perfectly, almost always because of what the game 
 kills, repeat combat achievements, storage like fish barrels. They're listed, with what to do instead,
 under **[Known limitations](https://anvilosrs.com/guide/plugin#limits)** in the player guide.
 
-Still stuck? Type `::anvillog` in game chat. It writes a log inside Anvil's own plugin folder and
-copies the path to your clipboard — send that to your clan admin, or bring it to the
+Still stuck? Ask your clan admin, or bring it to the
 **[Anvil support Discord](https://discord.gg/p9NkrTQmxN)**, where you can ask anything about the plugin
 or the site.
 
@@ -218,7 +201,7 @@ or the site.
 
 Written against the live site, with screenshots:
 
-- **[Player setup](https://anvilosrs.com/guide/plugin)** — this, in detail, including OBS clips
+- **[Player setup](https://anvilosrs.com/guide/plugin)** — this, in detail
 - **[Captain's guide](https://anvilosrs.com/guide/captain)** — reading the pool, draft day, running a team
 - **[Running your first event](https://anvilosrs.com/guide/admin)** — for clan staff, start to finish
 - **[Formats, and how tiles open](https://anvilosrs.com/guide/formats)** — board shapes and reveal rules
@@ -256,7 +239,6 @@ Anvil connects to **anvilosrs.com** after you sign in:
   site if you think it leaked.
 - Before you log in, the plugin may send the character name the Jagex Launcher gave it, only so the
   panel can show that character's events. It never links or claims an account with it.
-- Clips go from your PC to your clan's Discord webhook, never through the site.
 - On login the plugin sends your RSN so the site can recognise you. You can remove yourself from a
   clan's roster on the site at any time.
 

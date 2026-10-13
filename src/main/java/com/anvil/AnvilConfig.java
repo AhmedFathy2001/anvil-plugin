@@ -4,7 +4,6 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
-import net.runelite.client.config.Keybind;
 
 @ConfigGroup("osrsbingo")
 public interface AnvilConfig extends Config
@@ -50,28 +49,12 @@ public interface AnvilConfig extends Config
 	String caSection = "caSection";
 
 	@ConfigSection(
-		name = "Clips",
-		description = "On-demand replay clips via OBS. Off by default — requires OBS with the WebSocket server + Replay Buffer running.",
-		position = 6,
-		closedByDefault = true
-	)
-	String clipsSection = "clipsSection";
-
-	@ConfigSection(
 		name = "Profile sync",
 		description = "Send your collection log and best times to your clan site, so your profile there shows them.",
 		position = 7,
 		closedByDefault = true
 	)
 	String profileSection = "profileSection";
-
-	@ConfigSection(
-		name = "Support",
-		description = "Trouble with a drop or login? Export a debug log to send your clan admin.",
-		position = 8,
-		closedByDefault = true
-	)
-	String supportSection = "supportSection";
 
 	// ---- Setup ----
 
@@ -390,178 +373,6 @@ public interface AnvilConfig extends Config
 	{
 		return QuestAnnounceTier.MASTER;
 	}
-
-	// ---- Clips ----
-
-	@ConfigItem(
-		keyName = "clipsEnabled",
-		name = "Enable clip capture",
-		description = "Master switch. When on, the plugin connects to OBS so you can save replay-buffer clips on demand. "
-			+ "You must also have OBS running with the WebSocket server enabled and a Replay Buffer started.",
-		position = 1,
-		section = "clipsSection"
-	)
-	default boolean clipsEnabled()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "clipHotkey",
-		name = "Capture clip hotkey",
-		description = "Press this to save the last X seconds (your OBS replay-buffer length) — for funny moments not covered by the OBS plugin's own triggers.",
-		position = 2,
-		section = "clipsSection"
-	)
-	default Keybind clipHotkey()
-	{
-		return Keybind.NOT_SET;
-	}
-
-	@ConfigItem(
-		keyName = "obsHost",
-		name = "OBS host",
-		description = "Host of the OBS WebSocket server. Use localhost if OBS runs on this PC.",
-		position = 3,
-		section = "clipsSection"
-	)
-	default String obsHost()
-	{
-		return "localhost";
-	}
-
-	@ConfigItem(
-		keyName = "obsPort",
-		name = "OBS port",
-		description = "OBS WebSocket server port (Tools → WebSocket Server Settings). Default 4455.",
-		position = 4,
-		section = "clipsSection"
-	)
-	default int obsPort()
-	{
-		return 4455;
-	}
-
-	@ConfigItem(
-		keyName = "obsPassword",
-		name = "OBS password",
-		description = "OBS WebSocket server password (from 'Show Connect Info'). Leave blank if OBS authentication is off.",
-		position = 5,
-		secret = true,
-		section = "clipsSection"
-	)
-	default String obsPassword()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "clipMaxMb",
-		name = "Max auto-post size (MB)",
-		description = "Clips up to this size are auto-posted to the clan clips channel; larger ones just get a quiet in-game notice (saved locally). Match this to your Discord upload limit (usually 25).",
-		position = 6,
-		section = "clipsSection"
-	)
-	default int clipMaxMb()
-	{
-		return 25;
-	}
-
-	@ConfigItem(
-		keyName = "clipLengthSeconds",
-		name = "Clip length (seconds)",
-		description = "How many seconds each clip captures. Sets your OBS replay-buffer length; change it any "
-			+ "time and OBS adopts the new length (it needs that many seconds to refill before a full clip).",
-		position = 7,
-		section = "clipsSection"
-	)
-	default int clipLengthSeconds()
-	{
-		return 15;
-	}
-
-	@ConfigItem(
-		keyName = "clipMp4",
-		name = "Save clips as MP4",
-		description = "Tell OBS to record MP4 so clips preview/play inline in Discord (MKV has to be downloaded). "
-			+ "This changes OBS's recording format, which also affects your normal OBS recordings. Turn off to "
-			+ "leave OBS's format untouched.",
-		position = 8,
-		section = "clipsSection"
-	)
-	default boolean clipMp4()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "clipsWebhookUrl",
-		name = "Clips Discord webhook URL",
-		description = "Optional fallback. Clips normally go to your clan's clips channel through the Anvil "
-			+ "site, with no setup on your side. Paste your own Discord webhook URL here to post clips when "
-			+ "your clan hasn't set a clips channel up (or its site is too old to relay them) — those upload "
-			+ "straight from your machine to this webhook. Leave blank to keep clips local in that case.",
-		position = 9,
-		// Masked like the Account Token: a webhook URL IS the credential — anyone holding it can post
-		// into that channel — and this one sat in plain text where a settings screenshot published it.
-		secret = true,
-		section = "clipsSection"
-	)
-	default String clipsWebhookUrl()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "postObsTriggeredClips",
-		name = "Post OBS-triggered clips too",
-		description = "Also handle replay-buffer saves triggered by OBS itself or the \"Save Replay Buffer for OBS\" "
-			+ "RuneLite plugin (its auto-clips on drops, deaths, etc.) — not just the hotkey above. They'll be "
-			+ "posted/saved the same way. Leave off if you run more than one RuneLite client on this same OBS, or "
-			+ "each would post a copy of every clip.",
-		position = 10,
-		section = "clipsSection"
-	)
-	default boolean postObsTriggeredClips()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "manageObsFolder",
-		name = "Let Anvil manage OBS's recording folder",
-		description = "Auto-posting needs the clip to be somewhere the plugin is allowed to read, and RuneLite only "
-			+ "lets it read its own folder or one you pick in a dialog each session. Turn this on and the plugin "
-			+ "points OBS at its own clips folder while RuneLite runs, so clips post with nothing to click — and "
-			+ "puts your setting back when you turn this off or close RuneLite. Note this is OBS's RECORDING "
-			+ "folder, so your ordinary recordings save there too while it's on. Anything Anvil couldn't post is "
-			+ "cleared out of its folder after a week. Leave it off to be asked for the folder once per session "
-			+ "instead — the question at the login screen offers both. This is available only when OBS runs "
-			+ "on this same computer (localhost or one of its own addresses); a remote OBS keeps its folder untouched.",
-		position = 11,
-		section = "clipsSection"
-	)
-	default boolean manageObsFolder()
-	{
-		return false;
-	}
-
-	// ---- Support ----
-
-	@ConfigItem(
-		keyName = "exportDebugLogHotkey",
-		name = "Export debug log hotkey",
-		description = "Press this to save a debug log you can send your clan admin. You can also just type "
-			+ "::anvillog in the game chat. The log is saved inside Anvil's own plugin folder and its location "
-			+ "is copied to your clipboard, ready to paste into a file manager or Discord.",
-		position = 1,
-		section = "supportSection"
-	)
-	default Keybind exportDebugLogHotkey()
-	{
-		return Keybind.NOT_SET;
-	}
-
 
 	// ---- Profile sync ----
 

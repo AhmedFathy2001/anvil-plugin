@@ -168,7 +168,7 @@ public class PendingSubmissionStore
 	 * The queued metadata files, one per waiting submission.
 	 *
 	 * Depth 1 rather than a full walk: the migration drops these at the root of the plugin directory
-	 * alongside `sounds/` and `debug/`, and descending would read a banner clip's neighbours looking
+	 * alongside `sounds/`, and descending would read a banner clip's neighbours looking
 	 * for JSON.
 	 */
 	private List<Filepath> listJson()
