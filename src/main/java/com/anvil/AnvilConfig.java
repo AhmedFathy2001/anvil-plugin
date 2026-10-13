@@ -28,21 +28,21 @@ public interface AnvilConfig extends Config
 
 	@ConfigSection(
 		name = "Notifications: Deaths & kills",
-		description = "Clan Discord posts (with screenshot) for your deaths and PvP kills. Independent of bingo.",
+		description = "Clan Discord posts for your deaths and PvP kills.",
 		position = 3
 	)
 	String deathsSection = "deathsSection";
 
 	@ConfigSection(
 		name = "Notifications: Drops & pets",
-		description = "Clan Discord posts for valuable / rare drops and pets. Independent of bingo.",
+		description = "Clan Discord posts for valuable or rare drops and pets.",
 		position = 4
 	)
 	String dropsSection = "dropsSection";
 
 	@ConfigSection(
 		name = "Notifications: Combat achievements",
-		description = "Clan Discord posts for CA tier clears and high-tier tasks. Independent of bingo.",
+		description = "Clan Discord posts for achievements, levels, quests and log slots.",
 		position = 5,
 		closedByDefault = true
 	)
@@ -50,7 +50,7 @@ public interface AnvilConfig extends Config
 
 	@ConfigSection(
 		name = "Profile sync",
-		description = "Send your collection log and best times to your clan site, so your profile there shows them.",
+		description = "Send your collection log and best times to your Anvil profile.",
 		position = 7,
 		closedByDefault = true
 	)
@@ -63,7 +63,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "playerToken",
 		name = "Account Token",
-		description = "Set by Sign in (or Paste a token) in the Anvil side panel. One token works for every clan and event you're in.",
+		description = "Set by Sign in in the Anvil side panel.",
 		position = 2,
 		secret = true,
 		// Not shown in settings. RuneLite only draws a plugin's settings page when it's opened, so a page
@@ -79,7 +79,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "profileLookupMenu",
 		name = "Anvil lookup on players",
-		description = "Adds \"Anvil\" to the right-click menu on players, friends, clan and chat names — opens their Anvil profile in your browser.",
+		description = "Adds an \"Anvil\" right-click option on player names that opens their profile.",
 		position = 1,
 		section = "generalSection"
 	)
@@ -95,7 +95,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show Overlay",
-		description = "Show the codeword and date verification overlay on screen",
+		description = "Show the date verification overlay on screen.",
 		position = 2,
 		section = "bingoSection"
 	)
@@ -107,8 +107,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "teamCompletionBanner",
 		name = "Team completion popups",
-		description = "Show a banner when your team completes a tile — anyone on the team. If several complete "
-			+ "at once, the hardest shows as a banner and the rest as chat messages.",
+		description = "Show a banner when anyone on your team completes a tile.",
 		position = 3,
 		section = "bingoSection"
 	)
@@ -120,9 +119,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "selfTileBanner",
 		name = "My tile popups",
-		description = "Show the collection-log style popup (and its sound) when YOUR drop progresses or completes a "
-			+ "bingo tile. Turn off to keep tracking quietly — the tile still counts, and your team's popup for "
-			+ "a tile you completed stays off too.",
+		description = "Show a popup when your own drop progresses or completes a tile; off still tracks quietly.",
 		position = 4,
 		section = "bingoSection"
 	)
@@ -137,11 +134,7 @@ public interface AnvilConfig extends Config
 		// No longer names a folder to drop files into. The clips live in the plugin's own directory
 		// now, which is not somewhere to send people rummaging — "Add sounds" copies them in, and
 		// "Copy folder path" in the same panel hands over the location for anyone who wants it.
-		description = "Play a sound when the bingo banner fires, and when a mission drops. Add your own .wav files "
-			+ "with the 'Banner sounds' and 'Mission sounds' buttons in the Anvil side panel — they go in a folder "
-			+ "each, and which folder a clip is in is what makes it a banner clip or a mission clip. No banner "
-			+ "clips means no banner sound; no mission clips means missions play one of the game\u2019s own short "
-			+ "sounds, so they never sound like a finished tile. Master switch: off is silence for both.",
+		description = "Play your banner and mission clips (added from the Anvil side panel); off silences both.",
 		position = 5,
 		section = "bingoSection"
 	)
@@ -168,7 +161,7 @@ public interface AnvilConfig extends Config
 		name = "Banner sound clip",
 		// Hidden from the settings panel: the play-cycle allowlist is managed via the Anvil side panel's
 		// sound toggles, which read/write this key. Kept as a config key so the selection persists/syncs.
-		description = "Comma-separated allowlist of banner clips to cycle (blank = all). Managed in the Anvil side panel.",
+		description = "Banner clips to cycle (blank = all), managed in the side panel.",
 		position = 7,
 		section = "bingoSection",
 		hidden = true
@@ -181,7 +174,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "autoStartShot",
 		name = "Auto starting shot",
-		description = "When an event asks for a starting shot at a pinned spot, take and send it automatically once you're standing there on a fresh session. The side panel button still works either way.",
+		description = "Take an event's starting shot automatically once you stand on its pinned spot.",
 		position = 8,
 		section = "bingoSection"
 	)
@@ -196,7 +189,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyDeaths",
 		name = "Notify on death",
-		description = "Post to the clan deaths channel — with a screenshot of the moment you died — when you die.",
+		description = "Post a screenshot to the clan deaths channel when you die.",
 		position = 1,
 		section = "deathsSection"
 	)
@@ -220,7 +213,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyPvpKills",
 		name = "Notify on PvP kill",
-		description = "Post to the clan PvP-kills channel — with a screenshot of the tick your target hits 0 HP — when you kill a player you've damaged.",
+		description = "Post a screenshot to the clan PvP channel when you kill a player.",
 		position = 3,
 		section = "deathsSection"
 	)
@@ -235,7 +228,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyRareDrops",
 		name = "Notify on rare drops",
-		description = "Post valuable or very rare drops to the clan rare-drops channel, with a screenshot of the drop.",
+		description = "Post valuable or very rare drops to the clan drops channel.",
 		position = 1,
 		section = "dropsSection"
 	)
@@ -247,7 +240,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "rareDropMinValue",
 		name = "Min drop value",
-		description = "Post any drop worth at least this much (the higher of GE and high-alch value). Minimum enforced: 1,000,000. 0 disables value-based posts.",
+		description = "Post drops worth at least this (min 1,000,000; 0 = off).",
 		position = 2,
 		section = "dropsSection"
 	)
@@ -259,7 +252,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "rareDropMinRarity",
 		name = "Min drop rarity (1 in N)",
-		description = "Also post extremely rare NPC/pickpocket drops regardless of value (e.g. 10000 = rarer than 1/10000). Your clan can enforce a higher floor. Minimum enforced: 1/1000. 0 disables rarity-based posts.",
+		description = "Also post drops rarer than 1 in N whatever their value (min 1000; 0 = off).",
 		position = 3,
 		section = "dropsSection"
 	)
@@ -274,7 +267,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "lootKeyMinValue",
 		name = "Loot key value",
-		description = "Post a loot key as one notification when its contents total at least this much. Applies to loot keys only — regular drops use 'Min drop value'. 0 disables loot-key posts.",
+		description = "Post a loot key whose contents total at least this (0 = off).",
 		position = 5,
 		section = "dropsSection"
 	)
@@ -286,7 +279,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyPets",
 		name = "Notify on pets",
-		description = "Post to the clan rare-drops channel, with a screenshot, when you receive a pet.",
+		description = "Post to the clan drops channel when you get a pet.",
 		position = 6,
 		section = "dropsSection"
 	)
@@ -299,21 +292,9 @@ public interface AnvilConfig extends Config
 	// ---- Notifications: Combat achievements ----
 
 	@ConfigItem(
-		keyName = "notifyCombatAchievements",
-		name = "Notify on combat achievements",
-		description = "Post to the clan combat-achievements channel, with a screenshot, when you clear a CA tier (and high-tier individual tasks).",
-		position = 1,
-		section = "caSection"
-	)
-	default boolean notifyCombatAchievements()
-	{
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "caMinTaskTier",
 		name = "CA task min tier",
-		description = "Post individual combat-task completions at or above this tier. Tier clears always post regardless. Set to Grandmaster to post only the rarest tasks.",
+		description = "Post combat tasks at or above this tier; tier clears always post.",
 		position = 2,
 		section = "caSection"
 	)
@@ -326,7 +307,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyClogSlots",
 		name = "Notify on collection log slots",
-		description = "Post every NEW collection-log slot to the clan achievements channel, with a screenshot. Prestige items (Infernal cape, quivers, …) still go to the drops channel instead, so nothing posts twice.",
+		description = "Post every new collection-log slot to the clan achievements channel.",
 		position = 4,
 		section = "caSection"
 	)
@@ -339,7 +320,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyLevelUps",
 		name = "Notify on 99s & high totals",
-		description = "Post to the clan combat-achievements channel, with a screenshot, when you reach level 99 in a skill, hit a high total-level milestone (every 100 from 1800 up), or max.",
+		description = "Post 99s, total-level milestones from 1800 and maxing to the clan.",
 		position = 6,
 		section = "caSection"
 	)
@@ -352,7 +333,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyDiaries",
 		name = "Notify on diary completions",
-		description = "Post to the clan achievements channel when you complete an achievement-diary tier.",
+		description = "Post achievement-diary tier completions to the clan.",
 		position = 8,
 		section = "caSection"
 	)
@@ -364,8 +345,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "questAnnounce",
 		name = "Announce quest completions",
-		description = "Post quest completions to the clan achievements channel at or above this difficulty. "
-			+ "\"Master & up\" covers Master and Grandmaster quests.",
+		description = "Post quest completions at or above this difficulty to the clan.",
 		position = 9,
 		section = "caSection"
 	)
@@ -379,7 +359,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "autoSyncClanRoster",
 		name = "Keep the clan roster in sync",
-		description = "Admins only: push the in-game clan roster to the site automatically when you log in, so joins and leaves don't wait for someone to remember. The manual button in the Anvil tab still works.",
+		description = "Admins: push the in-game clan roster to the site when you log in.",
 		position = 0,
 		section = "profileSection"
 	)
@@ -391,7 +371,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "syncClanCoffer",
 		name = "Sync Clan Coffer",
-		description = "While you have the in-game Clan Coffer open, send its coin balance changes to your clan site so deposits and withdrawals update the audited coffer automatically. The first reading is only a baseline and is never credited as a donation.",
+		description = "Send Clan Coffer balance changes to your clan site while it is open.",
 		position = 1,
 		section = "profileSection"
 	)
@@ -403,7 +383,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "syncClog",
 		name = "Sync collection log",
-		description = "Send the collection-log pages you open to your clan site, so your profile there shows them. Only pages you actually open can be read — the game doesn't hand the client the rest.",
+		description = "Send the collection-log pages you open to your profile.",
 		position = 2,
 		section = "profileSection"
 	)
@@ -415,7 +395,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "autoFullClogSync",
 		name = "Sync the whole log on open",
-		description = "Ask the game for your ENTIRE collection log the moment you open it, instead of only the pages you click through. Turn it off if you'd rather press \"Sync profile\" in the Anvil side panel yourself.",
+		description = "Read your whole collection log when you open it, not just the pages you view.",
 		position = 4,
 		section = "profileSection"
 	)
@@ -427,7 +407,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "syncPersonalBests",
 		name = "Sync personal bests",
-		description = "Send your best boss and raid times to your clan site as you set them.",
+		description = "Send your best boss and raid times as you set them.",
 		position = 3,
 		section = "profileSection"
 	)
@@ -439,7 +419,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "importRuneLitePbs",
 		name = "Import existing bests once",
-		description = "On first login, copy the personal bests RuneLite's own chat commands plugin has already recorded for this account, so your profile starts complete instead of empty. Reads local config only; runs once per account.",
+		description = "Once per account, copy the bests RuneLite already recorded locally.",
 		position = 5,
 		section = "profileSection"
 	)
@@ -451,7 +431,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "shareMoments",
 		name = "Share highlights with the clan",
-		description = "Send the pets, uniques, big drops and deaths that happen while your clan's competition week or bingo is running, so they appear on the site's feed. Separate from the Discord channels above — turning those off doesn't turn this off, and vice versa. Nothing sent here scores anything.",
+		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events.",
 		position = 6,
 		section = "profileSection"
 	)

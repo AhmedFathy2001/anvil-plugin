@@ -30,20 +30,19 @@ public class BingoClogBannerOverlay extends Overlay
 	// Design space (matches Skeldoor's .collection-log-panel). 1.0 = original asset size.
 	private static final int BASE_W = 178;
 	private static final int BASE_H = 100;
-	private static final float DISPLAY_SCALE = 1f;
 
 	// Text tops (design px) + size. Tuned for even vertical rhythm on the small panel: the header sits
 	// just under the top of the frame (11), the "Tile complete!/Progress:" line clears the divider (36),
 	// and the label sits close under it (52) so the middle→label gap matches the ~15px gap between the
 	// two wrapped label lines — otherwise the body reads as two disconnected zones.
-	private static final float TOP_Y = 11f;
-	private static final float MID_Y = 36f;
-	private static final float BOTTOM_Y = 52f;
+	private static final int TOP_Y = 11;
+	private static final int MID_Y = 36;
+	private static final int BOTTOM_Y = 52;
 	private static final float FONT_PX = 16f;
 	// The bottom label wraps onto a second line at full size when it's too wide — the RS font is a
 	// bitmap face that pixelates when scaled, so we never shrink glyphs. WRAP_LINE_H is the vertical
 	// advance (design px) between the two lines, kept tight so both clear the 100px panel.
-	private static final float WRAP_LINE_H = 15f;
+	private static final int WRAP_LINE_H = 15;
 	private static final int BOTTOM_MAX_LINES = 2;
 
 	// Horizontal padding (design px) kept clear inside the panel; text wider than the inner width wraps
@@ -57,7 +56,7 @@ public class BingoClogBannerOverlay extends Overlay
 	private static final long HOLD_MS = 2500;
 	private static final long V_COLLAPSE_MS = 650;  // squish back down to the line
 	private static final long H_COLLAPSE_MS = 650;  // line shrinks to nothing
-	private static final float LINE_H = 1f;         // design-px height of the thin opening line
+	private static final int LINE_H = 1;            // design-px height of the thin opening line
 
 	private static final Color ORANGE = new Color(255, 152, 31);
 	private static final Color WHITE = new Color(255, 255, 255);
@@ -92,7 +91,7 @@ public class BingoClogBannerOverlay extends Overlay
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
 		this.background = loadBackground();
-		this.headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX * DISPLAY_SCALE);
+		this.headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
 		// crisp size — the standard chat font read too large on the small panel. No deriveFont: scaling
 		// a bitmap font off its native grid pixelates (see the wrap-not-shrink note above).
@@ -154,56 +153,35 @@ public class BingoClogBannerOverlay extends Overlay
 
 		long e = now - startedAt;
 
-		int fullW = Math.round(BASE_W * DISPLAY_SCALE);
-		int fullH = Math.round(BASE_H * DISPLAY_SCALE);
-		int lineH = Math.max(1, Math.round(LINE_H * DISPLAY_SCALE));
-
-		// w/h = current panel size; line=true draws just the thin opening line (no bg/text yet).
-		float w;
-		float h;
-		boolean line;
+		// w/h = current panel size; line = just the thin opening/closing line (no bg/text yet).
+		boolean line = e < hEnd || e >= vCollapseEnd;
+		float w = BASE_W;
+		float h = line ? LINE_H : BASE_H;
 		if (e < hEnd)
 		{
 			// P1: thin line grows to full width.
-			w = fullW * (e / (float) H_EXPAND_MS);
-			h = lineH;
-			line = true;
+			w = BASE_W * (e / (float) H_EXPAND_MS);
 		}
 		else if (e < vEnd)
 		{
 			// P2: whole background unsquishes from the line up to full height.
-			float t = (e - hEnd) / (float) V_EXPAND_MS;
-			w = fullW;
-			h = lineH + (fullH - lineH) * t;
-			line = false;
+			h = LINE_H + (BASE_H - LINE_H) * ((e - hEnd) / (float) V_EXPAND_MS);
 		}
-		else if (e < holdEnd)
-		{
-			w = fullW;
-			h = fullH;
-			line = false;
-		}
-		else if (e < vCollapseEnd)
+		else if (e >= holdEnd && e < vCollapseEnd)
 		{
 			// P4: squish back down to the line.
-			float t = (e - holdEnd) / (float) V_COLLAPSE_MS;
-			w = fullW;
-			h = fullH - (fullH - lineH) * t;
-			line = false;
+			h = BASE_H - (BASE_H - LINE_H) * ((e - holdEnd) / (float) V_COLLAPSE_MS);
 		}
-		else
+		else if (line)
 		{
 			// P5: line shrinks horizontally to nothing.
-			float t = (e - vCollapseEnd) / (float) H_COLLAPSE_MS;
-			w = fullW * (1f - t);
-			h = lineH;
-			line = true;
+			w = BASE_W * (1f - (e - vCollapseEnd) / (float) H_COLLAPSE_MS);
 		}
 
 		int iw = Math.max(1, Math.round(w));
 		int ih = Math.max(1, Math.round(h));
-		int x = (fullW - iw) / 2; // centre the (partly-open) panel within the reserved area
-		int y = (fullH - ih) / 2;
+		int x = (BASE_W - iw) / 2; // centre the (partly-open) panel within the reserved area
+		int y = (BASE_H - ih) / 2;
 
 		Graphics2D g2 = (Graphics2D) g.create();
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
@@ -227,20 +205,23 @@ public class BingoClogBannerOverlay extends Overlay
 			if (e < holdEnd)
 			{
 				g2.clipRect(x, y, iw, ih);
-				int maxTextW = fullW - 2 * TEXT_MARGIN_X;
-				drawCentered(g2, active.top, headerFont, ORANGE, fullW, maxTextW, TOP_Y * DISPLAY_SCALE);
-				drawCentered(g2, active.middle, bodyFont, ORANGE, fullW, maxTextW, MID_Y * DISPLAY_SCALE);
-				drawWrapped(g2, active.bottom, bodyFont, WHITE, fullW, maxTextW, BOTTOM_Y * DISPLAY_SCALE);
+				int maxTextW = BASE_W - 2 * TEXT_MARGIN_X;
+				drawWrapped(g2, active.top, headerFont, ORANGE, maxTextW, TOP_Y, 1);
+				drawWrapped(g2, active.middle, bodyFont, ORANGE, maxTextW, MID_Y, 1);
+				drawWrapped(g2, active.bottom, bodyFont, WHITE, maxTextW, BOTTOM_Y, BOTTOM_MAX_LINES);
 			}
 		}
 
 		g2.dispose();
 
-		return new Dimension(fullW, fullH);
+		return new Dimension(BASE_W, BASE_H);
 	}
 
-	/** Draws text centred horizontally, with {@code topY} being the CSS-style top of the line (line-height 1). */
-	private static void drawCentered(Graphics2D g, String text, Font font, Color color, int width, int maxWidth, float topY)
+	/** Draws text centred horizontally, {@code topY} being the CSS-style top of the line (line-height 1),
+	 *  wrapped onto up to {@code maxLines} lines at the full font size (the RS bitmap font pixelates when
+	 *  scaled, so we wrap rather than shrink), ellipsising only the final line if it still overflows.
+	 *  Extra lines advance downward by {@link #WRAP_LINE_H}. */
+	private static void drawWrapped(Graphics2D g, String text, Font font, Color color, int maxWidth, int topY, int maxLines)
 	{
 		if (text == null || text.isEmpty())
 		{
@@ -248,35 +229,12 @@ public class BingoClogBannerOverlay extends Overlay
 		}
 		g.setFont(font);
 		FontMetrics fm = g.getFontMetrics();
-		String shown = truncate(text, fm, maxWidth);
-		int x = (width - fm.stringWidth(shown)) / 2;
-		int baseline = Math.round(topY) + fm.getAscent();
-		g.setColor(SHADOW);
-		g.drawString(shown, x + 1, baseline + 1);
-		g.setColor(color);
-		g.drawString(shown, x, baseline);
-	}
-
-	/** Like {@link #drawCentered} but wraps a long label onto up to {@link #BOTTOM_MAX_LINES} lines at the
-	 *  full font size (the RS bitmap font pixelates when scaled, so we wrap rather than shrink), ellipsising
-	 *  only the final line if it still overflows. A single-line label renders identically to
-	 *  {@code drawCentered}; extra lines advance downward by {@link #WRAP_LINE_H}. */
-	private static void drawWrapped(Graphics2D g, String text, Font font, Color color, int width, int maxWidth, float topY)
-	{
-		if (text == null || text.isEmpty())
-		{
-			return;
-		}
-		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics();
-		List<String> lines = wrap(text, fm, maxWidth, BOTTOM_MAX_LINES);
-		int step = Math.round(WRAP_LINE_H * DISPLAY_SCALE);
-		int top = Math.round(topY);
+		List<String> lines = wrap(text, fm, maxWidth, maxLines);
 		for (int i = 0; i < lines.size(); i++)
 		{
 			String shown = lines.get(i);
-			int x = (width - fm.stringWidth(shown)) / 2;
-			int baseline = top + i * step + fm.getAscent();
+			int x = (BASE_W - fm.stringWidth(shown)) / 2;
+			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
 			g.setColor(SHADOW);
 			g.drawString(shown, x + 1, baseline + 1);
 			g.setColor(color);

@@ -119,11 +119,6 @@ final class ClogSync
 		return sent.size();
 	}
 
-	boolean hasState()
-	{
-		return stateLoaded;
-	}
-
 	/** Forget everything. Called when the account changes — one player's log is not another's. */
 	void reset()
 	{

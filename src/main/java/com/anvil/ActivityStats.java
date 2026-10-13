@@ -1,10 +1,10 @@
 package com.anvil;
 
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.IntUnaryOperator;
@@ -52,16 +52,6 @@ final class ActivityStats
 			this.id = id;
 		}
 	}
-
-	/** Clue tiers, in the order the hiscores lists them. {@code cluesAll} is their sum. */
-	private static final int[] CLUE_TIER_VARBITS = {
-		VarbitID.COLLECTION_CLUES_BEGINNER_COMPLETED,
-		VarbitID.COLLECTION_CLUES_EASY_COMPLETED,
-		VarbitID.COLLECTION_CLUES_MEDIUM_COMPLETED,
-		VarbitID.COLLECTION_CLUES_HARD_COMPLETED,
-		VarbitID.COLLECTION_CLUES_ELITE_COMPLETED,
-		VarbitID.COLLECTION_CLUES_MASTER_COMPLETED,
-	};
 
 	/** Site tracked-stat key -> where to read it. Keys mirror lib/hiscoresActivities.ts exactly. */
 	private static final Map<String, Source> SOURCES;
@@ -142,7 +132,15 @@ final class ActivityStats
 			int value;
 			if (CLUES_ALL.equals(k))
 			{
-				value = Arrays.stream(CLUE_TIER_VARBITS).map(varbit).map(v -> Math.max(0, v)).sum();
+				// The clue tiers (the "clues…" sources, in hiscores order) summed.
+				value = 0;
+				for (Map.Entry<String, Source> e : SOURCES.entrySet())
+				{
+					if (e.getKey().startsWith("clues"))
+					{
+						value += Math.max(0, varbit.applyAsInt(e.getValue().id));
+					}
+				}
 			}
 			else
 			{
@@ -181,7 +179,7 @@ final class ActivityStats
 			return null;
 		}
 		double percent = (obtained * 100d) / total;
-		return String.format(java.util.Locale.ROOT, "%d/%d (%.1f%%)", obtained, total, percent);
+		return String.format(Locale.ROOT, "%d/%d (%.1f%%)", obtained, total, percent);
 	}
 
 	/**

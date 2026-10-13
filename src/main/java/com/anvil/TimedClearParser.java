@@ -76,61 +76,69 @@ final class TimedClearParser
 	// -> "tzkal-zuk", Colosseum -> "sol heredit"). Default signature is the activity name itself.
 	private static final Map<String, List<String>> SIGNATURES = new HashMap<>();
 
-	static
-	{
-		SIGNATURES.put("inferno", Arrays.asList("tzkal-zuk", "inferno"));
-		SIGNATURES.put("fight caves", Arrays.asList("tztok-jad", "fight cave"));
-		SIGNATURES.put("chambers of xeric", Collections.singletonList("chambers of xeric"));
-		SIGNATURES.put("theatre of blood", Collections.singletonList("theatre of blood"));
-		SIGNATURES.put("tombs of amascut", Collections.singletonList("tombs of amascut"));
+	// {activity, signature…}
+	private static final String[][] SIGNATURE_TABLE = {
+		{"inferno", "tzkal-zuk", "inferno"},
+		{"fight caves", "tztok-jad", "fight cave"},
+		{"chambers of xeric", "chambers of xeric"},
+		{"theatre of blood", "theatre of blood"},
+		{"tombs of amascut", "tombs of amascut"},
 		// Raid-mode shorthands, so a mode tile matches however the admin phrased it. Colons and
 		// spacing are already folded away by norm(), so we only enumerate the abbreviations here;
 		// each pins the EXACT game count-line substring. A CM/HM/Expert tile must carry the full
 		// mode text so a *base*-mode clear (whose line omits it) can't wrongly complete it — while a
 		// base-raid tile keeps matching every harder mode (the mode line contains the base name).
-		SIGNATURES.put("cox", Collections.singletonList("chambers of xeric"));
-		SIGNATURES.put("cox cm", Collections.singletonList("chambers of xeric challenge mode"));
-		SIGNATURES.put("cox challenge mode", Collections.singletonList("chambers of xeric challenge mode"));
-		SIGNATURES.put("chambers of xeric cm", Collections.singletonList("chambers of xeric challenge mode"));
-		SIGNATURES.put("tob", Collections.singletonList("theatre of blood"));
-		SIGNATURES.put("tob hm", Collections.singletonList("theatre of blood hard mode"));
-		SIGNATURES.put("tob hard mode", Collections.singletonList("theatre of blood hard mode"));
-		SIGNATURES.put("theatre of blood hm", Collections.singletonList("theatre of blood hard mode"));
-		SIGNATURES.put("toa", Collections.singletonList("tombs of amascut"));
-		SIGNATURES.put("toa em", Collections.singletonList("tombs of amascut expert mode"));
-		SIGNATURES.put("toa expert", Collections.singletonList("tombs of amascut expert mode"));
-		SIGNATURES.put("toa expert mode", Collections.singletonList("tombs of amascut expert mode"));
-		SIGNATURES.put("tombs of amascut em", Collections.singletonList("tombs of amascut expert mode"));
-		SIGNATURES.put("fortis colosseum", Arrays.asList("sol heredit", "colosseum"));
-		SIGNATURES.put("colosseum", Arrays.asList("sol heredit", "colosseum"));
-		SIGNATURES.put("the nightmare", Collections.singletonList("nightmare"));
-		SIGNATURES.put("nightmare", Collections.singletonList("nightmare"));
-		SIGNATURES.put("phosani's nightmare", Collections.singletonList("phosani's nightmare"));
-		SIGNATURES.put("tzhaar-ket-rak", Collections.singletonList("tzhaar-ket-rak"));
+		{"cox", "chambers of xeric"},
+		{"cox cm", "chambers of xeric challenge mode"},
+		{"cox challenge mode", "chambers of xeric challenge mode"},
+		{"chambers of xeric cm", "chambers of xeric challenge mode"},
+		{"tob", "theatre of blood"},
+		{"tob hm", "theatre of blood hard mode"},
+		{"tob hard mode", "theatre of blood hard mode"},
+		{"theatre of blood hm", "theatre of blood hard mode"},
+		{"toa", "tombs of amascut"},
+		{"toa em", "tombs of amascut expert mode"},
+		{"toa expert", "tombs of amascut expert mode"},
+		{"toa expert mode", "tombs of amascut expert mode"},
+		{"tombs of amascut em", "tombs of amascut expert mode"},
+		{"fortis colosseum", "sol heredit", "colosseum"},
+		{"colosseum", "sol heredit", "colosseum"},
+		{"the nightmare", "nightmare"},
+		{"nightmare", "nightmare"},
+		{"phosani's nightmare", "phosani's nightmare"},
+		{"tzhaar-ket-rak", "tzhaar-ket-rak"},
 		// The completion line reads "Your Gauntlet completion count is: N" — it never contains
 		// "the gauntlet", so a self-signature could never match. "your gauntlet completion" is
 		// also Corrupted-safe: CG's line reads "your corrupted gauntlet completion count".
-		SIGNATURES.put("the gauntlet", Arrays.asList("your gauntlet completion", "the gauntlet"));
-		SIGNATURES.put("corrupted gauntlet", Collections.singletonList("corrupted gauntlet"));
+		{"the gauntlet", "your gauntlet completion", "the gauntlet"},
+		{"corrupted gauntlet", "corrupted gauntlet"},
 		// Bosses whose kill-count line drops the article ("Your Leviathan kill count is: N"),
 		// so a tile named with "The …" would miss on the plain-substring fallback.
-		SIGNATURES.put("the leviathan", Collections.singletonList("leviathan"));
-		SIGNATURES.put("the whisperer", Collections.singletonList("whisperer"));
-		SIGNATURES.put("the hueycoatl", Collections.singletonList("hueycoatl"));
-		SIGNATURES.put("the royal titans", Collections.singletonList("royal titans"));
+		{"the leviathan", "leviathan"},
+		{"the whisperer", "whisperer"},
+		{"the hueycoatl", "hueycoatl"},
+		{"the royal titans", "royal titans"},
 		// "nex" is too short for the contains-fallback — "next" in any nearby line would
 		// false-match. Pin it to the real kill-count line.
-		SIGNATURES.put("nex", Collections.singletonList("your nex kill count"));
+		{"nex", "your nex kill count"},
 		// Sailing Barracuda Trials: no chat line ever says "barracuda", so a generic
 		// any-trial tile needs the three course names. Tiles naming a specific course
 		// ("Gwenith Glide") ride the plain fallback — both flanking lines name it.
-		SIGNATURES.put("barracuda trials", Arrays.asList("tempor tantrum", "jubbly jive", "gwenith glide"));
-		SIGNATURES.put("barracuda trial", Arrays.asList("tempor tantrum", "jubbly jive", "gwenith glide"));
+		{"barracuda trials", "tempor tantrum", "jubbly jive", "gwenith glide"},
+		{"barracuda trial", "tempor tantrum", "jubbly jive", "gwenith glide"},
 		// Hallowed Sepulchre full runs: no chat line says "sepulchre" either — the exit
 		// message is "Overall time: 26:39.20", which both carries the time and identifies
 		// the run. Floor tiles ("Floor 5") ride the fallback against "Floor 5 time: ...".
-		SIGNATURES.put("hallowed sepulchre", Collections.singletonList("overall time"));
-		SIGNATURES.put("sepulchre", Collections.singletonList("overall time"));
+		{"hallowed sepulchre", "overall time"},
+		{"sepulchre", "overall time"}
+	};
+
+	static
+	{
+		for (String[] row : SIGNATURE_TABLE)
+		{
+			SIGNATURES.put(row[0], Arrays.asList(row).subList(1, row.length));
+		}
 	}
 
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */

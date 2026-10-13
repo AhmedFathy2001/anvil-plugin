@@ -44,12 +44,6 @@ final class LadderMissions
 		return Math.round(Math.max(0.0, value));
 	}
 
-	/** True when the live value differs enough from face to be worth showing the "face → current" form. */
-	static boolean valueMoved(long face, long current)
-	{
-		return current != face;
-	}
-
 	/**
 	 * "120 -> 90" (decay) / "120 -> 200" (grow) when the value has moved, else just "120". ASCII arrow:
 	 * the OSRS chat + collection-log widget fonts don't carry Unicode arrows/emoji.

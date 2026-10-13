@@ -96,8 +96,7 @@ public final class DeviceSignIn
 		BingoApiClient.DeviceAuthStart start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty())
 		{
-			status.accept("Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.");
-			done.accept(new Result(Outcome.UNAVAILABLE, null));
+			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
 			return;
 		}
 
@@ -109,8 +108,7 @@ public final class DeviceSignIn
 		{
 			// A response steering the browser anywhere but the member's own configured site is hostile.
 			log.warn("refusing sign-in URL not on the configured home: {}", url);
-			status.accept("Sign-in blocked — the site returned a suspicious login page.");
-			done.accept(new Result(Outcome.UNAVAILABLE, null));
+			fail(status, done, "Sign-in blocked — the site returned a suspicious login page.", Outcome.UNAVAILABLE);
 			return;
 		}
 		// The address is on screen whether or not the browser opened. We can't tell the difference
@@ -137,8 +135,7 @@ public final class DeviceSignIn
 	{
 		if (System.currentTimeMillis() >= deadline)
 		{
-			status.accept("The code expired — try again.");
-			done.accept(new Result(Outcome.EXPIRED, null));
+			fail(status, done, "The code expired — try again.", Outcome.EXPIRED);
 			return;
 		}
 		schedule(() ->
@@ -161,12 +158,10 @@ public final class DeviceSignIn
 						}
 						return;
 					case "denied":
-						status.accept("Sign-in denied on the site.");
-						done.accept(new Result(Outcome.DENIED, null));
+						fail(status, done, "Sign-in denied on the site.", Outcome.DENIED);
 						return;
 					case "expired":
-						status.accept("The code expired — try again.");
-						done.accept(new Result(Outcome.EXPIRED, null));
+						fail(status, done, "The code expired — try again.", Outcome.EXPIRED);
 						return;
 					case "slow_down":
 						nextIntervalMs = Math.max(intervalMs, Math.max(1, poll.interval) * 1000L);
@@ -181,6 +176,12 @@ public final class DeviceSignIn
 
 	/** Schedule a flow step; an escaped {@link RuntimeException} would otherwise vanish inside the
 	 * executor, so surface it as the terminal failure. */
+	private static void fail(Consumer<String> status, Consumer<Result> done, String message, Outcome outcome)
+	{
+		status.accept(message);
+		done.accept(new Result(outcome, null));
+	}
+
 	private void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done)
 	{
 		scheduler.schedule(() ->
@@ -192,8 +193,7 @@ public final class DeviceSignIn
 			catch (RuntimeException e)
 			{
 				log.debug("sign-in flow failed", e);
-				status.accept("Sign-in failed — try again.");
-				done.accept(new Result(Outcome.UNAVAILABLE, null));
+				fail(status, done, "Sign-in failed — try again.", Outcome.UNAVAILABLE);
 			}
 		}, delayMs);
 	}

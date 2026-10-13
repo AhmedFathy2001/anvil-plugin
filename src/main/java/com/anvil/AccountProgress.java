@@ -1,6 +1,8 @@
 package com.anvil;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import net.runelite.api.Client;
 import net.runelite.api.Quest;
@@ -22,7 +24,15 @@ import net.runelite.api.gameval.VarbitID;
  */
 final class AccountProgress
 {
-	/** Diary completion varbits, region by region, in tier order: easy, medium, hard, elite. */
+	/**
+	 * Diary completion varbits, region by region, in tier order: easy, medium, hard, elite.
+	 *
+	 * <p>Karamja (last) is the odd one: its easy, medium and hard tiers predate the other diaries and
+	 * are flagged under their old names (ATJUN_*_DONE), apart from their reward-claimed flags
+	 * (ATJUN_*_REWARD) — the same shape as every other region's *_COMPLETE. Only elite uses the newer
+	 * name. They were once believed to have no completion flag at all, which left three of Karamja's
+	 * four tiers reading as unknown.
+	 */
 	private static final int[][] DIARY_VARBITS = {
 		{VarbitID.ARDOUGNE_DIARY_EASY_COMPLETE, VarbitID.ARDOUGNE_DIARY_MEDIUM_COMPLETE, VarbitID.ARDOUGNE_DIARY_HARD_COMPLETE, VarbitID.ARDOUGNE_DIARY_ELITE_COMPLETE},
 		{VarbitID.DESERT_DIARY_EASY_COMPLETE, VarbitID.DESERT_DIARY_MEDIUM_COMPLETE, VarbitID.DESERT_DIARY_HARD_COMPLETE, VarbitID.DESERT_DIARY_ELITE_COMPLETE},
@@ -35,31 +45,20 @@ final class AccountProgress
 		{VarbitID.VARROCK_DIARY_EASY_COMPLETE, VarbitID.VARROCK_DIARY_MEDIUM_COMPLETE, VarbitID.VARROCK_DIARY_HARD_COMPLETE, VarbitID.VARROCK_DIARY_ELITE_COMPLETE},
 		{VarbitID.WESTERN_DIARY_EASY_COMPLETE, VarbitID.WESTERN_DIARY_MEDIUM_COMPLETE, VarbitID.WESTERN_DIARY_HARD_COMPLETE, VarbitID.WESTERN_DIARY_ELITE_COMPLETE},
 		{VarbitID.WILDERNESS_DIARY_EASY_COMPLETE, VarbitID.WILDERNESS_DIARY_MEDIUM_COMPLETE, VarbitID.WILDERNESS_DIARY_HARD_COMPLETE, VarbitID.WILDERNESS_DIARY_ELITE_COMPLETE},
-	};
-
-	/**
-	 * Karamja's easy, medium and hard tiers predate the other diaries and are flagged under their old
-	 * names (ATJUN_*_DONE), apart from their reward-claimed flags (ATJUN_*_REWARD) — the same shape as
-	 * every other region's *_COMPLETE. Only elite uses the newer name. They were once believed to have
-	 * no completion flag at all, which left three of Karamja's four tiers reading as unknown.
-	 */
-	private static final int[] KARAMJA_VARBITS = {
-		VarbitID.ATJUN_EASY_DONE, VarbitID.ATJUN_MED_DONE, VarbitID.ATJUN_HARD_DONE, VarbitID.KARAMJA_DIARY_ELITE_COMPLETE,
+		{VarbitID.ATJUN_EASY_DONE, VarbitID.ATJUN_MED_DONE, VarbitID.ATJUN_HARD_DONE, VarbitID.KARAMJA_DIARY_ELITE_COMPLETE},
 	};
 
 	private static final String[] DIARY_KEYS = {"diaryEasy", "diaryMedium", "diaryHard", "diaryElite"};
 
 	/**
-	 * The key each region's tier mask is stored under, in the same order as {@link #DIARY_VARBITS},
-	 * with Karamja kept apart (its flags have older names). Matches DIARY_REGIONS on the site.
+	 * The key each region's tier mask is stored under, in the same order as {@link #DIARY_VARBITS}.
+	 * Matches DIARY_REGIONS on the site.
 	 */
 	private static final String[] DIARY_REGION_KEYS = {
 		"diaryArdougne", "diaryDesert", "diaryFalador", "diaryFremennik", "diaryKandarin",
 		"diaryKourend", "diaryLumbridge", "diaryMorytania", "diaryVarrock", "diaryWestern",
-		"diaryWilderness",
+		"diaryWilderness", "diaryKaramja",
 	};
-
-	private static final String KARAMJA_KEY = "diaryKaramja";
 
 	private AccountProgress()
 	{
@@ -87,8 +86,22 @@ final class AccountProgress
 		// Everything zero is what an unpopulated client looks like, not what an account looks like:
 		// even a fresh account has quest points from the tutorial's first quest soon enough, and a
 		// real one never has all of these at zero at once.
-		int[] diaries = countDiaries(client);
-		int diaryTotal = diaries[0] + diaries[1] + diaries[2] + diaries[3];
+		// Regions complete at each tier (easy, medium, hard, elite), counted off each region's mask.
+		int[] masks = new int[DIARY_VARBITS.length];
+		int[] diaries = new int[DIARY_KEYS.length];
+		int diaryTotal = 0;
+		for (int region = 0; region < masks.length; region++)
+		{
+			masks[region] = regionMask(client, DIARY_VARBITS[region]);
+			for (int tier = 0; tier < diaries.length; tier++)
+			{
+				if ((masks[region] & 1 << tier) != 0)
+				{
+					diaries[tier]++;
+					diaryTotal++;
+				}
+			}
+		}
 		if (questPoints <= 0 && caPoints <= 0 && diaryTotal <= 0)
 		{
 			return out;
@@ -97,19 +110,20 @@ final class AccountProgress
 		out.put("questPoints", questPoints);
 		out.put("questsCompleted", countQuests(client));
 		out.put("caPoints", caPoints);
-		out.put("caTier", highestTier(client, caPoints));
 		// Every tier cleared rather than only the highest, so a profile can light them cumulatively.
-		out.put("caTiers", tierMask(client, caPoints));
+		// The highest is 0 (none) through 6 (Grandmaster): the top bit's position.
+		int caTiers = tierMask(client, caPoints);
+		out.put("caTier", 32 - Integer.numberOfLeadingZeros(caTiers));
+		out.put("caTiers", caTiers);
 		for (int tier = 0; tier < DIARY_KEYS.length; tier++)
 		{
 			out.put(DIARY_KEYS[tier], diaries[tier]);
 		}
 		// Per region as well as per tier: the counts say how many, these say which.
-		for (int region = 0; region < DIARY_VARBITS.length; region++)
+		for (int region = 0; region < masks.length; region++)
 		{
-			out.put(DIARY_REGION_KEYS[region], regionMask(client, DIARY_VARBITS[region]));
+			out.put(DIARY_REGION_KEYS[region], masks[region]);
 		}
-		out.put(KARAMJA_KEY, regionMask(client, KARAMJA_VARBITS));
 		// Says the mask above includes the lower three tiers. Its own key: an older site drops it and
 		// keeps treating them as unknown, a current one trusts them (site memberProgress).
 		out.put("diaryKaramjaFull", 1);
@@ -125,22 +139,15 @@ final class AccountProgress
 	/** The map key the game mode rides under; pulled out into its own field when pushed. */
 	static final String ACCOUNT_TYPE_KEY = "accountType";
 
-	/** Tier bits inside a region mask — the same numbering the site uses. */
-	private static final int DIARY_EASY_BIT = 1;
-	private static final int DIARY_MEDIUM_BIT = 2;
-	private static final int DIARY_HARD_BIT = 4;
-	private static final int DIARY_ELITE_BIT = 8;
-
-	/** One region's four tiers, as a mask. */
+	/** One region's four tiers, as a mask: easy 1, medium 2, hard 4, elite 8 — the site's numbering. */
 	private static int regionMask(Client client, int[] region)
 	{
 		int mask = 0;
-		int[] bits = {DIARY_EASY_BIT, DIARY_MEDIUM_BIT, DIARY_HARD_BIT, DIARY_ELITE_BIT};
 		for (int tier = 0; tier < region.length; tier++)
 		{
 			if (client.getVarbitValue(region[tier]) > 0)
 			{
-				mask |= bits[tier];
+				mask |= 1 << tier;
 			}
 		}
 		return mask;
@@ -176,9 +183,9 @@ final class AccountProgress
 	 *
 	 * <p>Client thread.
 	 */
-	static java.util.Map<Integer, Integer> combatVarps(Client client, java.util.List<Integer> varps)
+	static Map<Integer, Integer> combatVarps(Client client, List<Integer> varps)
 	{
-		java.util.Map<Integer, Integer> out = new LinkedHashMap<>();
+		Map<Integer, Integer> out = new LinkedHashMap<>();
 		if (client == null || varps == null)
 		{
 			return out;
@@ -218,9 +225,9 @@ final class AccountProgress
 	 *
 	 * <p>Client thread, like everything else here.
 	 */
-	static java.util.List<Item> quests(Client client)
+	static List<Item> quests(Client client)
 	{
-		java.util.List<Item> out = new java.util.ArrayList<>();
+		List<Item> out = new ArrayList<>();
 		if (client == null)
 		{
 			return out;
@@ -234,7 +241,14 @@ final class AccountProgress
 		return out;
 	}
 
-	/** Bit per combat-achievement tier cleared: bit 0 Easy … bit 5 Grandmaster. */
+	/**
+	 * Bit per combat-achievement tier cleared: bit 0 Easy … bit 5 Grandmaster.
+	 *
+	 * <p>Read from POINTS against each tier's threshold varbit rather than from the tier-status
+	 * varbits: the thresholds are what the game itself compares, they're the same numbers the
+	 * completion post already uses, and a tier the player cleared but never claimed the reward for
+	 * still counts as cleared.
+	 */
 	private static int tierMask(Client client, int caPoints)
 	{
 		int mask = 0;
@@ -249,53 +263,5 @@ final class AccountProgress
 			index++;
 		}
 		return mask;
-	}
-
-	/** Regions complete at each tier: easy, medium, hard, elite. */
-	private static int[] countDiaries(Client client)
-	{
-		int[] counts = new int[4];
-		for (int[] region : DIARY_VARBITS)
-		{
-			for (int tier = 0; tier < region.length; tier++)
-			{
-				if (client.getVarbitValue(region[tier]) > 0)
-				{
-					counts[tier]++;
-				}
-			}
-		}
-		for (int tier = 0; tier < KARAMJA_VARBITS.length; tier++)
-		{
-			if (client.getVarbitValue(KARAMJA_VARBITS[tier]) > 0)
-			{
-				counts[tier]++;
-			}
-		}
-		return counts;
-	}
-
-	/**
-	 * The highest combat-achievement tier this account has cleared, 0 (none) through 6 (Grandmaster).
-	 *
-	 * <p>Read from POINTS against each tier's threshold varbit rather than from the tier-status
-	 * varbits: the thresholds are what the game itself compares, they're the same numbers the
-	 * completion post already uses, and a tier the player cleared but never claimed the reward for
-	 * still counts as cleared.
-	 */
-	private static int highestTier(Client client, int caPoints)
-	{
-		int highest = 0;
-		int tier = 0;
-		for (CombatAchievementTier t : CombatAchievementTier.values())
-		{
-			tier++;
-			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-			if (threshold > 0 && caPoints >= threshold)
-			{
-				highest = tier;
-			}
-		}
-		return highest;
 	}
 }

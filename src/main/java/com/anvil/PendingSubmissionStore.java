@@ -13,6 +13,7 @@ import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Singleton
@@ -178,11 +179,9 @@ public class PendingSubmissionStore
 		{
 			return new ArrayList<>();
 		}
-		try (java.util.stream.Stream<Filepath> walk = dir.walk(1))
+		try (Stream<Filepath> walk = dir.walk(1))
 		{
-			return walk
-				.filter(f -> f.isFile() && f.getFileName().endsWith(".json"))
-				.collect(Collectors.toList());
+			return walk.filter(f -> f.isFile() && f.getFileName().endsWith(".json")).collect(Collectors.toList());
 		}
 		catch (IOException e)
 		{
@@ -202,25 +201,13 @@ public class PendingSubmissionStore
 		// file cannot walk anywhere with "../" in it.
 		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream())
 		{
-			return readAll(in);
+			return in.readAllBytes();
 		}
 		catch (IOException | RuntimeException e)
 		{
 			log.error("Failed to read pending screenshot {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
-	}
-
-	private static byte[] readAll(InputStream in) throws IOException
-	{
-		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-		byte[] buf = new byte[8192];
-		int n;
-		while ((n = in.read(buf)) > 0)
-		{
-			out.write(buf, 0, n);
-		}
-		return out.toByteArray();
 	}
 
 	public void remove(PendingSubmission sub)
