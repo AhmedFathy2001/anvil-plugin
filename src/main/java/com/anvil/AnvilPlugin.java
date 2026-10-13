@@ -3048,8 +3048,7 @@ public class AnvilPlugin extends Plugin {
      * an opened loot key, otherwise an NPC/chest name; empty = any.
      */
     private void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
-        String gate = trackingGateReason();
-        if (gate != null || pluginConfig == null
+        if (trackingGateReason() != null
                 || pluginConfig.trackedValues == null || pluginConfig.trackedValues.isEmpty()
                 || items == null || items.isEmpty()) {
             return;
@@ -3081,14 +3080,8 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             // Dedup: the same loot can fire NpcLootReceived + LootReceived back-to-back.
-            String dedupKey = "value:" + v.tileId;
-            long now = System.currentTimeMillis();
-            synchronized (lastSubmittedAt) {
-                Long lastAt = lastSubmittedAt.get(dedupKey);
-                if (lastAt != null && now - lastAt < DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                lastSubmittedAt.put(dedupKey, now);
+            if (!claim(lastSubmittedAt, "value:" + v.tileId, System.currentTimeMillis(), DEDUP_WINDOW_MS)) {
+                continue;
             }
             final int amount = (int) Math.min(haulGp, Integer.MAX_VALUE);
             final String gp = formatGp(haulGp);
@@ -3542,16 +3535,11 @@ public class AnvilPlugin extends Plugin {
             // + SPAM), so onChatMessage sees it twice — dedup by (area, tier) or we'd double-post
             // the announcement AND double-credit the tile. The line can't legitimately re-fire
             // (once per account per tier ever), so a short window is safe.
-            String diaryKey = (area + "|" + tier).toLowerCase(Locale.ROOT);
-            long dnow = System.currentTimeMillis();
-            Long lastDiary = lastDiaryHandledAt.get(diaryKey);
-            if (lastDiary != null && (dnow - lastDiary) < DIARY_DEDUP_MS) {
-                // duplicate channel echo of the same completion — ignore
-            } else {
-                lastDiaryHandledAt.put(diaryKey, dnow);
+            if (claim(lastDiaryHandledAt, (area + "|" + tier).toLowerCase(Locale.ROOT), System.currentTimeMillis(),
+                    DIARY_DEDUP_MS)) {
                 // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
                 // even when no tile matches.
-                log.info("Anvil diary line: {} {}", area, tier);
+                log.info("Diary line: {} {}", area, tier);
                 maybeNotifyDiaryCompletion(area, tier);
                 creditDiaryTiles(area, tier);
             }
@@ -3695,14 +3683,7 @@ public class AnvilPlugin extends Plugin {
         if (itemName == null || itemName.isEmpty()) {
             return;
         }
-        if (pluginConfig == null || pluginConfig.trackedDrops == null) {
-            String gate = trackingGateReason();
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        if (trackingOff() || pluginConfig.trackedDrops == null) {
             return;
         }
         // Notable clog unlocks (a ToA Cursed phalanx, a raid ornament kit) that fire ONLY the clog line and
@@ -3713,29 +3694,23 @@ public class AnvilPlugin extends Plugin {
         if (notableId != null) {
             maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
         }
-        List<ItemStack> synthetic = null;
+        List<ItemStack> synthetic = new ArrayList<>(1);
         final long now = System.currentTimeMillis();
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                // Skip an item a real loot event just credited — the clog-unlock line is the same
-                // acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
-                // double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
-                // when taken). Genuine clog-only unlocks (BA torso, gamble pets) never hit this.
-                synchronized (recentLootItemIds) {
-                    recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
-                    Long seen = recentLootItemIds.get(id);
-                    if (seen != null && now - seen < CLOG_LOOT_DEDUP_MS) {
-                        continue;
-                    }
+        for (Integer id : idsNamed(itemDropIndex.keySet(), itemName)) {
+            // Skip an item a real loot event just credited — the clog-unlock line is the same
+            // acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
+            // double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
+            // when taken). Genuine clog-only unlocks (BA torso, gamble pets) never hit this.
+            synchronized (recentLootItemIds) {
+                recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
+                Long seen = recentLootItemIds.get(id);
+                if (seen != null && now - seen < CLOG_LOOT_DEDUP_MS) {
+                    continue;
                 }
-                if (synthetic == null) {
-                    synthetic = new ArrayList<>(1);
-                }
-                synthetic.add(new ItemStack(id, 1));
             }
+            synthetic.add(new ItemStack(id, 1));
         }
-        if (synthetic == null) {
+        if (synthetic.isEmpty()) {
             return; // no tile tracks this clog item (or all matches were just looted)
         }
         // "clog" source kind passes the default (non-PvP) tile source filter. Source name is the
@@ -3750,13 +3725,29 @@ public class AnvilPlugin extends Plugin {
         if (name == null || name.isEmpty()) {
             return null;
         }
-        for (Integer id : notableItemIds) {
+        List<Integer> ids = idsNamed(notableItemIds, name);
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    /** The ids among {@code ids} whose item is called {@code name} (case-insensitive). */
+    private List<Integer> idsNamed(Collection<Integer> ids, String name) {
+        List<Integer> out = new ArrayList<>(1);
+        for (Integer id : ids) {
             ItemComposition comp = itemManager.getItemComposition(id);
             if (comp != null && name.equalsIgnoreCase(comp.getName())) {
-                return id;
+                out.add(id);
             }
         }
-        return null;
+        return out;
+    }
+
+    /** A stack of {@code qty} for every tracked drop-tile item called {@code name} — names are unique per family, ids aren't. */
+    private List<ItemStack> trackedStacks(String name, int qty) {
+        List<ItemStack> out = new ArrayList<>(1);
+        for (Integer id : idsNamed(itemDropIndex.keySet(), name)) {
+            out.add(new ItemStack(id, qty));
+        }
+        return out;
     }
 
     /**
@@ -3790,19 +3781,10 @@ public class AnvilPlugin extends Plugin {
         // Bingo tiles: synthesize loot for every tracked item id whose name matches, exactly
         // like creditClogUnlock (item names are unique per family, ids aren't). Sourced as
         // "npc" loot from the boss so tiles restricted to sourceNpcs=["Maggot King"] match.
-        List<ItemStack> synthetic = null;
+        List<ItemStack> synthetic = trackedStacks(itemName, qty);
         Integer notifyId = null;
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                if (synthetic == null) {
-                    synthetic = new ArrayList<>(1);
-                }
-                synthetic.add(new ItemStack(id, qty));
-                notifyId = id;
-            }
-        }
-        if (synthetic != null) {
+        if (!synthetic.isEmpty()) {
+            notifyId = synthetic.get(synthetic.size() - 1).getId();
             processLoot(source, synthetic, "npc");
         }
 
@@ -3908,14 +3890,7 @@ public class AnvilPlugin extends Plugin {
         if (itemName == null || trackingGateReason() != null || pluginConfig.trackedDrops == null) {
             return false;
         }
-        List<ItemStack> synthetic = new ArrayList<>(1);
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                synthetic.add(new ItemStack(id, 1));
-            }
-        }
-        return creditInferred(synthetic, source, flag);
+        return creditInferred(trackedStacks(itemName, 1), source, flag);
     }
 
     private boolean creditInferredById(int itemId, String source, String flag) {
@@ -3940,35 +3915,17 @@ public class AnvilPlugin extends Plugin {
     }
 
     private void creditGuaranteedAward(String bossName, String itemName) {
-        String gate = trackingGateReason();
-        if (gate != null || pluginConfig.trackedDrops == null) {
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
+        if (trackingOff() || pluginConfig.trackedDrops == null) {
             return;
         }
-        List<ItemStack> synthetic = null;
-        for (Integer id : itemDropIndex.keySet()) {
-            ItemComposition comp = itemManager.getItemComposition(id);
-            if (comp != null && itemName.equalsIgnoreCase(comp.getName())) {
-                if (synthetic == null) {
-                    synthetic = new ArrayList<>(1);
-                }
-                synthetic.add(new ItemStack(id, 1));
-            }
+        List<ItemStack> synthetic = trackedStacks(itemName, 1);
+        if (!synthetic.isEmpty()) { // else no tile tracks this award item
+            processLoot(bossName, synthetic, "npc");
         }
-        if (synthetic == null) {
-            return; // no tile tracks this award item
-        }
-        processLoot(bossName, synthetic, "npc");
     }
 
     private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
-        String gate = trackingGateReason();
-        if (gate != null || pluginConfig.trackedDrops == null) {
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
+        if (trackingOff() || pluginConfig.trackedDrops == null) {
             return;
         }
         if (isBlackout()) {
@@ -4055,7 +4012,7 @@ public class AnvilPlugin extends Plugin {
                 // looted inside the instance, so the deathless party tracker knows the team
                 // size. Only counts when it matches exactly; 0 = any.
                 if (drop.partySize > 0) {
-                    int partySeen = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+                    int partySeen = partySize();
                     if (!wasInInstance || partySeen != drop.partySize) {
                         sendChatMessage("Drop not counted for " + drop.label + ": party of "
                                 + partySeen + ", tile requires " + drop.partySize + ".");
@@ -4270,14 +4227,7 @@ public class AnvilPlugin extends Plugin {
         if (npcName == null || npcName.isEmpty()) {
             return;
         }
-        if (pluginConfig == null) {
-            String gate = trackingGateReason();
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        if (trackingOff()) {
             return;
         }
         String key = npcName.toLowerCase();
@@ -4303,14 +4253,7 @@ public class AnvilPlugin extends Plugin {
         if (npcName == null || npcName.isEmpty()) {
             return;
         }
-        if (pluginConfig == null) {
-            String gate = trackingGateReason();
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        if (trackingOff()) {
             return;
         }
         String key = npcName.toLowerCase();
@@ -4343,14 +4286,7 @@ public class AnvilPlugin extends Plugin {
      * bucket its names put it in) and credit each exactly once.
      */
     private void creditNamedCounter(String... names) {
-        if (pluginConfig == null) {
-            String gate = trackingGateReason();
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
-            return;
-        }
-        if (!AnvilOverlay.isEventActive(pluginConfig.event)) {
+        if (trackingOff()) {
             return;
         }
         // Identity set: two DIFFERENT tiles with the same name must both credit, but the SAME tile
@@ -4845,6 +4781,21 @@ public class AnvilPlugin extends Plugin {
      * unit-tested {@link TimedClearParser}. Runs on the client thread (from
      * onChatMessage).
      */
+    /** Raid party size from the varbits, else the distinct players seen in this instance. */
+    private int partySize() {
+        return lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+    }
+
+    /**
+     * Does this line name the tile's activity? An Entry Mode clear never credits a base-raid tile
+     * ("Theatre of Blood" is a substring of its Entry line); harder modes (CM / Hard / Expert)
+     * crediting a base tile is intended.
+     */
+    private static boolean namesActivity(String lowerMessage, String activity) {
+        return TimedClearParser.messageMatchesActivity(lowerMessage, activity)
+                && (!lowerMessage.contains("entry mode") || activity.toLowerCase(Locale.ROOT).contains("entry mode"));
+    }
+
     private void handleTimedChat(String plain) {
         if (pluginConfig == null) {
             return;
@@ -4925,30 +4876,18 @@ public class AnvilPlugin extends Plugin {
                     || tile.currentAmount >= Math.max(1, tile.requiredAmount)) {
                 continue;
             }
-            if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
+            // Attempts are marked too — several nearby identity lines would otherwise repeat the
+            // verdict (or double-submit) for the same run.
+            if (!namesActivity(lowerMessage, tile.activity)
+                    || !claim(lastTimedSubmittedAt, tile.tileId, now, TIMED_DEDUP_WINDOW_MS)) {
                 continue;
-            }
-            // An Entry Mode clear must never credit a base-raid tile ("Theatre of Blood" is a
-            // substring of its Entry line). Harder modes crediting a base tile is fine.
-            if (lowerMessage.contains("entry mode")
-                    && !tile.activity.toLowerCase(Locale.ROOT).contains("entry mode")) {
-                continue;
-            }
-            synchronized (lastTimedSubmittedAt) {
-                Long last = lastTimedSubmittedAt.get(tile.tileId);
-                if (last != null && (now - last) < TIMED_DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                // Mark attempts too — several nearby identity lines would otherwise repeat
-                // the verdict (or double-submit) for the same run.
-                lastTimedSubmittedAt.put(tile.tileId, now);
             }
             if (instancePlayerDeaths > 0) {
                 sendChatMessage("Not deathless: " + tile.label + " — " + instancePlayerDeaths
                         + (instancePlayerDeaths == 1 ? " death" : " deaths") + " this run.");
                 continue;
             }
-            int partySeen = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+            int partySeen = partySize();
             if (tile.partySize > 0 && partySeen != tile.partySize) {
                 sendChatMessage("Deathless run not counted for " + tile.label + ": party of "
                         + partySeen + ", tile requires " + tile.partySize + ".");
@@ -4992,19 +4931,12 @@ public class AnvilPlugin extends Plugin {
                     continue;
                 }
             } else {
-                if (!TimedClearParser.messageMatchesActivity(lowerMessage, tile.activity)) {
-                    continue;
-                }
-                // An Entry Mode clear must never credit a base-raid tile ("Tombs of Amascut" is a
-                // substring of its Entry line) — same guard as the deathless path. Harder modes
-                // (CM / Hard / Expert) crediting a base tile is intended.
-                if (lowerMessage.contains("entry mode")
-                        && !tile.activity.toLowerCase(Locale.ROOT).contains("entry mode")) {
+                if (!namesActivity(lowerMessage, tile.activity)) {
                     continue;
                 }
                 // Optional exact-party gate (raid tiles) — same signal as the deathless path.
                 if (tile.partySize > 0) {
-                    int partySeen = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+                    int partySeen = partySize();
                     if (partySeen != tile.partySize) {
                         log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
                                 tile.label, partySeen, tile.partySize);
@@ -5017,12 +4949,8 @@ public class AnvilPlugin extends Plugin {
                     continue;
                 }
             }
-            synchronized (lastTimedSubmittedAt) {
-                Long last = lastTimedSubmittedAt.get(tile.tileId);
-                if (last != null && (now - last) < TIMED_DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                lastTimedSubmittedAt.put(tile.tileId, now);
+            if (!claim(lastTimedSubmittedAt, tile.tileId, now, TIMED_DEDUP_WINDOW_MS)) {
+                continue;
             }
             log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
                     TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
@@ -6766,11 +6694,9 @@ public class AnvilPlugin extends Plugin {
         long now = System.currentTimeMillis();
         synchronized (lastLootValueAt) {
             lastLootValueAt.values().removeIf(t -> now - t > DEDUP_WINDOW_MS);
-            Long seen = lastLootValueAt.get(fp);
-            if (seen != null && now - seen < DEDUP_WINDOW_MS) {
-                return;
-            }
-            lastLootValueAt.put(fp, now);
+        }
+        if (!claim(lastLootValueAt, fp, now, DEDUP_WINDOW_MS)) {
+            return;
         }
         synchronized (counterLock) {
             if (!ensureCounterEvent()) {
@@ -7135,7 +7061,7 @@ public class AnvilPlugin extends Plugin {
                 }
             }
         }
-        int party = lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+        int party = partySize();
         BingoApiClient.CoopFingerprint fp = new BingoApiClient.CoopFingerprint(teammates, party);
         return fp.isEmpty() ? null : fp;
     }
@@ -7325,6 +7251,15 @@ public class AnvilPlugin extends Plugin {
         return list == null ? 0 : list.size();
     }
 
+    /** True — with the reason logged, once a session — when tracking is off (see trackingGateReason). */
+    private boolean trackingOff() {
+        String gate = trackingGateReason();
+        if (gate != null) {
+            logTrackingSuppressed(gate);
+        }
+        return gate != null;
+    }
+
     /** The suppression reason for the shared config gates, or null when tracking is live. */
     private String trackingGateReason() {
         if (pluginConfig == null) {
@@ -7480,11 +7415,7 @@ public class AnvilPlugin extends Plugin {
      * death fires on the kill tick — the frame still shows the fight).
      */
     private void creditPvpKillTiles(String victimName) {
-        String gate = trackingGateReason();
-        if (gate != null || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()) {
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
+        if (trackingOff() || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()) {
             return;
         }
         if (!inDangerousPvp()) {
@@ -7656,13 +7587,8 @@ public class AnvilPlugin extends Plugin {
             if (contents.isEmpty() || keyThreshold <= 0 || total < keyThreshold) {
                 return;
             }
-            String key = source == null ? "" : source;
-            synchronized (lastAggregateNotifyAt) {
-                Long last = lastAggregateNotifyAt.get(key);
-                if (last != null && (now - last) < RARE_DEDUP_WINDOW_MS) {
-                    return;
-                }
-                lastAggregateNotifyAt.put(key, now);
+            if (!claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS)) {
+                return;
             }
             if (contents.size() == 1) {
                 RareItem it = contents.get(0);
@@ -7727,14 +7653,9 @@ public class AnvilPlugin extends Plugin {
 
             // Per-item dedup also suppresses the duplicate fire when a kill and a follow-up loot
             // event both report the same item within the window.
-            synchronized (lastRareNotifyAt) {
-                Long last = lastRareNotifyAt.get(itemId);
-                if (last != null && (now - last) < RARE_DEDUP_WINDOW_MS) {
-                    continue;
-                }
-                lastRareNotifyAt.put(itemId, now);
+            if (claim(lastRareNotifyAt, itemId, now, RARE_DEDUP_WINDOW_MS)) {
+                qualifying.add(new RareItem(itemId, qty, itemValue, dropRate));
             }
-            qualifying.add(new RareItem(itemId, qty, itemValue, dropRate));
         }
 
         if (qualifying.size() == 1) {
@@ -7780,13 +7701,20 @@ public class AnvilPlugin extends Plugin {
      * and the collection-log unlock message can't both fire for the same item.
      */
     private boolean claimAllowlistNotify(String name, long now) {
-        String key = name.toLowerCase();
-        synchronized (lastAllowlistNotifyAt) {
-            Long last = lastAllowlistNotifyAt.get(key);
-            if (last != null && (now - last) < RARE_DEDUP_WINDOW_MS) {
+        return claim(lastAllowlistNotifyAt, name.toLowerCase(), now, RARE_DEDUP_WINDOW_MS);
+    }
+
+    /**
+     * Record {@code key} as seen at {@code now} — unless it was already seen within {@code windowMs},
+     * in which case this is the duplicate and nothing changes. True when this one counts.
+     */
+    private static <K> boolean claim(Map<K, Long> seen, K key, long now, long windowMs) {
+        synchronized (seen) {
+            Long last = seen.get(key);
+            if (last != null && now - last < windowMs) {
                 return false;
             }
-            lastAllowlistNotifyAt.put(key, now);
+            seen.put(key, now);
             return true;
         }
     }
@@ -8654,11 +8582,7 @@ public class AnvilPlugin extends Plugin {
      * (banner + screenshot + retry store).
      */
     private void creditDiaryTiles(String area, String tier) {
-        String gate = trackingGateReason();
-        if (gate != null || pluginConfig.trackedDiaries == null) {
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
+        if (trackingOff() || pluginConfig.trackedDiaries == null) {
             return;
         }
         String areaLower = area.toLowerCase();
@@ -8709,11 +8633,7 @@ public class AnvilPlugin extends Plugin {
      * task's conditions repeatedly can't farm a multi-count wildcard tile.
      */
     private void creditCombatTaskTiles(CombatAchievementTier tier, String task) {
-        String gate = trackingGateReason();
-        if (gate != null || pluginConfig.trackedCombatTasks == null) {
-            if (gate != null) {
-                logTrackingSuppressed(gate);
-            }
+        if (trackingOff() || pluginConfig.trackedCombatTasks == null) {
             return;
         }
         String taskLower = task.toLowerCase();
