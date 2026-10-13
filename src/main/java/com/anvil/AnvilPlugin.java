@@ -1141,8 +1141,7 @@ public class AnvilPlugin extends Plugin {
             pendingSubmissionStore.setRoot(pluginDir);
             bannerSound.setRoot(pluginDir.join("sounds"));
         } catch (IOException | RuntimeException e) {
-            log.warn("Anvil: no plugin directory — pending submissions and banner sounds are "
-                    + "unavailable this session", e);
+            log.warn("No plugin directory — pending submissions and banner sounds are off this session", e);
         }
 
         // The window's TITLE BAR, not the entry pane's header the log also calls a header — that one
@@ -1316,9 +1315,9 @@ public class AnvilPlugin extends Plugin {
             // Say which half is quiet when nothing lands: a site that never asked for the varps and a
             // client that read none of them look identical from the profile page.
             if (caMoved && cfg.caVarps == null) {
-                log.info("Anvil: combat achievements — this site didn't send a varp list, so none were read");
+                log.info("CA varps: this site asked for none");
             } else if (caVarps != null) {
-                log.info("Anvil: combat achievements — read {} varps at {} points", caVarps.size(), caNow);
+                log.info("CA varps: read {} at {} points", caVarps.size(), caNow);
             }
             final int caPointsNow = caNow == null ? 0 : caNow;
 
@@ -2082,7 +2081,7 @@ public class AnvilPlugin extends Plugin {
             } catch (IOException e) {
                 // A later open sends an absolute snapshot, so a lost transition reconciles without
                 // manufacturing an actor. Never block the client thread retrying a money endpoint.
-                log.warn("Anvil: Clan Coffer sync failed; the next observation will reconcile it: {}", e.getMessage());
+                log.warn("Clan Coffer sync failed (the next observation reconciles): {}", e.getMessage());
             }
         });
     }
@@ -2555,7 +2554,7 @@ public class AnvilPlugin extends Plugin {
         boolean paused = shouldPauseAccount(optedOutAccounts, rsn, accountHash);
         apiClient.setAccountPaused(paused);
         if (paused) {
-            log.info("Anvil: {} is marked Not my account on this computer — sending nothing for it", rsn);
+            log.info("{} is marked Not my account — sending nothing", rsn);
             dropConfigForPausedAccount();
             refreshSidebarLater();
             return;
@@ -2647,7 +2646,7 @@ public class AnvilPlugin extends Plugin {
             try {
                 done.accept(runAccountAction(action));
             } catch (RuntimeException e) {
-                log.warn("Anvil: account action {} failed", action, e);
+                log.warn("Account action {} failed", action, e);
                 done.accept("Something went wrong — try again.");
             } finally {
                 accountActionRunning = false;
@@ -2876,7 +2875,7 @@ public class AnvilPlugin extends Plugin {
         // player holds a MEMBER seat in, and there was no way to tell which clan had answered or
         // which character it had been asked about — so the message could not be checked, only
         // believed. One line, at INFO, naming both.
-        log.info("Anvil: hello as '{}' -> clan '{}' seat={} knownMember={}",
+        log.info("Hello as '{}' -> clan '{}' seat={} knownMember={}",
                 rsn,
                 resp.clanName != null ? resp.clanName : "(site predates clan in hello)",
                 resp.seatKind != null ? resp.seatKind : "none",
@@ -3053,16 +3052,7 @@ public class AnvilPlugin extends Plugin {
                 || items == null || items.isEmpty()) {
             return;
         }
-        long haulGp = 0;
-        for (ItemStack it : items) {
-            if (it == null || it.getId() <= 0) {
-                continue;
-            }
-            long price = itemManager.getItemPrice(it.getId());
-            if (price > 0) {
-                haulGp += (long) price * Math.max(1, it.getQuantity());
-            }
-        }
+        long haulGp = haulValue(items);
         if (haulGp <= 0) {
             return;
         }
@@ -3105,6 +3095,17 @@ public class AnvilPlugin extends Plugin {
                         () -> tile.completed = false);
             }
         }
+    }
+
+    /** GE value of a whole haul. Client thread only (itemManager.getItemPrice). */
+    private long haulValue(Collection<ItemStack> items) {
+        long haulGp = 0;
+        for (ItemStack it : items) {
+            if (it != null && it.getId() > 0) {
+                haulGp += (long) Math.max(0, itemManager.getItemPrice(it.getId())) * Math.max(1, it.getQuantity());
+            }
+        }
+        return haulGp;
     }
 
     /** Does a value tile's source filter accept this loot? "PvP" matches a player kill; other entries
@@ -3515,7 +3516,7 @@ public class AnvilPlugin extends Plugin {
             if (caTier != null) {
                 String caTask = CA_TASK_POINTS.matcher(caMatcher.group(2).trim()).replaceAll("").trim();
                 // Breadcrumb so client.log shows the parse even when no tile matches.
-                log.info("Anvil combat task line: {} '{}'", caTier.getDisplayName(), caTask);
+                log.info("Combat task line: {} '{}'", caTier.getDisplayName(), caTask);
                 creditCombatTaskTiles(caTier, caTask);
                 // Stashed unconditionally: the next tick reads the points varbit, which is what
                 // tells a genuine first completion from a "Repeat completion" echo — and the
@@ -3797,7 +3798,7 @@ public class AnvilPlugin extends Plugin {
         // Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
         // breadcrumb in the client log so a "why didn't my fang post?" is answerable after the fact.
         // The line is rare (local player's own attributed drops only), so INFO is not noisy.
-        log.info("Anvil drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
+        log.info("Drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
                 itemName, qty, source, notifyId,
                 notifyId != null ? itemUnitValue(notifyId) : -1,
                 config.rareDropMinValue(), config.notifyRareDrops(), notifyEnabled("rareDrops"));
@@ -4030,7 +4031,7 @@ public class AnvilPlugin extends Plugin {
                     lastAt = lastSubmittedAt.get(dedupKey);
                 }
                 if (lastAt != null && (now - lastAt) < DEDUP_WINDOW_MS) {
-                    log.debug("Skipping duplicate drop event within dedup window: {} ({}ms)", drop.label, now - lastAt);
+                    log.debug("Duplicate drop event skipped: {} ({}ms)", drop.label, now - lastAt);
                     continue;
                 }
 
@@ -4482,7 +4483,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         if (lootingBagNow == null) {
-            log.debug("Anvil: {} opened but the looting bag's contents are unknown — bag loot not counted", source);
+            log.debug("{} opened, looting bag contents unknown — bag loot not counted", source);
             return;
         }
         lootingBagWatchSource = source;
@@ -4495,7 +4496,7 @@ public class AnvilPlugin extends Plugin {
         if (gained.isEmpty()) {
             return;
         }
-        log.info("Anvil: {} put {} item stack(s) straight into the looting bag", source, gained.size());
+        log.info("{} put {} item stack(s) straight into the looting bag", source, gained.size());
         processLoot(source, gained, "event");
         processValueTiles(source, gained, "event");
         recordEventLoot(source, gained, "event");
@@ -4551,7 +4552,7 @@ public class AnvilPlugin extends Plugin {
             for (Map.Entry<Integer, Integer> e : counts.entrySet()) {
                 int d = e.getValue() - previous.getOrDefault(e.getKey(), 0);
                 if (d > 0) {
-                    log.debug("Held-item +{}: item {} (tracked={}{})", d, e.getKey(),
+                    log.debug("Held +{}: item {} (tracked={}{})", d, e.getKey(),
                             gainItemIndex.containsKey(e.getKey()),
                             suppress != null ? ", SUPPRESSED: " + suppress : "");
                 }
@@ -4938,13 +4939,13 @@ public class AnvilPlugin extends Plugin {
                 if (tile.partySize > 0) {
                     int partySeen = partySize();
                     if (partySeen != tile.partySize) {
-                        log.info("Timed '{}' clear with party of {} — tile requires {}, not submitting.",
+                        log.info("Timed '{}': party of {}, tile requires {} — not submitted",
                                 tile.label, partySeen, tile.partySize);
                         continue;
                     }
                 }
                 if (seconds > tile.thresholdSeconds) {
-                    log.info("Timed '{}' clear {} over cap {} — not submitting.", tile.label,
+                    log.info("Timed '{}': {} over cap {} — not submitted", tile.label,
                             TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
                     continue;
                 }
@@ -5305,7 +5306,7 @@ public class AnvilPlugin extends Plugin {
             pendingSubmissionStore.remove(pending);
             return true;
         } catch (IOException e) {
-            log.error("Failed to submit pending drop '{}': {} (will retry with backoff)", pending.label, e.getMessage());
+            log.error("Failed to submit pending '{}' (will retry): {}", pending.label, e.getMessage());
             return false;
         }
     }
@@ -5344,7 +5345,7 @@ public class AnvilPlugin extends Plugin {
         if (anyFailed) {
             // Increase backoff (capped)
             retryBackoffMs = Math.min(retryBackoffMs * 2, MAX_RETRY_BACKOFF_MS);
-            log.info("Some pending submissions failed, next retry backoff: {}s", retryBackoffMs / 1000);
+            log.info("Pending retries failed; next backoff {}s", retryBackoffMs / 1000);
         } else {
             // Reset backoff on full success
             retryBackoffMs = 30_000;
@@ -5561,7 +5562,7 @@ public class AnvilPlugin extends Plugin {
         // The roster button follows this; the clan channel usually loads a few seconds after login.
         if (before != clanRosterReadable) {
             ClanSettings cs = client.getClanSettings();
-            log.info("Anvil: clan roster {} (channel={}, settings={}, members={})",
+            log.info("Clan roster {} (channel={}, settings={}, members={})",
                     clanRosterReadable ? "readable" : "not readable",
                     client.getClanChannel() != null, cs != null,
                     cs == null || cs.getMembers() == null ? 0 : cs.getMembers().size());
@@ -5985,7 +5986,7 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
         }
-        log.info("Anvil: no seat in '{}' any more — following your live board again.", chosen);
+        log.info("No seat in '{}' any more — back to Auto", chosen);
         cfgSet(CFG_ACTIVE_CLAN, "");
         apiClient.setChosenClan("");
     }
@@ -6076,18 +6077,17 @@ public class AnvilPlugin extends Plugin {
                     // The diagnostic "money line" for debug exports: the token is valid AND this RSN
                     // IS a player in a live bingo — but the account/token isn't linked to it, so
                     // tracking is silently OFF. Distinct from a genuine "not enrolled anywhere" below.
-                    log.warn("Anvil: RSN '{}' is a player in '{}' but this account/token isn't linked to it"
-                            + " — tracking is OFF. Verify this RSN on the Anvil site.",
+                    log.warn("RSN '{}' plays in '{}' but isn't linked to this token — tracking is OFF",
                             getLocalPlayerName(), fresh.unlinkedActiveEvent);
                 } else {
-                    log.info("Anvil: token valid, no active event for this user.");
+                    log.info("Token valid, no active event");
                 }
                 warnUnlinkedRsn(fresh.unlinkedActiveEvent);
                 return;
             }
             // If the linked event has ended, drop it so tracking stops for the stale event.
             if (fresh != null && fresh.event != null && eventIsOver(fresh.event)) {
-                log.info("Anvil event '{}' has ended — clearing local player binding.",
+                log.info("Event '{}' ended — clearing player binding",
                         fresh.event.name);
                 pluginConfig = null;
                 rebuildItemDropIndex();
@@ -6119,7 +6119,7 @@ public class AnvilPlugin extends Plugin {
                     sizeOf(pluginConfig.trackedCombatTasks), sizeOf(pluginConfig.completedTiles));
             if (!summary.equals(lastTrackingFingerprint)) {
                 lastTrackingFingerprint = summary;
-                log.info("Anvil tracking: {}", summary);
+                log.info("Tracking: {}", summary);
             }
 
             // Before login stamps an RSN, the event can only have come off the launcher hint. Everything
@@ -6211,7 +6211,7 @@ public class AnvilPlugin extends Plugin {
         boolean admin = apiClient.fetchIsAdmin(config.playerToken());
         if (admin) {
             isAdmin = true;
-            log.info("Anvil: admin confirmed on retry — clan-sync button is back");
+            log.info("Admin confirmed on retry");
         }
     }
 
@@ -6228,7 +6228,7 @@ public class AnvilPlugin extends Plugin {
         adminProbeAttempted = true;
         boolean admin = apiClient.fetchIsAdmin(config.playerToken());
         if (admin != isAdmin) {
-            log.info("Anvil: admin re-checked on Refresh — now {}", admin ? "admin" : "not admin");
+            log.info("Admin re-checked on Refresh — now {}", admin ? "admin" : "not admin");
         }
         isAdmin = admin;
     }
@@ -6674,18 +6674,8 @@ public class AnvilPlugin extends Plugin {
         if (items == null || items.isEmpty() || trackingGateReason() != null) {
             return;
         }
-        long haulGp = 0;
-        int count = 0;
-        for (ItemStack it : items) {
-            if (it == null || it.getId() <= 0) {
-                continue;
-            }
-            long price = itemManager.getItemPrice(it.getId());
-            if (price > 0) {
-                haulGp += (long) price * Math.max(1, it.getQuantity());
-            }
-            count++;
-        }
+        long haulGp = haulValue(items);
+        long count = items.stream().filter(it -> it != null && it.getId() > 0).count();
         if (haulGp <= 0) {
             return;
         }
@@ -6917,7 +6907,7 @@ public class AnvilPlugin extends Plugin {
         String killer = deathAttribution.killer(fighting, now);
         // Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
         // and which one we picked, next to what we were hitting.
-        log.debug("Anvil death: killer='{}' (attackers={}, we were fighting '{}')",
+        log.debug("Death: killer='{}' (attackers={}, we were fighting '{}')",
                 killer, deathAttribution.attackerCount(), fighting);
         moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, "npc",
                 killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
@@ -7243,7 +7233,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void logTrackingSuppressed(String reason) {
         if (loggedSuppressions.add(reason)) {
-            log.info("Anvil tracking suppressed — {} (logged once per session)", reason);
+            log.info("Tracking suppressed — {} (logged once per session)", reason);
         }
     }
 
@@ -7511,16 +7501,7 @@ public class AnvilPlugin extends Plugin {
         if (trackingGateReason() != null) {
             return;
         }
-        long haulGp = 0;
-        for (ItemStack it : items) {
-            if (it == null || it.getId() <= 0) {
-                continue;
-            }
-            long price = itemManager.getItemPrice(it.getId());
-            if (price > 0) {
-                haulGp += (long) price * Math.max(1, it.getQuantity());
-            }
-        }
+        long haulGp = haulValue(items);
         Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
         for (PluginConfigResponse.TrackedPvp tile : pluginConfig.trackedPvp) {
             if (tile == null || tile.minLootValue <= 0 || tile.currentAmount >= tile.requiredAmount
@@ -8006,12 +7987,12 @@ public class AnvilPlugin extends Plugin {
             }
             if (version < 1 && config.rareDropMinRarity() == LEGACY_RARITY_DEFAULT) {
                 configManager.setConfiguration("osrsbingo", "rareDropMinRarity", 10_000);
-                log.info("Anvil: raised rare-drop rarity floor to 1/10000 (was the old 1/5000 default)");
+                log.info("Raised rare-drop rarity floor to 1/10000 (was the old 1/5000 default)");
             }
             configManager.setConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, CURRENT_DEFAULTS_VERSION);
         } catch (Exception e) {
             // A migration hiccup must never stop the plugin loading.
-            log.debug("Anvil config-defaults migration skipped: {}", e.getMessage());
+            log.debug("Config-defaults migration skipped: {}", e.getMessage());
         }
     }
 
@@ -8658,7 +8639,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             if (!creditedCaTaskTiles.add(dedupKey)) {
-                log.debug("Combat task '{}' already credited tile '{}' this session — skipping repeat", task, t.label);
+                log.debug("Combat task '{}' already credited '{}' this session", task, t.label);
                 continue;
             }
             t.currentAmount += 1;
@@ -8922,11 +8903,11 @@ public class AnvilPlugin extends Plugin {
         // and postNotification's own failure paths are log.debug — invisible at RuneLite's default
         // level — which left "it just didn't post" as the entire diagnosis.
         if (!notifyEnabled("levels")) {
-            log.info("Anvil: 99 {} not announced — this clan has no channel for level posts.", skill);
+            log.info("99 {} not announced — no channel for level posts", skill);
             return;
         }
         if (statsAreArtificial()) {
-            log.info("Anvil: 99 {} not announced — levels on this world aren't real progression.", skill);
+            log.info("99 {} not announced — not real progression on this world", skill);
             return;
         }
         // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
@@ -8934,7 +8915,7 @@ public class AnvilPlugin extends Plugin {
         if (skill == null || !notified99.add(skill.toLowerCase())) {
             return; // already announced this session, or already 99 when the session started
         }
-        log.info("Anvil: announcing 99 {}.", skill);
+        log.info("Announcing 99 {}.", skill);
         // How far along they are. A 99 post is about skills rather than total, so it counts those —
         // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
         // what they have done rather than a distance from somebody else's goal.
@@ -9045,7 +9026,7 @@ public class AnvilPlugin extends Plugin {
 
     private void postTotalMilestone(int total, boolean maxed) {
         if (!notifyEnabled("levels")) {
-            log.info("Anvil: total-level milestone {} not announced — no channel for level posts.", total);
+            log.info("Total-level milestone {} not announced — no channel for level posts.", total);
             return;
         }
         String who = who(getLocalPlayerName());
@@ -9390,7 +9371,7 @@ public class AnvilPlugin extends Plugin {
             // half-initialised state: doing so can cascade into unrelated plugin exceptions and an
             // injected-client crash.
             if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null) {
-                log.debug("Anvil: skipped chat message while the game client was not ready");
+                log.debug("Chat message skipped — client not ready");
                 return;
             }
             client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null);
@@ -9557,7 +9538,7 @@ public class AnvilPlugin extends Plugin {
 
         int adopted = personalBests.seed(imported, System.currentTimeMillis());
         cfgSet(CFG_PB_IMPORTED + ":" + rsnKey, signature);
-        log.info("Anvil: imported {} existing personal best(s) from RuneLite ({} probed)",
+        log.info("Imported {} existing personal best(s) from RuneLite ({} probed)",
                 adopted, imported.size());
         if (adopted > 0) {
             sendChatMessage("Imported " + adopted + " personal best" + (adopted == 1 ? "" : "s")
@@ -9673,7 +9654,7 @@ public class AnvilPlugin extends Plugin {
         // thing. A deliberate press still goes, so "sync now" always means something happened.
         long fingerprint = clogFullSync.fingerprint();
         if (!manual && fingerprint == lastClogFingerprint) {
-            log.debug("Collection log unchanged since the last sync — nothing to push");
+            log.debug("Collection log unchanged — nothing to push");
             clogFullSync.onSent();
             // Nothing to send. Said once a login — proof the sync ran and agreed with the site —
             // and then not again: the log is re-transmitted on every open, and a line each time
