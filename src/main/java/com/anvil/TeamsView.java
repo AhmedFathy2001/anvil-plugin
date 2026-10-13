@@ -485,7 +485,7 @@ final class TeamsView extends JPanel
 			if (showTeam && p.teamId != null && canLookUp)
 			{
 				// The row looks the person up, so their team gets its own way in.
-				line.setText(second + " ›");
+				line.setText(safe(second + " ›"));
 				line.setToolTipText("Open " + safe(p.teamName));
 				line.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 				line.addMouseListener(new MouseAdapter()
