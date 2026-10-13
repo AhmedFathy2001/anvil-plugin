@@ -484,14 +484,12 @@ public class BingoApiClient
 	}
 
 	/**
-	 * Fire-and-forget: POST a clan notification to our own site, which forwards it to the Discord
-	 * channel configured server-side. {@code channel} is one of "deaths", "pvpKills", "rareDrops",
-	 * "combatAchievements". Either {@code content} or {@code embed} may be null; {@code png} may be
-	 * null (text/embed-only). The plugin never holds or calls the Discord webhook URL itself — the
-	 * server owns it — which keeps every plugin request pointed at the one configured base URL
-	 * (RuneLite plugin-hub rule). Never blocks the caller: uses OkHttp's async dispatcher.
+	 * Fire-and-forget: POST a clan notification to our own site, which builds the Discord post (from
+	 * {@code facts}, see {@link NotifyFacts}) and forwards it to the channel configured server-side.
+	 * {@code content} (deaths, PvP kills) or {@code facts} may be null; so may {@code png}. The plugin
+	 * never holds a webhook URL (plugin-hub rule). Never blocks: OkHttp's async dispatcher.
 	 */
-	public void postNotification(String channel, String content, JsonObject embed, byte[] png, String filename)
+	public void postNotification(String channel, String content, NotifyFacts facts, byte[] png, String filename)
 	{
 		if (!isConfigured() || channel == null || channel.isEmpty())
 		{
@@ -511,9 +509,10 @@ public class BingoApiClient
 		{
 			payload.addProperty("content", content);
 		}
-		if (embed != null)
+		if (facts != null)
 		{
-			payload.add("embed", embed);
+			payload.addProperty("kind", facts.kind);
+			payload.add("facts", facts.facts);
 		}
 
 		RequestBody body;
