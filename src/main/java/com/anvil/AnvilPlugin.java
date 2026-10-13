@@ -8968,8 +8968,11 @@ public class AnvilPlugin extends Plugin {
     }
 
     private boolean serverSupportsProfileSync() {
+        // In no clan the config is a 404 and carries no capabilities; /api/version answers instead.
+        // The log and bests are the person's, so a solo player syncs them like anyone else.
         PluginConfigResponse cfg = pluginConfig;
-        return cfg != null && cfg.serverSupports("profile-sync");
+        return cfg != null ? cfg.serverSupports("profile-sync")
+                : apiClient.signedInWithoutClan() && apiClient.siteAdvertises("profile-sync");
     }
 
     /**
