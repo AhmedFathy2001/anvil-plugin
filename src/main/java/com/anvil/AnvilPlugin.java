@@ -6988,14 +6988,8 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
     private void scheduleCounterPush() {
-        if (!execLive()) {
-            return;
-        }
         synchronized (counterLock) {
-            if (counterPushTask != null) {
-                counterPushTask.cancel(false);
-            }
-            counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            counterPushTask = reschedule(counterPushTask, this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
         }
     }
 
@@ -7024,14 +7018,7 @@ public class AnvilPlugin extends Plugin {
             apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
-            synchronized (counterLock) {
-                if (execLive()) {
-                    if (counterPushTask != null) {
-                        counterPushTask.cancel(false);
-                    }
-                    counterPushTask = executor.schedule(this::flushCounterPush, COUNTER_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-                }
-            }
+            scheduleCounterPush();
         }
     }
 
@@ -7241,14 +7228,8 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
     private void scheduleMomentPush() {
-        if (!execLive()) {
-            return;
-        }
         synchronized (moments) {
-            if (momentPushTask != null) {
-                momentPushTask.cancel(false);
-            }
-            momentPushTask = executor.schedule(this::flushMomentPush, MOMENT_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
+            momentPushTask = reschedule(momentPushTask, this::flushMomentPush, MOMENT_PUSH_COALESCE_MS);
         }
     }
 
