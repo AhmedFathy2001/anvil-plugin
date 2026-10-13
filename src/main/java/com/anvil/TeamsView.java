@@ -3,11 +3,15 @@ package com.anvil;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import java.util.function.IntSupplier;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -52,6 +56,8 @@ final class TeamsView extends JPanel
 	private final Executor executor;
 	/** Resolves the event id off the EDT when the caller did not have it (the active board). */
 	private final IntSupplier eventIdLookup;
+	/** Opens a name in the Lookup tab; null when this site has no player cards. */
+	private final Consumer<String> lookup;
 
 	private int eventId;
 	private int teamId;
@@ -70,12 +76,13 @@ final class TeamsView extends JPanel
 	private final JPanel results = new JPanel();
 	private final Timer debounce;
 
-	TeamsView(Source source, Executor executor, int eventId, IntSupplier eventIdLookup)
+	TeamsView(Source source, Executor executor, int eventId, IntSupplier eventIdLookup, Consumer<String> lookup)
 	{
 		this.source = source;
 		this.executor = executor;
 		this.eventId = eventId;
 		this.eventIdLookup = eventIdLookup;
+		this.lookup = lookup;
 
 		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -439,7 +446,8 @@ final class TeamsView extends JPanel
 
 	/**
 	 * A person: rank (when ranked), name, and a second line — their score in a ranking, their team in
-	 * a search. A search result opens the team it names.
+	 * a search. Clicking the person looks them up; a search result's team line opens that team.
+	 * Without player cards there is no Lookup, so a search result opens its team as before.
 	 */
 	private JPanel personRow(EventRoster.Person p, boolean ranked, boolean showTeam)
 	{
@@ -465,6 +473,7 @@ final class TeamsView extends JPanel
 		String second = showTeam
 			? (p.teamName != null ? p.teamName : "Not on a team yet")
 			: ranked ? p.score : null;
+		boolean canLookUp = lookup != null && p.name != null && !p.name.isEmpty();
 		if (second != null)
 		{
 			JLabel line = small(second, MUTED);
@@ -472,6 +481,21 @@ final class TeamsView extends JPanel
 			{
 				line.setIcon(swatchIcon(p.teamColor, 6));
 				line.setIconTextGap(4);
+			}
+			if (showTeam && p.teamId != null && canLookUp)
+			{
+				// The row looks the person up, so their team gets its own way in.
+				line.setText(second + " ›");
+				line.setToolTipText("Open " + safe(p.teamName));
+				line.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				line.addMouseListener(new MouseAdapter()
+				{
+					@Override
+					public void mouseClicked(MouseEvent e)
+					{
+						openTeam(p.teamId);
+					}
+				});
 			}
 			text.add(line, BorderLayout.SOUTH);
 		}
@@ -483,7 +507,12 @@ final class TeamsView extends JPanel
 			row.add(small(tag, p.captain ? ColorScheme.BRAND_ORANGE : YOU), BorderLayout.EAST);
 		}
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		if (showTeam && p.teamId != null)
+		if (canLookUp)
+		{
+			row.setToolTipText("Look up " + safe(p.name));
+			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> lookup.accept(p.name));
+		}
+		else if (showTeam && p.teamId != null)
 		{
 			row.setToolTipText("Open " + safe(p.teamName));
 			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> openTeam(p.teamId));

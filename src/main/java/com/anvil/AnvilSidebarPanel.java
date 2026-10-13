@@ -5163,7 +5163,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			BingoApiClient.BoardResponse board = dataSource.fetchBoard(0);
 			return board == null ? 0 : board.eventId;
-		});
+		}, playerCardsOn() ? this::showLookup : null);
 		renderSelected();
 	}
 
