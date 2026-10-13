@@ -718,29 +718,38 @@ public class AnvilPlugin extends Plugin {
     // settle delay so a kill spree still results in one well-annotated PNG.
     private static final long COALESCE_FLUSH_MS = 2_500;
 
-    private static class DropAggregate {
+    /**
+     * One tile's coalesced burst — drops, kills or gains — waiting out its settle window, so a burst
+     * is one screenshot + one submission. Keeps the count + snapshots up-to-date, so when the flush
+     * fires it has the latest totals.
+     */
+    private static final class Aggregate<T> {
 
-        final PluginConfigResponse.TrackedDrop drop;
-        final Integer trackingItemId;
-        int totalAmount;
+        final T tile;
+        int total;
         int snapshotCurrent;
         int snapshotRequired;
         ScheduledFuture<?> flushTask;
-        // Frame grabbed the moment the first drop of the burst landed. The flush shot fires
+        final long firstQueuedAt = System.currentTimeMillis();
+        /** Drops: the item a per-item tile is tracking, or null. */
+        Integer trackingItemId;
+        // Drops: frame grabbed the moment the first drop of the burst landed. The flush shot fires
         // COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
         // hands listeners a copy of the graphics buffer, so holding it is safe.
         volatile BufferedImage triggerFrame;
-        /** Set when any drop in the burst was inferred (DuplicateInference) — the submission is flagged. */
+        /** Drops: set when any drop in the burst was inferred (DuplicateInference) — the submission is flagged. */
         volatile String inferred;
+        // Kills: who was with us, captured when the kill happened — by the time the coalesced flush
+        // runs the party has scattered and the scene says nothing.
+        BingoApiClient.CoopFingerprint coop;
 
-        DropAggregate(PluginConfigResponse.TrackedDrop drop, Integer trackingItemId) {
-            this.drop = drop;
-            this.trackingItemId = trackingItemId;
+        Aggregate(T tile) {
+            this.tile = tile;
         }
     }
 
     // Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
-    private final Map<String, DropAggregate> pendingAggregates = new HashMap<>();
+    private final Map<String, Aggregate<PluginConfigResponse.TrackedDrop>> pendingAggregates = new HashMap<>();
 
     // ---- Kill-count tiles ----------------------------------------------------------------
     // Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
@@ -751,39 +760,10 @@ public class AnvilPlugin extends Plugin {
     // classify a victim. Rebuilt on each config refresh; empty unless the event has a pvp tile.
     private volatile Map<String, Integer> pvpRosterIndex = Collections.emptyMap();
 
-    private static class KillAggregate {
-
-        final PluginConfigResponse.TrackedKill kill;
-        int totalKills;
-        int snapshotCurrent;
-        int snapshotRequired;
-        // Who was with us, captured when the kill happened — by the time the coalesced flush runs
-        // the party has scattered and the scene says nothing.
-        BingoApiClient.CoopFingerprint coop;
-        ScheduledFuture<?> flushTask;
-
-        KillAggregate(PluginConfigResponse.TrackedKill kill) {
-            this.kill = kill;
-        }
-    }
 
     // Keyed on tileId — coalesces a kill spree into one screenshot + one submission.
-    private final Map<String, KillAggregate> pendingKillAggregates = new HashMap<>();
+    private final Map<Integer, Aggregate<PluginConfigResponse.TrackedKill>> pendingKillAggregates = new HashMap<>();
 
-    // ---- Item-gain tiles (catch/cook/gather — counted from inventory gains) ----------------
-    private static class GainAggregate {
-
-        final PluginConfigResponse.TrackedGain gain;
-        int totalAmount;
-        int snapshotCurrent;
-        int snapshotRequired;
-        ScheduledFuture<?> flushTask;
-        final long firstQueuedAt = System.currentTimeMillis();
-
-        GainAggregate(PluginConfigResponse.TrackedGain gain) {
-            this.gain = gain;
-        }
-    }
 
     // itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
     private volatile Map<Integer, List<PluginConfigResponse.TrackedGain>> gainItemIndex = Collections.emptyMap();
@@ -1034,7 +1014,7 @@ public class AnvilPlugin extends Plugin {
     private String lootingBagWatchSource;
     private Map<Integer, Integer> lootingBagWatchBase;
     private int lootingBagWatchTicks;
-    private final Map<Integer, GainAggregate> pendingGainAggregates = new HashMap<>();
+    private final Map<Integer, Aggregate<PluginConfigResponse.TrackedGain>> pendingGainAggregates = new HashMap<>();
     // Gathering is a slow trickle (a catch every few seconds), so the settle window is much
     // longer than drops' — one screenshot + submission per fishing stint, not per catch.
     private static final long GAIN_COALESCE_MS = 30_000;
@@ -4208,59 +4188,66 @@ public class AnvilPlugin extends Plugin {
         }
         final String key = drop.tileId + ":" + (trackingItemId == null ? "-" : trackingItemId);
         synchronized (pendingAggregates) {
-            DropAggregate agg = pendingAggregates.get(key);
-            if (agg == null) {
-                agg = new DropAggregate(drop, trackingItemId);
-                pendingAggregates.put(key, agg);
+            Aggregate<PluginConfigResponse.TrackedDrop> agg =
+                    pendingAggregates.computeIfAbsent(key, k -> new Aggregate<>(drop));
+            if (agg.total == 0) {
                 // First drop of the burst: grab the at-drop frame now. The flush shot lands
                 // COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
                 // visible — the proof shows both moments.
-                {
-                    final DropAggregate fresh = agg;
-                    drawManager.requestNextFrameListener(img -> fresh.triggerFrame = (BufferedImage) img);
-                }
+                agg.trackingItemId = trackingItemId;
+                drawManager.requestNextFrameListener(img -> agg.triggerFrame = (BufferedImage) img);
             }
-            agg.totalAmount += amount;
+            agg.total += amount;
             if (inferringFlag != null) {
                 agg.inferred = inferringFlag;
             }
-            agg.snapshotCurrent = snapshotCurrent;
-            agg.snapshotRequired = snapshotRequired;
-            // Cancel any pending flush and reschedule — drop bursts that span >COALESCE_FLUSH_MS
-            // would otherwise produce multiple uploads. Each new event resets the settle timer.
-            if (agg.flushTask != null) {
-                agg.flushTask.cancel(false);
-            }
-            agg.flushTask = executor.schedule(() -> flushAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+            // Each new event resets the settle timer — drop bursts that span >COALESCE_FLUSH_MS
+            // would otherwise produce multiple uploads.
+            settle(agg, snapshotCurrent, snapshotRequired,
+                    () -> flushAggregate(pendingAggregates, key, this::submitDropBurst), COALESCE_FLUSH_MS);
         }
     }
 
-    private void flushAggregate(String key) {
-        DropAggregate agg;
-        synchronized (pendingAggregates) {
-            agg = pendingAggregates.remove(key);
+    /** Update a burst's snapshot and restart its settle timer (call under the map's lock). */
+    private void settle(Aggregate<?> agg, int current, int required, Runnable flush, long ms) {
+        agg.snapshotCurrent = current;
+        agg.snapshotRequired = required;
+        agg.flushTask = reschedule(agg.flushTask, flush, ms);
+    }
+
+    /**
+     * Take a settled burst out and submit it. Throttled: if we just uploaded, push this one a bit
+     * further out so we don't burst the server — aggregates flushing in quick succession get
+     * serialized.
+     */
+    private <K, T> void flushAggregate(Map<K, Aggregate<T>> pending, K key, Consumer<Aggregate<T>> submit) {
+        Aggregate<T> agg;
+        synchronized (pending) {
+            agg = pending.remove(key);
         }
-        if (agg == null || agg.totalAmount <= 0) {
+        if (agg == null || agg.total <= 0) {
             return;
         }
-        // Throttle — if we just uploaded, push this flush a bit further out so we don't
-        // burst the server. Idempotent and self-correcting; multiple aggregates flushing
-        // in quick succession get serialized.
+        Runnable go = () -> {
+            lastUploadAt = System.currentTimeMillis();
+            submit.accept(agg);
+        };
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
-            long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (execLive()) {
-                executor.schedule(() -> doSubmitAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
-            return;
+            later(go, UPLOAD_THROTTLE_MS - sinceLast);
+        } else {
+            go.run();
         }
-        doSubmitAggregate(agg);
     }
 
-    private void doSubmitAggregate(DropAggregate agg) {
-        lastUploadAt = System.currentTimeMillis();
-        captureAndSubmit(agg.drop, agg.totalAmount, agg.snapshotCurrent, agg.snapshotRequired, agg.trackingItemId,
-                agg.triggerFrame, agg.inferred);
+    private void submitDropBurst(Aggregate<PluginConfigResponse.TrackedDrop> agg) {
+        PluginConfigResponse.TrackedDrop drop = agg.tile;
+        int amount = agg.total;
+        String progress = " (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+        submitProof(drop.tileId, drop.label, amount, null, agg.trackingItemId, agg.inferred, agg.triggerFrame,
+                "BINGO DROP", drop.label + "  ×" + amount + " " + progress,
+                "[Auto] " + drop.label + " detected by RuneLite plugin", "Drop submitted: " + drop.label + progress,
+                () -> drop.currentAmount = Math.max(0, drop.currentAmount - amount));
     }
 
     /* ----------------------------- Kill-count tiles ----------------------------- */
@@ -4411,16 +4398,10 @@ public class AnvilPlugin extends Plugin {
         if (!execLive()) {
             return;
         }
-        final String key = "kill:" + kill.tileId;
         synchronized (pendingKillAggregates) {
-            KillAggregate agg = pendingKillAggregates.get(key);
-            if (agg == null) {
-                agg = new KillAggregate(kill);
-                pendingKillAggregates.put(key, agg);
-            }
-            agg.totalKills += amount;
-            agg.snapshotCurrent = snapshotCurrent;
-            agg.snapshotRequired = snapshotRequired;
+            Aggregate<PluginConfigResponse.TrackedKill> agg =
+                    pendingKillAggregates.computeIfAbsent(kill.tileId, k -> new Aggregate<>(kill));
+            agg.total += amount;
             if (kill.needsCoopFingerprint()) {
                 BingoApiClient.CoopFingerprint fp = coopFingerprint();
                 // Keep the richest view across a coalesced burst: one kill in the window may have
@@ -4429,30 +4410,12 @@ public class AnvilPlugin extends Plugin {
                     agg.coop = fp;
                 }
             }
-            if (agg.flushTask != null) {
-                agg.flushTask.cancel(false);
-            }
-            agg.flushTask = executor.schedule(() -> flushKillAggregate(key), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
+            settle(agg, snapshotCurrent, snapshotRequired, () -> flushKills(kill.tileId), COALESCE_FLUSH_MS);
         }
     }
 
-    private void flushKillAggregate(String key) {
-        KillAggregate agg;
-        synchronized (pendingKillAggregates) {
-            agg = pendingKillAggregates.remove(key);
-        }
-        if (agg == null || agg.totalKills <= 0) {
-            return;
-        }
-        long sinceLast = System.currentTimeMillis() - lastUploadAt;
-        if (sinceLast < UPLOAD_THROTTLE_MS) {
-            long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (execLive()) {
-                executor.schedule(() -> doSubmitKillAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
-            return;
-        }
-        doSubmitKillAggregate(agg);
+    private void flushKills(int tileId) {
+        flushAggregate(pendingKillAggregates, tileId, this::submitKillBurst);
     }
 
     // Milestone proof for grindy kill tiles — mirror of the site's Discord throttle. A 4000-kill
@@ -4474,56 +4437,60 @@ public class AnvilPlugin extends Plugin {
 
     // A kill submission credits the caller's team/tile on the clan this plugin is addressing.
     // The count-only ping carries no image; the milestone/complete proof re-uses its PNG (below).
-    private void doSubmitKillAggregate(KillAggregate agg) {
-        lastUploadAt = System.currentTimeMillis();
-        final PluginConfigResponse.TrackedKill kill = agg.kill;
-        final int amount = agg.totalKills;
-        final BingoApiClient.CoopFingerprint coop = agg.coop;
-        final boolean complete = agg.snapshotCurrent >= agg.snapshotRequired;
-
+    private void submitKillBurst(Aggregate<PluginConfigResponse.TrackedKill> agg) {
+        final PluginConfigResponse.TrackedKill kill = agg.tile;
+        final int amount = agg.total;
         // Intermediate kills (not at a milestone, not completing) are count-only pings — no
         // screenshot — so a long grind doesn't upload a PNG per burst. Mirrors the gain path; the
         // single/milestone proof screenshots below are the audit trail.
-        if (!complete && !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
-            if (!execLive()
-                    || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
-                return;
-            }
-            // Capture ids now — the config can clear (logout) before the task runs.
-            final int eventId = pluginConfig.event.id;
-            final int teamId = pluginConfig.team.id;
-            final int playerId = pluginConfig.player.id;
-            executor.submit(() -> {
-                try {
-                    warnStartProofBeforeCredit();
-                    apiClient.submitDrop(eventId, kill.tileId, teamId,
-                            amount, null, "[Auto] " + kill.label + " kill(s) counted by RuneLite plugin",
-                            playerId, null, coop);
-                    log.info("Kill ping sent: '{}' ×{}", kill.label, amount);
-                    refreshConfig();
-                } catch (IOException e) {
-                    log.warn("Kill ping failed for '{}' ×{} — requeueing: {}", kill.label, amount, e.getMessage());
-                    // Fold the count back into the aggregate so a later flush retries it.
-                    synchronized (pendingKillAggregates) {
-                        KillAggregate retry = pendingKillAggregates.computeIfAbsent("kill:" + kill.tileId, k -> new KillAggregate(kill));
-                        retry.totalKills += amount;
-                        retry.snapshotCurrent = kill.currentAmount;
-                        retry.snapshotRequired = kill.requiredAmount;
-                        if (retry.flushTask != null) {
-                            retry.flushTask.cancel(false);
-                        }
-                        retry.flushTask = executor.schedule(() -> flushKillAggregate("kill:" + kill.tileId), COALESCE_FLUSH_MS, TimeUnit.MILLISECONDS);
-                    }
-                }
-            });
+        if (agg.snapshotCurrent < agg.snapshotRequired
+                && !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
+            pingTile(kill.tileId, kill.label, "kill", amount, agg.coop, () -> requeue(pendingKillAggregates, kill.tileId,
+                    kill, amount, kill.currentAmount, kill.requiredAmount, () -> flushKills(kill.tileId), COALESCE_FLUSH_MS));
             return;
         }
-
-        final int rolledBack = amount;
         String detail = kill.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
         captureAndSubmitProof(kill.tileId, kill.label, amount, null, "BINGO KILL", detail,
                 "[Auto] " + kill.label + " kill(s) detected by RuneLite plugin",
-                () -> kill.currentAmount = Math.max(0, kill.currentAmount - rolledBack));
+                () -> kill.currentAmount = Math.max(0, kill.currentAmount - amount));
+    }
+
+    /**
+     * Count-only ping for an intermediate flush — no screenshot. Ids are captured now: the config can
+     * clear (logout) before the task runs. On failure {@code requeue} folds the amount back into the
+     * tile's burst so a later flush retries it.
+     */
+    private void pingTile(int tileId, String label, String noun, int amount, BingoApiClient.CoopFingerprint coop,
+            Runnable requeue) {
+        if (!execLive() || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null
+                || pluginConfig.player == null) {
+            return;
+        }
+        final int eventId = pluginConfig.event.id;
+        final int teamId = pluginConfig.team.id;
+        final int playerId = pluginConfig.player.id;
+        submit(() -> {
+            try {
+                warnStartProofBeforeCredit();
+                apiClient.submitDrop(eventId, tileId, teamId, amount, null,
+                        "[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null);
+                log.info("{} ping sent: '{}' ×{}", noun, label, amount);
+                refreshConfig();
+            } catch (IOException e) {
+                log.warn("{} ping failed for '{}' ×{} — requeueing: {}", noun, label, amount, e.getMessage());
+                requeue.run();
+            }
+        });
+    }
+
+    /** Fold a failed ping's amount back into its tile's burst and restart the burst's settle timer. */
+    private <T> void requeue(Map<Integer, Aggregate<T>> pending, int tileId, T tile, int amount, int current,
+            int required, Runnable flush, long ms) {
+        synchronized (pending) {
+            Aggregate<T> retry = pending.computeIfAbsent(tileId, k -> new Aggregate<>(tile));
+            retry.total += amount;
+            settle(retry, current, required, flush, ms);
+        }
     }
 
     /* ----------------------------- Item-gain tiles ----------------------------- */
@@ -4746,18 +4713,12 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         synchronized (pendingGainAggregates) {
-            GainAggregate agg = pendingGainAggregates.get(gain.tileId);
-            if (agg == null) {
-                agg = new GainAggregate(gain);
-                pendingGainAggregates.put(gain.tileId, agg);
+            Aggregate<PluginConfigResponse.TrackedGain> agg =
+                    pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new Aggregate<>(gain));
+            if (agg.total == 0) {
                 sendChatMessage("Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
             }
-            agg.totalAmount += amount;
-            agg.snapshotCurrent = gain.currentAmount;
-            agg.snapshotRequired = gain.requiredAmount;
-            if (agg.flushTask != null) {
-                agg.flushTask.cancel(false);
-            }
+            agg.total += amount;
             // Flush immediately once the tile is done — the completing proof shouldn't wait out the
             // settle window. Otherwise coalesce trickle catches, but cap the total hold so a non-stop
             // gather still flushes (and syncs the server) ~every GAIN_MAX_HOLD_MS instead of deferring
@@ -4766,146 +4727,112 @@ public class AnvilPlugin extends Plugin {
             long delay = gain.currentAmount >= gain.requiredAmount
                     ? 1_500
                     : Math.max(1_500, Math.min(GAIN_COALESCE_MS, GAIN_MAX_HOLD_MS - heldFor));
-            agg.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), delay, TimeUnit.MILLISECONDS);
+            settle(agg, gain.currentAmount, gain.requiredAmount, () -> flushGains(gain.tileId), delay);
         }
     }
 
-    private void flushGainAggregate(int tileId) {
-        GainAggregate agg;
-        synchronized (pendingGainAggregates) {
-            agg = pendingGainAggregates.remove(tileId);
-        }
-        if (agg == null || agg.totalAmount <= 0) {
-            return;
-        }
-        long sinceLast = System.currentTimeMillis() - lastUploadAt;
-        if (sinceLast < UPLOAD_THROTTLE_MS) {
-            long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (execLive()) {
-                executor.schedule(() -> doSubmitGainAggregate(agg), delay, TimeUnit.MILLISECONDS);
-            }
-            return;
-        }
-        doSubmitGainAggregate(agg);
+    private void flushGains(int tileId) {
+        flushAggregate(pendingGainAggregates, tileId, this::submitGainBurst);
     }
 
-    private void doSubmitGainAggregate(GainAggregate agg) {
-        lastUploadAt = System.currentTimeMillis();
-        final PluginConfigResponse.TrackedGain gain = agg.gain;
-        final int amount = agg.totalAmount;
-
+    private void submitGainBurst(Aggregate<PluginConfigResponse.TrackedGain> agg) {
+        final PluginConfigResponse.TrackedGain gain = agg.tile;
+        final int amount = agg.total;
         // Intermediate flushes are count-only pings — AFK gathering flushes every time the
         // inventory fills or the spot depletes, and a screenshot per cycle would swamp the
         // media store for zero evidentiary value. The single proof screenshot lands on the
         // flush that completes the tile (manual web submissions still require an image).
         if (agg.snapshotCurrent < agg.snapshotRequired) {
-            if (!execLive()
-                    || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
-                return;
-            }
-            // Capture ids now — the config can clear (logout) before the task runs.
-            final int eventId = pluginConfig.event.id;
-            final int teamId = pluginConfig.team.id;
-            final int playerId = pluginConfig.player.id;
-            executor.submit(() -> {
-                try {
-                    warnStartProofBeforeCredit();
-                    apiClient.submitDrop(eventId, gain.tileId, teamId,
-                            amount, null, "[Auto] " + gain.label + " gain(s) counted by RuneLite plugin",
-                            playerId, null);
-                    log.info("Gain ping sent: '{}' ×{}", gain.label, amount);
-                    refreshConfig();
-                } catch (IOException e) {
-                    log.warn("Gain ping failed for '{}' ×{} — requeueing: {}", gain.label, amount, e.getMessage());
-                    // Fold the amount back into the aggregate so a later flush retries it.
-                    synchronized (pendingGainAggregates) {
-                        GainAggregate retry = pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new GainAggregate(gain));
-                        retry.totalAmount += amount;
-                        retry.snapshotCurrent = gain.currentAmount;
-                        retry.snapshotRequired = gain.requiredAmount;
-                        if (retry.flushTask != null) {
-                            retry.flushTask.cancel(false);
-                        }
-                        retry.flushTask = executor.schedule(() -> flushGainAggregate(gain.tileId), GAIN_COALESCE_MS, TimeUnit.MILLISECONDS);
-                    }
-                }
-            });
+            pingTile(gain.tileId, gain.label, "gain", amount, null, () -> requeue(pendingGainAggregates, gain.tileId,
+                    gain, amount, gain.currentAmount, gain.requiredAmount, () -> flushGains(gain.tileId), GAIN_COALESCE_MS));
             return;
         }
-
-        final int rolledBack = amount;
         String detail = gain.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
         captureAndSubmitProof(gain.tileId, gain.label, amount, null, "BINGO GAIN", detail,
                 "[Auto] " + gain.label + " gain(s) detected by RuneLite plugin",
-                () -> gain.currentAmount = Math.max(0, gain.currentAmount - rolledBack));
+                () -> gain.currentAmount = Math.max(0, gain.currentAmount - amount));
     }
 
     /**
-     * Shared capture → bake → persist → upload → submit path for kill and timed
-     * tiles. Mirrors captureAndSubmit (drops) but takes primitives plus an
-     * optional durationSeconds (non-null = timed) and a rollback to run if the
-     * screenshot capture fails.
+     * Shared capture → bake → persist → upload → submit path for kill, timed and the other
+     * non-drop tiles; a rollback runs if the screenshot capture fails.
      */
     private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
             String bannerTitle, String bannerDetail, String note, Runnable rollback) {
+        submitProof(tileId, label, amount, durationSeconds, null, null, null, bannerTitle, bannerDetail, note,
+                "Submitted: " + label, rollback);
+    }
+
+    /**
+     * The one capture → bake → persist → upload → submit path every auto-credited tile ends in.
+     *
+     * <p>Two-frame proof for drops: the at-drop frame (stashed when the burst started) stacked above
+     * this flush frame, taken COALESCE_FLUSH_MS later once floor loot has settled; everything else
+     * (and a drop whose trigger frame never arrived) gets the single frame. The banner is drawn on
+     * the image itself, so the drop is unambiguous even when the in-game loot popup has already
+     * faded, and it ends up in the saved PNG regardless of overlay timing. Persisted to disk first so
+     * it survives a crash/close; the character it was obtained on rides along, so a drop caught on a
+     * non-enrolled alt can't be credited to the enrolled account later.
+     */
+    private void submitProof(int tileId, String label, int amount, Integer durationSeconds, Integer itemId,
+            String inferred, BufferedImage triggerFrame, String bannerTitle, String bannerDetail, String note,
+            String submitted, Runnable rollback) {
         if (pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
             return;
         }
-        noteLocalProgress(tileId); // "Active now": this account credited this tile (kill/timed/diary/CA/...)
+        noteLocalProgress(tileId); // "Active now": this account credited this tile (drop/kill/timed/diary/CA/...)
         final int eventId = pluginConfig.event.id;
         final int teamId = pluginConfig.team.id;
         final int playerId = pluginConfig.player.id;
         final String capturedRsn = getLocalPlayerName();
+        // Item icon, so it's baked into the proof even with chat off.
+        final BufferedImage icon = itemId != null ? itemManager.getImage(itemId) : null;
 
-        drawManager.requestNextFrameListener(image -> {
-            if (!execLive()) {
-                return;
-            }
-            executor.submit(() -> {
-                try {
-                    BufferedImage buffered = (BufferedImage) image;
-                    annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, null);
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-                    byte[] pngBytes = baos.toByteArray();
-
-                    PendingSubmissionStore.PendingSubmission pending = new PendingSubmissionStore.PendingSubmission();
-                    pending.eventId = eventId;
-                    pending.tileId = tileId;
-                    pending.teamId = teamId;
-                    pending.playerId = playerId;
-                    pending.amount = amount;
-                    pending.label = label;
-                    pending.note = note;
-                    pending.timestamp = System.currentTimeMillis();
-                    pending.itemId = null;
-                    pending.durationSeconds = durationSeconds;
-                    pending.capturedRsn = capturedRsn;
-
-                    String savedId = pendingSubmissionStore.save(pending, pngBytes);
-                    if (savedId == null) {
-                        log.error("Failed to persist submission '{}' to disk", label);
-                        return;
-                    }
-
-                    sendChatMessage("Uploading proof: " + label + "...");
-                    boolean success = processPendingSubmission(pending);
-                    if (success) {
-                        sendChatMessage("Submitted: " + label);
-                        retryBackoffMs = 30_000;
-                    } else {
-                        notifyUploadFailed(label);
-                    }
-                    refreshConfig();
-                } catch (IOException e) {
-                    log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
-                    sendChatMessage("Screenshot failed for " + label + ": " + e.getMessage());
-                    if (rollback != null) {
-                        rollback.run();
-                    }
+        onNextFrame(image -> {
+            try {
+                BufferedImage buffered = composeDualProof(triggerFrame, image);
+                annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, icon);
+                byte[] png = png(buffered);
+                PendingSubmissionStore.PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
+                pending.itemId = itemId;
+                pending.durationSeconds = durationSeconds;
+                pending.inferred = inferred;
+                if (pendingSubmissionStore.save(pending, png) == null) {
+                    log.error("Failed to persist submission '{}' to disk", label);
+                    return;
                 }
-            });
-        });
+                sendChatMessage("Uploading proof: " + label + "...");
+                if (processPendingSubmission(pending)) {
+                    sendChatMessage(submitted);
+                    retryBackoffMs = 30_000;
+                } else {
+                    notifyUploadFailed(label);
+                }
+                // Refresh config from server to sync all counts.
+                refreshConfig();
+            } catch (IOException e) {
+                log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
+                sendChatMessage("Screenshot failed for " + label + ": " + e.getMessage());
+                if (rollback != null) {
+                    rollback.run();
+                }
+            }
+        }, null);
+    }
+
+    private static PendingSubmissionStore.PendingSubmission pending(int eventId, int tileId, int teamId, int playerId,
+            int amount, String label, String note, String rsn) {
+        PendingSubmissionStore.PendingSubmission p = new PendingSubmissionStore.PendingSubmission();
+        p.eventId = eventId;
+        p.tileId = tileId;
+        p.teamId = teamId;
+        p.playerId = playerId;
+        p.amount = amount;
+        p.label = label;
+        p.note = note;
+        p.timestamp = System.currentTimeMillis();
+        p.capturedRsn = rsn;
+        return p;
     }
 
     /* ----------------------------- Timed-clear tiles ----------------------------- */
@@ -5169,17 +5096,6 @@ public class AnvilPlugin extends Plugin {
                 + "Find it in the Anvil side panel → \"Saved proofs\".");
     }
 
-    /**
-     * Burns a self-attesting proof banner onto the top-left of the screenshot:
-     * the item (icon + name + count), the RSN it was obtained on, team, event
-     * and UTC time. Baked unconditionally so the saved PNG stands on its own
-     * regardless of chat being off or the overlay rendering.
-     */
-    private void annotateDropScreenshot(BufferedImage img, String label, int amount, int current, int required,
-            String rsn, BufferedImage itemIcon) {
-        String detail = label + "  ×" + amount + "  (" + current + "/" + required + ")";
-        annotateProofBanner(img, "BINGO DROP", detail, rsn, itemIcon);
-    }
 
     /**
      * Burns a self-attesting proof banner (title + detail line +
@@ -5284,46 +5200,22 @@ public class AnvilPlugin extends Plugin {
         final int teamId = pluginConfig != null && pluginConfig.team != null ? pluginConfig.team.id : 0;
         final int playerId = pluginConfig != null && pluginConfig.player != null ? pluginConfig.player.id : 0;
         final String capturedRsn = getLocalPlayerName();
-        drawManager.requestNextFrameListener(image -> {
-            if (!execLive()) {
-                return;
-            }
-            executor.submit(() -> {
-                try {
-                    // Copy the shared frame before annotating so we don't mutate the draw manager's buffer.
-                    BufferedImage src = (BufferedImage) image;
-                    BufferedImage buffered = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
-                    Graphics2D g = buffered.createGraphics();
-                    g.drawImage(src, 0, 0, null);
-                    g.dispose();
-                    annotateProofBanner(buffered, "BINGO", label, capturedRsn, null);
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-
-                    PendingSubmissionStore.PendingSubmission pending = new PendingSubmissionStore.PendingSubmission();
-                    pending.eventId = eventId;
-                    pending.tileId = -1; // no tile — manual proof
-                    pending.teamId = teamId;
-                    pending.playerId = playerId;
-                    pending.amount = 1;
-                    pending.label = label;
-                    pending.note = note;
-                    pending.timestamp = System.currentTimeMillis();
-                    pending.capturedRsn = capturedRsn;
-                    pending.manual = true;
-
-                    String savedId = pendingSubmissionStore.save(pending, baos.toByteArray());
-                    if (savedId != null) {
-                        sendChatMessage(label + " — proof saved. Submit it on the Anvil site "
-                                + "(Anvil side panel → \"Saved proofs\").");
-                    } else {
-                        log.error("Failed to persist manual proof '{}'", label);
-                    }
-                } catch (IOException e) {
-                    log.error("Failed to capture manual proof '{}': {}", label, e.getMessage());
+        onNextFrame(image -> {
+            try {
+                byte[] png = bakeCopy(image, "BINGO", label, capturedRsn);
+                // No tile — a manual proof.
+                PendingSubmissionStore.PendingSubmission pending = pending(eventId, -1, teamId, playerId, 1, label, note, capturedRsn);
+                pending.manual = true;
+                if (pendingSubmissionStore.save(pending, png) != null) {
+                    sendChatMessage(label + " — proof saved. Submit it on the Anvil site "
+                            + "(Anvil side panel → \"Saved proofs\").");
+                } else {
+                    log.error("Failed to persist manual proof '{}'", label);
                 }
-            });
-        });
+            } catch (IOException e) {
+                log.error("Failed to capture manual proof '{}': {}", label, e.getMessage());
+            }
+        }, null);
     }
 
     /**
@@ -5398,122 +5290,25 @@ public class AnvilPlugin extends Plugin {
                 ? null
                 : Instant.ofEpochMilli(loginAtMs).toString();
 
-        drawManager.requestNextFrameListener(image -> {
-            if (!execLive()) {
+        onNextFrame(image -> {
+            try {
+                String detail = keyword != null ? keyword : "";
+                if (location != null && !location.isEmpty()) {
+                    detail = detail.isEmpty() ? location : detail + "  @  " + location;
+                }
+                byte[] png = bakeCopy(image, "STARTING SHOT", detail, capturedRsn);
+                String imageUrl = apiClient.uploadImage(png, "start-proof-" + eventId + ".png");
+                apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
+                startProofFiled = true;
+                sendChatMessage("Starting shot sent. You're clear to play.");
+                refreshConfig();
+            } catch (IOException e) {
+                log.error("Failed to file starting shot: {}", e.getMessage());
+                sendChatMessage("Starting shot failed: " + e.getMessage() + " — try again.");
+            } finally {
                 startProofInFlight = false;
-                return;
             }
-            executor.submit(() -> {
-                try {
-                    // Copy the shared frame before annotating — never mutate the draw manager's buffer.
-                    BufferedImage src = (BufferedImage) image;
-                    BufferedImage buffered = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
-                    Graphics2D g = buffered.createGraphics();
-                    g.drawImage(src, 0, 0, null);
-                    g.dispose();
-
-                    String detail = keyword != null ? keyword : "";
-                    if (location != null && !location.isEmpty()) {
-                        detail = detail.isEmpty() ? location : detail + "  @  " + location;
-                    }
-                    annotateProofBanner(buffered, "STARTING SHOT", detail, capturedRsn, null);
-
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-
-                    String imageUrl = apiClient.uploadImage(baos.toByteArray(), "start-proof-" + eventId + ".png");
-                    apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
-                    startProofFiled = true;
-                    sendChatMessage("Starting shot sent. You're clear to play.");
-                    refreshConfig();
-                } catch (IOException e) {
-                    log.error("Failed to file starting shot: {}", e.getMessage());
-                    sendChatMessage("Starting shot failed: " + e.getMessage() + " — try again.");
-                } finally {
-                    startProofInFlight = false;
-                }
-            });
-        });
-    }
-
-    private void captureAndSubmit(PluginConfigResponse.TrackedDrop drop, int amount, int snapshotCurrent, int snapshotRequired, Integer trackingItemId,
-            BufferedImage triggerFrame, String inferred) {
-        noteLocalProgress(drop.tileId); // "Active now": this account credited this drop tile
-        // Capture IDs now (before async) since pluginConfig could change
-        final int eventId = pluginConfig.event.id;
-        final int teamId = pluginConfig.team.id;
-        final int playerId = pluginConfig.player.id;
-        // The character this drop was obtained on (read on the client thread). The submission is only
-        // ever sent while logged into this same account, so a drop caught on a non-enrolled alt can't
-        // be credited to the enrolled account later.
-        final String capturedRsn = getLocalPlayerName();
-        // Item icon, fetched on the client thread so it's baked into the proof even with chat off.
-        final BufferedImage capturedIcon = trackingItemId != null ? itemManager.getImage(trackingItemId) : null;
-
-        drawManager.requestNextFrameListener(image
-                -> {
-            if (!execLive()) {
-                return;
-            }
-            executor.submit(()
-                    -> {
-                try {
-                    // Two-frame proof: the at-drop frame (stashed when the burst started) stacked
-                    // above this flush frame, taken COALESCE_FLUSH_MS later once floor loot has
-                    // settled. Falls back to the single flush frame when the toggle is off or the
-                    // trigger frame never arrived.
-                    BufferedImage buffered = composeDualProof(triggerFrame, (BufferedImage) image);
-                    // Annotate the screenshot directly with a high-contrast banner so the
-                    // drop is unambiguous even when the in-game loot popup has already
-                    // faded or never rendered (5-stack pickups can fade quickly). Drawing
-                    // on the image guarantees it ends up in the saved PNG regardless of
-                    // overlay timing.
-                    annotateDropScreenshot(buffered, drop.label, amount, snapshotCurrent, snapshotRequired, capturedRsn, capturedIcon);
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-                    byte[] pngBytes = baos.toByteArray();
-
-                    // Persist to disk first so it survives a crash/close
-                    PendingSubmissionStore.PendingSubmission pending = new PendingSubmissionStore.PendingSubmission();
-                    pending.eventId = eventId;
-                    pending.tileId = drop.tileId;
-                    pending.teamId = teamId;
-                    pending.playerId = playerId;
-                    pending.amount = amount;
-                    pending.label = drop.label;
-                    pending.note = "[Auto] " + drop.label + " detected by RuneLite plugin";
-                    pending.timestamp = System.currentTimeMillis();
-                    pending.itemId = trackingItemId;
-                    pending.capturedRsn = capturedRsn;
-                    pending.inferred = inferred;
-
-                    String savedId = pendingSubmissionStore.save(pending, pngBytes);
-                    if (savedId == null) {
-                        log.error("Failed to persist drop '{}' to disk", drop.label);
-                        return;
-                    }
-
-                    // Now upload and submit
-                    sendChatMessage("Uploading proof: " + drop.label + "...");
-                    boolean success = processPendingSubmission(pending);
-
-                    if (success) {
-                        sendChatMessage("Drop submitted: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
-                        // Reset backoff on success
-                        retryBackoffMs = 30_000;
-                    } else {
-                        notifyUploadFailed(drop.label);
-                    }
-
-                    // Refresh config from server to sync all counts
-                    refreshConfig();
-                } catch (IOException e) {
-                    log.error("Failed to capture screenshot for '{}': {}", drop.label, e.getMessage());
-                    sendChatMessage("Screenshot failed for " + drop.label + ": " + e.getMessage());
-                    drop.currentAmount = Math.max(0, drop.currentAmount - amount);
-                }
-            });
-        });
+        }, () -> startProofInFlight = false);
     }
 
     /**
@@ -7459,7 +7254,7 @@ public class AnvilPlugin extends Plugin {
             tileIds = new ArrayList<>(pendingGainAggregates.keySet());
         }
         for (int tileId : tileIds) {
-            flushGainAggregate(tileId);
+            flushGains(tileId);
         }
     }
 
@@ -9551,31 +9346,56 @@ public class AnvilPlugin extends Plugin {
      */
     private void captureFrameAsync(Consumer<byte[]> consumer) {
         AtomicBoolean delivered = new AtomicBoolean(false);
-        drawManager.requestNextFrameListener(image -> {
-            if (!execLive()) {
-                return;
+        onNextFrame(image -> {
+            byte[] png = null;
+            try {
+                png = png(image);
+            } catch (Exception e) {
+                log.debug("Frame capture failed: {}", e.getMessage());
             }
-            executor.submit(() -> {
-                byte[] png = null;
-                try {
-                    BufferedImage buffered = (BufferedImage) image;
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(buffered, "png", baos);
-                    png = baos.toByteArray();
-                } catch (Exception e) {
-                    log.debug("Anvil frame capture failed: {}", e.getMessage());
-                }
-                if (delivered.compareAndSet(false, true)) {
-                    consumer.accept(png);
-                }
-            });
-        });
+            if (delivered.compareAndSet(false, true)) {
+                consumer.accept(png);
+            }
+        }, null);
         later(() -> {
             if (delivered.compareAndSet(false, true)) {
                 log.info("No frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
                 consumer.accept(null);
             }
         }, FRAME_CAPTURE_TIMEOUT_MS);
+    }
+
+    /**
+     * The next rendered frame, handed to {@code work} on the executor. The frame listener fires on
+     * the client/AWT thread, so encoding and sending never hold up the game loop. {@code dead} runs
+     * instead when the executor has gone away in the meantime.
+     */
+    private void onNextFrame(Consumer<BufferedImage> work, Runnable dead) {
+        drawManager.requestNextFrameListener(image -> {
+            if (!execLive()) {
+                if (dead != null) {
+                    dead.run();
+                }
+                return;
+            }
+            executor.submit(() -> work.accept((BufferedImage) image));
+        });
+    }
+
+    private static byte[] png(BufferedImage img) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(img, "png", baos);
+        return baos.toByteArray();
+    }
+
+    /** Copy the shared frame — never mutate the draw manager's buffer — burn the proof banner on, encode. */
+    private byte[] bakeCopy(BufferedImage src, String title, String detail, String rsn) throws IOException {
+        BufferedImage copy = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = copy.createGraphics();
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+        annotateProofBanner(copy, title, detail, rsn, null);
+        return png(copy);
     }
 
     /**
