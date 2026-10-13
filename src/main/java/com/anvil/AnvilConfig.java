@@ -13,13 +13,6 @@ public interface AnvilConfig extends Config
 	// clan-wide Discord posts that fire with or without an active bingo.
 
 	@ConfigSection(
-		name = "General",
-		description = "Anvil across the client, with or without an event.",
-		position = 1
-	)
-	String generalSection = "generalSection";
-
-	@ConfigSection(
 		name = "Bingo",
 		description = "In-event behaviour — only matters while you're in a bingo.",
 		position = 2
@@ -50,9 +43,8 @@ public interface AnvilConfig extends Config
 
 	@ConfigSection(
 		name = "Player lookup",
-		description = "Where the \"Anvil\" option appears on player names.",
-		position = 6,
-		closedByDefault = true
+		description = "The \"Anvil\" option on player names, and where it appears.",
+		position = 1
 	)
 	String lookupSection = "lookupSection";
 
@@ -87,9 +79,9 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "profileLookupMenu",
 		name = "Anvil lookup on players",
-		description = "Adds an \"Anvil\" option on player names that opens their profile; pick where under Player lookup.",
-		position = 1,
-		section = "generalSection"
+		description = "Adds an \"Anvil\" option on player names that opens their profile; off hides it everywhere.",
+		position = 0,
+		section = "lookupSection"
 	)
 	default boolean profileLookupMenu()
 	{
@@ -361,7 +353,7 @@ public interface AnvilConfig extends Config
 
 	@ConfigItem(
 		keyName = "caMinTaskTier",
-		name = "Announce combat achievements",
+		name = "CA post tier",
 		description = "Post combat tasks at or above this tier, plus tier clears; Off posts none. Bingo tiles still count.",
 		position = 2,
 		section = "caSection"
@@ -412,7 +404,7 @@ public interface AnvilConfig extends Config
 
 	@ConfigItem(
 		keyName = "questAnnounce",
-		name = "Announce quest completions",
+		name = "Quest post tier",
 		description = "Post quest completions at or above this difficulty to the clan; Off posts none. Bingo tiles still count.",
 		position = 9,
 		section = "caSection"
