@@ -301,7 +301,7 @@ public class PluginConfigResponse
 	 * whatever they sell for, so an untradeable unique reaches the event's luck boards and not only
 	 * its first collection-log unlock. Null on older sites.
 	 */
-	public java.util.List<Integer> luckItemIds;
+	public List<Integer> luckItemIds;
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 
@@ -664,6 +664,6 @@ public class PluginConfigResponse
 		// The caller is never included (the plugin marks itself "You"). null on older servers that don't
 		// compute it (the sidebar then falls back to an unnamed "a teammate" via config-count deltas);
 		// an empty list means the server DID compute it and no teammate is currently active.
-		public java.util.List<String> activeWorkers;
+		public List<String> activeWorkers;
 	}
 }

@@ -4,7 +4,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.IntUnaryOperator;
@@ -179,7 +178,7 @@ final class ActivityStats
 			return null;
 		}
 		double percent = (obtained * 100d) / total;
-		return String.format(Locale.ROOT, "%d/%d (%.1f%%)", obtained, total, percent);
+		return String.format(java.util.Locale.ROOT, "%d/%d (%.1f%%)", obtained, total, percent);
 	}
 
 	/**

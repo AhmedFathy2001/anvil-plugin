@@ -1,6 +1,5 @@
 package com.anvil;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -227,7 +226,7 @@ final class AccountProgress
 	 */
 	static List<Item> quests(Client client)
 	{
-		List<Item> out = new ArrayList<>();
+		List<Item> out = new java.util.ArrayList<>();
 		if (client == null)
 		{
 			return out;

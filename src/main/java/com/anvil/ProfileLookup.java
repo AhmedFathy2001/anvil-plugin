@@ -3,6 +3,7 @@ package com.anvil;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.function.Predicate;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import net.runelite.api.Client;
@@ -52,7 +53,7 @@ final class ProfileLookup
 
 	private boolean playerItemShown;
 	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
-	private volatile java.util.function.Predicate<String> panelOpener;
+	private volatile Predicate<String> panelOpener;
 
 	@Inject
 	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus)
@@ -147,7 +148,7 @@ final class ProfileLookup
 		}
 	}
 
-	void setPanelOpener(java.util.function.Predicate<String> opener)
+	void setPanelOpener(Predicate<String> opener)
 	{
 		this.panelOpener = opener;
 	}
@@ -155,7 +156,7 @@ final class ProfileLookup
 	/** The panel's Lookup tab when it can show cards, the browser when it can't. */
 	private void lookUp(String rsn)
 	{
-		java.util.function.Predicate<String> opener = panelOpener;
+		Predicate<String> opener = panelOpener;
 		if (opener != null && rsn != null && opener.test(rsn))
 		{
 			return;

@@ -117,10 +117,7 @@ final class ClogFullSync
 	/** The push landed: drop the batch and stand down until the next transmit. */
 	void onSent()
 	{
-		items.clear();
-		receiving = false;
-		manual = false;
-		lastItemAt = 0;
+		reset();
 	}
 
 	/**

@@ -75,54 +75,30 @@ final class DuplicateInference
 		return found;
 	}
 
+	// Champion's scrolls by NPC name, checked in order: "x*" is a prefix (hobgoblin before goblin),
+	// "*x" a suffix, anything else the whole name.
+	private static final String[] CHAMPION_NPCS = {
+		"hobgoblin*", "goblin*", "imp", "skeleton*", "zombie*", "ghoul", "earth warrior", "jogre", "lesser demon", "* giant",
+	};
+	private static final int[] CHAMPION_SCROLLS = {
+		ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN, ItemID.CHAMPIONS_CHALLENGE_GOBLIN, ItemID.CHAMPIONS_CHALLENGE_IMP,
+		ItemID.CHAMPIONS_CHALLENGE_SKELETON, ItemID.CHAMPIONS_CHALLENGE_ZOMBIE, ItemID.CHAMPIONS_CHALLENGE_GHOUL,
+		ItemID.CHAMPIONS_CHALLENGE_EARTHWARRIOR, ItemID.CHAMPIONS_CHALLENGE_JOGRE, ItemID.CHAMPIONS_CHALLENGE_LESSERDEMON,
+		ItemID.CHAMPIONS_CHALLENGE_GIANT,
+	};
+
 	/** The champion's scroll item id {@code npc} drops, or null. */
 	static Integer championScrollFor(String npc)
 	{
-		if (npc == null)
+		String n = npc == null ? null : npc.trim().toLowerCase(Locale.ROOT);
+		for (int i = 0; n != null && i < CHAMPION_NPCS.length; i++)
 		{
-			return null;
-		}
-		String n = npc.trim().toLowerCase(Locale.ROOT);
-		// Hobgoblin before goblin: one contains the other.
-		if (n.startsWith("hobgoblin"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN;
-		}
-		if (n.startsWith("goblin"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_GOBLIN;
-		}
-		if (n.equals("imp"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_IMP;
-		}
-		if (n.startsWith("skeleton"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_SKELETON;
-		}
-		if (n.startsWith("zombie"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_ZOMBIE;
-		}
-		if (n.equals("ghoul"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_GHOUL;
-		}
-		if (n.equals("earth warrior"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_EARTHWARRIOR;
-		}
-		if (n.equals("jogre"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_JOGRE;
-		}
-		if (n.equals("lesser demon"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_LESSERDEMON;
-		}
-		if (n.endsWith(" giant"))
-		{
-			return ItemID.CHAMPIONS_CHALLENGE_GIANT;
+			String k = CHAMPION_NPCS[i];
+			if (k.endsWith("*") ? n.startsWith(k.substring(0, k.length() - 1))
+				: k.startsWith("*") ? n.endsWith(k.substring(1)) : n.equals(k))
+			{
+				return CHAMPION_SCROLLS[i];
+			}
 		}
 		return null;
 	}

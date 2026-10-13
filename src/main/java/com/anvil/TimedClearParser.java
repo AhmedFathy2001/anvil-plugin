@@ -76,35 +76,23 @@ final class TimedClearParser
 	// -> "tzkal-zuk", Colosseum -> "sol heredit"). Default signature is the activity name itself.
 	private static final Map<String, List<String>> SIGNATURES = new HashMap<>();
 
-	// {activity, signature…}
+	// {"activity|alias…", signature…}
 	private static final String[][] SIGNATURE_TABLE = {
 		{"inferno", "tzkal-zuk", "inferno"},
 		{"fight caves", "tztok-jad", "fight cave"},
-		{"chambers of xeric", "chambers of xeric"},
-		{"theatre of blood", "theatre of blood"},
-		{"tombs of amascut", "tombs of amascut"},
 		// Raid-mode shorthands, so a mode tile matches however the admin phrased it. Colons and
 		// spacing are already folded away by norm(), so we only enumerate the abbreviations here;
 		// each pins the EXACT game count-line substring. A CM/HM/Expert tile must carry the full
 		// mode text so a *base*-mode clear (whose line omits it) can't wrongly complete it — while a
 		// base-raid tile keeps matching every harder mode (the mode line contains the base name).
-		{"cox", "chambers of xeric"},
-		{"cox cm", "chambers of xeric challenge mode"},
-		{"cox challenge mode", "chambers of xeric challenge mode"},
-		{"chambers of xeric cm", "chambers of xeric challenge mode"},
-		{"tob", "theatre of blood"},
-		{"tob hm", "theatre of blood hard mode"},
-		{"tob hard mode", "theatre of blood hard mode"},
-		{"theatre of blood hm", "theatre of blood hard mode"},
-		{"toa", "tombs of amascut"},
-		{"toa em", "tombs of amascut expert mode"},
-		{"toa expert", "tombs of amascut expert mode"},
-		{"toa expert mode", "tombs of amascut expert mode"},
-		{"tombs of amascut em", "tombs of amascut expert mode"},
-		{"fortis colosseum", "sol heredit", "colosseum"},
-		{"colosseum", "sol heredit", "colosseum"},
-		{"the nightmare", "nightmare"},
-		{"nightmare", "nightmare"},
+		{"chambers of xeric|cox", "chambers of xeric"},
+		{"cox cm|cox challenge mode|chambers of xeric cm", "chambers of xeric challenge mode"},
+		{"theatre of blood|tob", "theatre of blood"},
+		{"tob hm|tob hard mode|theatre of blood hm", "theatre of blood hard mode"},
+		{"tombs of amascut|toa", "tombs of amascut"},
+		{"toa em|toa expert|toa expert mode|tombs of amascut em", "tombs of amascut expert mode"},
+		{"fortis colosseum|colosseum", "sol heredit", "colosseum"},
+		{"the nightmare|nightmare", "nightmare"},
 		{"phosani's nightmare", "phosani's nightmare"},
 		{"tzhaar-ket-rak", "tzhaar-ket-rak"},
 		// The completion line reads "Your Gauntlet completion count is: N" — it never contains
@@ -124,20 +112,21 @@ final class TimedClearParser
 		// Sailing Barracuda Trials: no chat line ever says "barracuda", so a generic
 		// any-trial tile needs the three course names. Tiles naming a specific course
 		// ("Gwenith Glide") ride the plain fallback — both flanking lines name it.
-		{"barracuda trials", "tempor tantrum", "jubbly jive", "gwenith glide"},
-		{"barracuda trial", "tempor tantrum", "jubbly jive", "gwenith glide"},
+		{"barracuda trials|barracuda trial", "tempor tantrum", "jubbly jive", "gwenith glide"},
 		// Hallowed Sepulchre full runs: no chat line says "sepulchre" either — the exit
 		// message is "Overall time: 26:39.20", which both carries the time and identifies
 		// the run. Floor tiles ("Floor 5") ride the fallback against "Floor 5 time: ...".
-		{"hallowed sepulchre", "overall time"},
-		{"sepulchre", "overall time"}
+		{"hallowed sepulchre|sepulchre", "overall time"}
 	};
 
 	static
 	{
 		for (String[] row : SIGNATURE_TABLE)
 		{
-			SIGNATURES.put(row[0], Arrays.asList(row).subList(1, row.length));
+			for (String activity : row[0].split("\\|"))
+			{
+				SIGNATURES.put(activity, Arrays.asList(row).subList(1, row.length));
+			}
 		}
 	}
 
