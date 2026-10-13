@@ -8195,7 +8195,9 @@ public class AnvilPlugin extends Plugin {
      * task pushed total points across a tier threshold.
      */
     private void handleCombatAchievements(List<PendingCaTask> batch) {
-        boolean announce = notifyEnabled("combatAchievements");
+        // Off in the dropdown silences every CA post, tier clears too; tile credit happened upstream.
+        CaAnnounceTier floor = config.caMinTaskTier();
+        boolean announce = floor != CaAnnounceTier.OFF && notifyEnabled("combatAchievements");
 
         int total = client.getVarbitValue(VarbitID.CA_POINTS);
         // Points before this batch — only used to detect a tier-threshold crossing. With no baseline
@@ -8235,7 +8237,7 @@ public class AnvilPlugin extends Plugin {
             // are worth showing — a tier floor belongs where the clan can change it without a
             // plugin release. The chat announcement keeps its own local floor.
             noteCombatTaskMoment(pending.tier, pending.task);
-            if (announce && pending.tier.ordinal() >= config.caMinTaskTier().ordinal()) {
+            if (announce && floor.posts(pending.tier)) {
                 postCombatTask(pending.tier, pending.task, total);
             }
         }
@@ -8322,13 +8324,17 @@ public class AnvilPlugin extends Plugin {
 
     /**
      * Posts an achievement-diary tier completion to the clan achievements
-     * channel — same hook as combat achievements and 99s. Message-only.
+     * channel with a screenshot of the moment, like a combat task.
      */
     private void maybeNotifyDiaryCompletion(String area, String tier) {
-        if (config.notifyDiaries() && notifyEnabled("diaries")) {
-            postText("diaries", "📜 Diary completed!", who(getLocalPlayerName()) + " just completed the **" + area
-                    + " " + tier + "** achievement diary!");
+        if (!config.notifyDiaries() || !notifyEnabled("diaries")) {
+            return;
         }
+        String shotName = "anvil-diary.png";
+        JsonObject embed = new Embed().title("📜 Diary completed!").desc(who(getLocalPlayerName())
+                + " just completed the **" + area + " " + tier + "** achievement diary!")
+                .color(CA_EMBED_COLOR).image(shotName).json;
+        captureFrameAsync(png -> apiClient.postNotification("diaries", null, embed, png, shotName));
     }
 
     /**

@@ -361,14 +361,14 @@ public interface AnvilConfig extends Config
 
 	@ConfigItem(
 		keyName = "caMinTaskTier",
-		name = "CA task min tier",
-		description = "Post combat tasks at or above this tier; tier clears always post.",
+		name = "Announce combat achievements",
+		description = "Post combat tasks at or above this tier, plus tier clears; Off posts none. Bingo tiles still count.",
 		position = 2,
 		section = "caSection"
 	)
-	default CombatAchievementTier caMinTaskTier()
+	default CaAnnounceTier caMinTaskTier()
 	{
-		return CombatAchievementTier.MASTER;
+		return CaAnnounceTier.MASTER;
 	}
 
 
@@ -401,7 +401,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "notifyDiaries",
 		name = "Notify on diary completions",
-		description = "Post achievement-diary tier completions to the clan.",
+		description = "Post achievement-diary tier completions to the clan, with a screenshot.",
 		position = 8,
 		section = "caSection"
 	)
@@ -413,7 +413,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "questAnnounce",
 		name = "Announce quest completions",
-		description = "Post quest completions at or above this difficulty to the clan.",
+		description = "Post quest completions at or above this difficulty to the clan; Off posts none. Bingo tiles still count.",
 		position = 9,
 		section = "caSection"
 	)
