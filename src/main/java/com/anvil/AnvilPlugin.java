@@ -7619,6 +7619,9 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         Map<Integer, List<PluginConfigResponse.TrackedDrop>> boardItems = itemDropIndex;
+        PluginConfigResponse cfg = pluginConfig;
+        java.util.Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null && cfg.serverSupports("luck-drops")
+                ? new java.util.HashSet<>(cfg.luckItemIds) : java.util.Collections.emptySet();
         // Merge stacks first — a kill that drops coins twice is one line, not two.
         Map<Integer, Integer> merged = new java.util.LinkedHashMap<>();
         for (ItemStack item : items) {
@@ -7634,13 +7637,19 @@ public class AnvilPlugin extends Plugin {
             int quantity = entry.getValue();
             long price = itemManager.getItemPrice(itemId);
             long value = (long) Math.max(0, price) * quantity;
-            boolean wanted = boardItems != null && boardItems.containsKey(itemId);
+            // A luck item goes up whatever it sells for: an untradeable vestige is worth 0 here.
+            boolean wanted = (boardItems != null && boardItems.containsKey(itemId)) || luckItems.contains(itemId);
             if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) {
                 continue;
             }
             candidates.add(new int[]{itemId, quantity, (int) Math.min(Integer.MAX_VALUE, value)});
         }
-        candidates.sort((a, b) -> Integer.compare(b[2], a[2]));
+        // Luck items first, then by value: the three-per-kill cap must never cut the vestige for a
+        // stack of runes worth more on the GE.
+        candidates.sort((a, b) -> {
+            int luck = Boolean.compare(luckItems.contains(b[0]), luckItems.contains(a[0]));
+            return luck != 0 ? luck : Integer.compare(b[2], a[2]);
+        });
 
         int sent = 0;
         for (int[] c : candidates) {

@@ -329,6 +329,13 @@ public class PluginConfigResponse
 	// Null against an older site, and every read of it degrades to the old guess-from-context
 	// behaviour rather than to nothing.
 	public DropFacts dropFacts;
+
+	/**
+	 * Items that count toward luck on this site (capability 'luck-drops'): reported as moments
+	 * whatever they sell for, so an untradeable unique reaches the event's luck boards and not only
+	 * its first collection-log unlock. Null on older sites.
+	 */
+	public java.util.List<Integer> luckItemIds;
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 
