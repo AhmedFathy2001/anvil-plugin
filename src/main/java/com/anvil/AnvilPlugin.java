@@ -2139,21 +2139,13 @@ public class AnvilPlugin extends Plugin {
         int raidParty = 0;
         if (client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) > 0) {
             // ToA: scoped by a non-zero raid level. Count occupied party slots.
-            for (int slot : TOA_PARTY_SLOTS) {
-                if (client.getVarbitValue(slot) > 0) {
-                    raidParty++;
-                }
-            }
+            raidParty = occupied(TOA_PARTY_SLOTS);
         } else if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) {
             // CoX: the client exposes the party size directly while inside the dungeon.
             raidParty = client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE);
         } else if (client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0) {
             // ToB: scoped by an active party status. Count occupied party slots.
-            for (int slot : TOB_PARTY_SLOTS) {
-                if (client.getVarbitValue(slot) > 0) {
-                    raidParty++;
-                }
-            }
+            raidParty = occupied(TOB_PARTY_SLOTS);
         }
         lastRaidPartySize = raidParty;
         // Baseline CA points once after login (before any completion) so we can tell first
@@ -2192,6 +2184,17 @@ public class AnvilPlugin extends Plugin {
             lootingBagWatchBase = null;
         }
         trackLmsTick();
+    }
+
+    /** How many of a raid's per-slot party varbits are filled. */
+    private int occupied(int[] slots) {
+        int n = 0;
+        for (int slot : slots) {
+            if (client.getVarbitValue(slot) > 0) {
+                n++;
+            }
+        }
+        return n;
     }
 
     /* ------------------------- LMS placement tracking ------------------------- */
@@ -3031,11 +3034,10 @@ public class AnvilPlugin extends Plugin {
                 // Single-haul completion: optimistically mark done so a follow-up haul in the same
                 // stint doesn't double-submit; capture a proof screenshot (rollback reverts on failure).
                 v.completed = true;
-                final PluginConfigResponse.TrackedValue tile = v;
                 log.info("Value tile credited (single): '{}' haul {} gp (threshold {})", v.label, haulGp, v.thresholdGp);
                 captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
                         "[Auto] loot worth " + gp + " (" + v.label + ") detected by RuneLite plugin",
-                        () -> tile.completed = false);
+                        () -> v.completed = false);
             }
         }
     }
@@ -4823,10 +4825,9 @@ public class AnvilPlugin extends Plugin {
             String detail = tile.activity + "  deathless"
                     + (tile.partySize > 0 ? "  party " + partySeen : "")
                     + "  (" + tile.currentAmount + "/" + goal + ")";
-            final PluginConfigResponse.TrackedDeathless credited = tile;
             captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO DEATHLESS", detail,
                     "[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
-                    () -> credited.currentAmount = Math.max(0, credited.currentAmount - 1));
+                    () -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
             any = true;
         }
         return any;
@@ -7282,14 +7283,13 @@ public class AnvilPlugin extends Plugin {
     /** Optimistically bump a PvP tile and submit a baked kill screenshot (rollback reverts on failure). */
     private void creditOnePvpTile(TrackedPvp tile, String victimName) {
         tile.currentAmount += 1;
-        final TrackedPvp ft = tile;
         log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
                 victimName, tile.label, tile.currentAmount, tile.requiredAmount);
         String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
         captureAndSubmitProof(tile.tileId, tile.label, 1, null,
                 "BINGO PVP KILL", detail,
                 "[Auto] PvP kill on " + victimName + " — detected by RuneLite plugin",
-                () -> ft.currentAmount = Math.max(0, ft.currentAmount - 1));
+                () -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
     }
 
     /**
@@ -7384,12 +7384,7 @@ public class AnvilPlugin extends Plugin {
             if (!claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS)) {
                 return;
             }
-            if (contents.size() == 1) {
-                RareItem it = contents.get(0);
-                postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, null);
-            } else {
-                postCombinedRareDrop(source, sourceKind, contents, total);
-            }
+            postRare(source, sourceKind, contents);
             return;
         }
 
@@ -7452,15 +7447,16 @@ public class AnvilPlugin extends Plugin {
             }
         }
 
-        if (qualifying.size() == 1) {
-            RareItem it = qualifying.get(0);
+        postRare(source, sourceKind, qualifying);
+    }
+
+    /** One item posts on its own; several are bundled into one post, so a single kill never produces a surge. */
+    private void postRare(String source, String sourceKind, List<RareItem> items) {
+        if (items.size() == 1) {
+            RareItem it = items.get(0);
             postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, it.dropRate);
-        } else if (qualifying.size() > 1) {
-            long total = 0;
-            for (RareItem it : qualifying) {
-                total += it.value;
-            }
-            postCombinedRareDrop(source, sourceKind, qualifying, total);
+        } else if (items.size() > 1) {
+            postCombinedRareDrop(source, sourceKind, items, items.stream().mapToLong(it -> it.value).sum());
         }
     }
 
@@ -8400,13 +8396,12 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             d.currentAmount += 1;
-            final PluginConfigResponse.TrackedDiary fd = d;
             log.info("Tracked diary completion: {} {} → tile '{}' ({}/{})",
                     area, tier, d.label, d.currentAmount, d.requiredAmount);
             captureAndSubmitProof(d.tileId, d.label, 1, null,
                     "DIARY COMPLETE", area + " " + tier + " Diary",
                     "[Auto] " + area + " " + tier + " diary completed — detected by RuneLite plugin",
-                    () -> fd.currentAmount = Math.max(0, fd.currentAmount - 1));
+                    () -> d.currentAmount = Math.max(0, d.currentAmount - 1));
         }
     }
 
@@ -8438,14 +8433,13 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             t.currentAmount += 1;
-            final TrackedCombatTask ft = t;
             log.info("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
                     tier.getDisplayName(), task, t.label, t.currentAmount, t.requiredAmount);
             captureAndSubmitProof(t.tileId, t.label, 1, null,
                     "COMBAT TASK", tier.getDisplayName() + ": " + task,
                     "[Auto] " + tier.getDisplayName() + " combat task \"" + task + "\" completed — detected by RuneLite plugin",
                     () -> {
-                        ft.currentAmount = Math.max(0, ft.currentAmount - 1);
+                        t.currentAmount = Math.max(0, t.currentAmount - 1);
                         // Un-remember the pair so a failed capture can credit on a later re-fire.
                         creditedCaTaskTiles.remove(dedupKey);
                     });
