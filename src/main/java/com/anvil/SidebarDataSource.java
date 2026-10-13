@@ -120,6 +120,21 @@ public interface SidebarDataSource
 		return null;
 	}
 
+	/** Whether the site serves paged event rosters (the event's Teams page). False ⇒ no Teams row. */
+	default boolean supportsEventRoster()
+	{
+		return false;
+	}
+
+	/**
+	 * One page of an event's roster: {@code teamId > 0} for a team's members, a non-blank
+	 * {@code query} to search players, neither for the ranked overview. Null on failure. Blocking.
+	 */
+	default EventRoster fetchRoster(int eventId, int teamId, String query, int page)
+	{
+		return null;
+	}
+
 	/** Whether the site serves player cards (the Lookup and You tabs). False ⇒ fall back to the browser. */
 	default boolean supportsPlayerCard()
 	{

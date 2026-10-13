@@ -246,6 +246,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private String openCatalogueDetailKey;
 	private int openCatalogueDetailTileId = -1;
 	private boolean showAllActiveTiles;
+	/** The open Teams page, kept across refreshes so its search field and page survive. Null = closed. */
+	private TeamsView teamsView;
 	private int boardCatalogueGeneration;
 	/** Do not replace the whole Swing tree underneath somebody who is typing in the tile search. */
 	private boolean boardSearchFocused;
@@ -1638,7 +1640,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		// A refresh that began just before the member focused Search may finish while they are typing.
 		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.
-		if (boardSearchFocused)
+		if (boardSearchFocused || teamsView != null)
 		{
 			return;
 		}
@@ -1974,6 +1976,19 @@ public class AnvilSidebarPanel extends PluginPanel
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
+		// TEAMS — its own page with a way back, like "All tiles": a roster can be 1,200 names long.
+		if (teamsView != null)
+		{
+			String title = entry != null && !entry.title.isEmpty() ? entry.title : "Event";
+			body.add(backLink(title, this::disposeTeams));
+			body.add(gap(8));
+			body.add(sectionHeader("Teams"));
+			body.add(gap(6));
+			body.add(teamsView);
+			setContent(body);
+			return;
+		}
+
 		if (withBack)
 		{
 			body.add(backLink());
@@ -1997,6 +2012,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			clearLadderRefs();
 			body.add(buildScheduledCard(entry.scheduled));
+			if (dataSource.supportsEventRoster())
+			{
+				final int scheduledId = entry.scheduled.id;
+				body.add(gap(8));
+				body.add(fullWidth(actionButton("Teams", "Who's on which team", () -> openTeams(scheduledId))));
+			}
 			if (entry.scheduled.tileCount > 0)
 			{
 				body.add(gap(12));
@@ -2038,6 +2059,11 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		body.add(buildSummary(selected));
 		body.add(gap(12));
+		if (AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(selected.instanceId) && dataSource.supportsEventRoster())
+		{
+			body.add(fullWidth(actionButton("Teams", "Who's on which team", () -> openTeams(0))));
+			body.add(gap(12));
+		}
 
 		// STARTING SHOT — the one thing here that blocks play, so it sits directly under the board
 		// summary rather than below the feed. Home clan only: it's an obligation on THIS account at
@@ -2744,6 +2770,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				selectedEventKey = entry.key;
 				showAllActiveTiles = false;
+				disposeTeams();
 				renderSelected();
 			}
 
@@ -2785,6 +2812,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			selectedEventKey = null;
 			showAllActiveTiles = false;
+			disposeTeams();
 		});
 	}
 
@@ -5121,6 +5149,31 @@ public class AnvilSidebarPanel extends PluginPanel
 		openCatalogueDetailTileId = -1;
 		showAllActiveTiles = false;
 		boardSearchFocused = false;
+		disposeTeams();
+	}
+
+	/**
+	 * Open the Teams page. {@code eventId <= 0} is the active board, whose id comes from the board
+	 * itself (ETag-cached, so usually a 304) — off the EDT, inside the view's first fetch.
+	 */
+	private void openTeams(int eventId)
+	{
+		disposeTeams();
+		teamsView = new TeamsView(dataSource::fetchRoster, interactive(), eventId, () ->
+		{
+			BingoApiClient.BoardResponse board = dataSource.fetchBoard(0);
+			return board == null ? 0 : board.eventId;
+		});
+		renderSelected();
+	}
+
+	private void disposeTeams()
+	{
+		if (teamsView != null)
+		{
+			teamsView.dispose();
+			teamsView = null;
+		}
 	}
 
 	private JLabel warningLabel(String message)
@@ -5195,6 +5248,18 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** One button holding a whole row, so a lone action doesn't sit in half a line. */
+	/** The panel's flat button, for the views that live in their own files. */
+	static JButton flatButton(String label, String tooltip, Runnable onClick)
+	{
+		return actionButton(label, tooltip, onClick);
+	}
+
+	/** {@link #flatButton} holding a whole row. */
+	static JPanel fullWidthButton(String label, String tooltip, Runnable onClick)
+	{
+		return fullWidth(actionButton(label, tooltip, onClick));
+	}
+
 	private static JPanel fullWidth(JButton button)
 	{
 		JPanel row = new JPanel(new GridLayout(1, 1));

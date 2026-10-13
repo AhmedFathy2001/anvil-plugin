@@ -326,6 +326,18 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return siteSupports("goals");
 	}
 
+	@Override
+	public boolean supportsEventRoster()
+	{
+		return siteSupports("event-roster");
+	}
+
+	@Override
+	public EventRoster fetchRoster(int eventId, int teamId, String query, int page)
+	{
+		return apiClient.fetchRoster(eventId, teamId, query, page);
+	}
+
 	/**
 	 * The config's capability list when there is a config; /api/version's when the person is in no
 	 * clan (a 404 config carries none). The You and Lookup tabs are exactly what someone without a

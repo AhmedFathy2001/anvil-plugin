@@ -1186,6 +1186,70 @@ public class BingoApiClient
 		}
 	}
 
+	/** Last few roster pages by URL, for If-None-Match — paging back and forth costs a 304, not a body. */
+	private final java.util.Map<String, Object[]> rosterPages = java.util.Collections.synchronizedMap(
+		new java.util.LinkedHashMap<String, Object[]>(16, 0.75f, true)
+		{
+			@Override
+			protected boolean removeEldestEntry(java.util.Map.Entry<String, Object[]> eldest)
+			{
+				return size() > 24;
+			}
+		});
+
+	/**
+	 * {@code GET /api/plugin/event/<id>/roster} — one page of an event's teams (site capability
+	 * "event-roster"). {@code teamId > 0} lists that team's members; a non-blank {@code query} searches
+	 * players across every team; neither is the ranked overview. Null on any failure. Blocking; off the
+	 * EDT, on {@link #interactiveExecutor}.
+	 */
+	public EventRoster fetchRoster(int eventId, int teamId, String query, int page)
+	{
+		if (!isConfigured() || eventId <= 0)
+		{
+			return null;
+		}
+		StringBuilder path = new StringBuilder("/api/plugin/event/").append(eventId).append("/roster?page=").append(Math.max(1, page));
+		if (query != null && !query.trim().isEmpty())
+		{
+			path.append("&q=").append(java.net.URLEncoder.encode(query.trim(), java.nio.charset.StandardCharsets.UTF_8));
+		}
+		else if (teamId > 0)
+		{
+			path.append("&team=").append(teamId);
+		}
+		String url = clanUrl(path.toString());
+		Request.Builder rb = authedRequest(url).get();
+		Object[] cached = rosterPages.get(url);
+		if (cached != null)
+		{
+			rb.header("If-None-Match", (String) cached[0]);
+		}
+		try (Response response = httpClient.newCall(rb.build()).execute())
+		{
+			if (response.code() == 304 && cached != null)
+			{
+				return (EventRoster) cached[1];
+			}
+			if (!response.isSuccessful() || response.body() == null)
+			{
+				return null;
+			}
+			EventRoster parsed = gson.fromJson(response.body().string(), EventRoster.class);
+			String etag = response.header("ETag");
+			if (etag != null && parsed != null)
+			{
+				rosterPages.put(url, new Object[]{etag, parsed});
+			}
+			return parsed;
+		}
+		catch (IOException | com.google.gson.JsonParseException e)
+		{
+			log.debug("roster fetch failed: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	/**
 	 * GET /api/plugin/activity?since=&lt;cursor&gt; — the always-on sidebar's live team feed (submissions +
 	 * completions after the cursor, attributed and bounded). Player-token authed. Never throws — returns
