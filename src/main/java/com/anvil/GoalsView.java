@@ -3,20 +3,13 @@ package com.anvil;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.GridLayout;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.IntConsumer;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -26,8 +19,9 @@ import net.runelite.api.Skill;
 import net.runelite.client.hiscore.HiscoreSkill;
 import net.runelite.client.hiscore.HiscoreSkillType;
 import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.components.ProgressBar;
+
+import static com.anvil.Ui.*;
 
 /**
  * The You tab's goals: "99 Slayer", "500 Vorkath", "Barrows log complete".
@@ -39,8 +33,6 @@ import net.runelite.client.ui.components.ProgressBar;
  */
 final class GoalsView
 {
-	private static final Color MUTED = new Color(0x98_98_98);
-
 	private GoalsView()
 	{
 	}
@@ -71,45 +63,30 @@ final class GoalsView
 	static JPanel render(List<BingoApiClient.PlayerGoal> goals, PlayerCard card, Runnable onAdd, IntConsumer onRemove,
 		String error)
 	{
-		JPanel block = new JPanel();
-		block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
-		block.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		block.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		block.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel block = block();
 
-		JPanel head = new JPanel(new BorderLayout());
-		head.setOpaque(false);
-		head.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		JLabel title = new JLabel("Goals");
-		title.setFont(FontManager.getRunescapeSmallFont());
-		title.setForeground(ColorScheme.BRAND_ORANGE);
-		head.add(title, BorderLayout.WEST);
-		JLabel add = new JLabel("+ Add goal");
-		add.setFont(FontManager.getRunescapeSmallFont());
-		add.setForeground(ColorScheme.BRAND_ORANGE);
-		add.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		JPanel head = PlayerCardView.header("Goals", null);
+		JLabel add = onClick(small("+ Add goal", ColorScheme.BRAND_ORANGE), onAdd);
 		add.setToolTipText("A skill level, a boss kill count, or a whole log page");
-		add.addMouseListener(click(onAdd));
 		head.add(add, BorderLayout.EAST);
-		head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
-		block.add(head);
+		block.add(capH(head));
 
 		if (error != null && !error.isEmpty())
 		{
-			block.add(Box.createVerticalStrut(4));
+			block.add(gap(4));
 			block.add(small(error, ColorScheme.PROGRESS_ERROR_COLOR));
 		}
 
 		if (goals == null || goals.isEmpty())
 		{
-			block.add(Box.createVerticalStrut(6));
+			block.add(gap(6));
 			block.add(small("Nothing set yet — 99 a skill, a KC to hit, a log page to finish.", MUTED));
 			return block;
 		}
 
 		for (BingoApiClient.PlayerGoal g : goals)
 		{
-			block.add(Box.createVerticalStrut(8));
+			block.add(gap(8));
 			block.add(row(g, progress(g, card), onRemove));
 		}
 		return block;
@@ -117,20 +94,16 @@ final class GoalsView
 
 	private static JPanel row(BingoApiClient.PlayerGoal g, Progress p, IntConsumer onRemove)
 	{
-		JPanel row = new JPanel(new BorderLayout(0, 3));
+		JPanel row = left(new JPanel(new BorderLayout(0, 3)));
 		row.setOpaque(false);
-		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 
-		JPanel line = new JPanel(new BorderLayout(6, 0));
-		line.setOpaque(false);
+		JPanel line = Ui.row(6);
 		line.add(small(label(g), p.done() ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
 		JPanel right = new JPanel(new GridLayout(1, 0, 6, 0));
 		right.setOpaque(false);
 		right.add(small(p.done() ? "Done" : p.text, p.done() ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED));
-		JLabel remove = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 8, MUTED));
+		JLabel remove = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 8, MUTED)), () -> onRemove.accept(g.id));
 		remove.setToolTipText("Remove this goal");
-		remove.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		remove.addMouseListener(click(() -> onRemove.accept(g.id)));
 		line.add(right, BorderLayout.EAST);
 		line.add(remove, BorderLayout.WEST);
 		String due = p.done() ? null : dueText(g.dueOn, java.time.LocalDate.now(java.time.ZoneOffset.UTC));
@@ -160,8 +133,7 @@ final class GoalsView
 			bar.setPreferredSize(new Dimension(0, 4));
 			row.add(bar, BorderLayout.SOUTH);
 		}
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
 	}
 
 	// ---- Progress (package-private for tests) -----------------------------------------------------
@@ -404,28 +376,5 @@ final class GoalsView
 			? new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format((java.util.Date) due.getValue())
 			: null;
 		return new NewGoal(wireKind, metric, t, dueOn);
-	}
-
-	// ---- Pieces ------------------------------------------------------------------------------------
-
-	private static JLabel small(String text, Color color)
-	{
-		JLabel l = new JLabel(AnvilSidebarPanel.plainText(text));
-		l.setFont(FontManager.getRunescapeSmallFont());
-		l.setForeground(color);
-		l.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		return l;
-	}
-
-	private static MouseAdapter click(Runnable r)
-	{
-		return new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				r.run();
-			}
-		};
 	}
 }

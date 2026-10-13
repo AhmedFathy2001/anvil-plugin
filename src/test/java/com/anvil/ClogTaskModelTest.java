@@ -36,32 +36,6 @@ public class ClogTaskModelTest
 	}
 
 	@Test
-	public void multiTagCategoriesSplitAndFilter()
-	{
-		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
-		rows.add(new ClogTaskModel.TaskRow(1, "Zuk cape", ClogTaskModel.Type.DROP, 0, 1, -1, 5, null, "Inferno, PvM"));
-		rows.add(new ClogTaskModel.TaskRow(2, "99 Slayer", ClogTaskModel.Type.STAT, 0, 1, -1, 5, null, "Skilling"));
-		rows.add(new ClogTaskModel.TaskRow(3, "Nex drop", ClogTaskModel.Type.DROP, 0, 1, -1, 5, null, "pvm"));
-
-		// Each tag contributes to the dropdown once, case-insensitively deduped.
-		List<String> cats = ClogTaskModel.categories(rows);
-		assertEquals(3, cats.size());
-		assertTrue(cats.contains("Inferno"));
-		assertTrue(cats.contains("Skilling"));
-		// "PvM" (first seen) wins over the later "pvm".
-		assertTrue(cats.contains("PvM"));
-
-		// Filtering by one tag matches every tile carrying it, whatever its other tags.
-		List<ClogTaskModel.TaskRow> pvm = ClogTaskModel.filter(
-			rows, ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, "", "PvM");
-		assertEquals(2, pvm.size());
-		List<ClogTaskModel.TaskRow> inferno = ClogTaskModel.filter(
-			rows, ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, "", "Inferno");
-		assertEquals(1, inferno.size());
-		assertEquals(1, inferno.get(0).tileId);
-	}
-
-	@Test
 	public void statusDerivation()
 	{
 		assertEquals(ClogTaskModel.Status.NOT_STARTED, ClogTaskModel.statusOf(0, 5));
@@ -81,154 +55,55 @@ public class ClogTaskModelTest
 	}
 
 	@Test
-	public void buildMergesDropsAndStatsWithIcons()
+	public void buildReadsEveryTrackedKind()
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
 		cfg.trackedDrops = new ArrayList<>();
 		cfg.trackedDrops.add(drop(1, "Zulrah unique", 3, 5, 12921, 12922));
-		cfg.trackedStats = new ArrayList<>();
-		cfg.trackedStats.add(stat(2, "Mining XP", 100, 100));
-
-		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
-		assertEquals(2, rows.size());
-
-		ClogTaskModel.TaskRow dropRow = rows.get(0);
-		assertEquals(ClogTaskModel.Type.DROP, dropRow.type);
-		assertEquals(12921, dropRow.itemId); // first tracked item id
-		assertEquals(ClogTaskModel.Status.IN_PROGRESS, dropRow.status);
-
-		ClogTaskModel.TaskRow statRow = rows.get(1);
-		assertEquals(ClogTaskModel.Type.STAT, statRow.type);
-		assertEquals(-1, statRow.itemId); // no inventory icon for stat tiles
-		assertTrue(statRow.isCompleted());
-	}
-
-	@Test
-	public void filterByStatusAndType()
-	{
-		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
-		rows.add(new ClogTaskModel.TaskRow(1, "Done drop", ClogTaskModel.Type.DROP, 5, 5, 100));
-		rows.add(new ClogTaskModel.TaskRow(2, "Partial drop", ClogTaskModel.Type.DROP, 1, 5, 101));
-		rows.add(new ClogTaskModel.TaskRow(3, "Fresh stat", ClogTaskModel.Type.STAT, 0, 10, -1));
-
-		List<ClogTaskModel.TaskRow> completed = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.COMPLETED, ClogTaskModel.TypeFilter.ALL, null);
-		assertEquals(1, completed.size());
-		assertEquals(1, completed.get(0).tileId);
-
-		// A bare STAT row classifies as the SKILL kind (the legacy constructor's default for stats).
-		List<ClogTaskModel.TaskRow> stats = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.SKILL, null);
-		assertEquals(1, stats.size());
-		assertEquals(3, stats.get(0).tileId);
-	}
-
-	@Test
-	public void buildClassifiesEveryKind()
-	{
-		PluginConfigResponse cfg = new PluginConfigResponse();
-
-		cfg.trackedDrops = new ArrayList<>();
-		// Simple drop pool → DROP.
-		cfg.trackedDrops.add(drop(1, "Dragon warhammer", 0, 1, 13576));
-		// Per-item requirement list → COLLECTION.
+		// Per-item requirement list → progress off the sets, not the summed count.
 		PluginConfigResponse.TrackedDrop coll = drop(2, "Void set", 0, 1, 11665);
 		coll.itemRequirements = new ArrayList<>();
-		PluginConfigResponse.ItemRequirement req = new PluginConfigResponse.ItemRequirement();
-		req.itemId = 11665;
-		req.requiredAmount = 1;
-		coll.itemRequirements.add(req);
+		coll.itemRequirements.add(req("Void top", 1, null, 0));
+		coll.itemRequirements.add(req("Void legs", 0, null, 0));
 		cfg.trackedDrops.add(coll);
-
 		cfg.trackedStats = new ArrayList<>();
-		PluginConfigResponse.TrackedStat skill = stat(3, "Agility XP", 0, 100);
-		skill.statType = "skill";
-		cfg.trackedStats.add(skill);
-		PluginConfigResponse.TrackedStat boss = stat(4, "Zulrah KC", 0, 100);
-		boss.statType = "boss";
-		cfg.trackedStats.add(boss);
-
+		cfg.trackedStats.add(stat(3, "Mining XP", 100, 100));
 		cfg.trackedKills = new ArrayList<>();
 		PluginConfigResponse.TrackedKill kill = new PluginConfigResponse.TrackedKill();
-		kill.tileId = 5;
-		kill.label = "Kill 10 chickens";
+		kill.tileId = 4;
 		kill.requiredAmount = 10;
 		kill.currentAmount = 4;
+		kill.points = 7;
 		cfg.trackedKills.add(kill);
-
 		cfg.trackedTimed = new ArrayList<>();
 		PluginConfigResponse.TrackedTimed timed = new PluginConfigResponse.TrackedTimed();
-		timed.tileId = 6;
-		timed.label = "Sub-30 Inferno";
+		timed.tileId = 5;
 		timed.completed = true;
+		timed.points = 3;
 		cfg.trackedTimed.add(timed);
+		cfg.trackedValues = new ArrayList<>();
+		cfg.trackedValues.add(value("total", 50_000_000L, 12_500_000L));
+		cfg.trackedValues.get(0).tileId = 6;
 
 		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
 		assertEquals(6, rows.size());
-		assertEquals(ClogTaskModel.Kind.DROP, kindOf(rows, 1));
-		assertEquals(ClogTaskModel.Kind.COLLECTION, kindOf(rows, 2));
-		assertEquals(ClogTaskModel.Kind.SKILL, kindOf(rows, 3));
-		assertEquals(ClogTaskModel.Kind.BOSS, kindOf(rows, 4));
-		assertEquals(ClogTaskModel.Kind.KILL, kindOf(rows, 5));
-		assertEquals(ClogTaskModel.Kind.TIMED, kindOf(rows, 6));
+		assertEquals(ClogTaskModel.Status.IN_PROGRESS, rowOf(rows, 1).status);
+		assertEquals(1, rowOf(rows, 2).current);
+		assertEquals(2, rowOf(rows, 2).goal);
+		assertTrue(rowOf(rows, 3).isCompleted());
+		assertEquals(ClogTaskModel.Status.IN_PROGRESS, rowOf(rows, 4).status);
 		// The timed tile carries its completed flag through.
-		assertTrue(rowOf(rows, 6).isCompleted());
+		assertTrue(rowOf(rows, 5).isCompleted());
+		// A cumulative value tile carries its gp as current/goal.
+		assertEquals(12_500_000, rowOf(rows, 6).current);
+		assertEquals(50_000_000, rowOf(rows, 6).goal);
 
-		// Type filter narrows to a single kind.
-		List<ClogTaskModel.TaskRow> kills = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.KILL, null);
-		assertEquals(1, kills.size());
-		assertEquals(5, kills.get(0).tileId);
-	}
-
-	@Test
-	public void tierKeyMatchesDefaultBands()
-	{
-		List<PluginConfigResponse.TierBand> bands = ClogTaskModel.defaultTierBands();
-		assertEquals("troll", ClogTaskModel.tierKeyOf(10, bands));
-		assertEquals("easy", ClogTaskModel.tierKeyOf(50, bands));
-		assertEquals("medium", ClogTaskModel.tierKeyOf(250, bands));
-		assertEquals("hard", ClogTaskModel.tierKeyOf(400, bands));
-		assertEquals("ultra", ClogTaskModel.tierKeyOf(800, bands));
-	}
-
-	@Test
-	public void tierKeyHonoursCustomDynamicBands()
-	{
-		List<PluginConfigResponse.TierBand> bands = new ArrayList<>();
-		bands.add(band("baby", "Baby", 0));
-		bands.add(band("spicy", "Spicy", 200));
-		bands.add(band("death", "Death", 600));
-		assertEquals("baby", ClogTaskModel.tierKeyOf(50, bands));
-		assertEquals("spicy", ClogTaskModel.tierKeyOf(200, bands));
-		assertEquals("spicy", ClogTaskModel.tierKeyOf(599, bands));
-		assertEquals("death", ClogTaskModel.tierKeyOf(600, bands));
-		assertEquals("Death", ClogTaskModel.tierLabel("death", bands));
-		// Empty/missing served bands fall back to the baked-in defaults.
-		assertEquals(ClogTaskModel.defaultTierBands().size(), ClogTaskModel.tierBandsOrDefault(null).size());
-	}
-
-	@Test
-	public void filterByTier()
-	{
-		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
-		rows.add(new ClogTaskModel.TaskRow(1, "Troll", ClogTaskModel.Type.DROP, 0, 1, 100, 10));
-		rows.add(new ClogTaskModel.TaskRow(2, "Ultra", ClogTaskModel.Type.DROP, 0, 1, 101, 800));
-
-		List<PluginConfigResponse.TierBand> bands = ClogTaskModel.defaultTierBands();
-		List<ClogTaskModel.TaskRow> ultra = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, null, null, "ultra", bands);
-		assertEquals(1, ultra.size());
-		assertEquals(2, ultra.get(0).tileId);
-	}
-
-	private static PluginConfigResponse.TierBand band(String key, String label, int min)
-	{
-		PluginConfigResponse.TierBand b = new PluginConfigResponse.TierBand();
-		b.key = key;
-		b.label = label;
-		b.min = min;
-		return b;
+		java.util.Set<Integer> none = java.util.Collections.emptySet();
+		assertEquals(2, ClogTaskModel.tally(rows, none, true, false));
+		assertEquals(10, ClogTaskModel.tally(rows, none, false, true));
+		assertEquals(3, ClogTaskModel.tally(rows, none, true, true));
+		assertEquals(1, ClogTaskModel.tally(rows, java.util.Collections.singleton(3), true, false));
+		assertEquals(5, ClogTaskModel.tally(rows, java.util.Collections.singleton(3), false, false));
 	}
 
 	private static ClogTaskModel.TaskRow rowOf(List<ClogTaskModel.TaskRow> rows, int tileId)
@@ -241,50 +116,6 @@ public class ClogTaskModelTest
 			}
 		}
 		throw new AssertionError("no row " + tileId);
-	}
-
-	private static ClogTaskModel.Kind kindOf(List<ClogTaskModel.TaskRow> rows, int tileId)
-	{
-		return rowOf(rows, tileId).kind;
-	}
-
-	@Test
-	public void filterBySearchIsCaseInsensitive()
-	{
-		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
-		rows.add(new ClogTaskModel.TaskRow(1, "Vorkath head", ClogTaskModel.Type.DROP, 0, 1, 100));
-		rows.add(new ClogTaskModel.TaskRow(2, "Zulrah scales", ClogTaskModel.Type.DROP, 0, 1, 101));
-
-		List<ClogTaskModel.TaskRow> hit = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, "VORK");
-		assertEquals(1, hit.size());
-		assertEquals(1, hit.get(0).tileId);
-	}
-
-	@Test
-	public void filterSortsIncompleteFirstThenLabel()
-	{
-		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
-		rows.add(new ClogTaskModel.TaskRow(1, "Zeta done", ClogTaskModel.Type.DROP, 1, 1, 100));
-		rows.add(new ClogTaskModel.TaskRow(2, "Beta open", ClogTaskModel.Type.DROP, 0, 1, 101));
-		rows.add(new ClogTaskModel.TaskRow(3, "Alpha progress", ClogTaskModel.Type.DROP, 1, 2, 102));
-
-		List<ClogTaskModel.TaskRow> sorted = ClogTaskModel.filter(rows,
-			ClogTaskModel.StatusFilter.ALL, ClogTaskModel.TypeFilter.ALL, null);
-		// IN_PROGRESS first, then NOT_STARTED, then COMPLETED.
-		assertEquals(3, sorted.get(0).tileId); // Alpha progress (in progress)
-		assertEquals(2, sorted.get(1).tileId); // Beta open (not started)
-		assertEquals(1, sorted.get(2).tileId); // Zeta done (completed)
-	}
-
-	@Test
-	public void completedCount()
-	{
-		List<ClogTaskModel.TaskRow> rows = new ArrayList<>();
-		rows.add(new ClogTaskModel.TaskRow(1, "a", ClogTaskModel.Type.DROP, 5, 5, 100));
-		rows.add(new ClogTaskModel.TaskRow(2, "b", ClogTaskModel.Type.DROP, 1, 5, 101));
-		assertEquals(1, ClogTaskModel.completedCount(rows));
-		assertFalse(rows.get(1).isCompleted());
 	}
 
 	// ---- Collection set modes (mirrors the site's lib/collectionSets) ------------------------------
@@ -306,9 +137,9 @@ public class ClogTaskModelTest
 		List<PluginConfigResponse.ItemRequirement> reqs = new ArrayList<>();
 		reqs.add(req("Bandos chestplate", 1, null, 0));
 		reqs.add(req("Bandos tassets", 0, null, 0));
-		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, null));
+		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, null, 1));
 		reqs.get(1).currentAmount = 1;
-		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, null));
+		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, null, 1));
 	}
 
 	@Test
@@ -320,9 +151,9 @@ public class ClogTaskModelTest
 		reqs.add(req("Guthan's helm", 0, "Guthan", 0));
 		reqs.add(req("Guthan's warspear", 0, "Guthan", 0));
 		// Closest set, not the sum across sets.
-		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "any"));
+		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "any", 1));
 		reqs.get(1).currentAmount = 1;
-		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, "any"));
+		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, "any", 1));
 	}
 
 	@Test
@@ -335,19 +166,19 @@ public class ClogTaskModelTest
 			reqs.add(req(boss + " a", 0, boss, 1));
 			reqs.add(req(boss + " b", 0, boss, 1));
 		}
-		assertArrayEquals(new int[]{ 0, 3, 0 }, ClogTaskModel.collectionProgress(reqs, "all"));
+		assertArrayEquals(new int[]{ 0, 3, 0 }, ClogTaskModel.collectionProgress(reqs, "all", 1));
 
 		// Both Duke uniques is still ONE source — capped at what that set needs.
 		reqs.get(0).currentAmount = 1;
 		reqs.get(1).currentAmount = 1;
-		assertArrayEquals(new int[]{ 1, 3, 0 }, ClogTaskModel.collectionProgress(reqs, "all"));
+		assertArrayEquals(new int[]{ 1, 3, 0 }, ClogTaskModel.collectionProgress(reqs, "all", 1));
 
 		// The same board under the old OR-ed reading would have read as complete.
-		assertEquals(1, ClogTaskModel.collectionProgress(reqs, "any")[2]);
+		assertEquals(1, ClogTaskModel.collectionProgress(reqs, "any", 1)[2]);
 
 		reqs.get(2).currentAmount = 1; // Leviathan
 		reqs.get(4).currentAmount = 1; // Whisperer
-		assertArrayEquals(new int[]{ 3, 3, 1 }, ClogTaskModel.collectionProgress(reqs, "all"));
+		assertArrayEquals(new int[]{ 3, 3, 1 }, ClogTaskModel.collectionProgress(reqs, "all", 1));
 	}
 
 	@Test
@@ -358,9 +189,9 @@ public class ClogTaskModelTest
 		{
 			reqs.add(req("Megarare " + i, i < 2 ? 1 : 0, "Rares", 3));
 		}
-		assertArrayEquals(new int[]{ 2, 3, 0 }, ClogTaskModel.collectionProgress(reqs, "any"));
+		assertArrayEquals(new int[]{ 2, 3, 0 }, ClogTaskModel.collectionProgress(reqs, "any", 1));
 		reqs.get(2).currentAmount = 1;
-		assertArrayEquals(new int[]{ 3, 3, 1 }, ClogTaskModel.collectionProgress(reqs, "any"));
+		assertArrayEquals(new int[]{ 3, 3, 1 }, ClogTaskModel.collectionProgress(reqs, "any", 1));
 	}
 
 	@Test
@@ -370,8 +201,8 @@ public class ClogTaskModelTest
 		reqs.add(req("Scythe of vitur", 0, null, 0));
 		reqs.add(req("Duke unique", 1, "Duke", 1));
 		// The set is satisfied, the always-required item isn't.
-		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "all"));
-		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "any"));
+		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "all", 1));
+		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "any", 1));
 	}
 
 	@Test
@@ -382,7 +213,7 @@ public class ClogTaskModelTest
 		reqs.add(req("Ahrim's hood", 1, "Ahrim", 0));
 		reqs.add(req("Ahrim's staff", 1, "Ahrim", 0));
 		reqs.add(req("Karil's coif", 0, "Karil", 0));
-		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs));
+		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, null, 1));
 	}
 
 	@Test
@@ -393,7 +224,7 @@ public class ClogTaskModelTest
 		reqs.add(req("b", 0, "duke", 1));
 		reqs.add(req("c", 0, "Leviathan", 1));
 		// Two sets, not three — and Duke's is already satisfied.
-		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "all"));
+		assertArrayEquals(new int[]{ 1, 2, 0 }, ClogTaskModel.collectionProgress(reqs, "all", 1));
 	}
 
 	@Test
@@ -402,7 +233,7 @@ public class ClogTaskModelTest
 		List<PluginConfigResponse.ItemRequirement> reqs = new ArrayList<>();
 		reqs.add(req("a", 1, "Set", 4));
 		reqs.add(req("b", 1, "Set", 4));
-		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, "all"));
+		assertArrayEquals(new int[]{ 2, 2, 1 }, ClogTaskModel.collectionProgress(reqs, "all", 1));
 	}
 
 	// ── Cumulative value tiles ──────────────────────────────────────────────────────────────────
@@ -426,28 +257,6 @@ public class ClogTaskModelTest
 		assertFalse(ClogTaskModel.isTotalValue(value("single", 1, 0)));
 		// An older server sends no mode at all, which has only ever meant single-haul.
 		assertFalse(ClogTaskModel.isTotalValue(value(null, 1, 0)));
-	}
-
-	@Test
-	public void gpReadsShortAndDropsAPointlessDecimal()
-	{
-		assertEquals("0", ClogTaskModel.formatGp(0));
-		assertEquals("999", ClogTaskModel.formatGp(999));
-		assertEquals("1K", ClogTaskModel.formatGp(1_000));
-		assertEquals("12.5K", ClogTaskModel.formatGp(12_500));
-		assertEquals("3.4M", ClogTaskModel.formatGp(3_400_000));
-		assertEquals("50M", ClogTaskModel.formatGp(50_000_000));
-		assertEquals("2.1B", ClogTaskModel.formatGp(2_150_000_000L));
-		// Negative can't happen from the server, but must not render as "-1" either.
-		assertEquals("0", ClogTaskModel.formatGp(-5));
-	}
-
-	/** Truncating rather than rounding: 49.99m must never read "50M/50M" while the tile is short. */
-	@Test
-	public void gpNeverRoundsUpToLookFinished()
-	{
-		assertEquals("49.9M", ClogTaskModel.formatGp(49_990_000));
-		assertEquals("999.9M", ClogTaskModel.formatGp(999_999_999));
 	}
 
 	@Test

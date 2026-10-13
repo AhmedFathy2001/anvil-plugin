@@ -2,8 +2,6 @@ package com.anvil;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.GridLayout;
@@ -19,8 +17,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -32,8 +28,9 @@ import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.hiscore.HiscoreSkill;
 import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.components.ProgressBar;
+
+import static com.anvil.Ui.*;
 
 /**
  * Draws a {@link PlayerCard} for the side panel — the Lookup and You tabs.
@@ -47,7 +44,6 @@ import net.runelite.client.ui.components.ProgressBar;
  */
 final class PlayerCardView
 {
-	static final Color MUTED = new Color(0x98_98_98);
 	private static final int BLOCK_GAP = 6;
 
 	/** The game's skill tab, read left to right: what a player's eye already knows. */
@@ -71,11 +67,6 @@ final class PlayerCardView
 		/** Loads one log page (off the EDT) and hands it back ON the EDT; null = pages don't open. */
 		final java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader;
 
-		Icons(ItemManager items, SpriteManager sprites, SkillIconManager skills)
-		{
-			this(items, sprites, skills, null);
-		}
-
 		Icons(ItemManager items, SpriteManager sprites, SkillIconManager skills,
 			java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader)
 		{
@@ -85,7 +76,7 @@ final class PlayerCardView
 			this.pageLoader = pageLoader;
 		}
 
-		static final Icons NONE = new Icons(null, null, null);
+		static final Icons NONE = new Icons(null, null, null, null);
 	}
 
 	private PlayerCardView()
@@ -93,7 +84,7 @@ final class PlayerCardView
 	}
 
 	/**
-	 * @param section   which profile section to open on ("Skills", "Bosses", "Log", "Clues"); null or
+	 * @param section   which profile section to open on ("Skills", "Bosses", "Clues", "Times"); null or
 	 *                  one this card doesn't have → the first it does
 	 * @param onSection told when the member switches section, so a re-render can reopen the same one
 	 */
@@ -120,7 +111,6 @@ final class PlayerCardView
 		}
 
 		// A boss (or a clue tier) opens the log page it fills, in the log block above.
-		Runnable[] showLog = new Runnable[1];
 		Consumer<String> openLogPage = log == null || ic.pageLoader == null ? null : name ->
 		{
 			for (PlayerCard.Page p : card.clogPages)
@@ -142,11 +132,25 @@ final class PlayerCardView
 		List<PlayerCard.Boss> bosses = card.bosses != null ? card.bosses : card.topBosses;
 		if (bosses != null && !bosses.isEmpty())
 		{
-			sections.put("Bosses", bosses(bosses, ic, openLogPage));
+			JPanel grid = grid(3, 2, 2);
+			for (PlayerCard.Boss boss : bosses)
+			{
+				grid.add(iconCell(hiscoreSkill(boss.key, boss.label), -1, boss.label, boss.kc,
+					String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc), ic, openLogPage, boss.clogPage));
+			}
+			sections.put("Bosses", blockOf(grid));
 		}
+		// Clues, minigames and the rest with a score — same grid as bosses.
 		if (card.activities != null && !card.activities.isEmpty())
 		{
-			sections.put("Clues", activities(card.activities, ic, openLogPage));
+			JPanel grid = grid(3, 2, 2);
+			for (PlayerCard.Activity a : card.activities)
+			{
+				String name = a.shortLabel != null && !a.shortLabel.isEmpty() ? a.shortLabel : a.label;
+				grid.add(iconCell(hiscoreSkill(a.key, a.label), clueItemFor(a.key), name, a.score,
+					String.format(Locale.ROOT, "%s — %,d", a.label, a.score), ic, openLogPage, cluePage(a.key)));
+			}
+			sections.put("Clues", blockOf(grid));
 		}
 		if (card.times != null && !card.times.isEmpty())
 		{
@@ -155,15 +159,9 @@ final class PlayerCardView
 		if (!sections.isEmpty())
 		{
 			root.add(gap(BLOCK_GAP));
-			root.add(sectionSwitcher(sections, section, onSection, showLog));
+			root.add(sectionSwitcher(sections, section, onSection));
 		}
 		return root;
-	}
-
-	/** Back-compat for callers that don't track a section. */
-	static JPanel render(PlayerCard card, ItemManager itemManager, SpriteManager spriteManager)
-	{
-		return render(card, new Icons(itemManager, spriteManager, null), null, s -> { });
 	}
 
 	/** "Not on Anvil" — the same words whether the name is unknown or simply not shared. */
@@ -184,24 +182,12 @@ final class PlayerCardView
 
 		// Name on the left, the website one small click away on the right — the panel IS the profile
 		// now, so the browser is an icon, not the card's main button.
-		JPanel nameRow = new JPanel(new BorderLayout(6, 0));
-		nameRow.setOpaque(false);
-		nameRow.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel nameRow = row(6);
 		nameRow.add(title(card.rsn), BorderLayout.CENTER);
-		JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 12, MUTED));
+		JLabel web = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 12, MUTED)), () -> ProfileLookup.open(card.rsn));
 		web.setToolTipText("Open on the Anvil website");
-		web.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		web.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				ProfileLookup.open(card.rsn);
-			}
-		});
 		nameRow.add(web, BorderLayout.EAST);
-		nameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, nameRow.getPreferredSize().height));
-		block.add(nameRow);
+		block.add(capH(nameRow));
 
 		if (card.clan != null && card.clan.name != null)
 		{
@@ -261,22 +247,18 @@ final class PlayerCardView
 		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		bar.setPreferredSize(new Dimension(0, 14));
 		bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 14));
-		bar.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		block.add(bar);
+		block.add(left(bar));
 
 		if (log != null)
 		{
 			// The categories as tiles that open — the bars that sat here only said how far each was.
 			block.add(gap(6));
-			log.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-			block.add(log);
+			block.add(left(log));
 		}
 		else if (clog.groups != null && !clog.groups.isEmpty())
 		{
 			block.add(gap(6));
-			JPanel grid = new JPanel(new GridLayout(0, 2, 8, 4));
-			grid.setOpaque(false);
-			grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			JPanel grid = grid(2, 8, 4);
 			for (PlayerCard.Group g : clog.groups)
 			{
 				grid.add(miniBar(g.name, g.obtained, g.total));
@@ -290,23 +272,17 @@ final class PlayerCardView
 	{
 		JPanel block = block();
 		JPanel head = header("Latest", null);
-		JLabel all = new JLabel("See all ›");
-		all.setFont(FontManager.getRunescapeSmallFont());
-		all.setForeground(MUTED);
+		JLabel all = onClick(small("See all ›", MUTED), () ->
+		{
+			String url = ProfileLookup.profileUrl(rsn);
+			if (url != null)
+			{
+				net.runelite.client.util.LinkBrowser.browse(url + "?tab=records");
+			}
+		});
 		all.setToolTipText("Everything they've done lately, on the Anvil website");
-		all.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		all.addMouseListener(new MouseAdapter()
 		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				String url = ProfileLookup.profileUrl(rsn);
-				if (url != null)
-				{
-					net.runelite.client.util.LinkBrowser.browse(url + "?tab=records");
-				}
-			}
-
 			@Override
 			public void mouseEntered(MouseEvent e)
 			{
@@ -324,13 +300,8 @@ final class PlayerCardView
 		block.add(gap(4));
 		for (PlayerCard.Latest row : rows)
 		{
-			JPanel line = new JPanel(new BorderLayout(6, 0));
-			line.setOpaque(false);
-			line.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-
-			JLabel icon = new JLabel();
-			icon.setPreferredSize(new Dimension(24, 22));
-			icon.setHorizontalAlignment(SwingConstants.CENTER);
+			JPanel line = row(6);
+			JLabel icon = iconSlot(24, 22);
 			if ("item".equals(row.kind) && row.itemId != null && ic.items != null)
 			{
 				ic.items.getImage(row.itemId).addTo(icon);
@@ -350,75 +321,41 @@ final class PlayerCardView
 
 	// ---- The profile: one section at a time --------------------------------------------------------
 
-	private static JPanel sectionSwitcher(Map<String, JPanel> sections, String wanted, Consumer<String> onSection,
-		Runnable[] showLog)
+	private static JPanel sectionSwitcher(Map<String, JPanel> sections, String wanted, Consumer<String> onSection)
 	{
 		String first = sections.containsKey(wanted) ? wanted : sections.keySet().iterator().next();
 
 		JPanel wrap = column();
-		JPanel strip = new JPanel(new GridLayout(1, sections.size()));
+		JPanel strip = left(new JPanel(new GridLayout(1, sections.size())));
 		strip.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		strip.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 		// One child at a time, swapped on click — not a CardLayout. A CardLayout has to be told its height,
 		// and the boss and clue sprites arrive asynchronously AFTER it's measured, so the grid outgrew the
 		// space it was given and the last row was cut off. A plain parent re-lays out when they land.
-		JPanel body = new JPanel(new BorderLayout());
-		body.setOpaque(false);
-		body.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel body = row(0);
 
 		List<JLabel> labels = new ArrayList<>();
-		for (Map.Entry<String, JPanel> e : sections.entrySet())
+		for (String name : sections.keySet())
 		{
-			JLabel l = new JLabel(e.getKey(), SwingConstants.CENTER);
-			l.setFont(FontManager.getRunescapeSmallFont());
-			l.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			JLabel l = onClick(new JLabel(name, SwingConstants.CENTER), () ->
+			{
+				styleSwitch(labels, name);
+				swap(body, sections.get(name));
+				if (onSection != null)
+				{
+					onSection.accept(name);
+				}
+			});
+			l.setFont(SMALL);
 			labels.add(l);
 			strip.add(l);
 		}
-		for (JLabel l : labels)
-		{
-			l.addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mouseClicked(MouseEvent e)
-				{
-					styleSwitch(labels, l.getText());
-					show(body, sections.get(l.getText()));
-					if (onSection != null)
-					{
-						onSection.accept(l.getText());
-					}
-				}
-			});
-		}
 		styleSwitch(labels, first);
-		show(body, sections.get(first));
-		if (showLog != null && sections.containsKey("Log"))
-		{
-			showLog[0] = () ->
-			{
-				styleSwitch(labels, "Log");
-				show(body, sections.get("Log"));
-				if (onSection != null)
-				{
-					onSection.accept("Log");
-				}
-			};
-		}
+		swap(body, sections.get(first));
 
-		strip.setMaximumSize(new Dimension(Integer.MAX_VALUE, strip.getPreferredSize().height));
-		wrap.add(strip);
+		wrap.add(capH(strip));
 		wrap.add(gap(4));
 		wrap.add(body);
 		return wrap;
-	}
-
-	private static void show(JPanel body, JPanel section)
-	{
-		body.removeAll();
-		body.add(section, BorderLayout.CENTER);
-		body.revalidate();
-		body.repaint();
 	}
 
 	private static void styleSwitch(List<JLabel> labels, String selected)
@@ -441,21 +378,12 @@ final class PlayerCardView
 		{
 			byKey.put(s.key.toLowerCase(Locale.ROOT), s);
 		}
-		JPanel block = block();
-		JPanel grid = new JPanel(new GridLayout(0, 3, 2, 2));
-		grid.setOpaque(false);
-		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel grid = grid(3, 2, 2);
 		for (Skill skill : SKILL_GRID)
 		{
 			PlayerCard.Skill s = byKey.get(skill.name().toLowerCase(Locale.ROOT));
 			int level = s != null ? s.level : 1;
-			JLabel cell = new JLabel(Integer.toString(level));
-			cell.setFont(FontManager.getRunescapeSmallFont());
-			cell.setForeground(level >= 99 ? ColorScheme.BRAND_ORANGE : Color.WHITE);
-			cell.setIconTextGap(6);
-			cell.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
-			cell.setOpaque(true);
-			cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			JLabel cell = cell(Integer.toString(level), level >= 99 ? ColorScheme.BRAND_ORANGE : Color.WHITE, 6);
 			cell.setToolTipText(s != null
 				? String.format(Locale.ROOT, "%s — %,d XP", skill.getName(), s.xp)
 				: skill.getName());
@@ -469,30 +397,42 @@ final class PlayerCardView
 			}
 			grid.add(cell);
 		}
-		block.add(grid);
+		return blockOf(grid);
+	}
+
+	private static JPanel blockOf(JComponent content)
+	{
+		JPanel block = block();
+		block.add(content);
 		return block;
 	}
 
-	/** Every boss with a kill: the game's own sprite and the count, three across. */
-	private static JPanel bosses(List<PlayerCard.Boss> rows, Icons ic, Consumer<String> openLogPage)
+	/** A transparent, left-aligned grid {@code cols} across. */
+	private static JPanel grid(int cols, int hgap, int vgap)
 	{
-		JPanel block = block();
-		JPanel grid = new JPanel(new GridLayout(0, 3, 2, 2));
+		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
 		grid.setOpaque(false);
-		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		for (PlayerCard.Boss boss : rows)
-		{
-			boolean opens = openLogPage != null && boss.clogPage != null;
-			JLabel cell = iconCell(hiscoreSkill(boss.key, boss.label), boss.label, boss.kc,
-				String.format(Locale.ROOT, "%s — %,d kills%s", boss.label, boss.kc, opens ? " · click for its log" : ""), ic);
-			if (opens)
-			{
-				hoverable(cell, ColorScheme.DARK_GRAY_COLOR, () -> openLogPage.accept(boss.clogPage));
-			}
-			grid.add(cell);
-		}
-		block.add(grid);
-		return block;
+		return grid;
+	}
+
+	/** A grid cell: small text on the panel background, room for an icon to its left. */
+	private static JLabel cell(String text, Color color, int iconGap)
+	{
+		JLabel cell = small(text, color);
+		cell.setIconTextGap(iconGap);
+		cell.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
+		cell.setOpaque(true);
+		cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		return cell;
+	}
+
+	/** An empty, centred icon holder of a fixed size. */
+	static JLabel iconSlot(int w, int h)
+	{
+		JLabel icon = new JLabel();
+		icon.setPreferredSize(new Dimension(w, h));
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		return icon;
 	}
 
 	/**
@@ -505,27 +445,21 @@ final class PlayerCardView
 		for (PlayerCard.PbEntry e : entries)
 		{
 			boolean expandable = e.variants != null && !e.variants.isEmpty();
-			JPanel row = new JPanel(new BorderLayout(6, 0));
-			row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			JPanel row = row(6);
 			row.setBorder(BorderFactory.createEmptyBorder(3, 2, 3, 4));
-			JLabel icon = new JLabel();
-			icon.setPreferredSize(new Dimension(24, 22));
-			icon.setHorizontalAlignment(SwingConstants.CENTER);
+			JLabel icon = iconSlot(24, 22);
 			bossIcon(icon, e.base, ic);
 			row.add(icon, BorderLayout.WEST);
 			row.add(small(e.name, Color.WHITE), BorderLayout.CENTER);
-			JPanel right = new JPanel(new BorderLayout(5, 0));
-			right.setOpaque(false);
+			JPanel right = row(5);
 			right.add(small(e.best, ColorScheme.BRAND_ORANGE), BorderLayout.CENTER);
 			JLabel chevron = new JLabel(expandable ? new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED) : null);
 			chevron.setPreferredSize(new Dimension(8, 8));
 			right.add(chevron, BorderLayout.EAST);
 			row.add(right, BorderLayout.EAST);
-			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-			block.add(row);
+			block.add(capH(row));
 			if (!expandable)
 			{
-				row.setOpaque(false);
 				continue;
 			}
 			JPanel teams = column();
@@ -533,14 +467,11 @@ final class PlayerCardView
 			teams.setBorder(BorderFactory.createEmptyBorder(0, 32, 4, 16));
 			for (PlayerCard.PbVariant v : e.variants)
 			{
-				JPanel line = new JPanel(new BorderLayout());
-				line.setOpaque(false);
-				line.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-				line.setToolTipText(safe(v.activity));
+				JPanel line = row(0);
+				line.setToolTipText(plainText(v.activity));
 				line.add(small("Solo".equalsIgnoreCase(v.team) ? "Solo" : v.team + " players", MUTED), BorderLayout.WEST);
 				line.add(small(v.time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
-				line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
-				teams.add(line);
+				teams.add(capH(line));
 			}
 			teams.setVisible(false);
 			block.add(teams);
@@ -601,12 +532,6 @@ final class PlayerCardView
 		}
 	}
 
-	private static boolean isBlank(String s)
-	{
-		return s == null || s.trim().isEmpty();
-	}
-
-	/** Clues, minigames and the rest with a score — same grid as bosses. */
 	/** The log page a clue tier fills: cluesHard → "Hard Treasure Trails". "All tiers" has none. */
 	static String cluePage(String key)
 	{
@@ -618,66 +543,26 @@ final class PlayerCardView
 		return tier.isEmpty() ? null : tier + " Treasure Trails";
 	}
 
-	private static JPanel activities(List<PlayerCard.Activity> rows, Icons ic, Consumer<String> openLogPage)
-	{
-		JPanel block = block();
-		JPanel grid = new JPanel(new GridLayout(0, 3, 2, 2));
-		grid.setOpaque(false);
-		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		for (PlayerCard.Activity a : rows)
-		{
-			String name = a.shortLabel != null && !a.shortLabel.isEmpty() ? a.shortLabel : a.label;
-			String page = cluePage(a.key);
-			boolean opens = openLogPage != null && page != null;
-			JLabel cell = iconCell(hiscoreSkill(a.key, a.label), clueItemFor(a.key), name, a.score,
-				String.format(Locale.ROOT, "%s — %,d%s", a.label, a.score, opens ? " · click for its log" : ""), ic);
-			if (opens)
-			{
-				hoverable(cell, ColorScheme.DARK_GRAY_COLOR, () -> openLogPage.accept(page));
-			}
-			grid.add(cell);
-		}
-		block.add(grid);
-		return block;
-	}
-
 	/** Clue tiers have no hiscore sprite; the game's own clue scroll items stand in. */
+	private static final Map<String, Integer> CLUE_ITEMS = Map.of(
+		"cluesBeginner", 23182, "cluesEasy", 2677, "cluesMedium", 2801,
+		"cluesHard", 2722, "cluesElite", 12073, "cluesMaster", 19835);
+
 	static int clueItemFor(String key)
 	{
-		switch (key == null ? "" : key)
-		{
-			case "cluesBeginner":
-				return 23182;
-			case "cluesEasy":
-				return 2677;
-			case "cluesMedium":
-				return 2801;
-			case "cluesHard":
-				return 2722;
-			case "cluesElite":
-				return 12073;
-			case "cluesMaster":
-				return 19835;
-			default:
-				return -1;
-		}
+		return CLUE_ITEMS.getOrDefault(key == null ? "" : key, -1);
 	}
 
-	private static JLabel iconCell(HiscoreSkill skill, String name, long count, String tooltip, Icons ic)
+	/**
+	 * A count with the game's own picture — an item, else a hiscore sprite, else the name in text. A
+	 * cell whose {@code page} can be opened lights up and opens it.
+	 */
+	private static JLabel iconCell(HiscoreSkill skill, int itemId, String name, long count, String tooltip, Icons ic,
+		Consumer<String> openLogPage, String page)
 	{
-		return iconCell(skill, -1, name, count, tooltip, ic);
-	}
-
-	private static JLabel iconCell(HiscoreSkill skill, int itemId, String name, long count, String tooltip, Icons ic)
-	{
-		JLabel cell = new JLabel(compact(count));
-		cell.setFont(FontManager.getRunescapeSmallFont());
-		cell.setForeground(Color.WHITE);
-		cell.setIconTextGap(4);
-		cell.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
-		cell.setOpaque(true);
-		cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		cell.setToolTipText(safe(tooltip));
+		boolean opens = openLogPage != null && page != null;
+		JLabel cell = cell(compact(count), Color.WHITE, 4);
+		cell.setToolTipText(plainText(tooltip + (opens ? " · click for its log" : "")));
 		if (itemId > 0 && ic.items != null)
 		{
 			ic.items.getImage(itemId).addTo(cell);
@@ -689,7 +574,11 @@ final class PlayerCardView
 		else
 		{
 			// No picture for it: the name has to carry it, or it's an unlabelled number.
-			cell.setText(safe(abbrev(name) + " " + compact(count)));
+			cell.setText(plainText(abbrev(name) + " " + compact(count)));
+		}
+		if (opens)
+		{
+			hoverable(cell, ColorScheme.DARK_GRAY_COLOR, () -> openLogPage.accept(page));
 		}
 		return cell;
 	}
@@ -698,30 +587,18 @@ final class PlayerCardView
 	private static final String LOG_ROOT = "anvil.logRoot";
 
 	/** A picture per log category — the thing people think of when they think of that shelf. */
+	private static final Map<String, Integer> CATEGORY_ITEMS = Map.of(
+		"Bosses", 11832, // Bandos chestplate
+		"Raids", 20997, // Twisted bow
+		"Clues", 19835, // Clue scroll (master)
+		"Minigames", 6570, // Fire cape
+		"Skilling", 13320); // Heron
+
 	static int categoryItem(String group)
 	{
-		switch (group == null ? "" : group)
-		{
-			case "Bosses":
-				return 11832; // Bandos chestplate
-			case "Raids":
-				return 20997; // Twisted bow
-			case "Clues":
-				return 19835; // Clue scroll (master)
-			case "Minigames":
-				return 6570; // Fire cape
-			case "Skilling":
-				return 13320; // Heron
-			default:
-				return 995; // Coins
-		}
+		return CATEGORY_ITEMS.getOrDefault(group == null ? "" : group, 995); // Coins
 	}
 
-	/**
-	 * The log as three levels, each one obviously clickable: categories as tiles → that category's
-	 * pages (icon, count, ›) → the page's items, lit and dim. A long list that expanded in place didn't
-	 * say it could open, and mixed every shelf into one scroll.
-	 */
 	/**
 	 * Kills behind each log page — a raid's page counts every mode (bosses carry the page their kills
 	 * fill), so "Chambers of Xeric" is normal and Challenge Mode together, as the game's log counts it.
@@ -751,11 +628,14 @@ final class PlayerCardView
 		return kc == null || page == null ? null : kc.get(page.toLowerCase(Locale.ROOT));
 	}
 
+	/**
+	 * The log as three levels, each one obviously clickable: categories as tiles → that category's
+	 * pages (icon, count, ›) → the page's items, lit and dim. A long list that expanded in place didn't
+	 * say it could open, and mixed every shelf into one scroll.
+	 */
 	private static JPanel logPages(String rsn, List<PlayerCard.Page> pages, Icons ic, Map<String, Integer> kills)
 	{
-		JPanel holder = new JPanel(new BorderLayout());
-		holder.setOpaque(false);
-		holder.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel holder = row(0);
 		holder.putClientProperty(PAGE_KC, kills);
 		JPanel root = categoryGrid(rsn, pages, ic, holder);
 		holder.putClientProperty(LOG_ROOT, root);
@@ -779,9 +659,7 @@ final class PlayerCardView
 			byGroup.computeIfAbsent(p.group == null ? "Other" : p.group, k -> new ArrayList<>()).add(p);
 		}
 		JPanel block = inner();
-		JPanel grid = new JPanel(new GridLayout(0, 2, 6, 6));
-		grid.setOpaque(false);
-		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel grid = grid(2, 6, 6);
 		for (Map.Entry<String, List<PlayerCard.Page>> e : byGroup.entrySet())
 		{
 			int got = 0;
@@ -793,21 +671,17 @@ final class PlayerCardView
 			}
 			JPanel tile = new JPanel(new BorderLayout(6, 3));
 			tile.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-			JLabel icon = new JLabel();
-			icon.setPreferredSize(new Dimension(28, 26));
-			icon.setHorizontalAlignment(SwingConstants.CENTER);
+			JLabel icon = iconSlot(28, 26);
 			if (ic.items != null)
 			{
 				ic.items.getImage(categoryItem(e.getKey())).addTo(icon);
 			}
 			tile.add(icon, BorderLayout.WEST);
-			JPanel text = column();
-			text.setOpaque(false);
-			JLabel name = small(e.getKey() + "  ›", Color.WHITE);
-			text.add(name);
+			JPanel text = inner();
+			text.add(small(e.getKey() + "  ›", Color.WHITE));
 			text.add(small(got + "/" + of + " · " + percent(got, of) + "%", MUTED));
 			tile.add(text, BorderLayout.CENTER);
-			tile.add(thinBar(got, of), BorderLayout.SOUTH);
+			tile.add(thinBar(percent(got, of), ColorScheme.DARKER_GRAY_COLOR), BorderLayout.SOUTH);
 			List<PlayerCard.Page> list = e.getValue();
 			String group = e.getKey();
 			int g = got;
@@ -835,12 +709,9 @@ final class PlayerCardView
 
 	private static JPanel pageRow(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JComponent back)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
-		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel row = row(6);
 		row.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
-		JLabel icon = new JLabel();
-		icon.setPreferredSize(new Dimension(26, 24));
-		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		JLabel icon = iconSlot(26, 24);
 		if (ic.items != null && p.iconItemId != null)
 		{
 			ic.items.getImage(p.iconItemId).addTo(icon);
@@ -848,77 +719,43 @@ final class PlayerCardView
 		row.add(icon, BorderLayout.WEST);
 		boolean complete = p.total > 0 && p.obtained >= p.total;
 		Integer kc = killsFor(holder, p.name);
+		JLabel name = small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE);
 		if (kc != null)
 		{
-			JPanel text = column();
-			text.setOpaque(false);
-			text.add(small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE));
+			JPanel text = inner();
+			text.add(name);
 			text.add(small(String.format(Locale.ROOT, "%,d kc", kc), MUTED));
 			row.add(text, BorderLayout.CENTER);
 		}
 		else
 		{
-			row.add(small(p.name, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
+			row.add(name, BorderLayout.CENTER);
 		}
-		JPanel right = new JPanel(new BorderLayout(6, 0));
-		right.setOpaque(false);
+		JPanel right = row(6);
 		right.add(small(p.obtained + "/" + p.total, MUTED), BorderLayout.CENTER);
 		if (ic.pageLoader != null)
 		{
 			right.add(new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 9, MUTED)), BorderLayout.EAST);
 		}
 		row.add(right, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		capH(row);
 		if (ic.pageLoader != null)
 		{
 			row.setToolTipText("See the items on this page");
 			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> showPage(rsn, p, ic, holder, back));
 		}
-		else
-		{
-			row.setOpaque(false);
-		}
 		return row;
 	}
 
-	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
-	static void hoverable(JComponent c, Color base, Runnable onClick)
+	/** A 3px share-of-total bar: orange, green once full, over {@code bg}. */
+	private static JPanel thinBar(int pct, Color bg)
 	{
-		Color hover = ColorScheme.DARK_GRAY_HOVER_COLOR;
-		c.setOpaque(true);
-		c.setBackground(base);
-		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		c.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				onClick.run();
-			}
-
-			@Override
-			public void mouseEntered(MouseEvent e)
-			{
-				c.setBackground(hover);
-			}
-
-			@Override
-			public void mouseExited(MouseEvent e)
-			{
-				c.setBackground(base);
-			}
-		});
-	}
-
-	private static JPanel thinBar(int obtained, int total)
-	{
-		int pct = percent(obtained, total);
 		JPanel bar = new JPanel()
 		{
 			@Override
 			protected void paintComponent(Graphics g)
 			{
-				g.setColor(ColorScheme.DARKER_GRAY_COLOR);
+				g.setColor(bg);
 				g.fillRect(0, 0, getWidth(), getHeight());
 				g.setColor(pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
 				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
@@ -966,63 +803,38 @@ final class PlayerCardView
 	{
 		// Two lines: the name on its own (it was cut to "Tom…" beside the count), then the count, the
 		// kills and the website link under it.
-		JPanel head = column();
-		head.setOpaque(false);
-		JLabel left = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 10, Color.WHITE));
-		left.setText(safe(name));
-		left.setFont(FontManager.getRunescapeBoldFont());
-		left.setForeground(complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE);
+		JPanel head = inner();
+		JLabel left = onClick(label(name, BOLD, complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), back);
+		left.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 10, Color.WHITE));
 		left.setIconTextGap(6);
-		left.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		left.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		left.setToolTipText("Back");
-		left.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				back.run();
-			}
-		});
 		head.add(left);
 
-		JPanel sub = new JPanel(new BorderLayout(6, 0));
-		sub.setOpaque(false);
-		sub.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel sub = row(6);
 		sub.setBorder(BorderFactory.createEmptyBorder(1, 16, 0, 0));
 		sub.add(small(count, MUTED), BorderLayout.CENTER);
 		if (rsn != null)
 		{
-			JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11, MUTED));
-			web.setToolTipText("Open this page on the Anvil website");
-			web.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			web.addMouseListener(new MouseAdapter()
+			JLabel web = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11, MUTED)), () ->
 			{
-				@Override
-				public void mouseClicked(MouseEvent e)
+				String url = ProfileLookup.profileUrl(rsn);
+				if (url != null)
 				{
-					String url = ProfileLookup.profileUrl(rsn);
-					if (url != null)
-					{
-						net.runelite.client.util.LinkBrowser.browse(url + "?tab=collection&page="
-							+ java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
-					}
+					net.runelite.client.util.LinkBrowser.browse(url + "?tab=collection&page="
+						+ java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
 				}
 			});
+			web.setToolTipText("Open this page on the Anvil website");
 			sub.add(web, BorderLayout.EAST);
 		}
-		sub.setMaximumSize(new Dimension(Integer.MAX_VALUE, sub.getPreferredSize().height));
-		head.add(sub);
-		head.setMaximumSize(new Dimension(Integer.MAX_VALUE, head.getPreferredSize().height));
-		return head;
+		head.add(capH(sub));
+		return capH(head);
 	}
 
 	/** The page's slots in the game's order: owned in full colour, the rest dim — as the log draws them. */
 	private static JPanel itemGrid(List<BingoApiClient.ClogPageItem> items, Icons ic)
 	{
-		JPanel grid = new JPanel(new GridLayout(0, 5, 3, 3));
-		grid.setOpaque(false);
-		grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel grid = grid(5, 3, 3);
 		for (BingoApiClient.ClogPageItem item : items)
 		{
 			JLabel cell = new JLabel()
@@ -1044,7 +856,7 @@ final class PlayerCardView
 			cell.setHorizontalAlignment(SwingConstants.CENTER);
 			cell.setPreferredSize(new Dimension(36, 32));
 			cell.setOpaque(false);
-			cell.setToolTipText(safe(item.owned && item.quantity > 1
+			cell.setToolTipText(plainText(item.owned && item.quantity > 1
 				? String.format(Locale.ROOT, "%s × %,d", item.name, item.quantity)
 				: item.owned ? item.name : item.name + " — not yet"));
 			if (ic.items != null)
@@ -1070,66 +882,16 @@ final class PlayerCardView
 
 	// ---- Pieces ------------------------------------------------------------------------------------
 
-	static JPanel column()
-	{
-		JPanel p = new JPanel();
-		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-		p.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		p.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		return p;
-	}
-
-	static JPanel block()
-	{
-		JPanel p = new JPanel();
-		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		p.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		return p;
-	}
-
-	// Every string on the card comes from the site — RSNs, a clan's own name, item and boss labels — and a
-	// Swing label renders HTML when its text opens with <html>. AnvilSidebarPanel.plainText neutralises
-	// that; labels and tooltips below all go through it.
-	static String safe(String text)
-	{
-		return AnvilSidebarPanel.plainText(text);
-	}
-
-	static JLabel title(String text)
-	{
-		JLabel l = new JLabel(safe(text));
-		l.setFont(FontManager.getRunescapeBoldFont());
-		l.setForeground(Color.WHITE);
-		l.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		return l;
-	}
-
-	static JLabel small(String text, Color color)
-	{
-		JLabel l = new JLabel(safe(text));
-		l.setFont(FontManager.getRunescapeSmallFont());
-		l.setForeground(color);
-		l.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		return l;
-	}
-
+	/** A section's orange name, with an optional white figure at the right. */
 	static JPanel header(String left, String right)
 	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setOpaque(false);
-		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		JLabel l = new JLabel(left);
-		l.setFont(FontManager.getRunescapeSmallFont());
-		l.setForeground(ColorScheme.BRAND_ORANGE);
-		row.add(l, BorderLayout.WEST);
+		JPanel row = row(0);
+		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
 		if (right != null)
 		{
 			row.add(small(right, Color.WHITE), BorderLayout.EAST);
 		}
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
 	}
 
 	/** "Bosses  62%" over a 3px bar — a share of the log at a glance. */
@@ -1138,31 +900,14 @@ final class PlayerCardView
 		int pct = percent(obtained, total);
 		JPanel cell = new JPanel(new BorderLayout(0, 2));
 		cell.setOpaque(false);
-		cell.setToolTipText(safe(String.format(Locale.ROOT, "%s: %,d / %,d", name, obtained, total)));
+		cell.setToolTipText(plainText(String.format(Locale.ROOT, "%s: %,d / %,d", name, obtained, total)));
 		JPanel text = new JPanel(new BorderLayout());
 		text.setOpaque(false);
 		text.add(small(name, MUTED), BorderLayout.WEST);
 		text.add(small(pct + "%", Color.WHITE), BorderLayout.EAST);
 		cell.add(text, BorderLayout.CENTER);
-		JPanel bar = new JPanel()
-		{
-			@Override
-			protected void paintComponent(Graphics g)
-			{
-				g.setColor(ColorScheme.DARK_GRAY_COLOR);
-				g.fillRect(0, 0, getWidth(), getHeight());
-				g.setColor(pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
-				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
-			}
-		};
-		bar.setPreferredSize(new Dimension(0, 3));
-		cell.add(bar, BorderLayout.SOUTH);
+		cell.add(thinBar(pct, ColorScheme.DARK_GRAY_COLOR), BorderLayout.SOUTH);
 		return cell;
-	}
-
-	static Component gap(int h)
-	{
-		return Box.createVerticalStrut(h);
 	}
 
 	// ---- Formatting (package-private for tests) ---------------------------------------------------
@@ -1250,28 +995,14 @@ final class PlayerCardView
 	 * hiscores can't tell the group modes apart) in the short form players use. Null type never gets
 	 * here: an account the plugin hasn't seen shows no type rather than a guessed "Main".
 	 */
+	private static final Map<String, String> ACCOUNT_TYPES = Map.of(
+		"normal", "Main", "main", "Main", "ironman", "Ironman", "ultimate", "UIM", "hardcore", "HCIM",
+		"group", "GIM", "hardcore_group", "HCGIM", "unranked_group", "UGIM");
+
 	static String accountTypeLabel(String type)
 	{
-		switch (type)
-		{
-			case "normal":
-			case "main":
-				return "Main";
-			case "ironman":
-				return "Ironman";
-			case "ultimate":
-				return "UIM";
-			case "hardcore":
-				return "HCIM";
-			case "group":
-				return "GIM";
-			case "hardcore_group":
-				return "HCGIM";
-			case "unranked_group":
-				return "UGIM";
-			default:
-				return Character.toUpperCase(type.charAt(0)) + type.substring(1).replace('_', ' ');
-		}
+		String known = ACCOUNT_TYPES.get(type);
+		return known != null ? known : Character.toUpperCase(type.charAt(0)) + type.substring(1).replace('_', ' ');
 	}
 
 	private static String fold(String s)
@@ -1321,12 +1052,6 @@ final class PlayerCardView
 			}
 		}
 		return best;
-	}
-
-	/** Label-only lookup — kept for the summary's older callers and tests. */
-	static HiscoreSkill hiscoreSkill(String label)
-	{
-		return hiscoreSkill(null, label);
 	}
 
 	private static String abbrev(String label)

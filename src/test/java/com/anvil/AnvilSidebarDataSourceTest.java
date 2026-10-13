@@ -86,7 +86,7 @@ public class AnvilSidebarDataSourceTest
 
 	private static AnvilSidebarDataSource newSource(java.util.function.Supplier<PluginConfigResponse> cfg)
 	{
-		return new AnvilSidebarDataSource(cfg, unconfigured());
+		return new AnvilSidebarDataSource(cfg, unconfigured(), null, null, null);
 	}
 
 	@Test
@@ -98,11 +98,10 @@ public class AnvilSidebarDataSourceTest
 
 		// No member-scoped event still renders a HOME card (clan name, no board) — an empty list
 		// would make the home clan vanish from a federated sidebar.
-		List<ConnectionView> conns = ds.fetchConnections();
-		assertEquals(1, conns.size());
-		assertEquals("The AFK Spot", conns.get(0).clanName);
-		assertEquals(0, conns.get(0).tilesTotal);
-		assertNull(conns.get(0).statusNote); // no unlinked event → the generic "No active event yet."
+		ConnectionView home = ds.fetch(false);
+		assertEquals("The AFK Spot", home.clanName);
+		assertEquals(0, home.tilesTotal);
+		assertNull(home.statusNote); // no unlinked event → the generic "No active event yet."
 	}
 
 	@Test
@@ -113,7 +112,7 @@ public class AnvilSidebarDataSourceTest
 		cfg.unlinkedActiveEvent = "July Bingo";
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 		assertEquals("July Bingo", c.eventName);
 		assertEquals("Log in in-game to load your board.", c.statusNote);
 	}
@@ -131,7 +130,7 @@ public class AnvilSidebarDataSourceTest
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
 		// Logged out, but the site resolved the enrollment server-side → board numbers render.
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 		assertEquals("The AFK Spot", c.clanName);
 		assertEquals("July Bingo", c.eventName);
 		assertEquals(14_200, c.tilesComplete);
@@ -148,7 +147,7 @@ public class AnvilSidebarDataSourceTest
 		cfg.clanName = "The AFK Spot";
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 		assertEquals(0, c.tilesTotal);
 		assertEquals(0, c.tilesComplete);
 		assertTrue(c.recentActivity.isEmpty());
@@ -160,17 +159,14 @@ public class AnvilSidebarDataSourceTest
 	public void nullConfigYieldsEmptyList() throws Exception
 	{
 		AnvilSidebarDataSource ds = newSource(() -> null);
-		assertTrue(ds.fetchConnections().isEmpty());
+		assertNull(ds.fetch(false));
 	}
 
 	@Test
 	public void buildsOneConnectionWithSummaryAndNearest() throws Exception
 	{
 		AnvilSidebarDataSource ds = newSource(AnvilSidebarDataSourceTest::eventConfig);
-		List<ConnectionView> conns = ds.fetchConnections();
-		assertEquals(1, conns.size());
-
-		ConnectionView c = conns.get(0);
+		ConnectionView c = ds.fetch(false);
 		assertEquals("Team Molten", c.clanName);
 		assertEquals("Summer Bingo", c.eventName);
 		assertEquals(3, c.tilesTotal);
@@ -191,9 +187,9 @@ public class AnvilSidebarDataSourceTest
 		PluginConfigResponse cfg = eventConfig();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ds.fetchConnections();                        // seed
+		ds.fetch(false);                        // seed
 		cfg.trackedDrops.get(0).currentAmount = 7;    // a teammate credits the kill/drop tile
-		assertSingleActive(ds.fetchConnections().get(0), 101, false, "a teammate");
+		assertSingleActive(ds.fetch(false), 101, false, "a teammate");
 	}
 
 	@Test
@@ -202,12 +198,12 @@ public class AnvilSidebarDataSourceTest
 		// The local submit signal attributes your own kill/drop to YOU, even though the config count also rose.
 		PluginConfigResponse cfg = eventConfig();
 		Map<Integer, Long> local = new HashMap<>();
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local);
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null, null);
 
-		ds.fetchConnections();                        // seed
+		ds.fetch(false);                        // seed
 		local.put(101, System.currentTimeMillis());   // you credited the tile
 		cfg.trackedDrops.get(0).currentAmount = 7;
-		assertSingleActive(ds.fetchConnections().get(0), 101, true, "You");
+		assertSingleActive(ds.fetch(false), 101, true, "You");
 	}
 
 	@Test
@@ -217,9 +213,9 @@ public class AnvilSidebarDataSourceTest
 		PluginConfigResponse cfg = statConfig();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ds.fetchConnections();                                 // seed
+		ds.fetch(false);                                 // seed
 		cfg.trackedStats.get(0).currentAmount = 1_050_000;     // team Fishing XP rises (teammate)
-		assertSingleActive(ds.fetchConnections().get(0), 201, false, "a teammate");
+		assertSingleActive(ds.fetch(false), 201, false, "a teammate");
 	}
 
 	@Test
@@ -228,12 +224,12 @@ public class AnvilSidebarDataSourceTest
 		// The local stat signal attributes the same tile to YOU, even though the team total also rose.
 		PluginConfigResponse cfg = statConfig();
 		Map<Integer, Long> local = new HashMap<>();
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local);
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null, null);
 
-		ds.fetchConnections();                                 // seed
+		ds.fetch(false);                                 // seed
 		local.put(201, System.currentTimeMillis());            // this account gains Fishing XP now
 		cfg.trackedStats.get(0).currentAmount = 1_050_000;
-		assertSingleActive(ds.fetchConnections().get(0), 201, true, "You");
+		assertSingleActive(ds.fetch(false), 201, true, "You");
 	}
 
 	@Test
@@ -245,7 +241,7 @@ public class AnvilSidebarDataSourceTest
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
 		// First fetch is enough — the server named the worker, no delta required.
-		assertSingleActive(ds.fetchConnections().get(0), 201, false, "Alice");
+		assertSingleActive(ds.fetch(false), 201, false, "Alice");
 	}
 
 	@Test
@@ -256,9 +252,9 @@ public class AnvilSidebarDataSourceTest
 		cfg.trackedStats.get(0).activeWorkers = new ArrayList<>();
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ds.fetchConnections();                             // seed
+		ds.fetch(false);                             // seed
 		cfg.trackedStats.get(0).currentAmount = 1_050_000; // team total rises anyway (hiscores catch-up)
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 
 		assertTrue(c.activeNow.isEmpty());
 	}
@@ -309,7 +305,7 @@ public class AnvilSidebarDataSourceTest
 			weekly(8, "Zulrah Week", "boss", "zulrah", "active"));
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 		// Live comps first (schedule order is not display order), then what's coming up.
 		assertEquals(3, c.weeklies.size());
 		assertFalse(c.weeklies.get(0).upcoming);
@@ -334,9 +330,8 @@ public class AnvilSidebarDataSourceTest
 		// week, with the raw metric key and a milli-hour gain shown as a five-digit kill count.
 		PluginConfigResponse cfg = withSchedule(eventConfig(),
 			weekly(11, "Efficiency Week", "efficiency", "ehb", "active"));
-		ConnectionView.WeeklyView w = newSource(() -> cfg).fetchConnections().get(0).weeklies.get(0);
+		ConnectionView.WeeklyView w = newSource(() -> cfg).fetch(false).weeklies.get(0);
 
-		assertTrue(w.isEfficiency());
 		assertEquals("Efficiency of the Week", w.kindLabel());
 		assertEquals("EHB", w.metricLabel());
 		assertEquals("hrs", w.unitNoun());
@@ -348,9 +343,14 @@ public class AnvilSidebarDataSourceTest
 	@Test
 	public void skillAndBossGainsKeepTheirCompactCounts()
 	{
-		assertEquals("1.2M xp", ConnectionView.WeeklyView.formatGain("skill", 1_200_000));
-		assertEquals("340K xp", ConnectionView.WeeklyView.formatGain("skill", 340_000));
-		assertEquals("184 kc", ConnectionView.WeeklyView.formatGain("boss", 184));
+		assertEquals("1.2M xp", gainWeekly("skill").formatGain(1_200_000));
+		assertEquals("340K xp", gainWeekly("skill").formatGain(340_000));
+		assertEquals("184 kc", gainWeekly("boss").formatGain(184));
+	}
+
+	private static ConnectionView.WeeklyView gainWeekly(String type)
+	{
+		return new ConnectionView.WeeklyView(1, "t", type, "m", null, null, null, false, 0, 0, 0, null, null);
 	}
 
 	@Test
@@ -362,7 +362,7 @@ public class AnvilSidebarDataSourceTest
 		withSchedule(cfg, weekly(7, "Mining Madness", "skill", "mining", "active"));
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 		assertEquals(0, c.tilesTotal);
 		assertEquals(1, c.weeklies.size());
 		assertEquals(7, c.weeklies.get(0).id);
@@ -379,7 +379,7 @@ public class AnvilSidebarDataSourceTest
 		cfg.activeWeekly.metric = "chambers_of_xeric";
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		ConnectionView c = ds.fetchConnections().get(0);
+		ConnectionView c = ds.fetch(false);
 		assertEquals(1, c.weeklies.size());
 		assertEquals(12, c.weeklies.get(0).id);
 		assertEquals("Chambers of Xeric", c.weeklies.get(0).metricLabel());
@@ -397,7 +397,7 @@ public class AnvilSidebarDataSourceTest
 		cfg.activeWeekly.metric = "mining";
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
-		assertEquals(1, ds.fetchConnections().get(0).weeklies.size());
+		assertEquals(1, ds.fetch(false).weeklies.size());
 	}
 
 	/** A client that serves a canned leaderboard offline and counts the reads (for the throttle test). */
@@ -452,9 +452,9 @@ public class AnvilSidebarDataSourceTest
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> "ahmed two");
+			java.util.Collections::emptyMap, () -> "ahmed two", null);
 
-		ConnectionView.WeeklyView w = ds.fetchConnections().get(0).weeklies.get(0);
+		ConnectionView.WeeklyView w = ds.fetch(false).weeklies.get(0);
 		assertEquals(12, w.yourRank);
 		assertEquals(4200, w.yourGained);
 		assertEquals(30, w.participants);
@@ -472,17 +472,17 @@ public class AnvilSidebarDataSourceTest
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> null);
+			java.util.Collections::emptyMap, () -> null, null);
 
-		ds.fetchConnections();   // first read
-		ds.fetchConnections();   // 15 s poll — must reuse the cached board
-		ds.fetchConnections();
+		ds.fetch(false);   // first read
+		ds.fetch(false);   // 15 s poll — must reuse the cached board
+		ds.fetch(false);
 		assertEquals(1, client.reads.size());
 
-		ds.fetchConnections(true); // the member clicked Refresh — read now
+		ds.fetch(true); // the member clicked Refresh — read now
 		assertEquals(2, client.reads.size());
 		// The cached standings survive the throttled polls, so the card never goes blank between reads.
-		assertEquals(30, ds.fetchConnections().get(0).weeklies.get(0).participants);
+		assertEquals(30, ds.fetch(false).weeklies.get(0).participants);
 		assertEquals(2, client.reads.size());
 	}
 
@@ -493,9 +493,9 @@ public class AnvilSidebarDataSourceTest
 			weekly(9, "Next week's comp", "skill", "fishing", "upcoming"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
 		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> "ahmed two");
+			java.util.Collections::emptyMap, () -> "ahmed two", null);
 
-		ConnectionView.WeeklyView w = ds.fetchConnections().get(0).weeklies.get(0);
+		ConnectionView.WeeklyView w = ds.fetch(false).weeklies.get(0);
 		assertTrue(w.upcoming);
 		// Nothing has happened in it yet, so there's no leaderboard worth a request.
 		assertTrue(client.reads.isEmpty());
@@ -507,7 +507,7 @@ public class AnvilSidebarDataSourceTest
 	public void noWeekliesAtAllYieldsNoWeeklyEvents() throws Exception
 	{
 		assertTrue(newSource(AnvilSidebarDataSourceTest::eventConfig)
-			.fetchConnections().get(0).weeklies.isEmpty());
+			.fetch(false).weeklies.isEmpty());
 	}
 
 	@Test
@@ -520,7 +520,7 @@ public class AnvilSidebarDataSourceTest
 			bingo(5, "Summer Bingo", "active", "2026-07-01T00:00:00Z"),   // the caller's own board
 			bingo(6, "Someone else's", "active", "2026-07-20T00:00:00Z")));
 
-		List<ConnectionView.ScheduledView> scheduled = newSource(() -> cfg).fetchConnections().get(0).scheduled;
+		List<ConnectionView.ScheduledView> scheduled = newSource(() -> cfg).fetch(false).scheduled;
 		// Own event dropped (the board card IS that event); live first, then soonest upcoming.
 		assertEquals(2, scheduled.size());
 		assertEquals(6, scheduled.get(0).id);
@@ -536,10 +536,10 @@ public class AnvilSidebarDataSourceTest
 		final PluginConfigResponse[] holder = { cfg };
 		AnvilSidebarDataSource ds = newSource(() -> holder[0]);
 
-		assertEquals(1, ds.fetchConnections().size());
+		assertNotNull(ds.fetch(false));
 		holder[0] = new PluginConfigResponse();      // event ended
 		// Post-event the home still renders — as the board-less stub card, not an empty sidebar.
-		ConnectionView after = ds.fetchConnections().get(0);
+		ConnectionView after = ds.fetch(false);
 		assertEquals(0, after.tilesTotal);
 		assertTrue(after.nearestTiles.isEmpty());
 	}

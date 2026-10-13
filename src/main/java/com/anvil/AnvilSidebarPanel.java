@@ -5,7 +5,6 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
@@ -19,9 +18,7 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import javax.swing.Box;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -52,6 +49,8 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.game.SkillIconManager;
 
+import static com.anvil.Ui.*;
+
 /**
  * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
  * completion. Decoupled from the network: reads everything through {@link SidebarDataSource} (site-relay or
@@ -73,11 +72,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Auto-refresh cadence while the panel is open. Mirrors the plugin's other polls (config/board). */
 	private static final int POLL_INTERVAL_MS = 15_000;
 
-	private static final Color VALUE_COLOR = new Color(0x98_98_98);
 	/** A teammate's claim on a tile — a calm blue, so it reads as a plan rather than progress. */
 	private static final Color CLAIM_COLOR = new Color(0x7D_C4_F0);
-	/** The catalogue key for the caller's own, team-scoped board (previews are "preview:<id>"). */
-	private static final String ACTIVE_CATALOGUE_KEY = "active";
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
 	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
@@ -107,7 +103,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Roughly what fits on one small-font line at {@link PluginPanel#PANEL_WIDTH} — event cards clip to it. */
 	private static final int CARD_LINE_CHARS = 30;
 
-	private final SidebarDataSource dataSource;
+	private final AnvilSidebarDataSource dataSource;
 	/** Item and boss icons for the player card. Null in tests that build the panel by hand. */
 	private final ItemManager itemManager;
 	private final SpriteManager spriteManager;
@@ -128,8 +124,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel tabBody = new JPanel(new BorderLayout());
 	private final JPanel tabStrip = new JPanel(new GridBagLayout());
 	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
-	private final JPanel youPanel = new JPanel();
-	private final JPanel lookupPanel = new JPanel();
+	private final JPanel youPanel = column();
+	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	private boolean lookupClans;
 	private final JLabel lookupModePlayers = new JLabel("Players", SwingConstants.CENTER);
@@ -142,11 +138,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	private long ownClanAt;
 	private boolean ownClanLoading;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
-	private final JPanel settingsPanel = new JPanel();
-	private final JPanel lookupResult = new JPanel();
-	private final JPanel lookupRecentRow = new JPanel();
+	private final JPanel settingsPanel = column();
+	private final JPanel lookupResult = column();
+	private final JPanel lookupRecentRow = column();
 	private final JTextField lookupSearch = new JTextField();
-	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, VALUE_COLOR));
+	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
 	private final java.util.LinkedList<String> recentLookups = new java.util.LinkedList<>();
@@ -184,7 +180,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
 	private final ScheduledExecutorService executor;
 	private final JButton signInButton = new JButton("Sign in with Discord");
-	private final JLabel signInStatus = new JLabel();
+	private final JLabel signInStatus = small("", MUTED);
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
@@ -199,14 +195,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
 	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
 	// tracking line for that character for good.
-	private final JLabel accountLabel = new JLabel();
-	private final JLabel accountLink = new JLabel();
-	private final JLabel accountStatus = new JLabel();
+	private final JLabel accountLabel = small("", MUTED);
+	private final JLabel accountLink = small("", ColorScheme.BRAND_ORANGE);
+	private final JLabel accountStatus = small("", MUTED);
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	private SidebarDataSource.AccountRow shownAccountRow;
 	private boolean accountActionInFlight;
 
-	private final JPanel content = new JPanel();
+	private final JPanel content = column();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
 	private final Timer autoRefresh;
@@ -229,7 +225,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean ladderFlashPainted;
 
 	// Last snapshot + selected clan — preserved across refreshes so auto-refresh doesn't reset/flicker the list.
-	private List<ConnectionView> connections = java.util.Collections.emptyList();
+	private ConnectionView connection;
 
 	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
 	private String selectedEventKey;
@@ -265,19 +261,15 @@ public class AnvilSidebarPanel extends PluginPanel
 		return apiClient != null ? apiClient.interactiveExecutor() : executor;
 	}
 
-	AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
-		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor)
-	{
-		this(dataSource, apiClient, configManager, executor, null, null, null);
-	}
-
+	/** {@code dataSource} is the Guice-bound {@link AnvilSidebarDataSource}, its only implementation. */
 	@Inject
 	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
 		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor,
 		ItemManager itemManager, SpriteManager spriteManager, SkillIconManager skillIconManager)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
-		this.dataSource = dataSource;
+		this.dataSource = (AnvilSidebarDataSource) dataSource;
+
 		this.itemManager = itemManager;
 		this.spriteManager = spriteManager;
 		this.skillIconManager = skillIconManager;
@@ -292,8 +284,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		add(buildHeader(), BorderLayout.NORTH);
 		SlimScrollBarUI.applyTo(getWrappedPanel());
 
-		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
-		content.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		buildTabBodies();
 		tabBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		tabBody.add(content, BorderLayout.NORTH);
@@ -317,50 +307,29 @@ public class AnvilSidebarPanel extends PluginPanel
 		header.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		header.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
 
-		JLabel title = new JLabel("Anvil Progress");
-		title.setFont(FontManager.getRunescapeBoldFont());
-		title.setForeground(ColorScheme.BRAND_ORANGE);
+		JLabel title = label("Anvil Progress", BOLD, ColorScheme.BRAND_ORANGE);
 
 		styleFlatButton(refreshButton, Color.WHITE);
 		refreshButton.addActionListener(e -> refresh(true));
 
-		JPanel titleRow = new JPanel(new BorderLayout());
+		JPanel titleRow = left(new JPanel(new BorderLayout()));
 		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		titleRow.add(title, BorderLayout.WEST);
 		titleRow.add(refreshButton, BorderLayout.EAST);
-		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
-		titleRow.setAlignmentX(LEFT_ALIGNMENT);
+		capH(titleRow);
 
 		// Sign-in affordance — visible whenever there is no token (see refreshSignInRow).
 		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
 		signInButton.addActionListener(e -> startSignIn());
-		signInStatus.setFont(FontManager.getRunescapeSmallFont());
-		signInStatus.setForeground(VALUE_COLOR);
 		signInStatus.setVisible(false);
 		signInRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		signInRow.add(signInButton, BorderLayout.NORTH);
 		signInRow.add(signInStatus, BorderLayout.CENTER);
 		styleLink(pasteTokenLink, "Paste the token from anvilosrs.com (Profile → RuneLite plugin)", this::pasteToken);
 		signInRow.add(pasteTokenLink, BorderLayout.SOUTH);
-		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
-		signInRow.setAlignmentX(LEFT_ALIGNMENT);
-		signInRow.setVisible(false);
+		left(capH(signInRow)).setVisible(false);
 
-		accountLabel.setFont(FontManager.getRunescapeSmallFont());
-		accountLabel.setForeground(VALUE_COLOR);
-		accountLink.setFont(FontManager.getRunescapeSmallFont());
-		accountLink.setForeground(ColorScheme.BRAND_ORANGE);
-		accountLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		accountLink.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				onAccountButton();
-			}
-		});
-		accountStatus.setFont(FontManager.getRunescapeSmallFont());
-		accountStatus.setForeground(VALUE_COLOR);
+		onClick(accountLink, this::onAccountButton);
 		accountStatus.setVisible(false);
 		styleLink(accountMenuLink, "Account: View my profile, Not my account, Sign out", () -> showAccountMenu(accountMenuLink));
 		// One strip for who you are here: the character being tracked on the left, and everything
@@ -375,20 +344,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		accountRowPanel.add(accountLabel, BorderLayout.CENTER);
 		accountRowPanel.add(accountActions, BorderLayout.EAST);
 		accountRowPanel.add(accountStatus, BorderLayout.SOUTH);
-		accountRowPanel.setAlignmentX(LEFT_ALIGNMENT);
-		accountRowPanel.setVisible(false);
+		left(accountRowPanel).setVisible(false);
 
-		JPanel top = new JPanel();
-		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-		top.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel top = column();
 		top.add(titleRow);
-		top.add(Box.createVerticalStrut(6));
+		top.add(gap(6));
 		top.add(signInRow);
 		top.add(accountRowPanel);
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
-		styleClanPicker(clanPicker);
+		styleCombo(clanPicker);
 		clanPicker.setRenderer(new ClanChoiceRenderer());
 		clanPicker.setFocusable(false);
 		clanPicker.addActionListener(e ->
@@ -402,16 +368,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				return;
 			}
-			// Not a filter over a snapshot we already hold — the other clan's board lives on the site,
-			// so this hands the choice to the plugin (which persists it and re-addresses the client)
-			// and shows the loading state until the answer comes back.
-			selectedEventKey = null; // another clan's events are a different list — start at the top
-			clearBoardCatalogueState();
-			// No refresh() here on purpose. The source renders from the config the plugin holds, and
-			// that config is still the old clan's until the refetch lands — refreshing now would repaint
-			// the clan they just switched away from. The plugin repaints once it has the new answer.
-			dataSource.chooseClan(sel.slug);
-			renderLoading();
+			switchClan(sel.slug);
 		});
 		JPanel south = new JPanel(new BorderLayout(0, 8));
 		south.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -420,6 +377,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		header.add(south, BorderLayout.SOUTH);
 
 		return header;
+	}
+
+	/**
+	 * Address another clan. Not a filter over a snapshot we already hold — the other clan's board lives
+	 * on the site, so this hands the choice to the plugin (which persists it and re-addresses the
+	 * client) and shows the loading state until the answer comes back.
+	 *
+	 * <p>No refresh() here on purpose. The source renders from the config the plugin holds, and that
+	 * config is still the old clan's until the refetch lands — refreshing now would repaint the clan
+	 * they just switched away from. The plugin repaints once it has the new answer.</p>
+	 */
+	private void switchClan(String slug)
+	{
+		selectedEventKey = null; // another clan's events are a different list — start at the top
+		clearBoardCatalogueState();
+		dataSource.chooseClan(slug);
+		renderLoading();
 	}
 
 	// ---- Tabs ---------------------------------------------------------------------------------------
@@ -444,19 +418,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			else
 			{
 				label = new JLabel(t == Tab.CLAN ? "Clan" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
-				label.setFont(FontManager.getRunescapeSmallFont());
+				label.setFont(SMALL);
 				gc.weightx = 1;
 			}
-			label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			label.addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mouseClicked(MouseEvent e)
-				{
-					selectTab(t);
-				}
-			});
-			tabLabels.put(t, label);
+			tabLabels.put(t, onClick(label, () -> selectTab(t)));
 			gc.gridx = t.ordinal();
 			tabStrip.add(label, gc);
 		}
@@ -471,7 +436,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		for (Map.Entry<Tab, JLabel> e : tabLabels.entrySet())
 		{
 			boolean on = e.getKey() == tab;
-			e.getValue().setForeground(on ? Color.WHITE : VALUE_COLOR);
+			e.getValue().setForeground(on ? Color.WHITE : MUTED);
 			e.getValue().setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 0, on ? 2 : 1, 0, on ? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR),
 				BorderFactory.createEmptyBorder(4, 0, on ? 3 : 4, 0)));
@@ -480,21 +445,10 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void buildTabBodies()
 	{
-		for (JPanel p : new JPanel[]{youPanel, lookupPanel, lookupResult, lookupRecentRow, settingsPanel})
-		{
-			p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-			p.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			p.setAlignmentX(LEFT_ALIGNMENT);
-		}
 
 		// Our own field rather than RuneLite's IconTextField: that one draws typed text grey and a
 		// light-grey clear button with a red cross, neither of which can be restyled from outside.
-		lookupSearch.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		lookupSearch.setForeground(Color.WHITE);
-		lookupSearch.setCaretColor(Color.WHITE);
-		lookupSearch.setSelectionColor(ColorScheme.BRAND_ORANGE);
-		lookupSearch.setSelectedTextColor(Color.BLACK);
-		lookupSearch.setFont(FontManager.getRunescapeFont());
+		styleSearch(lookupSearch);
 		lookupSearch.setBorder(BorderFactory.createEmptyBorder());
 		lookupSearch.setToolTipText("A player's name — press Enter");
 		lookupSearch.addActionListener(e ->
@@ -508,60 +462,21 @@ public class AnvilSidebarPanel extends PluginPanel
 				showLookup(lookupSearch.getText());
 			}
 		});
-		lookupSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
-		{
-			private void changed()
-			{
-				lookupClear.setVisible(!lookupSearch.getText().isEmpty());
-			}
-
-			@Override
-			public void insertUpdate(javax.swing.event.DocumentEvent e)
-			{
-				changed();
-			}
-
-			@Override
-			public void removeUpdate(javax.swing.event.DocumentEvent e)
-			{
-				changed();
-			}
-
-			@Override
-			public void changedUpdate(javax.swing.event.DocumentEvent e)
-			{
-				changed();
-			}
-		});
+		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
 		lookupClear.setVisible(false);
 		lookupClear.setToolTipText("Clear");
-		lookupClear.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		lookupClear.addMouseListener(new MouseAdapter()
+		onClick(lookupClear, () ->
 		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				lookupSearch.setText("");
-				lookupSearch.requestFocusInWindow();
-				lookupSeq++;
-				lookupResult.removeAll();
-				lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
-				lookupResult.revalidate();
-				lookupResult.repaint();
-			}
+			lookupSearch.setText("");
+			lookupSearch.requestFocusInWindow();
+			showLookupMessage(LOOKUP_HINT);
 		});
-		JLabel prompt = new JLabel("Name");
-		prompt.setFont(FontManager.getRunescapeSmallFont());
-		prompt.setForeground(VALUE_COLOR);
 		lookupBox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		lookupBox.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.MEDIUM_GRAY_COLOR),
-			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-		lookupBox.add(prompt, BorderLayout.WEST);
+		setBoxLine(ColorScheme.MEDIUM_GRAY_COLOR);
+		lookupBox.add(small("Name", MUTED), BorderLayout.WEST);
 		lookupBox.add(lookupSearch, BorderLayout.CENTER);
 		lookupBox.add(lookupClear, BorderLayout.EAST);
-		lookupBox.setAlignmentX(LEFT_ALIGNMENT);
-		lookupBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, lookupBox.getPreferredSize().height));
+		capH(left(lookupBox));
 		// Focus shows as the underline turning orange.
 		lookupSearch.addFocusListener(new java.awt.event.FocusAdapter()
 		{
@@ -578,34 +493,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		});
 
-		JPanel modes = new JPanel(new GridLayout(1, 2, 4, 0));
+		JPanel modes = left(new JPanel(new GridLayout(1, 2, 4, 0)));
 		modes.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		modes.setAlignmentX(LEFT_ALIGNMENT);
 		for (JLabel m : new JLabel[]{lookupModePlayers, lookupModeClans})
 		{
-			m.setFont(FontManager.getRunescapeSmallFont());
+			m.setFont(SMALL);
 			m.setOpaque(true);
 			m.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
-			m.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			modes.add(m);
+			modes.add(onClick(m, () -> setLookupMode(m == lookupModeClans)));
 		}
-		lookupModePlayers.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				setLookupMode(false);
-			}
-		});
-		lookupModeClans.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				setLookupMode(true);
-			}
-		});
-		modes.setMaximumSize(new Dimension(Integer.MAX_VALUE, modes.getPreferredSize().height));
+		capH(modes);
 		styleLookupModes();
 		lookupPanel.add(modes);
 		lookupPanel.add(gap(6));
@@ -613,8 +510,24 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupRecentRow);
 		lookupPanel.add(lookupResult);
-		lookupResult.add(cardMessage("Search a name — or right-click anyone in game and pick Anvil."));
+		lookupResult.add(cardMessage(LOOKUP_HINT));
 	}
+
+	private static final String LOOKUP_HINT = "Search a name — or right-click anyone in game and pick Anvil.";
+
+	/**
+	 * Replace whatever Lookup shows with one line, and drop any answer still on its way for what was
+	 * there. Returns the new request number for a fetch to check its answer against.
+	 */
+	private int showLookupMessage(String text)
+	{
+		lookupResult.removeAll();
+		lookupResult.add(cardMessage(text));
+		lookupResult.revalidate();
+		lookupResult.repaint();
+		return ++lookupSeq;
+	}
+
 
 	private void setBoxLine(Color c)
 	{
@@ -695,7 +608,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		SwingUtilities.invokeLater(() ->
 		{
-			String name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
+			String name = rawName == null ? "" : rawName.replace('\u00A0', ' ').trim();
 			if (tab != Tab.LOOKUP)
 			{
 				selectTab(Tab.LOOKUP);
@@ -706,35 +619,53 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			lookupSearch.setText(name);
 			remember(name);
-			int seq = ++lookupSeq;
-			lookupResult.removeAll();
-			lookupResult.add(cardMessage("Looking up " + name + "…"));
-			lookupResult.revalidate();
-			lookupResult.repaint();
-			interactive().execute(() ->
+			lookupThen("Looking up " + name + "…", () -> dataSource.fetchPlayerCard(name), result ->
 			{
-				BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(name);
-				SwingUtilities.invokeLater(() ->
+				lookupResult.add(cardFor(name, result, false));
+				lookupCard = result != null ? result.card : null;
+				String me = dataSource.myRsn();
+				if (lookupCard != null && me != null && !Rsn.same(me, lookupCard.rsn))
 				{
-					if (seq != lookupSeq)
-					{
-						return; // a newer lookup has started; this answer is for a name nobody's looking at
-					}
-					lookupResult.removeAll();
-					lookupResult.add(cardFor(name, result, false));
-					lookupCard = result != null ? result.card : null;
-					String me = dataSource.myRsn();
-					if (lookupCard != null && me != null && !Rsn.same(me, lookupCard.rsn))
-					{
-						lookupResult.add(gap(6));
-						lookupResult.add(fullWidth(actionButton("Compare with me",
-							"Side by side: levels, bosses and the log", () -> showPlayerCompare(lookupCard))));
-					}
-					lookupResult.revalidate();
-					lookupResult.repaint();
-				});
+					lookupButton("Compare with me", "Side by side: levels, bosses and the log", () -> showPlayerCompare(lookupCard));
+				}
 			});
 		});
+	}
+
+	/**
+	 * Show {@code waiting} in Lookup, fetch off the EDT, then fill Lookup from the answer — unless a
+	 * newer lookup started meanwhile, in which case this answer is for something nobody's looking at.
+	 */
+	private <T> void lookupThen(String waiting, java.util.function.Supplier<T> fetch, java.util.function.Consumer<T> show)
+	{
+		int seq = showLookupMessage(waiting);
+		async(fetch, result ->
+		{
+			if (seq != lookupSeq)
+			{
+				return;
+			}
+			lookupResult.removeAll();
+			show.accept(result);
+			lookupResult.revalidate();
+			lookupResult.repaint();
+		});
+	}
+
+	/** {@code fetch} on the interactive executor, then {@code then} with its answer on the EDT. */
+	private <T> void async(java.util.function.Supplier<T> fetch, java.util.function.Consumer<T> then)
+	{
+		interactive().execute(() ->
+		{
+			T result = fetch.get();
+			SwingUtilities.invokeLater(() -> then.accept(result));
+		});
+	}
+
+	private void lookupButton(String label, String tooltip, Runnable action)
+	{
+		lookupResult.add(gap(6));
+		lookupResult.add(fullWidthButton(label, tooltip, action));
 	}
 
 	private void remember(String name)
@@ -748,28 +679,18 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupRecentRow.removeAll();
 		if (recentLookups.size() > 1)
 		{
-			JPanel wrap = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+			JPanel wrap = left(new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)));
 			wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			wrap.setAlignmentX(LEFT_ALIGNMENT);
-			JLabel intro = new JLabel("Recent: ");
-			intro.setFont(FontManager.getRunescapeSmallFont());
-			intro.setForeground(VALUE_COLOR);
-			wrap.add(intro);
+			wrap.add(small("Recent: ", MUTED));
 			boolean first = true;
 			for (String n : recentLookups.subList(1, recentLookups.size()))
 			{
 				if (!first)
 				{
-					JLabel dot = new JLabel(" · ");
-					dot.setFont(FontManager.getRunescapeSmallFont());
-					dot.setForeground(VALUE_COLOR);
-					wrap.add(dot);
+					wrap.add(small(" · ", MUTED));
 				}
 				first = false;
-				JLabel link = new JLabel(plainText(n));
-				link.setFont(FontManager.getRunescapeSmallFont());
-				styleLink(link, plainText("Look up " + n), () -> showLookup(n));
-				wrap.add(link);
+				wrap.add(styleLink(new JLabel(plainText(n)), plainText("Look up " + n), () -> showLookup(n)));
 			}
 			wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrap.getPreferredSize().height * 2));
 			lookupRecentRow.add(wrap);
@@ -823,11 +744,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		lookupClans = clans;
 		styleLookupModes();
-		lookupSeq++;
-		lookupResult.removeAll();
-		lookupResult.add(cardMessage(clans ? "Search a clan by name." : "Search a name — or right-click anyone in game and pick Anvil."));
-		lookupResult.revalidate();
-		lookupResult.repaint();
+		showLookupMessage(clans ? "Search a clan by name." : LOOKUP_HINT);
 	}
 
 	private void styleLookupModes()
@@ -835,7 +752,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		for (JLabel m : new JLabel[]{lookupModePlayers, lookupModeClans})
 		{
 			boolean on = (m == lookupModeClans) == lookupClans;
-			m.setForeground(on ? Color.WHITE : VALUE_COLOR);
+			m.setForeground(on ? Color.WHITE : MUTED);
 			m.setBackground(on ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
 		}
 		// Clans only where the site has them; otherwise Lookup stays players-only, as it was.
@@ -846,109 +763,56 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void searchClans(String q)
 	{
 		String query = q == null ? "" : q.trim();
-		int seq = ++lookupSeq;
-		lookupResult.removeAll();
-		lookupResult.add(cardMessage("Searching…"));
-		lookupResult.revalidate();
-		interactive().execute(() ->
+		lookupThen("Searching…", () -> dataSource.lookupClans(query), found ->
 		{
-			java.util.List<ClanCard.Found> found = dataSource.lookupClans(query);
-			SwingUtilities.invokeLater(() ->
+			if (found.isEmpty())
 			{
-				if (seq != lookupSeq)
-				{
-					return;
-				}
-				lookupResult.removeAll();
-				if (found.isEmpty())
-				{
-					lookupResult.add(cardMessage("No listed clan matches \"" + query + "\"."));
-				}
-				for (ClanCard.Found f : found)
-				{
-					JPanel row = new JPanel(new BorderLayout(6, 0));
-					row.setAlignmentX(LEFT_ALIGNMENT);
-					row.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-					JLabel name = new JLabel(plainText(f.name));
-					name.setFont(FontManager.getRunescapeSmallFont());
-					name.setForeground(Color.WHITE);
-					row.add(name, BorderLayout.CENTER);
-					row.add(new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 9, VALUE_COLOR)), BorderLayout.EAST);
-					row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-					PlayerCardView.hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> showClan(f.slug));
-					lookupResult.add(row);
-					lookupResult.add(gap(2));
-				}
-				lookupResult.revalidate();
-				lookupResult.repaint();
-			});
+				lookupResult.add(cardMessage("No listed clan matches \"" + query + "\"."));
+			}
+			for (ClanCard.Found f : found)
+			{
+				JPanel row = left(new JPanel(new BorderLayout(6, 0)));
+				row.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+				row.add(small(f.name, Color.WHITE), BorderLayout.CENTER);
+				row.add(new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 9, MUTED)), BorderLayout.EAST);
+				hoverable(capH(row), ColorScheme.DARKER_GRAY_COLOR, () -> showClan(f.slug));
+				lookupResult.add(row);
+				lookupResult.add(gap(2));
+			}
 		});
 	}
 
 	/** A clan's card in Lookup — its members open as player cards, and it compares with yours. */
 	private void showClan(String slug)
 	{
-		int seq = ++lookupSeq;
-		lookupResult.removeAll();
-		lookupResult.add(cardMessage("Loading the clan…"));
-		lookupResult.revalidate();
-		interactive().execute(() ->
+		lookupThen("Loading the clan…", () -> dataSource.fetchClanCard(slug), card ->
 		{
-			ClanCard card = dataSource.fetchClanCard(slug);
-			SwingUtilities.invokeLater(() ->
+			if (card == null)
 			{
-				if (seq != lookupSeq)
-				{
-					return;
-				}
-				lookupResult.removeAll();
-				if (card == null)
-				{
-					lookupResult.add(cardMessage("That clan isn't listed on Anvil."));
-				}
-				else
-				{
-					String mine = dataSource.activeClan();
-					boolean own = mine != null && mine.equalsIgnoreCase(card.slug);
-					lookupResult.add(ClanCardView.render(card, cardIcons(null), name ->
-					{
-						setLookupMode(false);
-						showLookup(name);
-					}, own || mine == null || mine.isEmpty() ? null : () -> showClanCompare(card, mine)));
-				}
-				lookupResult.revalidate();
-				lookupResult.repaint();
-			});
+				lookupResult.add(cardMessage("That clan isn't listed on Anvil."));
+				return;
+			}
+			String mine = dataSource.activeClan();
+			boolean own = mine != null && mine.equalsIgnoreCase(card.slug);
+			lookupResult.add(ClanCardView.render(card, cardIcons(null), name ->
+			{
+				setLookupMode(false);
+				showLookup(name);
+			}, own || mine == null || mine.isEmpty() ? null : () -> showClanCompare(card, mine)));
 		});
 	}
 
 	private void showClanCompare(ClanCard theirs, String mySlug)
 	{
-		int seq = ++lookupSeq;
-		lookupResult.removeAll();
-		lookupResult.add(cardMessage("Comparing…"));
-		lookupResult.revalidate();
-		interactive().execute(() ->
+		lookupThen("Comparing…", () -> dataSource.fetchClanCard(mySlug), mine ->
 		{
-			ClanCard mine = dataSource.fetchClanCard(mySlug);
-			SwingUtilities.invokeLater(() ->
+			lookupResult.add(backRow("Back to " + theirs.name, () -> showClan(theirs.slug)));
+			lookupResult.add(mine == null ? cardMessage("Couldn't load your clan — try again in a moment.") : ClanCardView.compare(mine, theirs));
+			if (mine != null)
 			{
-				if (seq != lookupSeq)
-				{
-					return;
-				}
-				lookupResult.removeAll();
-				lookupResult.add(backRow("Back to " + theirs.name, () -> showClan(theirs.slug)));
-				lookupResult.add(mine == null ? cardMessage("Couldn't load your clan — try again in a moment.") : ClanCardView.compare(mine, theirs));
-				if (mine != null)
-				{
-					lookupResult.add(gap(6));
-					lookupResult.add(fullWidth(actionButton("Full comparison on the site ↗", "Top players, gainers and highlights side by side",
-						() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare/clans?a=" + urlPart(mine.slug) + "&b=" + urlPart(theirs.slug)))));
-				}
-				lookupResult.revalidate();
-				lookupResult.repaint();
-			});
+				lookupButton("Full comparison on the site ↗", "Top players, gainers and highlights side by side",
+					() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare/clans?a=" + urlPart(mine.slug) + "&b=" + urlPart(theirs.slug)));
+			}
 		});
 	}
 
@@ -959,39 +823,25 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		int seq = ++lookupSeq;
-		lookupResult.removeAll();
-		lookupResult.add(cardMessage("Comparing…"));
-		lookupResult.revalidate();
-		interactive().execute(() ->
+		lookupThen("Comparing…", () ->
 		{
-			PlayerCard mine = youCard != null && Rsn.same(youCardRsn, me) ? youCard : null;
-			if (mine == null)
+			if (youCard != null && Rsn.same(youCardRsn, me))
 			{
-				BingoApiClient.PlayerCardResult r = dataSource.fetchPlayerCard(me);
-				mine = r == null ? null : r.card;
+				return youCard;
 			}
-			PlayerCard myCard = mine;
-			SwingUtilities.invokeLater(() ->
+			BingoApiClient.PlayerCardResult r = dataSource.fetchPlayerCard(me);
+			return r == null ? null : r.card;
+		}, myCard ->
+		{
+			lookupResult.add(backRow("Back to " + them.rsn, () -> showLookup(them.rsn)));
+			lookupResult.add(myCard == null ? cardMessage("Couldn't load your card — try again in a moment.")
+				: CompareView.players(myCard, them, cardIcons(null)));
+			if (myCard != null)
 			{
-				if (seq != lookupSeq)
-				{
-					return;
-				}
-				lookupResult.removeAll();
-				lookupResult.add(backRow("Back to " + them.rsn, () -> showLookup(them.rsn)));
-				lookupResult.add(myCard == null ? cardMessage("Couldn't load your card — try again in a moment.")
-					: CompareView.players(myCard, them, cardIcons(null)));
-				if (myCard != null)
-				{
-					lookupResult.add(gap(6));
-					// The panel shows the headline and the biggest gaps; the page has every skill, boss and page.
-					lookupResult.add(fullWidth(actionButton("Full comparison on the site ↗", "Every skill, boss and log page side by side",
-						() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare?a=" + urlPart(myCard.rsn) + "&b=" + urlPart(them.rsn)))));
-				}
-				lookupResult.revalidate();
-				lookupResult.repaint();
-			});
+				// The panel shows the headline and the biggest gaps; the page has every skill, boss and page.
+				lookupButton("Full comparison on the site ↗", "Every skill, boss and log page side by side",
+					() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare?a=" + urlPart(myCard.rsn) + "&b=" + urlPart(them.rsn)));
+			}
 		});
 	}
 
@@ -1003,15 +853,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JPanel backRow(String text, Runnable back)
 	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setAlignmentX(LEFT_ALIGNMENT);
+		JPanel row = left(new JPanel(new BorderLayout()));
 		row.setBorder(BorderFactory.createEmptyBorder(4, 4, 6, 4));
-		JLabel l = new JLabel(plainText(text), new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 9, VALUE_COLOR), SwingConstants.LEFT);
-		l.setFont(FontManager.getRunescapeSmallFont());
-		l.setForeground(VALUE_COLOR);
+		JLabel l = small(text, MUTED);
+		l.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 9, MUTED));
 		row.add(l, BorderLayout.WEST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		PlayerCardView.hoverable(row, ColorScheme.DARK_GRAY_COLOR, back);
+		hoverable(capH(row), ColorScheme.DARK_GRAY_COLOR, back);
 		return row;
 	}
 
@@ -1032,35 +879,26 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (!fresh && !ownClanLoading)
 		{
 			ownClanLoading = true;
-			interactive().execute(() ->
+			async(() -> dataSource.fetchClanCard(slug), card ->
 			{
-				ClanCard card = dataSource.fetchClanCard(slug);
-				SwingUtilities.invokeLater(() ->
+				ownClanLoading = false;
+				ownClanAt = System.currentTimeMillis();
+				if (card != null)
 				{
-					ownClanLoading = false;
-					ownClanAt = System.currentTimeMillis();
-					if (card != null)
+					ownClanCard = card;
+					ownClanSlug = slug;
+					if (tab == Tab.CLAN)
 					{
-						ownClanCard = card;
-						ownClanSlug = slug;
-						if (tab == Tab.CLAN)
-						{
-							renderSelected();
-						}
+						renderSelected();
 					}
-				});
+				}
 			});
 		}
 		if (ownClanCard == null || !slug.equalsIgnoreCase(ownClanSlug))
 		{
 			return null;
 		}
-		JPanel wrap = new JPanel();
-		wrap.setLayout(new BoxLayout(wrap, BoxLayout.Y_AXIS));
-		wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		wrap.setAlignmentX(LEFT_ALIGNMENT);
-		wrap.add(sectionHeader("Your clan"));
-		wrap.add(gap(6));
+		JPanel wrap = section("Your clan");
 		wrap.add(ClanCardView.render(ownClanCard, cardIcons(null), name ->
 		{
 			if (tabsOn)
@@ -1078,19 +916,18 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		settingsPanel.removeAll();
 		ConnectionView c = lastConnection;
-		SidebarDataSource.PanelActions actions = c == null ? SidebarDataSource.PanelActions.NONE : dataSource.actionsFor(c.instanceId);
+		SidebarDataSource.PanelActions actions = c == null ? SidebarDataSource.PanelActions.NONE : dataSource.actionsFor();
 		if (actions.canSyncProfile)
 		{
-			settingsPanel.add(sectionHeader("Your profile"));
-			settingsPanel.add(gap(6));
-			settingsPanel.add(fullWidth(actionButton("Sync profile",
-				"Send your collection log and best times to Anvil", dataSource::syncProfile)));
+			heading(settingsPanel, "Your profile");
+			settingsPanel.add(fullWidthButton("Sync profile",
+				"Send your collection log and best times to Anvil", dataSource::syncProfile));
 			settingsPanel.add(gap(12));
 		}
 		if (c != null)
 		{
 			// The roster button for an admin at home, or the reason it's absent (buildPanelActions).
-			JPanel roster = buildPanelActions(c, false);
+			JPanel roster = buildPanelActions(false);
 			if (roster.getComponentCount() > 0)
 			{
 				settingsPanel.add(roster);
@@ -1104,7 +941,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void fetchGoals()
 	{
-		interactive().execute(() -> applyGoals(dataSource.fetchGoals(), false));
+		async(dataSource::fetchGoals, r -> applyGoals(r, false));
 	}
 
 	private void addGoal()
@@ -1114,36 +951,33 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		interactive().execute(() -> applyGoals(dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), true));
+		async(() -> dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), r -> applyGoals(r, true));
 	}
 
 	private void removeGoal(int id)
 	{
-		interactive().execute(() -> applyGoals(dataSource.removeGoal(id), true));
+		async(() -> dataSource.removeGoal(id), r -> applyGoals(r, true));
 	}
 
-	/** Off the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
+	/** On the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
 	private void applyGoals(BingoApiClient.GoalsResult result, boolean userAction)
 	{
-		SwingUtilities.invokeLater(() ->
+		if (result == null)
 		{
-			if (result == null)
+			goalsError = userAction ? "Couldn't reach Anvil — try again in a moment." : goalsError;
+		}
+		else
+		{
+			goalsError = result.error;
+			if (result.goals != null)
 			{
-				goalsError = userAction ? "Couldn't reach Anvil — try again in a moment." : goalsError;
+				youGoals = result.goals;
 			}
-			else
-			{
-				goalsError = result.error;
-				if (result.goals != null)
-				{
-					youGoals = result.goals;
-				}
-			}
-			if (tab == Tab.YOU)
-			{
-				renderYou(false);
-			}
-		});
+		}
+		if (tab == Tab.YOU)
+		{
+			renderYou(false);
+		}
 	}
 
 	private void fetchYou(String me)
@@ -1154,43 +988,35 @@ public class AnvilSidebarPanel extends PluginPanel
 			goalsError = null;
 		}
 		int seq = ++youSeq;
-		interactive().execute(() ->
+		async(() -> dataSource.fetchPlayerCard(me), result ->
 		{
-			BingoApiClient.PlayerCardResult result = dataSource.fetchPlayerCard(me);
-			SwingUtilities.invokeLater(() ->
+			if (seq != youSeq)
 			{
-				if (seq != youSeq)
+				return;
+			}
+			if (result != null && result.card != null)
+			{
+				youCard = result.card;
+				youCardRsn = me;
+				if (tab == Tab.YOU)
 				{
-					return;
+					renderYou(false);
 				}
-				if (result != null && result.card != null)
-				{
-					youCard = result.card;
-					youCardRsn = me;
-					if (tab == Tab.YOU)
-					{
-						renderYou(false);
-					}
-				}
-				else if (tab == Tab.YOU)
-				{
-					youPanel.remove(0);
-					youPanel.add(cardFor(me, result, true), 0);
-					youPanel.revalidate();
-					youPanel.repaint();
-				}
-			});
+			}
+			else if (tab == Tab.YOU)
+			{
+				youPanel.remove(0);
+				youPanel.add(cardFor(me, result, true), 0);
+				youPanel.revalidate();
+				youPanel.repaint();
+			}
 		});
 	}
 
 	private PlayerCardView.Icons cardIcons(String rsn)
 	{
 		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> interactive().execute(() ->
-			{
-				BingoApiClient.ClogPageView view = dataSource.fetchClogPage(rsn, page);
-				SwingUtilities.invokeLater(() -> done.accept(view));
-			}));
+			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done));
 	}
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
@@ -1210,16 +1036,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private static JPanel cardMessage(String text)
 	{
-		JPanel p = new JPanel(new BorderLayout());
+		JPanel p = left(new JPanel(new BorderLayout()));
 		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		p.setBorder(BorderFactory.createEmptyBorder(10, 8, 10, 8));
-		p.setAlignmentX(LEFT_ALIGNMENT);
-		JLabel l = new JLabel(plainText(text));
-		l.setFont(FontManager.getRunescapeSmallFont());
-		l.setForeground(VALUE_COLOR);
-		p.add(l, BorderLayout.CENTER);
-		p.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.getPreferredSize().height));
-		return p;
+		p.add(small(text, MUTED), BorderLayout.CENTER);
+		return capH(p);
+
 	}
 
 	// ---- Lifecycle (Activatable) — poll only while the panel is on screen -------------------------
@@ -1309,30 +1131,13 @@ public class AnvilSidebarPanel extends PluginPanel
 			}));
 	}
 
-	/**
-	 * The line under the sign-in button — most importantly the one carrying the approval code.
-	 *
-	 * <p>It used to be a bare setText on a label inside a row whose maximum height was capped at
-	 * CONSTRUCTION time, while the label was still hidden. So the row could never grow to fit it: the
-	 * status was set, the panel was told to show it, and the member saw an empty box where the code
-	 * they had been sent to find was supposed to be. Re-cap on every change, like the site-connect
-	 * row already does, and wrap as HTML so a long line breaks instead of being clipped at the edge
-	 * of a narrow sidebar.
-	 */
-	private void styleLink(JLabel link, String tooltip, Runnable action)
+	/** A small orange link that runs {@code action}. */
+	private static JLabel styleLink(JLabel link, String tooltip, Runnable action)
 	{
-		link.setFont(FontManager.getRunescapeSmallFont());
+		link.setFont(SMALL);
 		link.setForeground(ColorScheme.BRAND_ORANGE);
 		link.setToolTipText(tooltip);
-		link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		link.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				action.run();
-			}
-		});
+		return onClick(link, action);
 	}
 
 	/** The manual route: paste the token from the site. Storing it runs the same path as Sign in. */
@@ -1404,16 +1209,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh();
 	}
 
+	/** The line under the sign-in button — most importantly the one carrying the approval code. */
 	private void setSignInStatus(String text)
 	{
-		String plain = text == null ? "" : text;
-		boolean show = !plain.isEmpty();
-		String escaped = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-		signInStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + escaped + "</body></html>" : "");
-		signInStatus.setToolTipText(show ? plain : null);
-		signInStatus.setVisible(show);
-		signInRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, signInRow.getPreferredSize().height));
-		signInRow.revalidate();
+		boolean show = setStatus(signInStatus, text, signInRow);
+		signInStatus.setToolTipText(show ? text : null);
 		signInRow.repaint();
 	}
 
@@ -1432,8 +1232,6 @@ public class AnvilSidebarPanel extends PluginPanel
 			setAccountLabel("Signed in", "Signed in to Anvil on this computer. Log in to a character to start tracking it.", false);
 			accountLink.setVisible(false);
 			setAccountStatus("");
-			accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
-			accountRowPanel.revalidate();
 			accountRowPanel.repaint();
 			return;
 		}
@@ -1441,7 +1239,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			setAccountStatus("");
 		}
-		String name = escapeHtml(row.rsn);
+		String name = esc(row.rsn);
 		switch (row.state)
 		{
 			case PAUSED:
@@ -1461,8 +1259,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				break;
 		}
 		accountLink.setEnabled(!accountActionInFlight);
-		accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
-		accountRowPanel.revalidate();
+		capH(accountRowPanel).revalidate();
 		accountRowPanel.repaint();
 	}
 
@@ -1521,25 +1318,31 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void setAccountLabel(String html, String tooltip, boolean wrap)
 	{
 		accountLabel.setText(wrap
-			? "<html><body style='width:" + (STATUS_WRAP_PX - ACCOUNT_LINK_ROOM_PX) + "pt'>" + html + "</body></html>"
+			? wrapHtml(html, STATUS_WRAP_PX - ACCOUNT_LINK_ROOM_PX)
 			: "<html><nobr>" + html + "</nobr></html>");
 		accountLabel.setToolTipText(tooltip);
 	}
 
 	private void setAccountStatus(String text)
 	{
-		String plain = text == null ? "" : text;
-		boolean show = !plain.isEmpty();
-		accountStatus.setText(show ? "<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + escapeHtml(plain) + "</body></html>" : "");
-		accountStatus.setVisible(show);
-		accountRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, accountRowPanel.getPreferredSize().height));
-		accountRowPanel.revalidate();
+		setStatus(accountStatus, text, accountRowPanel);
 	}
 
-	private static String escapeHtml(String s)
+	/**
+	 * A status line under a control, wrapped as HTML so a long line breaks instead of being clipped at
+	 * the edge of a narrow sidebar, and hidden while empty. The row holding it is re-capped on every
+	 * change: capped once at construction, while the line was hidden, it could never grow to fit it.
+	 */
+	private static boolean setStatus(JLabel status, String text, JPanel row)
 	{
-		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+		String plain = text == null ? "" : text;
+		boolean show = !plain.isEmpty();
+		status.setText(show ? wrapHtml(esc(plain), STATUS_WRAP_PX) : "");
+		status.setVisible(show);
+		capH(row).revalidate();
+		return show;
 	}
+
 
 	// ---- Refresh flow -----------------------------------------------------------------------------
 
@@ -1553,7 +1356,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	public void clearForCredentialChange()
 	{
-		connections = java.util.Collections.emptyList();
+		connection = null;
 		selectedEventKey = null;
 		clearBoardCatalogueState();
 		rebuildingPicker = true;
@@ -1585,18 +1388,18 @@ public class AnvilSidebarPanel extends PluginPanel
 		fetchInFlight = true;
 		refreshButton.setEnabled(false);
 		refreshAccountRow();
-		if (connections.isEmpty())
+		if (connection == null)
 		{
 			// Nothing on screen yet — show loading. A background poll keeps the current list visible (no flicker).
 			renderLoading();
 		}
 
-		new SwingWorker<List<ConnectionView>, Void>()
+		new SwingWorker<ConnectionView, Void>()
 		{
 			@Override
-			protected List<ConnectionView> doInBackground() throws Exception
+			protected ConnectionView doInBackground()
 			{
-				return dataSource.fetchConnections(manual);
+				return dataSource.fetch(manual);
 			}
 
 			@Override
@@ -1610,7 +1413,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				}
 				catch (Exception ex)
 				{
-					// InterruptedException / ExecutionException(SidebarDataException) — surface the message.
+					// InterruptedException / ExecutionException — surface the message.
 					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
 					log.debug("sidebar fetch failed", cause);
 					renderError(cause.getMessage());
@@ -1627,12 +1430,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** New snapshot in hand — refresh the clan dropdown and render the addressed clan. Runs on the EDT. */
-	private void onConnections(List<ConnectionView> fetched)
+	private void onConnections(ConnectionView fetched)
 	{
-		connections = fetched == null ? java.util.Collections.emptyList() : fetched;
+		connection = fetched;
 		rebuildClanPicker();
 
-		if (connections.isEmpty())
+		if (connection == null)
 		{
 			selectedEventKey = null;
 			renderEmpty();
@@ -1650,7 +1453,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			loadBoardCatalogue("active", 0, true);
 		}
-		EventEntry selected = findEvent(eventsOf(addressedClan()), selectedEventKey);
+		EventEntry selected = findEvent(eventsOf(connection), selectedEventKey);
 		if (selected != null && selected.scheduled != null && selected.scheduled.tileCount > 0)
 		{
 			loadBoardCatalogue("preview:" + selected.scheduled.id, selected.scheduled.id, true);
@@ -1658,17 +1461,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		renderSelected();
 	}
 
-	/**
-	 * The clan the body is showing — the one this plugin is addressing.
-	 *
-	 * A list of one, in practice: the source renders the clan the client is pointed at, and pointing it
-	 * somewhere else is a refetch rather than a re-render. It stays a list because a source is allowed
-	 * to have nothing, and because the panel should not care which.
-	 */
-	private ConnectionView addressedClan()
-	{
-		return connections.isEmpty() ? null : connections.get(0);
-	}
 
 	/**
 	 * Repopulate the clan dropdown, suppressing the selection-event storm a setModel provokes.
@@ -1850,7 +1642,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		// The picker STAYS. Switching clan renders this state on purpose, and yanking the control the
 		// member is holding — then putting it back a second later — reads as the click having failed.
 		JLabel loading = new JLabel("Loading progress…", SwingConstants.CENTER);
-		loading.setForeground(VALUE_COLOR);
+		loading.setForeground(MUTED);
 		loading.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
 		setContent(loading);
 	}
@@ -1895,14 +1687,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel firstRunCard()
 	{
-		JPanel card = new JPanel();
-		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-		card.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel card = section("New here?");
 		card.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
-		card.setAlignmentX(LEFT_ALIGNMENT);
-
-		card.add(sectionHeader("New here?"));
-		card.add(gap(6));
 		card.add(note("Anvil tracks your OSRS progress — collection log, personal bests, records — and"
 			+ " your clan's bingo boards. Press Sign in with Discord above to make your free account"
 			+ " and connect this client in one step."));
@@ -1918,20 +1704,19 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** A wrapped grey paragraph at the panel's width — long copy clips rather than wraps without it. */
 	private static JLabel note(String text)
 	{
-		JLabel label = new JLabel("<html><body style='width:" + STATUS_WRAP_PX + "pt'>"
-			+ text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</body></html>");
-		label.setFont(FontManager.getRunescapeSmallFont());
-		label.setForeground(VALUE_COLOR);
-		label.setAlignmentX(LEFT_ALIGNMENT);
+		return note(text, MUTED);
+	}
+
+	private static JLabel note(String text, Color color)
+	{
+		JLabel label = new JLabel(wrapHtml(esc(text == null ? "" : text), STATUS_WRAP_PX));
+		label.setFont(SMALL);
+		label.setForeground(color);
 		return label;
 	}
 
 	/**
-	 * Render the selected clan: one event drills straight in (today's board card), several show the
-	 * events list until the member picks one. A drilled-into event that stopped running (a weekly ended
-	 * mid-session) falls back to the list rather than a blank card.
-	 */
-	/**
+
 	 * Redraw from what's already held — the account strip and the clan's actions — with no fetch. For
 	 * answers that change locally (name stamped, clan channel loaded, admin confirmed, log opened),
 	 * which used to wait for the next 15s poll. Call on the EDT.
@@ -1940,15 +1725,20 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		refreshSignInRow();
 		refreshAccountRow();
-		if (!connections.isEmpty() && !boardSearchFocused)
+		if (connection != null && !boardSearchFocused)
 		{
 			renderSelected();
 		}
 	}
 
+	/**
+	 * Render the addressed clan: its home page (the events list), or the event drilled into. A
+	 * drilled-into event that stopped running (a weekly ended mid-session) falls back to the list.
+	 */
 	private void renderSelected()
 	{
-		ConnectionView selected = addressedClan();
+		ConnectionView selected = connection;
+
 		if (selected == null)
 		{
 			renderEmpty();
@@ -1972,20 +1762,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** One event's full card. {@code entry} null (or a board entry) renders the board; weeklies get their own. */
 	private void renderEvent(ConnectionView selected, EventEntry entry, boolean withBack)
 	{
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel body = column();
+		String title = entry != null && !entry.title.isEmpty() ? entry.title : "Event";
 
 		// TEAMS — its own page with a way back, like "All tiles": a roster can be 1,200 names long.
 		if (teamsView != null)
 		{
-			String title = entry != null && !entry.title.isEmpty() ? entry.title : "Event";
-			body.add(backLink(title, this::disposeTeams));
-			body.add(gap(8));
-			body.add(sectionHeader("Teams"));
-			body.add(gap(6));
-			body.add(teamsView);
-			setContent(body);
+			subPage(body, title, this::disposeTeams, "Teams", teamsView);
 			return;
 		}
 
@@ -2016,21 +1799,19 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				final int scheduledId = entry.scheduled.id;
 				body.add(gap(8));
-				body.add(fullWidth(actionButton("Teams", "Who's on which team", () -> openTeams(scheduledId))));
+				body.add(fullWidthButton("Teams", "Who's on which team", () -> openTeams(scheduledId)));
 			}
 			if (entry.scheduled.tileCount > 0)
 			{
 				body.add(gap(12));
-				body.add(sectionHeader(entry.scheduled.live ? "Tiles" : "Revealed tiles"));
-				body.add(gap(6));
+				heading(body, entry.scheduled.live ? "Tiles" : "Revealed tiles");
 				body.add(buildBoardCatalogue("preview:" + entry.scheduled.id, entry.scheduled.id,
 					entry.scheduled.url, !entry.scheduled.live));
 			}
 			else if (!entry.scheduled.live)
 			{
 				body.add(gap(10));
-				body.add(leftLabel("Tiles will appear here when the host reveals them.",
-					FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+				body.add(small("Tiles will appear here when the host reveals them.", MUTED));
 			}
 			setContent(body);
 			return;
@@ -2041,13 +1822,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (showAllActiveTiles && selected.tilesTotal > 0)
 		{
 			body.removeAll();
-			String title = entry != null && !entry.title.isEmpty() ? entry.title : "Event";
-			body.add(backLink(title, () -> showAllActiveTiles = false));
-			body.add(gap(8));
-			body.add(sectionHeader("All tiles"));
-			body.add(gap(6));
-			body.add(buildBoardCatalogue("active", 0, selected.boardUrl, false));
-			setContent(body);
+			subPage(body, title, () -> showAllActiveTiles = false, "All tiles",
+				buildBoardCatalogue("active", 0, selected.boardUrl, false));
 			return;
 		}
 
@@ -2059,17 +1835,15 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		body.add(buildSummary(selected));
 		body.add(gap(12));
-		if (AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(selected.instanceId) && dataSource.supportsEventRoster())
+		if (dataSource.supportsEventRoster())
 		{
-			body.add(fullWidth(actionButton("Teams", "Who's on which team", () -> openTeams(0))));
+			body.add(fullWidthButton("Teams", "Who's on which team", () -> openTeams(0)));
 			body.add(gap(12));
 		}
 
 		// STARTING SHOT — the one thing here that blocks play, so it sits directly under the board
-		// summary rather than below the feed. Home clan only: it's an obligation on THIS account at
-		// the site we're authenticated against, not something a relayed clan can ask for.
-		PluginConfigResponse.StartProof startProof =
-			AnvilSidebarDataSource.LOCAL_INSTANCE_ID.equals(selected.instanceId) ? dataSource.startProof() : null;
+		// summary rather than below the feed: it's an obligation on THIS account.
+		PluginConfigResponse.StartProof startProof = dataSource.startProof();
 		if (startProof != null)
 		{
 			body.add(buildStartProofCard(startProof));
@@ -2079,18 +1853,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		// Active now — tiles you and teammates are working right now (deduped by tile).
 		if (!selected.activeNow.isEmpty())
 		{
-			body.add(sectionHeader("Active now"));
-			body.add(gap(6));
-			boolean firstActive = true;
-			for (ConnectionView.ActiveTask task : selected.activeNow)
-			{
-				if (!firstActive)
-				{
-					body.add(gap(8));
-				}
-				body.add(buildActiveRow(task));
-				firstActive = false;
-			}
+			heading(body, "Active now");
+			addSpaced(body, selected.activeNow, 8, this::buildActiveRow);
 			body.add(gap(12));
 		}
 
@@ -2099,8 +1863,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		// which is neither a timer nor a mission board. A ladder's card already IS this, so it's skipped.
 		if (selected.ladder != null && !selected.ladder.ladderFormat && !selected.ladder.missions.isEmpty())
 		{
-			body.add(sectionHeader("Missions"));
-			body.add(gap(6));
+			heading(body, "Missions");
 			body.add(buildMissionStrip(selected.ladder));
 			body.add(gap(12));
 		}
@@ -2116,9 +1879,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (!actions.isEmpty())
 		{
 			// "Team activity" is a lie on an individual ladder, where every team is one person.
-			body.add(sectionHeader(selected.ladder != null && selected.ladder.ladderFormat
-				? "Recent activity" : "Team activity"));
-			body.add(gap(6));
+			heading(body, selected.ladder != null && selected.ladder.ladderFormat ? "Recent activity" : "Team activity");
 			body.add(buildActivityFeed(actions));
 			body.add(gap(12));
 		}
@@ -2128,55 +1889,57 @@ public class AnvilSidebarPanel extends PluginPanel
 			&& (selected.ladder.ladderFormat || !selected.ladder.missions.isEmpty());
 		if (!reveals.isEmpty() && !missionStripShown)
 		{
-			body.add(sectionHeader("Just opened"));
-			body.add(gap(6));
+			heading(body, "Just opened");
 			body.add(buildActivityFeed(reveals));
 			body.add(gap(12));
 		}
 
-		// No live board at all (stub home card / event-less federated clan) → the summary line already
-		// says why; an empty "Nearest tiles" section under it would just restate the absence.
+		// No live board at all (stub home card / event-less clan) → the summary line already says why;
+		// an empty "Nearest tiles" section under it would just restate the absence.
 		if (selected.tilesTotal > 0)
 		{
-			body.add(sectionHeader("Nearest tiles"));
-			body.add(gap(6));
-
+			heading(body, "Nearest tiles");
 			if (selected.nearestTiles.isEmpty())
 			{
-				JLabel none = new JLabel("No tiles to show yet.");
-				none.setFont(FontManager.getRunescapeSmallFont());
-				none.setForeground(VALUE_COLOR);
-				none.setAlignmentX(LEFT_ALIGNMENT);
-				body.add(none);
+				body.add(small("No tiles to show yet.", MUTED));
 			}
-			else
-			{
-				boolean first = true;
-				for (ConnectionView.TileProgressView tile : selected.nearestTiles)
-				{
-					if (!first)
-					{
-						body.add(gap(8));
-					}
-					body.add(buildTileRow(tile));
-					first = false;
-				}
-			}
-
+			addSpaced(body, selected.nearestTiles, 8, this::buildTileRow);
 			body.add(gap(8));
-			JButton allTiles = actionButton("View all " + selected.tilesTotal + " tiles",
+			body.add(fullWidthButton("View all " + selected.tilesTotal + " tiles",
 				"Search the full board, including manual tiles", () ->
 				{
 					showAllActiveTiles = true;
 					loadBoardCatalogue("active", 0, false);
 					renderSelected();
-				});
-			body.add(fullWidth(allTiles));
+				}));
 		}
 
 		// Clan actions (roster/profile sync) live on the clan's home page only: an event view is about
 		// that event, and the home page is one click away on "All events".
 		setContent(body);
+	}
+
+	/** A drilled-in page of an event: "‹ {back}" (running {@code up}), then a heading over {@code content}. */
+	private void subPage(JPanel body, String back, Runnable up, String title, Component content)
+	{
+		body.add(backLink(back, up));
+		body.add(gap(8));
+		heading(body, title);
+		body.add(content);
+		setContent(body);
+	}
+
+	/** One component per item, {@code gapPx} between them. */
+	private static <T> void addSpaced(JPanel into, List<T> items, int gapPx, java.util.function.Function<T, Component> build)
+	{
+		for (int i = 0; i < items.size(); i++)
+		{
+			if (i > 0)
+			{
+				into.add(gap(gapPx));
+			}
+			into.add(build.apply(items.get(i)));
+		}
 	}
 
 	// ---- Events list (a clan running more than one thing) ------------------------------------------
@@ -2274,9 +2037,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		clearLadderRefs();
 
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel body = column();
 
 		if (c.hasError())
 		{
@@ -2287,29 +2048,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (events.isEmpty())
 		{
 			// Nothing running is a state, not an error: say so and leave the clan's own actions below.
-			JLabel none = new JLabel("No active event yet.");
-			none.setFont(FontManager.getRunescapeSmallFont());
-			none.setForeground(VALUE_COLOR);
-			none.setAlignmentX(LEFT_ALIGNMENT);
-			body.add(none);
-			body.add(gap(12));
+			body.add(small("No active event yet.", MUTED));
 		}
 		else
 		{
-			body.add(sectionHeader("Events"));
-			body.add(gap(6));
-			boolean first = true;
-			for (EventEntry e : events)
-			{
-				if (!first)
-				{
-					body.add(gap(8));
-				}
-				body.add(buildEventCard(c, e));
-				first = false;
-			}
-			body.add(gap(12));
+			heading(body, "Events");
+			addSpaced(body, events, 8, e -> buildEventCard(c, e));
 		}
+		body.add(gap(12));
 
 		// Everything else you are playing, in your other clans. Only in the merged view — picking a
 		// clan in the dropdown is a filter, and a filter that still showed the others would not be one.
@@ -2337,7 +2083,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (!playerCardsOn())
 		{
 			// With tabs on, syncing and sounds live under ⚙; without them (an older site) they stay here.
-			body.add(buildPanelActions(c, true));
+			body.add(buildPanelActions(true));
 			body.add(gap(12));
 			body.add(buildBannerSounds());
 		}
@@ -2366,23 +2112,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			return null;
 		}
 
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-		panel.add(sectionHeader("Also live"));
-		panel.add(gap(6));
-
-		boolean first = true;
-		for (PluginConfigResponse.ClanRef c : others)
-		{
-			if (!first)
-			{
-				panel.add(gap(6));
-			}
-			panel.add(buildOtherClanRow(c));
-			first = false;
-		}
+		JPanel panel = section("Also live");
+		addSpaced(panel, others, 6, this::buildOtherClanRow);
 		return panel;
 	}
 
@@ -2391,89 +2122,64 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		String clanName = c.name == null || c.name.isEmpty() ? c.slug : c.name;
 
-		JPanel card = new JPanel();
-		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		card.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		card.setAlignmentX(LEFT_ALIGNMENT);
-		card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		card.setToolTipText("Switch to " + plainText(clanName) + " — the sidebar and your submissions follow");
-
-		JPanel titleRow = new JPanel(new BorderLayout(6, 0));
-		titleRow.setOpaque(false);
-		titleRow.setAlignmentX(LEFT_ALIGNMENT);
-		JLabel title = new JLabel(plainText(ellipsize(clanName, 22)));
-		title.setFont(FontManager.getRunescapeFont());
-		title.setForeground(ColorScheme.TEXT_COLOR);
-		JLabel chevron = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 12));
-		chevron.setForeground(ColorScheme.BRAND_ORANGE);
-		titleRow.add(title, BorderLayout.CENTER);
-		titleRow.add(chevron, BorderLayout.EAST);
-		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
-		card.add(titleRow);
-
-		card.add(leftLabel(ellipsize(c.live.eventName, CARD_LINE_CHARS),
-			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		JPanel card = drillCard(clanName, "Switch to " + plainText(clanName) + " — the sidebar and your submissions follow",
+			() -> switchClan(c.slug));
+		card.add(cardLine(c.live.eventName, ColorScheme.LIGHT_GRAY_COLOR));
 		if (c.live.isWeekly() || c.live.tilesTotal <= 0)
 		{
 			// A competition fills no board, so it gets neither a tally nor a bar — saying "0 / 0 tiles"
 			// under a running SOTW reads as a broken board rather than as a leaderboard.
-			card.add(leftLabel("Competition running", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			card.add(small("Competition running", MUTED));
 		}
 		else
 		{
-			card.add(leftLabel(c.live.tilesComplete + " / " + c.live.tilesTotal
-				+ (c.live.pointsScored ? " points" : " tiles"), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			card.add(small(c.live.tilesComplete + " / " + c.live.tilesTotal
+				+ (c.live.pointsScored ? " points" : " tiles"), MUTED));
 		}
 		if (c.liveCount > 1)
 		{
 			// This card shows one of them. Switching is how you reach the rest, so the row has to admit
 			// there ARE others rather than presenting the freshest as everything happening there.
-			card.add(leftLabel("+ " + (c.liveCount - 1) + " more here",
-				FontManager.getRunescapeSmallFont(), ColorScheme.BRAND_ORANGE));
+			card.add(small("+ " + (c.liveCount - 1) + " more here", ColorScheme.BRAND_ORANGE));
 		}
 
 		if (!c.live.isWeekly() && c.live.tilesTotal > 0)
 		{
-			JProgressBar bar = new JProgressBar(0, 100);
-			bar.setValue(Math.max(0, Math.min(100, (int) Math.round(100.0 * c.live.tilesComplete / c.live.tilesTotal))));
-			bar.setStringPainted(false);
-			bar.setBorderPainted(false);
-			bar.setForeground(ColorScheme.BRAND_ORANGE);
-			bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
-			bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, PROGRESS_BAR_HEIGHT));
-			bar.setAlignmentX(LEFT_ALIGNMENT);
-			card.add(Box.createVerticalStrut(4));
-			card.add(bar);
+			cardBar(card, Math.max(0, Math.min(100, (int) Math.round(100.0 * c.live.tilesComplete / c.live.tilesTotal))),
+				ColorScheme.BRAND_ORANGE);
 		}
+		return capH(card);
+	}
 
-		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
-		final String slug = c.slug;
-		card.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(java.awt.event.MouseEvent e)
-			{
-				selectedEventKey = null;
-				clearBoardCatalogueState();
-				dataSource.chooseClan(slug);
-				renderLoading();
-			}
-
-			@Override
-			public void mouseEntered(java.awt.event.MouseEvent e)
-			{
-				card.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
-			}
-
-			@Override
-			public void mouseExited(java.awt.event.MouseEvent e)
-			{
-				card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			}
-		});
+	/**
+	 * A clickable card on a list — its title and a chevron marking it as a drill-in, lighting up under
+	 * the pointer. The caller adds its lines, then caps its height.
+	 */
+	private static JPanel drillCard(String title, String tooltip, Runnable open)
+	{
+		JPanel card = block();
+		hoverable(card, ColorScheme.DARKER_GRAY_COLOR, open);
+		card.setToolTipText(tooltip);
+		JPanel titleRow = row(6);
+		JLabel chevron = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 12));
+		chevron.setForeground(ColorScheme.BRAND_ORANGE);
+		titleRow.add(label(ellipsize(title, 22), REGULAR, ColorScheme.TEXT_COLOR), BorderLayout.CENTER);
+		titleRow.add(chevron, BorderLayout.EAST);
+		card.add(capH(titleRow));
 		return card;
+	}
+
+	/** One small line of a list card, clipped to what fits. */
+	private static JLabel cardLine(String text, Color color)
+	{
+		return small(ellipsize(text, CARD_LINE_CHARS), color);
+	}
+
+	/** A list card's progress bar, under its lines. */
+	private static void cardBar(JPanel card, int percent, Color fg)
+	{
+		card.add(gap(4));
+		card.add(left(capH(bar(percent, fg, ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT))));
 	}
 
 	/**
@@ -2484,14 +2190,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * says why rather than vanishing without explanation. Both buttons carry the same limits as
 	 * their in-game counterparts, which live in the plugin, not here.
 	 */
-	private JPanel buildPanelActions(ConnectionView c, boolean withProfile)
+	private JPanel buildPanelActions(boolean withProfile)
 	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
-		SidebarDataSource.PanelActions full = dataSource.actionsFor(c.instanceId);
+		JPanel panel = column();
+		SidebarDataSource.PanelActions full = dataSource.actionsFor();
 		// Sync profile sends YOUR log and best times; with the You tab showing it lives there.
 		SidebarDataSource.PanelActions actions = withProfile ? full
 			: new SidebarDataSource.PanelActions(full.canSyncRoster, false, full.rosterNote);
@@ -2500,8 +2202,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			return panel; // nothing this account can do here; no empty heading either
 		}
 
-		panel.add(sectionHeader("This clan"));
-		panel.add(gap(6));
+		heading(panel, "This clan");
 
 		// Two buttons that do the same KIND of thing belong on one line: stacked full-width they read
 		// as a list of unrelated commands, and they cost two rows of a panel that has none to spare.
@@ -2511,20 +2212,20 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (both)
 		{
 			panel.add(buttonRow(
-				actionButton("Sync profile", "Send your collection log and best times to this clan's site",
+				flatButton("Sync profile", "Send your collection log and best times to this clan's site",
 					dataSource::syncProfile),
-				actionButton("Sync roster", "Push the in-game clan member list to the site",
+				flatButton("Sync roster", "Push the in-game clan member list to the site",
 					dataSource::syncRoster)));
 		}
 		else if (actions.canSyncProfile)
 		{
-			panel.add(fullWidth(actionButton("Sync profile",
-				"Send your collection log and best times to this clan's site", dataSource::syncProfile)));
+			panel.add(fullWidthButton("Sync profile",
+				"Send your collection log and best times to this clan's site", dataSource::syncProfile));
 		}
 		else if (actions.canSyncRoster)
 		{
-			panel.add(fullWidth(actionButton("Sync clan roster",
-				"Push the in-game clan member list to the site", dataSource::syncRoster)));
+			panel.add(fullWidthButton("Sync clan roster",
+				"Push the in-game clan member list to the site", dataSource::syncRoster));
 		}
 
 		if (!actions.canSyncRoster && actions.rosterNote != null)
@@ -2533,11 +2234,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				panel.add(gap(4));
 			}
-			JLabel note = new JLabel(plainText(actions.rosterNote));
-			note.setFont(FontManager.getRunescapeSmallFont());
-			note.setForeground(VALUE_COLOR);
-			note.setAlignmentX(LEFT_ALIGNMENT);
-			panel.add(note);
+			panel.add(small(actions.rosterNote, MUTED));
 		}
 
 		return panel;
@@ -2552,22 +2249,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildBannerSounds()
 	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
 		java.util.List<String> clips = dataSource.bannerSounds();
-		panel.add(sectionHeader("Banner sounds"));
-		panel.add(gap(6));
+		JPanel panel = section("Banner sounds");
 
 		if (clips.isEmpty())
 		{
-			JLabel none = new JLabel("None added — use Add clip, or the banner folder.");
-			none.setFont(FontManager.getRunescapeSmallFont());
-			none.setForeground(VALUE_COLOR);
-			none.setAlignmentX(LEFT_ALIGNMENT);
-			panel.add(none);
+			panel.add(small("None added — use Add clip, or the banner folder.", MUTED));
 			panel.add(gap(4));
 		}
 		else
@@ -2579,44 +2266,31 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			if (clips.size() > BANNER_CLIPS_SHOWN)
 			{
-				JLabel more = new JLabel("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder");
+				JLabel more = small("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder", MUTED);
 				more.setBorder(BorderFactory.createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
-				more.setFont(FontManager.getRunescapeSmallFont());
-				more.setForeground(VALUE_COLOR);
-				more.setAlignmentX(LEFT_ALIGNMENT);
 				panel.add(more);
 			}
 			panel.add(gap(4));
 		}
 
-		JButton add = new JButton("Add clip");
-		styleFlatButton(add, Color.WHITE);
-		add.setToolTipText("Pick .wav files to copy into the banner sounds folder");
-		add.addActionListener(e -> dataSource.importBannerSounds());
-		JButton open = new JButton("Copy folder path");
-		styleFlatButton(open, Color.WHITE);
-		open.setToolTipText("Copy the sounds folder's path — paste it into your file manager to rename or delete clips");
-		open.addActionListener(e -> dataSource.copyBannerSoundsPath());
-		panel.add(buttonRow(add, open));
+		panel.add(buttonRow(
+			flatButton("Add clip", "Pick .wav files to copy into the banner sounds folder", Color.WHITE,
+				dataSource::importBannerSounds),
+			flatButton("Copy folder path", "Copy the sounds folder's path — paste it into your file manager to rename or delete clips",
+				Color.WHITE, dataSource::copyBannerSoundsPath)));
 
 		// MISSIONS, stated rather than configured. A mission dropping should not sound like a tile
 		// being finished, and what it sounds like is decided by whether this folder has anything in
 		// it — so the panel says which of the two is happening, and the button is how you change it.
 		panel.add(gap(8));
 		int missions = dataSource.missionSounds().size();
-		JLabel missionState = new JLabel(missions == 0
+		panel.add(small(missions == 0
 			? "Missions: a game sound (no clip added)"
-			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"));
-		missionState.setFont(FontManager.getRunescapeSmallFont());
-		missionState.setForeground(VALUE_COLOR);
-		missionState.setAlignmentX(LEFT_ALIGNMENT);
-		panel.add(missionState);
+			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"), MUTED));
 		panel.add(gap(4));
-		JButton addMission = new JButton(missions == 0 ? "Add mission clip" : "Add mission clips");
-		styleFlatButton(addMission, Color.WHITE);
-		addMission.setToolTipText("Pick .wav files to play when a mission drops, instead of the game sound used by default");
-		addMission.addActionListener(e -> dataSource.importMissionSounds());
-		panel.add(fullWidth(addMission));
+		panel.add(fullWidth(flatButton(missions == 0 ? "Add mission clip" : "Add mission clips",
+			"Pick .wav files to play when a mission drops, instead of the game sound used by default",
+			Color.WHITE, dataSource::importMissionSounds)));
 		return panel;
 	}
 
@@ -2635,11 +2309,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		String display = BannerSoundService.displayName(clip);
 
-		JPanel row = new JPanel(new BorderLayout(6, 0));
-		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
 		row.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 4));
-		row.setAlignmentX(LEFT_ALIGNMENT);
-		row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		row.setToolTipText(plainText(display) + (on ? " — click to mute" : " — muted; click to unmute"));
 
 		JPanel swatch = new JPanel();
@@ -2655,37 +2326,15 @@ public class AnvilSidebarPanel extends PluginPanel
 		swatchBox.setPreferredSize(new Dimension(CLIP_TEXT_INSET - 6, 12));
 		swatchBox.add(swatch);
 
-		JLabel name = new JLabel(plainText(ellipsize(display, 26)));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(on ? ColorScheme.TEXT_COLOR : VALUE_COLOR);
-
 		row.add(swatchBox, BorderLayout.WEST);
-		row.add(name, BorderLayout.CENTER);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-
-		row.addMouseListener(new MouseAdapter()
+		row.add(small(ellipsize(display, 26), on ? ColorScheme.TEXT_COLOR : MUTED), BorderLayout.CENTER);
+		hoverable(capH(row), ColorScheme.DARK_GRAY_COLOR, () ->
 		{
-			@Override
-			public void mouseClicked(MouseEvent e)
+			dataSource.toggleBannerSound(clip);
+			renderSelected();
+			if (tab == Tab.SETTINGS)
 			{
-				dataSource.toggleBannerSound(clip);
-				renderSelected();
-				if (tab == Tab.SETTINGS)
-				{
-					renderSettings();
-				}
-			}
-
-			@Override
-			public void mouseEntered(MouseEvent e)
-			{
-				row.setBackground(WIDGET_BG_HOVER);
-			}
-
-			@Override
-			public void mouseExited(MouseEvent e)
-			{
-				row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+				renderSettings();
 			}
 		});
 		return row;
@@ -2694,99 +2343,43 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** One row of the events list: name, kind, a one-line status, and (for a board) its progress bar. */
 	private JPanel buildEventCard(ConnectionView c, EventEntry entry)
 	{
-		JPanel card = new JPanel();
-		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		card.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		card.setAlignmentX(LEFT_ALIGNMENT);
-		card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		card.setToolTipText(plainText(entry.title));
-
-		// Title + a chevron marking the row as a drill-in.
-		JPanel titleRow = new JPanel(new BorderLayout(6, 0));
-		titleRow.setOpaque(false);
-		titleRow.setAlignmentX(LEFT_ALIGNMENT);
-		JLabel title = new JLabel(plainText(ellipsize(entry.title, 22)));
-		title.setFont(FontManager.getRunescapeFont());
-		title.setForeground(ColorScheme.TEXT_COLOR);
-		JLabel chevron = new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 12));
-		chevron.setForeground(ColorScheme.BRAND_ORANGE);
-		titleRow.add(title, BorderLayout.CENTER);
-		titleRow.add(chevron, BorderLayout.EAST);
-		titleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, titleRow.getPreferredSize().height));
-		card.add(titleRow);
-
-		card.add(leftLabel(entry.kind, FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		JPanel card = drillCard(entry.title, plainText(entry.title), () ->
+		{
+			selectedEventKey = entry.key;
+			showAllActiveTiles = false;
+			disposeTeams();
+			renderSelected();
+		});
+		card.add(small(entry.kind, ColorScheme.LIGHT_GRAY_COLOR));
 
 		if (entry.isBoard())
 		{
-			card.add(leftLabel(ellipsize(boardStatusLine(c), CARD_LINE_CHARS),
-				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			card.add(cardLine(boardStatusLine(c), MUTED));
 			// A ladder has no fixed board to fill, so its row shows standing instead of a progress bar.
 			if (c.tilesTotal > 0 && c.ladder == null)
 			{
-				JProgressBar bar = new JProgressBar(0, 100);
-				bar.setValue(c.completionPercent());
-				bar.setStringPainted(false);
-				bar.setBorderPainted(false);
-				bar.setForeground(c.completionPercent() >= 100
+				cardBar(card, c.completionPercent(), c.completionPercent() >= 100
 					? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
-				bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
-				bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
-				bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, PROGRESS_BAR_HEIGHT));
-				bar.setAlignmentX(LEFT_ALIGNMENT);
-				card.add(Box.createVerticalStrut(4));
-				card.add(bar);
 			}
 		}
 		else if (entry.weekly != null)
 		{
 			ConnectionView.WeeklyView w = entry.weekly;
-			card.add(leftLabel(ellipsize(w.metricLabel() + timingSuffix(w.upcoming, w.startDate, w.endDate),
-				CARD_LINE_CHARS), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			card.add(cardLine(w.metricLabel() + timingSuffix(w.upcoming, w.startDate, w.endDate), MUTED));
 			if (!w.upcoming)
 			{
-				card.add(leftLabel(ellipsize(yourStandingLine(w), CARD_LINE_CHARS),
-					FontManager.getRunescapeSmallFont(),
-					w.yourRank > 0 ? ColorScheme.BRAND_ORANGE : VALUE_COLOR));
+				card.add(cardLine(yourStandingLine(w), w.yourRank > 0 ? ColorScheme.BRAND_ORANGE : MUTED));
 			}
 		}
 		else
 		{
 			ConnectionView.ScheduledView s = entry.scheduled;
 			String timing = timingLabel(!s.live, s.startDate, s.endDate);
-			card.add(leftLabel(ellipsize(timing == null ? s.sizeLabel() : timing, CARD_LINE_CHARS),
-				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			card.add(cardLine(timing == null ? s.sizeLabel() : timing, MUTED));
 			// A live event you're not in is worth flagging as joinable; an upcoming one just needs its size.
-			card.add(leftLabel(ellipsize(s.live ? "Running — you're not in it" : s.sizeLabel(), CARD_LINE_CHARS),
-				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			card.add(cardLine(s.live ? "Running — you're not in it" : s.sizeLabel(), MUTED));
 		}
-
-		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
-		card.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				selectedEventKey = entry.key;
-				showAllActiveTiles = false;
-				disposeTeams();
-				renderSelected();
-			}
-
-			@Override
-			public void mouseEntered(MouseEvent e)
-			{
-				card.setBackground(WIDGET_BG_HOVER);
-			}
-
-			@Override
-			public void mouseExited(MouseEvent e)
-			{
-				card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			}
-		});
-		return card;
+		return capH(card);
 	}
 
 	/** The board row's status line: "14 / 25 tiles · 56%", where you stand on a ladder, or why neither. */
@@ -2819,21 +2412,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** "‹ {label}" — one level up: {@code up} resets whatever drilled in, then the view redraws. */
 	private JLabel backLink(String label, Runnable up)
 	{
-		JLabel back = new JLabel(plainText(label), new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11), SwingConstants.LEADING);
-		back.setIconTextGap(2);
-		back.setFont(FontManager.getRunescapeSmallFont());
-		back.setForeground(ColorScheme.BRAND_ORANGE);
-		back.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		back.setAlignmentX(LEFT_ALIGNMENT);
-		back.addMouseListener(new MouseAdapter()
+		JLabel back = onClick(small(label, ColorScheme.BRAND_ORANGE), () ->
 		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				up.run();
-				renderSelected();
-			}
+			up.run();
+			renderSelected();
 		});
+		back.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11));
+		back.setIconTextGap(2);
 		return back;
 	}
 
@@ -2842,15 +2427,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** The weekly's own summary: what it tracks, how long is left, and where you stand in it. */
 	private JPanel buildWeeklyCard(ConnectionView.WeeklyView w)
 	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
-		panel.add(leftLabel(w.title, FontManager.getRunescapeFont(), ColorScheme.TEXT_COLOR));
-		panel.add(leftLabel(w.kindLabel() + " · " + w.metricLabel(),
-			FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		JPanel panel = titledCard(w.title, w.kindLabel() + " · " + w.metricLabel(), ColorScheme.LIGHT_GRAY_COLOR);
 
 		String timing = timingLabel(w.upcoming, w.startDate, w.endDate);
 		String headcount = w.participants > 0
@@ -2858,16 +2435,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		String line = timing == null ? headcount : (headcount == null ? timing : timing + " · " + headcount);
 		if (line != null)
 		{
-			panel.add(leftLabel(line, FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			panel.add(small(line, MUTED));
 		}
 
 		panel.add(gap(4));
 		// Nothing has been gained yet in a comp that hasn't started — say what it'll be instead of "#0".
 		panel.add(w.upcoming
-			? leftLabel("No standings until it starts.",
-				FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR)
-			: leftLabel(yourStandingLine(w), FontManager.getRunescapeSmallFont(),
-				w.yourRank > 0 ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR));
+			? small("No standings until it starts.", ColorScheme.LIGHT_GRAY_COLOR)
+			: small(yourStandingLine(w), w.yourRank > 0 ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR));
 
 		if (w.url != null && !w.url.isEmpty())
 		{
@@ -2875,7 +2450,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			panel.add(w.upcoming ? eventLink(w.url) : boardLink(w.url));
 		}
 
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		return capH(panel);
+	}
+
+	/** A card opening with a title and the line under it. */
+	private static JPanel titledCard(String title, String sub, Color subColor)
+	{
+		JPanel panel = block();
+		panel.add(label(title, REGULAR, ColorScheme.TEXT_COLOR));
+		panel.add(small(sub, subColor));
 		return panel;
 	}
 
@@ -2885,24 +2468,16 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildScheduledCard(ConnectionView.ScheduledView s)
 	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
-		panel.add(leftLabel(s.title, FontManager.getRunescapeFont(), ColorScheme.TEXT_COLOR));
-		panel.add(leftLabel(s.kindLabel(), FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		JPanel panel = titledCard(s.title, s.kindLabel(), ColorScheme.LIGHT_GRAY_COLOR);
 
 		String timing = timingLabel(!s.live, s.startDate, s.endDate);
 		if (timing != null)
 		{
-			panel.add(leftLabel(timing, FontManager.getRunescapeSmallFont(),
-				s.live ? ColorScheme.PROGRESS_COMPLETE_COLOR : VALUE_COLOR));
+			panel.add(small(timing, s.live ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED));
 		}
 		if (!s.sizeLabel().isEmpty())
 		{
-			panel.add(leftLabel(s.sizeLabel(), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			panel.add(small(s.sizeLabel(), MUTED));
 		}
 
 		panel.add(gap(4));
@@ -2910,27 +2485,25 @@ public class AnvilSidebarPanel extends PluginPanel
 		// and an alt that isn't read differently here.
 		if ("entered".equals(s.yourEntry))
 		{
-			panel.add(wrappedLabel(s.live ? "You're in — your board shows once it loads." : "You're signed up — waiting for it to start.",
-				FontManager.getRunescapeSmallFont(), ColorScheme.PROGRESS_COMPLETE_COLOR));
+			panel.add(note(s.live ? "You're in — your board shows once it loads." : "You're signed up — waiting for it to start.",
+				ColorScheme.PROGRESS_COMPLETE_COLOR));
 		}
 		else if ("pending".equals(s.yourEntry))
 		{
-			panel.add(wrappedLabel("Signed up — waiting for the host to approve.",
-				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			panel.add(note("Signed up — waiting for the host to approve."));
 		}
 		else
 		{
-			panel.add(wrappedLabel(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
-				FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+			panel.add(note(s.live ? "You're not enrolled in this one." : "Sign up on the site to take part.",
+				ColorScheme.LIGHT_GRAY_COLOR));
 		}
 
 		if (s.url != null && !s.url.isEmpty())
 		{
 			panel.add(eventLink(s.url));
 		}
+		return capH(panel);
 
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-		return panel;
 	}
 
 	/** "You: #3 · +1.2M xp", or an honest line when the caller isn't on the board (or it wouldn't load). */
@@ -2946,19 +2519,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** The head of the weekly's leaderboard, with the caller's row spliced in when it's further down. */
 	private JPanel buildWeeklyStandings(ConnectionView.WeeklyView w)
 	{
-		JPanel list = new JPanel();
-		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
-		list.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		list.setAlignmentX(LEFT_ALIGNMENT);
-
-		list.add(sectionHeader("Standings"));
-		list.add(gap(6));
-
+		JPanel list = section("Standings");
 		if (w.top.isEmpty())
 		{
-			list.add(leftLabel("No one has scored yet.", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
-			list.setMaximumSize(new Dimension(Integer.MAX_VALUE, list.getPreferredSize().height));
-			return list;
+			list.add(small("No one has scored yet.", MUTED));
+			return capH(list);
 		}
 
 		int shown = 0;
@@ -2973,48 +2538,38 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				list.add(gap(3));
 				JLabel more = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
-				more.setForeground(VALUE_COLOR);
-				more.setAlignmentX(LEFT_ALIGNMENT);
-				list.add(more);
+				more.setForeground(MUTED);
+				list.add(left(more));
 			}
 			list.add(gap(3));
 			list.add(buildStandingRow(s, w));
 			shown++;
 		}
-
-		list.setMaximumSize(new Dimension(Integer.MAX_VALUE, list.getPreferredSize().height));
-		return list;
+		return capH(list);
 	}
 
 	/** One standings row: rank, RSN, gain. The caller's row leads in gold like their own activity does. */
 	private JPanel buildStandingRow(ConnectionView.Standing s, ConnectionView.WeeklyView w)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
+		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		row.setAlignmentX(LEFT_ALIGNMENT);
 
-		JLabel rank = new JLabel(String.valueOf(s.rank));
-		rank.setFont(FontManager.getRunescapeSmallFont());
-		rank.setForeground(VALUE_COLOR);
+		JLabel rank = small(String.valueOf(s.rank), MUTED);
 		rank.setPreferredSize(new Dimension(22, rank.getPreferredSize().height));
 		rank.setHorizontalAlignment(SwingConstants.RIGHT);
 
-		JLabel name = new JLabel(plainText(ellipsize(s.rsn, 16)));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(s.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
+		JLabel name = small(ellipsize(s.rsn, 16), s.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(plainText(s.rsn));
 
-		JLabel gained = new JLabel("+" + w.formatGain(s.gained));
-		gained.setFont(FontManager.getRunescapeSmallFont());
-		gained.setForeground(s.self ? ColorScheme.BRAND_ORANGE : VALUE_COLOR);
+		JLabel gained = small("+" + w.formatGain(s.gained), s.self ? ColorScheme.BRAND_ORANGE : MUTED);
 		gained.setHorizontalAlignment(SwingConstants.RIGHT);
 
 		row.add(rank, BorderLayout.WEST);
 		row.add(name, BorderLayout.CENTER);
 		row.add(gained, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
 	}
+
 
 	/** " · ends in 2d 4h" / " · starts in 3d 1h" for the compact list row; "" when there's no usable date. */
 	private static String timingSuffix(boolean upcoming, String startIso, String endIso)
@@ -3089,11 +2644,22 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** A small gold section label, matching the panel's header style. */
 	private static JLabel sectionHeader(String text)
 	{
-		JLabel header = new JLabel(text);
-		header.setFont(FontManager.getRunescapeSmallFont());
-		header.setForeground(ColorScheme.BRAND_ORANGE);
-		header.setAlignmentX(LEFT_ALIGNMENT);
-		return header;
+		return small(text, ColorScheme.BRAND_ORANGE);
+	}
+
+	/** A section heading and the gap under it, added to {@code into}. */
+	private static void heading(JPanel into, String text)
+	{
+		into.add(sectionHeader(text));
+		into.add(gap(6));
+	}
+
+	/** A {@link Ui#column} that opens with a section heading. */
+	private static JPanel section(String text)
+	{
+		JPanel p = column();
+		heading(p, text);
+		return p;
 	}
 
 	/**
@@ -3107,26 +2673,15 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildStartProofCard(PluginConfigResponse.StartProof proof)
 	{
-		JPanel card = new JPanel();
-		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		card.setAlignmentX(LEFT_ALIGNMENT);
+		JPanel card = block();
 		card.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE),
 			BorderFactory.createEmptyBorder(6, 8, 8, 8)));
-
-		JLabel title = new JLabel("Starting shot needed");
-		title.setFont(FontManager.getRunescapeSmallFont());
-		title.setForeground(ColorScheme.BRAND_ORANGE);
-		title.setAlignmentX(LEFT_ALIGNMENT);
-		card.add(title);
+		card.add(small("Starting shot needed", ColorScheme.BRAND_ORANGE));
 
 		if (proof.location != null && !proof.location.isEmpty())
 		{
-			JLabel where = new JLabel(plainText("Go to " + proof.location));
-			where.setFont(FontManager.getRunescapeSmallFont());
-			where.setForeground(Color.WHITE);
-			where.setAlignmentX(LEFT_ALIGNMENT);
+			JLabel where = small("Go to " + proof.location, Color.WHITE);
 			where.setToolTipText(plainText(proof.location));
 			card.add(gap(4));
 			card.add(where);
@@ -3134,21 +2689,15 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		if (proof.keyword != null && !proof.keyword.isEmpty())
 		{
-			JLabel word = new JLabel(plainText("Keyword: " + proof.keyword));
-			word.setFont(FontManager.getRunescapeSmallFont());
-			word.setForeground(VALUE_COLOR);
-			word.setAlignmentX(LEFT_ALIGNMENT);
 			card.add(gap(2));
-			card.add(word);
+			card.add(small("Keyword: " + proof.keyword, MUTED));
 		}
 
 		// The requirements the button checks — session age, position — shown live, so a player can
 		// see each one go green instead of finding out from a refusal in chat. Ticks every second
 		// while the card is on screen; the timer stops itself once the card is replaced.
-		JPanel checks = new JPanel();
-		checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
+		JPanel checks = column();
 		checks.setOpaque(false);
-		checks.setAlignmentX(LEFT_ALIGNMENT);
 		renderStartProofChecks(checks, proof);
 		if (checks.getComponentCount() > 0)
 		{
@@ -3181,10 +2730,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		String left = StartProofRules.describeWindow(proof, System.currentTimeMillis());
 		if (left != null)
 		{
-			JLabel expires = new JLabel(plainText("Asked for another " + left + ", then it lapses"));
-			expires.setFont(FontManager.getRunescapeSmallFont());
-			expires.setForeground(Color.WHITE);
-			expires.setAlignmentX(LEFT_ALIGNMENT);
+			JLabel expires = small("Asked for another " + left + ", then it lapses", Color.WHITE);
 			expires.setToolTipText("Six hours in, the game has logged everyone out anyway, so the shot stops being asked for.");
 			card.add(gap(2));
 			card.add(expires);
@@ -3192,17 +2738,13 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		if (proof.spot != null && dataSource.autoStartShot())
 		{
-			JLabel auto = new JLabel(plainText("Taken and sent automatically once both are green."));
-			auto.setFont(FontManager.getRunescapeSmallFont());
-			auto.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-			auto.setAlignmentX(LEFT_ALIGNMENT);
 			card.add(gap(2));
-			card.add(auto);
+			card.add(small("Taken and sent automatically once both are green.", ColorScheme.LIGHT_GRAY_COLOR));
+
 		}
 
 		JButton take = new JButton("Take starting shot");
 		styleFlatButton(take, ColorScheme.BRAND_ORANGE);
-		take.setAlignmentX(LEFT_ALIGNMENT);
 		take.addActionListener(e ->
 		{
 			take.setEnabled(false);
@@ -3237,11 +2779,9 @@ public class AnvilSidebarPanel extends PluginPanel
 				: c.state == StartProofRules.Check.State.BAD ? ColorScheme.PROGRESS_ERROR_COLOR
 				: ColorScheme.LIGHT_GRAY_COLOR;
 			GlyphIcon.Shape shape = c.state == StartProofRules.Check.State.OK ? GlyphIcon.Shape.CHECK : GlyphIcon.Shape.CLOSE;
-			JLabel row = new JLabel(plainText(c.text), new GlyphIcon(shape, 9, color), SwingConstants.LEFT);
+			JLabel row = small(c.text, color);
+			row.setIcon(new GlyphIcon(shape, 9, color));
 			row.setIconTextGap(4);
-			row.setFont(FontManager.getRunescapeSmallFont());
-			row.setForeground(color);
-			row.setAlignmentX(LEFT_ALIGNMENT);
 			row.setToolTipText("Hiscores only save when you log out, so a fresh session is what sets your starting totals.");
 			into.add(row);
 		}
@@ -3252,11 +2792,23 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
 	{
 		ClogTaskModel.TaskRow tile = task.tile;
-		Color accent = task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR;
+		JLabel name = small(ellipsize(tile.label, 24), task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
+		name.setToolTipText(plainText(tile.label));
+		return progressRow(name, progressValue(tile),
+			small(task.workersLabel(), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED),
+			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
+				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR,
+				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
+	}
 
-		JPanel row = new JPanel(new GridBagLayout());
+	/**
+	 * A tile's progress line: its name with the count at the right, an optional byline (who's on it),
+	 * then a thin bar across the row. Value/label are JLabels, never painted inside the bar, for crisp text.
+	 */
+	private static JPanel progressRow(JLabel name, String value, JLabel byline, JProgressBar bar)
+	{
+		JPanel row = left(new JPanel(new GridBagLayout()));
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		row.setAlignmentX(LEFT_ALIGNMENT);
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
@@ -3264,147 +2816,61 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.weightx = 1;
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		gbc.anchor = GridBagConstraints.WEST;
-
-		JLabel name = new JLabel(plainText(ellipsize(tile.label, 24)));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(accent);
-		name.setToolTipText(plainText(tile.label));
 		row.add(name, gbc);
 
-		JLabel value = new JLabel(progressValue(tile));
-		value.setFont(FontManager.getRunescapeSmallFont());
-		value.setForeground(VALUE_COLOR);
 		gbc.gridx = 1;
 		gbc.weightx = 0;
 		gbc.fill = GridBagConstraints.NONE;
 		gbc.anchor = GridBagConstraints.EAST;
-		row.add(value, gbc);
+		row.add(small(value, MUTED), gbc);
 
-		JLabel who = new JLabel(plainText(task.workersLabel()));
-		who.setFont(FontManager.getRunescapeSmallFont());
-		who.setForeground(task.includesSelf ? ColorScheme.BRAND_ORANGE : VALUE_COLOR);
 		gbc.gridx = 0;
-		gbc.gridy = 1;
 		gbc.gridwidth = 2;
 		gbc.weightx = 1;
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		gbc.anchor = GridBagConstraints.WEST;
-		gbc.insets = new java.awt.Insets(1, 0, 0, 0);
-		row.add(who, gbc);
-
-		JProgressBar bar = new JProgressBar(0, 100);
-		bar.setValue(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0);
-		bar.setStringPainted(false);
-		bar.setBorderPainted(false);
-		bar.setForeground(task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR);
-		bar.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
-		gbc.gridy = 2;
+		if (byline != null)
+		{
+			gbc.gridy = 1;
+			gbc.insets = new java.awt.Insets(1, 0, 0, 0);
+			row.add(byline, gbc);
+		}
+		gbc.gridy++;
 		gbc.insets = new java.awt.Insets(3, 0, 0, 0);
 		row.add(bar, gbc);
-
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
 	}
 
-	/** "1.5M / 2M", "248 / 500", or "" for an untargeted tile — big numbers abbreviated for the narrow panel. */
+	/**
+	 * "1.5M / 2M", "248 / 500", or "" for an untargeted tile — big numbers abbreviated for the narrow
+	 * panel, by the same formatter as the weekly gains so the card and the standings can't drift apart.
+	 */
 	private static String progressValue(ClogTaskModel.TaskRow tile)
 	{
-		return tile.goal > 0 ? formatCount(tile.current) + " / " + formatCount(tile.goal) : "";
-	}
-
-	/** Compact count: 1_507_300 → "1.5M", 2_000_000 → "2M", 15_000 → "15K", 500 → "500". */
-	// One definition, shared with ConnectionView.WeeklyView's gain formatting (which also has to know
-	// about EHP/EHB milli-hours) so the card and the standings rows can't drift apart.
-	private static String formatCount(long n)
-	{
-		return ConnectionView.formatCount(n);
+		return tile.goal > 0 ? ConnectionView.formatCount(tile.current) + " / " + ConnectionView.formatCount(tile.goal) : "";
 	}
 
 	/** The team activity feed — one colored line per event (newest first), capped so the panel stays glanceable. */
 	private JPanel buildActivityFeed(List<ActivityEntry> entries)
 	{
-		JPanel list = new JPanel();
-		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
-		list.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		list.setAlignmentX(LEFT_ALIGNMENT);
-
-		int shown = 0;
-		for (ActivityEntry e : entries)
-		{
-			if (shown >= ACTIVITY_ROWS_SHOWN)
-			{
-				break;
-			}
-			if (shown > 0)
-			{
-				list.add(gap(3));
-			}
-			list.add(buildActivityRow(e));
-			shown++;
-		}
+		JPanel list = column();
+		addSpaced(list, entries.subList(0, Math.min(entries.size(), ACTIVITY_ROWS_SHOWN)), 3, this::buildActivityRow);
 		if (entries.size() > ACTIVITY_ROWS_SHOWN)
 		{
 			list.add(gap(3));
-			JLabel more = new JLabel("+" + (entries.size() - ACTIVITY_ROWS_SHOWN) + " more");
-			more.setFont(FontManager.getRunescapeSmallFont());
-			more.setForeground(VALUE_COLOR);
-			more.setAlignmentX(LEFT_ALIGNMENT);
-			list.add(more);
+			list.add(small("+" + (entries.size() - ACTIVITY_ROWS_SHOWN) + " more", MUTED));
 		}
-		list.setMaximumSize(new Dimension(Integer.MAX_VALUE, list.getPreferredSize().height));
-		return list;
+		return capH(list);
 	}
 
 	private JLabel buildActivityRow(ActivityEntry e)
 	{
-		JLabel row = new JLabel(plainText(ellipsize(e.summary(), 36)));
-		row.setFont(FontManager.getRunescapeSmallFont());
-		row.setToolTipText(plainText(e.summary()));
-		row.setAlignmentX(LEFT_ALIGNMENT);
 		// Completions read as wins (green); reveals are announcements (gold, like your own actions);
 		// your own actions stand out (gold); teammates stay neutral.
-		if (e.isCompletion())
-		{
-			row.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
-		}
-		else if (e.kind == ActivityEntry.Kind.REVEAL || e.self)
-		{
-			row.setForeground(ColorScheme.BRAND_ORANGE);
-		}
-		else
-		{
-			row.setForeground(ColorScheme.TEXT_COLOR);
-		}
+		JLabel row = small(ellipsize(e.summary(), 36), e.isCompletion() ? ColorScheme.PROGRESS_COMPLETE_COLOR
+			: e.kind == ActivityEntry.Kind.REVEAL || e.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
+		row.setToolTipText(plainText(e.summary()));
 		return row;
-	}
-
-	/**
-	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
-	 * HTML when its text begins (ignoring leading whitespace, case-insensitive) with {@code <html}, so an
-	 * untrusted clan/tile/activity name could inject markup. Such strings get their markup chars escaped so they
-	 * render only as literal text; ordinary strings pass through. An explicit sanitize rather than reliance on
-	 * {@code html.disable}; every server-supplied field the panel renders routes through here.
-	 *
-	 * <p>Use {@link #esc} instead when the string is being placed INSIDE markup we are building: there the
-	 * leading-{@code <html} test does not apply and every occurrence has to be escaped.</p>
-	 */
-	static String plainText(String s)
-	{
-		if (s == null)
-		{
-			return "";
-		}
-		int i = 0;
-		while (i < s.length() && Character.isWhitespace(s.charAt(i)))
-		{
-			i++;
-		}
-		if (s.regionMatches(true, i, "<html", 0, 5))
-		{
-			return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-		}
-		return s;
 	}
 
 	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
@@ -3442,16 +2908,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			return buildLadderCard(c);
 		}
 
-		JPanel panel = new JPanel(new BorderLayout(0, 4));
+		JPanel panel = left(new JPanel(new BorderLayout(0, 4)));
 		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
-		String eventLine = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
-		JLabel event = new JLabel(plainText(eventLine));
-		event.setFont(FontManager.getRunescapeFont());
-		event.setForeground(ColorScheme.TEXT_COLOR);
-		panel.add(event, BorderLayout.NORTH);
+		panel.add(label(eventLine(c), REGULAR, ColorScheme.TEXT_COLOR), BorderLayout.NORTH);
 
 		// Count is a FontManager JLabel, NOT painted inside the bar (default L&F font rendered poorly).
 		JPanel bottom = new JPanel(new BorderLayout(0, 2));
@@ -3462,56 +2922,40 @@ public class AnvilSidebarPanel extends PluginPanel
 			// No live board on this clan (federated homes with no running event report 0/0) — a bare
 			// "0 / 0 tiles · 0%" reads like a bug, so say what's actually going on instead. The view
 			// can carry a more specific line (e.g. the logged-out home's "Log in in-game …").
-			JLabel none = new JLabel(c.statusNote != null && !c.statusNote.isEmpty()
-				? c.statusNote : "No active event yet.");
-			none.setFont(FontManager.getRunescapeSmallFont());
-			none.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-			bottom.add(none, BorderLayout.NORTH);
+			bottom.add(small(c.statusNote != null && !c.statusNote.isEmpty()
+				? c.statusNote : "No active event yet.", ColorScheme.LIGHT_GRAY_COLOR), BorderLayout.NORTH);
 		}
 		else
 		{
-			JLabel count = new JLabel(c.tilesComplete + " / " + c.tilesTotal + " " + c.unitNoun() + " · " + c.completionPercent() + "%");
-			count.setFont(FontManager.getRunescapeSmallFont());
-			count.setForeground(VALUE_COLOR);
-			bottom.add(count, BorderLayout.NORTH);
-
-			JProgressBar bar = new JProgressBar(0, 100);
-			bar.setValue(c.completionPercent());
-			bar.setStringPainted(false);
-			bar.setForeground(c.completionPercent() >= 100
-				? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
-			bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			bar.setBorderPainted(false);
-			bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT + 1));
-			bottom.add(bar, BorderLayout.CENTER);
+			bottom.add(small(boardStatusLine(c), MUTED), BorderLayout.NORTH);
+			bottom.add(bar(c.completionPercent(), c.completionPercent() >= 100
+				? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE,
+				ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT + 1), BorderLayout.CENTER);
 
 			// Reveal-policy boards: "4 tiles hidden · next in 42m" under the bar, so members know
 			// more is coming (and when) without opening the site. Null on classic boards.
 			if (c.revealNote != null && !c.revealNote.isEmpty())
 			{
-				JLabel reveal = new JLabel(plainText(c.revealNote));
-				reveal.setFont(FontManager.getRunescapeSmallFont());
-				reveal.setForeground(ColorScheme.BRAND_ORANGE);
-				bottom.add(reveal, BorderLayout.SOUTH);
+				bottom.add(small(c.revealNote, ColorScheme.BRAND_ORANGE), BorderLayout.SOUTH);
 			}
 		}
 
 		panel.add(bottom, BorderLayout.CENTER);
 
-		JPanel south = new JPanel();
-		south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
-		south.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		if (c.boardUrl != null && !c.boardUrl.isEmpty())
 		{
+			JPanel south = column();
+			south.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			south.add(boardLink(c.boardUrl));
-		}
-		if (south.getComponentCount() > 0)
-		{
 			panel.add(south, BorderLayout.SOUTH);
 		}
+		return capH(panel);
+	}
 
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-		return panel;
+	/** The card's headline: the event, else the clan when there's no event. */
+	private static String eventLine(ConnectionView c)
+	{
+		return c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
 	}
 
 	/**
@@ -3521,23 +2965,16 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildMissionRow(ConnectionView.Ladder.Mission m, ConnectionView.Ladder l, long now)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
+		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setAlignmentX(LEFT_ALIGNMENT);
-
-		JLabel name = new JLabel(plainText(ellipsize(m.label, 22)));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(ColorScheme.TEXT_COLOR);
 
 		long val = LadderMissions.liveValue(m.face, m.revealedAtIso, l.decay, now);
-		JLabel value = new JLabel(LadderMissions.valueLabel(m.face, val));
-		value.setFont(FontManager.getRunescapeSmallFont());
-		value.setForeground(valueColor(m.face, val));
+		JLabel value = small(LadderMissions.valueLabel(m.face, val), valueColor(m.face, val));
 		value.setHorizontalAlignment(SwingConstants.RIGHT);
 
-		row.add(name, BorderLayout.CENTER);
+		row.add(small(ellipsize(m.label, 22), ColorScheme.TEXT_COLOR), BorderLayout.CENTER);
 		row.add(value, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		capH(row);
 		ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
 		return row;
 	}
@@ -3550,27 +2987,26 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildMissionStrip(ConnectionView.Ladder l)
 	{
 		final long now = System.currentTimeMillis();
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
-		JLabel countdown = leftLabel(countdownText(l, now), FontManager.getRunescapeBoldFont(), ColorScheme.BRAND_ORANGE);
+		JPanel panel = block();
+		JLabel countdown = label(countdownText(l, now), BOLD, ColorScheme.BRAND_ORANGE);
 		panel.add(countdown);
 		panel.add(gap(4));
 		for (ConnectionView.Ladder.Mission m : l.missions)
 		{
 			panel.add(buildMissionRow(m, l, now));
 		}
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-
 		// Bind the per-second tick to this strip, exactly as the ladder card does for itself — without
 		// it the countdown would sit frozen until the next config poll.
+		return bindLadder(l, countdown, capH(panel));
+	}
+
+	/** Point the 1s tick at this card: its countdown, the value labels already registered, its flash. */
+	private JPanel bindLadder(ConnectionView.Ladder l, JLabel countdown, JPanel card)
+	{
 		ladderState = l;
 		ladderCountdownLabel = countdown;
-		ladderCardPanel = panel;
-		return panel;
+		ladderCardPanel = card;
+		return card;
 	}
 
 	/**
@@ -3584,28 +3020,20 @@ public class AnvilSidebarPanel extends PluginPanel
 		ConnectionView.Ladder l = c.ladder;
 		final long now = System.currentTimeMillis();
 
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		panel.setAlignmentX(LEFT_ALIGNMENT);
-
-		String eventLine = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
-		panel.add(leftLabel(eventLine, FontManager.getRunescapeFont(), ColorScheme.TEXT_COLOR));
-		panel.add(leftLabel(rankLine(l), FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+		JPanel panel = titledCard(eventLine(c), rankLine(l), MUTED);
 		panel.add(gap(6));
 
-		JLabel countdown = leftLabel(countdownText(l, now), FontManager.getRunescapeBoldFont(), ColorScheme.BRAND_ORANGE);
+		JLabel countdown = label(countdownText(l, now), BOLD, ColorScheme.BRAND_ORANGE);
 		panel.add(countdown);
 		panel.add(gap(6));
 
 		if (l.missions.isEmpty())
 		{
-			panel.add(leftLabel("Waiting for the next mission…", FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+			panel.add(small("Waiting for the next mission…", ColorScheme.LIGHT_GRAY_COLOR));
 		}
 		else
 		{
-			panel.add(leftLabel("Active missions", FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+			panel.add(small("Active missions", ColorScheme.LIGHT_GRAY_COLOR));
 			panel.add(gap(2));
 			for (ConnectionView.Ladder.Mission m : l.missions)
 			{
@@ -3618,35 +3046,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			panel.add(gap(6));
 			panel.add(boardLink(c.boardUrl));
 		}
-
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-
-		// Bind the tick to this card.
-		ladderState = l;
-		ladderCountdownLabel = countdown;
-		ladderCardPanel = panel;
-		return panel;
-	}
-
-	/** A left-aligned JLabel (BoxLayout children default to centre), sanitized for federated text. */
-	private JLabel leftLabel(String text, Font font, Color color)
-	{
-		JLabel label = new JLabel(plainText(text));
-		label.setFont(font);
-		label.setForeground(color);
-		label.setAlignmentX(LEFT_ALIGNMENT);
-		return label;
-	}
-
-	/** A left-aligned label that wraps at the usable sidebar width instead of losing its last words. */
-	private static JLabel wrappedLabel(String text, Font font, Color color)
-	{
-		String safe = text == null ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-		JLabel label = new JLabel("<html><body style='width:" + STATUS_WRAP_PX + "pt'>" + safe + "</body></html>");
-		label.setFont(font);
-		label.setForeground(color);
-		label.setAlignmentX(LEFT_ALIGNMENT);
-		return label;
+		return bindLadder(l, countdown, capH(panel));
 	}
 
 	/** "You: #4 this month · #12 all-time", or an encouraging line when the caller hasn't scored yet. */
@@ -3680,7 +3080,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		if (current == face)
 		{
-			return VALUE_COLOR;
+			return MUTED;
 		}
 		return current > face ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE;
 	}
@@ -3765,7 +3165,13 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JLabel siteLink(String text, String tooltip, String url)
 	{
-		JLabel link = new JLabel(text.replace(" ↗", "").trim());
+		JLabel link = styleLink(new JLabel(text.replace(" ↗", "").trim()), tooltip, () ->
+		{
+			if (isSafeHttpUrl(url)) // defense-in-depth: never a javascript:/data:/file: or creds@host URL
+			{
+				LinkBrowser.browse(url);
+			}
+		});
 		if (text.endsWith("↗"))
 		{
 			// Drawn, not typed — the RuneScape font has no ↗ and macOS often substitutes nothing.
@@ -3773,22 +3179,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			link.setHorizontalTextPosition(SwingConstants.LEADING);
 			link.setIconTextGap(2);
 		}
-		link.setFont(FontManager.getRunescapeSmallFont());
-		link.setForeground(ColorScheme.BRAND_ORANGE);
-		link.setToolTipText(tooltip);
-		link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		link.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-		link.addMouseListener(new java.awt.event.MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(java.awt.event.MouseEvent e)
-			{
-				if (isSafeHttpUrl(url)) // defense-in-depth: never a javascript:/data:/file: or creds@host URL
-				{
-					LinkBrowser.browse(url);
-				}
-			}
-		});
 		return link;
 	}
 
@@ -3815,49 +3206,10 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JPanel buildTileRow(ConnectionView.TileProgressView tile)
 	{
-		JPanel row = new JPanel(new GridBagLayout());
-		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		row.setAlignmentX(LEFT_ALIGNMENT);
-
-		GridBagConstraints gbc = new GridBagConstraints();
-		gbc.gridx = 0;
-		gbc.gridy = 0;
-		gbc.weightx = 1;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		gbc.anchor = GridBagConstraints.WEST;
-
-		JLabel name = new JLabel(plainText(tile.name));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
-		row.add(name, gbc);
-
-		JLabel value = new JLabel(progressText(tile));
-		value.setFont(FontManager.getRunescapeSmallFont());
-		value.setForeground(VALUE_COLOR);
-		gbc.gridx = 1;
-		gbc.weightx = 0;
-		gbc.fill = GridBagConstraints.NONE;
-		gbc.anchor = GridBagConstraints.EAST;
-		row.add(value, gbc);
-
-		JProgressBar bar = new JProgressBar(0, 100);
-		bar.setValue(tile.percent());
-		bar.setStringPainted(false);
-		bar.setBorderPainted(false);
-		bar.setForeground(tile.complete
-			? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.PROGRESS_INPROGRESS_COLOR);
-		bar.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		bar.setPreferredSize(new Dimension(0, PROGRESS_BAR_HEIGHT));
-		gbc.gridx = 0;
-		gbc.gridy = 1;
-		gbc.gridwidth = 2;
-		gbc.weightx = 1;
-		gbc.fill = GridBagConstraints.HORIZONTAL;
-		gbc.insets = new java.awt.Insets(3, 0, 0, 0);
-		row.add(bar, gbc);
-
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		Color done = tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : null;
+		return progressRow(small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR), progressText(tile), null,
+			bar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR,
+				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
 	}
 
 	/** "c / t" for counted tiles, "42%" for very large targets (XP), or "Done"/"—". */
@@ -4006,52 +3358,35 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		}
 		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
-		switch (type)
+		for (String[] words : TYPE_WORDS)
 		{
-			case "drop":
-				out.add("drop");
-				out.add("drops");
-				if (tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
-				{
-					java.util.Collections.addAll(out, "set", "sets", "item set", "collection");
-				}
-				break;
-			case "kill":
-				java.util.Collections.addAll(out, "kill", "kills");
-				break;
-			case "lap":
-				java.util.Collections.addAll(out, "lap", "laps", "agility");
-				break;
-			case "pvp":
-				out.add("pvp");
-				break;
-			case "gain":
-				java.util.Collections.addAll(out, "gain", "gains", "item gain", "gather");
-				break;
-			case "timed":
-				java.util.Collections.addAll(out, "timed", "time", "speedrun");
-				break;
-			case "deathless":
-				out.add("deathless");
-				break;
-			case "diary":
-				java.util.Collections.addAll(out, "diary", "diaries", "achievement diary");
-				break;
-			case "ca":
-				java.util.Collections.addAll(out, "ca", "cas", "combat task", "combat achievement");
-				break;
-			case "lms":
-				out.add("lms");
-				break;
-			case "value":
-			case "valuetotal":
-				java.util.Collections.addAll(out, "value", "loot value", "gp");
-				break;
-			default:
-				break;
+			if (words[0].equals(type))
+			{
+				out.addAll(java.util.Arrays.asList(words).subList(1, words.length));
+			}
+		}
+		if ("drop".equals(type) && tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
+		{
+			java.util.Collections.addAll(out, "set", "sets", "item set", "collection");
 		}
 		return out;
 	}
+
+	/** Per tile type (the first word), what a player might type to find it. */
+	private static final String[][] TYPE_WORDS = {
+		{"drop", "drop", "drops"},
+		{"kill", "kill", "kills"},
+		{"lap", "lap", "laps", "agility"},
+		{"pvp", "pvp"},
+		{"gain", "gain", "gains", "item gain", "gather"},
+		{"timed", "timed", "time", "speedrun"},
+		{"deathless", "deathless"},
+		{"diary", "diary", "diaries", "achievement diary"},
+		{"ca", "ca", "cas", "combat task", "combat achievement"},
+		{"lms", "lms"},
+		{"value", "value", "loot value", "gp"},
+		{"valuetotal", "value", "loot value", "gp"},
+	};
 
 	private static boolean tileHasTier(BingoApiClient.BoardTile tile, String normalized)
 	{
@@ -4138,7 +3473,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				return;
 			}
 			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
-			g.setColor(VALUE_COLOR);
+			g.setColor(MUTED);
 			g.setFont(getFont());
 			java.awt.FontMetrics metrics = g.getFontMetrics();
 			java.awt.Insets insets = getInsets();
@@ -4150,10 +3485,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JPanel buildBoardCatalogue(String key, int eventId, String boardUrl, boolean preStart)
 	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		panel.setAlignmentX(LEFT_ALIGNMENT);
+		JPanel panel = column();
 
 		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
 		if (board == null)
@@ -4164,34 +3496,31 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			if (failedBoardCatalogues.contains(key))
 			{
-				panel.add(leftLabel("Couldn't load the board.", FontManager.getRunescapeSmallFont(),
-					ColorScheme.PROGRESS_ERROR_COLOR));
+				panel.add(small("Couldn't load the board.", ColorScheme.PROGRESS_ERROR_COLOR));
 				panel.add(gap(5));
-				panel.add(fullWidth(actionButton("Retry", "Try loading all tiles again", () ->
-					loadBoardCatalogue(key, eventId, true))));
+				panel.add(fullWidthButton("Retry", "Try loading all tiles again", () ->
+					loadBoardCatalogue(key, eventId, true)));
 			}
 			else
 			{
-				panel.add(leftLabel("Loading tiles…", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+				panel.add(small("Loading tiles…", MUTED));
 			}
-			panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-			return panel;
+			return capH(panel);
 		}
 
 		List<BingoApiClient.BoardTile> all = board.tiles == null
 			? java.util.Collections.emptyList() : board.tiles;
 		if (all.isEmpty())
 		{
-			panel.add(leftLabel(board.tilesRevealed ? "No visible tiles." : "Tiles haven't been revealed yet.",
-				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
-			panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-			return panel;
+			panel.add(small(board.tilesRevealed ? "No visible tiles." : "Tiles haven't been revealed yet.", MUTED));
+			return capH(panel);
+
 		}
 
 		TileSearchField search = new TileSearchField(
 			"Search " + all.size() + " tiles…", boardSearches.getOrDefault(key, ""));
 		search.setToolTipText("Search tile names, descriptions, requirements and categories");
-		search.setFont(FontManager.getRunescapeSmallFont());
+		search.setFont(SMALL);
 		search.setForeground(Color.WHITE);
 		search.setCaretColor(Color.WHITE);
 		search.setBackground(WIDGET_BG);
@@ -4203,7 +3532,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override public void focusLost(java.awt.event.FocusEvent e) { boardSearchFocused = false; }
 		});
 
-		JButton clearSearch = actionButton("", "Clear tile search", () -> search.setText(""));
+		JButton clearSearch = flatButton("", "Clear tile search", () -> search.setText(""));
 		clearSearch.setIcon(new GlyphIcon(GlyphIcon.Shape.CLOSE, 12));
 		clearSearch.setEnabled(!search.getText().isEmpty());
 		clearSearch.setPreferredSize(new Dimension(30, search.getPreferredSize().height));
@@ -4217,12 +3546,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			status.setToolTipText("Filter tiles by completion state");
 		}
 
-		JPanel controls = new JPanel(new BorderLayout(5, 0));
+		JPanel controls = left(new JPanel(new BorderLayout(5, 0)));
 		controls.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		controls.setAlignmentX(LEFT_ALIGNMENT);
 		controls.add(search, BorderLayout.CENTER);
 		controls.add(clearSearch, BorderLayout.EAST);
-		controls.setMaximumSize(new Dimension(Integer.MAX_VALUE, controls.getPreferredSize().height));
+		capH(controls);
 		String countLine = all.size() + (all.size() == 1 ? " visible tile" : " visible tiles");
 		if (board.hiddenTileCount > 0)
 		{
@@ -4230,34 +3558,28 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		boolean catalogueClaimable = !board.readOnly && dataSource.supportsTileClaims();
 		boolean loggedOut = catalogueClaimable && !dataSource.canClaimNow();
-		panel.add(leftLabel(countLine, FontManager.getRunescapeSmallFont(), ColorScheme.LIGHT_GRAY_COLOR));
+		panel.add(small(countLine, ColorScheme.LIGHT_GRAY_COLOR));
 		panel.add(gap(2));
-		panel.add(leftLabel(loggedOut
+		panel.add(small(loggedOut
 			? "Click for details · log in to claim tiles."
 			: catalogueClaimable
 			? "Click for details · right-click to claim."
 			: (board.readOnly ? "Click for details · join this event to claim tiles."
-				: "Click for details · claims aren't available on this site."),
-			FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+				: "Click for details · claims aren't available on this site."), MUTED));
 		panel.add(gap(7));
 		panel.add(controls);
 		if (status != null)
 		{
-			JPanel filterRow = new JPanel(new BorderLayout(6, 0));
+			JPanel filterRow = left(new JPanel(new BorderLayout(6, 0)));
 			filterRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			filterRow.setAlignmentX(LEFT_ALIGNMENT);
-			filterRow.add(leftLabel("Show", FontManager.getRunescapeSmallFont(), VALUE_COLOR), BorderLayout.WEST);
+			filterRow.add(small("Show", MUTED), BorderLayout.WEST);
 			filterRow.add(status, BorderLayout.CENTER);
-			filterRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, filterRow.getPreferredSize().height));
 			panel.add(gap(5));
-			panel.add(filterRow);
+			panel.add(capH(filterRow));
 		}
 		panel.add(gap(7));
 
-		JPanel rows = new JPanel();
-		rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-		rows.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		rows.setAlignmentX(LEFT_ALIGNMENT);
+		JPanel rows = column();
 
 		Runnable repaintRows = () ->
 		{
@@ -4267,33 +3589,26 @@ public class AnvilSidebarPanel extends PluginPanel
 			boardStatusFilters.put(key, selected == null ? TileStatusFilter.ALL : selected);
 			renderBoardCatalogueRows(panel, rows, key, all, search.getText(), selected, preStart, boardUrl);
 		};
-		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
+		// A new search or filter starts at page one — and searching from a tile's detail means "find
+		// another one", so it shows the results.
+		Runnable refilter = () ->
 		{
-			private void changed()
-			{
-				clearSearch.setEnabled(!search.getText().isEmpty());
-				boardCataloguePages.put(key, 0);
-				// Searching from a tile's detail means "find another one" — show the results.
-				closeCatalogueDetail(key);
-				repaintRows.run();
-			}
-			@Override public void insertUpdate(javax.swing.event.DocumentEvent e) { changed(); }
-			@Override public void removeUpdate(javax.swing.event.DocumentEvent e) { changed(); }
-			@Override public void changedUpdate(javax.swing.event.DocumentEvent e) { changed(); }
+			boardCataloguePages.put(key, 0);
+			closeCatalogueDetail(key);
+			repaintRows.run();
+		};
+		onEdit(search, () ->
+		{
+			clearSearch.setEnabled(!search.getText().isEmpty());
+			refilter.run();
 		});
 		if (status != null)
 		{
-			status.addActionListener(e ->
-			{
-				boardCataloguePages.put(key, 0);
-				closeCatalogueDetail(key);
-				repaintRows.run();
-			});
+			status.addActionListener(e -> refilter.run());
 		}
 		panel.add(rows);
 		repaintRows.run();
-		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
-		return panel;
+		return capH(panel);
 	}
 
 	private void closeCatalogueDetail(String key)
@@ -4309,40 +3624,31 @@ public class AnvilSidebarPanel extends PluginPanel
 		List<BingoApiClient.BoardTile> all, String search, TileStatusFilter status, boolean preStart, String boardUrl)
 	{
 		rows.removeAll();
+		Runnable again = () -> renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
 		BingoApiClient.BoardResponse shownBoard = boardCatalogues.get(key);
 		boolean claimable = shownBoard != null
 			&& !shownBoard.readOnly && dataSource.supportsTileClaims() && dataSource.canClaimNow();
 		if (key.equals(openCatalogueDetailKey) && openCatalogueDetailTileId > 0)
 		{
-			BingoApiClient.BoardTile detailTile = null;
 			for (BingoApiClient.BoardTile tile : all)
 			{
 				if (tile.tileId == openCatalogueDetailTileId)
 				{
-					detailTile = tile;
-					break;
+					renderTileDetail(catalogue, rows, tile, boardUrl, preStart, key, claimable && !tile.complete, () ->
+					{
+						openCatalogueDetailKey = null;
+						openCatalogueDetailTileId = -1;
+						again.run();
+					});
+					return;
 				}
 			}
-			if (detailTile != null)
-			{
-				boolean canClaim = claimable && !detailTile.complete;
-				BingoApiClient.BoardTile selected = detailTile;
-				Runnable backToTiles = () ->
-				{
-					openCatalogueDetailKey = null;
-					openCatalogueDetailTileId = -1;
-					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
-				};
-				renderTileDetail(catalogue, rows, selected, boardUrl, preStart, key, canClaim, backToTiles);
-				return;
-			}
-			openCatalogueDetailKey = null;
-			openCatalogueDetailTileId = -1;
+			closeCatalogueDetail(key);
 		}
 		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart);
 		if (filtered.isEmpty())
 		{
-			rows.add(leftLabel("No matching tiles.", FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			rows.add(small("No matching tiles.", MUTED));
 		}
 		else
 		{
@@ -4352,8 +3658,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			boardCataloguePages.put(key, page);
 			int from = page * TILE_CATALOGUE_PAGE_SIZE;
 			int to = Math.min(filtered.size(), from + TILE_CATALOGUE_PAGE_SIZE);
-			rows.add(leftLabel((from + 1) + "–" + to + " of " + filtered.size(),
-				FontManager.getRunescapeSmallFont(), VALUE_COLOR));
+			rows.add(small((from + 1) + "–" + to + " of " + filtered.size(), MUTED));
 			rows.add(gap(5));
 			// A writable response is already scoped by the server to the enrolled player's team. Public
 			// and non-member previews remain read-only, including before the event starts.
@@ -4375,7 +3680,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				{
 					openCatalogueDetailKey = key;
 					openCatalogueDetailTileId = tile.tileId;
-					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
+					again.run();
 				}));
 				first = false;
 			}
@@ -4383,17 +3688,17 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				rows.add(gap(7));
 				final int shownPage = page;
-				JButton previous = actionButton("Previous", "Show the previous tiles", () ->
+				JButton previous = flatButton("Previous", "Show the previous tiles", () ->
 				{
 					boardCataloguePages.put(key, shownPage - 1);
-					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
+					again.run();
 				});
 				previous.setEnabled(page > 0);
 				previous.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11));
-				JButton next = actionButton("Next", "Show the next tiles", () ->
+				JButton next = flatButton("Next", "Show the next tiles", () ->
 				{
 					boardCataloguePages.put(key, shownPage + 1);
-					renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
+					again.run();
 				});
 				next.setEnabled(page < pageCount - 1);
 				next.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 11));
@@ -4401,10 +3706,16 @@ public class AnvilSidebarPanel extends PluginPanel
 				rows.add(buttonRow(previous, next));
 			}
 		}
+		relayout(catalogue, rows);
+	}
+
+	/** The catalogue's rows changed: re-cap both panels to their new height and redraw. */
+	private void relayout(JPanel catalogue, JPanel rows)
+	{
 		rows.revalidate();
-		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
+		capH(rows);
 		catalogue.revalidate();
-		catalogue.setMaximumSize(new Dimension(Integer.MAX_VALUE, catalogue.getPreferredSize().height));
+		capH(catalogue);
 		content.revalidate();
 		rows.repaint();
 		content.repaint();
@@ -4413,15 +3724,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, boolean preStart,
 		String key, boolean canClaim, String claimUnavailable, Runnable viewDetails)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
+		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setBorder(BorderFactory.createEmptyBorder(6, 7, 6, 7));
-		row.setAlignmentX(LEFT_ALIGNMENT);
 
-		String label = tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
-		JLabel name = new JLabel(plainText(ellipsize(label, 28)));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(!preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
+		String label = tileName(tile);
+		JLabel name = small(ellipsize(label, 28), !preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
 		String details = tile.description == null || tile.description.trim().isEmpty()
 			? tile.requirement : tile.description;
 		String tooltip = details == null || details.isEmpty() ? label : label + " — " + details;
@@ -4435,16 +3743,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		String rowState = tileRowStateText(tile, preStart);
 		if (rowState != null)
 		{
-			JLabel state = new JLabel(rowState.startsWith("✓ ") ? rowState.substring(2) : rowState);
+			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
+			JLabel state = small(rowState.startsWith("✓ ") ? rowState.substring(2) : rowState,
+				tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : tileIsManual(tile) ? MANUAL_COLOR : MUTED);
 			if (rowState.startsWith("✓ "))
 			{
 				state.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 11));
 				state.setIconTextGap(2);
 			}
-			state.setFont(FontManager.getRunescapeSmallFont());
-			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
-			state.setForeground(tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR
-				: tileIsManual(tile) ? MANUAL_COLOR : VALUE_COLOR);
 			row.add(state, BorderLayout.EAST);
 		}
 
@@ -4452,9 +3758,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		String planning = claimLine(tile.claims);
 		if (planning != null)
 		{
-			JLabel who = new JLabel(plainText(ellipsize(planning, 36)));
-			who.setFont(FontManager.getRunescapeSmallFont());
-			who.setForeground(claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR);
+			JLabel who = small(ellipsize(planning, 36), claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR);
 			who.setToolTipText(plainText(claimTooltip(tile.claims)));
 			row.add(who, BorderLayout.SOUTH);
 		}
@@ -4502,8 +3806,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			// overlay over the apparent button (and right-click works on the same whole target).
 			addMouseListenerToTree(row, listener);
 		}
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
+	}
+
+	private static String tileName(BingoApiClient.BoardTile tile)
+	{
+		return tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
 	}
 
 	/** One tile's full in-sidebar view. The browser is an explicit choice, not the row's default action. */
@@ -4511,28 +3819,21 @@ public class AnvilSidebarPanel extends PluginPanel
 		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
 	{
 		rows.removeAll();
-		JButton back = actionButton("Back to tiles", "Return to the searchable tile list", backToTiles);
-		rows.add(fullWidth(back));
+		rows.add(fullWidthButton("Back to tiles", "Return to the searchable tile list", backToTiles));
 		rows.add(gap(7));
 
-		JPanel card = new JPanel();
-		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		JPanel card = block();
 		card.setBorder(BorderFactory.createEmptyBorder(9, 9, 9, 9));
-		card.setAlignmentX(LEFT_ALIGNMENT);
 
-		String label = tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
-		JLabel title = note(label);
-		title.setFont(FontManager.getRunescapeBoldFont());
-		title.setForeground(ColorScheme.TEXT_COLOR);
+		JLabel title = note(tileName(tile), ColorScheme.TEXT_COLOR);
+		title.setFont(BOLD);
 		card.add(title);
 		card.add(gap(4));
 
 		List<String> facts = tileDetailFacts(tile, preStart);
 		if (!facts.isEmpty())
 		{
-			card.add(sectionHeader("Details"));
-			card.add(gap(2));
+			detailHeading(card, 0, "Details");
 			for (String fact : facts)
 			{
 				card.add(note(fact));
@@ -4540,18 +3841,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		if (tile.description != null && !tile.description.trim().isEmpty())
 		{
-			card.add(gap(9));
-			card.add(sectionHeader("Objective"));
-			card.add(gap(2));
+			detailHeading(card, 9, "Objective");
 			card.add(note(tile.description.trim()));
 		}
 
 		List<String> tracked = tileTrackingDetails(tile);
 		if (tileIsManual(tile))
 		{
-			card.add(gap(9));
-			card.add(sectionHeader("Manual completion"));
-			card.add(gap(2));
+			detailHeading(card, 9, "Manual completion");
 			card.add(note(tile.manualOnly
 				? "The plugin can't see this item arrive — it isn't a drop (it's bought, made or handed over), so it isn't tracked. Screenshot it and submit it on the site."
 				: "This task is not completed automatically. A captain or admin marks it done."));
@@ -4562,16 +3859,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			// "one set" vs "any of" vs "different items" is never left to be inferred from a list.
 			if (tile.howItCounts != null && !tile.howItCounts.trim().isEmpty())
 			{
-				card.add(gap(9));
-				card.add(sectionHeader("How it counts"));
-				card.add(gap(2));
-				JLabel rule = note(tile.howItCounts.trim());
-				rule.setForeground(ColorScheme.BRAND_ORANGE);
-				card.add(rule);
+				detailHeading(card, 9, "How it counts");
+				card.add(note(tile.howItCounts.trim(), ColorScheme.BRAND_ORANGE));
 			}
-			card.add(gap(9));
-			card.add(sectionHeader("Tracked automatically"));
-			card.add(gap(2));
+			detailHeading(card, 9, "Tracked automatically");
 			boolean first = true;
 			int headers = 0;
 			for (String line : tracked)
@@ -4588,9 +3879,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			&& !tile.requirement.trim().equals(tile.description == null ? "" : tile.description.trim())
 			&& !tracked.contains(tile.requirement.trim()))
 		{
-			card.add(gap(9));
-			card.add(sectionHeader("Requirements"));
-			card.add(gap(2));
+			detailHeading(card, 9, "Requirements");
 			card.add(note(tile.requirement.trim()));
 		}
 
@@ -4598,9 +3887,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (planning != null && !planning.isEmpty())
 		{
 			card.add(gap(7));
-			JLabel plan = note(planning.replace("\n", " · "));
-			plan.setForeground(claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR);
-			card.add(plan);
+			card.add(note(planning.replace("\n", " · "), claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR));
 		}
 
 		if (canClaim)
@@ -4610,15 +3897,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			JButton secondary;
 			if (claimedByMe(tile.claims))
 			{
-				primary = actionButton("Change note…", "Edit the note your team sees", () -> askNoteAndClaim(tile, key));
-				secondary = actionButton("Drop claim", "Stop planning this tile", () ->
+				primary = flatButton("Change note…", "Edit the note your team sees", () -> askNoteAndClaim(tile, key));
+				secondary = flatButton("Drop claim", "Stop planning this tile", () ->
 					runClaimChange(key, () -> dataSource.unclaimTile(catalogueEventId(key), tile.tileId)));
 			}
 			else
 			{
-				primary = actionButton("Claim tile", "Tell your team you're going for this", () ->
+				primary = flatButton("Claim tile", "Tell your team you're going for this", () ->
 					runClaimChange(key, () -> dataSource.claimTile(catalogueEventId(key), tile.tileId, null)));
-				secondary = actionButton("Add note…", "Claim it with a note for your team", () -> askNoteAndClaim(tile, key));
+				secondary = flatButton("Add note…", "Claim it with a note for your team", () -> askNoteAndClaim(tile, key));
 			}
 			card.add(buttonRow(primary, secondary));
 		}
@@ -4630,16 +3917,19 @@ public class AnvilSidebarPanel extends PluginPanel
 			card.add(siteLink("Open on Anvil ↗", "Open this tile on the Anvil site", tileUrl));
 		}
 
-		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
-		card.setAlignmentX(LEFT_ALIGNMENT);
-		rows.add(card);
-		rows.revalidate();
-		rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
-		catalogue.revalidate();
-		catalogue.setMaximumSize(new Dimension(Integer.MAX_VALUE, catalogue.getPreferredSize().height));
-		content.revalidate();
-		rows.repaint();
-		content.repaint();
+		rows.add(capH(card));
+		relayout(catalogue, rows);
+	}
+
+	/** A heading inside the tile detail, {@code above} px under what came before it. */
+	private static void detailHeading(JPanel card, int above, String text)
+	{
+		if (above > 0)
+		{
+			card.add(gap(above));
+		}
+		card.add(sectionHeader(text));
+		card.add(gap(2));
 	}
 
 	/** Stable compact metadata used by the detail view and its regression tests. */
@@ -4697,28 +3987,18 @@ public class AnvilSidebarPanel extends PluginPanel
 			return false;
 		}
 		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
-		switch (type)
+		if ("drop".equals(type) || "gain".equals(type))
 		{
-			case "drop":
-			case "gain":
-				return (tile.itemIds == null || tile.itemIds.isEmpty())
-					&& (tile.trackedItems == null || tile.trackedItems.isEmpty())
-					&& (tile.itemRequirements == null || tile.itemRequirements.isEmpty());
-			case "kill":
-			case "lap":
-			case "pvp":
-			case "diary":
-			case "ca":
-			case "timed":
-			case "lms":
-			case "value":
-			case "valuetotal":
-			case "deathless":
-				return false;
-			default:
-				return true;
+			return (tile.itemIds == null || tile.itemIds.isEmpty())
+				&& (tile.trackedItems == null || tile.trackedItems.isEmpty())
+				&& (tile.itemRequirements == null || tile.itemRequirements.isEmpty());
 		}
+		return !TRACKED_TYPES.contains(type);
 	}
+
+	/** Tile types the plugin tracks off something other than an item list. */
+	private static final Set<String> TRACKED_TYPES = Set.of(
+		"kill", "lap", "pvp", "diary", "ca", "timed", "lms", "value", "valuetotal", "deathless");
 
 	// Set headers ("Ahrim's set — all 4:") stand out from the items under them: their own colour, a
 	// gap above, and the items indented. HTML collapses the leading spaces tileTrackingDetails uses to
@@ -5178,10 +4458,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JLabel warningLabel(String message)
 	{
-		JLabel warn = new JLabel(plainText(message));
-		warn.setFont(FontManager.getRunescapeSmallFont());
-		warn.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
-		warn.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel warn = small(message, ColorScheme.PROGRESS_ERROR_COLOR);
 		return warn;
 	}
 
@@ -5210,21 +4487,18 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private static Component gap(int height)
-	{
-		return javax.swing.Box.createVerticalStrut(height);
-	}
-
-	/** Renders a {@link ConnectionView} in the clan dropdown by name, flagging an unreachable home. */
 	// ---- Anvil-themed widget chrome ---------------------------------------------------------------
 
-	/** Flat dark button matching the sidebar theme: dark surface, thin border, hover lift, no L&F chrome. */
 	/** A themed action button in the panel's orange, wired to one thing it does. */
-	private static JButton actionButton(String label, String tooltip, Runnable onClick)
+	static JButton flatButton(String label, String tooltip, Runnable onClick)
+	{
+		return flatButton(label, tooltip, ColorScheme.BRAND_ORANGE, onClick);
+	}
+
+	private static JButton flatButton(String label, String tooltip, Color foreground, Runnable onClick)
 	{
 		JButton b = new JButton(label);
-		styleFlatButton(b, ColorScheme.BRAND_ORANGE);
-		b.setAlignmentX(LEFT_ALIGNMENT);
+		styleFlatButton(b, foreground);
 		b.setToolTipText(tooltip);
 		b.addActionListener(e -> onClick.run());
 		return b;
@@ -5238,36 +4512,29 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private static JPanel buttonRow(JButton left, JButton right)
 	{
-		JPanel row = new JPanel(new GridLayout(1, 2, 4, 0));
-		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		row.setAlignmentX(LEFT_ALIGNMENT);
-		row.add(left);
-		row.add(right);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return buttons(new GridLayout(1, 2, 4, 0), left, right);
 	}
 
-	/** One button holding a whole row, so a lone action doesn't sit in half a line. */
-	/** The panel's flat button, for the views that live in their own files. */
-	static JButton flatButton(String label, String tooltip, Runnable onClick)
-	{
-		return actionButton(label, tooltip, onClick);
-	}
-
-	/** {@link #flatButton} holding a whole row. */
+	/** {@link #flatButton} holding a whole row, so a lone action doesn't sit in half a line. */
 	static JPanel fullWidthButton(String label, String tooltip, Runnable onClick)
 	{
-		return fullWidth(actionButton(label, tooltip, onClick));
+		return fullWidth(flatButton(label, tooltip, onClick));
 	}
 
 	private static JPanel fullWidth(JButton button)
 	{
-		JPanel row = new JPanel(new GridLayout(1, 1));
+		return buttons(new GridLayout(1, 1), button);
+	}
+
+	private static JPanel buttons(GridLayout layout, JButton... buttons)
+	{
+		JPanel row = left(new JPanel(layout));
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		row.setAlignmentX(LEFT_ALIGNMENT);
-		row.add(button);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		for (JButton b : buttons)
+		{
+			row.add(b);
+		}
+		return capH(row);
 	}
 
 	private static void styleFlatButton(JButton b, Color foreground)
@@ -5275,7 +4542,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		b.setFocusPainted(false);
 		b.setForeground(foreground);
 		b.setBackground(WIDGET_BG);
-		b.setFont(FontManager.getRunescapeSmallFont());
+		b.setFont(SMALL);
 		b.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(WIDGET_BORDER),
 			BorderFactory.createEmptyBorder(4, 10, 4, 10)));
@@ -5299,18 +4566,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	/** Theme the clan-filter combo: dark flat field, gold arrow, dark popup — default Swing sticks out. */
-	private static void styleClanPicker(JComboBox<ClanChoice> combo)
-	{
-		styleCombo(combo);
-	}
-
-	/** Shared flat combo treatment for the clan selector and tile-status filter. */
+	/** Flat combo for the clan selector and tile-status filter: dark field, gold arrow — default Swing sticks out. */
 	private static void styleCombo(JComboBox<?> combo)
 	{
 		combo.setBackground(WIDGET_BG);
 		combo.setForeground(Color.WHITE);
-		combo.setFont(FontManager.getRunescapeSmallFont());
+		combo.setFont(SMALL);
 		combo.setBorder(BorderFactory.createLineBorder(WIDGET_BORDER));
 		combo.setUI(new BasicComboBoxUI()
 		{
@@ -5332,7 +4593,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * RuneScape's small font. That font is a bitmap face: asked to render smaller still it does not
 	 * get daintier, it gets illegible — and the size the browser-ish HTML renderer picks is not one
 	 * the face was drawn at. The rest of this panel never shrinks type to mean "secondary"; it keeps
-	 * the same small font and drops the colour to {@link #VALUE_COLOR}. This does the same.
+	 * the same small font and drops the colour to {@link #MUTED}. This does the same.
 	 *
 	 * Building the row out of components also means no markup, which means no clan name can smuggle
 	 * any: {@link #plainText} was guarding a string we were about to concatenate into HTML ourselves,
@@ -5346,8 +4607,8 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		ClanChoiceRenderer()
 		{
-			name.setFont(FontManager.getRunescapeSmallFont());
-			detail.setFont(FontManager.getRunescapeSmallFont());
+			name.setFont(SMALL);
+			detail.setFont(SMALL);
 			row.setOpaque(true);
 			row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 			row.add(name, BorderLayout.NORTH);
@@ -5362,7 +4623,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			boolean hover = isSelected && index >= 0;
 			row.setBackground(hover ? WIDGET_BG_HOVER : WIDGET_BG);
 			name.setForeground(hover ? ColorScheme.BRAND_ORANGE : Color.WHITE);
-			detail.setForeground(VALUE_COLOR);
+			detail.setForeground(MUTED);
 
 			name.setText(value == null ? "" : plainText(value.label));
 			// The closed field shows the name alone — a second line there would resize the header on

@@ -77,37 +77,21 @@ final class GlyphIcon implements Icon
 			switch (shape)
 			{
 				case CHEVRON_LEFT:
-					p.moveTo(s * 0.62, s * 0.22);
-					p.lineTo(s * 0.34, s * 0.5);
-					p.lineTo(s * 0.62, s * 0.78);
-					g.draw(p);
+					g.draw(stroke(p, s, 0.62, 0.22, 0.34, 0.5, 0.62, 0.78));
 					break;
 				case CHEVRON_RIGHT:
-					p.moveTo(s * 0.38, s * 0.22);
-					p.lineTo(s * 0.66, s * 0.5);
-					p.lineTo(s * 0.38, s * 0.78);
-					g.draw(p);
+					g.draw(stroke(p, s, 0.38, 0.22, 0.66, 0.5, 0.38, 0.78));
 					break;
 				case EXTERNAL:
-					p.moveTo(s * 0.28, s * 0.72);
-					p.lineTo(s * 0.72, s * 0.28);
-					p.moveTo(s * 0.4, s * 0.28);
-					p.lineTo(s * 0.72, s * 0.28);
-					p.lineTo(s * 0.72, s * 0.6);
-					g.draw(p);
+					stroke(p, s, 0.28, 0.72, 0.72, 0.28);
+					g.draw(stroke(p, s, 0.4, 0.28, 0.72, 0.28, 0.72, 0.6));
 					break;
 				case CHECK:
-					p.moveTo(s * 0.2, s * 0.52);
-					p.lineTo(s * 0.42, s * 0.74);
-					p.lineTo(s * 0.8, s * 0.28);
-					g.draw(p);
+					g.draw(stroke(p, s, 0.2, 0.52, 0.42, 0.74, 0.8, 0.28));
 					break;
 				case CLOSE:
-					p.moveTo(s * 0.28, s * 0.28);
-					p.lineTo(s * 0.72, s * 0.72);
-					p.moveTo(s * 0.72, s * 0.28);
-					p.lineTo(s * 0.28, s * 0.72);
-					g.draw(p);
+					stroke(p, s, 0.28, 0.28, 0.72, 0.72);
+					g.draw(stroke(p, s, 0.72, 0.28, 0.28, 0.72));
 					break;
 				case ELLIPSIS:
 					float d = Math.max(2f, s / 6f);
@@ -138,5 +122,16 @@ final class GlyphIcon implements Icon
 		{
 			g.dispose();
 		}
+	}
+
+	/** Adds one polyline to {@code p}: x,y pairs as fractions of the icon's size {@code s}. */
+	private static Path2D stroke(Path2D p, float s, double... xy)
+	{
+		p.moveTo(s * xy[0], s * xy[1]);
+		for (int i = 2; i < xy.length; i += 2)
+		{
+			p.lineTo(s * xy[i], s * xy[i + 1]);
+		}
+		return p;
 	}
 }

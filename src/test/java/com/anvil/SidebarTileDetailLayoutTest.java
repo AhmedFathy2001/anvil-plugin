@@ -23,16 +23,9 @@ public class SidebarTileDetailLayoutTest
 {
 	private static AnvilSidebarPanel panel()
 	{
-		SidebarDataSource stub = new SidebarDataSource()
-		{
-			@Override
-			public List<ConnectionView> fetchConnections()
-			{
-				return Collections.emptyList();
-			}
-		};
-		return new AnvilSidebarPanel(stub, new BingoApiClient(new Gson(), new OkHttpClient()),
-			null, Executors.newSingleThreadScheduledExecutor());
+		BingoApiClient client = new BingoApiClient(new Gson(), new OkHttpClient());
+		return new AnvilSidebarPanel(new AnvilSidebarDataSource(() -> null, client, null, null, null), client,
+			null, Executors.newSingleThreadScheduledExecutor(), null, null, null);
 	}
 
 	private static BingoApiClient.BoardTile tile()

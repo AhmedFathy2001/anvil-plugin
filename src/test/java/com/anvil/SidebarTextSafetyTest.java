@@ -22,7 +22,7 @@ public class SidebarTextSafetyTest
 		assertTrue("precondition: the raw string WOULD be treated as HTML by a JLabel",
 			BasicHTML.isHTMLString(injected));
 
-		String safe = AnvilSidebarPanel.plainText(injected);
+		String safe = Ui.plainText(injected);
 		assertFalse("sanitized federated string must NOT be treated as HTML", BasicHTML.isHTMLString(safe));
 		assertFalse("no live '<html' prefix survives", safe.toLowerCase().startsWith("<html"));
 		assertTrue("the intended text is still visible (as literal, escaped markup)", safe.contains("pwned"));
@@ -34,7 +34,7 @@ public class SidebarTextSafetyTest
 		// A JLabel trims leading whitespace before its HTML sniff, and the tag match is case-insensitive.
 		for (String injected : new String[] { "   <HTML>x</HTML>", "\t<Html><i>y</i>", "<html>" })
 		{
-			String safe = AnvilSidebarPanel.plainText(injected);
+			String safe = Ui.plainText(injected);
 			assertFalse("‘" + injected + "’ must not render as HTML", BasicHTML.isHTMLString(safe));
 		}
 	}
@@ -42,17 +42,17 @@ public class SidebarTextSafetyTest
 	@Test
 	public void ordinaryStringsPassThroughUnchanged()
 	{
-		assertEquals("Clan A", AnvilSidebarPanel.plainText("Clan A"));
-		assertEquals("Any barrows item", AnvilSidebarPanel.plainText("Any barrows item"));
-		assertEquals("You + Kayle", AnvilSidebarPanel.plainText("You + Kayle"));
+		assertEquals("Clan A", Ui.plainText("Clan A"));
+		assertEquals("Any barrows item", Ui.plainText("Any barrows item"));
+		assertEquals("You + Kayle", Ui.plainText("You + Kayle"));
 		// A stray '<' that isn't the HTML trigger is left alone (JLabel wouldn't treat it as HTML either).
-		assertEquals("<3 clan", AnvilSidebarPanel.plainText("<3 clan"));
-		assertFalse(BasicHTML.isHTMLString(AnvilSidebarPanel.plainText("<3 clan")));
+		assertEquals("<3 clan", Ui.plainText("<3 clan"));
+		assertFalse(BasicHTML.isHTMLString(Ui.plainText("<3 clan")));
 	}
 
 	@Test
 	public void nullBecomesEmpty()
 	{
-		assertEquals("", AnvilSidebarPanel.plainText(null));
+		assertEquals("", Ui.plainText(null));
 	}
 }
