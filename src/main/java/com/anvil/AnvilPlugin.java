@@ -1604,7 +1604,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         configureApiClient();
-        if ("profileLookupMenu".equals(event.getKey())) {
+        if ("profileLookupMenu".equals(event.getKey()) || "lookupPlayers".equals(event.getKey())) {
             profileLookup.syncPlayerItem();
         }
         // Setting the Account Token is a deliberate one-shot edit — a paste, or the

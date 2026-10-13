@@ -124,6 +124,35 @@ final class ProfileLookup
 		return BEFORE_OPTIONS.contains(option) ? -1 : 0;
 	}
 
+	/** Whether the per-surface setting lets the entry onto names in this interface. */
+	private boolean surfaceOn(int groupId)
+	{
+		switch (groupId)
+		{
+			case InterfaceID.CHATBOX:
+			case InterfaceID.PM_CHAT:
+				return config.lookupChat();
+			case InterfaceID.CLANS_SIDEPANEL:
+			case InterfaceID.CLANS_GUEST_SIDEPANEL:
+				return config.lookupClan();
+			case InterfaceID.CHATCHANNEL_CURRENT:
+				return config.lookupFriendsChat();
+			default:
+				return config.lookupLists();
+		}
+	}
+
+	/**
+	 * The menu index for our entry. {@code -1} goes on top of the option just added, which in the
+	 * chat makes it the top row — the left-click on a name. Chat names always take {@code -2}, under
+	 * that option, so a click on a name never opens a lookup.
+	 */
+	static int menuIndex(int groupId, int placement)
+	{
+		boolean chat = groupId == InterfaceID.CHATBOX || groupId == InterfaceID.PM_CHAT;
+		return placement > 0 || chat ? -2 : -1;
+	}
+
 	static boolean sameTarget(String a, String b)
 	{
 		return Text.removeTags(a == null ? "" : a).equals(Text.removeTags(b == null ? "" : b));
@@ -161,10 +190,10 @@ final class ProfileLookup
 		open(rsn);
 	}
 
-	/** Add or remove the in-world player item to match the setting. Called on start and config change. */
+	/** Add or remove the in-world player item to match the settings. Called on start and config change. */
 	void syncPlayerItem()
 	{
-		boolean want = config.profileLookupMenu();
+		boolean want = config.profileLookupMenu() && config.lookupPlayers();
 		if (want == playerItemShown)
 		{
 			return;
@@ -189,7 +218,7 @@ final class ProfileLookup
 		}
 		int groupId = WidgetUtil.componentToInterface(event.getActionParam1());
 		int placement = listPlacement(groupId, event.getOption());
-		if (placement == 0)
+		if (placement == 0 || !surfaceOn(groupId))
 		{
 			return;
 		}
@@ -202,7 +231,7 @@ final class ProfileLookup
 				return;
 			}
 		}
-		client.getMenu().createMenuEntry(placement > 0 ? -2 : -1)
+		client.getMenu().createMenuEntry(menuIndex(groupId, placement))
 			.setOption(OPTION)
 			.setTarget(event.getTarget())
 			.setType(MenuAction.RUNELITE)

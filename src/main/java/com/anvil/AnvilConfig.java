@@ -49,6 +49,14 @@ public interface AnvilConfig extends Config
 	String caSection = "caSection";
 
 	@ConfigSection(
+		name = "Player lookup",
+		description = "Where the \"Anvil\" option appears on player names.",
+		position = 6,
+		closedByDefault = true
+	)
+	String lookupSection = "lookupSection";
+
+	@ConfigSection(
 		name = "Profile sync",
 		description = "Send your collection log and best times to your Anvil profile.",
 		position = 7,
@@ -79,11 +87,71 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "profileLookupMenu",
 		name = "Anvil lookup on players",
-		description = "Adds an \"Anvil\" right-click option on player names that opens their profile.",
+		description = "Adds an \"Anvil\" option on player names that opens their profile; pick where under Player lookup.",
 		position = 1,
 		section = "generalSection"
 	)
 	default boolean profileLookupMenu()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "lookupPlayers",
+		name = "Players in the world",
+		description = "Right-clicking a player standing near you.",
+		position = 1,
+		section = "lookupSection"
+	)
+	default boolean lookupPlayers()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "lookupChat",
+		name = "Chatbox and private messages",
+		description = "Names in the chatbox and private chat; never the left-click option.",
+		position = 2,
+		section = "lookupSection"
+	)
+	default boolean lookupChat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "lookupClan",
+		name = "Clan panels",
+		description = "Your clan and guest-clan member lists.",
+		position = 3,
+		section = "lookupSection"
+	)
+	default boolean lookupClan()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "lookupFriendsChat",
+		name = "Friends chat",
+		description = "The friends chat channel member list.",
+		position = 4,
+		section = "lookupSection"
+	)
+	default boolean lookupFriendsChat()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "lookupLists",
+		name = "Friends, ignore and party lists",
+		description = "Your friends and ignore lists and the raid party panel.",
+		position = 5,
+		section = "lookupSection"
+	)
+	default boolean lookupLists()
 	{
 		return true;
 	}

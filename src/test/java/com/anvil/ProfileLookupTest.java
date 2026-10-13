@@ -64,4 +64,14 @@ public class ProfileLookupTest
 		org.junit.Assert.assertTrue(ProfileLookup.sameTarget("<col=ffffff>Drenvox</col>", "Drenvox"));
 		org.junit.Assert.assertFalse(ProfileLookup.sameTarget("Drenvox", "Molokhiya"));
 	}
+
+	@Test
+	public void chatNamesNeverTakeTheLeftClick()
+	{
+		assertEquals(-2, ProfileLookup.menuIndex(InterfaceID.CHATBOX, -1));
+		assertEquals(-2, ProfileLookup.menuIndex(InterfaceID.PM_CHAT, -1));
+		assertEquals(-2, ProfileLookup.menuIndex(InterfaceID.CHATBOX, 1));
+		assertEquals(-1, ProfileLookup.menuIndex(InterfaceID.FRIENDS, -1));
+		assertEquals(-2, ProfileLookup.menuIndex(InterfaceID.FRIENDS, 1));
+	}
 }
