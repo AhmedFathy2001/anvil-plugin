@@ -8,11 +8,11 @@ package com.anvil;
  */
 public enum QuestAnnounceTier
 {
-	ALL("All (Novice & up)"),
-	INTERMEDIATE("Intermediate & up"),
-	EXPERIENCED("Experienced & up"),
-	MASTER("Master & up"),
-	GRANDMASTER("Grandmaster only"),
+	ALL("All"),
+	INTERMEDIATE("Intermediate"),
+	EXPERIENCED("Experienced"),
+	MASTER("Master"),
+	GRANDMASTER("Grandmaster"),
 	OFF("Off");
 
 	private final String label;
