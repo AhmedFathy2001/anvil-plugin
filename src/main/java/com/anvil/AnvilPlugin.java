@@ -100,6 +100,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -3934,21 +3935,11 @@ public class AnvilPlugin extends Plugin {
                 // Per-tile specific-source filter (e.g. "onyx, but only from Tekton"). When
                 // sourceNpcs is set, the loot source name must match one of them
                 // (case-insensitive). Empty/null = any source.
-                if (drop.sourceNpcs != null && !drop.sourceNpcs.isEmpty()) {
-                    boolean sourceMatches = false;
-                    if (source != null) {
-                        for (String allowed : drop.sourceNpcs) {
-                            if (allowed != null && allowed.equalsIgnoreCase(source)) {
-                                sourceMatches = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!sourceMatches) {
-                        log.debug("Skipping {} for tile '{}' — source '{}' not in required NPCs {}",
-                                itemId, drop.label, source, drop.sourceNpcs);
-                        continue;
-                    }
+                if (drop.sourceNpcs != null && !drop.sourceNpcs.isEmpty()
+                        && (source == null || drop.sourceNpcs.stream().noneMatch(source::equalsIgnoreCase))) {
+                    log.debug("Skipping {} for tile '{}' — source '{}' not in required NPCs {}",
+                            itemId, drop.label, source, drop.sourceNpcs);
+                    continue;
                 }
 
                 // Party-size gate (raid kit tiles, e.g. "solo Cursed phalanx"): raid chests are
@@ -3999,13 +3990,8 @@ public class AnvilPlugin extends Plugin {
                 Integer trackingItemId = null;
                 int amount;
                 if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-                    PluginConfigResponse.ItemRequirement req = null;
-                    for (PluginConfigResponse.ItemRequirement r : drop.itemRequirements) {
-                        if (r.itemId == itemId) {
-                            req = r;
-                            break;
-                        }
-                    }
+                    PluginConfigResponse.ItemRequirement req = drop.itemRequirements.stream()
+                            .filter(r -> r.itemId == itemId).findFirst().orElse(null);
                     // A tile needing N sets can use a set's piece N times (Ahrim's twice).
                     int cap = req == null ? 0 : ClogTaskModel.itemCap(req, drop.groupMode, drop.setsRequired);
                     if (req == null || req.currentAmount >= cap) {
@@ -5761,12 +5747,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         // Banner only the hardest (most points) tile this poll to avoid a burst of banners.
-        CompletedTile hardest = newlyDone.get(0);
-        for (CompletedTile t : newlyDone) {
-            if (t.points > hardest.points) {
-                hardest = t;
-            }
-        }
+        CompletedTile hardest = Collections.max(newlyDone, Comparator.comparingInt(t -> t.points));
         clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label);
         playBannerSound();
         // A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
@@ -5814,12 +5795,7 @@ public class AnvilPlugin extends Plugin {
             }
         }
         if (!fresh.isEmpty()) {
-            Mission top = fresh.get(0);
-            for (Mission m : fresh) {
-                if (m.points > top.points) {
-                    top = m;
-                }
-            }
+            Mission top = Collections.max(fresh, Comparator.comparingInt(m -> m.points));
             clogBanner.show(tag, "New mission!", top.label);
             playMissionSound(false);
             for (Mission m : fresh) {
@@ -7983,12 +7959,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total) {
         String rsn = getLocalPlayerName();
-        RareItem top = items.get(0);
-        for (RareItem it : items) {
-            if (it.value > top.value) {
-                top = it;
-            }
-        }
+        RareItem top = Collections.max(items, Comparator.comparingLong(it -> it.value));
         String topName = itemName(top.itemId);
         String desc = who(rsn) + " received a valuable haul" + DropSource.fromPhrase(source, sourceKind) + ".";
         // No single rate to judge a mixed haul by, so the combined value decides.
@@ -8412,6 +8383,22 @@ public class AnvilPlugin extends Plugin {
      * area. One completion == amount 1 through the shared proof pipeline
      * (banner + screenshot + retry store).
      */
+    /** One "&lt;Area&gt; &lt;Tier&gt;" selector against a completion; "Any" is a wildcard on either side. */
+    private static boolean diarySelectorMatches(String sel, String areaLower, String tierLower) {
+        if (sel == null) {
+            return false;
+        }
+        String s = sel.trim();
+        int cut = s.lastIndexOf(' ');
+        if (cut <= 0) {
+            return false;
+        }
+        String selArea = s.substring(0, cut).trim().toLowerCase();
+        String selTier = s.substring(cut + 1).trim().toLowerCase();
+        return (selArea.equals("any") || areaLower.equals(selArea) || areaLower.contains(selArea))
+                && (selTier.equals("any") || tierLower.equals(selTier));
+    }
+
     private void creditDiaryTiles(String area, String tier) {
         if (trackingOff() || pluginConfig.trackedDiaries == null) {
             return;
@@ -8422,26 +8409,7 @@ public class AnvilPlugin extends Plugin {
             if (d == null || d.diaries == null || d.currentAmount >= d.requiredAmount) {
                 continue;
             }
-            boolean matches = false;
-            for (String sel : d.diaries) {
-                if (sel == null) {
-                    continue;
-                }
-                String s = sel.trim();
-                int cut = s.lastIndexOf(' ');
-                if (cut <= 0) {
-                    continue;
-                }
-                String selArea = s.substring(0, cut).trim().toLowerCase();
-                String selTier = s.substring(cut + 1).trim().toLowerCase();
-                boolean areaOk = selArea.equals("any") || areaLower.equals(selArea) || areaLower.contains(selArea);
-                boolean tierOk = selTier.equals("any") || tierLower.equals(selTier);
-                if (areaOk && tierOk) {
-                    matches = true;
-                    break;
-                }
-            }
-            if (!matches) {
+            if (d.diaries.stream().noneMatch(sel -> diarySelectorMatches(sel, areaLower, tierLower))) {
                 continue;
             }
             d.currentAmount += 1;
@@ -8473,19 +8441,9 @@ public class AnvilPlugin extends Plugin {
             if (t == null || t.tasks == null || t.currentAmount >= t.requiredAmount) {
                 continue;
             }
-            boolean matches = false;
-            for (String sel : t.tasks) {
-                if (sel == null) {
-                    continue;
-                }
-                String s = sel.trim().toLowerCase();
-                if (s.equals(taskLower) || s.equals(anyTier)) {
-                    matches = true;
-                    break;
-                }
-            }
             final String dedupKey = t.tileId + "|" + taskLower;
-            if (!matches) {
+            if (t.tasks.stream().noneMatch(sel -> sel != null
+                    && (sel.trim().toLowerCase().equals(taskLower) || sel.trim().toLowerCase().equals(anyTier)))) {
                 continue;
             }
             if (!creditedCaTaskTiles.add(dedupKey)) {
