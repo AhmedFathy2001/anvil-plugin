@@ -8,7 +8,7 @@ you: your drops get screenshotted and filed against the right tile, your kill co
 board as you earn them, and the things worth shouting about land in your clan's Discord.
 
 <p align="center">
-  <img src="docs/images/panel-home.png" alt="The Anvil side panel: who you're tracking, your clan's events and your weekly placing" width="244">
+  <img src="docs/images/panel-home.png" alt="The Anvil side panel's Clan tab: your events, your clan's week and its top accounts" width="237">
 </p>
 
 ## Get set up in one click
@@ -53,8 +53,14 @@ it.
 and baked into every screenshot — so evidence can't be quietly back-dated.
 
 **Posts to your clan's Discord.** Deaths, PvP kills, rare and valuable drops, pets, combat
-achievements, collection-log slots, level milestones, diaries and quests. You choose what you send; your admins
-choose which channel it lands in.
+achievements, collection-log slots, level milestones, diaries and quests — most with a screenshot of
+the moment. You choose what you send; your admins choose which channel it lands in.
+
+<p align="center">
+  <img src="docs/images/discord-ca.png" alt="A Discord post: a Grandmaster combat task with points earned, total points and progress to the next unlock, and a screenshot" width="420">
+  &nbsp;
+  <img src="docs/images/discord-death.png" alt="A Discord death post with the death message and a screenshot of the moment" width="346">
+</p>
 
 **Keeps your profile current.** Your collection log and personal bests sync to the site, so your
 profile there shows what you've actually done.
@@ -64,6 +70,12 @@ profile there shows what you've actually done.
 The top of the panel says which character is being tracked. Started from the Jagex Launcher, it
 already knows who's about to log in, so your clan's events and board are there at the login screen —
 before you've pressed Play.
+
+Three tabs: **Clan** for your events and your clan, **You** for your own profile, and **Lookup** for
+anyone else's. The gear opens the panel's own controls — profile and roster sync, and your banner and
+mission sounds.
+
+### Clan
 
 <img src="docs/images/event-signed-up.png" alt="An upcoming bingo in the side panel: You're signed up, waiting for it to start" width="237" align="right">
 
@@ -76,7 +88,16 @@ by kind (`timed`, `kill`, `drop`…). Each tile shows who on your team is planni
 
 <br clear="right">
 
+<img src="docs/images/panel-standings.png" alt="A weekly competition's standings in the side panel" width="236" align="right">
+
+**This week, at a glance.** A weekly competition shows its live standings, with you highlighted, and
+your clan's card shows the week's top gains and its biggest accounts.
+
+<br clear="right">
+
 <p align="center">
+  <img src="docs/images/panel-event-tiles.png" alt="An event's revealed tiles in the side panel, with who on your team is planning each" width="241">
+  &nbsp;
   <img src="docs/images/tile-search.png" alt="Searching the tile list for timed tiles, with teammates' plans under each" width="238">
   &nbsp;
   <img src="docs/images/tile-detail-sets.png" alt="A tile's detail: how it counts, and every item the plugin tracks for it" width="239">
@@ -89,11 +110,36 @@ item the plugin is watching for, or, for a tile it can't see (bought or handed-o
 note to screenshot it and submit it on the site.
 
 **Claim it.** Right-click a tile (or use **Claim tile** in its detail) to tell your team you're going
-for it, with an optional note. Claiming needs you logged in as the character on the team.
+for it, with an optional note — change the note or drop the claim from the same place. Claiming needs
+you logged in as the character on the team.
+
+**Who's on which team.** The **Teams** button on an event lists the teams ranked, with yours on top;
+open one for its roster, captain first, or search for anyone across every team. Click a name to look
+them up.
+
+<p align="center">
+  <img src="docs/images/panel-tile-claim.png" alt="A tile's detail with your claim on it: Change note and Drop claim" width="238">
+  &nbsp;
+  <img src="docs/images/panel-teams.png" alt="The Teams page: the event's teams with points and member counts" width="238">
+  &nbsp;
+  <img src="docs/images/panel-team.png" alt="One team's roster, captain first, a page at a time" width="241">
+</p>
 
 **Not your account?** If someone else plays a character on your RuneLite — a sibling, a friend — open
 the **⋯** menu and pick **Not my account**. Nothing is sent for that character on this computer
 until you press **Track again** in the same strip.
+
+### You
+
+Your own profile, without leaving the game: total level, combat and account type, your collection log
+by category down to each page's items and how many of each you have, your latest unlocks, skills,
+bosses, clues and best times, and the goals you've set on the site with their deadlines.
+
+<p align="center">
+  <img src="docs/images/panel-you.png" alt="The You tab: your collection log by category, latest unlocks, skills and goals" width="239">
+  &nbsp;
+  <img src="docs/images/panel-clog-page.png" alt="A collection log page in the You tab: every item, with how many you have" width="244">
+</p>
 
 ### Look anyone up
 
@@ -109,6 +155,18 @@ Rather keep your menus short? Pick where it shows under **Player lookup** in the
 
 <br clear="right">
 
+Or search by name in the **Lookup** tab — players or clans. A player's card is the same profile the
+You tab shows you; **Compare with me** lines the two of you up skill by skill, boss by boss and page by
+page. A clan's card shows its size, how active it is this week and who's gaining most.
+
+<p align="center">
+  <img src="docs/images/panel-lookup-player.png" alt="A player's card in the Lookup tab" width="241">
+  &nbsp;
+  <img src="docs/images/panel-compare.png" alt="Compare with me: you and another player side by side" width="243">
+  &nbsp;
+  <img src="docs/images/panel-lookup-clan.png" alt="A clan's card in the Lookup tab" width="241">
+</p>
+
 ### In-game, where you already are
 
 An **Anvil** button sits in the collection log's title bar next to WikiSync and RuneProfile — one
@@ -117,6 +175,13 @@ click syncs your log and your best times.
 <p align="center">
   <img src="docs/images/collection-log-button.png" alt="The Anvil button in the collection log title bar" width="620">
 </p>
+
+<img src="docs/images/panel-gear.png" alt="The side panel's gear page: Sync profile, Sync clan roster, banner and mission sounds" width="243" align="right">
+
+The same sync is on the panel's gear page, with your banner and mission sounds: **Add clip** for a
+.wav to play when a tile completes, and a separate one for missions.
+
+<br clear="right">
 
 The same button is in the clan window. If you're an admin or a moderator it pushes the in-game clan
 roster to the site, keeping ranks and guest/member status right without anyone typing a list out.
