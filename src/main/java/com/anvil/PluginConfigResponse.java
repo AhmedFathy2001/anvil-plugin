@@ -301,6 +301,8 @@ public class PluginConfigResponse
 	 * its first collection-log unlock. Null on older sites.
 	 */
 	public List<Integer> luckItemIds;
+	/** Which level-ups the clan and the player's own webhooks want (capability 'level-rules'); null on older sites. */
+	public LevelRules.Sets levelRules;
 	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
 	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
 
