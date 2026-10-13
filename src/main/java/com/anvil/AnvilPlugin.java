@@ -481,6 +481,9 @@ public class AnvilPlugin extends Plugin {
             ChatMessageType.CLAN_CHAT,
             ChatMessageType.CLAN_GUEST_CHAT,
             ChatMessageType.CLAN_GIM_CHAT);
+    // The channels the game's own lines arrive on — everything below the drop/clog block parses only these.
+    private static final Set<ChatMessageType> PARSED_CHAT = EnumSet.of(ChatMessageType.GAMEMESSAGE,
+            ChatMessageType.SPAM, ChatMessageType.MESBOX, ChatMessageType.FRIENDSCHATNOTIFICATION);
 
     // Completions that award a guaranteed item straight to the inventory — no loot event ever
     // fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
@@ -3318,51 +3321,49 @@ public class AnvilPlugin extends Plugin {
             String sender = event.getName();
             String cofferLine = sender == null || sender.trim().isEmpty() ? msg : sender + " " + msg;
             clanCofferTracker.onChatLine(stripChatTags(cofferLine), getLocalPlayerName(), now());
-        }
 
-        // Server drop-attribution lines — the ONLY signal for drops that bypass both loot
-        // events (Maggot King's spill-out uniques). Parsed from ANY non-player-authored
-        // channel (see PLAYER_AUTHORED_CHAT): the personal line's exact type is unverified,
-        // and an allowlist that guessed wrong would eat these silently. Two variants, both
-        // recipient-checked inside creditDropFromChat so only the drop's owner acts:
-        //   personal  "Nisbro received a drop: Elder venator fang (Maggot King)"
-        //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
-        //             Maggot King." — fallback for members whose in-game loot-notification
-        //             setting is off; guests outside the clan rely on the personal line.
-        if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
-            Matcher larran = LARRAN_OPENED.matcher(msg.replaceAll("<[^>]*>", ""));
+            // Server drop-attribution lines — the ONLY signal for drops that bypass both loot
+            // events (Maggot King's spill-out uniques). Parsed from ANY non-player-authored
+            // channel (see PLAYER_AUTHORED_CHAT): the personal line's exact type is unverified,
+            // and an allowlist that guessed wrong would eat these silently. Two variants, both
+            // recipient-checked inside creditDropFromChat so only the drop's owner acts:
+            //   personal  "Nisbro received a drop: Elder venator fang (Maggot King)"
+            //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
+            //             Maggot King." — fallback for members whose in-game loot-notification
+            //             setting is off; guests outside the clan rely on the personal line.
+            String stripped = msg.replaceAll("<[^>]*>", "");
+            Matcher larran = LARRAN_OPENED.matcher(stripped);
             if (larran.matches()) {
                 onLarranChestOpened(larran.group(1));
             }
-        }
-
-        if (!PLAYER_AUTHORED_CHAT.contains(event.getType()) && msg.contains("received a drop")) {
-            String stripped = msg.replaceAll("<[^>]*>", "");
-            // Each line shape matches exactly one of the two patterns (DropNotificationLineTest
-            // pins this down both ways), so a single chat line can never credit twice here.
-            Matcher dropLine = DROP_NOTIFICATION_PATTERN.matcher(stripped);
-            Matcher broadcast = CLAN_DROP_BROADCAST_PATTERN.matcher(stripped);
-            if (broadcast.matches()) {
-                creditDropFromChat(broadcast.group(1), broadcast.group(2), broadcast.group(3), broadcast.group(4));
-            } else if (dropLine.matches()) {
-                creditDropFromChat(dropLine.group(1), dropLine.group(2), dropLine.group(3), dropLine.group(4));
+            if (msg.contains("received a drop")) {
+                // Each line shape matches exactly one of the two patterns (DropNotificationLineTest
+                // pins this down both ways), so a single chat line can never credit twice here.
+                Matcher drop = CLAN_DROP_BROADCAST_PATTERN.matcher(stripped);
+                if (!drop.matches()) {
+                    drop = DROP_NOTIFICATION_PATTERN.matcher(stripped);
+                }
+                if (drop.matches()) {
+                    creditDropFromChat(drop.group(1), drop.group(2), drop.group(3), drop.group(4));
+                }
             }
-        }
 
-        // THE CLAN'S COPY OF A COLLECTION-LOG UNLOCK, and it has to be read UP HERE.
-        //
-        // Same shape as the drop broadcast above and for the same reason: the personal line depends
-        // on an in-game setting the player may never have turned on, the clan's copy depends on the
-        // clan's settings instead. It also has to be read before the type gate below, which accepts
-        // only GAMEMESSAGE/SPAM/MESBOX/FRIENDSCHATNOTIFICATION — a clan broadcast is none of those,
-        // so a check placed with the personal line would compile, read correctly, and never once run.
-        //
-        // Only ever acted on for the LOCAL player: a clanmate's unlock is their own client's to
-        // report, and posting it from here would file their slot under this account.
-        if (!PLAYER_AUTHORED_CHAT.contains(event.getType()) && msg.contains("received a new collection log item")) {
-            Matcher clogBroadcast = CLAN_CLOG_BROADCAST_PATTERN.matcher(stripChatTags(msg));
-            if (clogBroadcast.matches() && Rsn.same(clogBroadcast.group(1), getLocalPlayerName())) {
-                handleClogUnlock(clogBroadcast.group(2).trim());
+            // THE CLAN'S COPY OF A COLLECTION-LOG UNLOCK, and it has to be read UP HERE.
+            //
+            // Same shape as the drop broadcast above and for the same reason: the personal line
+            // depends on an in-game setting the player may never have turned on, the clan's copy
+            // depends on the clan's settings instead. It also has to be read before the type gate
+            // below, which accepts only GAMEMESSAGE/SPAM/MESBOX/FRIENDSCHATNOTIFICATION — a clan
+            // broadcast is none of those, so a check placed with the personal line would compile,
+            // read correctly, and never once run.
+            //
+            // Only ever acted on for the LOCAL player: a clanmate's unlock is their own client's to
+            // report, and posting it from here would file their slot under this account.
+            if (msg.contains("received a new collection log item")) {
+                Matcher clogBroadcast = CLAN_CLOG_BROADCAST_PATTERN.matcher(stripChatTags(msg));
+                if (clogBroadcast.matches() && Rsn.same(clogBroadcast.group(1), getLocalPlayerName())) {
+                    handleClogUnlock(clogBroadcast.group(2).trim());
+                }
             }
         }
 
@@ -3371,10 +3372,7 @@ public class AnvilPlugin extends Plugin {
         // be accepted or timed raid clears never see the real raid time and mis-correlate a
         // per-room duration instead. This mirrors RuneLite's own ChatCommandsPlugin, which
         // allows the same type for exactly this reason.
-        if (event.getType() != ChatMessageType.GAMEMESSAGE
-                && event.getType() != ChatMessageType.SPAM
-                && event.getType() != ChatMessageType.MESBOX
-                && event.getType() != ChatMessageType.FRIENDSCHATNOTIFICATION) {
+        if (!PARSED_CHAT.contains(event.getType())) {
             return;
         }
         // Collection-log unlocks — the reliable signal for awarded prestige items (Infernal cape,
