@@ -122,60 +122,42 @@ public class BannerSoundService
 	private void migrateLooseClips()
 	{
 		Filepath d = root;
-		if (d == null || !d.isDirectory())
+		List<Filepath> loose = d == null || !d.isDirectory() ? new ArrayList<>() : wavsIn(d);
+		Filepath banner = loose.isEmpty() ? null : dir(Kind.BANNER);
+		if (banner == null)
 		{
 			return;
 		}
-		try (Stream<Filepath> walk = d.walk(1))
+		for (Filepath f : loose)
 		{
-			List<Filepath> loose = walk
-				.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav"))
-				.collect(Collectors.toList());
-			if (loose.isEmpty())
+			try
 			{
-				return;
+				f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
 			}
-			Filepath banner = dir(Kind.BANNER);
-			if (banner == null)
+			catch (Exception e)
 			{
-				return;
+				log.debug("Could not move {} into banner/: {}", f.getFileName(), e.getMessage());
 			}
-			for (Filepath f : loose)
-			{
-				try
-				{
-					f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
-				}
-				catch (Exception e)
-				{
-					log.debug("Could not move {} into banner/: {}", f.getFileName(), e.getMessage());
-				}
-			}
-			log.debug("Anvil: moved {} clip(s) into banner/", loose.size());
 		}
-		catch (IOException e)
-		{
-			log.debug("Could not migrate loose clips: {}", e.getMessage());
-		}
+		log.debug("Anvil: moved {} clip(s) into banner/", loose.size());
 	}
 
 	/** Every .wav in one kind's folder. Depth 1 — a clip is a file in it, never deeper. */
 	private List<Filepath> wavFiles(Kind kind)
 	{
 		Filepath dir = dir(kind);
-		if (dir == null)
-		{
-			return new ArrayList<>();
-		}
+		return dir == null ? new ArrayList<>() : wavsIn(dir);
+	}
+
+	private static List<Filepath> wavsIn(Filepath dir)
+	{
 		try (Stream<Filepath> walk = dir.walk(1))
 		{
-			return walk
-				.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav"))
-				.collect(Collectors.toList());
+			return walk.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav")).collect(Collectors.toList());
 		}
 		catch (IOException e)
 		{
-			log.debug("Could not list {} sounds: {}", kind.folder, e.getMessage());
+			log.debug("Could not list sounds in {}: {}", dir.getFileName(), e.getMessage());
 			return new ArrayList<>();
 		}
 	}
@@ -189,13 +171,7 @@ public class BannerSoundService
 	/** All .wav filenames for one kind, case-insensitively sorted (for the in-tab manager). */
 	public List<String> listClips(Kind kind)
 	{
-		List<String> out = new ArrayList<>();
-		for (Filepath f : wavFiles(kind))
-		{
-			out.add(f.getFileName());
-		}
-		out.sort(String.CASE_INSENSITIVE_ORDER);
-		return out;
+		return wavFiles(kind).stream().map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
 	}
 
 	/**
@@ -291,18 +267,13 @@ public class BannerSoundService
 				return;
 			}
 
-			playFile(candidates.get(ThreadLocalRandom.current().nextInt(candidates.size())));
+			// AudioPlayer takes a Filepath directly as of 1.12.39, so the clip never leaves the sandbox.
+			audioPlayer.play(candidates.get(ThreadLocalRandom.current().nextInt(candidates.size())), gainDb());
 		}
 		catch (Exception e)
 		{
 			log.debug("Banner sound skipped: {}", e.getMessage());
 		}
-	}
-
-	private void playFile(Filepath file) throws Exception
-	{
-		// AudioPlayer takes a Filepath directly as of 1.12.39, so the clip never leaves the sandbox.
-		audioPlayer.play(file, gainDb());
 	}
 
 	/**

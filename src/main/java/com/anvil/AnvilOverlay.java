@@ -85,40 +85,27 @@ public class AnvilOverlay extends OverlayPanel {
     }
 
     static boolean isEventActive(PluginConfigResponse.EventInfo event) {
-        if (event == null) {
-            return false;
-        }
-        // Force-ended by admin
-        if (event.forceEndedAt != null) {
+        // Missing, or force-ended by admin
+        if (event == null || event.forceEndedAt != null) {
             return false;
         }
 
+        // Not started yet, already ended, or an unparseable date (treated as inactive).
         Instant now = Instant.now();
+        return !outside(event.startDate, "startDate", now, true) && !outside(event.endDate, "endDate", now, false);
+    }
 
-        if (event.startDate != null) {
-            try {
-                Instant start = Instant.parse(event.startDate);
-                if (now.isBefore(start)) {
-                    return false; // hasn't started
-                }
-            } catch (Exception e) {
-                log.warn("Failed to parse event startDate '{}': {}", event.startDate, e.getMessage());
-                return false; // treat as inactive on parse failure
-            }
+    /** True when {@code iso} is set and {@code now} is before it ({@code start}) or after it — or it won't parse. */
+    private static boolean outside(String iso, String field, Instant now, boolean start) {
+        if (iso == null) {
+            return false;
         }
-
-        if (event.endDate != null) {
-            try {
-                Instant end = Instant.parse(event.endDate);
-                if (now.isAfter(end)) {
-                    return false; // already ended
-                }
-            } catch (Exception e) {
-                log.warn("Failed to parse event endDate '{}': {}", event.endDate, e.getMessage());
-                return false; // treat as inactive on parse failure
-            }
+        try {
+            Instant at = Instant.parse(iso);
+            return start ? now.isBefore(at) : now.isAfter(at);
+        } catch (Exception e) {
+            log.warn("Failed to parse event {} '{}': {}", field, iso, e.getMessage());
+            return true;
         }
-
-        return true;
     }
 }

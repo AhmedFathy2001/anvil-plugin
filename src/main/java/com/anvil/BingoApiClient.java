@@ -28,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -400,9 +401,7 @@ public class BingoApiClient
 
 	Request.Builder authedRequest(String url)
 	{
-		Request.Builder b = new Request.Builder().url(url)
-			.header("Authorization", "Bearer " + playerToken)
-			.header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
+		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken);
 		String rsn = currentRsn;
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
 		else if (rsnHint != null) b.header("X-RSN-Hint", rsnHint);
@@ -413,15 +412,13 @@ public class BingoApiClient
 
 	public boolean isConfigured()
 	{
-		return apiUrl != null && !apiUrl.isEmpty()
-			&& playerToken != null && !playerToken.isEmpty()
-			&& !accountPaused;
+		return isSignedIn() && !accountPaused;
 	}
 
 	/** Signed in at all, whether or not the logged-in character is paused. For the panel's account row. */
 	public boolean isSignedIn()
 	{
-		return apiUrl != null && !apiUrl.isEmpty() && playerToken != null && !playerToken.isEmpty();
+		return !getApiUrl().isEmpty() && !needsSignIn();
 	}
 
 	/** Stop (or resume) every Anvil request for the logged-in character. See {@link #accountPaused}. */
@@ -748,25 +745,12 @@ public class BingoApiClient
 		public String error;
 	}
 
-	/** List ({@code null} body), add ({@code POST}) or remove ({@code DELETE ?id=}) — always the full list back. */
-	private GoalsResult goalsCall(String method, String query, JsonObject body)
+	/** List (GET), add (POST) or remove (DELETE ?id=) — always the full list back. */
+	private GoalsResult goalsCall(Request.Builder rb)
 	{
 		if (!isConfigured())
 		{
 			return null;
-		}
-		Request.Builder rb = authedRequest(rootUrl("/api/plugin/goals" + (query == null ? "" : query)));
-		if ("POST".equals(method))
-		{
-			rb.post(RequestBody.create(JSON, body.toString()));
-		}
-		else if ("DELETE".equals(method))
-		{
-			rb.delete();
-		}
-		else
-		{
-			rb.get();
 		}
 		try (Response response = httpClient.newCall(rb.build()).execute())
 		{
@@ -790,7 +774,7 @@ public class BingoApiClient
 
 	public GoalsResult fetchGoals()
 	{
-		return goalsCall("GET", null, null);
+		return goalsCall(authedRequest(rootUrl("/api/plugin/goals")).get());
 	}
 
 	public GoalsResult addGoal(String kind, String metric, int target, String dueOn)
@@ -803,12 +787,12 @@ public class BingoApiClient
 		{
 			body.addProperty("dueOn", dueOn);
 		}
-		return goalsCall("POST", null, body);
+		return goalsCall(authedRequest(rootUrl("/api/plugin/goals")).post(RequestBody.create(JSON, body.toString())));
 	}
 
 	public GoalsResult removeGoal(int id)
 	{
-		return goalsCall("DELETE", "?id=" + id, null);
+		return goalsCall(authedRequest(rootUrl("/api/plugin/goals?id=" + id)).delete());
 	}
 
 	/** One collection log page as the card's Log section opens it. */
@@ -889,7 +873,7 @@ public class BingoApiClient
 	 * dispatcher pool belongs to the client's own HTTP stack (the pool its async calls run on), so
 	 * this adds no thread of ours and the shared thread stays free.
 	 */
-	public java.util.concurrent.ExecutorService interactiveExecutor()
+	public ExecutorService interactiveExecutor()
 	{
 		return httpClient.dispatcher().executorService();
 	}
@@ -1168,25 +1152,15 @@ public class BingoApiClient
 	 */
 	public String uploadImage(byte[] pngBytes, String filename) throws IOException
 	{
-		RequestBody fileBody = RequestBody.create(PNG, pngBytes);
-		MultipartBody multipart = new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
-			.addFormDataPart("file", filename, fileBody)
-			.build();
-
-		Request request = authedRequest(clanUrl("/api/upload"))
-			.post(multipart)
-			.build();
-
-		try (Response response = httpClient.newCall(request).execute())
+		MultipartBody multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
+			.addFormDataPart("file", filename, RequestBody.create(PNG, pngBytes)).build();
+		try (Response response = httpClient.newCall(authedRequest(clanUrl("/api/upload")).post(multipart).build()).execute())
 		{
 			if (!response.isSuccessful())
 			{
 				throw new IOException("Image upload failed: HTTP " + response.code());
 			}
-			String body = response.body().string();
-			JsonObject json = new JsonParser().parse(body).getAsJsonObject();
-			return json.get("url").getAsString();
+			return new JsonParser().parse(response.body().string()).getAsJsonObject().get("url").getAsString();
 		}
 	}
 
@@ -1224,16 +1198,8 @@ public class BingoApiClient
 		}
 	}
 
-	public static class ActiveWeekly
+	public static class ActiveWeekly extends DatedWeekly
 	{
-		public int id;
-		public String title;
-		public String type;
-		public String metric;
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
-		public String startDate;
-		public String endDate;
 	}
 
 	/**
@@ -1304,17 +1270,9 @@ public class BingoApiClient
 		public String yourEntry;
 	}
 
-	public static class ScheduledWeekly
+	public static class ScheduledWeekly extends DatedWeekly
 	{
-		public int id;
-		public String title;
-		public String type;
-		public String metric;
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
 		public String status;
-		public String startDate;
-		public String endDate;
 	}
 
 	/**
@@ -1323,7 +1281,7 @@ public class BingoApiClient
 	 */
 	public WeeklyLeaderboard fetchWeeklyLeaderboard(Integer competitionId)
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (getApiUrl().isEmpty())
 		{
 			return null;
 		}
@@ -1338,16 +1296,8 @@ public class BingoApiClient
 		public List<LeaderboardEntry> entries;
 	}
 
-	public static class WeeklyComp
+	public static class WeeklyComp extends DatedWeekly
 	{
-		public int id;
-		public String title;
-		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
-		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
-		public String startDate;
-		public String endDate;
 	}
 
 	public static class LeaderboardEntry
@@ -1363,7 +1313,7 @@ public class BingoApiClient
 	 */
 	public HelloResponse hello(String rsn)
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (getApiUrl().isEmpty())
 		{
 			return null;
 		}
@@ -1394,13 +1344,22 @@ public class BingoApiClient
 		public List<BingoInfo> activeBingos;
 	}
 
+	/** A weekly competition as every route names it. */
 	public static class WeeklyInfo
 	{
-		public String type;   // "skill" | "boss"
+		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
 		public String title;
-		public String metric;
+		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
 		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
 		public String metricLabel;
+	}
+
+	/** A weekly competition with its id and dates. */
+	public static class DatedWeekly extends WeeklyInfo
+	{
+		public int id;
+		public String startDate;
+		public String endDate;
 	}
 
 	public static class BingoInfo
@@ -1417,16 +1376,11 @@ public class BingoApiClient
 	 */
 	public boolean fetchIsAdmin(String accountToken)
 	{
-		if (apiUrl == null || apiUrl.isEmpty() || accountToken == null || accountToken.isEmpty())
+		if (getApiUrl().isEmpty() || accountToken == null || accountToken.isEmpty())
 		{
 			return false;
 		}
-		Request request = new Request.Builder()
-			.url(clanUrl("/api/plugin/me"))
-			.header("Authorization", "Bearer " + accountToken)
-			.get()
-			.build();
-		try (Response response = httpClient.newCall(request).execute())
+		try (Response response = httpClient.newCall(tokenRequest("/api/plugin/me", accountToken).get().build()).execute())
 		{
 			if (response.code() != 200)
 			{
@@ -1450,21 +1404,15 @@ public class BingoApiClient
 	 */
 	public ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException
 	{
-		if (apiUrl == null || apiUrl.isEmpty())
+		if (getApiUrl().isEmpty())
 		{
 			throw new IOException("Not signed in to Anvil");
 		}
 		JsonObject payload = new JsonObject();
 		payload.addProperty("clanName", clanName);
 		payload.add("members", gson.toJsonTree(members));
-
-		RequestBody body = RequestBody.create(JSON, payload.toString());
-		Request request = new Request.Builder()
-			.url(clanUrl("/api/plugin/clan-sync"))
-			.header("Authorization", "Bearer " + accountToken)
-			.post(body)
-			.build();
-
+		Request request = tokenRequest("/api/plugin/clan-sync", accountToken)
+			.post(RequestBody.create(JSON, payload.toString())).build();
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			String responseBody = bodyText(response);
@@ -1488,6 +1436,12 @@ public class BingoApiClient
 			}
 			return gson.fromJson(responseBody, ClanSyncResponse.class);
 		}
+	}
+
+	/** A clan-scoped request carrying an explicit account token (the admin probe and roster sync). */
+	private Request.Builder tokenRequest(String path, String accountToken)
+	{
+		return new Request.Builder().url(clanUrl(path)).header("Authorization", "Bearer " + accountToken);
 	}
 
 	public static class ClanMember

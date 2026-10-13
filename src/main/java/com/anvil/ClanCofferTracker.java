@@ -116,13 +116,12 @@ final class ClanCofferTracker
 		{
 			return null;
 		}
-		if (lower.contains("deposited") || lower.contains("has deposited") || lower.contains("have deposited")
-			|| lower.contains("donated") || lower.contains("has donated") || lower.contains("have donated"))
+		// "has/have deposited", "donated", "withdrew", "has/have withdrawn"…
+		if (lower.contains("deposited") || lower.contains("donated"))
 		{
 			return Kind.DEPOSIT;
 		}
-		if (lower.contains("withdrew") || lower.contains("withdrawn") || lower.contains("has withdrawn")
-			|| lower.contains("have withdrawn"))
+		if (lower.contains("withdrew") || lower.contains("withdrawn"))
 		{
 			return Kind.WITHDRAWAL;
 		}

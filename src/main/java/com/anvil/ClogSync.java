@@ -6,6 +6,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 /**
  * Decides what of the collection log is worth sending, and when.
@@ -137,8 +139,14 @@ final class ClogSync
 	 */
 	String serializeState()
 	{
-		StringBuilder out = new StringBuilder(sent.size() * 24);
-		for (Map.Entry<String, Long> e : sent.entrySet())
+		return writeLines(sent, Long::toHexString);
+	}
+
+	/** {@code <value>|<name>} per line — the shape this and {@link PersonalBests} persist. */
+	static <V> String writeLines(Map<String, V> map, Function<V, String> value)
+	{
+		StringBuilder out = new StringBuilder(map.size() * 24);
+		for (Map.Entry<String, V> e : map.entrySet())
 		{
 			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0)
 			{
@@ -148,9 +156,34 @@ final class ClogSync
 			{
 				out.append('\n');
 			}
-			out.append(Long.toHexString(e.getValue())).append('|').append(e.getKey());
+			out.append(value.apply(e.getValue())).append('|').append(e.getKey());
 		}
 		return out.toString();
+	}
+
+	/** Each well-formed {@link #writeLines} line as (value, name); a line whose value won't parse is skipped. */
+	static void readLines(String raw, BiConsumer<String, String> line)
+	{
+		if (raw == null || raw.isEmpty())
+		{
+			return;
+		}
+		for (String l : raw.split("\n"))
+		{
+			int pipe = l.indexOf('|');
+			if (pipe <= 0 || pipe == l.length() - 1)
+			{
+				continue;
+			}
+			try
+			{
+				line.accept(l.substring(0, pipe), l.substring(pipe + 1));
+			}
+			catch (NumberFormatException e)
+			{
+				// A truncated or hand-edited config line: drop it and let it re-sync.
+			}
+		}
 	}
 
 	/** Restore from {@link #serializeState}. Junk lines are skipped, never fatal. */
@@ -158,25 +191,6 @@ final class ClogSync
 	{
 		sent.clear();
 		stateLoaded = true;
-		if (raw == null || raw.isEmpty())
-		{
-			return;
-		}
-		for (String line : raw.split("\n"))
-		{
-			int pipe = line.indexOf('|');
-			if (pipe <= 0 || pipe == line.length() - 1)
-			{
-				continue;
-			}
-			try
-			{
-				sent.put(line.substring(pipe + 1), Long.parseUnsignedLong(line.substring(0, pipe), 16));
-			}
-			catch (NumberFormatException e)
-			{
-				// A truncated or hand-edited config line: drop it and re-sync that page.
-			}
-		}
+		readLines(raw, (hash, page) -> sent.put(page, Long.parseUnsignedLong(hash, 16)));
 	}
 }

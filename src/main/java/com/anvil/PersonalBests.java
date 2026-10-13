@@ -201,20 +201,7 @@ final class PersonalBests
 	 */
 	String serializeState()
 	{
-		StringBuilder out = new StringBuilder(sent.size() * 20);
-		for (Map.Entry<String, Integer> e : sent.entrySet())
-		{
-			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0)
-			{
-				continue;
-			}
-			if (out.length() > 0)
-			{
-				out.append('\n');
-			}
-			out.append(e.getValue()).append('|').append(e.getKey());
-		}
-		return out.toString();
+		return ClogSync.writeLines(sent, String::valueOf);
 	}
 
 	/**
@@ -223,35 +210,15 @@ final class PersonalBests
 	 */
 	void restoreState(String raw)
 	{
-		if (raw == null || raw.isEmpty())
+		// A truncated or hand-edited line is dropped; the next kill re-establishes it.
+		ClogSync.readLines(raw, (value, activity) ->
 		{
-			return;
-		}
-		for (String line : raw.split("\n"))
-		{
-			int pipe = line.indexOf('|');
-			if (pipe <= 0 || pipe == line.length() - 1)
+			int centis = Integer.parseInt(value);
+			if (centis > 0)
 			{
-				continue;
+				sent.put(activity, centis);
+				best.merge(activity, centis, Math::min);
 			}
-			try
-			{
-				int centis = Integer.parseInt(line.substring(0, pipe));
-				String activity = line.substring(pipe + 1);
-				if (centis > 0)
-				{
-					sent.put(activity, centis);
-					Integer current = best.get(activity);
-					if (current == null || current > centis)
-					{
-						best.put(activity, centis);
-					}
-				}
-			}
-			catch (NumberFormatException e)
-			{
-				// Truncated or hand-edited: drop the line and let the next kill re-establish it.
-			}
-		}
+		});
 	}
 }
