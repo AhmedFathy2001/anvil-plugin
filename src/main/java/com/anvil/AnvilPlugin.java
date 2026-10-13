@@ -1414,9 +1414,7 @@ public class AnvilPlugin extends Plugin {
             sidebarNavButton = null;
         }
         bannerSound.shutdown();
-        clanCofferOpen = false;
-        clanCofferOpenTicks = 0;
-        clanCofferTracker.reset();
+        resetCoffer(false);
         profileLookup.shutDown();
         if (executor != null) {
             executor.shutdownNow();
@@ -1705,9 +1703,7 @@ public class AnvilPlugin extends Plugin {
             scheduleQuestScrollRead(3);
         }
         if (event.getGroupId() == InterfaceID.CLANS_STORAGE_MAIN) {
-            clanCofferOpen = true;
-            clanCofferOpenTicks = 0;
-            clanCofferTracker.reset();
+            resetCoffer(true);
         }
     }
 
@@ -1717,16 +1713,26 @@ public class AnvilPlugin extends Plugin {
         // inventory changes suppressed (see onItemContainerChanged).
         int g = event.getGroupId();
         if (g == InterfaceID.CLANS_STORAGE_MAIN) {
-            clanCofferOpen = false;
-            clanCofferOpenTicks = 0;
-            clanCofferTracker.reset();
+            resetCoffer(false);
         }
-        if (g == InterfaceID.BANKMAIN || g == InterfaceID.BANK_DEPOSITBOX
-                || g == InterfaceID.GE_OFFERS || g == InterfaceID.GE_COLLECT
-                || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM
-                || g == InterfaceID.SEED_VAULT) {
-            lastSuppressCloseTick = client.getTickCount();
+        for (int id : MOVE_INTERFACES) {
+            if (g == id) {
+                lastSuppressCloseTick = client.getTickCount();
+            }
         }
+    }
+
+    /** Interfaces whose item flows are moves, not gathering: bank, deposit box, GE, trade, seed vault. */
+    private static final int[] MOVE_INTERFACES = {
+        InterfaceID.BANKMAIN, InterfaceID.BANK_DEPOSITBOX, InterfaceID.GE_OFFERS, InterfaceID.GE_COLLECT,
+        InterfaceID.TRADEMAIN, InterfaceID.TRADECONFIRM, InterfaceID.SEED_VAULT,
+    };
+
+    /** The coffer was opened or closed (or the setting flipped): start again from a fresh baseline. */
+    private void resetCoffer(boolean open) {
+        clanCofferOpen = open;
+        clanCofferOpenTicks = 0;
+        clanCofferTracker.reset();
     }
 
     /**
@@ -1959,7 +1965,7 @@ public class AnvilPlugin extends Plugin {
         long wait = clogPushAllowedAt - System.currentTimeMillis();
         if (wait > 0) {
             sendChatMessage("Your log was synced less than a minute ago — try again in "
-                    + Math.max(1, (wait + 999) / 1000) + "s.");
+                    + secs(wait) + "s.");
             return;
         }
         clogSyncRequested = true;
@@ -1980,8 +1986,8 @@ public class AnvilPlugin extends Plugin {
                 sendChatMessage("Already syncing — give it a couple of seconds.");
                 break;
             case COOLING_DOWN:
-                long settle = (CLOG_TRANSMIT_COOLDOWN_MS - (System.currentTimeMillis() - lastClogTransmitAt) + 999) / 1000;
-                sendChatMessage("Just asked the game for your log — give it " + Math.max(1, settle) + "s.");
+                sendChatMessage("Just asked the game for your log — give it "
+                        + secs(CLOG_TRANSMIT_COOLDOWN_MS - (System.currentTimeMillis() - lastClogTransmitAt)) + "s.");
                 break;
             case LOG_CLOSED:
                 sendChatMessage("Open your collection log and your profile will sync itself.");
@@ -2396,9 +2402,7 @@ public class AnvilPlugin extends Plugin {
             // Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
             // the answer rather than let the sidebar rank clans on the previous account's standing.
             knownMember = null;
-            clanCofferOpen = false;
-            clanCofferOpenTicks = 0;
-            clanCofferTracker.reset();
+            resetCoffer(false);
             isGuest = false;
 
             adminProbeAttempted = false;
@@ -2556,7 +2560,7 @@ public class AnvilPlugin extends Plugin {
         if (paused) {
             log.info("{} is marked Not my account — sending nothing", rsn);
             dropConfigForPausedAccount();
-            refreshSidebarLater();
+            repaintSidebar();
             return;
         }
         // The name is known now; say so before the config round trip rather than after it.
@@ -2573,7 +2577,7 @@ public class AnvilPlugin extends Plugin {
         repaintSidebar();
         checkSetup();
         announceAccountOnce(rsn, accountHash);
-        refreshSidebarLater();
+        repaintSidebar();
     }
 
     /**
@@ -2608,12 +2612,6 @@ public class AnvilPlugin extends Plugin {
         rebuildItemDropIndex();
     }
 
-    private void refreshSidebarLater() {
-        AnvilSidebarPanel panel = sidebarPanel;
-        if (panel != null) {
-            SwingUtilities.invokeLater(panel::refresh);
-        }
-    }
 
     // -- The sidebar's account row ---------------------------------------------------------------
 
@@ -2650,7 +2648,7 @@ public class AnvilPlugin extends Plugin {
                 done.accept("Something went wrong — try again.");
             } finally {
                 accountActionRunning = false;
-                refreshSidebarLater();
+                repaintSidebar();
             }
         });
     }
@@ -4629,15 +4627,13 @@ public class AnvilPlugin extends Plugin {
 
     /** True while an interface whose item flows aren't "gathering" is open. */
     private boolean gainSuppressingInterfaceOpen() {
-        return client.getWidget(InterfaceID.BANKMAIN, 0) != null
-                || client.getWidget(InterfaceID.BANK_DEPOSITBOX, 0) != null
-                || client.getWidget(InterfaceID.GE_OFFERS, 0) != null
-                || client.getWidget(InterfaceID.GE_COLLECT, 0) != null
-                || client.getWidget(InterfaceID.TRADEMAIN, 0) != null
-                || client.getWidget(InterfaceID.TRADECONFIRM, 0) != null
-                || client.getWidget(InterfaceID.SEED_VAULT, 0) != null
-                // Bought isn't gathered: a shop would otherwise sell a "catch 100 karambwan" tile.
-                || client.getWidget(InterfaceID.SHOPMAIN, 0) != null;
+        for (int id : MOVE_INTERFACES) {
+            if (client.getWidget(id, 0) != null) {
+                return true;
+            }
+        }
+        // Bought isn't gathered: a shop would otherwise sell a "catch 100 karambwan" tile.
+        return client.getWidget(InterfaceID.SHOPMAIN, 0) != null;
     }
 
     /**
@@ -5595,10 +5591,7 @@ public class AnvilPlugin extends Plugin {
         }
         String token = config.playerToken();
         if (token == null || token.isEmpty()) {
-            if (!automatic) {
-                sendChatMessage("Clan sync failed: sign in from the Anvil side panel first.");
-            }
-            cb.onResult(false, "Sign in from the Anvil side panel first.");
+            syncFailed(cb, !automatic, null, "Sign in from the Anvil side panel first.");
             return;
         }
 
@@ -5613,14 +5606,11 @@ public class AnvilPlugin extends Plugin {
         if (waitMs > 0) {
             // This attempt isn't happening, so it doesn't get to speak for the login either.
             autoRosterAnnounce = false;
-            long secs = Math.max(1, (waitMs + 999) / 1000);
+            long secs = secs(waitMs);
             String why = backedOff
                     ? "The site didn't take the last roster push — trying again in " + secs + "s."
                     : "The roster was just synced — try again in " + secs + "s.";
-            if (!automatic) {
-                sendChatMessage(why);
-            }
-            cb.onResult(false, why);
+            syncFailed(cb, !automatic, why, why);
             return;
         }
 
@@ -5633,10 +5623,7 @@ public class AnvilPlugin extends Plugin {
                 clanRosterReadable = false;
                 clanRosterMissingTicks = CLAN_ROSTER_GRACE_TICKS;
                 redrawSidebarLocal();
-                if (!automatic) {
-                    sendChatMessage("Clan sync failed: join your clan channel first — the roster is read from it.");
-                }
-                cb.onResult(false, "Join your clan channel first — the roster is read from it.");
+                syncFailed(cb, !automatic, null, "Join your clan channel first — the roster is read from it.");
                 return;
             }
             ClanSettings settings = client.getClanSettings();
@@ -5751,41 +5738,46 @@ public class AnvilPlugin extends Plugin {
                 } catch (BingoApiClient.AdminUnauthorizedException e) {
                     // Token isn't (or is no longer) an admin — hide the button until the next login probe.
                     isAdmin = false;
-                    sendChatMessage("Clan sync failed: your account token isn't an admin (or was revoked).");
-                    cb.onResult(false, "Your account token isn't an admin (or was revoked).");
+                    syncFailed(cb, true, null, "Your account token isn't an admin (or was revoked).");
                 } catch (BingoApiClient.ClanMismatchException e) {
                     String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
-                    sendChatMessage("Clan sync failed: clan name doesn't match site config (" + server + ").");
-                    cb.onResult(false, "Clan name doesn't match site config (" + server + ").");
+                    syncFailed(cb, true, null, "Clan name doesn't match site config (" + server + ").");
                 } catch (BingoApiClient.RateLimitedException e) {
                     // The site said when. Hold exactly that long rather than guessing at it.
                     rosterPushAllowedAt = System.currentTimeMillis() + Math.max(e.retryAfterMs, 1_000L);
                     log.debug("Clan sync rate-limited for {}ms", e.retryAfterMs);
-                    if (!automatic) {
-                        sendChatMessage("The site is limiting roster syncs — try again in "
-                                + Math.max(1, (e.retryAfterMs + 999) / 1000) + "s.");
-                    }
-                    cb.onResult(false, "Rate limited by the site.");
+                    syncFailed(cb, !automatic, "The site is limiting roster syncs — try again in "
+                            + secs(e.retryAfterMs) + "s.", "Rate limited by the site.");
                 } catch (IOException e) {
                     // Might clear on its own (site down, network gone), so wait longer each time
                     // instead of letting a button turn into a retry loop against a dead host.
                     rosterBackoff.onFailure(System.currentTimeMillis());
                     log.warn("Clan sync failed: {}", e.getMessage());
-                    if (!automatic) {
-                        sendChatMessage("Clan sync failed: " + e.getMessage());
-                    }
-                    cb.onResult(false, "Sync failed: " + e.getMessage());
+                    syncFailed(cb, !automatic, "Clan sync failed: " + e.getMessage(), "Sync failed: " + e.getMessage());
                 } catch (RuntimeException e) {
                     // Anything unexpected still has to release the button, or it says "Already
                     // syncing" until the next login.
                     log.warn("Clan sync failed unexpectedly", e);
-                    if (!automatic) {
-                        sendChatMessage("Clan sync failed — try again in a moment.");
-                    }
-                    cb.onResult(false, "Sync failed unexpectedly.");
+                    syncFailed(cb, !automatic, "Clan sync failed — try again in a moment.", "Sync failed unexpectedly.");
                 }
             });
         });
+    }
+
+    /**
+     * A roster sync that didn't happen: say why in chat when {@code say} — by default "Clan sync
+     * failed: " and the reason — and hand the reason to the button.
+     */
+    private void syncFailed(AdminActionCallback cb, boolean say, String chat, String why) {
+        if (say) {
+            sendChatMessage(chat != null ? chat : "Clan sync failed: " + Character.toLowerCase(why.charAt(0)) + why.substring(1));
+        }
+        cb.onResult(false, why);
+    }
+
+    /** Whole seconds for a wait in chat — rounded up, never "0s". */
+    private static long secs(long ms) {
+        return Math.max(1, (ms + 999) / 1000);
     }
 
     // Team-level tile completions (drops, stats, manual — any tile type, completed by any member).
@@ -8885,17 +8877,12 @@ public class AnvilPlugin extends Plugin {
      */
     private boolean statsAreArtificial() {
         Set<WorldType> w = client.getWorldType();
-        return w != null && (
-               w.contains(WorldType.PVP_ARENA)
-            || w.contains(WorldType.SEASONAL)
-            || w.contains(WorldType.DEADMAN)
-            || w.contains(WorldType.TOURNAMENT_WORLD)
-            || w.contains(WorldType.BETA_WORLD)
-            || w.contains(WorldType.FRESH_START_WORLD)
-            || w.contains(WorldType.QUEST_SPEEDRUNNING)
-            || w.contains(WorldType.LAST_MAN_STANDING)
-            || w.contains(WorldType.NOSAVE_MODE));
+        return w != null && !Collections.disjoint(w, ARTIFICIAL_WORLDS);
     }
+
+    private static final Set<WorldType> ARTIFICIAL_WORLDS = EnumSet.of(WorldType.PVP_ARENA, WorldType.SEASONAL,
+            WorldType.DEADMAN, WorldType.TOURNAMENT_WORLD, WorldType.BETA_WORLD, WorldType.FRESH_START_WORLD,
+            WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING, WorldType.NOSAVE_MODE);
 
     private void handleLevelMilestone(String skill) {
         // A 99 happens once per skill per account, so when one does not reach Discord there has to be
@@ -9676,7 +9663,7 @@ public class AnvilPlugin extends Plugin {
             log.debug("Collection log push rate-limited for {}ms", e.retryAfterMs);
             if (manual) {
                 sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
-                        + Math.max(1, (e.retryAfterMs + 999) / 1000) + "s.");
+                        + secs(e.retryAfterMs) + "s.");
             }
             return;
         } catch (BingoApiClient.PermanentSubmissionException e) {
