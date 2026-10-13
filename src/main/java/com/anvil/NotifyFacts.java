@@ -19,7 +19,8 @@ import com.google.gson.JsonObject;
  * <li>clogSlot: item, itemId, slots, slotsMax, source, kc</li>
  * <li>caTask: task, tier ("Easy".."Grandmaster"), totalPoints, nextThreshold</li>
  * <li>caTier: tier — diary: area, tier — quest: quest, difficulty ("Novice".."Grandmaster")</li>
- * <li>level99: skill, at99, skills — totalLevel: total, maxed, current, max</li>
+ * <li>level: skill, level, at99, skills (level99 without level, to a site lacking level-rules) —
+ *     totalLevel: total, milestone, maxed, current, max</li>
  * </ul>
  * Every kind also carries {@code rsn} when known.
  */

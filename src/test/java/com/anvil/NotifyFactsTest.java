@@ -54,17 +54,27 @@ public class NotifyFactsTest
 		assertEquals("{\"rsn\":\"Zezima\",\"quest\":\"Dragon Slayer II\",\"difficulty\":\"Grandmaster\"}",
 			new NotifyFacts("quest", "Zezima").put("quest", "Dragon Slayer II").put("difficulty", "Grandmaster")
 				.facts.toString());
-		assertEquals("{\"rsn\":\"Zezima\",\"total\":1800,\"current\":1803,\"max\":2277}",
-			new NotifyFacts("totalLevel", "Zezima").put("total", 1800).flag("maxed", false).put("current", 1803)
-				.put("max", 2277).facts.toString());
+		assertEquals("{\"rsn\":\"Zezima\",\"total\":1800,\"milestone\":1800,\"current\":1803,\"max\":2277}",
+			new NotifyFacts("totalLevel", "Zezima").put("total", 1800).flag("maxed", false).put("milestone", 1800)
+				.put("current", 1803).put("max", 2277).facts.toString());
+		// Maxed: no milestone, no distance.
+		assertEquals("{\"rsn\":\"Zezima\",\"total\":2277,\"maxed\":true}",
+			new NotifyFacts("totalLevel", "Zezima").put("total", 2277).flag("maxed", true)
+				.put("milestone", (Integer) null).facts.toString());
 	}
 
 	@Test
 	public void theRequestSendsKindAndFactsNotAnEmbed() throws Exception
 	{
+		assertEquals("{\"channel\":\"levels\",\"kind\":\"level\",\"facts\":{\"rsn\":\"Zezima\",\"skill\":\"Slayer\","
+				+ "\"level\":90,\"at99\":12,\"skills\":23}}",
+			send(new NotifyFacts("level", "Zezima").put("skill", "Slayer").put("level", 90).put("at99", 12)
+				.put("skills", 23), null));
+		// An older site's kind, without the level.
 		assertEquals("{\"channel\":\"levels\",\"kind\":\"level99\",\"facts\":{\"rsn\":\"Zezima\",\"skill\":\"Slayer\","
 				+ "\"at99\":12,\"skills\":23}}",
-			send(new NotifyFacts("level99", "Zezima").put("skill", "Slayer").put("at99", 12).put("skills", 23), null));
+			send(new NotifyFacts("level99", "Zezima").put("skill", "Slayer").put("level", (Integer) null).put("at99", 12)
+				.put("skills", 23), null));
 
 		// With a screenshot it's multipart: the same JSON as payload_json, plus the named file.
 		String body = send(new NotifyFacts("caTier", null).put("tier", "Elite"), new byte[]{1, 2, 3});

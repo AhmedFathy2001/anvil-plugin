@@ -379,8 +379,8 @@ public interface AnvilConfig extends Config
 
 	@ConfigItem(
 		keyName = "notifyLevelUps",
-		name = "Notify on 99s & high totals",
-		description = "Post 99s, total-level milestones from 1800 and maxing to the clan.",
+		name = "Notify on level milestones",
+		description = "Post level milestones (your clan's rules; 99s and high totals by default) to the clan and your own webhooks.",
 		position = 6,
 		section = "caSection"
 	)

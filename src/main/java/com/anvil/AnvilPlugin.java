@@ -609,9 +609,10 @@ public class AnvilPlugin extends Plugin {
     // total we logged in with). Total only ever rises on a skill level-up, so we check it there.
     private int lastTotalLevel = -1;
     private boolean totalLevelInitialized;
-    // Per-skill real level, so a 99 is detected off the stat event — independent of the in-game
+    // Per-skill real level, so a milestone is detected off the stat event — independent of the in-game
     // "Level-up interface" setting, which decides whether the chat line even carries the level number.
-    // notified99 dedups a 99 arriving from both StatChanged and the chat line.
+    // announcedLevel (highest level posted or already held, per lowercased skill) dedups a level
+    // arriving from both StatChanged and the chat line.
     //
     // Seeded from the live stat table (seedSkillLevels), NOT from whichever XP drop happens to arrive
     // first. See that method for what the lazy version cost.
@@ -620,7 +621,7 @@ public class AnvilPlugin extends Plugin {
     // NOT on the burst of StatChanged RuneLite emits for every skill on login/resync (which otherwise
     // mislabels every tracked skill tile as "You"). The first sighting per skill just seeds the baseline.
     private final Map<Skill, Integer> lastSkillXp = new EnumMap<>(Skill.class);
-    private final Set<String> notified99 = new HashSet<>();
+    private final Map<String, Integer> announcedLevel = new HashMap<>();
     // True from the login screen until the game has sent this account's stat table. Until then the
     // client's levels are placeholders (every skill 1, total 24-ish) and the login burst of StatChanged
     // is the table ARRIVING, not anyone levelling — so nothing announces and nothing is baselined off
@@ -633,11 +634,6 @@ public class AnvilPlugin extends Plugin {
     // still holds the previous account's real-looking table, so "hitpoints looks loaded" alone would
     // seed the alt's levels if the new burst landed a tick late.
     private static final int STATS_SETTLE_TICKS = 3;
-    // High-total milestones: every step at/above the floor, e.g. 1800, 1900, … plus max total
-    // (computed from the live Skill enum so it tracks future skills, e.g. Sailing → 2376). Floor is
-    // ~1750 so it kicks in for high accounts without spamming every 50 levels.
-    private static final int TOTAL_MILESTONE_FLOOR = 1750;
-    private static final int TOTAL_MILESTONE_STEP = 100;
 
     // Drop coalescing — batch rapid same-tile drops into one screenshot + one submission.
     // Without this, killing 1 NPC that drops a stack of 2000 would fire 2000 captures and
@@ -1414,7 +1410,7 @@ public class AnvilPlugin extends Plugin {
      * gains is read as their starting level and thrown away.</p>
      *
      * <p>Which is exactly what a 99 is: one XP drop, once. Reload the plugin at 98, cook one more
-     * fish, and the announcement is gone — silently, and with the skill added to notified99, so the
+     * fish, and the announcement is gone — silently, and with the skill marked announced, so the
      * chat line can't rescue it either. A once-per-account moment, lost to a plugin restart.</p>
      *
      * <p>Reading the table up front removes the guess. Skills already at 99 are marked announced (they
@@ -1426,7 +1422,7 @@ public class AnvilPlugin extends Plugin {
                 return;
             }
             lastSkillLevel.clear();
-            notified99.clear();
+            announcedLevel.clear();
             for (Skill skill : Skill.values()) {
                 if (skill == Skill.OVERALL) {
                     continue;
@@ -1436,9 +1432,7 @@ public class AnvilPlugin extends Plugin {
                     continue; // not populated yet — the next StatChanged baselines it the old way
                 }
                 lastSkillLevel.put(skill, level);
-                if (level >= 99) {
-                    notified99.add(skill.getName().toLowerCase());
-                }
+                announcedLevel.put(skill.getName().toLowerCase(), level);
             }
         });
     }
@@ -1458,7 +1452,7 @@ public class AnvilPlugin extends Plugin {
         statsSettleTicks = 0;
         lastSkillLevel.clear();
         lastSkillXp.clear();
-        notified99.clear();
+        announcedLevel.clear();
         totalLevelInitialized = false;
         lastTotalLevel = -1;
     }
@@ -1517,10 +1511,8 @@ public class AnvilPlugin extends Plugin {
         int level = event.getLevel();
         Integer prev = lastSkillLevel.put(skill, level);
         if (prev == null) {
-            // First sighting this session = baseline; remember pre-existing 99s so they never announce.
-            if (level >= 99) {
-                notified99.add(skill.getName().toLowerCase());
-            }
+            // First sighting this session = baseline; levels already held never announce.
+            announcedLevel.put(skill.getName().toLowerCase(), level);
             return;
         }
         if (level <= prev) {
@@ -1528,8 +1520,8 @@ public class AnvilPlugin extends Plugin {
         }
         if (level >= 99 && prev < 99) {
             recordLevelMoment(skill.getName(), 99, "skill");
-            handleLevelMilestone(skill.getName());
         }
+        handleLevelMilestone(skill.getName(), prev, level);
         handleTotalMilestone();
     }
 
@@ -3476,18 +3468,19 @@ public class AnvilPlugin extends Plugin {
                 creditDiaryTiles(area, tier);
             }
         }
-        // Skill 99s — reported to the same clan achievements channel as combat achievements. The
-        // level-up message fires once when the level is reached, so no varbit/baseline dance needed.
+        // Level milestones. The level-up message fires once when the level is reached, so no
+        // varbit/baseline dance needed.
         if (config.notifyLevelUps()) {
             Matcher lvl = LEVEL_UP_PATTERN.matcher(plain);
             if (lvl.find()) {
                 try {
-                    if (Integer.parseInt(lvl.group(2)) == 99) {
-                        // Same key as the StatChanged sighting, so whichever arrives first wins and
-                        // the other collapses onto it rather than posting the 99 twice.
+                    int level = Integer.parseInt(lvl.group(2));
+                    if (level == 99) {
                         recordLevelMoment(lvl.group(1).trim(), 99, "skill");
-                        handleLevelMilestone(lvl.group(1).trim());
                     }
+                    // Same key as the StatChanged sighting, so whichever arrives first wins and the
+                    // other collapses onto it rather than posting the level twice.
+                    handleLevelMilestone(lvl.group(1).trim(), level - 1, level);
                 } catch (NumberFormatException ignored) {
                 }
                 // Any level gain bumps total — check for a high-total milestone (or max) crossing.
@@ -8507,26 +8500,40 @@ public class AnvilPlugin extends Plugin {
             WorldType.DEADMAN, WorldType.TOURNAMENT_WORLD, WorldType.BETA_WORLD, WorldType.FRESH_START_WORLD,
             WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING, WorldType.NOSAVE_MODE);
 
-    private void handleLevelMilestone(String skill) {
+    /** Which level-ups the clan and the player's own webhooks want; the clan's dropped without a channel. */
+    private LevelRules.Sets levelRules() {
+        return LevelRules.resolve(pluginConfig, notifyEnabled("levels"));
+    }
+
+    private void handleLevelMilestone(String skill, int prev, int level) {
         // A 99 happens once per skill per account, so when one does not reach Discord there has to be
-        // something in the log saying which step dropped it. Every gate below this used to be silent,
-        // and postNotification's own failure paths are log.debug — invisible at RuneLite's default
-        // level — which left "it just didn't post" as the entire diagnosis.
-        if (!notifyEnabled("levels")) {
-            log.info("99 {} not announced — no channel for level posts", skill);
+        // something in the log saying which step dropped it. postNotification's own failure paths are
+        // log.debug — invisible at RuneLite's default level.
+        if (skill == null) {
             return;
         }
         if (statsAreArtificial()) {
-            log.info("99 {} not announced — not real progression on this world", skill);
+            if (level >= 99 && prev < 99) {
+                log.info("99 {} not announced — not real progression on this world", skill);
+            }
             return;
         }
-        // Post a given skill's 99 once per session — the same 99 can arrive from StatChanged and the
-        // level-up chat line, and StatChanged pre-seeds skills already 99 at login.
-        if (skill == null || !notified99.add(skill.toLowerCase())) {
-            return; // already announced this session, or already 99 when the session started
+        int at = LevelRules.skillMilestone(prev, level, levelRules());
+        if (at == 0) {
+            if (level >= 99 && prev < 99) {
+                log.info("99 {} not announced — no destination for level posts", skill);
+            }
+            return;
         }
-        log.info("Announcing 99 {}.", skill);
-        // How far along they are. A 99 post is about skills rather than total, so it counts those —
+        // Post a given skill's level once per session — the same level can arrive from StatChanged
+        // and the level-up chat line, and levels already held at login are pre-seeded.
+        String key = skill.toLowerCase();
+        if (at <= announcedLevel.getOrDefault(key, 0)) {
+            return;
+        }
+        announcedLevel.put(key, at);
+        log.info("Announcing {} {}.", skill, at);
+        // How far along they are. A level post is about skills rather than total, so it counts those —
         // and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
         // what they have done rather than a distance from somebody else's goal.
         int at99 = 0;
@@ -8537,15 +8544,16 @@ public class AnvilPlugin extends Plugin {
                 at99 += client.getRealSkillLevel(sk) >= 99 ? 1 : 0;
             }
         }
-        postAchievement(new NotifyFacts("level99", getLocalPlayerName()).put("skill", skill).put("at99", at99)
-                .put("skills", of));
+        // An older site knows only 99s (all its fixed rules can match) under the old kind.
+        boolean rules = pluginConfig != null && pluginConfig.serverSupports("level-rules");
+        postAchievement(new NotifyFacts(rules ? "level" : "level99", getLocalPlayerName()).put("skill", skill)
+                .put("level", rules ? (Integer) at : null).put("at99", at99).put("skills", of));
     }
 
     /**
-     * Called on every skill level-up. Announces a high-total milestone (every
-     * {@code STEP} at or above {@code FLOOR}) or maxing, posting to the clan
-     * achievements channel. Uses the baselined total so we only fire on genuine
-     * crossings, and skips the round-100 post when this gain maxed.
+     * Called on every skill level-up. Announces the highest round total this gain crossed that the
+     * level rules want, or maxing. Uses the baselined total so we only fire on genuine crossings,
+     * and skips the round post when this gain maxed.
      */
     private void handleTotalMilestone() {
         // NOT gated on the Discord channel here. The gate moved down to the post itself, because this
@@ -8567,16 +8575,22 @@ public class AnvilPlugin extends Plugin {
         int prev = lastTotalLevel;
         lastTotalLevel = total;
 
+        LevelRules.Sets rules = levelRules();
         int max = maxTotalLevel();
         if (prev < max && max <= total) {
             recordLevelMoment(null, total, "max");
-            postTotalMilestone(total, true);
-            return; // maxing is the headline — don't also post the round-100 it passed
+            if (LevelRules.wantsMax(rules)) {
+                postTotalMilestone(total, true);
+            }
+            return; // maxing is the headline — don't also post the round total it passed
         }
-        // Highest round-STEP value this gain reached, at/above the floor.
-        int milestone = (total / TOTAL_MILESTONE_STEP) * TOTAL_MILESTONE_STEP;
-        if (milestone >= TOTAL_MILESTONE_FLOOR && prev < milestone) {
-            recordLevelMoment(null, milestone, "total");
+        // The highlight feed keeps the fixed 1800, 1900, … whatever the Discord rules say.
+        int feed = LevelRules.totalMilestone(prev, total, new LevelRules.Sets(LevelRules.LEGACY_CLAN, null));
+        if (feed > 0) {
+            recordLevelMoment(null, feed, "total");
+        }
+        int milestone = LevelRules.totalMilestone(prev, total, rules);
+        if (milestone > 0) {
             postTotalMilestone(milestone, false);
         }
     }
@@ -8614,11 +8628,8 @@ public class AnvilPlugin extends Plugin {
 
 
     private void postTotalMilestone(int total, boolean maxed) {
-        if (!notifyEnabled("levels")) {
-            log.info("Total-level milestone {} not announced — no channel for level posts.", total);
-            return;
-        }
-        NotifyFacts f = new NotifyFacts("totalLevel", getLocalPlayerName()).put("total", total).flag("maxed", maxed);
+        NotifyFacts f = new NotifyFacts("totalLevel", getLocalPlayerName()).put("total", total).flag("maxed", maxed)
+                .put("milestone", maxed ? null : (Integer) total);
         // Where this leaves them — from the LIVE total, not the milestone above: somebody who crossed
         // 1800 on a level that took them to 1803 is 474 from max, not 477. Left out on a build not
         // chasing max (the site also drops it on a max, where "0 to go" is noise).
