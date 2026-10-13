@@ -47,16 +47,6 @@ public class DropLuckTest
 	}
 
 	@Test
-	public void luckLabelOnlySpeaksWhenThereIsSomethingToSay()
-	{
-		assertTrue(DropLuck.luckLabel(1.0 / 512, 20).startsWith("Top "));
-		assertTrue(DropLuck.luckLabel(1.0 / 512, 20).endsWith("spooned"));
-		assertTrue(DropLuck.luckLabel(1.0 / 512, 1500).startsWith("Dry"));
-		assertNull("typical drops add no field", DropLuck.luckLabel(1.0 / 512, 500));
-		assertNull("no kill count, no claim", DropLuck.luckLabel(1.0 / 512, null));
-	}
-
-	@Test
 	public void trollsAreRareRollsOnWorthlessItems()
 	{
 		// A 1/10,000 roll on a ~35k item — the joke drop.

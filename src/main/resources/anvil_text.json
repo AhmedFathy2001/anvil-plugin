@@ -4,7 +4,6 @@
   "alwaysNotify: prestige items always posted to the rare-drops channel regardless of value/rarity — usually untradeable or cheap but a big deal. Matched as case-insensitive substrings, so 'Blessed dizana's quiver' still matches 'dizana's quiver'. pluginConfig.alwaysNotifyItems extends it without a plugin update. Prestige capes/quivers (awarded, untradeable); raid ornament/colour kits + dusts (untradeable — ToB/CoX/ToA); ToA reward-chest cosmetics (Menaphite ornament kit, Cursed phalanx, Masori crafting kit); DT2 untradeable uniques (the ring vestiges, all caught by 'vestige', the chromium-ingot quartz, the four Soulreaper axe pieces); boss collection-log jars + Champions' Challenge scroll/cape; enhanced crystal seeds (Gauntlet weapon seed and Elf-pickpocket teleport seed); Vyrewatch blood shard (tradeable, but its GE price dips below the value floor) + the Fight Caves fire cape.",
   "funDeaths: fallback fun-death lines, used only when the server pool (pluginConfig.funDeathMessages) is empty. {name} is replaced with the RSN.",
   "deathTaunts: short reaction lines appended to every death post (pluginConfig.deathTaunts overrides).",
-  "spoonTaunts: reaction lines appended to a notably lucky (rare / high-value) drop (pluginConfig.spoonTaunts overrides).",
   "questTiers: every quest's official difficulty (NOVICE..GRANDMASTER) for completion announcements, from the OSRS Wiki quest Bucket (official_difficulty), 2026-10-13. Lowercase, matched against the parsed scroll name; names ending in ' I' are also listed without the numeral, which is how some scrolls name them. The wiki tiers RFD and a few others as 'Special'; those are absent and post only on the lowest setting — except defeating the Culinaromancer, the de-facto final completion (Barrows gloves), announced with the Masters. Update when Jagex ships new quests."
  ],
  "alwaysNotify": [
@@ -50,14 +49,6 @@
   "That's gotta hurt.",
   "Prayer was off, wasn't it?",
   "Get good. 🤡"
- ],
- "spoonTaunts": [
-  "SPOONED. 🥄",
-  "Way under rate — absolute spoon.",
-  "RNG said \"here you go champ\".",
-  "Some of us are 5x dry. Disgusting.",
-  "No skill, all luck. Congrats. 🥄",
-  "Hand it over — someone drier deserved that."
  ],
  "questTiers": {
   "a kingdom divided": "EXPERIENCED",

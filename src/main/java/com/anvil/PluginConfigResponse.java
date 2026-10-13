@@ -282,7 +282,6 @@ public class PluginConfigResponse
 	public NotifyChannels notify;                      // which clan notification channels are enabled server-side
 	public List<String> funDeathMessages;              // server-managed 1/100 fun-death pool
 	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
-	public List<String> spoonTaunts;                   // server-managed lucky-drop reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
 	public List<Integer> alwaysNotifyItemIds;          // ^ resolved to item ids server-side, for reliable id-match
 	public boolean showKillCount = true;               // server toggle: include boss/raid KC on rare-drop posts

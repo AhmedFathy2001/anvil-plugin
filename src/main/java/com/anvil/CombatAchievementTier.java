@@ -31,12 +31,6 @@ public enum CombatAchievementTier
 		return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
 	}
 
-	/** Points a task at this tier is worth: 1 (Easy) through 6 (Grandmaster), in declaration order. */
-	public int getPoints()
-	{
-		return ordinal() + 1;
-	}
-
 	public int getThresholdVarbitId()
 	{
 		return thresholdVarbitId;

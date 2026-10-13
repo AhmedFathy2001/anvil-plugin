@@ -127,31 +127,6 @@ public final class DropLuck
 	}
 
 	/**
-	 * The "Luck" field value, e.g. {@code "Top 8%"} or {@code "Dry — 93% had it by now"}. Null for a
-	 * typical or unknown result, which is the common case and shouldn't add a field.
-	 */
-	public static String luckLabel(Double dropRate, Integer killCount)
-	{
-		Verdict verdict = classify(dropRate, killCount);
-		if (verdict == Verdict.UNKNOWN || verdict == Verdict.TYPICAL)
-		{
-			return null;
-		}
-		int pct = (int) Math.max(1, Math.round(obtainedShare(dropRate, killCount) * 100));
-		switch (verdict)
-		{
-			case SPOONED:
-				return "Top " + pct + "% — spooned";
-			case LUCKY:
-				return "Top " + pct + "%";
-			case DRY:
-				return "Dry — " + pct + "% had it by now";
-			default:
-				return null;
-		}
-	}
-
-	/**
 	 * A "troll": rare enough to trip the rarity gate, but worth almost nothing. Worth calling out as
 	 * a joke rather than dressing up as treasure.
 	 *

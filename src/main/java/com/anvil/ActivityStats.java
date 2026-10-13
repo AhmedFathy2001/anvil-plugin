@@ -159,32 +159,9 @@ final class ActivityStats
 	}
 
 	/**
-	 * The collection log's own completion line — "548/1712 (32.0%)" — for a new-slot post.
-	 *
-	 * <p>Lives here because it reads the same varps as {@code collectionsLogged} and the ids are
-	 * worth keeping in one place.
-	 *
-	 * <p>Returns null rather than a guess whenever the client can't answer: both varps read 0 until
-	 * the collection log has been synced this session, and a count above its own maximum means we're
-	 * reading something other than what we think. A missing field in a clan post is unremarkable; a
-	 * wrong number in one gets repeated.
-	 */
-	static String clogProgress(IntUnaryOperator varp)
-	{
-		int obtained = clogSlots(varp);
-		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
-		if (obtained <= 0 || total <= 0 || obtained > total)
-		{
-			return null;
-		}
-		double percent = (obtained * 100d) / total;
-		return String.format(java.util.Locale.ROOT, "%d/%d (%.1f%%)", obtained, total, percent);
-	}
-
-	/**
 	 * Unique collection-log slots obtained, or 0 when the client can't answer (the log hasn't synced
 	 * this session, or the count exceeds its own maximum and is therefore not what we think it is).
-	 * Same guard as {@link #clogProgress}, exposed as a number so callers can rank it.
+	 * 0 when the log is unread or the count exceeds its own maximum.
 	 */
 	static int clogSlots(IntUnaryOperator varp)
 	{

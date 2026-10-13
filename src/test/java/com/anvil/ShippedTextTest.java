@@ -35,10 +35,6 @@ public class ShippedTextTest
 		assertEquals(Arrays.asList(
 			"Sit. 🪑", "L + ratio.", "Skill issue.", "Couldn't be me.", "GG go next.",
 			"Have you tried eating?", "That's gotta hurt.", "Prayer was off, wasn't it?", "Get good. 🤡"), text.deathTaunts);
-		assertEquals(Arrays.asList(
-			"SPOONED. 🥄", "Way under rate — absolute spoon.", "RNG said \"here you go champ\".",
-			"Some of us are 5x dry. Disgusting.", "No skill, all luck. Congrats. 🥄",
-			"Hand it over — someone drier deserved that."), text.spoonTaunts);
 		assertEquals("GRANDMASTER", text.questTiers.get("desert treasure ii"));
 		assertEquals("MASTER", text.questTiers.get("recipe for disaster - culinaromancer"));
 		assertEquals("MASTER", text.questTiers.get("legends' quest"));

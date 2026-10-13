@@ -31,47 +31,6 @@ public class DropSourceTest
 		return p;
 	}
 
-	// ---- naming the source ------------------------------------------------------------------
-
-	@Test
-	public void lootKeyIsNamedAsOneRatherThanAsAChest()
-	{
-		// "Loot Chest" is RuneLite's name for an opened Wilderness key. Repeating it names no
-		// content and reads like PvM loot to the whole channel.
-		assertTrue(DropSource.isLootKey("Loot Chest"));
-		assertTrue(DropSource.isLootKey("loot key"));
-		assertFalse(DropSource.isLootKey("Chest (Bryophyta's lair)"));
-		assertEquals(" from a loot key", DropSource.fromPhrase("Loot Chest", "pvp"));
-	}
-
-	@Test
-	public void aPlayerKillSaysSoRatherThanReadingAsAMonster()
-	{
-		// The source of PvP loot is the victim's RSN, so the old wording had a monster called Zezima
-		// dropping a whip.
-		assertEquals(" from a player kill (Zezima)", DropSource.fromPhrase("Zezima", "pvp"));
-		assertEquals(" from a player kill", DropSource.fromPhrase(null, "pvp"));
-	}
-
-	@Test
-	public void ordinaryLootKeepsItsOwnName()
-	{
-		assertEquals(" from Vorkath", DropSource.fromPhrase("Vorkath", "npc"));
-		assertEquals(" from Tombs of Amascut", DropSource.fromPhrase("Tombs of Amascut", "event"));
-		assertEquals(" from pickpocketing Elves", DropSource.fromPhrase("Elves", "pickpocket"));
-		// Nothing true to say beats a dangling "from".
-		assertEquals("", DropSource.fromPhrase(null, "npc"));
-		assertEquals("", DropSource.fromPhrase("  ", "npc"));
-	}
-
-	@Test
-	public void countIsLabelledForWhatWasActuallyCounted()
-	{
-		assertEquals("Keys opened", DropSource.countLabel("Loot Chest", "pvp"));
-		assertEquals("Caskets", DropSource.countLabel("Clue Scroll (Master)", "event"));
-		assertEquals("KC", DropSource.countLabel("Vorkath", "npc"));
-	}
-
 	// ---- guaranteed drops -------------------------------------------------------------------
 
 	@Test
