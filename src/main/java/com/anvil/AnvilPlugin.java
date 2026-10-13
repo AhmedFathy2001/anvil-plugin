@@ -118,6 +118,9 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.ObjIntConsumer;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -6025,12 +6028,13 @@ public class AnvilPlugin extends Plugin {
             // gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so wholesale-replacing would snap an
             // in-progress tile's live count backward (the reported karambwan/impling flakiness). Floor
             // each fresh gain at what we've already counted locally.
-            Map<Integer, Integer> localGainProgress = snapshotGainProgress(pluginConfig);
-            Map<Integer, Integer> localKillProgress = snapshotKillProgress(pluginConfig);
+            PluginConfigResponse prior = pluginConfig;
             pluginConfig = fresh;
             rebuildItemDropIndex();
-            restoreGainProgressFloor(pluginConfig, localGainProgress);
-            restoreKillProgressFloor(pluginConfig, localKillProgress);
+            keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
+                    g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
+            keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
+                    k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
             // One tracking-state summary, logged only when it CHANGES (the refresh runs every
             // ~30s) — the first thing to read in a client.log when "nothing tracked": it says
             // what the plugin believed it was tracking, and when that belief changed.
@@ -6181,31 +6185,19 @@ public class AnvilPlugin extends Plugin {
      * Rebuild the itemId → TrackedDrop index for O(1) loot lookups.
      */
     private void rebuildItemDropIndex() {
-        Map<Integer, List<TrackedDrop>> index = new HashMap<>();
-        if (pluginConfig != null && pluginConfig.trackedDrops != null) {
-            for (TrackedDrop drop : pluginConfig.trackedDrops) {
-                if (drop.itemIds != null) {
-                    for (Integer id : drop.itemIds) {
-                        index.computeIfAbsent(id, k -> new ArrayList<>()).add(drop);
-                    }
-                }
-            }
-        }
-        itemDropIndex = index;
-        Set<Integer> notable = new HashSet<>();
-        if (pluginConfig != null && pluginConfig.alwaysNotifyItemIds != null) {
-            for (Integer id : pluginConfig.alwaysNotifyItemIds) {
-                if (id != null) {
-                    notable.add(id);
-                }
-            }
-        }
+        PluginConfigResponse cfg = pluginConfig;
+        boolean has = cfg != null;
+        itemDropIndex = indexBy(has ? cfg.trackedDrops : null, d -> d.itemIds, id -> id);
+        Set<Integer> notable = has && cfg.alwaysNotifyItemIds != null ? new HashSet<>(cfg.alwaysNotifyItemIds) : new HashSet<>();
+        notable.remove(null);
         notableItemIds = notable;
-        rebuildKillNpcIndex();
-        rebuildGainItemIndex();
+        // Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
+        killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs, n -> n.isEmpty() ? null : n.toLowerCase());
+        gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
         rebuildPvpRosterIndex();
-        rebuildTrackedKcNames();
-        rebuildTrackedSkillNames();
+        // The in-game KC-line boss names and the skill names to push real-time counts for.
+        trackedKcNames = names(has ? cfg.trackedKcNames : null, n -> n.isEmpty() ? null : normalizeBossName(n));
+        trackedSkillNames = names(has ? cfg.trackedSkillNames : null, n -> n.isEmpty() ? null : n.toLowerCase(Locale.ROOT).trim());
         rebuildTrackedActivityKeys();
     }
 
@@ -6217,33 +6209,45 @@ public class AnvilPlugin extends Plugin {
      * quietly keeps its hiscores-sweep behaviour.
      */
     private void rebuildTrackedActivityKeys() {
-        Set<String> keys = new HashSet<>();
-        if (pluginConfig != null && pluginConfig.trackedActivityKeys != null
-                && pluginConfig.serverSupports("activity-stats")) {
-            for (String k : pluginConfig.trackedActivityKeys) {
-                if (k != null && ActivityStats.isReadable(k.trim())) {
-                    keys.add(k.trim());
-                }
-            }
-        }
-        trackedActivityKeys = keys;
-        if (keys.isEmpty()) {
+        PluginConfigResponse cfg = pluginConfig;
+        trackedActivityKeys = names(cfg != null && cfg.serverSupports("activity-stats") ? cfg.trackedActivityKeys : null,
+                k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
+        if (trackedActivityKeys.isEmpty()) {
             activityPush.reset();
         }
     }
 
-    /** Rebuild the set of skill names to push real-time XP for; refreshed with the drop index. */
-    private void rebuildTrackedSkillNames() {
-        Set<String> names = new HashSet<>();
-        if (pluginConfig != null && pluginConfig.trackedSkillNames != null) {
-            for (String n : pluginConfig.trackedSkillNames) {
-                if (n != null && !n.isEmpty()) {
-                    names.add(n.toLowerCase(Locale.ROOT).trim());
+    /** {@code norm} of each name, skipping nulls and anything {@code norm} turns into null. */
+    private static Set<String> names(List<String> raw, Function<String, String> norm) {
+        Set<String> out = new HashSet<>();
+        if (raw != null) {
+            for (String r : raw) {
+                String n = r == null ? null : norm.apply(r);
+                if (n != null) {
+                    out.add(n);
                 }
             }
         }
-        trackedSkillNames = names;
+        return out;
     }
+
+    /** {@code key → tiles} over the keys each tile lists, as {@code norm} spells them; null keys are skipped. */
+    private static <T, R, K> Map<K, List<T>> indexBy(List<T> tiles, Function<T, List<R>> keys, Function<R, K> norm) {
+        Map<K, List<T>> index = new HashMap<>();
+        if (tiles != null) {
+            for (T t : tiles) {
+                List<R> raw = keys.apply(t);
+                for (R r : raw == null ? Collections.<R>emptyList() : raw) {
+                    K k = r == null ? null : norm.apply(r);
+                    if (k != null) {
+                        index.computeIfAbsent(k, x -> new ArrayList<>()).add(t);
+                    }
+                }
+            }
+        }
+        return index;
+    }
+
 
     /**
      * Record that the local player just gained on the tracked stat tile whose {@code statName} matches
@@ -6355,18 +6359,6 @@ public class AnvilPlugin extends Plugin {
         skillXpPush.queue(skillName, xp);
     }
 
-    /** Rebuild the set of in-game KC-line boss names to push real-time counts for; refreshed with the drop index. */
-    private void rebuildTrackedKcNames() {
-        Set<String> names = new HashSet<>();
-        if (pluginConfig != null && pluginConfig.trackedKcNames != null) {
-            for (String n : pluginConfig.trackedKcNames) {
-                if (n != null && !n.isEmpty()) {
-                    names.add(normalizeBossName(n));
-                }
-            }
-        }
-        trackedKcNames = names;
-    }
 
     /**
      * Normalize a boss name for matching: lowercase, non-alphanumeric → space, collapse. Mirrors the
@@ -7018,73 +7010,34 @@ public class AnvilPlugin extends Plugin {
         pvpRosterIndex = index;
     }
 
-    /** Snapshot each tracked gain's locally-counted currentAmount by tileId (pre-refresh state). */
-    private Map<Integer, Integer> snapshotGainProgress(PluginConfigResponse cfg) {
-        Map<Integer, Integer> m = new HashMap<>();
-        if (cfg != null && cfg.trackedGains != null) {
-            for (TrackedGain g : cfg.trackedGains) {
-                if (g != null) {
-                    m.put(g.tileId, g.currentAmount);
-                }
-            }
-        }
-        return m;
-    }
-
-    /** Raise each fresh gain's currentAmount to at least the locally-counted value so a config
-     *  refresh never regresses an in-progress tile below what we've already tallied (and not yet
-     *  flushed). Capped at requiredAmount. Trade-off: an admin who deletes a gain submission won't
-     *  see the count drop until the player re-logs — acceptable vs. the count visibly snapping back. */
-    private void restoreGainProgressFloor(PluginConfigResponse fresh, Map<Integer, Integer> local) {
-        if (fresh == null || fresh.trackedGains == null || local.isEmpty()) {
+    /**
+     * Keep locally-counted progress across a config refresh: raise each fresh tile's count to at
+     * least what we'd already tallied (and not yet flushed), capped at the requirement.
+     *
+     * <p>Gain and kill tiles both count locally and flush on a debounce, so between the count and the
+     * flush the server's copy is behind. Replacing the tracked tiles wholesale snapped an in-progress
+     * tile back to the server's stale number: ten chickens read 1,2,3,4,5 and then 1,2,3 again as
+     * the refresh landed mid-streak, before jumping to 6,7,10 once the earlier flushes were counted
+     * (and the karambwan/impling flakiness on gathers, whose flushes coalesce up to GAIN_MAX_HOLD_MS).
+     * Nothing was lost — the server's total was right the whole time — but the player is watching
+     * the wrong number and cannot tell those apart. Trade-off: an admin who deletes a submission
+     * won't see the count drop until the player re-logs, the much better of the two surprises.
+     */
+    private static <T> void keepLocalFloor(List<T> old, List<T> fresh, ToIntFunction<T> tileId,
+            ToIntFunction<T> current, ToIntFunction<T> required, ObjIntConsumer<T> setCurrent) {
+        if (old == null || fresh == null) {
             return;
         }
-        for (TrackedGain g : fresh.trackedGains) {
-            if (g == null) {
-                continue;
-            }
-            Integer prior = local.get(g.tileId);
-            if (prior != null && prior > g.currentAmount) {
-                g.currentAmount = Math.min(prior, g.requiredAmount);
+        Map<Integer, Integer> local = new HashMap<>();
+        for (T t : old) {
+            if (t != null) {
+                local.put(tileId.applyAsInt(t), current.applyAsInt(t));
             }
         }
-    }
-
-    /** Snapshot each tracked kill's locally-counted currentAmount by tileId (pre-refresh state). */
-    private Map<Integer, Integer> snapshotKillProgress(PluginConfigResponse cfg) {
-        Map<Integer, Integer> m = new HashMap<>();
-        if (cfg != null && cfg.trackedKills != null) {
-            for (TrackedKill k : cfg.trackedKills) {
-                if (k != null) {
-                    m.put(k.tileId, k.currentAmount);
-                }
-            }
-        }
-        return m;
-    }
-
-    /** The same floor gains get, for kills — and for the same reason.
-     *
-     *  A kill tile counts locally and flushes on a debounce, so between the count and the flush the
-     *  server's copy is behind. The ~30s config refresh replaced the tracked kills wholesale, which
-     *  snapped an in-progress tile back to the server's stale number: ten chickens read 1,2,3,4,5
-     *  and then 1,2,3 again as the refresh landed mid-streak, before jumping to 6,7,10 once the
-     *  earlier flushes were counted. Nothing was lost — the server's total was right the whole time —
-     *  but the player is watching the wrong number and cannot tell those apart.
-     *
-     *  Same trade-off as gains: an admin deleting a kill submission won't see the count drop until
-     *  the player re-logs, which is much the better of the two surprises. */
-    private void restoreKillProgressFloor(PluginConfigResponse fresh, Map<Integer, Integer> local) {
-        if (fresh == null || fresh.trackedKills == null || local.isEmpty()) {
-            return;
-        }
-        for (TrackedKill k : fresh.trackedKills) {
-            if (k == null) {
-                continue;
-            }
-            Integer prior = local.get(k.tileId);
-            if (prior != null && prior > k.currentAmount) {
-                k.currentAmount = Math.min(prior, k.requiredAmount);
+        for (T t : fresh) {
+            Integer prior = t == null ? null : local.get(tileId.applyAsInt(t));
+            if (prior != null && prior > current.applyAsInt(t)) {
+                setCurrent.accept(t, Math.min(prior, required.applyAsInt(t)));
             }
         }
     }
@@ -7101,43 +7054,7 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    /** Rebuild the itemId → TrackedGain index; refreshed together with the drop index. */
-    private void rebuildGainItemIndex() {
-        Map<Integer, List<TrackedGain>> index = new HashMap<>();
-        if (pluginConfig != null && pluginConfig.trackedGains != null) {
-            for (TrackedGain gain : pluginConfig.trackedGains) {
-                if (gain.itemIds != null) {
-                    for (Integer id : gain.itemIds) {
-                        if (id != null) {
-                            index.computeIfAbsent(id, k -> new ArrayList<>()).add(gain);
-                        }
-                    }
-                }
-            }
-        }
-        gainItemIndex = index;
-    }
 
-    /**
-     * Rebuild the lowercased-NPC-name → TrackedKill index for O(1) kill
-     * matching. Folded into the same refresh as the drop index so both stay in
-     * sync with the latest config.
-     */
-    private void rebuildKillNpcIndex() {
-        Map<String, List<TrackedKill>> index = new HashMap<>();
-        if (pluginConfig != null && pluginConfig.trackedKills != null) {
-            for (TrackedKill kill : pluginConfig.trackedKills) {
-                if (kill.targetNpcs != null) {
-                    for (String npc : kill.targetNpcs) {
-                        if (npc != null && !npc.isEmpty()) {
-                            index.computeIfAbsent(npc.toLowerCase(), k -> new ArrayList<>()).add(kill);
-                        }
-                    }
-                }
-            }
-        }
-        killNpcIndex = index;
-    }
 
     /** True when the team has already completed this tile (per the last config refresh). */
     private boolean isTileCompleted(int tileId) {
