@@ -794,8 +794,8 @@ public class AnvilPlugin extends Plugin {
     private volatile Set<String> trackedKcNames = Collections.emptySet();
     // Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
     // counts are idempotent, so a kill streak collapses to a single push of the newest value.
-    private final Map<String, Integer> pendingKcPush = new HashMap<>();
-    private ScheduledFuture<?> kcPushTask;
+    private final CoalescedPush kcPush = new CoalescedPush("KC", KC_PUSH_COALESCE_MS, false,
+            () -> executor, () -> statPushAllowed(), b -> apiClient.submitStatKc(b), () -> refreshConfig());
     // KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
     private static final long KC_PUSH_COALESCE_MS = 15_000;
     // ── Recap "fun stat" counters (deaths + total loot GP) for the active event. Cosmetic only (feeds the
@@ -980,16 +980,16 @@ public class AnvilPlugin extends Plugin {
     private volatile Set<String> trackedSkillNames = Collections.emptySet();
     // Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
     // collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
-    private final Map<String, Integer> pendingSkillXpPush = new HashMap<>();
-    private ScheduledFuture<?> skillXpPushTask;
+    private final CoalescedPush skillXpPush = new CoalescedPush("Skill XP", KC_PUSH_COALESCE_MS, false,
+            () -> executor, () -> statPushAllowed(), b -> apiClient.submitStatXp(b), () -> refreshConfig());
     // ---- Real-time activity push (clue tiers, Colosseum glory, collection-log slots) ------------
     // The site stat keys the event tracks that ActivityStats can actually read; rebuilt each config
     // refresh, empty unless the event has such tiles AND the site advertises 'activity-stats'.
     private volatile Set<String> trackedActivityKeys = Collections.emptySet();
-    private final Map<String, Integer> pendingActivityPush = new HashMap<>();
-    private ScheduledFuture<?> activityPushTask;
-    // Last value pushed per key, so a varbit firing repeatedly with the same number doesn't re-send.
-    private final Map<String, Integer> lastPushedActivity = new HashMap<>();
+    // Debounced like KC; only a RISE over what was last sent goes out, so a varbit firing repeatedly
+    // with the same number doesn't re-send.
+    private final CoalescedPush activityPush = new CoalescedPush("Activity", KC_PUSH_COALESCE_MS, true,
+            () -> executor, () -> statPushAllowed(), b -> apiClient.submitStatActivities(b), () -> refreshConfig());
     // Ticks between safety re-reads. The varbit hook is what makes a finished clue land in seconds;
     // this is the backstop for a counter that moves without one firing (or fires before login
     // completes), which is cheap enough at one pass a minute to be worth not having to be sure.
@@ -1451,10 +1451,7 @@ public class AnvilPlugin extends Plugin {
         lastHeldItemCounts = null;
         heldItemsDirty = false;
         trackedKcNames = Collections.emptySet();
-        synchronized (pendingKcPush) {
-            pendingKcPush.clear();
-            kcPushTask = null;
-        }
+        kcPush.reset();
         // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
         // session days later would be filed against whatever happens to be running then.
         synchronized (moments) {
@@ -1462,16 +1459,9 @@ public class AnvilPlugin extends Plugin {
             momentPushTask = null;
         }
         trackedSkillNames = Collections.emptySet();
-        synchronized (pendingSkillXpPush) {
-            pendingSkillXpPush.clear();
-            skillXpPushTask = null;
-        }
+        skillXpPush.reset();
         trackedActivityKeys = Collections.emptySet();
-        synchronized (pendingActivityPush) {
-            pendingActivityPush.clear();
-            lastPushedActivity.clear();
-            activityPushTask = null;
-        }
+        activityPush.reset();
         // Flush the recap counters to the config store (captures loot gained since the last push) and
         // stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
         synchronized (counterLock) {
@@ -4213,7 +4203,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void queueDropForFlush(PluginConfigResponse.TrackedDrop drop, int amount,
             int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             return;
         }
         final String key = drop.tileId + ":" + (trackingItemId == null ? "-" : trackingItemId);
@@ -4259,7 +4249,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
+            if (execLive()) {
                 executor.schedule(() -> doSubmitAggregate(agg), delay, TimeUnit.MILLISECONDS);
             }
             return;
@@ -4418,7 +4408,7 @@ public class AnvilPlugin extends Plugin {
 
     private void queueKillForFlush(PluginConfigResponse.TrackedKill kill, int amount,
             int snapshotCurrent, int snapshotRequired) {
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             return;
         }
         final String key = "kill:" + kill.tileId;
@@ -4457,7 +4447,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
+            if (execLive()) {
                 executor.schedule(() -> doSubmitKillAggregate(agg), delay, TimeUnit.MILLISECONDS);
             }
             return;
@@ -4495,7 +4485,7 @@ public class AnvilPlugin extends Plugin {
         // screenshot — so a long grind doesn't upload a PNG per burst. Mirrors the gain path; the
         // single/milestone proof screenshots below are the audit trail.
         if (!complete && !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
-            if (executor == null || executor.isShutdown()
+            if (!execLive()
                     || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
                 return;
             }
@@ -4752,7 +4742,7 @@ public class AnvilPlugin extends Plugin {
      * submission per stint, with the running total baked on.
      */
     private void queueGainForFlush(PluginConfigResponse.TrackedGain gain, int amount) {
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             return;
         }
         synchronized (pendingGainAggregates) {
@@ -4791,7 +4781,7 @@ public class AnvilPlugin extends Plugin {
         long sinceLast = System.currentTimeMillis() - lastUploadAt;
         if (sinceLast < UPLOAD_THROTTLE_MS) {
             long delay = UPLOAD_THROTTLE_MS - sinceLast;
-            if (executor != null && !executor.isShutdown()) {
+            if (execLive()) {
                 executor.schedule(() -> doSubmitGainAggregate(agg), delay, TimeUnit.MILLISECONDS);
             }
             return;
@@ -4809,7 +4799,7 @@ public class AnvilPlugin extends Plugin {
         // media store for zero evidentiary value. The single proof screenshot lands on the
         // flush that completes the tile (manual web submissions still require an image).
         if (agg.snapshotCurrent < agg.snapshotRequired) {
-            if (executor == null || executor.isShutdown()
+            if (!execLive()
                     || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
                 return;
             }
@@ -4868,7 +4858,7 @@ public class AnvilPlugin extends Plugin {
         final String capturedRsn = getLocalPlayerName();
 
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!execLive()) {
                 return;
             }
             executor.submit(() -> {
@@ -5287,7 +5277,7 @@ public class AnvilPlugin extends Plugin {
      * hand on the site.
      */
     private void captureManualProof(String label, String note) {
-        if (drawManager == null || executor == null || executor.isShutdown()) {
+        if (drawManager == null || !execLive()) {
             return;
         }
         final int eventId = pluginConfig != null && pluginConfig.event != null ? pluginConfig.event.id : 0;
@@ -5295,7 +5285,7 @@ public class AnvilPlugin extends Plugin {
         final int playerId = pluginConfig != null && pluginConfig.player != null ? pluginConfig.player.id : 0;
         final String capturedRsn = getLocalPlayerName();
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!execLive()) {
                 return;
             }
             executor.submit(() -> {
@@ -5374,7 +5364,7 @@ public class AnvilPlugin extends Plugin {
             sendChatMessage("No starting shot is being asked for right now.");
             return;
         }
-        if (drawManager == null || executor == null || executor.isShutdown()) {
+        if (drawManager == null || !execLive()) {
             return;
         }
         if (startProofInFlight) {
@@ -5409,7 +5399,7 @@ public class AnvilPlugin extends Plugin {
                 : Instant.ofEpochMilli(loginAtMs).toString();
 
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!execLive()) {
                 startProofInFlight = false;
                 return;
             }
@@ -5462,7 +5452,7 @@ public class AnvilPlugin extends Plugin {
 
         drawManager.requestNextFrameListener(image
                 -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!execLive()) {
                 return;
             }
             executor.submit(()
@@ -6588,10 +6578,7 @@ public class AnvilPlugin extends Plugin {
         }
         trackedActivityKeys = keys;
         if (keys.isEmpty()) {
-            synchronized (pendingActivityPush) {
-                pendingActivityPush.clear();
-                lastPushedActivity.clear();
-            }
+            activityPush.reset();
         }
     }
 
@@ -6715,48 +6702,7 @@ public class AnvilPlugin extends Plugin {
         if (realGain && trackedSkillNames.contains(skillName.toLowerCase(Locale.ROOT).trim())) {
             noteLocalStatProgress(skillName);
         }
-        if (executor == null || executor.isShutdown()) {
-            return;
-        }
-        synchronized (pendingSkillXpPush) {
-            pendingSkillXpPush.put(skillName, xp);
-            if (skillXpPushTask != null) {
-                skillXpPushTask.cancel(false);
-            }
-            skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-        }
-    }
-
-    /** Pushes the buffered absolute skill XP to the server (no screenshot). Requeues on failure. */
-    private void flushSkillXpPush() {
-        Map<String, Integer> batch;
-        synchronized (pendingSkillXpPush) {
-            if (pendingSkillXpPush.isEmpty()) {
-                return;
-            }
-            batch = new HashMap<>(pendingSkillXpPush);
-            pendingSkillXpPush.clear();
-        }
-        if (!statPushAllowed()) {
-            return; // event ended between queue and flush — the XP is safe on the hiscores side
-        }
-        try {
-            apiClient.submitStatXp(batch);
-            refreshConfig(); // pull back the updated progress / any completion the push triggered
-        } catch (IOException e) {
-            log.warn("Skill XP push failed ({} skill(s)) — requeueing: {}", batch.size(), e.getMessage());
-            synchronized (pendingSkillXpPush) {
-                for (Map.Entry<String, Integer> en : batch.entrySet()) {
-                    pendingSkillXpPush.merge(en.getKey(), en.getValue(), Integer::max);
-                }
-                if (executor != null && !executor.isShutdown()) {
-                    if (skillXpPushTask != null) {
-                        skillXpPushTask.cancel(false);
-                    }
-                    skillXpPushTask = executor.schedule(this::flushSkillXpPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-                }
-            }
-        }
+        skillXpPush.queue(skillName, xp);
     }
 
     /** Rebuild the set of in-game KC-line boss names to push real-time counts for; refreshed with the drop index. */
@@ -6803,16 +6749,7 @@ public class AnvilPlugin extends Plugin {
         if (System.currentTimeMillis() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) {
             return;
         }
-        if (executor == null || executor.isShutdown()) {
-            return;
-        }
-        synchronized (pendingKcPush) {
-            pendingKcPush.put(lastKcName, lastKcValue);
-            if (kcPushTask != null) {
-                kcPushTask.cancel(false);
-            }
-            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-        }
+        kcPush.queue(lastKcName, lastKcValue);
     }
 
     /**
@@ -6829,48 +6766,7 @@ public class AnvilPlugin extends Plugin {
         if (trackedKcNames.contains(normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
         }
-        if (executor == null || executor.isShutdown()) {
-            return;
-        }
-        synchronized (pendingKcPush) {
-            pendingKcPush.put(bossName, kc);
-            if (kcPushTask != null) {
-                kcPushTask.cancel(false);
-            }
-            kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-        }
-    }
-
-    /** Pushes the buffered absolute KCs to the server (no screenshot). Requeues on failure. */
-    private void flushKcPush() {
-        Map<String, Integer> batch;
-        synchronized (pendingKcPush) {
-            if (pendingKcPush.isEmpty()) {
-                return;
-            }
-            batch = new HashMap<>(pendingKcPush);
-            pendingKcPush.clear();
-        }
-        if (!statPushAllowed()) {
-            return; // event ended between queue and flush — the count is safe on the hiscores side
-        }
-        try {
-            apiClient.submitStatKc(batch);
-            refreshConfig(); // pull back the updated progress / any completion the push triggered
-        } catch (IOException e) {
-            log.warn("KC push failed ({} boss(es)) — requeueing: {}", batch.size(), e.getMessage());
-            synchronized (pendingKcPush) {
-                for (Map.Entry<String, Integer> en : batch.entrySet()) {
-                    pendingKcPush.merge(en.getKey(), en.getValue(), Integer::max);
-                }
-                if (executor != null && !executor.isShutdown()) {
-                    if (kcPushTask != null) {
-                        kcPushTask.cancel(false);
-                    }
-                    kcPushTask = executor.schedule(this::flushKcPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-                }
-            }
-        }
+        kcPush.queue(bossName, kc);
     }
 
     /**
@@ -6888,68 +6784,10 @@ public class AnvilPlugin extends Plugin {
         // varbit lookups against client memory; the send is debounced and carries absolute values,
         // so an unchanged counter costs nothing.
         Set<String> wanted = ActivityStats.readableKeys();
-        if (wanted.isEmpty() || !statPushAllowed() || executor == null || executor.isShutdown()) {
+        if (wanted.isEmpty() || !statPushAllowed() || !execLive()) {
             return;
         }
-        Map<String, Integer> current = ActivityStats.read(wanted, client::getVarbitValue, client::getVarpValue);
-        if (current.isEmpty()) {
-            return;
-        }
-        synchronized (pendingActivityPush) {
-            boolean queued = false;
-            for (Map.Entry<String, Integer> e : current.entrySet()) {
-                Integer last = lastPushedActivity.get(e.getKey());
-                if (last != null && last >= e.getValue()) {
-                    continue; // already reported at least this high — nothing new to say
-                }
-                pendingActivityPush.put(e.getKey(), e.getValue());
-                queued = true;
-            }
-            if (!queued) {
-                return;
-            }
-            if (activityPushTask != null) {
-                activityPushTask.cancel(false);
-            }
-            activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-        }
-    }
-
-    /** Pushes the buffered absolute activity counts to the server (no screenshot). Requeues on failure. */
-    private void flushActivityPush() {
-        Map<String, Integer> batch;
-        synchronized (pendingActivityPush) {
-            if (pendingActivityPush.isEmpty()) {
-                return;
-            }
-            batch = new HashMap<>(pendingActivityPush);
-            pendingActivityPush.clear();
-        }
-        if (!statPushAllowed()) {
-            return; // event ended between queue and flush — the count is safe on the hiscores side
-        }
-        try {
-            apiClient.submitStatActivities(batch);
-            synchronized (pendingActivityPush) {
-                for (Map.Entry<String, Integer> e : batch.entrySet()) {
-                    lastPushedActivity.merge(e.getKey(), e.getValue(), Integer::max);
-                }
-            }
-            refreshConfig(); // pull back the updated progress / any completion the push triggered
-        } catch (IOException e) {
-            log.warn("Activity push failed ({} key(s)) — requeueing: {}", batch.size(), e.getMessage());
-            synchronized (pendingActivityPush) {
-                for (Map.Entry<String, Integer> en : batch.entrySet()) {
-                    pendingActivityPush.merge(en.getKey(), en.getValue(), Integer::max);
-                }
-                if (executor != null && !executor.isShutdown()) {
-                    if (activityPushTask != null) {
-                        activityPushTask.cancel(false);
-                    }
-                    activityPushTask = executor.schedule(this::flushActivityPush, KC_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
-                }
-            }
-        }
+        activityPush.queue(ActivityStats.read(wanted, client::getVarbitValue, client::getVarpValue));
     }
 
     /* -------------------------------------------------------------- */
@@ -7150,7 +6988,7 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
     private void scheduleCounterPush() {
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             return;
         }
         synchronized (counterLock) {
@@ -7187,7 +7025,7 @@ public class AnvilPlugin extends Plugin {
         } catch (IOException e) {
             log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
             synchronized (counterLock) {
-                if (executor != null && !executor.isShutdown()) {
+                if (execLive()) {
                     if (counterPushTask != null) {
                         counterPushTask.cancel(false);
                     }
@@ -7403,7 +7241,7 @@ public class AnvilPlugin extends Plugin {
 
     /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
     private void scheduleMomentPush() {
-        if (executor == null || executor.isShutdown()) {
+        if (!execLive()) {
             return;
         }
         synchronized (moments) {
@@ -9733,7 +9571,7 @@ public class AnvilPlugin extends Plugin {
     private void captureFrameAsync(Consumer<byte[]> consumer) {
         AtomicBoolean delivered = new AtomicBoolean(false);
         drawManager.requestNextFrameListener(image -> {
-            if (executor == null || executor.isShutdown()) {
+            if (!execLive()) {
                 return;
             }
             executor.submit(() -> {
