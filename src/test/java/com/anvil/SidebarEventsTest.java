@@ -18,28 +18,28 @@ public class SidebarEventsTest
 {
 	private static ConnectionView.WeeklyView weekly(int id, String title, String type, String metric)
 	{
-		return new ConnectionView.WeeklyView(id, title, type, metric,
-			"2026-07-27T00:00:00Z", "2026-08-03T00:00:00Z", 0, 0, 0, null, null);
+		return new ConnectionView.WeeklyView(id, title, type, metric, null,
+			"2026-07-27T00:00:00Z", "2026-08-03T00:00:00Z", false, 0, 0, 0, null, null);
 	}
 
 	private static ConnectionView.ScheduledView upcomingBingo(int id, String title, String startsIso)
 	{
-		return new ConnectionView.ScheduledView(id, title, startsIso, null, false, 25, 5, "bingo", "tiles", null);
+		return new ConnectionView.ScheduledView(id, title, startsIso, null, false, 25, 5, "bingo", "tiles", null, null);
 	}
 
-	/** A clan card: instance/clan, its own board (or none), and whatever else it's running. */
-	private static ConnectionView view(String instanceId, String eventName, int done, int total,
+	/** A clan card: its own board (or none), and whatever else it's running. */
+	private static ConnectionView view(String eventName, int done, int total,
 		ConnectionView.Ladder ladder, List<ConnectionView.WeeklyView> weeklies,
-		List<ConnectionView.ScheduledView> scheduled, Boolean member)
+		List<ConnectionView.ScheduledView> scheduled)
 	{
-		return new ConnectionView(instanceId, "The AFK Spot", eventName, null, done, total, null, null, null,
-			null, false, null, null, ladder, weeklies, scheduled, member);
+		return new ConnectionView("The AFK Spot", eventName, null, done, total, null, null, null,
+			null, false, null, null, ladder, weeklies, scheduled);
 	}
 
 	/** A board-carrying home card with the given weeklies attached. */
 	private static ConnectionView board(String eventName, List<ConnectionView.WeeklyView> weeklies)
 	{
-		return view("local", eventName, 14, 25, null, weeklies, null, null);
+		return view(eventName, 14, 25, null, weeklies, null);
 	}
 
 	@Test
@@ -70,8 +70,8 @@ public class SidebarEventsTest
 	public void weeklyOnlyClanStillHasAnEvent()
 	{
 		// No board at all (no event name, no tiles) — the weekly IS the clan's event.
-		ConnectionView c = view("local", null, 0, 0, null,
-			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null, null);
+		ConnectionView c = view(null, 0, 0, null,
+			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null);
 
 		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(c);
 		assertEquals(1, events.size());
@@ -81,7 +81,7 @@ public class SidebarEventsTest
 	@Test
 	public void eventlessClanOffersNothingToPick()
 	{
-		ConnectionView c = new ConnectionView("local", "The AFK Spot", null, 0, 0, null);
+		ConnectionView c = view(null, 0, 0, null, null, null);
 		// Nothing running → the panel falls back to today's "No active event yet." card.
 		assertTrue(AnvilSidebarPanel.eventsOf(c).isEmpty());
 	}
@@ -89,9 +89,9 @@ public class SidebarEventsTest
 	@Test
 	public void ladderBoardIsLabelledAsALadder()
 	{
-		ConnectionView c = view("local", "Daily Missions", 0, 0,
+		ConnectionView c = view("Daily Missions", 0, 0,
 			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList(), true),
-			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null, null);
+			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null);
 
 		assertEquals("Ladder", AnvilSidebarPanel.eventsOf(c).get(0).kind);
 	}
@@ -104,9 +104,9 @@ public class SidebarEventsTest
 	@Test
 	public void bingoWithMissionsIsStillLabelledABingo()
 	{
-		ConnectionView c = view("local", "Test missions bingo", 3, 12,
+		ConnectionView c = view("Test missions bingo", 3, 12,
 			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList(), false),
-			Collections.emptyList(), null, null);
+			Collections.emptyList(), null);
 
 		assertEquals("Bingo", AnvilSidebarPanel.eventsOf(c).get(0).kind);
 	}
@@ -114,9 +114,9 @@ public class SidebarEventsTest
 	@Test
 	public void scheduledBingosListAfterTheLiveStuff()
 	{
-		ConnectionView c = view("local", "Summer Bingo", 14, 25, null,
+		ConnectionView c = view("Summer Bingo", 14, 25, null,
 			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")),
-			Arrays.asList(upcomingBingo(31, "Autumn Bingo", "2026-09-01T00:00:00Z")), null);
+			Arrays.asList(upcomingBingo(31, "Autumn Bingo", "2026-09-01T00:00:00Z")));
 
 		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(c);
 		assertEquals(3, events.size());
@@ -134,14 +134,14 @@ public class SidebarEventsTest
 		assertEquals("5×5 · 25 tiles", s.sizeLabel());
 		assertEquals("Bingo", s.kindLabel());
 		assertEquals("Tile race",
-			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 0, "tilerace", "tiles", null)
+			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 0, "tilerace", "tiles", null, null)
 				.kindLabel());
 		assertEquals("Bingo (points)",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 0, "bingo", "points", null)
+			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 0, "bingo", "points", null, null)
 				.kindLabel());
 		// Nothing to say about size when the site didn't tell us.
 		assertEquals("",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 0, "bingo", "points", null)
+			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 0, "bingo", "points", null, null)
 				.sizeLabel());
 	}
 
@@ -155,20 +155,20 @@ public class SidebarEventsTest
 	{
 		// The board from the bug report: Leagues, 240 tiles.
 		assertEquals("240 tiles",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 240, 240, "bingo", "points", null)
+			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 240, 240, "bingo", "points", null, null)
 				.sizeLabel());
 		// boardSize alone still answers "how big", because for a list it IS the tile count.
 		assertEquals("240 tiles",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 240, "bingo", "points", null)
+			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 240, "bingo", "points", null, null)
 				.sizeLabel());
 		assertEquals("8 tiles",
-			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 8, "tilerace", "tiles", null)
+			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 8, "tilerace", "tiles", null, null)
 				.sizeLabel());
 		assertEquals("12 tiles",
-			new ConnectionView.ScheduledView(1, "Ladder", null, null, false, 12, 12, "ladder", "points", null)
+			new ConnectionView.ScheduledView(1, "Ladder", null, null, false, 12, 12, "ladder", "points", null, null)
 				.sizeLabel());
 		assertEquals("1 tile",
-			new ConnectionView.ScheduledView(1, "Bounty", null, null, false, 1, 1, "bingo", "points", null)
+			new ConnectionView.ScheduledView(1, "Bounty", null, null, false, 1, 1, "bingo", "points", null, null)
 				.sizeLabel());
 	}
 
@@ -178,10 +178,10 @@ public class SidebarEventsTest
 		// A half-authored board keeps its geometry and reports the tiles that actually exist — the
 		// count is never derived from N², which would claim tiles nobody has written yet.
 		assertEquals("5×5 · 12 tiles",
-			new ConnectionView.ScheduledView(1, "Half-built", null, null, false, 12, 5, "bingo", "tiles", null)
+			new ConnectionView.ScheduledView(1, "Half-built", null, null, false, 12, 5, "bingo", "tiles", null, null)
 				.sizeLabel());
 		assertEquals("5×5",
-			new ConnectionView.ScheduledView(1, "Unauthored", null, null, false, 0, 5, "bingo", "tiles", null)
+			new ConnectionView.ScheduledView(1, "Unauthored", null, null, false, 0, 5, "bingo", "tiles", null, null)
 				.sizeLabel());
 	}
 
@@ -190,11 +190,11 @@ public class SidebarEventsTest
 	{
 		// No format on the wire: 25 tiles on a board of 5 really is 5×5…
 		assertEquals("5×5 · 25 tiles",
-			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 25, 5, null, null, null)
+			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 25, 5, null, null, null, null)
 				.sizeLabel());
 		// …while 240 tiles on a board of 240 is a list, whatever the field is called.
 		assertEquals("240 tiles",
-			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 240, 240, null, null, null)
+			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 240, 240, null, null, null, null)
 				.sizeLabel());
 	}
 

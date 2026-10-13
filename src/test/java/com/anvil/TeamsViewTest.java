@@ -26,8 +26,8 @@ public class TeamsViewTest
 	public void teamColourFallsBackToGrey()
 	{
 		assertEquals(new Color(0xff0000), TeamsView.teamColor("#FF0000"));
-		assertEquals(PlayerCardView.MUTED, TeamsView.teamColor("red"));
-		assertEquals(PlayerCardView.MUTED, TeamsView.teamColor(null));
+		assertEquals(Ui.MUTED, TeamsView.teamColor("red"));
+		assertEquals(Ui.MUTED, TeamsView.teamColor(null));
 	}
 
 	@Test

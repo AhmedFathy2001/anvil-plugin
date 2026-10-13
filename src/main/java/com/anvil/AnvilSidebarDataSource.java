@@ -11,7 +11,7 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The live {@link SidebarDataSource} behind the sidebar: renders the plugin's one home — a view over the
+ * The data source behind the sidebar: renders the plugin's one home — a view over the
  * already-polled {@link PluginConfigResponse} plus the injected {@link BingoApiClient} — into a single
  * {@link ConnectionView}. Board summary + nearest tiles come from config; while the sidebar is open it may
  * tighten the config refresh window so browser-side sign-ups appear promptly. The feed remains a conditional
@@ -27,9 +27,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class AnvilSidebarDataSource implements SidebarDataSource
 {
-	/** Stable id for the plugin's one home. */
-	static final String LOCAL_INSTANCE_ID = "local";
-
 	private static final int NEAREST_LIMIT = 10;
 	private static final int MAX_ACTIVE = 4;
 
@@ -54,9 +51,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/** The playing account's RSN — flags "you" in a weekly's standings. Null/blank while logged out. */
 	private final Supplier<String> localRsn;
 
-	/** Is this account a real member of the HOME clan? {@code null} until the login handshake answers. */
-	private final Supplier<Boolean> homeMembership;
-
 	// Weekly standings cache (compId → last leaderboard read), the comps already read this generation,
 	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
 	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
@@ -68,31 +62,14 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private final AnvilActivityLog activityLog = new AnvilActivityLog();
 	private int scopedEventId = -1;
 
-	// Config-delta signal state (per instance id): last-seen amount per tile + when each rose. Cleared on event change.
-	private final Map<String, Map<Integer, Integer>> lastAmounts = new HashMap<>();
-	private final Map<String, Map<Integer, Long>> roseAt = new HashMap<>();
+	// Config-delta signal state: last-seen amount per tile + when each rose. Cleared on event change.
+	private Map<Integer, Integer> lastAmounts = new HashMap<>();
+	private final Map<Integer, Long> roseAt = new HashMap<>();
 
-	/** Single-home binding — the plugin's live config + injected client. */
-	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient)
-	{
-		this(configSupplier, apiClient, Collections::emptyMap);
-	}
-
-	/** Single-home binding with the local stat signal (drives attribution in tests). */
-	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
-		Supplier<Map<Integer, Long>> localStatProgress)
-	{
-		this(configSupplier, apiClient, localStatProgress, () -> null);
-	}
-
-	/** Adds the playing account's RSN for the weekly standings' "you" row. */
-	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
-		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn)
-	{
-		this(configSupplier, apiClient, localStatProgress, localRsn, () -> null);
-	}
-
-	/** The real plugin binding — also carries whether this account is a member (not a guest) at home. */
+	/**
+	 * The plugin binding. {@code homeMembership} (is this account a member, not a guest, at home) is
+	 * no longer read: it steered the federated multi-clan view, which is gone.
+	 */
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
 		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn,
 		Supplier<Boolean> homeMembership)
@@ -101,7 +78,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this.apiClient = apiClient;
 		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
 		this.localRsn = localRsn == null ? () -> null : localRsn;
-		this.homeMembership = homeMembership == null ? () -> null : homeMembership;
 	}
 
 	/**
@@ -125,128 +101,114 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		this.plugin = plugin;
 	}
 
-	@Override
-	public PanelActions actionsFor(String instanceId)
+	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
+	private void withPlugin(java.util.function.Consumer<AnvilPlugin> f)
 	{
 		AnvilPlugin p = plugin;
-		if (p == null || !LOCAL_INSTANCE_ID.equals(instanceId))
+		if (p != null)
 		{
-			// Another clan's card. A roster sync there is impossible (you can only read the clan
-			// channel you're in) and a profile sync has nowhere to go yet, so the panel offers
-			// neither rather than offering something that would fail.
-			return new PanelActions(false, false, null);
+			f.accept(p);
+		}
+	}
+
+	/** {@code f} of the bound plugin, or {@code none} when there isn't one. */
+	private <T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none)
+	{
+		AnvilPlugin p = plugin;
+		return p == null ? none : f.apply(p);
+	}
+
+	/** Actions available for the clan on screen. Never null. */
+	public PanelActions actionsFor()
+	{
+		AnvilPlugin p = plugin;
+		if (p == null)
+		{
+			return PanelActions.NONE;
 		}
 		boolean profile = p.canSyncProfileFromPanel();
 		if (!p.isAdmin())
 		{
 			return new PanelActions(false, profile, null);
 		}
-		// Admin, at home — but the roster comes from the clan channel, so it has to be readable. The
-		// CACHED answer: this runs while the panel paints, on the EDT, where asking the client
-		// directly is a thread violation.
+		// Admin — but the roster comes from the clan channel, so it has to be readable. The CACHED
+		// answer: this runs while the panel paints, on the EDT, where asking the client directly is a
+		// thread violation.
 		boolean scrape = p.isClanRosterReadable();
 		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
 	}
 
-	@Override
+	/** The logged-in character's row, or {@code null} to hide it (logged out, not signed in). */
 	public AccountRow accountRow()
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? null : p.accountRow();
+		return fromPlugin(AnvilPlugin::accountRow, null);
 	}
 
-	@Override
+	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
 	public void accountAction(AccountRow.Action action, java.util.function.Consumer<String> done)
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.accountAction(action, done);
-		}
+		withPlugin(p -> p.accountAction(action, done));
 	}
 
-	@Override
+	/** Push the in-game clan roster to the home site. */
 	public void syncRoster()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.syncClanRosterFromPanel();
-		}
+		withPlugin(AnvilPlugin::syncClanRosterFromPanel);
 	}
 
-	@Override
+	/** Send this account's collection log + bests to the home site. */
 	public void syncProfile()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.syncProfileNow();
-		}
+		withPlugin(AnvilPlugin::syncProfileNow);
 	}
 
-	@Override
+	/** Local banner-sound clips, newest listing each call. Empty when the folder has none. */
 	public java.util.List<String> bannerSounds()
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? java.util.Collections.emptyList() : p.bannerSoundClips();
+		return fromPlugin(AnvilPlugin::bannerSoundClips, Collections.emptyList());
 	}
 
-	@Override
+	/** Is this clip in the play cycle? */
 	public boolean bannerSoundOn(String clip)
 	{
-		AnvilPlugin p = plugin;
-		return p != null && p.bannerSoundSelected(clip);
+		return fromPlugin(p -> p.bannerSoundSelected(clip), false);
 	}
 
-	@Override
+	/** Flip one clip in or out of the cycle. */
 	public void toggleBannerSound(String clip)
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.toggleBannerSound(clip);
-		}
+		withPlugin(p -> p.toggleBannerSound(clip));
 	}
 
-	@Override
+	/** Copy the sounds folder's path — hub releases may not open a file manager (see Clipboards). */
 	public void copyBannerSoundsPath()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.copyBannerSoundsPath();
-		}
+		withPlugin(AnvilPlugin::copyBannerSoundsPath);
 	}
 
-	@Override
+	/** Import a .wav into the local clips folder. */
 	public void importBannerSounds()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.importBannerSounds();
-		}
+		withPlugin(AnvilPlugin::importBannerSounds);
 	}
 
-	@Override
+	/** Mission clips — the folder that decides whether missions play a clip or the built-in chime. */
 	public java.util.List<String> missionSounds()
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? java.util.Collections.emptyList() : p.missionSoundClips();
+		return fromPlugin(AnvilPlugin::missionSoundClips, Collections.emptyList());
 	}
 
-	@Override
+	/** Import a .wav into the mission clips folder. */
 	public void importMissionSounds()
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.importMissionSounds();
-		}
+		withPlugin(AnvilPlugin::importMissionSounds);
 	}
 
-	@Override
+	/**
+	 * The STARTING SHOT this account still owes on the addressed clan's live event (site lib/startProof),
+	 * or {@code null} when nothing is owed — which is the case on every event that doesn't ask for
+	 * one, on sites that predate the feature, and the moment one is filed.
+	 */
 	public PluginConfigResponse.StartProof startProof()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
@@ -260,21 +222,22 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return AnvilOverlay.isEventActive(cfg.event) ? cfg.startProof : null;
 	}
 
-	@Override
+	/**
+	 * The starting shot's live requirements (session age, position) for the card, in display order.
+	 * Empty where nothing is checked. Cheap and non-blocking: the panel polls it every second.
+	 */
 	public java.util.List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? java.util.Collections.emptyList() : p.startProofChecks(proof);
+		return fromPlugin(p -> p.startProofChecks(proof), Collections.emptyList());
 	}
 
-	@Override
+	/** Will the plugin take the starting shot by itself once the checks pass? (config autoStartShot) */
 	public boolean autoStartShot()
 	{
-		AnvilPlugin p = plugin;
-		return p != null && p.autoStartShotEnabled();
+		return fromPlugin(AnvilPlugin::autoStartShotEnabled, false);
 	}
 
-	@Override
+	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	public void captureStartProof()
 	{
 		Runnable capture = startProofCapture;
@@ -284,55 +247,65 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 	}
 
-	@Override
+	/**
+	 * Full visible board for the sidebar catalogue. {@code eventId <= 0} means the caller's active,
+	 * team-scoped board; a positive id is a named board (team-scoped when the caller is enrolled,
+	 * otherwise a read-only preview, including a revealed pre-start board). Blocking.
+	 */
 	public BingoApiClient.BoardResponse fetchBoard(int eventId)
 	{
 		return eventId > 0 ? apiClient.fetchBoardPreview(eventId) : apiClient.fetchBoard();
 	}
 
-	@Override
+	/**
+	 * Logged in as a character the site can name. A claim is that character's, so it needs the played
+	 * name; at the login screen the board can still be shown (off the launcher hint) but not claimed on.
+	 */
 	public boolean canClaimNow()
 	{
 		return apiClient.getCurrentRsn() != null;
 	}
 
-	@Override
+	/** Whether the site serves player cards (the Lookup and You tabs). False ⇒ fall back to the browser. */
 	public boolean supportsPlayerCard()
 	{
 		return siteSupports("player-card");
 	}
 
-	@Override
+	/** Whether the site serves clan cards and clan lookup. */
 	public boolean supportsClanCard()
 	{
 		return siteSupports("clan-card");
 	}
 
-	@Override
+	/** Blocking; off the EDT. Null when not visible or on failure. */
 	public ClanCard fetchClanCard(String slug)
 	{
 		return apiClient.fetchClanCard(slug);
 	}
 
-	@Override
+	/** Blocking; off the EDT. */
 	public java.util.List<ClanCard.Found> lookupClans(String q)
 	{
 		return apiClient.lookupClans(q);
 	}
 
-	@Override
+	/** Whether the site keeps goals (the You tab's targets). */
 	public boolean supportsGoals()
 	{
 		return siteSupports("goals");
 	}
 
-	@Override
+	/** Whether the site serves paged event rosters (the event's Teams page). False ⇒ no Teams row. */
 	public boolean supportsEventRoster()
 	{
 		return siteSupports("event-roster");
 	}
 
-	@Override
+	/**
+	 * One page of an event's roster: {@code teamId > 0} for a team's members, a non-blank
+	 * {@code query} to search players, neither for the ranked overview. Null on failure. Blocking.
+	 */
 	public EventRoster fetchRoster(int eventId, int teamId, String query, int page)
 	{
 		return apiClient.fetchRoster(eventId, teamId, query, page);
@@ -353,111 +326,119 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
-	@Override
+	/** One log page's items for the card. Blocking; off the EDT. Null on failure. */
 	public BingoApiClient.ClogPageView fetchClogPage(String rsn, String page)
 	{
 		return apiClient.fetchClogPage(rsn, page);
 	}
 
-	@Override
+	/** Blocking; off the EDT. Null on a network failure. */
 	public BingoApiClient.GoalsResult fetchGoals()
 	{
 		return apiClient.fetchGoals();
 	}
 
-	@Override
 	public BingoApiClient.GoalsResult addGoal(String kind, String metric, int target, String dueOn)
 	{
 		return apiClient.addGoal(kind, metric, target, dueOn);
 	}
 
-	@Override
 	public BingoApiClient.GoalsResult removeGoal(int id)
 	{
 		return apiClient.removeGoal(id);
 	}
 
-	@Override
+	/** One character's card. Blocking; call off the EDT. Null on a network failure. */
 	public BingoApiClient.PlayerCardResult fetchPlayerCard(String rsn)
 	{
 		return apiClient.fetchPlayerCard(rsn);
 	}
 
-	@Override
+	/** The character logged in right now, or null at the login screen. */
 	public String myRsn()
 	{
 		return apiClient.getCurrentRsn();
 	}
 
-	@Override
+	/**
+	 * Whether the site takes tile claims (capability {@code tile-claims}). The catalogue only offers
+	 * "I'm going for this" when it does, so an older site never sees a click it can't answer.
+	 */
 	public boolean supportsTileClaims()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
 		return cfg != null && cfg.serverSupports("tile-claims");
 	}
 
-	@Override
+	/** Claim a tile on your own team, or update your note. Blocking; call from a SwingWorker. */
 	public void claimTile(int eventId, int tileId, String note) throws java.io.IOException
 	{
 		apiClient.claimTile(eventId, tileId, note);
 	}
 
-	@Override
+	/** Drop your own claim on a tile. Blocking; call from a SwingWorker. */
 	public void unclaimTile(int eventId, int tileId) throws java.io.IOException
 	{
 		apiClient.unclaimTile(eventId, tileId);
 	}
 
-	@Override
-	public List<ConnectionView> fetchConnections() throws SidebarDataException
-	{
-		return fetchConnections(false);
-	}
-
-	/** {@code force} = the member clicked Refresh — re-reads config and bypasses the weekly throttle. */
-	@Override
-	public List<ConnectionView> fetchConnections(boolean force) throws SidebarDataException
+	/**
+	 * The addressed clan and its board progress, or null when there is no config to anchor a card on.
+	 * Blocking; the panel calls it off the EDT. {@code force} = the member clicked Refresh — re-reads
+	 * config and bypasses the weekly throttle.
+	 */
+	public ConnectionView fetch(boolean force)
 	{
 		// A clicked Refresh is the member saying "I just changed something" — often that they were
 		// made a clan admin. Ask now, not on the five-minute re-probe, so the roster-sync button shows.
-		AnvilPlugin p = plugin;
-		if (p != null)
+		withPlugin(p ->
 		{
 			p.refreshConfigForSidebar(force);
 			if (force)
 			{
 				p.reprobeAdminNow();
 			}
-		}
-		ConnectionView view = buildView(force);
-		return view == null ? Collections.emptyList() : Collections.singletonList(view);
+		});
+		return buildView(force);
 	}
 
 	// ── The clan switcher's data ────────────────────────────────────────────────────────────────
 	//
-	// Straight off the config this source already reads, so offering the dropdown costs no request.
+	// One Anvil serves every clan, so the Site URL names none of them and a person may hold seats in
+	// several. Straight off the config this source already reads, so offering the dropdown costs no
+	// request.
 
-	@Override
+	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	public List<PluginConfigResponse.ClanRef> clans()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
 		return cfg == null ? Collections.emptyList() : cfg.switchableClans();
 	}
 
-	@Override
+	/** The member's explicit pick, or "" when they are on Auto and the site is deciding. */
 	public String chosenClan()
 	{
-		AnvilPlugin p = plugin;
-		return p == null ? "" : p.getChosenClan();
+		return fromPlugin(AnvilPlugin::getChosenClan, "");
 	}
 
-	@Override
+	/**
+	 * The clan slug this plugin is actually addressing — a pick if there is one, else whatever the
+	 * site resolved. "" before the first answer.
+	 */
 	public String activeClan()
 	{
 		return apiClient.getActiveClan();
 	}
 
-	@Override
+	/**
+	 * The board the panel is RENDERING, as a cross-clan identity ({@code "bingo:<id>"}), or "" when
+	 * there is none.
+	 *
+	 * <p>Not the same question as {@link #activeClan()}: a co-hosted board belongs to both hosts, so
+	 * the clan being addressed and the clan whose row reports that board need not be the same one.
+	 * Dedup "Also live" against the board on screen and the two can drift as much as they like
+	 * without the panel listing one event twice.</p>
+	 */
 	public String addressedBoard()
 	{
 		PluginConfigResponse cfg = configSupplier.get();
@@ -476,14 +457,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			: "";
 	}
 
-	@Override
+	/** The member picked a clan (or "" for Auto): persist it and refetch, without waiting. EDT-safe. */
 	public void chooseClan(String slug)
 	{
-		AnvilPlugin p = plugin;
-		if (p != null)
-		{
-			p.setChosenClan(slug);
-		}
+		withPlugin(p -> p.setChosenClan(slug));
 	}
 
 	private ConnectionView buildView(boolean force)
@@ -516,23 +493,22 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 			// No member-scoped event: either the clan genuinely has no live event, or one IS running
 			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
-			// home card — without it, a federated sidebar shows only the OTHER clans, which reads as
-			// "my main clan disappeared".
+			// home card.
 			PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
 			if (hb != null)
 			{
 				// The site resolved the user's live enrollment server-side (token → linked member →
 				// team), so the board summary renders even at the login screen; the live layers
 				// (nearest tiles, active-now) still wait for a playing account.
-				return new ConnectionView(LOCAL_INSTANCE_ID, homeClanName(cfg), hb.eventName,
+				return new ConnectionView(homeClanName(cfg), hb.eventName,
 					null, hb.tilesComplete, hb.tilesTotal, null, null, null, null, hb.pointsScored,
-					"Log in in-game for live tracking.", null, null, weeklies, scheduled, homeMembership.get());
+					"Log in in-game for live tracking.", null, null, weeklies, scheduled);
 			}
 			String note = cfg.unlinkedActiveEvent != null && !cfg.unlinkedActiveEvent.isEmpty()
 				? "Log in in-game to load your board."
 				: null; // null → the panel's "No active event yet."
-			return new ConnectionView(LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.unlinkedActiveEvent,
-				null, 0, 0, null, null, null, null, false, note, null, null, weeklies, scheduled, homeMembership.get());
+			return new ConnectionView(homeClanName(cfg), cfg.unlinkedActiveEvent,
+				null, 0, 0, null, null, null, null, false, note, null, null, weeklies, scheduled);
 		}
 
 		if (cfg.event.id != scopedEventId)
@@ -552,13 +528,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
 		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
 		boolean pointsScored = "points".equalsIgnoreCase(cfg.event.scoringMode)
-			&& ClogTaskModel.totalPoints(rows, optionalIds) > 0;
-		int tilesTotal = pointsScored
-			? ClogTaskModel.totalPoints(rows, optionalIds)
-			: ClogTaskModel.scoredCount(rows, optionalIds);
-		int tilesComplete = pointsScored
-			? ClogTaskModel.earnedPoints(rows, optionalIds)
-			: ClogTaskModel.completedCount(rows, optionalIds);
+			&& ClogTaskModel.tally(rows, optionalIds, false, true) > 0;
+		int tilesTotal = ClogTaskModel.tally(rows, optionalIds, false, pointsScored);
+		int tilesComplete = ClogTaskModel.tally(rows, optionalIds, true, pointsScored);
 		// THE BOARD, NOT THE PART OF IT THIS PLUGIN CAN SEE. The rows above are the tiles it can
 		// DETECT — a drop, a KC, an XP goal — so a board carrying manual tiles counted 10 of its 25
 		// and called that 50% while every other surface said 20%. When the site sends the board's own
@@ -599,10 +571,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// event name lives on the card itself. Falls back to team/event for pre-clanName sites;
 		// ConnectionView maps "" → "(unnamed clan)".
 		return new ConnectionView(
-			LOCAL_INSTANCE_ID, homeClanName(cfg), cfg.event.name, error,
+			homeClanName(cfg), cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
 			null, ladder != null && ladder.ladderFormat ? null : revealNote(cfg.event),
-			ladder, weeklies, scheduled, homeMembership.get());
+			ladder, weeklies, scheduled);
 	}
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
@@ -945,7 +917,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	{
 		activityLog.reset();
 		scopedEventId = -1;
-		forgetDeltas(LOCAL_INSTANCE_ID);
+		lastAmounts.clear();
+		roseAt.clear();
 	}
 
 	/** The clan/event label for the header: team name ?? event name ?? "". */
@@ -960,12 +933,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			return cfg.event.name;
 		}
 		return "";
-	}
-
-	private void forgetDeltas(String instanceId)
-	{
-		lastAmounts.remove(instanceId);
-		roseAt.remove(instanceId);
 	}
 
 	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
@@ -1038,8 +1005,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
 		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
-		Map<Integer, Integer> last = lastAmounts.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
-		Map<Integer, Long> rose = roseAt.computeIfAbsent(LOCAL_INSTANCE_ID, k -> new HashMap<>());
 		Map<Integer, Integer> current = new HashMap<>();
 		for (ClogTaskModel.TaskRow r : rows)
 		{
@@ -1048,13 +1013,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				continue;
 			}
-			Integer prev = last.get(r.tileId);
+			Integer prev = lastAmounts.get(r.tileId);
 			if (prev != null && r.current > prev)
 			{
-				rose.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
+				roseAt.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
 			}
 		}
-		for (Map.Entry<Integer, Long> en : rose.entrySet())
+		for (Map.Entry<Integer, Long> en : roseAt.entrySet())
 		{
 			if (now - en.getValue() > ACTIVE_WINDOW_MS || !incompleteById.containsKey(en.getKey()))
 			{
@@ -1071,7 +1036,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			}
 			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
 		}
-		lastAmounts.put(LOCAL_INSTANCE_ID, current);
+		lastAmounts = current;
 
 		// Newest-active first, capped; "You" leads each row's workers.
 		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());

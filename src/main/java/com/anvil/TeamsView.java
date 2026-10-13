@@ -3,11 +3,8 @@ package com.anvil;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executor;
@@ -24,15 +21,9 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
 
-import static com.anvil.PlayerCardView.MUTED;
-import static com.anvil.PlayerCardView.block;
-import static com.anvil.PlayerCardView.gap;
 import static com.anvil.PlayerCardView.header;
-import static com.anvil.PlayerCardView.hoverable;
-import static com.anvil.PlayerCardView.safe;
-import static com.anvil.PlayerCardView.small;
+import static com.anvil.Ui.*;
 
 /**
  * An event's Teams page: who is on which team, a page at a time ({@link EventRoster}).
@@ -88,22 +79,15 @@ final class TeamsView extends JPanel
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 		setAlignmentX(LEFT_ALIGNMENT);
 
-		search.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		search.setForeground(Color.WHITE);
-		search.setCaretColor(Color.WHITE);
-		search.setSelectionColor(ColorScheme.BRAND_ORANGE);
-		search.setSelectedTextColor(Color.BLACK);
-		search.setFont(FontManager.getRunescapeFont());
+		styleSearch(search);
 		search.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 		search.setToolTipText("Find a player on any team");
 		JLabel hint = small("Search players", MUTED);
-		JPanel searchRow = new JPanel(new BorderLayout(0, 2));
+		JPanel searchRow = left(new JPanel(new BorderLayout(0, 2)));
 		searchRow.setOpaque(false);
-		searchRow.setAlignmentX(LEFT_ALIGNMENT);
 		searchRow.add(hint, BorderLayout.NORTH);
 		searchRow.add(search, BorderLayout.CENTER);
-		searchRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, searchRow.getPreferredSize().height));
-		add(searchRow);
+		add(capH(searchRow));
 		add(gap(8));
 
 		debounce = new Timer(SEARCH_DELAY_MS, e ->
@@ -113,18 +97,12 @@ final class TeamsView extends JPanel
 			load();
 		});
 		debounce.setRepeats(false);
-		search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
+		onEdit(search, () ->
 		{
-			private void changed()
+			if (!settingSearch)
 			{
-				if (!settingSearch)
-				{
-					debounce.restart();
-				}
+				debounce.restart();
 			}
-			@Override public void insertUpdate(javax.swing.event.DocumentEvent e) { changed(); }
-			@Override public void removeUpdate(javax.swing.event.DocumentEvent e) { changed(); }
-			@Override public void changedUpdate(javax.swing.event.DocumentEvent e) { changed(); }
 		});
 		search.addActionListener(e ->
 		{
@@ -136,8 +114,7 @@ final class TeamsView extends JPanel
 
 		results.setLayout(new BoxLayout(results, BoxLayout.Y_AXIS));
 		results.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		results.setAlignmentX(LEFT_ALIGNMENT);
-		add(results);
+		add(left(results));
 
 		load();
 	}
@@ -336,30 +313,20 @@ final class TeamsView extends JPanel
 	private void renderMembers()
 	{
 		EventRoster.Team t = data.team;
-		JLabel back = new JLabel("‹ All teams");
-		back.setFont(FontManager.getRunescapeSmallFont());
-		back.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		back.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel back = small("‹ All teams", ColorScheme.LIGHT_GRAY_COLOR);
 		hoverable(back, ColorScheme.DARK_GRAY_COLOR, this::backToTeams);
 		results.add(back);
 		results.add(gap(6));
 		if (t != null)
 		{
 			JPanel card = block();
-			JPanel title = new JPanel(new BorderLayout(6, 0));
-			title.setOpaque(false);
-			title.setAlignmentX(LEFT_ALIGNMENT);
+			JPanel title = row(6);
 			title.add(swatch(t.color, 10), BorderLayout.WEST);
-			JLabel name = new JLabel(safe(t.name));
-			name.setFont(FontManager.getRunescapeBoldFont());
-			name.setForeground(Color.WHITE);
-			title.add(name, BorderLayout.CENTER);
-			title.setMaximumSize(new Dimension(Integer.MAX_VALUE, title.getPreferredSize().height));
-			card.add(title);
+			title.add(title(t.name), BorderLayout.CENTER);
+			card.add(capH(title));
 			card.add(gap(3));
 			card.add(small(teamLine(t), MUTED));
-			card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
-			results.add(card);
+			results.add(capH(card));
 			results.add(gap(8));
 		}
 		if (data.players == null || data.players.isEmpty())
@@ -404,43 +371,29 @@ final class TeamsView extends JPanel
 		JButton next = AnvilSidebarPanel.flatButton("Next ›", "The next page", () -> goToPage(data.page + 1));
 		prev.setEnabled(data.page > 1 && !loading);
 		next.setEnabled(data.page < data.pages && !loading);
-		JLabel where = new JLabel(data.page + " / " + data.pages, SwingConstants.CENTER);
-		where.setFont(FontManager.getRunescapeSmallFont());
-		where.setForeground(MUTED);
-		JPanel row = new JPanel(new BorderLayout(6, 0));
-		row.setOpaque(false);
-		row.setAlignmentX(LEFT_ALIGNMENT);
+		JLabel where = small(data.page + " / " + data.pages, MUTED);
+		where.setHorizontalAlignment(SwingConstants.CENTER);
+		JPanel row = row(6);
 		row.add(prev, BorderLayout.WEST);
 		row.add(where, BorderLayout.CENTER);
 		row.add(next, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		results.add(row);
+		results.add(capH(row));
 	}
 
 	// ---- Rows -------------------------------------------------------------------------------------
 
 	private JPanel teamRow(EventRoster.Team t)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
+		JPanel row = row(6);
 		row.setBorder(BorderFactory.createEmptyBorder(5, 6, 5, 6));
-		row.setAlignmentX(LEFT_ALIGNMENT);
 		row.add(swatch(t.color, 8), BorderLayout.WEST);
-
-		JPanel text = new JPanel(new BorderLayout());
-		text.setOpaque(false);
-		JLabel name = new JLabel(safe(t.name));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(t.yours ? YOU : Color.WHITE);
-		text.add(name, BorderLayout.NORTH);
-		text.add(small(teamLine(t), MUTED), BorderLayout.SOUTH);
-		row.add(text, BorderLayout.CENTER);
+		row.add(twoLines(small(t.name, t.yours ? YOU : Color.WHITE), small(teamLine(t), MUTED)), BorderLayout.CENTER);
 
 		JLabel arrow = new JLabel("›");
 		arrow.setForeground(MUTED);
 		row.add(arrow, BorderLayout.EAST);
-		row.setToolTipText(safe(t.name) + " — see who's on it");
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> openTeam(t.teamId));
+		row.setToolTipText(plainText(t.name) + " — see who's on it");
+		hoverable(capH(row), ColorScheme.DARKER_GRAY_COLOR, () -> openTeam(t.teamId));
 		return row;
 	}
 
@@ -451,25 +404,17 @@ final class TeamsView extends JPanel
 	 */
 	private JPanel personRow(EventRoster.Person p, boolean ranked, boolean showTeam)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
+		JPanel row = row(6);
 		row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-		row.setAlignmentX(LEFT_ALIGNMENT);
 
 		if (ranked)
 		{
-			JLabel rank = new JLabel(p.rank == null ? "–" : "#" + p.rank);
-			rank.setFont(FontManager.getRunescapeSmallFont());
-			rank.setForeground(p.rank != null && p.rank <= 3 ? ColorScheme.BRAND_ORANGE : MUTED);
+			JLabel rank = small(p.rank == null ? "–" : "#" + p.rank, p.rank != null && p.rank <= 3 ? ColorScheme.BRAND_ORANGE : MUTED);
 			rank.setPreferredSize(new Dimension(34, rank.getPreferredSize().height));
 			row.add(rank, BorderLayout.WEST);
 		}
 
-		JPanel text = new JPanel(new BorderLayout());
-		text.setOpaque(false);
-		JLabel name = new JLabel(safe(p.name));
-		name.setFont(FontManager.getRunescapeSmallFont());
-		name.setForeground(p.you ? YOU : Color.WHITE);
-		text.add(name, BorderLayout.NORTH);
+		JPanel text = twoLines(small(p.name, p.you ? YOU : Color.WHITE), null);
 		String second = showTeam
 			? (p.teamName != null ? p.teamName : "Not on a team yet")
 			: ranked ? p.score : null;
@@ -485,17 +430,9 @@ final class TeamsView extends JPanel
 			if (showTeam && p.teamId != null && canLookUp)
 			{
 				// The row looks the person up, so their team gets its own way in.
-				line.setText(safe(second + " ›"));
-				line.setToolTipText("Open " + safe(p.teamName));
-				line.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-				line.addMouseListener(new MouseAdapter()
-				{
-					@Override
-					public void mouseClicked(MouseEvent e)
-					{
-						openTeam(p.teamId);
-					}
-				});
+				line.setText(plainText(second + " ›"));
+				line.setToolTipText("Open " + plainText(p.teamName));
+				onClick(line, () -> openTeam(p.teamId));
 			}
 			text.add(line, BorderLayout.SOUTH);
 		}
@@ -506,15 +443,15 @@ final class TeamsView extends JPanel
 		{
 			row.add(small(tag, p.captain ? ColorScheme.BRAND_ORANGE : YOU), BorderLayout.EAST);
 		}
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		capH(row);
 		if (canLookUp)
 		{
-			row.setToolTipText("Look up " + safe(p.name));
+			row.setToolTipText("Look up " + plainText(p.name));
 			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> lookup.accept(p.name));
 		}
 		else if (showTeam && p.teamId != null)
 		{
-			row.setToolTipText("Open " + safe(p.teamName));
+			row.setToolTipText("Open " + plainText(p.teamName));
 			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () -> openTeam(p.teamId));
 		}
 		else
@@ -526,6 +463,19 @@ final class TeamsView extends JPanel
 	}
 
 	// ---- Bits -------------------------------------------------------------------------------------
+
+	/** A name over its second line ({@code below} may be null, to be added later). */
+	private static JPanel twoLines(JLabel top, JLabel below)
+	{
+		JPanel text = new JPanel(new BorderLayout());
+		text.setOpaque(false);
+		text.add(top, BorderLayout.NORTH);
+		if (below != null)
+		{
+			text.add(below, BorderLayout.SOUTH);
+		}
+		return text;
+	}
 
 	/** "#2 · 12 tiles · 8 members" — what is known; the rank and score wait for the reveal. */
 	static String teamLine(EventRoster.Team t)

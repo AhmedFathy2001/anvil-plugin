@@ -19,25 +19,17 @@ public class SidebarActionsTest
 	private static AnvilSidebarDataSource source()
 	{
 		return new AnvilSidebarDataSource(() -> new PluginConfigResponse(),
-			new BingoApiClient(new Gson(), new OkHttpClient()));
-	}
-
-	@Test
-	public void offersNothingForAnotherClan()
-	{
-		SidebarDataSource.PanelActions remote = source().actionsFor("some-other-clan");
-		assertFalse("a roster you can't see is not a button", remote.canSyncRoster);
-		assertFalse("and there is no wire to send a profile there yet", remote.canSyncProfile);
-		assertNull(remote.rosterNote);
+			new BingoApiClient(new Gson(), new OkHttpClient()), null, null, null);
 	}
 
 	@Test
 	public void offersNothingWithNoPluginBound()
 	{
 		// Tests and the pre-wiring window: the panel must render rather than blow up.
-		SidebarDataSource.PanelActions home = source().actionsFor(AnvilSidebarDataSource.LOCAL_INSTANCE_ID);
+		SidebarDataSource.PanelActions home = source().actionsFor();
 		assertFalse(home.canSyncRoster);
 		assertFalse(home.canSyncProfile);
+		assertNull(home.rosterNote);
 	}
 
 	@Test

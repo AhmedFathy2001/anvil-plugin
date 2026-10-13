@@ -2,7 +2,6 @@ package com.anvil;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,19 +10,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.LongFunction;
 import javax.swing.ImageIcon;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import net.runelite.api.Skill;
 import net.runelite.client.ui.ColorScheme;
 
-import static com.anvil.PlayerCardView.MUTED;
-import static com.anvil.PlayerCardView.block;
-import static com.anvil.PlayerCardView.column;
-import static com.anvil.PlayerCardView.gap;
 import static com.anvil.PlayerCardView.header;
-import static com.anvil.PlayerCardView.small;
+import static com.anvil.Ui.*;
 
 /**
  * Two players side by side — you and whoever you looked up. A line per headline number with the
@@ -73,14 +67,12 @@ final class CompareView
 			}
 			block.add(header("Skills", "you lead " + ahead + " · they lead " + behind));
 			block.add(gap(4));
-			JPanel grid = new JPanel(new GridLayout(0, 2, 6, 2));
+			JPanel grid = left(new JPanel(new GridLayout(0, 2, 6, 2)));
 			grid.setOpaque(false);
-			grid.setAlignmentX(JComponent.LEFT_ALIGNMENT);
 			for (SkillDiff d : skills)
 			{
-				JLabel cell = new JLabel(d.mine + " / " + d.theirs);
-				cell.setFont(net.runelite.client.ui.FontManager.getRunescapeSmallFont());
-				cell.setForeground(d.mine > d.theirs ? ColorScheme.PROGRESS_COMPLETE_COLOR : d.theirs > d.mine ? ColorScheme.PROGRESS_ERROR_COLOR : MUTED);
+				JLabel cell = small(d.mine + " / " + d.theirs,
+					d.mine > d.theirs ? ColorScheme.PROGRESS_COMPLETE_COLOR : d.theirs > d.mine ? ColorScheme.PROGRESS_ERROR_COLOR : MUTED);
 				cell.setIconTextGap(6);
 				cell.setToolTipText(d.skill.getName() + " — you " + d.mine + ", them " + d.theirs);
 				if (ic.skills != null)
@@ -129,51 +121,38 @@ final class CompareView
 
 	static JPanel namesRow(String left, String right)
 	{
-		JPanel row = new JPanel(new GridLayout(1, 3, 6, 0));
-		row.setOpaque(false);
-		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		row.add(new JLabel());
-		JLabel l = small(left, Color.WHITE);
-		l.setHorizontalAlignment(SwingConstants.RIGHT);
-		JLabel r = small(right, Color.WHITE);
-		r.setHorizontalAlignment(SwingConstants.RIGHT);
-		row.add(l);
-		row.add(r);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return threeUp(new JLabel(), small(left, Color.WHITE), small(right, Color.WHITE));
 	}
 
 	/** "Label    a    b" with the bigger of the two in orange. Negative = unknown, never leads. */
 	static JPanel row(String label, long a, long b, LongFunction<String> fmt)
 	{
-		JPanel row = new JPanel(new GridLayout(1, 3, 6, 0));
-		row.setOpaque(false);
-		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		row.add(small(label, MUTED));
 		Color lead = ColorScheme.BRAND_ORANGE;
-		JLabel l = small(fmt.apply(a), a >= 0 && a > b ? lead : Color.WHITE);
+		return threeUp(small(label, MUTED), small(fmt.apply(a), a >= 0 && a > b ? lead : Color.WHITE),
+			small(fmt.apply(b), b >= 0 && b > a ? lead : Color.WHITE));
+	}
+
+	/** Three equal columns, the two figures right-aligned. */
+	private static JPanel threeUp(JLabel first, JLabel l, JLabel r)
+	{
+		JPanel row = left(new JPanel(new GridLayout(1, 3, 6, 0)));
+		row.setOpaque(false);
+		row.add(first);
 		l.setHorizontalAlignment(SwingConstants.RIGHT);
-		JLabel r = small(fmt.apply(b), b >= 0 && b > a ? lead : Color.WHITE);
 		r.setHorizontalAlignment(SwingConstants.RIGHT);
 		row.add(l);
 		row.add(r);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
 	}
 
 	private static JPanel iconRow(String name, long a, long b, PlayerCardView.Icons ic)
 	{
-		JPanel row = new JPanel(new BorderLayout(6, 0));
-		row.setOpaque(false);
-		row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-		JLabel icon = new JLabel();
-		icon.setPreferredSize(new Dimension(22, 20));
-		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		JPanel row = Ui.row(6);
+		JLabel icon = PlayerCardView.iconSlot(22, 20);
 		PlayerCardView.bossIcon(icon, name, ic);
 		row.add(icon, BorderLayout.WEST);
 		row.add(row(name, a, b, n -> String.format(Locale.ROOT, "%,d", n)), BorderLayout.CENTER);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capH(row);
 	}
 
 	// ---- Diffs (package-private for tests) ---------------------------------------------------------

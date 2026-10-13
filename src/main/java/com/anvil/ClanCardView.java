@@ -2,29 +2,18 @@ package com.anvil;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Cursor;
 import java.awt.Dimension;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
 import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
 
-import static com.anvil.PlayerCardView.MUTED;
-import static com.anvil.PlayerCardView.block;
-import static com.anvil.PlayerCardView.column;
-import static com.anvil.PlayerCardView.gap;
 import static com.anvil.PlayerCardView.header;
-import static com.anvil.PlayerCardView.small;
-import static com.anvil.PlayerCardView.title;
+import static com.anvil.Ui.*;
 
 /**
  * A {@link ClanCard}: who the clan is, how hard it played this week and who carried it, its strongest
@@ -47,25 +36,14 @@ final class ClanCardView
 		JPanel root = column();
 
 		JPanel id = block();
-		JPanel nameRow = new JPanel(new BorderLayout(6, 0));
-		nameRow.setOpaque(false);
-		nameRow.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel nameRow = row(6);
 		nameRow.add(title(card.name), BorderLayout.CENTER);
-		JLabel web = new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 12, MUTED));
+		JLabel web = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 12, MUTED)), () ->
+			net.runelite.client.util.LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/c/"
+				+ java.net.URLEncoder.encode(card.slug, java.nio.charset.StandardCharsets.UTF_8)));
 		web.setToolTipText("Open the clan on the Anvil website");
-		web.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		web.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				net.runelite.client.util.LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/c/"
-					+ java.net.URLEncoder.encode(card.slug, java.nio.charset.StandardCharsets.UTF_8));
-			}
-		});
 		nameRow.add(web, BorderLayout.EAST);
-		nameRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, nameRow.getPreferredSize().height));
-		id.add(nameRow);
+		id.add(capH(nameRow));
 		id.add(gap(2));
 		id.add(small(String.format(Locale.ROOT, "%,d members · %,d active this week", card.members, card.activeThisWeek), MUTED));
 		if (card.clog != null)
@@ -120,12 +98,8 @@ final class ClanCardView
 			hl.add(gap(4));
 			for (ClanCard.Highlight h : card.highlights)
 			{
-				JPanel line = new JPanel(new BorderLayout(6, 0));
-				line.setOpaque(false);
-				line.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-				JLabel icon = new JLabel();
-				icon.setPreferredSize(new Dimension(24, 22));
-				icon.setHorizontalAlignment(SwingConstants.CENTER);
+				JPanel line = row(6);
+				JLabel icon = PlayerCardView.iconSlot(24, 22);
 				if (h.itemId != null && ic.items != null)
 				{
 					ic.items.getImage(h.itemId).addTo(icon);
@@ -137,8 +111,7 @@ final class ClanCardView
 				text.add(small(h.rsn + ("pet".equals(h.kind) ? " · pet" : ""), MUTED));
 				line.add(text, BorderLayout.CENTER);
 				line.add(small(PlayerCardView.ago(h.at), MUTED), BorderLayout.EAST);
-				line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
-				hl.add(line);
+				hl.add(capH(line));
 				hl.add(gap(2));
 			}
 			root.add(hl);
@@ -149,11 +122,9 @@ final class ClanCardView
 			root.add(gap(6));
 			JButton compare = new JButton("Compare with my clan");
 			compare.setFocusable(false);
-			compare.setFont(FontManager.getRunescapeSmallFont());
+			compare.setFont(SMALL);
 			compare.addActionListener(e -> onCompare.run());
-			JPanel row = new JPanel(new BorderLayout());
-			row.setOpaque(false);
-			row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+			JPanel row = row(0);
 			row.add(compare, BorderLayout.CENTER);
 			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, compare.getPreferredSize().height));
 			root.add(row);
@@ -164,20 +135,15 @@ final class ClanCardView
 	/** "Name ......... value" — the name opens that player's card when {@code onPlayer} is given. */
 	private static JPanel nameLine(String text, String value, String rsn, Consumer<String> onPlayer)
 	{
-		JPanel line = new JPanel(new BorderLayout(6, 0));
-		line.setAlignmentX(JComponent.LEFT_ALIGNMENT);
+		JPanel line = row(6);
 		line.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 		line.add(small(text, Color.WHITE), BorderLayout.CENTER);
 		line.add(small(value, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
-		line.setMaximumSize(new Dimension(Integer.MAX_VALUE, line.getPreferredSize().height));
+		capH(line);
 		if (onPlayer != null)
 		{
-			line.setToolTipText("Look up " + AnvilSidebarPanel.plainText(rsn));
-			PlayerCardView.hoverable(line, ColorScheme.DARKER_GRAY_COLOR, () -> onPlayer.accept(rsn));
-		}
-		else
-		{
-			line.setOpaque(false);
+			line.setToolTipText("Look up " + plainText(rsn));
+			hoverable(line, ColorScheme.DARKER_GRAY_COLOR, () -> onPlayer.accept(rsn));
 		}
 		return line;
 	}
@@ -190,13 +156,12 @@ final class ClanCardView
 		block.add(gap(4));
 		block.add(CompareView.row("Members", a.members, b.members, Long::toString));
 		block.add(CompareView.row("Active this week", a.activeThisWeek, b.activeThisWeek, Long::toString));
-		block.add(CompareView.row("Total EHP", Math.round(a.totalEhp), Math.round(b.totalEhp), n -> String.format(Locale.ROOT, "%,dh", n)));
-		block.add(CompareView.row("Total EHB", Math.round(a.totalEhb), Math.round(b.totalEhb), n -> String.format(Locale.ROOT, "%,dh", n)));
+		java.util.function.LongFunction<String> hours = n -> String.format(Locale.ROOT, "%,dh", n);
+		block.add(CompareView.row("Total EHP", Math.round(a.totalEhp), Math.round(b.totalEhp), hours));
+		block.add(CompareView.row("Total EHB", Math.round(a.totalEhb), Math.round(b.totalEhb), hours));
 		block.add(CompareView.row("Avg log slots", a.clog == null ? -1 : a.clog.average, b.clog == null ? -1 : b.clog.average,
 			n -> n < 0 ? "—" : String.format(Locale.ROOT, "%,d", n)));
-		block.add(CompareView.row("Gained this week", Math.round(a.weekHours), Math.round(b.weekHours),
-			n -> String.format(Locale.ROOT, "%,dh", n)));
+		block.add(CompareView.row("Gained this week", Math.round(a.weekHours), Math.round(b.weekHours), hours));
 		return block;
 	}
-
 }

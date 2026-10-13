@@ -46,9 +46,9 @@ public class PlayerCardViewTest
 	@Test
 	public void bossLabelsMatchRuneLiteSprites()
 	{
-		assertEquals(HiscoreSkill.VORKATH, PlayerCardView.hiscoreSkill("Vorkath"));
-		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.hiscoreSkill("Chambers of Xeric"));
-		assertNull(PlayerCardView.hiscoreSkill("Not a boss"));
+		assertEquals(HiscoreSkill.VORKATH, PlayerCardView.hiscoreSkill(null, "Vorkath"));
+		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, PlayerCardView.hiscoreSkill(null, "Chambers of Xeric"));
+		assertNull(PlayerCardView.hiscoreSkill(null, "Not a boss"));
 		// The site's keys, folded against RuneLite's enum — with a prefix for renames.
 		assertEquals(HiscoreSkill.ALCHEMICAL_HYDRA, PlayerCardView.hiscoreSkill("alchemicalHydra", "Alchemical Hydra"));
 		assertEquals(HiscoreSkill.BARROWS_CHESTS, PlayerCardView.hiscoreSkill("barrows", "Barrows"));
@@ -106,7 +106,7 @@ public class PlayerCardViewTest
 		card.rsn = "<html><img src='http://evil/x'>";
 		card.clan = new PlayerCard.Clan();
 		card.clan.name = "  <HTML><b>pwned";
-		assertNoHtml(PlayerCardView.render(card, null, null));
+		assertNoHtml(PlayerCardView.render(card, null, null, s -> { }));
 		assertNoHtml(PlayerCardView.notFound("<html>x"));
 		PlayerCard.Page page = new PlayerCard.Page();
 		page.name = "<html>evil page";

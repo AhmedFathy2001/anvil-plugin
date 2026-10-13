@@ -5,8 +5,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Immutable UI view-model for one connected clan/instance in the sidebar ({@link AnvilSidebarPanel}),
- * folding the {@code /meta} + {@code /board} reads (see {@code FEDERATION_WIRE.md} §7). RuneLite-free so
+ * Immutable UI view-model for the addressed clan in the sidebar ({@link AnvilSidebarPanel}), folding
+ * the polled config + feed reads. RuneLite-free so
  * it's unit-testable and the panel binds to this shape, not an HTTP client; value-object style like
  * {@link ClogTaskModel.TaskRow}.
  */
@@ -33,16 +33,13 @@ public final class ConnectionView
 		return String.valueOf(n);
 	}
 
-	/** Stable instance id ({@code federation_instance_id}) — the selection key. */
-	public final String instanceId;
-
 	/** Human clan/instance name — the label shown in the clan filter. */
 	public final String clanName;
 
 	/** Active event name, or {@code null} when there's no live event. */
 	public final String eventName;
 
-	/** Per-connection error, or {@code null} when reached cleanly — lets one home fail inline while siblings render. */
+	/** A partial failure (the live feed), or {@code null} when reached cleanly — shown inline on the card. */
 	public final String error;
 
 	/** Tiles your team has completed on this board. */
@@ -95,83 +92,23 @@ public final class ConnectionView
 	/**
 	 * Live weekly competitions on this clan (SOTW/BOTW) — events in their own right alongside the board,
 	 * so a clan running only a weekly still has something to show. The panel lists them next to the board
-	 * and drills into one on click. Never {@code null}; empty on federated clans (the wire carries boards only).
+	 * and drills into one on click. Never {@code null}.
 	 */
 	public final List<WeeklyView> weeklies;
 
 	/**
 	 * Other bingo events on this clan's schedule — starting soon, or live but not the caller's own
 	 * board. Listed after the live stuff so members can see what's coming without leaving the game.
-	 * Never {@code null}; empty on federated clans.
+	 * Never {@code null}.
 	 */
 	public final List<ScheduledView> scheduled;
 
-	/**
-	 * Is the playing account a real member of this clan, or just a federation guest?
-	 * {@code TRUE} member · {@code FALSE} guest · {@code null} <b>unknown</b> — logged out, or a home
-	 * that predates the wire's {@code member} field. Deliberately tri-state: the panel only moves its
-	 * landing clan off the configured home on POSITIVE evidence both ways (guest here, member there),
-	 * so an old site or a login screen keeps today's behaviour instead of guessing.
-	 */
-	public final Boolean member;
-
-	/** Canonical constructor — the live layer (feed + active tasks) alongside the board summary. */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
-	{
-		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow, null, false);
-	}
-
-	/** As canonical, plus {@link #boardUrl} + {@link #pointsScored}. */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored)
-	{
-		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow, boardUrl, pointsScored, null);
-	}
-
-	/** As above, plus {@link #statusNote}. */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
-		String statusNote)
-	{
-		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow, boardUrl, pointsScored, statusNote, null);
-	}
-
-	/** As above, plus {@link #revealNote}; delegates to the full base with no ladder view. */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
-		String statusNote, String revealNote)
-	{
-		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow, boardUrl, pointsScored, statusNote, revealNote, null);
-	}
-
-	/** As above, plus {@link #ladder}; delegates to the full base with no weeklies. */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
-		String statusNote, String revealNote, Ladder ladder)
-	{
-		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow, boardUrl, pointsScored, statusNote, revealNote, ladder, null, null, null);
-	}
-
-	/** As above, plus the clan's other events ({@link #weeklies}, {@link #scheduled}) and {@link #member}.
-	 *  The base that sets every field. */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
+	public ConnectionView(String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
 		String statusNote, String revealNote, Ladder ladder, List<WeeklyView> weeklies,
-		List<ScheduledView> scheduled, Boolean member)
+		List<ScheduledView> scheduled)
 	{
-		this.instanceId = instanceId == null ? "" : instanceId;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
 		this.eventName = eventName;
 		this.error = error;
@@ -187,42 +124,6 @@ public final class ConnectionView
 		this.ladder = ladder;
 		this.weeklies = copyOrEmpty(weeklies);
 		this.scheduled = copyOrEmpty(scheduled);
-		this.member = member;
-	}
-
-	/** True only on positive evidence that this account is a guest here (never on "we don't know"). */
-	public boolean isGuestHere()
-	{
-		return Boolean.FALSE.equals(member);
-	}
-
-	/** True only on positive evidence that this account is a real member here. */
-	public boolean isMemberHere()
-	{
-		return Boolean.TRUE.equals(member);
-	}
-
-	/** Healthy connection (no error) with the live layer. */
-	public ConnectionView(String instanceId, String clanName, String eventName,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
-		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow)
-	{
-		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles,
-			recentActivity, activeNow);
-	}
-
-	/** Board-only connection with a per-connection error (no live layer). */
-	public ConnectionView(String instanceId, String clanName, String eventName, String error,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles)
-	{
-		this(instanceId, clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles, null, null);
-	}
-
-	/** Healthy, board-only connection (no error, no live layer). */
-	public ConnectionView(String instanceId, String clanName, String eventName,
-		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles)
-	{
-		this(instanceId, clanName, eventName, null, tilesComplete, tilesTotal, nearestTiles, null, null);
 	}
 
 	private static <T> List<T> copyOrEmpty(List<T> src)
@@ -344,19 +245,6 @@ public final class ConnectionView
 		/** The comp's page on the Anvil site ({@code <baseUrl>/weekly/<id>}), or {@code null} when unknown. */
 		public final String url;
 
-		public WeeklyView(int id, String title, String type, String metric, String startDate, String endDate,
-			int yourRank, long yourGained, int participants, List<Standing> top, String url)
-		{
-			this(id, title, type, metric, startDate, endDate, false, yourRank, yourGained, participants, top, url);
-		}
-
-		public WeeklyView(int id, String title, String type, String metric, String startDate, String endDate,
-			boolean upcoming, int yourRank, long yourGained, int participants, List<Standing> top, String url)
-		{
-			this(id, title, type, metric, null, startDate, endDate, upcoming, yourRank, yourGained,
-				participants, top, url);
-		}
-
 		public WeeklyView(int id, String title, String type, String metric, String sentLabel, String startDate,
 			String endDate, boolean upcoming, int yourRank, long yourGained, int participants,
 			List<Standing> top, String url)
@@ -377,15 +265,15 @@ public final class ConnectionView
 		}
 
 		/** True for an EHP/EHB comp — ranked by efficient hours, not one skill's XP or one boss's KC. */
-		public boolean isEfficiency()
+		private boolean efficiency()
 		{
 			return "efficiency".equalsIgnoreCase(type);
 		}
 
 		/**
 		 * "Skill of the Week" / "Boss of the Week" / "Efficiency of the Week" — the card's kind line and
-		 * the list row's subtitle. Public so the callers that hold only a raw type string (the sidebar's
-		 * leaderboard + schedule, the login greeting) name a comp the same way this card does.
+		 * the list row's subtitle. The static form is for callers that hold only a raw type string (the
+		 * login greeting), so they name a comp the same way this card does.
 		 */
 		public String kindLabel()
 		{
@@ -403,46 +291,29 @@ public final class ConnectionView
 			return "efficiency".equalsIgnoreCase(type) ? "Efficiency of the Week" : "Boss of the Week";
 		}
 
-		/** The tracked metric, spelled for a person: {@code "phosanisNightmare"} → "Phosani's Nightmare". */
-		public String metricLabel()
-		{
-			return metricLabel(type, metric, sentLabel);
-		}
-
 		/**
-		 * The site's own name for the metric, falling back to what the key can be made to look like.
+		 * The tracked metric, spelled for a person: the site's own name for it, falling back to what the
+		 * key can be made to look like.
 		 *
 		 * <p>Prefer what was sent, always. Boss keys are hiscores keys, and no amount of splitting
 		 * "phosanisNightmare" recovers the apostrophe in "Phosani's Nightmare" or turns
 		 * "chambersOfXericChallengeMode" into the clan's "CoX: CM". The fallback exists for sites
 		 * older than the field, not as an equal option.
 		 */
-		public static String metricLabel(String type, String metric, String sentLabel)
+		public String metricLabel()
 		{
 			if (sentLabel != null && !sentLabel.trim().isEmpty())
 			{
 				return sentLabel.trim();
 			}
-			return metricLabel(type, metric);
-		}
-
-		public static String metricLabel(String type, String metric)
-		{
 			// "ehp"/"ehb" are initialisms — humanise would title-case them to "Ehp".
-			return "efficiency".equalsIgnoreCase(type)
-				? (metric == null ? "" : metric.toUpperCase(java.util.Locale.ROOT))
-				: humanise(metric);
+			return efficiency() ? metric.toUpperCase(java.util.Locale.ROOT) : humanise(metric);
 		}
 
 		/** What a gain counts in: XP for a skill comp, kills for a boss one, hours for EHP/EHB. */
 		public String unitNoun()
 		{
-			return unitNoun(type);
-		}
-
-		public static String unitNoun(String type)
-		{
-			if ("efficiency".equalsIgnoreCase(type))
+			if (efficiency())
 			{
 				return "hrs";
 			}
@@ -452,25 +323,13 @@ public final class ConnectionView
 		/** A gain as the UI shows it — "1.2M xp", "184 kc", "12.40 hrs". */
 		public String formatGain(long gained)
 		{
-			return formatGain(type, gained);
-		}
-
-		public static String formatGain(String type, long gained)
-		{
-			long safe = Math.max(0, gained);
-			return formatGainValue(type, safe) + " " + unitNoun(type);
-		}
-
-		/** The number alone, for callers that place the unit themselves. */
-		public static String formatGainValue(String type, long gained)
-		{
 			long safe = Math.max(0, gained);
 			// Efficiency comps travel in MILLI-hours (the site's EFFICIENCY_SCALE): the weekly's
 			// integer columns would round 12.4 EHB down to 12 and throw away most of a week's gain.
 			// Rendered raw that arrives as "+12,400 kc".
-			return "efficiency".equalsIgnoreCase(type)
+			return (efficiency()
 				? String.format(java.util.Locale.ROOT, "%.2f", safe / EFFICIENCY_SCALE)
-				: formatCount(safe);
+				: formatCount(safe)) + " " + unitNoun();
 		}
 
 		/** Underscored/hyphenated metric keys → title case, keeping the small joining words lowercase. */
@@ -538,12 +397,6 @@ public final class ConnectionView
 		 * that doesn't say). Per character — a person's main and alt get different answers.
 		 */
 		public final String yourEntry;
-
-		public ScheduledView(int id, String title, String startDate, String endDate, boolean live,
-			int tileCount, int boardSize, String format, String scoringMode, String url)
-		{
-			this(id, title, startDate, endDate, live, tileCount, boardSize, format, scoringMode, url, null);
-		}
 
 		public ScheduledView(int id, String title, String startDate, String endDate, boolean live,
 			int tileCount, int boardSize, String format, String scoringMode, String url, String yourEntry)
