@@ -113,6 +113,17 @@ note to screenshot it and submit it on the site.
 for it, with an optional note — change the note or drop the claim from the same place. Claiming needs
 you logged in as the character on the team.
 
+**Track it on screen.** **Track on screen** in a tile's detail (or its right-click menu) pins a live
+widget over the game: your team's bar with its top contributors, and how every other team stands on
+the same tile. Alt+drag it to move or resize it; pin up to three. Your own kills show a few seconds
+after they happen, everyone else's within half a minute. Pin them before the event starts and they
+count down, then go live at the whistle.
+
+**Find the starting spot.** While your starting shot is owed, an on-screen card shows where to stand
+and its live checks, and a hint arrow and a world map pin point to the drawn spot. Once the shot is
+filed the card says you're tracked and goes away. **Route me there** on the starting-shot card draws the whole way with the
+[Shortest Path](https://runelite.net/plugin-hub/show/shortest-path) plugin, if you have it.
+
 **Who's on which team.** The **Teams** button on an event lists the teams ranked, with yours on top;
 open one for its roster, captain first, or search for anyone across every team. Click a name to look
 them up.
@@ -199,7 +210,7 @@ shape of it.
 | Section | What's in it |
 | --- | --- |
 | **Player lookup** | The **Anvil** entry on player names, and where it shows: players in the world, the chatbox and private messages, clan panels, friends chat, and your friends, ignore and party lists. In chat it's never the left-click option. |
-| **Bingo** | The verification overlay, team and personal tile popups, banner sounds, and the automatic starting shot. |
+| **Bingo** | The verification overlay, team and personal tile popups, banner sounds, the automatic starting shot and its on-screen guide. |
 | **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
 | **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
 | **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, level milestones (your clan's rules), diaries (with a screenshot), quests by difficulty. |

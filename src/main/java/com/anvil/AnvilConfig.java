@@ -243,6 +243,18 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "startSpotGuide",
+		name = "Starting shot guide",
+		description = "While a starting shot is owed: an on-screen card with its checks, a hint arrow and a world map pin to the spot. Gone once it's filed.",
+		position = 9,
+		section = "bingoSection"
+	)
+	default boolean startSpotGuide()
+	{
+		return true;
+	}
+
 
 	// ---- Notifications: Deaths & kills ----
 

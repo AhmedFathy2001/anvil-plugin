@@ -2766,6 +2766,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		card.add(gap(6));
 		card.add(take);
 
+		if (proof.spot != null)
+		{
+			card.add(gap(4));
+			card.add(fullWidthButton("Route me there", "Draws the way there with the Shortest Path plugin, if you have it",
+				dataSource::routeToStartSpot));
+		}
+
 		return card;
 	}
 
@@ -3797,6 +3804,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					if (e.isPopupTrigger())
 					{
 						JPopupMenu menu = canClaim ? claimMenu(tile, key) : claimUnavailableMenu(claimUnavailable);
+						addTrackItem(menu, tile, key, preStart);
 						menu.show(e.getComponent(), e.getX(), e.getY());
 					}
 				}
@@ -3910,6 +3918,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			card.add(buttonRow(primary, secondary));
 		}
 
+		JButton track = trackButton(tile, key, preStart);
+		if (track != null)
+		{
+			card.add(gap(5));
+			card.add(fullWidth(track));
+		}
 		String tileUrl = tileUrl(boardUrl, tile.tileId);
 		if (isSafeHttpUrl(tileUrl))
 		{
@@ -4235,6 +4249,46 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Event identity travels with claim mutations so an enrolled upcoming preview stays scoped. */
+	/** "Track on screen" for the detail card; null where the tile can't be pinned. */
+	private JButton trackButton(BingoApiClient.BoardTile tile, String key, boolean preStart)
+	{
+		int eventId = catalogueEventId(key);
+		if (!dataSource.canTrackTiles(eventId, preStart))
+		{
+			return null;
+		}
+		boolean pinned = dataSource.isTileTracked(eventId, tile.tileId);
+		JButton b = flatButton(pinned ? "Stop tracking" : "Track on screen",
+			pinned ? "Remove this tile's in-game widget" : "Pin a live widget for this tile over the game — Alt+drag to move and resize",
+			() -> toggleTracked(eventId, tile.tileId, key));
+		b.setEnabled(pinned || !dataSource.tileTrackerFull(eventId));
+		if (!b.isEnabled())
+		{
+			b.setToolTipText("You're already tracking " + TileTracker.MAX_PINS + " tiles — stop one first");
+		}
+		return b;
+	}
+
+	/** The same toggle on the tile list's right-click menu. */
+	private void addTrackItem(JPopupMenu menu, BingoApiClient.BoardTile tile, String key, boolean preStart)
+	{
+		JButton b = trackButton(tile, key, preStart);
+		if (b != null)
+		{
+			menu.addSeparator();
+			JMenuItem item = new JMenuItem(b.getText());
+			item.setEnabled(b.isEnabled());
+			item.addActionListener(e -> toggleTracked(catalogueEventId(key), tile.tileId, key));
+			menu.add(item);
+		}
+	}
+
+	private void toggleTracked(int eventId, int tileId, String key)
+	{
+		dataSource.toggleTileTracked(eventId, tileId);
+		refresh();
+	}
+
 	private int catalogueEventId(String key)
 	{
 		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
