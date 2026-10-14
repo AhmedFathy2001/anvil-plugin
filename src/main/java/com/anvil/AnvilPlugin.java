@@ -384,6 +384,12 @@ public class AnvilPlugin extends Plugin {
     // Package-private for KillCountLineTest.
     static final Pattern KILL_COUNT_PATTERN = Pattern.compile(
             "Your (?:completed |subdued )?(.+?) (?:kill |completion |success |chest |harvest |lap |Total Ticket )?count is: ([\\d,]+)");
+    // The Doom of Mokhaiotl has no "Your <X> kill count is" line either. Its hiscores count is deep
+    // delves (delve 9+) completed, which the game announces after each one as
+    //   "Deep delves completed: 893"
+    // Package-private for KillCountLineTest.
+    static final Pattern DEEP_DELVES_PATTERN = Pattern.compile("^Deep delves completed: ([\\d,]+)");
+    static final String DOOM_BOSS_NAME = "Doom of Mokhaiotl";
     // The Hallowed Sepulchre announces itself in its OWN shape, not the "Your <X> count is: N"
     // one — so agility tiles targeting it need these two lines instead. Both carry a running
     // total we deliberately ignore: like every other chat-driven tile, one line == one credit,
@@ -3445,6 +3451,20 @@ public class AnvilPlugin extends Plugin {
                 if (award != null) {
                     creditGuaranteedAward(kcName, award);
                 }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        // Doom: push the deep-delve count as its boss KC. Deliberately NOT through the kill-line path
+        // above: that would put Doom in killCounts, and the loot path would then stop crediting the
+        // delve 1-8 kills that Doom kill tiles count today.
+        Matcher delveMatcher = DEEP_DELVES_PATTERN.matcher(plain);
+        if (delveMatcher.find()) {
+            try {
+                int kc = Integer.parseInt(delveMatcher.group(1).replace(",", ""));
+                lastKcName = DOOM_BOSS_NAME;
+                lastKcValue = kc;
+                lastKcAtMs = now();
+                maybeQueueKcPush(DOOM_BOSS_NAME, kc);
             } catch (NumberFormatException ignored) {
             }
         }
