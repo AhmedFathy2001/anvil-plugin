@@ -1780,7 +1780,7 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		payload.add(field, pairs(values, key, value));
 		postJson("/api/plugin/stats", payload, what, false);
-		log.info(logged, values.size());
+		log.debug(logged, values.size());
 	}
 
 	/** Boss KC: {@code {"stats":[{"name":"<in-game boss name>","kc":<absolute count>}]}}. */
@@ -1850,7 +1850,7 @@ public class BingoApiClient
 		payload.addProperty("minutesPlayed", minutesPlayed);
 		payload.addProperty("caTasks", caTasks);
 		postJson("/api/plugin/counters", payload, "Counter push failed", false);
-		log.info("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
+		log.debug("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
 			deaths, lootGp, pvpKills, biggestHit, minutesPlayed, caTasks);
 	}
 
@@ -1931,7 +1931,7 @@ public class BingoApiClient
 		// the bits reconciled against the point total and how many tasks it couldn't name. Logged
 		// at INFO because when this feature is quiet the only alternative is guessing which half
 		// went wrong, which has cost a day already.
-		log.info("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(), hasVarps ? caVarps.size() : 0, reply);
+		log.debug("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(), hasVarps ? caVarps.size() : 0, reply);
 	}
 
 	/**

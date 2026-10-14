@@ -87,7 +87,11 @@ final class CoalescedPush
 		{
 			sent.clear();
 		}
-		task = null;
+		if (task != null)
+		{
+			task.cancel(false);
+			task = null;
+		}
 	}
 
 	private void schedule(ScheduledExecutorService ex)

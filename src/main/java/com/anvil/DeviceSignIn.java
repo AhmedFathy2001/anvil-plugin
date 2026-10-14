@@ -52,6 +52,8 @@ public final class DeviceSignIn
 	private final BingoApiClient apiClient;
 	private final BrowserOpener browserOpener;
 	private final PollScheduler scheduler;
+	// Polling runs on RuneLite's shared executor, which outlives the plugin, so stopping it is ours to do.
+	private volatile boolean cancelled;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
 	public DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor)
@@ -182,10 +184,20 @@ public final class DeviceSignIn
 		done.accept(new Result(outcome, null));
 	}
 
+	/** Stop polling: any step not yet run is skipped and the callbacks never fire. */
+	public void cancel()
+	{
+		cancelled = true;
+	}
+
 	private void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done)
 	{
 		scheduler.schedule(() ->
 		{
+			if (cancelled)
+			{
+				return;
+			}
 			try
 			{
 				step.run();

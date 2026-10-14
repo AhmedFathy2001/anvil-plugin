@@ -45,6 +45,7 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ClanChannelChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.PlayerSpawned;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.ItemContainerChanged;
@@ -225,6 +226,8 @@ public class AnvilPlugin extends Plugin {
     private final DeathAttribution deathAttribution = new DeathAttribution();
 
     private ScheduledExecutorService executor;
+    // The startup retries and the 30s loop, cancelled explicitly on shutdown.
+    private final List<ScheduledFuture<?>> loopTasks = new ArrayList<>();
 
     // The in-game Clan Coffer is an absolute coin stack. The tracker converts widget reads into a
     // baseline or signed transition; the server owns cross-client dedupe and the audited ledger.
@@ -555,11 +558,8 @@ public class AnvilPlugin extends Plugin {
     private static final long DIARY_DEDUP_MS = 15_000;
     private final Map<String, Long> lastDiaryHandledAt = new HashMap<>();
 
-    // Quest-completed scroll interface — gameval InterfaceID.QUESTSCROLL (153); child 4 is
-    // Questscroll.QUEST_TITLE, the "You have completed <Quest>!" line. Same signal RuneLite's
-    // screenshot plugin keys off.
-    private static final int QUEST_COMPLETED_GROUP_ID = 153;
-    private static final int QUEST_COMPLETED_TEXT_CHILD = 4;
+    // Quest completions come off the quest scroll (InterfaceID.QUESTSCROLL), whose QUEST_TITLE is
+    // the "You have completed <Quest>!" line. Same signal RuneLite's screenshot plugin keys off.
     // Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
     private final Set<String> announcedQuests = new LinkedHashSet<>();
 
@@ -1190,14 +1190,14 @@ public class AnvilPlugin extends Plugin {
         }
 
         // Retry any pending submissions from a previous session
-        executor.schedule(() -> safely("initial retry", this::retryPendingSubmissions), 3, TimeUnit.SECONDS);
+        loopTasks.add(executor.schedule(() -> safely("initial retry", this::retryPendingSubmissions), 3, TimeUnit.SECONDS));
         // Pins restored from last session fill in now rather than on the first 30s tick.
-        executor.schedule(() -> safely("tileTracker", tileTracker::poll), 5, TimeUnit.SECONDS);
+        loopTasks.add(executor.schedule(() -> safely("tileTracker", tileTracker::poll), 5, TimeUnit.SECONDS));
 
         // Refresh config every 30 seconds + retry pending submissions + refresh schedule.
         // Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
         // cancels the task forever, so a single hiccup would stop all future refreshes.
-        executor.scheduleAtFixedRate(() -> {
+        loopTasks.add(executor.scheduleAtFixedRate(() -> {
             safely("refreshConfig", this::refreshConfig);
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
             safely("tileTracker", tileTracker::poll);
@@ -1208,7 +1208,7 @@ public class AnvilPlugin extends Plugin {
             safely("flushFullClogSync", this::flushFullClogSync);
             safely("flushPersonalBests", this::flushPersonalBests);
             safely("pushAccountProgress", this::pushAccountProgress);
-        }, 30, 30, TimeUnit.SECONDS);
+        }, 30, 30, TimeUnit.SECONDS));
     }
 
     /**
@@ -1337,6 +1337,38 @@ public class AnvilPlugin extends Plugin {
         return later(task, ms);
     }
 
+    private static void cancel(ScheduledFuture<?> task) {
+        if (task != null) {
+            task.cancel(false);
+        }
+    }
+
+    /** Cancel every task this plugin scheduled, before the executor itself is shut down. */
+    private void cancelScheduledTasks() {
+        for (ScheduledFuture<?> task : loopTasks) {
+            cancel(task);
+        }
+        loopTasks.clear();
+        cancel(pendingRefresh);
+        pendingRefresh = null;
+        synchronized (moments) {
+            cancel(momentPushTask);
+            momentPushTask = null;
+        }
+        cancelAggregates(pendingAggregates);
+        cancelAggregates(pendingKillAggregates);
+        cancelAggregates(pendingGainAggregates);
+    }
+
+    private static <K> void cancelAggregates(Map<K, ? extends Aggregate<?>> pending) {
+        synchronized (pending) {
+            for (Aggregate<?> agg : pending.values()) {
+                cancel(agg.flushTask);
+                agg.flushTask = null;
+            }
+        }
+    }
+
     private String cfgGet(String key) {
         return configManager.getConfiguration("osrsbingo", key);
     }
@@ -1375,12 +1407,15 @@ public class AnvilPlugin extends Plugin {
         bannerSound.shutdown();
         resetCoffer(false);
         profileLookup.shutDown();
+        if (sidebarPanel != null) {
+            sidebarPanel.cancelSignIn();
+        }
+        cancelScheduledTasks();
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
         }
         pluginConfig = null;
-        pendingRefresh = null;
         itemDropIndex = Collections.emptyMap();
         killNpcIndex = Collections.emptyMap();
         gainItemIndex = Collections.emptyMap();
@@ -1392,7 +1427,6 @@ public class AnvilPlugin extends Plugin {
         // session days later would be filed against whatever happens to be running then.
         synchronized (moments) {
             moments.reset();
-            momentPushTask = null;
         }
         trackedSkillNames = Collections.emptySet();
         skillXpPush.reset();
@@ -1681,7 +1715,7 @@ public class AnvilPlugin extends Plugin {
         if (event.getGroupId() == InterfaceID.CLANS_INFO && clanSyncButton != null) {
             clientThread.invokeLater(() -> clanSyncButton.render());
         }
-        if (event.getGroupId() == QUEST_COMPLETED_GROUP_ID) {
+        if (event.getGroupId() == InterfaceID.QUESTSCROLL) {
             // The scroll's text child isn't populated yet on the load event — read it next tick,
             // with a couple of retries in case the text lands late.
             scheduleQuestScrollRead(3);
@@ -2157,20 +2191,17 @@ public class AnvilPlugin extends Plugin {
         // Deathless raids: reset the party-death counter + roster on every instance entry
         // (CoX/ToB/ToA runs are instanced; each attempt is a fresh entry). While inside,
         // collect the distinct players seen — that's the party size for tiles that pin one.
+        // Seeded once on entry from who is already loaded; onPlayerSpawned adds the rest.
         WorldView topView = client.getTopLevelWorldView();
         boolean inInstance = topView != null && topView.isInstance();
         if (inInstance && !wasInInstance) {
             instancePlayerDeaths = 0;
             instancePlayersSeen.clear();
-        }
-        wasInInstance = inInstance;
-        if (inInstance) {
             for (Player p : client.getPlayers()) {
-                if (p != null && p.getName() != null) {
-                    instancePlayersSeen.add(p.getName().toLowerCase());
-                }
+                noteInstancePlayer(p);
             }
         }
+        wasInInstance = inInstance;
         // Raid party size, read from client varbits. Each raid is scoped by its own "am I in this
         // raid" signal so a stale value from a prior raid can't bleed into another's gating, and we
         // only ever read one raid's varbits at a time (you can't be in two raids at once).
@@ -2222,6 +2253,19 @@ public class AnvilPlugin extends Plugin {
             lootingBagWatchBase = null;
         }
         trackLmsTick();
+    }
+
+    @Subscribe
+    public void onPlayerSpawned(PlayerSpawned event) {
+        if (wasInInstance) {
+            noteInstancePlayer(event.getPlayer());
+        }
+    }
+
+    private void noteInstancePlayer(Player p) {
+        if (p != null && p.getName() != null) {
+            instancePlayersSeen.add(p.getName().toLowerCase());
+        }
     }
 
     /** How many of a raid's per-slot party varbits are filled. */
@@ -3309,11 +3353,17 @@ public class AnvilPlugin extends Plugin {
      */
     private void playBannerSound() {
         bannerSound.play(BannerSoundService.Kind.BANNER);
-        if (!bannerSoundHintShown && config.bannerSound() && !bannerSound.hasClips(BannerSoundService.Kind.BANNER)) {
-            bannerSoundHintShown = true;
-            sendChatMessage("Banner sound is on but you have no clips yet — open the Anvil side panel "
-                    + "and click \"Banner sounds\" to add a .wav.");
+        if (bannerSoundHintShown || !config.bannerSound()) {
+            return;
         }
+        // hasClips lists the sounds folder, and this runs on the client thread: look on the executor.
+        submit(() -> {
+            if (!bannerSoundHintShown && !bannerSound.hasClips(BannerSoundService.Kind.BANNER)) {
+                bannerSoundHintShown = true;
+                sendChatMessage("Banner sound is on but you have no clips yet — open the Anvil side panel "
+                        + "and click \"Banner sounds\" to add a .wav.");
+            }
+        });
     }
 
     /**
@@ -3508,7 +3558,7 @@ public class AnvilPlugin extends Plugin {
             if (caTier != null) {
                 String caTask = CA_TASK_POINTS.matcher(caMatcher.group(2).trim()).replaceAll("").trim();
                 // Breadcrumb so client.log shows the parse even when no tile matches.
-                log.info("Combat task line: {} '{}'", caTier.getDisplayName(), caTask);
+                log.debug("Combat task line: {} '{}'", caTier.getDisplayName(), caTask);
                 creditCombatTaskTiles(caTier, caTask);
                 // Stashed unconditionally: the next tick reads the points varbit, which is what
                 // tells a genuine first completion from a "Repeat completion" echo — and the
@@ -3532,7 +3582,7 @@ public class AnvilPlugin extends Plugin {
                     DIARY_DEDUP_MS)) {
                 // Rare (once per account per tier) — a breadcrumb so client.log shows the parse
                 // even when no tile matches.
-                log.info("Diary line: {} {}", area, tier);
+                log.debug("Diary line: {} {}", area, tier);
                 maybeNotifyDiaryCompletion(area, tier);
                 creditDiaryTiles(area, tier);
             }
@@ -3789,9 +3839,8 @@ public class AnvilPlugin extends Plugin {
             notifyId = findTradeableItemId(itemName);
         }
         // Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
-        // breadcrumb in the client log so a "why didn't my fang post?" is answerable after the fact.
-        // The line is rare (local player's own attributed drops only), so INFO is not noisy.
-        log.info("Drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
+        // breadcrumb so a "why didn't my fang post?" is answerable with debug logging on.
+        log.debug("Drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
                 itemName, qty, source, notifyId,
                 notifyId != null ? itemUnitValue(notifyId) : -1,
                 config.rareDropMinValue(), config.notifyRareDrops(), notifyEnabled("rareDrops"));
@@ -8536,7 +8585,7 @@ public class AnvilPlugin extends Plugin {
      */
     private void scheduleQuestScrollRead(int attemptsLeft) {
         clientThread.invokeLater(() -> {
-            Widget text = client.getWidget(QUEST_COMPLETED_GROUP_ID, QUEST_COMPLETED_TEXT_CHILD);
+            Widget text = client.getWidget(InterfaceID.Questscroll.QUEST_TITLE);
             String raw = text != null ? text.getText() : null;
             if (raw == null || raw.isEmpty()) {
                 if (attemptsLeft > 0) {
@@ -9067,9 +9116,7 @@ public class AnvilPlugin extends Plugin {
         sendChatMessage("Syncing the clan roster...");
         syncClanRoster((ok, msg) -> {
             panelRosterSyncRunning = false;
-            if (sidebarPanel != null) {
-                sidebarPanel.refresh();
-            }
+            repaintSidebar(); // the callback lands on the executor or client thread, never the EDT
         });
     }
 

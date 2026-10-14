@@ -191,6 +191,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** A refresh asked for while one was running — run it when that one lands, don't drop it. */
 	private boolean refreshQueued;
 	private boolean signInInFlight;
+	private volatile DeviceSignIn signIn;
 
 	// The logged-in character's row (SidebarDataSource.AccountRow) — one quiet line, because almost
 	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
@@ -1085,6 +1086,16 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
+	/** Stop a sign-in that is still polling — the plugin is shutting down. */
+	void cancelSignIn()
+	{
+		DeviceSignIn flow = signIn;
+		if (flow != null)
+		{
+			flow.cancel();
+		}
+	}
+
 	/** Run the device sign-in (async, every step on the shared executor); on success store the token —
 	 * onConfigChanged does the rest. Both callbacks arrive off the EDT, so they marshal via invokeLater. */
 	private void startSignIn()
@@ -1097,7 +1108,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		signInButton.setEnabled(false);
 		setSignInStatus("Starting…");
 
-		new DeviceSignIn(apiClient, executor).run(
+		signIn = new DeviceSignIn(apiClient, executor);
+		signIn.run(
 			line -> SwingUtilities.invokeLater(() -> setSignInStatus(line)),
 			result -> SwingUtilities.invokeLater(() ->
 			{

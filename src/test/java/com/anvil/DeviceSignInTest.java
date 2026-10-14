@@ -1,7 +1,10 @@
 package com.anvil;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.Test;
 import static com.anvil.DeviceSignIn.isConfiguredHomeUrl;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -54,5 +57,23 @@ public class DeviceSignInTest
 		assertFalse(isConfiguredHomeUrl(HOME, ""));
 		assertFalse(isConfiguredHomeUrl(HOME, "javascript:alert(1)"));
 		assertFalse(isConfiguredHomeUrl(null, HOME + "/link-device"));
+	}
+
+	@Test
+	public void cancelledFlowRunsNoFurtherSteps()
+	{
+		// The flow polls on RuneLite's shared executor, which outlives the plugin; a cancel at
+		// shutdown must leave every queued step a no-op (no request, no callback).
+		List<Runnable> queued = new ArrayList<>();
+		List<Object> callbacks = new ArrayList<>();
+		DeviceSignIn flow = new DeviceSignIn(null, url -> true, (step, delayMs) -> queued.add(step));
+		flow.run(callbacks::add, callbacks::add);
+		flow.cancel();
+		for (Runnable step : new ArrayList<>(queued))
+		{
+			step.run();
+		}
+		assertEquals(1, queued.size());
+		assertTrue(callbacks.isEmpty());
 	}
 }
