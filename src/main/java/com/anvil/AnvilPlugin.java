@@ -393,6 +393,10 @@ public class AnvilPlugin extends Plugin {
     // Package-private for KillCountLineTest.
     static final Pattern DEEP_DELVES_PATTERN = Pattern.compile("^Deep delves completed: ([\\d,]+)");
     static final String DOOM_BOSS_NAME = "Doom of Mokhaiotl";
+    // A successful pickpocket: "You pick the man's pocket." The game's loot tracker reports the pocket
+    // as NPC loot in the same tick, so ServerNpcLoot can't tell it from a kill without this line.
+    // Same pattern and same-tick rule RuneLite's own loot tracker uses. Package-private for the test.
+    static final Pattern PICKPOCKET_PATTERN = Pattern.compile("You pick (the )?(?<target>.+)'s? pocket.*");
     // The Hallowed Sepulchre announces itself in its OWN shape, not the "Your <X> count is: N"
     // one — so agility tiles targeting it need these two lines instead. Both carry a running
     // total we deliberately ignore: like every other chat-driven tile, one line == one credit,
@@ -441,6 +445,8 @@ public class AnvilPlugin extends Plugin {
     // game says was 200 but the tile logged fewer. Once we've seen ServerNpcLoot it's the source of truth for
     // per-kill counting (kill + value tiles); NpcLootReceived stays a fallback for clients that never emit it.
     private volatile boolean serverNpcLootSeen;
+    /** Client tick of the last "You pick the X's pocket" line; ServerNpcLoot in that tick is a pocket. */
+    private int pickpocketTick = -1;
 
     // Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
     private static final String CLOG_UNLOCK_PREFIX = "New item added to your collection log: ";
@@ -2950,6 +2956,13 @@ public class AnvilPlugin extends Plugin {
         }
         serverNpcLootSeen = true;
         String name = event.getComposition().getName();
+        if (pickpocketTick == client.getTickCount()) {
+            // A pocket, not a kill: its items still count as pickpocket loot, but no kill, no value
+            // haul (LootReceived PICKPOCKET prices it) and no vestige roll.
+            processLoot(name, event.getItems(), "pickpocket");
+            maybeNotifyRareDrop(name, event.getItems(), "pickpocket");
+            return;
+        }
         trackVestigeRolls(name, event.getItems());
         processLoot(name, event.getItems(), "npc");
         maybeNotifyRareDrop(name, event.getItems(), "npc");
@@ -3418,6 +3431,9 @@ public class AnvilPlugin extends Plugin {
             //             Maggot King." — fallback for members whose in-game loot-notification
             //             setting is off; guests outside the clan rely on the personal line.
             String stripped = msg.replaceAll("<[^>]*>", "");
+            if (PICKPOCKET_PATTERN.matcher(stripped).matches()) {
+                pickpocketTick = client.getTickCount();
+            }
             Matcher larran = LARRAN_OPENED.matcher(stripped);
             if (larran.matches()) {
                 onLarranChestOpened(larran.group(1));

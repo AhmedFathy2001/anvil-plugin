@@ -146,4 +146,15 @@ public class KillCountLineTest
 		assertFalse(AnvilPlugin.DEEP_DELVES_PATTERN.matcher("Delve level: 8+ (9) duration: 1:38. Personal best: 0:56").find());
 		assertNull(parse("Deep delves completed: 893"));
 	}
+
+	@Test
+	public void recognisesPickpocketLines()
+	{
+		// A pocket is not a kill: these lines mark the tick whose ServerNpcLoot is pickpocket loot.
+		assertTrue(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You pick the man's pocket.").matches());
+		assertTrue(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You pick the Elf's pocket.").matches());
+		assertTrue(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You pick the vyre's pocket.").matches());
+		assertFalse(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You fail to pick the man's pocket.").matches());
+		assertFalse(AnvilPlugin.PICKPOCKET_PATTERN.matcher("Your Gargoyle kill count is: 154").matches());
+	}
 }
