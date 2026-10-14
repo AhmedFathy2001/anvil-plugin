@@ -1134,7 +1134,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		for (int i = 0; i < incomplete.size() && i < NEAREST_LIMIT; i++)
 		{
 			ClogTaskModel.TaskRow r = incomplete.get(i);
-			out.add(new ConnectionView.TileProgressView(r.label, r.current, r.goal, false));
+			out.add(new ConnectionView.TileProgressView(r.tileId, r.label, r.current, r.goal, false));
 		}
 		return out;
 	}

@@ -154,6 +154,8 @@ public final class ConnectionView
 	 */
 	public static final class TileProgressView
 	{
+		/** The board tile this row is, so clicking it can open that tile; -1 when unknown. */
+		public final int tileId;
 		public final String name;
 		public final int current;
 		public final int target;
@@ -161,6 +163,12 @@ public final class ConnectionView
 
 		public TileProgressView(String name, int current, int target, boolean complete)
 		{
+			this(-1, name, current, target, complete);
+		}
+
+		public TileProgressView(int tileId, String name, int current, int target, boolean complete)
+		{
+			this.tileId = tileId;
 			this.name = name == null ? "" : name;
 			this.current = Math.max(0, current);
 			this.target = Math.max(0, target);

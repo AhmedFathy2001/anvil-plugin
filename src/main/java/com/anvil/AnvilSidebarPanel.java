@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -1905,7 +1906,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			addSpaced(body, selected.nearestTiles, 8, this::buildTileRow);
 			body.add(gap(8));
-			body.add(fullWidthButton("View all " + selected.tilesTotal + " tiles",
+			// On a points board tilesTotal is the board's total POINTS, not a tile count.
+			body.add(fullWidthButton(selected.pointsScored ? "View all tiles" : "View all " + selected.tilesTotal + " tiles",
 				"Search the full board, including manual tiles", () ->
 				{
 					showAllActiveTiles = true;
@@ -2801,11 +2803,54 @@ public class AnvilSidebarPanel extends PluginPanel
 		ClogTaskModel.TaskRow tile = task.tile;
 		JLabel name = small(ellipsize(tile.label, 24), task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(plainText(tile.label));
-		return progressRow(name, progressValue(tile),
+		return opensTile(progressRow(name, progressValue(tile),
 			small(task.workersLabel(), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED),
 			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
 				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR,
-				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
+				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+	}
+
+	/**
+	 * Make an event-page tile row (Active now / Nearest tiles) open that tile's detail on the full
+	 * board — the same view as picking it from "View all tiles", with its description, facts and claim.
+	 */
+	private JPanel opensTile(JPanel row, int tileId)
+	{
+		if (tileId <= 0)
+		{
+			return row;
+		}
+		MouseAdapter open = new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				if (SwingUtilities.isLeftMouseButton(e))
+				{
+					showAllActiveTiles = true;
+					openCatalogueDetailKey = "active";
+					openCatalogueDetailTileId = tileId;
+					loadBoardCatalogue("active", 0, false);
+					renderSelected();
+				}
+			}
+		};
+		// On the children too: a label with a tooltip takes the click itself and the row never hears it.
+		listenDeep(row, open);
+		return row;
+	}
+
+	private static void listenDeep(Component c, MouseAdapter listener)
+	{
+		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		c.addMouseListener(listener);
+		if (c instanceof Container)
+		{
+			for (Component child : ((Container) c).getComponents())
+			{
+				listenDeep(child, listener);
+			}
+		}
 	}
 
 	/**
@@ -3214,9 +3259,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildTileRow(ConnectionView.TileProgressView tile)
 	{
 		Color done = tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : null;
-		return progressRow(small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR), progressText(tile), null,
+		return opensTile(progressRow(small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR), progressText(tile), null,
 			bar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR,
-				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
+				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
 	}
 
 	/** "c / t" for counted tiles, "42%" for very large targets (XP), or "Done"/"—". */
