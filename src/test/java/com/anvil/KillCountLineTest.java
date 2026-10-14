@@ -3,7 +3,9 @@ package com.anvil;
 import java.util.regex.Matcher;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Verifies the Jagex kill-count chat-line parsing that drives real-time boss-KC pushes, KC-line
@@ -132,5 +134,16 @@ public class KillCountLineTest
 	public void ignoresUnrelatedChat()
 	{
 		assertNull(parse("Your heart is racing."));
+	}
+
+	@Test
+	public void parsesDoomDeepDelves()
+	{
+		// Doom has no kill-count line; its hiscores count is deep delves completed.
+		Matcher m = AnvilPlugin.DEEP_DELVES_PATTERN.matcher("Deep delves completed: 1,893");
+		assertTrue(m.find());
+		assertEquals("1,893", m.group(1));
+		assertFalse(AnvilPlugin.DEEP_DELVES_PATTERN.matcher("Delve level: 8+ (9) duration: 1:38. Personal best: 0:56").find());
+		assertNull(parse("Deep delves completed: 893"));
 	}
 }
