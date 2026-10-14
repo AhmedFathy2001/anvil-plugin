@@ -1581,9 +1581,38 @@ public class AnvilPlugin extends Plugin {
         return delegate;
     }
 
+    private static final Set<String> INTERNAL_STATE_KEYS = new HashSet<>(Arrays.asList(
+            CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS,
+            CFG_COUNTER_EVENT, CFG_COUNTER_DEATHS, CFG_COUNTER_LOOTGP, CFG_COUNTER_PVP,
+            CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS));
+    // Per-RSN state keys are stored as "<prefix>:<rsn>".
+    private static final List<String> INTERNAL_STATE_PREFIXES = Arrays.asList(
+            CFG_VESTIGE_ROLLS + ":", CFG_CLOG_STATE + ":", CFG_PB_STATE + ":",
+            CFG_CLOG_FINGERPRINT + ":", CFG_PB_IMPORTED + ":");
+
+    static boolean isInternalStateKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        if (INTERNAL_STATE_KEYS.contains(key)) {
+            return true;
+        }
+        for (String prefix : INTERNAL_STATE_PREFIXES) {
+            if (key.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Subscribe
     public void onConfigChanged(ConfigChanged event) {
         if (!"osrsbingo".equals(event.getGroup())) {
+            return;
+        }
+        // The plugin's own bookkeeping (recap counters, sync state, nudges) is persisted from the
+        // client thread, often several keys at once — none of it changes what the site sends back.
+        if (isInternalStateKey(event.getKey())) {
             return;
         }
         configureApiClient();
@@ -4881,7 +4910,8 @@ public class AnvilPlugin extends Plugin {
      */
     private BufferedImage composeDualProof(BufferedImage triggerFrame, BufferedImage flushFrame) {
         if (triggerFrame == null) {
-            return flushFrame;
+            // A copy: the banner is drawn onto what we return, and the frame is shared.
+            return copyFrame(flushFrame);
         }
         int divider = 4;
         int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
@@ -5920,7 +5950,22 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
-    private synchronized void refreshConfig() {
+    /**
+     * Serializes config fetches on a lock of their own. NOT the plugin monitor: the fetch is a
+     * blocking HTTP call (90s read timeout), and the client thread takes the plugin monitor via
+     * onConfigChanged → scheduleRefresh whenever it writes a config key — every banked play minute,
+     * new biggest hit, death. Sharing it froze the game for as long as the site took to answer,
+     * most visibly right after a proof upload.
+     */
+    private final Object configFetchLock = new Object();
+
+    private void refreshConfig() {
+        synchronized (configFetchLock) {
+            refreshConfigLocked();
+        }
+    }
+
+    private void refreshConfigLocked() {
         if (!apiClient.isConfigured()) {
             return;
         }
@@ -8832,12 +8877,17 @@ public class AnvilPlugin extends Plugin {
         return baos.toByteArray();
     }
 
-    /** Copy the shared frame — never mutate the draw manager's buffer — burn the proof banner on, encode. */
-    private byte[] bakeCopy(BufferedImage src, String title, String detail, String rsn) throws IOException {
+    private static BufferedImage copyFrame(BufferedImage src) {
         BufferedImage copy = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D g = copy.createGraphics();
         g.drawImage(src, 0, 0, null);
         g.dispose();
+        return copy;
+    }
+
+    /** Copy the shared frame — never mutate the draw manager's buffer — burn the proof banner on, encode. */
+    private byte[] bakeCopy(BufferedImage src, String title, String detail, String rsn) throws IOException {
+        BufferedImage copy = copyFrame(src);
         annotateProofBanner(copy, title, detail, rsn, null);
         return png(copy);
     }
