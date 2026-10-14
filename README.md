@@ -117,7 +117,8 @@ you logged in as the character on the team.
 widget over the game: your team's bar with its top contributors, and how every other team stands on
 the same tile. Alt+drag it to move or resize it; pin up to three. Your own kills show a few seconds
 after they happen, everyone else's within half a minute. Pin them before the event starts and they
-count down, then go live at the whistle.
+count down, then go live at the whistle. When your team finishes a pinned tile it shows Done for a moment, then
+takes itself down (a tile you pin after it's already done stays up).
 
 **Find the starting spot.** While your starting shot is owed, an on-screen card shows where to stand
 and its live checks, and a hint arrow and a world map pin point to the drawn spot. Once the shot is

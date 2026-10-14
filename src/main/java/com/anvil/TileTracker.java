@@ -26,6 +26,9 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
  * this account progresses a pinned tile, so your own kill shows without waiting a full poll. Pins
  * belong to one event. They can go up before it starts (the widget counts down, then goes live on the
  * first poll after the whistle) and are forgotten once the site says it's over.
+ *
+ * <p>A pin your team finishes shows "Done" for a moment and then takes itself down. A tile pinned when
+ * it was already done stays up: that member is watching the other teams on it.
  */
 @Singleton
 public class TileTracker
@@ -34,6 +37,8 @@ public class TileTracker
 	private static final String CFG_PINS = "trackedTiles";
 	private static final Color GOLD = new Color(255, 215, 0);
 	private static final int OTHER_TEAMS_SHOWN = 4;
+	/** How long a just-finished pin keeps showing "Done" before it unpins (hidden on the next fetch after). */
+	private static final long DONE_LINGER_MS = 10_000;
 
 	private final OverlayManager overlayManager;
 	private final ConfigManager configManager;
@@ -114,7 +119,7 @@ public class TileTracker
 			{
 				return;
 			}
-			add(tileId);
+			add(tileId).keepWhenDone = null; // decided by the first fetch
 		}
 		save();
 	}
@@ -162,6 +167,59 @@ public class TileTracker
 		else if (p != null)
 		{
 			w.progress = p;
+			if (finishedAndShown(w, p, System.currentTimeMillis()))
+			{
+				unpinDone(event, tileId, w);
+			}
+		}
+	}
+
+	/**
+	 * Note this fetch on the widget and say whether it should now come down: the viewer's team has
+	 * finished the tile, the pin isn't one made on an already-done tile, and "Done" has been up for
+	 * {@link #DONE_LINGER_MS}.
+	 */
+	static boolean finishedAndShown(Widget w, Progress p, long now)
+	{
+		boolean done = ownTeamDone(p);
+		if (w.keepWhenDone == null)
+		{
+			w.keepWhenDone = done;
+		}
+		if (!done || w.keepWhenDone)
+		{
+			return false;
+		}
+		if (w.doneSinceMs == 0)
+		{
+			w.doneSinceMs = now;
+			return false;
+		}
+		return now - w.doneSinceMs >= DONE_LINGER_MS;
+	}
+
+	private static boolean ownTeamDone(Progress p)
+	{
+		if (p.teams == null || "upcoming".equals(p.phase))
+		{
+			return false;
+		}
+		for (Team t : p.teams)
+		{
+			if (t.mine)
+			{
+				return t.complete;
+			}
+		}
+		return false;
+	}
+
+	private synchronized void unpinDone(int event, int tileId, Widget w)
+	{
+		if (eventId == event && pins.get(tileId) == w)
+		{
+			overlayManager.remove(pins.remove(tileId));
+			save();
 		}
 	}
 
@@ -170,7 +228,7 @@ public class TileTracker
 		return pins.containsKey(tileId);
 	}
 
-	private void add(int tileId)
+	private Widget add(int tileId)
 	{
 		int slot = 0;
 		while (slotTaken(slot))
@@ -180,6 +238,7 @@ public class TileTracker
 		Widget w = new Widget(slot);
 		pins.put(tileId, w);
 		overlayManager.add(w);
+		return w;
 	}
 
 	private boolean slotTaken(int slot)
@@ -248,6 +307,13 @@ public class TileTracker
 	{
 		final int slot;
 		volatile Progress progress;
+		/**
+		 * Stay up after the team finishes? Pins restored from config start false, so a tile finished
+		 * while the client was closed still comes down; a fresh pin is decided by its first fetch.
+		 */
+		Boolean keepWhenDone = false;
+		/** When this pin was first seen done, or 0. */
+		long doneSinceMs;
 
 		Widget(int slot)
 		{
