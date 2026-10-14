@@ -240,12 +240,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 	/**
 	 * Whether this event's tiles can be pinned as in-game widgets: the site serves them (capability
-	 * "tile-tracker") and it is the event you're playing, the one the widget's numbers are about.
+	 * "tile-tracker") and it is the event you're playing, or one still waiting to start (pinned early,
+	 * it counts down and goes live at the whistle).
 	 */
-	public boolean canTrackTiles(int eventId)
+	public boolean canTrackTiles(int eventId, boolean preStart)
 	{
 		PluginConfigResponse cfg = configSupplier.get();
-		return cfg != null && cfg.event != null && cfg.event.id == eventId
+		return eventId > 0 && (preStart || cfg != null && cfg.event != null && cfg.event.id == eventId)
 			&& fromPlugin(AnvilPlugin::supportsTileTracker, false);
 	}
 

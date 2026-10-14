@@ -245,8 +245,8 @@ public interface AnvilConfig extends Config
 
 	@ConfigItem(
 		keyName = "startSpotGuide",
-		name = "Starting shot arrow",
-		description = "Points the way to the starting shot's spot: a hint arrow and a world map pin, until it's filed.",
+		name = "Starting shot guide",
+		description = "While a starting shot is owed: an on-screen card with its checks, a hint arrow and a world map pin to the spot. Gone once it's filed.",
 		position = 9,
 		section = "bingoSection"
 	)

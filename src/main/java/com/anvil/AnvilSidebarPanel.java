@@ -4253,7 +4253,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JButton trackButton(BingoApiClient.BoardTile tile, String key, boolean preStart)
 	{
 		int eventId = catalogueEventId(key);
-		if (preStart || !dataSource.canTrackTiles(eventId))
+		if (!dataSource.canTrackTiles(eventId, preStart))
 		{
 			return null;
 		}

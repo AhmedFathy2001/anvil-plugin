@@ -24,7 +24,8 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
  *
  * <p>Fetched only while something is pinned: on the plugin's 30s config tick, and a few seconds after
  * this account progresses a pinned tile, so your own kill shows without waiting a full poll. Pins
- * belong to one event and are forgotten when the active event changes.
+ * belong to one event. They can go up before it starts (the widget counts down, then goes live on the
+ * first poll after the whistle) and are forgotten once the site says it's over.
  */
 @Singleton
 public class TileTracker
@@ -118,25 +119,12 @@ public class TileTracker
 		save();
 	}
 
-	/**
-	 * The 30s tick: refetch every pin, or drop them all once the active event isn't theirs. Blocking;
-	 * call off the client thread.
-	 */
-	void poll(PluginConfigResponse cfg)
+	/** The 30s tick: refetch every pin. Blocking; call off the client thread. */
+	void poll()
 	{
 		List<Integer> ids;
 		synchronized (this)
 		{
-			if (pins.isEmpty())
-			{
-				return;
-			}
-			if (cfg != null && cfg.event != null && cfg.event.id != eventId)
-			{
-				unpinAll();
-				save();
-				return;
-			}
 			ids = new ArrayList<>(pins.keySet());
 		}
 		for (int id : ids)
@@ -160,7 +148,18 @@ public class TileTracker
 			return;
 		}
 		Progress p = apiClient.fetchTileProgress(event, tileId);
-		if (p != null)
+		if (p != null && p.phase != null && p.phase.contains("ended"))
+		{
+			synchronized (this)
+			{
+				if (eventId == event)
+				{
+					unpinAll();
+					save();
+				}
+			}
+		}
+		else if (p != null)
 		{
 			w.progress = p;
 		}
@@ -212,6 +211,9 @@ public class TileTracker
 	/** The site's answer (lib/tileTracker): the viewer's team first, then the rest by progress. */
 	static class Progress
 	{
+		/** lib/eventTime's phase: "upcoming", "active", "ended" or "force-ended". */
+		String phase;
+		String startsAt;
 		int tileId;
 		String label;
 		int points;
@@ -271,6 +273,14 @@ public class TileTracker
 				return super.render(graphics);
 			}
 			panelComponent.getChildren().add(TitleComponent.builder().text(p.label).color(GOLD).build());
+			if ("upcoming".equals(p.phase))
+			{
+				// Nothing counts before the start, so there is no progress to draw yet — only when.
+				panelComponent.getChildren().add(LineComponent.builder().left("Goal").right(fmt(p.goal)).build());
+				panelComponent.getChildren().add(LineComponent.builder()
+					.left("Starts in").right(countdown(p.startsAt)).rightColor(Color.YELLOW).build());
+				return super.render(graphics);
+			}
 			int others = 0;
 			for (Team t : p.teams)
 			{
@@ -322,6 +332,19 @@ public class TileTracker
 			catch (NumberFormatException e)
 			{
 				return Color.WHITE;
+			}
+		}
+
+		private static String countdown(String iso)
+		{
+			try
+			{
+				long s = Math.max(0, java.time.Duration.between(java.time.Instant.now(), java.time.Instant.parse(iso)).getSeconds());
+				return s >= 3600 ? (s / 3600) + "h " + (s % 3600 / 60) + "m" : s >= 60 ? (s / 60) + "m " + (s % 60) + "s" : s + "s";
+			}
+			catch (RuntimeException e)
+			{
+				return "soon";
 			}
 		}
 

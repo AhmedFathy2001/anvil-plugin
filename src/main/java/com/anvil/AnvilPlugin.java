@@ -181,6 +181,8 @@ public class AnvilPlugin extends Plugin {
     private TileTracker tileTracker;
     @Inject
     private StartSpotMarker startSpotMarker;
+    @Inject
+    private StartProofOverlay startProofOverlay;
 
     @Inject
     private BannerSoundService bannerSound;
@@ -245,6 +247,8 @@ public class AnvilPlugin extends Plugin {
     // since the next login may be a different account with a different obligation.
     private volatile boolean startProofFiled;
     private volatile boolean startProofInFlight;
+    // When this session filed its shot, so the on-screen card can say "you're tracked" before leaving.
+    private volatile long startProofFiledAt;
     /** One nudge per login — a reminder that repeats every poll is just noise. */
     private volatile boolean startProofNudged;
     /** One "this credit is being held" line per login — see {@link #warnStartProofBeforeCredit()}. */
@@ -1113,6 +1117,7 @@ public class AnvilPlugin extends Plugin {
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
         tileTracker.startUp();
+        overlayManager.add(startProofOverlay);
 
         // Mount the always-on progress sidebar in the RuneLite toolbar.
         final BufferedImage sidebarIcon = ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png");
@@ -1181,7 +1186,7 @@ public class AnvilPlugin extends Plugin {
         // Retry any pending submissions from a previous session
         executor.schedule(() -> safely("initial retry", this::retryPendingSubmissions), 3, TimeUnit.SECONDS);
         // Pins restored from last session fill in now rather than on the first 30s tick.
-        executor.schedule(() -> safely("tileTracker", () -> tileTracker.poll(pluginConfig)), 5, TimeUnit.SECONDS);
+        executor.schedule(() -> safely("tileTracker", tileTracker::poll), 5, TimeUnit.SECONDS);
 
         // Refresh config every 30 seconds + retry pending submissions + refresh schedule.
         // Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
@@ -1189,7 +1194,7 @@ public class AnvilPlugin extends Plugin {
         executor.scheduleAtFixedRate(() -> {
             safely("refreshConfig", this::refreshConfig);
             safely("retryPendingSubmissions", this::retryPendingSubmissions);
-            safely("tileTracker", () -> tileTracker.poll(pluginConfig));
+            safely("tileTracker", tileTracker::poll);
 
             safely("pruneDedupMap", this::pruneDedupMap);
             safely("importRuneLitePbs", this::retryPersonalBestImport);
@@ -1346,6 +1351,7 @@ public class AnvilPlugin extends Plugin {
         overlayManager.remove(overlay);
         overlayManager.remove(clogBanner);
         tileTracker.shutDown();
+        overlayManager.remove(startProofOverlay);
         clientThread.invokeLater(startSpotMarker::clear);
         // OUR WIDGETS ARE OURS TO CLEAR. Disabling the plugin left the buttons sitting in the game's
         // title bars until the interface happened to be rebuilt — a control for a plugin that is no
@@ -5149,6 +5155,7 @@ public class AnvilPlugin extends Plugin {
                 String imageUrl = apiClient.uploadImage(png, "start-proof-" + eventId + ".png");
                 apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
                 startProofFiled = true;
+                startProofFiledAt = System.currentTimeMillis();
                 sendChatMessage("Starting shot sent. You're clear to play.");
                 refreshConfig();
             } catch (IOException e) {
@@ -5368,6 +5375,16 @@ public class AnvilPlugin extends Plugin {
 
     boolean autoStartShotEnabled() {
         return config.autoStartShot();
+    }
+
+    /** Whether a starting shot is being taken and sent right now. */
+    boolean startProofSending() {
+        return startProofInFlight;
+    }
+
+    /** When this session's starting shot was filed (epoch ms), or 0. */
+    long startProofFiledAt() {
+        return startProofFiledAt;
     }
 
     /** The sidebar's "Route me there": hand the start spot to Shortest Path, if it's installed. */
