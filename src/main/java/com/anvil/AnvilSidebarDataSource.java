@@ -232,6 +232,39 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return fromPlugin(AnvilPlugin::autoStartShotEnabled, false);
 	}
 
+	/** Ask Shortest Path for a route to the starting shot's spot. */
+	public void routeToStartSpot()
+	{
+		withPlugin(AnvilPlugin::routeToStartSpot);
+	}
+
+	/**
+	 * Whether this event's tiles can be pinned as in-game widgets: the site serves them (capability
+	 * "tile-tracker") and it is the event you're playing, the one the widget's numbers are about.
+	 */
+	public boolean canTrackTiles(int eventId)
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg != null && cfg.event != null && cfg.event.id == eventId
+			&& fromPlugin(AnvilPlugin::supportsTileTracker, false);
+	}
+
+	public boolean isTileTracked(int eventId, int tileId)
+	{
+		return fromPlugin(p -> p.tileTracker().isPinned(eventId, tileId), false);
+	}
+
+	/** True when this event already has the most pins allowed, so another can't be added. */
+	public boolean tileTrackerFull(int eventId)
+	{
+		return fromPlugin(p -> p.tileTracker().isFull(eventId), false);
+	}
+
+	public void toggleTileTracked(int eventId, int tileId)
+	{
+		withPlugin(p -> p.toggleTrackedTile(eventId, tileId));
+	}
+
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	public void captureStartProof()
 	{

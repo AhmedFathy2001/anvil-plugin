@@ -670,6 +670,7 @@ public class BingoApiClient
 	// paging back and forth never evicts the polls.
 	private final Map<String, Object[]> polls = etagCache(16);
 	private final Map<String, Object[]> rosterPages = etagCache(24);
+	private final Map<String, Object[]> trackedTiles = etagCache(TileTracker.MAX_PINS);
 
 	/** An authed conditional GET: the cached body on a 304, else the parsed 2xx body. Throws {@link HttpStatusException} otherwise. */
 	private <T> T etagGet(String url, Class<T> type, Map<String, Object[]> cache, String label) throws IOException
@@ -1030,6 +1031,17 @@ public class BingoApiClient
 			path.append("&team=").append(teamId);
 		}
 		return etagGetOrNull(clanUrl(path.toString()), EventRoster.class, rosterPages, "roster fetch");
+	}
+
+	/**
+	 * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress} — every team's progress on one pinned
+	 * tile (site capability "tile-tracker"). Null on any failure. Blocking.
+	 */
+	public TileTracker.Progress fetchTileProgress(int eventId, int tileId)
+	{
+		return !isConfigured() || eventId <= 0 || tileId <= 0 ? null
+			: etagGetOrNull(clanUrl("/api/plugin/event/" + eventId + "/tile/" + tileId + "/progress"),
+				TileTracker.Progress.class, trackedTiles, "tile progress fetch");
 	}
 
 	/**
