@@ -242,6 +242,18 @@ public class AnvilPlugin extends Plugin {
 
     @Getter
     private volatile PluginConfigResponse pluginConfig;
+
+    // ── SAVED ANSWERS (ResponseDiskCache) ─────────────────────────────────────────────────────
+    // The last session's config and board, read off disk at startUp so the side panel draws at once
+    // instead of "Loading…" for a full round trip. FOR DISPLAY ONLY: `pluginConfig` above — the one
+    // tracking, submissions, overlays and every gate read — stays null until the site itself answers,
+    // so an event that ended (or a team that changed) since last time can never be tracked off this.
+    // The first live answer, of any kind, retires both.
+    private volatile ResponseDiskCache responseCache;
+    private volatile PluginConfigResponse savedConfig;
+    private volatile BingoApiClient.BoardResponse savedBoard;
+    /** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
+    private volatile boolean liveConfigAnswered;
     /** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
     private volatile long lastConfigRefreshAt;
 
@@ -1091,6 +1103,10 @@ public class AnvilPlugin extends Plugin {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
             bannerSound.setRoot(pluginDir.join("sounds"));
+            ResponseDiskCache rc = new ResponseDiskCache(gson);
+            rc.setDir(pluginDir.join("cache"));
+            responseCache = rc;
+            apiClient.setDiskCache(rc);
         } catch (IOException | RuntimeException e) {
             log.warn("No plugin directory — pending submissions and banner sounds are off this session", e);
         }
@@ -1165,6 +1181,7 @@ public class AnvilPlugin extends Plugin {
         });
         profileLookup.startUp();
 
+        liveConfigAnswered = false;
         configureApiClient();
         optedOutAccounts = AccountOptOut.parse(cfgGet(CFG_OPTED_OUT_ACCOUNTS));
         announcedAccounts = AccountOptOut.parse(cfgGet(CFG_ANNOUNCED_ACCOUNTS));
@@ -1187,6 +1204,10 @@ public class AnvilPlugin extends Plugin {
         }
         sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
         autoStartProofTried = false;
+
+        // Last session's config + board first (disk, so on the executor): the panel draws them now,
+        // and the fetches below go out as If-None-Match. Queued ahead of them on the one thread.
+        executor.submit(() -> safely("loadSavedResponses", this::loadSavedResponses));
 
         // Initial config fetch. If the plugin was enabled mid-session (already logged in),
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
@@ -1431,6 +1452,8 @@ public class AnvilPlugin extends Plugin {
             executor = null;
         }
         pluginConfig = null;
+        forgetSavedResponses();
+        apiClient.setDiskCache(null);
         itemDropIndex = Collections.emptyMap();
         killNpcIndex = Collections.emptyMap();
         gainItemIndex = Collections.emptyMap();
@@ -1640,7 +1663,7 @@ public class AnvilPlugin extends Plugin {
         // shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
         // Kept in the signature because the sidebar's device sign-in still paces its poll on it.
         // "You" on the weekly boards: the logged-in name, else the launcher's character at the login screen.
-        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::getPluginConfig, apiClient,
+        AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient,
             this::localStatProgress, () -> {
                 String name = getLocalPlayerName();
                 return name != null && !name.isEmpty() ? name : apiClient.getRsnHint();
@@ -2666,6 +2689,7 @@ public class AnvilPlugin extends Plugin {
     /** Forget the previous character's event state so nothing of it lingers while this one is paused. */
     private void dropConfigForPausedAccount() {
         pluginConfig = null;
+        forgetSavedResponses();
         rebuildItemDropIndex();
     }
 
@@ -5579,6 +5603,62 @@ public class AnvilPlugin extends Plugin {
 
     private void configureApiClient() {
         apiClient.configure(config.playerToken());
+        // Signing out, or another account signing in: the saved answers were the last account's.
+        ResponseDiskCache rc = responseCache;
+        String stale = rc == null ? null : rc.switchAccount(config.playerToken());
+        if (stale != null) {
+            forgetSavedResponses();
+            submit(() -> rc.clear(stale));
+        }
+    }
+
+    /** Read last session's config + board off disk for the panel. Executor only (disk). */
+    private void loadSavedResponses() {
+        ResponseDiskCache rc = responseCache;
+        if (rc == null || !apiClient.isConfigured() || liveConfigAnswered) {
+            return;
+        }
+        ResponseDiskCache.Entry cfgEntry = rc.load(ResponseDiskCache.CONFIG);
+        // Saved for another character than the one about to play: their team, not this one's.
+        String who = apiClient.getCurrentRsn() != null ? apiClient.getCurrentRsn() : apiClient.getRsnHint();
+        if (cfgEntry != null && cfgEntry.rsn != null && who != null && !Rsn.same(cfgEntry.rsn, who)) {
+            return;
+        }
+        PluginConfigResponse cfg = apiClient.seedFromDisk(cfgEntry, PluginConfigResponse.class);
+        BingoApiClient.BoardResponse board = cfg == null ? null
+                : apiClient.seedFromDisk(rc.load(ResponseDiskCache.BOARD), BingoApiClient.BoardResponse.class);
+        if (cfg == null || liveConfigAnswered) {
+            return; // the site beat the disk to it
+        }
+        savedConfig = cfg;
+        savedBoard = board;
+        log.debug("Showing last session's config until the site answers");
+        repaintSidebar();
+    }
+
+    /** The site has answered (or the account changed): stop showing last session's copy. */
+    private void forgetSavedResponses() {
+        savedConfig = null;
+        savedBoard = null;
+    }
+
+    /**
+     * What the SIDE PANEL draws from: the live config, or — until the site's first answer this
+     * session — last session's saved copy. Never read by tracking; that is {@link #pluginConfig}.
+     */
+    PluginConfigResponse sidebarConfig() {
+        PluginConfigResponse live = pluginConfig;
+        return live != null || liveConfigAnswered ? live : savedConfig;
+    }
+
+    /** The panel is drawing last session's copy, not a live answer. */
+    boolean showingSavedConfig() {
+        return pluginConfig == null && !liveConfigAnswered && savedConfig != null;
+    }
+
+    /** Last session's active board, for the panel while {@link #showingSavedConfig()}; else null. */
+    BingoApiClient.BoardResponse savedBoardForDisplay() {
+        return showingSavedConfig() ? savedBoard : null;
     }
 
     // ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
@@ -6187,6 +6267,8 @@ public class AnvilPlugin extends Plugin {
         try {
             PluginConfigResponse fresh = apiClient.fetchConfig();
             lastConfigRefreshAt = now();
+            liveConfigAnswered = true;
+            forgetSavedResponses();
             // A refresh that returned (HTTP 200/304, no throw) proves the token is good — clear any
             // connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();
@@ -6267,6 +6349,13 @@ public class AnvilPlugin extends Plugin {
 
         } catch (IOException e) {
             log.warn("Failed to refresh Anvil config: {}", e.getMessage());
+            // A definite refusal (no clan, bad token) is an answer too: the saved copy goes. A site
+            // that is down or slow is not — keep showing it until one does answer.
+            int code = e instanceof BingoApiClient.HttpStatusException ? ((BingoApiClient.HttpStatusException) e).code : 0;
+            if (code >= 400 && code < 500 && code != 408 && code != 429) {
+                liveConfigAnswered = true;
+                forgetSavedResponses();
+            }
             noteConnectionProblem(e);
         }
     }

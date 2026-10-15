@@ -632,7 +632,8 @@ public class BingoApiClient
 	{
 		try
 		{
-			PluginConfigResponse parsed = etagGet(configUrl("/api/plugin/config"), PluginConfigResponse.class, polls, "Config fetch");
+			PluginConfigResponse parsed = etagGet(configUrl("/api/plugin/config"), PluginConfigResponse.class, polls, "Config fetch",
+				ResponseDiskCache.CONFIG);
 			lastConfigNoClan = false;
 			return parsed;
 		}
@@ -648,7 +649,7 @@ public class BingoApiClient
 	}
 
 	/** A non-2xx answer to {@link #etagGet}. */
-	private static final class HttpStatusException extends IOException
+	static final class HttpStatusException extends IOException
 	{
 		final int code;
 
@@ -680,8 +681,54 @@ public class BingoApiClient
 	private final Map<String, Object[]> rosterPages = etagCache(24);
 	private final Map<String, Object[]> trackedTiles = etagCache(TileTracker.MAX_PINS);
 
-	/** An authed conditional GET: the cached body on a 304, else the parsed 2xx body. Throws {@link HttpStatusException} otherwise. */
+	/**
+	 * Where the last good config and board are saved between sessions (ResponseDiskCache). Null until
+	 * the plugin hands one over, and in tests — nothing is saved then.
+	 */
+	private volatile ResponseDiskCache diskCache;
+
+	void setDiskCache(ResponseDiskCache diskCache)
+	{
+		this.diskCache = diskCache;
+	}
+
+	/**
+	 * Load a saved answer into the conditional-GET cache, so the first poll of a session asks
+	 * If-None-Match and an unchanged config or board comes back as a 304. Returns the parsed body for
+	 * display, or null. Blocking (disk); call on the executor.
+	 */
+	<T> T seedFromDisk(ResponseDiskCache.Entry saved, Class<T> type)
+	{
+		if (saved == null)
+		{
+			return null;
+		}
+		try
+		{
+			T parsed = gson.fromJson(saved.body, type);
+			if (parsed != null && saved.etag != null && saved.url.startsWith(getApiUrl()) && !getApiUrl().isEmpty())
+			{
+				polls.putIfAbsent(saved.url, new Object[]{saved.etag, parsed});
+			}
+			return parsed;
+		}
+		catch (JsonParseException | IllegalStateException e)
+		{
+			log.debug("Saved answer unreadable: {}", e.getMessage());
+			return null;
+		}
+	}
+
 	private <T> T etagGet(String url, Class<T> type, Map<String, Object[]> cache, String label) throws IOException
+	{
+		return etagGet(url, type, cache, label, null);
+	}
+
+	/**
+	 * An authed conditional GET: the cached body on a 304, else the parsed 2xx body. Throws
+	 * {@link HttpStatusException} otherwise. A {@code persistAs} kind also saves a fresh body to disk.
+	 */
+	private <T> T etagGet(String url, Class<T> type, Map<String, Object[]> cache, String label, String persistAs) throws IOException
 	{
 		Request.Builder rb = authedRequest(url).get();
 		Object[] hit = cache.get(url);
@@ -699,11 +746,17 @@ public class BingoApiClient
 			{
 				throw new HttpStatusException(label, response.code());
 			}
-			T parsed = gson.fromJson(response.body().string(), type);
+			String text = response.body().string();
+			T parsed = gson.fromJson(text, type);
 			String etag = response.header("ETag");
 			if (etag != null && parsed != null)
 			{
 				cache.put(url, new Object[]{etag, parsed});
+			}
+			ResponseDiskCache disk = diskCache;
+			if (persistAs != null && disk != null && parsed != null)
+			{
+				disk.store(persistAs, url, etag, text, currentRsn != null ? currentRsn : rsnHint);
 			}
 			return parsed;
 		}
@@ -712,9 +765,14 @@ public class BingoApiClient
 	/** {@link #etagGet} for the sidebar's reads: null on any failure. */
 	private <T> T etagGetOrNull(String url, Class<T> type, Map<String, Object[]> cache, String label)
 	{
+		return etagGetOrNull(url, type, cache, label, null);
+	}
+
+	private <T> T etagGetOrNull(String url, Class<T> type, Map<String, Object[]> cache, String label, String persistAs)
+	{
 		try
 		{
-			return etagGet(url, type, cache, label);
+			return etagGet(url, type, cache, label, persistAs);
 		}
 		catch (IOException | JsonParseException e)
 		{
@@ -730,7 +788,9 @@ public class BingoApiClient
 	/** The signed-in character's active board, with their team's completion state. */
 	public BoardResponse fetchBoard()
 	{
-		return isConfigured() ? etagGetOrNull(clanUrl("/api/plugin/board"), BoardResponse.class, polls, "board fetch") : null;
+		return isConfigured()
+			? etagGetOrNull(clanUrl("/api/plugin/board"), BoardResponse.class, polls, "board fetch", ResponseDiskCache.BOARD)
+			: null;
 	}
 
 	/** One of the player's goals ({@code goals} capability). */

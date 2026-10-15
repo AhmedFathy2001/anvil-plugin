@@ -1466,7 +1466,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		// tile's detail open straight away. ETag'd, once per session unless it's being looked at.
 		if (connection.tilesTotal > 0)
 		{
-			loadBoardCatalogue("active", 0, false);
+			// Re-read once the site is back if what's held is last session's saved copy.
+			loadBoardCatalogue("active", 0, dataSource.boardNeedsLiveRead(boardCatalogues.get("active")));
 		}
 		// A refresh that began just before the member focused Search may finish while they are typing.
 		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.

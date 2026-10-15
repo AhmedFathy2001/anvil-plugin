@@ -290,7 +290,29 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 */
 	public BingoApiClient.BoardResponse fetchBoard(int eventId)
 	{
-		return eventId > 0 ? apiClient.fetchBoardPreview(eventId) : apiClient.fetchBoard();
+		if (eventId > 0)
+		{
+			return apiClient.fetchBoardPreview(eventId);
+		}
+		BingoApiClient.BoardResponse live = apiClient.fetchBoard();
+		if (live != null)
+		{
+			savedBoardServed = null;
+			return live;
+		}
+		// Until the site's first config answer the card is last session's copy; so may the board be.
+		BingoApiClient.BoardResponse saved = fromPlugin(AnvilPlugin::savedBoardForDisplay, null);
+		savedBoardServed = saved;
+		return saved;
+	}
+
+	/** The last board {@link #fetchBoard} answered from disk rather than the site; null once a live one lands. */
+	private volatile BingoApiClient.BoardResponse savedBoardServed;
+
+	/** {@code board} is last session's copy and the site has since answered — it wants a live re-read. */
+	public boolean boardNeedsLiveRead(BingoApiClient.BoardResponse board)
+	{
+		return board != null && board == savedBoardServed && !fromPlugin(AnvilPlugin::showingSavedConfig, false);
 	}
 
 	/**
@@ -593,6 +615,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		{
 			log.debug("activity fetch failed", e);
 			error = "Live feed unavailable";
+		}
+
+		// Last session's saved copy, drawn before the site has answered: say so rather than pass it off as live.
+		if (fromPlugin(AnvilPlugin::showingSavedConfig, false))
+		{
+			error = "Last session's copy — reconnecting to Anvil…";
 		}
 
 		List<ActivityEntry> feed = activityLog.snapshot();
