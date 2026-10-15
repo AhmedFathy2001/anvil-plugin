@@ -1868,9 +1868,34 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		body.add(buildSummary(selected));
 		body.add(gap(12));
+		// Where every team stands, at a glance: the top three, plus yours when it's further down.
+		List<EventRoster.Team> standings = dataSource.standings();
+		if (!standings.isEmpty())
+		{
+			heading(body, "Standings");
+			int shown = 0;
+			for (EventRoster.Team t : standings)
+			{
+				if (shown < STANDINGS_SHOWN || t.yours)
+				{
+					if (shown > 0)
+					{
+						body.add(gap(3));
+					}
+					body.add(buildStandingRow(t));
+					shown++;
+				}
+			}
+			if (standings.size() > shown)
+			{
+				body.add(gap(3));
+				body.add(small("+" + (standings.size() - shown) + " more teams", MUTED));
+			}
+			body.add(gap(8));
+		}
 		if (dataSource.supportsEventRoster())
 		{
-			body.add(fullWidthButton("Teams", "Who's on which team", () -> openTeams(0)));
+			body.add(fullWidthButton(standings.isEmpty() ? "Teams" : "All teams & members", "Who's on which team", () -> openTeams(0)));
 			body.add(gap(12));
 		}
 
@@ -2846,6 +2871,31 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		into.revalidate();
 		into.repaint();
+	}
+
+	private static final int STANDINGS_SHOWN = 3;
+
+	/** "1. The AFK Spot ······ 8,710 pts" — your team in gold; clicking opens that team's members. */
+	private JPanel buildStandingRow(EventRoster.Team t)
+	{
+		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
+		row.setOpaque(false);
+		JLabel name = small(t.rank + ". " + ellipsize(t.name == null ? "" : t.name, 22),
+			t.yours ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
+		name.setIcon(TeamsView.swatchIcon(t.color, 8));
+		name.setIconTextGap(5);
+		row.add(name, BorderLayout.CENTER);
+		row.add(small(t.score == null ? "" : t.score, t.yours ? ColorScheme.BRAND_ORANGE : MUTED), BorderLayout.EAST);
+		row.setToolTipText(plainText(t.name) + " — " + t.members + " member" + (t.members == 1 ? "" : "s") + ". Click for the roster.");
+		listenDeep(row, new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				openTeams(0);
+			}
+		});
+		return capH(row);
 	}
 
 	/** A pinned tile: its progress like any tile row (click opens it), with a ✕ that unpins it. */

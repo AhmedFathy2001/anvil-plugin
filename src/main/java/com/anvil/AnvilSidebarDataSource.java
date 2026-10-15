@@ -485,7 +485,58 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				p.reprobeAdminNow();
 			}
 		});
-		return buildView(force);
+		ConnectionView view = buildView(force);
+		refreshStandings(force);
+		return view;
+	}
+
+	// ---- Standings ------------------------------------------------------------------------------
+	//
+	// Every team's rank and score for the live board, shown at the top of the event view. The same
+	// ranked overview the Teams page reads (event-roster, ETag'd), at most once per STANDINGS_TTL_MS
+	// (a clicked Refresh asks now), kept in memory so the panel draws it without a request.
+
+	private static final long STANDINGS_TTL_MS = 30_000L;
+	private volatile List<EventRoster.Team> standings = Collections.emptyList();
+	private volatile int standingsEventId;
+	private long standingsAt;
+
+	/** The live board's teams, best first; empty before the reveal, on older sites, or with no board. */
+	public List<EventRoster.Team> standings()
+	{
+		return standingsEventId == activeEventId() ? standings : Collections.emptyList();
+	}
+
+	private void refreshStandings(boolean force)
+	{
+		int eventId = activeEventId();
+		if (eventId <= 0 || !supportsEventRoster())
+		{
+			standings = Collections.emptyList();
+			return;
+		}
+		long now = System.currentTimeMillis();
+		if (!force && eventId == standingsEventId && now - standingsAt < STANDINGS_TTL_MS)
+		{
+			return;
+		}
+		standingsAt = now;
+		EventRoster overview = apiClient.fetchRoster(eventId, 0, null, 1);
+		if (overview == null || overview.teams == null)
+		{
+			return; // keep what we had; the next window retries
+		}
+		List<EventRoster.Team> ranked = new ArrayList<>();
+		for (EventRoster.Team t : overview.teams)
+		{
+			if (t != null && t.rank != null)
+			{
+				ranked.add(t);
+			}
+		}
+		ranked.sort(Comparator.comparingInt(t -> t.rank));
+		standings = ranked;
+		standingsEventId = eventId;
 	}
 
 	// ── The clan switcher's data ────────────────────────────────────────────────────────────────
