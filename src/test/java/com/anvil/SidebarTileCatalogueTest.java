@@ -316,4 +316,29 @@ public class SidebarTileCatalogueTest
 		assertEquals(Arrays.asList(drop), AnvilSidebarPanel.filterBoardTiles(all, "Drop", null, false));
 		assertEquals(Arrays.asList(drop), AnvilSidebarPanel.filterBoardTiles(all, "warhammer", null, false));
 	}
+
+	@Test
+	public void aFinisherReadsInTheTilesUnit()
+	{
+		BingoApiClient.BoardTile kc = tile(1, "Kill 500 Brutus", null, null, null, false);
+		kc.statType = "boss";
+		BingoApiClient.BoardTile xp = tile(2, "Gain 5M Mining", null, null, null, false);
+		xp.statType = "skill";
+		BingoApiClient.BoardTile drop = tile(3, "Get 3 visages", null, null, null, false);
+		drop.tileType = "drop";
+
+		assertEquals("Kurrozive · 312 KC", AnvilSidebarPanel.finisherLine(kc, finisher("Kurrozive", 312)));
+		assertEquals("Minjoll · 1.5M XP", AnvilSidebarPanel.finisherLine(xp, finisher("Minjoll", 1_500_000)));
+		assertEquals("H A R L E M · 2", AnvilSidebarPanel.finisherLine(drop, finisher("H A R L E M", 2)));
+		// A completion credited to one person with no amount reads as just their name.
+		assertEquals("Kurrozive", AnvilSidebarPanel.finisherLine(drop, finisher("Kurrozive", 0)));
+	}
+
+	private static BingoApiClient.BoardFinisher finisher(String name, long amount)
+	{
+		BingoApiClient.BoardFinisher f = new BingoApiClient.BoardFinisher();
+		f.name = name;
+		f.amount = amount;
+		return f;
+	}
 }

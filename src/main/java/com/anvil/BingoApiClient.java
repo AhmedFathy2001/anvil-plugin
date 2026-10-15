@@ -1133,6 +1133,19 @@ public class BingoApiClient
 		 * caller's own team. Null when nobody has claimed it, and always on older sites.
 		 */
 		public List<BoardClaim> claims;
+		/**
+		 * Your team's done tile only: who finished it, biggest share first (capped; the rest counted in
+		 * {@link #finishedByMore}). Null on open tiles and on older sites.
+		 */
+		public List<BoardFinisher> finishedBy;
+		public int finishedByMore;
+	}
+
+	/** One member's share of a finished tile: KC/XP gained, or the amount they submitted (0 = unknown). */
+	public static class BoardFinisher
+	{
+		public String name;
+		public long amount;
 	}
 
 	/** Canonical display name for one numeric item id the tile tracker accepts. */

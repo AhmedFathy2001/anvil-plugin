@@ -3950,6 +3950,18 @@ public class AnvilSidebarPanel extends PluginPanel
 				card.add(note(fact));
 			}
 		}
+		if (tile.complete && tile.finishedBy != null && !tile.finishedBy.isEmpty())
+		{
+			detailHeading(card, 9, "Finished by");
+			for (BingoApiClient.BoardFinisher f : tile.finishedBy)
+			{
+				card.add(note(finisherLine(tile, f), ColorScheme.PROGRESS_COMPLETE_COLOR));
+			}
+			if (tile.finishedByMore > 0)
+			{
+				card.add(note("+" + tile.finishedByMore + " more", MUTED));
+			}
+		}
 		if (tile.description != null && !tile.description.trim().isEmpty())
 		{
 			detailHeading(card, 9, "Objective");
@@ -4036,6 +4048,21 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		rows.add(capH(card));
 		relayout(catalogue, rows);
+	}
+
+	/** "Kurrozive · 312 KC" — a finisher and their share, in the tile's unit; just the name when unknown. */
+	static String finisherLine(BingoApiClient.BoardTile tile, BingoApiClient.BoardFinisher f)
+	{
+		String name = f.name == null ? "" : f.name;
+		if (f.amount <= 0)
+		{
+			return name;
+		}
+		String unit = "skill".equals(tile.statType) ? " XP"
+			: "boss".equals(tile.statType) || "kc".equals(tile.statType) ? " KC"
+			: "value".equals(tile.tileType) || "valuetotal".equals(tile.tileType) ? " gp"
+			: "";
+		return name + " · " + ConnectionView.formatCount(f.amount) + unit;
 	}
 
 	/** A heading inside the tile detail, {@code above} px under what came before it. */
