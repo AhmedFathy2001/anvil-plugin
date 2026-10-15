@@ -14,6 +14,7 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
+import net.runelite.client.ui.overlay.components.PanelComponent;
 import net.runelite.client.ui.overlay.components.ProgressBarComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 
@@ -52,6 +53,12 @@ public class TileTracker
 	 * so a pinned tile moves on your kill. Identity until the plugin sets it.
 	 */
 	private volatile java.util.function.ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
+	/**
+	 * One panel holding every pin (the default) or a movable widget per pin. One panel can't end up
+	 * with pins on top of each other, and is one thing to place; separate ones can be put anywhere.
+	 */
+	private boolean onePanel = true;
+	private final Combined combined = new Combined();
 
 	@Inject
 	TileTracker(OverlayManager overlayManager, ConfigManager configManager, BingoApiClient apiClient)
@@ -64,6 +71,56 @@ public class TileTracker
 	void setShownProgress(java.util.function.ToLongBiFunction<Integer, Long> shown)
 	{
 		shownProgress = shown;
+	}
+
+	/** Switch between one panel and a widget per pin, moving whatever is pinned across. */
+	synchronized void setOnePanel(boolean one)
+	{
+		if (one == onePanel)
+		{
+			return;
+		}
+		hideAll();
+		onePanel = one;
+		showAll();
+	}
+
+	private void hideAll()
+	{
+		overlayManager.remove(combined);
+		for (Widget w : pins.values())
+		{
+			overlayManager.remove(w);
+		}
+	}
+
+	private void showAll()
+	{
+		if (pins.isEmpty())
+		{
+			return;
+		}
+		if (onePanel)
+		{
+			overlayManager.add(combined);
+		}
+		else
+		{
+			for (Widget w : pins.values())
+			{
+				overlayManager.add(w);
+			}
+		}
+	}
+
+	/** Take one pin's widget down, and the shared panel with the last one. */
+	private void hide(Widget w)
+	{
+		overlayManager.remove(w);
+		if (pins.isEmpty())
+		{
+			overlayManager.remove(combined);
+		}
 	}
 
 	/** Restore the pins saved for the event in config ("eventId:tileId,tileId"). */
@@ -94,10 +151,7 @@ public class TileTracker
 
 	synchronized void shutDown()
 	{
-		for (Widget w : pins.values())
-		{
-			overlayManager.remove(w);
-		}
+		hideAll();
 		pins.clear();
 	}
 
@@ -128,7 +182,7 @@ public class TileTracker
 	{
 		if (isPinned(eventId, tileId))
 		{
-			overlayManager.remove(pins.remove(tileId));
+			hide(pins.remove(tileId));
 		}
 		else
 		{
@@ -242,7 +296,7 @@ public class TileTracker
 	{
 		if (eventId == event && pins.get(tileId) == w)
 		{
-			overlayManager.remove(pins.remove(tileId));
+			hide(pins.remove(tileId));
 			save();
 		}
 	}
@@ -261,7 +315,15 @@ public class TileTracker
 		}
 		Widget w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
 		pins.put(tileId, w);
-		overlayManager.add(w);
+		if (onePanel)
+		{
+			overlayManager.remove(combined); // re-added, so it is never in twice
+			overlayManager.add(combined);
+		}
+		else
+		{
+			overlayManager.add(w);
+		}
 		return w;
 	}
 
@@ -289,6 +351,42 @@ public class TileTracker
 			sb.append(id).append(',');
 		}
 		configManager.setConfiguration("osrsbingo", CFG_PINS, sb.substring(0, sb.length() - 1));
+	}
+
+	/** Every pin in one movable panel, in pin order, a blank line between them. */
+	class Combined extends OverlayPanel
+	{
+		Combined()
+		{
+			setPosition(OverlayPosition.TOP_LEFT);
+			setResizable(true);
+			setMovable(true);
+		}
+
+		@Override
+		public String getName()
+		{
+			return "AnvilTileTrackerPanel";
+		}
+
+		@Override
+		public Dimension render(Graphics2D graphics)
+		{
+			List<Widget> shown;
+			synchronized (TileTracker.this)
+			{
+				shown = new ArrayList<>(pins.values());
+			}
+			for (int i = 0; i < shown.size(); i++)
+			{
+				if (i > 0)
+				{
+					panelComponent.getChildren().add(LineComponent.builder().build());
+				}
+				shown.get(i).drawInto(panelComponent);
+			}
+			return shown.isEmpty() ? null : super.render(graphics);
+		}
 	}
 
 	/** The site's answer (lib/tileTracker): the viewer's team first, then the rest by progress. */
@@ -365,11 +463,18 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
+			drawInto(panelComponent);
+			return super.render(graphics);
+		}
+
+		/** This pin's lines, into its own widget or the shared panel. */
+		void drawInto(PanelComponent panelComponent)
+		{
 			Progress p = progress;
 			if (p == null || p.teams == null)
 			{
 				panelComponent.getChildren().add(TitleComponent.builder().text("Anvil: loading tile…").color(GOLD).build());
-				return super.render(graphics);
+				return;
 			}
 			panelComponent.getChildren().add(TitleComponent.builder().text(p.label).color(GOLD).build());
 			if ("upcoming".equals(p.phase))
@@ -378,14 +483,14 @@ public class TileTracker
 				panelComponent.getChildren().add(LineComponent.builder().left("Goal").right(fmt(p.goal)).build());
 				panelComponent.getChildren().add(LineComponent.builder()
 					.left("Starts in").right(countdown(p.startsAt)).rightColor(Color.YELLOW).build());
-				return super.render(graphics);
+				return;
 			}
 			int others = 0;
 			for (Team t : p.teams)
 			{
 				if (t.mine)
 				{
-					renderOwnTeam(p, t);
+					renderOwnTeam(panelComponent, p, t);
 				}
 				else if (others++ < OTHER_TEAMS_SHOWN)
 				{
@@ -397,10 +502,9 @@ public class TileTracker
 						.build());
 				}
 			}
-			return super.render(graphics);
 		}
 
-		private void renderOwnTeam(Progress p, Team t)
+		private void renderOwnTeam(PanelComponent panelComponent, Progress p, Team t)
 		{
 			// Your own kill counts here the moment it happens; the fetch after the push confirms it.
 			long current = t.complete ? t.current : shown.applyAsLong(tileId, t.current);

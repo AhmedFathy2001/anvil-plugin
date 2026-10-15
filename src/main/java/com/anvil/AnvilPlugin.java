@@ -1191,6 +1191,7 @@ public class AnvilPlugin extends Plugin {
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
         tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
+        tileTracker.setOnePanel(config.trackerOnePanel());
         tileTracker.startUp();
         overlayManager.add(startProofOverlay);
 
@@ -1777,6 +1778,9 @@ public class AnvilPlugin extends Plugin {
         configureApiClient();
         if ("profileLookupMenu".equals(event.getKey()) || "lookupPlayers".equals(event.getKey())) {
             profileLookup.syncPlayerItem();
+        }
+        if ("trackerOnePanel".equals(event.getKey())) {
+            tileTracker.setOnePanel(config.trackerOnePanel());
         }
         // Setting the Account Token is a deliberate one-shot edit — a paste, or the
         // sign-in flow storing the token — not the rapid churn the debounce exists to coalesce.

@@ -255,6 +255,18 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "trackerOnePanel",
+		name = "Pinned tiles in one panel",
+		description = "Show every tile pinned with \"Track on screen\" in one movable panel. Off: a separate widget per tile, each placed on its own.",
+		position = 10,
+		section = "bingoSection"
+	)
+	default boolean trackerOnePanel()
+	{
+		return true;
+	}
+
 
 	// ---- Notifications: Deaths & kills ----
 
