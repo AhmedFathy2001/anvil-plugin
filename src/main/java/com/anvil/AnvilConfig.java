@@ -258,7 +258,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "trackerOnePanel",
 		name = "Pinned tiles in one panel",
-		description = "Show every tile pinned with \"Track on screen\" in one movable panel. Off: a separate widget per tile, each placed on its own.",
+		description = "Show every tile pinned with \"Track on screen\" in one compact movable panel: each tile's name and your team's progress. Off: a separate, detailed widget per tile (members and other teams).",
 		position = 10,
 		section = "bingoSection"
 	)

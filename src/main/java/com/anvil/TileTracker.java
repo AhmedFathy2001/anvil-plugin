@@ -353,7 +353,7 @@ public class TileTracker
 		configManager.setConfiguration("osrsbingo", CFG_PINS, sb.substring(0, sb.length() - 1));
 	}
 
-	/** Every pin in one movable panel, in pin order, a blank line between them. */
+	/** Every pin in one movable panel, in pin order, a blank line between them — name and bar each. */
 	class Combined extends OverlayPanel
 	{
 		Combined()
@@ -383,7 +383,7 @@ public class TileTracker
 				{
 					panelComponent.getChildren().add(LineComponent.builder().build());
 				}
-				shown.get(i).drawInto(panelComponent);
+				shown.get(i).drawInto(panelComponent, true);
 			}
 			return shown.isEmpty() ? null : super.render(graphics);
 		}
@@ -463,12 +463,16 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
-			drawInto(panelComponent);
+			drawInto(panelComponent, false);
 			return super.render(graphics);
 		}
 
-		/** This pin's lines, into its own widget or the shared panel. */
-		void drawInto(PanelComponent panelComponent)
+		/**
+		 * This pin's lines, into its own widget or the shared panel. {@code compact} (the shared panel)
+		 * is the tile's name and your team's bar only — three pins with every member and rival team
+		 * each made a panel taller than the game view.
+		 */
+		void drawInto(PanelComponent panelComponent, boolean compact)
 		{
 			Progress p = progress;
 			if (p == null || p.teams == null)
@@ -490,9 +494,9 @@ public class TileTracker
 			{
 				if (t.mine)
 				{
-					renderOwnTeam(panelComponent, p, t);
+					renderOwnTeam(panelComponent, p, t, compact);
 				}
-				else if (others++ < OTHER_TEAMS_SHOWN)
+				else if (!compact && others++ < OTHER_TEAMS_SHOWN)
 				{
 					panelComponent.getChildren().add(LineComponent.builder()
 						.left(t.name)
@@ -504,7 +508,7 @@ public class TileTracker
 			}
 		}
 
-		private void renderOwnTeam(PanelComponent panelComponent, Progress p, Team t)
+		private void renderOwnTeam(PanelComponent panelComponent, Progress p, Team t, boolean compact)
 		{
 			// Your own kill counts here the moment it happens; the fetch after the push confirms it.
 			long current = t.complete ? t.current : shown.applyAsLong(tileId, t.current);
@@ -515,7 +519,7 @@ public class TileTracker
 			bar.setForegroundColor(t.complete ? new Color(0, 160, 0) : teamColor(t.color).darker());
 			bar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.FULL);
 			panelComponent.getChildren().add(bar);
-			if (t.members == null)
+			if (compact || t.members == null)
 			{
 				return;
 			}
