@@ -3331,7 +3331,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	enum TileStatusFilter
 	{
-		ALL("All"), OPEN("Not done"), DONE("Done");
+		ALL("All"), OPEN("Not done"), IN_PROGRESS("In progress"), DONE("Done");
 
 		private final String label;
 
@@ -3347,9 +3347,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
+	/** "260 / 500" for an open tile the team has started on, else null (untouched, pass/fail, or done). */
+	static String startedCount(BingoApiClient.BoardTile tile, Map<Integer, ClogTaskModel.TaskRow> progress)
+	{
+		ClogTaskModel.TaskRow r = tile == null || tile.complete || progress == null ? null : progress.get(tile.tileId);
+		return r == null || r.isCompleted() || r.current <= 0 || r.goal <= 1 ? null : progressValue(r);
+	}
+
 	/** Pure filter used by the Swing view and unit tests. Pre-start boards deliberately have no done state. */
 	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
 		String search, TileStatusFilter status, boolean preStart)
+	{
+		return filterBoardTiles(tiles, search, status, preStart, java.util.Collections.emptyMap());
+	}
+
+	/** As above; {@code progress} (tileId → the team's count) decides "In progress": open, and started. */
+	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
+		String search, TileStatusFilter status, boolean preStart, Map<Integer, ClogTaskModel.TaskRow> progress)
 	{
 		List<BingoApiClient.BoardTile> out = new ArrayList<>();
 		String needle = normalizeTileSearch(search);
@@ -3379,7 +3393,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				continue;
 			}
 			boolean done = !preStart && tile.complete;
-			if ((wanted == TileStatusFilter.OPEN && done) || (wanted == TileStatusFilter.DONE && !done))
+			if ((wanted == TileStatusFilter.OPEN && done) || (wanted == TileStatusFilter.DONE && !done)
+				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || startedCount(tile, progress) == null)))
 			{
 				continue;
 			}
@@ -3741,7 +3756,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			closeCatalogueDetail(key);
 		}
-		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart);
+		// The team's counts, from the config the sidebar already holds — the live board only.
+		Map<Integer, ClogTaskModel.TaskRow> progress = "active".equals(key) && connection != null && !preStart
+			? connection.tileProgress : java.util.Collections.emptyMap();
+		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart, progress);
 		if (filtered.isEmpty())
 		{
 			rows.add(small("No matching tiles.", MUTED));
@@ -3772,7 +3790,7 @@ public class AnvilSidebarPanel extends PluginPanel
 						? "Join this event to claim tiles."
 						: (!dataSource.canClaimNow() ? "Log in to claim tiles."
 							: "Claims aren't available on this site.")));
-				rows.add(buildCatalogueTileRow(tile, preStart, key, canClaim, claimUnavailable, () ->
+				rows.add(buildCatalogueTileRow(tile, preStart, key, canClaim, claimUnavailable, startedCount(tile, progress), () ->
 				{
 					openCatalogueDetailKey = key;
 					openCatalogueDetailTileId = tile.tileId;
@@ -3818,7 +3836,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, boolean preStart,
-		String key, boolean canClaim, String claimUnavailable, Runnable viewDetails)
+		String key, boolean canClaim, String claimUnavailable, String count, Runnable viewDetails)
 	{
 		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -3836,12 +3854,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		name.setToolTipText(plainText(tooltip));
 		row.add(name, BorderLayout.CENTER);
 
-		String rowState = tileRowStateText(tile, preStart);
+		// A started tile says how far along it is where an untouched one says "Open".
+		String rowState = count != null ? count : tileRowStateText(tile, preStart);
 		if (rowState != null)
 		{
 			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
 			JLabel state = small(rowState.startsWith("✓ ") ? rowState.substring(2) : rowState,
-				tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : tileIsManual(tile) ? MANUAL_COLOR : MUTED);
+				tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : count != null ? ColorScheme.PROGRESS_INPROGRESS_COLOR
+					: tileIsManual(tile) ? MANUAL_COLOR : MUTED);
 			if (rowState.startsWith("✓ "))
 			{
 				state.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 11));

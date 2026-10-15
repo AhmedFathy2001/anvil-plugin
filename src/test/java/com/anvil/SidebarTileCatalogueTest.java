@@ -341,4 +341,26 @@ public class SidebarTileCatalogueTest
 		f.amount = amount;
 		return f;
 	}
+
+	@Test
+	public void inProgressIsOpenTilesTheTeamHasStarted()
+	{
+		BingoApiClient.BoardTile started = tile(1, "Kill 500 Kurasks", null, null, null, false);
+		BingoApiClient.BoardTile untouched = tile(2, "Kill 500 Nechryael", null, null, null, false);
+		BingoApiClient.BoardTile oneOff = tile(3, "Complete a solo CoX", null, null, null, false);
+		BingoApiClient.BoardTile done = tile(4, "Kill 500 Brutus", null, null, null, false);
+		done.complete = true;
+		java.util.Map<Integer, ClogTaskModel.TaskRow> progress = new java.util.HashMap<>();
+		progress.put(1, new ClogTaskModel.TaskRow(1, "Kill 500 Kurasks", 260, 500, 0, false));
+		progress.put(2, new ClogTaskModel.TaskRow(2, "Kill 500 Nechryael", 0, 500, 0, false));
+		progress.put(3, new ClogTaskModel.TaskRow(3, "Complete a solo CoX", 0, 1, 0, false));
+		progress.put(4, new ClogTaskModel.TaskRow(4, "Kill 500 Brutus", 500, 500, 0, true));
+		List<BingoApiClient.BoardTile> all = Arrays.asList(started, untouched, oneOff, done);
+
+		assertEquals(Arrays.asList(started),
+			AnvilSidebarPanel.filterBoardTiles(all, "", AnvilSidebarPanel.TileStatusFilter.IN_PROGRESS, false, progress));
+		assertEquals("260 / 500", AnvilSidebarPanel.startedCount(started, progress));
+		assertNull(AnvilSidebarPanel.startedCount(untouched, progress));
+		assertNull(AnvilSidebarPanel.startedCount(done, progress));
+	}
 }
