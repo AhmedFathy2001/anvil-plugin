@@ -2814,7 +2814,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		ClogTaskModel.TaskRow tile = task.tile;
 		JLabel name = small(ellipsize(tile.label, 24), task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
-		name.setToolTipText(plainText(tile.label));
+		name.setToolTipText(tileTooltip(tile.tileId, tile.label, null));
 		return opensTile(progressRow(name, progressValue(tile),
 			small(task.workersLabel(), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED),
 			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
@@ -2914,6 +2914,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		return tile.goal > 0 ? ConnectionView.formatCount(tile.current) + " / " + ConnectionView.formatCount(tile.goal) : "";
 	}
 
+	/** Width a long tile tooltip wraps at, in points. */
+	private static final int TOOLTIP_WRAP_PT = 200;
+
 	/** The team activity feed — one colored line per event (newest first), capped so the panel stays glanceable. */
 	private JPanel buildActivityFeed(List<ActivityEntry> entries)
 	{
@@ -2933,9 +2936,32 @@ public class AnvilSidebarPanel extends PluginPanel
 		// your own actions stand out (gold); teammates stay neutral.
 		JLabel row = small(ellipsize(e.summary(), 36), e.isCompletion() ? ColorScheme.PROGRESS_COMPLETE_COLOR
 			: e.kind == ActivityEntry.Kind.REVEAL || e.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
-		row.setToolTipText(plainText(e.summary()));
+		row.setToolTipText(tileTooltip(e.tileId, e.tileLabel, e.summary()));
 		// Clicking a line opens its tile, like the tile rows under it.
 		return opensTile(row, e.tileId);
+	}
+
+	/**
+	 * Hover text for a tile line: its name in bold, its description under it, then {@code line} (the
+	 * activity line itself, which the row may have clipped). Long text wraps rather than running off-screen.
+	 */
+	private String tileTooltip(int tileId, String name, String line)
+	{
+		ClogTaskModel.TaskRow row = connection == null ? null : connection.tileProgress.get(tileId);
+		String title = row != null && !row.label.isEmpty() ? row.label : name == null ? "" : name;
+		String desc = row == null || row.description == null ? "" : row.description.trim();
+		StringBuilder html = new StringBuilder("<b>").append(esc(title)).append("</b>");
+		if (!desc.isEmpty() && !desc.equalsIgnoreCase(title.trim()))
+		{
+			html.append("<br>").append(esc(desc));
+		}
+		if (line != null && !line.isEmpty())
+		{
+			html.append("<br><br>").append(esc(line));
+		}
+		return title.length() + desc.length() + (line == null ? 0 : line.length()) > 48
+			? wrapHtml(html.toString(), TOOLTIP_WRAP_PT)
+			: "<html>" + html + "</html>";
 	}
 
 	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
@@ -3272,7 +3298,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildTileRow(ConnectionView.TileProgressView tile)
 	{
 		Color done = tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : null;
-		return opensTile(progressRow(small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR), progressText(tile), null,
+		JLabel name = small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR);
+		name.setToolTipText(tileTooltip(tile.tileId, tile.name, null));
+		return opensTile(progressRow(name, progressText(tile), null,
 			bar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
 	}

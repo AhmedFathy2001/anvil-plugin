@@ -35,6 +35,8 @@ public final class ClogTaskModel
 		// Board position — mirrors the site's tile order (difficulty sort, shuffle). Set after
 		// construction; 0 on old servers.
 		public int position;
+		// The tile's description, for hover text. Set after construction; null when it has none.
+		public String description;
 
 		public TaskRow(int tileId, String label, int current, int goal, int points, boolean forceCompleted)
 		{
@@ -99,26 +101,26 @@ public final class ClogTaskModel
 				goal = pg[1];
 				done = done || pg[2] == 1;
 			}
-			add(rows, d.position, new TaskRow(d.tileId, d.label, current, goal, d.points, done));
+			add(rows, d, new TaskRow(d.tileId, d.label, current, goal, d.points, done));
 		});
-		each(cfg.trackedStats, s -> add(rows, s.position, new TaskRow(s.tileId, s.label, s.currentAmount,
+		each(cfg.trackedStats, s -> add(rows, s, new TaskRow(s.tileId, s.label, s.currentAmount,
 			s.goalAmount, s.points, completed.contains(s.tileId))));
 		// Kills, PvP kills, diaries and combat tasks all count completions toward requiredAmount.
-		each(cfg.trackedKills, k -> add(rows, k.position, new TaskRow(k.tileId, k.label, k.currentAmount,
+		each(cfg.trackedKills, k -> add(rows, k, new TaskRow(k.tileId, k.label, k.currentAmount,
 			k.requiredAmount, k.points, completed.contains(k.tileId))));
-		each(cfg.trackedPvp, p -> add(rows, p.position, new TaskRow(p.tileId, p.label, p.currentAmount,
+		each(cfg.trackedPvp, p -> add(rows, p, new TaskRow(p.tileId, p.label, p.currentAmount,
 			p.requiredAmount, p.points, completed.contains(p.tileId))));
-		each(cfg.trackedDiaries, d -> add(rows, d.position, new TaskRow(d.tileId, d.label, d.currentAmount,
+		each(cfg.trackedDiaries, d -> add(rows, d, new TaskRow(d.tileId, d.label, d.currentAmount,
 			d.requiredAmount, d.points, completed.contains(d.tileId))));
-		each(cfg.trackedCombatTasks, t -> add(rows, t.position, new TaskRow(t.tileId, t.label, t.currentAmount,
+		each(cfg.trackedCombatTasks, t -> add(rows, t, new TaskRow(t.tileId, t.label, t.currentAmount,
 			t.requiredAmount, t.points, completed.contains(t.tileId))));
 		// Timed tiles are pass/fail (no running count): the completed flag drives status; goal 1.
 		each(cfg.trackedTimed, t ->
 		{
 			boolean done = t.completed || completed.contains(t.tileId);
-			add(rows, t.position, new TaskRow(t.tileId, t.label, done ? 1 : 0, 1, t.points, done));
+			add(rows, t, new TaskRow(t.tileId, t.label, done ? 1 : 0, 1, t.points, done));
 		});
-		each(cfg.trackedLms, l -> add(rows, l.position, new TaskRow(l.tileId, l.label, l.currentAmount,
+		each(cfg.trackedLms, l -> add(rows, l, new TaskRow(l.tileId, l.label, l.currentAmount,
 			Math.max(1, l.requiredAmount), l.points, completed.contains(l.tileId))));
 		each(cfg.trackedValues, v ->
 		{
@@ -129,19 +131,19 @@ public final class ClogTaskModel
 				// tracks. Bars are drawn from current/goal, so those carry the gp (clamped, since a
 				// target can exceed an int).
 				int goal = clampGp(v.thresholdGp);
-				add(rows, v.position, new TaskRow(v.tileId, v.label, Math.min(clampGp(v.currentGp), goal), goal,
+				add(rows, v, new TaskRow(v.tileId, v.label, Math.min(clampGp(v.currentGp), goal), goal,
 					v.points, done));
 			}
 			else
 			{
 				// Single-haul tiles are genuinely pass/fail — one qualifying drop or nothing.
-				add(rows, v.position, new TaskRow(v.tileId, v.label, done ? 1 : 0, 1, v.points, done));
+				add(rows, v, new TaskRow(v.tileId, v.label, done ? 1 : 0, 1, v.points, done));
 			}
 		});
 		// Gain tiles and deathless runs count like kills.
-		each(cfg.trackedGains, g -> add(rows, g.position, new TaskRow(g.tileId, g.label, g.currentAmount,
+		each(cfg.trackedGains, g -> add(rows, g, new TaskRow(g.tileId, g.label, g.currentAmount,
 			Math.max(1, g.requiredAmount), g.points, completed.contains(g.tileId))));
-		each(cfg.trackedDeathless, d -> add(rows, d.position, new TaskRow(d.tileId, d.label, d.currentAmount,
+		each(cfg.trackedDeathless, d -> add(rows, d, new TaskRow(d.tileId, d.label, d.currentAmount,
 			Math.max(1, d.requiredAmount), d.points, completed.contains(d.tileId))));
 		return rows;
 	}
@@ -185,9 +187,10 @@ public final class ClogTaskModel
 	}
 
 	/** Adds the row with its board position stamped — the within-status-group sort key. */
-	private static void add(List<TaskRow> rows, int position, TaskRow row)
+	private static void add(List<TaskRow> rows, PluginConfigResponse.TrackedTile tile, TaskRow row)
 	{
-		row.position = position;
+		row.position = tile.position;
+		row.description = tile.description;
 		rows.add(row);
 	}
 
