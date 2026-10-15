@@ -4003,6 +4003,19 @@ public class AnvilSidebarPanel extends PluginPanel
 				card.add(note("+" + tile.finishedByMore + " more", MUTED));
 			}
 		}
+		// Who on your team is getting it — open tiles only (a done one lists its finishers above).
+		if (!tile.complete && tile.contributors != null && !tile.contributors.isEmpty())
+		{
+			detailHeading(card, 9, "On it");
+			for (BingoApiClient.BoardFinisher f : tile.contributors)
+			{
+				card.add(note(finisherLine(tile, f), ColorScheme.PROGRESS_INPROGRESS_COLOR));
+			}
+			if (tile.contributorsMore > 0)
+			{
+				card.add(note("+" + tile.contributorsMore + " more", MUTED));
+			}
+		}
 		if (tile.description != null && !tile.description.trim().isEmpty())
 		{
 			detailHeading(card, 9, "Objective");
@@ -4343,7 +4356,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			String unit = "boss".equalsIgnoreCase(tile.statType) || "kc".equalsIgnoreCase(tile.statType)
 				? " KC" : " XP";
-			lines.add(tile.statName.trim() + unit);
+			// The site's readable name ("Kree'Arra") when it sends one; the raw key on older sites.
+			String name = tile.statLabel != null && !tile.statLabel.trim().isEmpty() ? tile.statLabel : tile.statName;
+			lines.add(name.trim() + unit);
 		}
 		else if (tile.requirement != null && !tile.requirement.trim().isEmpty())
 		{

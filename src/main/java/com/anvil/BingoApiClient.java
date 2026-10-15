@@ -1125,6 +1125,8 @@ public class BingoApiClient
 		public String tileType;
 		public String statType;
 		public String statName;
+		/** statName as a person writes it ("Kree'Arra"); null on older sites. */
+		public String statLabel;
 		public boolean complete;
 		public String revealedAt;
 		public List<PluginConfigResponse.ItemRequirement> itemRequirements;
@@ -1148,6 +1150,9 @@ public class BingoApiClient
 		 */
 		public List<BoardFinisher> finishedBy;
 		public int finishedByMore;
+		/** Your team's open tile: who has put work in so far, biggest first (capped). Null when nobody has. */
+		public List<BoardFinisher> contributors;
+		public int contributorsMore;
 	}
 
 	/** One member's share of a finished tile: KC/XP gained, or the amount they submitted (0 = unknown). */
