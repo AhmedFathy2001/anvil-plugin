@@ -359,6 +359,8 @@ public class SidebarTileCatalogueTest
 
 		assertEquals(Arrays.asList(started),
 			AnvilSidebarPanel.filterBoardTiles(all, "", AnvilSidebarPanel.TileStatusFilter.IN_PROGRESS, false, progress));
+		assertEquals(Arrays.asList(untouched, oneOff),
+			AnvilSidebarPanel.filterBoardTiles(all, "", AnvilSidebarPanel.TileStatusFilter.NOT_STARTED, false, progress));
 		assertEquals("260 / 500", AnvilSidebarPanel.startedCount(started, progress));
 		assertNull(AnvilSidebarPanel.startedCount(untouched, progress));
 		assertNull(AnvilSidebarPanel.startedCount(done, progress));

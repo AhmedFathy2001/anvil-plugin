@@ -3331,7 +3331,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	enum TileStatusFilter
 	{
-		ALL("All"), OPEN("Not done"), IN_PROGRESS("In progress"), DONE("Done");
+		ALL("All"), OPEN("Not done"), IN_PROGRESS("In progress"), NOT_STARTED("Not started"), DONE("Done");
 
 		private final String label;
 
@@ -3361,7 +3361,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		return filterBoardTiles(tiles, search, status, preStart, java.util.Collections.emptyMap());
 	}
 
-	/** As above; {@code progress} (tileId → the team's count) decides "In progress": open, and started. */
+	/**
+	 * As above; {@code progress} (tileId → the team's count) splits the open tiles: "In progress" has a
+	 * count on it, "Not started" doesn't (one-off and manual tiles, with no count to have, are always the latter).
+	 */
 	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
 		String search, TileStatusFilter status, boolean preStart, Map<Integer, ClogTaskModel.TaskRow> progress)
 	{
@@ -3394,7 +3397,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			boolean done = !preStart && tile.complete;
 			if ((wanted == TileStatusFilter.OPEN && done) || (wanted == TileStatusFilter.DONE && !done)
-				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || startedCount(tile, progress) == null)))
+				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || startedCount(tile, progress) == null))
+				|| (wanted == TileStatusFilter.NOT_STARTED && (done || startedCount(tile, progress) != null)))
 			{
 				continue;
 			}
