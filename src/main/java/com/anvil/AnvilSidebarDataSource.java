@@ -815,7 +815,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				continue; // already read this window — the cached board stands
 			}
 			final int id = w.id;
-			reads.put(id, java.util.concurrent.CompletableFuture.supplyAsync(() -> apiClient.fetchWeeklyLeaderboard(id)));
+			reads.put(id, java.util.concurrent.CompletableFuture.supplyAsync(() -> apiClient.fetchWeeklyLeaderboard(id),
+				apiClient.interactiveExecutor()));
 		}
 		for (Map.Entry<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> r : reads.entrySet())
 		{
