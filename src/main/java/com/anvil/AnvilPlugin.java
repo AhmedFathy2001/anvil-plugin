@@ -2396,6 +2396,11 @@ public class AnvilPlugin extends Plugin {
     private volatile int lmsSurvivors;
     private volatile int lmsKills;
     private volatile boolean lmsPlacementRecorded; // one placement per game
+    private volatile int lmsEndedTick = -100;
+    // The game's own word for a win, printed as the game ends. The survivor-counter inference below
+    // missed wins whenever the counter wasn't sampled in time (it can read 0, or stay at 3 when the
+    // final kills land in one tick) — a reported LMS win that never reached its tile.
+    static final String LMS_VICTORY_LINE = "You are victorious!";
 
     private void trackLmsTick() {
         boolean inGame = client.getVarbitValue(VarbitID.BR_INGAME) == 1;
@@ -2416,6 +2421,7 @@ public class AnvilPlugin extends Plugin {
             lmsKills = client.getVarbitValue(VarbitID.BR_KILLCOUNT);
         } else if (lmsInGame) {
             lmsInGame = false;
+            lmsEndedTick = client.getTickCount();
             // Game ended without us dying (a death records placement via onActorDeath). A win fires no
             // death — the game just ends. The last survivor reading is usually 1, but landing the final
             // kill can end the game before a tick samples "1", leaving a stale 2. So treat "ended in the
@@ -3556,6 +3562,11 @@ public class AnvilPlugin extends Plugin {
                 pickpocketTick = client.getTickCount();
             }
             noteChestDropLine(stripped);
+            // LMS win: the line arrives as the game ends, with BR_INGAME up or just cleared.
+            if (LMS_VICTORY_LINE.equals(stripped.trim()) && !lmsPlacementRecorded
+                    && (lmsInGame || client.getTickCount() - lmsEndedTick <= 5)) {
+                recordLmsPlacement(1);
+            }
             Matcher larran = LARRAN_OPENED.matcher(stripped);
             if (larran.matches()) {
                 onLarranChestOpened(larran.group(1));
@@ -7796,7 +7807,9 @@ public class AnvilPlugin extends Plugin {
         if (actor == client.getLocalPlayer()) {
             // LMS: dying while the BR HUD reads N survivors means we placed Nth. Record before
             // the notification gates — placement tracking is independent of death notifications.
-            if (lmsInGame && !lmsPlacementRecorded) {
+            // A counter never read (0) is an unknown place, not 2nd: guessing 2nd credited top-2
+            // tiles for deaths that could have been anywhere in the game.
+            if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) {
                 recordLmsPlacement(Math.max(lmsSurvivors, 2));
             }
             // Recap counter — count the death for the "Wipe Magnet" superlative even if death
