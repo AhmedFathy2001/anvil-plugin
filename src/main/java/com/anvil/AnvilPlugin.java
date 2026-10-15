@@ -65,6 +65,7 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ClientShutdown;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
@@ -215,6 +216,19 @@ public class AnvilPlugin extends Plugin {
 
     @Inject
     private Gson gson;
+
+    // RuneLite's client-lifetime scheduler: still running after shutDown has stopped ours, so the
+    // last save of unsent pushes has somewhere to happen off the calling thread.
+    @Inject
+    private ScheduledExecutorService sharedExecutor;
+
+    // ── OUTAGE RESILIENCE ─────────────────────────────────────────────────────────────────────
+    // Failed clan notifications wait in NotifyOutbox; unsent KC/XP/activity and moments are saved per
+    // character in PushStash across a logout or restart. Both live under <plugin dir>/outbox/.
+    private volatile NotifyOutbox notifyOutbox;
+    private volatile PushStash pushStash;
+    /** The last config poll failed to reach the site (down, slow, 5xx) — the next success is a recovery. */
+    private volatile boolean siteUnreachable;
 
     @Inject
     private ProfileLookup profileLookup;
@@ -778,6 +792,8 @@ public class AnvilPlugin extends Plugin {
     // a notification gate, so a member with the drops channel off still lands on the clan's feed.
     private final AnvilMoments moments = new AnvilMoments();
     private ScheduledFuture<?> momentPushTask;
+    /** Failed moment pushes in a row; the retry wait doubles from MOMENT_PUSH_COALESCE_MS to 5 minutes. Guarded by `moments`. */
+    private int momentFailures;
     /** Long enough for a kill's two loot events (and a pet's chat lines) to settle into one entry. */
     private static final long MOMENT_PUSH_COALESCE_MS = 8_000;
     /**
@@ -1048,9 +1064,9 @@ public class AnvilPlugin extends Plugin {
     private static final long UPLOAD_THROTTLE_MS = 600;
     private volatile long lastUploadAt = 0;
 
-    // Exponential backoff for pending submission retries
-    private long retryBackoffMs = 30_000; // Start at 30s
-    private static final long MAX_RETRY_BACKOFF_MS = 300_000; // Cap at 5 minutes
+    // Exponential backoff for pending proof retries: 30s doubling to 5 minutes, reset by any success
+    // (and by the site coming back). The 30s loop asks every tick; this decides whether to try.
+    private final SyncBackoff proofBackoff = new SyncBackoff(30_000L, 300_000L);
 
     // Hello/membership flow state
     private volatile Boolean knownMember; // null = unknown, true = in clanMembers
@@ -1091,6 +1107,13 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        // Built before the directory is known: without one they still work, in memory, for the session.
+        NotifyOutbox outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
+        outbox.setSender(apiClient::sendQueuedNotification);
+        notifyOutbox = outbox;
+        apiClient.setNotifyOutbox(outbox);
+        pushStash = new PushStash(gson);
+        siteUnreachable = false;
         // WHERE THIS PLUGIN IS ALLOWED TO TOUCH DISK, resolved once and handed out.
         //
         // `getPluginDirectory()` is protected on Plugin, so this class is the only one that can ask
@@ -1103,6 +1126,8 @@ public class AnvilPlugin extends Plugin {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
             bannerSound.setRoot(pluginDir.join("sounds"));
+            notifyOutbox.setDir(pluginDir.join("outbox", "notify"));
+            pushStash.setDir(pluginDir.join("outbox"));
             ResponseDiskCache rc = new ResponseDiskCache(gson);
             rc.setDir(pluginDir.join("cache"));
             responseCache = rc;
@@ -1208,6 +1233,8 @@ public class AnvilPlugin extends Plugin {
         // Last session's config + board first (disk, so on the executor): the panel draws them now,
         // and the fetches below go out as If-None-Match. Queued ahead of them on the one thread.
         executor.submit(() -> safely("loadSavedResponses", this::loadSavedResponses));
+        // Notifications a previous session couldn't deliver.
+        executor.submit(() -> safely("notifyOutbox", outbox::load));
 
         // Initial config fetch. If the plugin was enabled mid-session (already logged in),
         // no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
@@ -1447,6 +1474,17 @@ public class AnvilPlugin extends Plugin {
             sidebarPanel.cancelSignIn();
         }
         cancelScheduledTasks();
+        NotifyOutbox outbox = notifyOutbox;
+        if (outbox != null) {
+            outbox.stop();
+        }
+        apiClient.setNotifyOutbox(null);
+        // What hasn't gone out yet waits on disk for this character's next login. Snapshot here, write
+        // on RuneLite's scheduler (ours is about to stop); the resets below then clear memory.
+        Runnable save = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
+        if (save != null) {
+            sharedExecutor.submit(save);
+        }
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
@@ -1464,8 +1502,8 @@ public class AnvilPlugin extends Plugin {
         optimistic.reset();
         lastSeenKc.clear();
         lastSeenXp.clear();
-        // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
-        // session days later would be filed against whatever happens to be running then.
+        // Anything still queued was saved per character above (stashPushes); a day-old one is dropped
+        // on restore rather than filed against whatever happens to be running then.
         synchronized (moments) {
             moments.reset();
         }
@@ -2521,6 +2559,12 @@ public class AnvilPlugin extends Plugin {
             // Diagnostics start fresh per account: re-log suppressions and one tracking summary.
             loggedSuppressions.clear();
             lastTrackingFingerprint = null;
+            // Unsent counts and moments are this character's: save them for its next login rather
+            // than let them go out under nobody (or the next character) a few seconds from now.
+            Runnable saveForLater = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
+            if (saveForLater != null) {
+                submit(saveForLater);
+            }
             // Clear the RSN + account hash so we don't keep stamping the previous account
             // onto requests that fire before the next login completes.
             apiClient.setCurrentRsn(null);
@@ -2650,6 +2694,7 @@ public class AnvilPlugin extends Plugin {
         // account's enrollment right away — when one person plays several accounts, only
         // the enrolled one should track drops (don't wait for the 30s refresh cycle).
         safely("refreshConfig", this::refreshConfig);
+        safely("restorePushes", () -> restorePushes(rsn, apiClient.getAccountHash()));
         // The board and event are what the member is waiting for; show them before hello + admin.
         repaintSidebar();
         sendHello();
@@ -4831,7 +4876,7 @@ public class AnvilPlugin extends Plugin {
                 sendChatMessage("Uploading proof: " + label + "...");
                 if (processPendingSubmission(pending)) {
                     sendChatMessage(submitted);
-                    retryBackoffMs = 30_000;
+                    proofBackoff.onSuccess();
                 } else {
                     notifyUploadFailed(label);
                 }
@@ -5395,6 +5440,9 @@ public class AnvilPlugin extends Plugin {
             return;
         }
 
+        if (!proofBackoff.ready(now())) {
+            return; // the last pass failed; wait out the backoff (the site coming back cuts it short)
+        }
         List<PendingSubmission> pending = pendingSubmissionStore.loadAll();
         if (pending.isEmpty()) {
             return;
@@ -5408,6 +5456,11 @@ public class AnvilPlugin extends Plugin {
             if (sub.manual) {
                 continue;
             }
+            // Held for the character that caught it — waiting on a login, not a failure to back off from.
+            if (sub.capturedRsn != null && !sub.capturedRsn.isEmpty()
+                    && !sub.capturedRsn.equalsIgnoreCase(apiClient.getCurrentRsn())) {
+                continue;
+            }
             boolean success = processPendingSubmission(sub);
             if (!success) {
                 anyFailed = true;
@@ -5419,12 +5472,10 @@ public class AnvilPlugin extends Plugin {
         }
 
         if (anyFailed) {
-            // Increase backoff (capped)
-            retryBackoffMs = Math.min(retryBackoffMs * 2, MAX_RETRY_BACKOFF_MS);
-            log.info("Pending retries failed; next backoff {}s", retryBackoffMs / 1000);
+            proofBackoff.onFailure(now());
+            log.info("Pending retries failed; next attempt in {}s", proofBackoff.secondsUntilReady(now()));
         } else {
-            // Reset backoff on full success
-            retryBackoffMs = 30_000;
+            proofBackoff.onSuccess();
         }
 
         // Refresh config to get updated counts from server
@@ -5457,6 +5508,19 @@ public class AnvilPlugin extends Plugin {
             // longer identify anyone in, and the admin-only roster-sync button. Nothing leaves the
             // machine, and it still asserts a session that no longer exists.
             pluginConfig = null;
+            // Nothing queued under the old sign-in may go out under the next one.
+            NotifyOutbox outbox = notifyOutbox;
+            PushStash stash = pushStash;
+            if (apiClient.needsSignIn()) {
+                submit(() -> {
+                    if (outbox != null) {
+                        outbox.clear();
+                    }
+                    if (stash != null) {
+                        stash.clearAll();
+                    }
+                });
+            }
 
             knownMember = false;
             isGuest = false;
@@ -5599,6 +5663,109 @@ public class AnvilPlugin extends Plugin {
             checks.add(where);
         }
         return checks;
+    }
+
+    /**
+     * Take what's waiting in the KC / XP / activity pushes and the moments queue for this character,
+     * clear them, and return the disk write that keeps them (null when there's nothing, or no way to
+     * tell whose they are). Any thread: the snapshot is memory only; run the result off the client thread.
+     */
+    private Runnable stashPushes(String rsn, String accountHash) {
+        String key = PushStash.keyFor(rsn, accountHash);
+        PushStash stash = pushStash;
+        if (key == null || stash == null) {
+            return null;
+        }
+        PushStash.Data data = new PushStash.Data();
+        data.savedAt = now();
+        data.kc = kcPush.snapshot();
+        data.xp = skillXpPush.snapshot();
+        data.activity = activityPush.snapshot();
+        synchronized (moments) {
+            for (AnvilMoments.Moment m : moments.snapshot()) {
+                data.moments.add(PushStash.SavedMoment.of(m));
+            }
+            moments.reset();
+        }
+        kcPush.reset();
+        skillXpPush.reset();
+        activityPush.reset();
+        return data.isEmpty() ? null : () -> stash.save(key, data);
+    }
+
+    /** This character logged in: queue again what an earlier session couldn't send. Executor only (disk). */
+    private void restorePushes(String rsn, String accountHash) {
+        PushStash stash = pushStash;
+        if (stash == null || !apiClient.isConfigured()) {
+            return;
+        }
+        long t = now();
+        PushStash.Data data = null;
+        // By hash first; by name for one saved before the hash was known.
+        for (String key : new String[]{PushStash.keyFor(null, accountHash), PushStash.keyFor(rsn, null)}) {
+            if (key != null) {
+                data = PushStash.merge(data, stash.take(key, t));
+            }
+        }
+        if (data == null || data.isEmpty()) {
+            return;
+        }
+        log.info("Anvil: resending {} count(s) and {} moment(s) saved from an earlier session",
+                sizeOf(data.kc) + sizeOf(data.xp) + sizeOf(data.activity), sizeOf(data.moments));
+        kcPush.restore(data.kc);
+        skillXpPush.restore(data.xp);
+        activityPush.restore(data.activity);
+        if (data.moments != null && !data.moments.isEmpty()) {
+            List<AnvilMoments.Moment> saved = new ArrayList<>();
+            for (PushStash.SavedMoment m : data.moments) {
+                saved.add(m.toMoment());
+            }
+            synchronized (moments) {
+                moments.restore(saved, t, PushStash.MAX_AGE_MS);
+            }
+            scheduleMomentPush();
+        }
+    }
+
+    /** Client closing (not just the plugin stopping): save unsent pushes, and have the client wait for it. */
+    @Subscribe
+    public void onClientShutdown(ClientShutdown event) {
+        Runnable save = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
+        if (save != null) {
+            event.waitFor(sharedExecutor.submit(save));
+        }
+    }
+
+    /**
+     * The site answered after a stretch of not answering. Everything that backed off while it was down
+     * goes now rather than sitting out the rest of its wait (up to ten minutes for the profile syncs).
+     */
+    private void onSiteRecovered() {
+        log.info("Anvil: site reachable again — sending what was waiting");
+        clogBackoff.reset();
+        clogFullBackoff.reset();
+        pbBackoff.reset();
+        rosterBackoff.reset();
+        proofBackoff.reset();
+        kcPush.kick();
+        skillXpPush.kick();
+        activityPush.kick();
+        synchronized (moments) {
+            momentFailures = 0;
+        }
+        if (!moments.isEmpty()) {
+            scheduleMomentPush();
+        }
+        NotifyOutbox outbox = notifyOutbox;
+        if (outbox != null) {
+            outbox.kick();
+        }
+        submit(() -> {
+            safely("retryPendingSubmissions", this::retryPendingSubmissions);
+            safely("flushClogSync", this::flushClogSync);
+            safely("flushFullClogSync", this::flushFullClogSync);
+            safely("flushPersonalBests", this::flushPersonalBests);
+        });
     }
 
     private void configureApiClient() {
@@ -6269,6 +6436,10 @@ public class AnvilPlugin extends Plugin {
             lastConfigRefreshAt = now();
             liveConfigAnswered = true;
             forgetSavedResponses();
+            if (siteUnreachable) {
+                siteUnreachable = false;
+                onSiteRecovered();
+            }
             // A refresh that returned (HTTP 200/304, no throw) proves the token is good — clear any
             // connection-failure streak and announce recovery if we'd nagged.
             noteConnectionOk();
@@ -6355,6 +6526,8 @@ public class AnvilPlugin extends Plugin {
             if (code >= 400 && code < 500 && code != 408 && code != 429) {
                 liveConfigAnswered = true;
                 forgetSavedResponses();
+            } else {
+                siteUnreachable = true; // down, slow or 5xx: the next answer is a recovery
             }
             noteConnectionProblem(e);
         }
@@ -7215,6 +7388,10 @@ public class AnvilPlugin extends Plugin {
     /** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
     private void scheduleMomentPush() {
         synchronized (moments) {
+            // While backing off, a new moment rides the retry already waiting instead of pulling it forward.
+            if (momentFailures > 0 && momentPushTask != null && !momentPushTask.isDone()) {
+                return;
+            }
             momentPushTask = reschedule(momentPushTask, this::flushMomentPush, MOMENT_PUSH_COALESCE_MS);
         }
     }
@@ -7236,10 +7413,23 @@ public class AnvilPlugin extends Plugin {
         }
         try {
             apiClient.submitMoments(batch);
-        } catch (IOException e) {
-            log.debug("Moment push failed ({} queued) — retrying: {}", moments.size(), e.getMessage());
-            scheduleMomentPush();
+        } catch (BingoApiClient.PermanentSubmissionException e) {
+            // The site will never take this batch; drop it rather than resend it forever.
+            log.warn("Moment push refused — dropping {}: {}", batch.size(), e.getMessage());
+            moments.onSent(batch);
             return;
+        } catch (IOException e) {
+            long wait;
+            synchronized (moments) {
+                momentFailures++;
+                wait = RetryPolicy.backoffMs(momentFailures, MOMENT_PUSH_COALESCE_MS, CoalescedPush.RETRY_CAP_MS, Math.random());
+                momentPushTask = reschedule(momentPushTask, this::flushMomentPush, wait);
+            }
+            log.debug("Moment push failed ({} queued) — retrying in {}s: {}", moments.size(), wait / 1000, e.getMessage());
+            return;
+        }
+        synchronized (moments) {
+            momentFailures = 0;
         }
         moments.onSent(batch);
         // More than one batch's worth waiting (a long offline stretch) — keep going.
@@ -7427,6 +7617,10 @@ public class AnvilPlugin extends Plugin {
         if (loggedSuppressions.add(reason)) {
             log.info("Tracking suppressed — {} (logged once per session)", reason);
         }
+    }
+
+    private static int sizeOf(Map<?, ?> map) {
+        return map == null ? 0 : map.size();
     }
 
     private static int sizeOf(List<?> list) {

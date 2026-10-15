@@ -198,6 +198,40 @@ class AnvilMoments
 		}
 	}
 
+	/** Everything waiting, oldest first — for saving across a logout or restart. */
+	synchronized List<Moment> snapshot()
+	{
+		return new ArrayList<>(pending.values());
+	}
+
+	/**
+	 * Queue saved moments again, skipping any older than {@code maxAgeMs} — the site files a moment by
+	 * when it happened, and one from long ago is old news rather than a highlight. Entries already
+	 * queued under the same key win: they're the newer sighting.
+	 */
+	synchronized void restore(List<Moment> saved, long now, long maxAgeMs)
+	{
+		if (saved == null)
+		{
+			return;
+		}
+		Map<String, Moment> merged = new LinkedHashMap<>();
+		for (Moment m : saved)
+		{
+			if (m != null && m.key != null && !m.key.isEmpty() && m.kind != null && now - m.at <= maxAgeMs)
+			{
+				merged.put(m.key, m);
+			}
+		}
+		merged.putAll(pending);
+		pending.clear();
+		pending.putAll(merged);
+		while (pending.size() > MAX_QUEUED)
+		{
+			pending.remove(pending.keySet().iterator().next());
+		}
+	}
+
 	/** Forget everything — a different account logging in doesn't inherit this one's moments. */
 	synchronized void reset()
 	{

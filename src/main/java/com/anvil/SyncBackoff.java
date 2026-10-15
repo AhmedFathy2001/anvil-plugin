@@ -16,8 +16,21 @@ final class SyncBackoff
 	static final long FIRST_MS = 30_000L;
 	static final long MAX_MS = 600_000L;
 
+	private final long firstMs;
+	private final long maxMs;
 	private long nextAttemptAt;
 	private long waitMs;
+
+	SyncBackoff()
+	{
+		this(FIRST_MS, MAX_MS);
+	}
+
+	SyncBackoff(long firstMs, long maxMs)
+	{
+		this.firstMs = firstMs;
+		this.maxMs = maxMs;
+	}
 
 	/** Is a push allowed right now? True until something fails. */
 	boolean ready(long now)
@@ -35,8 +48,14 @@ final class SyncBackoff
 	/** A push failed for a reason that might clear on its own. Waits twice as long each time. */
 	void onFailure(long now)
 	{
-		waitMs = waitMs == 0 ? FIRST_MS : Math.min(MAX_MS, waitMs * 2);
+		waitMs = waitMs == 0 ? firstMs : Math.min(maxMs, waitMs * 2);
 		nextAttemptAt = now + waitMs;
+	}
+
+	/** Has anything failed since the last success? */
+	boolean backingOff()
+	{
+		return waitMs != 0;
 	}
 
 	/** Seconds until the next attempt, for a log line that explains the silence. */

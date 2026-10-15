@@ -271,6 +271,12 @@ public class BingoApiClient
 		this.rsnHint = (name == null || name.trim().isEmpty()) ? null : name.trim();
 	}
 
+	/** The account hash currently stamped on requests, or null. */
+	public String getAccountHash()
+	{
+		return accountHash;
+	}
+
 	public String getRsnHint()
 	{
 		return rsnHint;
@@ -523,22 +529,12 @@ public class BingoApiClient
 			payload.add("facts", facts.facts);
 		}
 
-		RequestBody body;
-		if (png != null && png.length > 0)
-		{
-			body = new MultipartBody.Builder()
-				.setType(MultipartBody.FORM)
-				.addFormDataPart("payload_json", payload.toString())
-				.addFormDataPart("file", filename != null && !filename.isEmpty() ? filename : "image.png",
-					RequestBody.create(PNG, png))
-				.build();
-		}
-		else
-		{
-			body = json(payload);
-		}
-
-		Request request = authedRequest(clanUrl("/api/plugin/notify")).post(body).build();
+		String url = clanUrl("/api/plugin/notify");
+		String payloadJson = payload.toString();
+		Request request = authedRequest(url).post(notifyBody(payloadJson, png, filename)).build();
+		// What a retry needs to say the same thing as the same character, should this attempt fail.
+		final String rsn = currentRsn;
+		final String hash = accountHash;
 		httpClient.newCall(request).enqueue(new Callback()
 		{
 			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
@@ -548,6 +544,7 @@ public class BingoApiClient
 			public void onFailure(Call call, IOException e)
 			{
 				log.warn("Anvil: '{}' notification never reached the site: {}", channel, e.getMessage());
+				keepForRetry(url, channel, payloadJson, png, filename, rsn, hash);
 			}
 
 			@Override
@@ -558,6 +555,10 @@ public class BingoApiClient
 					if (!r.isSuccessful())
 					{
 						log.warn("Anvil: the site refused a '{}' notification (HTTP {}).", channel, r.code());
+						if (!RetryPolicy.isPermanent(r.code()))
+						{
+							keepForRetry(url, channel, payloadJson, png, filename, rsn, hash);
+						}
 						return;
 					}
 					// A destination disappearing between config refresh and send used to answer 204,
@@ -577,6 +578,89 @@ public class BingoApiClient
 				}
 			}
 		});
+	}
+
+	/** Notifications that failed for a reason that may clear wait here (NotifyOutbox); null = dropped as before. */
+	private volatile NotifyOutbox notifyOutbox;
+
+	void setNotifyOutbox(NotifyOutbox outbox)
+	{
+		this.notifyOutbox = outbox;
+	}
+
+	private static RequestBody notifyBody(String payloadJson, byte[] png, String filename)
+	{
+		if (png != null && png.length > 0)
+		{
+			return new MultipartBody.Builder()
+				.setType(MultipartBody.FORM)
+				.addFormDataPart("payload_json", payloadJson)
+				.addFormDataPart("file", filename != null && !filename.isEmpty() ? filename : "image.png",
+					RequestBody.create(PNG, png))
+				.build();
+		}
+		return RequestBody.create(JSON, payloadJson);
+	}
+
+	/** Runs on an OkHttp callback thread: hand the failed notification to the outbox. */
+	private void keepForRetry(String url, String channel, String payloadJson, byte[] png, String filename,
+		String rsn, String hash)
+	{
+		NotifyOutbox outbox = notifyOutbox;
+		if (outbox == null)
+		{
+			return;
+		}
+		NotifyOutbox.Item it = NotifyOutbox.newItem(System.currentTimeMillis());
+		it.url = url;
+		it.channel = channel;
+		it.payload = payloadJson;
+		it.filename = filename;
+		it.rsn = rsn;
+		it.accountHash = hash;
+		it.account = DiskFiles.fingerprint(playerToken);
+		outbox.enqueue(it, png);
+	}
+
+	/**
+	 * Resend one queued notification as the character it was first sent for. Blocking; the outbox
+	 * calls it on the OkHttp pool. Never throws.
+	 */
+	NotifyOutbox.Result sendQueuedNotification(NotifyOutbox.Item it, byte[] png)
+	{
+		String base = getApiUrl();
+		if (!isConfigured() || base.isEmpty())
+		{
+			return NotifyOutbox.Result.RETRY; // paused, or between sign-ins: it can wait (or expire)
+		}
+		// Queued under another account's sign-in, or for another site: not this token's to send.
+		if (!DiskFiles.fingerprint(playerToken).equals(it.account) || it.url == null || !it.url.startsWith(base + "/"))
+		{
+			return NotifyOutbox.Result.PERMANENT;
+		}
+		Request.Builder rb = plainRequest(it.url).header("Authorization", "Bearer " + playerToken);
+		if (it.rsn != null && !it.rsn.isEmpty())
+		{
+			rb.header("X-RSN", it.rsn);
+		}
+		if (it.accountHash != null && !it.accountHash.isEmpty())
+		{
+			rb.header("X-Account-Hash", it.accountHash);
+		}
+		try (Response r = httpClient.newCall(rb.post(notifyBody(it.payload, png, it.filename)).build()).execute())
+		{
+			if (r.isSuccessful())
+			{
+				log.info("Anvil: queued '{}' notification delivered", it.channel);
+				return NotifyOutbox.Result.SENT;
+			}
+			return RetryPolicy.isPermanent(r.code()) ? NotifyOutbox.Result.PERMANENT : NotifyOutbox.Result.RETRY;
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.debug("Queued '{}' notification still failing: {}", it.channel, e.getMessage());
+			return NotifyOutbox.Result.RETRY;
+		}
 	}
 
 	/** The last config poll was the site's "no clan for this account yet" (lib/pluginNoClan). */
@@ -1547,7 +1631,7 @@ public class BingoApiClient
 	 *  timeout (408) and rate-limit (429), which can clear on their own. 5xx / network = retryable. */
 	private static boolean isPermanentFailure(int code)
 	{
-		return code >= 400 && code < 500 && code != 401 && code != 408 && code != 429;
+		return RetryPolicy.isPermanent(code);
 	}
 
 	/**
@@ -1866,7 +1950,9 @@ public class BingoApiClient
 		}
 		JsonObject payload = new JsonObject();
 		payload.add(field, pairs(values, key, value));
-		postJson("/api/plugin/stats", payload, what, false);
+		// Classified: a permanent refusal (PermanentSubmissionException) stops CoalescedPush resending
+		// the batch; a 401 (fired before X-RSN was stamped), 429 or 5xx stays a plain, retryable failure.
+		postJson("/api/plugin/stats", payload, what, true);
 		log.debug(logged, values.size());
 	}
 
@@ -2167,7 +2253,7 @@ public class BingoApiClient
 		}
 		JsonObject payload = new JsonObject();
 		payload.add("moments", out);
-		postJson("/api/plugin/moments", payload, "Moment push failed", false);
+		postJson("/api/plugin/moments", payload, "Moment push failed", true);
 		log.debug("Moments pushed: {}", out.size());
 	}
 

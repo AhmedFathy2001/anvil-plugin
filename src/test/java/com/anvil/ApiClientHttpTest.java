@@ -101,6 +101,8 @@ public class ApiClientHttpTest
 		assertEquals("{\"stats\":[{\"name\":\"Zulrah\",\"kc\":5}]}", bodies.get(0));
 		c.submitStatXp(Collections.singletonMap("mining", 10));
 		assertEquals("{\"skills\":[{\"name\":\"mining\",\"xp\":10}]}", bodies.get(1));
+		// A 4xx the site will always refuse is permanent, so CoalescedPush drops the batch instead of
+		// resending it forever; a 401 (fired before X-RSN was stamped at login) stays retryable.
 		code = 400;
 		reply = "";
 		try
@@ -110,11 +112,21 @@ public class ApiClientHttpTest
 		}
 		catch (BingoApiClient.PermanentSubmissionException e)
 		{
-			fail("stat pushes are never classified permanent");
+			assertEquals("Activity push failed: HTTP 400 — no body", e.getMessage());
+		}
+		code = 401;
+		try
+		{
+			c.submitStatXp(Collections.singletonMap("mining", 11));
+			fail();
+		}
+		catch (BingoApiClient.PermanentSubmissionException e)
+		{
+			fail("a 401 at login clears once X-RSN is stamped");
 		}
 		catch (IOException e)
 		{
-			assertEquals("Activity push failed: HTTP 400 — no body", e.getMessage());
+			assertEquals("Skill XP push failed: HTTP 401 — no body", e.getMessage());
 		}
 	}
 
