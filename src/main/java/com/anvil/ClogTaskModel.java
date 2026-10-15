@@ -177,7 +177,7 @@ public final class ClogTaskModel
 	 * a clan-wide one can pass 2.1b; the bar only needs the ratio, and both ends clamp together so a
 	 * clamped tile still fills at the right rate rather than looking finished early.
 	 */
-	private static int clampGp(long gp)
+	static int clampGp(long gp)
 	{
 		if (gp <= 0)
 		{

@@ -2361,6 +2361,8 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             log.info("Tracked LMS placement: {} ({} kills) for '{}' (cap top {})", place, kills, tile.label, cap);
+            tile.currentAmount += 1;
+            raiseLocal(tile.tileId, tile.currentAmount, now());
             sendChatMessage("Tracked LMS placement: " + place + " — " + tile.label);
             String detail = "Placed " + place + " — " + kills + (kills == 1 ? " kill" : " kills")
                     + "  (needs top " + cap + ")";
@@ -3137,6 +3139,8 @@ public class AnvilPlugin extends Plugin {
                 // completes at the target, so we don't optimistically mark the tile done (and need no
                 // rollback).
                 log.info("Value tile credited (total): '{}' +{} gp", v.label, haulGp);
+                v.currentGp += haulGp;
+                raiseLocal(v.tileId, Math.min(ClogTaskModel.clampGp(v.currentGp), ClogTaskModel.clampGp(v.thresholdGp)), now());
                 captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
                         "[Auto] loot worth " + gp + " (" + v.label + ") counted by RuneLite plugin", null);
             } else {
@@ -4157,7 +4161,11 @@ public class AnvilPlugin extends Plugin {
                 log.info("Tracked drop detected: {} (item {} ×{}), tile '{}'", source, itemId, amount, drop.label);
 
                 drop.currentAmount += amount;
-                raiseLocal(drop.tileId, drop.currentAmount, now());
+                // A collection's row counts what its SETS have (ClogTaskModel), not the summed drops —
+                // hold the count in the unit the row shows.
+                raiseLocal(drop.tileId, drop.itemRequirements != null && !drop.itemRequirements.isEmpty()
+                        ? ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode, drop.setsRequired)[0]
+                        : drop.currentAmount, now());
 
                 int snapshotCurrent = drop.currentAmount;
                 int snapshotRequired = drop.requiredAmount;
