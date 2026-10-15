@@ -1376,7 +1376,8 @@ public class AnvilPlugin extends Plugin {
         try {
             task.run();
         } catch (Exception e) {
-            log.warn("Scheduled task '{}' threw, continuing: {}", name, e.getMessage());
+            // The type too: several JDK exceptions carry no message, and "threw: null" said nothing.
+            log.warn("Scheduled task '{}' threw, continuing: {}", name, e.toString());
         }
     }
 
@@ -1451,6 +1452,16 @@ public class AnvilPlugin extends Plugin {
 
     private void cfgSet(String key, String value) {
         configManager.setConfiguration("osrsbingo", key, value);
+    }
+
+    /**
+     * A per-account config key. NOT "name:rsn": RuneLite's ConfigManager refuses any key containing a
+     * colon (a bare IllegalArgumentException), so every per-account write built that way failed —
+     * the personal-best import re-ran every 30s forever, and clog/PB sync state never survived a
+     * login. Nothing was ever stored under the old form, so there is nothing to migrate.
+     */
+    static String accountKey(String name, String account) {
+        return name + "_" + (account == null ? "" : account.replace(':', '_'));
     }
 
     private void pruneDedupMap() {
@@ -7560,7 +7571,7 @@ public class AnvilPlugin extends Plugin {
         String rsn = getLocalPlayerName();
         String rsnKey = rsn == null ? "" : rsn.trim().toLowerCase(Locale.ROOT);
         if (vestigeRolls == null || !rsnKey.equals(vestigeRollsRsn)) {
-            vestigeRolls = VestigeRolls.parse(cfgGet(CFG_VESTIGE_ROLLS + ":" + rsnKey));
+            vestigeRolls = VestigeRolls.parse(cfgGet(accountKey(CFG_VESTIGE_ROLLS, rsnKey)));
             vestigeRollsRsn = rsnKey;
         }
         for (ItemStack item : items) {
@@ -7570,7 +7581,7 @@ public class AnvilPlugin extends Plugin {
             if (r == null) {
                 continue;
             }
-            cfgSet(CFG_VESTIGE_ROLLS + ":" + rsnKey, vestigeRolls.serialise());
+            cfgSet(accountKey(CFG_VESTIGE_ROLLS, rsnKey), vestigeRolls.serialise());
             sendChatMessage(table.boss + ": " + r.line);
             // Remembered for the drop post, which is built moments later off the same loot event.
             lastVestigeLine = r.line;
@@ -9702,12 +9713,12 @@ public class AnvilPlugin extends Plugin {
         // A different character doesn't inherit this one's unsent highlights — the site files them
         // against whoever the request authenticates as, which would now be the wrong person.
         moments.reset();
-        clogSync.restoreState(cfgGet(CFG_CLOG_STATE + ":" + key));
+        clogSync.restoreState(cfgGet(accountKey(CFG_CLOG_STATE, key)));
         // The whole-log fingerprint survives a restart: opening the collection log re-transmits
         // everything every time, and without this each session's first open re-sent a log the site
         // already had, byte for byte.
-        lastClogFingerprint = cfgLong(CFG_CLOG_FINGERPRINT + ":" + key);
-        personalBests.restoreState(cfgGet(CFG_PB_STATE + ":" + key));
+        lastClogFingerprint = cfgLong(accountKey(CFG_CLOG_FINGERPRINT, key));
+        personalBests.restoreState(cfgGet(accountKey(CFG_PB_STATE, key)));
         importRuneLitePersonalBests(key);
     }
 
@@ -9742,7 +9753,7 @@ public class AnvilPlugin extends Plugin {
         // String.hashCode is specified, so the same list gives the same signature on every client
         // and every release. An older flag ("1", or an earlier list) simply doesn't match.
         String signature = Integer.toString(activities.hashCode());
-        String done = cfgGet(CFG_PB_IMPORTED + ":" + rsnKey);
+        String done = cfgGet(accountKey(CFG_PB_IMPORTED, rsnKey));
         if (signature.equals(done)) {
             return;
         }
@@ -9771,7 +9782,7 @@ public class AnvilPlugin extends Plugin {
         }
 
         int adopted = personalBests.seed(imported, now());
-        cfgSet(CFG_PB_IMPORTED + ":" + rsnKey, signature);
+        cfgSet(accountKey(CFG_PB_IMPORTED, rsnKey), signature);
         log.info("Imported {} existing personal best(s) from RuneLite ({} probed)",
                 adopted, imported.size());
         if (adopted > 0) {
@@ -9846,7 +9857,7 @@ public class AnvilPlugin extends Plugin {
         }
         clogBackoff.onSuccess();
         clogSync.onSent(batch);
-        cfgSet(CFG_CLOG_STATE + ":" + profileSyncRsn,
+        cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn),
                 clogSync.serializeState());
     }
 
@@ -9926,7 +9937,7 @@ public class AnvilPlugin extends Plugin {
         clogPushAllowedAt = now + SERVER_CLOG_COOLDOWN_MS;
         lastClogFingerprint = fingerprint;
         if (profileSyncRsn != null) {
-            cfgSet(CFG_CLOG_FINGERPRINT + ":" + profileSyncRsn,
+            cfgSet(accountKey(CFG_CLOG_FINGERPRINT, profileSyncRsn),
                     Long.toString(fingerprint));
         }
         clogFullSync.onSent();
@@ -9975,7 +9986,7 @@ public class AnvilPlugin extends Plugin {
         }
         pbBackoff.onSuccess();
         personalBests.onSent(batch);
-        cfgSet(CFG_PB_STATE + ":" + profileSyncRsn,
+        cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn),
                 personalBests.serializeState());
     }
 
