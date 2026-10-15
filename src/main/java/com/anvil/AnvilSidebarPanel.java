@@ -1883,6 +1883,24 @@ public class AnvilSidebarPanel extends PluginPanel
 			body.add(gap(12));
 		}
 
+		// What's pinned over the game, so it can be seen and dropped without hunting for each tile.
+		List<Integer> tracked = dataSource.trackedTileIds();
+		if (!tracked.isEmpty())
+		{
+			heading(body, "Tracked on screen");
+			addSpaced(body, tracked, 8, id -> buildTrackedRow(selected, id));
+			if (tracked.size() > 1)
+			{
+				body.add(gap(6));
+				body.add(fullWidthButton("Untrack all", "Take every pinned tile off the screen", () ->
+				{
+					dataSource.untrackAll();
+					refresh();
+				}));
+			}
+			body.add(gap(12));
+		}
+
 		// Active now — tiles you and teammates are working right now (deduped by tile).
 		if (!selected.activeNow.isEmpty())
 		{
@@ -2828,6 +2846,35 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		into.revalidate();
 		into.repaint();
+	}
+
+	/** A pinned tile: its progress like any tile row (click opens it), with a ✕ that unpins it. */
+	private JPanel buildTrackedRow(ConnectionView selected, int tileId)
+	{
+		ClogTaskModel.TaskRow tile = selected.tileProgress.get(tileId);
+		String label = tile != null ? tile.label : "Tile " + tileId;
+		JLabel name = small(ellipsize(label, 24), ColorScheme.TEXT_COLOR);
+		name.setToolTipText(tileTooltip(tileId, label, null));
+		int pct = tile != null && tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0;
+		JPanel progress = opensTile(progressRow(name, tile != null ? progressValue(tile) : "", null,
+			bar(pct, ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tileId);
+
+		JLabel drop = small("✕", MUTED);
+		drop.setToolTipText("Stop tracking this tile");
+		drop.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		drop.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent e)
+			{
+				setTracked(dataSource.activeEventId(), tileId, false);
+			}
+		});
+		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
+		row.setOpaque(false);
+		row.add(progress, BorderLayout.CENTER);
+		row.add(drop, BorderLayout.EAST);
+		return capH(row);
 	}
 
 	private JPanel buildActiveRow(ConnectionView.ActiveTask task)

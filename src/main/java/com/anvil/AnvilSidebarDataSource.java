@@ -251,6 +251,28 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			&& fromPlugin(AnvilPlugin::inGame, false);
 	}
 
+	/** The live board's event id, or 0 with none. */
+	public int activeEventId()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg != null && cfg.event != null ? cfg.event.id : 0;
+	}
+
+	/** Tiles pinned on screen for the live board, in pin order. */
+	public java.util.List<Integer> trackedTileIds()
+	{
+		int eventId = activeEventId();
+		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), java.util.Collections.<Integer>emptyList())
+			: java.util.Collections.<Integer>emptyList();
+	}
+
+	/** Unpin every tile on the live board. */
+	public void untrackAll()
+	{
+		int eventId = activeEventId();
+		withPlugin(p -> p.tileTracker().clear(eventId));
+	}
+
 	public boolean isTileTracked(int eventId, int tileId)
 	{
 		return fromPlugin(p -> p.tileTracker().isPinned(eventId, tileId), false);

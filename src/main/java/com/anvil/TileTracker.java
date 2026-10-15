@@ -301,6 +301,22 @@ public class TileTracker
 		}
 	}
 
+	/** The tiles pinned for this event, in pin order. */
+	synchronized List<Integer> pinned(int eventId)
+	{
+		return this.eventId == eventId ? new ArrayList<>(pins.keySet()) : new ArrayList<>();
+	}
+
+	/** Take every pin for this event down. */
+	synchronized void clear(int eventId)
+	{
+		if (this.eventId == eventId && !pins.isEmpty())
+		{
+			unpinAll();
+			save();
+		}
+	}
+
 	synchronized boolean tracks(int tileId)
 	{
 		return pins.containsKey(tileId);
