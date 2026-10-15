@@ -262,6 +262,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return fromPlugin(p -> p.tileTracker().isFull(eventId), false);
 	}
 
+	/** Signed in, and the first config answer hasn't come back (or failed) yet. */
+	public boolean awaitingFirstConfig()
+	{
+		return fromPlugin(AnvilPlugin::awaitingFirstConfig, false);
+	}
+
 	public void setTileTracked(int eventId, int tileId, boolean on)
 	{
 		withPlugin(p -> p.setTrackedTile(eventId, tileId, on));
@@ -764,6 +770,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			weeklyBoardsAt = now;
 		}
 		java.util.Set<Integer> liveIds = new java.util.HashSet<>();
+		// All at once rather than one after another: each is a full round trip, and the panel waits
+		// for the slowest, not the sum.
+		Map<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> reads = new HashMap<>();
 		for (BingoApiClient.ScheduledWeekly w : live)
 		{
 			liveIds.add(w.id);
@@ -771,18 +780,23 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				continue; // already read this window — the cached board stands
 			}
+			final int id = w.id;
+			reads.put(id, java.util.concurrent.CompletableFuture.supplyAsync(() -> apiClient.fetchWeeklyLeaderboard(id)));
+		}
+		for (Map.Entry<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> r : reads.entrySet())
+		{
 			try
 			{
-				BingoApiClient.WeeklyLeaderboard lb = apiClient.fetchWeeklyLeaderboard(w.id);
+				BingoApiClient.WeeklyLeaderboard lb = r.getValue().join();
 				if (lb != null)
 				{
-					weeklyBoards.put(w.id, lb);
+					weeklyBoards.put(r.getKey(), lb);
 				}
 			}
 			catch (RuntimeException e)
 			{
 				// A weekly board is a nice-to-have: keep whatever we had and render the comp without it.
-				log.debug("weekly leaderboard fetch failed for {}", w.id, e);
+				log.debug("weekly leaderboard fetch failed for {}", r.getKey(), e);
 			}
 		}
 		weeklyBoards.keySet().retainAll(liveIds);

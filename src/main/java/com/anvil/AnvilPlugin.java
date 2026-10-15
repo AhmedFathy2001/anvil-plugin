@@ -6120,8 +6120,36 @@ public class AnvilPlugin extends Plugin {
     void refreshConfigForSidebar(boolean force) {
         // The provider smoke test deliberately invokes the sidebar graph on an uninjected plugin;
         // the source must remain usable in that state just as it was before this freshness hook.
-        if (apiClient != null && (force || now() - lastConfigRefreshAt >= 10_000L)) {
-            refreshConfig();
+        if (apiClient == null) {
+            return;
+        }
+        if (!force) {
+            // NEVER WAIT FOR A FETCH TO DRAW. A background paint that finds one in flight (the 30s poll,
+            // the login greet) draws from the config already held and picks up the new one next tick —
+            // queueing behind it left "Loading…" up for as long as the site took, up to the read timeout.
+            // The plugin's own poll keeps the config fresh; this only covers a gap in it.
+            if (now() - lastConfigAttemptAt < 25_000L || !configFetchLock.tryLock()) {
+                return;
+            }
+            try {
+                refreshConfigLocked();
+            } finally {
+                lastConfigAttemptAt = now();
+                configFetchLock.unlock();
+            }
+            return;
+        }
+        // A clicked Refresh wants the newest answer. If a fetch is already running, its answer is that —
+        // wait for it rather than sending a second one behind it.
+        long asked = now();
+        configFetchLock.lock();
+        try {
+            if (lastConfigAttemptAt < asked) {
+                refreshConfigLocked();
+                lastConfigAttemptAt = now();
+            }
+        } finally {
+            configFetchLock.unlock();
         }
     }
 
@@ -6132,11 +6160,23 @@ public class AnvilPlugin extends Plugin {
      * new biggest hit, death. Sharing it froze the game for as long as the site took to answer,
      * most visibly right after a proof upload.
      */
-    private final Object configFetchLock = new Object();
+    private final java.util.concurrent.locks.ReentrantLock configFetchLock = new java.util.concurrent.locks.ReentrantLock();
+
+    /** When a config fetch last FINISHED, success or not — so a failing site isn't asked again on every paint. */
+    private volatile long lastConfigAttemptAt;
+
+    /** Signed in, and no config fetch has finished yet — the sidebar shows "Loading", not "no clans". */
+    boolean awaitingFirstConfig() {
+        return apiClient != null && apiClient.isConfigured() && pluginConfig == null && lastConfigAttemptAt == 0;
+    }
 
     private void refreshConfig() {
-        synchronized (configFetchLock) {
+        configFetchLock.lock();
+        try {
             refreshConfigLocked();
+        } finally {
+            lastConfigAttemptAt = now();
+            configFetchLock.unlock();
         }
     }
 

@@ -85,6 +85,8 @@ public class BingoApiClient
 		};
 	}
 
+	private final OkHttpClient readClient;
+
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
 	{
@@ -96,6 +98,12 @@ public class BingoApiClient
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
+			.build();
+		// Reads the sidebar waits on (config, feed, board, cards) give up sooner: a panel stuck on
+		// "Loading…" for a minute and a half is worse than one that says the site is slow and keeps
+		// what it had. Uploads and submissions keep the long timeout above.
+		this.readClient = httpClient.newBuilder()
+			.readTimeout(20, TimeUnit.SECONDS)
 			.build();
 	}
 
@@ -360,7 +368,7 @@ public class BingoApiClient
 	/** Execute and parse a 2xx body as {@code type}; null on any other status or a transport/parse failure. */
 	private <T> T getOrNull(Request.Builder request, Class<T> type, String label)
 	{
-		try (Response response = httpClient.newCall(request.build()).execute())
+		try (Response response = readClient.newCall(request.build()).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)
 			{
@@ -681,7 +689,7 @@ public class BingoApiClient
 		{
 			rb.header("If-None-Match", (String) hit[0]);
 		}
-		try (Response response = httpClient.newCall(rb.build()).execute())
+		try (Response response = readClient.newCall(rb.build()).execute())
 		{
 			if (response.code() == 304 && hit != null)
 			{
@@ -890,7 +898,7 @@ public class BingoApiClient
 		{
 			return null;
 		}
-		try (Response response = httpClient.newCall(publicRequest(url).build()).execute())
+		try (Response response = readClient.newCall(publicRequest(url).build()).execute())
 		{
 			if (response.code() == 404)
 			{
@@ -1340,7 +1348,7 @@ public class BingoApiClient
 		{
 			return false;
 		}
-		try (Response response = httpClient.newCall(tokenRequest("/api/plugin/me", accountToken).get().build()).execute())
+		try (Response response = readClient.newCall(tokenRequest("/api/plugin/me", accountToken).get().build()).execute())
 		{
 			if (response.code() != 200)
 			{

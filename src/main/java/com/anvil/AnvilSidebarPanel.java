@@ -1451,8 +1451,22 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (connection == null)
 		{
 			selectedEventKey = null;
-			renderEmpty();
+			// Signed in but the first answer isn't back yet: that's loading, not "no clans".
+			if (dataSource.awaitingFirstConfig())
+			{
+				renderLoading();
+			}
+			else
+			{
+				renderEmpty();
+			}
 			return;
+		}
+		// The full board, fetched now rather than when someone opens it, so "View all tiles" and a
+		// tile's detail open straight away. ETag'd, once per session unless it's being looked at.
+		if (connection.tilesTotal > 0)
+		{
+			loadBoardCatalogue("active", 0, false);
 		}
 		// A refresh that began just before the member focused Search may finish while they are typing.
 		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.
