@@ -59,6 +59,11 @@ public class TileTracker
 	 */
 	private boolean onePanel = true;
 	private final Combined combined = new Combined();
+	/**
+	 * The pins as the frame draw sees them: replaced whole on every change, read without a lock.
+	 * The shared panel renders on the client thread every frame, which must never wait on a lock.
+	 */
+	private volatile List<Widget> drawn = new ArrayList<>();
 
 	@Inject
 	TileTracker(OverlayManager overlayManager, ConfigManager configManager, BingoApiClient apiClient)
@@ -113,6 +118,13 @@ public class TileTracker
 		}
 	}
 
+	private Widget removePin(int tileId)
+	{
+		Widget w = pins.remove(tileId);
+		drawn = new ArrayList<>(pins.values());
+		return w;
+	}
+
 	/** Take one pin's widget down, and the shared panel with the last one. */
 	private void hide(Widget w)
 	{
@@ -153,6 +165,7 @@ public class TileTracker
 	{
 		hideAll();
 		pins.clear();
+		drawn = new ArrayList<>();
 	}
 
 	synchronized boolean isPinned(int eventId, int tileId)
@@ -182,7 +195,7 @@ public class TileTracker
 	{
 		if (isPinned(eventId, tileId))
 		{
-			hide(pins.remove(tileId));
+			hide(removePin(tileId));
 		}
 		else
 		{
@@ -296,7 +309,7 @@ public class TileTracker
 	{
 		if (eventId == event && pins.get(tileId) == w)
 		{
-			hide(pins.remove(tileId));
+			hide(removePin(tileId));
 			save();
 		}
 	}
@@ -317,9 +330,17 @@ public class TileTracker
 		}
 	}
 
-	synchronized boolean tracks(int tileId)
+	/** Asked from the client thread on every credited kill, so read off the snapshot, lock-free. */
+	boolean tracks(int tileId)
 	{
-		return pins.containsKey(tileId);
+		for (Widget w : drawn)
+		{
+			if (w.tileId == tileId)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private Widget add(int tileId)
@@ -331,6 +352,7 @@ public class TileTracker
 		}
 		Widget w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
 		pins.put(tileId, w);
+		drawn = new ArrayList<>(pins.values());
 		if (onePanel)
 		{
 			overlayManager.remove(combined); // re-added, so it is never in twice
@@ -388,11 +410,7 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
-			List<Widget> shown;
-			synchronized (TileTracker.this)
-			{
-				shown = new ArrayList<>(pins.values());
-			}
+			List<Widget> shown = drawn; // no lock on the frame path
 			for (int i = 0; i < shown.size(); i++)
 			{
 				if (i > 0)
