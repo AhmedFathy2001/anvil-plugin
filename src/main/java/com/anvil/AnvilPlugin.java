@@ -985,6 +985,19 @@ public class AnvilPlugin extends Plugin {
     static final Pattern LARRAN_OPENED =
             Pattern.compile("You have opened Larran's (big|small) chest.*");
     private static final int LOOTING_BAG_WATCH_TICKS = 5;
+    // THE CHEST'S OWN WORD FOR IT. The game only sends the looting bag's contents when the bag is
+    // looked at, so loot the chest drops into a CLOSED bag is invisible to the watch above — a
+    // Dagon'hai robe went uncounted that way. The game does name the item in the same tick ("X received
+    // a drop: Dagon'hai robe bottom", "Valuable drop: …"), so those lines are held, and once the
+    // inventory and bag paths have had their chance, anything neither of them saw is credited to the
+    // chest. Lines are the local player's own (recipient-checked) from server channels only.
+    static final Pattern DROP_LINE_PLAIN = Pattern.compile("^(.{1,20}?) received a drop: (?:([\\d,]+) x )?(.+?)\\.?$");
+    static final Pattern VALUABLE_DROP_LINE = Pattern.compile("^(?:Valuable|Untradeable) drop: (?:([\\d,]+) x )?(.+?)(?: \\([\\d,]+ coins\\))?\\.?$");
+    private static final int CHEST_LINE_SETTLE_TICKS = LOOTING_BAG_WATCH_TICKS + 2;
+    /** Item lines this tick and last, waiting to learn whether a chest opened: {tick, qty, name}. */
+    private final List<Object[]> recentDropLines = new ArrayList<>();
+    /** Lines tied to a chest open, credited at their tick unless another path saw the item: {dueTick, source, qty, name, openedAtMs}. */
+    private final List<Object[]> chestLineCredits = new ArrayList<>();
     // Contents before the most recent bag change, and after it; null = the client hasn't been told.
     private Map<Integer, Integer> lootingBagBefore;
     private Map<Integer, Integer> lootingBagNow;
@@ -2326,6 +2339,7 @@ public class AnvilPlugin extends Plugin {
             heldItemsDirty = false;
             updateHeldItemGains();
         }
+        settleChestLineCredits();
         if (lootingBagWatchSource != null && --lootingBagWatchTicks <= 0) {
             // Nothing went to the bag this time — the loot all landed in the inventory.
             lootingBagWatchSource = null;
@@ -2498,6 +2512,8 @@ public class AnvilPlugin extends Plugin {
             lootingBagNow = null;
             lootingBagWatchSource = null;
             lootingBagWatchBase = null;
+            recentDropLines.clear();
+            chestLineCredits.clear();
         }
         if (event.getGameState() == GameState.LOGIN_SCREEN) {
             // The next account's stats haven't been sent yet; what the client holds until then is
@@ -3521,6 +3537,7 @@ public class AnvilPlugin extends Plugin {
             if (PICKPOCKET_PATTERN.matcher(stripped).matches()) {
                 pickpocketTick = client.getTickCount();
             }
+            noteChestDropLine(stripped);
             Matcher larran = LARRAN_OPENED.matcher(stripped);
             if (larran.matches()) {
                 onLarranChestOpened(larran.group(1));
@@ -4611,9 +4628,81 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /** Hold an item line the game prints for the local player's own loot (see DROP_LINE_PLAIN). */
+    private void noteChestDropLine(String line) {
+        String qty = null;
+        String name = null;
+        Matcher v = VALUABLE_DROP_LINE.matcher(line);
+        Matcher d = DROP_LINE_PLAIN.matcher(line);
+        if (v.matches()) {
+            qty = v.group(1);
+            name = v.group(2);
+        } else if (d.matches() && !line.endsWith(")") && !line.contains(") from ")) {
+            String local = getLocalPlayerName();
+            String who = d.group(1).replace('\u00A0', ' ').trim();
+            if (local == null || !who.equalsIgnoreCase(local.replace('\u00A0', ' ').trim())) {
+                return; // someone else's drop
+            }
+            qty = d.group(2);
+            name = d.group(3);
+        }
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        int n = 1;
+        try {
+            n = qty == null ? 1 : Math.max(1, Integer.parseInt(qty.replace(",", "")));
+        } catch (NumberFormatException ignored) {
+        }
+        int tick = client.getTickCount();
+        recentDropLines.removeIf(l -> tick - (int) l[0] > 1);
+        recentDropLines.add(new Object[]{tick, n, name.trim()});
+    }
+
+    /** Credit held chest lines whose items no loot event or bag change accounted for. Client thread. */
+    private void settleChestLineCredits() {
+        if (chestLineCredits.isEmpty()) {
+            return;
+        }
+        int tick = client.getTickCount();
+        java.util.Iterator<Object[]> it = chestLineCredits.iterator();
+        while (it.hasNext()) {
+            Object[] c = it.next();
+            if ((int) c[0] > tick) {
+                continue;
+            }
+            it.remove();
+            List<ItemStack> unseen = new ArrayList<>(1);
+            for (ItemStack st : trackedStacks((String) c[3], (int) c[2])) {
+                synchronized (recentLootItemIds) {
+                    // Seen by a loot event since this open (a second's slack for the order lines land in):
+                    // the inventory or bag path counted it. An older sighting is an earlier chest.
+                    Long seen = recentLootItemIds.get(st.getId());
+                    if (seen != null && seen >= (long) c[4] - 1000) {
+                        continue;
+                    }
+                }
+                unseen.add(st);
+            }
+            if (!unseen.isEmpty()) {
+                log.info("{}: {} named in chat but seen by no loot event — crediting it to the chest", c[1], c[3]);
+                processLoot((String) c[1], unseen, "event");
+            }
+        }
+    }
+
     /** The chest line: credit a bag change that landed this tick, or watch for one in the next few. */
     private void onLarranChestOpened(String size) {
         String source = "Larran's " + size + " chest";
+        // The item lines printed with this open (same tick, or the one before) belong to it.
+        int tick = client.getTickCount();
+        Set<String> named = new HashSet<>();
+        for (Object[] l : recentDropLines) {
+            if (tick - (int) l[0] <= 1 && named.add(((String) l[2]).toLowerCase(Locale.ROOT))) {
+                chestLineCredits.add(new Object[]{tick + CHEST_LINE_SETTLE_TICKS, source, l[1], l[2], now()});
+            }
+        }
+        recentDropLines.clear();
         if (lootingBagChangedTick == client.getTickCount() && lootingBagBefore != null) {
             creditLootingBagGain(source, lootingBagBefore, lootingBagNow);
             return;

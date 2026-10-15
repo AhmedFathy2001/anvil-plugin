@@ -93,4 +93,26 @@ public class DropNotificationLineTest
 		assertFalse(AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
 			"Nisbro received a drop: Elder venator fang (Maggot King)").matches());
 	}
+
+	@Test
+	public void aChestsItemLinesAreReadWithoutASource()
+	{
+		Matcher plain = AnvilPlugin.DROP_LINE_PLAIN.matcher("Drenvox received a drop: Dagon'hai robe bottom");
+		assertTrue(plain.matches());
+		assertEquals("Drenvox", plain.group(1));
+		assertEquals("Dagon'hai robe bottom", plain.group(3));
+
+		Matcher stack = AnvilPlugin.DROP_LINE_PLAIN.matcher("Drenvox received a drop: 581 x Iron ore");
+		assertTrue(stack.matches());
+		assertEquals("581", stack.group(2));
+		assertEquals("Iron ore", stack.group(3));
+
+		Matcher valuable = AnvilPlugin.VALUABLE_DROP_LINE.matcher("Valuable drop: Dagon'hai robe bottom (573,719 coins)");
+		assertTrue(valuable.matches());
+		assertEquals("Dagon'hai robe bottom", valuable.group(2));
+
+		Matcher untradeable = AnvilPlugin.VALUABLE_DROP_LINE.matcher("Untradeable drop: Dagon'hai hat");
+		assertTrue(untradeable.matches());
+		assertEquals("Dagon'hai hat", untradeable.group(2));
+	}
 }
