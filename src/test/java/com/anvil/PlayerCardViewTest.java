@@ -122,6 +122,43 @@ public class PlayerCardViewTest
 		assertNoHtml(PlayerCardView.render(card, PlayerCardView.Icons.NONE, "Log", s -> { }));
 	}
 
+	@Test
+	public void aHiscoresCardSaysWhereItCameFromAndShowsNoAnvilOnlyBlocks()
+	{
+		PlayerCard card = new Gson().fromJson("{\"rsn\":\"Lynx Titan\",\"totalLevel\":2277,"
+			+ "\"source\":\"hiscores\",\"fetchedAt\":\"2026-10-12T11:00:00Z\","
+			+ "\"clog\":{\"obtained\":5,\"total\":1500},"
+			+ "\"latest\":[{\"kind\":\"item\",\"label\":\"Twisted bow\"}],"
+			+ "\"skills\":[{\"key\":\"attack\",\"level\":99,\"xp\":200000000}]}", PlayerCard.class);
+		org.junit.Assert.assertTrue(card.fromHiscores());
+		java.util.List<String> text = new java.util.ArrayList<>();
+		labels(PlayerCardView.render(card, PlayerCardView.Icons.NONE, null, s -> { }), text);
+		org.junit.Assert.assertTrue(text.toString(), text.stream().anyMatch(t -> t.startsWith("From the hiscores — not on Anvil")));
+		org.junit.Assert.assertFalse(text.toString(), text.stream().anyMatch(t -> t.contains("Twisted bow")));
+		org.junit.Assert.assertFalse(text.toString(), text.stream().anyMatch(t -> t.contains("1,500") || t.contains("1500")));
+
+		PlayerCard anvil = new Gson().fromJson("{\"rsn\":\"Zezima\",\"totalLevel\":10}", PlayerCard.class);
+		org.junit.Assert.assertFalse("older sites send no source", anvil.fromHiscores());
+		java.util.List<String> plain = new java.util.ArrayList<>();
+		labels(PlayerCardView.render(anvil, PlayerCardView.Icons.NONE, null, s -> { }), plain);
+		org.junit.Assert.assertFalse(plain.stream().anyMatch(t -> t.startsWith("From the hiscores")));
+	}
+
+	private static void labels(java.awt.Container c, java.util.List<String> out)
+	{
+		for (java.awt.Component child : c.getComponents())
+		{
+			if (child instanceof javax.swing.JLabel && ((javax.swing.JLabel) child).getText() != null)
+			{
+				out.add(((javax.swing.JLabel) child).getText());
+			}
+			if (child instanceof java.awt.Container)
+			{
+				labels((java.awt.Container) child, out);
+			}
+		}
+	}
+
 	private static void assertNoHtml(java.awt.Container c)
 	{
 		for (java.awt.Component child : c.getComponents())

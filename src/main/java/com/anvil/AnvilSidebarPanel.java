@@ -626,7 +626,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				lookupResult.add(cardFor(name, result, false));
 				lookupCard = result != null ? result.card : null;
 				String me = dataSource.myRsn();
-				if (lookupCard != null && me != null && !Rsn.same(me, lookupCard.rsn))
+				// Not for a hiscores card: the comparison (and its page on the site) is between Anvil profiles.
+				if (lookupCard != null && !lookupCard.fromHiscores() && me != null && !Rsn.same(me, lookupCard.rsn))
 				{
 					lookupButton("Compare with me", "Side by side: levels, bosses and the log", () -> showPlayerCompare(lookupCard));
 				}
@@ -1023,7 +1024,11 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
 	{
-		if (result == null)
+		if (result != null && result.busy && dataSource.hiscoresCardsAvailable())
+		{
+			return cardMessage("Hiscores busy — try again in a moment.");
+		}
+		if (result == null || result.busy)
 		{
 			return cardMessage("Couldn't reach Anvil — try again in a moment.");
 		}

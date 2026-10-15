@@ -189,6 +189,11 @@ public class ApiClientHttpTest
 		assertNull("lookups are anonymous", seen.get(0).header("Authorization"));
 		code = 404;
 		assertTrue(c.fetchPlayerCard("Zezima").notFound);
+		code = 503;
+		BingoApiClient.PlayerCardResult busy = c.fetchPlayerCard("Zezima");
+		assertTrue("hiscores budget busy, not 'not found'", busy.busy);
+		assertFalse(busy.notFound);
+		code = 404;
 		assertEquals("Bearer tok", seen.get(1).header("Authorization"));
 		assertNull(seen.get(1).header("X-RSN"));
 	}

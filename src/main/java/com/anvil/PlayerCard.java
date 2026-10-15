@@ -30,6 +30,20 @@ public final class PlayerCard
 	public List<Page> clogPages;
 	/** Uploaded personal bests: one entry per boss and mode, its best time first, team sizes behind it. */
 	public List<PbEntry> times;
+	/**
+	 * "hiscores" when the name has no Anvil account and the site built this card from the official
+	 * hiscores instead ({@code player-card-hiscores}); null (an Anvil profile) on any other card and on
+	 * older sites.
+	 */
+	public String source;
+	/** When the site read the hiscores for a {@code source: "hiscores"} card (ISO); null otherwise. */
+	public String fetchedAt;
+
+	/** Built from the official hiscores, not an Anvil profile: no log, no feed, no profile page. */
+	public boolean fromHiscores()
+	{
+		return "hiscores".equalsIgnoreCase(source);
+	}
 
 	public static final class PbEntry
 	{

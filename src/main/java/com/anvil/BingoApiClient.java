@@ -1008,11 +1008,19 @@ public class BingoApiClient
 		public final PlayerCard card;
 		/** True when the site answered 404 — not on Anvil, or not shared. */
 		public final boolean notFound;
+		/** True on a 503: the site's hiscores budget is busy (player-card-hiscores) — try again shortly. */
+		public final boolean busy;
 
 		PlayerCardResult(PlayerCard card, boolean notFound)
 		{
+			this(card, notFound, false);
+		}
+
+		PlayerCardResult(PlayerCard card, boolean notFound, boolean busy)
+		{
 			this.card = card;
 			this.notFound = notFound;
+			this.busy = busy;
 		}
 	}
 
@@ -1047,6 +1055,10 @@ public class BingoApiClient
 			if (response.code() == 404)
 			{
 				return new PlayerCardResult(null, true);
+			}
+			if (response.code() == 503)
+			{
+				return new PlayerCardResult(null, false, true);
 			}
 			if (!response.isSuccessful() || response.body() == null)
 			{

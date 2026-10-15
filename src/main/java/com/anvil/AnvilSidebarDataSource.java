@@ -330,6 +330,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return siteSupports("player-card");
 	}
 
+	/** The site falls back to the official hiscores for names with no Anvil account (and may say it's busy). */
+	public boolean hiscoresCardsAvailable()
+	{
+		return siteSupports("player-card-hiscores");
+	}
+
 	/** Whether the site serves clan cards and clan lookup. */
 	public boolean supportsClanCard()
 	{

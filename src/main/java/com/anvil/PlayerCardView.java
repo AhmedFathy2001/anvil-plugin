@@ -96,15 +96,17 @@ final class PlayerCardView
 
 		// The log lives in its summary block: the total, then the category tiles, which open in place to
 		// a category's pages and a page's items. It used to be a second copy under the switcher.
-		JPanel log = card.clogPages != null && !card.clogPages.isEmpty()
+		// A hiscores card has no collection log or Anvil feed; anything the site sends for one is ignored.
+		boolean anvil = !card.fromHiscores();
+		JPanel log = anvil && card.clogPages != null && !card.clogPages.isEmpty()
 			? logPages(card.rsn, card.clogPages, ic, pageKills(card.bosses))
 			: null;
-		if (card.clog != null && card.clog.total > 0)
+		if (anvil && card.clog != null && card.clog.total > 0)
 		{
 			root.add(gap(BLOCK_GAP));
 			root.add(clogSummary(card.clog, log));
 		}
-		if (card.latest != null && !card.latest.isEmpty())
+		if (anvil && card.latest != null && !card.latest.isEmpty())
 		{
 			root.add(gap(BLOCK_GAP));
 			root.add(latest(card.rsn, card.latest, ic));
@@ -152,7 +154,7 @@ final class PlayerCardView
 			}
 			sections.put("Clues", blockOf(grid));
 		}
-		if (card.times != null && !card.times.isEmpty())
+		if (anvil && card.times != null && !card.times.isEmpty())
 		{
 			sections.put("Times", times(card.times, ic));
 		}
@@ -184,10 +186,20 @@ final class PlayerCardView
 		// now, so the browser is an icon, not the card's main button.
 		JPanel nameRow = row(6);
 		nameRow.add(title(card.rsn), BorderLayout.CENTER);
-		JLabel web = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 12, MUTED)), () -> ProfileLookup.open(card.rsn));
-		web.setToolTipText("Open on the Anvil website");
-		nameRow.add(web, BorderLayout.EAST);
+		// A hiscores card has no Anvil profile to open.
+		if (!card.fromHiscores())
+		{
+			JLabel web = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 12, MUTED)), () -> ProfileLookup.open(card.rsn));
+			web.setToolTipText("Open on the Anvil website");
+			nameRow.add(web, BorderLayout.EAST);
+		}
 		block.add(capH(nameRow));
+		if (card.fromHiscores())
+		{
+			String when = ago(card.fetchedAt);
+			block.add(gap(2));
+			block.add(small("From the hiscores — not on Anvil" + (when.isEmpty() ? "" : " · " + when), MUTED));
+		}
 
 		if (card.clan != null && card.clan.name != null)
 		{
