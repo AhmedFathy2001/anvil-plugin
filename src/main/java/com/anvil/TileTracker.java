@@ -27,8 +27,8 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
  * belong to one event. They can go up before it starts (the widget counts down, then goes live on the
  * first poll after the whistle) and are forgotten once the site says it's over.
  *
- * <p>A pin your team finishes shows "Done" for a moment and then takes itself down. A tile pinned when
- * it was already done stays up: that member is watching the other teams on it.
+ * <p>A pin your team finishes shows "Done" for a moment and then takes itself down. A done tile can't be
+ * pinned — the sidebar offers no button for it.
  */
 @Singleton
 public class TileTracker
@@ -111,6 +111,18 @@ public class TileTracker
 		return this.eventId == eventId && pins.size() >= MAX_PINS;
 	}
 
+	/**
+	 * Pin ({@code on}) or unpin — an explicit state, not a flip, so a button drawn before the pin took
+	 * itself down (a finished tile) can't put it back up when clicked.
+	 */
+	synchronized void set(int eventId, int tileId, boolean on)
+	{
+		if (isPinned(eventId, tileId) != on)
+		{
+			toggle(eventId, tileId);
+		}
+	}
+
 	/** Pin or unpin; pinning a tile from another event drops the old event's pins. */
 	synchronized void toggle(int eventId, int tileId)
 	{
@@ -129,7 +141,9 @@ public class TileTracker
 			{
 				return;
 			}
-			add(tileId).keepWhenDone = null; // decided by the first fetch
+			// A done tile can't be pinned (the sidebar offers no button), so a pin that turns out done
+			// on its first fetch was finished in between — it comes down like any other.
+			add(tileId).keepWhenDone = false;
 		}
 		save();
 	}

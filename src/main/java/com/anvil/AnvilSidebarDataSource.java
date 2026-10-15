@@ -262,9 +262,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return fromPlugin(p -> p.tileTracker().isFull(eventId), false);
 	}
 
-	public void toggleTileTracked(int eventId, int tileId)
+	public void setTileTracked(int eventId, int tileId, boolean on)
 	{
-		withPlugin(p -> p.toggleTrackedTile(eventId, tileId));
+		withPlugin(p -> p.setTrackedTile(eventId, tileId, on));
 	}
 
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */

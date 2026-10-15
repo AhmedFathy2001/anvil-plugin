@@ -5556,8 +5556,8 @@ public class AnvilPlugin extends Plugin {
     }
 
     /** Pin or unpin a tile's in-game widget, fetching a fresh pin straight away. */
-    void toggleTrackedTile(int eventId, int tileId) {
-        tileTracker.toggle(eventId, tileId);
+    void setTrackedTile(int eventId, int tileId, boolean on) {
+        tileTracker.set(eventId, tileId, on);
         submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
     }
 
@@ -6629,9 +6629,11 @@ public class AnvilPlugin extends Plugin {
         if (trackedKcNames.contains(normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
         }
+        // A KC line is one kill (one clear, one chest), so the first one after login still moves the
+        // tile by one; after that the absolute count says how many, in case a line was missed.
         Integer prevKc = lastSeenKc.put(compactStat(bossName), kc);
-        if (prevKc != null && kc > prevKc) {
-            bumpStatTiles("boss", bossName, kc - prevKc);
+        if (prevKc == null || kc > prevKc) {
+            bumpStatTiles("boss", bossName, prevKc == null ? 1 : kc - prevKc);
         }
         kcPush.queue(bossName, kc);
     }

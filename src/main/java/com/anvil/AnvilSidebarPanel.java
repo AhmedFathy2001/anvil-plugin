@@ -4410,14 +4410,15 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JButton trackButton(BingoApiClient.BoardTile tile, String key, boolean preStart)
 	{
 		int eventId = catalogueEventId(key);
-		if (!dataSource.canTrackTiles(eventId, preStart))
+		// A finished tile has nothing left to track; its pin takes itself down (TileTracker).
+		if (tile.complete || !dataSource.canTrackTiles(eventId, preStart))
 		{
 			return null;
 		}
 		boolean pinned = dataSource.isTileTracked(eventId, tile.tileId);
 		JButton b = flatButton(pinned ? "Stop tracking" : "Track on screen",
 			pinned ? "Remove this tile's in-game widget" : "Pin a live widget for this tile over the game — Alt+drag to move and resize",
-			() -> toggleTracked(eventId, tile.tileId, key));
+			() -> setTracked(eventId, tile.tileId, !pinned));
 		b.setEnabled(pinned || !dataSource.tileTrackerFull(eventId));
 		if (!b.isEnabled())
 		{
@@ -4435,14 +4436,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			menu.addSeparator();
 			JMenuItem item = new JMenuItem(b.getText());
 			item.setEnabled(b.isEnabled());
-			item.addActionListener(e -> toggleTracked(catalogueEventId(key), tile.tileId, key));
+			boolean pin = !dataSource.isTileTracked(catalogueEventId(key), tile.tileId);
+			item.addActionListener(e -> setTracked(catalogueEventId(key), tile.tileId, pin));
 			menu.add(item);
 		}
 	}
 
-	private void toggleTracked(int eventId, int tileId, String key)
+	private void setTracked(int eventId, int tileId, boolean on)
 	{
-		dataSource.toggleTileTracked(eventId, tileId);
+		dataSource.setTileTracked(eventId, tileId, on);
 		refresh();
 	}
 
