@@ -2,7 +2,9 @@ package com.anvil;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Immutable UI view-model for the addressed clan in the sidebar ({@link AnvilSidebarPanel}), folding
@@ -103,11 +105,28 @@ public final class ConnectionView
 	 */
 	public final List<ScheduledView> scheduled;
 
+	/**
+	 * Every tracked tile's progress on this board, by tile id — the same team numbers as
+	 * {@link #nearestTiles}, uncapped, so a tile's detail view can show how far along it is. Never
+	 * {@code null}; manual tiles are absent (the plugin has no count for them).
+	 */
+	public final Map<Integer, ClogTaskModel.TaskRow> tileProgress;
+
 	public ConnectionView(String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
 		String statusNote, String revealNote, Ladder ladder, List<WeeklyView> weeklies,
 		List<ScheduledView> scheduled)
+	{
+		this(clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles, recentActivity, activeNow,
+			boardUrl, pointsScored, statusNote, revealNote, ladder, weeklies, scheduled, null);
+	}
+
+	public ConnectionView(String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
+		String statusNote, String revealNote, Ladder ladder, List<WeeklyView> weeklies,
+		List<ScheduledView> scheduled, List<ClogTaskModel.TaskRow> tileRows)
 	{
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
 		this.eventName = eventName;
@@ -124,6 +143,15 @@ public final class ConnectionView
 		this.ladder = ladder;
 		this.weeklies = copyOrEmpty(weeklies);
 		this.scheduled = copyOrEmpty(scheduled);
+		Map<Integer, ClogTaskModel.TaskRow> progress = new HashMap<>();
+		if (tileRows != null)
+		{
+			for (ClogTaskModel.TaskRow r : tileRows)
+			{
+				progress.put(r.tileId, r);
+			}
+		}
+		this.tileProgress = Collections.unmodifiableMap(progress);
 	}
 
 	private static <T> List<T> copyOrEmpty(List<T> src)

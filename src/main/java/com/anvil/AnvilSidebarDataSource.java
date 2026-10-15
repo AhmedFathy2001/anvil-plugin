@@ -603,7 +603,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			homeClanName(cfg), cfg.event.name, error,
 			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
 			null, ladder != null && ladder.ladderFormat ? null : revealNote(cfg.event),
-			ladder, weeklies, scheduled);
+			ladder, weeklies, scheduled, rows);
 	}
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------

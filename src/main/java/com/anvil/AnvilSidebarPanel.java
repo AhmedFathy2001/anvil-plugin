@@ -2823,10 +2823,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * Make an event-page tile row (Active now / Nearest tiles) open that tile's detail on the full
+	 * Make an event-page tile row (Active now / Nearest tiles / an activity line) open that tile's detail on the full
 	 * board — the same view as picking it from "View all tiles", with its description, facts and claim.
 	 */
-	private JPanel opensTile(JPanel row, int tileId)
+	private <T extends Component> T opensTile(T row, int tileId)
 	{
 		if (tileId <= 0)
 		{
@@ -2934,7 +2934,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel row = small(ellipsize(e.summary(), 36), e.isCompletion() ? ColorScheme.PROGRESS_COMPLETE_COLOR
 			: e.kind == ActivityEntry.Kind.REVEAL || e.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
 		row.setToolTipText(plainText(e.summary()));
-		return row;
+		// Clicking a line opens its tile, like the tile rows under it.
+		return opensTile(row, e.tileId);
 	}
 
 	/** Clip an over-long label to width with an ellipsis so a feed/spotlight row never overflows the panel. */
@@ -3894,6 +3895,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		title.setFont(BOLD);
 		card.add(title);
 		card.add(gap(4));
+
+		// How far along it is — the team count the board already carries, so a 517/500 or a 3/5 reads
+		// here instead of only on "Nearest tiles". Only the live board has it, and only a counted tile:
+		// a pass/fail tile's 0 / 1 says nothing the status line doesn't.
+		ClogTaskModel.TaskRow progress = "active".equals(key) && connection != null
+			? connection.tileProgress.get(tile.tileId) : null;
+		if (progress != null && !tile.complete && !progress.isCompleted() && progress.goal > 1)
+		{
+			detailHeading(card, 0, "Progress");
+			JPanel row = progressRow(small(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)) + "%",
+				ColorScheme.TEXT_COLOR), progressValue(progress), null,
+				bar(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)),
+					ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
+			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			card.add(row);
+			card.add(gap(9));
+		}
 
 		List<String> facts = tileDetailFacts(tile, preStart);
 		if (!facts.isEmpty())
