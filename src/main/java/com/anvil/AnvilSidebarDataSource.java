@@ -1226,7 +1226,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				continue;
 			}
 			out.add(new ActivityEntry(it.id, it.ts, it.player, it.tileId, it.tileLabel,
-				ActivityEntry.Kind.fromWire(it.kind), it.amount, it.isSelf));
+				ActivityEntry.Kind.fromWire(it.kind), it.amount, it.isSelf, it.participants));
 		}
 		return out;
 	}

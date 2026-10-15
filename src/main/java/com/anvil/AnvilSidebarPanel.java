@@ -2939,7 +2939,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		// your own actions stand out (gold); teammates stay neutral.
 		JLabel row = small(ellipsize(e.summary(), 36), e.isCompletion() ? ColorScheme.PROGRESS_COMPLETE_COLOR
 			: e.kind == ActivityEntry.Kind.REVEAL || e.self ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
-		row.setToolTipText(tileTooltip(e.tileId, e.tileLabel, e.summary()));
+		row.setToolTipText(tileTooltip(e.tileId, e.tileLabel, e.detail()));
 		// Clicking a line opens its tile, like the tile rows under it.
 		return opensTile(row, e.tileId);
 	}

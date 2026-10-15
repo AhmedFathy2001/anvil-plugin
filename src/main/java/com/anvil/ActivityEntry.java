@@ -1,5 +1,9 @@
 package com.anvil;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * One entry in the always-on sidebar's live team feed — the plugin-side mirror of the Site's
  * {@code /api/plugin/activity} JSON (see {@code Anvil.Site/src/lib/pluginActivity.ts}). RuneLite-free
@@ -48,8 +52,20 @@ public final class ActivityEntry
 	/** True when the caller themselves credited this — the panel styles/labels its own actions ("You"). */
 	public final boolean self;
 
+	/**
+	 * A completion's other contributors, biggest share first ({@link #player} excluded) — how a team
+	 * KC/XP tile, which has no single finisher, still names who did it. Empty otherwise / older sites.
+	 */
+	public final List<String> participants;
+
 	public ActivityEntry(String id, String ts, String player, int tileId, String tileLabel,
 		Kind kind, int amount, boolean self)
+	{
+		this(id, ts, player, tileId, tileLabel, kind, amount, self, null);
+	}
+
+	public ActivityEntry(String id, String ts, String player, int tileId, String tileLabel,
+		Kind kind, int amount, boolean self, List<String> participants)
 	{
 		this.id = id == null ? "" : id;
 		this.ts = ts == null ? "" : ts;
@@ -59,6 +75,18 @@ public final class ActivityEntry
 		this.kind = kind == null ? Kind.PROGRESS : kind;
 		this.amount = amount;
 		this.self = self;
+		List<String> named = new ArrayList<>();
+		if (participants != null)
+		{
+			for (String p : participants)
+			{
+				if (p != null && !p.isEmpty() && !p.equals(player))
+				{
+					named.add(p);
+				}
+			}
+		}
+		this.participants = Collections.unmodifiableList(named);
 	}
 
 	public boolean isCompletion()
@@ -79,7 +107,14 @@ public final class ActivityEntry
 		String who = self ? "You" : (player == null || player.isEmpty() ? null : player);
 		if (kind == Kind.COMPLETE)
 		{
-			return (who == null ? "Team" : who) + " completed " + tileLabel;
+			// Whoever finished it leads; with nobody credited (a team KC/XP tile), its biggest contributor.
+			String lead = who != null ? who : participants.isEmpty() ? null : participants.get(0);
+			int more = participants.size() - (who != null || participants.isEmpty() ? 0 : 1);
+			if (lead == null)
+			{
+				return "Team completed " + tileLabel;
+			}
+			return lead + (more > 0 ? " & " + more + " more" : "") + " completed " + tileLabel;
 		}
 		String amt = amount > 0 ? "+" + amount : "+1";
 		if (who == null)
@@ -87,5 +122,18 @@ public final class ActivityEntry
 			return tileLabel + " " + amt; // teammate partial with no attribution — lead with the tile
 		}
 		return who + " " + amt + " · " + tileLabel;
+	}
+
+	/** {@link #summary()} plus, for a completion, everyone else who worked the tile — the hover text. */
+	public String detail()
+	{
+		if (kind != Kind.COMPLETE || participants.isEmpty())
+		{
+			return summary();
+		}
+		boolean credited = self || (player != null && !player.isEmpty());
+		String who = self ? "You" : credited ? player : participants.get(0);
+		List<String> rest = credited ? participants : participants.subList(1, participants.size());
+		return who + " completed " + tileLabel + (rest.isEmpty() ? "" : " — with " + String.join(", ", rest));
 	}
 }

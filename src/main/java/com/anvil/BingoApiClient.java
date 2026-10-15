@@ -1078,6 +1078,7 @@ public class BingoApiClient
 		public String kind;   // "progress" | "complete" | "reveal" — map with ActivityEntry.Kind.fromWire
 		public int amount;
 		public boolean isSelf;
+		public List<String> participants;   // completions: the rest of the team who worked it (newer sites)
 	}
 
 	/** Gson shape of GET /api/plugin/board. Hidden staged tiles never arrive from the server. */
