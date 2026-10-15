@@ -112,6 +112,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -715,6 +716,13 @@ public class AnvilPlugin extends Plugin {
     // Lowercased in-game KC-line boss names the server tracks as boss-KC tiles. Rebuilt with the
     // drop index each config refresh; empty unless the event has such tiles.
     private volatile Set<String> trackedKcNames = Collections.emptySet();
+    // Counts this client has seen move but the site hasn't confirmed yet, so the sidebar and pinned
+    // tiles move on the kill rather than on the poll after the push lands (see OptimisticProgress).
+    private final OptimisticProgress optimistic = new OptimisticProgress();
+    // The last absolute KC / XP seen this session per boss / skill — what a KC line or XP drop is a
+    // delta against. Unknown until the first one, so the first kill of a session waits on the push.
+    private final Map<String, Integer> lastSeenKc = new ConcurrentHashMap<>();
+    private final Map<String, Integer> lastSeenXp = new ConcurrentHashMap<>();
     // Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
     // counts are idempotent, so a kill streak collapses to a single push of the newest value.
     private final CoalescedPush kcPush = new CoalescedPush("KC", KC_PUSH_COALESCE_MS, false,
@@ -1128,6 +1136,7 @@ public class AnvilPlugin extends Plugin {
         apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
         overlayManager.add(overlay);
         overlayManager.add(clogBanner);
+        tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
         tileTracker.startUp();
         overlayManager.add(startProofOverlay);
 
@@ -1429,6 +1438,9 @@ public class AnvilPlugin extends Plugin {
         heldItemsDirty = false;
         trackedKcNames = Collections.emptySet();
         kcPush.reset();
+        optimistic.reset();
+        lastSeenKc.clear();
+        lastSeenXp.clear();
         // Queued highlights die with the plugin: they're cosmetic, and a moment restored into a
         // session days later would be filed against whatever happens to be running then.
         synchronized (moments) {
@@ -4143,6 +4155,7 @@ public class AnvilPlugin extends Plugin {
                 log.info("Tracked drop detected: {} (item {} ×{}), tile '{}'", source, itemId, amount, drop.label);
 
                 drop.currentAmount += amount;
+                raiseLocal(drop.tileId, drop.currentAmount, now());
 
                 int snapshotCurrent = drop.currentAmount;
                 int snapshotRequired = drop.requiredAmount;
@@ -4360,6 +4373,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             kill.currentAmount += amount;
+            raiseLocal(kill.tileId, kill.currentAmount, now());
             int snapshotCurrent = kill.currentAmount;
             int snapshotRequired = kill.requiredAmount;
 
@@ -4620,6 +4634,7 @@ public class AnvilPlugin extends Plugin {
                 }
                 int amount = Math.min(delta, Math.max(1, gain.requiredAmount - gain.currentAmount));
                 gain.currentAmount += amount;
+                raiseLocal(gain.tileId, gain.currentAmount, now());
                 log.info("Tracked gain: item {} ×{}, tile '{}' ({}/{})", itemId, amount, gain.label,
                         gain.currentAmount, gain.requiredAmount);
                 queueGainForFlush(gain, amount);
@@ -4791,6 +4806,7 @@ public class AnvilPlugin extends Plugin {
             } catch (IOException e) {
                 log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
                 sendChatMessage("Screenshot failed for " + label + ": " + e.getMessage());
+                optimistic.clear(tileId);
                 if (rollback != null) {
                     rollback.run();
                 }
@@ -4936,6 +4952,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             tile.currentAmount++;
+            raiseLocal(tile.tileId, tile.currentAmount, now());
             int goal = Math.max(1, tile.requiredAmount);
             log.info("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
                     tile.activity, partySeen, tile.label, tile.currentAmount, goal);
@@ -6368,6 +6385,63 @@ public class AnvilPlugin extends Plugin {
     }
 
 
+    /** A stat name reduced to letters and digits, so "Kree'Arra", "kreeArra" and "kree arra" meet. */
+    static String compactStat(String s) {
+        return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    /**
+     * Move every KC / XP tile watching {@code name} up by {@code delta} locally, ahead of the push. A
+     * composite tile ("CoX + CoX: CM") matches on any of its keys; a name that matches no key the way
+     * the site spells it simply isn't bumped, and the tile moves when the push lands, as before.
+     */
+    private void bumpStatTiles(String kind, String name, int delta) {
+        PluginConfigResponse cfg = pluginConfig;
+        if (cfg == null || cfg.trackedStats == null) {
+            return;
+        }
+        String want = compactStat(name);
+        for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
+            if (s == null || s.statName == null || s.statType == null
+                    || !("skill".equals(kind) ? "skill".equals(s.statType) : !"skill".equals(s.statType))) {
+                continue;
+            }
+            for (String key : s.statName.split(",")) {
+                if (compactStat(key).equals(want)) {
+                    optimistic.add(s.tileId, s.currentAmount, delta, now());
+                    repaintSidebarSoon();
+                    break;
+                }
+            }
+        }
+    }
+
+    /** This client just bumped a tile to {@code current}: hold that count and show it now. */
+    private void raiseLocal(int tileId, long current, long at) {
+        optimistic.raise(tileId, current, at);
+        repaintSidebarSoon();
+    }
+
+    private volatile long lastLocalRepaintAt;
+
+    /**
+     * Repaint the sidebar off a local bump — at most every few seconds, since an XP tile bumps on every
+     * drop. The repaint reads the in-memory config (and a cheap conditional feed GET), so it doesn't
+     * wait on the 15s panel tick.
+     */
+    private void repaintSidebarSoon() {
+        long t = now();
+        if (sidebarPanel != null && t - lastLocalRepaintAt >= 3_000) {
+            lastLocalRepaintAt = t;
+            SwingUtilities.invokeLater(sidebarPanel::refresh);
+        }
+    }
+
+    /** What to show for a tile the site last put at {@code siteCurrent}: that, or this client's newer count. */
+    long shownProgress(int tileId, long siteCurrent) {
+        return optimistic.apply(tileId, siteCurrent, now());
+    }
+
     /**
      * Record that the local player just gained on the tracked stat tile whose {@code statName} matches
      * {@code name} (skill name or boss KC name, case-insensitive). Best-effort: a name that maps to no
@@ -6480,6 +6554,10 @@ public class AnvilPlugin extends Plugin {
         if (realGain && trackedSkillNames.contains(skillName.toLowerCase(Locale.ROOT).trim())) {
             noteLocalStatProgress(skillName);
         }
+        Integer prevXp = lastSeenXp.put(compactStat(skillName), xp);
+        if (realGain && prevXp != null && xp > prevXp) {
+            bumpStatTiles("skill", skillName, xp - prevXp);
+        }
         skillXpPush.queue(skillName, xp);
     }
 
@@ -6531,6 +6609,10 @@ public class AnvilPlugin extends Plugin {
         }
         if (trackedKcNames.contains(normalizeBossName(bossName))) {
             noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
+        }
+        Integer prevKc = lastSeenKc.put(compactStat(bossName), kc);
+        if (prevKc != null && kc > prevKc) {
+            bumpStatTiles("boss", bossName, kc - prevKc);
         }
         kcPush.queue(bossName, kc);
     }
@@ -7429,6 +7511,7 @@ public class AnvilPlugin extends Plugin {
     /** Optimistically bump a PvP tile and submit a baked kill screenshot (rollback reverts on failure). */
     private void creditOnePvpTile(TrackedPvp tile, String victimName) {
         tile.currentAmount += 1;
+        raiseLocal(tile.tileId, tile.currentAmount, now());
         log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
                 victimName, tile.label, tile.currentAmount, tile.requiredAmount);
         String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
@@ -8410,6 +8493,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             d.currentAmount += 1;
+            raiseLocal(d.tileId, d.currentAmount, now());
             log.info("Tracked diary completion: {} {} → tile '{}' ({}/{})",
                     area, tier, d.label, d.currentAmount, d.requiredAmount);
             captureAndSubmitProof(d.tileId, d.label, 1, null,
@@ -8447,6 +8531,7 @@ public class AnvilPlugin extends Plugin {
                 continue;
             }
             t.currentAmount += 1;
+            raiseLocal(t.tileId, t.currentAmount, now());
             log.info("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
                     tier.getDisplayName(), task, t.label, t.currentAmount, t.requiredAmount);
             captureAndSubmitProof(t.tileId, t.label, 1, null,

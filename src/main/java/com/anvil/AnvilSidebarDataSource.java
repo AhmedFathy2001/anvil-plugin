@@ -546,7 +546,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			scopedEventId = cfg.event.id;
 		}
 
-		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
+		List<ClogTaskModel.TaskRow> rows = withLocalProgress(ClogTaskModel.build(cfg));
 		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
 		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
 		// and every optional tile inflates the denominator).
@@ -939,6 +939,35 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// Under the clan this board was served for (/c/<slug>/events/<id>) — a bare /events/<id> names no
 		// clan and the site can only redirect it.
 		return apiClient.clanUrl("/events/" + cfg.event.id);
+	}
+
+	/**
+	 * Each row at this client's own newer count where it has one (a kill the site hasn't heard about
+	 * yet), so "Nearest tiles", "Active now" and the tile detail move on the kill, not the next poll.
+	 */
+	private List<ClogTaskModel.TaskRow> withLocalProgress(List<ClogTaskModel.TaskRow> rows)
+	{
+		AnvilPlugin p = plugin;
+		if (p == null)
+		{
+			return rows;
+		}
+		List<ClogTaskModel.TaskRow> out = new ArrayList<>(rows.size());
+		for (ClogTaskModel.TaskRow r : rows)
+		{
+			long shown = r.isCompleted() ? r.current : p.shownProgress(r.tileId, r.current);
+			if (shown == r.current)
+			{
+				out.add(r);
+				continue;
+			}
+			ClogTaskModel.TaskRow bumped = new ClogTaskModel.TaskRow(r.tileId, r.label,
+				(int) Math.min(shown, Integer.MAX_VALUE), r.goal, r.points, false);
+			bumped.position = r.position;
+			bumped.description = r.description;
+			out.add(bumped);
+		}
+		return out;
 	}
 
 	/** Reset the feed + delta state when the active event changes (or clears). */

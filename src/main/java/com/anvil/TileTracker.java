@@ -47,6 +47,11 @@ public class TileTracker
 	/** tileId → its widget, in pin order. Guarded by {@code this}. */
 	private final Map<Integer, Widget> pins = new LinkedHashMap<>();
 	private int eventId;
+	/**
+	 * (tileId, site count) → what to show for your team: the plugin's own newer count when it has one,
+	 * so a pinned tile moves on your kill. Identity until the plugin sets it.
+	 */
+	private volatile java.util.function.ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
 
 	@Inject
 	TileTracker(OverlayManager overlayManager, ConfigManager configManager, BingoApiClient apiClient)
@@ -54,6 +59,11 @@ public class TileTracker
 		this.overlayManager = overlayManager;
 		this.configManager = configManager;
 		this.apiClient = apiClient;
+	}
+
+	void setShownProgress(java.util.function.ToLongBiFunction<Integer, Long> shown)
+	{
+		shownProgress = shown;
 	}
 
 	/** Restore the pins saved for the event in config ("eventId:tileId,tileId"). */
@@ -235,7 +245,7 @@ public class TileTracker
 		{
 			slot++;
 		}
-		Widget w = new Widget(slot);
+		Widget w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
 		pins.put(tileId, w);
 		overlayManager.add(w);
 		return w;
@@ -306,6 +316,8 @@ public class TileTracker
 	static class Widget extends OverlayPanel
 	{
 		final int slot;
+		final int tileId;
+		private final java.util.function.ToLongBiFunction<Integer, Long> shown;
 		volatile Progress progress;
 		/**
 		 * Stay up after the team finishes? Pins restored from config start false, so a tile finished
@@ -317,7 +329,14 @@ public class TileTracker
 
 		Widget(int slot)
 		{
+			this(slot, 0, (id, site) -> site);
+		}
+
+		Widget(int slot, int tileId, java.util.function.ToLongBiFunction<Integer, Long> shown)
+		{
 			this.slot = slot;
+			this.tileId = tileId;
+			this.shown = shown;
 			setPosition(OverlayPosition.TOP_LEFT);
 			setResizable(true);
 			setMovable(true);
@@ -369,9 +388,12 @@ public class TileTracker
 
 		private void renderOwnTeam(Progress p, Team t)
 		{
+			// Your own kill counts here the moment it happens; the fetch after the push confirms it.
+			long current = t.complete ? t.current : shown.applyAsLong(tileId, t.current);
+			long ahead = current - t.current;
 			ProgressBarComponent bar = new ProgressBarComponent();
 			bar.setMaximum(Math.max(1, p.goal));
-			bar.setValue(t.complete ? p.goal : Math.min(t.current, p.goal));
+			bar.setValue(t.complete ? p.goal : Math.min(current, p.goal));
 			bar.setForegroundColor(t.complete ? new Color(0, 160, 0) : teamColor(t.color).darker());
 			bar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.FULL);
 			panelComponent.getChildren().add(bar);
@@ -384,7 +406,7 @@ public class TileTracker
 				panelComponent.getChildren().add(LineComponent.builder()
 					.left(m.mine ? "You" : m.name)
 					.leftColor(m.mine ? GOLD : Color.LIGHT_GRAY)
-					.right(fmt(m.amount))
+					.right(fmt(m.mine ? m.amount + Math.max(0, ahead) : m.amount))
 					.build());
 			}
 		}
