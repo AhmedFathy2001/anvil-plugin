@@ -247,7 +247,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	{
 		PluginConfigResponse cfg = configSupplier.get();
 		return eventId > 0 && (preStart || cfg != null && cfg.event != null && cfg.event.id == eventId)
-			&& fromPlugin(AnvilPlugin::supportsTileTracker, false);
+			&& fromPlugin(AnvilPlugin::supportsTileTracker, false)
+			&& fromPlugin(AnvilPlugin::inGame, false);
 	}
 
 	public boolean isTileTracked(int eventId, int tileId)

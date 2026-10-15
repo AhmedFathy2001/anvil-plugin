@@ -2408,6 +2408,7 @@ public class AnvilPlugin extends Plugin {
         if (event.getGameState() == GameState.LOGGED_IN && freshLoginPending) {
             freshLoginPending = false;
             sessionLoginAtMs = now();
+            SwingUtilities.invokeLater(sidebarPanel::refresh); // "Track on screen" is in-game only
         }
         if (event.getGameState() == GameState.LOGGED_IN) {
             // Re-read on every login: the levels belong to the account that just logged in, and the
@@ -2447,6 +2448,7 @@ public class AnvilPlugin extends Plugin {
             // channel to read here.
             clanRosterReadable = false;
             clanRosterMissingTicks = 0;
+            SwingUtilities.invokeLater(sidebarPanel::refresh); // drop "Track on screen" with the session
             // Back at the login screen: the next LOGGED_IN really is a new session, and until it
             // arrives we don't have one at all.
             freshLoginPending = true;
@@ -5524,6 +5526,15 @@ public class AnvilPlugin extends Plugin {
         PluginConfigResponse cfg = pluginConfig;
         WorldPoint target = cfg == null ? null : StartSpotMarker.target(cfg.startProof);
         clientThread.invokeLater(() -> startSpotMarker.route(target));
+    }
+
+    /**
+     * Whether a character is logged in. A pinned tile is a widget over the GAME, so there is nothing to
+     * pin it to at the login screen — and pinning there would file it under whatever board the last
+     * account was on, not the one about to log in.
+     */
+    boolean inGame() {
+        return client != null && loggedIn();
     }
 
     /** Whether the site serves per-tile progress for the pinned in-game tracker. */
