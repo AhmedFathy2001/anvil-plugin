@@ -2725,6 +2725,9 @@ public class AnvilPlugin extends Plugin {
         // account's enrollment right away — when one person plays several accounts, only
         // the enrolled one should track drops (don't wait for the 30s refresh cycle).
         safely("refreshConfig", this::refreshConfig);
+        // Pinned tiles fetched before the name was known came back with no team marked as yours, so
+        // they showed a bare title until the 30s poll. Re-read them now that the site knows who's asking.
+        safely("tileTracker", tileTracker::poll);
         safely("restorePushes", () -> restorePushes(rsn, apiClient.getAccountHash()));
         // The board and event are what the member is waiting for; show them before hello + admin.
         repaintSidebar();
