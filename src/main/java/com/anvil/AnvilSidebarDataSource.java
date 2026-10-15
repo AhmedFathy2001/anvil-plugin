@@ -1009,6 +1009,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 		// Server-computed named teammates per stat tile (tileId → RSNs); absent on an older server (unnamed fallback).
 		Map<Integer, List<String>> namedByTile = new HashMap<>();
+		// …and what each of them (and you) has gained on it, when the server sends numbers.
+		Map<Integer, Map<String, Long>> gainsByTile = new HashMap<>();
 		if (cfg.trackedStats != null)
 		{
 			for (PluginConfigResponse.TrackedStat s : cfg.trackedStats)
@@ -1016,6 +1018,20 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				if (s != null && s.activeWorkers != null)
 				{
 					namedByTile.put(s.tileId, s.activeWorkers);
+					if (s.activeWorkerGains != null && s.activeWorkerGains.size() == s.activeWorkers.size())
+					{
+						Map<String, Long> gains = new HashMap<>();
+						for (int i = 0; i < s.activeWorkers.size(); i++)
+						{
+							Long g = s.activeWorkerGains.get(i);
+							gains.put(s.activeWorkers.get(i), g == null ? 0L : g);
+						}
+						// Yours as the site has it, plus what this client has seen land since.
+						AnvilPlugin p = plugin;
+						long ahead = p == null ? 0 : p.shownProgress(s.tileId, s.currentAmount) - s.currentAmount;
+						gains.put("You", s.yourGained + Math.max(0, ahead));
+						gainsByTile.put(s.tileId, gains);
+					}
 				}
 			}
 		}
@@ -1119,7 +1135,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 					workers.add(w);
 				}
 			}
-			out.add(new ConnectionView.ActiveTask(incompleteById.get(en.getKey()), workers, a.self));
+			out.add(new ConnectionView.ActiveTask(incompleteById.get(en.getKey()), workers, a.self,
+				gainsByTile.get(en.getKey())));
 		}
 		return out;
 	}

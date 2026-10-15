@@ -2815,8 +2815,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		ClogTaskModel.TaskRow tile = task.tile;
 		JLabel name = small(ellipsize(tile.label, 24), task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(tileTooltip(tile.tileId, tile.label, null));
+		// With numbers the byline can outgrow the panel; clip it and keep the whole line on hover.
+		JLabel who = small(ellipsize(task.workersLabel(), 36), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED);
+		who.setToolTipText(plainText(task.workersLabel()));
 		return opensTile(progressRow(name, progressValue(tile),
-			small(task.workersLabel(), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED),
+			who,
 			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
 				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);

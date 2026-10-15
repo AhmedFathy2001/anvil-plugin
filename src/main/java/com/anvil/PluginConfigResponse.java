@@ -666,5 +666,9 @@ public class PluginConfigResponse
 		// compute it (the sidebar then falls back to an unnamed "a teammate" via config-count deltas);
 		// an empty list means the server DID compute it and no teammate is currently active.
 		public List<String> activeWorkers;
+		// Each of activeWorkers' event gain on this tile (KC / XP), index-matched; and the caller's own.
+		// Null / 0 on older servers — the row then names people without numbers.
+		public List<Long> activeWorkerGains;
+		public long yourGained;
 	}
 }

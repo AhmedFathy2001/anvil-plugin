@@ -225,12 +225,23 @@ public final class ConnectionView
 		/** Distinct workers, "You" first when the local player is among them. Never null/empty. */
 		public final List<String> workers;
 		public final boolean includesSelf;
+		/**
+		 * KC / XP tiles: what each worker has gained on this tile over the event ({@code "You"} too), so
+		 * the row shows who's actually landing kills. Empty for other tiles and on older sites.
+		 */
+		public final Map<String, Long> gains;
 
 		public ActiveTask(ClogTaskModel.TaskRow tile, List<String> workers, boolean includesSelf)
+		{
+			this(tile, workers, includesSelf, null);
+		}
+
+		public ActiveTask(ClogTaskModel.TaskRow tile, List<String> workers, boolean includesSelf, Map<String, Long> gains)
 		{
 			this.tile = tile;
 			this.workers = copyOrEmpty(workers);
 			this.includesSelf = includesSelf;
+			this.gains = gains == null ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<>(gains));
 		}
 
 		/** "You", "Kayle", or "You + Kayle" / "You + 2 others" for the row's byline. */
@@ -239,6 +250,27 @@ public final class ConnectionView
 			if (workers.isEmpty())
 			{
 				return "";
+			}
+			if (!gains.isEmpty())
+			{
+				// "You 45 · Kurrozive 312 · +2" — numbers, so the row says who's landing the kills.
+				StringBuilder b = new StringBuilder();
+				int shown = Math.min(workers.size(), 3);
+				for (int i = 0; i < shown; i++)
+				{
+					String w = workers.get(i);
+					Long g = gains.get(w);
+					b.append(i > 0 ? " · " : "").append(w);
+					if (g != null && g > 0)
+					{
+						b.append(' ').append(formatCount(g));
+					}
+				}
+				if (workers.size() > shown)
+				{
+					b.append(" · +").append(workers.size() - shown);
+				}
+				return b.toString();
 			}
 			if (workers.size() == 1)
 			{
