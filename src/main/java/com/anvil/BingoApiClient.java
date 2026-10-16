@@ -2139,6 +2139,27 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/clog with {@code unlocks} — one collection-log unlock, sent as its chat line
+	 * fires, with the most recent kill line when there was one. The site resolves the name against
+	 * its catalogue and ignores a slot it already holds. Blocking; off the client thread.
+	 */
+	public void submitClogUnlock(String itemName, String kcName, Integer kc) throws IOException
+	{
+		JsonObject unlock = new JsonObject();
+		unlock.addProperty("name", itemName);
+		if (kcName != null && kc != null)
+		{
+			unlock.addProperty("kcName", kcName);
+			unlock.addProperty("kc", kc);
+		}
+		JsonArray unlocks = new JsonArray();
+		unlocks.add(unlock);
+		JsonObject payload = new JsonObject();
+		payload.add("unlocks", unlocks);
+		postJson("/api/plugin/clog", payload, "Collection log unlock push failed", false);
+	}
+
+	/**
 	 * POST /api/plugin/clog — collection-log pages the player has actually opened.
 	 *
 	 * <p>Sends ONLY obtained items, and only pages whose contents changed since the last successful

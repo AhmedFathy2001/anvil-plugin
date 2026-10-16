@@ -3857,6 +3857,7 @@ public class AnvilPlugin extends Plugin {
         // regardless of whether an event is running: a collection log is a profile, not a board.
         // Once per unlock, which is once per account per item, ever.
         pushKcForUnlock();
+        sendClogUnlock(item);
         PendingPet claimedPet = claimPetName(item);
         if (claimedPet == null) {
             // Not a pet, so this is the ungated route to the clan's feed for an unlock that the
@@ -9767,6 +9768,42 @@ public class AnvilPlugin extends Plugin {
             clogOpen = open;
             redrawSidebarLocal();
         }
+    }
+
+    /**
+     * Tell the site about a collection-log unlock as it happens, with the kill that produced it.
+     *
+     * <p>Otherwise the site only learns of the slot at the next log sync, and stamps it with THAT
+     * moment: Moxi taken on the 16th Amoxliatl and synced at 39 read "at 39 KC", dated whenever the
+     * log was next opened. The kill line is sent as-is and the site keeps it only when it belongs to
+     * the item's page. One request per unlock, which is once per slot per account, ever.
+     */
+    private void sendClogUnlock(String item) {
+        if (!supportsProfileSync() || !serverSupportsCap("clog-live-unlock")) {
+            return;
+        }
+        // Read on the client thread, where the kill line was recorded.
+        boolean recentKill = lastKcName != null && now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS;
+        String kcName = recentKill ? lastKcName : null;
+        Integer kc = recentKill ? lastKcValue : null;
+        ScheduledExecutorService ex = executor;
+        if (ex == null) {
+            return;
+        }
+        ex.submit(() -> {
+            try {
+                apiClient.submitClogUnlock(item, kcName, kc);
+            } catch (Exception e) {
+                // Not retried: the next log sync still records the slot, just without the live KC.
+                log.debug("Collection log unlock push failed: {}", e.getMessage());
+            }
+        });
+    }
+
+    private boolean serverSupportsCap(String capability) {
+        PluginConfigResponse cfg = pluginConfig;
+        return cfg != null ? cfg.serverSupports(capability)
+                : apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
     }
 
     private boolean serverSupportsProfileSync() {
