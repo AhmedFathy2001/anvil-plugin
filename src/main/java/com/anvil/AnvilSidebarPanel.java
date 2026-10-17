@@ -3680,41 +3680,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		return score;
 	}
 
-	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	private static final class TileSearchField extends JTextField
-	{
-		private final String placeholder;
-
-		TileSearchField(String placeholder, String value)
-		{
-			super(value == null ? "" : value);
-			this.placeholder = placeholder;
-			addFocusListener(new java.awt.event.FocusAdapter()
-			{
-				@Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
-				@Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
-			});
-		}
-
-		@Override
-		protected void paintComponent(java.awt.Graphics graphics)
-		{
-			super.paintComponent(graphics);
-			if (!getText().isEmpty() || isFocusOwner())
-			{
-				return;
-			}
-			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
-			g.setColor(MUTED);
-			g.setFont(getFont());
-			java.awt.FontMetrics metrics = g.getFontMetrics();
-			java.awt.Insets insets = getInsets();
-			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
-			g.drawString(placeholder, insets.left, y);
-			g.dispose();
-		}
-	}
-
 	private JPanel buildBoardCatalogue(String key, int eventId, String boardUrl, boolean preStart)
 	{
 		JPanel panel = column();
@@ -3749,7 +3714,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		}
 
-		TileSearchField search = new TileSearchField(
+		SearchField search = new SearchField(
 			"Search " + all.size() + " tiles…", boardSearches.getOrDefault(key, ""));
 		search.setToolTipText("Search tile names, descriptions, requirements and categories");
 		search.setFont(SMALL);
