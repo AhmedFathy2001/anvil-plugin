@@ -87,6 +87,12 @@ public class BingoApiClient
 
 	private final OkHttpClient readClient;
 
+	/** The injected Gson, for callers that serialise what this client returns. */
+	Gson gson()
+	{
+		return gson;
+	}
+
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
 	{

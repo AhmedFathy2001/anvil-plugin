@@ -190,6 +190,16 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/** A refresh asked for while one was running — run it when that one lands, don't drop it. */
 	private boolean refreshQueued;
+	/** A queued refresh was asked for by something a poll's fingerprint can't see, so it must redraw. */
+	private boolean queuedMustRender;
+	/**
+	 * What the last drawn snapshot looked like ({@link AnvilSidebarDataSource#fingerprint}) and when
+	 * it was drawn. A poll whose answer matches it leaves the panel alone: tearing the whole panel
+	 * down and rebuilding it every 15s — every 3s while XP drops bump tiles — ran on the EDT, which
+	 * also carries the game's mouse and keyboard input, so each rebuild was a small hitch.
+	 */
+	private long drawnFingerprint;
+	private long drawnAt;
 	private boolean signInInFlight;
 	private volatile DeviceSignIn signIn;
 
@@ -295,7 +305,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			if (!boardSearchFocused)
 			{
-				refresh();
+				poll();
 			}
 		});
 		autoRefresh.setCoalesce(true);
@@ -312,7 +322,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel title = label("Anvil Progress", BOLD, ColorScheme.BRAND_ORANGE);
 
 		styleFlatButton(refreshButton, Color.WHITE);
-		refreshButton.addActionListener(e -> refresh(true));
+		refreshButton.addActionListener(e -> refresh(true, false));
 
 		JPanel titleRow = left(new JPanel(new BorderLayout()));
 		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1389,18 +1399,32 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Fetch off the EDT and re-render on return. Cheap to call repeatedly; overlapping calls coalesce via {@link #fetchInFlight}. */
 	public void refresh()
 	{
-		refresh(false);
+		refresh(false, false);
 	}
+
+	/**
+	 * A background refresh — the timer, or the plugin's own progress bumps. Unlike {@link #refresh()},
+	 * which follows something the member did (that the snapshot may not show, like a pinned tile), it
+	 * redraws only when the answer changed, or once {@link #REDRAW_AT_LEAST_MS} has passed so relative
+	 * times ("2m ago") still move.
+	 */
+	public void poll()
+	{
+		refresh(false, true);
+	}
+
+	private static final long REDRAW_AT_LEAST_MS = 60_000L;
 
 	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh, so the source is asked to
 	 * bypass what it normally caches (the weekly standings) rather than serve a minute-old answer. */
-	private void refresh(boolean manual)
+	private void refresh(boolean manual, boolean onlyIfChanged)
 	{
 		if (fetchInFlight)
 		{
 			// The login burst asks twice in a row (config, then hello + admin). Dropping the second
 			// left the admin button and account strip missing until a manual Refresh.
 			refreshQueued = true;
+			queuedMustRender |= !onlyIfChanged;
 			return;
 		}
 		fetchInFlight = true;
@@ -1412,12 +1436,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			renderLoading();
 		}
 
+		long[] fingerprint = {0};
 		new SwingWorker<ConnectionView, Void>()
 		{
 			@Override
 			protected ConnectionView doInBackground()
 			{
-				return dataSource.fetch(manual);
+				ConnectionView view = dataSource.fetch(manual);
+				fingerprint[0] = dataSource.fingerprint(view);
+				return view;
 			}
 
 			@Override
@@ -1427,7 +1454,21 @@ public class AnvilSidebarPanel extends PluginPanel
 				refreshButton.setEnabled(true);
 				try
 				{
-					onConnections(get());
+					ConnectionView fetched = get();
+					long now = System.currentTimeMillis();
+					boolean same = onlyIfChanged && fetched != null && connection != null
+						&& fingerprint[0] != 0 && fingerprint[0] == drawnFingerprint
+						&& now - drawnAt < REDRAW_AT_LEAST_MS;
+					if (same)
+					{
+						connection = fetched;
+					}
+					else
+					{
+						onConnections(fetched);
+						drawnFingerprint = fingerprint[0];
+						drawnAt = now;
+					}
 				}
 				catch (Exception ex)
 				{
@@ -1440,8 +1481,10 @@ public class AnvilSidebarPanel extends PluginPanel
 				refreshAccountRow();
 				if (refreshQueued)
 				{
+					boolean mustRender = queuedMustRender;
 					refreshQueued = false;
-					refresh();
+					queuedMustRender = false;
+					refresh(false, !mustRender);
 				}
 			}
 		}.execute();
@@ -4718,7 +4761,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 		loadingBoardCatalogues.add(key);
-		failedBoardCatalogues.remove(key);
+		final boolean failedBefore = failedBoardCatalogues.remove(key);
 		final int generation = boardCatalogueGeneration;
 		new SwingWorker<BingoApiClient.BoardResponse, Void>()
 		{
@@ -4736,9 +4779,14 @@ public class AnvilSidebarPanel extends PluginPanel
 					return;
 				}
 				loadingBoardCatalogues.remove(key);
+				BingoApiClient.BoardResponse before = boardCatalogues.get(key);
 				try
 				{
 					BingoApiClient.BoardResponse board = get();
+					if (board != null && board == before && !failedBefore)
+					{
+						return; // a 304: the site sent back the board already on screen
+					}
 					if (board == null)
 					{
 						failedBoardCatalogues.add(key);

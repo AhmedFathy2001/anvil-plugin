@@ -11,8 +11,10 @@ import java.io.IOException;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -168,10 +170,33 @@ public class BannerSoundService
 		return !wavFiles(kind).isEmpty();
 	}
 
+	/**
+	 * How long a folder listing is reused. The panel asks on every draw, on the EDT; a clip dropped
+	 * into the folder by hand shows up this much later at worst (Add sounds clears it at once).
+	 */
+	private static final long LISTING_TTL_MS = 10_000L;
+	private final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
+	private final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
+
 	/** All .wav filenames for one kind, case-insensitively sorted (for the in-tab manager). */
-	public List<String> listClips(Kind kind)
+	public synchronized List<String> listClips(Kind kind)
 	{
-		return wavFiles(kind).stream().map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
+		long now = System.currentTimeMillis();
+		List<String> cached = listed.get(kind);
+		if (cached != null && now - listedAt.get(kind) < LISTING_TTL_MS)
+		{
+			return cached;
+		}
+		List<String> names = Collections.unmodifiableList(wavFiles(kind).stream()
+			.map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList()));
+		listed.put(kind, names);
+		listedAt.put(kind, now);
+		return names;
+	}
+
+	private synchronized void forgetListing(Kind kind)
+	{
+		listed.remove(kind);
 	}
 
 	/**
@@ -324,6 +349,7 @@ public class BannerSoundService
 				{
 					src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);
 					imported.add(name);
+					forgetListing(kind);
 				}
 				catch (Exception e)
 				{

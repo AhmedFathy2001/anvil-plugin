@@ -543,4 +543,21 @@ public class AnvilSidebarDataSourceTest
 		assertEquals(0, after.tilesTotal);
 		assertTrue(after.nearestTiles.isEmpty());
 	}
+
+	@Test
+	public void fingerprintHoldsUntilSomethingShownChanges() throws Exception
+	{
+		// A background poll skips the redraw when this matches the last one, so it must be stable for
+		// the same answer and move when a number on the panel does.
+		PluginConfigResponse cfg = eventConfig();
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		long first = ds.fingerprint(ds.fetch(false));
+		assertTrue(first != 0);
+		assertEquals(first, ds.fingerprint(ds.fetch(false)));
+
+		cfg.trackedDrops.get(0).currentAmount++;
+		assertTrue(first != ds.fingerprint(ds.fetch(false)));
+		assertEquals(0, ds.fingerprint(null));
+	}
 }

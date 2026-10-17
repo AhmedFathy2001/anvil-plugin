@@ -553,6 +553,11 @@ public class AnvilPlugin extends Plugin {
     static final Pattern CHAT_TAG = Pattern.compile(
             "<[^>]*>|@[A-Za-z0-9_]{1,20}@");
 
+    // Compiled once: these run per chat line, per XP drop and per LMS tick.
+    static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>");
+    private static final Pattern NON_DIGIT = Pattern.compile("[^0-9]");
+    private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]");
+
     /** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
     static String stripChatTags(String msg) {
         return msg == null ? "" : CHAT_TAG.matcher(msg).replaceAll("");
@@ -2486,7 +2491,7 @@ public class AnvilPlugin extends Plugin {
         if (text == null) {
             return -1;
         }
-        String digits = text.replaceAll("<[^>]*>", "").replaceAll("[^0-9]", "");
+        String digits = NON_DIGIT.matcher(MARKUP_TAG.matcher(text).replaceAll("")).replaceAll("");
         if (digits.isEmpty() || digits.length() > 3) {
             return -1;
         }
@@ -3557,7 +3562,7 @@ public class AnvilPlugin extends Plugin {
             //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
             //             Maggot King." — fallback for members whose in-game loot-notification
             //             setting is off; guests outside the clan rely on the personal line.
-            String stripped = msg.replaceAll("<[^>]*>", "");
+            String stripped = MARKUP_TAG.matcher(msg).replaceAll("");
             if (PICKPOCKET_PATTERN.matcher(stripped).matches()) {
                 pickpocketTick = client.getTickCount();
             }
@@ -6826,7 +6831,7 @@ public class AnvilPlugin extends Plugin {
 
     /** A stat name reduced to letters and digits, so "Kree'Arra", "kreeArra" and "kree arra" meet. */
     static String compactStat(String s) {
-        return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        return s == null ? "" : NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll("");
     }
 
     /**
@@ -6872,7 +6877,7 @@ public class AnvilPlugin extends Plugin {
         long t = now();
         if (sidebarPanel != null && t - lastLocalRepaintAt >= 3_000) {
             lastLocalRepaintAt = t;
-            SwingUtilities.invokeLater(sidebarPanel::refresh);
+            SwingUtilities.invokeLater(sidebarPanel::poll); // redraws only if the bump moved a number
         }
     }
 
