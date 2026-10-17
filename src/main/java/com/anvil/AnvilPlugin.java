@@ -1125,6 +1125,7 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        OffThread.bindClientThread(client::isClientThread);
         // Built before the directory is known: without one they still work, in memory, for the session.
         NotifyOutbox outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
         outbox.setSender(apiClient::sendQueuedNotification);
@@ -1143,6 +1144,12 @@ public class AnvilPlugin extends Plugin {
         try {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
+            bannerSound.setOnClipsChanged(() -> {
+                AnvilSidebarPanel panel = sidebarPanel;
+                if (panel != null) {
+                    SwingUtilities.invokeLater(panel::refresh); // a poll wouldn't redraw for it
+                }
+            });
             bannerSound.setRoot(pluginDir.join("sounds"));
             notifyOutbox.setDir(pluginDir.join("outbox", "notify"));
             pushStash.setDir(pluginDir.join("outbox"));
