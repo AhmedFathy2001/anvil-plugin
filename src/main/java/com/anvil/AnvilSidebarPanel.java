@@ -190,6 +190,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/** A refresh asked for while one was running — run it when that one lands, don't drop it. */
 	private boolean refreshQueued;
+	/**
+	 * Between {@link #onActivate} and {@link #onDeactivate}. Off screen, a refresh is skipped outright:
+	 * XP bumps, config changes and logins all ask for one, and drawing a panel nobody can see is EDT
+	 * time for nothing — opening it refreshes anyway.
+	 */
+	private boolean onScreen;
 	/** A queued refresh was asked for by something a poll's fingerprint can't see, so it must redraw. */
 	private boolean queuedMustRender;
 	/**
@@ -1066,6 +1072,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	@Override
 	public void onActivate()
 	{
+		onScreen = true;
 		refresh();
 		autoRefresh.start();
 		ladderTick.start();
@@ -1074,6 +1081,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	@Override
 	public void onDeactivate()
 	{
+		onScreen = false;
 		autoRefresh.stop();
 		ladderTick.stop();
 	}
@@ -1419,6 +1427,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * bypass what it normally caches (the weekly standings) rather than serve a minute-old answer. */
 	private void refresh(boolean manual, boolean onlyIfChanged)
 	{
+		if (!onScreen)
+		{
+			return;
+		}
 		if (fetchInFlight)
 		{
 			// The login burst asks twice in a row (config, then hello + admin). Dropping the second
