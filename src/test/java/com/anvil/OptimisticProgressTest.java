@@ -58,4 +58,18 @@ public class OptimisticProgressTest
 		p.clear(7);
 		assertEquals(40, p.apply(7, 40, 1_000));
 	}
+
+	@Test
+	public void readingTheFloorNeverConsumesIt()
+	{
+		// The panel holds a count that already includes the floor. Handing that to apply() as the
+		// site's would read as "caught up", drop the floor, and wind the tile back on the next poll.
+		OptimisticProgress p = new OptimisticProgress();
+		p.add(7, 100, 5, 0);
+		assertEquals(105, p.floor(7, 1_000));
+		assertEquals(105, p.floor(7, 2_000));
+		assertEquals(105, p.apply(7, 100, 3_000));       // the site still says 100
+		assertEquals(0, p.floor(7, OptimisticProgress.TTL_MS + 1));
+		assertEquals(0, p.floor(8, 0));
+	}
 }

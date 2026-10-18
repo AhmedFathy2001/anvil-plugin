@@ -190,6 +190,22 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/** A refresh asked for while one was running — run it when that one lands, don't drop it. */
 	private boolean refreshQueued;
+	/**
+	 * Between {@link #onActivate} and {@link #onDeactivate}. Off screen, a refresh is skipped outright:
+	 * XP bumps, config changes and logins all ask for one, and drawing a panel nobody can see is EDT
+	 * time for nothing — opening it refreshes anyway.
+	 */
+	private boolean onScreen;
+	/** A queued refresh was asked for by something a poll's fingerprint can't see, so it must redraw. */
+	private boolean queuedMustRender;
+	/**
+	 * What the last drawn snapshot looked like ({@link AnvilSidebarDataSource#fingerprint}) and when
+	 * it was drawn. A poll whose answer matches it leaves the panel alone: tearing the whole panel
+	 * down and rebuilding it every 15s — every 3s while XP drops bump tiles — ran on the EDT, which
+	 * also carries the game's mouse and keyboard input, so each rebuild was a small hitch.
+	 */
+	private long drawnFingerprint;
+	private long drawnAt;
 	private boolean signInInFlight;
 	private volatile DeviceSignIn signIn;
 
@@ -249,6 +265,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private int boardCatalogueGeneration;
 	/** Do not replace the whole Swing tree underneath somebody who is typing in the tile search. */
 	private boolean boardSearchFocused;
+	/** Last keystroke in the tile search; see {@link #typingInSearch}. */
+	private long boardSearchEditedAt;
+	private static final long TYPING_PAUSE_MS = 4_000L;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
 	private boolean rebuildingPicker;
@@ -293,9 +312,9 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		autoRefresh = new Timer(POLL_INTERVAL_MS, e ->
 		{
-			if (!boardSearchFocused)
+			if (!typingInSearch())
 			{
-				refresh();
+				poll();
 			}
 		});
 		autoRefresh.setCoalesce(true);
@@ -312,7 +331,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel title = label("Anvil Progress", BOLD, ColorScheme.BRAND_ORANGE);
 
 		styleFlatButton(refreshButton, Color.WHITE);
-		refreshButton.addActionListener(e -> refresh(true));
+		refreshButton.addActionListener(e -> refresh(true, false));
 
 		JPanel titleRow = left(new JPanel(new BorderLayout()));
 		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1056,6 +1075,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	@Override
 	public void onActivate()
 	{
+		onScreen = true;
 		refresh();
 		autoRefresh.start();
 		ladderTick.start();
@@ -1064,6 +1084,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	@Override
 	public void onDeactivate()
 	{
+		onScreen = false;
 		autoRefresh.stop();
 		ladderTick.stop();
 	}
@@ -1389,18 +1410,148 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Fetch off the EDT and re-render on return. Cheap to call repeatedly; overlapping calls coalesce via {@link #fetchInFlight}. */
 	public void refresh()
 	{
-		refresh(false);
+		refresh(false, false);
+	}
+
+	/**
+	 * A background refresh — the timer, or the plugin's own progress bumps. Unlike {@link #refresh()},
+	 * which follows something the member did (that the snapshot may not show, like a pinned tile), it
+	 * redraws only when the answer changed, or once {@link #REDRAW_AT_LEAST_MS} has passed so relative
+	 * times ("2m ago") still move.
+	 */
+	public void poll()
+	{
+		refresh(false, true);
+	}
+
+	private static final long REDRAW_AT_LEAST_MS = 60_000L;
+
+	/**
+	 * Mid-search: the field has focus AND was typed in moments ago. Redraws wait for that so the
+	 * field isn't swapped out under a keystroke. Focus alone used to be enough, but clicking a tile
+	 * row doesn't take focus from the field, so a panel left with "cerb" in the box never refreshed
+	 * again — a tile's detail sat on a count the site and the tracker had long moved past.
+	 */
+	private boolean typingInSearch()
+	{
+		return boardSearchFocused && System.currentTimeMillis() - boardSearchEditedAt < TYPING_PAUSE_MS;
+	}
+
+	/**
+	 * A progress row on screen whose numbers can move without a redraw: its tile, the count it shows,
+	 * and the label and bar that show it. {@code pctName}, when set, is a "42%" label beside it.
+	 */
+	private static final class LiveRow
+	{
+		final int tileId;
+		final long goal;
+		final boolean asPercent;
+		final JLabel value;
+		final JProgressBar bar;
+		final JLabel pctName;
+		long current;
+
+		LiveRow(int tileId, long current, long goal, boolean asPercent, JLabel value, JProgressBar bar, JLabel pctName)
+		{
+			this.tileId = tileId;
+			this.current = current;
+			this.goal = goal;
+			this.asPercent = asPercent;
+			this.value = value;
+			this.bar = bar;
+			this.pctName = pctName;
+		}
+	}
+
+	/** Rows built for the content about to go up; {@link #setContent} makes them {@link #liveRows}. */
+	private List<LiveRow> buildingRows = new ArrayList<>();
+	/** The progress rows of the content on screen. EDT only. */
+	private List<LiveRow> liveRows = new ArrayList<>();
+
+	private void live(JPanel row, int tileId, long current, long goal, boolean asPercent, JLabel pctName)
+	{
+		Object value = row.getClientProperty(ROW_VALUE);
+		Object bar = row.getClientProperty(ROW_BAR);
+		if (goal > 0 && value instanceof JLabel && bar instanceof JProgressBar)
+		{
+			buildingRows.add(new LiveRow(tileId, current, goal, asPercent, (JLabel) value, (JProgressBar) bar, pctName));
+		}
+	}
+
+	/**
+	 * The site confirmed a tile done. The board list behind "All tiles" and a tile's detail is its own
+	 * download, refreshed only on a redraw that asks for it, so the detail said "Open" well after the
+	 * chat said "Tile complete". Re-read it and redraw now.
+	 */
+	public void tileCompleted()
+	{
+		if (!onScreen)
+		{
+			return;
+		}
+		loadBoardCatalogue("active", 0, true);
+		refresh();
+	}
+
+	/**
+	 * This client just moved a tile (an XP drop, a kill, a drop): bring the numbers on screen up to it
+	 * in place — a few setText calls, no fetch and no rebuild. A tile that reaches its goal asks for a
+	 * real refresh, since "Done" reorders the card. EDT.
+	 */
+	public void bumpProgress()
+	{
+		if (!onScreen || liveRows.isEmpty())
+		{
+			return;
+		}
+		boolean finished = false;
+		for (LiveRow r : liveRows)
+		{
+			long shown = dataSource.shownProgress(r.tileId, r.current);
+			if (shown <= r.current)
+			{
+				continue;
+			}
+			r.current = shown;
+			int pct = (int) Math.min(100, Math.round(shown * 100.0 / r.goal));
+			r.bar.setValue(pct);
+			String text = r.asPercent ? pct + "%"
+				: ConnectionView.formatCount(shown) + " / " + ConnectionView.formatCount(r.goal);
+			if (!text.equals(r.value.getText()))
+			{
+				boolean wider = text.length() != r.value.getText().length();
+				r.value.setText(text);
+				if (wider)
+				{
+					r.value.revalidate();
+				}
+			}
+			if (r.pctName != null)
+			{
+				r.pctName.setText(pct + "%");
+			}
+			finished |= shown >= r.goal;
+		}
+		if (finished)
+		{
+			poll();
+		}
 	}
 
 	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh, so the source is asked to
 	 * bypass what it normally caches (the weekly standings) rather than serve a minute-old answer. */
-	private void refresh(boolean manual)
+	private void refresh(boolean manual, boolean onlyIfChanged)
 	{
+		if (!onScreen)
+		{
+			return;
+		}
 		if (fetchInFlight)
 		{
 			// The login burst asks twice in a row (config, then hello + admin). Dropping the second
 			// left the admin button and account strip missing until a manual Refresh.
 			refreshQueued = true;
+			queuedMustRender |= !onlyIfChanged;
 			return;
 		}
 		fetchInFlight = true;
@@ -1412,12 +1563,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			renderLoading();
 		}
 
+		long[] fingerprint = {0};
 		new SwingWorker<ConnectionView, Void>()
 		{
 			@Override
 			protected ConnectionView doInBackground()
 			{
-				return dataSource.fetch(manual);
+				ConnectionView view = dataSource.fetch(manual);
+				fingerprint[0] = dataSource.fingerprint(view);
+				return view;
 			}
 
 			@Override
@@ -1427,7 +1581,21 @@ public class AnvilSidebarPanel extends PluginPanel
 				refreshButton.setEnabled(true);
 				try
 				{
-					onConnections(get());
+					ConnectionView fetched = get();
+					long now = System.currentTimeMillis();
+					boolean same = onlyIfChanged && fetched != null && connection != null
+						&& fingerprint[0] != 0 && fingerprint[0] == drawnFingerprint
+						&& now - drawnAt < REDRAW_AT_LEAST_MS;
+					if (same)
+					{
+						connection = fetched;
+					}
+					else
+					{
+						onConnections(fetched);
+						drawnFingerprint = fingerprint[0];
+						drawnAt = now;
+					}
 				}
 				catch (Exception ex)
 				{
@@ -1440,8 +1608,10 @@ public class AnvilSidebarPanel extends PluginPanel
 				refreshAccountRow();
 				if (refreshQueued)
 				{
+					boolean mustRender = queuedMustRender;
 					refreshQueued = false;
-					refresh();
+					queuedMustRender = false;
+					refresh(false, !mustRender);
 				}
 			}
 		}.execute();
@@ -1476,7 +1646,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		// A refresh that began just before the member focused Search may finish while they are typing.
 		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.
-		if (boardSearchFocused || teamsView != null)
+		if (typingInSearch() || teamsView != null)
 		{
 			return;
 		}
@@ -1758,7 +1928,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		refreshSignInRow();
 		refreshAccountRow();
-		if (connection != null && !boardSearchFocused)
+		if (connection != null && !typingInSearch())
 		{
 			renderSelected();
 		}
@@ -2908,6 +3078,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		int pct = tile != null && tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0;
 		JPanel progress = opensTile(progressRow(name, tile != null ? progressValue(tile) : "", null,
 			bar(pct, ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tileId);
+		if (tile != null && !tile.isCompleted())
+		{
+			live(progress, tileId, tile.current, tile.goal, false, null);
+		}
 
 		JLabel drop = small("✕", MUTED);
 		drop.setToolTipText("Stop tracking this tile");
@@ -2935,11 +3109,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		// With numbers the byline can outgrow the panel; clip it and keep the whole line on hover.
 		JLabel who = small(ellipsize(task.workersLabel(), 36), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED);
 		who.setToolTipText(plainText(task.workersLabel()));
-		return opensTile(progressRow(name, progressValue(tile),
+		JPanel row = opensTile(progressRow(name, progressValue(tile),
 			who,
 			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
 				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+		live(row, tile.tileId, tile.current, tile.goal, false, null);
+		return row;
 	}
 
 	/**
@@ -2989,6 +3165,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * A tile's progress line: its name with the count at the right, an optional byline (who's on it),
 	 * then a thin bar across the row. Value/label are JLabels, never painted inside the bar, for crisp text.
 	 */
+	private static final String ROW_VALUE = "anvil.rowValue";
+	private static final String ROW_BAR = "anvil.rowBar";
+
 	private static JPanel progressRow(JLabel name, String value, JLabel byline, JProgressBar bar)
 	{
 		JPanel row = left(new JPanel(new GridBagLayout()));
@@ -3006,7 +3185,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.weightx = 0;
 		gbc.fill = GridBagConstraints.NONE;
 		gbc.anchor = GridBagConstraints.EAST;
-		row.add(small(value, MUTED), gbc);
+		JLabel valueLabel = small(value, MUTED);
+		row.putClientProperty(ROW_VALUE, valueLabel);
+		row.putClientProperty(ROW_BAR, bar);
+		row.add(valueLabel, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridwidth = 2;
@@ -3420,9 +3602,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		Color done = tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : null;
 		JLabel name = small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(tileTooltip(tile.tileId, tile.name, null));
-		return opensTile(progressRow(name, progressText(tile), null,
+		JPanel row = opensTile(progressRow(name, progressText(tile), null,
 			bar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+		if (!tile.complete && tile.target > 0)
+		{
+			live(row, tile.tileId, tile.current, tile.target, tile.target >= 100_000, null);
+		}
+		return row;
 	}
 
 	/** "c / t" for counted tiles, "42%" for very large targets (XP), or "Done"/"—". */
@@ -3536,7 +3723,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				+ (tile.tier == null ? "" : tile.tier) + " "
 				+ (tile.tierKey == null ? "" : tile.tierKey) + " "
 				+ (tile.requirement == null ? "" : tile.requirement) + " "
-				+ (tile.description == null ? "" : tile.description));
+				+ (tile.description == null ? "" : tile.description) + " "
+				+ tileSubjects(tile));
 			boolean matches = true;
 			for (String term : terms)
 			{
@@ -3651,7 +3839,50 @@ public class AnvilSidebarPanel extends PluginPanel
 			.trim();
 	}
 
-	/** Lower is better: label phrase → label words → category → requirement → description. */
+	/**
+	 * What the tile is actually about, for a search the name doesn't cover: the boss or skill it
+	 * counts, the bosses its drop must come from, the items and sets it accepts, the site's rule
+	 * line and its type. "Graardor" finds a tile called "Big hilt energy" when General Graardor is
+	 * the source.
+	 */
+	static String tileSubjects(BingoApiClient.BoardTile tile)
+	{
+		StringBuilder out = new StringBuilder();
+		java.util.function.Consumer<String> add = text ->
+		{
+			if (text != null && !text.trim().isEmpty())
+			{
+				out.append(text).append(' ');
+			}
+		};
+		add.accept(tile.statLabel);
+		add.accept(tile.statName);
+		if (tile.sources != null)
+		{
+			tile.sources.forEach(add);
+		}
+		if (tile.trackedItems != null)
+		{
+			tile.trackedItems.forEach(item -> add.accept(item == null ? null : item.name));
+		}
+		if (tile.itemRequirements != null)
+		{
+			tile.itemRequirements.forEach(item ->
+			{
+				if (item != null)
+				{
+					add.accept(item.name);
+					add.accept(item.group);
+				}
+			});
+		}
+		add.accept(tile.howItCounts);
+		// The type words too, so they combine with a name: "timed zulrah", "pvp kills".
+		tileKindNames(tile).forEach(add);
+		return out.toString();
+	}
+
+	/** Lower is better: label phrase → label words → category → tier → subjects → requirement → description. */
 	private static int tileSearchRank(BingoApiClient.BoardTile tile, String phrase, String[] terms)
 	{
 		if (tileHasTier(tile, phrase)) return 0;
@@ -3664,6 +3895,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		String category = normalizeTileSearch(tile.category);
 		String tier = normalizeTileSearch((tile.tier == null ? "" : tile.tier) + " "
 			+ (tile.tierKey == null ? "" : tile.tierKey));
+		String subjects = normalizeTileSearch(tileSubjects(tile));
 		String requirement = normalizeTileSearch(tile.requirement);
 		String description = normalizeTileSearch(tile.description);
 		int score = 20;
@@ -3673,46 +3905,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			else if (label.contains(term)) score += 2;
 			else if (category.contains(term)) score += 8;
 			else if (tier.contains(term)) score += 10;
+			else if (subjects.contains(term)) score += 12;
 			else if (requirement.contains(term)) score += 14;
 			else if (description.contains(term)) score += 22;
 			else score += 100;
 		}
 		return score;
-	}
-
-	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	private static final class TileSearchField extends JTextField
-	{
-		private final String placeholder;
-
-		TileSearchField(String placeholder, String value)
-		{
-			super(value == null ? "" : value);
-			this.placeholder = placeholder;
-			addFocusListener(new java.awt.event.FocusAdapter()
-			{
-				@Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
-				@Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
-			});
-		}
-
-		@Override
-		protected void paintComponent(java.awt.Graphics graphics)
-		{
-			super.paintComponent(graphics);
-			if (!getText().isEmpty() || isFocusOwner())
-			{
-				return;
-			}
-			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
-			g.setColor(MUTED);
-			g.setFont(getFont());
-			java.awt.FontMetrics metrics = g.getFontMetrics();
-			java.awt.Insets insets = getInsets();
-			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
-			g.drawString(placeholder, insets.left, y);
-			g.dispose();
-		}
 	}
 
 	private JPanel buildBoardCatalogue(String key, int eventId, String boardUrl, boolean preStart)
@@ -3749,7 +3947,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		}
 
-		TileSearchField search = new TileSearchField(
+		SearchField search = new SearchField(
 			"Search " + all.size() + " tiles…", boardSearches.getOrDefault(key, ""));
 		search.setToolTipText("Search tile names, descriptions, requirements and categories");
 		search.setFont(SMALL);
@@ -3763,6 +3961,19 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override public void focusGained(java.awt.event.FocusEvent e) { boardSearchFocused = true; }
 			@Override public void focusLost(java.awt.event.FocusEvent e) { boardSearchFocused = false; }
 		});
+		if (boardSearchFocused)
+		{
+			// A redraw replaced the field the member was in: put them back in it, caret at the end.
+			// Twice deferred: setContent swaps the new field in on a later EDT turn than this one.
+			SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() ->
+			{
+				if (search.isShowing())
+				{
+					search.requestFocusInWindow();
+					search.setCaretPosition(search.getText().length());
+				}
+			}));
+		}
 
 		JButton clearSearch = flatButton("", "Clear tile search", () -> search.setText(""));
 		clearSearch.setIcon(new GlyphIcon(GlyphIcon.Shape.CLOSE, 12));
@@ -3831,6 +4042,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		};
 		onEdit(search, () ->
 		{
+			boardSearchEditedAt = System.currentTimeMillis();
 			clearSearch.setEnabled(!search.getText().isEmpty());
 			refilter.run();
 		});
@@ -4076,10 +4288,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (progress != null && !tile.complete && !progress.isCompleted() && progress.goal > 1)
 		{
 			detailHeading(card, 0, "Progress");
-			JPanel row = progressRow(small(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)) + "%",
-				ColorScheme.TEXT_COLOR), progressValue(progress), null,
+			JLabel pctLabel = small(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)) + "%",
+				ColorScheme.TEXT_COLOR);
+			JPanel row = progressRow(pctLabel, progressValue(progress), null,
 				bar(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)),
 					ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
+			live(row, tile.tileId, progress.current, progress.goal, false, pctLabel);
 			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			card.add(row);
 			card.add(gap(9));
@@ -4205,6 +4419,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		rows.add(capH(card));
 		relayout(catalogue, rows);
+		if (rows.isShowing())
+		{
+			// Opened by a click, into a list already on screen — no setContent will hand its row over.
+			liveRows.addAll(buildingRows);
+			buildingRows = new ArrayList<>();
+		}
 	}
 
 	/** "Kurrozive · 312 KC" — a finisher and their share, in the tile's unit; just the name when unknown. */
@@ -4718,7 +4938,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 		loadingBoardCatalogues.add(key);
-		failedBoardCatalogues.remove(key);
+		final boolean failedBefore = failedBoardCatalogues.remove(key);
 		final int generation = boardCatalogueGeneration;
 		new SwingWorker<BingoApiClient.BoardResponse, Void>()
 		{
@@ -4736,9 +4956,14 @@ public class AnvilSidebarPanel extends PluginPanel
 					return;
 				}
 				loadingBoardCatalogues.remove(key);
+				BingoApiClient.BoardResponse before = boardCatalogues.get(key);
 				try
 				{
 					BingoApiClient.BoardResponse board = get();
+					if (board != null && board == before && !failedBefore)
+					{
+						return; // a 304: the site sent back the board already on screen
+					}
 					if (board == null)
 					{
 						failedBoardCatalogues.add(key);
@@ -4753,7 +4978,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					failedBoardCatalogues.add(key);
 					log.debug("tile catalogue fetch failed", ex);
 				}
-				if (!boardSearchFocused)
+				if (!typingInSearch())
 				{
 					renderSelected();
 				}
@@ -4810,8 +5035,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Swap the single content component and repaint. */
 	private void setContent(Component component)
 	{
+		List<LiveRow> rows = buildingRows;
+		buildingRows = new ArrayList<>();
 		SwingUtilities.invokeLater(() ->
 		{
+			liveRows = rows;
 			updateTabStrip();
 			if (tab == Tab.YOU)
 			{

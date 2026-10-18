@@ -87,6 +87,12 @@ public class BingoApiClient
 
 	private final OkHttpClient readClient;
 
+	/** The injected Gson, for callers that serialise what this client returns. */
+	Gson gson()
+	{
+		return gson;
+	}
+
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client)
 	{
@@ -374,6 +380,7 @@ public class BingoApiClient
 	/** Execute and parse a 2xx body as {@code type}; null on any other status or a transport/parse failure. */
 	private <T> T getOrNull(Request.Builder request, Class<T> type, String label)
 	{
+		OffThread.check("HTTP getOrNull()");
 		try (Response response = readClient.newCall(request.build()).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)
@@ -475,6 +482,7 @@ public class BingoApiClient
 			.tag(AccountAction.class, ACCOUNT_ACTION)
 			.post(json(payload))
 			.build();
+		OffThread.check("HTTP postAccountAction()");
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			String text = bodyText(response);
@@ -647,6 +655,7 @@ public class BingoApiClient
 		{
 			rb.header("X-Account-Hash", it.accountHash);
 		}
+		OffThread.check("HTTP sendQueuedNotification()");
 		try (Response r = httpClient.newCall(rb.post(notifyBody(it.payload, png, it.filename)).build()).execute())
 		{
 			if (r.isSuccessful())
@@ -820,6 +829,7 @@ public class BingoApiClient
 		{
 			rb.header("If-None-Match", (String) hit[0]);
 		}
+		OffThread.check("HTTP etagGet()");
 		try (Response response = readClient.newCall(rb.build()).execute())
 		{
 			if (response.code() == 304 && hit != null)
@@ -904,6 +914,7 @@ public class BingoApiClient
 		{
 			return null;
 		}
+		OffThread.check("HTTP goalsCall()");
 		try (Response response = httpClient.newCall(rb.build()).execute())
 		{
 			if (response.body() == null)
@@ -1050,6 +1061,7 @@ public class BingoApiClient
 		{
 			return null;
 		}
+		OffThread.check("HTTP fetchPlayerCard()");
 		try (Response response = readClient.newCall(publicRequest(url).build()).execute())
 		{
 			if (response.code() == 404)
@@ -1106,6 +1118,7 @@ public class BingoApiClient
 		{
 			throw new IOException("Connect Anvil to your clan first.");
 		}
+		OffThread.check("HTTP executeClaim()");
 		try (Response response = httpClient.newCall(request.build()).execute())
 		{
 			if (!response.isSuccessful())
@@ -1347,6 +1360,7 @@ public class BingoApiClient
 	{
 		MultipartBody multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
 			.addFormDataPart("file", filename, RequestBody.create(PNG, pngBytes)).build();
+		OffThread.check("HTTP uploadImage()");
 		try (Response response = httpClient.newCall(authedRequest(clanUrl("/api/upload")).post(multipart).build()).execute())
 		{
 			if (!response.isSuccessful())
@@ -1509,6 +1523,7 @@ public class BingoApiClient
 		{
 			return false;
 		}
+		OffThread.check("HTTP fetchIsAdmin()");
 		try (Response response = readClient.newCall(tokenRequest("/api/plugin/me", accountToken).get().build()).execute())
 		{
 			if (response.code() != 200)
@@ -1542,6 +1557,7 @@ public class BingoApiClient
 		payload.add("members", gson.toJsonTree(members));
 		Request request = tokenRequest("/api/plugin/clan-sync", accountToken)
 			.post(json(payload)).build();
+		OffThread.check("HTTP syncClan()");
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			String responseBody = bodyText(response);
@@ -1753,6 +1769,7 @@ public class BingoApiClient
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException
 	{
 		Request request = authedRequest(clanUrl(path)).post(json(payload)).build();
+		OffThread.check("HTTP postJson()");
 		try (Response response = httpClient.newCall(request).execute())
 		{
 			String body = bodyText(response);

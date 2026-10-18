@@ -8,6 +8,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonSerializer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -64,6 +68,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 	// Config-delta signal state: last-seen amount per tile + when each rose. Cleared on event change.
 	private Map<Integer, Integer> lastAmounts = new HashMap<>();
+	/** When {@link #lastAmounts} was taken; a rise measured across a longer gap isn't "now". */
+	long lastAmountsAt; // package-visible so a test can age it
 	private final Map<Integer, Long> roseAt = new HashMap<>();
 
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
@@ -111,6 +117,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	{
 		AnvilPlugin p = plugin;
 		return p == null ? none : f.apply(p);
+	}
+
+	/**
+	 * The count to show for a tile already drawn at {@code drawn}: that, or this client's newer local
+	 * count. Read-only — {@code drawn} may already include the local count, so it can't stand in for
+	 * the site's (which would discard the local count as "confirmed" and wind the tile back).
+	 */
+	public long shownProgress(int tileId, long drawn)
+	{
+		return Math.max(drawn, fromPlugin(p -> p.optimisticFloor(tileId), 0L));
 	}
 
 	/** Actions available for the clan on screen. Never null. */
@@ -488,6 +504,71 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		ConnectionView view = buildView(force);
 		refreshStandings(force);
 		return view;
+	}
+
+	private volatile Gson fingerprintGson;
+
+	/**
+	 * The injected Gson, writing collections and maps element by element. Left to itself it wants a
+	 * constructor for the runtime class even to write one, and Java 17 won't open the JDK's own
+	 * (Collections.emptyList, unmodifiableList…), which the snapshot is full of.
+	 */
+	private static Gson fingerprintGson(Gson base)
+	{
+		JsonSerializer<java.util.Collection<?>> list = (src, type, ctx) ->
+		{
+			JsonArray out = new JsonArray();
+			for (Object o : src)
+			{
+				out.add(ctx.serialize(o));
+			}
+			return out;
+		};
+		JsonSerializer<Map<?, ?>> map = (src, type, ctx) ->
+		{
+			JsonObject out = new JsonObject();
+			for (Map.Entry<?, ?> e : src.entrySet())
+			{
+				out.add(String.valueOf(e.getKey()), ctx.serialize(e.getValue()));
+			}
+			return out;
+		};
+		return base.newBuilder()
+			.registerTypeHierarchyAdapter(java.util.Collection.class, list)
+			.registerTypeHierarchyAdapter(Map.class, map)
+			.create();
+	}
+
+	/**
+	 * A cheap stand-in for "would the panel draw this differently": a hash of the snapshot and the
+	 * standings drawn above it. 0 when it can't be worked out, which reads as "changed". Off the EDT.
+	 */
+	public long fingerprint(ConnectionView view)
+	{
+		if (view == null || apiClient == null)
+		{
+			return 0;
+		}
+		try
+		{
+			Gson g = fingerprintGson;
+			if (g == null)
+			{
+				g = fingerprintGson = fingerprintGson(apiClient.gson());
+			}
+			String json = g.toJson(view) + g.toJson(standings());
+			long h = 1125899906842597L;
+			for (int i = 0; i < json.length(); i++)
+			{
+				h = 31 * h + json.charAt(i);
+			}
+			return h == 0 ? 1 : h;
+		}
+		catch (RuntimeException e)
+		{
+			log.debug("Couldn't fingerprint the sidebar snapshot: {}", e.getMessage());
+			return 0;
+		}
 	}
 
 	// ---- Standings ------------------------------------------------------------------------------
@@ -1203,6 +1284,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
 		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
 		Map<Integer, Integer> current = new HashMap<>();
+		// The panel only samples while it's on screen. Reopened after twenty minutes, every tile that
+		// moved meanwhile would rise "just now" and show a teammate active who stopped long ago — so a
+		// baseline older than the window re-seeds instead. (Named teammates and the feed carry the
+		// site's own times and are unaffected.)
+		boolean freshBaseline = now - lastAmountsAt <= ACTIVE_WINDOW_MS;
 		for (ClogTaskModel.TaskRow r : rows)
 		{
 			current.put(r.tileId, r.current);
@@ -1211,7 +1297,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				continue;
 			}
 			Integer prev = lastAmounts.get(r.tileId);
-			if (prev != null && r.current > prev)
+			if (freshBaseline && prev != null && r.current > prev)
 			{
 				roseAt.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
 			}
@@ -1234,6 +1320,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
 		}
 		lastAmounts = current;
+		lastAmountsAt = now;
 
 		// Newest-active first, capped; "You" leads each row's workers.
 		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());

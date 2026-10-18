@@ -543,4 +543,38 @@ public class AnvilSidebarDataSourceTest
 		assertEquals(0, after.tilesTotal);
 		assertTrue(after.nearestTiles.isEmpty());
 	}
+
+	@Test
+	public void fingerprintHoldsUntilSomethingShownChanges() throws Exception
+	{
+		// A background poll skips the redraw when this matches the last one, so it must be stable for
+		// the same answer and move when a number on the panel does.
+		PluginConfigResponse cfg = eventConfig();
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		long first = ds.fingerprint(ds.fetch(false));
+		assertTrue(first != 0);
+		assertEquals(first, ds.fingerprint(ds.fetch(false)));
+
+		cfg.trackedDrops.get(0).currentAmount++;
+		assertTrue(first != ds.fingerprint(ds.fetch(false)));
+		assertEquals(0, ds.fingerprint(null));
+	}
+
+	@Test
+	public void aRiseAcrossALongGapIsNotATeammateActiveNow() throws Exception
+	{
+		// The panel doesn't sample while hidden; reopening it after the window mustn't credit
+		// everything that moved meanwhile to "a teammate" active right now.
+		PluginConfigResponse cfg = statConfig();
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		ds.fetch(false);                                     // seed
+		ds.lastAmountsAt -= 20 * 60_000L;                    // ...then hidden for twenty minutes
+		cfg.trackedStats.get(0).currentAmount = 1_050_000;
+		assertTrue(ds.fetch(false).activeNow.isEmpty());
+
+		cfg.trackedStats.get(0).currentAmount = 1_060_000;   // and once it's watching again, it counts
+		assertSingleActive(ds.fetch(false), 201, false, "a teammate");
+	}
 }

@@ -39,7 +39,7 @@ public class TileTracker
 	private static final Color GOLD = new Color(255, 215, 0);
 	private static final int OTHER_TEAMS_SHOWN = 4;
 	/** How long a just-finished pin keeps showing "Done" before it unpins (hidden on the next fetch after). */
-	private static final long DONE_LINGER_MS = 10_000;
+	static final long DONE_LINGER_MS = 10_000;
 
 	private final OverlayManager overlayManager;
 	private final ConfigManager configManager;

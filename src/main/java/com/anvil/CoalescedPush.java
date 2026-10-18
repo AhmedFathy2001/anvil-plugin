@@ -41,6 +41,14 @@ final class CoalescedPush
 	private ScheduledFuture<?> task;
 	/** Failed sends since the last success; 0 = healthy. Drives the retry wait. */
 	private int failures;
+	/** When the oldest unsent value was queued; 0 while nothing is waiting. */
+	private long holdingSince;
+	/**
+	 * Longest a value waits for the streak to settle. The settle timer restarts on every new value,
+	 * so without a cap a non-stop skilling session (an XP drop every few seconds) never paused long
+	 * enough to push at all: the site, the tracker and teammates saw nothing until the member stopped.
+	 */
+	static final long MAX_HOLD_MS = 60_000L;
 	/** Longest wait between retries while the site keeps failing. */
 	static final long RETRY_CAP_MS = 300_000L;
 
@@ -81,9 +89,13 @@ final class CoalescedPush
 		}
 		// While backing off, new values ride the retry that's already waiting rather than pulling it
 		// forward to the settle delay — a training session would otherwise retry every 15s regardless.
+		if (queued && holdingSince == 0)
+		{
+			holdingSince = System.currentTimeMillis();
+		}
 		if (queued && !(failures > 0 && task != null && !task.isDone()))
 		{
-			schedule(ex, delayMs);
+			schedule(ex, settleWait(System.currentTimeMillis(), holdingSince, delayMs));
 		}
 	}
 
@@ -117,6 +129,17 @@ final class CoalescedPush
 		}
 	}
 
+	/** Send what's waiting now (a value that completes a tile) — unless backing off a failing site. */
+	synchronized void sendNow()
+	{
+		ScheduledExecutorService ex = executor.get();
+		if (pending.isEmpty() || failures > 0 || ex == null || ex.isShutdown())
+		{
+			return;
+		}
+		schedule(ex, 0);
+	}
+
 	/** The site is reachable again: send what's waiting now instead of sitting out the backoff. */
 	synchronized void kick()
 	{
@@ -136,6 +159,7 @@ final class CoalescedPush
 	synchronized void reset()
 	{
 		pending.clear();
+		holdingSince = 0;
 		failures = 0;
 		if (sent != null)
 		{
@@ -157,6 +181,12 @@ final class CoalescedPush
 		task = ex.schedule(this::flush, waitMs, TimeUnit.MILLISECONDS);
 	}
 
+	/** The settle delay, cut short so nothing waits past {@link #MAX_HOLD_MS} from {@code holdingSince}. */
+	static long settleWait(long now, long holdingSince, long delayMs)
+	{
+		return Math.max(0, Math.min(delayMs, holdingSince + MAX_HOLD_MS - now));
+	}
+
 	/** The wait before the next retry after {@code failures} straight failures. First retry = the settle delay. */
 	static long retryDelayMs(int failures, long settleMs, double jitter)
 	{
@@ -175,6 +205,7 @@ final class CoalescedPush
 			}
 			batch = new HashMap<>(pending);
 			pending.clear();
+			holdingSince = 0;
 		}
 		if (!allowed.getAsBoolean())
 		{

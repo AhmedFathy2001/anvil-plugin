@@ -11,10 +11,14 @@ import java.io.IOException;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
@@ -65,6 +69,10 @@ public class BannerSoundService
 	{
 		this.root = dir;
 		migrateLooseClips();
+		for (Kind kind : Kind.values())
+		{
+			relist(kind);
+		}
 	}
 
 	/**
@@ -168,10 +176,84 @@ public class BannerSoundService
 		return !wavFiles(kind).isEmpty();
 	}
 
-	/** All .wav filenames for one kind, case-insensitively sorted (for the in-tab manager). */
+	/**
+	 * How old a folder listing may get before it's re-read. The panel asks on every draw, on the EDT,
+	 * so it is always answered from memory and the re-read happens on {@link #audioExecutor}; a clip
+	 * dropped into the folder by hand shows up this much later at worst (Add sounds re-reads at once).
+	 */
+	private static final long LISTING_TTL_MS = 10_000L;
+	private final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
+	private final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
+	private final Set<Kind> relisting = EnumSet.noneOf(Kind.class);
+	/** Told (on the audio thread) when a re-read finds the clips changed, so the panel can redraw. */
+	private volatile Runnable onClipsChanged = () -> { };
+
+	public void setOnClipsChanged(Runnable onChange)
+	{
+		onClipsChanged = onChange == null ? () -> { } : onChange;
+	}
+
+	/**
+	 * All .wav filenames for one kind, case-insensitively sorted (for the in-tab manager). Never
+	 * touches disk: it answers from the last listing (empty before the first) and, if that's stale,
+	 * re-reads the folder in the background.
+	 */
 	public List<String> listClips(Kind kind)
 	{
-		return wavFiles(kind).stream().map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
+		List<String> cached;
+		boolean stale;
+		synchronized (this)
+		{
+			cached = listed.getOrDefault(kind, Collections.emptyList());
+			Long at = listedAt.get(kind);
+			stale = at == null || System.currentTimeMillis() - at >= LISTING_TTL_MS;
+		}
+		if (stale)
+		{
+			relist(kind);
+		}
+		return cached;
+	}
+
+	/** Re-read one kind's folder on the audio thread; a no-op while a re-read is already queued. */
+	private void relist(Kind kind)
+	{
+		synchronized (this)
+		{
+			if (!relisting.add(kind))
+			{
+				return;
+			}
+		}
+		try
+		{
+			audioExecutor.execute(() -> relistNow(kind));
+		}
+		catch (RejectedExecutionException e)
+		{
+			synchronized (this)
+			{
+				relisting.remove(kind);
+			}
+		}
+	}
+
+	/** Blocking (disk) — the audio thread only. */
+	private void relistNow(Kind kind)
+	{
+		List<String> names = Collections.unmodifiableList(wavFiles(kind).stream()
+			.map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList()));
+		List<String> before;
+		synchronized (this)
+		{
+			relisting.remove(kind);
+			before = listed.put(kind, names);
+			listedAt.put(kind, System.currentTimeMillis());
+		}
+		if (!names.equals(before == null ? Collections.emptyList() : before))
+		{
+			onClipsChanged.run();
+		}
 	}
 
 	/**
@@ -316,25 +398,40 @@ public class BannerSoundService
 			{
 				return;
 			}
-			List<String> imported = new ArrayList<>();
-			for (Filepath src : chosen)
+			// The picker needs the EDT; the copies don't, and a big .wav is a long copy.
+			try
 			{
-				String name = src.getFileName();
-				try
-				{
-					src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);
-					imported.add(name);
-				}
-				catch (Exception e)
-				{
-					log.warn("Could not import sound {}: {}", name, e.getMessage());
-				}
+				audioExecutor.execute(() -> copyIn(kind, dir, chosen, onImported));
 			}
-			if (onImported != null && !imported.isEmpty())
+			catch (RejectedExecutionException e)
 			{
-				onImported.accept(imported);
+				log.debug("Sound import skipped, plugin shutting down");
 			}
 		});
+	}
+
+	/** Blocking (disk) — the audio thread only. */
+	private void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported)
+	{
+		List<String> imported = new ArrayList<>();
+		for (Filepath src : chosen)
+		{
+			String name = src.getFileName();
+			try
+			{
+				src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);
+				imported.add(name);
+			}
+			catch (Exception e)
+			{
+				log.warn("Could not import sound {}: {}", name, e.getMessage());
+			}
+		}
+		relistNow(kind);
+		if (onImported != null && !imported.isEmpty())
+		{
+			onImported.accept(imported);
+		}
 	}
 
 	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */

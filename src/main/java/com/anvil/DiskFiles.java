@@ -45,6 +45,7 @@ final class DiskFiles
 
 	static void writeAtomic(Filepath target, byte[] data) throws IOException
 	{
+		OffThread.check("disk write");
 		Filepath tmp = target.getParent().joinSegment(target.getFileName() + ".tmp");
 		tmp.write(data);
 		try
@@ -65,6 +66,7 @@ final class DiskFiles
 	/** The file's bytes, or null when it is missing or unreadable. */
 	static byte[] read(Filepath file)
 	{
+		OffThread.check("disk read");
 		if (file == null || !file.isFile())
 		{
 			return null;

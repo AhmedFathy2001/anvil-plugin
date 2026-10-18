@@ -99,7 +99,7 @@ final class ClanCofferTracker
 		{
 			return null;
 		}
-		String plain = line.replaceAll("<[^>]*>", "").trim();
+		String plain = AnvilPlugin.MARKUP_TAG.matcher(line).replaceAll("").trim();
 		String lower = plain.toLowerCase(Locale.ROOT);
 		if (!lower.contains("coffer"))
 		{

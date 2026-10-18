@@ -553,6 +553,11 @@ public class AnvilPlugin extends Plugin {
     static final Pattern CHAT_TAG = Pattern.compile(
             "<[^>]*>|@[A-Za-z0-9_]{1,20}@");
 
+    // Compiled once: these run per chat line, per XP drop and per LMS tick.
+    static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>");
+    private static final Pattern NON_DIGIT = Pattern.compile("[^0-9]");
+    private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]");
+
     /** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
     static String stripChatTags(String msg) {
         return msg == null ? "" : CHAT_TAG.matcher(msg).replaceAll("");
@@ -1120,6 +1125,7 @@ public class AnvilPlugin extends Plugin {
 
     @Override
     protected void startUp() {
+        OffThread.bindClientThread(client::isClientThread);
         // Built before the directory is known: without one they still work, in memory, for the session.
         NotifyOutbox outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
         outbox.setSender(apiClient::sendQueuedNotification);
@@ -1138,6 +1144,12 @@ public class AnvilPlugin extends Plugin {
         try {
             Filepath pluginDir = getPluginDirectory();
             pendingSubmissionStore.setRoot(pluginDir);
+            bannerSound.setOnClipsChanged(() -> {
+                AnvilSidebarPanel panel = sidebarPanel;
+                if (panel != null) {
+                    SwingUtilities.invokeLater(panel::refresh); // a poll wouldn't redraw for it
+                }
+            });
             bannerSound.setRoot(pluginDir.join("sounds"));
             notifyOutbox.setDir(pluginDir.join("outbox", "notify"));
             pushStash.setDir(pluginDir.join("outbox"));
@@ -2486,7 +2498,7 @@ public class AnvilPlugin extends Plugin {
         if (text == null) {
             return -1;
         }
-        String digits = text.replaceAll("<[^>]*>", "").replaceAll("[^0-9]", "");
+        String digits = NON_DIGIT.matcher(MARKUP_TAG.matcher(text).replaceAll("")).replaceAll("");
         if (digits.isEmpty() || digits.length() > 3) {
             return -1;
         }
@@ -3557,7 +3569,7 @@ public class AnvilPlugin extends Plugin {
             //   clan      "Nisbro received a drop: Elder venator fang (50,000,000 coins) from
             //             Maggot King." — fallback for members whose in-game loot-notification
             //             setting is off; guests outside the clan rely on the personal line.
-            String stripped = msg.replaceAll("<[^>]*>", "");
+            String stripped = MARKUP_TAG.matcher(msg).replaceAll("");
             if (PICKPOCKET_PATTERN.matcher(stripped).matches()) {
                 pickpocketTick = client.getTickCount();
             }
@@ -6261,10 +6273,18 @@ public class AnvilPlugin extends Plugin {
         // Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
         // popup is toggled off, so flipping it on later won't dump a backlog.
         List<CompletedTile> newlyDone = new ArrayList<>();
+        boolean anyDone = false;
         for (CompletedTile t : cfg.completedTiles) {
-            if (notifiedCompletedTiles.add(t.tileId) && !seeding && !locallyShownTiles.contains(t.tileId)) {
-                newlyDone.add(t);
+            if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
+                anyDone = true;
+                onTileConfirmedDone(t.tileId);
+                if (!locallyShownTiles.contains(t.tileId)) {
+                    newlyDone.add(t);
+                }
             }
+        }
+        if (anyDone && sidebarPanel != null) {
+            SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
         }
         if (newlyDone.isEmpty() || !config.teamCompletionBanner()) {
             return;
@@ -6281,6 +6301,18 @@ public class AnvilPlugin extends Plugin {
                     ? " — by " + t.completedBy.trim() : "";
             sendChatMessage("Tile complete: " + t.label + by + "!");
         }
+    }
+
+    /**
+     * The site just confirmed a tile done. A pinned one shows "Done" now and comes down after its
+     * linger, rather than waiting out two of the tracker's 30s polls.
+     */
+    private void onTileConfirmedDone(int tileId) {
+        if (!tileTracker.tracks(tileId)) {
+            return;
+        }
+        submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
+        later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), TileTracker.DONE_LINGER_MS + 1_000);
     }
 
     /**
@@ -6826,19 +6858,22 @@ public class AnvilPlugin extends Plugin {
 
     /** A stat name reduced to letters and digits, so "Kree'Arra", "kreeArra" and "kree arra" meet. */
     static String compactStat(String s) {
-        return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        return s == null ? "" : NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll("");
     }
 
     /**
-     * Move every KC / XP tile watching {@code name} up by {@code delta} locally, ahead of the push. A
+     * Move every KC / XP tile watching {@code name} up by {@code delta} locally, ahead of the push, and
+     * say whether that took one to its goal — the push then goes now, not after the streak settles, so
+     * the site can complete the tile while the member is still looking at it. A
      * composite tile ("CoX + CoX: CM") matches on any of its keys; a name that matches no key the way
      * the site spells it simply isn't bumped, and the tile moves when the push lands, as before.
      */
-    private void bumpStatTiles(String kind, String name, int delta) {
+    private boolean bumpStatTiles(String kind, String name, int delta) {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.trackedStats == null) {
-            return;
+            return false;
         }
+        boolean finishes = false;
         String want = compactStat(name);
         for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
             if (s == null || s.statName == null || s.statType == null
@@ -6848,11 +6883,14 @@ public class AnvilPlugin extends Plugin {
             for (String key : s.statName.split(",")) {
                 if (compactStat(key).equals(want)) {
                     optimistic.add(s.tileId, s.currentAmount, delta, now());
+                    finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
+                            && optimistic.floor(s.tileId, now()) >= s.goalAmount;
                     repaintSidebarSoon();
                     break;
                 }
             }
         }
+        return finishes;
     }
 
     /** This client just bumped a tile to {@code current}: hold that count and show it now. */
@@ -6864,16 +6902,20 @@ public class AnvilPlugin extends Plugin {
     private volatile long lastLocalRepaintAt;
 
     /**
-     * Repaint the sidebar off a local bump — at most every few seconds, since an XP tile bumps on every
-     * drop. The repaint reads the in-memory config (and a cheap conditional feed GET), so it doesn't
-     * wait on the 15s panel tick.
+     * Move the sidebar's numbers off a local bump — at most once a second, since an XP tile bumps on
+     * every drop. Only the labels and bars change (no fetch, no rebuild); the 15s poll brings the rest.
      */
     private void repaintSidebarSoon() {
         long t = now();
-        if (sidebarPanel != null && t - lastLocalRepaintAt >= 3_000) {
+        if (sidebarPanel != null && t - lastLocalRepaintAt >= 1_000) {
             lastLocalRepaintAt = t;
-            SwingUtilities.invokeLater(sidebarPanel::refresh);
+            SwingUtilities.invokeLater(sidebarPanel::bumpProgress);
         }
+    }
+
+    /** This client's unconfirmed count for a tile (0 when none) — read-only, see OptimisticProgress.floor. */
+    long optimisticFloor(int tileId) {
+        return optimistic.floor(tileId, now());
     }
 
     /** What to show for a tile the site last put at {@code siteCurrent}: that, or this client's newer count. */
@@ -6994,10 +7036,11 @@ public class AnvilPlugin extends Plugin {
             noteLocalStatProgress(skillName);
         }
         Integer prevXp = lastSeenXp.put(compactStat(skillName), xp);
-        if (realGain && prevXp != null && xp > prevXp) {
-            bumpStatTiles("skill", skillName, xp - prevXp);
-        }
+        boolean finishes = realGain && prevXp != null && xp > prevXp && bumpStatTiles("skill", skillName, xp - prevXp);
         skillXpPush.queue(skillName, xp);
+        if (finishes) {
+            skillXpPush.sendNow();
+        }
     }
 
 
@@ -7052,10 +7095,12 @@ public class AnvilPlugin extends Plugin {
         // A KC line is one kill (one clear, one chest), so the first one after login still moves the
         // tile by one; after that the absolute count says how many, in case a line was missed.
         Integer prevKc = lastSeenKc.put(compactStat(bossName), kc);
-        if (prevKc == null || kc > prevKc) {
-            bumpStatTiles("boss", bossName, prevKc == null ? 1 : kc - prevKc);
-        }
+        boolean finishes = (prevKc == null || kc > prevKc)
+                && bumpStatTiles("boss", bossName, prevKc == null ? 1 : kc - prevKc);
         kcPush.queue(bossName, kc);
+        if (finishes) {
+            kcPush.sendNow();
+        }
     }
 
     /**
