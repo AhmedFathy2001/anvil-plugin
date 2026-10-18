@@ -129,6 +129,17 @@ final class CoalescedPush
 		}
 	}
 
+	/** Send what's waiting now (a value that completes a tile) — unless backing off a failing site. */
+	synchronized void sendNow()
+	{
+		ScheduledExecutorService ex = executor.get();
+		if (pending.isEmpty() || failures > 0 || ex == null || ex.isShutdown())
+		{
+			return;
+		}
+		schedule(ex, 0);
+	}
+
 	/** The site is reachable again: send what's waiting now instead of sitting out the backoff. */
 	synchronized void kick()
 	{

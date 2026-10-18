@@ -6273,10 +6273,18 @@ public class AnvilPlugin extends Plugin {
         // Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
         // popup is toggled off, so flipping it on later won't dump a backlog.
         List<CompletedTile> newlyDone = new ArrayList<>();
+        boolean anyDone = false;
         for (CompletedTile t : cfg.completedTiles) {
-            if (notifiedCompletedTiles.add(t.tileId) && !seeding && !locallyShownTiles.contains(t.tileId)) {
-                newlyDone.add(t);
+            if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
+                anyDone = true;
+                onTileConfirmedDone(t.tileId);
+                if (!locallyShownTiles.contains(t.tileId)) {
+                    newlyDone.add(t);
+                }
             }
+        }
+        if (anyDone && sidebarPanel != null) {
+            SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
         }
         if (newlyDone.isEmpty() || !config.teamCompletionBanner()) {
             return;
@@ -6293,6 +6301,18 @@ public class AnvilPlugin extends Plugin {
                     ? " — by " + t.completedBy.trim() : "";
             sendChatMessage("Tile complete: " + t.label + by + "!");
         }
+    }
+
+    /**
+     * The site just confirmed a tile done. A pinned one shows "Done" now and comes down after its
+     * linger, rather than waiting out two of the tracker's 30s polls.
+     */
+    private void onTileConfirmedDone(int tileId) {
+        if (!tileTracker.tracks(tileId)) {
+            return;
+        }
+        submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
+        later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), TileTracker.DONE_LINGER_MS + 1_000);
     }
 
     /**
@@ -6842,15 +6862,18 @@ public class AnvilPlugin extends Plugin {
     }
 
     /**
-     * Move every KC / XP tile watching {@code name} up by {@code delta} locally, ahead of the push. A
+     * Move every KC / XP tile watching {@code name} up by {@code delta} locally, ahead of the push, and
+     * say whether that took one to its goal — the push then goes now, not after the streak settles, so
+     * the site can complete the tile while the member is still looking at it. A
      * composite tile ("CoX + CoX: CM") matches on any of its keys; a name that matches no key the way
      * the site spells it simply isn't bumped, and the tile moves when the push lands, as before.
      */
-    private void bumpStatTiles(String kind, String name, int delta) {
+    private boolean bumpStatTiles(String kind, String name, int delta) {
         PluginConfigResponse cfg = pluginConfig;
         if (cfg == null || cfg.trackedStats == null) {
-            return;
+            return false;
         }
+        boolean finishes = false;
         String want = compactStat(name);
         for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
             if (s == null || s.statName == null || s.statType == null
@@ -6860,11 +6883,14 @@ public class AnvilPlugin extends Plugin {
             for (String key : s.statName.split(",")) {
                 if (compactStat(key).equals(want)) {
                     optimistic.add(s.tileId, s.currentAmount, delta, now());
+                    finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
+                            && optimistic.floor(s.tileId, now()) >= s.goalAmount;
                     repaintSidebarSoon();
                     break;
                 }
             }
         }
+        return finishes;
     }
 
     /** This client just bumped a tile to {@code current}: hold that count and show it now. */
@@ -7010,10 +7036,11 @@ public class AnvilPlugin extends Plugin {
             noteLocalStatProgress(skillName);
         }
         Integer prevXp = lastSeenXp.put(compactStat(skillName), xp);
-        if (realGain && prevXp != null && xp > prevXp) {
-            bumpStatTiles("skill", skillName, xp - prevXp);
-        }
+        boolean finishes = realGain && prevXp != null && xp > prevXp && bumpStatTiles("skill", skillName, xp - prevXp);
         skillXpPush.queue(skillName, xp);
+        if (finishes) {
+            skillXpPush.sendNow();
+        }
     }
 
 
@@ -7068,10 +7095,12 @@ public class AnvilPlugin extends Plugin {
         // A KC line is one kill (one clear, one chest), so the first one after login still moves the
         // tile by one; after that the absolute count says how many, in case a line was missed.
         Integer prevKc = lastSeenKc.put(compactStat(bossName), kc);
-        if (prevKc == null || kc > prevKc) {
-            bumpStatTiles("boss", bossName, prevKc == null ? 1 : kc - prevKc);
-        }
+        boolean finishes = (prevKc == null || kc > prevKc)
+                && bumpStatTiles("boss", bossName, prevKc == null ? 1 : kc - prevKc);
         kcPush.queue(bossName, kc);
+        if (finishes) {
+            kcPush.sendNow();
+        }
     }
 
     /**

@@ -1479,6 +1479,21 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
+	 * The site confirmed a tile done. The board list behind "All tiles" and a tile's detail is its own
+	 * download, refreshed only on a redraw that asks for it, so the detail said "Open" well after the
+	 * chat said "Tile complete". Re-read it and redraw now.
+	 */
+	public void tileCompleted()
+	{
+		if (!onScreen)
+		{
+			return;
+		}
+		loadBoardCatalogue("active", 0, true);
+		refresh();
+	}
+
+	/**
 	 * This client just moved a tile (an XP drop, a kill, a drop): bring the numbers on screen up to it
 	 * in place — a few setText calls, no fetch and no rebuild. A tile that reaches its goal asks for a
 	 * real refresh, since "Done" reorders the card. EDT.
