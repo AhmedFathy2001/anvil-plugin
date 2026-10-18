@@ -1351,6 +1351,8 @@ public class BingoApiClient
 		public int teamId;
 		public String name;
 		public String color;
+		/** Tiles this team has finished. Every board carries it, read-only previews included. */
+		public List<Integer> completedTileIds;
 	}
 
 	/**
