@@ -68,6 +68,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 
 	// Config-delta signal state: last-seen amount per tile + when each rose. Cleared on event change.
 	private Map<Integer, Integer> lastAmounts = new HashMap<>();
+	/** When {@link #lastAmounts} was taken; a rise measured across a longer gap isn't "now". */
+	long lastAmountsAt; // package-visible so a test can age it
 	private final Map<Integer, Long> roseAt = new HashMap<>();
 
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
@@ -1272,6 +1274,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
 		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
 		Map<Integer, Integer> current = new HashMap<>();
+		// The panel only samples while it's on screen. Reopened after twenty minutes, every tile that
+		// moved meanwhile would rise "just now" and show a teammate active who stopped long ago — so a
+		// baseline older than the window re-seeds instead. (Named teammates and the feed carry the
+		// site's own times and are unaffected.)
+		boolean freshBaseline = now - lastAmountsAt <= ACTIVE_WINDOW_MS;
 		for (ClogTaskModel.TaskRow r : rows)
 		{
 			current.put(r.tileId, r.current);
@@ -1280,7 +1287,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				continue;
 			}
 			Integer prev = lastAmounts.get(r.tileId);
-			if (prev != null && r.current > prev)
+			if (freshBaseline && prev != null && r.current > prev)
 			{
 				roseAt.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
 			}
@@ -1303,6 +1310,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
 		}
 		lastAmounts = current;
+		lastAmountsAt = now;
 
 		// Newest-active first, capped; "You" leads each row's workers.
 		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());

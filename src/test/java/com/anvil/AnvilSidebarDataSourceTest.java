@@ -560,4 +560,21 @@ public class AnvilSidebarDataSourceTest
 		assertTrue(first != ds.fingerprint(ds.fetch(false)));
 		assertEquals(0, ds.fingerprint(null));
 	}
+
+	@Test
+	public void aRiseAcrossALongGapIsNotATeammateActiveNow() throws Exception
+	{
+		// The panel doesn't sample while hidden; reopening it after the window mustn't credit
+		// everything that moved meanwhile to "a teammate" active right now.
+		PluginConfigResponse cfg = statConfig();
+		AnvilSidebarDataSource ds = newSource(() -> cfg);
+
+		ds.fetch(false);                                     // seed
+		ds.lastAmountsAt -= 20 * 60_000L;                    // ...then hidden for twenty minutes
+		cfg.trackedStats.get(0).currentAmount = 1_050_000;
+		assertTrue(ds.fetch(false).activeNow.isEmpty());
+
+		cfg.trackedStats.get(0).currentAmount = 1_060_000;   // and once it's watching again, it counts
+		assertSingleActive(ds.fetch(false), 201, false, "a teammate");
+	}
 }
