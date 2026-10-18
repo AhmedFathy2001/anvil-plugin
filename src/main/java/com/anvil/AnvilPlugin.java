@@ -472,6 +472,12 @@ public class AnvilPlugin extends Plugin {
     // game says was 200 but the tile logged fewer. Once we've seen ServerNpcLoot it's the source of truth for
     // per-kill counting (kill + value tiles); NpcLootReceived stays a fallback for clients that never emit it.
     private volatile boolean serverNpcLootSeen;
+    // Before the first ServerNpcLoot of a session the fallback below counts the kill — and that first
+    // kill's own ServerNpcLoot can land a tick or two LATER, counting it again (one gorilla, two KC).
+    // The fallback remembers what it credited so the server event can recognise it as the same kill.
+    private String fallbackKillName;
+    private int fallbackKillTick = -1;
+    private static final int FALLBACK_KILL_TICKS = 2;
     /** Client tick of the last "You pick the X's pocket" line; ServerNpcLoot in that tick is a pocket. */
     private int pickpocketTick = -1;
 
@@ -3091,6 +3097,7 @@ public class AnvilPlugin extends Plugin {
         if (event.getComposition() == null) {
             return;
         }
+        boolean firstServerLoot = !serverNpcLootSeen;
         serverNpcLootSeen = true;
         String name = event.getComposition().getName();
         if (pickpocketTick == client.getTickCount()) {
@@ -3105,6 +3112,10 @@ public class AnvilPlugin extends Plugin {
         maybeNotifyRareDrop(name, event.getItems(), "npc");
         // Count kills + value off the SERVER event — it fires once per real kill, so a barraged clump of
         // same-tick deaths is counted in full (NpcLootReceived under-fires those). See serverNpcLootSeen.
+        if (firstServerLoot && name != null && name.equalsIgnoreCase(fallbackKillName)
+            && client.getTickCount() - fallbackKillTick <= FALLBACK_KILL_TICKS) {
+            return; // the client-side fallback already counted this very kill (see fallbackKillName)
+        }
         processValueTiles(name, event.getItems(), "npc");
         processNpcKill(name);
     }
@@ -3121,6 +3132,8 @@ public class AnvilPlugin extends Plugin {
         // double-count a kill. Everything above runs either way — those are per-DROP, not per-kill,
         // and ServerNpcLoot carries the same items.
         if (!serverNpcLootSeen) {
+            fallbackKillName = name;
+            fallbackKillTick = client.getTickCount();
             processValueTiles(name, event.getItems(), "npc");
             processNpcKill(name);
         }
