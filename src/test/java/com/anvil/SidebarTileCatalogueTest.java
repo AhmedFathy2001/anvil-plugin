@@ -69,19 +69,29 @@ public class SidebarTileCatalogueTest
 	}
 
 	@Test
-	public void exactCategoryActsAsASmartFacetInsteadOfMatchingUnrelatedText()
+	public void exactCategoryRanksItsTilesFirstButKeepsOtherMatches()
 	{
-		BingoApiClient.BoardTile pvm = tile(1, "Yama unique", null, null, "PvM, Yama", false);
-		BingoApiClient.BoardTile noisy = tile(2, "PvM starter kit", null, null, "Skilling", false);
+		BingoApiClient.BoardTile noisy = tile(1, "PvM starter kit", null, null, "Skilling", false);
+		BingoApiClient.BoardTile pvm = tile(2, "Yama unique", null, null, "PvM, Yama", false);
 
 		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
-			Arrays.asList(pvm, noisy), "pvm", AnvilSidebarPanel.TileStatusFilter.ALL, false);
-		assertEquals(1, result.size());
-		assertEquals(1, result.get(0).tileId);
+			Arrays.asList(noisy, pvm), "pvm", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(Arrays.asList(2, 1), Arrays.asList(result.get(0).tileId, result.get(1).tileId));
 	}
 
 	@Test
-	public void exactTierActsAsASmartFacetAndWinsOverSameNamedCategory()
+	public void aCategoryNameStillFindsTilesFiledElsewhere()
+	{
+		BingoApiClient.BoardTile uniques = tile(1, "Any 2 Doom Uniques", null, null, "Doom", false);
+		BingoApiClient.BoardTile kc = tile(2, "Complete 250 Doom KC", null, null, "PvM", false);
+
+		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
+			Arrays.asList(uniques, kc), "doom", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(Arrays.asList(1, 2), Arrays.asList(result.get(0).tileId, result.get(1).tileId));
+	}
+
+	@Test
+	public void exactTierRanksAheadOfSameNamedCategory()
 	{
 		BingoApiClient.BoardTile trollTier = tile(1, "Mine some rocks", null, null, "Skilling", false);
 		trollTier.tier = "Troll";
@@ -91,9 +101,8 @@ public class SidebarTileCatalogueTest
 		trollCategory.tierKey = "easy";
 
 		List<BingoApiClient.BoardTile> result = AnvilSidebarPanel.filterBoardTiles(
-			Arrays.asList(trollTier, trollCategory), "troll", AnvilSidebarPanel.TileStatusFilter.ALL, false);
-		assertEquals(1, result.size());
-		assertEquals(1, result.get(0).tileId);
+			Arrays.asList(trollCategory, trollTier), "troll", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(Arrays.asList(1, 2), Arrays.asList(result.get(0).tileId, result.get(1).tileId));
 	}
 
 	@Test
