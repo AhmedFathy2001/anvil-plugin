@@ -119,10 +119,14 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return p == null ? none : f.apply(p);
 	}
 
-	/** The count to show for a tile drawn at {@code drawn}: that, or this client's newer local count. */
+	/**
+	 * The count to show for a tile already drawn at {@code drawn}: that, or this client's newer local
+	 * count. Read-only — {@code drawn} may already include the local count, so it can't stand in for
+	 * the site's (which would discard the local count as "confirmed" and wind the tile back).
+	 */
 	public long shownProgress(int tileId, long drawn)
 	{
-		return fromPlugin(p -> p.shownProgress(tileId, drawn), drawn);
+		return Math.max(drawn, fromPlugin(p -> p.optimisticFloor(tileId), 0L));
 	}
 
 	/** Actions available for the clan on screen. Never null. */

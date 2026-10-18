@@ -6887,6 +6887,11 @@ public class AnvilPlugin extends Plugin {
         }
     }
 
+    /** This client's unconfirmed count for a tile (0 when none) — read-only, see OptimisticProgress.floor. */
+    long optimisticFloor(int tileId) {
+        return optimistic.floor(tileId, now());
+    }
+
     /** What to show for a tile the site last put at {@code siteCurrent}: that, or this client's newer count. */
     long shownProgress(int tileId, long siteCurrent) {
         return optimistic.apply(tileId, siteCurrent, now());

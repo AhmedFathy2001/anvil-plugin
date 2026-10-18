@@ -49,6 +49,17 @@ final class OptimisticProgress
 		return f == null ? siteCurrent : Math.max(siteCurrent, f[0]);
 	}
 
+	/**
+	 * The floor alone (0 when none or expired), without deciding it's been reached. For a caller that
+	 * holds a count already including it — the panel's on-screen number — which must never be passed
+	 * to {@link #apply} as the site's: that would read as "caught up" and throw the floor away.
+	 */
+	long floor(int tileId, long now)
+	{
+		long[] f = floors.get(tileId);
+		return f == null || now > f[1] ? 0 : f[0];
+	}
+
 	/** The push behind this tile's floor failed — back to what the site says. */
 	void clear(int tileId)
 	{
