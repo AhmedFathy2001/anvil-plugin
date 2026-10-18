@@ -6876,15 +6876,14 @@ public class AnvilPlugin extends Plugin {
     private volatile long lastLocalRepaintAt;
 
     /**
-     * Repaint the sidebar off a local bump — at most every few seconds, since an XP tile bumps on every
-     * drop. The repaint reads the in-memory config (and a cheap conditional feed GET), so it doesn't
-     * wait on the 15s panel tick.
+     * Move the sidebar's numbers off a local bump — at most once a second, since an XP tile bumps on
+     * every drop. Only the labels and bars change (no fetch, no rebuild); the 15s poll brings the rest.
      */
     private void repaintSidebarSoon() {
         long t = now();
-        if (sidebarPanel != null && t - lastLocalRepaintAt >= 3_000) {
+        if (sidebarPanel != null && t - lastLocalRepaintAt >= 1_000) {
             lastLocalRepaintAt = t;
-            SwingUtilities.invokeLater(sidebarPanel::poll); // redraws only if the bump moved a number
+            SwingUtilities.invokeLater(sidebarPanel::bumpProgress);
         }
     }
 

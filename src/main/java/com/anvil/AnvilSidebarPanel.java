@@ -1423,6 +1423,92 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private static final long REDRAW_AT_LEAST_MS = 60_000L;
 
+	/**
+	 * A progress row on screen whose numbers can move without a redraw: its tile, the count it shows,
+	 * and the label and bar that show it. {@code pctName}, when set, is a "42%" label beside it.
+	 */
+	private static final class LiveRow
+	{
+		final int tileId;
+		final long goal;
+		final boolean asPercent;
+		final JLabel value;
+		final JProgressBar bar;
+		final JLabel pctName;
+		long current;
+
+		LiveRow(int tileId, long current, long goal, boolean asPercent, JLabel value, JProgressBar bar, JLabel pctName)
+		{
+			this.tileId = tileId;
+			this.current = current;
+			this.goal = goal;
+			this.asPercent = asPercent;
+			this.value = value;
+			this.bar = bar;
+			this.pctName = pctName;
+		}
+	}
+
+	/** Rows built for the content about to go up; {@link #setContent} makes them {@link #liveRows}. */
+	private List<LiveRow> buildingRows = new ArrayList<>();
+	/** The progress rows of the content on screen. EDT only. */
+	private List<LiveRow> liveRows = new ArrayList<>();
+
+	private void live(JPanel row, int tileId, long current, long goal, boolean asPercent, JLabel pctName)
+	{
+		Object value = row.getClientProperty(ROW_VALUE);
+		Object bar = row.getClientProperty(ROW_BAR);
+		if (goal > 0 && value instanceof JLabel && bar instanceof JProgressBar)
+		{
+			buildingRows.add(new LiveRow(tileId, current, goal, asPercent, (JLabel) value, (JProgressBar) bar, pctName));
+		}
+	}
+
+	/**
+	 * This client just moved a tile (an XP drop, a kill, a drop): bring the numbers on screen up to it
+	 * in place — a few setText calls, no fetch and no rebuild. A tile that reaches its goal asks for a
+	 * real refresh, since "Done" reorders the card. EDT.
+	 */
+	public void bumpProgress()
+	{
+		if (!onScreen || liveRows.isEmpty())
+		{
+			return;
+		}
+		boolean finished = false;
+		for (LiveRow r : liveRows)
+		{
+			long shown = dataSource.shownProgress(r.tileId, r.current);
+			if (shown <= r.current)
+			{
+				continue;
+			}
+			r.current = shown;
+			int pct = (int) Math.min(100, Math.round(shown * 100.0 / r.goal));
+			r.bar.setValue(pct);
+			String text = r.asPercent ? pct + "%"
+				: ConnectionView.formatCount(shown) + " / " + ConnectionView.formatCount(r.goal);
+			if (!text.equals(r.value.getText()))
+			{
+				boolean wider = text.length() != r.value.getText().length();
+				r.value.setText(text);
+				if (wider)
+				{
+					r.value.revalidate();
+				}
+			}
+			if (r.pctName != null)
+			{
+				r.pctName.setText(pct + "%");
+			}
+			finished |= shown >= r.goal;
+		}
+		if (finished)
+		{
+			poll();
+		}
+	}
+
 	/** As {@link #refresh()}; {@code manual} = the member clicked Refresh, so the source is asked to
 	 * bypass what it normally caches (the weekly standings) rather than serve a minute-old answer. */
 	private void refresh(boolean manual, boolean onlyIfChanged)
@@ -2963,6 +3049,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		int pct = tile != null && tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0;
 		JPanel progress = opensTile(progressRow(name, tile != null ? progressValue(tile) : "", null,
 			bar(pct, ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tileId);
+		if (tile != null && !tile.isCompleted())
+		{
+			live(progress, tileId, tile.current, tile.goal, false, null);
+		}
 
 		JLabel drop = small("✕", MUTED);
 		drop.setToolTipText("Stop tracking this tile");
@@ -2990,11 +3080,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		// With numbers the byline can outgrow the panel; clip it and keep the whole line on hover.
 		JLabel who = small(ellipsize(task.workersLabel(), 36), task.includesSelf ? ColorScheme.BRAND_ORANGE : MUTED);
 		who.setToolTipText(plainText(task.workersLabel()));
-		return opensTile(progressRow(name, progressValue(tile),
+		JPanel row = opensTile(progressRow(name, progressValue(tile),
 			who,
 			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
 				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+		live(row, tile.tileId, tile.current, tile.goal, false, null);
+		return row;
 	}
 
 	/**
@@ -3044,6 +3136,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * A tile's progress line: its name with the count at the right, an optional byline (who's on it),
 	 * then a thin bar across the row. Value/label are JLabels, never painted inside the bar, for crisp text.
 	 */
+	private static final String ROW_VALUE = "anvil.rowValue";
+	private static final String ROW_BAR = "anvil.rowBar";
+
 	private static JPanel progressRow(JLabel name, String value, JLabel byline, JProgressBar bar)
 	{
 		JPanel row = left(new JPanel(new GridBagLayout()));
@@ -3061,7 +3156,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		gbc.weightx = 0;
 		gbc.fill = GridBagConstraints.NONE;
 		gbc.anchor = GridBagConstraints.EAST;
-		row.add(small(value, MUTED), gbc);
+		JLabel valueLabel = small(value, MUTED);
+		row.putClientProperty(ROW_VALUE, valueLabel);
+		row.putClientProperty(ROW_BAR, bar);
+		row.add(valueLabel, gbc);
 
 		gbc.gridx = 0;
 		gbc.gridwidth = 2;
@@ -3475,9 +3573,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		Color done = tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : null;
 		JLabel name = small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(tileTooltip(tile.tileId, tile.name, null));
-		return opensTile(progressRow(name, progressText(tile), null,
+		JPanel row = opensTile(progressRow(name, progressText(tile), null,
 			bar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+		if (!tile.complete && tile.target > 0)
+		{
+			live(row, tile.tileId, tile.current, tile.target, tile.target >= 100_000, null);
+		}
+		return row;
 	}
 
 	/** "c / t" for counted tiles, "42%" for very large targets (XP), or "Done"/"—". */
@@ -4131,10 +4234,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (progress != null && !tile.complete && !progress.isCompleted() && progress.goal > 1)
 		{
 			detailHeading(card, 0, "Progress");
-			JPanel row = progressRow(small(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)) + "%",
-				ColorScheme.TEXT_COLOR), progressValue(progress), null,
+			JLabel pctLabel = small(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)) + "%",
+				ColorScheme.TEXT_COLOR);
+			JPanel row = progressRow(pctLabel, progressValue(progress), null,
 				bar(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)),
 					ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
+			live(row, tile.tileId, progress.current, progress.goal, false, pctLabel);
 			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			card.add(row);
 			card.add(gap(9));
@@ -4870,8 +4975,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Swap the single content component and repaint. */
 	private void setContent(Component component)
 	{
+		List<LiveRow> rows = buildingRows;
+		buildingRows = new ArrayList<>();
 		SwingUtilities.invokeLater(() ->
 		{
+			liveRows = rows;
 			updateTabStrip();
 			if (tab == Tab.YOU)
 			{

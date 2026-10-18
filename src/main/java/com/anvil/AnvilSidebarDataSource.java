@@ -119,6 +119,12 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return p == null ? none : f.apply(p);
 	}
 
+	/** The count to show for a tile drawn at {@code drawn}: that, or this client's newer local count. */
+	public long shownProgress(int tileId, long drawn)
+	{
+		return fromPlugin(p -> p.shownProgress(tileId, drawn), drawn);
+	}
+
 	/** Actions available for the clan on screen. Never null. */
 	public PanelActions actionsFor()
 	{
