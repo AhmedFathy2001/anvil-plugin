@@ -365,4 +365,36 @@ public class SidebarTileCatalogueTest
 		assertNull(AnvilSidebarPanel.startedCount(untouched, progress));
 		assertNull(AnvilSidebarPanel.startedCount(done, progress));
 	}
+
+	@Test
+	public void searchFindsTheBossOrItemATileIsAboutWhenTheNameDoesNotSayIt()
+	{
+		BingoApiClient.BoardTile hilt = tile(1, "Big hilt energy", null, null, "Drops", false);
+		hilt.sources = Arrays.asList("General Graardor");
+		BingoApiClient.BoardTile bird = tile(2, "Feathered friend", null, null, "PvM", false);
+		bird.statName = "kreearra";
+		bird.statLabel = "Kree'Arra";
+		BingoApiClient.BoardTile loot = tile(3, "Lucky dip", null, null, "Drops", false);
+		BingoApiClient.TrackedItem tbow = new BingoApiClient.TrackedItem();
+		tbow.name = "Twisted bow";
+		loot.trackedItems = Arrays.asList(tbow);
+		BingoApiClient.BoardTile named = tile(4, "Graardor kc", null, null, "PvM", false);
+		List<BingoApiClient.BoardTile> tiles = Arrays.asList(hilt, bird, loot, named);
+
+		List<BingoApiClient.BoardTile> graardor = AnvilSidebarPanel.filterBoardTiles(
+			tiles, "graardor", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(Arrays.asList(4, 1), Arrays.asList(graardor.get(0).tileId, graardor.get(1).tileId));
+		assertEquals(2, AnvilSidebarPanel.filterBoardTiles(tiles, "kree",
+			AnvilSidebarPanel.TileStatusFilter.ALL, false).get(0).tileId);
+		assertEquals(3, AnvilSidebarPanel.filterBoardTiles(tiles, "twisted bow",
+			AnvilSidebarPanel.TileStatusFilter.ALL, false).get(0).tileId);
+
+		BingoApiClient.BoardTile timed = tile(5, "Snake speedrun", null, null, "PvM", false);
+		timed.tileType = "timed";
+		timed.statLabel = "Zulrah";
+		List<BingoApiClient.BoardTile> zulrah = AnvilSidebarPanel.filterBoardTiles(
+			Arrays.asList(timed, hilt), "timed zulrah", AnvilSidebarPanel.TileStatusFilter.ALL, false);
+		assertEquals(1, zulrah.size());
+		assertEquals(5, zulrah.get(0).tileId);
+	}
 }

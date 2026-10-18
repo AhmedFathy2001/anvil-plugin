@@ -3723,7 +3723,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				+ (tile.tier == null ? "" : tile.tier) + " "
 				+ (tile.tierKey == null ? "" : tile.tierKey) + " "
 				+ (tile.requirement == null ? "" : tile.requirement) + " "
-				+ (tile.description == null ? "" : tile.description));
+				+ (tile.description == null ? "" : tile.description) + " "
+				+ tileSubjects(tile));
 			boolean matches = true;
 			for (String term : terms)
 			{
@@ -3838,7 +3839,50 @@ public class AnvilSidebarPanel extends PluginPanel
 			.trim();
 	}
 
-	/** Lower is better: label phrase → label words → category → requirement → description. */
+	/**
+	 * What the tile is actually about, for a search the name doesn't cover: the boss or skill it
+	 * counts, the bosses its drop must come from, the items and sets it accepts, the site's rule
+	 * line and its type. "Graardor" finds a tile called "Big hilt energy" when General Graardor is
+	 * the source.
+	 */
+	static String tileSubjects(BingoApiClient.BoardTile tile)
+	{
+		StringBuilder out = new StringBuilder();
+		java.util.function.Consumer<String> add = text ->
+		{
+			if (text != null && !text.trim().isEmpty())
+			{
+				out.append(text).append(' ');
+			}
+		};
+		add.accept(tile.statLabel);
+		add.accept(tile.statName);
+		if (tile.sources != null)
+		{
+			tile.sources.forEach(add);
+		}
+		if (tile.trackedItems != null)
+		{
+			tile.trackedItems.forEach(item -> add.accept(item == null ? null : item.name));
+		}
+		if (tile.itemRequirements != null)
+		{
+			tile.itemRequirements.forEach(item ->
+			{
+				if (item != null)
+				{
+					add.accept(item.name);
+					add.accept(item.group);
+				}
+			});
+		}
+		add.accept(tile.howItCounts);
+		// The type words too, so they combine with a name: "timed zulrah", "pvp kills".
+		tileKindNames(tile).forEach(add);
+		return out.toString();
+	}
+
+	/** Lower is better: label phrase → label words → category → tier → subjects → requirement → description. */
 	private static int tileSearchRank(BingoApiClient.BoardTile tile, String phrase, String[] terms)
 	{
 		if (tileHasTier(tile, phrase)) return 0;
@@ -3851,6 +3895,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		String category = normalizeTileSearch(tile.category);
 		String tier = normalizeTileSearch((tile.tier == null ? "" : tile.tier) + " "
 			+ (tile.tierKey == null ? "" : tile.tierKey));
+		String subjects = normalizeTileSearch(tileSubjects(tile));
 		String requirement = normalizeTileSearch(tile.requirement);
 		String description = normalizeTileSearch(tile.description);
 		int score = 20;
@@ -3860,6 +3905,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			else if (label.contains(term)) score += 2;
 			else if (category.contains(term)) score += 8;
 			else if (tier.contains(term)) score += 10;
+			else if (subjects.contains(term)) score += 12;
 			else if (requirement.contains(term)) score += 14;
 			else if (description.contains(term)) score += 22;
 			else score += 100;
