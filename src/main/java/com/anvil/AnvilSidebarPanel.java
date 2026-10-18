@@ -265,6 +265,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private int boardCatalogueGeneration;
 	/** Do not replace the whole Swing tree underneath somebody who is typing in the tile search. */
 	private boolean boardSearchFocused;
+	/** Last keystroke in the tile search; see {@link #typingInSearch}. */
+	private long boardSearchEditedAt;
+	private static final long TYPING_PAUSE_MS = 4_000L;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
 	private boolean rebuildingPicker;
@@ -309,7 +312,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		autoRefresh = new Timer(POLL_INTERVAL_MS, e ->
 		{
-			if (!boardSearchFocused)
+			if (!typingInSearch())
 			{
 				poll();
 			}
@@ -1424,6 +1427,17 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final long REDRAW_AT_LEAST_MS = 60_000L;
 
 	/**
+	 * Mid-search: the field has focus AND was typed in moments ago. Redraws wait for that so the
+	 * field isn't swapped out under a keystroke. Focus alone used to be enough, but clicking a tile
+	 * row doesn't take focus from the field, so a panel left with "cerb" in the box never refreshed
+	 * again — a tile's detail sat on a count the site and the tracker had long moved past.
+	 */
+	private boolean typingInSearch()
+	{
+		return boardSearchFocused && System.currentTimeMillis() - boardSearchEditedAt < TYPING_PAUSE_MS;
+	}
+
+	/**
 	 * A progress row on screen whose numbers can move without a redraw: its tile, the count it shows,
 	 * and the label and bar that show it. {@code pctName}, when set, is a "42%" label beside it.
 	 */
@@ -1617,7 +1631,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		// A refresh that began just before the member focused Search may finish while they are typing.
 		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.
-		if (boardSearchFocused || teamsView != null)
+		if (typingInSearch() || teamsView != null)
 		{
 			return;
 		}
@@ -1899,7 +1913,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		refreshSignInRow();
 		refreshAccountRow();
-		if (connection != null && !boardSearchFocused)
+		if (connection != null && !typingInSearch())
 		{
 			renderSelected();
 		}
@@ -3921,6 +3935,19 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override public void focusGained(java.awt.event.FocusEvent e) { boardSearchFocused = true; }
 			@Override public void focusLost(java.awt.event.FocusEvent e) { boardSearchFocused = false; }
 		});
+		if (boardSearchFocused)
+		{
+			// A redraw replaced the field the member was in: put them back in it, caret at the end.
+			// Twice deferred: setContent swaps the new field in on a later EDT turn than this one.
+			SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() ->
+			{
+				if (search.isShowing())
+				{
+					search.requestFocusInWindow();
+					search.setCaretPosition(search.getText().length());
+				}
+			}));
+		}
 
 		JButton clearSearch = flatButton("", "Clear tile search", () -> search.setText(""));
 		clearSearch.setIcon(new GlyphIcon(GlyphIcon.Shape.CLOSE, 12));
@@ -3989,6 +4016,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		};
 		onEdit(search, () ->
 		{
+			boardSearchEditedAt = System.currentTimeMillis();
 			clearSearch.setEnabled(!search.getText().isEmpty());
 			refilter.run();
 		});
@@ -4365,6 +4393,12 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		rows.add(capH(card));
 		relayout(catalogue, rows);
+		if (rows.isShowing())
+		{
+			// Opened by a click, into a list already on screen — no setContent will hand its row over.
+			liveRows.addAll(buildingRows);
+			buildingRows = new ArrayList<>();
+		}
 	}
 
 	/** "Kurrozive · 312 KC" — a finisher and their share, in the tile's unit; just the name when unknown. */
@@ -4918,7 +4952,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					failedBoardCatalogues.add(key);
 					log.debug("tile catalogue fetch failed", ex);
 				}
-				if (!boardSearchFocused)
+				if (!typingInSearch())
 				{
 					renderSelected();
 				}
