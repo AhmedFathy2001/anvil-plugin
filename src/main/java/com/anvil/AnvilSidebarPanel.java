@@ -3680,9 +3680,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return out;
 		}
-		// A complete category/tier name behaves like the filter the player meant, without adding a
-		// second wall of filter controls to a 240px sidebar. Tier wins when names collide ("Troll" is
-		// both a common category and the default lowest difficulty); arbitrary words stay free text.
+		// A complete category/tier/type name also brings in every tile filed under it, ranked first,
+		// without a second wall of filter controls on a 240px sidebar. Tier wins when names collide
+		// ("Troll" is both a common category and the default lowest difficulty).
 		boolean tierFacet = !needle.isEmpty() && tiles.stream().filter(java.util.Objects::nonNull)
 			.anyMatch(tile -> tileHasTier(tile, needle));
 		boolean categoryFacet = !tierFacet && !needle.isEmpty()
@@ -3706,18 +3706,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				continue;
 			}
-			if (kindFacet)
-			{
-				if (!tileKindNames(tile).contains(needle) && !tileHasCategory(tile.category, needle))
-				{
-					continue;
-				}
-			}
-			else if ((tierFacet && !tileHasTier(tile, needle))
-				|| (categoryFacet && !tileHasCategory(tile.category, needle)))
-			{
-				continue;
-			}
+			// Additive, not a gate: "doom" is the Doom category AND every tile that mentions Doom. As a
+			// gate it hid the Doom KC tiles filed under PvM, while "doom boss" (no facet) found them.
+			boolean facetMatch = (tierFacet && tileHasTier(tile, needle))
+				|| (categoryFacet && tileHasCategory(tile.category, needle))
+				|| (kindFacet && (tileKindNames(tile).contains(needle) || tileHasCategory(tile.category, needle)));
 			String haystack = normalizeTileSearch((tile.label == null ? "" : tile.label) + " "
 				+ (tile.category == null ? "" : tile.category) + " "
 				+ (tile.tier == null ? "" : tile.tier) + " "
@@ -3728,12 +3721,13 @@ public class AnvilSidebarPanel extends PluginPanel
 			boolean matches = true;
 			for (String term : terms)
 			{
-				if (!tierFacet && !categoryFacet && !kindFacet && !haystack.contains(term))
+				if (!haystack.contains(term))
 				{
 					matches = false;
 					break;
 				}
 			}
+			matches |= facetMatch;
 			if (matches)
 			{
 				out.add(tile);
@@ -3887,6 +3881,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		if (tileHasTier(tile, phrase)) return 0;
 		if (tileHasCategory(tile.category, phrase)) return 2;
+		if (tileKindNames(tile).contains(phrase)) return 3;
 		String label = normalizeTileSearch(tile.label);
 		if (label.equals(phrase)) return 4;
 		if (label.startsWith(phrase)) return 5;
