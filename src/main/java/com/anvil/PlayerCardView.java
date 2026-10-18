@@ -135,12 +135,19 @@ final class PlayerCardView
 		if (bosses != null && !bosses.isEmpty())
 		{
 			JPanel grid = grid(3, 2, 2);
-			for (PlayerCard.Boss boss : bosses)
+			sections.put("Bosses", searchable("bosses", bosses.size(), grid, query ->
 			{
-				grid.add(iconCell(hiscoreSkill(boss.key, boss.label), -1, boss.label, boss.kc,
-					String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc), ic, openLogPage, boss.clogPage));
-			}
-			sections.put("Bosses", blockOf(grid));
+				grid.removeAll();
+				for (PlayerCard.Boss boss : bosses)
+				{
+					if (matches(query, boss.label))
+					{
+						grid.add(iconCell(hiscoreSkill(boss.key, boss.label), -1, boss.label, boss.kc,
+							String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc), ic, openLogPage, boss.clogPage));
+					}
+				}
+				return grid.getComponentCount() > 0;
+			}));
 		}
 		// Clues, minigames and the rest with a score — same grid as bosses.
 		if (card.activities != null && !card.activities.isEmpty())
@@ -318,7 +325,7 @@ final class PlayerCardView
 			{
 				ic.items.getImage(row.itemId).addTo(icon);
 			}
-			else
+			else if (!bossIcon(icon, milestoneSubject(row.label), ic))
 			{
 				icon.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 12, ColorScheme.BRAND_ORANGE));
 			}
@@ -419,6 +426,57 @@ final class PlayerCardView
 		return block;
 	}
 
+	/** Past this many entries a section gets a search box over it. */
+	private static final int SEARCH_FROM = 10;
+
+	/**
+	 * A section's list in its card, with a search box above it once it's long enough to need one.
+	 * {@code fill} redraws {@code list} with what a query matches ("" = everything) and says whether
+	 * anything did.
+	 */
+	private static JPanel searchable(String what, int count, JPanel list, java.util.function.Predicate<String> fill)
+	{
+		fill.test("");
+		JPanel block = block();
+		if (count < SEARCH_FROM)
+		{
+			block.add(list);
+			return block;
+		}
+		SearchField search = new SearchField(String.format(Locale.ROOT, "Search %d %s…", count, what), "");
+		styleSearch(search);
+		search.setFont(SMALL);
+		search.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		search.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+		JLabel none = small("Nothing matches.", MUTED);
+		none.setVisible(false);
+		onEdit(search, () ->
+		{
+			none.setVisible(!fill.test(search.getText().trim()));
+			block.revalidate();
+			block.repaint();
+		});
+		block.add(capH(left(search)));
+		block.add(gap(6));
+		block.add(none);
+		block.add(list);
+		return block;
+	}
+
+	/** Every word of the query somewhere in the name, case and punctuation aside ("kril" finds K'ril). */
+	static boolean matches(String query, String name)
+	{
+		String n = fold(name);
+		for (String word : query.split("\\s+"))
+		{
+			if (!n.contains(fold(word)))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/** A transparent, left-aligned grid {@code cols} across. */
 	private static JPanel grid(int cols, int hgap, int vgap)
 	{
@@ -453,49 +511,63 @@ final class PlayerCardView
 	 */
 	private static JPanel times(List<PlayerCard.PbEntry> entries, Icons ic)
 	{
-		JPanel block = block();
-		for (PlayerCard.PbEntry e : entries)
+		JPanel list = column();
+		list.setOpaque(false);
+		return searchable("times", entries.size(), list, query ->
 		{
-			boolean expandable = e.variants != null && !e.variants.isEmpty();
-			JPanel row = row(6);
-			row.setBorder(BorderFactory.createEmptyBorder(3, 2, 3, 4));
-			JLabel icon = iconSlot(24, 22);
-			bossIcon(icon, e.base, ic);
-			row.add(icon, BorderLayout.WEST);
-			row.add(small(e.name, Color.WHITE), BorderLayout.CENTER);
-			JPanel right = row(5);
-			right.add(small(e.best, ColorScheme.BRAND_ORANGE), BorderLayout.CENTER);
-			JLabel chevron = new JLabel(expandable ? new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED) : null);
-			chevron.setPreferredSize(new Dimension(8, 8));
-			right.add(chevron, BorderLayout.EAST);
-			row.add(right, BorderLayout.EAST);
-			block.add(capH(row));
-			if (!expandable)
+			list.removeAll();
+			for (PlayerCard.PbEntry e : entries)
 			{
-				continue;
+				if (matches(query, e.name))
+				{
+					timeRow(list, e, ic);
+				}
 			}
-			JPanel teams = column();
-			teams.setOpaque(false);
-			teams.setBorder(BorderFactory.createEmptyBorder(0, 32, 4, 16));
-			for (PlayerCard.PbVariant v : e.variants)
-			{
-				JPanel line = row(0);
-				line.setToolTipText(plainText(v.activity));
-				line.add(small("Solo".equalsIgnoreCase(v.team) ? "Solo" : v.team + " players", MUTED), BorderLayout.WEST);
-				line.add(small(v.time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
-				teams.add(capH(line));
-			}
-			teams.setVisible(false);
-			block.add(teams);
-			hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () ->
-			{
-				teams.setVisible(!teams.isVisible());
-				chevron.setIcon(new GlyphIcon(teams.isVisible() ? GlyphIcon.Shape.CHEVRON_LEFT : GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED));
-				block.revalidate();
-				block.repaint();
-			});
+			return list.getComponentCount() > 0;
+		});
+	}
+
+	/** One boss's best time, and the team sizes under it when it has several. */
+	private static void timeRow(JPanel block, PlayerCard.PbEntry e, Icons ic)
+	{
+		boolean expandable = e.variants != null && !e.variants.isEmpty();
+		JPanel row = row(6);
+		row.setBorder(BorderFactory.createEmptyBorder(3, 2, 3, 4));
+		JLabel icon = iconSlot(24, 22);
+		bossIcon(icon, e.base, ic);
+		row.add(icon, BorderLayout.WEST);
+		row.add(small(e.name, Color.WHITE), BorderLayout.CENTER);
+		JPanel right = row(5);
+		right.add(small(e.best, ColorScheme.BRAND_ORANGE), BorderLayout.CENTER);
+		JLabel chevron = new JLabel(expandable ? new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED) : null);
+		chevron.setPreferredSize(new Dimension(8, 8));
+		right.add(chevron, BorderLayout.EAST);
+		row.add(right, BorderLayout.EAST);
+		block.add(capH(row));
+		if (!expandable)
+		{
+			return;
 		}
-		return block;
+		JPanel teams = column();
+		teams.setOpaque(false);
+		teams.setBorder(BorderFactory.createEmptyBorder(0, 32, 4, 16));
+		for (PlayerCard.PbVariant v : e.variants)
+		{
+			JPanel line = row(0);
+			line.setToolTipText(plainText(v.activity));
+			line.add(small("Solo".equalsIgnoreCase(v.team) ? "Solo" : v.team + " players", MUTED), BorderLayout.WEST);
+			line.add(small(v.time, ColorScheme.BRAND_ORANGE), BorderLayout.EAST);
+			teams.add(capH(line));
+		}
+		teams.setVisible(false);
+		block.add(teams);
+		hoverable(row, ColorScheme.DARKER_GRAY_COLOR, () ->
+		{
+			teams.setVisible(!teams.isVisible());
+			chevron.setIcon(new GlyphIcon(teams.isVisible() ? GlyphIcon.Shape.CHEVRON_LEFT : GlyphIcon.Shape.CHEVRON_RIGHT, 8, MUTED));
+			block.revalidate();
+			block.repaint();
+		});
 	}
 
 	/**
@@ -523,13 +595,14 @@ final class PlayerCardView
 		return best;
 	}
 
-	static void bossIcon(JLabel icon, String name, Icons ic)
+	/** @return whether it found a picture for the name */
+	static boolean bossIcon(JLabel icon, String name, Icons ic)
 	{
 		HiscoreSkill boss = bossFor(name);
 		if (boss != null && boss.getSpriteId() > 0 && ic.sprites != null)
 		{
 			ic.sprites.addSpriteTo(icon, boss.getSpriteId(), 0);
-			return;
+			return true;
 		}
 		if (ic.skills != null && name != null)
 		{
@@ -538,10 +611,22 @@ final class PlayerCardView
 				if (name.toLowerCase(Locale.ROOT).contains(skill.getName().toLowerCase(Locale.ROOT)))
 				{
 					icon.setIcon(new ImageIcon(ic.skills.getSkillImage(skill, true)));
-					return;
+					return true;
 				}
 			}
 		}
+		return false;
+	}
+
+	/**
+	 * What a milestone is about, so it can wear its boss or skill icon: "500 Zulrah KC" → "Zulrah",
+	 * "50M Attack XP" → "Attack", "99 Attack" → "Attack". A total ("1,500 total") names nothing we draw.
+	 */
+	static String milestoneSubject(String label)
+	{
+		return label == null ? null : label
+			.replaceFirst("^[\\d,.]+[KMB]?\\s+", "")
+			.replaceFirst("\\s+(KC|XP)$", "");
 	}
 
 	/** The log page a clue tier fills: cluesHard → "Hard Treasure Trails". "All tiers" has none. */

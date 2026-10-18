@@ -1,8 +1,10 @@
 package com.anvil;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.google.gson.Gson;
 import java.time.Instant;
@@ -232,5 +234,27 @@ public class PlayerCardViewTest
 		cm.kc = 56;
 		cm.clogPage = "Chambers of Xeric";
 		assertEquals(Integer.valueOf(167), PlayerCardView.pageKills(java.util.Arrays.asList(cox, cm)).get("chambers of xeric"));
+	}
+
+	@Test
+	public void milestonesNameWhatTheyreAbout()
+	{
+		assertEquals("Zulrah", PlayerCardView.milestoneSubject("500 Zulrah KC"));
+		assertEquals("Maggot King", PlayerCardView.milestoneSubject("1,000 Maggot King KC"));
+		assertEquals("Attack", PlayerCardView.milestoneSubject("50M Attack XP"));
+		assertEquals("Attack", PlayerCardView.milestoneSubject("99 Attack"));
+		assertEquals(HiscoreSkill.ZULRAH, PlayerCardView.bossFor(PlayerCardView.milestoneSubject("500 Zulrah KC")));
+		assertNull(PlayerCardView.bossFor(PlayerCardView.milestoneSubject("1,500 total")));
+		assertEquals(HiscoreSkill.MAD_ANGEL, PlayerCardView.bossFor(PlayerCardView.milestoneSubject("100 Mad Angel KC")));
+	}
+
+	@Test
+	public void searchMatchesEveryWordIgnoringPunctuation()
+	{
+		assertTrue(PlayerCardView.matches("", "Zulrah"));
+		assertTrue(PlayerCardView.matches("kril", "K'ril Tsutsaroth"));
+		assertTrue(PlayerCardView.matches("CHAMBERS challenge", "Chambers of Xeric: Challenge Mode"));
+		assertFalse(PlayerCardView.matches("chambers expert", "Chambers of Xeric: Challenge Mode"));
+		assertFalse(PlayerCardView.matches("zul", "Vorkath"));
 	}
 }

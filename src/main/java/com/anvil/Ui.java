@@ -222,4 +222,39 @@ final class Ui
 		bar.setPreferredSize(new Dimension(0, h));
 		return bar;
 	}
+
+	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
+	static final class SearchField extends javax.swing.JTextField
+	{
+		private final String placeholder;
+
+		SearchField(String placeholder, String value)
+		{
+			super(value == null ? "" : value);
+			this.placeholder = placeholder;
+			addFocusListener(new java.awt.event.FocusAdapter()
+			{
+				@Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
+				@Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
+			});
+		}
+
+		@Override
+		protected void paintComponent(java.awt.Graphics graphics)
+		{
+			super.paintComponent(graphics);
+			if (!getText().isEmpty() || isFocusOwner())
+			{
+				return;
+			}
+			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+			g.setColor(MUTED);
+			g.setFont(getFont());
+			java.awt.FontMetrics metrics = g.getFontMetrics();
+			java.awt.Insets insets = getInsets();
+			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
+			g.drawString(placeholder, insets.left, y);
+			g.dispose();
+		}
+	}
 }
