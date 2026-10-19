@@ -22,6 +22,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
+import net.runelite.api.Experience;
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
@@ -129,7 +130,7 @@ final class PlayerCardView
 		Map<String, JPanel> sections = new LinkedHashMap<>();
 		if (card.skills != null && !card.skills.isEmpty())
 		{
-			sections.put("Skills", skills(card.skills, ic));
+			sections.put("Skills", skills(card.skills, card.totalLevel, ic));
 		}
 		List<PlayerCard.Boss> bosses = card.bosses != null ? card.bosses : card.topBosses;
 		if (bosses != null && !bosses.isEmpty())
@@ -389,8 +390,21 @@ final class PlayerCardView
 		}
 	}
 
-	/** The game's skill tab: icon + level, three across, XP on hover. */
-	private static JPanel skills(List<PlayerCard.Skill> skills, Icons ic)
+	/** Virtual levels (past 99, off XP) on the Lookup skill tab; remembered for the session. */
+	private static boolean virtualLevels;
+
+	/** The level {@code s} shows: the real one, or the virtual one off its XP when that's on. */
+	static int shownLevel(PlayerCard.Skill s, boolean virtual)
+	{
+		if (s == null)
+		{
+			return 1;
+		}
+		return virtual && s.level >= 99 ? Experience.getLevelForXp((int) Math.min(s.xp, Experience.MAX_SKILL_XP)) : s.level;
+	}
+
+	/** The game's skill tab: icon + level, three across, XP on hover; total level and a virtual toggle below. */
+	private static JPanel skills(List<PlayerCard.Skill> skills, int totalLevel, Icons ic)
 	{
 		Map<String, PlayerCard.Skill> byKey = new LinkedHashMap<>();
 		for (PlayerCard.Skill s : skills)
@@ -398,11 +412,11 @@ final class PlayerCardView
 			byKey.put(s.key.toLowerCase(Locale.ROOT), s);
 		}
 		JPanel grid = grid(3, 2, 2);
+		List<Runnable> paint = new ArrayList<>();
 		for (Skill skill : SKILL_GRID)
 		{
 			PlayerCard.Skill s = byKey.get(skill.name().toLowerCase(Locale.ROOT));
-			int level = s != null ? s.level : 1;
-			JLabel cell = cell(Integer.toString(level), level >= 99 ? ColorScheme.BRAND_ORANGE : Color.WHITE, 6);
+			JLabel cell = cell("", Color.WHITE, 6);
 			cell.setToolTipText(s != null
 				? String.format(Locale.ROOT, "%s — %,d XP", skill.getName(), s.xp)
 				: skill.getName());
@@ -410,13 +424,48 @@ final class PlayerCardView
 			{
 				cell.setIcon(new ImageIcon(ic.skills.getSkillImage(skill, true)));
 			}
-			else
+			String prefix = ic.skills != null ? "" : abbrev(skill.getName()) + " ";
+			paint.add(() ->
 			{
-				cell.setText(abbrev(skill.getName()) + " " + level);
-			}
+				int level = shownLevel(s, virtualLevels);
+				cell.setText(prefix + level);
+				cell.setForeground(level >= 99 ? ColorScheme.BRAND_ORANGE : Color.WHITE);
+			});
 			grid.add(cell);
 		}
-		return blockOf(grid);
+		JLabel total = small("", Color.WHITE);
+		JLabel toggle = small("Virtual levels", MUTED);
+		toggle.setToolTipText("Show levels past 99 from XP");
+		paint.add(() ->
+		{
+			int sum = 0;
+			for (Skill skill : SKILL_GRID)
+			{
+				sum += shownLevel(byKey.get(skill.name().toLowerCase(Locale.ROOT)), virtualLevels);
+			}
+			// The site's total is the hiscores one; a virtual total only exists off XP.
+			total.setText(String.format(Locale.ROOT, "Total level  %,d", virtualLevels || totalLevel <= 0 ? sum : totalLevel));
+			toggle.setText((virtualLevels ? "\u2713 " : "") + "Virtual levels");
+			toggle.setForeground(virtualLevels ? ColorScheme.BRAND_ORANGE : MUTED);
+		});
+		Runnable repaint = () -> paint.forEach(Runnable::run);
+		repaint.run();
+		hoverable(toggle, ColorScheme.DARK_GRAY_COLOR, () ->
+		{
+			virtualLevels = !virtualLevels;
+			repaint.run();
+		});
+		JPanel foot = new JPanel(new BorderLayout());
+		foot.setOpaque(true);
+		foot.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		foot.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+		foot.add(total, BorderLayout.WEST);
+		foot.add(toggle, BorderLayout.EAST);
+		JPanel col = column();
+		col.add(grid);
+		col.add(gap(2));
+		col.add(capH(left(foot)));
+		return blockOf(col);
 	}
 
 	private static JPanel blockOf(JComponent content)

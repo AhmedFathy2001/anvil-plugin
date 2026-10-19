@@ -257,4 +257,23 @@ public class PlayerCardViewTest
 		assertFalse(PlayerCardView.matches("chambers expert", "Chambers of Xeric: Challenge Mode"));
 		assertFalse(PlayerCardView.matches("zul", "Vorkath"));
 	}
+
+	@Test
+	public void virtualLevelsComeFromXpPast99Only()
+	{
+		PlayerCard.Skill maxed = new PlayerCard.Skill();
+		maxed.level = 99;
+		maxed.xp = 200_000_000;
+		PlayerCard.Skill mid = new PlayerCard.Skill();
+		mid.level = 99;
+		mid.xp = 13_034_431;
+		PlayerCard.Skill low = new PlayerCard.Skill();
+		low.level = 80;
+		low.xp = 2_000_000;
+		assertEquals(99, PlayerCardView.shownLevel(maxed, false));
+		assertEquals(126, PlayerCardView.shownLevel(maxed, true));
+		assertEquals(99, PlayerCardView.shownLevel(mid, true));
+		assertEquals(80, PlayerCardView.shownLevel(low, true));
+		assertEquals(1, PlayerCardView.shownLevel(null, true));
+	}
 }
