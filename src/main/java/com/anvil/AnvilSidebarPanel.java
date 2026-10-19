@@ -1038,7 +1038,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private PlayerCardView.Icons cardIcons(String rsn)
 	{
 		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done));
+			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done),
+			dataSource.supportsCas() ? done -> async(() -> dataSource.fetchCas(rsn), done) : null);
 	}
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
