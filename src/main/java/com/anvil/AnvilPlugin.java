@@ -324,6 +324,8 @@ public class AnvilPlugin extends Plugin {
     // collection log" line fires on pickup — same acquisition, but the two can land far more than the
     // 3s loot dedup apart (open the chest, take the items later), which double-counted a CoX unique.
     private final Map<Integer, Long> recentLootItemIds = new HashMap<>();
+    // The reverse order: a chat line credited first (a raid's unique at raid end), the chest's loot later.
+    private final ChatCredits chatCredits = new ChatCredits();
     private static final long CLOG_LOOT_DEDUP_MS = 5 * 60_000;
 
     // PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
@@ -3108,7 +3110,7 @@ public class AnvilPlugin extends Plugin {
             return;
         }
         trackVestigeRolls(name, event.getItems());
-        processLoot(name, event.getItems(), "npc");
+        processLoot(name, chatCredits.unclaimed(event.getItems(), now()), "npc");
         maybeNotifyRareDrop(name, event.getItems(), "npc");
         // Count kills + value off the SERVER event — it fires once per real kill, so a barraged clump of
         // same-tick deaths is counted in full (NpcLootReceived under-fires those). See serverNpcLootSeen.
@@ -3124,7 +3126,7 @@ public class AnvilPlugin extends Plugin {
     public void onNpcLootReceived(NpcLootReceived event) {
         String name = event.getNpc().getName();
         trackVestigeRolls(name, event.getItems());
-        processLoot(name, event.getItems(), "npc");
+        processLoot(name, chatCredits.unclaimed(event.getItems(), now()), "npc");
         recordEventLoot(name, event.getItems(), "npc");
         maybeNotifyRareDrop(name, event.getItems(), "npc");
         // Kill + value counting is owned by ServerNpcLoot when the client emits it (accurate under
@@ -3188,7 +3190,7 @@ public class AnvilPlugin extends Plugin {
         if ("event".equals(kind)) {
             processNpcKill(source);
         }
-        processLoot(source, event.getItems(), kind);
+        processLoot(source, chatCredits.unclaimed(event.getItems(), now()), kind);
         processValueTiles(source, event.getItems(), kind);
         recordEventLoot(source, event.getItems(), kind);
         maybeNotifyRareDrop(source, event.getItems(), kind);
@@ -3936,6 +3938,7 @@ public class AnvilPlugin extends Plugin {
         // item itself — a tile with a specific sourceNpcs list won't match, which is intended
         // (clog rewards have no NPC source to whitelist against).
         processLoot(itemName, synthetic, "clog");
+        chatCredits.note(synthetic, now);
     }
 
     /** The notable-item id whose name matches {@code name} (case-insensitive), or null. Lets the clog-unlock
@@ -4005,6 +4008,7 @@ public class AnvilPlugin extends Plugin {
         if (!synthetic.isEmpty()) {
             notifyId = synthetic.get(synthetic.size() - 1).getId();
             processLoot(source, synthetic, "npc");
+            chatCredits.note(synthetic, now());
         }
 
         // Clan rare-drop post — also for items no tile tracks (kill may pre-date any event).
