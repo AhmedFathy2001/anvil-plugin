@@ -926,7 +926,7 @@ final class PlayerCardView
 	}
 
 	/** A 3px share-of-total bar: orange, green once full, over {@code bg}. */
-	private static JPanel thinBar(int pct, Color bg)
+	static JPanel thinBar(int pct, Color bg)
 	{
 		JPanel bar = new JPanel()
 		{
