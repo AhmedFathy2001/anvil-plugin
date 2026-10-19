@@ -1474,6 +1474,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		Object bar = row.getClientProperty(ROW_BAR);
 		if (goal > 0 && value instanceof JLabel && bar instanceof JProgressBar)
 		{
+			((JLabel) value).setToolTipText(exactProgress(current, goal));
 			buildingRows.add(new LiveRow(tileId, current, goal, asPercent, (JLabel) value, (JProgressBar) bar, pctName));
 		}
 	}
@@ -1517,6 +1518,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			r.bar.setValue(pct);
 			String text = r.asPercent ? pct + "%"
 				: ConnectionView.formatCount(shown) + " / " + ConnectionView.formatCount(r.goal);
+			r.value.setToolTipText(exactProgress(shown, r.goal));
 			if (!text.equals(r.value.getText()))
 			{
 				boolean wider = text.length() != r.value.getText().length();
@@ -3225,6 +3227,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static String progressValue(ClogTaskModel.TaskRow tile)
 	{
 		return tile.goal > 0 ? ConnectionView.formatCount(tile.current) + " / " + ConnectionView.formatCount(tile.goal) : "";
+	}
+
+	/** "19,023,122 / 20,142,002" on hover where the row shows "19M / 20.1M" (or a %); null when nothing's abbreviated. */
+	static String exactProgress(long current, long goal)
+	{
+		return goal >= 10_000 || current >= 10_000 ? String.format(java.util.Locale.ROOT, "%,d / %,d", current, goal) : null;
 	}
 
 	/** Width a long tile tooltip wraps at, in points. */
