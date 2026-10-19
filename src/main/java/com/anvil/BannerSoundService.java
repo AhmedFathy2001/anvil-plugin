@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
@@ -51,12 +52,9 @@ public class BannerSoundService
 
 	private final AnvilConfig config;
 	private final AudioPlayer audioPlayer;
-	private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor(r ->
-	{
-		Thread t = new Thread(r, "anvil-banner-sound");
-		t.setDaemon(true);
-		return t;
-	});
+	// The service is a singleton that outlives a plugin stop/start, so shutdown() can't leave a dead
+	// executor behind: the next play() would throw RejectedExecutionException into the loot handler.
+	private ExecutorService audioExecutor;
 
 	@Inject
 	public BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer)
@@ -319,7 +317,28 @@ public class BannerSoundService
 		{
 			return;
 		}
-		audioExecutor.submit(() -> playBlocking(kind));
+		try
+		{
+			executor().submit(() -> playBlocking(kind));
+		}
+		catch (RejectedExecutionException e)
+		{
+			log.debug("Banner sound skipped", e);
+		}
+	}
+
+	private synchronized ExecutorService executor()
+	{
+		if (audioExecutor == null || audioExecutor.isShutdown())
+		{
+			audioExecutor = Executors.newSingleThreadExecutor(r ->
+			{
+				Thread t = new Thread(r, "anvil-banner-sound");
+				t.setDaemon(true);
+				return t;
+			});
+		}
+		return audioExecutor;
 	}
 
 	private void playBlocking(Kind kind)
@@ -461,8 +480,12 @@ public class BannerSoundService
 		Clipboards.copy(dir.toString());
 	}
 
-	public void shutdown()
+	public synchronized void shutdown()
 	{
-		audioExecutor.shutdownNow();
+		if (audioExecutor != null)
+		{
+			audioExecutor.shutdownNow();
+			audioExecutor = null;
+		}
 	}
 }

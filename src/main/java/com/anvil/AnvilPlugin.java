@@ -4323,14 +4323,15 @@ public class AnvilPlugin extends Plugin {
                     lastSubmittedAt.put(dedupKey, now);
                 }
 
-                showBingoToast(drop, snapshotCurrent, snapshotRequired);
-                sendChatMessage("Tracked drop detected: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
-
                 // Coalesce: queue the increment into a per-tile aggregate and schedule a
                 // delayed flush. A second drop landing within COALESCE_FLUSH_MS extends
                 // the flush so we end up with one screenshot + one submission for the
-                // whole burst (e.g. 5 feathers from a chicken).
+                // whole burst (e.g. 5 feathers from a chicken). Queued BEFORE the toast:
+                // a cosmetic failure must never cost the submission.
                 queueDropForFlush(drop, amount, snapshotCurrent, snapshotRequired, trackingItemId);
+
+                showBingoToast(drop, snapshotCurrent, snapshotRequired);
+                sendChatMessage("Tracked drop detected: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
                 // No break: one drop credits EVERY tile tracking this item (e.g. a sunfire
                 // piece counting toward both "any Colosseum unique" and "sunfire piece"
                 // tiles). Each tile has its own aggregate, so each gets its own proof —
@@ -5587,6 +5588,8 @@ public class AnvilPlugin extends Plugin {
             return; // the last pass failed; wait out the backoff (the site coming back cuts it short)
         }
         List<PendingSubmission> pending = pendingSubmissionStore.loadAll();
+        // Saved manual proofs never upload; don't log a "retry" for them every 30s.
+        pending.removeIf(sub -> sub.manual);
         if (pending.isEmpty()) {
             return;
         }
