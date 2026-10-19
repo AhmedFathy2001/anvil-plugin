@@ -28,6 +28,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.hiscore.HiscoreSkill;
+import net.runelite.client.hiscore.HiscoreSkillType;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
@@ -140,6 +141,15 @@ final class PlayerCardView
 		if (bosses != null && !bosses.isEmpty())
 		{
 			JPanel grid = grid(3, 2, 2);
+			java.util.Set<HiscoreSkill> killed = java.util.EnumSet.noneOf(HiscoreSkill.class);
+			for (PlayerCard.Boss boss : bosses)
+			{
+				HiscoreSkill s = hiscoreSkill(boss.key, boss.label);
+				if (s != null)
+				{
+					killed.add(s);
+				}
+			}
 			sections.put("Bosses", searchable("bosses", bosses.size(), grid, query ->
 			{
 				grid.removeAll();
@@ -149,6 +159,14 @@ final class PlayerCardView
 					{
 						grid.add(iconCell(hiscoreSkill(boss.key, boss.label), -1, boss.label, boss.kc,
 							String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc), ic, openLogPage, boss.clogPage));
+					}
+				}
+				// A boss they've never killed isn't on the card; a search for it still answers: 0 KC.
+				for (HiscoreSkill s : HiscoreSkill.values())
+				{
+					if (!query.isEmpty() && s.getType() == HiscoreSkillType.BOSS && !killed.contains(s) && matches(query, s.getName()))
+					{
+						grid.add(iconCell(s, -1, s.getName(), 0, s.getName() + " — 0 kills", ic, null, null));
 					}
 				}
 				return grid.getComponentCount() > 0;
