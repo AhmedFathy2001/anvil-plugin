@@ -2022,6 +2022,17 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		// The full board is its own page rather than an expansion under the event: twenty-odd tile rows
 		// pushed everything else off a small client, and "back" is a clearer way out than "Hide".
+		// Not playing this board (an alt while the main is on a team): the whole board, read-only, is
+		// the useful view — the team summary and live layers belong to another character.
+		if (selected.spectating && selected.tilesTotal > 0)
+		{
+			heading(body, title);
+			body.add(small(selected.statusNote, MUTED));
+			body.add(gap(8));
+			body.add(buildBoardCatalogue("active", 0, selected.boardUrl, false));
+			setContent(body);
+			return;
+		}
 		if (showAllActiveTiles && selected.tilesTotal > 0)
 		{
 			body.removeAll();
@@ -4260,6 +4271,37 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** One tile's full in-sidebar view. The browser is an explicit choice, not the row's default action. */
+	/** The teams on {@code board} that have finished {@code tileId}, in the board's team order. */
+	static List<BingoApiClient.BoardTeam> teamsDone(BingoApiClient.BoardResponse board, int tileId)
+	{
+		List<BingoApiClient.BoardTeam> out = new ArrayList<>();
+		if (board == null || board.teams == null)
+		{
+			return out;
+		}
+		for (BingoApiClient.BoardTeam t : board.teams)
+		{
+			if (t != null && t.completedTileIds != null && t.completedTileIds.contains(tileId))
+			{
+				out.add(t);
+			}
+		}
+		return out;
+	}
+
+	/** A team's site colour ("#e67e22"), or the done green when it's missing or malformed. */
+	private static Color teamColor(String hex)
+	{
+		try
+		{
+			return hex == null ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.decode(hex.trim());
+		}
+		catch (NumberFormatException e)
+		{
+			return ColorScheme.PROGRESS_COMPLETE_COLOR;
+		}
+	}
+
 	private void renderTileDetail(JPanel catalogue, JPanel rows, BingoApiClient.BoardTile tile,
 		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
 	{
@@ -4313,6 +4355,17 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (tile.finishedByMore > 0)
 			{
 				card.add(note("+" + tile.finishedByMore + " more", MUTED));
+			}
+		}
+		// Which TEAMS have it — the whole picture for someone watching the board, and for a player
+		// which rivals already got there.
+		List<BingoApiClient.BoardTeam> teamsDone = teamsDone(boardCatalogues.get(key), tile.tileId);
+		if (!teamsDone.isEmpty())
+		{
+			detailHeading(card, 9, "Teams done");
+			for (BingoApiClient.BoardTeam t : teamsDone)
+			{
+				card.add(note(t.name == null ? "Team" : t.name, teamColor(t.color)));
 			}
 		}
 		// Who on your team is getting it — open tiles only (a done one lists its finishers above).

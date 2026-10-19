@@ -112,6 +112,13 @@ public final class ConnectionView
 	 */
 	public final Map<Integer, ClogTaskModel.TaskRow> tileProgress;
 
+	/**
+	 * In-game on a character that isn't on a team in this board — the person's main is, so the site
+	 * still names it (the home board). The panel shows the whole board read-only instead of a team
+	 * summary that isn't this character's.
+	 */
+	public final boolean spectating;
+
 	public ConnectionView(String clanName, String eventName, String error,
 		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
 		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
@@ -128,6 +135,17 @@ public final class ConnectionView
 		String statusNote, String revealNote, Ladder ladder, List<WeeklyView> weeklies,
 		List<ScheduledView> scheduled, List<ClogTaskModel.TaskRow> tileRows)
 	{
+		this(clanName, eventName, error, tilesComplete, tilesTotal, nearestTiles, recentActivity, activeNow,
+			boardUrl, pointsScored, statusNote, revealNote, ladder, weeklies, scheduled, tileRows, false);
+	}
+
+	public ConnectionView(String clanName, String eventName, String error,
+		int tilesComplete, int tilesTotal, List<TileProgressView> nearestTiles,
+		List<ActivityEntry> recentActivity, List<ActiveTask> activeNow, String boardUrl, boolean pointsScored,
+		String statusNote, String revealNote, Ladder ladder, List<WeeklyView> weeklies,
+		List<ScheduledView> scheduled, List<ClogTaskModel.TaskRow> tileRows, boolean spectating)
+	{
+		this.spectating = spectating;
 		this.clanName = clanName == null || clanName.isEmpty() ? "(unnamed clan)" : clanName;
 		this.eventName = eventName;
 		this.error = error;

@@ -718,9 +718,13 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				// The site resolved the user's live enrollment server-side (token → linked member →
 				// team), so the board summary renders even at the login screen; the live layers
 				// (nearest tiles, active-now) still wait for a playing account.
+				// In-game already, yet no member-scoped event: this character isn't on a team there
+				// (an alt while the main plays), so it watches the board rather than plays it.
+				boolean spectating = apiClient.getCurrentRsn() != null;
 				return new ConnectionView(homeClanName(cfg), hb.eventName,
 					null, hb.tilesComplete, hb.tilesTotal, null, null, null, null, hb.pointsScored,
-					"Log in in-game for live tracking.", null, null, weeklies, scheduled);
+					spectating ? "This character isn't on a team in this event." : "Log in in-game for live tracking.",
+					null, null, weeklies, scheduled, null, spectating);
 			}
 			String note = cfg.unlinkedActiveEvent != null && !cfg.unlinkedActiveEvent.isEmpty()
 				? "Log in in-game to load your board."

@@ -406,4 +406,31 @@ public class SidebarTileCatalogueTest
 		assertEquals(1, zulrah.size());
 		assertEquals(5, zulrah.get(0).tileId);
 	}
+
+	@Test
+	public void teamsDoneListsEveryTeamThatFinishedTheTile()
+	{
+		BingoApiClient.BoardTeam afk = new BingoApiClient.BoardTeam();
+		afk.name = "The AFK Spot";
+		afk.completedTileIds = Arrays.asList(1, 2);
+		BingoApiClient.BoardTeam lfl = new BingoApiClient.BoardTeam();
+		lfl.name = "LFL";
+		lfl.completedTileIds = Arrays.asList(2);
+		BingoApiClient.BoardTeam older = new BingoApiClient.BoardTeam(); // an older site sends no list
+		older.name = "Old";
+		BingoApiClient.BoardResponse board = new BingoApiClient.BoardResponse();
+		board.teams = Arrays.asList(afk, lfl, older);
+
+		assertEquals(Arrays.asList("The AFK Spot", "LFL"), names(AnvilSidebarPanel.teamsDone(board, 2)));
+		assertEquals(Arrays.asList("The AFK Spot"), names(AnvilSidebarPanel.teamsDone(board, 1)));
+		assertTrue(AnvilSidebarPanel.teamsDone(board, 3).isEmpty());
+		assertTrue(AnvilSidebarPanel.teamsDone(null, 1).isEmpty());
+	}
+
+	private static List<String> names(List<BingoApiClient.BoardTeam> teams)
+	{
+		List<String> out = new java.util.ArrayList<>();
+		teams.forEach(t -> out.add(t.name));
+		return out;
+	}
 }
