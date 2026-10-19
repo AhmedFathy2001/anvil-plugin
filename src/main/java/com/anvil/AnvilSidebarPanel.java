@@ -3885,7 +3885,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		add.accept(tile.howItCounts);
 		// The type words too, so they combine with a name: "timed zulrah", "pvp kills".
 		tileKindNames(tile).forEach(add);
-		return out.toString();
+		// Boss nicknames both ways, the label's included: "toa" finds Tombs of Amascut and back.
+		String own = out + (tile.label == null ? "" : tile.label);
+		return out + SearchAliases.augment(own).substring(own.length());
 	}
 
 	/** Lower is better: label phrase → label words → category → tier → subjects → requirement → description. */

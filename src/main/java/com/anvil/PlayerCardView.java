@@ -529,7 +529,7 @@ final class PlayerCardView
 	/** Every word of the query somewhere in the name, case and punctuation aside ("kril" finds K'ril). */
 	static boolean matches(String query, String name)
 	{
-		String n = fold(name);
+		String n = fold(SearchAliases.augment(name));
 		for (String word : query.split("\\s+"))
 		{
 			if (!n.contains(fold(word)))
