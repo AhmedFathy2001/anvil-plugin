@@ -72,6 +72,17 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void clogUnlockSendsTheItemWithItsKillOnlyWhenThereIsOne() throws IOException
+	{
+		BingoApiClient c = client();
+		c.submitClogUnlock("Primordial crystal", "Cerberus", 118);
+		c.submitClogUnlock("Pet chaos elemental", null, null);
+		assertTrue(seen.get(0).url().encodedPath().endsWith("/api/plugin/clog"));
+		assertEquals("{\"unlocks\":[{\"name\":\"Primordial crystal\",\"kcName\":\"Cerberus\",\"kc\":118}]}", bodies.get(0));
+		assertEquals("{\"unlocks\":[{\"name\":\"Pet chaos elemental\"}]}", bodies.get(1));
+	}
+
+	@Test
 	public void configFetch404IsTheNoClanState()
 	{
 		BingoApiClient c = client();
