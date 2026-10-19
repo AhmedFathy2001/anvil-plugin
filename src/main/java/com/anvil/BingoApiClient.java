@@ -989,6 +989,52 @@ public class BingoApiClient
 		return getOrNull(publicRequest(url), ClogPageView.class, "clog page fetch");
 	}
 
+	/** {@code GET /api/players/<rsn>/cas} ({@code player-cas}) — null on failure or 404. Blocking; off the EDT. */
+	public CaLookup fetchCas(String rsn)
+	{
+		String card = ProfileLookup.apiCardUrl(rsn);
+		return card == null ? null
+			: getOrNull(publicRequest(card.substring(0, card.length() - "/card".length()) + "/cas"), CaLookup.class, "CA fetch");
+	}
+
+	/** A player's combat achievements, grouped by boss — the Lookup "CAs" tab. */
+	public static final class CaLookup
+	{
+		public List<String> tiers;
+		public int earned;
+		public String nextTier;
+		public Integer nextAt;
+		/** Done/total per tier, in {@link #tiers} order. */
+		public List<CaCount> perTier;
+		/** Unfinished bosses first; each one's missing tasks first. */
+		public List<CaMonster> monsters;
+	}
+
+	public static final class CaCount
+	{
+		public int done;
+		public int total;
+	}
+
+	public static final class CaMonster
+	{
+		public String name;
+		public int done;
+		public int total;
+		public List<CaTask> tasks;
+	}
+
+	/** Short keys: ~650 of these ride in one reply. */
+	public static final class CaTask
+	{
+		/** Name, tier index, type, done, description. */
+		public String n;
+		public int t;
+		public String y;
+		public boolean d;
+		public String x;
+	}
+
 	/** A clan's card ({@code clan-card}); null when it isn't visible or the call failed. Off the EDT. */
 	public ClanCard fetchClanCard(String slug)
 	{

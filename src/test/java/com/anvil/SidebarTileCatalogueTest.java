@@ -433,4 +433,11 @@ public class SidebarTileCatalogueTest
 		teams.forEach(t -> out.add(t.name));
 		return out;
 	}
+
+	@Test
+	public void abbreviatedProgressHasTheExactNumbersOnHover()
+	{
+		assertEquals("19,023,122 / 20,142,002", AnvilSidebarPanel.exactProgress(19_023_122, 20_142_002));
+		assertNull(AnvilSidebarPanel.exactProgress(248, 500));
+	}
 }

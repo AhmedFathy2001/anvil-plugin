@@ -434,6 +434,18 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.fetchClogPage(rsn, page);
 	}
 
+	/** Blocking; off the EDT. Null when the site has none for them. */
+	public BingoApiClient.CaLookup fetchCas(String rsn)
+	{
+		return apiClient.fetchCas(rsn);
+	}
+
+	/** Whether the site serves the Lookup CA tab. */
+	public boolean supportsCas()
+	{
+		return siteSupports("player-cas");
+	}
+
 	/** Blocking; off the EDT. Null on a network failure. */
 	public BingoApiClient.GoalsResult fetchGoals()
 	{

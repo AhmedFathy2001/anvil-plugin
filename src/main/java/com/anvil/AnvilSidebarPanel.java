@@ -1038,7 +1038,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private PlayerCardView.Icons cardIcons(String rsn)
 	{
 		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done));
+			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done),
+			dataSource.supportsCas() ? done -> async(() -> dataSource.fetchCas(rsn), done) : null);
 	}
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
@@ -1474,6 +1475,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		Object bar = row.getClientProperty(ROW_BAR);
 		if (goal > 0 && value instanceof JLabel && bar instanceof JProgressBar)
 		{
+			((JLabel) value).setToolTipText(exactProgress(current, goal));
 			buildingRows.add(new LiveRow(tileId, current, goal, asPercent, (JLabel) value, (JProgressBar) bar, pctName));
 		}
 	}
@@ -1517,6 +1519,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			r.bar.setValue(pct);
 			String text = r.asPercent ? pct + "%"
 				: ConnectionView.formatCount(shown) + " / " + ConnectionView.formatCount(r.goal);
+			r.value.setToolTipText(exactProgress(shown, r.goal));
 			if (!text.equals(r.value.getText()))
 			{
 				boolean wider = text.length() != r.value.getText().length();
@@ -3227,6 +3230,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		return tile.goal > 0 ? ConnectionView.formatCount(tile.current) + " / " + ConnectionView.formatCount(tile.goal) : "";
 	}
 
+	/** "19,023,122 / 20,142,002" on hover where the row shows "19M / 20.1M" (or a %); null when nothing's abbreviated. */
+	static String exactProgress(long current, long goal)
+	{
+		return goal >= 10_000 || current >= 10_000 ? String.format(java.util.Locale.ROOT, "%,d / %,d", current, goal) : null;
+	}
+
 	/** Width a long tile tooltip wraps at, in points. */
 	private static final int TOOLTIP_WRAP_PT = 200;
 
@@ -3884,7 +3893,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		add.accept(tile.howItCounts);
 		// The type words too, so they combine with a name: "timed zulrah", "pvp kills".
 		tileKindNames(tile).forEach(add);
-		return out.toString();
+		// Boss nicknames both ways, the label's included: "toa" finds Tombs of Amascut and back.
+		String own = out + (tile.label == null ? "" : tile.label);
+		return out + SearchAliases.augment(own).substring(own.length());
 	}
 
 	/** Lower is better: label phrase → label words → category → tier → subjects → requirement → description. */

@@ -28,6 +28,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.hiscore.HiscoreSkill;
+import net.runelite.client.hiscore.HiscoreSkillType;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
@@ -67,17 +68,21 @@ final class PlayerCardView
 		final SkillIconManager skills;
 		/** Loads one log page (off the EDT) and hands it back ON the EDT; null = pages don't open. */
 		final java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader;
+		/** Loads this card's combat achievements, handed back ON the EDT; null = no CA tab. */
+		final Consumer<Consumer<BingoApiClient.CaLookup>> caLoader;
 
 		Icons(ItemManager items, SpriteManager sprites, SkillIconManager skills,
-			java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader)
+			java.util.function.BiConsumer<String, Consumer<BingoApiClient.ClogPageView>> pageLoader,
+			Consumer<Consumer<BingoApiClient.CaLookup>> caLoader)
 		{
 			this.items = items;
 			this.sprites = sprites;
 			this.skills = skills;
 			this.pageLoader = pageLoader;
+			this.caLoader = caLoader;
 		}
 
-		static final Icons NONE = new Icons(null, null, null, null);
+		static final Icons NONE = new Icons(null, null, null, null, null);
 	}
 
 	private PlayerCardView()
@@ -136,6 +141,15 @@ final class PlayerCardView
 		if (bosses != null && !bosses.isEmpty())
 		{
 			JPanel grid = grid(3, 2, 2);
+			java.util.Set<HiscoreSkill> killed = java.util.EnumSet.noneOf(HiscoreSkill.class);
+			for (PlayerCard.Boss boss : bosses)
+			{
+				HiscoreSkill s = hiscoreSkill(boss.key, boss.label);
+				if (s != null)
+				{
+					killed.add(s);
+				}
+			}
 			sections.put("Bosses", searchable("bosses", bosses.size(), grid, query ->
 			{
 				grid.removeAll();
@@ -145,6 +159,14 @@ final class PlayerCardView
 					{
 						grid.add(iconCell(hiscoreSkill(boss.key, boss.label), -1, boss.label, boss.kc,
 							String.format(Locale.ROOT, "%s — %,d kills", boss.label, boss.kc), ic, openLogPage, boss.clogPage));
+					}
+				}
+				// A boss they've never killed isn't on the card; a search for it still answers: 0 KC.
+				for (HiscoreSkill s : HiscoreSkill.values())
+				{
+					if (!query.isEmpty() && s.getType() == HiscoreSkillType.BOSS && !killed.contains(s) && matches(query, s.getName()))
+					{
+						grid.add(iconCell(s, -1, s.getName(), 0, s.getName() + " — 0 kills", ic, null, null));
 					}
 				}
 				return grid.getComponentCount() > 0;
@@ -165,6 +187,10 @@ final class PlayerCardView
 		if (anvil && card.times != null && !card.times.isEmpty())
 		{
 			sections.put("Times", times(card.times, ic));
+		}
+		if (anvil && ic.caLoader != null)
+		{
+			sections.put("CAs", PlayerCardCas.lazy(ic.caLoader));
 		}
 		if (!sections.isEmpty())
 		{
@@ -359,7 +385,7 @@ final class PlayerCardView
 			JLabel l = onClick(new JLabel(name, SwingConstants.CENTER), () ->
 			{
 				styleSwitch(labels, name);
-				swap(body, sections.get(name));
+				show(body, sections.get(name));
 				if (onSection != null)
 				{
 					onSection.accept(name);
@@ -370,7 +396,7 @@ final class PlayerCardView
 			strip.add(l);
 		}
 		styleSwitch(labels, first);
-		swap(body, sections.get(first));
+		show(body, sections.get(first));
 
 		wrap.add(capH(strip));
 		wrap.add(gap(4));
@@ -474,7 +500,7 @@ final class PlayerCardView
 		return blockOf(col);
 	}
 
-	private static JPanel blockOf(JComponent content)
+	static JPanel blockOf(JComponent content)
 	{
 		JPanel block = block();
 		block.add(content);
@@ -489,7 +515,7 @@ final class PlayerCardView
 	 * {@code fill} redraws {@code list} with what a query matches ("" = everything) and says whether
 	 * anything did.
 	 */
-	private static JPanel searchable(String what, int count, JPanel list, java.util.function.Predicate<String> fill)
+	static JPanel searchable(String what, int count, JPanel list, java.util.function.Predicate<String> fill)
 	{
 		fill.test("");
 		JPanel block = block();
@@ -521,7 +547,7 @@ final class PlayerCardView
 	/** Every word of the query somewhere in the name, case and punctuation aside ("kril" finds K'ril). */
 	static boolean matches(String query, String name)
 	{
-		String n = fold(name);
+		String n = fold(SearchAliases.augment(name));
 		for (String word : query.split("\\s+"))
 		{
 			if (!n.contains(fold(word)))
@@ -533,7 +559,7 @@ final class PlayerCardView
 	}
 
 	/** A transparent, left-aligned grid {@code cols} across. */
-	private static JPanel grid(int cols, int hgap, int vgap)
+	static JPanel grid(int cols, int hgap, int vgap)
 	{
 		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
 		grid.setOpaque(false);
@@ -900,7 +926,7 @@ final class PlayerCardView
 	}
 
 	/** A 3px share-of-total bar: orange, green once full, over {@code bg}. */
-	private static JPanel thinBar(int pct, Color bg)
+	static JPanel thinBar(int pct, Color bg)
 	{
 		JPanel bar = new JPanel()
 		{
@@ -1022,6 +1048,20 @@ final class PlayerCardView
 			grid.add(cell);
 		}
 		return grid;
+	}
+
+	/** A section's one-off work (a fetch) runs the first time it's shown, not when the card is built. */
+	static final String ON_FIRST_SHOW = "anvil.onFirstShow";
+
+	private static void show(JPanel holder, JPanel section)
+	{
+		swap(holder, section);
+		Object first = section.getClientProperty(ON_FIRST_SHOW);
+		if (first instanceof Runnable)
+		{
+			section.putClientProperty(ON_FIRST_SHOW, null);
+			((Runnable) first).run();
+		}
 	}
 
 	private static void swap(JPanel holder, JComponent next)
