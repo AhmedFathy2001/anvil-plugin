@@ -130,7 +130,7 @@ final class PlayerCardView
 		Map<String, JPanel> sections = new LinkedHashMap<>();
 		if (card.skills != null && !card.skills.isEmpty())
 		{
-			sections.put("Skills", skills(card.skills, card.totalLevel, ic));
+			sections.put("Skills", skills(card.skills, card.totalLevel, card.overallXp, ic));
 		}
 		List<PlayerCard.Boss> bosses = card.bosses != null ? card.bosses : card.topBosses;
 		if (bosses != null && !bosses.isEmpty())
@@ -404,7 +404,7 @@ final class PlayerCardView
 	}
 
 	/** The game's skill tab: icon + level, three across, XP on hover; total level and a virtual toggle below. */
-	private static JPanel skills(List<PlayerCard.Skill> skills, int totalLevel, Icons ic)
+	private static JPanel skills(List<PlayerCard.Skill> skills, int totalLevel, Long overallXp, Icons ic)
 	{
 		Map<String, PlayerCard.Skill> byKey = new LinkedHashMap<>();
 		for (PlayerCard.Skill s : skills)
@@ -434,6 +434,12 @@ final class PlayerCardView
 			grid.add(cell);
 		}
 		JLabel total = small("", Color.WHITE);
+		long xp = 0;
+		for (PlayerCard.Skill s : skills)
+		{
+			xp += s.xp;
+		}
+		total.setToolTipText(String.format(Locale.ROOT, "Total XP — %,d", overallXp != null && overallXp > 0 ? overallXp : xp));
 		JLabel toggle = small("Virtual levels", MUTED);
 		toggle.setToolTipText("Show levels past 99 from XP");
 		paint.add(() ->
