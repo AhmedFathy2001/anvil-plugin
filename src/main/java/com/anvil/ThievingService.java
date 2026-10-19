@@ -16,23 +16,23 @@ import java.util.OptionalDouble;
 @Singleton
 public class ThievingService extends AbstractRarityService {
 
-    @Inject
-    ThievingService(Gson gson, ItemManager itemManager) {
-        super("/thieving.json", 32, gson, itemManager);
-    }
+	@Inject
+	ThievingService(Gson gson, ItemManager itemManager) {
+		super("/thieving.json", 32, gson, itemManager);
+	}
 
-    @Override
-    public OptionalDouble getRarity(String sourceName, int itemId, int quantity) {
-        if (itemId == ItemID.BLOOD_SHARD) {
-            // https://oldschool.runescape.wiki/w/Blood_shard#Item_sources
-            return OptionalDouble.of(1.0 / 5000);
-        }
+	@Override
+	public OptionalDouble getRarity(String sourceName, int itemId, int quantity) {
+		if (itemId == ItemID.BLOOD_SHARD) {
+			// https://oldschool.runescape.wiki/w/Blood_shard#Item_sources
+			return OptionalDouble.of(1.0 / 5000);
+		}
 
-        if (itemId == ItemID.PRIF_TELEPORT_SEED) {
-            // https://oldschool.runescape.wiki/w/Enhanced_crystal_teleport_seed#Item_sources
-            return OptionalDouble.of(1.0 / 1024);
-        }
+		if (itemId == ItemID.PRIF_TELEPORT_SEED) {
+			// https://oldschool.runescape.wiki/w/Enhanced_crystal_teleport_seed#Item_sources
+			return OptionalDouble.of(1.0 / 1024);
+		}
 
-        return super.getRarity(sourceName, itemId, quantity);
-    }
+		return super.getRarity(sourceName, itemId, quantity);
+	}
 }
