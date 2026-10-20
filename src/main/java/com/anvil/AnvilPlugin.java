@@ -986,6 +986,8 @@ public class AnvilPlugin extends Plugin {
 	// ItemContainerChanged for each container on an equip; diffing them independently reads the
 	// unequip as a +1). The diff is coalesced to onGameTick so both containers have settled.
 	private Map<Integer, Integer> lastHeldItemCounts = null;
+	// Item ids worn at the last game tick, so inventory-diff loot can tell an unequip from a reward.
+	private Set<Integer> lastWornItemIds = Collections.emptySet();
 	// Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
 	// both containers in one tick) is evaluated once, after both have updated.
 	private boolean heldItemsDirty = false;
@@ -2268,6 +2270,7 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onGameTick(GameTick event) {
+		lastWornItemIds = wornItemIds();
 		maybeSettleStats();
 		maybeStampIdentityOnTick();
 		WorldPoint here = needsStartProof() ? realWorldPosition() : null;
@@ -3177,6 +3180,26 @@ public class AnvilPlugin extends Plugin {
 		// ("Reward Casket (Master)" / "Master Treasure Trail" / "Clue Scroll (Master)"); fold them all
 		// to the "Clue Scroll (Tier)" the source picker offers so a clue-restricted drop tile matches.
 		String source = normalizeClueSource(event.getName());
+		// Loot RuneLite builds from an INVENTORY DIFF (rubbing a tarnished Maggot King drop clean)
+		// also picks up a gear swap made in the same moment: an unequipped Inquisitor's hauberk
+		// landing in the inventory was reported as "loot from Tarnished longsword", credited an
+		// "any Nightmare unique" tile and posted a 94m rare drop. Nothing worn a tick ago is loot.
+		List<ItemStack> items = new ArrayList<>(event.getItems());
+		if (isInventoryDiffLoot(source)) {
+			Set<Integer> worn = new HashSet<>(lastWornItemIds);
+			ItemContainer wornNow = client.getItemContainer(InventoryID.WORN);
+			if (wornNow != null) {
+				for (Item it : wornNow.getItems()) {
+					if (it != null && it.getId() > 0) {
+						worn.add(it.getId());
+					}
+				}
+			}
+			items = withoutWorn(items, worn);
+			if (items.isEmpty()) {
+				return;
+			}
+		}
 		// Count the OPEN itself, not just what fell out — this is what lets a kill tile target a
 		// chest ("open Larran's big chest 20 times") or a casket tier. The loot event is the only
 		// trustworthy signal for those: the game's own "You have opened the crystal chest 128
@@ -3190,10 +3213,31 @@ public class AnvilPlugin extends Plugin {
 		if ("event".equals(kind)) {
 			processNpcKill(source);
 		}
-		processLoot(source, chatCredits.unclaimed(event.getItems(), now()), kind);
-		processValueTiles(source, event.getItems(), kind);
-		recordEventLoot(source, event.getItems(), kind);
-		maybeNotifyRareDrop(source, event.getItems(), kind);
+		processLoot(source, chatCredits.unclaimed(items, now()), kind);
+		processValueTiles(source, items, kind);
+		recordEventLoot(source, items, kind);
+		maybeNotifyRareDrop(source, items, kind);
+	}
+
+	/** Loot sources RuneLite reads off an inventory diff, which a same-tick gear swap pollutes. */
+	static boolean isInventoryDiffLoot(String source) {
+		if (source == null) {
+			return false;
+		}
+		String s = source.toLowerCase();
+		// "Tarnished chest" is a chest, not the rub-clean diff.
+		return s.startsWith("tarnished ") && !s.equals("tarnished chest");
+	}
+
+	/** {@code items} minus anything the player was wearing (an unequip, not a reward). */
+	static List<ItemStack> withoutWorn(Collection<ItemStack> items, Set<Integer> wornIds) {
+		List<ItemStack> out = new ArrayList<>();
+		for (ItemStack it : items) {
+			if (!wornIds.contains(it.getId())) {
+				out.add(it);
+			}
+		}
+		return out;
 	}
 
 	private static final String[] CLUE_TIERS = {"beginner", "easy", "medium", "hard", "elite", "master"};
@@ -4871,6 +4915,20 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Adds a container's item quantities (itemId → total) into {@code counts}. No-op if absent. */
+	private Set<Integer> wornItemIds() {
+		ItemContainer c = client.getItemContainer(InventoryID.WORN);
+		if (c == null) {
+			return Collections.emptySet();
+		}
+		Set<Integer> ids = new HashSet<>();
+		for (Item item : c.getItems()) {
+			if (item != null && item.getId() > 0) {
+				ids.add(item.getId());
+			}
+		}
+		return ids;
+	}
+
 	private void addContainerCounts(Map<Integer, Integer> counts, int containerId) {
 		ItemContainer c = client.getItemContainer(containerId);
 		if (c == null) {
