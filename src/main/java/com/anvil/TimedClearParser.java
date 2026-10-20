@@ -78,7 +78,10 @@ final class TimedClearParser
 
 	// {"activity|alias…", signature…}
 	private static final String[][] SIGNATURE_TABLE = {
-		{"inferno", "tzkal-zuk", "inferno"},
+		// Zuk's kill-count line only — never the bare word: TzHaar-Ket-Rak's challenges end with
+		// "You need to complete the Inferno to unlock …", which credited a 3:11 Jad challenge
+		// to a 65-minute Inferno tile.
+		{"inferno", "tzkal-zuk"},
 		{"fight caves", "tztok-jad", "fight cave"},
 		// Raid-mode shorthands, so a mode tile matches however the admin phrased it. Colons and
 		// spacing are already folded away by norm(), so we only enumerate the abbreviations here;
@@ -187,6 +190,30 @@ final class TimedClearParser
 			return "";
 		}
 		return s.toLowerCase(java.util.Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
+	}
+
+	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
+	// veto it reads as a Fight Caves (boss just died) or Inferno clear. Its count line is unique.
+	private static final String KET_RAK_CLEAR = "your completion count for tzhaar-ket-rak";
+
+	/**
+	 * True when the lines around a duration show it belongs to a different activity than
+	 * {@code activity} — currently a TzHaar-Ket-Rak challenge, for any non-Ket-Rak tile.
+	 */
+	static boolean clearBelongsElsewhere(Iterable<String> nearbyLines, String activity)
+	{
+		if (norm(activity).contains("tzhaar-ket-rak"))
+		{
+			return false;
+		}
+		for (String line : nearbyLines)
+		{
+			if (line != null && line.toLowerCase(java.util.Locale.ROOT).contains(KET_RAK_CLEAR))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** True when {@code message} contains any of the activity's identifying signatures. */
