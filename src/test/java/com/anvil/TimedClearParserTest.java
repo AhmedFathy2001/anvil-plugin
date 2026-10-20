@@ -127,7 +127,27 @@ public class TimedClearParserTest
 		assertTrue(TimedClearParser.messageMatchesActivity("Your Sol Heredit kill count is: 100.", "Fortis Colosseum"));
 		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Chambers of Xeric count is: 306.", "Chambers of Xeric"));
 		assertTrue(TimedClearParser.messageMatchesActivity("Your Nightmare kill count is: 11.", "Nightmare"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Fractured Archive count is: 1.", "The Fractured Archive"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Fractured Archive count is: 1.", "TFA"));
 		assertTrue(TimedClearParser.messageMatchesActivity("Your completion count for TzHaar-Ket-Rak's Sixth Challenge is: 1.", "TzHaar-Ket-Rak"));
+	}
+
+	@Test
+	public void ketRakChallengeNeverCreditsInfernoOrFightCaves()
+	{
+		// Real lines from a 3:11 Jad challenge that credited a 65-minute Inferno tile.
+		java.util.List<String> lines = java.util.Arrays.asList(
+				"Your completion count for TzHaar-Ket-Rak's Second Challenge is: 1.",
+				"Challenge duration: 3:11 (new personal best)",
+				"You need to complete the Inferno to unlock TzHaar-Ket-Rak's Third Challenge.");
+		assertFalse(TimedClearParser.messageMatchesActivity(lines.get(2), "Inferno"));
+		assertTrue(TimedClearParser.clearBelongsElsewhere(lines, "Inferno"));
+		// The challenge kills TzTok-Jad, which names the Fight Caves tile via the boss-death path.
+		assertTrue(TimedClearParser.clearBelongsElsewhere(lines, "Fight Caves"));
+		assertFalse(TimedClearParser.clearBelongsElsewhere(lines, "TzHaar-Ket-Rak"));
+		// A real Inferno clear is untouched.
+		assertFalse(TimedClearParser.clearBelongsElsewhere(java.util.Arrays.asList(
+				"Duration: 58:03 (new personal best)", "Your TzKal-Zuk kill count is: 1."), "Inferno"));
 	}
 
 	@Test

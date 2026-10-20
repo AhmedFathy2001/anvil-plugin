@@ -19,6 +19,34 @@ final class DropSource
 	}
 
 	/**
+	 * The in-game name for a wiki NPC name. The wiki tells same-named monsters apart with a
+	 * parenthetical ("Armoured zombie (Zemouregal's Fort)"), but the game reports them all as plain
+	 * "Armoured zombie", so a tile picked from the wiki list never matched. In-game NPC names carry
+	 * no parentheses, so dropping the qualifier loses nothing that could have matched.
+	 */
+	static String inGameNpcName(String wikiName)
+	{
+		return wikiName == null ? null : wikiName.replaceFirst("\\s*\\([^)]*\\)\\s*$", "").trim();
+	}
+
+	/** True when the reported loot {@code source} is one of a tile's configured (wiki-named) NPCs. */
+	static boolean sourceMatches(List<String> sourceNpcs, String source)
+	{
+		if (source == null || sourceNpcs == null)
+		{
+			return false;
+		}
+		for (String npc : sourceNpcs)
+		{
+			if (npc != null && (source.equalsIgnoreCase(npc) || source.equalsIgnoreCase(inGameNpcName(npc))))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * True when {@code source} hands {@code itemName} over on every kill, per the server's facts.
 	 *
 	 * <p>Guaranteed drops are the one case where a reaction line actively misfires: an ornament kit

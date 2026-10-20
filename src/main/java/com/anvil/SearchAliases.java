@@ -10,7 +10,7 @@ final class SearchAliases
 {
 	/** {nickname, full name} as both read once lower-cased with punctuation turned to spaces. */
 	private static final String[][] PAIRS = {
-		{"toa", "tombs of amascut"}, {"tob", "theatre of blood"}, {"cox", "chambers of xeric"},
+		{"toa", "tombs of amascut"}, {"tob", "theatre of blood"}, {"cox", "chambers of xeric"}, {"tfa", "fractured archive"},
 		{"cm", "challenge mode"}, {"hm", "hard mode"}, {"jad", "tztok jad"}, {"fight caves", "tztok jad"},
 		{"zuk", "tzkal zuk"}, {"inferno", "tzkal zuk"}, {"colo", "sol heredit"}, {"colosseum", "sol heredit"},
 		{"kq", "kalphite queen"}, {"kbd", "king black dragon"}, {"dks", "dagannoth"}, {"corp", "corporeal beast"},

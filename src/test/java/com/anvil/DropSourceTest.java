@@ -114,4 +114,15 @@ public class DropSourceTest
 		assertEquals("New Boss", DropSource.resolvePetSource(facts(), "Newpet", "New Boss", null));
 		assertEquals("New Boss", DropSource.resolvePetSource(null, "Newpet", "New Boss", null));
 	}
+
+	@Test
+	public void wikiVariantNamesMatchTheBareInGameName()
+	{
+		assertEquals("Armoured zombie", DropSource.inGameNpcName("Armoured zombie (Zemouregal's Fort)"));
+		assertEquals("TzKal-Zuk", DropSource.inGameNpcName("TzKal-Zuk"));
+		java.util.List<String> npcs = java.util.Collections.singletonList("Armoured zombie (Zemouregal's Fort)");
+		assertTrue(DropSource.sourceMatches(npcs, "Armoured zombie"));
+		assertFalse(DropSource.sourceMatches(npcs, "Zombie"));
+		assertFalse(DropSource.sourceMatches(npcs, null));
+	}
 }
