@@ -127,6 +127,8 @@ public class TimedClearParserTest
 		assertTrue(TimedClearParser.messageMatchesActivity("Your Sol Heredit kill count is: 100.", "Fortis Colosseum"));
 		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Chambers of Xeric count is: 306.", "Chambers of Xeric"));
 		assertTrue(TimedClearParser.messageMatchesActivity("Your Nightmare kill count is: 11.", "Nightmare"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Fractured Archive count is: 1.", "The Fractured Archive"));
+		assertTrue(TimedClearParser.messageMatchesActivity("Your completed Fractured Archive count is: 1.", "TFA"));
 		assertTrue(TimedClearParser.messageMatchesActivity("Your completion count for TzHaar-Ket-Rak's Sixth Challenge is: 1.", "TzHaar-Ket-Rak"));
 	}
 

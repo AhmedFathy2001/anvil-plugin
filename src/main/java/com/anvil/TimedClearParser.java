@@ -94,6 +94,8 @@ final class TimedClearParser
 		{"tob hm|tob hard mode|theatre of blood hm", "theatre of blood hard mode"},
 		{"tombs of amascut|toa", "tombs of amascut"},
 		{"toa em|toa expert|toa expert mode|tombs of amascut em", "tombs of amascut expert mode"},
+		// Raids 4: "Your completed Fractured Archive count is: N" carries no article.
+		{"the fractured archive|fractured archive|tfa", "fractured archive"},
 		{"fortis colosseum|colosseum", "sol heredit", "colosseum"},
 		{"the nightmare|nightmare", "nightmare"},
 		{"phosani's nightmare", "phosani's nightmare"},
