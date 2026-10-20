@@ -4212,9 +4212,9 @@ public class AnvilPlugin extends Plugin {
 
 				// Per-tile specific-source filter (e.g. "onyx, but only from Tekton"). When
 				// sourceNpcs is set, the loot source name must match one of them
-				// (case-insensitive). Empty/null = any source.
+				// (case-insensitive, wiki "(location)" qualifiers ignored). Empty/null = any source.
 				if (drop.sourceNpcs != null && !drop.sourceNpcs.isEmpty()
-						&& (source == null || drop.sourceNpcs.stream().noneMatch(source::equalsIgnoreCase))) {
+						&& !DropSource.sourceMatches(drop.sourceNpcs, source)) {
 					log.debug("Skipping {} for tile '{}' — source '{}' not in required NPCs {}",
 							itemId, drop.label, source, drop.sourceNpcs);
 					continue;
@@ -5077,9 +5077,18 @@ public class AnvilPlugin extends Plugin {
 	 * ("Theatre of Blood" is a substring of its Entry line); harder modes (CM / Hard / Expert)
 	 * crediting a base tile is intended.
 	 */
-	private static boolean namesActivity(String lowerMessage, String activity) {
+	private boolean namesActivity(String lowerMessage, String activity) {
 		return TimedClearParser.messageMatchesActivity(lowerMessage, activity)
-				&& (!lowerMessage.contains("entry mode") || activity.toLowerCase(Locale.ROOT).contains("entry mode"));
+				&& (!lowerMessage.contains("entry mode") || activity.toLowerCase(Locale.ROOT).contains("entry mode"))
+				&& !TimedClearParser.clearBelongsElsewhere(recentTimedLines(), activity);
+	}
+
+	private List<String> recentTimedLines() {
+		List<String> lines = new ArrayList<>(recentTimedMessages.size());
+		for (TimedMsg m : recentTimedMessages) {
+			lines.add(m.lower);
+		}
+		return lines;
 	}
 
 	private void handleTimedChat(String plain) {
@@ -6820,7 +6829,9 @@ public class AnvilPlugin extends Plugin {
 		notable.remove(null);
 		notableItemIds = notable;
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
-		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs, n -> n.isEmpty() ? null : n.toLowerCase());
+		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
+		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs,
+				n -> n.isEmpty() ? null : DropSource.inGameNpcName(n).toLowerCase());
 		gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
 		rebuildPvpRosterIndex();
 		// The in-game KC-line boss names and the skill names to push real-time counts for.
