@@ -1082,7 +1082,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				if (m != null)
 				{
-					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt));
+					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt, m.expiresAt));
 				}
 			}
 		}
@@ -1090,7 +1090,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
 		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
 		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
-			event.decay, missions, ladder);
+			event.decay, missions, ladder, event.missionsLeft == null ? -1 : event.missionsLeft);
 	}
 
 	/**

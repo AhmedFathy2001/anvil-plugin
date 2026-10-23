@@ -236,6 +236,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Held label refs for the rendered ladder card so the tick updates them in place. */
 	private JLabel ladderCountdownLabel;
 	private final List<LadderValueLabel> ladderValueLabels = new ArrayList<>();
+	private final List<LadderExpiryLabel> ladderExpiryLabels = new ArrayList<>();
 	private JPanel ladderCardPanel;
 	/** Wall-clock (ms) until which the card pulses; written off-EDT by {@link #flashLadder()}. */
 	private volatile long ladderFlashUntil;
@@ -3307,6 +3308,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		ladderCountdownLabel = null;
 		ladderCardPanel = null;
 		ladderValueLabels.clear();
+		ladderExpiryLabels.clear();
 	}
 
 	private JPanel buildSummary(ConnectionView c)
@@ -3389,6 +3391,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		row.add(value, BorderLayout.EAST);
 		capH(row);
 		ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
+		if (m.expiresAtIso != null)
+		{
+			// Ticks with the values; an unclaimed mission closes when this runs out.
+			JLabel expiry = small(expiryText(m.expiresAtIso, now), ColorScheme.BRAND_ORANGE);
+			ladderExpiryLabels.add(new LadderExpiryLabel(expiry, m.expiresAtIso));
+			JPanel stacked = left(new JPanel(new BorderLayout(0, 1)));
+			stacked.setOpaque(false);
+			stacked.add(row, BorderLayout.NORTH);
+			stacked.add(expiry, BorderLayout.SOUTH);
+			row = capH(stacked);
+		}
 
 		// The team's progress on it, from the same counts every tile row reads, and a click that opens
 		// it like any other tile. A mission the plugin can't count (manual) keeps just its value line.
@@ -3505,7 +3518,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			// No clock: a ladder draws its next one when a mission is claimed; a bingo's missions with
 			// no schedule are dropped by staff whenever they choose (or there are none left).
-			return l.ladderFormat ? "Next mission drops on a claim" : "Next mission: whenever staff drop it";
+			if (l.ladderFormat)
+			{
+				return "Next mission drops on a claim";
+			}
+			return l.missionsLeft == 0 ? "No more missions to come" : "Next mission: whenever staff drop it";
 		}
 		return "now".equals(cd) ? "New mission dropping…" : "Next mission in " + cd;
 	}
@@ -3530,6 +3547,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (ladderCountdownLabel != null)
 			{
 				ladderCountdownLabel.setText(plainText(countdownText(l, now)));
+			}
+			for (LadderExpiryLabel x : ladderExpiryLabels)
+			{
+				x.label.setText(expiryText(x.expiresAtIso, now));
 			}
 			for (LadderValueLabel v : ladderValueLabels)
 			{
@@ -3572,6 +3593,25 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Held ref for one mission's value label so the tick recomputes its grow/decay value in place. */
+	/** "Expires in 1:12:04", or "Expired" once the clock runs out (the next poll drops the row). */
+	private static String expiryText(String expiresAtIso, long now)
+	{
+		String cd = LadderMissions.countdown(expiresAtIso, now);
+		return cd == null ? "" : "now".equals(cd) ? "Expired" : "Expires in " + cd;
+	}
+
+	private static final class LadderExpiryLabel
+	{
+		final JLabel label;
+		final String expiresAtIso;
+
+		LadderExpiryLabel(JLabel label, String expiresAtIso)
+		{
+			this.label = label;
+			this.expiresAtIso = expiresAtIso;
+		}
+	}
+
 	private static final class LadderValueLabel
 	{
 		final JLabel label;

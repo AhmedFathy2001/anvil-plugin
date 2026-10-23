@@ -381,6 +381,8 @@ public class PluginConfigResponse
 		// Open missions on a reveal-mode board (revealed + still-open), with face points and reveal time
 		// so the plugin can render the "active missions" list + per-second countdown. Absent on classic.
 		public List<Mission> missions;
+		// Classic boards with missions: how many are still to be announced. Null on older sites.
+		public Integer missionsLeft;
 		// Ladder events only: the individual leaderboard both all-time and for the current month, each
 		// with the caller's own rank. Drives the in-game missions board's standings + "You: #N".
 		public Standings standings;
@@ -407,6 +409,7 @@ public class PluginConfigResponse
 		// null) drives this mission's live grow/decay value. Absent on older sites — fall back to the
 		// event-level decay.
 		public Decay decay;
+		public String expiresAt;  // ISO time an unclaimed mission auto-closes; null when it doesn't
 	}
 
 	public static class Standings
