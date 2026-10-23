@@ -376,6 +376,23 @@ public class SidebarTileCatalogueTest
 	}
 
 	@Test
+	public void closestFirstIsOpenTilesNearestDoneFirst()
+	{
+		BingoApiClient.BoardTile far = tile(1, "Kill 500 Kurasks", null, null, null, false);
+		BingoApiClient.BoardTile untouched = tile(2, "Kill 500 Nechryael", null, null, null, false);
+		BingoApiClient.BoardTile near = tile(3, "Kill 10 Zulrah", null, null, null, false);
+		BingoApiClient.BoardTile done = tile(4, "Kill 500 Brutus", null, null, null, false);
+		done.complete = true;
+		java.util.Map<Integer, ClogTaskModel.TaskRow> progress = new java.util.HashMap<>();
+		progress.put(1, new ClogTaskModel.TaskRow(1, "Kill 500 Kurasks", 100, 500, 0, false));
+		progress.put(3, new ClogTaskModel.TaskRow(3, "Kill 10 Zulrah", 9, 10, 0, false));
+		progress.put(4, new ClogTaskModel.TaskRow(4, "Kill 500 Brutus", 500, 500, 0, true));
+
+		assertEquals(Arrays.asList(near, far, untouched), AnvilSidebarPanel.filterBoardTiles(
+			Arrays.asList(far, untouched, near, done), "", AnvilSidebarPanel.TileStatusFilter.CLOSEST, false, progress));
+	}
+
+	@Test
 	public void searchFindsTheBossOrItemATileIsAboutWhenTheNameDoesNotSayIt()
 	{
 		BingoApiClient.BoardTile hilt = tile(1, "Big hilt energy", null, null, "Drops", false);

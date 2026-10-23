@@ -3717,7 +3717,10 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	enum TileStatusFilter
 	{
-		ALL("All"), OPEN("Not done"), IN_PROGRESS("In progress"), NOT_STARTED("Not started"), DONE("Done");
+		// CLOSEST is "Not done" sorted nearest-finished first — a sort, but one more choice in the same
+		// dropdown beats a second control on a 240px panel.
+		ALL("All"), OPEN("Not done"), CLOSEST("Closest first"), IN_PROGRESS("In progress"), NOT_STARTED("Not started"),
+		DONE("Done");
 
 		private final String label;
 
@@ -3782,7 +3785,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				continue;
 			}
 			boolean done = !preStart && tile.complete;
-			if ((wanted == TileStatusFilter.OPEN && done) || (wanted == TileStatusFilter.DONE && !done)
+			if (((wanted == TileStatusFilter.OPEN || wanted == TileStatusFilter.CLOSEST) && done)
+				|| (wanted == TileStatusFilter.DONE && !done)
 				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || startedCount(tile, progress) == null))
 				|| (wanted == TileStatusFilter.NOT_STARTED && (done || startedCount(tile, progress) != null)))
 			{
@@ -3823,7 +3827,19 @@ public class AnvilSidebarPanel extends PluginPanel
 				return relevance != 0 ? relevance : Integer.compare(a.position, b.position);
 			});
 		}
+		if (wanted == TileStatusFilter.CLOSEST)
+		{
+			// Stable, so ties (and everything untouched) keep the order above.
+			out.sort((a, b) -> Double.compare(tileFraction(b, progress), tileFraction(a, progress)));
+		}
 		return out;
+	}
+
+	/** How far the team is toward this tile's goal, 0..1; 0 for an untouched or uncountable tile. */
+	static double tileFraction(BingoApiClient.BoardTile tile, Map<Integer, ClogTaskModel.TaskRow> progress)
+	{
+		ClogTaskModel.TaskRow r = progress == null ? null : progress.get(tile.tileId);
+		return r == null || r.goal <= 0 ? 0 : Math.min(1.0, r.current / (double) r.goal);
 	}
 
 	/**
