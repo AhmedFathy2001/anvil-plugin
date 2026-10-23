@@ -3389,7 +3389,27 @@ public class AnvilSidebarPanel extends PluginPanel
 		row.add(value, BorderLayout.EAST);
 		capH(row);
 		ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
-		return row;
+
+		// The team's progress on it, from the same counts every tile row reads, and a click that opens
+		// it like any other tile. A mission the plugin can't count (manual) keeps just its value line.
+		ClogTaskModel.TaskRow p = connection == null ? null : connection.tileProgress.get(m.tileId);
+		if (p == null || p.goal <= 0)
+		{
+			return opensTile(row, m.tileId);
+		}
+		boolean done = p.isCompleted();
+		int pct = done ? 100 : Math.min(100, (int) Math.round(p.current * 100.0 / p.goal));
+		JPanel progress = left(new JPanel(new BorderLayout(6, 0)));
+		progress.setOpaque(false);
+		progress.add(bar(pct, done ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.PROGRESS_INPROGRESS_COLOR,
+			ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT), BorderLayout.CENTER);
+		progress.add(small(done ? "Done" : progressValue(p), MUTED), BorderLayout.EAST);
+
+		JPanel stack = left(new JPanel(new BorderLayout(0, 2)));
+		stack.setOpaque(false);
+		stack.add(row, BorderLayout.NORTH);
+		stack.add(capH(progress), BorderLayout.SOUTH);
+		return opensTile(capH(stack), m.tileId);
 	}
 
 	/**
@@ -3477,13 +3497,15 @@ public class AnvilSidebarPanel extends PluginPanel
 		return line;
 	}
 
-	/** "Next mission in 12:34" / "New mission dropping…" / "Next mission: on a claim" (bounty, no clock). */
+	/** "Next mission in 12:34" / "New mission dropping…" / no clock: on a claim (ladder) or when staff drop it (bingo). */
 	private static String countdownText(ConnectionView.Ladder l, long now)
 	{
 		String cd = LadderMissions.countdown(l.nextRevealAtIso, now);
 		if (cd == null)
 		{
-			return "Next mission drops on a claim";
+			// No clock: a ladder draws its next one when a mission is claimed; a bingo's missions with
+			// no schedule are dropped by staff whenever they choose (or there are none left).
+			return l.ladderFormat ? "Next mission drops on a claim" : "Next mission: whenever staff drop it";
 		}
 		return "now".equals(cd) ? "New mission dropping…" : "Next mission in " + cd;
 	}
