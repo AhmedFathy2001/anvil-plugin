@@ -1,5 +1,6 @@
 package com.anvil;
 
+import java.awt.Color;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -55,6 +56,38 @@ public interface AnvilConfig extends Config
 		closedByDefault = true
 	)
 	String profileSection = "profileSection";
+
+	@ConfigSection(
+		name = "Chat messages",
+		description = "How Anvil's own lines look in your chatbox.",
+		position = 6,
+		closedByDefault = true
+	)
+	String chatSection = "chatSection";
+
+	@ConfigItem(
+		keyName = "chatPrefixColor",
+		name = "[Anvil] tag colour",
+		description = "Colour of the [Anvil] tag at the start of each line.",
+		position = 1,
+		section = "chatSection"
+	)
+	default Color chatPrefixColor()
+	{
+		return new Color(0xFFD700);
+	}
+
+	@ConfigItem(
+		keyName = "chatTextColor",
+		name = "Message colour",
+		description = "Colour of the message after the tag. Pick something dark on an opaque chatbox.",
+		position = 2,
+		section = "chatSection"
+	)
+	default Color chatTextColor()
+	{
+		return Color.WHITE;
+	}
 
 	// ---- Setup ----
 
