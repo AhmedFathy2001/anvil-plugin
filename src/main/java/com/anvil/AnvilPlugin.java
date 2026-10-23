@@ -3838,17 +3838,19 @@ public class AnvilPlugin extends Plugin {
 			// A duplicate never fires a collection-log unlock (the slot is already filled), so it
 			// posts unnamed — which is why the two cases are told apart rather than merged.
 			handlePetDrop(duplicatePet);
-			// A NEW pet credits its tile off the collection-log line that follows. A duplicate gets no
-			// such line, so work out which pet from what was just killed or trained: named, the post
-			// says so and the tile is credited — flagged for staff, since it's a guess. Unnamed, a
-			// proof goes to "Saved proofs" for the player to submit by hand.
+			// A NEW pet credits its tile off the collection-log line that follows (creditClogUnlock). A
+			// duplicate gets no such line, so work out which pet from what was just killed or trained:
+			// named, the post says so and the tile is credited — flagged for staff, since it's a guess.
 			String inferredPet = duplicatePet ? inferDuplicatePet() : null;
 			if (inferredPet != null) {
 				claimPetName(inferredPet);
 			}
-			if (pluginConfig != null && pluginConfig.event != null
-					&& (inferredPet == null || !creditInferredByName(inferredPet, freshLootSource(), "inferred_duplicate_pet"))) {
-				captureManualProof("Pet drop", "[Auto] Pet drop detected by RuneLite plugin");
+			if (duplicatePet && pluginConfig != null && pluginConfig.event != null) {
+				if (inferredPet == null) {
+					askForManualSubmission("Duplicate pet");
+				} else {
+					creditInferredByName(inferredPet, petSource(inferredPet), "inferred_duplicate_pet");
+				}
 			}
 		}
 		// Champion's scroll — when a challenge is already complete the game shows only "…funny feeling
@@ -3926,6 +3928,15 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
+	 * Where a pet came from, for crediting. Its chat lines name the pet but not the boss, and a tile
+	 * limited to that boss (a Zuk tile wanting Jal-nib-rek) rejects anything else. Null when nothing
+	 * can place it — a skilling pet has no monster.
+	 */
+	private String petSource(String petName) {
+		return DropSource.resolvePetSource(dropFacts(), petName, freshLootSource(), killCounts);
+	}
+
+	/**
 	 * Credits drop/collection tiles from a "New item added to your collection
 	 * log: X" chat line. The reliable signal for clog items that never fire a
 	 * loot event: shop-bought minigame rewards (Barbarian Assault Fighter
@@ -3981,7 +3992,13 @@ public class AnvilPlugin extends Plugin {
 		// "clog" source kind passes the default (non-PvP) tile source filter. Source name is the
 		// item itself — a tile with a specific sourceNpcs list won't match, which is intended
 		// (clog rewards have no NPC source to whitelist against).
-		processLoot(itemName, synthetic, "clog");
+		// A pet came from a monster, and is credited from it so a boss-limited tile accepts it.
+		String petFrom = DropSource.petEntry(dropFacts(), itemName) != null ? petSource(itemName) : null;
+		if (petFrom != null) {
+			processLoot(petFrom, synthetic, "npc");
+		} else {
+			processLoot(itemName, synthetic, "clog");
+		}
 		chatCredits.note(synthetic, now);
 	}
 
@@ -4147,8 +4164,10 @@ public class AnvilPlugin extends Plugin {
 		if (pluginConfig == null || pluginConfig.event == null) {
 			return;
 		}
-		if (scroll == null || !creditInferredById(scroll, source, "inferred_duplicate_scroll")) {
-			captureManualProof("Champion's scroll", "[Auto] Champion's scroll (duplicate) detected by RuneLite plugin");
+		if (scroll == null) {
+			askForManualSubmission("Duplicate Champion's scroll");
+		} else {
+			creditInferredById(scroll, source, "inferred_duplicate_scroll");
 		}
 	}
 
@@ -5374,8 +5393,7 @@ public class AnvilPlugin extends Plugin {
 	 * backoff — this just makes the failure visible and points at the file.
 	 */
 	private void notifyUploadFailed(String label) {
-		sendChatMessage("Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying. "
-				+ "Find it in the Anvil side panel → \"Saved proofs\".");
+		sendChatMessage("Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying.");
 	}
 
 
@@ -5467,37 +5485,12 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Capture + save a MANUAL proof for a collectible the plugin can't auto-credit to a tile — a pet
-	 * drop, or a duplicate Champion's scroll (the "would have received" line names no item and fires
-	 * no loot event). We grab the next frame, burn the standard proof banner onto it, and stash it in
-	 * the pending store flagged {@code manual} (so the retry loop never tries to upload it). It surfaces
-	 * in the Anvil side panel under "Saved proofs" for the player to attach when they submit by
-	 * hand on the site.
+	 * The game said something was found but not WHICH (a duplicate pet or champion's scroll with
+	 * nothing to infer it from), so nothing was credited. Say so, rather than leave a tile waiting.
 	 */
-	private void captureManualProof(String label, String note) {
-		if (drawManager == null || !execLive()) {
-			return;
-		}
-		final int eventId = pluginConfig != null && pluginConfig.event != null ? pluginConfig.event.id : 0;
-		final int teamId = pluginConfig != null && pluginConfig.team != null ? pluginConfig.team.id : 0;
-		final int playerId = pluginConfig != null && pluginConfig.player != null ? pluginConfig.player.id : 0;
-		final String capturedRsn = getLocalPlayerName();
-		onNextFrame(image -> {
-			try {
-				byte[] png = bakeCopy(image, "BINGO", label, capturedRsn);
-				// No tile — a manual proof.
-				PendingSubmission pending = pending(eventId, -1, teamId, playerId, 1, label, note, capturedRsn);
-				pending.manual = true;
-				if (pendingSubmissionStore.save(pending, png) != null) {
-					sendChatMessage(label + " — proof saved. Submit it on the Anvil site "
-							+ "(Anvil side panel → \"Saved proofs\").");
-				} else {
-					log.error("Failed to persist manual proof '{}'", label);
-				}
-			} catch (IOException e) {
-				log.error("Failed to capture manual proof '{}': {}", label, e.getMessage());
-			}
-		}, null);
+	private void askForManualSubmission(String label) {
+		sendChatMessage(label + " — the game didn't say which, so it wasn't counted. "
+				+ "If a tile needs it, submit it on the Anvil site with a screenshot.");
 	}
 
 	/**
@@ -5669,8 +5662,8 @@ public class AnvilPlugin extends Plugin {
 		log.info("Found {} pending submission(s), retrying...", pending.size());
 		boolean anyFailed = false;
 		for (PendingSubmission sub : pending) {
-			// Manual proofs (pet / duplicate Champion's scroll) have no tile to auto-submit to — they
-			// just sit in "Saved proofs" for the player to attach by hand on the site. Never upload.
+			// Manual proofs (older versions saved them for pets / duplicate Champion's scrolls) have no
+			// tile to auto-submit to. Never upload.
 			if (sub.manual) {
 				continue;
 			}
