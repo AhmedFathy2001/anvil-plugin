@@ -2195,6 +2195,40 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/game-clan — the logged-in character's OWN row from the in-game clan settings:
+	 * which clan, its rank number and the clan's title for it, and the join date. Never the member
+	 * list. A null name says "in no clan". The site shows it on the profile and gathers Anvil players
+	 * of a clan that isn't on Anvil onto one page (capability {@code game-clan}).
+	 */
+	public void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		if (clanName == null)
+		{
+			payload.add("clan", com.google.gson.JsonNull.INSTANCE);
+		}
+		else
+		{
+			JsonObject clan = new JsonObject();
+			clan.addProperty("name", clanName);
+			if (rank != null)
+			{
+				clan.addProperty("rank", rank);
+			}
+			if (title != null)
+			{
+				clan.addProperty("title", title);
+			}
+			if (joined != null)
+			{
+				clan.addProperty("joinedOn", joined.toString());
+			}
+			payload.add("clan", clan);
+		}
+		postJson("/api/plugin/game-clan", payload, "Game clan push failed", false);
+	}
+
+	/**
 	 * POST /api/plugin/clog with {@code unlocks} — one collection-log unlock, sent as its chat line
 	 * fires, with the most recent kill line when there was one. The site resolves the name against
 	 * its catalogue and ignores a slot it already holds. Blocking; off the client thread.

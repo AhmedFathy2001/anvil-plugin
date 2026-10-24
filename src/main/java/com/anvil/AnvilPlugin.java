@@ -299,6 +299,12 @@ public class AnvilPlugin extends Plugin {
 	private volatile Integer lastSentQuestCount;
 	/** CA points behind the task list the site last accepted — the list is re-read when it moves. */
 	private volatile Integer lastSentCaPoints;
+	/** The in-game clan row the site last accepted ("name|rank|title|joined", or "" for none) — see pushGameClan. */
+	private volatile String lastSentGameClan;
+	/** Consecutive checks that found no clan settings. Two in a row means no clan, not "still loading". */
+	private int gameClanMissingChecks;
+	/** After a refused push, wait before asking again — an unlinked character would otherwise try every 30s. */
+	private volatile long gameClanRetryAt;
 	/** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
 	private volatile boolean freshLoginPending;
 
@@ -1295,6 +1301,7 @@ public class AnvilPlugin extends Plugin {
 			safely("flushFullClogSync", this::flushFullClogSync);
 			safely("flushPersonalBests", this::flushPersonalBests);
 			safely("pushAccountProgress", this::pushAccountProgress);
+			safely("pushGameClan", this::pushGameClan);
 		}, 30, 30, TimeUnit.SECONDS));
 	}
 
@@ -1374,6 +1381,74 @@ public class AnvilPlugin extends Plugin {
 					}
 				} catch (IOException e) {
 					log.debug("Account progress push failed, retrying later: {}", e.getMessage());
+				}
+			});
+		});
+	}
+
+	/**
+	 * The character's own clan row → the site: clan name, rank, the clan's title for it, join date.
+	 * Only ever OUR row — the member list stays in the game. Sent once per login and again when it
+	 * changes, so the steady state is one settings read and no request.
+	 *
+	 * <p>Clan settings are null both while they load after login and for a player in no clan, so
+	 * "no clan" is reported only after two checks (30s apart) both find nothing.
+	 */
+	private void pushGameClan() {
+		if (!apiClient.isConfigured() || !loggedIn()) {
+			return;
+		}
+		PluginConfigResponse cfg = pluginConfig;
+		if (cfg == null || !cfg.serverSupports("game-clan") || System.currentTimeMillis() < gameClanRetryAt) {
+			return;
+		}
+		clientThread.invoke(() -> {
+			Player me = client.getLocalPlayer();
+			String myName = me != null ? me.getName() : null;
+			if (myName == null) {
+				return;
+			}
+			ClanSettings settings = client.getClanSettings();
+			String clanName = null;
+			Integer rankValue = null;
+			String titleName = null;
+			java.time.LocalDate joined = null;
+			if (settings == null || settings.getName() == null) {
+				if (++gameClanMissingChecks < 2) {
+					return;
+				}
+			} else {
+				gameClanMissingChecks = 0;
+				net.runelite.api.clan.ClanMember self = settings.findMember(myName);
+				if (self == null) {
+					// Settings that don't list us yet are still loading.
+					return;
+				}
+				clanName = settings.getName();
+				ClanRank rank = self.getRank();
+				if (rank != null) {
+					rankValue = rank.getRank();
+					ClanTitle title = settings.titleForRank(rank);
+					titleName = title != null ? title.getName() : null;
+				}
+				joined = self.getJoinDate();
+			}
+
+			String fingerprint = clanName == null ? "" : clanName + "|" + rankValue + "|" + titleName + "|" + joined;
+			if (fingerprint.equals(lastSentGameClan)) {
+				return;
+			}
+			final String name = clanName;
+			final Integer rankOut = rankValue;
+			final String titleOut = titleName;
+			final java.time.LocalDate joinedOut = joined;
+			submit(() -> {
+				try {
+					apiClient.submitGameClan(name, rankOut, titleOut, joinedOut);
+					lastSentGameClan = fingerprint;
+				} catch (IOException e) {
+					gameClanRetryAt = System.currentTimeMillis() + 5 * 60_000L;
+					log.debug("Game clan push failed, retrying in 5 minutes: {}", e.getMessage());
 				}
 			});
 		});
@@ -2578,6 +2653,9 @@ public class AnvilPlugin extends Plugin {
 			lastSentProgress.clear();
 			lastSentQuestCount = null;
 			lastSentCaPoints = null;
+			lastSentGameClan = null;
+			gameClanMissingChecks = 0;
+			gameClanRetryAt = 0;
 			// The starting shot is per ACCOUNT: the next login may be an alt that still owes one,
 			// so forget that this one filed (the server's config is the real answer either way).
 			startProofFiled = false;
