@@ -1344,6 +1344,11 @@ public class BingoApiClient
 		public String statLabel;
 		public boolean complete;
 		public String revealedAt;
+		/**
+		 * When the tile stopped accepting completions (a mission expired or was claimed out, a bounty
+		 * taken). Null while open, and on older sites, which never sent it for missions on a classic board.
+		 */
+		public String closedAt;
 		public List<PluginConfigResponse.ItemRequirement> itemRequirements;
 		/** The site's one-sentence rule for an item tile — shown first in the detail view. Null on older sites. */
 		public String howItCounts;
@@ -1367,6 +1372,12 @@ public class BingoApiClient
 		public int finishedByMore;
 		/** Your team's open tile: who has put work in so far, biggest first (capped). Null when nobody has. */
 		public List<BoardFinisher> contributors;
+
+		/** Closed without your team finishing it — no longer something left to do. */
+		public boolean isClosedUndone()
+		{
+			return !complete && closedAt != null && !closedAt.isEmpty();
+		}
 		public int contributorsMore;
 	}
 

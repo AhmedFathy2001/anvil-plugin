@@ -3785,10 +3785,12 @@ public class AnvilSidebarPanel extends PluginPanel
 				continue;
 			}
 			boolean done = !preStart && tile.complete;
-			if (((wanted == TileStatusFilter.OPEN || wanted == TileStatusFilter.CLOSEST) && done)
+			// An expired / locked-out mission isn't done, but it isn't open either: it only shows under All.
+			boolean closed = !preStart && tile.isClosedUndone();
+			if (((wanted == TileStatusFilter.OPEN || wanted == TileStatusFilter.CLOSEST) && (done || closed))
 				|| (wanted == TileStatusFilter.DONE && !done)
-				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || startedCount(tile, progress) == null))
-				|| (wanted == TileStatusFilter.NOT_STARTED && (done || startedCount(tile, progress) != null)))
+				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || closed || startedCount(tile, progress) == null))
+				|| (wanted == TileStatusFilter.NOT_STARTED && (done || closed || startedCount(tile, progress) != null)))
 			{
 				continue;
 			}
@@ -4283,7 +4285,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		row.add(name, BorderLayout.CENTER);
 
 		// A started tile says how far along it is where an untouched one says "Open".
-		String rowState = count != null ? count : tileRowStateText(tile, preStart);
+		String rowState = count != null && !tile.isClosedUndone() ? count : tileRowStateText(tile, preStart);
 		if (rowState != null)
 		{
 			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
@@ -4626,7 +4628,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Compact state shown at the right edge of a catalogue row. */
 	static String tileStateText(BingoApiClient.BoardTile tile)
 	{
-		return (tile.complete ? "✓ Done" : "Open") + (tileIsManual(tile) ? " (manual)" : "");
+		return (tile.complete ? "✓ Done" : tile.isClosedUndone() ? "Closed" : "Open") + (tileIsManual(tile) ? " (manual)" : "");
 	}
 
 	/**

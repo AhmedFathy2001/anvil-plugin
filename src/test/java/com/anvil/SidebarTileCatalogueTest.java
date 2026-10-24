@@ -393,6 +393,28 @@ public class SidebarTileCatalogueTest
 	}
 
 	@Test
+	public void closedMissionYourTeamMissedIsNotLeftToDo()
+	{
+		BingoApiClient.BoardTile open = tile(1, "Kill 10 Zulrah", null, null, null, false);
+		BingoApiClient.BoardTile expired = tile(2, "1 TFA KC", null, null, null, false);
+		expired.closedAt = "2026-10-23T20:00:00.000Z";
+		BingoApiClient.BoardTile won = tile(3, "5 Infernal Capes", null, null, null, false);
+		won.closedAt = "2026-10-23T20:00:00.000Z";
+		won.complete = true;
+		List<BingoApiClient.BoardTile> tiles = Arrays.asList(open, expired, won);
+
+		assertEquals(Arrays.asList(open), AnvilSidebarPanel.filterBoardTiles(
+			tiles, "", AnvilSidebarPanel.TileStatusFilter.OPEN, false));
+		assertEquals(Arrays.asList(open), AnvilSidebarPanel.filterBoardTiles(
+			tiles, "", AnvilSidebarPanel.TileStatusFilter.NOT_STARTED, false));
+		assertEquals(Arrays.asList(won), AnvilSidebarPanel.filterBoardTiles(
+			tiles, "", AnvilSidebarPanel.TileStatusFilter.DONE, false));
+		assertEquals(3, AnvilSidebarPanel.filterBoardTiles(
+			tiles, "", AnvilSidebarPanel.TileStatusFilter.ALL, false).size());
+		assertTrue(AnvilSidebarPanel.tileStateText(expired).startsWith("Closed"));
+	}
+
+	@Test
 	public void searchFindsTheBossOrItemATileIsAboutWhenTheNameDoesNotSayIt()
 	{
 		BingoApiClient.BoardTile hilt = tile(1, "Big hilt energy", null, null, "Drops", false);
