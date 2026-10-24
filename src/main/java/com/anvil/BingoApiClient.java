@@ -251,7 +251,9 @@ public class BingoApiClient
 	 */
 	public void setCurrentRsn(String rsn)
 	{
-		this.currentRsn = (rsn == null || rsn.isEmpty()) ? null : rsn;
+		// Mid-login the client names the player "#Player2014" for a tick or two. No real name has a
+		// '#', and stamping that one filed requests under a character that doesn't exist.
+		this.currentRsn = (rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0) ? null : rsn;
 	}
 
 	/** The RSN currently stamped on requests (the logged-in character), or null. Thread-safe read. */
