@@ -115,4 +115,27 @@ public class DropNotificationLineTest
 		assertTrue(untradeable.matches());
 		assertEquals("Dagon'hai hat", untradeable.group(2));
 	}
+
+	@Test
+	public void theClansPetBroadcastNamesThePet()
+	{
+		Matcher m = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Biggie OG has a funny feeling like he's being followed: Dom at 519 levels from Doom of Mokhaiotl.");
+		assertTrue(m.matches());
+		assertEquals("Biggie OG", m.group(1));
+		assertEquals("Dom", m.group(2));
+
+		Matcher dupe = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Kayle has a funny feeling like she would have been followed: Baby mole at 412 killcount.");
+		assertTrue(dupe.matches());
+		assertEquals("Baby mole", dupe.group(2));
+
+		Matcher pack = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Zezima feels something weird sneaking into their backpack: Heron at 13,034,431 XP.");
+		assertTrue(pack.matches());
+		assertEquals("Heron", pack.group(2));
+
+		// A drop line is not a pet line.
+		assertFalse(AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher("Zezima received a drop: Dragon claws").matches());
+	}
 }

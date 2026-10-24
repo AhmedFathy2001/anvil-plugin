@@ -492,6 +492,14 @@ public class AnvilPlugin extends Plugin {
 	// item with a bracket in it survives. Package-private for ClogUnlockLineTest.
 	static final Pattern CLAN_CLOG_BROADCAST_PATTERN = Pattern.compile(
 			"^(.{1,20}?) received a new collection log item: (.+?)(?: \\(\\d+/\\d+\\))?\\.?$");
+	// The clan's pet broadcast, which — unlike the player's own pet line — names it, and lands in the
+	// same tick: "Biggie OG has a funny feeling like he's being followed: Dom at 519 levels from Doom
+	// of Mokhaiotl." Also the duplicate ("would have been followed") and backpack variants. Only the
+	// name is taken: where it came from is the pet catalogue's to answer (DropSource.resolvePetSource).
+	// Package-private for the pattern test.
+	static final Pattern CLAN_PET_BROADCAST_PATTERN = Pattern.compile(
+			"^(.{1,20}?) (?:has a funny feeling like (?:he's|she's|they're|he|she|they) (?:being|would have been) followed"
+					+ "|feels something weird sneaking into (?:his|her|their) backpack): (.+?)(?: at [\\d,]+ .*)?\\.?$");
 
 	// Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
 	// Fired for drops handed out through channels that produce NO loot event — Maggot King's
@@ -2378,6 +2386,7 @@ public class AnvilPlugin extends Plugin {
 			updateHeldItemGains();
 		}
 		settleChestLineCredits();
+		namePetFromSurroundings();
 		if (lootingBagWatchSource != null && --lootingBagWatchTicks <= 0) {
 			// Nothing went to the bag this time — the loot all landed in the inventory.
 			lootingBagWatchSource = null;
@@ -3665,6 +3674,12 @@ public class AnvilPlugin extends Plugin {
 			//
 			// Only ever acted on for the LOCAL player: a clanmate's unlock is their own client's to
 			// report, and posting it from here would file their slot under this account.
+			if (msg.contains("funny feeling like") || msg.contains("sneaking into")) {
+				Matcher petBroadcast = CLAN_PET_BROADCAST_PATTERN.matcher(stripChatTags(msg));
+				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) {
+					claimPetName(petBroadcast.group(2).trim());
+				}
+			}
 			if (msg.contains("received a new collection log item")) {
 				Matcher clogBroadcast = CLAN_CLOG_BROADCAST_PATTERN.matcher(stripChatTags(msg));
 				if (clogBroadcast.matches() && Rsn.same(clogBroadcast.group(1), getLocalPlayerName())) {
@@ -8763,6 +8778,8 @@ public class AnvilPlugin extends Plugin {
 	private static final class PendingPet {
 
 		final boolean duplicate;
+		/** When the pet line landed — the name is only looked for inside {@link #PET_NAME_WINDOW_MS}. */
+		final long at = System.currentTimeMillis();
 		/** Captured on the client thread when the pet line arrives. */
 		final String rsn;
 		final String source;
@@ -8807,7 +8824,70 @@ public class AnvilPlugin extends Plugin {
 	 * landing a tick or two later, short enough that the post still reads as immediate — and short
 	 * enough that it can't swallow an unrelated unlock from the next kill.
 	 */
-	private static final long PET_NAME_WINDOW_MS = 2_000;
+	// Six seconds, not two: with the player's own collection-log line switched off, the clan's copy is
+	// the one that names it, and it can land a few ticks after the pet line — after a two-second wait
+	// the pet had already posted as just "pet" and the name went out as a separate unlock.
+	private static final long PET_NAME_WINDOW_MS = 6_000;
+	/** How long a named pet still claims a line repeating its name (see claimPetName). */
+	private static final long PET_RECLAIM_MS = 60_000;
+	private PendingPet lastNamedPet;
+
+	// ---- Naming a pet with no chat line to say which ------------------------------------------
+	// The game also shows WHICH pet the moment it lands: a new follower ("being followed"), or a new
+	// pet item in the pack ("sneaking into your backpack"). What was there BEFORE the line is noted, so
+	// a pet already out or already in the bag is never taken for the new one. With a pet out AND a full
+	// pack the new one goes to Probita instead — nothing appears, and the name has to come from a line.
+	private int petFollowerBefore = -1;
+	private Set<Integer> petPackBefore = Collections.emptySet();
+
+	/** Client thread, at the pet line. */
+	private void notePetSurroundings() {
+		NPC follower = client.getFollower();
+		petFollowerBefore = follower == null ? -1 : follower.getIndex();
+		Set<Integer> pack = new HashSet<>();
+		ItemContainer inv = client.getItemContainer(InventoryID.INV);
+		if (inv != null) {
+			for (Item it : inv.getItems()) {
+				if (it != null && it.getId() > 0) {
+					pack.add(it.getId());
+				}
+			}
+		}
+		petPackBefore = pack;
+	}
+
+	/** Client thread, each tick while a pet waits unnamed: name it off a new follower or a new pet item. */
+	private void namePetFromSurroundings() {
+		PendingPet pet;
+		synchronized (petLock) {
+			pet = pendingPet;
+		}
+		if (pet == null || pet.name != null || System.currentTimeMillis() - pet.at > PET_NAME_WINDOW_MS) {
+			return;
+		}
+		NPC follower = client.getFollower();
+		if (follower != null && follower.getIndex() != petFollowerBefore && follower.getName() != null) {
+			log.debug("Pet named off its new follower: {}", follower.getName());
+			claimPetName(follower.getName());
+			return;
+		}
+		ItemContainer inv = client.getItemContainer(InventoryID.INV);
+		if (inv == null) {
+			return;
+		}
+		for (Item it : inv.getItems()) {
+			if (it == null || it.getId() <= 0 || petPackBefore.contains(it.getId())) {
+				continue;
+			}
+			String name = itemManager.getItemComposition(it.getId()).getName();
+			// The pack takes all sorts mid-fight; only a name the pet catalogue knows is the pet.
+			if (name != null && DropSource.petEntry(dropFacts(), name) != null) {
+				log.debug("Pet named off its new pack item: {}", name);
+				claimPetName(name);
+				return;
+			}
+		}
+	}
 
 	/**
 	 * Claim a collection-log unlock as the name of the pet we just noticed.
@@ -8824,11 +8904,20 @@ public class AnvilPlugin extends Plugin {
 		}
 		PendingPet pet;
 		synchronized (petLock) {
+			// Already named — by the clan's broadcast, a follower, or the other copy of the log line —
+			// or posted a moment ago: a later line naming the SAME pet is that pet, not a new unlock
+			// to post again (the "Pet drop!" + separate "Dom" pair this used to produce).
+			PendingPet named = pendingPet != null && pendingPet.name != null ? pendingPet : lastNamedPet;
+			if (named != null && itemName.equalsIgnoreCase(named.name)
+					&& System.currentTimeMillis() - named.at <= PET_RECLAIM_MS) {
+				return named;
+			}
 			if (pendingPet == null || pendingPet.name != null) {
 				return null;
 			}
 			pendingPet.name = itemName;
 			pet = pendingPet;
+			lastNamedPet = pet;
 		}
 		// Naming it is also what makes its SOURCE knowable: until now the only candidate was the
 		// last loot the client saw. Resolve once, here, so the clan feed and the Discord post can
@@ -8879,6 +8968,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		PendingPet pet = new PendingPet(duplicate, getLocalPlayerName(), source, sourceKind, kc,
 				announce, momentKey);
+		notePetSurroundings();
 		synchronized (petLock) {
 			pendingPet = pet;
 		}
