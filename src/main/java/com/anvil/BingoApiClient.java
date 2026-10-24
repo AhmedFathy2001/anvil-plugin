@@ -741,6 +741,16 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * GET /api/plugin/chat-patterns — the site's chat-line re-wordings (ChatPatterns). Global, so never
+	 * clan-addressed. Null on any failure; a 304 hands back the cached object.
+	 */
+	ChatPatterns.OverridesResponse fetchChatPatterns()
+	{
+		return etagGetOrNull(rootUrl("/api/plugin/chat-patterns"), ChatPatterns.OverridesResponse.class, polls,
+			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
+	}
+
 	/** A non-2xx answer to {@link #etagGet}. */
 	static final class HttpStatusException extends IOException
 	{
