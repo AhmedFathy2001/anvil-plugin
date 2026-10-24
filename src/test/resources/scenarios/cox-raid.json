@@ -1,0 +1,68 @@
+{
+  "name": "cox-raid",
+  "description": "CoX completion: in-raid + party-size varbits, completion + KC lines, then the reward chest loot",
+  "params": {
+    "kc": "125",
+    "party": "3",
+    "time": "15:39",
+    "item": "20997"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "RAIDS_CLIENT_INDUNGEON",
+        "value": 1
+      }
+    },
+    {
+      "varbit": {
+        "name": "RAIDS_CLIENT_PARTYSIZE",
+        "value": "${party}"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "chat": {
+        "message": "Congratulations - your raid is complete! Duration: ${time}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your completed Chambers of Xeric count is: ${kc}."
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Chambers of Xeric",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    },
+    {
+      "wait": 5
+    },
+    {
+      "varbit": {
+        "name": "RAIDS_CLIENT_PARTYSIZE",
+        "value": 0
+      }
+    },
+    {
+      "varbit": {
+        "name": "RAIDS_CLIENT_INDUNGEON",
+        "value": 0
+      }
+    }
+  ]
+}

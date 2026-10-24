@@ -1,0 +1,26 @@
+{
+  "name": "boss-pet-duplicate",
+  "description": "Pet already owned: the 'would have been followed' line only, no clog line",
+  "params": {
+    "boss": "Scurrius",
+    "kc": "251"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${boss}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${boss} kill count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "message": "You have a funny feeling like you would have been followed..."
+      }
+    }
+  ]
+}

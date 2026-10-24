@@ -1,0 +1,51 @@
+{
+  "name": "npc-drop",
+  "description": "Any NPC drop by name + item id (server + client loot events); for drop/value tiles on non-KC monsters",
+  "params": {
+    "npc": "Lizardman shaman",
+    "npcId": "-1",
+    "combat": "150",
+    "item": "13576",
+    "qty": "1"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${npc}",
+        "npcId": "${npcId}"
+      }
+    },
+    {
+      "loot": {
+        "kind": "server",
+        "name": "${npc}",
+        "npcId": "${npcId}",
+        "combatLevel": "${combat}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": "${qty}"
+          }
+        ]
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "loot": {
+        "kind": "npc",
+        "name": "${npc}",
+        "npcId": "${npcId}",
+        "combatLevel": "${combat}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": "${qty}"
+          }
+        ]
+      }
+    }
+  ]
+}

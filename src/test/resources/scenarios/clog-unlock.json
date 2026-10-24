@@ -1,0 +1,14 @@
+{
+  "name": "clog-unlock",
+  "description": "Personal collection-log line for an item that never fires a loot event (BA torso, gamble pets)",
+  "params": {
+    "item": "Fighter torso"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "New item added to your collection log: ${item}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "boss-pet",
+  "description": "Boss kill, KC line, pet line, then the clog line that names the pet (no loot event fires for pets)",
+  "params": {
+    "boss": "Scurrius",
+    "kc": "250",
+    "pet": "Scurry"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${boss}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${boss} kill count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "message": "You have a funny feeling like you're being followed."
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "chat": {
+        "message": "New item added to your collection log: ${pet}"
+      }
+    }
+  ]
+}

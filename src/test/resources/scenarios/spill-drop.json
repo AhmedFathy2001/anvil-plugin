@@ -1,0 +1,15 @@
+{
+  "name": "spill-drop",
+  "description": "Drop-attribution line for drops with no loot event (Maggot King spill-outs); names you",
+  "params": {
+    "item": "Elder venator fang",
+    "boss": "Maggot King"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "${me} received a drop: ${item} (${boss})"
+      }
+    }
+  ]
+}
