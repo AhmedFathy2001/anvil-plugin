@@ -78,4 +78,7 @@ Unknown step keys, two keys in one step, or a bad name are all rejected when the
   - Hiscores.
 - **Varbits are covered.** A `varbit` step writes the client-side value, so gates that read `getVarbitValue` see it: CoX party (`RAIDS_CLIENT_INDUNGEON`/`RAIDS_CLIENT_PARTYSIZE`), ToA level and slots, ToB party, `INSIDE_WILDERNESS`, `CA_POINTS`, LMS `BR_INGAME`. The value lasts until the server next sends that varp, so reset it at the end of the scenario as `cox-raid` does.
 - Every plugin on the EventBus sees the fake events, Loot Tracker included.
-- Plugin behaviour that doesn't depend on a tile still happens. A replayed pet still goes to the clan's rare-drops pipeline and its highlight feed. Use a site override, and on the site rely on `X-Anvil-Scenario` or the sandbox event to keep it out of real clans.
+- Plugin behaviour that doesn't depend on a tile still happens: a replayed pet still goes to the rare-drops pipeline and the highlight feed. The site keeps it out of real clans:
+  - Any push carrying `X-Anvil-Scenario` that would reach outside a board (notify, moments, clip, clog, PBs, stats, progress, coffer) is dropped, and a submission or counter push aimed at a real board is dropped too. Replays only ever credit Tile Lab boards.
+  - While your character is in a Tile Lab session (`/staff/lab` on the site), those same pushes go to the session's log, where you can read exactly what would have been posted, and the session is the plugin's active board.
+  - Older sites without the Tile Lab don't know the header. Point the harness at beta or local, never production, until it ships there.

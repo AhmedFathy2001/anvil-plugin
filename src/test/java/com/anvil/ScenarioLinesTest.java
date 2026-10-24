@@ -2,12 +2,11 @@ package com.anvil;
 
 import com.anvil.scenario.Scenario;
 import com.anvil.scenario.ScenarioLibrary;
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.Map;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -25,9 +24,11 @@ public class ScenarioLinesTest
 	@Test
 	public void everyScenarioLineHitsAParser() throws Exception
 	{
+		// Against the plugin's pattern catalog (ChatPatterns) — the same defaults the parsers read, so a
+		// reworded default or a scenario typo fails here rather than silently crediting nothing.
+		ChatPatterns.loadDefaults(new Gson());
 		ScenarioLibrary lib = new ScenarioLibrary(Files.createTempDirectory("anvil-scenarios"));
 		lib.reload();
-		Pattern diary = privatePattern("DIARY_PATTERN");
 		for (Scenario s : lib.all())
 		{
 			for (JsonObject step : s.resolve(ME))
@@ -37,21 +38,27 @@ public class ScenarioLinesTest
 					continue;
 				}
 				String line = step.getAsJsonObject("chat").get("message").getAsString();
-				String plain = AnvilPlugin.stripChatTags(line);
-				boolean read = AnvilPlugin.KILL_COUNT_PATTERN.matcher(plain).find()
-					|| AnvilPlugin.SEPULCHRE_FLOOR_PATTERN.matcher(plain).find()
-					|| AnvilPlugin.SEPULCHRE_COFFIN_PATTERN.matcher(plain).find()
-					|| AnvilPlugin.CA_TASK_PATTERN.matcher(plain).find()
-					|| AnvilPlugin.LEVEL_UP_PATTERN.matcher(plain).find()
-					|| AnvilPlugin.CLAN_CLOG_BROADCAST_PATTERN.matcher(plain).matches()
-					|| AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(plain).matches()
-					|| plain.contains("New item added to your collection log: ")
-					|| diary.matcher(plain).find()
-					|| plain.contains("You have a funny feeling like")
-					|| TimedClearParser.parseDurationSeconds(plain.toLowerCase()) != null;
+				boolean read = catalogReads(line)
+					|| TimedClearParser.parseDurationSeconds(AnvilPlugin.stripChatTags(line).toLowerCase()) != null;
 				assertTrue(s.name + ": no plugin parser reads \"" + line + "\"", read);
 			}
 		}
+	}
+
+	/** Whether any catalog key matches this line, prepared the way that key's parser prepares it. */
+	private static boolean catalogReads(String line)
+	{
+		String plain = AnvilPlugin.stripChatTags(line);
+		for (ChatPatterns.Entry e : ChatPatterns.entries().values())
+		{
+			String text = "raw".equals(e.input) ? line : "lowercase".equals(e.input) ? plain.toLowerCase() : plain;
+			Matcher m = "full".equals(e.match) ? ChatPatterns.full(e.key, text) : ChatPatterns.find(e.key, text);
+			if (m != null)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@Test
@@ -66,11 +73,11 @@ public class ScenarioLinesTest
 	@Test
 	public void spillDropNamesTheLocalPlayer() throws Exception
 	{
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(firstChat("spill-drop", Map.of()));
-		assertTrue(m.matches());
-		assertEquals("Tester", m.group(1));
-		assertEquals("Elder venator fang", m.group(3));
-		assertEquals("Maggot King", m.group(4));
+		Matcher m = ChatPatterns.full("drop.personal", AnvilPlugin.stripChatTags(firstChat("spill-drop", Map.of())));
+		assertNotNull(m);
+		assertEquals("Tester", m.group("rsn"));
+		assertEquals("Elder venator fang", m.group("item"));
+		assertEquals("Maggot King", m.group("source"));
 	}
 
 	@Test
@@ -78,9 +85,9 @@ public class ScenarioLinesTest
 	{
 		for (String tier : new String[]{"Easy", "Medium", "Hard", "Elite", "Master", "Grandmaster"})
 		{
-			Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(firstChat("ca-task", Map.of("tier", tier)));
-			assertTrue(tier, m.find());
-			assertNotNull(tier, CombatAchievementTier.byName(m.group(1)));
+			Matcher m = ChatPatterns.find("ca.task", firstChat("ca-task", Map.of("tier", tier)));
+			assertNotNull(tier, m);
+			assertNotNull(tier, CombatAchievementTier.byName(m.group("tier")));
 		}
 	}
 
@@ -94,17 +101,17 @@ public class ScenarioLinesTest
 			if ("chat".equals(Scenario.kindOf(step)))
 			{
 				String l = step.getAsJsonObject("chat").get("message").getAsString();
-				if (AnvilPlugin.KILL_COUNT_PATTERN.matcher(l).find())
+				if (ChatPatterns.find("kc.count", l) != null)
 				{
 					line = l;
 				}
 			}
 		}
 		assertNotNull(scenario + " has no KC line", line);
-		Matcher m = AnvilPlugin.KILL_COUNT_PATTERN.matcher(line);
-		assertTrue(m.find());
-		assertEquals(boss, m.group(1).trim());
-		assertEquals(kc, m.group(2));
+		Matcher m = ChatPatterns.find("kc.count", line);
+		assertNotNull(m);
+		assertEquals(boss, m.group("name").trim());
+		assertEquals(kc, m.group("count"));
 	}
 
 	private static String firstChat(String scenario, Map<String, String> args) throws Exception
@@ -128,12 +135,5 @@ public class ScenarioLinesTest
 		Scenario s = lib.get(name);
 		assertNotNull(name, s);
 		return s;
-	}
-
-	private static Pattern privatePattern(String name) throws Exception
-	{
-		Field f = AnvilPlugin.class.getDeclaredField(name);
-		f.setAccessible(true);
-		return (Pattern) f.get(null);
 	}
 }
