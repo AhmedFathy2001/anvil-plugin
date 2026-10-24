@@ -2200,6 +2200,9 @@ public class AnvilPlugin extends Plugin {
 	// client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
 	// count, which still covers instanced content without a party varbit).
 	private volatile int lastRaidPartySize = 0;
+	// ToA raid level, last non-zero reading this instance — the fallback if the varbit has already
+	// cleared when the completion line lands. Client thread only.
+	private int lastToaRaidLevel = 0;
 
 	/**
 	 * Finishing a clue or a Colosseum run moves a counter the site can score a tile on, so report it
@@ -2335,6 +2338,7 @@ public class AnvilPlugin extends Plugin {
 		if (inInstance && !wasInInstance) {
 			instancePlayerDeaths = 0;
 			instancePlayersSeen.clear();
+			lastToaRaidLevel = 0;
 			for (Player p : client.getPlayers()) {
 				noteInstancePlayer(p);
 			}
@@ -2344,8 +2348,10 @@ public class AnvilPlugin extends Plugin {
 		// raid" signal so a stale value from a prior raid can't bleed into another's gating, and we
 		// only ever read one raid's varbits at a time (you can't be in two raids at once).
 		int raidParty = 0;
-		if (client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) > 0) {
+		int toaLevel = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+		if (toaLevel > 0) {
 			// ToA: scoped by a non-zero raid level. Count occupied party slots.
+			lastToaRaidLevel = toaLevel;
 			raidParty = occupied(TOA_PARTY_SLOTS);
 		} else if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) {
 			// CoX: the client exposes the party size directly while inside the dungeon.
@@ -4492,7 +4498,7 @@ public class AnvilPlugin extends Plugin {
 		TrackedDrop drop = agg.tile;
 		int amount = agg.total;
 		String progress = " (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		submitProof(drop.tileId, drop.label, amount, null, agg.trackingItemId, agg.inferred, agg.triggerFrame,
+		submitProof(drop.tileId, drop.label, amount, null, agg.trackingItemId, agg.inferred, agg.triggerFrame, null,
 				"BINGO DROP", drop.label + "  ×" + amount + " " + progress,
 				"[Auto] " + drop.label + " detected by RuneLite plugin", "Drop submitted: " + drop.label + progress,
 				() -> drop.currentAmount = Math.max(0, drop.currentAmount - amount));
@@ -4678,7 +4684,9 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		String detail = kill.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		captureAndSubmitProof(kill.tileId, kill.label, amount, null, "BINGO KILL", detail,
+		// The proof carries who was there too: a small tile proves EVERY credit, so without it a
+		// count-once tile counted each teammate's report of one raid separately.
+		captureAndSubmitProof(kill.tileId, kill.label, amount, null, agg.coop, "BINGO KILL", detail,
 				"[Auto] " + kill.label + " kill(s) detected by RuneLite plugin",
 				() -> kill.currentAmount = Math.max(0, kill.currentAmount - amount));
 	}
@@ -5072,7 +5080,13 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
 			String bannerTitle, String bannerDetail, String note, Runnable rollback) {
-		submitProof(tileId, label, amount, durationSeconds, null, null, null, bannerTitle, bannerDetail, note,
+		captureAndSubmitProof(tileId, label, amount, durationSeconds, null, bannerTitle, bannerDetail, note, rollback);
+	}
+
+	/** As above, carrying who was there for a tile that counts shared kills/runs (lib/coopRuns). */
+	private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
+			CoopFingerprint coop, String bannerTitle, String bannerDetail, String note, Runnable rollback) {
+		submitProof(tileId, label, amount, durationSeconds, null, null, null, coop, bannerTitle, bannerDetail, note,
 				"Submitted: " + label, rollback);
 	}
 
@@ -5088,8 +5102,8 @@ public class AnvilPlugin extends Plugin {
 	 * non-enrolled alt can't be credited to the enrolled account later.
 	 */
 	private void submitProof(int tileId, String label, int amount, Integer durationSeconds, Integer itemId,
-			String inferred, BufferedImage triggerFrame, String bannerTitle, String bannerDetail, String note,
-			String submitted, Runnable rollback) {
+			String inferred, BufferedImage triggerFrame, CoopFingerprint coop, String bannerTitle, String bannerDetail,
+			String note, String submitted, Runnable rollback) {
 		if (pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
 			return;
 		}
@@ -5110,6 +5124,10 @@ public class AnvilPlugin extends Plugin {
 				pending.itemId = itemId;
 				pending.durationSeconds = durationSeconds;
 				pending.inferred = inferred;
+				if (coop != null) {
+					pending.coopGroup = coop.teammates;
+					pending.coopPartySize = coop.partySize;
+				}
 				if (pendingSubmissionStore.save(pending, png) == null) {
 					log.error("Failed to persist submission '{}' to disk", label);
 					return;
@@ -5162,6 +5180,29 @@ public class AnvilPlugin extends Plugin {
 	/** Raid party size from the varbits, else the distinct players seen in this instance. */
 	private int partySize() {
 		return lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
+	}
+
+	/** The ToA raid level as it stands now (0 outside ToA). Client thread. */
+	private int raidLevelNow() {
+		int level = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+		return level > 0 ? level : lastToaRaidLevel;
+	}
+
+	/** Normalised RSNs of this team's roster, from the event roster the server ships for these tiles. */
+	private Set<String> myTeamRoster() {
+		Set<String> mine = new HashSet<>();
+		if (pluginConfig != null && pluginConfig.pvpRoster != null && pluginConfig.team != null) {
+			for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
+				if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
+					mine.add(Rsn.normalize(e.name));
+				}
+			}
+		}
+		return mine;
+	}
+
+	private static CoopFingerprint pendingCoop(PendingSubmission p) {
+		return p.coopGroup == null && p.coopPartySize <= 1 ? null : new CoopFingerprint(p.coopGroup, p.coopPartySize);
 	}
 
 	/**
@@ -5280,6 +5321,15 @@ public class AnvilPlugin extends Plugin {
 						+ partySeen + ", tile requires " + tile.partySize + ".");
 				continue;
 			}
+			int raidLevel = raidLevelNow();
+			String why = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, raidLevel);
+			if (why == null && tile.partyTeamOnly) {
+				why = RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), partySeen);
+			}
+			if (why != null) {
+				sendChatMessage("Deathless run not counted for " + tile.label + ": " + why + ".");
+				continue;
+			}
 			tile.currentAmount++;
 			raiseLocal(tile.tileId, tile.currentAmount, now());
 			int goal = Math.max(1, tile.requiredAmount);
@@ -5288,8 +5338,10 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
 			String detail = tile.activity + "  deathless"
 					+ (tile.partySize > 0 ? "  party " + partySeen : "")
+					+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "")
 					+ "  (" + tile.currentAmount + "/" + goal + ")";
-			captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO DEATHLESS", detail,
+			captureAndSubmitProof(tile.tileId, tile.label, 1, null,
+					tile.needsCoopFingerprint() ? coopFingerprint() : null, "BINGO DEATHLESS", detail,
 					"[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
 					() -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
 			any = true;
@@ -5329,6 +5381,11 @@ public class AnvilPlugin extends Plugin {
 								tile.label, partySeen, tile.partySize);
 						continue;
 					}
+				}
+				String levelWhy = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, raidLevelNow());
+				if (levelWhy != null) {
+					sendChatMessage("Timed clear not counted for " + tile.label + ": " + levelWhy + ".");
+					continue;
 				}
 				if (seconds > tile.thresholdSeconds) {
 					log.info("Timed '{}': {} over cap {} — not submitted", tile.label,
@@ -5638,7 +5695,7 @@ public class AnvilPlugin extends Plugin {
 			} else {
 				log.info("Submitting drop for tile '{}'...", pending.label);
 				apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
-						pending.note, pending.playerId, pending.itemId, null, pending.inferred);
+						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred);
 			}
 
 			log.info("Submission '{}' sent successfully!", pending.label);
@@ -7759,15 +7816,9 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private CoopFingerprint coopFingerprint() {
 		List<String> teammates = new ArrayList<>();
-		if (pluginConfig != null && pluginConfig.pvpRoster != null && !pluginConfig.pvpRoster.isEmpty()
-				&& pluginConfig.team != null) {
+		Set<String> mine = myTeamRoster();
+		if (!mine.isEmpty()) {
 			String me = Rsn.normalize(getLocalPlayerName());
-			Set<String> mine = new HashSet<>();
-			for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
-				if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
-					mine.add(Rsn.normalize(e.name));
-				}
-			}
 			// Copy before iterating: the set is written from the game tick, and this runs off a
 			// kill credit on the same thread today — but a snapshot costs nothing and can't throw.
 			for (String seen : new ArrayList<>(instancePlayersSeen)) {
