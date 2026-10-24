@@ -22,8 +22,9 @@ final class RaidGates
 	}
 
 	/**
-	 * {@code level} is the raid level read at the completion line — after the Warden dies, which is
-	 * when a failed time-limit invocation has already taken its cut. 0 = it couldn't be read.
+	 * {@code level} is the raid level the raid ENDED at — read at the chest, because a failed
+	 * time-limit invocation only takes its cut once the party reaches the chest room (the caller
+	 * holds the run until then). 0 = it couldn't be read.
 	 */
 	static String raidLevel(String activity, int minLevel, int level)
 	{

@@ -2338,7 +2338,12 @@ public class AnvilPlugin extends Plugin {
 		if (inInstance && !wasInInstance) {
 			instancePlayerDeaths = 0;
 			instancePlayersSeen.clear();
-			lastToaRaidLevel = 0;
+			// A run still waiting on its level is judged on the one it showed before this instance.
+			int prior = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+			if (prior <= 0) {
+				judgeHeldToaRuns(lastToaRaidLevel);
+				lastToaRaidLevel = 0;
+			}
 			for (Player p : client.getPlayers()) {
 				noteInstancePlayer(p);
 			}
@@ -2349,6 +2354,10 @@ public class AnvilPlugin extends Plugin {
 		// only ever read one raid's varbits at a time (you can't be in two raids at once).
 		int raidParty = 0;
 		int toaLevel = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+		if (!heldToaRuns.isEmpty() && (toaLevel == 0 || now() - heldToaRunsSince > HELD_RUN_MAX_MS)) {
+			// Left the raid without looting (or never did): judge on the last level it showed.
+			judgeHeldToaRuns(toaLevel > 0 ? toaLevel : lastToaRaidLevel);
+		}
 		if (toaLevel > 0) {
 			// ToA: scoped by a non-zero raid level. Count occupied party slots.
 			lastToaRaidLevel = toaLevel;
@@ -3165,6 +3174,10 @@ public class AnvilPlugin extends Plugin {
 		// post it to the drops channel or feed it to any bingo tile (drop/value/rare-drop).
 		if (lmsInGame) {
 			return;
+		}
+		// The ToA chest: by now the raid level has taken any failed timer's cut.
+		if (!heldToaRuns.isEmpty() && event.getName() != null && RaidGates.isToa(event.getName())) {
+			judgeHeldToaRuns(raidLevelNow());
 		}
 		// Covers raid chests, clue caskets, barrows, implings, AND opened loot keys.
 		// We classify the source so per-tile filters can reject drops from the wrong
@@ -5321,32 +5334,84 @@ public class AnvilPlugin extends Plugin {
 						+ partySeen + ", tile requires " + tile.partySize + ".");
 				continue;
 			}
-			int raidLevel = raidLevelNow();
-			String why = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, raidLevel);
-			if (why == null && tile.partyTeamOnly) {
-				why = RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), partySeen);
+			if (tile.partyTeamOnly) {
+				String why = RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), partySeen);
+				if (why != null) {
+					sendChatMessage("Deathless run not counted for " + tile.label + ": " + why + ".");
+					continue;
+				}
 			}
-			if (why != null) {
-				sendChatMessage("Deathless run not counted for " + tile.label + ": " + why + ".");
-				continue;
+			// Who was there is read NOW, while the party is still together in the Warden's room.
+			CoopFingerprint coop = tile.needsCoopFingerprint() ? coopFingerprint() : null;
+			if (holdsForRaidLevel(tile.activity, tile.minRaidLevel)) {
+				holdForRaidLevel(tile.label, level -> {
+					String why = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, level);
+					if (why != null) {
+						sendChatMessage("Deathless run not counted for " + tile.label + ": " + why + ".");
+					} else {
+						creditDeathless(tile, partySeen, level, coop);
+					}
+				});
+			} else {
+				creditDeathless(tile, partySeen, raidLevelNow(), coop);
 			}
-			tile.currentAmount++;
-			raiseLocal(tile.tileId, tile.currentAmount, now());
-			int goal = Math.max(1, tile.requiredAmount);
-			log.info("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
-					tile.activity, partySeen, tile.label, tile.currentAmount, goal);
-			sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
-			String detail = tile.activity + "  deathless"
-					+ (tile.partySize > 0 ? "  party " + partySeen : "")
-					+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "")
-					+ "  (" + tile.currentAmount + "/" + goal + ")";
-			captureAndSubmitProof(tile.tileId, tile.label, 1, null,
-					tile.needsCoopFingerprint() ? coopFingerprint() : null, "BINGO DEATHLESS", detail,
-					"[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
-					() -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
 			any = true;
 		}
 		return any;
+	}
+
+	private void creditDeathless(PluginConfigResponse.TrackedDeathless tile, int partySeen, int raidLevel,
+			CoopFingerprint coop) {
+		int goal = Math.max(1, tile.requiredAmount);
+		if (tile.completed || tile.currentAmount >= goal) {
+			return;
+		}
+		tile.currentAmount++;
+		raiseLocal(tile.tileId, tile.currentAmount, now());
+		log.info("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
+				tile.activity, partySeen, tile.label, tile.currentAmount, goal);
+		sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
+		String detail = tile.activity + "  deathless"
+				+ (tile.partySize > 0 ? "  party " + partySeen : "")
+				+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "")
+				+ "  (" + tile.currentAmount + "/" + goal + ")";
+		captureAndSubmitProof(tile.tileId, tile.label, 1, null, coop, "BINGO DEATHLESS", detail,
+				"[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
+				() -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
+	}
+
+	// ---- ToA runs held for the raid level they END at ---------------------------------------
+	// The Warden's death prints the completion lines, but a failed time-limit invocation only takes
+	// its cut once the party reaches the chest room — judged at the completion line, a 500 that
+	// missed its timer would still read 500. So a ToA tile with a level floor holds the run and
+	// judges it when the chest is looted, or on leaving the raid, or after HELD_RUN_MAX_MS, each
+	// with the level read then. Client thread only.
+	private static final long HELD_RUN_MAX_MS = 15 * 60_000;
+	private final List<java.util.function.IntConsumer> heldToaRuns = new ArrayList<>();
+	private long heldToaRunsSince;
+
+	private static boolean holdsForRaidLevel(String activity, int minRaidLevel) {
+		return minRaidLevel > 0 && RaidGates.isToa(activity);
+	}
+
+	private void holdForRaidLevel(String label, java.util.function.IntConsumer judge) {
+		if (heldToaRuns.isEmpty()) {
+			heldToaRunsSince = now();
+		}
+		heldToaRuns.add(judge);
+		sendChatMessage(label + ": checking the raid level at the chest.");
+	}
+
+	private void judgeHeldToaRuns(int level) {
+		if (heldToaRuns.isEmpty()) {
+			return;
+		}
+		List<java.util.function.IntConsumer> held = new ArrayList<>(heldToaRuns);
+		heldToaRuns.clear();
+		log.debug("Judging {} held ToA run(s) at raid level {}", held.size(), level);
+		for (java.util.function.IntConsumer judge : held) {
+			judge.accept(level);
+		}
 	}
 
 	/**
@@ -5382,11 +5447,6 @@ public class AnvilPlugin extends Plugin {
 						continue;
 					}
 				}
-				String levelWhy = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, raidLevelNow());
-				if (levelWhy != null) {
-					sendChatMessage("Timed clear not counted for " + tile.label + ": " + levelWhy + ".");
-					continue;
-				}
 				if (seconds > tile.thresholdSeconds) {
 					log.info("Timed '{}': {} over cap {} — not submitted", tile.label,
 							TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
@@ -5396,18 +5456,37 @@ public class AnvilPlugin extends Plugin {
 			if (!claim(lastTimedSubmittedAt, tile.tileId, now, TIMED_DEDUP_WINDOW_MS)) {
 				continue;
 			}
-			log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
-					TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
-			sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
-			String detail = trialTarget != null
-					? tile.activity + "  " + TimedClearParser.formatClock(seconds)
-					: tile.activity + "  " + TimedClearParser.formatClock(seconds)
-							+ "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")";
-			captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
-					"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
+			if (trialTarget == null && holdsForRaidLevel(tile.activity, tile.minRaidLevel)) {
+				holdForRaidLevel(tile.label, level -> {
+					String why = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, level);
+					if (why != null) {
+						sendChatMessage("Timed clear not counted for " + tile.label + ": " + why + ".");
+					} else {
+						creditTimed(tile, seconds, null, level);
+					}
+				});
+			} else {
+				creditTimed(tile, seconds, trialTarget, raidLevelNow());
+			}
 			any = true;
 		}
 		return any;
+	}
+
+	private void creditTimed(PluginConfigResponse.TrackedTimed tile, int seconds, String[] trialTarget, int raidLevel) {
+		if (tile.completed) {
+			return;
+		}
+		log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
+				TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
+		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
+		String detail = trialTarget != null
+				? tile.activity + "  " + TimedClearParser.formatClock(seconds)
+				: tile.activity + "  " + TimedClearParser.formatClock(seconds)
+						+ "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")"
+						+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "");
+		captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
+				"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
 	}
 
 	/**
