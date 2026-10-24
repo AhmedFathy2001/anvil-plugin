@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import java.nio.file.Files;
 import java.util.Map;
 import java.util.regex.Matcher;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -21,12 +22,18 @@ public class ScenarioLinesTest
 {
 	private static final Map<String, String> ME = Map.of("me", "Tester");
 
+	/** Every test here reads the catalog defaults, in whatever order JUnit runs them. */
+	@BeforeClass
+	public static void loadCatalog()
+	{
+		ChatPatterns.loadDefaults(new Gson());
+	}
+
 	@Test
 	public void everyScenarioLineHitsAParser() throws Exception
 	{
 		// Against the plugin's pattern catalog (ChatPatterns) — the same defaults the parsers read, so a
 		// reworded default or a scenario typo fails here rather than silently crediting nothing.
-		ChatPatterns.loadDefaults(new Gson());
 		ScenarioLibrary lib = new ScenarioLibrary(Files.createTempDirectory("anvil-scenarios"));
 		lib.reload();
 		for (Scenario s : lib.all())

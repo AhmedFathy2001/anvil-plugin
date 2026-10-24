@@ -92,12 +92,33 @@ final class SiteBridge
 		}
 		try
 		{
-			for (String fieldName : new String[]{"httpClient", "uploadClient"})
+			// Every OkHttpClient the API client holds, found by type rather than by name: the plugin
+			// has renamed and split these before (httpClient/uploadClient became httpClient/readClient),
+			// and a name list that misses one leaves that client talking to production. All or
+			// nothing — the clients are wrapped only once every one of them has been found.
+			List<Field> fields = new ArrayList<>();
+			for (Field f : BingoApiClient.class.getDeclaredFields())
 			{
-				Field f = BingoApiClient.class.getDeclaredField(fieldName);
-				f.setAccessible(true);
+				if (f.getType() == OkHttpClient.class && !java.lang.reflect.Modifier.isStatic(f.getModifiers()))
+				{
+					f.setAccessible(true);
+					fields.add(f);
+				}
+			}
+			if (fields.isEmpty())
+			{
+				log.warn("scenario harness: BingoApiClient holds no OkHttpClient field to wrap");
+				return false;
+			}
+			List<OkHttpClient> wrapped = new ArrayList<>();
+			for (Field f : fields)
+			{
 				OkHttpClient original = (OkHttpClient) f.get(api);
-				f.set(api, original.newBuilder().addInterceptor(this::intercept).build());
+				wrapped.add(original.newBuilder().addInterceptor(this::intercept).build());
+			}
+			for (int i = 0; i < fields.size(); i++)
+			{
+				fields.get(i).set(api, wrapped.get(i));
 			}
 			installed = true;
 			return true;
