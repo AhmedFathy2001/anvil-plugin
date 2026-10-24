@@ -338,7 +338,8 @@ final class TeamsView extends JPanel
 		results.add(gap(3));
 		for (EventRoster.Person p : data.players)
 		{
-			results.add(personRow(p, false, false));
+			// A scored board sends each member's share (best first): show it like the ranked lists.
+			results.add(personRow(p, p.rank != null, false));
 			results.add(gap(2));
 		}
 	}
