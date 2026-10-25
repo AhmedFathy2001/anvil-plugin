@@ -468,6 +468,18 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.fetchPlayerCard(rsn);
 	}
 
+	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
+	public void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then)
+	{
+		AnvilPlugin p = plugin;
+		if (p == null)
+		{
+			then.accept(LookupSuggestions.Names.EMPTY);
+			return;
+		}
+		p.lookupNames(then);
+	}
+
 	/** The character logged in right now, or null at the login screen. */
 	public String myRsn()
 	{

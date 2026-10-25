@@ -143,6 +143,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel lookupResult = column();
 	private final JPanel lookupRecentRow = column();
 	private final JTextField lookupSearch = new JTextField();
+	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
+	private LookupSuggestions lookupCompleter;
 	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
@@ -484,6 +486,9 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		});
 		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
+		// Players only: clan names aren't in any list the game keeps.
+		lookupCompleter = new LookupSuggestions(lookupSearch, () -> !lookupClans,
+			() -> new java.util.ArrayList<>(recentLookups), dataSource::myRsn, dataSource::lookupNames);
 		lookupClear.setVisible(false);
 		lookupClear.setToolTipText("Clear");
 		onClick(lookupClear, () ->
@@ -505,6 +510,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			public void focusGained(java.awt.event.FocusEvent e)
 			{
 				setBoxLine(ColorScheme.BRAND_ORANGE);
+				lookupCompleter.refresh();
 			}
 
 			@Override
