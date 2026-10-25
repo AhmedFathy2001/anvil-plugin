@@ -1,10 +1,9 @@
 package com.anvil;
 
 import lombok.RequiredArgsConstructor;
-import com.google.gson.*;
+import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.*;
-import java.util.stream.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
 
@@ -170,7 +169,7 @@ final class PushStash
 		{
 			return;
 		}
-		Data merged = merge(read(f), data);
+		Data merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
 		try
 		{
 			DiskFiles.writeAtomic(f, gson.toJson(merged));
@@ -186,7 +185,7 @@ final class PushStash
 	Data take(String key, long now)
 	{
 		Filepath f = file(key);
-		Data d = read(f);
+		Data d = DiskFiles.readJson(gson, f, Data.class);
 		DiskFiles.deleteQuietly(f);
 		return d == null || now - d.savedAt > MAX_AGE_MS ? null : d;
 	}
@@ -194,36 +193,6 @@ final class PushStash
 	/** Signed out: drop every character's saved pushes. */
 	void clearAll()
 	{
-		Filepath d = DiskFiles.ensureDir(dir);
-		if (d == null)
-		{
-			return;
-		}
-		try (Stream<Filepath> walk = d.walk(1))
-		{
-			walk.filter(f -> f.isFile() && f.getFileName().startsWith("pushes-")).collect(Collectors.toList())
-				.forEach(DiskFiles::deleteQuietly);
-		}
-		catch (IOException | RuntimeException e)
-		{
-			log.debug("Couldn't clear saved pushes: {}", e.getMessage());
-		}
-	}
-
-	private Data read(Filepath f)
-	{
-		String text = DiskFiles.readText(f);
-		if (text == null)
-		{
-			return null;
-		}
-		try
-		{
-			return gson.fromJson(text, Data.class);
-		}
-		catch (JsonParseException e)
-		{
-			return null;
-		}
+		DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.startsWith("pushes-")).forEach(DiskFiles::deleteQuietly);
 	}
 }

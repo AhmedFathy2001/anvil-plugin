@@ -1,9 +1,13 @@
 package com.anvil;
 
+import com.google.gson.Gson;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.*;
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.*;
 import net.runelite.client.util.Filepath;
 
 /**
@@ -82,6 +86,37 @@ final class DiskFiles
 	{
 		byte[] b = read(file);
 		return b == null ? null : new String(b, StandardCharsets.UTF_8);
+	}
+
+	/** The file as a {@code type}, or null when it is missing, empty or not valid JSON (a truncated write). */
+	static <T> T readJson(Gson gson, Filepath file, Class<T> type)
+	{
+		String text = readText(file);
+		try
+		{
+			return text == null ? null : gson.fromJson(text, type);
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
+	}
+
+	/** The files directly in {@code dir} whose names pass {@code name}; empty when there is no listing. */
+	static List<Filepath> listFiles(Filepath dir, Predicate<String> name)
+	{
+		if (dir == null)
+		{
+			return new ArrayList<>();
+		}
+		try (Stream<Filepath> walk = dir.walk(1))
+		{
+			return walk.filter(f -> f.isFile() && name.test(f.getFileName())).collect(Collectors.toList());
+		}
+		catch (IOException | RuntimeException e)
+		{
+			return new ArrayList<>();
+		}
 	}
 
 	static void deleteQuietly(Filepath file)

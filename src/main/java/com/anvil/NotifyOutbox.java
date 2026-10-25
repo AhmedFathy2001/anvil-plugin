@@ -1,7 +1,7 @@
 package com.anvil;
 
 import lombok.RequiredArgsConstructor;
-import com.google.gson.*;
+import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
@@ -140,48 +140,24 @@ final class NotifyOutbox
 	/** Read what a previous session left. Blocking (disk); call off the client thread. */
 	void load()
 	{
-		Filepath d = DiskFiles.ensureDir(dir);
-		if (d == null)
-		{
-			return;
-		}
 		List<Item> found = new ArrayList<>();
 		List<Filepath> pngs = new ArrayList<>();
-		try (Stream<Filepath> walk = d.walk(1))
+		for (Filepath f : DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png")))
 		{
-			List<Filepath> files = walk.filter(Filepath::isFile).collect(Collectors.toList());
-			for (Filepath f : files)
+			if (f.getFileName().endsWith(".png"))
 			{
-				if (f.getFileName().endsWith(".png"))
-				{
-					pngs.add(f);
-				}
-				if (!f.getFileName().endsWith(".json"))
-				{
-					continue;
-				}
-				try
-				{
-					Item it = gson.fromJson(DiskFiles.readText(f), Item.class);
-					if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json"))
-					{
-						found.add(it);
-					}
-					else
-					{
-						DiskFiles.deleteQuietly(f);
-					}
-				}
-				catch (JsonParseException e)
-				{
-					DiskFiles.deleteQuietly(f);
-				}
+				pngs.add(f);
+				continue;
 			}
-		}
-		catch (IOException | RuntimeException e)
-		{
-			log.debug("Notification outbox unreadable: {}", e.getMessage());
-			return;
+			Item it = DiskFiles.readJson(gson, f, Item.class);
+			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json"))
+			{
+				found.add(it);
+			}
+			else
+			{
+				DiskFiles.deleteQuietly(f);
+			}
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
 		for (Filepath png : pngs)
