@@ -26,6 +26,7 @@ final class ResponseDiskCache
 {
 	static final String CONFIG = "config";
 	static final String BOARD = "board";
+	static final String CHAT_PATTERNS = "chat-patterns";
 	/** A board bigger than this isn't worth the disk; the next launch just downloads it. */
 	private static final int MAX_BODY_CHARS = 2_000_000;
 

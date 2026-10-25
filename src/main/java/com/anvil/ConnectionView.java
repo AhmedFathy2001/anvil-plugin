@@ -596,9 +596,17 @@ public final class ConnectionView
 		 * underneath.
 		 */
 		public final boolean ladderFormat;
+		/** Missions still to be announced on a bingo; -1 when the site doesn't say. */
+		public final int missionsLeft;
 
 		public Ladder(String nextRevealAtIso, int monthRank, long monthPoints, int allTimeRank,
 			PluginConfigResponse.Decay decay, List<Mission> missions, boolean ladderFormat)
+		{
+			this(nextRevealAtIso, monthRank, monthPoints, allTimeRank, decay, missions, ladderFormat, -1);
+		}
+
+		public Ladder(String nextRevealAtIso, int monthRank, long monthPoints, int allTimeRank,
+			PluginConfigResponse.Decay decay, List<Mission> missions, boolean ladderFormat, int missionsLeft)
 		{
 			this.nextRevealAtIso = nextRevealAtIso;
 			this.monthRank = Math.max(0, monthRank);
@@ -607,6 +615,7 @@ public final class ConnectionView
 			this.decay = decay;
 			this.missions = copyOrEmpty(missions);
 			this.ladderFormat = ladderFormat;
+			this.missionsLeft = missionsLeft;
 		}
 
 		/** One open mission: its label, face value, and reveal time (for the live grow/decay value). */
@@ -616,13 +625,21 @@ public final class ConnectionView
 			public final String label;
 			public final int face;
 			public final String revealedAtIso;
+			/** When it auto-closes if nobody claims it; null when it doesn't. */
+			public final String expiresAtIso;
 
 			public Mission(int tileId, String label, int face, String revealedAtIso)
+			{
+				this(tileId, label, face, revealedAtIso, null);
+			}
+
+			public Mission(int tileId, String label, int face, String revealedAtIso, String expiresAtIso)
 			{
 				this.tileId = tileId;
 				this.label = label == null ? "" : label;
 				this.face = Math.max(0, face);
 				this.revealedAtIso = revealedAtIso;
+				this.expiresAtIso = expiresAtIso;
 			}
 		}
 	}

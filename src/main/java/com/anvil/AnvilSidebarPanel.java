@@ -143,6 +143,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel lookupResult = column();
 	private final JPanel lookupRecentRow = column();
 	private final JTextField lookupSearch = new JTextField();
+	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
+	private LookupSuggestions lookupCompleter;
 	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
@@ -236,6 +238,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Held label refs for the rendered ladder card so the tick updates them in place. */
 	private JLabel ladderCountdownLabel;
 	private final List<LadderValueLabel> ladderValueLabels = new ArrayList<>();
+	private final List<LadderExpiryLabel> ladderExpiryLabels = new ArrayList<>();
 	private JPanel ladderCardPanel;
 	/** Wall-clock (ms) until which the card pulses; written off-EDT by {@link #flashLadder()}. */
 	private volatile long ladderFlashUntil;
@@ -484,6 +487,9 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		});
 		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
+		// Players only: clan names aren't in any list the game keeps.
+		lookupCompleter = new LookupSuggestions(lookupSearch, () -> !lookupClans,
+			() -> new java.util.ArrayList<>(recentLookups), dataSource::myRsn, dataSource::lookupNames);
 		lookupClear.setVisible(false);
 		lookupClear.setToolTipText("Clear");
 		onClick(lookupClear, () ->
@@ -505,6 +511,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			public void focusGained(java.awt.event.FocusEvent e)
 			{
 				setBoxLine(ColorScheme.BRAND_ORANGE);
+				lookupCompleter.refresh();
 			}
 
 			@Override
@@ -3307,6 +3314,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		ladderCountdownLabel = null;
 		ladderCardPanel = null;
 		ladderValueLabels.clear();
+		ladderExpiryLabels.clear();
 	}
 
 	private JPanel buildSummary(ConnectionView c)
@@ -3389,6 +3397,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		row.add(value, BorderLayout.EAST);
 		capH(row);
 		ladderValueLabels.add(new LadderValueLabel(value, m.face, m.revealedAtIso));
+		if (m.expiresAtIso != null)
+		{
+			// Ticks with the values; an unclaimed mission closes when this runs out.
+			JLabel expiry = small(expiryText(m.expiresAtIso, now), ColorScheme.BRAND_ORANGE);
+			ladderExpiryLabels.add(new LadderExpiryLabel(expiry, m.expiresAtIso));
+			JPanel stacked = left(new JPanel(new BorderLayout(0, 1)));
+			stacked.setOpaque(false);
+			stacked.add(row, BorderLayout.NORTH);
+			stacked.add(expiry, BorderLayout.SOUTH);
+			row = capH(stacked);
+		}
 
 		// The team's progress on it, from the same counts every tile row reads, and a click that opens
 		// it like any other tile. A mission the plugin can't count (manual) keeps just its value line.
@@ -3505,7 +3524,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			// No clock: a ladder draws its next one when a mission is claimed; a bingo's missions with
 			// no schedule are dropped by staff whenever they choose (or there are none left).
-			return l.ladderFormat ? "Next mission drops on a claim" : "Next mission: whenever staff drop it";
+			if (l.ladderFormat)
+			{
+				return "Next mission drops on a claim";
+			}
+			return l.missionsLeft == 0 ? "No more missions to come" : "Next mission: whenever staff drop it";
 		}
 		return "now".equals(cd) ? "New mission dropping…" : "Next mission in " + cd;
 	}
@@ -3530,6 +3553,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (ladderCountdownLabel != null)
 			{
 				ladderCountdownLabel.setText(plainText(countdownText(l, now)));
+			}
+			for (LadderExpiryLabel x : ladderExpiryLabels)
+			{
+				x.label.setText(expiryText(x.expiresAtIso, now));
 			}
 			for (LadderValueLabel v : ladderValueLabels)
 			{
@@ -3572,6 +3599,25 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Held ref for one mission's value label so the tick recomputes its grow/decay value in place. */
+	/** "Expires in 1:12:04", or "Expired" once the clock runs out (the next poll drops the row). */
+	private static String expiryText(String expiresAtIso, long now)
+	{
+		String cd = LadderMissions.countdown(expiresAtIso, now);
+		return cd == null ? "" : "now".equals(cd) ? "Expired" : "Expires in " + cd;
+	}
+
+	private static final class LadderExpiryLabel
+	{
+		final JLabel label;
+		final String expiresAtIso;
+
+		LadderExpiryLabel(JLabel label, String expiresAtIso)
+		{
+			this.label = label;
+			this.expiresAtIso = expiresAtIso;
+		}
+	}
+
 	private static final class LadderValueLabel
 	{
 		final JLabel label;
@@ -3677,7 +3723,10 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	enum TileStatusFilter
 	{
-		ALL("All"), OPEN("Not done"), IN_PROGRESS("In progress"), NOT_STARTED("Not started"), DONE("Done");
+		// CLOSEST is "Not done" sorted nearest-finished first — a sort, but one more choice in the same
+		// dropdown beats a second control on a 240px panel.
+		ALL("All"), OPEN("Not done"), CLOSEST("Closest first"), IN_PROGRESS("In progress"), NOT_STARTED("Not started"),
+		DONE("Done");
 
 		private final String label;
 
@@ -3742,9 +3791,12 @@ public class AnvilSidebarPanel extends PluginPanel
 				continue;
 			}
 			boolean done = !preStart && tile.complete;
-			if ((wanted == TileStatusFilter.OPEN && done) || (wanted == TileStatusFilter.DONE && !done)
-				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || startedCount(tile, progress) == null))
-				|| (wanted == TileStatusFilter.NOT_STARTED && (done || startedCount(tile, progress) != null)))
+			// An expired / locked-out mission isn't done, but it isn't open either: it only shows under All.
+			boolean closed = !preStart && tile.isClosedUndone();
+			if (((wanted == TileStatusFilter.OPEN || wanted == TileStatusFilter.CLOSEST) && (done || closed))
+				|| (wanted == TileStatusFilter.DONE && !done)
+				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || closed || startedCount(tile, progress) == null))
+				|| (wanted == TileStatusFilter.NOT_STARTED && (done || closed || startedCount(tile, progress) != null)))
 			{
 				continue;
 			}
@@ -3783,7 +3835,19 @@ public class AnvilSidebarPanel extends PluginPanel
 				return relevance != 0 ? relevance : Integer.compare(a.position, b.position);
 			});
 		}
+		if (wanted == TileStatusFilter.CLOSEST)
+		{
+			// Stable, so ties (and everything untouched) keep the order above.
+			out.sort((a, b) -> Double.compare(tileFraction(b, progress), tileFraction(a, progress)));
+		}
 		return out;
+	}
+
+	/** How far the team is toward this tile's goal, 0..1; 0 for an untouched or uncountable tile. */
+	static double tileFraction(BingoApiClient.BoardTile tile, Map<Integer, ClogTaskModel.TaskRow> progress)
+	{
+		ClogTaskModel.TaskRow r = progress == null ? null : progress.get(tile.tileId);
+		return r == null || r.goal <= 0 ? 0 : Math.min(1.0, r.current / (double) r.goal);
 	}
 
 	/**
@@ -4227,7 +4291,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		row.add(name, BorderLayout.CENTER);
 
 		// A started tile says how far along it is where an untouched one says "Open".
-		String rowState = count != null ? count : tileRowStateText(tile, preStart);
+		String rowState = count != null && !tile.isClosedUndone() ? count : tileRowStateText(tile, preStart);
 		if (rowState != null)
 		{
 			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
@@ -4570,7 +4634,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Compact state shown at the right edge of a catalogue row. */
 	static String tileStateText(BingoApiClient.BoardTile tile)
 	{
-		return (tile.complete ? "✓ Done" : "Open") + (tileIsManual(tile) ? " (manual)" : "");
+		return (tile.complete ? "✓ Done" : tile.isClosedUndone() ? "Closed" : "Open") + (tileIsManual(tile) ? " (manual)" : "");
 	}
 
 	/**

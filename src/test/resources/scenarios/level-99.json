@@ -1,0 +1,23 @@
+{
+  "name": "level-99",
+  "description": "A 99: the XP drop (StatChanged) plus the level-up chat line",
+  "params": {
+    "skill": "Cooking",
+    "xp": "13034431"
+  },
+  "steps": [
+    {
+      "stat": {
+        "skill": "${skill}",
+        "xp": "${xp}",
+        "level": 99,
+        "boostedLevel": 99
+      }
+    },
+    {
+      "chat": {
+        "message": "Congratulations, you've just advanced your ${skill} level. You are now level 99."
+      }
+    }
+  ]
+}

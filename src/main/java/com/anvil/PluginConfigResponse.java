@@ -381,6 +381,8 @@ public class PluginConfigResponse
 		// Open missions on a reveal-mode board (revealed + still-open), with face points and reveal time
 		// so the plugin can render the "active missions" list + per-second countdown. Absent on classic.
 		public List<Mission> missions;
+		// Classic boards with missions: how many are still to be announced. Null on older sites.
+		public Integer missionsLeft;
 		// Ladder events only: the individual leaderboard both all-time and for the current month, each
 		// with the caller's own rank. Drives the in-game missions board's standings + "You: #N".
 		public Standings standings;
@@ -407,6 +409,7 @@ public class PluginConfigResponse
 		// null) drives this mission's live grow/decay value. Absent on older sites — fall back to the
 		// event-level decay.
 		public Decay decay;
+		public String expiresAt;  // ISO time an unclaimed mission auto-closes; null when it doesn't
 	}
 
 	public static class Standings
@@ -620,6 +623,7 @@ public class PluginConfigResponse
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
 		public int partySize;              // raids — exact party size required; 0/absent = any size
+		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
 		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
 		public boolean completed;          // team already completed this tile
 	}
@@ -640,8 +644,20 @@ public class PluginConfigResponse
 	{
 		public String activity;            // the raid, e.g. "Theatre of Blood"
 		public int partySize;              // exact party size required; 0/absent = any size
+		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
+		public boolean partyTeamOnly;      // every player in the raid must be on the team
+		// Shared runs, as on a kill tile: "per-kill" = teammates in the same run credit it once;
+		// coopMinMembers = at least that many of the team in it. The server judges both off the
+		// fingerprint this client attaches. Absent on older servers.
+		public String coopCredit;
+		public int coopMinMembers;
 		public int itemId = -1;            // activity's signature reward (icon), -1 = book sprite
 		public boolean completed;          // team already completed this tile
+
+		public boolean needsCoopFingerprint()
+		{
+			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
+		}
 	}
 
 	public static class TrackedValue extends TrackedTile

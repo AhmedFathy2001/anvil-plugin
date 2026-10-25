@@ -40,7 +40,7 @@ public class ChatTagStripTest
 		// "⚔️ @ach_comp@Phantom Muspah Speed-Chaser").
 		String plain = AnvilPlugin.stripChatTags(
 			"Congratulations, you've completed a Master combat task: @ach_comp@Phantom Muspah Speed-Chaser.");
-		Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(plain);
+		Matcher m = TestPatterns.get("ca.task").matcher(plain);
 		assertEquals(true, m.find());
 		assertEquals("Master", m.group(1));
 		assertEquals("Phantom Muspah Speed-Chaser",
@@ -52,7 +52,7 @@ public class ChatTagStripTest
 	{
 		String plain = AnvilPlugin.stripChatTags(
 			"Congratulations, you've completed an Elite combat task: @ach_comp@Whack-a-Mole (5 points).");
-		Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(plain);
+		Matcher m = TestPatterns.get("ca.task").matcher(plain);
 		assertEquals(true, m.find());
 		assertEquals("Whack-a-Mole",
 			AnvilPlugin.CA_TASK_POINTS.matcher(m.group(2).trim()).replaceAll("").trim());

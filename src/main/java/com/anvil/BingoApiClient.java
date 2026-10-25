@@ -251,7 +251,9 @@ public class BingoApiClient
 	 */
 	public void setCurrentRsn(String rsn)
 	{
-		this.currentRsn = (rsn == null || rsn.isEmpty()) ? null : rsn;
+		// Mid-login the client names the player "#Player2014" for a tick or two. No real name has a
+		// '#', and stamping that one filed requests under a character that doesn't exist.
+		this.currentRsn = (rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0) ? null : rsn;
 	}
 
 	/** The RSN currently stamped on requests (the logged-in character), or null. Thread-safe read. */
@@ -739,6 +741,16 @@ public class BingoApiClient
 			}
 			throw e;
 		}
+	}
+
+	/**
+	 * GET /api/plugin/chat-patterns — the site's chat-line re-wordings (ChatPatterns). Global, so never
+	 * clan-addressed. Null on any failure; a 304 hands back the cached object.
+	 */
+	ChatPatterns.OverridesResponse fetchChatPatterns()
+	{
+		return etagGetOrNull(rootUrl("/api/plugin/chat-patterns"), ChatPatterns.OverridesResponse.class, polls,
+			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
 	}
 
 	/** A non-2xx answer to {@link #etagGet}. */
@@ -1344,6 +1356,11 @@ public class BingoApiClient
 		public String statLabel;
 		public boolean complete;
 		public String revealedAt;
+		/**
+		 * When the tile stopped accepting completions (a mission expired or was claimed out, a bounty
+		 * taken). Null while open, and on older sites, which never sent it for missions on a classic board.
+		 */
+		public String closedAt;
 		public List<PluginConfigResponse.ItemRequirement> itemRequirements;
 		/** The site's one-sentence rule for an item tile — shown first in the detail view. Null on older sites. */
 		public String howItCounts;
@@ -1367,6 +1384,12 @@ public class BingoApiClient
 		public int finishedByMore;
 		/** Your team's open tile: who has put work in so far, biggest first (capped). Null when nobody has. */
 		public List<BoardFinisher> contributors;
+
+		/** Closed without your team finishing it — no longer something left to do. */
+		public boolean isClosedUndone()
+		{
+			return !complete && closedAt != null && !closedAt.isEmpty();
+		}
 		public int contributorsMore;
 	}
 
@@ -2182,6 +2205,40 @@ public class BingoApiClient
 		// at INFO because when this feature is quiet the only alternative is guessing which half
 		// went wrong, which has cost a day already.
 		log.debug("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(), hasVarps ? caVarps.size() : 0, reply);
+	}
+
+	/**
+	 * POST /api/plugin/game-clan — the logged-in character's OWN row from the in-game clan settings:
+	 * which clan, its rank number and the clan's title for it, and the join date. Never the member
+	 * list. A null name says "in no clan". The site shows it on the profile and gathers Anvil players
+	 * of a clan that isn't on Anvil onto one page (capability {@code game-clan}).
+	 */
+	public void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		if (clanName == null)
+		{
+			payload.add("clan", com.google.gson.JsonNull.INSTANCE);
+		}
+		else
+		{
+			JsonObject clan = new JsonObject();
+			clan.addProperty("name", clanName);
+			if (rank != null)
+			{
+				clan.addProperty("rank", rank);
+			}
+			if (title != null)
+			{
+				clan.addProperty("title", title);
+			}
+			if (joined != null)
+			{
+				clan.addProperty("joinedOn", joined.toString());
+			}
+			payload.add("clan", clan);
+		}
+		postJson("/api/plugin/game-clan", payload, "Game clan push failed", false);
 	}
 
 	/**

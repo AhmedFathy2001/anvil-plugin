@@ -468,6 +468,18 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.fetchPlayerCard(rsn);
 	}
 
+	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
+	public void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then)
+	{
+		AnvilPlugin p = plugin;
+		if (p == null)
+		{
+			then.accept(LookupSuggestions.Names.EMPTY);
+			return;
+		}
+		p.lookupNames(then);
+	}
+
 	/** The character logged in right now, or null at the login screen. */
 	public String myRsn()
 	{
@@ -1082,7 +1094,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				if (m != null)
 				{
-					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt));
+					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt, m.expiresAt));
 				}
 			}
 		}
@@ -1090,7 +1102,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
 		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
 		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
-			event.decay, missions, ladder);
+			event.decay, missions, ladder, event.missionsLeft == null ? -1 : event.missionsLeft);
 	}
 
 	/**

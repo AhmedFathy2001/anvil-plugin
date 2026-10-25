@@ -20,7 +20,7 @@ public class DropNotificationLineTest
 	{
 		// Exact line observed in game, following "Some loot spills out alongside the Maggot
 		// King's guts. Yuck."
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		Matcher m = TestPatterns.get("drop.personal").matcher(
 			"Nisbro received a drop: Elder venator fang (Maggot King)");
 		assertTrue(m.matches());
 		assertEquals("Nisbro", m.group(1));
@@ -32,7 +32,7 @@ public class DropNotificationLineTest
 	@Test
 	public void parsesQuantityPrefixAndTrailingPeriod()
 	{
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		Matcher m = TestPatterns.get("drop.personal").matcher(
 			"Nisbro received a drop: 1,500 x Cannonball (Maggot King).");
 		assertTrue(m.matches());
 		assertEquals("1,500", m.group(2));
@@ -44,7 +44,7 @@ public class DropNotificationLineTest
 	public void keepsParenthesesInsideItemNames()
 	{
 		// Greedy item group: only the LAST parenthetical is the source.
-		Matcher m = AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		Matcher m = TestPatterns.get("drop.personal").matcher(
 			"Nisbro received a drop: Rune platebody (g) (Maggot King)");
 		assertTrue(m.matches());
 		assertEquals("Rune platebody (g)", m.group(3));
@@ -57,7 +57,7 @@ public class DropNotificationLineTest
 		// The CLAN_MESSAGE broadcast carries a value and a "from <source>" suffix. The personal
 		// pattern must not match it — the broadcast has its own pattern (below) whose handler is
 		// recipient-checked, and a personal-pattern match would mis-parse the source group.
-		assertFalse(AnvilPlugin.DROP_NOTIFICATION_PATTERN.matcher(
+		assertFalse(TestPatterns.get("drop.personal").matcher(
 			"Nisbro received a drop: Elder venator fang (50,000,000 coins) from Maggot King.").matches());
 	}
 
@@ -66,7 +66,7 @@ public class DropNotificationLineTest
 	{
 		// Exact clan broadcast observed in game alongside (and independently of) the personal
 		// line — the fallback signal when a member's in-game loot notifications are off.
-		Matcher m = AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
+		Matcher m = TestPatterns.get("drop.clan_broadcast").matcher(
 			"Nisbro received a drop: Elder venator fang (50,000,000 coins) from Maggot King.");
 		assertTrue(m.matches());
 		assertEquals("Nisbro", m.group(1));
@@ -78,7 +78,7 @@ public class DropNotificationLineTest
 	@Test
 	public void clanBroadcastKeepsParenthesesInsideItemNames()
 	{
-		Matcher m = AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
+		Matcher m = TestPatterns.get("drop.clan_broadcast").matcher(
 			"Nisbro received a drop: Rune platebody (g) (39,000 coins) from Maggot King.");
 		assertTrue(m.matches());
 		assertEquals("Rune platebody (g)", m.group(3));
@@ -90,29 +90,59 @@ public class DropNotificationLineTest
 	{
 		// The personal line has no "(N coins) from" tail — each pattern matches only its own
 		// variant so one chat line can never be parsed twice by both handlers.
-		assertFalse(AnvilPlugin.CLAN_DROP_BROADCAST_PATTERN.matcher(
+		assertFalse(TestPatterns.get("drop.clan_broadcast").matcher(
 			"Nisbro received a drop: Elder venator fang (Maggot King)").matches());
 	}
 
 	@Test
 	public void aChestsItemLinesAreReadWithoutASource()
 	{
-		Matcher plain = AnvilPlugin.DROP_LINE_PLAIN.matcher("Drenvox received a drop: Dagon'hai robe bottom");
+		Matcher plain = TestPatterns.get("drop.plain").matcher("Drenvox received a drop: Dagon'hai robe bottom");
 		assertTrue(plain.matches());
 		assertEquals("Drenvox", plain.group(1));
 		assertEquals("Dagon'hai robe bottom", plain.group(3));
 
-		Matcher stack = AnvilPlugin.DROP_LINE_PLAIN.matcher("Drenvox received a drop: 581 x Iron ore");
+		Matcher stack = TestPatterns.get("drop.plain").matcher("Drenvox received a drop: 581 x Iron ore");
 		assertTrue(stack.matches());
 		assertEquals("581", stack.group(2));
 		assertEquals("Iron ore", stack.group(3));
 
-		Matcher valuable = AnvilPlugin.VALUABLE_DROP_LINE.matcher("Valuable drop: Dagon'hai robe bottom (573,719 coins)");
+		Matcher valuable = TestPatterns.get("drop.valuable").matcher("Valuable drop: Dagon'hai robe bottom (573,719 coins)");
 		assertTrue(valuable.matches());
 		assertEquals("Dagon'hai robe bottom", valuable.group(2));
 
-		Matcher untradeable = AnvilPlugin.VALUABLE_DROP_LINE.matcher("Untradeable drop: Dagon'hai hat");
+		Matcher untradeable = TestPatterns.get("drop.valuable").matcher("Untradeable drop: Dagon'hai hat");
 		assertTrue(untradeable.matches());
 		assertEquals("Dagon'hai hat", untradeable.group(2));
+	}
+
+	@Test
+	public void theClansPetBroadcastNamesThePet()
+	{
+		Matcher m = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Biggie OG has a funny feeling like he's being followed: Dom at 519 levels from Doom of Mokhaiotl.");
+		assertTrue(m.matches());
+		assertEquals("Biggie OG", m.group(1));
+		assertEquals("Dom", m.group(2));
+
+		Matcher dupe = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Kayle has a funny feeling like she would have been followed: Baby mole at 412 killcount.");
+		assertTrue(dupe.matches());
+		assertEquals("Baby mole", dupe.group(2));
+
+		Matcher pack = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Zezima feels something weird sneaking into their backpack: Heron at 13,034,431 XP.");
+		assertTrue(pack.matches());
+		assertEquals("Heron", pack.group(2));
+
+		// The Unsired's orphan has its own wording.
+		Matcher orphan = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Kayle feels like she's acquired something special: Abyssal orphan");
+		assertTrue(orphan.matches());
+		assertEquals("Kayle", orphan.group(1));
+		assertEquals("Abyssal orphan", orphan.group(2));
+
+		// A drop line is not a pet line.
+		assertFalse(AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher("Zezima received a drop: Dragon claws").matches());
 	}
 }
