@@ -2,9 +2,7 @@ package com.anvil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import com.google.gson.Gson;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
@@ -17,7 +15,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * Exercises the real {@link AnvilSidebarDataSource} without a network: an unconfigured
  * {@link BingoApiClient} makes {@code fetchActivity} return null, so we drive the config→ConnectionView
- * shaping — summary, nearest tiles, and the "Active now" attribution from config deltas + local signal.
+ * binding — summary, nearest tiles, and the site's {@code panel} (rows, Active now, schedule).
  */
 public class AnvilSidebarDataSourceTest
 {
@@ -31,27 +29,22 @@ public class AnvilSidebarDataSourceTest
 		assertEquals(worker, t.workers.get(0));
 	}
 
-	private static PluginConfigResponse.TrackedDrop drop(int id, String label, int cur, int req)
+	private static PluginConfigResponse.Panel panel(PluginConfigResponse cfg)
 	{
-		PluginConfigResponse.TrackedDrop d = new PluginConfigResponse.TrackedDrop();
-		d.tileId = id;
-		d.label = label;
-		d.currentAmount = cur;
-		d.requiredAmount = req;
-		d.itemIds = new ArrayList<>();
-		return d;
+		if (cfg.panel == null)
+		{
+			cfg.panel = new PluginConfigResponse.Panel();
+		}
+		return cfg.panel;
 	}
 
-	private static PluginConfigResponse.TrackedStat stat(int id, String label, String statName, int cur, int goal)
+	private static PluginConfigResponse.ActiveRow active(int tileId, boolean self, String... workers)
 	{
-		PluginConfigResponse.TrackedStat s = new PluginConfigResponse.TrackedStat();
-		s.tileId = id;
-		s.label = label;
-		s.statName = statName;
-		s.statType = "skill";
-		s.currentAmount = cur;
-		s.goalAmount = goal;
-		return s;
+		PluginConfigResponse.ActiveRow a = new PluginConfigResponse.ActiveRow();
+		a.tileId = tileId;
+		a.self = self;
+		a.workers = Arrays.asList(workers);
+		return a;
 	}
 
 	private static PluginConfigResponse eventConfig()
@@ -62,20 +55,11 @@ public class AnvilSidebarDataSourceTest
 		cfg.event.name = "Summer Bingo";
 		cfg.team = new PluginConfigResponse.TeamInfo();
 		cfg.team.name = "Team Molten";
-		cfg.trackedDrops = new ArrayList<>(Arrays.asList(
-			drop(101, "500 Zulrah KC", 5, 10),     // 50% — incomplete
-			drop(102, "Dragon warhammer", 1, 1),   // complete
-			drop(103, "Any barrows item", 4, 5)    // 80% — nearest
+		panel(cfg).tiles = new ArrayList<>(Arrays.asList(
+			TaskRows.row(101, "500 Zulrah KC", 5, 10, 0, false),     // 50% — incomplete
+			TaskRows.row(102, "Dragon warhammer", 1, 1, 0, false),   // complete
+			TaskRows.row(103, "Any barrows item", 4, 5, 0, false)    // 80% — nearest
 		));
-		return cfg;
-	}
-
-	/** {@link #eventConfig()} plus one skill-XP stat tile at 50%. */
-	private static PluginConfigResponse statConfig()
-	{
-		PluginConfigResponse cfg = eventConfig();
-		cfg.trackedStats = new ArrayList<>(Arrays.asList(
-			stat(201, "2M Fishing XP", "fishing", 1_000_000, 2_000_000)));
 		return cfg;
 	}
 
@@ -86,7 +70,7 @@ public class AnvilSidebarDataSourceTest
 
 	private static AnvilSidebarDataSource newSource(java.util.function.Supplier<PluginConfigResponse> cfg)
 	{
-		return new AnvilSidebarDataSource(cfg, unconfigured(), null, null);
+		return new AnvilSidebarDataSource(cfg, unconfigured(), null);
 	}
 
 	@Test
@@ -172,8 +156,7 @@ public class AnvilSidebarDataSourceTest
 		assertEquals(3, c.tilesTotal);
 		assertEquals(1, c.tilesComplete);           // only Dragon warhammer is done
 		assertTrue(c.recentActivity.isEmpty());     // no network → empty feed
-		assertTrue(c.activeNow.isEmpty());          // first fetch seeds deltas; nothing has moved yet
-
+		assertTrue(c.activeNow.isEmpty());          // the site named nobody
 		// Nearest = incomplete tiles, closest-to-done first (80% before 50%).
 		assertNotNull(c.nearestTiles);
 		assertEquals("Any barrows item", c.nearestTiles.get(0).name);
@@ -181,82 +164,22 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
-	public void teammateOnSubmissionTileShowsAsTeammate() throws Exception
+	public void activeNowIsTheSitesWithYouFirst() throws Exception
 	{
-		// A drop/kill tile's team total rises with no local signal → a teammate is on it (kill-tile progress).
 		PluginConfigResponse cfg = eventConfig();
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		ds.fetch(false);                        // seed
-		cfg.trackedDrops.get(0).currentAmount = 7;    // a teammate credits the kill/drop tile
-		assertSingleActive(ds.fetch(false), 101, false, "a teammate");
+		panel(cfg).activeNow = Arrays.asList(active(101, true, "You", "Alice"));
+		ConnectionView c = newSource(() -> cfg).fetch(false);
+		assertSingleActive(c, 101, true, "You");
+		assertEquals("Alice", c.activeNow.get(0).workers.get(1));
 	}
 
 	@Test
-	public void yourSubmissionTileShowsAsYou() throws Exception
+	public void aTileFinishedSinceThePollLeavesActiveNow() throws Exception
 	{
-		// The local submit signal attributes your own kill/drop to YOU, even though the config count also rose.
+		// The site can name a tile the row now shows done, or one this client doesn't have.
 		PluginConfigResponse cfg = eventConfig();
-		Map<Integer, Long> local = new HashMap<>();
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null);
-
-		ds.fetch(false);                        // seed
-		local.put(101, System.currentTimeMillis());   // you credited the tile
-		cfg.trackedDrops.get(0).currentAmount = 7;
-		assertSingleActive(ds.fetch(false), 101, true, "You");
-	}
-
-	@Test
-	public void teammateStatGrindShowsAsTeammate() throws Exception
-	{
-		// A stat tile's team total rises with no local signal → a teammate is grinding it.
-		PluginConfigResponse cfg = statConfig();
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		ds.fetch(false);                                 // seed
-		cfg.trackedStats.get(0).currentAmount = 1_050_000;     // team Fishing XP rises (teammate)
-		assertSingleActive(ds.fetch(false), 201, false, "a teammate");
-	}
-
-	@Test
-	public void yourStatGrindShowsAsYou() throws Exception
-	{
-		// The local stat signal attributes the same tile to YOU, even though the team total also rose.
-		PluginConfigResponse cfg = statConfig();
-		Map<Integer, Long> local = new HashMap<>();
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, unconfigured(), () -> local, null);
-
-		ds.fetch(false);                                 // seed
-		local.put(201, System.currentTimeMillis());            // this account gains Fishing XP now
-		cfg.trackedStats.get(0).currentAmount = 1_050_000;
-		assertSingleActive(ds.fetch(false), 201, true, "You");
-	}
-
-	@Test
-	public void serverNamedWorkersShowTeammateByName() throws Exception
-	{
-		// When the server names the active teammates on a stat tile, we show the name (no delta needed).
-		PluginConfigResponse cfg = statConfig();
-		cfg.trackedStats.get(0).activeWorkers = Arrays.asList("Alice");
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		// First fetch is enough — the server named the worker, no delta required.
-		assertSingleActive(ds.fetch(false), 201, false, "Alice");
-	}
-
-	@Test
-	public void serverNamedAttributionSuppressesUnnamedFallback() throws Exception
-	{
-		// Server says nobody's on it (empty list) → a lagging config rise must NOT conjure "a teammate".
-		PluginConfigResponse cfg = statConfig();
-		cfg.trackedStats.get(0).activeWorkers = new ArrayList<>();
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		ds.fetch(false);                             // seed
-		cfg.trackedStats.get(0).currentAmount = 1_050_000; // team total rises anyway (hiscores catch-up)
-		ConnectionView c = ds.fetch(false);
-
-		assertTrue(c.activeNow.isEmpty());
+		panel(cfg).activeNow = Arrays.asList(active(102, false, "Alice"), active(999, false, "Bob"), active(103, false, "Cara"));
+		assertSingleActive(newSource(() -> cfg).fetch(false), 103, false, "Cara");
 	}
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
@@ -291,8 +214,7 @@ public class AnvilSidebarDataSourceTest
 
 	private static PluginConfigResponse withSchedule(PluginConfigResponse cfg, BingoApiClient.ScheduledWeekly... weeklies)
 	{
-		cfg.schedule = new BingoApiClient.ScheduleResponse();
-		cfg.schedule.weeklies = new ArrayList<>(Arrays.asList(weeklies));
+		panel(cfg).weeklies = new ArrayList<>(Arrays.asList(weeklies));
 		return cfg;
 	}
 
@@ -300,13 +222,13 @@ public class AnvilSidebarDataSourceTest
 	public void liveWeekliesBecomeEventsAlongsideTheBoard() throws Exception
 	{
 		PluginConfigResponse cfg = withSchedule(eventConfig(),
-			weekly(9, "Next week's comp", "skill", "fishing", "upcoming"),
 			weekly(7, "Mining Madness", "skill", "mining", "active"),
-			weekly(8, "Zulrah Week", "boss", "zulrah", "active"));
+			weekly(8, "Zulrah Week", "boss", "zulrah", "active"),
+			weekly(9, "Next week's comp", "skill", "fishing", "upcoming"));
 		AnvilSidebarDataSource ds = newSource(() -> cfg);
 
 		ConnectionView c = ds.fetch(false);
-		// Live comps first (schedule order is not display order), then what's coming up.
+		// In the site's order: live comps first, then what's coming up.
 		assertEquals(3, c.weeklies.size());
 		assertFalse(c.weeklies.get(0).upcoming);
 		assertFalse(c.weeklies.get(1).upcoming);
@@ -368,38 +290,6 @@ public class AnvilSidebarDataSourceTest
 		assertEquals(7, c.weeklies.get(0).id);
 	}
 
-	@Test
-	public void olderSiteWithoutScheduleStillSurfacesItsActiveWeekly() throws Exception
-	{
-		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.activeWeekly = new BingoApiClient.ActiveWeekly();
-		cfg.activeWeekly.id = 12;
-		cfg.activeWeekly.title = "Chambers Week";
-		cfg.activeWeekly.type = "boss";
-		cfg.activeWeekly.metric = "chambers_of_xeric";
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		ConnectionView c = ds.fetch(false);
-		assertEquals(1, c.weeklies.size());
-		assertEquals(12, c.weeklies.get(0).id);
-		assertEquals("Chambers of Xeric", c.weeklies.get(0).metricLabel());
-	}
-
-	@Test
-	public void aWeeklyInBothScheduleAndActiveWeeklyIsListedOnce() throws Exception
-	{
-		PluginConfigResponse cfg = withSchedule(new PluginConfigResponse(),
-			weekly(7, "Mining Madness", "skill", "mining", "active"));
-		cfg.activeWeekly = new BingoApiClient.ActiveWeekly();
-		cfg.activeWeekly.id = 7;
-		cfg.activeWeekly.title = "Mining Madness";
-		cfg.activeWeekly.type = "skill";
-		cfg.activeWeekly.metric = "mining";
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		assertEquals(1, ds.fetch(false).weeklies.size());
-	}
-
 	/** A client that serves a canned leaderboard offline and counts the reads (for the throttle test). */
 	private static final class StubWeeklyClient extends BingoApiClient
 	{
@@ -451,8 +341,7 @@ public class AnvilSidebarDataSourceTest
 		PluginConfigResponse cfg = withSchedule(new PluginConfigResponse(),
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> "ahmed two");
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client, () -> "ahmed two");
 
 		ConnectionView.WeeklyView w = ds.fetch(false).weeklies.get(0);
 		assertEquals(12, w.yourRank);
@@ -471,8 +360,7 @@ public class AnvilSidebarDataSourceTest
 		PluginConfigResponse cfg = withSchedule(new PluginConfigResponse(),
 			weekly(7, "Mining Madness", "skill", "mining", "active"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> null);
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client, () -> null);
 
 		ds.fetch(false);   // first read
 		ds.fetch(false);   // 15 s poll — must reuse the cached board
@@ -492,8 +380,7 @@ public class AnvilSidebarDataSourceTest
 		PluginConfigResponse cfg = withSchedule(eventConfig(),
 			weekly(9, "Next week's comp", "skill", "fishing", "upcoming"));
 		StubWeeklyClient client = new StubWeeklyClient(deepBoard());
-		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client,
-			java.util.Collections::emptyMap, () -> "ahmed two");
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> cfg, client, () -> "ahmed two");
 
 		ConnectionView.WeeklyView w = ds.fetch(false).weeklies.get(0);
 		assertTrue(w.upcoming);
@@ -511,42 +398,18 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
-	public void otherAndUpcomingBingosRideAlongWithoutYourOwn() throws Exception
+	public void otherAndUpcomingBingosRideAlongAsTheSiteListsThem() throws Exception
 	{
-		PluginConfigResponse cfg = eventConfig();   // the caller's own event is id 5
-		cfg.schedule = new BingoApiClient.ScheduleResponse();
-		cfg.schedule.bingos = new ArrayList<>(Arrays.asList(
-			bingo(9, "Autumn Bingo", "upcoming", "2026-09-01T00:00:00Z"),
-			bingo(5, "Summer Bingo", "active", "2026-07-01T00:00:00Z"),   // the caller's own board
-			bingo(6, "Someone else's", "active", "2026-07-20T00:00:00Z")));
-
+		PluginConfigResponse cfg = eventConfig();
+		panel(cfg).scheduled = new ArrayList<>(Arrays.asList(
+			bingo(6, "Someone else's", "active", "2026-07-20T00:00:00Z"),
+			bingo(9, "Autumn Bingo", "upcoming", "2026-09-01T00:00:00Z")));
 		List<ConnectionView.ScheduledView> scheduled = newSource(() -> cfg).fetch(false).scheduled;
-		// Own event dropped (the board card IS that event); live first, then soonest upcoming.
 		assertEquals(2, scheduled.size());
 		assertEquals(6, scheduled.get(0).id);
 		assertTrue(scheduled.get(0).live);
 		assertEquals(9, scheduled.get(1).id);
 		assertFalse(scheduled.get(1).live);
-	}
-
-	@Test
-	public void theHomeBoardOnTheCardIsNotListedAgainByItsId() throws Exception
-	{
-		// No member-scoped event: the card shows the home board, which the schedule also carries —
-		// under another name here, so only its id can say it's the same event.
-		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.homeBoard = new PluginConfigResponse.HomeBoard();
-		cfg.homeBoard.eventId = 6;
-		cfg.homeBoard.eventName = "Summer Bingo";
-		cfg.homeBoard.tilesTotal = 25;
-		cfg.schedule = new BingoApiClient.ScheduleResponse();
-		cfg.schedule.bingos = new ArrayList<>(Arrays.asList(
-			bingo(6, "Summer Bingo (renamed)", "active", "2026-07-20T00:00:00Z"),
-			bingo(9, "Autumn Bingo", "upcoming", "2026-09-01T00:00:00Z")));
-
-		List<ConnectionView.ScheduledView> scheduled = newSource(() -> cfg).fetch(false).scheduled;
-		assertEquals(1, scheduled.size());
-		assertEquals(9, scheduled.get(0).id);
 	}
 
 	@Test
@@ -576,25 +439,9 @@ public class AnvilSidebarDataSourceTest
 		assertTrue(first != 0);
 		assertEquals(first, ds.fingerprint(ds.fetch(false)));
 
-		cfg.trackedDrops.get(0).currentAmount++;
+		cfg.panel.tiles.get(0).current++;
 		assertTrue(first != ds.fingerprint(ds.fetch(false)));
 		assertEquals(0, ds.fingerprint(null));
 	}
 
-	@Test
-	public void aRiseAcrossALongGapIsNotATeammateActiveNow() throws Exception
-	{
-		// The panel doesn't sample while hidden; reopening it after the window mustn't credit
-		// everything that moved meanwhile to "a teammate" active right now.
-		PluginConfigResponse cfg = statConfig();
-		AnvilSidebarDataSource ds = newSource(() -> cfg);
-
-		ds.fetch(false);                                     // seed
-		ds.lastAmountsAt -= 20 * 60_000L;                    // ...then hidden for twenty minutes
-		cfg.trackedStats.get(0).currentAmount = 1_050_000;
-		assertTrue(ds.fetch(false).activeNow.isEmpty());
-
-		cfg.trackedStats.get(0).currentAmount = 1_060_000;   // and once it's watching again, it counts
-		assertSingleActive(ds.fetch(false), 201, false, "a teammate");
-	}
 }

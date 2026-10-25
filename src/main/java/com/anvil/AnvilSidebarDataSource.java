@@ -14,21 +14,15 @@ import java.util.concurrent.CompletableFuture;
  * tighten the config refresh window so browser-side sign-ups appear promptly. The feed remains a conditional
  * GET to {@code /api/plugin/activity} (304 while idle).
  *
- * <p><b>"Active now"</b> fuses three signals so it works for every tile kind: config-count deltas (the only
- * signal for stat grinds, and the unnamed "a teammate" fallback for any kind), the local stat signal
- * ({@code AnvilPlugin::localStatProgress}, which attributes a rise to "You"), and the feed (submission tiles
- * by name). Signals merge by tile (deduped, "You" first), newest-first, capped.</p>
+ * <p>The tile rows, "Active now" and the schedule arrive worked out in the config's {@code panel}
+ * (site lib/pluginPanel); this only raises rows by what this client has seen land since the poll.</p>
  *
- * <p>Called off the EDT by the panel's worker (one at a time), so the delta state needs no locking.</p>
+ * <p>Called off the EDT by the panel's worker (one at a time).</p>
  */
 @Slf4j
 public class AnvilSidebarDataSource
 {
 	private static final int NEAREST_LIMIT = 10;
-	private static final int MAX_ACTIVE = 4;
-
-	/** How recent a signal counts as "active now" — matched to the Site's 5-min stat-worker window. */
-	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
 
 	/** How long a weekly's standings stay good. Way slacker than the 15 s panel poll — weekly gains are
 	 *  swept by the site's 15-min stats cron, so re-reading a leaderboard every refresh is pure noise. */
@@ -41,9 +35,6 @@ public class AnvilSidebarDataSource
 
 	/** The plugin's injected client — the sidebar's one network call (the activity feed) rides on it. */
 	private final BingoApiClient apiClient;
-
-	/** Stat tiles this account recently progressed (tileId → millis) — the "You" attribution for stat grinds. */
-	private final Supplier<Map<Integer, Long>> localStatProgress;
 
 	/** The playing account's RSN — flags "you" in a weekly's standings. Null/blank while logged out. */
 	private final Supplier<String> localRsn;
@@ -61,18 +52,11 @@ public class AnvilSidebarDataSource
 	private final AnvilActivityLog activityLog = new AnvilActivityLog();
 	private int scopedEventId = -1;
 
-	// Config-delta signal state: last-seen amount per tile + when each rose. Cleared on event change.
-	private Map<Integer, Integer> lastAmounts = new HashMap<>();
-	/** When {@link #lastAmounts} was taken; a rise measured across a longer gap isn't "now". */
-	long lastAmountsAt; // package-visible so a test can age it
-	private final Map<Integer, Long> roseAt = new HashMap<>();
-
 	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
-		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn)
+		Supplier<String> localRsn)
 	{
 		this.configSupplier = configSupplier;
 		this.apiClient = apiClient;
-		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
 		this.localRsn = localRsn == null ? () -> null : localRsn;
 	}
 
@@ -635,11 +619,9 @@ public class AnvilSidebarDataSource
 		// member is in a live bingo — a weekly-only clan still has something on the card. The clan's
 		// other/coming bingos ride along the same way, so "what's next" needs no site visit.
 		List<ConnectionView.WeeklyView> weeklies = buildWeeklies(cfg, force);
-		// Never the board the card itself shows, which the schedule may list too.
+		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg);
 		boolean live = cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
 		PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
-		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg,
-			live ? cfg.event.id : hb != null ? hb.eventId : -1);
 
 		// A current Site never sends an upcoming board as event-scoped config, but older/self-hosted
 		// versions can. Treat it exactly like no live event: the schedule card already carries what is
@@ -680,7 +662,9 @@ public class AnvilSidebarDataSource
 			scopedEventId = cfg.event.id;
 		}
 
-		List<ClogTaskModel.TaskRow> rows = withLocalProgress(ClogTaskModel.build(cfg));
+		PluginConfigResponse.Panel panel = cfg.panel;
+		List<ClogTaskModel.TaskRow> rows = withLocalProgress(panel == null || panel.tiles == null
+			? Collections.emptyList() : panel.tiles);
 		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
 		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
 		// and every optional tile inflates the denominator).
@@ -730,7 +714,7 @@ public class AnvilSidebarDataSource
 
 		List<ActivityEntry> feed = activityLog.snapshot();
 		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
-		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
+		List<ConnectionView.ActiveTask> activeNow = activeNow(panel, rows);
 
 		// Ladder events render a DMM-All-Stars-style missions board instead of the tile-count reveal note:
 		// a live countdown, the open missions with their live grow/decay value, and your rank.
@@ -757,7 +741,8 @@ public class AnvilSidebarDataSource
 	 */
 	private List<ConnectionView.WeeklyView> buildWeeklies(PluginConfigResponse cfg, boolean force)
 	{
-		List<BingoApiClient.ScheduledWeekly> weeklies = scheduledWeeklies(cfg);
+		List<BingoApiClient.ScheduledWeekly> weeklies = cfg.panel == null || cfg.panel.weeklies == null
+			? Collections.emptyList() : cfg.panel.weeklies;
 		if (weeklies.isEmpty())
 		{
 			weeklyBoards.clear();
@@ -784,71 +769,18 @@ public class AnvilSidebarDataSource
 	}
 
 	/**
-	 * Every weekly the site is advertising (live AND upcoming), deduped by id, live first then by
-	 * soonest start. Reads the schedule — which carries both comps when a SOTW and a BOTW overlap —
-	 * and falls back to the single {@code activeWeekly} field so an older site still surfaces its one
-	 * live comp. The site only ships non-completed comps, so nothing here is over.
+	 * Bingo events on the clan's schedule other than the board the card already shows — live ones the
+	 * caller isn't in, plus what's coming up — as the site lists them ({@code panel.scheduled}).
 	 */
-	private static List<BingoApiClient.ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
+	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg)
 	{
-		List<BingoApiClient.ScheduledWeekly> out = new ArrayList<>();
-		Set<Integer> seen = new HashSet<>();
-		if (cfg.schedule != null && cfg.schedule.weeklies != null)
-		{
-			for (BingoApiClient.ScheduledWeekly w : cfg.schedule.weeklies)
-			{
-				if (w != null && seen.add(w.id))
-				{
-					out.add(w);
-				}
-			}
-		}
-		BingoApiClient.ActiveWeekly a = cfg.activeWeekly;
-		if (a != null && seen.add(a.id))
-		{
-			BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
-			w.id = a.id;
-			w.title = a.title;
-			w.type = a.type;
-			w.metric = a.metric;
-			w.metricLabel = a.metricLabel;
-			w.status = "active";
-			w.startDate = a.startDate;
-			w.endDate = a.endDate;
-			out.add(w);
-		}
-		out.sort(SCHEDULE_ORDER);
-		return out;
-	}
-
-	/**
-	 * Bingo events on the clan's schedule other than the caller's own board — live ones they aren't in,
-	 * plus what's coming up. Straight off the polled config; the caller's own event is dropped because
-	 * the board card already IS that event, and so is the board the card shows ({@code shownId}).
-	 */
-	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg, int shownId)
-	{
-		if (cfg.schedule == null || cfg.schedule.bingos == null)
+		if (cfg.panel == null || cfg.panel.scheduled == null)
 		{
 			return Collections.emptyList();
 		}
-		int ownEventId = cfg.event != null ? cfg.event.id : -1;
-		// A board shown without an id (the "log in" stub, an older site's home board) has only its name.
-		String shownName = shownId > 0 ? null : cfg.homeBoard != null ? cfg.homeBoard.eventName : cfg.unlinkedActiveEvent;
-		List<BingoApiClient.ScheduledBingo> bingos = new ArrayList<>();
-		for (BingoApiClient.ScheduledBingo b : cfg.schedule.bingos)
-		{
-			if (b != null && b.id != ownEventId && b.id != shownId && (shownName == null || !shownName.equals(b.title)))
-			{
-				bingos.add(b);
-			}
-		}
-		bingos.sort((x, y) -> SCHEDULE_ORDER.compare(
-			asEntry(x.status, x.startDate), asEntry(y.status, y.startDate)));
-
 		String base = apiClient.getApiUrl();
-		List<ConnectionView.ScheduledView> out = new ArrayList<>(bingos.size());
-		for (BingoApiClient.ScheduledBingo b : bingos)
+		List<ConnectionView.ScheduledView> out = new ArrayList<>(cfg.panel.scheduled.size());
+		for (BingoApiClient.ScheduledBingo b : cfg.panel.scheduled)
 		{
 			out.add(new ConnectionView.ScheduledView(b.id, b.title, b.startDate, b.endDate,
 				isLive(b.status), b.tileCount == null ? 0 : b.tileCount,
@@ -856,33 +788,6 @@ public class AnvilSidebarDataSource
 				base == null || base.isEmpty() ? null : apiClient.clanUrl("/events/" + b.id), b.yourEntry));
 		}
 		return out;
-	}
-
-	/** Live first, then soonest start (ISO strings sort chronologically); undated last. */
-	private static final Comparator<BingoApiClient.ScheduledWeekly> SCHEDULE_ORDER = (a, b) ->
-	{
-		boolean la = isLive(a.status);
-		boolean lb = isLive(b.status);
-		if (la != lb)
-		{
-			return la ? -1 : 1;
-		}
-		String sa = a.startDate == null ? "" : a.startDate;
-		String sb = b.startDate == null ? "" : b.startDate;
-		if (sa.isEmpty() != sb.isEmpty())
-		{
-			return sa.isEmpty() ? 1 : -1;
-		}
-		return sa.compareTo(sb);
-	};
-
-	/** Adapter so the bingo list can reuse {@link #SCHEDULE_ORDER} (same status/start ordering). */
-	private static BingoApiClient.ScheduledWeekly asEntry(String status, String startDate)
-	{
-		BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
-		w.status = status;
-		w.startDate = startDate;
-		return w;
 	}
 
 	private static boolean isLive(String status)
@@ -1097,22 +1002,16 @@ public class AnvilSidebarDataSource
 				out.add(r);
 				continue;
 			}
-			ClogTaskModel.TaskRow bumped = new ClogTaskModel.TaskRow(r.tileId, r.label,
-				(int) Math.min(shown, Integer.MAX_VALUE), r.goal, r.points, false);
-			bumped.position = r.position;
-			bumped.description = r.description;
-			out.add(bumped);
+			out.add(new ClogTaskModel.TaskRow(r, (int) Math.min(shown, Integer.MAX_VALUE)));
 		}
 		return out;
 	}
 
-	/** Reset the feed + delta state when the active event changes (or clears). */
+	/** Reset the feed when the active event changes (or clears). */
 	private void resetLiveState()
 	{
 		activityLog.reset();
 		scopedEventId = -1;
-		lastAmounts.clear();
-		roseAt.clear();
 	}
 
 	/** The clan/event label for the header: team name ?? event name ?? "". */
@@ -1129,179 +1028,28 @@ public class AnvilSidebarDataSource
 		return "";
 	}
 
-	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
-	private List<ConnectionView.ActiveTask> buildActiveNow(PluginConfigResponse cfg,
-		List<ClogTaskModel.TaskRow> rows, List<ActivityEntry> feed)
+	/** The site's "Active now", bound to the rows as this client shows them; tiles done since are dropped. */
+	private static List<ConnectionView.ActiveTask> activeNow(PluginConfigResponse.Panel panel, List<ClogTaskModel.TaskRow> rows)
 	{
-		final long now = System.currentTimeMillis();
-		Map<Integer, ClogTaskModel.TaskRow> incompleteById = new HashMap<>();
+		if (panel == null || panel.activeNow == null)
+		{
+			return Collections.emptyList();
+		}
+		Map<Integer, ClogTaskModel.TaskRow> byId = new HashMap<>();
 		for (ClogTaskModel.TaskRow r : rows)
 		{
-			if (!r.isCompleted())
-			{
-				incompleteById.put(r.tileId, r);
-			}
+			byId.put(r.tileId, r);
 		}
-
-		// Server-computed named teammates per stat tile (tileId → RSNs); absent on an older server (unnamed fallback).
-		Map<Integer, List<String>> namedByTile = new HashMap<>();
-		// …and what each of them (and you) has gained on it, when the server sends numbers.
-		Map<Integer, Map<String, Long>> gainsByTile = new HashMap<>();
-		if (cfg.trackedStats != null)
-		{
-			for (PluginConfigResponse.TrackedStat s : cfg.trackedStats)
-			{
-				if (s != null && s.activeWorkers != null)
-				{
-					namedByTile.put(s.tileId, s.activeWorkers);
-					if (s.activeWorkerGains != null && s.activeWorkerGains.size() == s.activeWorkers.size())
-					{
-						Map<String, Long> gains = new HashMap<>();
-						for (int i = 0; i < s.activeWorkers.size(); i++)
-						{
-							Long g = s.activeWorkerGains.get(i);
-							gains.put(s.activeWorkers.get(i), g == null ? 0L : g);
-						}
-						// Yours as the site has it, plus what this client has seen land since.
-						AnvilPlugin p = plugin;
-						long ahead = p == null ? 0 : p.shownProgress(s.tileId, s.currentAmount) - s.currentAmount;
-						gains.put("You", s.yourGained + Math.max(0, ahead));
-						gainsByTile.put(s.tileId, gains);
-					}
-				}
-			}
-		}
-		Map<Integer, Acc> acc = new HashMap<>();
-
-		// 1. Feed — submission tiles, named. Newest-first.
-		for (ActivityEntry e : feed)
-		{
-			if (e.kind != ActivityEntry.Kind.PROGRESS)
-			{
-				continue;
-			}
-			long t = Ui.utcMillis(e.ts);
-			if (t >= 0 && now - t > ACTIVE_WINDOW_MS)
-			{
-				continue;
-			}
-			String worker = e.self ? "You" : (e.player == null || e.player.isEmpty() ? null : e.player);
-			add(acc, incompleteById, e.tileId, worker, e.self, t < 0 ? now : t);
-		}
-
-		// 2. Local stat signal — "You" on stat tiles this account is grinding.
-		Map<Integer, Long> local = localStatProgress.get();
-		if (local != null)
-		{
-			for (Map.Entry<Integer, Long> en : local.entrySet())
-			{
-				long t = en.getValue() == null ? 0 : en.getValue();
-				if (now - t > ACTIVE_WINDOW_MS)
-				{
-					continue;
-				}
-				add(acc, incompleteById, en.getKey(), "You", true, t);
-			}
-		}
-
-		// 2b. Named teammates on stat tiles (server-computed) — the good version of "a teammate".
-		for (Map.Entry<Integer, List<String>> en : namedByTile.entrySet())
-		{
-			for (String name : en.getValue())
-			{
-				add(acc, incompleteById, en.getKey(), name, false, now);
-			}
-		}
-
-		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
-		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
-		Map<Integer, Integer> current = new HashMap<>();
-		// The panel only samples while it's on screen. Reopened after twenty minutes, every tile that
-		// moved meanwhile would rise "just now" and show a teammate active who stopped long ago — so a
-		// baseline older than the window re-seeds instead. (Named teammates and the feed carry the
-		// site's own times and are unaffected.)
-		boolean freshBaseline = now - lastAmountsAt <= ACTIVE_WINDOW_MS;
-		for (ClogTaskModel.TaskRow r : rows)
-		{
-			current.put(r.tileId, r.current);
-			if (r.isCompleted())
-			{
-				continue;
-			}
-			Integer prev = lastAmounts.get(r.tileId);
-			if (freshBaseline && prev != null && r.current > prev)
-			{
-				roseAt.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
-			}
-		}
-		for (Map.Entry<Integer, Long> en : roseAt.entrySet())
-		{
-			if (now - en.getValue() > ACTIVE_WINDOW_MS || !incompleteById.containsKey(en.getKey()))
-			{
-				continue;
-			}
-			if (namedByTile.containsKey(en.getKey()))
-			{
-				continue; // the server named this tile's teammates (stat tile) — don't add an unnamed one
-			}
-			Acc a = acc.get(en.getKey());
-			if (a != null && a.self)
-			{
-				continue; // you're already credited on this tile — don't also tag a teammate
-			}
-			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
-		}
-		lastAmounts = current;
-		lastAmountsAt = now;
-
-		// Newest-active first, capped; "You" leads each row's workers.
-		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());
-		ordered.sort((x, y) -> Long.compare(y.getValue().recency, x.getValue().recency));
 		List<ConnectionView.ActiveTask> out = new ArrayList<>();
-		for (Map.Entry<Integer, Acc> en : ordered)
+		for (PluginConfigResponse.ActiveRow a : panel.activeNow)
 		{
-			if (out.size() >= MAX_ACTIVE)
+			ClogTaskModel.TaskRow r = a == null ? null : byId.get(a.tileId);
+			if (r != null && !r.isCompleted() && a.workers != null)
 			{
-				break;
+				out.add(new ConnectionView.ActiveTask(r, a.workers, a.self, a.gains));
 			}
-			Acc a = en.getValue();
-			List<String> workers = new ArrayList<>();
-			if (a.self)
-			{
-				workers.add("You");
-			}
-			for (String w : a.workers)
-			{
-				if (!"You".equals(w))
-				{
-					workers.add(w);
-				}
-			}
-			out.add(new ConnectionView.ActiveTask(incompleteById.get(en.getKey()), workers, a.self,
-				gainsByTile.get(en.getKey())));
 		}
 		return out;
-	}
-
-	/** Per-tile accumulator while fusing signals. */
-	private static final class Acc
-	{
-		final LinkedHashSet<String> workers = new LinkedHashSet<>();
-		boolean self;
-		long recency;
-	}
-
-	private static void add(Map<Integer, Acc> acc, Map<Integer, ClogTaskModel.TaskRow> incompleteById,
-		int tileId, String worker, boolean self, long recency)
-	{
-		if (worker == null || !incompleteById.containsKey(tileId))
-		{
-			return;
-		}
-		Acc a = acc.computeIfAbsent(tileId, k -> new Acc());
-		a.workers.add(worker);
-		a.self |= self;
-		a.recency = Math.max(a.recency, recency);
 	}
 
 	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */

@@ -1,7 +1,10 @@
 package com.anvil;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import org.junit.Test;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -10,112 +13,22 @@ import static org.junit.Assert.assertTrue;
 
 public class ClogTaskModelTest
 {
-	private static PluginConfigResponse.TrackedDrop drop(int id, String label, int cur, int req, Integer... items)
-	{
-		PluginConfigResponse.TrackedDrop d = new PluginConfigResponse.TrackedDrop();
-		d.tileId = id;
-		d.label = label;
-		d.currentAmount = cur;
-		d.requiredAmount = req;
-		d.itemIds = new ArrayList<>();
-		for (Integer it : items)
-		{
-			d.itemIds.add(it);
-		}
-		return d;
-	}
-
-	private static PluginConfigResponse.TrackedStat stat(int id, String label, int cur, int goal)
-	{
-		PluginConfigResponse.TrackedStat s = new PluginConfigResponse.TrackedStat();
-		s.tileId = id;
-		s.label = label;
-		s.currentAmount = cur;
-		s.goalAmount = goal;
-		return s;
-	}
-
 	@Test
-	public void statusDerivation()
+	public void tallyCountsOrSumsTheScoredRows()
 	{
-		assertEquals(ClogTaskModel.Status.NOT_STARTED, ClogTaskModel.statusOf(0, 5));
-		assertEquals(ClogTaskModel.Status.IN_PROGRESS, ClogTaskModel.statusOf(2, 5));
-		assertEquals(ClogTaskModel.Status.COMPLETED, ClogTaskModel.statusOf(5, 5));
-		assertEquals(ClogTaskModel.Status.COMPLETED, ClogTaskModel.statusOf(7, 5));
-		// Untargeted tile (goal <= 0): any progress completes it.
-		assertEquals(ClogTaskModel.Status.NOT_STARTED, ClogTaskModel.statusOf(0, 0));
-		assertEquals(ClogTaskModel.Status.COMPLETED, ClogTaskModel.statusOf(1, 0));
-	}
-
-	@Test
-	public void buildIsNullSafe()
-	{
-		assertTrue(ClogTaskModel.build(null).isEmpty());
-		assertTrue(ClogTaskModel.build(new PluginConfigResponse()).isEmpty());
-	}
-
-	@Test
-	public void buildReadsEveryTrackedKind()
-	{
-		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.trackedDrops = new ArrayList<>();
-		cfg.trackedDrops.add(drop(1, "Zulrah unique", 3, 5, 12921, 12922));
-		// Per-item requirement list → progress off the sets, not the summed count.
-		PluginConfigResponse.TrackedDrop coll = drop(2, "Void set", 0, 1, 11665);
-		coll.itemRequirements = new ArrayList<>();
-		coll.itemRequirements.add(req("Void top", 1, null, 0));
-		coll.itemRequirements.add(req("Void legs", 0, null, 0));
-		cfg.trackedDrops.add(coll);
-		cfg.trackedStats = new ArrayList<>();
-		cfg.trackedStats.add(stat(3, "Mining XP", 100, 100));
-		cfg.trackedKills = new ArrayList<>();
-		PluginConfigResponse.TrackedKill kill = new PluginConfigResponse.TrackedKill();
-		kill.tileId = 4;
-		kill.requiredAmount = 10;
-		kill.currentAmount = 4;
-		kill.points = 7;
-		cfg.trackedKills.add(kill);
-		cfg.trackedTimed = new ArrayList<>();
-		PluginConfigResponse.TrackedTimed timed = new PluginConfigResponse.TrackedTimed();
-		timed.tileId = 5;
-		timed.completed = true;
-		timed.points = 3;
-		cfg.trackedTimed.add(timed);
-		cfg.trackedValues = new ArrayList<>();
-		cfg.trackedValues.add(value("total", 50_000_000L, 12_500_000L));
-		cfg.trackedValues.get(0).tileId = 6;
-
-		List<ClogTaskModel.TaskRow> rows = ClogTaskModel.build(cfg);
-		assertEquals(6, rows.size());
-		assertEquals(ClogTaskModel.Status.IN_PROGRESS, rowOf(rows, 1).status);
-		assertEquals(1, rowOf(rows, 2).current);
-		assertEquals(2, rowOf(rows, 2).goal);
-		assertTrue(rowOf(rows, 3).isCompleted());
-		assertEquals(ClogTaskModel.Status.IN_PROGRESS, rowOf(rows, 4).status);
-		// The timed tile carries its completed flag through.
-		assertTrue(rowOf(rows, 5).isCompleted());
-		// A cumulative value tile carries its gp as current/goal.
-		assertEquals(12_500_000, rowOf(rows, 6).current);
-		assertEquals(50_000_000, rowOf(rows, 6).goal);
-
-		java.util.Set<Integer> none = java.util.Collections.emptySet();
+		List<ClogTaskModel.TaskRow> rows = Arrays.asList(
+			TaskRows.row(1, "a", 3, 5, 0, false),
+			TaskRows.row(2, "b", 1, 2, 0, false),
+			TaskRows.row(3, "c", 100, 100, 0, false),
+			TaskRows.row(4, "d", 4, 10, 7, false),
+			TaskRows.row(5, "e", 1, 1, 3, true));
+		Set<Integer> none = Collections.emptySet();
 		assertEquals(2, ClogTaskModel.tally(rows, none, true, false));
 		assertEquals(10, ClogTaskModel.tally(rows, none, false, true));
 		assertEquals(3, ClogTaskModel.tally(rows, none, true, true));
-		assertEquals(1, ClogTaskModel.tally(rows, java.util.Collections.singleton(3), true, false));
-		assertEquals(5, ClogTaskModel.tally(rows, java.util.Collections.singleton(3), false, false));
-	}
-
-	private static ClogTaskModel.TaskRow rowOf(List<ClogTaskModel.TaskRow> rows, int tileId)
-	{
-		for (ClogTaskModel.TaskRow r : rows)
-		{
-			if (r.tileId == tileId)
-			{
-				return r;
-			}
-		}
-		throw new AssertionError("no row " + tileId);
+		// Optional tiles are bonus: off both sides of the score.
+		assertEquals(1, ClogTaskModel.tally(rows, Collections.singleton(3), true, false));
+		assertEquals(4, ClogTaskModel.tally(rows, Collections.singleton(3), false, false));
 	}
 
 	// ---- Collection set modes (mirrors the site's lib/collectionSets) ------------------------------
@@ -237,27 +150,6 @@ public class ClogTaskModelTest
 	}
 
 	// ── Cumulative value tiles ──────────────────────────────────────────────────────────────────
-
-	private static PluginConfigResponse.TrackedValue value(String mode, long threshold, long current)
-	{
-		PluginConfigResponse.TrackedValue v = new PluginConfigResponse.TrackedValue();
-		v.tileId = 1;
-		v.label = "Bank it";
-		v.mode = mode;
-		v.thresholdGp = threshold;
-		v.currentGp = current;
-		return v;
-	}
-
-	@Test
-	public void onlyTotalModeCountsAsCumulative()
-	{
-		assertTrue(ClogTaskModel.isTotalValue(value("total", 1, 0)));
-		assertTrue(ClogTaskModel.isTotalValue(value("TOTAL", 1, 0)));
-		assertFalse(ClogTaskModel.isTotalValue(value("single", 1, 0)));
-		// An older server sends no mode at all, which has only ever meant single-haul.
-		assertFalse(ClogTaskModel.isTotalValue(value(null, 1, 0)));
-	}
 
 	@Test
 	public void multipleSetsCountAcrossSetsAndWithinOne()

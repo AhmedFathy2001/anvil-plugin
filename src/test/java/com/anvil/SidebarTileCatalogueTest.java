@@ -360,10 +360,10 @@ public class SidebarTileCatalogueTest
 		BingoApiClient.BoardTile done = tile(4, "Kill 500 Brutus", null, null, null, false);
 		done.complete = true;
 		java.util.Map<Integer, ClogTaskModel.TaskRow> progress = new java.util.HashMap<>();
-		progress.put(1, new ClogTaskModel.TaskRow(1, "Kill 500 Kurasks", 260, 500, 0, false));
-		progress.put(2, new ClogTaskModel.TaskRow(2, "Kill 500 Nechryael", 0, 500, 0, false));
-		progress.put(3, new ClogTaskModel.TaskRow(3, "Complete a solo CoX", 0, 1, 0, false));
-		progress.put(4, new ClogTaskModel.TaskRow(4, "Kill 500 Brutus", 500, 500, 0, true));
+		progress.put(1, TaskRows.row(1, "Kill 500 Kurasks", 260, 500, 0, false));
+		progress.put(2, TaskRows.row(2, "Kill 500 Nechryael", 0, 500, 0, false));
+		progress.put(3, TaskRows.row(3, "Complete a solo CoX", 0, 1, 0, false));
+		progress.put(4, TaskRows.row(4, "Kill 500 Brutus", 500, 500, 0, true));
 		List<BingoApiClient.BoardTile> all = Arrays.asList(started, untouched, oneOff, done);
 
 		assertEquals(Arrays.asList(started),
@@ -384,9 +384,9 @@ public class SidebarTileCatalogueTest
 		BingoApiClient.BoardTile done = tile(4, "Kill 500 Brutus", null, null, null, false);
 		done.complete = true;
 		java.util.Map<Integer, ClogTaskModel.TaskRow> progress = new java.util.HashMap<>();
-		progress.put(1, new ClogTaskModel.TaskRow(1, "Kill 500 Kurasks", 100, 500, 0, false));
-		progress.put(3, new ClogTaskModel.TaskRow(3, "Kill 10 Zulrah", 9, 10, 0, false));
-		progress.put(4, new ClogTaskModel.TaskRow(4, "Kill 500 Brutus", 500, 500, 0, true));
+		progress.put(1, TaskRows.row(1, "Kill 500 Kurasks", 100, 500, 0, false));
+		progress.put(3, TaskRows.row(3, "Kill 10 Zulrah", 9, 10, 0, false));
+		progress.put(4, TaskRows.row(4, "Kill 500 Brutus", 500, 500, 0, true));
 
 		assertEquals(Arrays.asList(near, far, untouched), AnvilSidebarPanel.filterBoardTiles(
 			Arrays.asList(far, untouched, near, done), "", AnvilSidebarPanel.TileStatusFilter.CLOSEST, false, progress));

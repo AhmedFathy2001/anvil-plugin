@@ -300,8 +300,28 @@ public class PluginConfigResponse
 	public List<Integer> luckItemIds;
 	/** Which level-ups the clan and the player's own webhooks want (capability 'level-rules'); null on older sites. */
 	public LevelRules.Sets levelRules;
-	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
-	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
+	/** The side panel's rows as the site works them out (lib/pluginPanel); the plugin only draws them. */
+	public Panel panel;
+
+	public static class Panel
+	{
+		public List<ClogTaskModel.TaskRow> tiles;
+		public List<ActiveRow> activeNow;
+		/** The clan's other bingos, never the board the panel shows; live first, then soonest. */
+		public List<BingoApiClient.ScheduledBingo> scheduled;
+		/** Live and upcoming weeklies, live first, then soonest. */
+		public List<BingoApiClient.ScheduledWeekly> weeklies;
+	}
+
+	/** A tile someone on the team worked in the last few minutes; "You" leads {@code workers}. */
+	public static class ActiveRow
+	{
+		public int tileId;
+		public List<String> workers;
+		public boolean self;
+		/** Each worker's event gain on a stat tile, when known. */
+		public Map<String, Long> gains;
+	}
 
 	/**
 	 * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for

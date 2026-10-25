@@ -9,7 +9,7 @@ import org.junit.Test;
 
 public class ActiveTaskLabelTest
 {
-	private static final ClogTaskModel.TaskRow BRUTUS = new ClogTaskModel.TaskRow(1, "Kill Brutus 500 times", 300, 500, 300, false);
+	private static final ClogTaskModel.TaskRow BRUTUS = TaskRows.row(1, "Kill Brutus 500 times", 300, 500, 300, false);
 
 	@Test
 	public void aKcTileNamesWhoIsLandingTheKills()

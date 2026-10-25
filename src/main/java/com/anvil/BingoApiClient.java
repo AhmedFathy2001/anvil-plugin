@@ -1405,16 +1405,6 @@ public class BingoApiClient
 		});
 	}
 
-	public static class ActiveWeekly extends DatedWeekly
-	{
-	}
-
-	public static class ScheduleResponse
-	{
-		public List<ScheduledBingo> bingos;
-		public List<ScheduledWeekly> weeklies;
-	}
-
 	public static class ScheduledBingo
 	{
 		public int id;

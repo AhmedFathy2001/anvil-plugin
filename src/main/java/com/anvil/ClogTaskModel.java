@@ -1,11 +1,10 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.function.Consumer;
 
 /**
- * Pure (client-free) adapter that turns the plugin's tracked drops + stats into one list of task rows
- * for the Anvil side panel: progress, completion and board position per tile.
+ * The side panel's tile rows (built by the site, lib/pluginPanel) and the collection-set rule the
+ * plugin still needs in-game, the moment a drop lands, to raise a row ahead of the next poll.
  *
  * Deliberately has no RuneLite dependencies so it is fully unit-testable.
  */
@@ -13,160 +12,39 @@ public final class ClogTaskModel
 {
 	private ClogTaskModel() {}
 
-	public enum Status
-	{
-		IN_PROGRESS,
-		NOT_STARTED,
-		COMPLETED
-	}
-
-	/** A single task. Immutable but for {@link #position}; {@code points} is the tile's Leagues-style value. */
+	/** One tile row as the site sends it ({@code panel.tiles}): its progress, completion and board position. */
 	public static final class TaskRow
 	{
-		public final int tileId;
-		public final String label;
-		public final int current;
-		public final int goal;
-		public final int points;
-		public final Status status;
-		// Board position — mirrors the site's tile order (difficulty sort, shuffle). Set after
-		// construction; 0 on old servers.
+		public int tileId;
+		public String label = "";
+		public int current;
+		public int goal;
+		public int points;
+		public boolean complete;
 		public int position;
-		// The tile's description, for hover text. Set after construction; null when it has none.
 		public String description;
 
-		public TaskRow(int tileId, String label, int current, int goal, int points, boolean forceCompleted)
+		TaskRow()
 		{
-			this.tileId = tileId;
-			this.label = label == null ? "" : label;
+		}
+
+		/** {@code row} with {@code current} raised to what this client has seen land since the poll. */
+		TaskRow(TaskRow row, int current)
+		{
+			tileId = row.tileId;
+			label = row.label;
 			this.current = current;
-			this.goal = goal;
-			this.points = points;
-			// A team-level completion (any member / manual) is authoritative even when this client's
-			// own current < goal — e.g. an individual-mode tile a teammate finished first.
-			this.status = forceCompleted ? Status.COMPLETED : statusOf(current, goal);
+			goal = row.goal;
+			points = row.points;
+			complete = goal > 0 ? current >= goal : current > 0;
+			position = row.position;
+			description = row.description;
 		}
 
 		public boolean isCompleted()
 		{
-			return status == Status.COMPLETED;
+			return complete;
 		}
-	}
-
-	/**
-	 * Derive completion status from progress. A goal of {@code <= 0} (an untargeted tile)
-	 * counts as completed the moment there's any progress, otherwise not-started.
-	 */
-	public static Status statusOf(int current, int goal)
-	{
-		if (goal > 0)
-		{
-			if (current >= goal)
-			{
-				return Status.COMPLETED;
-			}
-			return current > 0 ? Status.IN_PROGRESS : Status.NOT_STARTED;
-		}
-		return current > 0 ? Status.COMPLETED : Status.NOT_STARTED;
-	}
-
-	/** Build the full task list from the plugin config (drops + stats). Null-safe. */
-	public static List<TaskRow> build(PluginConfigResponse cfg)
-	{
-		List<TaskRow> rows = new ArrayList<>();
-		if (cfg == null)
-		{
-			return rows;
-		}
-
-		Set<Integer> completed = new HashSet<>();
-		each(cfg.completedTiles, c -> completed.add(c.tileId));
-
-		each(cfg.trackedDrops, d ->
-		{
-			int current = d.currentAmount;
-			int goal = d.requiredAmount;
-			boolean done = completed.contains(d.tileId);
-			// A per-item requirement list means "collect each of these" — a COLLECTION tile, which
-			// completes when its SETS are satisfied, not when the summed submission count reaches
-			// requiredAmount (the server stores that as a shortest-path total, often 1, so a 3-of-4
-			// rings set read as 3/1 = done).
-			if (d.itemRequirements != null && !d.itemRequirements.isEmpty())
-			{
-				int[] pg = collectionProgress(d.itemRequirements, d.groupMode, d.setsRequired);
-				current = pg[0];
-				goal = pg[1];
-				done = done || pg[2] == 1;
-			}
-			add(rows, d, new TaskRow(d.tileId, d.label, current, goal, d.points, done));
-		});
-		each(cfg.trackedStats, s -> add(rows, s, new TaskRow(s.tileId, s.label, s.currentAmount,
-			s.goalAmount, s.points, completed.contains(s.tileId))));
-		// Kills, PvP kills, diaries and combat tasks all count completions toward requiredAmount.
-		each(cfg.trackedKills, k -> add(rows, k, new TaskRow(k.tileId, k.label, k.currentAmount,
-			k.requiredAmount, k.points, completed.contains(k.tileId))));
-		each(cfg.trackedPvp, p -> add(rows, p, new TaskRow(p.tileId, p.label, p.currentAmount,
-			p.requiredAmount, p.points, completed.contains(p.tileId))));
-		each(cfg.trackedDiaries, d -> add(rows, d, new TaskRow(d.tileId, d.label, d.currentAmount,
-			d.requiredAmount, d.points, completed.contains(d.tileId))));
-		each(cfg.trackedCombatTasks, t -> add(rows, t, new TaskRow(t.tileId, t.label, t.currentAmount,
-			t.requiredAmount, t.points, completed.contains(t.tileId))));
-		// Timed tiles are pass/fail (no running count): the completed flag drives status; goal 1.
-		each(cfg.trackedTimed, t ->
-		{
-			boolean done = t.completed || completed.contains(t.tileId);
-			add(rows, t, new TaskRow(t.tileId, t.label, done ? 1 : 0, 1, t.points, done));
-		});
-		each(cfg.trackedLms, l -> add(rows, l, new TaskRow(l.tileId, l.label, l.currentAmount,
-			Math.max(1, l.requiredAmount), l.points, completed.contains(l.tileId))));
-		each(cfg.trackedValues, v ->
-		{
-			boolean done = v.completed || completed.contains(v.tileId);
-			if (isTotalValue(v))
-			{
-				// A cumulative tile ("bank 50m between you") has real progress the server already
-				// tracks. Bars are drawn from current/goal, so those carry the gp (clamped, since a
-				// target can exceed an int).
-				int goal = clampGp(v.thresholdGp);
-				add(rows, v, new TaskRow(v.tileId, v.label, Math.min(clampGp(v.currentGp), goal), goal,
-					v.points, done));
-			}
-			else
-			{
-				// Single-haul tiles are genuinely pass/fail — one qualifying drop or nothing.
-				add(rows, v, new TaskRow(v.tileId, v.label, done ? 1 : 0, 1, v.points, done));
-			}
-		});
-		// Gain tiles and deathless runs count like kills.
-		each(cfg.trackedGains, g -> add(rows, g, new TaskRow(g.tileId, g.label, g.currentAmount,
-			Math.max(1, g.requiredAmount), g.points, completed.contains(g.tileId))));
-		each(cfg.trackedDeathless, d -> add(rows, d, new TaskRow(d.tileId, d.label, d.currentAmount,
-			Math.max(1, d.requiredAmount), d.points, completed.contains(d.tileId))));
-		return rows;
-	}
-
-	/** Every non-null entry of a possibly-null config list. */
-	private static <T> void each(List<T> list, Consumer<T> f)
-	{
-		if (list != null)
-		{
-			for (T t : list)
-			{
-				if (t != null)
-				{
-					f.accept(t);
-				}
-			}
-		}
-	}
-
-	/**
-	 * True when a value tile accumulates toward its target rather than needing one qualifying haul.
-	 * An older server sends no mode at all, which means single — the only behaviour it had.
-	 */
-	static boolean isTotalValue(PluginConfigResponse.TrackedValue v)
-	{
-		return v != null && "total".equalsIgnoreCase(v.mode);
 	}
 
 	/**
@@ -181,14 +59,6 @@ public final class ClogTaskModel
 			return 0;
 		}
 		return gp > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) gp;
-	}
-
-	/** Adds the row with its board position stamped — the within-status-group sort key. */
-	private static void add(List<TaskRow> rows, PluginConfigResponse.TrackedTile tile, TaskRow row)
-	{
-		row.position = tile.position;
-		row.description = tile.description;
-		rows.add(row);
 	}
 
 	/**

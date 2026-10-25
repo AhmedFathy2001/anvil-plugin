@@ -894,12 +894,6 @@ public class AnvilPlugin extends Plugin {
 	// into the dead name and a stranger holding the new one. Re-read it every few ticks.
 	private static final int NAME_CHECK_TICKS = 10;
 	private int nameCheckCountdown = NAME_CHECK_TICKS;
-	// Stat tiles (skill XP / boss KC) the LOCAL player has recently made progress on: tileId → last
-	// gain millis. A stat tile's team total can rise from ANY teammate (the server aggregates the
-	// hiscores overlay), so the config alone can't say who's grinding it. This records what THIS
-	// account just did, letting the sidebar's "Active now" attribute a stat tile to "You" vs a
-	// teammate without the server having to attribute stat pushes. Read as a snapshot by the sidebar.
-	private final Map<Integer, Long> localStatProgressAt = new ConcurrentHashMap<>();
 	// Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
 	// the first snapshot after login/config load, so the baseline never counts as a gain. Worn
 	// items are folded in so equipping/unequipping — which just moves an item between the two
@@ -1751,7 +1745,7 @@ public class AnvilPlugin extends Plugin {
 		// Kept in the signature because the sidebar's device sign-in still paces its poll on it.
 		// "You" on the weekly boards: the logged-in name, else the launcher's character at the login screen.
 		AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient,
-			this::localStatProgress, () -> {
+			() -> {
 				String name = getLocalPlayerName();
 				return name != null && !name.isEmpty() ? name : apiClient.getRsnHint();
 			});
@@ -7200,10 +7194,9 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Record that the local player just gained on the tracked stat tile whose {@code statName} matches
-	 * {@code name} (skill name or boss KC name, case-insensitive). Best-effort: a name that maps to no
-	 * stat tile is ignored (the tile then falls to the sidebar's "a teammate" attribution via config
-	 * deltas). Called from the XP/KC push path, so it only fires on the local account's own gains.
+	 * The local player just gained on the tracked stat tile whose {@code statName} matches {@code name}
+	 * (skill name or boss KC name, case-insensitive); a name that maps to no stat tile is ignored.
+	 * Called from the XP/KC push path, so it only fires on the local account's own gains.
 	 */
 	private void noteLocalStatProgress(String name) {
 		PluginConfigResponse cfg = pluginConfig;
@@ -7217,29 +7210,14 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Record that THIS account just progressed {@code tileId} — for any tile kind. Stat tiles arrive via
-	 * {@link #noteLocalStatProgress}; submission tiles (drops/kills/…) call this straight from the submit
-	 * path. Lets the sidebar's "Active now" attribute the tile to "You" vs "a teammate" without waiting on
-	 * the (undeployed) activity feed.
+	 * THIS account just progressed {@code tileId} — any tile kind. A pinned tile then shows it a few
+	 * seconds later rather than on the next 30s poll — long enough for the push that carries it to land
+	 * on the site first.
 	 */
 	private void noteLocalProgress(int tileId) {
-		if (tileId > 0) {
-			localStatProgressAt.put(tileId, now());
-			// A pinned tile shows your own kill a few seconds later rather than on the next 30s poll —
-			// long enough for the push that carries it to land on the site first.
-			if (tileTracker.tracks(tileId)) {
-				later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), 4_000);
-			}
+		if (tileId > 0 && tileTracker.tracks(tileId)) {
+			later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), 4_000);
 		}
-	}
-
-	/**
-	 * Snapshot of tiles this account recently progressed (tileId → epoch millis), for the sidebar's
-	 * "Active now" self-attribution. A fresh copy so the caller (off the client thread) never sees a
-	 * partially-mutated map.
-	 */
-	public Map<Integer, Long> localStatProgress() {
-		return new HashMap<>(localStatProgressAt);
 	}
 
 	/**
