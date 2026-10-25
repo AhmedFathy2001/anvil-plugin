@@ -62,7 +62,7 @@ final class CoalescedPush
 
 	void queue(String key, int value)
 	{
-		queue(java.util.Collections.singletonMap(key, value));
+		queue(Collections.singletonMap(key, value));
 	}
 
 	/** Buffer {@code values} and restart the settle timer — unless nothing in them is new. */

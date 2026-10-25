@@ -7,6 +7,7 @@ import javax.inject.*;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
+import java.util.function.ToLongBiFunction;
 
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable
@@ -42,7 +43,7 @@ public class TileTracker
 	 * (tileId, site count) → what to show for your team: the plugin's own newer count when it has one,
 	 * so a pinned tile moves on your kill. Identity until the plugin sets it.
 	 */
-	private volatile java.util.function.ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
+	private volatile ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
 	/**
 	 * One panel holding every pin (the default) or a movable widget per pin. One panel can't end up
 	 * with pins on top of each other, and is one thing to place; separate ones can be put anywhere.
@@ -63,7 +64,7 @@ public class TileTracker
 		this.apiClient = apiClient;
 	}
 
-	void setShownProgress(java.util.function.ToLongBiFunction<Integer, Long> shown)
+	void setShownProgress(ToLongBiFunction<Integer, Long> shown)
 	{
 		shownProgress = shown;
 	}
@@ -453,7 +454,7 @@ public class TileTracker
 	{
 		final int slot;
 		final int tileId;
-		private final java.util.function.ToLongBiFunction<Integer, Long> shown;
+		private final ToLongBiFunction<Integer, Long> shown;
 		volatile Progress progress;
 		/**
 		 * Stay up after the team finishes? Pins restored from config start false, so a tile finished
@@ -468,7 +469,7 @@ public class TileTracker
 			this(slot, 0, (id, site) -> site);
 		}
 
-		Widget(int slot, int tileId, java.util.function.ToLongBiFunction<Integer, Long> shown)
+		Widget(int slot, int tileId, ToLongBiFunction<Integer, Long> shown)
 		{
 			this.slot = slot;
 			this.tileId = tileId;

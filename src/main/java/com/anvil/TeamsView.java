@@ -517,10 +517,10 @@ final class TeamsView extends JPanel
 		return dot;
 	}
 
-	static javax.swing.Icon swatchIcon(String hex, int size)
+	static Icon swatchIcon(String hex, int size)
 	{
 		Color c = teamColor(hex);
-		return new javax.swing.Icon()
+		return new Icon()
 		{
 			@Override
 			public void paintIcon(Component comp, Graphics g, int x, int y)

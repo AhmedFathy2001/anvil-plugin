@@ -79,7 +79,7 @@ public final class ClogTaskModel
 			return rows;
 		}
 
-		Set<Integer> completed = new java.util.HashSet<>();
+		Set<Integer> completed = new HashSet<>();
 		each(cfg.completedTiles, c -> completed.add(c.tileId));
 
 		each(cfg.trackedDrops, d ->
@@ -303,7 +303,7 @@ public final class ClogTaskModel
 			}
 			else
 			{
-				groups.computeIfAbsent(g.toLowerCase(java.util.Locale.ROOT), k -> new ArrayList<>()).add(r);
+				groups.computeIfAbsent(g.toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(r);
 			}
 		}
 		return groups;
@@ -348,7 +348,7 @@ public final class ClogTaskModel
 		{
 			perItem.add(r.currentAmount / Math.max(1, r.requiredAmount));
 		}
-		perItem.sort(java.util.Collections.reverseOrder());
+		perItem.sort(Collections.reverseOrder());
 		int idx = Math.min(need, perItem.size()) - 1;
 		return idx < 0 ? 0 : perItem.get(idx);
 	}

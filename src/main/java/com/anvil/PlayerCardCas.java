@@ -131,7 +131,7 @@ final class PlayerCardCas
 		}
 		col.add(gap(8));
 		JPanel bar = row(0);
-		JPanel modes = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+		JPanel modes = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
 		modes.setOpaque(false);
 		modes.add(bosses);
 		modes.add(small("  \u00b7  ", MUTED));

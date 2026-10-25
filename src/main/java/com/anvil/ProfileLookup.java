@@ -218,7 +218,7 @@ final class ProfileLookup
 		}
 		// One per name. A name's menu often carries two of the options we sit beside ("Add friend" and
 		// "Add ignore" on a stranger in chat), and each used to add its own "Anvil".
-		for (net.runelite.api.MenuEntry existing : client.getMenu().getMenuEntries())
+		for (MenuEntry existing : client.getMenu().getMenuEntries())
 		{
 			if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget()))
 			{

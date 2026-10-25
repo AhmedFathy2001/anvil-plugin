@@ -17,6 +17,9 @@ import net.runelite.client.ui.components.PluginErrorPanel;
 import net.runelite.client.game.*;
 
 import static com.anvil.Ui.*;
+import net.runelite.client.config.ConfigManager;
+import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /**
  * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
@@ -90,7 +93,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// apart and the grids were squeezed until their last row clipped.
 	private final JPanel tabBody = new JPanel(new BorderLayout());
 	private final JPanel tabStrip = new JPanel(new GridBagLayout());
-	private final Map<Tab, JLabel> tabLabels = new java.util.EnumMap<>(Tab.class);
+	private final Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
 	private final JPanel youPanel = column();
 	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
@@ -114,7 +117,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
-	private final java.util.LinkedList<String> recentLookups = new java.util.LinkedList<>();
+	private final LinkedList<String> recentLookups = new LinkedList<>();
 	/** The clan dropdown is wanted by the clan logic AND only shown on the Clan tab. */
 	private boolean pickerWanted;
 	/** Latest clan view, so the You tab can offer Sync profile for the clan being addressed. */
@@ -131,7 +134,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel youCardView;
 	private PlayerCard youCardViewOf;
 	/** Your goals as last fetched (null until the first fetch lands), and the last thing the site refused. */
-	private java.util.List<BingoApiClient.PlayerGoal> youGoals;
+	private List<BingoApiClient.PlayerGoal> youGoals;
 	/** A goals fetch was already made for this character: a redraw doesn't ask again (only opening the tab does). */
 	private boolean goalsAsked;
 	private String goalsError;
@@ -147,7 +150,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// Device sign-in (home-native, DeviceSignIn): shown whenever there is no Account Token yet — the
 	// main way in, so nobody has to copy a token out of the site.
 	private final BingoApiClient apiClient;
-	private final net.runelite.client.config.ConfigManager configManager;
+	private final ConfigManager configManager;
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
 	private final ScheduledExecutorService executor;
 	private final JButton signInButton = new JButton("Sign in with Discord");
@@ -256,7 +259,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** {@code dataSource} is the Guice-bound {@link AnvilSidebarDataSource}, its only implementation. */
 	@Inject
 	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
-		net.runelite.client.config.ConfigManager configManager, ScheduledExecutorService executor,
+		ConfigManager configManager, ScheduledExecutorService executor,
 		ItemManager itemManager, SpriteManager spriteManager, SkillIconManager skillIconManager)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
@@ -457,7 +460,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
 		// Players only: clan names aren't in any list the game keeps.
 		lookupCompleter = new LookupSuggestions(lookupSearch, () -> !lookupClans,
-			() -> new java.util.ArrayList<>(recentLookups), dataSource::myRsn, dataSource::lookupNames);
+			() -> new ArrayList<>(recentLookups), dataSource::myRsn, dataSource::lookupNames);
 		lookupClear.setVisible(false);
 		lookupClear.setToolTipText("Clear");
 		onClick(lookupClear, () ->
@@ -473,17 +476,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupBox.add(lookupClear, BorderLayout.EAST);
 		capH(left(lookupBox));
 		// Focus shows as the underline turning orange.
-		lookupSearch.addFocusListener(new java.awt.event.FocusAdapter()
+		lookupSearch.addFocusListener(new FocusAdapter()
 		{
 			@Override
-			public void focusGained(java.awt.event.FocusEvent e)
+			public void focusGained(FocusEvent e)
 			{
 				setBoxLine(ColorScheme.BRAND_ORANGE);
 				lookupCompleter.refresh();
 			}
 
 			@Override
-			public void focusLost(java.awt.event.FocusEvent e)
+			public void focusLost(FocusEvent e)
 			{
 				setBoxLine(ColorScheme.MEDIUM_GRAY_COLOR);
 			}
@@ -633,7 +636,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * Show {@code waiting} in Lookup, fetch off the EDT, then fill Lookup from the answer — unless a
 	 * newer lookup started meanwhile, in which case this answer is for something nobody's looking at.
 	 */
-	private <T> void lookupThen(String waiting, java.util.function.Supplier<T> fetch, java.util.function.Consumer<T> show)
+	private <T> void lookupThen(String waiting, Supplier<T> fetch, Consumer<T> show)
 	{
 		int seq = showLookupMessage(waiting);
 		async(fetch, result ->
@@ -650,7 +653,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** {@code fetch} on the interactive executor, then {@code then} with its answer on the EDT. */
-	private <T> void async(java.util.function.Supplier<T> fetch, java.util.function.Consumer<T> then)
+	private <T> void async(Supplier<T> fetch, Consumer<T> then)
 	{
 		interactive().execute(() ->
 		{
@@ -676,7 +679,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupRecentRow.removeAll();
 		if (recentLookups.size() > 1)
 		{
-			JPanel wrap = left(new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)));
+			JPanel wrap = left(new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)));
 			wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
 			wrap.add(small("Recent: ", MUTED));
 			boolean first = true;
@@ -1176,7 +1179,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh();
 	}
 
-	private void showAccountMenu(java.awt.Component anchor)
+	private void showAccountMenu(Component anchor)
 	{
 		JPopupMenu menu = new JPopupMenu();
 		SidebarDataSource.AccountRow row = shownAccountRow;
@@ -1717,7 +1720,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return out;
 		}
-		java.util.Set<String> seen = new HashSet<>();
+		Set<String> seen = new HashSet<>();
 		if (shownBoard != null && !shownBoard.isEmpty())
 		{
 			seen.add(shownBoard); // the board on screen, whichever clan's row also reports it
@@ -2487,7 +2490,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildBannerSounds()
 	{
-		java.util.List<String> clips = dataSource.bannerSounds();
+		List<String> clips = dataSource.bannerSounds();
 		JPanel panel = section("Banner sounds");
 
 		if (clips.isEmpty())
@@ -2941,7 +2944,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			card.add(gap(4));
 			card.add(checks);
-			javax.swing.Timer live = new javax.swing.Timer(1000, null);
+			Timer live = new Timer(1000, null);
 			live.addActionListener(ev ->
 			{
 				if (!checks.isDisplayable())
@@ -2993,7 +2996,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			// ...unless the capture refused it — standing in the wrong place, or a session too old to
 			// have flushed the hiscores. That answer arrives in chat, so the button has to come back
 			// rather than sit on "Sending..." until the next poll redraws the card.
-			javax.swing.Timer restore = new javax.swing.Timer(4000, ev ->
+			Timer restore = new Timer(4000, ev ->
 			{
 				take.setText("Take starting shot");
 				take.setEnabled(true);
@@ -3016,7 +3019,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void renderStartProofChecks(JPanel into, PluginConfigResponse.StartProof proof)
 	{
-		java.util.List<StartProofRules.Check> list = dataSource.startProofChecks(proof);
+		List<StartProofRules.Check> list = dataSource.startProofChecks(proof);
 		into.removeAll();
 		for (StartProofRules.Check c : list)
 		{
@@ -3189,11 +3192,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (byline != null)
 		{
 			gbc.gridy = 1;
-			gbc.insets = new java.awt.Insets(1, 0, 0, 0);
+			gbc.insets = new Insets(1, 0, 0, 0);
 			row.add(byline, gbc);
 		}
 		gbc.gridy++;
-		gbc.insets = new java.awt.Insets(3, 0, 0, 0);
+		gbc.insets = new Insets(3, 0, 0, 0);
 		row.add(bar, gbc);
 		return capH(row);
 	}
@@ -3210,7 +3213,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** "19,023,122 / 20,142,002" on hover where the row shows "19M / 20.1M" (or a %); null when nothing's abbreviated. */
 	static String exactProgress(long current, long goal)
 	{
-		return goal >= 10_000 || current >= 10_000 ? String.format(java.util.Locale.ROOT, "%,d / %,d", current, goal) : null;
+		return goal >= 10_000 || current >= 10_000 ? String.format(Locale.ROOT, "%,d / %,d", current, goal) : null;
 	}
 
 	/** Width a long tile tooltip wraps at, in points. */
@@ -3711,7 +3714,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
 		String search, TileStatusFilter status, boolean preStart)
 	{
-		return filterBoardTiles(tiles, search, status, preStart, java.util.Collections.emptyMap());
+		return filterBoardTiles(tiles, search, status, preStart, Collections.emptyMap());
 	}
 
 	/**
@@ -3732,15 +3735,15 @@ public class AnvilSidebarPanel extends PluginPanel
 		// A complete category/tier/type name also brings in every tile filed under it, ranked first,
 		// without a second wall of filter controls on a 240px sidebar. Tier wins when names collide
 		// ("Troll" is both a common category and the default lowest difficulty).
-		boolean tierFacet = !needle.isEmpty() && tiles.stream().filter(java.util.Objects::nonNull)
+		boolean tierFacet = !needle.isEmpty() && tiles.stream().filter(Objects::nonNull)
 			.anyMatch(tile -> tileHasTier(tile, needle));
 		boolean categoryFacet = !tierFacet && !needle.isEmpty()
-			&& tiles.stream().filter(java.util.Objects::nonNull)
+			&& tiles.stream().filter(Objects::nonNull)
 				.anyMatch(tile -> tileHasCategory(tile.category, needle));
 		// A tile TYPE ("timed", "drop", "boss", "manual") is a facet too. When the word is also a
 		// category name both readings are kept — "pvp" shows the PvP-kill tiles and the PvP category.
 		boolean kindFacet = !tierFacet && !needle.isEmpty()
-			&& tiles.stream().filter(java.util.Objects::nonNull)
+			&& tiles.stream().filter(Objects::nonNull)
 				.anyMatch(tile -> tileKindNames(tile).contains(needle));
 		for (BingoApiClient.BoardTile tile : tiles)
 		{
@@ -3812,9 +3815,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * The words a player might type for this tile's TYPE, normalised like the search. Several per
 	 * type on purpose — "boss", "kc" and "boss kc" are one thing to a player.
 	 */
-	static java.util.Set<String> tileKindNames(BingoApiClient.BoardTile tile)
+	static Set<String> tileKindNames(BingoApiClient.BoardTile tile)
 	{
-		java.util.Set<String> out = new java.util.HashSet<>();
+		Set<String> out = new HashSet<>();
 		if (tile == null)
 		{
 			return out;
@@ -3828,11 +3831,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			if ("boss".equals(stat) || "kc".equals(stat))
 			{
-				java.util.Collections.addAll(out, "boss", "kc", "boss kc", "bosses");
+				Collections.addAll(out, "boss", "kc", "boss kc", "bosses");
 			}
 			else
 			{
-				java.util.Collections.addAll(out, "skill", "xp", "skilling", "skills");
+				Collections.addAll(out, "skill", "xp", "skilling", "skills");
 			}
 		}
 		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
@@ -3840,12 +3843,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			if (words[0].equals(type))
 			{
-				out.addAll(java.util.Arrays.asList(words).subList(1, words.length));
+				out.addAll(Arrays.asList(words).subList(1, words.length));
 			}
 		}
 		if ("drop".equals(type) && tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
 		{
-			java.util.Collections.addAll(out, "set", "sets", "item set", "collection");
+			Collections.addAll(out, "set", "sets", "item set", "collection");
 		}
 		return out;
 	}
@@ -3906,7 +3909,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	static String tileSubjects(BingoApiClient.BoardTile tile)
 	{
 		StringBuilder out = new StringBuilder();
-		java.util.function.Consumer<String> add = text ->
+		Consumer<String> add = text ->
 		{
 			if (text != null && !text.trim().isEmpty())
 			{
@@ -4000,7 +4003,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		List<BingoApiClient.BoardTile> all = board.tiles == null
-			? java.util.Collections.emptyList() : board.tiles;
+			? Collections.emptyList() : board.tiles;
 		if (all.isEmpty())
 		{
 			panel.add(small(board.tilesRevealed ? "No visible tiles." : "Tiles haven't been revealed yet.", MUTED));
@@ -4017,10 +4020,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		search.setBackground(WIDGET_BG);
 		search.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(WIDGET_BORDER), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-		search.addFocusListener(new java.awt.event.FocusAdapter()
+		search.addFocusListener(new FocusAdapter()
 		{
-			@Override public void focusGained(java.awt.event.FocusEvent e) { boardSearchFocused = true; }
-			@Override public void focusLost(java.awt.event.FocusEvent e) { boardSearchFocused = false; }
+			@Override public void focusGained(FocusEvent e) { boardSearchFocused = true; }
+			@Override public void focusLost(FocusEvent e) { boardSearchFocused = false; }
 		});
 		if (boardSearchFocused)
 		{
@@ -4152,7 +4155,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		// The team's counts, from the config the sidebar already holds — the live board only.
 		Map<Integer, ClogTaskModel.TaskRow> progress = "active".equals(key) && connection != null && !preStart
-			? connection.tileProgress : java.util.Collections.emptyMap();
+			? connection.tileProgress : Collections.emptyMap();
 		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart, progress);
 		if (filtered.isEmpty())
 		{
@@ -4668,7 +4671,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		int top = header && !first ? 6 : 0;
 		int left = item ? 8 : 0;
-		label.setBorder(javax.swing.BorderFactory.createEmptyBorder(top, left, 0, 0));
+		label.setBorder(BorderFactory.createEmptyBorder(top, left, 0, 0));
 		return label;
 	}
 
@@ -4685,8 +4688,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	static void itemSetLines(BingoApiClient.BoardTile tile, List<String> lines)
 	{
 		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
-		java.util.LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new java.util.LinkedHashMap<>();
-		java.util.Map<String, String> displayName = new java.util.HashMap<>();
+		LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new LinkedHashMap<>();
+		Map<String, String> displayName = new HashMap<>();
 		for (PluginConfigResponse.ItemRequirement req : tile.itemRequirements)
 		{
 			if (req == null)
@@ -4699,7 +4702,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				ungrouped.add(req);
 				continue;
 			}
-			String key = g.toLowerCase(java.util.Locale.ROOT);
+			String key = g.toLowerCase(Locale.ROOT);
 			groups.computeIfAbsent(key, k -> new ArrayList<>()).add(req);
 			displayName.putIfAbsent(key, g);
 		}
@@ -4711,7 +4714,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				lines.add(itemLine(req));
 			}
 		}
-		for (java.util.Map.Entry<String, List<PluginConfigResponse.ItemRequirement>> e : groups.entrySet())
+		for (Map.Entry<String, List<PluginConfigResponse.ItemRequirement>> e : groups.entrySet())
 		{
 			List<PluginConfigResponse.ItemRequirement> set = e.getValue();
 			int need = 0;
@@ -4801,9 +4804,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	static void addMouseListenerToTree(Component component, MouseAdapter listener)
 	{
 		component.addMouseListener(listener);
-		if (component instanceof java.awt.Container)
+		if (component instanceof Container)
 		{
-			for (Component child : ((java.awt.Container) component).getComponents())
+			for (Component child : ((Container) component).getComponents())
 			{
 				addMouseListenerToTree(child, listener);
 			}
@@ -4946,13 +4949,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** "Planning: You, Alice +2" for a tile's claims, or null when nobody has claimed it. */
-	static String claimLine(java.util.List<BingoApiClient.BoardClaim> claims)
+	static String claimLine(List<BingoApiClient.BoardClaim> claims)
 	{
 		if (claims == null || claims.isEmpty())
 		{
 			return null;
 		}
-		java.util.List<String> names = new java.util.ArrayList<>();
+		List<String> names = new ArrayList<>();
 		for (BingoApiClient.BoardClaim c : claims)
 		{
 			if (c == null)
@@ -4978,7 +4981,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Every claimer with their note, one per line, for the hover. */
-	static String claimTooltip(java.util.List<BingoApiClient.BoardClaim> claims)
+	static String claimTooltip(List<BingoApiClient.BoardClaim> claims)
 	{
 		if (claims == null || claims.isEmpty())
 		{
@@ -5004,12 +5007,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		return sb.toString();
 	}
 
-	static boolean claimedByMe(java.util.List<BingoApiClient.BoardClaim> claims)
+	static boolean claimedByMe(List<BingoApiClient.BoardClaim> claims)
 	{
 		return claims != null && claims.stream().anyMatch(c -> c != null && c.mine);
 	}
 
-	private static String myClaimNote(java.util.List<BingoApiClient.BoardClaim> claims)
+	private static String myClaimNote(List<BingoApiClient.BoardClaim> claims)
 	{
 		if (claims == null)
 		{
@@ -5153,9 +5156,9 @@ public class AnvilSidebarPanel extends PluginPanel
 				renderSettings(); // admin rights and the sound list can change under it
 			}
 			content.removeAll();
-			if (component instanceof javax.swing.JComponent)
+			if (component instanceof JComponent)
 			{
-				((javax.swing.JComponent) component).setAlignmentX(LEFT_ALIGNMENT);
+				((JComponent) component).setAlignmentX(LEFT_ALIGNMENT);
 			}
 			content.add(component);
 			content.revalidate();

@@ -316,9 +316,9 @@ final class ChatPatterns
 			}
 		}
 		char[] a = new char[MAX_LENGTH];
-		java.util.Arrays.fill(a, 'a');
+		Arrays.fill(a, 'a');
 		out.add(new String(a));
-		java.util.Arrays.fill(a, ' ');
+		Arrays.fill(a, ' ');
 		out.add(new String(a) + "!");
 		return out;
 	}

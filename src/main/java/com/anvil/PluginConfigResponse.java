@@ -116,7 +116,7 @@ public class PluginConfigResponse
 	 */
 	public List<ClanRef> switchableClans()
 	{
-		return clans == null ? java.util.Collections.emptyList() : clans;
+		return clans == null ? Collections.emptyList() : clans;
 	}
 
 	/** The slug this response was resolved for, or null on a site that does not say. */
@@ -311,12 +311,12 @@ public class PluginConfigResponse
 	public static class DropFacts
 	{
 		/** Pet name -> where it really comes from. */
-		public java.util.Map<String, Pet> pets;
+		public Map<String, Pet> pets;
 		/**
 		 * Item name -> the sources that drop it EVERY time, lowercased. A single {@code "*"} entry
 		 * means "guaranteed wherever it drops" (a clan override that didn't name sources).
 		 */
-		public java.util.Map<String, List<String>> guaranteed;
+		public Map<String, List<String>> guaranteed;
 
 		public static class Pet
 		{

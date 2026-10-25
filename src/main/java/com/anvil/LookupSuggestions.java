@@ -55,7 +55,7 @@ final class LookupSuggestions extends KeyAdapter
 			return null;
 		}
 		String mine = Rsn.normalize(me);
-		for (List<String> list : java.util.Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan))
+		for (List<String> list : Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan))
 		{
 			if (list == null)
 			{

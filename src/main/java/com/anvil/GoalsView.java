@@ -11,6 +11,7 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
 import static com.anvil.Ui.*;
+import java.time.LocalDate;
 
 /**
  * The You tab's goals: "99 Slayer", "500 Vorkath", "Barrows log complete".
@@ -95,7 +96,7 @@ final class GoalsView
 		remove.setToolTipText("Remove this goal");
 		line.add(right, BorderLayout.EAST);
 		line.add(remove, BorderLayout.WEST);
-		String due = p.done() ? null : dueText(g.dueOn, java.time.LocalDate.now(java.time.ZoneOffset.UTC));
+		String due = p.done() ? null : dueText(g.dueOn, LocalDate.now(java.time.ZoneOffset.UTC));
 		if (due != null)
 		{
 			JPanel top = new JPanel(new BorderLayout(0, 1));
@@ -178,16 +179,16 @@ final class GoalsView
 	 * "by 1 Dec · 50d left", "due today", "overdue by 3d" — calendar days, as the site counts them.
 	 * Null when there's no deadline (or it can't be read).
 	 */
-	static String dueText(String dueOn, java.time.LocalDate today)
+	static String dueText(String dueOn, LocalDate today)
 	{
 		if (dueOn == null || dueOn.isEmpty())
 		{
 			return null;
 		}
-		java.time.LocalDate due;
+		LocalDate due;
 		try
 		{
-			due = java.time.LocalDate.parse(dueOn);
+			due = LocalDate.parse(dueOn);
 		}
 		catch (java.time.format.DateTimeParseException e)
 		{
@@ -308,20 +309,20 @@ final class GoalsView
 			String k = (String) kind.getSelectedItem();
 			if ("Boss kills".equals(k))
 			{
-				what.setModel(new javax.swing.DefaultComboBoxModel<>(bosses.toArray(new String[0])));
+				what.setModel(new DefaultComboBoxModel<>(bosses.toArray(new String[0])));
 				target.setModel(new SpinnerNumberModel(100, 1, 100_000, 50));
 				targetLabel.setText("Kill count");
 				target.setEnabled(true);
 			}
 			else if ("Log page".equals(k))
 			{
-				what.setModel(new javax.swing.DefaultComboBoxModel<>(pages.toArray(new String[0])));
+				what.setModel(new DefaultComboBoxModel<>(pages.toArray(new String[0])));
 				targetLabel.setText("Every slot");
 				target.setEnabled(false);
 			}
 			else
 			{
-				what.setModel(new javax.swing.DefaultComboBoxModel<>(skills.toArray(new String[0])));
+				what.setModel(new DefaultComboBoxModel<>(skills.toArray(new String[0])));
 				target.setModel(new SpinnerNumberModel(99, 2, 99, 1));
 				targetLabel.setText("Level");
 				target.setEnabled(true);
@@ -329,11 +330,11 @@ final class GoalsView
 		});
 
 		// A deadline is optional, so it's behind a tick: an always-on date field would set one by accident.
-		javax.swing.JCheckBox hasDue = new javax.swing.JCheckBox("Set a deadline");
-		java.util.Calendar inAMonth = java.util.Calendar.getInstance();
-		inAMonth.add(java.util.Calendar.MONTH, 1);
-		JSpinner due = new JSpinner(new javax.swing.SpinnerDateModel(inAMonth.getTime(), new java.util.Date(), null,
-			java.util.Calendar.DAY_OF_MONTH));
+		JCheckBox hasDue = new JCheckBox("Set a deadline");
+		Calendar inAMonth = Calendar.getInstance();
+		inAMonth.add(Calendar.MONTH, 1);
+		JSpinner due = new JSpinner(new SpinnerDateModel(inAMonth.getTime(), new Date(), null,
+			Calendar.DAY_OF_MONTH));
 		due.setEditor(new JSpinner.DateEditor(due, "d MMM yyyy"));
 		due.setEnabled(false);
 		hasDue.addActionListener(e -> due.setEnabled(hasDue.isSelected()));
@@ -362,7 +363,7 @@ final class GoalsView
 		}
 		int t = "clog".equals(wireKind) ? 0 : ((Number) target.getValue()).intValue();
 		String dueOn = hasDue.isSelected()
-			? new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format((java.util.Date) due.getValue())
+			? new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format((Date) due.getValue())
 			: null;
 		return new NewGoal(wireKind, metric, t, dueOn);
 	}

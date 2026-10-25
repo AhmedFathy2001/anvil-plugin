@@ -16,6 +16,7 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
 import static com.anvil.Ui.*;
+import net.runelite.client.util.LinkBrowser;
 
 /**
  * Draws a {@link PlayerCard} for the side panel — the Lookup and You tabs.
@@ -109,7 +110,7 @@ final class PlayerCardView
 				if (p.name.equalsIgnoreCase(name))
 				{
 					showPage(card.rsn, p, ic, log, (JComponent) log.getClientProperty(LOG_ROOT));
-					log.scrollRectToVisible(new java.awt.Rectangle(0, 0, 1, 1));
+					log.scrollRectToVisible(new Rectangle(0, 0, 1, 1));
 					return;
 				}
 			}
@@ -124,7 +125,7 @@ final class PlayerCardView
 		if (bosses != null && !bosses.isEmpty())
 		{
 			JPanel grid = grid(3, 2, 2);
-			java.util.Set<HiscoreSkill> killed = java.util.EnumSet.noneOf(HiscoreSkill.class);
+			Set<HiscoreSkill> killed = EnumSet.noneOf(HiscoreSkill.class);
 			for (PlayerCard.Boss boss : bosses)
 			{
 				HiscoreSkill s = hiscoreSkill(boss.key, boss.label);
@@ -306,7 +307,7 @@ final class PlayerCardView
 			String url = ProfileLookup.profileUrl(rsn);
 			if (url != null)
 			{
-				net.runelite.client.util.LinkBrowser.browse(url + "?tab=records");
+				LinkBrowser.browse(url + "?tab=records");
 			}
 		});
 		all.setToolTipText("Everything they've done lately, on the Anvil website");
@@ -766,7 +767,7 @@ final class PlayerCardView
 	 */
 	static Map<String, Integer> pageKills(List<PlayerCard.Boss> bosses)
 	{
-		Map<String, Integer> out = new java.util.HashMap<>();
+		Map<String, Integer> out = new HashMap<>();
 		if (bosses != null)
 		{
 			for (PlayerCard.Boss b : bosses)
@@ -981,7 +982,7 @@ final class PlayerCardView
 				String url = ProfileLookup.profileUrl(rsn);
 				if (url != null)
 				{
-					net.runelite.client.util.LinkBrowser.browse(url + "?tab=collection&page="
+					LinkBrowser.browse(url + "?tab=collection&page="
 						+ java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
 				}
 			});
@@ -1005,8 +1006,8 @@ final class PlayerCardView
 				{
 					if (!item.owned)
 					{
-						java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
-						g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.25f));
+						Graphics2D g2 = (Graphics2D) g.create();
+						g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.25f));
 						super.paintComponent(g2);
 						g2.dispose();
 						return;

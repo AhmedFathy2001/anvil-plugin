@@ -184,7 +184,7 @@ final class TimedClearParser
 		{
 			return "";
 		}
-		return s.toLowerCase(java.util.Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
+		return s.toLowerCase(Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
 	}
 
 	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
@@ -203,7 +203,7 @@ final class TimedClearParser
 		}
 		for (String line : nearbyLines)
 		{
-			if (line != null && line.toLowerCase(java.util.Locale.ROOT).contains(KET_RAK_CLEAR))
+			if (line != null && line.toLowerCase(Locale.ROOT).contains(KET_RAK_CLEAR))
 			{
 				return true;
 			}

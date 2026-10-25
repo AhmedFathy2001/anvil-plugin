@@ -56,7 +56,7 @@ public class PendingSubmissionStore
 		public String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
 		// Shared kills/runs: teammates seen + party size at the time (lib/coopRuns on the site). Null
 		// when the tile doesn't ask; kept on disk so a retried proof still says who was there.
-		public java.util.List<String> coopGroup;
+		public List<String> coopGroup;
 		public int coopPartySize;
 		// A proof the plugin can't auto-submit to a specific tile (pet drop, duplicate Champion's
 		// scroll — the "would have received" line names no item), captured so the player has a ready

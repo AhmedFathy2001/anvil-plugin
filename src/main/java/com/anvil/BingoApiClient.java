@@ -1035,7 +1035,7 @@ public class BingoApiClient
 			return null;
 		}
 		String url = CANONICAL_SITE + "/api/clans/"
-			+ URLEncoder.encode(slug.trim().toLowerCase(java.util.Locale.ROOT), StandardCharsets.UTF_8) + "/card";
+			+ URLEncoder.encode(slug.trim().toLowerCase(Locale.ROOT), StandardCharsets.UTF_8) + "/card";
 		return getOrNull(publicRequest(url), ClanCard.class, "clan card fetch");
 	}
 
@@ -2198,7 +2198,7 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		if (clanName == null)
 		{
-			payload.add("clan", com.google.gson.JsonNull.INSTANCE);
+			payload.add("clan", JsonNull.INSTANCE);
 		}
 		else
 		{

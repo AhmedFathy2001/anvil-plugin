@@ -121,8 +121,8 @@ final class PushStash
 		mergeMax(out.kc, older.kc, newer.kc);
 		mergeMax(out.xp, older.xp, newer.xp);
 		mergeMax(out.activity, older.activity, newer.activity);
-		Map<String, SavedMoment> byKey = new java.util.LinkedHashMap<>();
-		for (List<SavedMoment> list : java.util.Arrays.asList(older.moments, newer.moments))
+		Map<String, SavedMoment> byKey = new LinkedHashMap<>();
+		for (List<SavedMoment> list : Arrays.asList(older.moments, newer.moments))
 		{
 			if (list != null)
 			{
@@ -141,7 +141,7 @@ final class PushStash
 
 	private static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b)
 	{
-		for (Map<String, Integer> m : java.util.Arrays.asList(a, b))
+		for (Map<String, Integer> m : Arrays.asList(a, b))
 		{
 			if (m != null)
 			{

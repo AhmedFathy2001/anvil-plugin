@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 import net.runelite.client.ui.*;
+import javax.swing.event.DocumentEvent;
 
 /**
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds
@@ -162,7 +163,7 @@ final class Ui
 	}
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
-	static void styleSearch(javax.swing.JTextField f)
+	static void styleSearch(JTextField f)
 	{
 		f.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		f.setForeground(Color.WHITE);
@@ -178,19 +179,19 @@ final class Ui
 		f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
 		{
 			@Override
-			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			public void insertUpdate(DocumentEvent e)
 			{
 				changed.run();
 			}
 
 			@Override
-			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			public void removeUpdate(DocumentEvent e)
 			{
 				changed.run();
 			}
 
 			@Override
-			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			public void changedUpdate(DocumentEvent e)
 			{
 				changed.run();
 			}
@@ -211,7 +212,7 @@ final class Ui
 	}
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	static final class SearchField extends javax.swing.JTextField
+	static final class SearchField extends JTextField
 	{
 		private final String placeholder;
 
@@ -219,26 +220,26 @@ final class Ui
 		{
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
-			addFocusListener(new java.awt.event.FocusAdapter()
+			addFocusListener(new FocusAdapter()
 			{
-				@Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
-				@Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
+				@Override public void focusGained(FocusEvent e) { repaint(); }
+				@Override public void focusLost(FocusEvent e) { repaint(); }
 			});
 		}
 
 		@Override
-		protected void paintComponent(java.awt.Graphics graphics)
+		protected void paintComponent(Graphics graphics)
 		{
 			super.paintComponent(graphics);
 			if (!getText().isEmpty() || isFocusOwner())
 			{
 				return;
 			}
-			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+			Graphics2D g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());
-			java.awt.FontMetrics metrics = g.getFontMetrics();
-			java.awt.Insets insets = getInsets();
+			FontMetrics metrics = g.getFontMetrics();
+			Insets insets = getInsets();
 			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
 			g.drawString(placeholder, insets.left, y);
 			g.dispose();

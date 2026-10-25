@@ -42,6 +42,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.*;
 import java.util.regex.*;
+import java.time.LocalDate;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @PluginDescriptor(
@@ -893,7 +895,7 @@ public class AnvilPlugin extends Plugin {
 	// hiscores overlay), so the config alone can't say who's grinding it. This records what THIS
 	// account just did, letting the sidebar's "Active now" attribute a stat tile to "You" vs a
 	// teammate without the server having to attribute stat pushes. Read as a snapshot by the sidebar.
-	private final Map<Integer, Long> localStatProgressAt = new java.util.concurrent.ConcurrentHashMap<>();
+	private final Map<Integer, Long> localStatProgressAt = new ConcurrentHashMap<>();
 	// Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
 	// the first snapshot after login/config load, so the baseline never counts as a gain. Worn
 	// items are folded in so equipping/unequipping — which just moves an item between the two
@@ -1083,7 +1085,7 @@ public class AnvilPlugin extends Plugin {
 		} catch (IOException | RuntimeException e) {
 			log.warn("No plugin directory — pending submissions and banner sounds are off this session", e);
 		}
-		try (java.io.Reader r = new java.io.InputStreamReader(getClass().getResourceAsStream("/anvil_text.json"),
+		try (Reader r = new InputStreamReader(getClass().getResourceAsStream("/anvil_text.json"),
 				java.nio.charset.StandardCharsets.UTF_8)) {
 			text = gson.fromJson(r, ShippedText.class);
 		} catch (IOException | RuntimeException e) {
@@ -1331,7 +1333,7 @@ public class AnvilPlugin extends Plugin {
 			String clanName = null;
 			Integer rankValue = null;
 			String titleName = null;
-			java.time.LocalDate joined = null;
+			LocalDate joined = null;
 			if (settings == null || settings.getName() == null) {
 				if (++gameClanMissingChecks < 2) {
 					return;
@@ -1360,7 +1362,7 @@ public class AnvilPlugin extends Plugin {
 			final String name = clanName;
 			final Integer rankOut = rankValue;
 			final String titleOut = titleName;
-			final java.time.LocalDate joinedOut = joined;
+			final LocalDate joinedOut = joined;
 			submit(() -> {
 				try {
 					apiClient.submitGameClan(name, rankOut, titleOut, joinedOut);
@@ -2212,7 +2214,7 @@ public class AnvilPlugin extends Plugin {
 		if (observation == null || ex == null || ex.isShutdown()) {
 			return;
 		}
-		final String eventKey = java.util.UUID.randomUUID().toString();
+		final String eventKey = UUID.randomUUID().toString();
 		ex.submit(() -> {
 			try {
 				apiClient.submitClanCoffer(eventKey, observation);
@@ -3897,7 +3899,7 @@ public class AnvilPlugin extends Plugin {
 			return; // already handled this session — the other line got here first
 		}
 		if (recentClogUnlocks.size() > MAX_RECENT_CLOG_UNLOCKS) {
-			java.util.Iterator<String> it = recentClogUnlocks.iterator();
+			Iterator<String> it = recentClogUnlocks.iterator();
 			it.next();
 			it.remove();
 		}
@@ -4800,7 +4802,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		int tick = client.getTickCount();
-		java.util.Iterator<Object[]> it = chestLineCredits.iterator();
+		Iterator<Object[]> it = chestLineCredits.iterator();
 		while (it.hasNext()) {
 			Object[] c = it.next();
 			if ((int) c[0] > tick) {
@@ -5363,14 +5365,14 @@ public class AnvilPlugin extends Plugin {
 	// judges it when the chest is looted, or on leaving the raid, or after HELD_RUN_MAX_MS, each
 	// with the level read then. Client thread only.
 	private static final long HELD_RUN_MAX_MS = 15 * 60_000;
-	private final List<java.util.function.IntConsumer> heldToaRuns = new ArrayList<>();
+	private final List<IntConsumer> heldToaRuns = new ArrayList<>();
 	private long heldToaRunsSince;
 
 	private static boolean holdsForRaidLevel(String activity, int minRaidLevel) {
 		return minRaidLevel > 0 && RaidGates.isToa(activity);
 	}
 
-	private void holdForRaidLevel(String label, java.util.function.IntConsumer judge) {
+	private void holdForRaidLevel(String label, IntConsumer judge) {
 		if (heldToaRuns.isEmpty()) {
 			heldToaRunsSince = now();
 		}
@@ -5382,10 +5384,10 @@ public class AnvilPlugin extends Plugin {
 		if (heldToaRuns.isEmpty()) {
 			return;
 		}
-		List<java.util.function.IntConsumer> held = new ArrayList<>(heldToaRuns);
+		List<IntConsumer> held = new ArrayList<>(heldToaRuns);
 		heldToaRuns.clear();
 		log.debug("Judging {} held ToA run(s) at raid level {}", held.size(), level);
-		for (java.util.function.IntConsumer judge : held) {
+		for (IntConsumer judge : held) {
 			judge.accept(level);
 		}
 	}
@@ -5577,7 +5579,7 @@ public class AnvilPlugin extends Plugin {
 			g.setColor(new Color(20, 18, 14, 230));
 			g.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
 			// Gold accent border
-			g.setStroke(new java.awt.BasicStroke(2f));
+			g.setStroke(new BasicStroke(2f));
 			g.setColor(new Color(212, 160, 23));
 			g.drawRoundRect(boxX, boxY, boxW, boxH, 10, 10);
 
@@ -5896,7 +5898,7 @@ public class AnvilPlugin extends Plugin {
 	 * The names the Lookup box suggests — clan (online and the whole roster), friends, and players
 	 * nearby — read on the client thread, then handed to {@code then} there. Empty while logged out.
 	 */
-	void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then) {
+	void lookupNames(Consumer<LookupSuggestions.Names> then) {
 		if (client == null || clientThread == null) {
 			then.accept(LookupSuggestions.Names.EMPTY);
 			return;
@@ -5917,9 +5919,9 @@ public class AnvilPlugin extends Plugin {
 				cs.getMembers().forEach(m -> clan.add(m.getName()));
 			}
 			List<String> friends = new ArrayList<>();
-			net.runelite.api.NameableContainer<net.runelite.api.Friend> fc = client.getFriendContainer();
+			NameableContainer<Friend> fc = client.getFriendContainer();
 			if (fc != null && fc.getMembers() != null) {
-				for (net.runelite.api.Friend f : fc.getMembers()) {
+				for (Friend f : fc.getMembers()) {
 					friends.add(f.getName());
 				}
 			}
@@ -6351,9 +6353,9 @@ public class AnvilPlugin extends Plugin {
 					ClanTitle title = settings.titleForRank(rank);
 					out.rank = title != null ? title.getName() : String.valueOf(rank.getRank());
 				}
-				java.time.LocalDate joined = m.getJoinDate();
+				LocalDate joined = m.getJoinDate();
 				if (joined != null) {
-					out.joinedDays = (int) java.time.temporal.ChronoUnit.DAYS.between(joined, java.time.LocalDate.now());
+					out.joinedDays = (int) java.time.temporal.ChronoUnit.DAYS.between(joined, LocalDate.now());
 				}
 				members.add(out);
 			}
@@ -6806,7 +6808,7 @@ public class AnvilPlugin extends Plugin {
 	 * new biggest hit, death. Sharing it froze the game for as long as the site took to answer,
 	 * most visibly right after a proof upload.
 	 */
-	private final java.util.concurrent.locks.ReentrantLock configFetchLock = new java.util.concurrent.locks.ReentrantLock();
+	private final ReentrantLock configFetchLock = new ReentrantLock();
 
 	/** When a config fetch last FINISHED, success or not — so a failing site isn't asked again on every paint. */
 	private volatile long lastConfigAttemptAt;
@@ -8449,7 +8451,7 @@ public class AnvilPlugin extends Plugin {
 
 			Double dropRate = null; // probability (1/N) when rare enough to report
 			if (rarityThreshold > 0 && rarity != null && source != null && !source.isEmpty()) {
-				java.util.OptionalDouble r = rarity.getRarity(source, itemId, qty);
+				OptionalDouble r = rarity.getRarity(source, itemId, qty);
 				if (r.isPresent()) {
 					double p = r.getAsDouble();
 					if (p > 0 && MathUtils.lessThanOrEqual(p, 1.0 / rarityThreshold)) {
@@ -9219,7 +9221,7 @@ public class AnvilPlugin extends Plugin {
 		if (service == null) {
 			return null;
 		}
-		java.util.OptionalDouble r = service.getRarity(source, itemId, 1);
+		OptionalDouble r = service.getRarity(source, itemId, 1);
 		return r.isPresent() && r.getAsDouble() > 0 ? r.getAsDouble() : null;
 	}
 
@@ -10015,7 +10017,7 @@ public class AnvilPlugin extends Plugin {
 
 	// Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text
 	// has a built-in shadow). Both are the player's to change (Chat messages in the config).
-	private static String hexOf(java.awt.Color c, String fallback) {
+	private static String hexOf(Color c, String fallback) {
 		return c == null ? fallback : String.format("%06x", c.getRGB() & 0xFFFFFF);
 	}
 

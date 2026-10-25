@@ -217,7 +217,7 @@ final class AccountProgress
 	 */
 	static List<Item> quests(Client client)
 	{
-		List<Item> out = new java.util.ArrayList<>();
+		List<Item> out = new ArrayList<>();
 		if (client == null)
 		{
 			return out;

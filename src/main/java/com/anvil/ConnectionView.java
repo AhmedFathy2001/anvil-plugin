@@ -22,7 +22,7 @@ public final class ConnectionView
 		if (n >= 1_000_000)
 		{
 			double m = n / 1_000_000.0;
-			return (m == Math.floor(m) ? String.valueOf((int) m) : String.format(java.util.Locale.ROOT, "%.1f", m)) + "M";
+			return (m == Math.floor(m) ? String.valueOf((int) m) : String.format(Locale.ROOT, "%.1f", m)) + "M";
 		}
 		if (n >= 10_000)
 		{
@@ -389,7 +389,7 @@ public final class ConnectionView
 				return sentLabel.trim();
 			}
 			// "ehp"/"ehb" are initialisms — humanise would title-case them to "Ehp".
-			return efficiency() ? metric.toUpperCase(java.util.Locale.ROOT) : humanise(metric);
+			return efficiency() ? metric.toUpperCase(Locale.ROOT) : humanise(metric);
 		}
 
 		/** What a gain counts in: XP for a skill comp, kills for a boss one, hours for EHP/EHB. */
@@ -410,7 +410,7 @@ public final class ConnectionView
 			// integer columns would round 12.4 EHB down to 12 and throw away most of a week's gain.
 			// Rendered raw that arrives as "+12,400 kc".
 			return (efficiency()
-				? String.format(java.util.Locale.ROOT, "%.2f", safe / EFFICIENCY_SCALE)
+				? String.format(Locale.ROOT, "%.2f", safe / EFFICIENCY_SCALE)
 				: formatCount(safe)) + " " + unitNoun();
 		}
 
@@ -443,7 +443,7 @@ public final class ConnectionView
 				// Case-insensitively, because the camel split hands these over capitalised ("Of").
 				boolean small = i > 0 && ("of".equalsIgnoreCase(w) || "the".equalsIgnoreCase(w)
 					|| "and".equalsIgnoreCase(w) || "at".equalsIgnoreCase(w));
-				out.append(small ? w.toLowerCase(java.util.Locale.ROOT)
+				out.append(small ? w.toLowerCase(Locale.ROOT)
 					: Character.toUpperCase(w.charAt(0)) + w.substring(1));
 			}
 			return out.toString();

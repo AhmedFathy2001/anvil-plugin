@@ -4,6 +4,8 @@ import java.util.*;
 import java.util.function.Supplier;
 import com.google.gson.*;
 import lombok.extern.slf4j.Slf4j;
+import java.util.function.Consumer;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * The data source behind the sidebar: renders the plugin's one home — a view over the
@@ -50,7 +52,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
 	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
 	private final Map<Integer, BingoApiClient.WeeklyLeaderboard> weeklyBoards = new HashMap<>();
-	private final java.util.Set<Integer> weeklyBoardsTried = new java.util.HashSet<>();
+	private final Set<Integer> weeklyBoardsTried = new HashSet<>();
 	private long weeklyBoardsAt;
 
 	// Live-sidebar state, scoped to the active event.
@@ -94,7 +96,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
-	private void withPlugin(java.util.function.Consumer<AnvilPlugin> f)
+	private void withPlugin(Consumer<AnvilPlugin> f)
 	{
 		AnvilPlugin p = plugin;
 		if (p != null)
@@ -147,7 +149,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
-	public void accountAction(AccountRow.Action action, java.util.function.Consumer<String> done)
+	public void accountAction(AccountRow.Action action, Consumer<String> done)
 	{
 		withPlugin(p -> p.accountAction(action, done));
 	}
@@ -165,7 +167,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Local banner-sound clips, newest listing each call. Empty when the folder has none. */
-	public java.util.List<String> bannerSounds()
+	public List<String> bannerSounds()
 	{
 		return fromPlugin(AnvilPlugin::bannerSoundClips, Collections.emptyList());
 	}
@@ -195,7 +197,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Mission clips — the folder that decides whether missions play a clip or the built-in chime. */
-	public java.util.List<String> missionSounds()
+	public List<String> missionSounds()
 	{
 		return fromPlugin(AnvilPlugin::missionSoundClips, Collections.emptyList());
 	}
@@ -228,7 +230,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * The starting shot's live requirements (session age, position) for the card, in display order.
 	 * Empty where nothing is checked. Cheap and non-blocking: the panel polls it every second.
 	 */
-	public java.util.List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
+	public List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
 	{
 		return fromPlugin(p -> p.startProofChecks(proof), Collections.emptyList());
 	}
@@ -266,11 +268,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Tiles pinned on screen for the live board, in pin order. */
-	public java.util.List<Integer> trackedTileIds()
+	public List<Integer> trackedTileIds()
 	{
 		int eventId = activeEventId();
-		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), java.util.Collections.<Integer>emptyList())
-			: java.util.Collections.<Integer>emptyList();
+		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), Collections.<Integer>emptyList())
+			: Collections.<Integer>emptyList();
 	}
 
 	/** Unpin every tile on the live board. */
@@ -378,7 +380,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Blocking; off the EDT. */
-	public java.util.List<ClanCard.Found> lookupClans(String q)
+	public List<ClanCard.Found> lookupClans(String q)
 	{
 		return apiClient.lookupClans(q);
 	}
@@ -460,7 +462,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
-	public void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then)
+	public void lookupNames(Consumer<LookupSuggestions.Names> then)
 	{
 		AnvilPlugin p = plugin;
 		if (p == null)
@@ -530,7 +532,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 */
 	private static Gson fingerprintGson(Gson base)
 	{
-		JsonSerializer<java.util.Collection<?>> list = (src, type, ctx) ->
+		JsonSerializer<Collection<?>> list = (src, type, ctx) ->
 		{
 			JsonArray out = new JsonArray();
 			for (Object o : src)
@@ -549,7 +551,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			return out;
 		};
 		return base.newBuilder()
-			.registerTypeHierarchyAdapter(java.util.Collection.class, list)
+			.registerTypeHierarchyAdapter(Collection.class, list)
 			.registerTypeHierarchyAdapter(Map.class, map)
 			.create();
 	}
@@ -758,9 +760,9 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
 		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
 		// and every optional tile inflates the denominator).
-		java.util.Set<Integer> optionalIds = cfg.optionalTileIds == null
-			? java.util.Collections.emptySet()
-			: new java.util.HashSet<>(cfg.optionalTileIds);
+		Set<Integer> optionalIds = cfg.optionalTileIds == null
+			? Collections.emptySet()
+			: new HashSet<>(cfg.optionalTileIds);
 		// Leagues (scoringMode=points) ranks by summed tile WEIGHT, so the summary reads earned/total
 		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
 		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
@@ -866,7 +868,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private static List<BingoApiClient.ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
 	{
 		List<BingoApiClient.ScheduledWeekly> out = new ArrayList<>();
-		java.util.Set<Integer> seen = new java.util.HashSet<>();
+		Set<Integer> seen = new HashSet<>();
 		if (cfg.schedule != null && cfg.schedule.weeklies != null)
 		{
 			for (BingoApiClient.ScheduledWeekly w : cfg.schedule.weeklies)
@@ -976,10 +978,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			weeklyBoardsTried.clear();
 			weeklyBoardsAt = now;
 		}
-		java.util.Set<Integer> liveIds = new java.util.HashSet<>();
+		Set<Integer> liveIds = new HashSet<>();
 		// All at once rather than one after another: each is a full round trip, and the panel waits
 		// for the slowest, not the sum.
-		Map<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> reads = new HashMap<>();
+		Map<Integer, CompletableFuture<BingoApiClient.WeeklyLeaderboard>> reads = new HashMap<>();
 		for (BingoApiClient.ScheduledWeekly w : live)
 		{
 			liveIds.add(w.id);
@@ -988,10 +990,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				continue; // already read this window — the cached board stands
 			}
 			final int id = w.id;
-			reads.put(id, java.util.concurrent.CompletableFuture.supplyAsync(() -> apiClient.fetchWeeklyLeaderboard(id),
+			reads.put(id, CompletableFuture.supplyAsync(() -> apiClient.fetchWeeklyLeaderboard(id),
 				apiClient.interactiveExecutor()));
 		}
-		for (Map.Entry<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> r : reads.entrySet())
+		for (Map.Entry<Integer, CompletableFuture<BingoApiClient.WeeklyLeaderboard>> r : reads.entrySet())
 		{
 			try
 			{
