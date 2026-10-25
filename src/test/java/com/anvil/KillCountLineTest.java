@@ -20,7 +20,7 @@ public class KillCountLineTest
 	/** Runs a line through the plugin's KC parse: [bossName, count], or null when it doesn't match. */
 	private static String[] parse(String line)
 	{
-		Matcher m = AnvilPlugin.KILL_COUNT_PATTERN.matcher(line);
+		Matcher m = TestPatterns.get("kc.count").matcher(line);
 		if (!m.find())
 		{
 			return null;
@@ -140,10 +140,10 @@ public class KillCountLineTest
 	public void parsesDoomDeepDelves()
 	{
 		// Doom has no kill-count line; its hiscores count is deep delves completed.
-		Matcher m = AnvilPlugin.DEEP_DELVES_PATTERN.matcher("Deep delves completed: 1,893");
+		Matcher m = TestPatterns.get("kc.deep_delves").matcher("Deep delves completed: 1,893");
 		assertTrue(m.find());
 		assertEquals("1,893", m.group(1));
-		assertFalse(AnvilPlugin.DEEP_DELVES_PATTERN.matcher("Delve level: 8+ (9) duration: 1:38. Personal best: 0:56").find());
+		assertFalse(TestPatterns.get("kc.deep_delves").matcher("Delve level: 8+ (9) duration: 1:38. Personal best: 0:56").find());
 		assertNull(parse("Deep delves completed: 893"));
 	}
 
@@ -151,10 +151,10 @@ public class KillCountLineTest
 	public void recognisesPickpocketLines()
 	{
 		// A pocket is not a kill: these lines mark the tick whose ServerNpcLoot is pickpocket loot.
-		assertTrue(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You pick the man's pocket.").matches());
-		assertTrue(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You pick the Elf's pocket.").matches());
-		assertTrue(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You pick the vyre's pocket.").matches());
-		assertFalse(AnvilPlugin.PICKPOCKET_PATTERN.matcher("You fail to pick the man's pocket.").matches());
-		assertFalse(AnvilPlugin.PICKPOCKET_PATTERN.matcher("Your Gargoyle kill count is: 154").matches());
+		assertTrue(TestPatterns.get("pickpocket").matcher("You pick the man's pocket.").matches());
+		assertTrue(TestPatterns.get("pickpocket").matcher("You pick the Elf's pocket.").matches());
+		assertTrue(TestPatterns.get("pickpocket").matcher("You pick the vyre's pocket.").matches());
+		assertFalse(TestPatterns.get("pickpocket").matcher("You fail to pick the man's pocket.").matches());
+		assertFalse(TestPatterns.get("pickpocket").matcher("Your Gargoyle kill count is: 154").matches());
 	}
 }

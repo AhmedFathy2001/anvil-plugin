@@ -743,6 +743,16 @@ public class BingoApiClient
 		}
 	}
 
+	/**
+	 * GET /api/plugin/chat-patterns — the site's chat-line re-wordings (ChatPatterns). Global, so never
+	 * clan-addressed. Null on any failure; a 304 hands back the cached object.
+	 */
+	ChatPatterns.OverridesResponse fetchChatPatterns()
+	{
+		return etagGetOrNull(rootUrl("/api/plugin/chat-patterns"), ChatPatterns.OverridesResponse.class, polls,
+			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
+	}
+
 	/** A non-2xx answer to {@link #etagGet}. */
 	static final class HttpStatusException extends IOException
 	{
@@ -2195,6 +2205,40 @@ public class BingoApiClient
 		// at INFO because when this feature is quiet the only alternative is guessing which half
 		// went wrong, which has cost a day already.
 		log.debug("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(), hasVarps ? caVarps.size() : 0, reply);
+	}
+
+	/**
+	 * POST /api/plugin/game-clan — the logged-in character's OWN row from the in-game clan settings:
+	 * which clan, its rank number and the clan's title for it, and the join date. Never the member
+	 * list. A null name says "in no clan". The site shows it on the profile and gathers Anvil players
+	 * of a clan that isn't on Anvil onto one page (capability {@code game-clan}).
+	 */
+	public void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		if (clanName == null)
+		{
+			payload.add("clan", com.google.gson.JsonNull.INSTANCE);
+		}
+		else
+		{
+			JsonObject clan = new JsonObject();
+			clan.addProperty("name", clanName);
+			if (rank != null)
+			{
+				clan.addProperty("rank", rank);
+			}
+			if (title != null)
+			{
+				clan.addProperty("title", title);
+			}
+			if (joined != null)
+			{
+				clan.addProperty("joinedOn", joined.toString());
+			}
+			payload.add("clan", clan);
+		}
+		postJson("/api/plugin/game-clan", payload, "Game clan push failed", false);
 	}
 
 	/**

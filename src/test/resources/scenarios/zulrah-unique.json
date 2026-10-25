@@ -1,0 +1,61 @@
+{
+  "name": "zulrah-unique",
+  "description": "Zulrah kill: KC line + loot (server + client loot events, as the real client fires both) with a Tanzanite fang",
+  "params": {
+    "kc": "500",
+    "item": "12922"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "Zulrah",
+        "npcId": 2042
+      }
+    },
+    {
+      "chat": {
+        "message": "Your Zulrah kill count is: ${kc}."
+      }
+    },
+    {
+      "loot": {
+        "kind": "server",
+        "name": "Zulrah",
+        "npcId": 2042,
+        "combatLevel": 725,
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          },
+          {
+            "id": 12934,
+            "qty": 500
+          }
+        ]
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "loot": {
+        "kind": "npc",
+        "name": "Zulrah",
+        "npcId": 2042,
+        "combatLevel": 725,
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          },
+          {
+            "id": 12934,
+            "qty": 500
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -13,6 +14,12 @@ import static org.junit.Assert.assertTrue;
  */
 public class TimedClearParserTest
 {
+	@BeforeClass
+	public static void patterns()
+	{
+		ChatPatterns.loadDefaults(new com.google.gson.Gson());
+	}
+
 	@Test
 	public void parsesDurationWithFractionalSeconds()
 	{

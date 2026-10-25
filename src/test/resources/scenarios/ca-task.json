@@ -1,0 +1,15 @@
+{
+  "name": "ca-task",
+  "description": "Combat achievement task line (credits CA tiles; tier must be Easy..Grandmaster)",
+  "params": {
+    "tier": "Elite",
+    "task": "Whack-a-Mole"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Congratulations, you've completed an ${tier} combat task: ${task}."
+      }
+    }
+  ]
+}

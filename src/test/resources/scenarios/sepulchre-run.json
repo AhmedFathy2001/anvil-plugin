@@ -1,0 +1,55 @@
+{
+  "name": "sepulchre-run",
+  "description": "Full Hallowed Sepulchre run: floors 1-5 then the Grand Hallowed Coffin",
+  "params": {
+    "total": "1234",
+    "coffins": "42"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "You have completed Floor 1 of the Hallowed Sepulchre! Total completions: ${total}."
+      }
+    },
+    {
+      "wait": 10
+    },
+    {
+      "chat": {
+        "message": "You have completed Floor 2 of the Hallowed Sepulchre! Total completions: ${total}."
+      }
+    },
+    {
+      "wait": 10
+    },
+    {
+      "chat": {
+        "message": "You have completed Floor 3 of the Hallowed Sepulchre! Total completions: ${total}."
+      }
+    },
+    {
+      "wait": 10
+    },
+    {
+      "chat": {
+        "message": "You have completed Floor 4 of the Hallowed Sepulchre! Total completions: ${total}."
+      }
+    },
+    {
+      "wait": 10
+    },
+    {
+      "chat": {
+        "message": "You have completed Floor 5 of the Hallowed Sepulchre! Total completions: ${total}."
+      }
+    },
+    {
+      "wait": 10
+    },
+    {
+      "chat": {
+        "message": "You have opened the Grand Hallowed Coffin ${coffins} times!"
+      }
+    }
+  ]
+}

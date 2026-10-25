@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Pure, side-effect-free parsing for timed-clear tiles. Kept out of the plugin so the fragile,
@@ -55,8 +54,7 @@ final class TimedClearParser
 	//   subdued in      — Tempoross "Subdued in 6:32"
 	// ToA's per-room / per-challenge sub-times also match "duration"/"time:" but are filtered
 	// out before this (see RAID_SUBTIME) — they're not the raid clear time.
-	private static final Pattern DURATION = Pattern.compile(
-			"(?:duration|completion time|time:|subdued in)[^0-9]{0,16}((?:\\d{1,2}:)?\\d{1,3}:\\d{2})");
+	// → chat-patterns.json "timed.duration" (ChatPatterns).
 
 	// ToA reports several *sub*-times before the raid total, each carrying its own duration:
 	//   "Challenge complete: The Wardens. Duration: 7:05"     — one room
@@ -67,8 +65,7 @@ final class TimedClearParser
 	// duration was letting a 34:50 raid pass a 25-minute tile off its 7:05 final room. These are
 	// the only "challenge …"/"… completion time" phrasings we reject; "Challenge duration:"
 	// (Gauntlet / Corrupted Gauntlet / TzHaar-Ket-Rak) and "total completion time" are kept.
-	private static final Pattern RAID_SUBTIME = Pattern.compile(
-			"challenge complete|challenge time:|challenge completion time");
+	// → chat-patterns.json "timed.raid_subtime" (ChatPatterns).
 
 	// Lowercased activity (as configured on the tile) -> substrings that, if present in a nearby
 	// chat line, identify that activity. The identifying line is typically the boss/raid
@@ -145,16 +142,16 @@ final class TimedClearParser
 		String lower = message.toLowerCase();
 		// A ToA per-room / per-challenge sub-time — never the raid clear time. Ignore it so a
 		// slow raid can't pass a timed tile off a fast final room (see RAID_SUBTIME).
-		if (RAID_SUBTIME.matcher(lower).find())
+		if (ChatPatterns.find("timed.raid_subtime", lower) != null)
 		{
 			return null;
 		}
-		Matcher m = DURATION.matcher(lower);
-		if (!m.find())
+		Matcher m = ChatPatterns.find("timed.duration", lower);
+		if (m == null)
 		{
 			return null;
 		}
-		String[] p = m.group(1).split(":");
+		String[] p = m.group("time").split(":");
 		try
 		{
 			int s = p.length == 3
@@ -250,7 +247,7 @@ final class TimedClearParser
 	//   "You have completed the Gwenith Glide and achieved the Marlin rank."
 	private static final String[] TRIAL_COURSES = { "tempor tantrum", "jubbly jive", "gwenith glide" };
 	private static final String[] TRIAL_RANKS = { "swordfish", "shark", "marlin" };
-	private static final Pattern TRIAL_COMPLETION = Pattern.compile("completed the (.+?) and achieved the (\\w+) rank");
+	// → chat-patterns.json "timed.trial_completion" (ChatPatterns).
 
 	/** {course, rank} from a Barracuda Trials completion line, or null if this line isn't one. */
 	static String[] parseTrialCompletion(String message)
@@ -259,13 +256,13 @@ final class TimedClearParser
 		{
 			return null;
 		}
-		Matcher m = TRIAL_COMPLETION.matcher(message.toLowerCase());
-		if (!m.find())
+		Matcher m = ChatPatterns.find("timed.trial_completion", message.toLowerCase());
+		if (m == null)
 		{
 			return null;
 		}
-		String course = norm(m.group(1));
-		String rank = m.group(2);
+		String course = norm(m.group("course"));
+		String rank = m.group("rank");
 		for (String c : TRIAL_COURSES)
 		{
 			if (course.endsWith(c))
