@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * The reader for the server's {@code dropFacts}: which monster a pet is really from, and
@@ -11,6 +12,8 @@ import java.util.*;
  */
 final class DropSource
 {
+	private static final Pattern WIKI_QUALIFIER = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
+
 	private DropSource()
 	{
 	}
@@ -23,7 +26,7 @@ final class DropSource
 	 */
 	static String inGameNpcName(String wikiName)
 	{
-		return wikiName == null ? null : wikiName.replaceFirst("\\s*\\([^)]*\\)\\s*$", "").trim();
+		return wikiName == null ? null : WIKI_QUALIFIER.matcher(wikiName).replaceFirst("").trim();
 	}
 
 	/** True when the reported loot {@code source} is one of a tile's configured (wiki-named) NPCs. */

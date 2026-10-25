@@ -183,7 +183,7 @@ public class AnvilPlugin extends Plugin {
 	// The first live answer, of any kind, retires both.
 	private volatile ResponseDiskCache responseCache;
 	private volatile PluginConfigResponse savedConfig;
-	private volatile BingoApiClient.BoardResponse savedBoard;
+	private volatile BoardResponse savedBoard;
 	/** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
 	private volatile boolean liveConfigAnswered;
 	/** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
@@ -491,7 +491,7 @@ public class AnvilPlugin extends Plugin {
 	// Compiled once: these run per chat line, per XP drop and per LMS tick.
 	static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>");
 	private static final Pattern NON_DIGIT = Pattern.compile("[^0-9]");
-	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]");
+	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
 	/** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
 	static String stripChatTags(String msg) {
@@ -867,6 +867,11 @@ public class AnvilPlugin extends Plugin {
 	// Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
 	// config refresh; empty unless the event has skill tiles.
 	private volatile Set<String> trackedSkillNames = Collections.emptySet();
+	// Also rebuilt with the drop index, so the XP/KC and loot paths only look up: stat tiles by
+	// kind + compactStat key, the first stat tile per lowercased name, and the server allowlist lowercased.
+	private volatile Map<String, List<TrackedStat>> statTileIndex = Collections.emptyMap();
+	private volatile Map<String, Integer> statTileByName = Collections.emptyMap();
+	private volatile Set<String> alwaysNotifyLower = Collections.emptySet();
 	// Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
 	// collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
 	private final CoalescedPush skillXpPush = new CoalescedPush("Skill XP", KC_PUSH_COALESCE_MS, false,
@@ -2471,7 +2476,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		final int kills = lmsKills;
 		final String place = ordinal(placement);
-		for (PluginConfigResponse.TrackedLms tile : pluginConfig.trackedLms) {
+		for (TrackedLms tile : pluginConfig.trackedLms) {
 			if (tile.completed) {
 				continue;
 			}
@@ -2856,7 +2861,7 @@ public class AnvilPlugin extends Plugin {
 				// Local first: whatever the site says, this computer stops sending for it now.
 				optedOutAccounts = optedOutAccounts.with(hash, rsn);
 				cfgSet(CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
-				BingoApiClient.AccountActionResult r = apiClient.postAccountAction("release");
+				AccountActionResult r = apiClient.postAccountAction("release");
 				apiClient.setAccountPaused(true);
 				dropConfigForPausedAccount();
 				if (r.ok) {
@@ -2876,14 +2881,14 @@ public class AnvilPlugin extends Plugin {
 				optedOutAccounts = optedOutAccounts.without(hash, rsn);
 				cfgSet(CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
 				apiClient.setAccountPaused(false);
-				BingoApiClient.AccountActionResult r = apiClient.postAccountAction("resume");
+				AccountActionResult r = apiClient.postAccountAction("resume");
 				// The normal login round-trip re-links it (the site's auto-link, now that it's no
 				// longer ignored) and loads its board.
 				stampIdentityAndGreet();
 				return r.ok ? "Tracking " + rsn + " again." : "Tracking again here. " + (r.error == null ? "" : r.error);
 			}
 			case DISPUTE: {
-				BingoApiClient.AccountActionResult r = apiClient.postAccountAction("dispute");
+				AccountActionResult r = apiClient.postAccountAction("dispute");
 				if (r.ok) {
 					return r.alreadyOpen
 							? "Already with Anvil staff — they'll sort it out."
@@ -3049,7 +3054,7 @@ public class AnvilPlugin extends Plugin {
 		if (apiClient.getApiUrl().isEmpty()) {
 			return; // signed out: the plugin contacts nothing (BingoApiClient.configure)
 		}
-		BingoApiClient.HelloResponse resp = apiClient.hello(rsn);
+		HelloResponse resp = apiClient.hello(rsn);
 		helloSent = true;
 		if (resp == null) {
 			return;
@@ -3077,13 +3082,13 @@ public class AnvilPlugin extends Plugin {
 
 		// Greet with whatever's running right now so members know to jump in.
 		if (resp.activeWeekly != null) {
-			for (BingoApiClient.WeeklyInfo w : resp.activeWeekly) {
+			for (WeeklyInfo w : resp.activeWeekly) {
 				String kind = ConnectionView.WeeklyView.kindLabel(w.type);
 				sendChatMessage(kind + " is live: " + w.title + "!");
 			}
 		}
 		if (resp.activeBingos != null) {
-			for (BingoApiClient.BingoInfo b : resp.activeBingos) {
+			for (BingoInfo b : resp.activeBingos) {
 				sendChatMessage("Bingo running: " + b.name + ".");
 			}
 		}
@@ -3300,7 +3305,7 @@ public class AnvilPlugin extends Plugin {
 		if (haulGp <= 0) {
 			return;
 		}
-		for (PluginConfigResponse.TrackedValue v : pluginConfig.trackedValues) {
+		for (TrackedValue v : pluginConfig.trackedValues) {
 			if (v == null || v.completed) {
 				continue;
 			}
@@ -4343,7 +4348,7 @@ public class AnvilPlugin extends Plugin {
 				Integer trackingItemId = null;
 				int amount;
 				if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-					PluginConfigResponse.ItemRequirement req = drop.itemRequirements.stream()
+					ItemRequirement req = drop.itemRequirements.stream()
 							.filter(r -> r.itemId == itemId).findFirst().orElse(null);
 					// A tile needing N sets can use a set's piece N times (Ahrim's twice).
 					int cap = req == null ? 0 : ClogTaskModel.itemCap(req, drop.groupMode, drop.setsRequired);
@@ -5183,7 +5188,7 @@ public class AnvilPlugin extends Plugin {
 	private Set<String> myTeamRoster() {
 		Set<String> mine = new HashSet<>();
 		if (pluginConfig != null && pluginConfig.pvpRoster != null && pluginConfig.team != null) {
-			for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
+			for (RosterEntry e : pluginConfig.pvpRoster) {
 				if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
 					mine.add(Rsn.normalize(e.name));
 				}
@@ -5290,7 +5295,7 @@ public class AnvilPlugin extends Plugin {
 			return false;
 		}
 		boolean any = false;
-		for (PluginConfigResponse.TrackedDeathless tile : pluginConfig.trackedDeathless) {
+		for (TrackedDeathless tile : pluginConfig.trackedDeathless) {
 			if (tile == null || tile.completed || tile.activity == null
 					|| tile.currentAmount >= Math.max(1, tile.requiredAmount)) {
 				continue;
@@ -5338,7 +5343,7 @@ public class AnvilPlugin extends Plugin {
 		return any;
 	}
 
-	private void creditDeathless(PluginConfigResponse.TrackedDeathless tile, int partySeen, int raidLevel,
+	private void creditDeathless(TrackedDeathless tile, int partySeen, int raidLevel,
 			CoopFingerprint coop) {
 		int goal = Math.max(1, tile.requiredAmount);
 		if (tile.completed || tile.currentAmount >= goal) {
@@ -5399,7 +5404,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private boolean submitTimedForMessage(String lowerMessage, int seconds, long now) {
 		boolean any = false;
-		for (PluginConfigResponse.TrackedTimed tile : pluginConfig.trackedTimed) {
+		for (TrackedTimed tile : pluginConfig.trackedTimed) {
 			if (tile.completed || tile.activity == null) {
 				continue;
 			}
@@ -5451,7 +5456,7 @@ public class AnvilPlugin extends Plugin {
 		return any;
 	}
 
-	private void creditTimed(PluginConfigResponse.TrackedTimed tile, int seconds, String[] trialTarget, int raidLevel) {
+	private void creditTimed(TrackedTimed tile, int seconds, String[] trialTarget, int raidLevel) {
 		if (tile.completed) {
 			return;
 		}
@@ -6173,8 +6178,8 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		PluginConfigResponse cfg = apiClient.seedFromDisk(cfgEntry, PluginConfigResponse.class);
-		BingoApiClient.BoardResponse board = cfg == null ? null
-				: apiClient.seedFromDisk(rc.load(ResponseDiskCache.BOARD), BingoApiClient.BoardResponse.class);
+		BoardResponse board = cfg == null ? null
+				: apiClient.seedFromDisk(rc.load(ResponseDiskCache.BOARD), BoardResponse.class);
 		if (cfg == null || liveConfigAnswered) {
 			return; // the site beat the disk to it
 		}
@@ -6205,7 +6210,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Last session's active board, for the panel while {@link #showingSavedConfig()}; else null. */
-	BingoApiClient.BoardResponse savedBoardForDisplay() {
+	BoardResponse savedBoardForDisplay() {
 		return showingSavedConfig() ? savedBoard : null;
 	}
 
@@ -6362,7 +6367,7 @@ public class AnvilPlugin extends Plugin {
 
 			executor.submit(() -> {
 				try {
-					BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
+					ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
 					rosterBackoff.onSuccess();
 					rosterPushAllowedAt = now() + ROSTER_PUSH_COOLDOWN_MS;
 					lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
@@ -6402,7 +6407,7 @@ public class AnvilPlugin extends Plugin {
 					if (!automatic && r.changes != null && !r.changes.isEmpty()) {
 						int cap = 12;
 						int shown = 0;
-						for (BingoApiClient.ClanChange ch : r.changes) {
+						for (ClanChange ch : r.changes) {
 							if (shown >= cap) {
 								break;
 							}
@@ -6451,11 +6456,11 @@ public class AnvilPlugin extends Plugin {
 						sendChatMessage(r.capNotice);
 					}
 					cb.onResult(true, lastSyncSummary);
-				} catch (BingoApiClient.AdminUnauthorizedException e) {
+				} catch (AdminUnauthorizedException e) {
 					// Token isn't (or is no longer) an admin — hide the button until the next login probe.
 					isAdmin = false;
 					syncFailed(cb, true, null, "Your account token isn't an admin (or was revoked).");
-				} catch (BingoApiClient.ClanMismatchException e) {
+				} catch (ClanMismatchException e) {
 					String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
 					syncFailed(cb, true, null, "Clan name doesn't match site config (" + server + ").");
 				} catch (RateLimitedException e) {
@@ -6699,7 +6704,7 @@ public class AnvilPlugin extends Plugin {
 		if (chosen.isEmpty() || fresh.clans == null || fresh.clans.isEmpty()) {
 			return;
 		}
-		for (PluginConfigResponse.ClanRef c : fresh.clans) {
+		for (ClanRef c : fresh.clans) {
 			if (c != null && chosen.equalsIgnoreCase(c.slug)) {
 				return;
 			}
@@ -6962,7 +6967,7 @@ public class AnvilPlugin extends Plugin {
 			log.warn("Failed to refresh Anvil config: {}", e.getMessage());
 			// A definite refusal (no clan, bad token) is an answer too: the saved copy goes. A site
 			// that is down or slow is not — keep showing it until one does answer.
-			int code = e instanceof BingoApiClient.HttpStatusException ? ((BingoApiClient.HttpStatusException) e).code : 0;
+			int code = e instanceof HttpStatusException ? ((HttpStatusException) e).code : 0;
 			if (code >= 400 && code < 500 && code != 408 && code != 429) {
 				liveConfigAnswered = true;
 				forgetSavedResponses();
@@ -7061,7 +7066,7 @@ public class AnvilPlugin extends Plugin {
 		isAdmin = admin;
 	}
 
-	private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {
+	private static boolean eventIsOver(EventInfo ev) {
 		if (ev == null) {
 			return false;
 		}
@@ -7097,7 +7102,29 @@ public class AnvilPlugin extends Plugin {
 		// The in-game KC-line boss names and the skill names to push real-time counts for.
 		trackedKcNames = names(has ? cfg.trackedKcNames : null, n -> n.isEmpty() ? null : normalizeBossName(n));
 		trackedSkillNames = names(has ? cfg.trackedSkillNames : null, n -> n.isEmpty() ? null : n.toLowerCase(Locale.ROOT).trim());
+		Map<String, List<TrackedStat>> stats = new HashMap<>();
+		Map<String, Integer> byName = new HashMap<>();
+		for (TrackedStat t : has && cfg.trackedStats != null ? cfg.trackedStats : Collections.<TrackedStat>emptyList()) {
+			if (t != null && t.statName != null) {
+				byName.putIfAbsent(t.statName.toLowerCase(Locale.ROOT).trim(), t.tileId);
+				// A composite tile listing one name twice is still bumped once.
+				for (String key : t.statType == null ? new String[0] : t.statName.split(",")) {
+					List<TrackedStat> l = stats.computeIfAbsent(statKey(t.statType, key), x -> new ArrayList<>());
+					if (!l.contains(t)) {
+						l.add(t);
+					}
+				}
+			}
+		}
+		statTileIndex = stats;
+		statTileByName = byName;
+		alwaysNotifyLower = names(has ? cfg.alwaysNotifyItems : null, n -> n.isEmpty() ? null : n.toLowerCase());
 		rebuildTrackedActivityKeys();
+	}
+
+	/** Skill tiles and boss/KC tiles keyed apart, each by {@link #compactStat}. */
+	private static String statKey(String kind, String name) {
+		return ("skill".equals(kind) ? "s:" : "b:") + compactStat(name);
 	}
 
 	/**
@@ -7166,21 +7193,11 @@ public class AnvilPlugin extends Plugin {
 			return false;
 		}
 		boolean finishes = false;
-		String want = compactStat(name);
-		for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
-			if (s == null || s.statName == null || s.statType == null
-					|| !("skill".equals(kind) ? "skill".equals(s.statType) : !"skill".equals(s.statType))) {
-				continue;
-			}
-			for (String key : s.statName.split(",")) {
-				if (compactStat(key).equals(want)) {
-					optimistic.add(s.tileId, s.currentAmount, delta, now());
-					finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
-							&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
-					repaintSidebarSoon();
-					break;
-				}
-			}
+		for (TrackedStat s : statTileIndex.getOrDefault(statKey(kind, name), Collections.emptyList())) {
+			optimistic.add(s.tileId, s.currentAmount, delta, now());
+			finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
+					&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
+			repaintSidebarSoon();
 		}
 		return finishes;
 	}
@@ -7226,13 +7243,9 @@ public class AnvilPlugin extends Plugin {
 		if (cfg == null || cfg.trackedStats == null || name == null) {
 			return;
 		}
-		String n = name.toLowerCase(Locale.ROOT).trim();
-		for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
-			if (s != null && s.statName != null
-					&& n.equals(s.statName.toLowerCase(Locale.ROOT).trim())) {
-				noteLocalProgress(s.tileId);
-				return;
-			}
+		Integer tileId = statTileByName.get(name.toLowerCase(Locale.ROOT).trim());
+		if (tileId != null) {
+			noteLocalProgress(tileId);
 		}
 	}
 
@@ -7342,7 +7355,7 @@ public class AnvilPlugin extends Plugin {
 	 * regardless of punctuation — e.g. "Tombs of Amascut: Expert Mode" ↔ "tombs of amascut expert mode".
 	 */
 	private static String normalizeBossName(String s) {
-		return s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+		return NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
 	}
 
 	/**
@@ -7868,7 +7881,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		try {
 			apiClient.submitMoments(batch);
-		} catch (BingoApiClient.PermanentSubmissionException e) {
+		} catch (PermanentSubmissionException e) {
 			// The site will never take this batch; drop it rather than resend it forever.
 			log.warn("Moment push refused — dropping {}: {}", batch.size(), e.getMessage());
 			moments.onSent(batch);
@@ -7913,8 +7926,8 @@ public class AnvilPlugin extends Plugin {
 		if (pluginConfig == null || pluginConfig.rollTables == null || items == null || items.isEmpty()) {
 			return;
 		}
-		PluginConfigResponse.RollTable table = null;
-		for (PluginConfigResponse.RollTable t : pluginConfig.rollTables) {
+		RollTable table = null;
+		for (RollTable t : pluginConfig.rollTables) {
 			if (t != null && t.boss != null && t.boss.equalsIgnoreCase(source)) {
 				table = t;
 				break;
@@ -7988,7 +8001,7 @@ public class AnvilPlugin extends Plugin {
 	private void rebuildPvpRosterIndex() {
 		Map<String, Integer> index = new HashMap<>();
 		if (pluginConfig != null && pluginConfig.pvpRoster != null) {
-			for (PluginConfigResponse.RosterEntry entry : pluginConfig.pvpRoster) {
+			for (RosterEntry entry : pluginConfig.pvpRoster) {
 				if (entry != null && entry.name != null && !entry.name.isEmpty()) {
 					index.put(Rsn.normalize(entry.name), entry.teamId);
 				}
@@ -8393,7 +8406,7 @@ public class AnvilPlugin extends Plugin {
 			List<RareItem> contents = new ArrayList<>();
 			for (ItemStack item : items) {
 				int itemId = item.getId();
-				if (isLootKeyItem(itemId)) {
+				if (isLootKey(itemName(itemId))) {
 					continue;
 				}
 				int qty = Math.max(1, item.getQuantity());
@@ -8425,7 +8438,8 @@ public class AnvilPlugin extends Plugin {
 
 		for (ItemStack item : items) {
 			int itemId = item.getId();
-			if (isLootKeyItem(itemId)) {
+			String iname = itemName(itemId);
+			if (isLootKey(iname)) {
 				continue;
 			}
 			int qty = Math.max(1, item.getQuantity());
@@ -8437,12 +8451,11 @@ public class AnvilPlugin extends Plugin {
 			// its own dedup suppresses this fire. Otherwise a second loot event for the same kill
 			// (NpcLootReceived + LootReceived) finds the allowlist already claimed, falls through,
 			// and posts a duplicate "Rare drop" for a high-value allowlist item (e.g. a Blood shard).
-			String iname = itemName(itemId);
 			// Match by item ID (server-resolved) first — reliable for untradeables like a ToA Cursed phalanx
 			// that have no value to gate on — then fall back to the name allowlist for back-compat.
 			if (notableItemIds.contains(itemId) || isAlwaysNotifyItem(iname)) {
 				if (claimAllowlistNotify(iname, now)) {
-					postSpecialDrop(source, sourceKind, itemId, qty, itemValue);
+					postSpecialDrop(source, sourceKind, itemId, iname, qty, itemValue);
 				}
 				continue;
 			}
@@ -8498,10 +8511,9 @@ public class AnvilPlugin extends Plugin {
 				return true;
 			}
 		}
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg != null && cfg.alwaysNotifyItems != null) {
-			for (String pattern : cfg.alwaysNotifyItems) {
-				if (pattern != null && !pattern.isEmpty() && n.contains(pattern.toLowerCase())) {
+		if (pluginConfig != null) {
+			for (String pattern : alwaysNotifyLower) {
+				if (n.contains(pattern)) {
 					return true;
 				}
 			}
@@ -8537,8 +8549,7 @@ public class AnvilPlugin extends Plugin {
 	 * Posts a notable collection-log unlock (a prestige item) when it lands via
 	 * a loot event.
 	 */
-	private void postSpecialDrop(String source, String sourceKind, int itemId, int qty, long value) {
-		String name = itemName(itemId);
+	private void postSpecialDrop(String source, String sourceKind, int itemId, String name, int qty, long value) {
 		// value can be 0 for untradeables — the post then shows no value.
 		postNotable(name, "loot", source, sourceKind, itemId, qty, value, killCountFor(source));
 	}
@@ -8749,11 +8760,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * True when the item is a loot key — its contents fire a separate
+	 * True when the item (by name) is a loot key — its contents fire a separate
 	 * LootReceived when opened.
 	 */
-	private boolean isLootKeyItem(int itemId) {
-		String name = itemName(itemId);
+	private static boolean isLootKey(String name) {
 		return name != null && name.toLowerCase().contains("loot key");
 	}
 
@@ -8878,7 +8888,7 @@ public class AnvilPlugin extends Plugin {
 	 * method rather than the field so every caller sees the same null-safety and the capability
 	 * gate lives in one place.
 	 */
-	private PluginConfigResponse.DropFacts dropFacts() {
+	private DropFacts dropFacts() {
 		PluginConfigResponse cfg = pluginConfig;
 		return cfg != null && cfg.serverSupports("drop-facts") ? cfg.dropFacts : null;
 	}
@@ -9201,7 +9211,7 @@ public class AnvilPlugin extends Plugin {
 			// Real rarity or none: asked of the same service the rare-drop posts price against.
 			f.put("itemId", pet.itemId).put("dropRate", pet.dropRate);
 			// A skilling pet has no monster; its skill is the only true thing to say about where from.
-			PluginConfigResponse.DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
+			DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
 			if (entry != null) {
 				f.put("skill", entry.skill);
 			}
@@ -9350,7 +9360,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		String areaLower = area.toLowerCase();
 		String tierLower = tier.toLowerCase();
-		for (PluginConfigResponse.TrackedDiary d : pluginConfig.trackedDiaries) {
+		for (TrackedDiary d : pluginConfig.trackedDiaries) {
 			if (d == null || d.diaries == null || d.currentAmount >= d.requiredAmount) {
 				continue;
 			}
@@ -9882,7 +9892,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** The resolution itself, free of plugin state so the inheritance can be tested directly. */
-	static boolean channelEnabled(PluginConfigResponse.NotifyChannels n, String channel) {
+	static boolean channelEnabled(NotifyChannels n, String channel) {
 		if (n == null) {
 			return false;
 		}
@@ -10282,6 +10292,31 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
+	 * The send contract the profile-sync pushes share: the result on success (backoff cleared), else
+	 * null after the matching handler ran — rate-limited (gets the wait in ms), refused for good
+	 * (drop the batch) or failed (backoff bumped, batch kept); the last two get the error message.
+	 */
+	private <T> T pushBatch(String what, SyncBackoff backoff, long now, Callable<T> send,
+			LongConsumer limited, Consumer<String> refused, Consumer<String> failed) {
+		try {
+			T result = send.call();
+			backoff.onSuccess();
+			return result;
+		} catch (RateLimitedException e) {
+			log.debug("{} rate-limited for {}ms", what, e.retryAfterMs);
+			limited.accept(e.retryAfterMs);
+		} catch (PermanentSubmissionException e) {
+			log.info("{} refused, dropping it: {}", what, e.getMessage());
+			refused.accept(e.getMessage());
+		} catch (Exception e) {
+			backoff.onFailure(now);
+			log.debug("{} push failed, retrying in {}s: {}", what, backoff.secondsUntilReady(now), e.getMessage());
+			failed.accept(e.getMessage());
+		}
+		return null;
+	}
+
+	/**
 	 * Send any collection-log pages that have changed. Runs on the shared executor's 30s tick --
 	 * no thread of our own, and nothing on the client thread.
 	 */
@@ -10294,27 +10329,16 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		List<ClogPage> batch = clogSync.nextBatch();
-		try {
+		// Rate-limited: background sync, nothing to tell the player, just wait as long as the site asked.
+		// Refused outright (a malformed page, a site that doesn't take these): dropping the batch is the
+		// only way out of an otherwise permanent 30-second retry loop.
+		if (pushBatch("Collection log pages", clogBackoff, now, () -> {
 			apiClient.submitClogPages(batch, clogSync.syncedPages());
-		} catch (RateLimitedException e) {
-			// Background sync: nothing to tell the player, just wait as long as the site asked.
-			clogPushAllowedAt = now() + Math.max(e.retryAfterMs, 1_000L);
-			log.debug("Collection log pages rate-limited for {}ms", e.retryAfterMs);
-			return;
-		} catch (PermanentSubmissionException e) {
-			// Refused outright (a malformed page, a site that doesn't take these): dropping the batch
-			// is the only way out of an otherwise permanent 30-second retry loop.
-			log.info("Collection log pages refused, dropping the batch: {}", e.getMessage());
-			clogSync.onSent(batch);
-			return;
-		} catch (Exception e) {
-			// Left queued: we retry after the backoff. A clan site being down must not lose a sync.
-			clogBackoff.onFailure(now);
-			log.debug("Collection log push failed, retrying in {}s: {}",
-					clogBackoff.secondsUntilReady(now), e.getMessage());
+			return batch;
+		}, ms -> clogPushAllowedAt = now() + Math.max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {
+		}) == null) {
 			return;
 		}
-		clogBackoff.onSuccess();
 		clogSync.onSent(batch);
 		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn),
 				clogSync.serializeState());
@@ -10355,44 +10379,33 @@ public class AnvilPlugin extends Plugin {
 			}
 			return;
 		}
-		BingoApiClient.ClogPushResult result;
-		try {
-			result = apiClient.submitClogItems(clogFullSync.snapshot());
-		} catch (RateLimitedException e) {
-			// It said when. Wait exactly that long instead of doubling blindly, and keep the batch.
-			clogPushAllowedAt = now + Math.max(e.retryAfterMs, 1_000L);
-			clogFullSync.onSendFailed(now);
-			manualSyncStartedAt = 0;
-			log.debug("Collection log push rate-limited for {}ms", e.retryAfterMs);
-			if (manual) {
-				sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
-						+ secs(e.retryAfterMs) + "s.");
-			}
-			return;
-		} catch (PermanentSubmissionException e) {
-			// The site said no and will keep saying no — most often because it predates whole-log
-			// pushes and wants pages instead. Retrying that forever is just noise on their server.
-			log.info("Whole-log push refused, dropping it: {}", e.getMessage());
-			manualSyncStartedAt = 0;
-			clogFullSync.onSent();
-			if (manual) {
-				sendChatMessage("Couldn't sync your profile: " + e.getMessage() + ".");
-			}
-			return;
-		} catch (Exception e) {
-			// Kept for the next attempt: a site that's down mustn't cost them the transmit.
-			clogFullBackoff.onFailure(now);
-			log.debug("Whole-log push failed, retrying in {}s: {}",
-					clogFullBackoff.secondsUntilReady(now), e.getMessage());
-			clogFullSync.onSendFailed(now);
-			manualSyncStartedAt = 0;
-			if (manual) {
-				sendChatMessage("Couldn't sync your profile: " + e.getMessage() + ". It'll retry on its own.");
-			}
+		// Rate-limited: it said when. Wait exactly that long instead of doubling blindly, and keep the
+		// batch. Refused: the site will keep saying no — most often because it predates whole-log pushes
+		// and wants pages instead — so retrying forever is just noise on their server. Failed: kept for
+		// the next attempt; a site that's down mustn't cost them the transmit.
+		ClogPushResult result = pushBatch("Whole-log", clogFullBackoff, now,
+				() -> apiClient.submitClogItems(clogFullSync.snapshot()), ms -> {
+					clogPushAllowedAt = now + Math.max(ms, 1_000L);
+					clogFullSync.onSendFailed(now);
+					if (manual) {
+						sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
+								+ secs(ms) + "s.");
+					}
+				}, m -> {
+					clogFullSync.onSent();
+					if (manual) {
+						sendChatMessage("Couldn't sync your profile: " + m + ".");
+					}
+				}, m -> {
+					clogFullSync.onSendFailed(now);
+					if (manual) {
+						sendChatMessage("Couldn't sync your profile: " + m + ". It'll retry on its own.");
+					}
+				});
+		manualSyncStartedAt = 0; // landed or given up on — nothing for the watchdog to complain about
+		if (result == null) {
 			return;
 		}
-		clogFullBackoff.onSuccess();
-		manualSyncStartedAt = 0; // it landed — nothing for the watchdog to complain about
 		clogPushAllowedAt = now + SERVER_CLOG_COOLDOWN_MS;
 		lastClogFingerprint = fingerprint;
 		if (profileSyncRsn != null) {
@@ -10426,24 +10439,14 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		Map<String, Integer> batch = personalBests.nextBatch();
-		try {
+		// Bests ride the same limiter; a rate-limited batch stays dirty and goes up when it clears.
+		if (pushBatch("Personal bests", pbBackoff, now, () -> {
 			apiClient.submitPersonalBests(batch);
-		} catch (RateLimitedException e) {
-			// Bests ride the same limiter; the batch stays dirty and goes up when it clears.
-			pbBackoff.onFailure(now());
-			log.debug("Personal bests rate-limited for {}ms", e.retryAfterMs);
-			return;
-		} catch (PermanentSubmissionException e) {
-			log.info("Personal bests refused, dropping the batch: {}", e.getMessage());
-			personalBests.onSent(batch);
-			return;
-		} catch (Exception e) {
-			pbBackoff.onFailure(now);
-			log.debug("Personal best push failed, retrying in {}s: {}",
-					pbBackoff.secondsUntilReady(now), e.getMessage());
+			return batch;
+		}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {
+		}) == null) {
 			return;
 		}
-		pbBackoff.onSuccess();
 		personalBests.onSent(batch);
 		cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn),
 				personalBests.serializeState());
