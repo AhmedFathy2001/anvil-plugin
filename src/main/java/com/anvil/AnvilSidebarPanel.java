@@ -166,6 +166,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private PlayerCard youCardViewOf;
 	/** Your goals as last fetched (null until the first fetch lands), and the last thing the site refused. */
 	private java.util.List<BingoApiClient.PlayerGoal> youGoals;
+	/** A goals fetch was already made for this character: a redraw doesn't ask again (only opening the tab does). */
+	private boolean goalsAsked;
 	private String goalsError;
 	private String youCardRsn;
 
@@ -758,7 +760,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				youPanel.add(gap(6));
 				youPanel.add(GoalsView.render(youGoals, youCard, this::addGoal, this::removeGoal, goalsError));
-				if (refetch || youGoals == null)
+				if (refetch || (youGoals == null && !goalsAsked))
 				{
 					fetchGoals();
 				}
@@ -970,6 +972,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void fetchGoals()
 	{
+		goalsAsked = true;
 		async(dataSource::fetchGoals, r -> applyGoals(r, false));
 	}
 
@@ -993,7 +996,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		if (result == null)
 		{
-			goalsError = userAction ? "Couldn't reach Anvil — try again in a moment." : goalsError;
+			goalsError = "Couldn't reach Anvil — try again in a moment.";
 		}
 		else
 		{
@@ -1015,6 +1018,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			youGoals = null; // another character: their goals, not the last one's
 			goalsError = null;
+			goalsAsked = false;
 		}
 		int seq = ++youSeq;
 		async(() -> dataSource.fetchPlayerCard(me), result ->

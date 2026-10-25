@@ -225,7 +225,7 @@ public class BannerSoundService
 		}
 		try
 		{
-			audioExecutor.execute(() -> relistNow(kind));
+			executor().execute(() -> relistNow(kind));
 		}
 		catch (RejectedExecutionException e)
 		{
@@ -420,7 +420,7 @@ public class BannerSoundService
 			// The picker needs the EDT; the copies don't, and a big .wav is a long copy.
 			try
 			{
-				audioExecutor.execute(() -> copyIn(kind, dir, chosen, onImported));
+				executor().execute(() -> copyIn(kind, dir, chosen, onImported));
 			}
 			catch (RejectedExecutionException e)
 			{
