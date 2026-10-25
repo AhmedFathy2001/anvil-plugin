@@ -1,13 +1,7 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.BiConsumer;
-import java.util.function.Function;
+import java.util.*;
+import java.util.function.*;
 
 /**
  * Decides what of the collection log is worth sending, and when.

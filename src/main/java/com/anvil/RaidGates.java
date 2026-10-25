@@ -1,8 +1,6 @@
 package com.anvil;
 
-import java.util.Collection;
-import java.util.Locale;
-import java.util.Set;
+import java.util.*;
 
 /**
  * The raid-run gates a timed or deathless tile can add on top of "the raid was completed": the ToA

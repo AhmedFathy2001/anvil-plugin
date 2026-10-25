@@ -1,18 +1,11 @@
 package com.anvil;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.GridLayout;
-import java.util.ArrayList;
-import java.util.HashMap;
+import lombok.RequiredArgsConstructor;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.function.LongFunction;
-import javax.swing.ImageIcon;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.SwingConstants;
+import javax.swing.*;
 import net.runelite.api.Skill;
 import net.runelite.client.ui.ColorScheme;
 
@@ -157,18 +150,13 @@ final class CompareView
 
 	// ---- Diffs (package-private for tests) ---------------------------------------------------------
 
+	@RequiredArgsConstructor
 	static final class SkillDiff
 	{
 		final Skill skill;
 		final int mine;
 		final int theirs;
 
-		SkillDiff(Skill skill, int mine, int theirs)
-		{
-			this.skill = skill;
-			this.mine = mine;
-			this.theirs = theirs;
-		}
 	}
 
 	/** Every skill either of you has, biggest level gap first. */

@@ -1,9 +1,8 @@
 package com.anvil;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import lombok.RequiredArgsConstructor;
+import java.net.*;
+import java.util.concurrent.*;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.LinkBrowser;
@@ -21,6 +20,7 @@ import net.runelite.client.util.LinkBrowser;
  * federation broker pin, anchored to user intent instead of a hardcoded host, which is what lets
  * this work for hosted, self-hosted, and fully-standalone sites alike.</p>
  */
+@RequiredArgsConstructor
 @Slf4j
 public final class DeviceSignIn
 {
@@ -37,16 +37,12 @@ public final class DeviceSignIn
 	}
 
 	/** Result: outcome + the account token when {@link Outcome#SIGNED_IN}. */
+	@RequiredArgsConstructor
 	public static final class Result
 	{
 		public final Outcome outcome;
 		public final String token;
 
-		Result(Outcome outcome, String token)
-		{
-			this.outcome = outcome;
-			this.token = token;
-		}
 	}
 
 	private final BingoApiClient apiClient;
@@ -63,13 +59,6 @@ public final class DeviceSignIn
 	}
 
 	/** Test seam — injectable browser opener + scheduler so the flow runs offline and fast. */
-	DeviceSignIn(BingoApiClient apiClient, BrowserOpener browserOpener,
-		PollScheduler scheduler)
-	{
-		this.apiClient = apiClient;
-		this.browserOpener = browserOpener;
-		this.scheduler = scheduler;
-	}
 
 	/**
 	 * Ask the desktop to open the sign-in page.

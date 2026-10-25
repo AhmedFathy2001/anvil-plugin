@@ -1,7 +1,6 @@
 package com.anvil;
 
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Predicate;
 import net.runelite.api.gameval.ItemID;
 

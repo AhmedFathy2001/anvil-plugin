@@ -1,16 +1,10 @@
 package com.anvil;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 import java.util.function.Consumer;
-import javax.swing.BorderFactory;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
+import javax.swing.*;
 import net.runelite.client.ui.ColorScheme;
 
 import static com.anvil.Ui.*;

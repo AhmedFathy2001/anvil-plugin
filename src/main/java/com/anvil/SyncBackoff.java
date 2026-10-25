@@ -1,5 +1,7 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
+
 /**
  * How long to wait before trying a failed push again.
  *
@@ -11,6 +13,7 @@ package com.anvil;
  * <p>This covers the first: doubling waits from 30s to a 10-minute ceiling, reset by any success.
  * The second is the caller's job — a permanent failure drops the batch instead of backing off.
  */
+@RequiredArgsConstructor
 final class SyncBackoff
 {
 	static final long FIRST_MS = 30_000L;
@@ -26,11 +29,6 @@ final class SyncBackoff
 		this(FIRST_MS, MAX_MS);
 	}
 
-	SyncBackoff(long firstMs, long maxMs)
-	{
-		this.firstMs = firstMs;
-		this.maxMs = maxMs;
-	}
 
 	/** Is a push allowed right now? True until something fails. */
 	boolean ready(long now)

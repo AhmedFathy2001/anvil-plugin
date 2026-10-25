@@ -1,17 +1,10 @@
 package com.anvil;
 
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
+import java.awt.event.*;
+import java.util.*;
+import java.util.function.*;
 import javax.swing.SwingUtilities;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.JTextComponent;
+import javax.swing.text.*;
 
 /**
  * Type-ahead for the Lookup box, the way RuneLite's hiscores panel does it: as you type, the rest of

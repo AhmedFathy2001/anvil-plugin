@@ -1,5 +1,7 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
+
 /**
  * The Guice key the always-on progress sidebar ({@link AnvilSidebarPanel}) is wired through, bound to
  * {@link AnvilSidebarDataSource} — a view over the config the plugin already polls, and the only
@@ -14,6 +16,7 @@ public interface SidebarDataSource
 	// mine", and to claim back a character that's linked to somebody else.
 
 	/** One line about the logged-in character. */
+	@RequiredArgsConstructor
 	final class AccountRow
 	{
 		public enum State
@@ -36,11 +39,6 @@ public interface SidebarDataSource
 		public final String rsn;
 		public final State state;
 
-		public AccountRow(String rsn, State state)
-		{
-			this.rsn = rsn;
-			this.state = state;
-		}
 	}
 
 	/**

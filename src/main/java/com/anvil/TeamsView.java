@@ -1,24 +1,11 @@
 package com.anvil;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.Graphics;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.Executor;
-import java.util.function.Consumer;
-import java.util.function.IntSupplier;
-import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
+import java.util.function.*;
+import javax.swing.*;
 import javax.swing.Timer;
 import net.runelite.client.ui.ColorScheme;
 

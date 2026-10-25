@@ -1,14 +1,9 @@
 package com.anvil;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Dimension;
+import java.awt.*;
 import java.util.Locale;
 import java.util.function.Consumer;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
+import javax.swing.*;
 import net.runelite.client.ui.ColorScheme;
 
 import static com.anvil.PlayerCardView.header;

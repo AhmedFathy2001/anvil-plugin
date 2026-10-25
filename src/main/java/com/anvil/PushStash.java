@@ -1,15 +1,10 @@
 package com.anvil;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
+import lombok.RequiredArgsConstructor;
+import com.google.gson.*;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.*;
+import java.util.stream.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
 
@@ -24,6 +19,7 @@ import net.runelite.client.util.Filepath;
  * than {@link #MAX_AGE_MS} is ignored — the hiscores have caught up by then, and a day-old moment is
  * old news. All methods block on disk: executor only.
  */
+@RequiredArgsConstructor
 @Slf4j
 final class PushStash
 {
@@ -93,10 +89,6 @@ final class PushStash
 	private final Gson gson;
 	private volatile Filepath dir;
 
-	PushStash(Gson gson)
-	{
-		this.gson = gson;
-	}
 
 	void setDir(Filepath dir)
 	{

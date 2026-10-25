@@ -1,5 +1,7 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
+
 /**
  * The client-side half of the STARTING SHOT rule (site lib/startProof).
  *
@@ -108,6 +110,7 @@ final class StartProofRules
 	static final int AUTO_STILL_TICKS = 3;
 
 	/** One live requirement on the starting-shot card: met, not met, or not knowable yet. */
+	@RequiredArgsConstructor
 	static final class Check
 	{
 		enum State
@@ -118,11 +121,6 @@ final class StartProofRules
 		final State state;
 		final String text;
 
-		Check(State state, String text)
-		{
-			this.state = state;
-			this.text = text;
-		}
 	}
 
 	/**

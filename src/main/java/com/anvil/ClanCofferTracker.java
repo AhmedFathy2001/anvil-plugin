@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.Locale;
 
 /**
@@ -13,6 +14,7 @@ final class ClanCofferTracker
 {
 	private static final long ACTOR_WINDOW_MS = 15_000L;
 
+	@RequiredArgsConstructor
 	enum Kind
 	{
 		SNAPSHOT("snapshot"),
@@ -21,12 +23,9 @@ final class ClanCofferTracker
 
 		final String wire;
 
-		Kind(String wire)
-		{
-			this.wire = wire;
-		}
 	}
 
+	@RequiredArgsConstructor
 	static final class Observation
 	{
 		final Kind kind;
@@ -34,13 +33,6 @@ final class ClanCofferTracker
 		final int afterBalance;
 		final boolean actorConfirmed;
 
-		Observation(Kind kind, int beforeBalance, int afterBalance, boolean actorConfirmed)
-		{
-			this.kind = kind;
-			this.beforeBalance = beforeBalance;
-			this.afterBalance = afterBalance;
-			this.actorConfirmed = actorConfirmed;
-		}
 	}
 
 	private Integer lastBalance;

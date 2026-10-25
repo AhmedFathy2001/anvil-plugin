@@ -1,19 +1,12 @@
 package com.anvil;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
+import lombok.RequiredArgsConstructor;
+import com.google.gson.*;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.stream.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
 
@@ -36,6 +29,7 @@ import net.runelite.client.util.Filepath;
  * Sends run on the OkHttp pool, never the client thread; disk writes on the thread that enqueued
  * (an OkHttp callback) or that pool.
  */
+@RequiredArgsConstructor
 @Slf4j
 final class NotifyOutbox
 {
@@ -85,12 +79,6 @@ final class NotifyOutbox
 	private ScheduledFuture<?> task;
 	private boolean pumping;
 
-	NotifyOutbox(Gson gson, Supplier<ScheduledExecutorService> scheduler, Supplier<ExecutorService> sendPool)
-	{
-		this.gson = gson;
-		this.scheduler = scheduler;
-		this.sendPool = sendPool;
-	}
 
 	void setDir(Filepath dir)
 	{

@@ -1,8 +1,6 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * One entry in the always-on sidebar's live team feed — the plugin-side mirror of the Site's

@@ -1,54 +1,20 @@
 package com.anvil;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Cursor;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dimension;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.GridLayout;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import lombok.RequiredArgsConstructor;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.swing.BorderFactory;
-import javax.swing.DefaultComboBoxModel;
-import javax.swing.JButton;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPopupMenu;
-import javax.swing.JList;
-import javax.swing.ListCellRenderer;
-import javax.swing.JPanel;
-import javax.swing.JProgressBar;
-import javax.swing.JTextField;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
+import javax.inject.*;
+import javax.swing.*;
 import javax.swing.Timer;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import javax.swing.plaf.basic.BasicArrowButton;
-import javax.swing.plaf.basic.BasicComboBoxUI;
+import java.awt.event.*;
+import javax.swing.plaf.basic.*;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
-import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.*;
 import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.ui.components.PluginErrorPanel;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.SpriteManager;
-import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.*;
 
 import static com.anvil.Ui.*;
 
@@ -3610,30 +3576,21 @@ public class AnvilSidebarPanel extends PluginPanel
 		return cd == null ? "" : "now".equals(cd) ? "Expired" : "Expires in " + cd;
 	}
 
+	@RequiredArgsConstructor
 	private static final class LadderExpiryLabel
 	{
 		final JLabel label;
 		final String expiresAtIso;
 
-		LadderExpiryLabel(JLabel label, String expiresAtIso)
-		{
-			this.label = label;
-			this.expiresAtIso = expiresAtIso;
-		}
 	}
 
+	@RequiredArgsConstructor
 	private static final class LadderValueLabel
 	{
 		final JLabel label;
 		final int face;
 		final String revealedAtIso;
 
-		LadderValueLabel(JLabel label, int face, String revealedAtIso)
-		{
-			this.label = label;
-			this.face = face;
-			this.revealedAtIso = revealedAtIso;
-		}
 	}
 
 	/** A clickable "View standings" link opening the board's site page in the system browser. */
@@ -3725,6 +3682,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	// ---- Full tile catalogue ---------------------------------------------------------------------
 
+	@RequiredArgsConstructor
 	enum TileStatusFilter
 	{
 		// CLOSEST is "Not done" sorted nearest-finished first — a sort, but one more choice in the same
@@ -3734,10 +3692,6 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		private final String label;
 
-		TileStatusFilter(String label)
-		{
-			this.label = label;
-		}
 
 		@Override
 		public String toString()

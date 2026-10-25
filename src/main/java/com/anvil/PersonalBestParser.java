@@ -1,7 +1,6 @@
 package com.anvil;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 
 /**
  * Pulls a personal best out of a completion message.

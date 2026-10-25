@@ -1,30 +1,18 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.audio.AudioPlayer;
 import net.runelite.client.util.Filepath;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import javax.swing.SwingUtilities;
 import java.io.IOException;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.stream.*;
 
 /**
  * Plays a clip when the bingo banner fires, and another when a mission drops. No clips ship with the
@@ -82,6 +70,7 @@ public class BannerSoundService
 	 * it without asking anything: drop a .wav in {@code mission/} and missions play it, leave it
 	 * empty and they keep the built-in chime.</p>
 	 */
+	@RequiredArgsConstructor
 	public enum Kind
 	{
 		BANNER("banner"),
@@ -89,10 +78,6 @@ public class BannerSoundService
 
 		private final String folder;
 
-		Kind(String folder)
-		{
-			this.folder = folder;
-		}
 	}
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */

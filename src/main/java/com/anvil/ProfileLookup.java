@@ -4,20 +4,14 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.function.Predicate;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import net.runelite.api.Client;
-import net.runelite.api.MenuAction;
-import net.runelite.api.Player;
-import net.runelite.api.events.MenuEntryAdded;
-import net.runelite.api.events.MenuOptionClicked;
+import javax.inject.*;
+import net.runelite.api.*;
+import net.runelite.api.events.*;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.WidgetUtil;
-import net.runelite.client.eventbus.EventBus;
-import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.eventbus.*;
 import net.runelite.client.menus.MenuManager;
-import net.runelite.client.util.LinkBrowser;
-import net.runelite.client.util.Text;
+import net.runelite.client.util.*;
 
 /**
  * "Anvil" on a player's right-click menu: opens their character page, {@code /p/<rsn>}.

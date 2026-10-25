@@ -1,10 +1,6 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Immutable UI view-model for the addressed clan in the sidebar ({@link AnvilSidebarPanel}), folding

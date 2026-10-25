@@ -1,7 +1,7 @@
 package com.anvil;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
+import lombok.RequiredArgsConstructor;
+import com.google.gson.*;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,6 +21,7 @@ import net.runelite.client.util.Filepath;
  * fingerprint is a truncated SHA-256 of the Account Token: the token itself never touches disk. Not
  * at the plugin directory's root, where PendingSubmissionStore reads every JSON file as a proof.
  */
+@RequiredArgsConstructor
 @Slf4j
 final class ResponseDiskCache
 {
@@ -48,10 +49,6 @@ final class ResponseDiskCache
 	/** kind → etag (or body hash) last written, so an unchanged 30s poll doesn't rewrite the file. */
 	private final Map<String, String> written = new ConcurrentHashMap<>();
 
-	ResponseDiskCache(Gson gson)
-	{
-		this.gson = gson;
-	}
 
 	void setDir(Filepath dir)
 	{

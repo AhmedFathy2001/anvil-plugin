@@ -2,14 +2,9 @@ package com.anvil;
 
 import java.util.function.BooleanSupplier;
 
-import net.runelite.api.Client;
-import net.runelite.api.FontID;
+import net.runelite.api.*;
 import net.runelite.api.gameval.SpriteID;
-import net.runelite.api.widgets.JavaScriptCallback;
-import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetPositionMode;
-import net.runelite.api.widgets.WidgetTextAlignment;
-import net.runelite.api.widgets.WidgetType;
+import net.runelite.api.widgets.*;
 
 /**
  * An "Anvil" button in a game interface's title bar — the collection log's, beside WikiSync and

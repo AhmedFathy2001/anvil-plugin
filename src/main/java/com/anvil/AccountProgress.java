@@ -1,13 +1,9 @@
 package com.anvil;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import net.runelite.api.Client;
-import net.runelite.api.Quest;
-import net.runelite.api.QuestState;
-import net.runelite.api.gameval.VarPlayerID;
-import net.runelite.api.gameval.VarbitID;
+import lombok.RequiredArgsConstructor;
+import java.util.*;
+import net.runelite.api.*;
+import net.runelite.api.gameval.*;
 
 /**
  * Quest points, combat-achievement points and tier, and achievement diaries — the account progress
@@ -201,18 +197,13 @@ final class AccountProgress
 	}
 
 	/** One quest, as the site lists it: the game's own id and name, and which of the three states. */
+	@RequiredArgsConstructor
 	static final class Item
 	{
 		final int id;
 		final String name;
 		final int state;
 
-		Item(int id, String name, int state)
-		{
-			this.id = id;
-			this.name = name;
-			this.state = state;
-		}
 	}
 
 	/**

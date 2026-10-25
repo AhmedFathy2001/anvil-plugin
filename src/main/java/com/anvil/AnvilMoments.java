@@ -1,9 +1,6 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * The queue behind the clan's highlight feed: pets, uniques, big hauls and deaths, held until the

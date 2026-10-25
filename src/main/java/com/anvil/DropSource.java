@@ -1,9 +1,6 @@
 package com.anvil;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * The reader for the server's {@code dropFacts}: which monster a pet is really from, and

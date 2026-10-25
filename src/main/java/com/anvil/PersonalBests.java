@@ -1,10 +1,6 @@
 package com.anvil;
 
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * The account's best times, kept locally and pushed to the clan site.

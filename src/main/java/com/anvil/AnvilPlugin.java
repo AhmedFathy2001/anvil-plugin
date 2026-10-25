@@ -1,131 +1,47 @@
 package com.anvil;
 
-import com.anvil.BingoApiClient.CoopFingerprint;
-import com.anvil.BingoApiClient.PermanentSubmissionException;
-import com.anvil.BingoApiClient.RateLimitedException;
+import lombok.RequiredArgsConstructor;
+import com.anvil.BingoApiClient.*;
 import com.anvil.PendingSubmissionStore.PendingSubmission;
-import com.anvil.PluginConfigResponse.Claim;
-import com.anvil.PluginConfigResponse.CompletedTile;
-import com.anvil.PluginConfigResponse.Mission;
-import com.anvil.PluginConfigResponse.StartProof;
-import com.anvil.PluginConfigResponse.TrackedCombatTask;
-import com.anvil.PluginConfigResponse.TrackedDrop;
-import com.anvil.PluginConfigResponse.TrackedGain;
-import com.anvil.PluginConfigResponse.TrackedKill;
-import com.anvil.PluginConfigResponse.TrackedPvp;
+import com.anvil.PluginConfigResponse.*;
 import com.anvil.SidebarDataSource.AccountRow;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
+import com.google.gson.*;
 import com.google.inject.Provides;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Actor;
-import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.Hitsplat;
-import net.runelite.api.Item;
-import net.runelite.api.ItemComposition;
-import net.runelite.api.ItemContainer;
-import net.runelite.api.MenuAction;
-import net.runelite.api.NPC;
-import net.runelite.api.Player;
-import net.runelite.api.ScriptID;
-import net.runelite.api.Skill;
-import net.runelite.api.SoundEffectID;
-import net.runelite.api.WorldType;
-import net.runelite.api.WorldView;
-import net.runelite.api.clan.ClanChannel;
-import net.runelite.api.clan.ClanRank;
-import net.runelite.api.clan.ClanSettings;
-import net.runelite.api.clan.ClanTitle;
+import net.runelite.api.*;
+import net.runelite.api.clan.*;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.events.ActorDeath;
-import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.ClanChannelChanged;
-import net.runelite.api.events.GameStateChanged;
-import net.runelite.api.events.GameTick;
-import net.runelite.api.events.PlayerSpawned;
-import net.runelite.api.events.HitsplatApplied;
-import net.runelite.api.events.InteractingChanged;
-import net.runelite.api.events.ItemContainerChanged;
-import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.ScriptPostFired;
-import net.runelite.api.events.ScriptPreFired;
-import net.runelite.api.events.StatChanged;
-import net.runelite.api.events.VarbitChanged;
-import net.runelite.api.events.WidgetClosed;
-import net.runelite.api.events.WidgetLoaded;
-import net.runelite.api.events.WorldChanged;
-import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.events.*;
+import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.ItemID;
-import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.events.ClientShutdown;
-import net.runelite.client.events.ConfigChanged;
-import net.runelite.client.events.NpcLootReceived;
-import net.runelite.client.events.PlayerLootReceived;
-import net.runelite.client.events.ServerNpcLoot;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.ItemStack;
-import net.runelite.client.plugins.Plugin;
-import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.events.*;
+import net.runelite.client.game.*;
+import net.runelite.client.plugins.*;
 import net.runelite.client.plugins.loottracker.LootReceived;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.DrawManager;
-import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.Filepath;
-import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.*;
 
 import javax.imageio.ImageIO;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import javax.swing.SwingUtilities;
 
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.ObjIntConsumer;
-import java.util.function.ToIntFunction;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.*;
+import java.util.regex.*;
 
 @Slf4j
 @PluginDescriptor(
@@ -659,15 +575,12 @@ public class AnvilPlugin extends Plugin {
 	private int lastCaPoints = -1;
 	private boolean caPointsInitialized;
 
+	@RequiredArgsConstructor
 	private static final class PendingCaTask {
 
 		final CombatAchievementTier tier;
 		final String task;
 
-		PendingCaTask(CombatAchievementTier tier, String task) {
-			this.tier = tier;
-			this.task = task;
-		}
 	}
 	// Last-known total level, baselined at login so we only announce genuine crossings (not the
 	// total we logged in with). Total only ever rises on a skill level-up, so we check it there.
@@ -710,6 +623,7 @@ public class AnvilPlugin extends Plugin {
 	 * is one screenshot + one submission. Keeps the count + snapshots up-to-date, so when the flush
 	 * fires it has the latest totals.
 	 */
+	@RequiredArgsConstructor
 	private static final class Aggregate<T> {
 
 		final T tile;
@@ -730,9 +644,6 @@ public class AnvilPlugin extends Plugin {
 		// runs the party has scattered and the scene says nothing.
 		CoopFingerprint coop;
 
-		Aggregate(T tile) {
-			this.tile = tile;
-		}
 	}
 
 	// Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
@@ -1069,15 +980,12 @@ public class AnvilPlugin extends Plugin {
 	// count first). We buffer recent lines + a pending duration so either order resolves.
 	private static final long TIMED_CORRELATION_MS = 8_000;
 
+	@RequiredArgsConstructor
 	private static class TimedMsg {
 
 		final String lower;
 		final long ts;
 
-		TimedMsg(String lower, long ts) {
-			this.lower = lower;
-			this.ts = ts;
-		}
 	}
 	private final ArrayDeque<TimedMsg> recentTimedMessages = new ArrayDeque<>();
 	private Integer pendingTimedSeconds = null;
@@ -9027,6 +8935,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * A standout item collected for a combined rare-drop post.
 	 */
+	@RequiredArgsConstructor
 	private static final class RareItem {
 
 		final int itemId;
@@ -9034,12 +8943,6 @@ public class AnvilPlugin extends Plugin {
 		final long value;
 		final Double dropRate;
 
-		RareItem(int itemId, int qty, long value, Double dropRate) {
-			this.itemId = itemId;
-			this.qty = qty;
-			this.value = value;
-			this.dropRate = dropRate;
-		}
 	}
 
 	/**

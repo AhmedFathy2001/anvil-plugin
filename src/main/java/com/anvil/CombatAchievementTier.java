@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.Locale;
 import net.runelite.api.gameval.VarbitID;
 
@@ -9,6 +10,7 @@ import net.runelite.api.gameval.VarbitID;
  * individual task completions (chat message gives the tier name) and tier unlocks (a task pushing
  * total points across a threshold).
  */
+@RequiredArgsConstructor
 public enum CombatAchievementTier
 {
 	EASY(VarbitID.CA_THRESHOLD_EASY),
@@ -20,10 +22,6 @@ public enum CombatAchievementTier
 
 	private final int thresholdVarbitId;
 
-	CombatAchievementTier(int thresholdVarbitId)
-	{
-		this.thresholdVarbitId = thresholdVarbitId;
-	}
 
 	/** "Easy" … "Grandmaster". */
 	public String getDisplayName()

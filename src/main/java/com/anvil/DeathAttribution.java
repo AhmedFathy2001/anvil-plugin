@@ -1,8 +1,6 @@
 package com.anvil;
 
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * What killed us — as opposed to what we were killing.
