@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.regex.Matcher;
+import java.util.regex.*;
 
 /**
  * Pure, side-effect-free parsing for timed-clear tiles. Kept out of the plugin so the fragile,
@@ -36,6 +36,9 @@ import java.util.regex.Matcher;
 final class TimedClearParser
 {
 	private TimedClearParser() {}
+
+	private static final Pattern SPACES = Pattern.compile("\\s+");
+	private static final Pattern TRAILING_NON_LETTERS = Pattern.compile("[^a-z]+$");
 
 	// A duration keyword followed (within a few non-digits) by an [h:]mm:ss token. Fractional
 	// ".ff" tails are intentionally left out of the capture group. Minutes go to three digits:
@@ -184,7 +187,7 @@ final class TimedClearParser
 		{
 			return "";
 		}
-		return s.toLowerCase(Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
+		return SPACES.matcher(s.toLowerCase(Locale.ROOT).replace(':', ' ')).replaceAll(" ").trim();
 	}
 
 	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
@@ -219,9 +222,10 @@ final class TimedClearParser
 			return false;
 		}
 		String nmsg = norm(message);
+		// Every signature is already in norm() form: the table is written that way, the fallback is norm()ed.
 		for (String sig : signaturesFor(activity))
 		{
-			if (nmsg.contains(norm(sig)))
+			if (nmsg.contains(sig))
 			{
 				return true;
 			}
@@ -287,7 +291,7 @@ final class TimedClearParser
 		{
 			if (a.endsWith(" " + r))
 			{
-				String course = a.substring(0, a.length() - r.length()).replaceAll("[^a-z]+$", "");
+				String course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
 				for (String c : TRIAL_COURSES)
 				{
 					if (course.equals(c) || course.endsWith(c))

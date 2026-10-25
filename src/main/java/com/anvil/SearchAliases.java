@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Boss nicknames both ways, so a search finds a thing by whichever name the player knows it by:
@@ -26,6 +27,8 @@ final class SearchAliases
 		{"ba", "barbarian assault"}, {"lms", "last man standing"}, {"pc", "pest control"}, {"ca", "combat achievement"},
 	};
 
+	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
+
 	private SearchAliases()
 	{
 	}
@@ -37,7 +40,7 @@ final class SearchAliases
 		{
 			return "";
 		}
-		String words = " " + text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim() + " ";
+		String words = " " + NON_ALNUM.matcher(text.toLowerCase(Locale.ROOT)).replaceAll(" ").trim() + " ";
 		StringBuilder out = new StringBuilder(text);
 		for (String[] p : PAIRS)
 		{
