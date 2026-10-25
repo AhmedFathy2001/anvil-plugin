@@ -204,6 +204,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final Color LADDER_FLASH_COLOR = ColorScheme.BRAND_ORANGE;
 	/** Ticks the live countdown + per-mission grow/decay value once a second, with NO refetch. */
 	private final Timer ladderTick = new Timer(1000, e -> tickLadder());
+	/** Re-checks the starting-shot card's requirements on {@link #ladderTick}; null with no card up. */
+	private Runnable startProofTick;
 	/** The currently-rendered ladder card's data (countdown target, decay, missions), or null. */
 	private ConnectionView.Ladder ladderState;
 	/** Held label refs for the rendered ladder card so the tick updates them in place. */
@@ -2193,12 +2195,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		List<EventEntry> out = new ArrayList<>();
 		boolean hasBoard = (c.eventName != null && !c.eventName.isEmpty()) || c.tilesTotal > 0;
-		String boardTitle = null;
 		if (hasBoard)
 		{
 			// Your own board leads — it's the one with progress on it.
 			String title = c.eventName == null || c.eventName.isEmpty() ? c.clanName : c.eventName;
-			boardTitle = title;
 			out.add(new EventEntry(BOARD_EVENT_KEY, title,
 				c.ladder != null && c.ladder.ladderFormat ? "Ladder" : "Bingo", null, null));
 		}
@@ -2206,20 +2206,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			out.add(new EventEntry("weekly:" + w.id, w.title, w.kindLabel(), w, null));
 		}
+		// The board above isn't among these: the data source leaves it out by its id.
 		for (ConnectionView.ScheduledView s : c.scheduled)
 		{
-			// NOT THE BOARD ABOVE, AGAIN. The live board is keyed by a constant and a scheduled entry
-			// by its event id, so nothing stopped the same event appearing twice — once as your board
-			// with its progress on it, and once from the schedule underneath saying "Running — you're
-			// not in it", which is the same event contradicting itself two rows apart.
-			//
-			// Matched on the title because that is what this view carries; within one clan's own
-			// schedule two live boards sharing a name would be the ambiguity, and that is a naming
-			// problem rather than one worth a wider fix here.
-			if (hasBoard && s.title != null && s.title.equals(boardTitle))
-			{
-				continue;
-			}
 			out.add(new EventEntry("event:" + s.id, s.title, s.kindLabel(), null, s));
 		}
 		return out;
@@ -2834,50 +2823,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** "{prefix}2d 4h" until {@code iso}; {@code passed} once it's behind us; null when unparseable. */
 	private static String gapLabel(String prefix, String iso, String passed)
 	{
-		long at = epochMillis(iso);
+		long at = utcMillis(iso);
 		if (at < 0)
 		{
 			return null;
 		}
 		long left = at - System.currentTimeMillis();
-		if (left <= 0)
-		{
-			return passed;
-		}
-		long mins = left / 60_000;
-		if (mins < 60)
-		{
-			return prefix + Math.max(1, mins) + "m";
-		}
-		long hours = mins / 60;
-		if (hours < 24)
-		{
-			return prefix + hours + "h " + (mins % 60) + "m";
-		}
-		return prefix + (hours / 24) + "d " + (hours % 24) + "h";
-	}
-
-	/** ISO date ("2026-06-21") or UTC datetime → epoch millis, or -1 when unparseable. */
-	private static long epochMillis(String iso)
-	{
-		if (iso == null || iso.length() < 10)
-		{
-			return -1;
-		}
-		try
-		{
-			if (iso.length() == 10)
-			{
-				return java.time.LocalDate.parse(iso)
-					.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
-			}
-			String s = iso.trim().replace(' ', 'T');
-			return java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
-		}
-		catch (RuntimeException e)
-		{
-			return -1;
-		}
+		return left <= 0 ? passed : prefix + minutesText(Math.max(1, left / 60_000));
 	}
 
 	// ---- Component builders -----------------------------------------------------------------------
@@ -2936,7 +2888,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		// The requirements the button checks — session age, position — shown live, so a player can
 		// see each one go green instead of finding out from a refusal in chat. Ticks every second
-		// while the card is on screen; the timer stops itself once the card is replaced.
+		// while the card is on screen, on the panel's own second tick; dropped once the card is replaced.
 		JPanel checks = column();
 		checks.setOpaque(false);
 		renderStartProofChecks(checks, proof);
@@ -2944,17 +2896,17 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			card.add(gap(4));
 			card.add(checks);
-			Timer live = new Timer(1000, null);
-			live.addActionListener(ev ->
+			startProofTick = () ->
 			{
-				if (!checks.isDisplayable())
+				if (checks.isDisplayable())
 				{
-					live.stop();
-					return;
+					renderStartProofChecks(checks, proof);
 				}
-				renderStartProofChecks(checks, proof);
-			});
-			live.start();
+				else
+				{
+					startProofTick = null;
+				}
+			};
 		}
 
 		if ("rejected".equals(proof.status))
@@ -3516,7 +3468,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		return current > face ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE;
 	}
 
-	/** Live per-second refresh of the shown ladder card: the countdown, each mission's value, the flash. */
+	/**
+	 * Live per-second refresh of the shown ladder card (the countdown, each mission's value, the flash)
+	 * and of the starting-shot card's checks.
+	 */
 	private void tickLadder()
 	{
 		final long now = System.currentTimeMillis();
@@ -3539,6 +3494,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 		}
 		applyFlash(now);
+		if (startProofTick != null)
+		{
+			startProofTick.run();
+		}
 	}
 
 	/** Pulse the card border gold while a new-mission / claim signal is fresh (see {@link #flashLadder()}). */
@@ -3790,11 +3749,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		if (!needle.isEmpty())
 		{
-			out.sort((a, b) ->
+			// Ranked once per tile, not once per comparison: this runs on the EDT on every keystroke.
+			Map<BingoApiClient.BoardTile, Integer> rank = new HashMap<>();
+			for (BingoApiClient.BoardTile tile : out)
 			{
-				int relevance = Integer.compare(tileSearchRank(a, needle, terms), tileSearchRank(b, needle, terms));
-				return relevance != 0 ? relevance : Integer.compare(a.position, b.position);
-			});
+				rank.put(tile, tileSearchRank(tile, needle, terms));
+			}
+			out.sort(Comparator.<BingoApiClient.BoardTile>comparingInt(rank::get).thenComparingInt(t -> t.position));
 		}
 		if (wanted == TileStatusFilter.CLOSEST)
 		{

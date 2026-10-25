@@ -2,7 +2,6 @@ package com.anvil;
 
 import java.util.*;
 import java.util.function.Supplier;
-import com.google.gson.*;
 import lombok.extern.slf4j.Slf4j;
 import java.util.function.Consumer;
 import java.util.concurrent.CompletableFuture;
@@ -54,6 +53,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private final Map<Integer, BingoApiClient.WeeklyLeaderboard> weeklyBoards = new HashMap<>();
 	private final Set<Integer> weeklyBoardsTried = new HashSet<>();
 	private long weeklyBoardsAt;
+	/** Whose rows the weeklies last flagged as "you". */
+	private String weeklyMe;
 
 	// Live-sidebar state, scoped to the active event.
 	private final AnvilActivityLog activityLog = new AnvilActivityLog();
@@ -518,74 +519,57 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				p.reprobeAdminNow();
 			}
 		});
-		ConnectionView view = buildView(force);
-		refreshStandings(force);
+		// The standings are a round trip of their own: read them alongside the feed, not after it.
+		CompletableFuture<Void> standingsRead = CompletableFuture.runAsync(() -> refreshStandings(force),
+			apiClient.interactiveExecutor());
+		PluginConfigResponse cfg = configSupplier.get();
+		ConnectionView view = buildView(cfg, force);
+		standingsRead.join();
+		fingerprinted = view;
+		fingerprint = view == null ? 0 : fingerprintOf(cfg, view);
 		return view;
 	}
 
-	private volatile Gson fingerprintGson;
+	/** The view {@link #fetch} last built, and its {@link #fingerprintOf}. */
+	private ConnectionView fingerprinted;
+	private long fingerprint;
 
 	/**
-	 * The injected Gson, writing collections and maps element by element. Left to itself it wants a
-	 * constructor for the runtime class even to write one, and Java 17 won't open the JDK's own
-	 * (Collections.emptyList, unmodifiableList…), which the snapshot is full of.
-	 */
-	private static Gson fingerprintGson(Gson base)
-	{
-		JsonSerializer<Collection<?>> list = (src, type, ctx) ->
-		{
-			JsonArray out = new JsonArray();
-			for (Object o : src)
-			{
-				out.add(ctx.serialize(o));
-			}
-			return out;
-		};
-		JsonSerializer<Map<?, ?>> map = (src, type, ctx) ->
-		{
-			JsonObject out = new JsonObject();
-			for (Map.Entry<?, ?> e : src.entrySet())
-			{
-				out.add(String.valueOf(e.getKey()), ctx.serialize(e.getValue()));
-			}
-			return out;
-		};
-		return base.newBuilder()
-			.registerTypeHierarchyAdapter(Collection.class, list)
-			.registerTypeHierarchyAdapter(Map.class, map)
-			.create();
-	}
-
-	/**
-	 * A cheap stand-in for "would the panel draw this differently": a hash of the snapshot and the
-	 * standings drawn above it. 0 when it can't be worked out, which reads as "changed". Off the EDT.
+	 * A cheap stand-in for "would the panel draw this differently", for the view {@link #fetch} just
+	 * built; 0 (read as "changed") for any other.
 	 */
 	public long fingerprint(ConnectionView view)
 	{
-		if (view == null || apiClient == null)
+		return view != null && view == fingerprinted ? fingerprint : 0;
+	}
+
+	/**
+	 * Everything the view was built from, without serialising it. A site answer that changed is a new
+	 * object (a 304 hands back the cached one), so the config, the weekly boards and the standings
+	 * count by identity; what moves inside them or comes from this client — counts bumped in place,
+	 * local progress, the feed, who's active, the time-worded notes, whose name is "you" — by value.
+	 */
+	private long fingerprintOf(PluginConfigResponse cfg, ConnectionView v)
+	{
+		long h = Objects.hash(System.identityHashCode(cfg), System.identityHashCode(standings()), weeklyMe,
+			v.error, v.statusNote, v.revealNote, v.tilesComplete, v.tilesTotal, v.pointsScored, v.spectating);
+		for (BingoApiClient.WeeklyLeaderboard b : weeklyBoards.values())
 		{
-			return 0;
+			h += System.identityHashCode(b);
 		}
-		try
+		for (ClogTaskModel.TaskRow r : v.tileProgress.values())
 		{
-			Gson g = fingerprintGson;
-			if (g == null)
-			{
-				g = fingerprintGson = fingerprintGson(apiClient.gson());
-			}
-			String json = g.toJson(view) + g.toJson(standings());
-			long h = 1125899906842597L;
-			for (int i = 0; i < json.length(); i++)
-			{
-				h = 31 * h + json.charAt(i);
-			}
-			return h == 0 ? 1 : h;
+			h = 31 * h + Objects.hash(r.tileId, r.current, r.isCompleted());
 		}
-		catch (RuntimeException e)
+		for (ActivityEntry e : v.recentActivity)
 		{
-			log.debug("Couldn't fingerprint the sidebar snapshot: {}", e.getMessage());
-			return 0;
+			h = 31 * h + Objects.hash(e.id, e.amount);
 		}
+		for (ConnectionView.ActiveTask a : v.activeNow)
+		{
+			h = 31 * h + Objects.hash(a.tile.tileId, a.workers, a.includesSelf, a.gains);
+		}
+		return h == 0 ? 1 : h;
 	}
 
 	// ---- Standings ------------------------------------------------------------------------------
@@ -598,6 +582,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private volatile List<EventRoster.Team> standings = Collections.emptyList();
 	private volatile int standingsEventId;
 	private long standingsAt;
+	/** The read {@link #standings} was ranked from; a 304 hands the same one back, so nothing to redo. */
+	private EventRoster standingsFrom;
 
 	/** The live board's teams, best first; empty before the reveal, on older sites, or with no board. */
 	public List<EventRoster.Team> standings()
@@ -611,6 +597,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		if (eventId <= 0 || !supportsEventRoster())
 		{
 			standings = Collections.emptyList();
+			standingsFrom = null;
 			return;
 		}
 		long now = System.currentTimeMillis();
@@ -620,10 +607,11 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 		standingsAt = now;
 		EventRoster overview = apiClient.fetchRoster(eventId, 0, null, 1);
-		if (overview == null || overview.teams == null)
+		if (overview == null || overview.teams == null || overview == standingsFrom)
 		{
-			return; // keep what we had; the next window retries
+			return; // failed (keep what we had; the next window retries) or unchanged
 		}
+		standingsFrom = overview;
 		List<EventRoster.Team> ranked = new ArrayList<>();
 		for (EventRoster.Team t : overview.teams)
 		{
@@ -698,9 +686,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		withPlugin(p -> p.setChosenClan(slug));
 	}
 
-	private ConnectionView buildView(boolean force)
+	private ConnectionView buildView(PluginConfigResponse cfg, boolean force)
 	{
-		PluginConfigResponse cfg = configSupplier.get();
 		if (cfg == null)
 		{
 			if (scopedEventId != -1)
@@ -714,13 +701,17 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		// member is in a live bingo — a weekly-only clan still has something on the card. The clan's
 		// other/coming bingos ride along the same way, so "what's next" needs no site visit.
 		List<ConnectionView.WeeklyView> weeklies = buildWeeklies(cfg, force);
-		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg);
+		// Never the board the card itself shows, which the schedule may list too.
+		boolean live = cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
+		PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
+		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg,
+			live ? cfg.event.id : hb != null ? hb.eventId : -1);
 
 		// A current Site never sends an upcoming board as event-scoped config, but older/self-hosted
 		// versions can. Treat it exactly like no live event: the schedule card already carries what is
 		// coming, while fetching/rendering its activity feed can show prepared completion rows before
 		// the whistle ("Team completed 2m Woodcutting XP" on a board that has not started).
-		if (cfg.event == null || !AnvilOverlay.isEventActive(cfg.event))
+		if (!live)
 		{
 			if (scopedEventId != -1)
 			{
@@ -729,7 +720,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			// No member-scoped event: either the clan genuinely has no live event, or one IS running
 			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
 			// home card.
-			PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
 			if (hb != null)
 			{
 				// The site resolved the user's live enrollment server-side (token → linked member →
@@ -850,7 +840,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 		refreshWeeklyBoards(live, force);
 
-		String me = Rsn.normalize(localRsn.get());
+		String me = weeklyMe = Rsn.normalize(localRsn.get());
 		List<ConnectionView.WeeklyView> out = new ArrayList<>(weeklies.size());
 		for (BingoApiClient.ScheduledWeekly w : weeklies)
 		{
@@ -900,19 +890,21 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	/**
 	 * Bingo events on the clan's schedule other than the caller's own board — live ones they aren't in,
 	 * plus what's coming up. Straight off the polled config; the caller's own event is dropped because
-	 * the board card already IS that event.
+	 * the board card already IS that event, and so is the board the card shows ({@code shownId}).
 	 */
-	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg)
+	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg, int shownId)
 	{
 		if (cfg.schedule == null || cfg.schedule.bingos == null)
 		{
 			return Collections.emptyList();
 		}
 		int ownEventId = cfg.event != null ? cfg.event.id : -1;
+		// A board shown without an id (the "log in" stub, an older site's home board) has only its name.
+		String shownName = shownId > 0 ? null : cfg.homeBoard != null ? cfg.homeBoard.eventName : cfg.unlinkedActiveEvent;
 		List<BingoApiClient.ScheduledBingo> bingos = new ArrayList<>();
 		for (BingoApiClient.ScheduledBingo b : cfg.schedule.bingos)
 		{
-			if (b != null && b.id != ownEventId)
+			if (b != null && b.id != ownEventId && b.id != shownId && (shownName == null || !shownName.equals(b.title)))
 			{
 				bingos.add(b);
 			}
@@ -1116,31 +1108,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return what + (next == null ? "" : " · " + next);
 	}
 
-	/** "next in 42m" / "next in 3h 10m" from the server's ISO next-reveal stamp; null when absent/past. */
+	/** "next in 42m" / "next in 3h 10m" / "next in 2d 4h" from the server's ISO next-reveal stamp; null when absent/past. */
 	private static String nextRevealLabel(String nextRevealAt)
 	{
-		if (nextRevealAt == null || nextRevealAt.isEmpty())
+		long at = Ui.utcMillis(nextRevealAt);
+		if (at < 0)
 		{
 			return null;
 		}
-		try
-		{
-			long at = java.time.Instant.parse(nextRevealAt).toEpochMilli();
-			long mins = Math.max(0, (at - System.currentTimeMillis()) / 60_000);
-			if (mins < 1)
-			{
-				return "next any minute";
-			}
-			if (mins < 60)
-			{
-				return "next in " + mins + "m";
-			}
-			return "next in " + (mins / 60) + "h " + (mins % 60) + "m";
-		}
-		catch (RuntimeException e)
-		{
-			return null;
-		}
+		long mins = (at - System.currentTimeMillis()) / 60_000;
+		return mins < 1 ? "next any minute" : "next in " + Ui.minutesText(mins);
 	}
 
 	/** The home entry's clan-filter label: the site's clan name, else the old team/event fallback. */
@@ -1269,7 +1246,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 			{
 				continue;
 			}
-			long t = parseTsMillis(e.ts);
+			long t = Ui.utcMillis(e.ts);
 			if (t >= 0 && now - t > ACTIVE_WINDOW_MS)
 			{
 				continue;
@@ -1419,28 +1396,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	private static double fraction(ClogTaskModel.TaskRow r)
 	{
 		return r.goal > 0 ? Math.min(1.0, (double) r.current / r.goal) : 0.0;
-	}
-
-	/** Parse the server's {@code "yyyy-MM-dd HH:mm:ss"} UTC timestamp to epoch millis, or -1 if unparseable. */
-	private static long parseTsMillis(String ts)
-	{
-		if (ts == null || ts.isEmpty())
-		{
-			return -1;
-		}
-		String s = ts.trim().replace(' ', 'T');
-		if (s.endsWith("Z"))
-		{
-			s = s.substring(0, s.length() - 1);
-		}
-		try
-		{
-			return java.time.LocalDateTime.parse(s).toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
-		}
-		catch (RuntimeException e)
-		{
-			return -1;
-		}
 	}
 
 	private static List<ActivityEntry> toEntries(List<BingoApiClient.ActivityItem> items)

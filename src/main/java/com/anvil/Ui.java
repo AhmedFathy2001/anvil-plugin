@@ -386,4 +386,31 @@ final class Ui
 			g.dispose();
 		}
 	}
+
+	/**
+	 * The server's UTC stamp — ISO ({@code 2026-07-29T12:00:00.000Z}), the space-separated SQLite
+	 * {@code yyyy-MM-dd HH:mm:ss} form, or a bare date (midnight UTC) — as epoch millis; -1 if unparseable.
+	 */
+	static long utcMillis(String ts)
+	{
+		String s = ts == null ? "" : ts.trim().replace(' ', 'T');
+		try
+		{
+			return s.length() == 10
+				? java.time.LocalDate.parse(s).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+				: java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
+		}
+		catch (RuntimeException e)
+		{
+			return -1;
+		}
+	}
+
+	/** A wait in whole minutes, as a glance reads it: "42m", "3h 10m", "2d 4h". */
+	static String minutesText(long mins)
+	{
+		return mins < 60 ? mins + "m"
+			: mins < 1440 ? mins / 60 + "h " + mins % 60 + "m"
+			: mins / 1440 + "d " + mins / 60 % 24 + "h";
+	}
 }
