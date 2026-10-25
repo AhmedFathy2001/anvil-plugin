@@ -118,7 +118,7 @@ public class OutageResilienceTest
 		CoalescedPush push = new CoalescedPush("KC", 60_000, false, () -> scheduler, () -> true, b ->
 		{
 			sends.incrementAndGet();
-			throw new BingoApiClient.PermanentSubmissionException("KC push failed: HTTP 403");
+			throw new BingoApiClient.PermanentSubmissionException("KC push failed: HTTP 403", 403);
 		}, () -> { });
 		push.queue("Vorkath", 10);
 		push.flush();
