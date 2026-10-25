@@ -920,6 +920,26 @@ public class BingoApiClient
 		public int target;
 		/** Optional deadline, YYYY-MM-DD. */
 		public String dueOn;
+		// Where it stands, as the site reads it (lib/goalProgress — the profile page's own reading).
+		/** "99 Slayer", "500 Vorkath", "Barrows Chests log". */
+		public String label = "";
+		/** Null when there's nothing to measure it with yet (no stats, log not synced). */
+		public Long current;
+		/** What {@code current} is measured against: XP for the level, the KC, the page's slots. */
+		public long of;
+		/** "Lv 87 / 99", "312 / 500", "no stats yet". */
+		public String text = "";
+		public boolean done;
+		/** The deadline line; null with no deadline, or once it's done. */
+		public GoalDue due;
+	}
+
+	public static final class GoalDue
+	{
+		/** "by 1 Dec · 50 days left", "due today", "overdue by 3 days". */
+		public String text;
+		/** "ok" | "behind" | "overdue". */
+		public String tone;
 	}
 
 	/** The goals list after a call, or the site's reason it refused. */

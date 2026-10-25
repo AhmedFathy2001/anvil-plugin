@@ -729,7 +729,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (dataSource.supportsGoals())
 			{
 				youPanel.add(gap(6));
-				youPanel.add(GoalsView.render(youGoals, youCard, this::addGoal, this::removeGoal, goalsError));
+				youPanel.add(GoalsView.render(youGoals, this::addGoal, this::removeGoal, goalsError));
 				if (refetch || (youGoals == null && !goalsAsked))
 				{
 					fetchGoals();

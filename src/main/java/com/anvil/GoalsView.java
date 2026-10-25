@@ -11,7 +11,6 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
 import static com.anvil.Ui.*;
-import java.time.LocalDate;
 
 /**
  * The You tab's goals: "99 Slayer", "500 Vorkath", "Barrows log complete".
@@ -27,31 +26,7 @@ final class GoalsView
 	{
 	}
 
-	/** Where a goal stands: {@code current} of {@code target} in the goal's own unit. */
-	static final class Progress
-	{
-		final long current;
-		final long target;
-		/** Null when the card has nothing to measure it with. */
-		final String text;
-		final boolean known;
-
-		Progress(long current, long target, String text, boolean known)
-		{
-			this.current = current;
-			this.target = target;
-			this.text = text;
-			this.known = known;
-		}
-
-		boolean done()
-		{
-			return known && current >= target;
-		}
-	}
-
-	static JPanel render(List<BingoApiClient.PlayerGoal> goals, PlayerCard card, Runnable onAdd, IntConsumer onRemove,
-		String error)
+	static JPanel render(List<BingoApiClient.PlayerGoal> goals, Runnable onAdd, IntConsumer onRemove, String error)
 	{
 		JPanel block = block();
 
@@ -77,32 +52,32 @@ final class GoalsView
 		for (BingoApiClient.PlayerGoal g : goals)
 		{
 			block.add(gap(8));
-			block.add(row(g, progress(g, card), onRemove));
+			block.add(row(g, onRemove));
 		}
 		return block;
 	}
 
-	private static JPanel row(BingoApiClient.PlayerGoal g, Progress p, IntConsumer onRemove)
+	private static JPanel row(BingoApiClient.PlayerGoal g, IntConsumer onRemove)
 	{
 		JPanel row = left(new JPanel(new BorderLayout(0, 3)));
 		row.setOpaque(false);
 
 		JPanel line = Ui.row(6);
-		line.add(small(label(g), p.done() ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
+		line.add(small(g.label, g.done ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.WHITE), BorderLayout.CENTER);
 		JPanel right = new JPanel(new GridLayout(1, 0, 6, 0));
 		right.setOpaque(false);
-		right.add(small(p.done() ? "Done" : p.text, p.done() ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED));
+		right.add(small(g.done ? "Done" : g.text, g.done ? ColorScheme.PROGRESS_COMPLETE_COLOR : MUTED));
 		JLabel remove = onClick(new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 8, MUTED)), () -> onRemove.accept(g.id));
 		remove.setToolTipText("Remove this goal");
 		line.add(right, BorderLayout.EAST);
 		line.add(remove, BorderLayout.WEST);
-		String due = p.done() ? null : dueText(g.dueOn, LocalDate.now(java.time.ZoneOffset.UTC));
+		BingoApiClient.GoalDue due = g.done ? null : g.due;
 		if (due != null)
 		{
 			JPanel top = new JPanel(new BorderLayout(0, 1));
 			top.setOpaque(false);
 			top.add(line, BorderLayout.NORTH);
-			top.add(small(due, due.startsWith("overdue") ? ColorScheme.PROGRESS_ERROR_COLOR : MUTED), BorderLayout.SOUTH);
+			top.add(small(due.text, "overdue".equals(due.tone) ? ColorScheme.PROGRESS_ERROR_COLOR : MUTED), BorderLayout.SOUTH);
 			row.add(top, BorderLayout.NORTH);
 		}
 		else
@@ -110,15 +85,15 @@ final class GoalsView
 			row.add(line, BorderLayout.NORTH);
 		}
 
-		if (p.known)
+		if (g.current != null)
 		{
 			ProgressBar bar = new ProgressBar();
-			bar.setMaximumValue((int) Math.min(Integer.MAX_VALUE, Math.max(1, p.target)));
-			bar.setValue((int) Math.min(Integer.MAX_VALUE, Math.min(p.current, p.target)));
+			bar.setMaximumValue((int) Math.min(Integer.MAX_VALUE, Math.max(1, g.of)));
+			bar.setValue((int) Math.min(Integer.MAX_VALUE, Math.min(g.current, g.of)));
 			bar.setLeftLabel("");
 			bar.setRightLabel("");
 			bar.setCenterLabel("");
-			bar.setForeground(p.done() ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
+			bar.setForeground(g.done ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
 			bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
 			bar.setPreferredSize(new Dimension(0, 4));
 			row.add(bar, BorderLayout.SOUTH);
@@ -127,125 +102,6 @@ final class GoalsView
 	}
 
 	// ---- Progress (package-private for tests) -----------------------------------------------------
-
-	/** "99 Slayer", "500 Vorkath", "Barrows Chests log". */
-	static String label(BingoApiClient.PlayerGoal g)
-	{
-		switch (g.kind)
-		{
-			case "skill":
-				return g.target + " " + titleCase(g.metric);
-			case "boss":
-				return String.format(Locale.ROOT, "%,d %s", g.target, humanise(g.metric));
-			default:
-				return g.metric + " log";
-		}
-	}
-
-	static Progress progress(BingoApiClient.PlayerGoal g, PlayerCard card)
-	{
-		if ("skill".equals(g.kind))
-		{
-			PlayerCard.Skill s = card == null || card.skills == null ? null
-				: card.skills.stream().filter(x -> g.metric.equalsIgnoreCase(x.key)).findFirst().orElse(null);
-			if (s == null)
-			{
-				return new Progress(0, 1, "no stats yet", false);
-			}
-			long need = xpForLevel(g.target);
-			int level = levelForXp(s.xp);
-			return new Progress(s.xp, need, "Lv " + level + " / " + g.target, true);
-		}
-		if ("boss".equals(g.kind))
-		{
-			if (card == null || card.skills == null || card.skills.isEmpty())
-			{
-				return new Progress(0, g.target, "no stats yet", false);
-			}
-			int kc = card.bosses == null ? 0 : card.bosses.stream().filter(b -> g.metric.equalsIgnoreCase(b.key))
-				.mapToInt(b -> b.kc).findFirst().orElse(0);
-			return new Progress(kc, g.target, String.format(Locale.ROOT, "%,d / %,d", kc, g.target), true);
-		}
-		PlayerCard.Page page = card == null || card.clogPages == null ? null
-			: card.clogPages.stream().filter(p -> g.metric.equalsIgnoreCase(p.name)).findFirst().orElse(null);
-		if (page == null)
-		{
-			return new Progress(0, 1, "sync your log", false);
-		}
-		return new Progress(page.obtained, page.total, page.obtained + " / " + page.total, true);
-	}
-
-	/**
-	 * "by 1 Dec · 50d left", "due today", "overdue by 3d" — calendar days, as the site counts them.
-	 * Null when there's no deadline (or it can't be read).
-	 */
-	static String dueText(String dueOn, LocalDate today)
-	{
-		if (dueOn == null || dueOn.isEmpty())
-		{
-			return null;
-		}
-		LocalDate due;
-		try
-		{
-			due = LocalDate.parse(dueOn);
-		}
-		catch (java.time.format.DateTimeParseException e)
-		{
-			return null;
-		}
-		long days = java.time.temporal.ChronoUnit.DAYS.between(today, due);
-		if (days < 0)
-		{
-			return "overdue by " + (-days) + "d";
-		}
-		if (days == 0)
-		{
-			return "due today";
-		}
-		String when = due.format(java.time.format.DateTimeFormatter.ofPattern(
-			due.getYear() == today.getYear() ? "d MMM" : "d MMM yyyy", Locale.ENGLISH));
-		return "by " + when + " · " + days + "d left";
-	}
-
-	/** The game's XP table: XP needed for {@code level}, 1–99. */
-	static long xpForLevel(int level)
-	{
-		double points = 0;
-		for (int l = 1; l < level; l++)
-		{
-			points += Math.floor(l + 300.0 * Math.pow(2.0, l / 7.0));
-		}
-		return (long) Math.floor(points / 4);
-	}
-
-	static int levelForXp(long xp)
-	{
-		for (int level = 99; level >= 1; level--)
-		{
-			if (xp >= xpForLevel(level))
-			{
-				return level;
-			}
-		}
-		return 1;
-	}
-
-	/** "alchemicalHydra" → "Alchemical Hydra". */
-	static String humanise(String key)
-	{
-		if (key == null || key.isEmpty())
-		{
-			return "";
-		}
-		String spaced = key.replaceAll("([a-z])([A-Z])", "$1 $2");
-		return Character.toUpperCase(spaced.charAt(0)) + spaced.substring(1);
-	}
-
-	private static String titleCase(String s)
-	{
-		return s == null || s.isEmpty() ? "" : Character.toUpperCase(s.charAt(0)) + s.substring(1);
-	}
 
 	// ---- New-goal dialog ---------------------------------------------------------------------------
 
