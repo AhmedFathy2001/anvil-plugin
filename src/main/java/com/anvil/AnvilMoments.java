@@ -100,7 +100,7 @@ class AnvilMoments
 		static Moment level(String skill, int level, String scope, long at)
 		{
 			return new Moment("level", null, skill, level, null, null, scope, null, at,
-				"level|" + (skill == null ? "total" : skill.toLowerCase()) + "|" + level);
+				"level|" + (skill == null ? "total" : skill.toLowerCase(Locale.ROOT)) + "|" + level);
 		}
 	}
 
@@ -246,7 +246,7 @@ class AnvilMoments
 	static String keyFor(String kind, String source, Integer itemId, long at)
 	{
 		long bucket = at / 10_000L;
-		return kind + "|" + (source == null ? "" : source.toLowerCase()) + "|"
+		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
 			+ (itemId == null ? "" : itemId) + "|" + bucket;
 	}
 }

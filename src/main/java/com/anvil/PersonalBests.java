@@ -54,7 +54,7 @@ final class PersonalBests
 		{
 			return;
 		}
-		recentActivity = activity.toLowerCase();
+		recentActivity = activity.toLowerCase(Locale.ROOT);
 		recentActivityAt = now;
 		// A duration that arrived first now has its name.
 		if (orphanCentis > 0 && now - orphanAt <= CORRELATION_MS)
@@ -105,7 +105,7 @@ final class PersonalBests
 			{
 				continue;
 			}
-			if (record(e.getKey().toLowerCase(), e.getValue(), now))
+			if (record(e.getKey().toLowerCase(Locale.ROOT), e.getValue(), now))
 			{
 				adopted++;
 			}
@@ -166,11 +166,6 @@ final class PersonalBests
 				dirty.remove(e.getKey());
 			}
 		}
-	}
-
-	int knownCount()
-	{
-		return best.size();
 	}
 
 	int pendingCount()

@@ -207,11 +207,6 @@ final class ChatPatterns
 		return e == null || e.hint == null || text.contains(e.hint);
 	}
 
-	static boolean isOverridden(String key)
-	{
-		return live.patterns.containsKey(key);
-	}
-
 	/**
 	 * Replace the override set with {@code list}, keeping only the overrides that pass {@link #vet}.
 	 * Keys not named fall back to their defaults. Returns one "key: reason" per rejection.

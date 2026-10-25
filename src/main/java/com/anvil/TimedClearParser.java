@@ -153,9 +153,7 @@ final class TimedClearParser
 		String[] p = m.group("time").split(":");
 		try
 		{
-			int s = p.length == 3
-					? Integer.parseInt(p[0]) * 3600 + Integer.parseInt(p[1]) * 60 + Integer.parseInt(p[2])
-					: Integer.parseInt(p[0]) * 60 + Integer.parseInt(p[1]);
+			int s = clockSeconds(p[0], p[1], p.length == 3 ? p[2] : null);
 			return s > 0 ? s : null;
 		}
 		catch (NumberFormatException e)
@@ -302,5 +300,13 @@ final class TimedClearParser
 			}
 		}
 		return null;
+	}
+
+	/** {@code a:b:c} as h:mm:ss, or {@code a:b} as mm:ss when {@code c} is null. Throws on a non-number. */
+	static int clockSeconds(String a, String b, String c)
+	{
+		return c != null
+			? Integer.parseInt(a) * 3600 + Integer.parseInt(b) * 60 + Integer.parseInt(c)
+			: Integer.parseInt(a) * 60 + Integer.parseInt(b);
 	}
 }

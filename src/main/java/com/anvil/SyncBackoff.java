@@ -1,5 +1,7 @@
 package com.anvil;
 
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.DoubleSupplier;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -10,7 +12,8 @@ import lombok.RequiredArgsConstructor;
  * is rude to a clan's server and pointless for the player: the two cases are "your site is down"
  * (which wants patience) and "your site doesn't accept this" (which wants stopping altogether).
  *
- * <p>This covers the first: doubling waits from 30s to a 10-minute ceiling, reset by any success.
+ * <p>This covers the first: doubling waits from 30s to a 10-minute ceiling ({@link RetryPolicy#backoffMs},
+ * so a clan's clients that lost the site together don't all come back together), reset by any success.
  * The second is the caller's job — a permanent failure drops the batch instead of backing off.
  */
 @RequiredArgsConstructor
@@ -21,14 +24,20 @@ final class SyncBackoff
 
 	private final long firstMs;
 	private final long maxMs;
+	/** A uniform draw in [0, 1) spreading each wait ±20%; 0.5 gives the exact doubling. */
+	private final DoubleSupplier jitter;
 	private long nextAttemptAt;
-	private long waitMs;
+	private int failures;
 
 	SyncBackoff()
 	{
 		this(FIRST_MS, MAX_MS);
 	}
 
+	SyncBackoff(long firstMs, long maxMs)
+	{
+		this(firstMs, maxMs, () -> ThreadLocalRandom.current().nextDouble());
+	}
 
 	/** Is a push allowed right now? True until something fails. */
 	boolean ready(long now)
@@ -40,20 +49,14 @@ final class SyncBackoff
 	void onSuccess()
 	{
 		nextAttemptAt = 0;
-		waitMs = 0;
+		failures = 0;
 	}
 
 	/** A push failed for a reason that might clear on its own. Waits twice as long each time. */
 	void onFailure(long now)
 	{
-		waitMs = waitMs == 0 ? firstMs : Math.min(maxMs, waitMs * 2);
-		nextAttemptAt = now + waitMs;
-	}
-
-	/** Has anything failed since the last success? */
-	boolean backingOff()
-	{
-		return waitMs != 0;
+		failures++;
+		nextAttemptAt = now + RetryPolicy.backoffMs(failures, firstMs, maxMs, jitter.getAsDouble());
 	}
 
 	/** Seconds until the next attempt, for a log line that explains the silence. */

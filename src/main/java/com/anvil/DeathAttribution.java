@@ -110,10 +110,9 @@ final class DeathAttribution
 		}
 		if (weWereFighting != null && !weWereFighting.isEmpty())
 		{
-			String fighting = weWereFighting.toLowerCase(Locale.ROOT);
 			for (String name : attackers.keySet())
 			{
-				if (name.toLowerCase(Locale.ROOT).equals(fighting))
+				if (Rsn.same(name, weWereFighting))
 				{
 					return name;
 				}
