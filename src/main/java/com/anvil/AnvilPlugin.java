@@ -494,12 +494,15 @@ public class AnvilPlugin extends Plugin {
 	// → chat-patterns.json "clog.clan_broadcast" (ChatPatterns).
 	// The clan's pet broadcast, which — unlike the player's own pet line — names it, and lands in the
 	// same tick: "Biggie OG has a funny feeling like he's being followed: Dom at 519 levels from Doom
-	// of Mokhaiotl." Also the duplicate ("would have been followed") and backpack variants. Only the
+	// of Mokhaiotl." Also the duplicate ("would have been followed") and backpack variants, and the
+	// Unsired's ("feels like she's acquired something special: Abyssal orphan"). Only the
 	// name is taken: where it came from is the pet catalogue's to answer (DropSource.resolvePetSource).
 	// Package-private for the pattern test.
 	static final Pattern CLAN_PET_BROADCAST_PATTERN = Pattern.compile(
 			"^(.{1,20}?) (?:has a funny feeling like (?:he's|she's|they're|he|she|they) (?:being|would have been) followed"
-					+ "|feels something weird sneaking into (?:his|her|their) backpack): (.+?)(?: at [\\d,]+ .*)?\\.?$");
+					+ "|feels something weird sneaking into (?:his|her|their) backpack"
+					+ "|feels like (?:he's|she's|they've|he has|she has|they have) acquired something special)"
+					+ ": (.+?)(?: at [\\d,]+ .*)?\\.?$");
 
 	// Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
 	// Fired for drops handed out through channels that produce NO loot event — Maggot King's
@@ -3759,7 +3762,8 @@ public class AnvilPlugin extends Plugin {
 			//
 			// Only ever acted on for the LOCAL player: a clanmate's unlock is their own client's to
 			// report, and posting it from here would file their slot under this account.
-			if (msg.contains("funny feeling like") || msg.contains("sneaking into")) {
+			if (msg.contains("funny feeling like") || msg.contains("sneaking into")
+					|| msg.contains("acquired something special")) {
 				Matcher petBroadcast = CLAN_PET_BROADCAST_PATTERN.matcher(stripChatTags(msg));
 				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) {
 					claimPetName(petBroadcast.group(2).trim());

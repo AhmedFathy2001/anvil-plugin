@@ -135,6 +135,13 @@ public class DropNotificationLineTest
 		assertTrue(pack.matches());
 		assertEquals("Heron", pack.group(2));
 
+		// The Unsired's orphan has its own wording.
+		Matcher orphan = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"Kayle feels like she's acquired something special: Abyssal orphan");
+		assertTrue(orphan.matches());
+		assertEquals("Kayle", orphan.group(1));
+		assertEquals("Abyssal orphan", orphan.group(2));
+
 		// A drop line is not a pet line.
 		assertFalse(AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher("Zezima received a drop: Dragon claws").matches());
 	}
