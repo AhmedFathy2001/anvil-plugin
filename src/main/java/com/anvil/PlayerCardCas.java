@@ -65,11 +65,11 @@ final class PlayerCardCas
 	private static JPanel render(BingoApiClient.CaLookup cas)
 	{
 		JPanel col = column();
-		col.add(PlayerCardView.header(reached(cas), String.format(Locale.ROOT, "%,d pts", cas.earned)));
+		col.add(header(reached(cas), String.format(Locale.ROOT, "%,d pts", cas.earned)));
 		if (cas.nextTier != null && cas.nextAt != null && cas.nextAt > 0)
 		{
 			col.add(gap(4));
-			col.add(capH(bar(PlayerCardView.percent(cas.earned, cas.nextAt), ColorScheme.BRAND_ORANGE, ColorScheme.DARKER_GRAY_COLOR, 6)));
+			col.add(capH(bar(percent(cas.earned, cas.nextAt), ColorScheme.BRAND_ORANGE, ColorScheme.DARKER_GRAY_COLOR, 6)));
 			col.add(gap(2));
 			col.add(left(small(String.format(Locale.ROOT, "%,d / %,d to %s", cas.earned, cas.nextAt, cas.nextTier), MUTED)));
 		}
@@ -88,7 +88,7 @@ final class PlayerCardCas
 
 		if (cas.perTier != null)
 		{
-			JPanel tiers = PlayerCardView.grid(2, 6, 4);
+			JPanel tiers = grid(2, 6, 4);
 			for (int t = 0; t < cas.perTier.size(); t++)
 			{
 				tiers.add(tierCell(cas, t, paint, refill));
@@ -162,7 +162,7 @@ final class PlayerCardCas
 		text.add(name, BorderLayout.WEST);
 		text.add(small(c.done + "/" + c.total, Color.WHITE), BorderLayout.EAST);
 		cell.add(text, BorderLayout.CENTER);
-		cell.add(PlayerCardView.thinBar(PlayerCardView.percent(c.done, c.total), ColorScheme.DARKER_GRAY_COLOR), BorderLayout.SOUTH);
+		cell.add(thinBar(percent(c.done, c.total), ColorScheme.DARKER_GRAY_COLOR), BorderLayout.SOUTH);
 		cell.setToolTipText("Show only " + tierName(cas, t) + " tasks");
 		hoverable(cell, ColorScheme.DARK_GRAY_COLOR, () ->
 		{

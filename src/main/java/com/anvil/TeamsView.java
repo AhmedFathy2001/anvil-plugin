@@ -9,7 +9,6 @@ import javax.swing.*;
 import javax.swing.Timer;
 import net.runelite.client.ui.ColorScheme;
 
-import static com.anvil.PlayerCardView.header;
 import static com.anvil.Ui.*;
 
 /**
@@ -251,7 +250,7 @@ final class TeamsView extends JPanel
 			results.add(small(data.unplaced > 0 ? "Teams haven't been set yet." : "No teams yet.", MUTED));
 			if (data.unplaced > 0)
 			{
-				results.add(small(count(data.unplaced, "player") + " signed up.", MUTED));
+				results.add(small(plural(data.unplaced, "player") + " signed up.", MUTED));
 			}
 			return;
 		}
@@ -263,7 +262,7 @@ final class TeamsView extends JPanel
 			results.add(teamRow(yours));
 			results.add(gap(8));
 		}
-		results.add(header(count(data.total, "team"), data.unplaced > 0 ? data.unplaced + " not placed" : null));
+		results.add(header(plural(data.total, "team"), data.unplaced > 0 ? data.unplaced + " not placed" : null));
 		results.add(gap(3));
 		for (EventRoster.Team t : teams)
 		{
@@ -288,7 +287,7 @@ final class TeamsView extends JPanel
 			results.add(personRow(you, true, false));
 			results.add(gap(8));
 		}
-		results.add(header(count(data.total, "player"), null));
+		results.add(header(plural(data.total, "player"), null));
 		results.add(gap(3));
 		for (EventRoster.Person p : people)
 		{
@@ -308,7 +307,7 @@ final class TeamsView extends JPanel
 		{
 			JPanel card = block();
 			JPanel title = row(6);
-			title.add(swatch(t.color, 10), BorderLayout.WEST);
+			title.add(new JLabel(swatchIcon(t.color, 10)), BorderLayout.WEST);
 			title.add(title(t.name), BorderLayout.CENTER);
 			card.add(capH(title));
 			card.add(gap(3));
@@ -339,7 +338,7 @@ final class TeamsView extends JPanel
 			results.add(small("No players match \"" + data.query + "\".", MUTED));
 			return;
 		}
-		results.add(header(count(data.total, "match", "matches"), null));
+		results.add(header(plural(data.total, "match", "matches"), null));
 		results.add(gap(3));
 		for (EventRoster.Person p : hits)
 		{
@@ -374,7 +373,7 @@ final class TeamsView extends JPanel
 	{
 		JPanel row = row(6);
 		row.setBorder(BorderFactory.createEmptyBorder(5, 6, 5, 6));
-		row.add(swatch(t.color, 8), BorderLayout.WEST);
+		row.add(new JLabel(swatchIcon(t.color, 8)), BorderLayout.WEST);
 		row.add(twoLines(small(t.name, t.yours ? YOU : Color.WHITE), small(teamLine(t), MUTED)), BorderLayout.CENTER);
 
 		JLabel arrow = new JLabel("›");
@@ -477,49 +476,12 @@ final class TeamsView extends JPanel
 		{
 			s.append(t.score).append(" · ");
 		}
-		return s.append(count(t.members, "member")).toString();
-	}
-
-	static String count(int n, String one)
-	{
-		return count(n, one, one + "s");
-	}
-
-	static String count(int n, String one, String many)
-	{
-		return String.format(Locale.ROOT, "%,d %s", n, n == 1 ? one : many);
-	}
-
-	/** A team's colour; the server stores "#rrggbb", and anything else reads as grey. */
-	static Color teamColor(String hex)
-	{
-		if (hex != null && hex.matches("#[0-9a-fA-F]{6}"))
-		{
-			return new Color(Integer.parseInt(hex.substring(1), 16));
-		}
-		return MUTED;
-	}
-
-	private static Component swatch(String hex, int size)
-	{
-		Color c = teamColor(hex);
-		JComponent dot = new JComponent()
-		{
-			@Override
-			protected void paintComponent(Graphics g)
-			{
-				g.setColor(c);
-				int y = (getHeight() - size) / 2;
-				g.fillRect(0, Math.max(0, y), size, size);
-			}
-		};
-		dot.setPreferredSize(new Dimension(size, size));
-		return dot;
+		return s.append(plural(t.members, "member")).toString();
 	}
 
 	static Icon swatchIcon(String hex, int size)
 	{
-		Color c = teamColor(hex);
+		Color c = teamColor(hex, MUTED);
 		return new Icon()
 		{
 			@Override

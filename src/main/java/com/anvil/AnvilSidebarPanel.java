@@ -1498,7 +1498,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			int pct = (int) Math.min(100, Math.round(shown * 100.0 / r.goal));
 			r.bar.setValue(pct);
 			String text = r.asPercent ? pct + "%"
-				: ConnectionView.formatCount(shown) + " / " + ConnectionView.formatCount(r.goal);
+				: Ui.count(shown) + " / " + Ui.count(r.goal);
 			r.value.setToolTipText(exactProgress(shown, r.goal));
 			if (!text.equals(r.value.getText()))
 			{
@@ -3207,7 +3207,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private static String progressValue(ClogTaskModel.TaskRow tile)
 	{
-		return tile.goal > 0 ? ConnectionView.formatCount(tile.current) + " / " + ConnectionView.formatCount(tile.goal) : "";
+		return tile.goal > 0 ? Ui.count(tile.current) + " / " + Ui.count(tile.goal) : "";
 	}
 
 	/** "19,023,122 / 20,142,002" on hover where the row shows "19M / 20.1M" (or a %); null when nothing's abbreviated. */
@@ -4545,7 +4545,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			: "boss".equals(tile.statType) || "kc".equals(tile.statType) ? " KC"
 			: "value".equals(tile.tileType) || "valuetotal".equals(tile.tileType) ? " gp"
 			: "";
-		return name + " · " + ConnectionView.formatCount(f.amount) + unit;
+		return name + " · " + Ui.count(f.amount) + unit;
 	}
 
 	/** A heading inside the tile detail, {@code above} px under what came before it. */

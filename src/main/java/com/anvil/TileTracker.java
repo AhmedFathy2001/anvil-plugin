@@ -8,6 +8,7 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
 import java.util.function.ToLongBiFunction;
+import java.time.*;
 
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable
@@ -29,6 +30,8 @@ public class TileTracker
 	private static final String CFG_PINS = "trackedTiles";
 	private static final Color GOLD = new Color(255, 215, 0);
 	private static final int OTHER_TEAMS_SHOWN = 4;
+	/** The blank line between pins in the shared panel; one instance serves every gap. */
+	private static final LineComponent GAP = LineComponent.builder().build();
 	/** How long a just-finished pin keeps showing "Done" before it unpins (hidden on the next fetch after). */
 	static final long DONE_LINGER_MS = 10_000;
 
@@ -406,7 +409,7 @@ public class TileTracker
 			{
 				if (i > 0)
 				{
-					panelComponent.getChildren().add(LineComponent.builder().build());
+					panelComponent.getChildren().add(GAP);
 				}
 				shown.get(i).drawInto(panelComponent, true);
 			}
@@ -463,11 +466,21 @@ public class TileTracker
 		Boolean keepWhenDone = false;
 		/** When this pin was first seen done, or 0. */
 		long doneSinceMs;
-
-		Widget(int slot)
-		{
-			this(slot, 0, (id, site) -> site);
-		}
+		/**
+		 * The lines drawn every frame, built once per fetch (or layout switch) on the client thread — the
+		 * frame only moves your team's bar, your own count and the countdown, and only when they change.
+		 */
+		private final List<LayoutableRenderableEntity> lines = new ArrayList<>();
+		private Progress builtFor;
+		private boolean builtCompact;
+		private Team mine;
+		private ProgressBarComponent bar;
+		private LineComponent you;
+		private LineComponent startsIn;
+		private Instant startsAt;
+		private long youBase;
+		private long shownAhead;
+		private long shownSecs;
 
 		Widget(int slot, int tileId, ToLongBiFunction<Integer, Long> shown)
 		{
@@ -500,18 +513,63 @@ public class TileTracker
 		void drawInto(PanelComponent panelComponent, boolean compact)
 		{
 			Progress p = progress;
+			if (p != builtFor || compact != builtCompact || lines.isEmpty())
+			{
+				build(p, compact);
+			}
+			if (startsIn != null && startsAt != null)
+			{
+				long s = Math.max(0, Duration.between(Instant.now(), startsAt).getSeconds());
+				if (s != shownSecs)
+				{
+					shownSecs = s;
+					startsIn.setRight(s >= 3600 ? (s / 3600) + "h " + (s % 3600 / 60) + "m" : s >= 60 ? (s / 60) + "m " + (s % 60) + "s" : s + "s");
+				}
+			}
+			if (bar != null && !mine.complete)
+			{
+				// Your own kill counts here the moment it happens; the fetch after the push confirms it.
+				long current = shown.applyAsLong(tileId, mine.current);
+				bar.setValue(Math.min(current, p.goal));
+				long ahead = Math.max(0, current - mine.current);
+				if (you != null && ahead != shownAhead)
+				{
+					shownAhead = ahead;
+					you.setRight(Ui.count(youBase + ahead));
+				}
+			}
+			panelComponent.getChildren().addAll(lines);
+		}
+
+		private void build(Progress p, boolean compact)
+		{
+			builtFor = p;
+			builtCompact = compact;
+			lines.clear();
+			mine = null;
+			bar = null;
+			you = startsIn = null;
+			shownAhead = shownSecs = -1;
 			if (p == null || p.teams == null)
 			{
-				panelComponent.getChildren().add(TitleComponent.builder().text("Anvil: loading tile…").color(GOLD).build());
+				lines.add(TitleComponent.builder().text("Anvil: loading tile…").color(GOLD).build());
 				return;
 			}
-			panelComponent.getChildren().add(TitleComponent.builder().text(p.label).color(GOLD).build());
+			lines.add(TitleComponent.builder().text(p.label).color(GOLD).build());
 			if ("upcoming".equals(p.phase))
 			{
 				// Nothing counts before the start, so there is no progress to draw yet — only when.
-				panelComponent.getChildren().add(LineComponent.builder().left("Goal").right(fmt(p.goal)).build());
-				panelComponent.getChildren().add(LineComponent.builder()
-					.left("Starts in").right(countdown(p.startsAt)).rightColor(Color.YELLOW).build());
+				lines.add(LineComponent.builder().left("Goal").right(Ui.count(p.goal)).build());
+				startsIn = LineComponent.builder().left("Starts in").right("soon").rightColor(Color.YELLOW).build();
+				lines.add(startsIn);
+				try
+				{
+					startsAt = Instant.parse(p.startsAt);
+				}
+				catch (RuntimeException e)
+				{
+					startsAt = null;
+				}
 				return;
 			}
 			int others = 0;
@@ -519,73 +577,47 @@ public class TileTracker
 			{
 				if (t.mine)
 				{
-					renderOwnTeam(panelComponent, p, t, compact);
+					buildOwnTeam(p, t, compact);
 				}
 				else if (!compact && others++ < OTHER_TEAMS_SHOWN)
 				{
-					panelComponent.getChildren().add(LineComponent.builder()
+					lines.add(LineComponent.builder()
 						.left(t.name)
-						.leftColor(teamColor(t.color))
-						.right(t.complete ? "Done" : fmt(t.current) + "/" + fmt(p.goal))
+						.leftColor(Ui.teamColor(t.color, Color.WHITE))
+						.right(t.complete ? "Done" : Ui.count(t.current) + "/" + Ui.count(p.goal))
 						.rightColor(t.complete ? Color.GREEN : Color.WHITE)
 						.build());
 				}
 			}
 		}
 
-		private void renderOwnTeam(PanelComponent panelComponent, Progress p, Team t, boolean compact)
+		private void buildOwnTeam(Progress p, Team t, boolean compact)
 		{
-			// Your own kill counts here the moment it happens; the fetch after the push confirms it.
-			long current = t.complete ? t.current : shown.applyAsLong(tileId, t.current);
-			long ahead = current - t.current;
-			ProgressBarComponent bar = new ProgressBarComponent();
+			mine = t;
+			bar = new ProgressBarComponent();
 			bar.setMaximum(Math.max(1, p.goal));
-			bar.setValue(t.complete ? p.goal : Math.min(current, p.goal));
-			bar.setForegroundColor(t.complete ? new Color(0, 160, 0) : teamColor(t.color).darker());
+			bar.setValue(p.goal);
+			bar.setForegroundColor(t.complete ? new Color(0, 160, 0) : Ui.teamColor(t.color, Color.WHITE).darker());
 			bar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.FULL);
-			panelComponent.getChildren().add(bar);
+			lines.add(bar);
 			if (compact || t.members == null)
 			{
 				return;
 			}
 			for (Member m : t.members)
 			{
-				panelComponent.getChildren().add(LineComponent.builder()
+				LineComponent line = LineComponent.builder()
 					.left(m.mine ? "You" : m.name)
 					.leftColor(m.mine ? GOLD : Color.LIGHT_GRAY)
-					.right(fmt(m.mine ? m.amount + Math.max(0, ahead) : m.amount))
-					.build());
+					.right(Ui.count(m.amount))
+					.build();
+				if (m.mine && !t.complete)
+				{
+					you = line;
+					youBase = m.amount;
+				}
+				lines.add(line);
 			}
-		}
-
-		private static Color teamColor(String hex)
-		{
-			try
-			{
-				return hex != null && hex.startsWith("#") ? Color.decode(hex) : Color.WHITE;
-			}
-			catch (NumberFormatException e)
-			{
-				return Color.WHITE;
-			}
-		}
-
-		private static String countdown(String iso)
-		{
-			try
-			{
-				long s = Math.max(0, java.time.Duration.between(java.time.Instant.now(), java.time.Instant.parse(iso)).getSeconds());
-				return s >= 3600 ? (s / 3600) + "h " + (s % 3600 / 60) + "m" : s >= 60 ? (s / 60) + "m " + (s % 60) + "s" : s + "s";
-			}
-			catch (RuntimeException e)
-			{
-				return "soon";
-			}
-		}
-
-		private static String fmt(long n)
-		{
-			return n >= 10_000_000 ? (n / 1_000_000) + "M" : n >= 100_000 ? (n / 1_000) + "K" : String.format("%,d", n);
 		}
 	}
 }

@@ -9,7 +9,6 @@ import javax.swing.*;
 import net.runelite.api.Skill;
 import net.runelite.client.ui.ColorScheme;
 
-import static com.anvil.PlayerCardView.header;
 import static com.anvil.Ui.*;
 
 /**
@@ -23,6 +22,9 @@ final class CompareView
 	{
 	}
 
+	/** A whole number with separators; a negative is "not known" and reads as a dash. */
+	static final LongFunction<String> EXACT = n -> n < 0 ? "—" : String.format(Locale.ROOT, "%,d", n);
+
 	static JPanel players(PlayerCard me, PlayerCard them, PlayerCardView.Icons icons)
 	{
 		PlayerCardView.Icons ic = icons == null ? PlayerCardView.Icons.NONE : icons;
@@ -31,13 +33,13 @@ final class CompareView
 		JPanel head = block();
 		head.add(namesRow("You", them.rsn));
 		head.add(gap(4));
-		head.add(row("Total level", me.totalLevel, them.totalLevel, n -> String.format(Locale.ROOT, "%,d", n)));
+		head.add(row("Total level", me.totalLevel, them.totalLevel, EXACT));
 		head.add(row("Combat", nz(me.combatLevel), nz(them.combatLevel), Long::toString));
-		head.add(row("Total XP", nz(me.overallXp), nz(them.overallXp), PlayerCardView::compact));
+		head.add(row("Total XP", nz(me.overallXp), nz(them.overallXp), Ui::count));
 		head.add(row("EHP", Math.round(nzd(me.ehp)), Math.round(nzd(them.ehp)), n -> n + "h"));
 		head.add(row("EHB", Math.round(nzd(me.ehb)), Math.round(nzd(them.ehb)), n -> n + "h"));
 		head.add(row("Log slots", me.clog == null ? -1 : me.clog.obtained, them.clog == null ? -1 : them.clog.obtained,
-			n -> n < 0 ? "—" : String.format(Locale.ROOT, "%,d", n)));
+			EXACT));
 		root.add(head);
 
 		List<SkillDiff> skills = skillDiffs(me, them);
@@ -141,10 +143,10 @@ final class CompareView
 	private static JPanel iconRow(String name, long a, long b, PlayerCardView.Icons ic)
 	{
 		JPanel row = Ui.row(6);
-		JLabel icon = PlayerCardView.iconSlot(22, 20);
+		JLabel icon = iconSlot(22, 20);
 		PlayerCardView.bossIcon(icon, name, ic);
 		row.add(icon, BorderLayout.WEST);
-		row.add(row(name, a, b, n -> String.format(Locale.ROOT, "%,d", n)), BorderLayout.CENTER);
+		row.add(row(name, a, b, EXACT), BorderLayout.CENTER);
 		return capH(row);
 	}
 

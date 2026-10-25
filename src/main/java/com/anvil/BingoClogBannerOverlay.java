@@ -60,6 +60,8 @@ public class BingoClogBannerOverlay extends Overlay
 	private final Font headerFont;
 	private final Font bodyFont;
 	private String[] active; // {top, middle, bottom}
+	/** {@link #active} wrapped to the panel, once per banner rather than every frame; null until first drawn. */
+	private List<List<String>> wrapped;
 	private long startedAt;
 
 	@Inject
@@ -126,6 +128,7 @@ public class BingoClogBannerOverlay extends Overlay
 				return null;
 			}
 			startedAt = now;
+			wrapped = null;
 			now = System.currentTimeMillis();
 		}
 
@@ -183,10 +186,17 @@ public class BingoClogBannerOverlay extends Overlay
 			if (e < holdEnd)
 			{
 				g2.clipRect(x, y, iw, ih);
-				int maxTextW = BASE_W - 2 * TEXT_MARGIN_X;
-				drawWrapped(g2, active[0], headerFont, ORANGE, maxTextW, TOP_Y, 1);
-				drawWrapped(g2, active[1], bodyFont, ORANGE, maxTextW, MID_Y, 1);
-				drawWrapped(g2, active[2], bodyFont, WHITE, maxTextW, BOTTOM_Y, BOTTOM_MAX_LINES);
+				if (wrapped == null)
+				{
+					int maxTextW = BASE_W - 2 * TEXT_MARGIN_X;
+					wrapped = Arrays.asList(
+						wrap(active[0], g2.getFontMetrics(headerFont), maxTextW, 1),
+						wrap(active[1], g2.getFontMetrics(bodyFont), maxTextW, 1),
+						wrap(active[2], g2.getFontMetrics(bodyFont), maxTextW, BOTTOM_MAX_LINES));
+				}
+				drawLines(g2, wrapped.get(0), headerFont, ORANGE, TOP_Y);
+				drawLines(g2, wrapped.get(1), bodyFont, ORANGE, MID_Y);
+				drawLines(g2, wrapped.get(2), bodyFont, WHITE, BOTTOM_Y);
 			}
 		}
 
@@ -195,19 +205,12 @@ public class BingoClogBannerOverlay extends Overlay
 		return new Dimension(BASE_W, BASE_H);
 	}
 
-	/** Draws text centred horizontally, {@code topY} being the CSS-style top of the line (line-height 1),
-	 *  wrapped onto up to {@code maxLines} lines at the full font size (the RS bitmap font pixelates when
-	 *  scaled, so we wrap rather than shrink), ellipsising only the final line if it still overflows.
-	 *  Extra lines advance downward by {@link #WRAP_LINE_H}. */
-	private static void drawWrapped(Graphics2D g, String text, Font font, Color color, int maxWidth, int topY, int maxLines)
+	/** Draws {@link #wrap wrapped} lines centred horizontally, {@code topY} being the CSS-style top of the
+	 *  first (line-height 1); extra lines advance downward by {@link #WRAP_LINE_H}. */
+	private static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY)
 	{
-		if (text == null || text.isEmpty())
-		{
-			return;
-		}
 		g.setFont(font);
 		FontMetrics fm = g.getFontMetrics();
-		List<String> lines = wrap(text, fm, maxWidth, maxLines);
 		for (int i = 0; i < lines.size(); i++)
 		{
 			String shown = lines.get(i);
@@ -220,12 +223,17 @@ public class BingoClogBannerOverlay extends Overlay
 		}
 	}
 
-	/** Greedy word-wrap into at most {@code maxLines} lines that each fit {@code maxWidth}; any overflow
-	 *  past the last line is folded into it, and every kept line is ellipsised if it still overflows
-	 *  (covers a lone over-long word too). */
+	/** Greedy word-wrap into at most {@code maxLines} lines that each fit {@code maxWidth}, at the full font
+	 *  size (the RS bitmap font pixelates when scaled, so we wrap rather than shrink); any overflow past
+	 *  the last line is folded into it, and every kept line is ellipsised if it still overflows (covers a
+	 *  lone over-long word too). No text, no lines. */
 	private static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines)
 	{
 		List<String> lines = new ArrayList<>();
+		if (text == null || text.isEmpty())
+		{
+			return lines;
+		}
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth)
 		{
 			lines.add(text);

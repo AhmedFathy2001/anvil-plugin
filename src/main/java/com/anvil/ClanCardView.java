@@ -6,7 +6,6 @@ import java.util.function.Consumer;
 import javax.swing.*;
 import net.runelite.client.ui.ColorScheme;
 
-import static com.anvil.PlayerCardView.header;
 import static com.anvil.Ui.*;
 
 /**
@@ -79,7 +78,7 @@ final class ClanCardView
 			top.add(gap(4));
 			for (ClanCard.Player p : card.topPlayers)
 			{
-				top.add(nameLine(p.rsn, PlayerCardView.compact(p.overallXp) + " xp", p.rsn, onPlayer));
+				top.add(nameLine(p.rsn, count(p.overallXp) + " xp", p.rsn, onPlayer));
 			}
 			root.add(top);
 		}
@@ -93,7 +92,7 @@ final class ClanCardView
 			for (ClanCard.Highlight h : card.highlights)
 			{
 				JPanel line = row(6);
-				JLabel icon = PlayerCardView.iconSlot(24, 22);
+				JLabel icon = iconSlot(24, 22);
 				if (h.itemId != null && ic.items != null)
 				{
 					ic.items.getImage(h.itemId).addTo(icon);
@@ -104,7 +103,7 @@ final class ClanCardView
 				text.add(small(h.label, Color.WHITE));
 				text.add(small(h.rsn + ("pet".equals(h.kind) ? " · pet" : ""), MUTED));
 				line.add(text, BorderLayout.CENTER);
-				line.add(small(PlayerCardView.ago(h.at), MUTED), BorderLayout.EAST);
+				line.add(small(ago(h.at), MUTED), BorderLayout.EAST);
 				hl.add(capH(line));
 				hl.add(gap(2));
 			}
@@ -154,7 +153,7 @@ final class ClanCardView
 		block.add(CompareView.row("Total EHP", Math.round(a.totalEhp), Math.round(b.totalEhp), hours));
 		block.add(CompareView.row("Total EHB", Math.round(a.totalEhb), Math.round(b.totalEhb), hours));
 		block.add(CompareView.row("Avg log slots", a.clog == null ? -1 : a.clog.average, b.clog == null ? -1 : b.clog.average,
-			n -> n < 0 ? "—" : String.format(Locale.ROOT, "%,d", n)));
+			CompareView.EXACT));
 		block.add(CompareView.row("Gained this week", Math.round(a.weekHours), Math.round(b.weekHours), hours));
 		return block;
 	}

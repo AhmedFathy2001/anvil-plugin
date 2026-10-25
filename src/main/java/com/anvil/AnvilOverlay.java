@@ -27,6 +27,16 @@ public class AnvilOverlay extends OverlayPanel {
 		setPriority(OverlayPriority.LOW);
 	}
 
+	/** The config the lines below were built from; rebuilt only when a poll swaps it. Client thread only. */
+	private PluginConfigResponse builtFor;
+	/** The event's [start, end], or null when it can't be live (force-ended, an unparseable date). */
+	private Instant[] window;
+	private LineComponent team;
+	private final LineComponent date = LineComponent.builder().left("Date:").build();
+	private long dateMinute = -1;
+
+	private static final TitleComponent TITLE = TitleComponent.builder().text("Anvil").color(new Color(255, 215, 0)).build();
+
 	@Override
 	public Dimension render(Graphics2D graphics) {
 		if (!config.showOverlay()) {
@@ -37,68 +47,65 @@ public class AnvilOverlay extends OverlayPanel {
 		if (pluginConfig == null || pluginConfig.event == null) {
 			return null;
 		}
+		if (pluginConfig != builtFor) {
+			build(pluginConfig);
+		}
 
 		// Don't show overlay if event isn't active
-		if (!isEventActive(pluginConfig.event)) {
+		long now = System.currentTimeMillis();
+		if (!within(window, Instant.ofEpochMilli(now))) {
 			return null;
 		}
 
-		// Title
-		panelComponent.getChildren().add(TitleComponent.builder()
-				.text("Anvil")
-				.color(new Color(255, 215, 0)) // Gold
-				.build());
-
-		// Team — the only proof we need on a screenshot. Team name + UTC date are
-		// uniquely identifying for a submission. The previous codeword was redundant
-		// since we never validated it server-side, and the aggregate "Drops: 1/3"
-		// line was misleading when multiple tiles are progressing in parallel.
-		if (pluginConfig.team != null && pluginConfig.team.name != null && !pluginConfig.team.name.isEmpty()) {
-			Color teamColor = Color.WHITE;
-			try {
-				if (pluginConfig.team.color != null && pluginConfig.team.color.startsWith("#")) {
-					teamColor = Color.decode(pluginConfig.team.color);
-				}
-			} catch (NumberFormatException ignored) {
-				/* fall back to white */ }
-			panelComponent.getChildren().add(LineComponent.builder()
-					.left("Team:")
-					.right(pluginConfig.team.name)
-					.rightColor(teamColor)
-					.build());
+		panelComponent.getChildren().add(TITLE);
+		if (team != null) {
+			panelComponent.getChildren().add(team);
 		}
-
-		// Date — UTC for unambiguous time-of-drop on the proof image.
-		panelComponent.getChildren().add(LineComponent.builder()
-				.left("Date:")
-				.right(ZonedDateTime.now(ZoneOffset.UTC).format(DATE_FMT))
-				.build());
+		// Date — UTC for unambiguous time-of-drop on the proof image; it only reads to the minute.
+		if (now / 60_000 != dateMinute) {
+			dateMinute = now / 60_000;
+			date.setRight(ZonedDateTime.now(ZoneOffset.UTC).format(DATE_FMT));
+		}
+		panelComponent.getChildren().add(date);
 
 		return super.render(graphics);
 	}
 
-	static boolean isEventActive(PluginConfigResponse.EventInfo event) {
-		// Missing, or force-ended by admin
-		if (event == null || event.forceEndedAt != null) {
-			return false;
-		}
-
-		// Not started yet, already ended, or an unparseable date (treated as inactive).
-		Instant now = Instant.now();
-		return !outside(event.startDate, "startDate", now, true) && !outside(event.endDate, "endDate", now, false);
+	private void build(PluginConfigResponse cfg) {
+		builtFor = cfg;
+		window = window(cfg.event);
+		// Team — the only proof we need on a screenshot. Team name + UTC date are
+		// uniquely identifying for a submission. The previous codeword was redundant
+		// since we never validated it server-side, and the aggregate "Drops: 1/3"
+		// line was misleading when multiple tiles are progressing in parallel.
+		team = cfg.team == null || cfg.team.name == null || cfg.team.name.isEmpty() ? null
+				: LineComponent.builder().left("Team:").right(cfg.team.name)
+						.rightColor(Ui.teamColor(cfg.team.color, Color.WHITE)).build();
 	}
 
-	/** True when {@code iso} is set and {@code now} is before it ({@code start}) or after it — or it won't parse. */
-	private static boolean outside(String iso, String field, Instant now, boolean start) {
-		if (iso == null) {
-			return false;
+	static boolean isEventActive(PluginConfigResponse.EventInfo event) {
+		return within(window(event), Instant.now());
+	}
+
+	private static boolean within(Instant[] window, Instant now) {
+		return window != null && !now.isBefore(window[0]) && !now.isAfter(window[1]);
+	}
+
+	/**
+	 * When the event runs, open-ended where a date is missing — or null when it never does: missing,
+	 * force-ended by admin, or a date that won't parse (treated as inactive).
+	 */
+	private static Instant[] window(PluginConfigResponse.EventInfo event) {
+		if (event == null || event.forceEndedAt != null) {
+			return null;
 		}
 		try {
-			Instant at = Instant.parse(iso);
-			return start ? now.isBefore(at) : now.isAfter(at);
+			return new Instant[] {
+				event.startDate == null ? Instant.MIN : Instant.parse(event.startDate),
+				event.endDate == null ? Instant.MAX : Instant.parse(event.endDate)};
 		} catch (Exception e) {
-			log.warn("Failed to parse event {} '{}': {}", field, iso, e.getMessage());
-			return true;
+			log.warn("Failed to parse event dates '{}' / '{}': {}", event.startDate, event.endDate, e.getMessage());
+			return null;
 		}
 	}
 }
