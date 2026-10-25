@@ -2,8 +2,6 @@ package com.anvil;
 
 import java.awt.*;
 import java.awt.event.*;
-import java.time.*;
-import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.List;
 import java.util.function.Consumer;
@@ -542,14 +540,6 @@ final class PlayerCardView
 		return true;
 	}
 
-	/** A transparent, left-aligned grid {@code cols} across. */
-	static JPanel grid(int cols, int hgap, int vgap)
-	{
-		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
-		grid.setOpaque(false);
-		return grid;
-	}
-
 	/** A grid cell: small text on the panel background, room for an icon to its left. */
 	private static JLabel cell(String text, Color color, int iconGap)
 	{
@@ -559,15 +549,6 @@ final class PlayerCardView
 		cell.setOpaque(true);
 		cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		return cell;
-	}
-
-	/** An empty, centred icon holder of a fixed size. */
-	static JLabel iconSlot(int w, int h)
-	{
-		JLabel icon = new JLabel();
-		icon.setPreferredSize(new Dimension(w, h));
-		icon.setHorizontalAlignment(SwingConstants.CENTER);
-		return icon;
 	}
 
 	/**
@@ -723,7 +704,7 @@ final class PlayerCardView
 		Consumer<String> openLogPage, String page)
 	{
 		boolean opens = openLogPage != null && page != null;
-		JLabel cell = cell(compact(count), Color.WHITE, 4);
+		JLabel cell = cell(count(count), Color.WHITE, 4);
 		cell.setToolTipText(plainText(tooltip + (opens ? " · click for its log" : "")));
 		if (itemId > 0 && ic.items != null)
 		{
@@ -736,7 +717,7 @@ final class PlayerCardView
 		else
 		{
 			// No picture for it: the name has to carry it, or it's an unlabelled number.
-			cell.setText(plainText(abbrev(name) + " " + compact(count)));
+			cell.setText(plainText(abbrev(name) + " " + count(count)));
 		}
 		if (opens)
 		{
@@ -909,24 +890,6 @@ final class PlayerCardView
 		return row;
 	}
 
-	/** A 3px share-of-total bar: orange, green once full, over {@code bg}. */
-	static JPanel thinBar(int pct, Color bg)
-	{
-		JPanel bar = new JPanel()
-		{
-			@Override
-			protected void paintComponent(Graphics g)
-			{
-				g.setColor(bg);
-				g.fillRect(0, 0, getWidth(), getHeight());
-				g.setColor(pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
-				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
-			}
-		};
-		bar.setPreferredSize(new Dimension(0, 3));
-		return bar;
-	}
-
 	private static void showPage(String rsn, PlayerCard.Page p, Icons ic, JPanel holder, JComponent back)
 	{
 		JPanel page = inner();
@@ -1058,18 +1021,6 @@ final class PlayerCardView
 
 	// ---- Pieces ------------------------------------------------------------------------------------
 
-	/** A section's orange name, with an optional white figure at the right. */
-	static JPanel header(String left, String right)
-	{
-		JPanel row = row(0);
-		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
-		if (right != null)
-		{
-			row.add(small(right, Color.WHITE), BorderLayout.EAST);
-		}
-		return capH(row);
-	}
-
 	/** "Bosses  62%" over a 3px bar — a share of the log at a glance. */
 	static JPanel miniBar(String name, int obtained, int total)
 	{
@@ -1087,84 +1038,6 @@ final class PlayerCardView
 	}
 
 	// ---- Formatting (package-private for tests) ---------------------------------------------------
-
-	static int percent(int part, int whole)
-	{
-		return whole <= 0 ? 0 : (int) Math.floor(part * 100.0 / whole);
-	}
-
-	static String compact(long n)
-	{
-		if (n >= 1_000_000)
-		{
-			return trim(n / 1_000_000.0) + "m";
-		}
-		if (n >= 10_000)
-		{
-			return Math.round(n / 1000.0) + "k";
-		}
-		if (n >= 1_000)
-		{
-			return trim(n / 1000.0) + "k";
-		}
-		return Long.toString(n);
-	}
-
-	private static String trim(double v)
-	{
-		String s = String.format(Locale.ROOT, "%.1f", v);
-		return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;
-	}
-
-	/** "3d ago" from either timestamp format the site sends ("2026-10-12 08:00:00" or ISO). */
-	static String ago(String at)
-	{
-		return ago(at, Instant.now());
-	}
-
-	static String ago(String at, Instant now)
-	{
-		if (at == null || at.isEmpty())
-		{
-			return "";
-		}
-		String iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
-		{
-			iso = iso + "Z";
-		}
-		try
-		{
-			long minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
-			if (minutes < 60)
-			{
-				return minutes <= 1 ? "just now" : minutes + "m ago";
-			}
-			long hours = minutes / 60;
-			if (hours < 24)
-			{
-				return hours + "h ago";
-			}
-			long days = hours / 24;
-			if (days < 14)
-			{
-				return days + "d ago";
-			}
-			if (days < 60)
-			{
-				return (days / 7) + "w ago";
-			}
-			if (days < 730)
-			{
-				return (days / 30) + "mo ago";
-			}
-			return (days / 365) + "y ago";
-		}
-		catch (DateTimeParseException e)
-		{
-			return "";
-		}
-	}
 
 	/**
 	 * The site's account types (lib/accountType: the game's varbit, reported by the plugin — the

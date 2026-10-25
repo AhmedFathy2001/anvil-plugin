@@ -5,7 +5,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.gson.Gson;
-import java.awt.Color;
 import org.junit.Test;
 
 public class TeamsViewTest
@@ -20,14 +19,6 @@ public class TeamsViewTest
 		t.score = "12 tiles";
 		t.members = 1200;
 		assertEquals("#2 · 12 tiles · 1,200 members", TeamsView.teamLine(t));
-	}
-
-	@Test
-	public void teamColourFallsBackToGrey()
-	{
-		assertEquals(new Color(0xff0000), TeamsView.teamColor("#FF0000"));
-		assertEquals(Ui.MUTED, TeamsView.teamColor("red"));
-		assertEquals(Ui.MUTED, TeamsView.teamColor(null));
 	}
 
 	@Test

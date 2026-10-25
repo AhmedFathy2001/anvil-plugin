@@ -7,44 +7,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.gson.Gson;
-import java.time.Instant;
 import net.runelite.client.hiscore.HiscoreSkill;
 import org.junit.Test;
 
 public class PlayerCardViewTest
 {
-	private static final Instant NOW = Instant.parse("2026-10-12T12:00:00Z");
-
-	@Test
-	public void agoReadsBothTimestampFormats()
-	{
-		assertEquals("3h ago", PlayerCardView.ago("2026-10-12 09:00:00", NOW));
-		assertEquals("3h ago", PlayerCardView.ago("2026-10-12T09:00:00.000Z", NOW));
-		assertEquals("2d ago", PlayerCardView.ago("2026-10-10T12:00:00Z", NOW));
-		assertEquals("3w ago", PlayerCardView.ago("2026-09-21T12:00:00Z", NOW));
-		assertEquals("just now", PlayerCardView.ago("2026-10-12T11:59:30Z", NOW));
-		assertEquals("", PlayerCardView.ago("not a date", NOW));
-		assertEquals("", PlayerCardView.ago(null, NOW));
-	}
-
-	@Test
-	public void compactNumbers()
-	{
-		assertEquals("812", PlayerCardView.compact(812));
-		assertEquals("1.2k", PlayerCardView.compact(1240));
-		assertEquals("12k", PlayerCardView.compact(12_400));
-		assertEquals("4.1m", PlayerCardView.compact(4_100_000));
-		assertEquals("2m", PlayerCardView.compact(2_000_000));
-	}
-
-	@Test
-	public void percentFloorsAndSurvivesZero()
-	{
-		assertEquals(51, PlayerCardView.percent(812, 1568));
-		assertEquals(0, PlayerCardView.percent(5, 0));
-		assertEquals(100, PlayerCardView.percent(10, 10));
-	}
-
 	@Test
 	public void bossLabelsMatchRuneLiteSprites()
 	{

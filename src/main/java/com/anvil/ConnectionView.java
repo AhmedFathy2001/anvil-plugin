@@ -16,21 +16,6 @@ public final class ConnectionView
 	 */
 	static final double EFFICIENCY_SCALE = 1000.0;
 
-	/** Compact count for display: {@code 1.2M} / {@code 340K} / {@code 850}. */
-	static String formatCount(long n)
-	{
-		if (n >= 1_000_000)
-		{
-			double m = n / 1_000_000.0;
-			return (m == Math.floor(m) ? String.valueOf((int) m) : String.format(Locale.ROOT, "%.1f", m)) + "M";
-		}
-		if (n >= 10_000)
-		{
-			return (n / 1000) + "K";
-		}
-		return String.valueOf(n);
-	}
-
 	/** Human clan/instance name — the label shown in the clan filter. */
 	public final String clanName;
 
@@ -277,7 +262,7 @@ public final class ConnectionView
 					b.append(i > 0 ? " · " : "").append(w);
 					if (g != null && g > 0)
 					{
-						b.append(' ').append(formatCount(g));
+						b.append(' ').append(Ui.count(g));
 					}
 				}
 				if (workers.size() > shown)
@@ -411,7 +396,7 @@ public final class ConnectionView
 			// Rendered raw that arrives as "+12,400 kc".
 			return (efficiency()
 				? String.format(Locale.ROOT, "%.2f", safe / EFFICIENCY_SCALE)
-				: formatCount(safe)) + " " + unitNoun();
+				: Ui.count(safe)) + " " + unitNoun();
 		}
 
 		/** Underscored/hyphenated metric keys → title case, keeping the small joining words lowercase. */

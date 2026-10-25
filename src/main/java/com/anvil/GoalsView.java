@@ -55,7 +55,7 @@ final class GoalsView
 	{
 		JPanel block = block();
 
-		JPanel head = PlayerCardView.header("Goals", null);
+		JPanel head = header("Goals", null);
 		JLabel add = onClick(small("+ Add goal", ColorScheme.BRAND_ORANGE), onAdd);
 		add.setToolTipText("A skill level, a boss kill count, or a whole log page");
 		head.add(add, BorderLayout.EAST);

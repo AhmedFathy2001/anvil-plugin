@@ -2,6 +2,9 @@ package com.anvil;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.time.*;
+import java.time.format.DateTimeParseException;
+import java.util.Locale;
 import javax.swing.*;
 import net.runelite.client.ui.*;
 import javax.swing.event.DocumentEvent;
@@ -209,6 +212,144 @@ final class Ui
 		bar.setBackground(bg);
 		bar.setPreferredSize(new Dimension(0, h));
 		return bar;
+	}
+
+	/** A transparent, left-aligned grid {@code cols} across. */
+	static JPanel grid(int cols, int hgap, int vgap)
+	{
+		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
+		grid.setOpaque(false);
+		return grid;
+	}
+
+	/** An empty, centred icon holder of a fixed size. */
+	static JLabel iconSlot(int w, int h)
+	{
+		JLabel icon = new JLabel();
+		icon.setPreferredSize(new Dimension(w, h));
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		return icon;
+	}
+
+	/** A 3px share-of-total bar: orange, green once full, over {@code bg}. */
+	static JPanel thinBar(int pct, Color bg)
+	{
+		JPanel bar = new JPanel()
+		{
+			@Override
+			protected void paintComponent(Graphics g)
+			{
+				g.setColor(bg);
+				g.fillRect(0, 0, getWidth(), getHeight());
+				g.setColor(pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
+				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
+			}
+		};
+		bar.setPreferredSize(new Dimension(0, 3));
+		return bar;
+	}
+
+	/** A section's orange name, with an optional white figure at the right. */
+	static JPanel header(String left, String right)
+	{
+		JPanel row = row(0);
+		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
+		if (right != null)
+		{
+			row.add(small(right, Color.WHITE), BorderLayout.EAST);
+		}
+		return capH(row);
+	}
+
+	static int percent(long part, long whole)
+	{
+		return whole <= 0 ? 0 : (int) Math.floor(part * 100.0 / whole);
+	}
+
+	/**
+	 * The one way a count is shown, panel and overlays alike: "9,999", "12K", "4.1M", "4.6B" — the game's
+	 * own capital suffixes, rounded down so a goal never reads as reached before it is.
+	 */
+	static String count(long n)
+	{
+		if (n < 10_000)
+		{
+			return String.format(Locale.ROOT, "%,d", n);
+		}
+		if (n < 1_000_000)
+		{
+			return n / 1000 + "K";
+		}
+		boolean b = n >= 1_000_000_000;
+		long tenths = n / (b ? 100_000_000 : 100_000);
+		return tenths / 10 + (tenths % 10 == 0 ? "" : "." + tenths % 10) + (b ? "B" : "M");
+	}
+
+	/** "1 player", "1,204 players". */
+	static String plural(long n, String one)
+	{
+		return plural(n, one, one + "s");
+	}
+
+	static String plural(long n, String one, String many)
+	{
+		return String.format(Locale.ROOT, "%,d %s", n, n == 1 ? one : many);
+	}
+
+	/** A team's colour; the server stores "#rrggbb", and anything else reads as {@code fallback}. */
+	static Color teamColor(String hex, Color fallback)
+	{
+		return hex != null && hex.matches("#[0-9a-fA-F]{6}") ? new Color(Integer.parseInt(hex.substring(1), 16)) : fallback;
+	}
+
+	/** "3d ago" from either timestamp format the site sends ("2026-10-12 08:00:00" or ISO). */
+	static String ago(String at)
+	{
+		return ago(at, Instant.now());
+	}
+
+	static String ago(String at, Instant now)
+	{
+		if (at == null || at.isEmpty())
+		{
+			return "";
+		}
+		String iso = at.trim().replace(' ', 'T');
+		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
+		{
+			iso = iso + "Z";
+		}
+		try
+		{
+			long minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
+			if (minutes < 60)
+			{
+				return minutes <= 1 ? "just now" : minutes + "m ago";
+			}
+			long hours = minutes / 60;
+			if (hours < 24)
+			{
+				return hours + "h ago";
+			}
+			long days = hours / 24;
+			if (days < 14)
+			{
+				return days + "d ago";
+			}
+			if (days < 60)
+			{
+				return (days / 7) + "w ago";
+			}
+			if (days < 730)
+			{
+				return (days / 30) + "mo ago";
+			}
+			return (days / 365) + "y ago";
+		}
+		catch (DateTimeParseException e)
+		{
+			return "";
+		}
 	}
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
