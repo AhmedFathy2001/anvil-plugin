@@ -223,4 +223,46 @@ public class ApiClientHttpTest
 			+ "\"items\":[{\"category\":\"quest\",\"items\":[{\"id\":5,\"name\":\"Cook's Assistant\",\"state\":2}]}],"
 			+ "\"caVarps\":{\"3116\":7},\"caPoints\":40}", bodies.get(0));
 	}
+
+	@Test
+	public void tokenOptionalCallsCarryThePluginVersion() throws IOException
+	{
+		BingoApiClient c = client();
+		c.fetchWeeklyLeaderboard(null);
+		c.hello("Main Guy");
+		for (Request r : seen)
+		{
+			assertEquals(BingoApiClient.PLUGIN_VERSION, r.header("X-Anvil-Plugin-Version"));
+			assertEquals("Bearer tok", r.header("Authorization"));
+		}
+	}
+
+	@Test
+	public void everyRefusalIsTypedWithItsStatus()
+	{
+		BingoApiClient c = client();
+		code = 503;
+		try
+		{
+			c.submitEventCounters(1, 2, 3, 4, 5, 6);
+			fail();
+		}
+		catch (IOException e)
+		{
+			assertTrue(e instanceof BingoApiClient.HttpStatusException);
+			assertEquals(503, ((BingoApiClient.HttpStatusException) e).code);
+			assertEquals("Counter push failed: HTTP 503 — {}", e.getMessage());
+		}
+		code = 401;
+		try
+		{
+			c.uploadImage(new byte[]{1}, "a.png");
+			fail();
+		}
+		catch (IOException e)
+		{
+			assertEquals(401, ((BingoApiClient.HttpStatusException) e).code);
+			assertEquals("Image upload failed: HTTP 401", e.getMessage());
+		}
+	}
 }

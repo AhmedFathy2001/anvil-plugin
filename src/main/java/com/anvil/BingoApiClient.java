@@ -345,8 +345,12 @@ public class BingoApiClient
 	}
 
 	/**
-	 * A public read that sends the Account Token when there is one — never X-RSN or the account hash: a
-	 * lookup is usually about somebody else, so the identity headers that drive claims have no business here.
+	 * A GET that sends the Account Token when there is one — never X-RSN or the account hash: a lookup
+	 * is usually about somebody else, so the identity headers that drive claims have no business here.
+	 *
+	 * Also the token-optional calls (weekly leaderboard, hello). Those were written against a site that
+	 * WAS a clan; on the canonical address, which names none, the token is the only thing that can say
+	 * which clan the caller means. A caller without a token gets exactly what it got before.
 	 */
 	private Request.Builder publicRequest(String url)
 	{
@@ -359,24 +363,53 @@ public class BingoApiClient
 		return rb;
 	}
 
-	/** Execute and parse a 2xx body as {@code type}; null on any other status or a transport/parse failure. */
-	private <T> T getOrNull(Request.Builder request, Class<T> type, String label)
+	/** Reads one response: status and headers on {@code r}, its body already read as text ("" when none). */
+	private interface Reply<T>
 	{
-		OffThread.check("HTTP getOrNull()");
-		try (Response response = readClient.newCall(request.build()).execute())
+		T read(Response r, String body) throws IOException;
+	}
+
+	/**
+	 * Every blocking call goes through here, so each one trips {@link OffThread} if it lands on a thread
+	 * that must not wait. {@code client} is deliberate: {@link #readClient} for reads the sidebar waits on,
+	 * {@link #httpClient} for writes and uploads. {@code reply} sees every status; one it refuses is thrown
+	 * as an {@link HttpStatusException} (or a subclass), so a caller can tell a refusal by its code.
+	 */
+	private <T> T execute(OkHttpClient client, Request.Builder request, Reply<T> reply) throws IOException
+	{
+		Request req = request.build();
+		OffThread.check("HTTP " + req.method() + " " + req.url().encodedPath());
+		try (Response r = client.newCall(req).execute())
 		{
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				log.debug("{} returned HTTP {}", label, response.code());
-				return null;
-			}
-			return gson.fromJson(response.body().string(), type);
+			return reply.read(r, r.body() != null ? r.body().string() : "");
+		}
+	}
+
+	/** {@link #execute}, null on a transport, status or parse failure (logged as "{@code label} failed"). */
+	private <T> T executeOrNull(OkHttpClient client, Request.Builder request, String label, Reply<T> reply)
+	{
+		try
+		{
+			return execute(client, request, reply);
 		}
 		catch (IOException | JsonParseException e)
 		{
 			log.debug("{} failed: {}", label, e.getMessage());
 			return null;
 		}
+	}
+
+	/** Parse a 2xx body as {@code type}; null on any other status or a transport/parse failure. */
+	private <T> T getOrNull(Request.Builder request, Class<T> type, String label)
+	{
+		return executeOrNull(readClient, request, label, (r, body) ->
+		{
+			if (!r.isSuccessful())
+			{
+				throw new HttpStatusException("HTTP " + r.code(), r.code());
+			}
+			return gson.fromJson(body, type);
+		});
 	}
 
 	/**
@@ -402,13 +435,22 @@ public class BingoApiClient
 		}
 	}
 
+	/** An Account Token request as the logged-in character. */
 	Request.Builder authedRequest(String url)
 	{
+		return authedRequest(url, currentRsn, rsnHint, accountHash);
+	}
+
+	/**
+	 * The one place the identity headers are written, so a queued notification resent later goes out
+	 * exactly as a live one would, as the character it was first sent for. The hint only rides when no
+	 * RSN is stamped.
+	 */
+	private Request.Builder authedRequest(String url, String rsn, String hint, String hash)
+	{
 		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken);
-		String rsn = currentRsn;
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
-		else if (rsnHint != null) b.header("X-RSN-Hint", rsnHint);
-		String hash = accountHash;
+		else if (hint != null) b.header("X-RSN-Hint", hint);
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
 		return b;
 	}
@@ -460,31 +502,26 @@ public class BingoApiClient
 		}
 		JsonObject payload = new JsonObject();
 		payload.addProperty("action", action);
-		Request request = authedRequest(clanUrl("/api/plugin/account"))
-			.tag(AccountAction.class, ACCOUNT_ACTION)
-			.post(json(payload))
-			.build();
-		OffThread.check("HTTP postAccountAction()");
-		try (Response response = httpClient.newCall(request).execute())
+		try
 		{
-			String text = bodyText(response);
-			AccountActionResult parsed = text.isEmpty() ? null : gson.fromJson(text, AccountActionResult.class);
-			if (parsed != null)
+			return execute(httpClient, authedRequest(clanUrl("/api/plugin/account"))
+				.tag(AccountAction.class, ACCOUNT_ACTION).post(json(payload)), (r, text) ->
 			{
-				out = parsed;
-			}
-			out.ok = response.isSuccessful();
-			if (!out.ok && out.error == null)
-			{
-				out.error = "The site said " + response.code() + ".";
-			}
+				AccountActionResult parsed = text.isEmpty() ? null : gson.fromJson(text, AccountActionResult.class);
+				AccountActionResult res = parsed != null ? parsed : out;
+				res.ok = r.isSuccessful();
+				if (!res.ok && res.error == null)
+				{
+					res.error = "The site said " + r.code() + ".";
+				}
+				return res;
+			});
 		}
 		catch (IOException | JsonParseException e)
 		{
-			out.ok = false;
 			out.error = "Couldn't reach Anvil: " + e.getMessage();
+			return out;
 		}
-		return out;
 	}
 
 	/**
@@ -521,10 +558,10 @@ public class BingoApiClient
 
 		String url = clanUrl("/api/plugin/notify");
 		String payloadJson = payload.toString();
-		Request request = authedRequest(url).post(notifyBody(payloadJson, png, filename)).build();
-		// What a retry needs to say the same thing as the same character, should this attempt fail.
-		final String rsn = currentRsn;
-		final String hash = accountHash;
+		// Read once: a retry, should this attempt fail, says the same thing as the same character.
+		String rsn = currentRsn;
+		String hash = accountHash;
+		Request request = authedRequest(url, rsn, rsnHint, hash).post(notifyBody(payloadJson, png, filename)).build();
 		httpClient.newCall(request).enqueue(new Callback()
 		{
 			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
@@ -628,24 +665,19 @@ public class BingoApiClient
 		{
 			return NotifyOutbox.Result.PERMANENT;
 		}
-		Request.Builder rb = plainRequest(it.url).header("Authorization", "Bearer " + playerToken);
-		if (it.rsn != null && !it.rsn.isEmpty())
+		// No launcher hint: it names who is about to play NOW, not who the notification was for.
+		try
 		{
-			rb.header("X-RSN", it.rsn);
-		}
-		if (it.accountHash != null && !it.accountHash.isEmpty())
-		{
-			rb.header("X-Account-Hash", it.accountHash);
-		}
-		OffThread.check("HTTP sendQueuedNotification()");
-		try (Response r = httpClient.newCall(rb.post(notifyBody(it.payload, png, it.filename)).build()).execute())
-		{
-			if (r.isSuccessful())
+			return execute(httpClient, authedRequest(it.url, it.rsn, null, it.accountHash)
+				.post(notifyBody(it.payload, png, it.filename)), (r, body) ->
 			{
-				log.info("Anvil: queued '{}' notification delivered", it.channel);
-				return NotifyOutbox.Result.SENT;
-			}
-			return RetryPolicy.isPermanent(r.code()) ? NotifyOutbox.Result.PERMANENT : NotifyOutbox.Result.RETRY;
+				if (r.isSuccessful())
+				{
+					log.info("Anvil: queued '{}' notification delivered", it.channel);
+					return NotifyOutbox.Result.SENT;
+				}
+				return RetryPolicy.isPermanent(r.code()) ? NotifyOutbox.Result.PERMANENT : NotifyOutbox.Result.RETRY;
+			});
 		}
 		catch (IOException | RuntimeException e)
 		{
@@ -733,14 +765,14 @@ public class BingoApiClient
 			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
 	}
 
-	/** A non-2xx answer to {@link #etagGet}. */
-	static final class HttpStatusException extends IOException
+	/** A non-2xx answer, from any call: every refusal this client throws is one, so callers can go by {@link #code}. */
+	static class HttpStatusException extends IOException
 	{
 		final int code;
 
-		HttpStatusException(String label, int code)
+		HttpStatusException(String message, int code)
 		{
-			super(label + " failed: HTTP " + code);
+			super(message);
 			this.code = code;
 		}
 	}
@@ -821,18 +853,16 @@ public class BingoApiClient
 		{
 			rb.header("If-None-Match", (String) hit[0]);
 		}
-		OffThread.check("HTTP etagGet()");
-		try (Response response = readClient.newCall(rb.build()).execute())
+		return execute(readClient, rb, (response, text) ->
 		{
 			if (response.code() == 304 && hit != null)
 			{
 				return type.cast(hit[1]); // unchanged since the last poll — reuse it, no body transferred
 			}
-			if (!response.isSuccessful() || response.body() == null)
+			if (!response.isSuccessful())
 			{
-				throw new HttpStatusException(label, response.code());
+				throw new HttpStatusException(label + " failed: HTTP " + response.code(), response.code());
 			}
-			String text = response.body().string();
 			T parsed = gson.fromJson(text, type);
 			String etag = response.header("ETag");
 			if (etag != null && parsed != null)
@@ -845,7 +875,7 @@ public class BingoApiClient
 				disk.store(persistAs, url, etag, text, currentRsn != null ? currentRsn : rsnHint);
 			}
 			return parsed;
-		}
+		});
 	}
 
 	/** {@link #etagGet} for the sidebar's reads: null on any failure. */
@@ -899,37 +929,26 @@ public class BingoApiClient
 		public String error;
 	}
 
-	/** List (GET), add (POST) or remove (DELETE ?id=) — always the full list back. */
-	private GoalsResult goalsCall(Request.Builder rb)
+	/**
+	 * List (GET), add (POST) or remove (DELETE ?id=) — always the full list back. The list is a sidebar
+	 * read (the You tab), so it gets the read timeout; add and remove keep the write one.
+	 */
+	private GoalsResult goalsCall(OkHttpClient client, Request.Builder rb)
 	{
-		if (!isConfigured())
+		return !isConfigured() ? null : executeOrNull(client, rb, "goals call", (response, body) ->
 		{
-			return null;
-		}
-		OffThread.check("HTTP goalsCall()");
-		try (Response response = httpClient.newCall(rb.build()).execute())
-		{
-			if (response.body() == null)
-			{
-				return null;
-			}
-			GoalsResult r = gson.fromJson(response.body().string(), GoalsResult.class);
+			GoalsResult r = gson.fromJson(body, GoalsResult.class);
 			if (r != null && !response.isSuccessful() && r.error == null)
 			{
 				r.error = "Couldn't save that goal (HTTP " + response.code() + ").";
 			}
 			return r;
-		}
-		catch (IOException | JsonParseException e)
-		{
-			log.debug("goals call failed: {}", e.getMessage());
-			return null;
-		}
+		});
 	}
 
 	public GoalsResult fetchGoals()
 	{
-		return goalsCall(authedRequest(rootUrl("/api/plugin/goals")).get());
+		return goalsCall(readClient, authedRequest(rootUrl("/api/plugin/goals")).get());
 	}
 
 	public GoalsResult addGoal(String kind, String metric, int target, String dueOn)
@@ -942,12 +961,12 @@ public class BingoApiClient
 		{
 			body.addProperty("dueOn", dueOn);
 		}
-		return goalsCall(authedRequest(rootUrl("/api/plugin/goals")).post(json(body)));
+		return goalsCall(httpClient, authedRequest(rootUrl("/api/plugin/goals")).post(json(body)));
 	}
 
 	public GoalsResult removeGoal(int id)
 	{
-		return goalsCall(authedRequest(rootUrl("/api/plugin/goals?id=" + id)).delete());
+		return goalsCall(httpClient, authedRequest(rootUrl("/api/plugin/goals?id=" + id)).delete());
 	}
 
 	/** One collection log page as the card's Log section opens it. */
@@ -1060,11 +1079,6 @@ public class BingoApiClient
 		/** True on a 503: the site's hiscores budget is busy (player-card-hiscores) — try again shortly. */
 		public final boolean busy;
 
-		PlayerCardResult(PlayerCard card, boolean notFound)
-		{
-			this(card, notFound, false);
-		}
-
 		PlayerCardResult(PlayerCard card, boolean notFound, boolean busy)
 		{
 			this.card = card;
@@ -1095,33 +1109,15 @@ public class BingoApiClient
 	public PlayerCardResult fetchPlayerCard(String rsn)
 	{
 		String url = ProfileLookup.apiCardUrl(rsn);
-		if (url == null)
+		return url == null ? null : executeOrNull(readClient, publicRequest(url), "player card fetch", (r, body) ->
 		{
-			return null;
-		}
-		OffThread.check("HTTP fetchPlayerCard()");
-		try (Response response = readClient.newCall(publicRequest(url).build()).execute())
-		{
-			if (response.code() == 404)
+			if (r.code() == 404 || r.code() == 503)
 			{
-				return new PlayerCardResult(null, true);
+				return new PlayerCardResult(null, r.code() == 404, r.code() == 503);
 			}
-			if (response.code() == 503)
-			{
-				return new PlayerCardResult(null, false, true);
-			}
-			if (!response.isSuccessful() || response.body() == null)
-			{
-				return null;
-			}
-			PlayerCard card = gson.fromJson(response.body().string(), PlayerCard.class);
-			return card == null ? null : new PlayerCardResult(card, false);
-		}
-		catch (IOException | JsonParseException e)
-		{
-			log.debug("player card fetch failed: {}", e.getMessage());
-			return null;
-		}
+			PlayerCard card = r.isSuccessful() ? gson.fromJson(body, PlayerCard.class) : null;
+			return card == null ? null : new PlayerCardResult(card, false, false);
+		});
 	}
 
 	/**
@@ -1156,14 +1152,14 @@ public class BingoApiClient
 		{
 			throw new IOException("Connect Anvil to your clan first.");
 		}
-		OffThread.check("HTTP executeClaim()");
-		try (Response response = httpClient.newCall(request.build()).execute())
+		execute(httpClient, request, (r, body) ->
 		{
-			if (!response.isSuccessful())
+			if (!r.isSuccessful())
 			{
-				throw new IOException(claimErrorMessage(response.code(), bodyText(response)));
+				throw new HttpStatusException(claimErrorMessage(r.code(), body), r.code());
 			}
-		}
+			return null;
+		});
 	}
 
 	/** The server's {@code {"error": "..."}} sentence when it sent one, else a plain fallback. */
@@ -1204,12 +1200,6 @@ public class BingoApiClient
 	private static RequestBody json(JsonObject payload)
 	{
 		return RequestBody.create(JSON, payload.toString());
-	}
-
-	/** The response body as text, "" when there is none. */
-	private static String bodyText(Response response) throws IOException
-	{
-		return response.body() != null ? response.body().string() : "";
 	}
 
 	/**
@@ -1411,36 +1401,18 @@ public class BingoApiClient
 	{
 		MultipartBody multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
 			.addFormDataPart("file", filename, RequestBody.create(PNG, pngBytes)).build();
-		OffThread.check("HTTP uploadImage()");
-		try (Response response = httpClient.newCall(authedRequest(clanUrl("/api/upload")).post(multipart).build()).execute())
+		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(multipart), (r, body) ->
 		{
-			if (!response.isSuccessful())
+			if (!r.isSuccessful())
 			{
-				throw new IOException("Image upload failed: HTTP " + response.code());
+				throw new HttpStatusException("Image upload failed: HTTP " + r.code(), r.code());
 			}
-			return new JsonParser().parse(response.body().string()).getAsJsonObject().get("url").getAsString();
-		}
+			return new JsonParser().parse(body).getAsJsonObject().get("url").getAsString();
+		});
 	}
 
 	public static class ActiveWeekly extends DatedWeekly
 	{
-	}
-
-	/**
-	 * Attach the account token when we have one, on a request that does not require it.
-	 *
-	 * These reads were written against a deployment that WAS a clan, so the hostname answered
-	 * "whose schedule?" and no token was needed. One site now serves every clan, and the canonical
-	 * address names none — so on the apex the token is the only thing that can say which clan the
-	 * caller means. Still optional: a site addressed by subdomain or /c/<slug> ignores it, and a
-	 * caller without a token gets exactly what it got before.
-	 */
-	private Request.Builder withOptionalAuth(Request.Builder builder)
-	{
-		String token = playerToken;
-		return token == null || token.isEmpty()
-			? builder
-			: builder.header("Authorization", "Bearer " + token);
 	}
 
 	public static class ScheduleResponse
@@ -1480,7 +1452,7 @@ public class BingoApiClient
 			return null;
 		}
 		String url = clanUrl("/api/plugin/weekly-leaderboard" + (competitionId != null ? "?id=" + competitionId : ""));
-		return getOrNull(withOptionalAuth(new Request.Builder().url(url)).get(), WeeklyLeaderboard.class, "weekly-leaderboard fetch");
+		return getOrNull(publicRequest(url), WeeklyLeaderboard.class, "weekly-leaderboard fetch");
 	}
 
 	public static class WeeklyLeaderboard
@@ -1517,8 +1489,7 @@ public class BingoApiClient
 		// plugin may say hello — but on the canonical address, which names no clan, the token is the
 		// only thing left that can say which clan is being greeted. A site addressed by /c/<slug> or
 		// by an old per-clan hostname ignores it and answers exactly as before.
-		return getOrNull(withOptionalAuth(plainRequest(clanUrl("/api/plugin/hello")))
-			.post(json(payload)), HelloResponse.class, "plugin/hello");
+		return getOrNull(publicRequest(clanUrl("/api/plugin/hello")).post(json(payload)), HelloResponse.class, "plugin/hello");
 	}
 
 	public static class HelloResponse
@@ -1574,17 +1545,19 @@ public class BingoApiClient
 		{
 			return false;
 		}
-		OffThread.check("HTTP fetchIsAdmin()");
-		try (Response response = readClient.newCall(tokenRequest("/api/plugin/me", accountToken).get().build()).execute())
+		try
 		{
-			if (response.code() != 200)
+			return execute(readClient, tokenRequest("/api/plugin/me", accountToken).get(), (r, body) ->
 			{
-				// 401 = this token's user isn't an admin (or the token is stale). Anything else is
-				// the site having a bad time. Logged either way: "the button vanished" is otherwise
-				// indistinguishable between the two, and one of them is worth retrying.
-				log.info("Anvil: admin probe answered HTTP {} — no clan-sync button this session", response.code());
-			}
-			return response.code() == 200;
+				if (r.code() != 200)
+				{
+					// 401 = this token's user isn't an admin (or the token is stale). Anything else is
+					// the site having a bad time. Logged either way: "the button vanished" is otherwise
+					// indistinguishable between the two, and one of them is worth retrying.
+					log.info("Anvil: admin probe answered HTTP {} — no clan-sync button this session", r.code());
+				}
+				return r.code() == 200;
+			});
 		}
 		catch (Exception e)
 		{
@@ -1606,38 +1579,40 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		payload.addProperty("clanName", clanName);
 		payload.add("members", gson.toJsonTree(members));
-		Request request = tokenRequest("/api/plugin/clan-sync", accountToken)
-			.post(json(payload)).build();
-		OffThread.check("HTTP syncClan()");
-		try (Response response = httpClient.newCall(request).execute())
+		// The checked refusals can't leave the lambda, so it hands back the status and they're thrown here.
+		int[] status = new int[1];
+		String responseBody = execute(httpClient, tokenRequest("/api/plugin/clan-sync", accountToken).post(json(payload)),
+			(r, body) ->
+			{
+				status[0] = r.code();
+				return body;
+			});
+		int code = status[0];
+		if (code == 401)
 		{
-			String responseBody = bodyText(response);
-			if (response.code() == 401)
-			{
-				throw new AdminUnauthorizedException("Account token is not an admin (or was revoked)");
-			}
-			if (response.code() == 409)
-			{
-				throw new ClanMismatchException(jsonString(jsonObject(responseBody), "serverClanName"));
-			}
-			if (response.code() == 429)
-			{
-				// The site has a limit and told us how long it is; the caller waits exactly that
-				// long rather than backing off blindly from a message it couldn't read.
-				throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
-			}
-			if (!response.isSuccessful())
-			{
-				throw new IOException("HTTP " + response.code() + " — " + responseBody);
-			}
-			return gson.fromJson(responseBody, ClanSyncResponse.class);
+			throw new AdminUnauthorizedException("Account token is not an admin (or was revoked)");
 		}
+		if (code == 409)
+		{
+			throw new ClanMismatchException(jsonString(jsonObject(responseBody), "serverClanName"));
+		}
+		if (code == 429)
+		{
+			// The site has a limit and told us how long it is; the caller waits exactly that
+			// long rather than backing off blindly from a message it couldn't read.
+			throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
+		}
+		if (code < 200 || code >= 300)
+		{
+			throw new HttpStatusException("HTTP " + code + " — " + responseBody, code);
+		}
+		return gson.fromJson(responseBody, ClanSyncResponse.class);
 	}
 
 	/** A clan-scoped request carrying an explicit account token (the admin probe and roster sync). */
 	private Request.Builder tokenRequest(String path, String accountToken)
 	{
-		return new Request.Builder().url(clanUrl(path)).header("Authorization", "Bearer " + accountToken);
+		return plainRequest(clanUrl(path)).header("Authorization", "Bearer " + accountToken);
 	}
 
 	public static class ClanMember
@@ -1698,19 +1673,12 @@ public class BingoApiClient
 	 * data's invalid — so retrying it will never succeed. The retry loop drops these instead of
 	 * looping forever (the "Get 5M in PvP Loot already complete, keeps retrying" bug).
 	 */
-	public static class PermanentSubmissionException extends IOException
+	public static class PermanentSubmissionException extends HttpStatusException
 	{
-		PermanentSubmissionException(String message)
+		PermanentSubmissionException(String message, int code)
 		{
-			super(message);
+			super(message, code);
 		}
-	}
-
-	/** 4xx client errors are permanent (don't retry) — except auth (401, token may refresh), request
-	 *  timeout (408) and rate-limit (429), which can clear on their own. 5xx / network = retryable. */
-	private static boolean isPermanentFailure(int code)
-	{
-		return RetryPolicy.isPermanent(code);
 	}
 
 	/**
@@ -1728,13 +1696,13 @@ public class BingoApiClient
 	 * that learns nothing and costs the clan's server a request every time. Carrying the wait means
 	 * the plugin can hold off instead of guessing, and tell the player a number.
 	 */
-	public static class RateLimitedException extends IOException
+	public static class RateLimitedException extends HttpStatusException
 	{
 		public final long retryAfterMs;
 
 		RateLimitedException(String message, long retryAfterMs)
 		{
-			super(message);
+			super(message, 429);
 			this.retryAfterMs = retryAfterMs;
 		}
 	}
@@ -1790,23 +1758,24 @@ public class BingoApiClient
 	 * The diagnostic form (status, body) still goes to the log via the caller — this is what ends up
 	 * in a chat box, where a JSON blob is worse than saying nothing.
 	 */
-	private static IOException friendlyFailure(int code, String body)
+	private static HttpStatusException friendlyFailure(int code, String body)
 	{
 		return classified(friendlyError(code, body), code, body);
 	}
 
 	/** "context: HTTP n — body", classified for the retry loop (the rule is pinned in StartProofTest). */
-	static IOException submissionError(String context, int code, String responseBody)
+	static HttpStatusException submissionError(String context, int code, String responseBody)
 	{
 		return classified(context + ": HTTP " + code + " — " + responseBody, code, responseBody);
 	}
 
-	private static IOException classified(String message, int code, String body)
+	/** Permanent (a 4xx other than 401/408/429 — RetryPolicy) unless it's waiting on a starting shot. */
+	private static HttpStatusException classified(String message, int code, String body)
 	{
 		boolean awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
-		return isPermanentFailure(code) && !awaitingStartProof
-			? new PermanentSubmissionException(message)
-			: new IOException(message);
+		return RetryPolicy.isPermanent(code) && !awaitingStartProof
+			? new PermanentSubmissionException(message, code)
+			: new HttpStatusException(message, code);
 	}
 
 	/**
@@ -1819,11 +1788,8 @@ public class BingoApiClient
 	 */
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException
 	{
-		Request request = authedRequest(clanUrl(path)).post(json(payload)).build();
-		OffThread.check("HTTP postJson()");
-		try (Response response = httpClient.newCall(request).execute())
+		return execute(httpClient, authedRequest(clanUrl(path)).post(json(payload)), (response, body) ->
 		{
-			String body = bodyText(response);
 			int code = response.code();
 			if (response.isSuccessful())
 			{
@@ -1839,8 +1805,8 @@ public class BingoApiClient
 				throw friendlyFailure(code, body);
 			}
 			String shown = body.isEmpty() ? "no body" : body;
-			throw classify ? submissionError(what, code, shown) : new IOException(what + ": HTTP " + code + " — " + shown);
-		}
+			throw classify ? submissionError(what, code, shown) : new HttpStatusException(what + ": HTTP " + code + " — " + shown, code);
+		});
 	}
 
 	/** {@code [{k: key, v: value}, …]} for every entry with both halves present. */
