@@ -4309,18 +4309,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** A team's site colour ("#e67e22"), or the done green when it's missing or malformed. */
-	private static Color teamColor(String hex)
-	{
-		try
-		{
-			return hex == null ? ColorScheme.PROGRESS_COMPLETE_COLOR : Color.decode(hex.trim());
-		}
-		catch (NumberFormatException e)
-		{
-			return ColorScheme.PROGRESS_COMPLETE_COLOR;
-		}
-	}
-
 	private void renderTileDetail(JPanel catalogue, JPanel rows, BingoApiClient.BoardTile tile,
 		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
 	{
@@ -4384,7 +4372,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			detailHeading(card, 9, "Teams done");
 			for (BingoApiClient.BoardTeam t : teamsDone)
 			{
-				card.add(note(t.name == null ? "Team" : t.name, teamColor(t.color)));
+				card.add(note(t.name == null ? "Team" : t.name, Ui.teamColor(t.color == null ? null : t.color.trim(), ColorScheme.PROGRESS_COMPLETE_COLOR)));
 			}
 		}
 		// Who on your team is getting it — open tiles only (a done one lists its finishers above).
