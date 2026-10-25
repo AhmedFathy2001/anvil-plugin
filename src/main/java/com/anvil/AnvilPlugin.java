@@ -5981,6 +5981,47 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
+	 * The names the Lookup box suggests — clan (online and the whole roster), friends, and players
+	 * nearby — read on the client thread, then handed to {@code then} there. Empty while logged out.
+	 */
+	void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then) {
+		if (client == null || clientThread == null) {
+			then.accept(LookupSuggestions.Names.EMPTY);
+			return;
+		}
+		clientThread.invoke(() -> {
+			if (client.getGameState() != GameState.LOGGED_IN) {
+				then.accept(LookupSuggestions.Names.EMPTY);
+				return;
+			}
+			List<String> online = new ArrayList<>();
+			ClanChannel ch = client.getClanChannel();
+			if (ch != null && ch.getMembers() != null) {
+				ch.getMembers().forEach(m -> online.add(m.getName()));
+			}
+			List<String> clan = new ArrayList<>();
+			ClanSettings cs = client.getClanSettings();
+			if (cs != null && cs.getMembers() != null) {
+				cs.getMembers().forEach(m -> clan.add(m.getName()));
+			}
+			List<String> friends = new ArrayList<>();
+			net.runelite.api.NameableContainer<net.runelite.api.Friend> fc = client.getFriendContainer();
+			if (fc != null && fc.getMembers() != null) {
+				for (net.runelite.api.Friend f : fc.getMembers()) {
+					friends.add(f.getName());
+				}
+			}
+			List<String> nearby = new ArrayList<>();
+			for (Player p : client.getPlayers()) {
+				if (p != null && p != client.getLocalPlayer()) {
+					nearby.add(p.getName());
+				}
+			}
+			then.accept(new LookupSuggestions.Names(online, friends, nearby, clan));
+		});
+	}
+
+	/**
 	 * This account's world position, for the starting shot's position check (StartProofRules).
 	 * Null while logged out — which simply means the check doesn't run.
 	 */
