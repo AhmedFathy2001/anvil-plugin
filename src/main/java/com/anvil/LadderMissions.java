@@ -1,7 +1,5 @@
 package com.anvil;
 
-import java.time.*;
-
 /**
  * Pure, RuneLite-free helpers for the in-game "missions board" of a ladder / rotating event: the live
  * grow-or-decay value of a mission, the per-second countdown to the next reveal, and their display
@@ -32,7 +30,7 @@ final class LadderMissions
 		{
 			return face;
 		}
-		long revealedAt = parseUtcMillis(revealedAtIso);
+		long revealedAt = Ui.utcMillis(revealedAtIso);
 		if (revealedAt < 0)
 		{
 			return face;
@@ -63,11 +61,7 @@ final class LadderMissions
 	 */
 	static String countdown(String nextRevealAtIso, long nowMs)
 	{
-		if (nextRevealAtIso == null || nextRevealAtIso.isEmpty())
-		{
-			return null;
-		}
-		long at = parseUtcMillis(nextRevealAtIso);
+		long at = Ui.utcMillis(nextRevealAtIso);
 		if (at < 0)
 		{
 			return null;
@@ -90,30 +84,5 @@ final class LadderMissions
 	private static String two(long v)
 	{
 		return v < 10 ? "0" + v : Long.toString(v);
-	}
-
-	/**
-	 * Parse the server's UTC timestamp — either ISO ({@code 2026-07-29T12:00:00.000Z}) or the
-	 * space-separated {@code yyyy-MM-dd HH:mm:ss} SQLite form — to epoch millis, or -1 if unparseable.
-	 */
-	static long parseUtcMillis(String ts)
-	{
-		if (ts == null || ts.isEmpty())
-		{
-			return -1;
-		}
-		String s = ts.trim().replace(' ', 'T');
-		if (s.endsWith("Z"))
-		{
-			s = s.substring(0, s.length() - 1);
-		}
-		try
-		{
-			return LocalDateTime.parse(s).toInstant(ZoneOffset.UTC).toEpochMilli();
-		}
-		catch (RuntimeException e)
-		{
-			return -1;
-		}
 	}
 }

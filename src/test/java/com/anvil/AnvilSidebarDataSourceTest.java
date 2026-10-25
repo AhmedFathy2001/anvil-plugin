@@ -530,6 +530,26 @@ public class AnvilSidebarDataSourceTest
 	}
 
 	@Test
+	public void theHomeBoardOnTheCardIsNotListedAgainByItsId() throws Exception
+	{
+		// No member-scoped event: the card shows the home board, which the schedule also carries —
+		// under another name here, so only its id can say it's the same event.
+		PluginConfigResponse cfg = new PluginConfigResponse();
+		cfg.homeBoard = new PluginConfigResponse.HomeBoard();
+		cfg.homeBoard.eventId = 6;
+		cfg.homeBoard.eventName = "Summer Bingo";
+		cfg.homeBoard.tilesTotal = 25;
+		cfg.schedule = new BingoApiClient.ScheduleResponse();
+		cfg.schedule.bingos = new ArrayList<>(Arrays.asList(
+			bingo(6, "Summer Bingo (renamed)", "active", "2026-07-20T00:00:00Z"),
+			bingo(9, "Autumn Bingo", "upcoming", "2026-09-01T00:00:00Z")));
+
+		List<ConnectionView.ScheduledView> scheduled = newSource(() -> cfg).fetch(false).scheduled;
+		assertEquals(1, scheduled.size());
+		assertEquals(9, scheduled.get(0).id);
+	}
+
+	@Test
 	public void eventEndingResetsToEmpty() throws Exception
 	{
 		PluginConfigResponse cfg = eventConfig();
