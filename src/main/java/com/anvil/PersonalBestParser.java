@@ -69,13 +69,7 @@ final class PersonalBestParser
 	{
 		try
 		{
-			int a = Integer.parseInt(m.group(1));
-			int b = Integer.parseInt(m.group(2));
-			// Three parts means h:mm:ss; two means mm:ss.
-			int seconds = m.group(3) != null
-				? a * 3600 + b * 60 + Integer.parseInt(m.group(3))
-				: a * 60 + b;
-			int centis = seconds * 100;
+			int centis = TimedClearParser.clockSeconds(m.group(1), m.group(2), m.group(3)) * 100;
 			String fraction = m.group(4);
 			if (fraction != null)
 			{

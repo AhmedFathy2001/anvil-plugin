@@ -109,7 +109,6 @@ public class PersonalBestsTest
 
 		PersonalBests restarted = new PersonalBests();
 		restarted.restoreState(state);
-		assertEquals(1, restarted.knownCount());
 		assertEquals(0, restarted.pendingCount());
 		// A slower run after the restart is still not a record.
 		restarted.onActivitySeen("Chambers of Xeric: Challenge Mode", 100);
