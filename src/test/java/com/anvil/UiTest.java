@@ -44,6 +44,7 @@ public class UiTest
 		assertEquals(51, Ui.percent(812, 1568));
 		assertEquals(0, Ui.percent(5, 0));
 		assertEquals(100, Ui.percent(10, 10));
+		assertEquals("capped", 100, Ui.percent(12, 10));
 	}
 
 	@Test

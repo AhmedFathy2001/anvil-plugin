@@ -990,22 +990,16 @@ public class BingoApiClient
 	/** {@code GET /api/players/<rsn>/clog-page?name=} — null on failure or 404. Blocking; off the EDT. */
 	public ClogPageView fetchClogPage(String rsn, String page)
 	{
-		String card = ProfileLookup.apiCardUrl(rsn);
-		if (card == null || page == null)
-		{
-			return null;
-		}
-		String url = card.substring(0, card.length() - "/card".length()) + "/clog-page?name="
-			+ URLEncoder.encode(page, StandardCharsets.UTF_8).replace("+", "%20");
-		return getOrNull(publicRequest(url), ClogPageView.class, "clog page fetch");
+		String url = page == null ? null : ProfileLookup.apiPlayerUrl(rsn, "/clog-page?name="
+			+ URLEncoder.encode(page, StandardCharsets.UTF_8).replace("+", "%20"));
+		return url == null ? null : getOrNull(publicRequest(url), ClogPageView.class, "clog page fetch");
 	}
 
 	/** {@code GET /api/players/<rsn>/cas} ({@code player-cas}) — null on failure or 404. Blocking; off the EDT. */
 	public CaLookup fetchCas(String rsn)
 	{
-		String card = ProfileLookup.apiCardUrl(rsn);
-		return card == null ? null
-			: getOrNull(publicRequest(card.substring(0, card.length() - "/card".length()) + "/cas"), CaLookup.class, "CA fetch");
+		String url = ProfileLookup.apiPlayerUrl(rsn, "/cas");
+		return url == null ? null : getOrNull(publicRequest(url), CaLookup.class, "CA fetch");
 	}
 
 	/** A player's combat achievements, grouped by boss — the Lookup "CAs" tab. */
@@ -1108,7 +1102,7 @@ public class BingoApiClient
 	 */
 	public PlayerCardResult fetchPlayerCard(String rsn)
 	{
-		String url = ProfileLookup.apiCardUrl(rsn);
+		String url = ProfileLookup.apiPlayerUrl(rsn, "/card");
 		return url == null ? null : executeOrNull(readClient, publicRequest(url), "player card fetch", (r, body) ->
 		{
 			if (r.code() == 404 || r.code() == 503)

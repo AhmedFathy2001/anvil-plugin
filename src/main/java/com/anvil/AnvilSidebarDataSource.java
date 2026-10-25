@@ -2,6 +2,7 @@ package com.anvil;
 
 import java.util.*;
 import java.util.function.Supplier;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.util.function.Consumer;
 import java.util.concurrent.CompletableFuture;
@@ -21,7 +22,7 @@ import java.util.concurrent.CompletableFuture;
  * <p>Called off the EDT by the panel's worker (one at a time), so the delta state needs no locking.</p>
  */
 @Slf4j
-public class AnvilSidebarDataSource implements SidebarDataSource
+public class AnvilSidebarDataSource
 {
 	private static final int NEAREST_LIMIT = 10;
 	private static final int MAX_ACTIVE = 4;
@@ -167,12 +168,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		withPlugin(AnvilPlugin::syncProfileNow);
 	}
 
-	/** Local banner-sound clips, newest listing each call. Empty when the folder has none. */
-	public List<String> bannerSounds()
-	{
-		return fromPlugin(AnvilPlugin::bannerSoundClips, Collections.emptyList());
-	}
-
 	/** Is this clip in the play cycle? */
 	public boolean bannerSoundOn(String clip)
 	{
@@ -191,22 +186,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		withPlugin(AnvilPlugin::copyBannerSoundsPath);
 	}
 
-	/** Import a .wav into the local clips folder. */
-	public void importBannerSounds()
+	/** Import a .wav into {@code kind}'s clips folder. */
+	public void importSounds(BannerSoundService.Kind kind)
 	{
-		withPlugin(AnvilPlugin::importBannerSounds);
+		withPlugin(p -> p.importSounds(kind));
 	}
 
-	/** Mission clips — the folder that decides whether missions play a clip or the built-in chime. */
-	public List<String> missionSounds()
+	/** {@code kind}'s clips; for missions, the folder that decides between a clip and the built-in chime. */
+	public List<String> sounds(BannerSoundService.Kind kind)
 	{
-		return fromPlugin(AnvilPlugin::missionSoundClips, Collections.emptyList());
-	}
-
-	/** Import a .wav into the mission clips folder. */
-	public void importMissionSounds()
-	{
-		withPlugin(AnvilPlugin::importMissionSounds);
+		return fromPlugin(p -> p.soundClips(kind), Collections.emptyList());
 	}
 
 	/**
@@ -374,18 +363,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return siteSupports("clan-card");
 	}
 
-	/** Blocking; off the EDT. Null when not visible or on failure. */
-	public ClanCard fetchClanCard(String slug)
-	{
-		return apiClient.fetchClanCard(slug);
-	}
-
-	/** Blocking; off the EDT. */
-	public List<ClanCard.Found> lookupClans(String q)
-	{
-		return apiClient.lookupClans(q);
-	}
-
 	/** Whether the site keeps goals (the You tab's targets). */
 	public boolean supportsGoals()
 	{
@@ -396,15 +373,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	public boolean supportsEventRoster()
 	{
 		return siteSupports("event-roster");
-	}
-
-	/**
-	 * One page of an event's roster: {@code teamId > 0} for a team's members, a non-blank
-	 * {@code query} to search players, neither for the ranked overview. Null on failure. Blocking.
-	 */
-	public EventRoster fetchRoster(int eventId, int teamId, String query, int page)
-	{
-		return apiClient.fetchRoster(eventId, teamId, query, page);
 	}
 
 	/**
@@ -422,44 +390,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
-	/** One log page's items for the card. Blocking; off the EDT. Null on failure. */
-	public BingoApiClient.ClogPageView fetchClogPage(String rsn, String page)
-	{
-		return apiClient.fetchClogPage(rsn, page);
-	}
-
-	/** Blocking; off the EDT. Null when the site has none for them. */
-	public BingoApiClient.CaLookup fetchCas(String rsn)
-	{
-		return apiClient.fetchCas(rsn);
-	}
-
 	/** Whether the site serves the Lookup CA tab. */
 	public boolean supportsCas()
 	{
 		return siteSupports("player-cas");
-	}
-
-	/** Blocking; off the EDT. Null on a network failure. */
-	public BingoApiClient.GoalsResult fetchGoals()
-	{
-		return apiClient.fetchGoals();
-	}
-
-	public BingoApiClient.GoalsResult addGoal(String kind, String metric, int target, String dueOn)
-	{
-		return apiClient.addGoal(kind, metric, target, dueOn);
-	}
-
-	public BingoApiClient.GoalsResult removeGoal(int id)
-	{
-		return apiClient.removeGoal(id);
-	}
-
-	/** One character's card. Blocking; call off the EDT. Null on a network failure. */
-	public BingoApiClient.PlayerCardResult fetchPlayerCard(String rsn)
-	{
-		return apiClient.fetchPlayerCard(rsn);
 	}
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
@@ -1415,5 +1349,62 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				ActivityEntry.Kind.fromWire(it.kind), it.amount, it.isSelf, it.participants));
 		}
 		return out;
+	}
+
+	// ── The logged-in character: whose it's tracked as, and the way out ──────────────────────────
+	//
+	// The Account Token names whoever set this RuneLite up, not whoever is playing. Every character
+	// links to it by default (the one-click path); siblings and visitors use this row to say "not
+	// mine", and to claim back a character that's linked to somebody else.
+
+	/** One line about the logged-in character. */
+	@RequiredArgsConstructor
+	public static final class AccountRow
+	{
+		public enum State
+		{
+			/** Linked to (or linking to) the signed-in Anvil account. Offers Not my account. */
+			TRACKING,
+			/** Marked Not my account on this computer; nothing is sent. Offers Track it again. */
+			PAUSED,
+			/** Claimed by another Anvil account; nothing tracks for this token. Offers It's mine. */
+			OTHER,
+		}
+
+		public enum Action
+		{
+			NOT_MINE,
+			TRACK_AGAIN,
+			DISPUTE,
+		}
+
+		public final String rsn;
+		public final State state;
+
+	}
+
+	/**
+	 * What the panel may DO for the addressed clan.
+	 *
+	 * <p>A roster sync scrapes the clan channel you are standing in, so it needs an admin with that
+	 * channel readable. A profile sync goes to the site the plugin is authenticated against.
+	 */
+	public static final class PanelActions
+	{
+		public static final PanelActions NONE = new PanelActions(false, false, null);
+
+		/** Show "Sync clan roster": admin, at home, with a readable clan channel. */
+		public final boolean canSyncRoster;
+		/** Show "Sync profile": the site takes profile data and it's the one we're signed in to. */
+		public final boolean canSyncProfile;
+		/** Why the roster button is absent, when the reason is worth saying. Null when it isn't. */
+		public final String rosterNote;
+
+		public PanelActions(boolean canSyncRoster, boolean canSyncProfile, String rosterNote)
+		{
+			this.canSyncRoster = canSyncRoster;
+			this.canSyncProfile = canSyncProfile;
+			this.rosterNote = rosterNote;
+		}
 	}
 }

@@ -160,6 +160,15 @@ final class Ui
 		return left(p);
 	}
 
+	/** {@link #row(int)} on an opaque {@code bg}. */
+	static JPanel row(int hgap, Color bg)
+	{
+		JPanel p = row(hgap);
+		p.setOpaque(true);
+		p.setBackground(bg);
+		return p;
+	}
+
 	static Component gap(int h)
 	{
 		return Box.createVerticalStrut(h);
@@ -261,9 +270,10 @@ final class Ui
 		return capH(row);
 	}
 
+	/** {@code part} of {@code whole} as 0..100, rounded down so a goal never reads as reached before it is. */
 	static int percent(long part, long whole)
 	{
-		return whole <= 0 ? 0 : (int) Math.floor(part * 100.0 / whole);
+		return whole <= 0 ? 0 : (int) Math.max(0, Math.min(100, Math.floor(part * 100.0 / whole)));
 	}
 
 	/**

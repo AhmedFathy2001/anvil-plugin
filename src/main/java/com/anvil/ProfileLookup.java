@@ -58,8 +58,8 @@ final class ProfileLookup
 		this.eventBus = eventBus;
 	}
 
-	/** The character page for {@code rsn}, or null when there is no name to look up. */
-	static String profileUrl(String rsn)
+	/** {@code rsn} as a path segment, or null when there is no name to look up. */
+	private static String pathName(String rsn)
 	{
 		if (rsn == null)
 		{
@@ -68,19 +68,21 @@ final class ProfileLookup
 		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
 		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
 		String name = rsn.replace(' ', ' ').trim();
-		if (name.isEmpty())
-		{
-			return null;
-		}
-		return BingoApiClient.CANONICAL_SITE + "/p/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+		return name.isEmpty() ? null : URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
 	}
 
-	/** The card API for {@code rsn} ({@code player-card} capability), or null when there is no name. */
-	static String apiCardUrl(String rsn)
+	/** The character page for {@code rsn}, or null when there is no name to look up. */
+	static String profileUrl(String rsn)
 	{
-		String page = profileUrl(rsn);
-		return page == null ? null
-			: BingoApiClient.CANONICAL_SITE + "/api/players/" + page.substring(page.lastIndexOf('/') + 1) + "/card";
+		String name = pathName(rsn);
+		return name == null ? null : BingoApiClient.CANONICAL_SITE + "/p/" + name;
+	}
+
+	/** {@code /api/players/<rsn>} plus {@code tail} ("/card", "/cas", …), or null when there is no name. */
+	static String apiPlayerUrl(String rsn, String tail)
+	{
+		String name = pathName(rsn);
+		return name == null ? null : BingoApiClient.CANONICAL_SITE + "/api/players/" + name + tail;
 	}
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */

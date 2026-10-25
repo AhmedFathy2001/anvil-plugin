@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import com.anvil.BingoApiClient.*;
 import com.anvil.PendingSubmissionStore.PendingSubmission;
 import com.anvil.PluginConfigResponse.*;
-import com.anvil.SidebarDataSource.AccountRow;
+import com.anvil.AnvilSidebarDataSource.AccountRow;
 import com.google.gson.*;
 import com.google.inject.Provides;
 import lombok.Getter;
@@ -83,8 +83,7 @@ public class AnvilPlugin extends Plugin {
 	private OverlayManager overlayManager;
 
 	// Always-on progress sidebar — a toolbar PluginPanel showing per-clan tile progress. Reads
-	// through SidebarDataSource (mock for now; see provideSidebarDataSource) so it's independent
-	// of the multi-home backend track.
+	// through AnvilSidebarDataSource (see provideSidebarDataSource).
 	@Inject
 	private ClientToolbar clientToolbar;
 
@@ -1732,8 +1731,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Data source for the progress sidebar. This is the single wiring seam between the panel and its
-	 * data — the panel only knows the {@link SidebarDataSource} interface.
+	 * Data source for the progress sidebar — the single wiring seam between the panel and its data.
 	 *
 	 * <p>One {@link AnvilSidebarDataSource} over the config THIS plugin already polls, so rendering the
 	 * board costs no extra request. It used to sit under a federation layer that fanned several sites
@@ -1743,7 +1741,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Provides
 	@Singleton
-	SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, ScheduledExecutorService sharedExecutor) {
+	AnvilSidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, ScheduledExecutorService sharedExecutor) {
 		// Take the (singleton) client as a PARAMETER, not this.field: Guice can invoke this provider to
 		// satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are populated, so
 		// reading this.apiClient here would NPE and the whole plugin would fail to load. The param is
@@ -3478,44 +3476,25 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Opens the OS file picker to add banner-sound WAVs. Wired to the "Banner
-	 * sounds" button in the Anvil side panel (visible to all users) —
-	 * see AnvilSidebarPanel.buildPanelActions.
-	 */
-	public void importBannerSounds() {
-		bannerSound.importSounds(BannerSoundService.Kind.BANNER, names -> {
-			// New files join the cycle automatically (empty allowlist = all clips play). Users curate
-			// which ones cycle by tapping them in the tab list; no need to touch config on import.
-			sendChatMessage("Added to banner sounds: " + String.join(", ", names)
-					+ ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off.");
-		});
-	}
-
-	/**
-	 * The same, for the clip a MISSION plays. Wired to "Mission sounds" in the side panel.
+	 * Opens the OS file picker to add WAVs of {@code kind}. Wired to the "Banner sounds" and "Mission
+	 * sounds" buttons in the side panel (see AnvilSidebarPanel.buildPanelActions).
 	 *
-	 * <p>A separate folder rather than a separate setting: adding a clip here is the whole act of
-	 * choosing one, and an empty folder means missions keep the built-in chime that tells them apart
-	 * from a completed tile.</p>
+	 * <p>New banner clips join the cycle automatically (empty allowlist = all clips play); users curate
+	 * it by tapping them in the tab list. Missions get a separate folder rather than a separate
+	 * setting: adding a clip there is the whole act of choosing one, and an empty folder means
+	 * missions keep the built-in chime that tells them apart from a completed tile.</p>
 	 */
-	public void importMissionSounds() {
-		bannerSound.importSounds(BannerSoundService.Kind.MISSION, names -> {
-			sendChatMessage("Added to mission sounds: " + String.join(", ", names)
-					+ ". Missions play these now, instead of the game sound they used before.");
-		});
+	public void importSounds(BannerSoundService.Kind kind) {
+		boolean banner = kind == BannerSoundService.Kind.BANNER;
+		bannerSound.importSounds(kind, names -> sendChatMessage("Added to " + (banner ? "banner" : "mission")
+				+ " sounds: " + String.join(", ", names) + (banner
+						? ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off."
+						: ". Missions play these now, instead of the game sound they used before.")));
 	}
 
-	/**
-	 * Clip filenames in the user's sounds folder — backs the in-tab manager
-	 * list.
-	 */
-	public List<String> bannerSoundClips() {
-		return bannerSound.listClips(BannerSoundService.Kind.BANNER);
-	}
-
-	/** Clip filenames in the mission folder — the panel says "chime" when this is empty. */
-	public List<String> missionSoundClips() {
-		return bannerSound.listClips(BannerSoundService.Kind.MISSION);
+	/** Clip filenames in {@code kind}'s folder — the tab's list; missions say "chime" when it's empty. */
+	public List<String> soundClips(BannerSoundService.Kind kind) {
+		return bannerSound.listClips(kind);
 	}
 
 	/**
@@ -7343,7 +7322,7 @@ public class AnvilPlugin extends Plugin {
 	 * regardless of punctuation — e.g. "Tombs of Amascut: Expert Mode" ↔ "tombs of amascut expert mode".
 	 */
 	private static String normalizeBossName(String s) {
-		return NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
+		return SearchAliases.fold(s);
 	}
 
 	/**

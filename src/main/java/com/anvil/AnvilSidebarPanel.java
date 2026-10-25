@@ -23,7 +23,7 @@ import java.util.function.Consumer;
 
 /**
  * Always-on progress sidebar — a {@link PluginPanel} showing, per connected clan, tiles done and nearest
- * completion. Decoupled from the network: reads everything through {@link SidebarDataSource} (site-relay or
+ * completion. Decoupled from the network: reads everything through {@link AnvilSidebarDataSource} (site-relay or
  * single-home; see {@code FEDERATION_WIRE.md} §7/§10). Owns four view states (loading/error/empty/ready), a
  * clan filter, a manual Refresh, and an auto-refresh poll that runs only while the panel is open.
  *
@@ -32,7 +32,7 @@ import java.util.function.Consumer;
  * from there, with the choice held in {@link #selectedEventKey} so a refresh never bounces the member out.</p>
  *
  * <p><b>Threading:</b> all Swing mutation stays on the EDT; off-EDT work is the blocking
- * {@link SidebarDataSource#fetchConnections()} inside the worker plus the connect flow's scheduled steps,
+ * {@link AnvilSidebarDataSource#fetchConnections()} inside the worker plus the connect flow's scheduled steps,
  * whose callbacks marshal back via invokeLater. {@link Singleton} — one toolbar panel.</p>
  */
 @Slf4j
@@ -182,7 +182,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean signInInFlight;
 	private volatile DeviceSignIn signIn;
 
-	// The logged-in character's row (SidebarDataSource.AccountRow) — one quiet line, because almost
+	// The logged-in character's row (AnvilSidebarDataSource.AccountRow) — one quiet line, because almost
 	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
 	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
 	// tracking line for that character for good.
@@ -190,7 +190,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel accountLink = small("", ColorScheme.BRAND_ORANGE);
 	private final JLabel accountStatus = small("", MUTED);
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
-	private SidebarDataSource.AccountRow shownAccountRow;
+	private AnvilSidebarDataSource.AccountRow shownAccountRow;
 	private boolean accountActionInFlight;
 
 	private final JPanel content = column();
@@ -258,14 +258,13 @@ public class AnvilSidebarPanel extends PluginPanel
 		return apiClient != null ? apiClient.interactiveExecutor() : executor;
 	}
 
-	/** {@code dataSource} is the Guice-bound {@link AnvilSidebarDataSource}, its only implementation. */
 	@Inject
-	public AnvilSidebarPanel(SidebarDataSource dataSource, BingoApiClient apiClient,
+	public AnvilSidebarPanel(AnvilSidebarDataSource dataSource, BingoApiClient apiClient,
 		ConfigManager configManager, ScheduledExecutorService executor,
 		ItemManager itemManager, SpriteManager spriteManager, SkillIconManager skillIconManager)
 	{
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
-		this.dataSource = (AnvilSidebarDataSource) dataSource;
+		this.dataSource = dataSource;
 
 		this.itemManager = itemManager;
 		this.spriteManager = spriteManager;
@@ -620,7 +619,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			lookupSearch.setText(name);
 			remember(name);
-			lookupThen("Looking up " + name + "…", () -> dataSource.fetchPlayerCard(name), result ->
+			lookupThen("Looking up " + name + "…", () -> apiClient.fetchPlayerCard(name), result ->
 			{
 				lookupResult.add(cardFor(name, result, false));
 				lookupCard = result != null ? result.card : null;
@@ -765,7 +764,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void searchClans(String q)
 	{
 		String query = q == null ? "" : q.trim();
-		lookupThen("Searching…", () -> dataSource.lookupClans(query), found ->
+		lookupThen("Searching…", () -> apiClient.lookupClans(query), found ->
 		{
 			if (found.isEmpty())
 			{
@@ -787,7 +786,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** A clan's card in Lookup — its members open as player cards, and it compares with yours. */
 	private void showClan(String slug)
 	{
-		lookupThen("Loading the clan…", () -> dataSource.fetchClanCard(slug), card ->
+		lookupThen("Loading the clan…", () -> apiClient.fetchClanCard(slug), card ->
 		{
 			if (card == null)
 			{
@@ -806,7 +805,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void showClanCompare(ClanCard theirs, String mySlug)
 	{
-		lookupThen("Comparing…", () -> dataSource.fetchClanCard(mySlug), mine ->
+		lookupThen("Comparing…", () -> apiClient.fetchClanCard(mySlug), mine ->
 		{
 			lookupResult.add(backRow("Back to " + theirs.name, () -> showClan(theirs.slug)));
 			lookupResult.add(mine == null ? cardMessage("Couldn't load your clan — try again in a moment.") : ClanCardView.compare(mine, theirs));
@@ -831,7 +830,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				return youCard;
 			}
-			BingoApiClient.PlayerCardResult r = dataSource.fetchPlayerCard(me);
+			BingoApiClient.PlayerCardResult r = apiClient.fetchPlayerCard(me);
 			return r == null ? null : r.card;
 		}, myCard ->
 		{
@@ -881,7 +880,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (!fresh && !ownClanLoading)
 		{
 			ownClanLoading = true;
-			async(() -> dataSource.fetchClanCard(slug), card ->
+			async(() -> apiClient.fetchClanCard(slug), card ->
 			{
 				ownClanLoading = false;
 				ownClanAt = System.currentTimeMillis();
@@ -918,7 +917,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		settingsPanel.removeAll();
 		ConnectionView c = lastConnection;
-		SidebarDataSource.PanelActions actions = c == null ? SidebarDataSource.PanelActions.NONE : dataSource.actionsFor();
+		AnvilSidebarDataSource.PanelActions actions = c == null ? AnvilSidebarDataSource.PanelActions.NONE : dataSource.actionsFor();
 		if (actions.canSyncProfile)
 		{
 			heading(settingsPanel, "Your profile");
@@ -944,7 +943,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void fetchGoals()
 	{
 		goalsAsked = true;
-		async(dataSource::fetchGoals, r -> applyGoals(r, false));
+		async(apiClient::fetchGoals, r -> applyGoals(r, false));
 	}
 
 	private void addGoal()
@@ -954,12 +953,12 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		async(() -> dataSource.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), r -> applyGoals(r, true));
+		async(() -> apiClient.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), r -> applyGoals(r, true));
 	}
 
 	private void removeGoal(int id)
 	{
-		async(() -> dataSource.removeGoal(id), r -> applyGoals(r, true));
+		async(() -> apiClient.removeGoal(id), r -> applyGoals(r, true));
 	}
 
 	/** On the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
@@ -992,7 +991,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			goalsAsked = false;
 		}
 		int seq = ++youSeq;
-		async(() -> dataSource.fetchPlayerCard(me), result ->
+		async(() -> apiClient.fetchPlayerCard(me), result ->
 		{
 			if (seq != youSeq)
 			{
@@ -1020,8 +1019,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private PlayerCardView.Icons cardIcons(String rsn)
 	{
 		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> async(() -> dataSource.fetchClogPage(rsn, page), done),
-			dataSource.supportsCas() ? done -> async(() -> dataSource.fetchCas(rsn), done) : null);
+			(page, done) -> async(() -> apiClient.fetchClogPage(rsn, page), done),
+			dataSource.supportsCas() ? done -> async(() -> apiClient.fetchCas(rsn), done) : null);
 	}
 
 	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
@@ -1184,8 +1183,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void showAccountMenu(Component anchor)
 	{
 		JPopupMenu menu = new JPopupMenu();
-		SidebarDataSource.AccountRow row = shownAccountRow;
-		if (row != null && row.state == SidebarDataSource.AccountRow.State.TRACKING)
+		AnvilSidebarDataSource.AccountRow row = shownAccountRow;
+		if (row != null && row.state == AnvilSidebarDataSource.AccountRow.State.TRACKING)
 		{
 			JMenuItem profile = new JMenuItem("View my profile on Anvil");
 			profile.setToolTipText("Open " + row.rsn + "'s Anvil profile in your browser");
@@ -1202,7 +1201,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			});
 			menu.add(profile);
 		}
-		if (row != null && row.state == SidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight)
+		if (row != null && row.state == AnvilSidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight)
 		{
 			JMenuItem notMine = new JMenuItem("Not my account…");
 			notMine.setToolTipText("Someone else plays " + row.rsn + " here — stop tracking it on this computer");
@@ -1243,7 +1242,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void refreshAccountRow()
 	{
-		SidebarDataSource.AccountRow row = dataSource.accountRow();
+		AnvilSidebarDataSource.AccountRow row = dataSource.accountRow();
 		boolean changed = shownAccountRow == null || row == null
 			|| shownAccountRow.state != row.state || !shownAccountRow.rsn.equals(row.rsn);
 		shownAccountRow = row;
@@ -1287,26 +1286,26 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void onAccountButton()
 	{
-		SidebarDataSource.AccountRow row = shownAccountRow;
+		AnvilSidebarDataSource.AccountRow row = shownAccountRow;
 		if (row == null || accountActionInFlight)
 		{
 			return;
 		}
-		SidebarDataSource.AccountRow.Action action;
+		AnvilSidebarDataSource.AccountRow.Action action;
 		String question;
 		switch (row.state)
 		{
 			case PAUSED:
-				action = SidebarDataSource.AccountRow.Action.TRACK_AGAIN;
+				action = AnvilSidebarDataSource.AccountRow.Action.TRACK_AGAIN;
 				question = null; // undoing is harmless — no confirm
 				break;
 			case OTHER:
-				action = SidebarDataSource.AccountRow.Action.DISPUTE;
+				action = AnvilSidebarDataSource.AccountRow.Action.DISPUTE;
 				question = "Ask Anvil staff to move " + row.rsn + " to your Anvil account?\n\n"
 					+ "It's linked to someone else right now. Staff will check and move it if it's yours.";
 				break;
 			default:
-				action = SidebarDataSource.AccountRow.Action.NOT_MINE;
+				action = AnvilSidebarDataSource.AccountRow.Action.NOT_MINE;
 				question = "Stop tracking " + row.rsn + " on this computer?\n\n"
 					+ "Use this if someone else plays it here — a sibling, a friend. It's unlinked from your "
 					+ "Anvil account and nothing is sent while it's logged in. Your other accounts aren't affected, "
@@ -1497,7 +1496,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				continue;
 			}
 			r.current = shown;
-			int pct = (int) Math.min(100, Math.round(shown * 100.0 / r.goal));
+			int pct = percent(shown, r.goal);
 			r.bar.setValue(pct);
 			String text = r.asPercent ? pct + "%"
 				: Ui.count(shown) + " / " + Ui.count(r.goal);
@@ -2048,7 +2047,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					{
 						body.add(gap(3));
 					}
-					body.add(buildStandingRow(t));
+					body.add(buildTeamRow(t));
 					shown++;
 				}
 			}
@@ -2308,7 +2307,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 
 		// The clan's own controls, under whatever is running. Home only, and only what this account
-		// can actually do — see SidebarDataSource.actionsFor.
+		// can actually do — see AnvilSidebarDataSource.actionsFor.
 		lastConnection = c;
 		if (!playerCardsOn())
 		{
@@ -2375,7 +2374,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		if (!c.live.isWeekly() && c.live.tilesTotal > 0)
 		{
-			cardBar(card, Math.max(0, Math.min(100, (int) Math.round(100.0 * c.live.tilesComplete / c.live.tilesTotal))),
+			cardBar(card, percent(c.live.tilesComplete, c.live.tilesTotal),
 				ColorScheme.BRAND_ORANGE);
 		}
 		return capH(card);
@@ -2423,10 +2422,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildPanelActions(boolean withProfile)
 	{
 		JPanel panel = column();
-		SidebarDataSource.PanelActions full = dataSource.actionsFor();
+		AnvilSidebarDataSource.PanelActions full = dataSource.actionsFor();
 		// Sync profile sends YOUR log and best times; with the You tab showing it lives there.
-		SidebarDataSource.PanelActions actions = withProfile ? full
-			: new SidebarDataSource.PanelActions(full.canSyncRoster, false, full.rosterNote);
+		AnvilSidebarDataSource.PanelActions actions = withProfile ? full
+			: new AnvilSidebarDataSource.PanelActions(full.canSyncRoster, false, full.rosterNote);
 		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null)
 		{
 			return panel; // nothing this account can do here; no empty heading either
@@ -2479,7 +2478,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildBannerSounds()
 	{
-		List<String> clips = dataSource.bannerSounds();
+		List<String> clips = dataSource.sounds(BannerSoundService.Kind.BANNER);
 		JPanel panel = section("Banner sounds");
 
 		if (clips.isEmpty())
@@ -2505,7 +2504,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		panel.add(buttonRow(
 			flatButton("Add clip", "Pick .wav files to copy into the banner sounds folder", Color.WHITE,
-				dataSource::importBannerSounds),
+				() -> dataSource.importSounds(BannerSoundService.Kind.BANNER)),
 			flatButton("Copy folder path", "Copy the sounds folder's path — paste it into your file manager to rename or delete clips",
 				Color.WHITE, dataSource::copyBannerSoundsPath)));
 
@@ -2513,14 +2512,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		// being finished, and what it sounds like is decided by whether this folder has anything in
 		// it — so the panel says which of the two is happening, and the button is how you change it.
 		panel.add(gap(8));
-		int missions = dataSource.missionSounds().size();
+		int missions = dataSource.sounds(BannerSoundService.Kind.MISSION).size();
 		panel.add(small(missions == 0
 			? "Missions: a game sound (no clip added)"
 			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"), MUTED));
 		panel.add(gap(4));
 		panel.add(fullWidth(flatButton(missions == 0 ? "Add mission clip" : "Add mission clips",
 			"Pick .wav files to play when a mission drops, instead of the game sound used by default",
-			Color.WHITE, dataSource::importMissionSounds)));
+			Color.WHITE, () -> dataSource.importSounds(BannerSoundService.Kind.MISSION))));
 		return panel;
 	}
 
@@ -2781,8 +2780,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** One standings row: rank, RSN, gain. The caller's row leads in gold like their own activity does. */
 	private JPanel buildStandingRow(ConnectionView.Standing s, ConnectionView.WeeklyView w)
 	{
-		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
-		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel row = row(6, ColorScheme.DARK_GRAY_COLOR);
 
 		JLabel rank = small(String.valueOf(s.rank), MUTED);
 		rank.setPreferredSize(new Dimension(22, rank.getPreferredSize().height));
@@ -2856,13 +2854,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * One "Active now" row: tile name + a "who's on it" byline + a thin progress bar. Your own tasks lead in
-	 * gold, teammate-only stay neutral. Value/label are JLabels (never painted inside the bar) for crisp text.
-	 */
-	/**
 	 * The starting-shot prompt: where to stand, this account's keyword, and the one button that
 	 * captures the frame, burns the proof banner onto it and files it. Rendered only while a shot is
-	 * actually owed — {@link SidebarDataSource#startProof()} returns null the moment one is filed.
+	 * actually owed — {@link AnvilSidebarDataSource#startProof()} returns null the moment one is filed.
 	 */
 	private JPanel buildStartProofCard(PluginConfigResponse.StartProof proof)
 	{
@@ -2992,10 +2986,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final int STANDINGS_SHOWN = 3;
 
 	/** "1. The AFK Spot ······ 8,710 pts" — your team in gold; clicking opens that team's members. */
-	private JPanel buildStandingRow(EventRoster.Team t)
+	private JPanel buildTeamRow(EventRoster.Team t)
 	{
-		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
-		row.setOpaque(false);
+		JPanel row = row(6);
 		JLabel name = small(t.rank + ". " + ellipsize(t.name == null ? "" : t.name, 22),
 			t.yours ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
 		name.setIcon(TeamsView.swatchIcon(t.color, 8));
@@ -3021,32 +3014,26 @@ public class AnvilSidebarPanel extends PluginPanel
 		String label = tile != null ? tile.label : "Tile " + tileId;
 		JLabel name = small(ellipsize(label, 24), ColorScheme.TEXT_COLOR);
 		name.setToolTipText(tileTooltip(tileId, label, null));
-		int pct = tile != null && tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0;
+		int pct = tile != null ? percent(tile.current, tile.goal) : 0;
 		JPanel progress = opensTile(progressRow(name, tile != null ? progressValue(tile) : "", null,
-			bar(pct, ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tileId);
+			tileBar(pct, ColorScheme.PROGRESS_INPROGRESS_COLOR)), tileId);
 		if (tile != null && !tile.isCompleted())
 		{
 			live(progress, tileId, tile.current, tile.goal, false, null);
 		}
 
-		JLabel drop = small("✕", MUTED);
+		JLabel drop = onClick(small("✕", MUTED), () -> setTracked(dataSource.activeEventId(), tileId, false));
 		drop.setToolTipText("Stop tracking this tile");
-		drop.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		drop.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mouseClicked(MouseEvent e)
-			{
-				setTracked(dataSource.activeEventId(), tileId, false);
-			}
-		});
-		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
-		row.setOpaque(false);
+		JPanel row = row(6);
 		row.add(progress, BorderLayout.CENTER);
 		row.add(drop, BorderLayout.EAST);
 		return capH(row);
 	}
 
+	/**
+	 * One "Active now" row: tile name + a "who's on it" byline + a thin progress bar. Your own tasks lead in
+	 * gold, teammate-only stay neutral. Value/label are JLabels (never painted inside the bar) for crisp text.
+	 */
 	private JPanel buildActiveRow(ConnectionView.ActiveTask task)
 	{
 		ClogTaskModel.TaskRow tile = task.tile;
@@ -3057,9 +3044,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		who.setToolTipText(plainText(task.workersLabel()));
 		JPanel row = opensTile(progressRow(name, progressValue(tile),
 			who,
-			bar(tile.goal > 0 ? Math.min(100, (int) Math.round(tile.current * 100.0 / tile.goal)) : 0,
-				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR,
-				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+			tileBar(percent(tile.current, tile.goal),
+				task.includesSelf ? ColorScheme.BRAND_ORANGE : ColorScheme.PROGRESS_INPROGRESS_COLOR)), tile.tileId);
 		live(row, tile.tileId, tile.current, tile.goal, false, null);
 		return row;
 	}
@@ -3094,17 +3080,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		return row;
 	}
 
+	/** {@link #addMouseListenerToTree} with a hand cursor, which the labels inside inherit. */
 	private static void listenDeep(Component c, MouseAdapter listener)
 	{
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		c.addMouseListener(listener);
-		if (c instanceof Container)
-		{
-			for (Component child : ((Container) c).getComponents())
-			{
-				listenDeep(child, listener);
-			}
-		}
+		addMouseListenerToTree(c, listener);
 	}
 
 	/**
@@ -3113,6 +3093,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private static final String ROW_VALUE = "anvil.rowValue";
 	private static final String ROW_BAR = "anvil.rowBar";
+
+	/** The progress bar every tile row draws: {@code fg} on the darker track. */
+	private static JProgressBar tileBar(int pct, Color fg)
+	{
+		return bar(pct, fg, ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT);
+	}
 
 	private static JPanel progressRow(JLabel name, String value, JLabel byline, JProgressBar bar)
 	{
@@ -3311,8 +3297,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private JPanel buildMissionRow(ConnectionView.Ladder.Mission m, ConnectionView.Ladder l, long now)
 	{
-		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		JPanel row = row(6, ColorScheme.DARKER_GRAY_COLOR);
 
 		long val = LadderMissions.liveValue(m.face, m.revealedAtIso, l.decay, now);
 		JLabel value = small(LadderMissions.valueLabel(m.face, val), valueColor(m.face, val));
@@ -3342,9 +3327,8 @@ public class AnvilSidebarPanel extends PluginPanel
 			return opensTile(row, m.tileId);
 		}
 		boolean done = p.isCompleted();
-		int pct = done ? 100 : Math.min(100, (int) Math.round(p.current * 100.0 / p.goal));
-		JPanel progress = left(new JPanel(new BorderLayout(6, 0)));
-		progress.setOpaque(false);
+		int pct = done ? 100 : percent(p.current, p.goal);
+		JPanel progress = row(6);
 		progress.add(bar(pct, done ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.PROGRESS_INPROGRESS_COLOR,
 			ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT), BorderLayout.CENTER);
 		progress.add(small(done ? "Done" : progressValue(p), MUTED), BorderLayout.EAST);
@@ -3530,7 +3514,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		ladderFlashUntil = System.currentTimeMillis() + LADDER_FLASH_MS;
 	}
 
-	/** Held ref for one mission's value label so the tick recomputes its grow/decay value in place. */
 	/** "Expires in 1:12:04", or "Expired" once the clock runs out (the next poll drops the row). */
 	private static String expiryText(String expiresAtIso, long now)
 	{
@@ -3546,6 +3529,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	}
 
+	/** Held ref for one mission's value label so the tick recomputes its grow/decay value in place. */
 	@RequiredArgsConstructor
 	private static final class LadderValueLabel
 	{
@@ -3614,8 +3598,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JLabel name = small(tile.name, done != null ? done : ColorScheme.TEXT_COLOR);
 		name.setToolTipText(tileTooltip(tile.tileId, tile.name, null));
 		JPanel row = opensTile(progressRow(name, progressText(tile), null,
-			bar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR,
-				ColorScheme.DARKER_GRAY_COLOR, PROGRESS_BAR_HEIGHT)), tile.tileId);
+			tileBar(tile.percent(), done != null ? done : ColorScheme.PROGRESS_INPROGRESS_COLOR)), tile.tileId);
 		if (!tile.complete && tile.target > 0)
 		{
 			live(row, tile.tileId, tile.current, tile.target, tile.target >= 100_000, null);
@@ -3926,8 +3909,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		int score = 20;
 		for (String term : terms)
 		{
-			if (label.startsWith(term)) score += 0;
-			else if (label.contains(term)) score += 2;
+			if (label.startsWith(term)) continue; // the best a term can do: nothing added
+			if (label.contains(term)) score += 2;
 			else if (category.contains(term)) score += 8;
 			else if (tier.contains(term)) score += 10;
 			else if (subjects.contains(term)) score += 12;
@@ -3975,9 +3958,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		SearchField search = new SearchField(
 			"Search " + all.size() + " tiles…", boardSearches.getOrDefault(key, ""));
 		search.setToolTipText("Search tile names, descriptions, requirements and categories");
+		styleSearch(search);
 		search.setFont(SMALL);
-		search.setForeground(Color.WHITE);
-		search.setCaretColor(Color.WHITE);
 		search.setBackground(WIDGET_BG);
 		search.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(WIDGET_BORDER), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
@@ -4014,8 +3996,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			status.setToolTipText("Filter tiles by completion state");
 		}
 
-		JPanel controls = left(new JPanel(new BorderLayout(5, 0)));
-		controls.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		JPanel controls = row(5, ColorScheme.DARK_GRAY_COLOR);
 		controls.add(search, BorderLayout.CENTER);
 		controls.add(clearSearch, BorderLayout.EAST);
 		capH(controls);
@@ -4038,8 +4019,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		panel.add(controls);
 		if (status != null)
 		{
-			JPanel filterRow = left(new JPanel(new BorderLayout(6, 0)));
-			filterRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			JPanel filterRow = row(6, ColorScheme.DARK_GRAY_COLOR);
 			filterRow.add(small("Show", MUTED), BorderLayout.WEST);
 			filterRow.add(status, BorderLayout.CENTER);
 			panel.add(gap(5));
@@ -4196,8 +4176,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, boolean preStart,
 		String key, boolean canClaim, String claimUnavailable, String count, Runnable viewDetails)
 	{
-		JPanel row = left(new JPanel(new BorderLayout(6, 0)));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		JPanel row = row(6, ColorScheme.DARKER_GRAY_COLOR);
 		row.setBorder(BorderFactory.createEmptyBorder(6, 7, 6, 7));
 
 		String label = tileName(tile);
@@ -4289,7 +4268,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		return tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
 	}
 
-	/** One tile's full in-sidebar view. The browser is an explicit choice, not the row's default action. */
 	/** The teams on {@code board} that have finished {@code tileId}, in the board's team order. */
 	static List<BingoApiClient.BoardTeam> teamsDone(BingoApiClient.BoardResponse board, int tileId)
 	{
@@ -4308,7 +4286,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		return out;
 	}
 
-	/** A team's site colour ("#e67e22"), or the done green when it's missing or malformed. */
+	/** One tile's full in-sidebar view. The browser is an explicit choice, not the row's default action. */
 	private void renderTileDetail(JPanel catalogue, JPanel rows, BingoApiClient.BoardTile tile,
 		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
 	{
@@ -4332,10 +4310,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (progress != null && !tile.complete && !progress.isCompleted() && progress.goal > 1)
 		{
 			detailHeading(card, 0, "Progress");
-			JLabel pctLabel = small(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)) + "%",
+			JLabel pctLabel = small(percent(progress.current, progress.goal) + "%",
 				ColorScheme.TEXT_COLOR);
 			JPanel row = progressRow(pctLabel, progressValue(progress), null,
-				bar(Math.min(100, (int) Math.round(progress.current * 100.0 / progress.goal)),
+				bar(percent(progress.current, progress.goal),
 					ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
 			live(row, tile.tileId, progress.current, progress.goal, false, pctLabel);
 			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -4354,15 +4332,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 		if (tile.complete && tile.finishedBy != null && !tile.finishedBy.isEmpty())
 		{
-			detailHeading(card, 9, "Finished by");
-			for (BingoApiClient.BoardFinisher f : tile.finishedBy)
-			{
-				card.add(note(finisherLine(tile, f), ColorScheme.PROGRESS_COMPLETE_COLOR));
-			}
-			if (tile.finishedByMore > 0)
-			{
-				card.add(note("+" + tile.finishedByMore + " more", MUTED));
-			}
+			finisherList(card, "Finished by", tile, tile.finishedBy, tile.finishedByMore, ColorScheme.PROGRESS_COMPLETE_COLOR);
 		}
 		// Which TEAMS have it — the whole picture for someone watching the board, and for a player
 		// which rivals already got there.
@@ -4378,15 +4348,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		// Who on your team is getting it — open tiles only (a done one lists its finishers above).
 		if (!tile.complete && tile.contributors != null && !tile.contributors.isEmpty())
 		{
-			detailHeading(card, 9, "On it");
-			for (BingoApiClient.BoardFinisher f : tile.contributors)
-			{
-				card.add(note(finisherLine(tile, f), ColorScheme.PROGRESS_INPROGRESS_COLOR));
-			}
-			if (tile.contributorsMore > 0)
-			{
-				card.add(note("+" + tile.contributorsMore + " more", MUTED));
-			}
+			finisherList(card, "On it", tile, tile.contributors, tile.contributorsMore, ColorScheme.PROGRESS_INPROGRESS_COLOR);
 		}
 		if (tile.description != null && !tile.description.trim().isEmpty())
 		{
@@ -4479,6 +4441,21 @@ public class AnvilSidebarPanel extends PluginPanel
 			// Opened by a click, into a list already on screen — no setContent will hand its row over.
 			liveRows.addAll(buildingRows);
 			buildingRows = new ArrayList<>();
+		}
+	}
+
+	/** A detail heading, one line per player, then "+N more" for those the site left out. */
+	private static void finisherList(JPanel card, String heading, BingoApiClient.BoardTile tile,
+		List<BingoApiClient.BoardFinisher> who, int more, Color color)
+	{
+		detailHeading(card, 9, heading);
+		for (BingoApiClient.BoardFinisher f : who)
+		{
+			card.add(note(finisherLine(tile, f), color));
+		}
+		if (more > 0)
+		{
+			card.add(note("+" + more + " more", MUTED));
 		}
 	}
 
@@ -4812,7 +4789,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		runClaimChange(key, () -> dataSource.claimTile(catalogueEventId(key), tile.tileId, note));
 	}
 
-	/** Event identity travels with claim mutations so an enrolled upcoming preview stays scoped. */
 	/** "Track on screen" for the detail card; null where the tile can't be pinned. */
 	private JButton trackButton(BingoApiClient.BoardTile tile, String key, boolean preStart)
 	{
@@ -4855,6 +4831,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh();
 	}
 
+	/** Event identity travels with claim mutations so an enrolled upcoming preview stays scoped. */
 	private int catalogueEventId(String key)
 	{
 		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
@@ -5064,7 +5041,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void openTeams(int eventId)
 	{
 		disposeTeams();
-		teamsView = new TeamsView(dataSource::fetchRoster, interactive(), eventId, () ->
+		teamsView = new TeamsView(apiClient::fetchRoster, interactive(), eventId, () ->
 		{
 			BingoApiClient.BoardResponse board = dataSource.fetchBoard(0);
 			return board == null ? 0 : board.eventId;

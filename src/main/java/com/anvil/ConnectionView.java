@@ -208,7 +208,7 @@ public final class ConnectionView
 		{
 			if (target > 0)
 			{
-				return Math.min(100, (int) Math.round(current * 100.0 / target));
+				return Ui.percent(current, target);
 			}
 			return complete ? 100 : 0;
 		}

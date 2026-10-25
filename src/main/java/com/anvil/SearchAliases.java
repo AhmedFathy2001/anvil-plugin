@@ -33,6 +33,12 @@ final class SearchAliases
 	{
 	}
 
+	/** Lower-cased with every run of punctuation and spaces turned into one space: "K'ril  Tsutsaroth" → "k ril tsutsaroth". */
+	static String fold(String s)
+	{
+		return NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
+	}
+
 	/** {@code text} plus the other name of every boss it mentions — search it like any other text. */
 	static String augment(String text)
 	{
@@ -40,7 +46,7 @@ final class SearchAliases
 		{
 			return "";
 		}
-		String words = " " + NON_ALNUM.matcher(text.toLowerCase(Locale.ROOT)).replaceAll(" ").trim() + " ";
+		String words = " " + fold(text) + " ";
 		StringBuilder out = new StringBuilder(text);
 		for (String[] p : PAIRS)
 		{
