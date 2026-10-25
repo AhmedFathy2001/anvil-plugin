@@ -3031,8 +3031,8 @@ public class AnvilPlugin extends Plugin {
 				|| e instanceof javax.net.ssl.SSLException) {
 			return ConnProblem.UNREACHABLE;
 		}
-		String m = e.getMessage();
-		if (m != null && (m.contains("HTTP 401") || m.contains("HTTP 403"))) {
+		int code = e instanceof BingoApiClient.HttpStatusException ? ((BingoApiClient.HttpStatusException) e).code : 0;
+		if (code == 401 || code == 403) {
 			return ConnProblem.TOKEN;
 		}
 		return ConnProblem.NONE; // e.g. a 5xx / other transient — logged, but not a config problem
