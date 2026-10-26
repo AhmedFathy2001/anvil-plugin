@@ -300,29 +300,6 @@ public class PluginConfigResponse
 	public List<Integer> luckItemIds;
 	/** Which level-ups the clan and the player's own webhooks want (capability 'level-rules'); null on older sites. */
 	public LevelRules.Sets levelRules;
-	/** The side panel's rows as the site works them out (lib/pluginPanel); the plugin only draws them. */
-	public Panel panel;
-
-	public static class Panel
-	{
-		public List<ClogTaskModel.TaskRow> tiles;
-		public List<ActiveRow> activeNow;
-		/** The clan's other bingos, never the board the panel shows; live first, then soonest. */
-		public List<BingoApiClient.ScheduledBingo> scheduled;
-		/** Live and upcoming weeklies, live first, then soonest. */
-		public List<BingoApiClient.ScheduledWeekly> weeklies;
-	}
-
-	/** A tile someone on the team worked in the last few minutes; "You" leads {@code workers}. */
-	public static class ActiveRow
-	{
-		public int tileId;
-		public List<String> workers;
-		public boolean self;
-		/** Each worker's event gain on a stat tile, when known. */
-		public Map<String, Long> gains;
-	}
-
 	/**
 	 * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for
 	 * {@code guaranteed}, the pet's for {@code pets} — because that is what the client has in hand
@@ -389,30 +366,12 @@ public class PluginConfigResponse
 		// classic events and older servers. The tracked* lists already contain ONLY revealed, still-open
 		// tiles.
 		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | "rotating" | null
-		public int hiddenTileCount;   // tiles not yet revealed
-		public String nextRevealAt;   // ISO time of the next reveal; null when none is scheduled
-		// Points ramp for reveal-mode events: a mission's live value scales from 100% at reveal toward
-		// targetPct% over `hours` (<100 decays, >100 grows). Null when off. Lets the ladder board show a
-		// live grow/decay value per mission (see AnvilSidebarDataSource.liveValue).
-		public Decay decay;
-		// Open missions on a reveal-mode board (revealed + still-open), with face points and reveal time
-		// so the plugin can render the "active missions" list + per-second countdown. Absent on classic.
+		// Open missions on a reveal-mode board (revealed + still-open), for the in-game "New mission!"
+		// banner. Absent on classic boards.
 		public List<Mission> missions;
-		// Classic boards with missions: how many are still to be announced. Null on older sites.
-		public Integer missionsLeft;
-		// Ladder events only: the individual leaderboard both all-time and for the current month, each
-		// with the caller's own rank. Drives the in-game missions board's standings + "You: #N".
-		public Standings standings;
-		public Standings monthlyStandings;
 		// Lock-out (bounty / lockout) events: the most recent EVENT-WIDE claims, so the plugin can
 		// announce "X claimed <mission>" to other players. Absent on non-lockout events.
 		public List<Claim> recentClaims;
-	}
-
-	public static class Decay
-	{
-		public int targetPct;   // ramp target as a percent of face (50 = decays to half; 200 = grows to 2x)
-		public int hours;       // hours over which the ramp reaches targetPct
 	}
 
 	public static class Mission
@@ -420,29 +379,8 @@ public class PluginConfigResponse
 		public int tileId;
 		public String label;
 		public int points;        // face value before the decay ramp
-		public String revealedAt; // ISO time this mission went live; null when unknown
 		public String category;
-		// Per-mission scoring so a bingo can mix missions with different behaviour. `decay` (may be
-		// null) drives this mission's live grow/decay value. Absent on older sites — fall back to the
-		// event-level decay.
-		public Decay decay;
 		public String expiresAt;  // ISO time an unclaimed mission auto-closes; null when it doesn't
-	}
-
-	public static class Standings
-	{
-		public int yourRank;      // caller's 1-based rank; 0 when they have no scoring row yet
-		public long yourPoints;
-		public int total;         // full board length (entries is capped)
-		public List<StandingEntry> entries;
-	}
-
-	public static class StandingEntry
-	{
-		public int rank;
-		public String rsn;
-		public long points;
-		public int tasks;
 	}
 
 	public static class Claim
@@ -522,8 +460,6 @@ public class PluginConfigResponse
 		public String countMode;
 		// "distinct" pools: the items the team already has counted. A repeat of one adds nothing.
 		public List<Integer> countedItemIds;
-		// The site's one-sentence rule for this tile ("Complete 2 sets — …"). Null on older servers.
-		public String howItCounts;
 	}
 
 	public static class ItemRequirement
@@ -694,14 +630,7 @@ public class PluginConfigResponse
 		public int itemId = -1;     // boss KC tiles: the boss's representative clog item (icon); -1 for skills
 		public int currentAmount;   // gained XP / KC since baseline
 		public int goalAmount;
-		// Teammates (RSNs) actively grinding this stat tile right now, for the sidebar's "Active now".
-		// The caller is never included (the plugin marks itself "You"). null on older servers that don't
-		// compute it (the sidebar then falls back to an unnamed "a teammate" via config-count deltas);
-		// an empty list means the server DID compute it and no teammate is currently active.
-		public List<String> activeWorkers;
-		// Each of activeWorkers' event gain on this tile (KC / XP), index-matched; and the caller's own.
-		// Null / 0 on older servers — the row then names people without numbers.
-		public List<Long> activeWorkerGains;
+		// The caller's own event gain on this tile (KC / XP). 0 on older servers.
 		public long yourGained;
 	}
 }

@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
 import java.io.*;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
@@ -819,7 +818,6 @@ public class BingoApiClient
 	// body and costs a few header bytes instead of the whole board. The roster gets its own cache so
 	// paging back and forth never evicts the polls.
 	private final Map<String, Object[]> polls = etagCache(16);
-	private final Map<String, Object[]> rosterPages = etagCache(24);
 	private final Map<String, Object[]> trackedTiles = etagCache(TileTracker.MAX_PINS);
 
 	/**
@@ -982,20 +980,6 @@ public class BingoApiClient
 		return httpClient.dispatcher().executorService();
 	}
 
-	/** The server's {@code {"error": "..."}} sentence when it sent one, else a plain fallback. */
-	static String claimErrorMessage(int code, String body)
-	{
-		// The site's 401 sentence is written for developers ("Provide Authorization: Bearer …"). A claim
-		// is refused that way when no character is logged in yet, so say that instead.
-		if (code == 401)
-		{
-			return "Log in to claim tiles.";
-		}
-		// Not JSON (a proxy page, a 502): the fallback.
-		String error = jsonString(jsonObject(body), "error");
-		return error != null ? error : "Couldn't update your claim (HTTP " + code + ").";
-	}
-
 	/** {@code body} as a JSON object, or null when it isn't one. */
 	static JsonObject jsonObject(String body)
 	{
@@ -1023,16 +1007,6 @@ public class BingoApiClient
 	}
 
 	/**
-	 * {@code GET /api/plugin/event/<id>/roster} — the event's teams, ranked (site capability
-	 * "event-roster"), for the panel's standings. Null on any failure. Blocking; off the EDT.
-	 */
-	public EventRoster fetchStandings(int eventId)
-	{
-		return !isConfigured() || eventId <= 0 ? null
-			: etagGetOrNull(clanUrl("/api/plugin/event/" + eventId + "/roster"), EventRoster.class, rosterPages, "roster fetch");
-	}
-
-	/**
 	 * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress} — every team's progress on one pinned
 	 * tile (site capability "tile-tracker"). Null on any failure. Blocking.
 	 */
@@ -1043,44 +1017,6 @@ public class BingoApiClient
 				TileTracker.Progress.class, trackedTiles, "tile progress fetch");
 	}
 
-	/**
-	 * GET /api/plugin/activity?since=&lt;cursor&gt; — the always-on sidebar's live team feed (submissions +
-	 * completions after the cursor, attributed and bounded). Player-token authed. Never throws — returns
-	 * null on any failure so the sidebar degrades gracefully.
-	 *
-	 * <p>Conditional-GET: while the cursor is stable (nothing new), an unchanged payload returns 304 and
-	 * we reuse the cached response — an idle team costs a few header bytes. A 304's cached body carries
-	 * an empty {@code activity}, so re-ingesting it is a no-op.</p>
-	 */
-	public ActivityResponse fetchActivity(String since)
-	{
-		String url = clanUrl("/api/plugin/activity") + (since == null || since.isEmpty() ? "" : "?since=" + since);
-		return isConfigured() ? etagGetOrNull(url, ActivityResponse.class, polls, "activity fetch") : null;
-	}
-
-	/** Response of GET /api/plugin/activity — Gson-mapped; see Anvil.Site/src/lib/pluginActivity.ts. */
-	public static class ActivityResponse
-	{
-		public String cursor;                       // send back as ?since= next poll
-		public List<ActivityItem> activity; // ascending by id (oldest→newest); may be null
-		public boolean noActiveEvent;               // true = valid token, not enrolled (empty feed, not an error)
-	}
-
-	/** One raw feed row from the endpoint. Built into an {@link ActivityEntry} via the constructor. */
-	public static class ActivityItem
-	{
-		public String id;
-		public String ts;
-		public String player;
-		public int tileId;
-		public String tileLabel;
-		public String kind;   // "progress" | "complete" | "reveal" — map with ActivityEntry.Kind.fromWire
-		public int amount;
-		public boolean isSelf;
-		public List<String> participants;   // completions: the rest of the team who worked it (newer sites)
-	}
-
-	/** Gson shape of GET /api/plugin/board. Hidden staged tiles never arrive from the server. */
 	/**
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */
@@ -1096,58 +1032,6 @@ public class BingoApiClient
 			}
 			return new JsonParser().parse(body).getAsJsonObject().get("url").getAsString();
 		});
-	}
-
-	public static class ScheduledBingo
-	{
-		public int id;
-		public String title;
-		public String startDate;
-		public String endDate;
-		public String status; // "active" | "upcoming"
-		public Integer boardSize; // N for an N×N board
-		public Integer tileCount; // count of tiles configured for this event
-		public String format;      // "bingo" | "tilerace" — picks the in-game view
-		public String scoringMode; // "tiles" | "points"
-		/** The logged-in character's entry: "entered" | "pending" | null. Absent on older sites. */
-		public String yourEntry;
-	}
-
-	public static class ScheduledWeekly extends DatedWeekly
-	{
-		public String status;
-	}
-
-	/**
-	 * GET /api/plugin/weekly-leaderboard[?id=] — ranked standings for a weekly competition (the
-	 * active one when id is null). Unauthenticated. Never throws — returns null on any failure.
-	 */
-	public WeeklyLeaderboard fetchWeeklyLeaderboard(Integer competitionId)
-	{
-		if (getApiUrl().isEmpty())
-		{
-			return null;
-		}
-		String url = clanUrl("/api/plugin/weekly-leaderboard" + (competitionId != null ? "?id=" + competitionId : ""));
-		return getOrNull(publicRequest(url), WeeklyLeaderboard.class, "weekly-leaderboard fetch");
-	}
-
-	public static class WeeklyLeaderboard
-	{
-		public WeeklyComp competition;
-		public int total;
-		public List<LeaderboardEntry> entries;
-	}
-
-	public static class WeeklyComp extends DatedWeekly
-	{
-	}
-
-	public static class LeaderboardEntry
-	{
-		public int rank;
-		public String rsn;
-		public long gained;
 	}
 
 	/**
@@ -1192,8 +1076,6 @@ public class BingoApiClient
 		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
 		public String title;
 		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
-		/** The metric spelled for people ("Phosani's Nightmare"); null on a site that predates it. */
-		public String metricLabel;
 	}
 
 	/** A weekly competition with its id and dates. */

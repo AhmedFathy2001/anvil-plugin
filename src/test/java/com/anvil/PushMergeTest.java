@@ -28,7 +28,7 @@ public class PushMergeTest
 	@Test
 	public void teamFieldsReplaceOursAndCallerOnlyFieldsSurvive()
 	{
-		JsonObject out = PushMerge.merge(HELD, TEAM, null, "Redman");
+		JsonObject out = PushMerge.merge(HELD, TEAM, null);
 		assertEquals("ABC123", out.get("codeword").getAsString());
 		assertEquals("New name", out.getAsJsonObject("event").get("name").getAsString());
 		assertEquals("a ladder rank is ours, not the team's", 3, out.getAsJsonObject("event").getAsJsonObject("standings").get("rank").getAsInt());
@@ -38,29 +38,12 @@ public class PushMergeTest
 	}
 
 	@Test
-	public void ourOwnNumbersGoOnPerMemberTilesAndRows()
+	public void ourOwnNumbersGoOnPerMemberTiles()
 	{
 		JsonObject mine = json("{'c':{'1':5},'y':{'3':120}}");
-		JsonObject out = PushMerge.merge(HELD, TEAM, mine, "Redman");
+		JsonObject out = PushMerge.merge(HELD, TEAM, mine);
 		assertEquals(5, out.getAsJsonArray("trackedKills").get(0).getAsJsonObject().get("currentAmount").getAsInt());
 		assertEquals("a team tile keeps the team's count", 6, out.getAsJsonArray("trackedKills").get(1).getAsJsonObject().get("currentAmount").getAsInt());
 		assertEquals(120, out.getAsJsonArray("trackedStats").get(0).getAsJsonObject().get("yourGained").getAsInt());
-		JsonObject row = out.getAsJsonObject("panel").getAsJsonArray("tiles").get(0).getAsJsonObject();
-		assertEquals(5, row.get("current").getAsInt());
-		assertTrue("5 of 5 is done", row.get("complete").getAsBoolean());
-	}
-
-	@Test
-	public void weAreYouFirstInActiveNow()
-	{
-		JsonObject out = PushMerge.merge(HELD, TEAM, null, "Redman");
-		JsonObject row = out.getAsJsonObject("panel").getAsJsonArray("activeNow").get(0).getAsJsonObject();
-		assertEquals("[\"You\",\"Mate\"]", row.get("workers").toString());
-		assertTrue(row.get("self").getAsBoolean());
-		assertEquals(40, row.getAsJsonObject("gains").get("You").getAsInt());
-		assertFalse(row.getAsJsonObject("gains").has("redman"));
-
-		JsonObject other = PushMerge.merge(HELD, TEAM, null, "Somebody");
-		assertFalse(other.getAsJsonObject("panel").getAsJsonArray("activeNow").get(0).getAsJsonObject().get("self").getAsBoolean());
 	}
 }

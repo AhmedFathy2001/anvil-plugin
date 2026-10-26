@@ -1753,12 +1753,7 @@ public class AnvilPlugin extends Plugin {
 		// method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
 		// shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
 		// Kept in the signature because the sidebar's device sign-in still paces its poll on it.
-		// "You" on the weekly boards: the logged-in name, else the launcher's character at the login screen.
-		AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient,
-			() -> {
-				String name = getLocalPlayerName();
-				return name != null && !name.isEmpty() ? name : apiClient.getRsnHint();
-			});
+		AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient);
 		// The starting-shot button's action. Bound after construction for the same reason the
 		// suppliers above are method references: this provider can run before the plugin's own
 		// @Inject fields exist, and the capture only ever fires from a click, long after that.
@@ -3097,7 +3092,7 @@ public class AnvilPlugin extends Plugin {
 		// Greet with whatever's running right now so members know to jump in.
 		if (resp.activeWeekly != null) {
 			for (WeeklyInfo w : resp.activeWeekly) {
-				String kind = ConnectionView.WeeklyView.kindLabel(w.type);
+				String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "efficiency".equalsIgnoreCase(w.type) ? "Efficiency of the Week" : "Boss of the Week";
 				sendChatMessage(kind + " is live: " + w.title + "!");
 			}
 		}
@@ -6549,12 +6544,12 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		boolean revealBoard = cfg.event.revealPolicy != null && !cfg.event.revealPolicy.isEmpty();
-		boolean surface = LadderMissions.isLadder(cfg.event.format)
+		boolean surface = "ladder".equalsIgnoreCase(cfg.event.format)
 			|| (!revealBoard && cfg.serverSupports("bingo-missions"));
 		if (!surface) {
 			return;
 		}
-		String tag = LadderMissions.isLadder(cfg.event.format) ? "Anvil Ladder" : "Anvil";
+		String tag = "ladder".equalsIgnoreCase(cfg.event.format) ? "Anvil Ladder" : "Anvil";
 		boolean seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
 		if (seeding) {
 			notifiedMissionTiles.clear();
@@ -6577,9 +6572,6 @@ public class AnvilPlugin extends Plugin {
 			playMissionSound(false);
 			for (Mission m : fresh) {
 				sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
-			}
-			if (sidebarPanel != null) {
-				sidebarPanel.flashLadder();
 			}
 		}
 
@@ -6605,9 +6597,6 @@ public class AnvilPlugin extends Plugin {
 			for (Claim c : claims) {
 				String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
 				sendChatMessage(by + " claimed " + c.label + " - " + c.points + " pts!");
-			}
-			if (sidebarPanel != null) {
-				sidebarPanel.flashLadder();
 			}
 		}
 	}
@@ -6709,12 +6698,9 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Redraw the sidebar from what it holds, no fetch (AnvilSidebarPanel.redrawLocal). Any thread. */
+	/** Something only this client shows on the panel changed (a pin, the starting shot): redraw it. Any thread. */
 	private void redrawSidebarLocal() {
-		AnvilSidebarPanel panel = sidebarPanel;
-		if (panel != null) {
-			SwingUtilities.invokeLater(panel::redrawLocal);
-		}
+		repaintSidebar();
 	}
 
 	/** Ask the sidebar to re-read, from the EDT — it is Swing, and callers here are on worker threads. */
@@ -6868,7 +6854,7 @@ public class AnvilPlugin extends Plugin {
 			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
 			JsonObject mine = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : null;
 			PluginConfigResponse fresh = gson.fromJson(PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(),
-					m.getAsJsonObject("config"), mine, apiClient.getCurrentRsn()), PluginConfigResponse.class);
+					m.getAsJsonObject("config"), mine), PluginConfigResponse.class);
 			configFetchLock.lock();
 			try {
 				// A fetch that landed meanwhile is at least as new: keep it.
@@ -7232,7 +7218,6 @@ public class AnvilPlugin extends Plugin {
 			optimistic.add(s.tileId, s.currentAmount, delta, now());
 			finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
 					&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
-			repaintSidebarSoon();
 		}
 		return finishes;
 	}
@@ -7240,21 +7225,6 @@ public class AnvilPlugin extends Plugin {
 	/** This client just bumped a tile to {@code current}: hold that count and show it now. */
 	private void raiseLocal(int tileId, long current, long at) {
 		optimistic.raise(tileId, current, at);
-		repaintSidebarSoon();
-	}
-
-	private volatile long lastLocalRepaintAt;
-
-	/**
-	 * Move the sidebar's numbers off a local bump — at most once a second, since an XP tile bumps on
-	 * every drop. Only the labels and bars change (no fetch, no rebuild); the 15s poll brings the rest.
-	 */
-	private void repaintSidebarSoon() {
-		long t = now();
-		if (sidebarPanel != null && t - lastLocalRepaintAt >= 1_000) {
-			lastLocalRepaintAt = t;
-			SwingUtilities.invokeLater(sidebarPanel::bumpProgress);
-		}
 	}
 
 	/** This client's unconfirmed count for a tile (0 when none) — read-only, see OptimisticProgress.floor. */

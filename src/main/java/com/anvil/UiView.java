@@ -43,8 +43,14 @@ final class UiView extends JPanel
 
 		void clan(String slug);
 
-		/** Pin (or unpin) a tile's in-game tracker on this client. */
+		/** Pin (or unpin) a tile's in-game tracker on this client; tile 0 unpins every tile on the event. */
 		void pin(int event, int tile, boolean on);
+
+		/** Point the plugin at another of the member's clans. */
+		void switchClan(String slug);
+
+		/** A part only the plugin can draw (it reads the game), or null for none. */
+		JComponent nativePart(String name);
 	}
 
 	/** Toggle faces and section choices outlive a redraw (and the card), like the old virtual-levels switch. */
@@ -62,6 +68,11 @@ final class UiView extends JPanel
 	private final Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
 	/** The last request for each place, for {@link #refresh}. */
 	private final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
+	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
+	private final Map<String, JsonElement> drawn = new HashMap<>();
+	/** Countdowns on screen, run once a second while there are any. */
+	private final List<Runnable> tickers = new ArrayList<>();
+	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
@@ -97,6 +108,7 @@ final class UiView extends JPanel
 	{
 		if (waiting != null)
 		{
+			drawn.remove("null");
 			replace(this, message(waiting));
 		}
 		fetch(null, view, args);
@@ -121,6 +133,7 @@ final class UiView extends JPanel
 	void say(String text)
 	{
 		bump(null);
+		drawn.remove("null");
 		replace(this, message(text));
 	}
 
@@ -130,10 +143,20 @@ final class UiView extends JPanel
 		slots.clear();
 		toggles.clear();
 		inputs.clear();
+		tickers.clear();
+		drawn.keySet().removeIf(k -> !"null".equals(k));
 		// The slots are gone, so whatever they were waiting for is too.
 		seq.keySet().removeIf(k -> !"null".equals(k));
 		lastLoads.keySet().removeIf(k -> !"null".equals(k));
 		replace(this, view == null || !view.has("ui") ? message("Couldn't reach Anvil — try again in a moment.") : node(view.getAsJsonObject("ui")));
+		if (tickers.isEmpty())
+		{
+			ticker.stop();
+		}
+		else
+		{
+			ticker.start();
+		}
 	}
 
 	private int bump(String place)
@@ -155,6 +178,12 @@ final class UiView extends JPanel
 		{
 			return;
 		}
+		JsonElement ui = view == null ? null : view.get("ui");
+		if (ui != null && ui.equals(drawn.get(String.valueOf(into))))
+		{
+			return; // the same answer: leave what's on screen alone
+		}
+		drawn.put(String.valueOf(into), ui);
 		Slot slot = into == null ? null : slots.get(into);
 		if (into == null || slot == null)
 		{
@@ -211,6 +240,7 @@ final class UiView extends JPanel
 				JsonElement pane = slot == null || slot.panes == null ? null : slot.panes.get(str(a, "pane"));
 				if (pane != null && pane.isJsonObject())
 				{
+					drawn.remove(into);
 					replace(slot.holder, node(pane.getAsJsonObject()));
 				}
 				break;
@@ -234,6 +264,9 @@ final class UiView extends JPanel
 				String place = into.isEmpty() ? null : into;
 				int n = bump(place);
 				host.post(str(a, "act"), strings(a.get("args")), fields, v -> land(place, n, v));
+				break;
+			case "switch":
+				host.switchClan(str(a, "slug"));
 				break;
 			case "pin":
 				host.pin(num(a, "event", 0), num(a, "tile", 0), bool(a, "on"));
@@ -308,6 +341,12 @@ final class UiView extends JPanel
 			case "gap":
 				c = (JComponent) gap(num(n, "h", 0));
 				break;
+			case "countdown":
+				c = countdown(n);
+				break;
+			case "native":
+				JComponent part = host.nativePart(str(n, "name"));
+				return part == null ? new JPanel() : part;
 			default:
 				return new JPanel(); // a block this version doesn't know is left out
 		}
@@ -405,6 +444,10 @@ final class UiView extends JPanel
 		{
 			JsonObject spec = n.getAsJsonObject("icon");
 			l.setIconTextGap(4);
+			if (bool(n, "iconAfter"))
+			{
+				l.setHorizontalTextPosition(SwingConstants.LEADING);
+			}
 			if (!draw(l, spec) && !str(spec, "alt").isEmpty())
 			{
 				// No picture for it: the name has to carry it, or it's an unlabelled number.
@@ -803,6 +846,32 @@ final class UiView extends JPanel
 	}
 
 	// ---- Pieces ------------------------------------------------------------------------------------
+
+	/** "Next mission in 12:34", moving every second; {@code due} once it's reached, {@code none} with no clock. */
+	private JComponent countdown(JsonObject n)
+	{
+		JLabel l = label("", font(str(n, "font")), color(str(n, "color"), Color.WHITE));
+		long at = utcMillis(str(n, "at"));
+		Runnable paint = () ->
+		{
+			if (at < 0)
+			{
+				l.setText(plainText(str(n, "none")));
+				return;
+			}
+			long secs = Math.max(0, (at - System.currentTimeMillis()) / 1000);
+			String clock = secs >= 3600
+				? String.format(Locale.ROOT, "%d:%02d:%02d", secs / 3600, secs % 3600 / 60, secs % 60)
+				: String.format(Locale.ROOT, "%d:%02d", secs / 60, secs % 60);
+			l.setText(plainText(secs == 0 ? str(n, "due") : str(n, "prefix") + clock));
+		};
+		paint.run();
+		if (at >= 0)
+		{
+			tickers.add(paint);
+		}
+		return l;
+	}
 
 	/** A right-click menu on {@code c} and everything in it (Swing doesn't bubble a click up from a label). */
 	private void menu(JComponent c, JsonArray items)

@@ -22,6 +22,7 @@ public class UiViewTest
 		String site;
 		String lookedUp;
 		String pinned;
+		String switched;
 
 		@Override
 		public void load(String view, Map<String, String> args, Consumer<JsonObject> done)
@@ -58,6 +59,18 @@ public class UiViewTest
 		public void pin(int event, int tile, boolean on)
 		{
 			pinned = event + ":" + tile + ":" + on;
+		}
+
+		@Override
+		public void switchClan(String slug)
+		{
+			switched = slug;
+		}
+
+		@Override
+		public JComponent nativePart(String name)
+		{
+			return "start-proof".equals(name) ? new JLabel("Starting shot") : null;
 		}
 	}
 
@@ -356,5 +369,39 @@ public class UiViewTest
 			}
 		}
 		return null;
+	}
+
+	@Test
+	public void nativePartsCountdownsAndTheClanSwitch()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		String soon = java.time.Instant.now().plusSeconds(3725).toString();
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"native\",\"name\":\"start-proof\"},{\"t\":\"native\",\"name\":\"nope\"},"
+			+ "{\"t\":\"countdown\",\"at\":\"" + soon + "\",\"prefix\":\"Next mission in \",\"due\":\"Now\",\"none\":\"No clock\"},"
+			+ "{\"t\":\"countdown\",\"at\":null,\"prefix\":\"x\",\"due\":\"y\",\"none\":\"No clock\"},"
+			+ "{\"t\":\"text\",\"s\":\"Bravo\",\"on\":{\"a\":\"switch\",\"slug\":\"bravo\"}}]}"));
+		List<String> shown = texts(v);
+		assertEquals("Starting shot", shown.get(0));
+		assertTrue(shown.get(1), shown.get(1).startsWith("Next mission in 1:02:0"));
+		assertEquals("No clock", shown.get(2));
+		click(v, "Bravo");
+		assertEquals("bravo", host.switched);
+	}
+
+	@Test
+	public void anUnchangedAnswerLeavesTheViewAlone()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.show("home", Collections.emptyMap(), null);
+		host.pending.get(0).accept(view("{\"t\":\"text\",\"s\":\"Board\"}"));
+		Component first = v.getComponent(0);
+		v.refresh();
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"Board\"}"));
+		assertSame("the same answer is not redrawn", first, v.getComponent(0));
+		v.refresh();
+		host.pending.get(2).accept(view("{\"t\":\"text\",\"s\":\"Board 2\"}"));
+		assertEquals(Collections.singletonList("Board 2"), texts(v));
 	}
 }

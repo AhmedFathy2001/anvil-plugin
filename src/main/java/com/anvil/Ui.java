@@ -231,33 +231,6 @@ final class Ui
 		return grid;
 	}
 
-	/** An empty, centred icon holder of a fixed size. */
-	static JLabel iconSlot(int w, int h)
-	{
-		JLabel icon = new JLabel();
-		icon.setPreferredSize(new Dimension(w, h));
-		icon.setHorizontalAlignment(SwingConstants.CENTER);
-		return icon;
-	}
-
-	/** A 3px share-of-total bar: orange, green once full, over {@code bg}. */
-	static JPanel thinBar(int pct, Color bg)
-	{
-		JPanel bar = new JPanel()
-		{
-			@Override
-			protected void paintComponent(Graphics g)
-			{
-				g.setColor(bg);
-				g.fillRect(0, 0, getWidth(), getHeight());
-				g.setColor(pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
-				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
-			}
-		};
-		bar.setPreferredSize(new Dimension(0, 3));
-		return bar;
-	}
-
 	/** A section's orange name, with an optional white figure at the right. */
 	static JPanel header(String left, String right)
 	{
@@ -416,11 +389,4 @@ final class Ui
 		}
 	}
 
-	/** A wait in whole minutes, as a glance reads it: "42m", "3h 10m", "2d 4h". */
-	static String minutesText(long mins)
-	{
-		return mins < 60 ? mins + "m"
-			: mins < 1440 ? mins / 60 + "h " + mins % 60 + "m"
-			: mins / 1440 + "d " + mins / 60 % 24 + "h";
-	}
 }

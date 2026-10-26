@@ -167,11 +167,6 @@ public class TileTracker
 		return this.eventId == eventId && pins.containsKey(tileId);
 	}
 
-	synchronized boolean isFull(int eventId)
-	{
-		return this.eventId == eventId && pins.size() >= MAX_PINS;
-	}
-
 	/**
 	 * Pin ({@code on}) or unpin — an explicit state, not a flip, so a button drawn before the pin took
 	 * itself down (a finished tile) can't put it back up when clicked.

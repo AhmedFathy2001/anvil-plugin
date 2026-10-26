@@ -244,7 +244,6 @@ public class ApiClientHttpTest
 	public void tokenOptionalCallsCarryThePluginVersion() throws IOException
 	{
 		BingoApiClient c = client();
-		c.fetchWeeklyLeaderboard(null);
 		c.hello("Main Guy");
 		for (Request r : seen)
 		{

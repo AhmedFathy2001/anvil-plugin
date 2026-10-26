@@ -5,14 +5,12 @@ import java.util.Map;
 
 /**
  * A team view from the live push ({@link PushSocket}) laid over the config this plugin holds. The
- * site builds it once for the whole team with no caller in it, so three things are made ours here:
- * per-member tiles take our own number from {@code members}, our stat gain lands in
- * {@code yourGained}, and our name in "Active now" becomes "You", first, as the config route does.
+ * site builds it once for the whole team with no caller in it, so two things are made ours here:
+ * per-member tiles take our own number from {@code members}, and our stat gain lands in
+ * {@code yourGained}. (The panel's rows are the site's own view now, so they need nothing.)
  */
 final class PushMerge
 {
-	static final String YOU = "You";
-
 	private PushMerge()
 	{
 	}
@@ -22,7 +20,7 @@ final class PushMerge
 	 * caller-only fields survive), then our own numbers from {@code mine} ({@code c}: progress by
 	 * tile, {@code y}: stat gain by tile; null when we have none).
 	 */
-	static JsonObject merge(JsonObject held, JsonObject team, JsonObject mine, String myName)
+	static JsonObject merge(JsonObject held, JsonObject team, JsonObject mine)
 	{
 		JsonObject out = held.deepCopy();
 		for (Map.Entry<String, JsonElement> e : team.deepCopy().entrySet())
@@ -61,65 +59,6 @@ final class PushMerge
 				}
 			}
 		}
-		JsonObject panel = out.has("panel") && out.get("panel").isJsonObject() ? out.getAsJsonObject("panel") : null;
-		if (panel != null && panel.has("tiles") && panel.get("tiles").isJsonArray())
-		{
-			for (JsonElement row : panel.getAsJsonArray("tiles"))
-			{
-				JsonObject r = row.getAsJsonObject();
-				String tile = r.get("tileId").getAsString();
-				if (c.has(tile))
-				{
-					long current = c.get(tile).getAsLong();
-					r.addProperty("current", current);
-					r.addProperty("complete", current >= r.get("goal").getAsLong());
-				}
-			}
-		}
-		if (panel != null && panel.has("activeNow") && panel.get("activeNow").isJsonArray() && myName != null)
-		{
-			for (JsonElement row : panel.getAsJsonArray("activeNow"))
-			{
-				markYou(row.getAsJsonObject(), myName);
-			}
-		}
 		return out;
-	}
-
-	/** Our own name in an "Active now" row, as the config route words it for the caller. */
-	private static void markYou(JsonObject row, String myName)
-	{
-		JsonArray workers = row.has("workers") ? row.getAsJsonArray("workers") : null;
-		if (workers == null)
-		{
-			return;
-		}
-		JsonArray named = new JsonArray();
-		String found = null;
-		for (JsonElement w : workers)
-		{
-			if (found == null && Rsn.same(w.getAsString(), myName))
-			{
-				found = w.getAsString();
-			}
-			else
-			{
-				named.add(w);
-			}
-		}
-		if (found == null)
-		{
-			return;
-		}
-		JsonArray ordered = new JsonArray();
-		ordered.add(YOU);
-		ordered.addAll(named);
-		row.add("workers", ordered);
-		row.addProperty("self", true);
-		JsonObject gains = row.has("gains") ? row.getAsJsonObject("gains") : null;
-		if (gains != null && gains.has(found))
-		{
-			gains.add(YOU, gains.remove(found));
-		}
 	}
 }

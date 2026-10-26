@@ -69,7 +69,7 @@ public class InjectionSmokeTest
 		assertNotNull("provider must not read not-yet-injected this.-fields", sds);
 		assertTrue(sds instanceof AnvilSidebarDataSource);
 
-		// A resolved data source is usable straight away (unconfigured ⇒ empty).
-		assertNull(((AnvilSidebarDataSource) sds).fetch(false));
+		// A resolved data source is usable straight away (unconfigured ⇒ nothing to offer).
+		assertTrue(((AnvilSidebarDataSource) sds).clans().isEmpty());
 	}
 }
