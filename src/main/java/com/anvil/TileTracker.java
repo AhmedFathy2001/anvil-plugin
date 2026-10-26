@@ -410,6 +410,10 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
+			if (AnvilPlugin.capturing)
+			{
+				return null;
+			}
 			List<Widget> shown = drawn; // no lock on the frame path
 			for (int i = 0; i < shown.size(); i++)
 			{
@@ -497,6 +501,10 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
+			if (AnvilPlugin.capturing)
+			{
+				return null;
+			}
 			drawInto(panelComponent, false);
 			return super.render(graphics);
 		}

@@ -1963,9 +1963,9 @@ public class BingoApiClient
 	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
 	 */
 	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
-		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred) throws IOException
+		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof) throws IOException
 	{
-		JsonObject payload = submission(tileId, teamId, amount, imageUrl, note, creditPlayerId);
+		JsonObject payload = submission(tileId, teamId, amount, imageUrl, note, creditPlayerId, proof);
 		if (inferred != null)
 		{
 			payload.addProperty("inferred", inferred);
@@ -1994,15 +1994,17 @@ public class BingoApiClient
 	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
 	 * completes the tile when durationSeconds ≤ the tile's threshold.
 	 */
-	public void submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId) throws IOException
+	public void submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
+		JsonObject proof) throws IOException
 	{
-		JsonObject payload = submission(tileId, teamId, 1, imageUrl, note, creditPlayerId);
+		JsonObject payload = submission(tileId, teamId, 1, imageUrl, note, creditPlayerId, proof);
 		payload.addProperty("durationSeconds", durationSeconds);
 		postJson("/api/events/" + eventId + "/submissions", payload, "Timed submission failed", true);
 		log.info("Timed clear submitted successfully for tile {}", tileId);
 	}
 
-	private static JsonObject submission(int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId)
+	private static JsonObject submission(int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId,
+		JsonObject proof)
 	{
 		JsonObject payload = new JsonObject();
 		payload.addProperty("tileId", tileId);
@@ -2011,6 +2013,10 @@ public class BingoApiClient
 		payload.addProperty("imageUrl", imageUrl);
 		payload.addProperty("note", note);
 		payload.addProperty("creditPlayerId", creditPlayerId);
+		if (proof != null)
+		{
+			payload.add("proof", proof);
+		}
 		return payload;
 	}
 

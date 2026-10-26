@@ -149,7 +149,9 @@ public class ApiClientHttpTest
 		reply = "{\"error\":\"done\"}";
 		try
 		{
-			c.submitTimed(1, 2, 3, 60, "u", "n", 4);
+			com.google.gson.JsonObject proof = new com.google.gson.JsonObject();
+			proof.addProperty("tz", "Africa/Cairo");
+			c.submitTimed(1, 2, 3, 60, "u", "n", 4, proof);
 			fail();
 		}
 		catch (BingoApiClient.PermanentSubmissionException e)
@@ -162,6 +164,7 @@ public class ApiClientHttpTest
 		}
 		assertTrue(bodies.get(0).contains("\"durationSeconds\":60"));
 		assertTrue(bodies.get(0).contains("\"amount\":1"));
+		assertTrue(bodies.get(0).contains("\"proof\":{\"tz\":\"Africa/Cairo\"}"));
 	}
 
 	@Test
