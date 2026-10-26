@@ -251,11 +251,43 @@ public class TileTracker
 		}
 		else if (p != null)
 		{
-			w.progress = p;
-			if (finishedAndShown(w, p, System.currentTimeMillis()))
+			show(event, tileId, w, p);
+		}
+	}
+
+	/**
+	 * A tile's numbers from the live push: the whole board's view, so ours is marked here (team first,
+	 * as the route ranks it for a caller), then shown like a fetch.
+	 */
+	void pushed(int event, int tileId, Progress p, int myTeam, int myPlayer)
+	{
+		Widget w;
+		synchronized (this)
+		{
+			w = event == eventId ? pins.get(tileId) : null;
+		}
+		if (w == null || p == null || p.teams == null || p.phase == null || p.phase.contains("ended"))
+		{
+			return;
+		}
+		for (Team t : p.teams)
+		{
+			t.mine = t.teamId == myTeam;
+			if (t.members != null)
 			{
-				unpinDone(event, tileId, w);
+				t.members.forEach(m -> m.mine = m.id > 0 && m.id == myPlayer);
 			}
+		}
+		p.teams.sort((a, b) -> Boolean.compare(b.mine, a.mine));
+		show(event, tileId, w, p);
+	}
+
+	private void show(int event, int tileId, Widget w, Progress p)
+	{
+		w.progress = p;
+		if (finishedAndShown(w, p, System.currentTimeMillis()))
+		{
+			unpinDone(event, tileId, w);
 		}
 	}
 
@@ -444,6 +476,8 @@ public class TileTracker
 
 	static class Member
 	{
+		/** Participant id, so a view sent to the whole board can be marked as ours. */
+		int id;
 		String name;
 		long amount;
 		boolean mine;

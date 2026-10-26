@@ -1,6 +1,6 @@
 package com.anvil;
 
-import com.google.gson.Gson;
+import com.google.gson.*;
 import java.util.*;
 import java.util.concurrent.*;
 import okhttp3.*;
@@ -62,7 +62,7 @@ public class PushSocketTest
 	private ScheduledExecutorService executor;
 	private FakeApi api;
 	private PushSocket push;
-	private final List<PushSocket.Changed> heard = new CopyOnWriteArrayList<>();
+	private final List<JsonObject> heard = new CopyOnWriteArrayList<>();
 
 	@Before
 	public void setUp()
@@ -93,10 +93,11 @@ public class PushSocketTest
 
 		push.onMessage(api.opened.get(0), "{\"t\":\"hello\"}");
 		assertTrue(push.live());
-		push.onMessage(api.opened.get(0), "{\"t\":\"changed\",\"config\":true,\"tiles\":[9]}");
-		assertEquals(2, heard.size());
-		assertTrue(heard.get(1).config);
-		assertEquals(Collections.singletonList(9), heard.get(1).tiles);
+		assertTrue("hello is the socket's own business", heard.isEmpty());
+		push.onMessage(api.opened.get(0), "{\"t\":\"tile\",\"eventId\":5,\"tileId\":9}");
+		push.onMessage(api.opened.get(0), "not json");
+		assertEquals(1, heard.size());
+		assertEquals(9, heard.get(0).get("tileId").getAsInt());
 	}
 
 	@Test

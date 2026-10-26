@@ -926,8 +926,21 @@ public class BingoApiClient
 	// safe to fetch before the whistle. ETags keep a repeatedly-opened live board to header bytes.
 
 	/** The signed-in character's active board, with their team's completion state. */
+	/** The board the live push last sent; the plugin clears it when the push goes down. */
+	private volatile BoardResponse pushedBoard;
+
+	void setPushedBoard(BoardResponse board)
+	{
+		pushedBoard = board;
+	}
+
 	public BoardResponse fetchBoard()
 	{
+		BoardResponse pushed = pushedBoard;
+		if (pushed != null)
+		{
+			return pushed;
+		}
 		return isConfigured()
 			? etagGetOrNull(clanUrl("/api/plugin/board"), BoardResponse.class, polls, "board fetch", ResponseDiskCache.BOARD)
 			: null;

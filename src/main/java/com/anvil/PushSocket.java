@@ -1,6 +1,6 @@
 package com.anvil;
 
-import com.google.gson.Gson;
+import com.google.gson.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -8,9 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
 /**
- * The site's live channel (capability {@code push-ws}): a socket that says WHEN to refetch, so the
- * polls can slow right down while it's up. It carries no data of its own — every message names reads
- * the plugin already makes. Down or refused, nothing breaks: the plugin polls as it always did.
+ * The site's live channel (capability {@code push-ws}): a socket that sends the team's progress, the
+ * board and pinned-tile numbers as they change (docs/PLUGIN_WIRE.md), so the polls can slow right
+ * down while it's up. Down or refused, nothing breaks: the plugin polls as it always did.
  *
  * <p>{@link #scope} is the whole interface. A new scope (another board or team) re-tickets, since the
  * ticket is what decides what this client hears; null closes it.</p>
@@ -18,15 +18,6 @@ import okhttp3.*;
 @Slf4j
 final class PushSocket extends WebSocketListener
 {
-	/** One message from the site: what moved. {@code t} is "hello" right after (re)connecting. */
-	static final class Changed
-	{
-		String t;
-		boolean config;
-		boolean board;
-		List<Integer> tiles;
-	}
-
 	private static final long FIRST_RETRY_MS = 2_000;
 	private static final long MAX_RETRY_MS = 5 * 60_000;
 	/** Close code for "ticket expired": reconnect at once with a fresh one. */
@@ -35,7 +26,7 @@ final class PushSocket extends WebSocketListener
 	private final BingoApiClient api;
 	private final ScheduledExecutorService executor;
 	private final Gson gson;
-	private final Consumer<Changed> onChange;
+	private final Consumer<JsonObject> onMessage;
 
 	private String scope;
 	private volatile WebSocket socket;
@@ -43,12 +34,12 @@ final class PushSocket extends WebSocketListener
 	private int failures;
 	private volatile boolean live;
 
-	PushSocket(BingoApiClient api, ScheduledExecutorService executor, Gson gson, Consumer<Changed> onChange)
+	PushSocket(BingoApiClient api, ScheduledExecutorService executor, Gson gson, Consumer<JsonObject> onMessage)
 	{
 		this.api = api;
 		this.executor = executor;
 		this.gson = gson;
-		this.onChange = onChange;
+		this.onMessage = onMessage;
 	}
 
 	/** Up and hearing changes, so polls may slow down. */
@@ -129,30 +120,31 @@ final class PushSocket extends WebSocketListener
 	@Override
 	public void onMessage(WebSocket ws, String text)
 	{
-		Changed c;
+		JsonObject m;
 		try
 		{
-			c = gson.fromJson(text, Changed.class);
+			m = gson.fromJson(text, JsonObject.class);
 		}
 		catch (RuntimeException e)
 		{
 			return;
 		}
-		if (c == null || ws != socket)
+		if (m == null || ws != socket || !m.has("t"))
 		{
 			return;
 		}
-		if ("hello".equals(c.t))
+		if ("hello".equals(m.get("t").getAsString()))
 		{
-			// Connected: whatever moved while we weren't listening, catch up on it once.
+			// Connected; the site sends our team's view straight after.
 			synchronized (this)
 			{
 				failures = 0;
 			}
 			live = true;
 			log.debug("Live push connected");
+			return;
 		}
-		onChange.accept(c);
+		onMessage.accept(m);
 	}
 
 	@Override

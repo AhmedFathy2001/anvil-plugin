@@ -1239,6 +1239,9 @@ public class AnvilPlugin extends Plugin {
 				safely("refreshConfig", this::refreshConfig);
 				safely("tileTracker", tileTracker::poll);
 			}
+			if (!pushLive()) {
+				apiClient.setPushedBoard(null); // the board goes back to being read
+			}
 			safely("retryPendingSubmissions", this::retryPendingSubmissions);
 
 			safely("pruneDedupMap", this::pruneDedupMap);
@@ -6852,19 +6855,70 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** What the push said moved, refetched through the usual reads. "hello" = just connected: all of it. */
-	private void onPush(PushSocket.Changed c) {
-		boolean all = "hello".equals(c.t);
-		if (all || c.config) {
-			scheduleRefresh();
+	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
+	private void onPush(JsonObject m) {
+		if (execLive()) {
+			executor.execute(() -> safely("push", () -> applyPush(m)));
 		}
-		if ((all || c.tiles != null && !c.tiles.isEmpty()) && execLive()) {
-			executor.execute(() -> safely("tileTracker", tileTracker::poll));
+	}
+
+	/**
+	 * "tile": a pinned tile's numbers for every team. "team": our team's share of the config, its
+	 * board, and each member's own numbers — laid over the config we hold (PushMerge) and adopted the
+	 * way a fetched one is, so tile completions and missions announce exactly as they do on a poll.
+	 */
+	private void applyPush(JsonObject m) {
+		PluginConfigResponse cfg = pluginConfig;
+		int eventId = m.get("eventId").getAsInt();
+		int myTeam = cfg != null && cfg.team != null ? cfg.team.id : 0;
+		int me = cfg != null && cfg.player != null ? cfg.player.id : 0;
+		if ("tile".equals(m.get("t").getAsString())) {
+			tileTracker.pushed(eventId, m.get("tileId").getAsInt(),
+					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam, me);
+			return;
+		}
+		if (m.has("board")) {
+			apiClient.setPushedBoard(gson.fromJson(m.get("board"), BingoApiClient.BoardResponse.class));
+		}
+		if (cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt() && m.has("config")) {
+			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
+			JsonObject mine = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : null;
+			PluginConfigResponse fresh = gson.fromJson(PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(),
+					m.getAsJsonObject("config"), mine, apiClient.getCurrentRsn()), PluginConfigResponse.class);
+			configFetchLock.lock();
+			try {
+				// A fetch that landed meanwhile is at least as new: keep it.
+				if (pluginConfig == cfg) {
+					adoptTracking(fresh);
+					if (apiClient.getCurrentRsn() != null) {
+						checkTileCompletions(fresh);
+						checkMissionAlerts(fresh);
+					}
+				}
+			} finally {
+				configFetchLock.unlock();
+			}
 		}
 		AnvilSidebarPanel panel = sidebarPanel;
-		if ((all || c.board) && panel != null) {
+		if (panel != null) {
 			panel.boardChanged();
 		}
+	}
+
+	/**
+	 * A newer config takes over tracking, fetched or pushed. Locally-counted gain and kill progress is
+	 * kept: the server's copy lags while gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so
+	 * wholesale-replacing would snap an in-progress tile's live count backward (the reported
+	 * karambwan/impling flakiness). Each fresh count is floored at what we've already counted.
+	 */
+	private void adoptTracking(PluginConfigResponse fresh) {
+		PluginConfigResponse prior = pluginConfig;
+		pluginConfig = fresh;
+		rebuildItemDropIndex();
+		keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
+				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
+		keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
+				k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
 	}
 
 	/** The fetch, by a caller already holding {@link #configFetchLock}, which this releases. */
@@ -6924,17 +6978,7 @@ public class AnvilPlugin extends Plugin {
 				cfgSet("playerToken", "");
 				return;
 			}
-			// Preserve locally-counted gain progress across the refresh. The server's copy lags while
-			// gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so wholesale-replacing would snap an
-			// in-progress tile's live count backward (the reported karambwan/impling flakiness). Floor
-			// each fresh gain at what we've already counted locally.
-			PluginConfigResponse prior = pluginConfig;
-			pluginConfig = fresh;
-			rebuildItemDropIndex();
-			keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
-					g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
-			keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
-					k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
+			adoptTracking(fresh);
 			// One tracking-state summary, logged only when it CHANGES (the refresh runs every
 			// ~30s) — the first thing to read in a client.log when "nothing tracked": it says
 			// what the plugin believed it was tracking, and when that belief changed.
