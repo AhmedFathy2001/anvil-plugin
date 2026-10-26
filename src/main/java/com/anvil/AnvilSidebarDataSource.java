@@ -509,6 +509,12 @@ public class AnvilSidebarDataSource
 		return standingsEventId == activeEventId() ? standings : Collections.emptyList();
 	}
 
+	/** Read the standings on the next fetch rather than when their TTL runs out. */
+	void expireStandings()
+	{
+		standingsAt = 0;
+	}
+
 	private void refreshStandings(boolean force)
 	{
 		int eventId = activeEventId();

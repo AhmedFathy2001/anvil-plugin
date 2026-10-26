@@ -19,6 +19,7 @@ import net.runelite.client.game.*;
 import static com.anvil.Ui.*;
 import net.runelite.client.config.ConfigManager;
 import java.util.function.Supplier;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
@@ -287,7 +288,9 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		autoRefresh = new Timer(POLL_INTERVAL_MS, e ->
 		{
-			if (!typingInSearch())
+			// With the live push up, a push asks for the board when it moves (boardChanged); the timer
+			// only keeps "2m ago" times moving and backs the push up.
+			if (!typingInSearch() && (!pushLive.getAsBoolean() || ++quietTicks % 4 == 0))
 			{
 				poll();
 			}
@@ -1404,6 +1407,21 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void poll()
 	{
 		refresh(false, true);
+	}
+
+	private BooleanSupplier pushLive = () -> false;
+	private int quietTicks;
+
+	void setPushLive(BooleanSupplier live)
+	{
+		pushLive = live;
+	}
+
+	/** The live push says the board moved: read it now, standings included. */
+	void boardChanged()
+	{
+		dataSource.expireStandings();
+		SwingUtilities.invokeLater(this::poll);
 	}
 
 	private static final long REDRAW_AT_LEAST_MS = 60_000L;

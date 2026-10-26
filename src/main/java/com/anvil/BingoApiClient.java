@@ -326,6 +326,30 @@ public class BingoApiClient
 			DeviceAuthStart.class, "auth/start");
 	}
 
+	/** GET /api/plugin/push/ticket: a pass onto the live push socket ({@link PushSocket}). */
+	public static class PushTicket
+	{
+		public String url;
+		public String ticket;
+	}
+
+	/**
+	 * Null when signed out, refused, or there's no board to listen to (204) — and when the socket it
+	 * names isn't on the site this plugin already talks to, which it never dials anywhere else.
+	 */
+	PushTicket fetchPushTicket()
+	{
+		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl("/api/plugin/push/ticket")).get(), PushTicket.class, "push ticket") : null;
+		HttpUrl socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
+		HttpUrl site = HttpUrl.parse(getApiUrl());
+		return socket != null && site != null && socket.host().equals(site.host()) ? t : null;
+	}
+
+	WebSocket openPush(PushTicket ticket, WebSocketListener listener)
+	{
+		return httpClient.newWebSocket(plainRequest(ticket.url).header("Authorization", "Bearer " + ticket.ticket).build(), listener);
+	}
+
 	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */
 	public DeviceAuthPoll authPoll(String deviceCode)
 	{

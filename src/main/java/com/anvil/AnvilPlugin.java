@@ -99,6 +99,9 @@ public class AnvilPlugin extends Plugin {
 	private BingoClogBannerOverlay clogBanner;
 	@Inject
 	private TileTracker tileTracker;
+	/** The site's live channel; while it's up, the timed polls only back it up (PUSH_FALLBACK_MS). */
+	private PushSocket pushSocket;
+	private static final long PUSH_FALLBACK_MS = 120_000L;
 	@Inject
 	private StartSpotMarker startSpotMarker;
 	@Inject
@@ -1163,6 +1166,8 @@ public class AnvilPlugin extends Plugin {
 
 		resetCompletionBaseline();
 		executor = Executors.newSingleThreadScheduledExecutor();
+		pushSocket = new PushSocket(apiClient, executor, gson, this::onPush);
+		sidebarPanel.setPushLive(pushSocket::live);
 		profileLookup.setPanelOpener(name -> {
 			NavigationButton nav = sidebarNavButton;
 			if (nav == null || !sidebarPanel.playerCardsAvailable()) {
@@ -1229,9 +1234,12 @@ public class AnvilPlugin extends Plugin {
 		// Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
 		// cancels the task forever, so a single hiccup would stop all future refreshes.
 		loopTasks.add(executor.scheduleAtFixedRate(() -> {
-			safely("refreshConfig", this::refreshConfig);
+			// With the live push up, the site says when something moved; these are only its backstop.
+			if (!pushLive() || now() - lastConfigAttemptAt >= PUSH_FALLBACK_MS) {
+				safely("refreshConfig", this::refreshConfig);
+				safely("tileTracker", tileTracker::poll);
+			}
 			safely("retryPendingSubmissions", this::retryPendingSubmissions);
-			safely("tileTracker", tileTracker::poll);
 
 			safely("pruneDedupMap", this::pruneDedupMap);
 			safely("importRuneLitePbs", this::retryPersonalBestImport);
@@ -1532,6 +1540,9 @@ public class AnvilPlugin extends Plugin {
 		Runnable save = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
 		if (save != null) {
 			sharedExecutor.submit(save);
+		}
+		if (pushSocket != null) {
+			pushSocket.scope(null);
 		}
 		if (executor != null) {
 			executor.shutdownNow();
@@ -6746,7 +6757,7 @@ public class AnvilPlugin extends Plugin {
 			// the login greet) draws from the config already held and picks up the new one next tick —
 			// queueing behind it left "Loading…" up for as long as the site took, up to the read timeout.
 			// The plugin's own poll keeps the config fresh; this only covers a gap in it.
-			if (now() - lastConfigAttemptAt >= 25_000L && configFetchLock.tryLock()) {
+			if (now() - lastConfigAttemptAt >= (pushLive() ? PUSH_FALLBACK_MS : 25_000L) && configFetchLock.tryLock()) {
 				fetchConfigAndUnlock();
 			}
 			return;
@@ -6822,10 +6833,45 @@ public class AnvilPlugin extends Plugin {
 		fetchConfigAndUnlock();
 	}
 
+	private boolean pushLive() {
+		PushSocket p = pushSocket;
+		return p != null && p.live();
+	}
+
+	/**
+	 * Live push on, off, or re-ticketed: it listens for the board (and team) this config answers for,
+	 * so a new one of either needs a new ticket. Off where the site doesn't run it.
+	 */
+	private void syncPush() {
+		PushSocket p = pushSocket;
+		PluginConfigResponse cfg = pluginConfig;
+		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
+		if (p != null) {
+			p.scope(eventId > 0 && apiClient.isConfigured() && serverSupportsCap("push-ws")
+					? eventId + ":" + (cfg.team != null ? cfg.team.id : 0) : null);
+		}
+	}
+
+	/** What the push said moved, refetched through the usual reads. "hello" = just connected: all of it. */
+	private void onPush(PushSocket.Changed c) {
+		boolean all = "hello".equals(c.t);
+		if (all || c.config) {
+			scheduleRefresh();
+		}
+		if ((all || c.tiles != null && !c.tiles.isEmpty()) && execLive()) {
+			executor.execute(() -> safely("tileTracker", tileTracker::poll));
+		}
+		AnvilSidebarPanel panel = sidebarPanel;
+		if ((all || c.board) && panel != null) {
+			panel.boardChanged();
+		}
+	}
+
 	/** The fetch, by a caller already holding {@link #configFetchLock}, which this releases. */
 	private void fetchConfigAndUnlock() {
 		try {
 			refreshConfigLocked();
+			syncPush();
 		} finally {
 			lastConfigAttemptAt = now();
 			configFetchLock.unlock();
