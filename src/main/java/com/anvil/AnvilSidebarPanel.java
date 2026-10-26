@@ -41,11 +41,9 @@ import java.util.function.Consumer;
 @Singleton
 public class AnvilSidebarPanel extends PluginPanel
 {
-	/** Auto-refresh cadence while the panel is open. Mirrors the plugin's other polls (config/board). */
+	/** Auto-refresh cadence while the panel is open. Mirrors the plugin's other polls. */
 	private static final int POLL_INTERVAL_MS = 15_000;
 
-	/** A teammate's claim on a tile — a calm blue, so it reads as a plan rather than progress. */
-	private static final Color CLAIM_COLOR = new Color(0x7D_C4_F0);
 	private static final int PROGRESS_BAR_HEIGHT = 6;
 
 	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
@@ -65,9 +63,6 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	/** Leaderboard rows rendered on a weekly card before the caller's own (out-of-view) row is spliced in. */
 	private static final int WEEKLY_ROWS_SHOWN = 10;
-
-	/** Full-board catalogue rows per page. Large Leagues boards can contain hundreds of tasks. */
-	private static final int TILE_CATALOGUE_PAGE_SIZE = 15;
 
 	/** Selection key for a clan's own bingo/ladder board in the events list. */
 	private static final String BOARD_EVENT_KEY = "board";
@@ -207,26 +202,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Which event the member drilled into, or null for the list. Only meaningful when a clan runs several. */
 	private String selectedEventKey;
 
-	// Full-board catalogue state. The compact nearest-ten list remains the default live view; this is
-	// fetched only when a member opens all tiles, or when a revealed pre-start board is opened.
-	private final Map<String, BingoApiClient.BoardResponse> boardCatalogues = new HashMap<>();
-	private final Set<String> loadingBoardCatalogues = new HashSet<>();
-	private final Set<String> failedBoardCatalogues = new HashSet<>();
-	private final Map<String, String> boardSearches = new HashMap<>();
-	private final Map<String, TileStatusFilter> boardStatusFilters = new HashMap<>();
-	private final Map<String, Integer> boardCataloguePages = new HashMap<>();
-	/** Tile detail currently drilled into. Kept across the 15-second refresh instead of snapping shut. */
-	private String openCatalogueDetailKey;
-	private int openCatalogueDetailTileId = -1;
+	/** "All tiles" (or an upcoming board's tiles) and the Teams page while open; see {@link #boardPage}. */
+	private UiView boardPage;
+	private String boardPageKey;
 	private boolean showAllActiveTiles;
-	/** The open Teams page, kept across refreshes so its search field and page survive. Null = closed. */
-	private TeamsView teamsView;
-	private int boardCatalogueGeneration;
-	/** Do not replace the whole Swing tree underneath somebody who is typing in the tile search. */
-	private boolean boardSearchFocused;
-	/** Last keystroke in the tile search; see {@link #typingInSearch}. */
-	private long boardSearchEditedAt;
-	private static final long TYPING_PAUSE_MS = 4_000L;
+	private UiView teamsPage;
 
 	// Guards against ActionEvents fired while we rebuild the combo model, and against overlapping fetches.
 	private boolean rebuildingPicker;
@@ -375,7 +355,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void switchClan(String slug)
 	{
 		selectedEventKey = null; // another clan's events are a different list — start at the top
-		clearBoardCatalogueState();
+		closePages();
 		dataSource.chooseClan(slug);
 		renderLoading();
 	}
@@ -623,7 +603,15 @@ public class AnvilSidebarPanel extends PluginPanel
 			public void load(String view, Map<String, String> args, Consumer<JsonObject> done)
 			{
 				String clan = dataSource.activeClan();
-				async(() -> apiClient.fetchUi(view, args, clan), done);
+				Map<String, String> sent = "board".equals(view) ? withPins(args) : args;
+				async(() -> apiClient.fetchUi(view, sent, clan), done);
+			}
+
+			@Override
+			public void pin(int event, int tile, boolean on)
+			{
+				dataSource.setTileTracked(event, tile, on);
+				refresh();
 			}
 
 			@Override
@@ -655,6 +643,40 @@ public class AnvilSidebarPanel extends PluginPanel
 				lookupView.show("clan", Collections.singletonMap("slug", slug), "Loading the clan…");
 			}
 		};
+	}
+
+	/**
+	 * A board view's args plus what only this client knows: whether it can pin a tracker on that board
+	 * here (in game, tracker on) and which tiles it already has.
+	 */
+	private Map<String, String> withPins(Map<String, String> args)
+	{
+		int given = parseIntOr(args.get("event"), 0);
+		int event = given > 0 ? given : dataSource.activeEventId();
+		Map<String, String> out = new HashMap<>(args);
+		if (dataSource.canTrackTiles(event, "1".equals(args.get("pre"))))
+		{
+			out.put("track", "1");
+			StringBuilder pins = new StringBuilder();
+			for (int id : dataSource.pinnedTiles(event))
+			{
+				pins.append(pins.length() > 0 ? "," : "").append(id);
+			}
+			out.put("pins", pins.toString());
+		}
+		return out;
+	}
+
+	private static int parseIntOr(String s, int fallback)
+	{
+		try
+		{
+			return Integer.parseInt(s);
+		}
+		catch (NumberFormatException e)
+		{
+			return fallback;
+		}
 	}
 
 	private void remember(String name)
@@ -1103,7 +1125,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		connection = null;
 		selectedEventKey = null;
-		clearBoardCatalogueState();
+		closePages();
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
 		rebuildingPicker = false;
@@ -1153,9 +1175,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	 * row doesn't take focus from the field, so a panel left with "cerb" in the box never refreshed
 	 * again — a tile's detail sat on a count the site and the tracker had long moved past.
 	 */
+	/** Somebody is in the tiles or Teams search: don't rebuild the page under their caret. */
 	private boolean typingInSearch()
 	{
-		return boardSearchFocused && System.currentTimeMillis() - boardSearchEditedAt < TYPING_PAUSE_MS;
+		Component f = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+		return f instanceof JTextField && (boardPage != null && SwingUtilities.isDescendingFrom(f, boardPage)
+			|| teamsPage != null && SwingUtilities.isDescendingFrom(f, teamsPage));
 	}
 
 	/**
@@ -1211,7 +1236,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			return;
 		}
-		loadBoardCatalogue("active", 0, true);
+		if (boardPage != null)
+		{
+			boardPage.refresh();
+		}
 		refresh();
 	}
 
@@ -1360,29 +1388,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			return;
 		}
-		// The full board, fetched now rather than when someone opens it, so "View all tiles" and a
-		// tile's detail open straight away. ETag'd, once per session unless it's being looked at.
-		if (connection.tilesTotal > 0)
-		{
-			// Re-read once the site is back if what's held is last session's saved copy.
-			loadBoardCatalogue("active", 0, dataSource.boardNeedsLiveRead(boardCatalogues.get("active")));
-		}
 		// A refresh that began just before the member focused Search may finish while they are typing.
 		// Keep the new snapshot, but do not replace the field, drop its focus and reset its caret.
-		if (typingInSearch() || teamsView != null)
+		if (typingInSearch() || teamsPage != null)
 		{
 			return;
 		}
-		// Refresh an already-visible catalogue too. ETags make unchanged boards cheap, while completed
-		// states and scheduled reveals still arrive without making the member close/reopen the list.
-		if (showAllActiveTiles)
+		// An open tiles page asks again too, so completed states and reveals arrive without reopening it.
+		if (boardPage != null)
 		{
-			loadBoardCatalogue("active", 0, true);
-		}
-		EventEntry selected = findEvent(eventsOf(connection), selectedEventKey);
-		if (selected != null && selected.scheduled != null && selected.scheduled.tileCount > 0)
-		{
-			loadBoardCatalogue("preview:" + selected.scheduled.id, selected.scheduled.id, true);
+			boardPage.refresh();
 		}
 		renderSelected();
 	}
@@ -1692,9 +1707,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		String title = entry != null && !entry.title.isEmpty() ? entry.title : "Event";
 
 		// TEAMS — its own page with a way back, like "All tiles": a roster can be 1,200 names long.
-		if (teamsView != null)
+		if (teamsPage != null)
 		{
-			subPage(body, title, this::disposeTeams, "Teams", teamsView);
+			subPage(body, title, () -> teamsPage = null, "Teams", teamsPage);
 			return;
 		}
 
@@ -1731,8 +1746,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				body.add(gap(12));
 				heading(body, entry.scheduled.live ? "Tiles" : "Revealed tiles");
-				body.add(buildBoardCatalogue("preview:" + entry.scheduled.id, entry.scheduled.id,
-					entry.scheduled.url, !entry.scheduled.live));
+				body.add(boardPage("preview:" + entry.scheduled.id, entry.scheduled.id, !entry.scheduled.live, -1));
 			}
 			else if (!entry.scheduled.live)
 			{
@@ -1752,15 +1766,14 @@ public class AnvilSidebarPanel extends PluginPanel
 			heading(body, title);
 			body.add(small(selected.statusNote, MUTED));
 			body.add(gap(8));
-			body.add(buildBoardCatalogue("active", 0, selected.boardUrl, false));
+			body.add(boardPage("active", 0, false, -1));
 			setContent(body);
 			return;
 		}
 		if (showAllActiveTiles && selected.tilesTotal > 0)
 		{
 			body.removeAll();
-			subPage(body, title, () -> showAllActiveTiles = false, "All tiles",
-				buildBoardCatalogue("active", 0, selected.boardUrl, false));
+			subPage(body, title, this::closePages, "All tiles", boardPage("active", 0, false, -1));
 			return;
 		}
 
@@ -1890,7 +1903,6 @@ public class AnvilSidebarPanel extends PluginPanel
 				"Search the full board, including manual tiles", () ->
 				{
 					showAllActiveTiles = true;
-					loadBoardCatalogue("active", 0, false);
 					renderSelected();
 				}));
 		}
@@ -2314,8 +2326,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JPanel card = drillCard(entry.title, plainText(entry.title), () ->
 		{
 			selectedEventKey = entry.key;
-			showAllActiveTiles = false;
-			disposeTeams();
+			closePages();
 			renderSelected();
 		});
 		card.add(small(entry.kind, ColorScheme.LIGHT_GRAY_COLOR));
@@ -2372,8 +2383,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		return backLink("All events", () ->
 		{
 			selectedEventKey = null;
-			showAllActiveTiles = false;
-			disposeTeams();
+			closePages();
 		});
 	}
 
@@ -2730,7 +2740,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		JPanel row = row(6);
 		JLabel name = small(t.rank + ". " + ellipsize(t.name == null ? "" : t.name, 22),
 			t.yours ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
-		name.setIcon(TeamsView.swatchIcon(t.color, 8));
+		name.setIcon(UiView.swatch(teamColor(t.color, MUTED), 8));
 		name.setIconTextGap(5);
 		row.add(name, BorderLayout.CENTER);
 		row.add(small(t.score == null ? "" : t.score, t.yours ? ColorScheme.BRAND_ORANGE : MUTED), BorderLayout.EAST);
@@ -2807,9 +2817,7 @@ public class AnvilSidebarPanel extends PluginPanel
 				if (SwingUtilities.isLeftMouseButton(e))
 				{
 					showAllActiveTiles = true;
-					openCatalogueDetailKey = "active";
-					openCatalogueDetailTileId = tileId;
-					loadBoardCatalogue("active", 0, false);
+					boardPage("active", 0, false, tileId);
 					renderSelected();
 				}
 			}
@@ -3364,1106 +3372,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		return tile.current + " / " + tile.target;
 	}
 
-	// ---- Full tile catalogue ---------------------------------------------------------------------
-
-	@RequiredArgsConstructor
-	enum TileStatusFilter
-	{
-		// CLOSEST is "Not done" sorted nearest-finished first — a sort, but one more choice in the same
-		// dropdown beats a second control on a 240px panel.
-		ALL("All"), OPEN("Not done"), CLOSEST("Closest first"), IN_PROGRESS("In progress"), NOT_STARTED("Not started"),
-		DONE("Done");
-
-		private final String label;
-
-
-		@Override
-		public String toString()
-		{
-			return label;
-		}
-	}
-
-	/** "260 / 500" for an open tile the team has started on, else null (untouched, pass/fail, or done). */
-	static String startedCount(BingoApiClient.BoardTile tile, Map<Integer, ClogTaskModel.TaskRow> progress)
-	{
-		ClogTaskModel.TaskRow r = tile == null || tile.complete || progress == null ? null : progress.get(tile.tileId);
-		return r == null || r.isCompleted() || r.current <= 0 || r.goal <= 1 ? null : progressValue(r);
-	}
-
-	/** Pure filter used by the Swing view and unit tests. Pre-start boards deliberately have no done state. */
-	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
-		String search, TileStatusFilter status, boolean preStart)
-	{
-		return filterBoardTiles(tiles, search, status, preStart, Collections.emptyMap());
-	}
-
-	/**
-	 * As above; {@code progress} (tileId → the team's count) splits the open tiles: "In progress" has a
-	 * count on it, "Not started" doesn't (one-off and manual tiles, with no count to have, are always the latter).
-	 */
-	static List<BingoApiClient.BoardTile> filterBoardTiles(List<BingoApiClient.BoardTile> tiles,
-		String search, TileStatusFilter status, boolean preStart, Map<Integer, ClogTaskModel.TaskRow> progress)
-	{
-		List<BingoApiClient.BoardTile> out = new ArrayList<>();
-		String needle = normalizeTileSearch(search);
-		String[] terms = needle.isEmpty() ? new String[0] : needle.split(" ");
-		TileStatusFilter wanted = status == null ? TileStatusFilter.ALL : status;
-		if (tiles == null)
-		{
-			return out;
-		}
-		// A complete category/tier/type name also brings in every tile filed under it, ranked first,
-		// without a second wall of filter controls on a 240px sidebar. Tier wins when names collide
-		// ("Troll" is both a common category and the default lowest difficulty).
-		boolean tierFacet = !needle.isEmpty() && tiles.stream().filter(Objects::nonNull)
-			.anyMatch(tile -> tileHasTier(tile, needle));
-		boolean categoryFacet = !tierFacet && !needle.isEmpty()
-			&& tiles.stream().filter(Objects::nonNull)
-				.anyMatch(tile -> tileHasCategory(tile.category, needle));
-		// A tile TYPE ("timed", "drop", "boss", "manual") is a facet too. When the word is also a
-		// category name both readings are kept — "pvp" shows the PvP-kill tiles and the PvP category.
-		boolean kindFacet = !tierFacet && !needle.isEmpty()
-			&& tiles.stream().filter(Objects::nonNull)
-				.anyMatch(tile -> tileKindNames(tile).contains(needle));
-		for (BingoApiClient.BoardTile tile : tiles)
-		{
-			if (tile == null)
-			{
-				continue;
-			}
-			boolean done = !preStart && tile.complete;
-			// An expired / locked-out mission isn't done, but it isn't open either: it only shows under All.
-			boolean closed = !preStart && tile.isClosedUndone();
-			if (((wanted == TileStatusFilter.OPEN || wanted == TileStatusFilter.CLOSEST) && (done || closed))
-				|| (wanted == TileStatusFilter.DONE && !done)
-				|| (wanted == TileStatusFilter.IN_PROGRESS && (done || closed || startedCount(tile, progress) == null))
-				|| (wanted == TileStatusFilter.NOT_STARTED && (done || closed || startedCount(tile, progress) != null)))
-			{
-				continue;
-			}
-			// Additive, not a gate: "doom" is the Doom category AND every tile that mentions Doom. As a
-			// gate it hid the Doom KC tiles filed under PvM, while "doom boss" (no facet) found them.
-			boolean facetMatch = (tierFacet && tileHasTier(tile, needle))
-				|| (categoryFacet && tileHasCategory(tile.category, needle))
-				|| (kindFacet && (tileKindNames(tile).contains(needle) || tileHasCategory(tile.category, needle)));
-			String haystack = normalizeTileSearch((tile.label == null ? "" : tile.label) + " "
-				+ (tile.category == null ? "" : tile.category) + " "
-				+ (tile.tier == null ? "" : tile.tier) + " "
-				+ (tile.tierKey == null ? "" : tile.tierKey) + " "
-				+ (tile.requirement == null ? "" : tile.requirement) + " "
-				+ (tile.description == null ? "" : tile.description) + " "
-				+ tileSubjects(tile));
-			boolean matches = true;
-			for (String term : terms)
-			{
-				if (!haystack.contains(term))
-				{
-					matches = false;
-					break;
-				}
-			}
-			matches |= facetMatch;
-			if (matches)
-			{
-				out.add(tile);
-			}
-		}
-		if (!needle.isEmpty())
-		{
-			// Ranked once per tile, not once per comparison: this runs on the EDT on every keystroke.
-			Map<BingoApiClient.BoardTile, Integer> rank = new HashMap<>();
-			for (BingoApiClient.BoardTile tile : out)
-			{
-				rank.put(tile, tileSearchRank(tile, needle, terms));
-			}
-			out.sort(Comparator.<BingoApiClient.BoardTile>comparingInt(rank::get).thenComparingInt(t -> t.position));
-		}
-		if (wanted == TileStatusFilter.CLOSEST)
-		{
-			// Stable, so ties (and everything untouched) keep the order above.
-			out.sort((a, b) -> Double.compare(tileFraction(b, progress), tileFraction(a, progress)));
-		}
-		return out;
-	}
-
-	/** How far the team is toward this tile's goal, 0..1; 0 for an untouched or uncountable tile. */
-	static double tileFraction(BingoApiClient.BoardTile tile, Map<Integer, ClogTaskModel.TaskRow> progress)
-	{
-		ClogTaskModel.TaskRow r = progress == null ? null : progress.get(tile.tileId);
-		return r == null || r.goal <= 0 ? 0 : Math.min(1.0, r.current / (double) r.goal);
-	}
-
-	/**
-	 * The words a player might type for this tile's TYPE, normalised like the search. Several per
-	 * type on purpose — "boss", "kc" and "boss kc" are one thing to a player.
-	 */
-	static Set<String> tileKindNames(BingoApiClient.BoardTile tile)
-	{
-		Set<String> out = new HashSet<>();
-		if (tile == null)
-		{
-			return out;
-		}
-		if (tileIsManual(tile))
-		{
-			out.add("manual");
-		}
-		String stat = tile.statType == null ? "" : tile.statType.trim().toLowerCase(Locale.ROOT);
-		if (tile.statName != null && !tile.statName.trim().isEmpty())
-		{
-			if ("boss".equals(stat) || "kc".equals(stat))
-			{
-				Collections.addAll(out, "boss", "kc", "boss kc", "bosses");
-			}
-			else
-			{
-				Collections.addAll(out, "skill", "xp", "skilling", "skills");
-			}
-		}
-		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
-		for (String[] words : TYPE_WORDS)
-		{
-			if (words[0].equals(type))
-			{
-				out.addAll(Arrays.asList(words).subList(1, words.length));
-			}
-		}
-		if ("drop".equals(type) && tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
-		{
-			Collections.addAll(out, "set", "sets", "item set", "collection");
-		}
-		return out;
-	}
-
-	/** Per tile type (the first word), what a player might type to find it. */
-	private static final String[][] TYPE_WORDS = {
-		{"drop", "drop", "drops"},
-		{"kill", "kill", "kills"},
-		{"lap", "lap", "laps", "agility"},
-		{"pvp", "pvp"},
-		{"gain", "gain", "gains", "item gain", "gather"},
-		{"timed", "timed", "time", "speedrun"},
-		{"deathless", "deathless"},
-		{"diary", "diary", "diaries", "achievement diary"},
-		{"ca", "ca", "cas", "combat task", "combat achievement"},
-		{"lms", "lms"},
-		{"value", "value", "loot value", "gp"},
-		{"valuetotal", "value", "loot value", "gp"},
-	};
-
-	private static boolean tileHasTier(BingoApiClient.BoardTile tile, String normalized)
-	{
-		return tile != null && (normalizeTileSearch(tile.tier).equals(normalized)
-			|| normalizeTileSearch(tile.tierKey).equals(normalized));
-	}
-
-	private static boolean tileHasCategory(String categories, String normalized)
-	{
-		if (categories == null || normalized.isEmpty())
-		{
-			return false;
-		}
-		for (String category : categories.split(","))
-		{
-			if (normalizeTileSearch(category).equals(normalized))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/** Lowercase words with punctuation collapsed, so "Barrows—chest" matches "barrows chest". */
-	private static String normalizeTileSearch(String value)
-	{
-		return (value == null ? "" : value)
-			.toLowerCase(Locale.ROOT)
-			.replaceAll("[^a-z0-9]+", " ")
-			.trim();
-	}
-
-	/**
-	 * What the tile is actually about, for a search the name doesn't cover: the boss or skill it
-	 * counts, the bosses its drop must come from, the items and sets it accepts, the site's rule
-	 * line and its type. "Graardor" finds a tile called "Big hilt energy" when General Graardor is
-	 * the source.
-	 */
-	static String tileSubjects(BingoApiClient.BoardTile tile)
-	{
-		StringBuilder out = new StringBuilder();
-		Consumer<String> add = text ->
-		{
-			if (text != null && !text.trim().isEmpty())
-			{
-				out.append(text).append(' ');
-			}
-		};
-		add.accept(tile.statLabel);
-		add.accept(tile.statName);
-		if (tile.sources != null)
-		{
-			tile.sources.forEach(add);
-		}
-		if (tile.trackedItems != null)
-		{
-			tile.trackedItems.forEach(item -> add.accept(item == null ? null : item.name));
-		}
-		if (tile.itemRequirements != null)
-		{
-			tile.itemRequirements.forEach(item ->
-			{
-				if (item != null)
-				{
-					add.accept(item.name);
-					add.accept(item.group);
-				}
-			});
-		}
-		add.accept(tile.howItCounts);
-		// The type words too, so they combine with a name: "timed zulrah", "pvp kills".
-		tileKindNames(tile).forEach(add);
-		// Boss nicknames both ways, the label's included: "toa" finds Tombs of Amascut and back.
-		String own = out + (tile.label == null ? "" : tile.label);
-		return out + SearchAliases.augment(own).substring(own.length());
-	}
-
-	/** Lower is better: label phrase → label words → category → tier → subjects → requirement → description. */
-	private static int tileSearchRank(BingoApiClient.BoardTile tile, String phrase, String[] terms)
-	{
-		if (tileHasTier(tile, phrase)) return 0;
-		if (tileHasCategory(tile.category, phrase)) return 2;
-		if (tileKindNames(tile).contains(phrase)) return 3;
-		String label = normalizeTileSearch(tile.label);
-		if (label.equals(phrase)) return 4;
-		if (label.startsWith(phrase)) return 5;
-		if (label.contains(phrase)) return 10;
-
-		String category = normalizeTileSearch(tile.category);
-		String tier = normalizeTileSearch((tile.tier == null ? "" : tile.tier) + " "
-			+ (tile.tierKey == null ? "" : tile.tierKey));
-		String subjects = normalizeTileSearch(tileSubjects(tile));
-		String requirement = normalizeTileSearch(tile.requirement);
-		String description = normalizeTileSearch(tile.description);
-		int score = 20;
-		for (String term : terms)
-		{
-			if (label.startsWith(term)) continue; // the best a term can do: nothing added
-			if (label.contains(term)) score += 2;
-			else if (category.contains(term)) score += 8;
-			else if (tier.contains(term)) score += 10;
-			else if (subjects.contains(term)) score += 12;
-			else if (requirement.contains(term)) score += 14;
-			else if (description.contains(term)) score += 22;
-			else score += 100;
-		}
-		return score;
-	}
-
-	private JPanel buildBoardCatalogue(String key, int eventId, String boardUrl, boolean preStart)
-	{
-		JPanel panel = column();
-
-		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
-		if (board == null)
-		{
-			if (!loadingBoardCatalogues.contains(key) && !failedBoardCatalogues.contains(key))
-			{
-				loadBoardCatalogue(key, eventId, false);
-			}
-			if (failedBoardCatalogues.contains(key))
-			{
-				panel.add(small("Couldn't load the board.", ColorScheme.PROGRESS_ERROR_COLOR));
-				panel.add(gap(5));
-				panel.add(fullWidthButton("Retry", "Try loading all tiles again", () ->
-					loadBoardCatalogue(key, eventId, true)));
-			}
-			else
-			{
-				panel.add(small("Loading tiles…", MUTED));
-			}
-			return capH(panel);
-		}
-
-		List<BingoApiClient.BoardTile> all = board.tiles == null
-			? Collections.emptyList() : board.tiles;
-		if (all.isEmpty())
-		{
-			panel.add(small(board.tilesRevealed ? "No visible tiles." : "Tiles haven't been revealed yet.", MUTED));
-			return capH(panel);
-
-		}
-
-		SearchField search = new SearchField(
-			"Search " + all.size() + " tiles…", boardSearches.getOrDefault(key, ""));
-		search.setToolTipText("Search tile names, descriptions, requirements and categories");
-		styleSearch(search);
-		search.setFont(SMALL);
-		search.setBackground(WIDGET_BG);
-		search.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(WIDGET_BORDER), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-		search.addFocusListener(new FocusAdapter()
-		{
-			@Override public void focusGained(FocusEvent e) { boardSearchFocused = true; }
-			@Override public void focusLost(FocusEvent e) { boardSearchFocused = false; }
-		});
-		if (boardSearchFocused)
-		{
-			// A redraw replaced the field the member was in: put them back in it, caret at the end.
-			// Twice deferred: setContent swaps the new field in on a later EDT turn than this one.
-			SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() ->
-			{
-				if (search.isShowing())
-				{
-					search.requestFocusInWindow();
-					search.setCaretPosition(search.getText().length());
-				}
-			}));
-		}
-
-		JButton clearSearch = flatButton("", "Clear tile search", () -> search.setText(""));
-		clearSearch.setIcon(new GlyphIcon(GlyphIcon.Shape.CLOSE, 12));
-		clearSearch.setEnabled(!search.getText().isEmpty());
-		clearSearch.setPreferredSize(new Dimension(30, search.getPreferredSize().height));
-		clearSearch.setBorder(BorderFactory.createLineBorder(WIDGET_BORDER));
-
-		JComboBox<TileStatusFilter> status = preStart ? null : new JComboBox<>(TileStatusFilter.values());
-		if (status != null)
-		{
-			status.setSelectedItem(boardStatusFilters.getOrDefault(key, TileStatusFilter.ALL));
-			styleCombo(status);
-			status.setToolTipText("Filter tiles by completion state");
-		}
-
-		JPanel controls = row(5, ColorScheme.DARK_GRAY_COLOR);
-		controls.add(search, BorderLayout.CENTER);
-		controls.add(clearSearch, BorderLayout.EAST);
-		capH(controls);
-		String countLine = all.size() + (all.size() == 1 ? " visible tile" : " visible tiles");
-		if (board.hiddenTileCount > 0)
-		{
-			countLine += " · " + board.hiddenTileCount + " still hidden";
-		}
-		boolean catalogueClaimable = !board.readOnly && dataSource.supportsTileClaims();
-		boolean loggedOut = catalogueClaimable && !dataSource.canClaimNow();
-		panel.add(small(countLine, ColorScheme.LIGHT_GRAY_COLOR));
-		panel.add(gap(2));
-		panel.add(small(loggedOut
-			? "Click for details · log in to claim tiles."
-			: catalogueClaimable
-			? "Click for details · right-click to claim."
-			: (board.readOnly ? "Click for details · join this event to claim tiles."
-				: "Click for details · claims aren't available on this site."), MUTED));
-		panel.add(gap(7));
-		panel.add(controls);
-		if (status != null)
-		{
-			JPanel filterRow = row(6, ColorScheme.DARK_GRAY_COLOR);
-			filterRow.add(small("Show", MUTED), BorderLayout.WEST);
-			filterRow.add(status, BorderLayout.CENTER);
-			panel.add(gap(5));
-			panel.add(capH(filterRow));
-		}
-		panel.add(gap(7));
-
-		JPanel rows = column();
-
-		Runnable repaintRows = () ->
-		{
-			boardSearches.put(key, search.getText());
-			TileStatusFilter selected = status == null
-				? TileStatusFilter.ALL : (TileStatusFilter) status.getSelectedItem();
-			boardStatusFilters.put(key, selected == null ? TileStatusFilter.ALL : selected);
-			renderBoardCatalogueRows(panel, rows, key, all, search.getText(), selected, preStart, boardUrl);
-		};
-		// A new search or filter starts at page one — and searching from a tile's detail means "find
-		// another one", so it shows the results.
-		Runnable refilter = () ->
-		{
-			boardCataloguePages.put(key, 0);
-			closeCatalogueDetail(key);
-			repaintRows.run();
-		};
-		onEdit(search, () ->
-		{
-			boardSearchEditedAt = System.currentTimeMillis();
-			clearSearch.setEnabled(!search.getText().isEmpty());
-			refilter.run();
-		});
-		if (status != null)
-		{
-			status.addActionListener(e -> refilter.run());
-		}
-		panel.add(rows);
-		repaintRows.run();
-		return capH(panel);
-	}
-
-	private void closeCatalogueDetail(String key)
-	{
-		if (key.equals(openCatalogueDetailKey))
-		{
-			openCatalogueDetailKey = null;
-			openCatalogueDetailTileId = -1;
-		}
-	}
-
-	private void renderBoardCatalogueRows(JPanel catalogue, JPanel rows, String key,
-		List<BingoApiClient.BoardTile> all, String search, TileStatusFilter status, boolean preStart, String boardUrl)
-	{
-		rows.removeAll();
-		Runnable again = () -> renderBoardCatalogueRows(catalogue, rows, key, all, search, status, preStart, boardUrl);
-		BingoApiClient.BoardResponse shownBoard = boardCatalogues.get(key);
-		boolean claimable = shownBoard != null
-			&& !shownBoard.readOnly && dataSource.supportsTileClaims() && dataSource.canClaimNow();
-		if (key.equals(openCatalogueDetailKey) && openCatalogueDetailTileId > 0)
-		{
-			for (BingoApiClient.BoardTile tile : all)
-			{
-				if (tile.tileId == openCatalogueDetailTileId)
-				{
-					renderTileDetail(catalogue, rows, tile, boardUrl, preStart, key, claimable && !tile.complete, () ->
-					{
-						openCatalogueDetailKey = null;
-						openCatalogueDetailTileId = -1;
-						again.run();
-					});
-					return;
-				}
-			}
-			closeCatalogueDetail(key);
-		}
-		// The team's counts, from the config the sidebar already holds — the live board only.
-		Map<Integer, ClogTaskModel.TaskRow> progress = "active".equals(key) && connection != null && !preStart
-			? connection.tileProgress : Collections.emptyMap();
-		List<BingoApiClient.BoardTile> filtered = filterBoardTiles(all, search, status, preStart, progress);
-		if (filtered.isEmpty())
-		{
-			rows.add(small("No matching tiles.", MUTED));
-		}
-		else
-		{
-			int pageCount = Math.max(1,
-				(int) Math.ceil(filtered.size() / (double) TILE_CATALOGUE_PAGE_SIZE));
-			int page = Math.max(0, Math.min(boardCataloguePages.getOrDefault(key, 0), pageCount - 1));
-			boardCataloguePages.put(key, page);
-			int from = page * TILE_CATALOGUE_PAGE_SIZE;
-			int to = Math.min(filtered.size(), from + TILE_CATALOGUE_PAGE_SIZE);
-			rows.add(small((from + 1) + "–" + to + " of " + filtered.size(), MUTED));
-			rows.add(gap(5));
-			// A writable response is already scoped by the server to the enrolled player's team. Public
-			// and non-member previews remain read-only, including before the event starts.
-			boolean first = true;
-			for (BingoApiClient.BoardTile tile : filtered.subList(from, to))
-			{
-				if (!first)
-				{
-					rows.add(gap(5));
-				}
-				boolean canClaim = claimable && !tile.complete;
-				String claimUnavailable = canClaim ? null : (tile.complete
-					? "This tile is already complete."
-					: (shownBoard != null && shownBoard.readOnly
-						? "Join this event to claim tiles."
-						: (!dataSource.canClaimNow() ? "Log in to claim tiles."
-							: "Claims aren't available on this site.")));
-				rows.add(buildCatalogueTileRow(tile, preStart, key, canClaim, claimUnavailable, startedCount(tile, progress), () ->
-				{
-					openCatalogueDetailKey = key;
-					openCatalogueDetailTileId = tile.tileId;
-					again.run();
-				}));
-				first = false;
-			}
-			if (pageCount > 1)
-			{
-				rows.add(gap(7));
-				final int shownPage = page;
-				JButton previous = flatButton("Previous", "Show the previous tiles", () ->
-				{
-					boardCataloguePages.put(key, shownPage - 1);
-					again.run();
-				});
-				previous.setEnabled(page > 0);
-				previous.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 11));
-				JButton next = flatButton("Next", "Show the next tiles", () ->
-				{
-					boardCataloguePages.put(key, shownPage + 1);
-					again.run();
-				});
-				next.setEnabled(page < pageCount - 1);
-				next.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 11));
-				next.setHorizontalTextPosition(SwingConstants.LEADING);
-				rows.add(buttonRow(previous, next));
-			}
-		}
-		relayout(catalogue, rows);
-	}
-
-	/** The catalogue's rows changed: re-cap both panels to their new height and redraw. */
-	private void relayout(JPanel catalogue, JPanel rows)
-	{
-		rows.revalidate();
-		capH(rows);
-		catalogue.revalidate();
-		capH(catalogue);
-		content.revalidate();
-		rows.repaint();
-		content.repaint();
-	}
-
-	private JPanel buildCatalogueTileRow(BingoApiClient.BoardTile tile, boolean preStart,
-		String key, boolean canClaim, String claimUnavailable, String count, Runnable viewDetails)
-	{
-		JPanel row = row(6, ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(BorderFactory.createEmptyBorder(6, 7, 6, 7));
-
-		String label = tileName(tile);
-		JLabel name = small(ellipsize(label, 28), !preStart && tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.TEXT_COLOR);
-		String details = tile.description == null || tile.description.trim().isEmpty()
-			? tile.requirement : tile.description;
-		String tooltip = details == null || details.isEmpty() ? label : label + " — " + details;
-		if (canClaim)
-		{
-			tooltip += " (right-click to claim)";
-		}
-		name.setToolTipText(plainText(tooltip));
-		row.add(name, BorderLayout.CENTER);
-
-		// A started tile says how far along it is where an untouched one says "Open".
-		String rowState = count != null && !tile.isClosedUndone() ? count : tileRowStateText(tile, preStart);
-		if (rowState != null)
-		{
-			// Manual reads in the site's badge colour, so it's spotted in a list of auto-tracked tiles.
-			JLabel state = small(rowState.startsWith("✓ ") ? rowState.substring(2) : rowState,
-				tile.complete ? ColorScheme.PROGRESS_COMPLETE_COLOR : count != null ? ColorScheme.PROGRESS_INPROGRESS_COLOR
-					: tileIsManual(tile) ? MANUAL_COLOR : MUTED);
-			if (rowState.startsWith("✓ "))
-			{
-				state.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 11));
-				state.setIconTextGap(2);
-			}
-			row.add(state, BorderLayout.EAST);
-		}
-
-		// Who on your team is going for it. Plain text: the RuneScape font has no emoji.
-		String planning = claimLine(tile.claims);
-		if (planning != null)
-		{
-			JLabel who = small(ellipsize(planning, 36), claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR);
-			who.setToolTipText(plainText(claimTooltip(tile.claims)));
-			row.add(who, BorderLayout.SOUTH);
-		}
-
-		if (viewDetails != null || canClaim)
-		{
-			if (viewDetails != null)
-			{
-				row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			}
-			MouseAdapter listener = new MouseAdapter()
-			{
-				@Override public void mouseClicked(MouseEvent e)
-				{
-					// Left-click stays in RuneLite; the detail view carries the explicit site link.
-					if (viewDetails != null && SwingUtilities.isLeftMouseButton(e))
-					{
-						viewDetails.run();
-					}
-				}
-				@Override public void mousePressed(MouseEvent e) { maybeClaimMenu(e); }
-				@Override public void mouseReleased(MouseEvent e) { maybeClaimMenu(e); }
-				@Override public void mouseEntered(MouseEvent e) { row.setBackground(WIDGET_BG_HOVER); }
-				@Override public void mouseExited(MouseEvent e)
-				{
-					// Moving between the row and one of its labels is still inside the same clickable tile.
-					Component source = e.getComponent();
-					if (!row.contains(SwingUtilities.convertPoint(source, e.getPoint(), row)))
-					{
-						row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-					}
-				}
-
-				private void maybeClaimMenu(MouseEvent e)
-				{
-					if (e.isPopupTrigger())
-					{
-						JPopupMenu menu = canClaim ? claimMenu(tile, key) : claimUnavailableMenu(claimUnavailable);
-						addTrackItem(menu, tile, key, preStart);
-						menu.show(e.getComponent(), e.getX(), e.getY());
-					}
-				}
-			};
-			// Swing sends a mouse event to the deepest component under the pointer; it does not bubble
-			// through the JLabel text to this JPanel. Wire the full visible row so its text is not a dead
-			// overlay over the apparent button (and right-click works on the same whole target).
-			addMouseListenerToTree(row, listener);
-		}
-		return capH(row);
-	}
-
-	private static String tileName(BingoApiClient.BoardTile tile)
-	{
-		return tile.label == null || tile.label.trim().isEmpty() ? "Tile " + tile.tileId : tile.label;
-	}
-
-	/** The teams on {@code board} that have finished {@code tileId}, in the board's team order. */
-	static List<BingoApiClient.BoardTeam> teamsDone(BingoApiClient.BoardResponse board, int tileId)
-	{
-		List<BingoApiClient.BoardTeam> out = new ArrayList<>();
-		if (board == null || board.teams == null)
-		{
-			return out;
-		}
-		for (BingoApiClient.BoardTeam t : board.teams)
-		{
-			if (t != null && t.completedTileIds != null && t.completedTileIds.contains(tileId))
-			{
-				out.add(t);
-			}
-		}
-		return out;
-	}
-
-	/** One tile's full in-sidebar view. The browser is an explicit choice, not the row's default action. */
-	private void renderTileDetail(JPanel catalogue, JPanel rows, BingoApiClient.BoardTile tile,
-		String boardUrl, boolean preStart, String key, boolean canClaim, Runnable backToTiles)
-	{
-		rows.removeAll();
-		rows.add(fullWidthButton("Back to tiles", "Return to the searchable tile list", backToTiles));
-		rows.add(gap(7));
-
-		JPanel card = block();
-		card.setBorder(BorderFactory.createEmptyBorder(9, 9, 9, 9));
-
-		JLabel title = note(tileName(tile), ColorScheme.TEXT_COLOR);
-		title.setFont(BOLD);
-		card.add(title);
-		card.add(gap(4));
-
-		// How far along it is — the team count the board already carries, so a 517/500 or a 3/5 reads
-		// here instead of only on "Nearest tiles". Only the live board has it, and only a counted tile:
-		// a pass/fail tile's 0 / 1 says nothing the status line doesn't.
-		ClogTaskModel.TaskRow progress = "active".equals(key) && connection != null
-			? connection.tileProgress.get(tile.tileId) : null;
-		if (progress != null && !tile.complete && !progress.isCompleted() && progress.goal > 1)
-		{
-			detailHeading(card, 0, "Progress");
-			JLabel pctLabel = small(percent(progress.current, progress.goal) + "%",
-				ColorScheme.TEXT_COLOR);
-			JPanel row = progressRow(pctLabel, progressValue(progress), null,
-				bar(percent(progress.current, progress.goal),
-					ColorScheme.PROGRESS_INPROGRESS_COLOR, ColorScheme.DARK_GRAY_COLOR, PROGRESS_BAR_HEIGHT));
-			live(row, tile.tileId, progress.current, progress.goal, false, pctLabel);
-			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			card.add(row);
-			card.add(gap(9));
-		}
-
-		List<String> facts = tileDetailFacts(tile, preStart);
-		if (!facts.isEmpty())
-		{
-			detailHeading(card, 0, "Details");
-			for (String fact : facts)
-			{
-				card.add(note(fact));
-			}
-		}
-		if (tile.complete && tile.finishedBy != null && !tile.finishedBy.isEmpty())
-		{
-			finisherList(card, "Finished by", tile, tile.finishedBy, tile.finishedByMore, ColorScheme.PROGRESS_COMPLETE_COLOR);
-		}
-		// Which TEAMS have it — the whole picture for someone watching the board, and for a player
-		// which rivals already got there.
-		List<BingoApiClient.BoardTeam> teamsDone = teamsDone(boardCatalogues.get(key), tile.tileId);
-		if (!teamsDone.isEmpty())
-		{
-			detailHeading(card, 9, "Teams done");
-			for (BingoApiClient.BoardTeam t : teamsDone)
-			{
-				card.add(note(t.name == null ? "Team" : t.name, Ui.teamColor(t.color == null ? null : t.color.trim(), ColorScheme.PROGRESS_COMPLETE_COLOR)));
-			}
-		}
-		// Who on your team is getting it — open tiles only (a done one lists its finishers above).
-		if (!tile.complete && tile.contributors != null && !tile.contributors.isEmpty())
-		{
-			finisherList(card, "On it", tile, tile.contributors, tile.contributorsMore, ColorScheme.PROGRESS_INPROGRESS_COLOR);
-		}
-		if (tile.description != null && !tile.description.trim().isEmpty())
-		{
-			detailHeading(card, 9, "Objective");
-			card.add(note(tile.description.trim()));
-		}
-
-		List<String> tracked = tileTrackingDetails(tile);
-		if (tileIsManual(tile))
-		{
-			detailHeading(card, 9, "Manual completion");
-			card.add(note(tile.manualOnly
-				? "The plugin can't see this item arrive — it isn't a drop (it's bought, made or handed over), so it isn't tracked. Screenshot it and submit it on the site."
-				: "This task is not completed automatically. A captain or admin marks it done."));
-		}
-		else if (!tracked.isEmpty())
-		{
-			// The rule in plain words before the list — the same sentence the site's board shows, so
-			// "one set" vs "any of" vs "different items" is never left to be inferred from a list.
-			if (tile.howItCounts != null && !tile.howItCounts.trim().isEmpty())
-			{
-				detailHeading(card, 9, "How it counts");
-				card.add(note(tile.howItCounts.trim(), ColorScheme.BRAND_ORANGE));
-			}
-			detailHeading(card, 9, "Tracked automatically");
-			boolean first = true;
-			int headers = 0;
-			for (String line : tracked)
-			{
-				card.add(trackedLine(line, first, headers));
-				if (line.endsWith(":"))
-				{
-					headers++;
-				}
-				first = false;
-			}
-		}
-		if (tile.requirement != null && !tile.requirement.trim().isEmpty()
-			&& !tile.requirement.trim().equals(tile.description == null ? "" : tile.description.trim())
-			&& !tracked.contains(tile.requirement.trim()))
-		{
-			detailHeading(card, 9, "Requirements");
-			card.add(note(tile.requirement.trim()));
-		}
-
-		String planning = claimTooltip(tile.claims);
-		if (planning != null && !planning.isEmpty())
-		{
-			card.add(gap(7));
-			card.add(note(planning.replace("\n", " · "), claimedByMe(tile.claims) ? ColorScheme.BRAND_ORANGE : CLAIM_COLOR));
-		}
-
-		if (canClaim)
-		{
-			card.add(gap(8));
-			JButton primary;
-			JButton secondary;
-			if (claimedByMe(tile.claims))
-			{
-				primary = flatButton("Change note…", "Edit the note your team sees", () -> askNoteAndClaim(tile, key));
-				secondary = flatButton("Drop claim", "Stop planning this tile", () ->
-					runClaimChange(key, () -> dataSource.unclaimTile(catalogueEventId(key), tile.tileId)));
-			}
-			else
-			{
-				primary = flatButton("Claim tile", "Tell your team you're going for this", () ->
-					runClaimChange(key, () -> dataSource.claimTile(catalogueEventId(key), tile.tileId, null)));
-				secondary = flatButton("Add note…", "Claim it with a note for your team", () -> askNoteAndClaim(tile, key));
-			}
-			card.add(buttonRow(primary, secondary));
-		}
-
-		JButton track = trackButton(tile, key, preStart);
-		if (track != null)
-		{
-			card.add(gap(5));
-			card.add(fullWidth(track));
-		}
-		String tileUrl = tileUrl(boardUrl, tile.tileId);
-		if (isSafeHttpUrl(tileUrl))
-		{
-			card.add(gap(5));
-			card.add(siteLink("Open on Anvil ↗", "Open this tile on the Anvil site", tileUrl));
-		}
-
-		rows.add(capH(card));
-		relayout(catalogue, rows);
-		if (rows.isShowing())
-		{
-			// Opened by a click, into a list already on screen — no setContent will hand its row over.
-			liveRows.addAll(buildingRows);
-			buildingRows = new ArrayList<>();
-		}
-	}
-
-	/** A detail heading, one line per player, then "+N more" for those the site left out. */
-	private static void finisherList(JPanel card, String heading, BingoApiClient.BoardTile tile,
-		List<BingoApiClient.BoardFinisher> who, int more, Color color)
-	{
-		detailHeading(card, 9, heading);
-		for (BingoApiClient.BoardFinisher f : who)
-		{
-			card.add(note(finisherLine(tile, f), color));
-		}
-		if (more > 0)
-		{
-			card.add(note("+" + more + " more", MUTED));
-		}
-	}
-
-	/** "Kurrozive · 312 KC" — a finisher and their share, in the tile's unit; just the name when unknown. */
-	static String finisherLine(BingoApiClient.BoardTile tile, BingoApiClient.BoardFinisher f)
-	{
-		String name = f.name == null ? "" : f.name;
-		if (f.amount <= 0)
-		{
-			return name;
-		}
-		String unit = "skill".equals(tile.statType) ? " XP"
-			: "boss".equals(tile.statType) || "kc".equals(tile.statType) ? " KC"
-			: "value".equals(tile.tileType) || "valuetotal".equals(tile.tileType) ? " gp"
-			: "";
-		return name + " · " + Ui.count(f.amount) + unit;
-	}
-
-	/** A heading inside the tile detail, {@code above} px under what came before it. */
-	private static void detailHeading(JPanel card, int above, String text)
-	{
-		if (above > 0)
-		{
-			card.add(gap(above));
-		}
-		card.add(sectionHeader(text));
-		card.add(gap(2));
-	}
-
-	/** Stable compact metadata used by the detail view and its regression tests. */
-	static List<String> tileDetailFacts(BingoApiClient.BoardTile tile, boolean preStart)
-	{
-		List<String> facts = new ArrayList<>();
-		if (!preStart)
-		{
-			facts.add("Status: " + tileStateText(tile).replace("✓ ", ""));
-		}
-		else if (tileIsManual(tile))
-		{
-			facts.add("Completion: manual");
-		}
-		if (tile.points > 0)
-		{
-			facts.add("Points: " + tile.points);
-		}
-		if (tile.tier != null && !tile.tier.trim().isEmpty())
-		{
-			facts.add("Tier: " + tile.tier.trim());
-		}
-		if (tile.category != null && !tile.category.trim().isEmpty())
-		{
-			facts.add("Category: " + tile.category.trim().replace(",", " ·"));
-		}
-		return facts;
-	}
-
-	/** Pre-start rows hide completion, but a manual-only task must still identify itself. */
-	static String tileRowStateText(BingoApiClient.BoardTile tile, boolean preStart)
-	{
-		return preStart ? (tileIsManual(tile) ? "(manual)" : null) : tileStateText(tile);
-	}
-
-	/** Compact state shown at the right edge of a catalogue row. */
-	static String tileStateText(BingoApiClient.BoardTile tile)
-	{
-		return (tile.complete ? "✓ Done" : tile.isClosedUndone() ? "Closed" : "Open") + (tileIsManual(tile) ? " (manual)" : "");
-	}
-
-	/**
-	 * A tile can be manual because the host flipped off otherwise-valid tracking, or because its
-	 * shape has no plugin tracker at all. The board API has always sent the former; deriving the
-	 * latter here keeps old sites honest too.
-	 */
-	static boolean tileIsManual(BingoApiClient.BoardTile tile)
-	{
-		if (tile.autoTrackDisabled != 0 || tile.manualOnly)
-		{
-			return true;
-		}
-		if (tile.statName != null && !tile.statName.trim().isEmpty())
-		{
-			return false;
-		}
-		String type = tile.tileType == null ? "" : tile.tileType.trim().toLowerCase(Locale.ROOT);
-		if ("drop".equals(type) || "gain".equals(type))
-		{
-			return (tile.itemIds == null || tile.itemIds.isEmpty())
-				&& (tile.trackedItems == null || tile.trackedItems.isEmpty())
-				&& (tile.itemRequirements == null || tile.itemRequirements.isEmpty());
-		}
-		return !TRACKED_TYPES.contains(type);
-	}
-
-	/** Tile types the plugin tracks off something other than an item list. */
-	private static final Set<String> TRACKED_TYPES = Set.of(
-		"kill", "lap", "pvp", "diary", "ca", "timed", "lms", "value", "valuetotal", "deathless");
-
-	// Set headers ("Ahrim's set — all 4:") stand out from the items under them: their own colour, a
-	// gap above, and the items indented. HTML collapses the leading spaces tileTrackingDetails uses to
-	// mark an item line, so the indent is a border, not whitespace.
-	// Each header its own colour, cycling — six Barrows sets read as six blocks. Green is kept for
-	// "collected" and orange for the How-it-counts rule, so neither is in the palette.
-	private static final Color[] SET_HEADER_COLORS = {
-		new Color(0xE0_C0_6A), // gold
-		new Color(0x6A_C8_E0), // sky
-		new Color(0xE0_8A_C4), // pink
-		new Color(0xA8_9A_F0), // lavender
-		new Color(0x5F_D4_BE), // teal
-		new Color(0xE8_A8_7A), // peach
-	};
-	private static final Color DONE_COLOR = new Color(0x6F_C2_6F);
-	private static final Color MANUAL_COLOR = new Color(0xE8_B8_3A);
-
-	private JLabel trackedLine(String line, boolean first, int headerIndex)
-	{
-		boolean header = line.endsWith(":");
-		boolean item = line.startsWith("  ");
-		String text = line.trim();
-		boolean ticked = text.startsWith("✓");
-		if (ticked)
-		{
-			text = text.substring(1).trim();
-		}
-		// A done set's "✓" / "✓×2" reads as words in the header; the item ticks become drawn icons.
-		text = text.replace(" ✓×", " · done ×").replace(" ✓:", " · done:");
-		JLabel label = note(text);
-		if (ticked)
-		{
-			label.setIcon(new GlyphIcon(GlyphIcon.Shape.CHECK, 11, DONE_COLOR));
-			label.setIconTextGap(3);
-		}
-		if (header)
-		{
-			label.setForeground(SET_HEADER_COLORS[headerIndex % SET_HEADER_COLORS.length]);
-		}
-		else if (ticked)
-		{
-			label.setForeground(DONE_COLOR);
-		}
-		int top = header && !first ? 6 : 0;
-		int left = item ? 8 : 0;
-		label.setBorder(BorderFactory.createEmptyBorder(top, left, 0, 0));
-		return label;
-	}
-
-	private static String itemName(int itemId, String name)
-	{
-		return name == null || name.trim().isEmpty() ? "Item " + itemId : name.trim();
-	}
-
-	/**
-	 * A collection's items, grouped the way the site's board groups them: always-required items
-	 * first, then one header per set saying how much of it is needed, with a ✓ on what's in. A flat
-	 * "all of these" list gets one header too, so it can't be mistaken for "any of".
-	 */
-	static void itemSetLines(BingoApiClient.BoardTile tile, List<String> lines)
-	{
-		List<PluginConfigResponse.ItemRequirement> ungrouped = new ArrayList<>();
-		LinkedHashMap<String, List<PluginConfigResponse.ItemRequirement>> groups = new LinkedHashMap<>();
-		Map<String, String> displayName = new HashMap<>();
-		for (PluginConfigResponse.ItemRequirement req : tile.itemRequirements)
-		{
-			if (req == null)
-			{
-				continue;
-			}
-			String g = req.group == null ? "" : req.group.trim();
-			if (g.isEmpty())
-			{
-				ungrouped.add(req);
-				continue;
-			}
-			String key = g.toLowerCase(Locale.ROOT);
-			groups.computeIfAbsent(key, k -> new ArrayList<>()).add(req);
-			displayName.putIfAbsent(key, g);
-		}
-		if (!ungrouped.isEmpty())
-		{
-			lines.add(groups.isEmpty() ? "All of these:" : "Always required:");
-			for (PluginConfigResponse.ItemRequirement req : ungrouped)
-			{
-				lines.add(itemLine(req));
-			}
-		}
-		for (Map.Entry<String, List<PluginConfigResponse.ItemRequirement>> e : groups.entrySet())
-		{
-			List<PluginConfigResponse.ItemRequirement> set = e.getValue();
-			int need = 0;
-			for (PluginConfigResponse.ItemRequirement r : set)
-			{
-				need = Math.max(need, r.groupRequire);
-			}
-			need = need <= 0 ? set.size() : Math.min(need, set.size());
-			int times = ClogTaskModel.setTimes(set, need);
-			String howMuch = need < set.size() ? "any " + need + " of " + set.size() : "all " + set.size();
-			lines.add(displayName.get(e.getKey()) + " set — " + howMuch + (times > 0 ? (times > 1 ? " ✓×" + times : " ✓") : "") + ":");
-			for (PluginConfigResponse.ItemRequirement req : set)
-			{
-				lines.add(itemLine(req));
-			}
-		}
-	}
-
-	private static String itemLine(PluginConfigResponse.ItemRequirement req)
-	{
-		int need = Math.max(1, req.requiredAmount);
-		String name = itemName(req.itemId, req.name);
-		if (req.currentAmount >= need)
-		{
-			return "  ✓ " + (need > 1 || req.currentAmount > need ? req.currentAmount + "× " : "") + name;
-		}
-		return "  " + (req.currentAmount > 0 ? req.currentAmount + "/" + need : need + "×") + " " + name;
-	}
-
-	/** Exact inputs the plugin watches, shown in the detail view instead of hiding them behind prose. */
-	static List<String> tileTrackingDetails(BingoApiClient.BoardTile tile)
-	{
-		List<String> lines = new ArrayList<>();
-		if (tileIsManual(tile))
-		{
-			return lines;
-		}
-		if (tile.itemRequirements != null && !tile.itemRequirements.isEmpty())
-		{
-			itemSetLines(tile, lines);
-		}
-		else if (tile.trackedItems != null && !tile.trackedItems.isEmpty())
-		{
-			if (tile.trackedItems.size() == 1)
-			{
-				BingoApiClient.TrackedItem item = tile.trackedItems.get(0);
-				lines.add(Math.max(1, tile.requiredAmount) + "× " + itemName(item.itemId, item.name));
-			}
-			else
-			{
-				boolean distinct = "distinct".equals(tile.countMode);
-				int need = Math.max(1, tile.requiredAmount);
-				lines.add(distinct
-					? need + " DIFFERENT items from:"
-					: need == 1 ? "Any ONE of:" : "Any " + need + " drops (repeats count) from:");
-				for (BingoApiClient.TrackedItem item : tile.trackedItems)
-				{
-					boolean counted = distinct && tile.countedItemIds != null && tile.countedItemIds.contains(item.itemId);
-					lines.add((counted ? "✓ " : "- ") + itemName(item.itemId, item.name));
-				}
-			}
-		}
-		else if (tile.itemIds != null && !tile.itemIds.isEmpty())
-		{
-			lines.add("Tracked item IDs: " + tile.itemIds.toString().replace("[", "").replace("]", ""));
-		}
-		else if (tile.statName != null && !tile.statName.trim().isEmpty())
-		{
-			String unit = "boss".equalsIgnoreCase(tile.statType) || "kc".equalsIgnoreCase(tile.statType)
-				? " KC" : " XP";
-			// The site's readable name ("Kree'Arra") when it sends one; the raw key on older sites.
-			String name = tile.statLabel != null && !tile.statLabel.trim().isEmpty() ? tile.statLabel : tile.statName;
-			lines.add(name.trim() + unit);
-		}
-		else if (tile.requirement != null && !tile.requirement.trim().isEmpty())
-		{
-			lines.add(tile.requirement.trim());
-		}
-		if (tile.sources != null && !tile.sources.isEmpty())
-		{
-			lines.add("Only from: " + String.join(", ", tile.sources));
-		}
-		return lines;
-	}
+	// ---- Tiles and Teams pages --------------------------------------------------------------------
 
 	/** Install one row listener on the panel and every label nested inside it. */
 	static void addMouseListenerToTree(Component component, MouseAdapter listener)
@@ -4478,324 +3387,52 @@ public class AnvilSidebarPanel extends PluginPanel
 		}
 	}
 
-	/** Right-click on a tile row: claim it (optionally with a note), or drop your own claim. */
-	private JPopupMenu claimMenu(BingoApiClient.BoardTile tile, String key)
-	{
-		JPopupMenu menu = new JPopupMenu();
-		if (claimedByMe(tile.claims))
-		{
-			JMenuItem note = new JMenuItem("Change my note…");
-			note.addActionListener(ev -> askNoteAndClaim(tile, key));
-			menu.add(note);
-			JMenuItem drop = new JMenuItem("Drop my claim");
-			drop.addActionListener(ev -> runClaimChange(key, () ->
-				dataSource.unclaimTile(catalogueEventId(key), tile.tileId)));
-			menu.add(drop);
-		}
-		else
-		{
-			JMenuItem go = new JMenuItem("I'm going for this");
-			go.addActionListener(ev -> runClaimChange(key, () ->
-				dataSource.claimTile(catalogueEventId(key), tile.tileId, null)));
-			menu.add(go);
-			JMenuItem withNote = new JMenuItem("I'm going for this, with a note…");
-			withNote.addActionListener(ev -> askNoteAndClaim(tile, key));
-			menu.add(withNote);
-		}
-		return menu;
-	}
-
-	/** Right-click should explain an unavailable action rather than silently doing nothing. */
-	private static JPopupMenu claimUnavailableMenu(String reason)
-	{
-		JPopupMenu menu = new JPopupMenu();
-		JMenuItem item = new JMenuItem(reason == null ? "Claims aren't available here." : reason);
-		item.setEnabled(false);
-		menu.add(item);
-		return menu;
-	}
-
-	private void askNoteAndClaim(BingoApiClient.BoardTile tile, String key)
-	{
-		String current = myClaimNote(tile.claims);
-		Object answer = JOptionPane.showInputDialog(this, "Note for your team (optional, e.g. \"doing it tonight\"):",
-			"Claim tile", JOptionPane.PLAIN_MESSAGE, null, null, current == null ? "" : current);
-		if (answer == null)
-		{
-			return; // cancelled
-		}
-		String note = answer.toString();
-		runClaimChange(key, () -> dataSource.claimTile(catalogueEventId(key), tile.tileId, note));
-	}
-
-	/** "Track on screen" for the detail card; null where the tile can't be pinned. */
-	private JButton trackButton(BingoApiClient.BoardTile tile, String key, boolean preStart)
-	{
-		int eventId = catalogueEventId(key);
-		// A finished tile has nothing left to track; its pin takes itself down (TileTracker).
-		if (tile.complete || !dataSource.canTrackTiles(eventId, preStart))
-		{
-			return null;
-		}
-		boolean pinned = dataSource.isTileTracked(eventId, tile.tileId);
-		JButton b = flatButton(pinned ? "Stop tracking" : "Track on screen",
-			pinned ? "Remove this tile's in-game widget" : "Pin a live widget for this tile over the game — Alt+drag to move and resize",
-			() -> setTracked(eventId, tile.tileId, !pinned));
-		b.setEnabled(pinned || !dataSource.tileTrackerFull(eventId));
-		if (!b.isEnabled())
-		{
-			b.setToolTipText("You're already tracking " + TileTracker.MAX_PINS + " tiles — stop one first");
-		}
-		return b;
-	}
-
-	/** The same toggle on the tile list's right-click menu. */
-	private void addTrackItem(JPopupMenu menu, BingoApiClient.BoardTile tile, String key, boolean preStart)
-	{
-		JButton b = trackButton(tile, key, preStart);
-		if (b != null)
-		{
-			menu.addSeparator();
-			JMenuItem item = new JMenuItem(b.getText());
-			item.setEnabled(b.isEnabled());
-			boolean pin = !dataSource.isTileTracked(catalogueEventId(key), tile.tileId);
-			item.addActionListener(e -> setTracked(catalogueEventId(key), tile.tileId, pin));
-			menu.add(item);
-		}
-	}
-
 	private void setTracked(int eventId, int tileId, boolean on)
 	{
 		dataSource.setTileTracked(eventId, tileId, on);
 		refresh();
 	}
 
-	/** Event identity travels with claim mutations so an enrolled upcoming preview stays scoped. */
-	private int catalogueEventId(String key)
-	{
-		BingoApiClient.BoardResponse board = boardCatalogues.get(key);
-		return board == null ? 0 : board.eventId;
-	}
-
-	@FunctionalInterface
-	private interface ClaimCall
-	{
-		void run() throws java.io.IOException;
-	}
-
-	/** Do the claim change off the EDT, then reload the board so every row shows the new state. */
-	private void runClaimChange(String key, ClaimCall call)
-	{
-		new SwingWorker<Void, Void>()
-		{
-			@Override
-			protected Void doInBackground() throws Exception
-			{
-				call.run();
-				return null;
-			}
-
-			@Override
-			protected void done()
-			{
-				try
-				{
-					get();
-				}
-				catch (Exception ex)
-				{
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					JOptionPane.showMessageDialog(AnvilSidebarPanel.this, cause.getMessage(), "Claim",
-						JOptionPane.WARNING_MESSAGE);
-				}
-				loadBoardCatalogue(key, catalogueEventId(key), true);
-			}
-		}.execute();
-	}
-
-	/** "Planning: You, Alice +2" for a tile's claims, or null when nobody has claimed it. */
-	static String claimLine(List<BingoApiClient.BoardClaim> claims)
-	{
-		if (claims == null || claims.isEmpty())
-		{
-			return null;
-		}
-		List<String> names = new ArrayList<>();
-		for (BingoApiClient.BoardClaim c : claims)
-		{
-			if (c == null)
-			{
-				continue;
-			}
-			// Yours first: it's the one you most need to notice.
-			if (c.mine)
-			{
-				names.add(0, "You");
-			}
-			else if (c.name != null && !c.name.trim().isEmpty())
-			{
-				names.add(c.name.trim());
-			}
-		}
-		if (names.isEmpty())
-		{
-			return null;
-		}
-		String shown = String.join(", ", names.subList(0, Math.min(2, names.size())));
-		return "Planning: " + shown + (names.size() > 2 ? " +" + (names.size() - 2) : "");
-	}
-
-	/** Every claimer with their note, one per line, for the hover. */
-	static String claimTooltip(List<BingoApiClient.BoardClaim> claims)
-	{
-		if (claims == null || claims.isEmpty())
-		{
-			return "";
-		}
-		StringBuilder sb = new StringBuilder();
-		for (BingoApiClient.BoardClaim c : claims)
-		{
-			if (c == null)
-			{
-				continue;
-			}
-			if (sb.length() > 0)
-			{
-				sb.append(" · ");
-			}
-			sb.append(c.mine ? "You" : (c.name == null ? "A teammate" : c.name));
-			if (c.note != null && !c.note.trim().isEmpty())
-			{
-				sb.append(" (").append(c.note.trim()).append(')');
-			}
-		}
-		return sb.toString();
-	}
-
-	static boolean claimedByMe(List<BingoApiClient.BoardClaim> claims)
-	{
-		return claims != null && claims.stream().anyMatch(c -> c != null && c.mine);
-	}
-
-	private static String myClaimNote(List<BingoApiClient.BoardClaim> claims)
-	{
-		if (claims == null)
-		{
-			return null;
-		}
-		for (BingoApiClient.BoardClaim c : claims)
-		{
-			if (c != null && c.mine)
-			{
-				return c.note;
-			}
-		}
-		return null;
-	}
-
-	static String tileUrl(String boardUrl, int tileId)
-	{
-		if (!isSafeHttpUrl(boardUrl) || tileId <= 0)
-		{
-			return null;
-		}
-		return boardUrl + (boardUrl.contains("?") ? "&" : "?") + "tile=" + tileId;
-	}
-
-	private void loadBoardCatalogue(String key, int eventId, boolean force)
-	{
-		if (loadingBoardCatalogues.contains(key) || (!force && boardCatalogues.containsKey(key)))
-		{
-			return;
-		}
-		loadingBoardCatalogues.add(key);
-		final boolean failedBefore = failedBoardCatalogues.remove(key);
-		final int generation = boardCatalogueGeneration;
-		new SwingWorker<BingoApiClient.BoardResponse, Void>()
-		{
-			@Override
-			protected BingoApiClient.BoardResponse doInBackground()
-			{
-				return dataSource.fetchBoard(eventId);
-			}
-
-			@Override
-			protected void done()
-			{
-				if (generation != boardCatalogueGeneration)
-				{
-					return;
-				}
-				loadingBoardCatalogues.remove(key);
-				BingoApiClient.BoardResponse before = boardCatalogues.get(key);
-				try
-				{
-					BingoApiClient.BoardResponse board = get();
-					if (board != null && board == before && !failedBefore)
-					{
-						return; // a 304: the site sent back the board already on screen
-					}
-					if (board == null)
-					{
-						failedBoardCatalogues.add(key);
-					}
-					else
-					{
-						boardCatalogues.put(key, board);
-					}
-				}
-				catch (Exception ex)
-				{
-					failedBoardCatalogues.add(key);
-					log.debug("tile catalogue fetch failed", ex);
-				}
-				if (!typingInSearch())
-				{
-					renderSelected();
-				}
-			}
-		}.execute();
-	}
-
-	private void clearBoardCatalogueState()
-	{
-		boardCatalogueGeneration++;
-		boardCatalogues.clear();
-		loadingBoardCatalogues.clear();
-		failedBoardCatalogues.clear();
-		boardSearches.clear();
-		boardStatusFilters.clear();
-		boardCataloguePages.clear();
-		openCatalogueDetailKey = null;
-		openCatalogueDetailTileId = -1;
-		showAllActiveTiles = false;
-		boardSearchFocused = false;
-		disposeTeams();
-	}
-
 	/**
-	 * Open the Teams page. {@code eventId <= 0} is the active board, whose id comes from the board
-	 * itself (ETag-cached, so usually a 304) — off the EDT, inside the view's first fetch.
+	 * The board's tiles page ("All tiles", or a revealed upcoming board) — built by the site
+	 * ({@link UiView}, view {@code board}), kept while it's open so its search survives a refresh.
+	 * {@code tile} > 0 opens straight on that tile.
 	 */
+	private UiView boardPage(String key, int eventId, boolean preStart, int tile)
+	{
+		if (boardPage == null || !key.equals(boardPageKey) || tile > 0)
+		{
+			boardPage = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+			boardPageKey = key;
+			Map<String, String> args = new HashMap<>();
+			args.put("event", String.valueOf(eventId));
+			args.put("pre", preStart ? "1" : "");
+			if (tile > 0)
+			{
+				args.put("tile", String.valueOf(tile));
+			}
+			boardPage.show("board", args, "Loading tiles…");
+		}
+		return boardPage;
+	}
+
+	/** Open the Teams page; {@code eventId <= 0} is the live board (the site resolves it). */
 	private void openTeams(int eventId)
 	{
-		disposeTeams();
-		teamsView = new TeamsView(apiClient::fetchRoster, interactive(), eventId, () ->
-		{
-			BingoApiClient.BoardResponse board = dataSource.fetchBoard(0);
-			return board == null ? 0 : board.eventId;
-		}, playerCardsOn() ? this::showLookup : null);
+		teamsPage = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+		teamsPage.show("teams", Collections.singletonMap("event", String.valueOf(Math.max(0, eventId))), "Loading teams…");
 		renderSelected();
 	}
 
-	private void disposeTeams()
+	/** Close the tiles and Teams pages. */
+	private void closePages()
 	{
-		if (teamsView != null)
-		{
-			teamsView.dispose();
-			teamsView = null;
-		}
+		boardPage = null;
+		boardPageKey = null;
+		teamsPage = null;
+		showAllActiveTiles = false;
 	}
+
 
 	private JLabel warningLabel(String message)
 	{

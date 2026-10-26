@@ -21,11 +21,4 @@ public class SearchAliasesTest
 		assertFalse(SearchAliases.augment("Bandos").contains("barbarian"));
 	}
 
-	@Test
-	public void tileSearchSubjectsCarryTheOtherName()
-	{
-		BingoApiClient.BoardTile tile = new BingoApiClient.BoardTile();
-		tile.label = "ToA purple";
-		assertTrue(AnvilSidebarPanel.tileSubjects(tile).contains("tombs of amascut"));
-	}
 }

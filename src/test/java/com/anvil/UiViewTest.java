@@ -21,6 +21,7 @@ public class UiViewTest
 		Map<String, String> postedFields;
 		String site;
 		String lookedUp;
+		String pinned;
 
 		@Override
 		public void load(String view, Map<String, String> args, Consumer<JsonObject> done)
@@ -51,6 +52,12 @@ public class UiViewTest
 		@Override
 		public void clan(String slug)
 		{
+		}
+
+		@Override
+		public void pin(int event, int tile, boolean on)
+		{
+			pinned = event + ":" + tile + ":" + on;
 		}
 	}
 
@@ -264,5 +271,83 @@ public class UiViewTest
 		assertEquals(HiscoreSkill.CHAMBERS_OF_XERIC, UiView.hiscoreSkill("Chambers of Xeric"));
 		assertEquals(HiscoreSkill.TZKAL_ZUK, UiView.hiscoreSkill("tzKalZuk"));
 		assertNull(UiView.hiscoreSkill("Not a boss"));
+	}
+
+	@Test
+	public void aSelectFiresWithEveryInputAndAPinThenReloads()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"input\",\"name\":\"q\",\"kind\":\"search\",\"value\":\"zul\"},"
+			+ "{\"t\":\"input\",\"name\":\"status\",\"kind\":\"select\",\"value\":\"all\","
+			+ "\"options\":[{\"v\":\"all\",\"label\":\"All\"},{\"v\":\"done\",\"label\":\"Done\"}],"
+			+ "\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"part\":\"rows\"},\"into\":\"tiles\"}},"
+			+ "{\"t\":\"slot\",\"id\":\"tiles\",\"c\":{\"t\":\"text\",\"s\":\"Pin\",\"on\":{\"a\":\"pin\",\"event\":7,\"tile\":5,\"on\":true,"
+			+ "\"then\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"tile\":\"5\"},\"into\":\"tiles\"}}}}]}"));
+		JComboBox<?> combo = findCombo(v);
+		combo.setSelectedIndex(1);
+		assertEquals("board{part=rows, q=zul, status=done}", host.loads.get(0));
+		click(v, "Pin");
+		assertEquals("7:5:true", host.pinned);
+		assertEquals("board{tile=5}", host.loads.get(1));
+	}
+
+	@Test
+	public void aDisabledButtonCannotBePressed()
+	{
+		UiView v = new UiView(new FakeHost(), null, null, null);
+		v.render(view("{\"t\":\"button\",\"label\":\"Next\",\"off\":true,\"on\":{\"a\":\"lookup\",\"rsn\":\"x\"}}"));
+		assertFalse(findButton(v).isEnabled());
+	}
+
+	@Test
+	public void refreshAsksAgainForWhatTheSlotsLastLoaded()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"slot\",\"id\":\"tiles\",\"c\":{\"t\":\"text\",\"s\":\"Page 2\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"page\":\"2\"},\"into\":\"tiles\"}}}"));
+		click(v, "Page 2");
+		v.refresh();
+		assertEquals(Arrays.asList("board{page=2}", "board{page=2}"), host.loads);
+	}
+
+	private static JComboBox<?> findCombo(Component c)
+	{
+		if (c instanceof JComboBox)
+		{
+			return (JComboBox<?>) c;
+		}
+		if (c instanceof Container)
+		{
+			for (Component child : ((Container) c).getComponents())
+			{
+				JComboBox<?> f = findCombo(child);
+				if (f != null)
+				{
+					return f;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static JButton findButton(Component c)
+	{
+		if (c instanceof JButton)
+		{
+			return (JButton) c;
+		}
+		if (c instanceof Container)
+		{
+			for (Component child : ((Container) c).getComponents())
+			{
+				JButton f = findButton(child);
+				if (f != null)
+				{
+					return f;
+				}
+			}
+		}
+		return null;
 	}
 }

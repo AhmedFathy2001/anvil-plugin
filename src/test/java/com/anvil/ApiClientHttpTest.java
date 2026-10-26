@@ -97,8 +97,6 @@ public class ApiClientHttpTest
 			assertEquals("Config fetch failed: HTTP 404", e.getMessage());
 		}
 		assertTrue(c.signedInWithoutClan());
-		code = 500;
-		assertNull(c.fetchBoard());
 	}
 
 	@Test

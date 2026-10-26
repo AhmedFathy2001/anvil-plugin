@@ -178,14 +178,13 @@ public class AnvilPlugin extends Plugin {
 	private volatile PluginConfigResponse pluginConfig;
 
 	// ── SAVED ANSWERS (ResponseDiskCache) ─────────────────────────────────────────────────────
-	// The last session's config and board, read off disk at startUp so the side panel draws at once
+	// The last session's config, read off disk at startUp so the side panel draws at once
 	// instead of "Loading…" for a full round trip. FOR DISPLAY ONLY: `pluginConfig` above — the one
 	// tracking, submissions, overlays and every gate read — stays null until the site itself answers,
 	// so an event that ended (or a team that changed) since last time can never be tracked off this.
-	// The first live answer, of any kind, retires both.
+	// The first live answer, of any kind, retires it.
 	private volatile ResponseDiskCache responseCache;
 	private volatile PluginConfigResponse savedConfig;
-	private volatile BoardResponse savedBoard;
 	/** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
 	private volatile boolean liveConfigAnswered;
 	/** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
@@ -1238,9 +1237,6 @@ public class AnvilPlugin extends Plugin {
 			if (!pushLive() || now() - lastConfigAttemptAt >= PUSH_FALLBACK_MS) {
 				safely("refreshConfig", this::refreshConfig);
 				safely("tileTracker", tileTracker::poll);
-			}
-			if (!pushLive()) {
-				apiClient.setPushedBoard(null); // the board goes back to being read
 			}
 			safely("retryPendingSubmissions", this::retryPendingSubmissions);
 
@@ -6141,7 +6137,7 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Read last session's config + board off disk for the panel. Executor only (disk). */
+	/** Read last session's config off disk for the panel. Executor only (disk). */
 	private void loadSavedResponses() {
 		ResponseDiskCache rc = responseCache;
 		if (rc == null || !apiClient.isConfigured() || liveConfigAnswered) {
@@ -6154,13 +6150,10 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		PluginConfigResponse cfg = apiClient.seedFromDisk(cfgEntry, PluginConfigResponse.class);
-		BoardResponse board = cfg == null ? null
-				: apiClient.seedFromDisk(rc.load(ResponseDiskCache.BOARD), BoardResponse.class);
 		if (cfg == null || liveConfigAnswered) {
 			return; // the site beat the disk to it
 		}
 		savedConfig = cfg;
-		savedBoard = board;
 		log.debug("Showing last session's config until the site answers");
 		repaintSidebar();
 	}
@@ -6168,7 +6161,6 @@ public class AnvilPlugin extends Plugin {
 	/** The site has answered (or the account changed): stop showing last session's copy. */
 	private void forgetSavedResponses() {
 		savedConfig = null;
-		savedBoard = null;
 	}
 
 	/**
@@ -6183,11 +6175,6 @@ public class AnvilPlugin extends Plugin {
 	/** The panel is drawing last session's copy, not a live answer. */
 	boolean showingSavedConfig() {
 		return pluginConfig == null && !liveConfigAnswered && savedConfig != null;
-	}
-
-	/** Last session's active board, for the panel while {@link #showingSavedConfig()}; else null. */
-	BoardResponse savedBoardForDisplay() {
-		return showingSavedConfig() ? savedBoard : null;
 	}
 
 	// ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
@@ -6876,9 +6863,6 @@ public class AnvilPlugin extends Plugin {
 			tileTracker.pushed(eventId, m.get("tileId").getAsInt(),
 					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam, me);
 			return;
-		}
-		if (m.has("board")) {
-			apiClient.setPushedBoard(gson.fromJson(m.get("board"), BingoApiClient.BoardResponse.class));
 		}
 		if (cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt() && m.has("config")) {
 			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();

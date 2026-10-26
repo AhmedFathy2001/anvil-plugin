@@ -921,31 +921,6 @@ public class BingoApiClient
 		}
 	}
 
-	// Full board catalogue for the sidebar's opt-in "All tiles" view. Kept separate from /config:
-	// /config contains only things the client may TRACK, while /board also carries manual tiles and is
-	// safe to fetch before the whistle. ETags keep a repeatedly-opened live board to header bytes.
-
-	/** The signed-in character's active board, with their team's completion state. */
-	/** The board the live push last sent; the plugin clears it when the push goes down. */
-	private volatile BoardResponse pushedBoard;
-
-	void setPushedBoard(BoardResponse board)
-	{
-		pushedBoard = board;
-	}
-
-	public BoardResponse fetchBoard()
-	{
-		BoardResponse pushed = pushedBoard;
-		if (pushed != null)
-		{
-			return pushed;
-		}
-		return isConfigured()
-			? etagGetOrNull(clanUrl("/api/plugin/board"), BoardResponse.class, polls, "board fetch", ResponseDiskCache.BOARD)
-			: null;
-	}
-
 	/**
 	 * One panel view ({@code plugin-ui}, {@link UiView}): {@code GET /api/plugin/ui?v=view&args}, plus
 	 * {@code clan}, the clan the panel is on. The token and X-RSN go with it: "Compare with me" and the
@@ -1007,48 +982,6 @@ public class BingoApiClient
 		return httpClient.dispatcher().executorService();
 	}
 
-	/**
-	 * Claim a tile on your own team ("I'm going for this"), or update your note on it. The server
-	 * takes the team from the token. Throws with the server's own explanation on refusal (tile
-	 * completed, event over, rate limited) so the panel can show it as-is.
-	 */
-	public void claimTile(int eventId, int tileId, String note) throws IOException
-	{
-		JsonObject payload = new JsonObject();
-		if (eventId > 0)
-		{
-			payload.addProperty("eventId", eventId);
-		}
-		payload.addProperty("tileId", tileId);
-		if (note != null && !note.trim().isEmpty())
-		{
-			payload.addProperty("note", note.trim());
-		}
-		executeClaim(authedRequest(clanUrl("/api/plugin/claims")).post(json(payload)));
-	}
-
-	/** Drop your own claim on a tile. */
-	public void unclaimTile(int eventId, int tileId) throws IOException
-	{
-		executeClaim(authedRequest(clanUrl("/api/plugin/claims?tileId=" + tileId + (eventId > 0 ? "&eventId=" + eventId : ""))).delete());
-	}
-
-	private void executeClaim(Request.Builder request) throws IOException
-	{
-		if (!isConfigured())
-		{
-			throw new IOException("Connect Anvil to your clan first.");
-		}
-		execute(httpClient, request, (r, body) ->
-		{
-			if (!r.isSuccessful())
-			{
-				throw new HttpStatusException(claimErrorMessage(r.code(), body), r.code());
-			}
-			return null;
-		});
-	}
-
 	/** The server's {@code {"error": "..."}} sentence when it sent one, else a plain fallback. */
 	static String claimErrorMessage(int code, String body)
 	{
@@ -1090,39 +1023,13 @@ public class BingoApiClient
 	}
 
 	/**
-	 * A revealed named board. Enrolled callers receive their team-scoped planning state; everyone
-	 * else receives the public read-only preview. This never enables automatic progress tracking.
+	 * {@code GET /api/plugin/event/<id>/roster} — the event's teams, ranked (site capability
+	 * "event-roster"), for the panel's standings. Null on any failure. Blocking; off the EDT.
 	 */
-	public BoardResponse fetchBoardPreview(int eventId)
+	public EventRoster fetchStandings(int eventId)
 	{
-		// The event endpoint can only identify an enrolled character when it receives the same RSN and
-		// account-hash hints as the active-board endpoint, not merely the person's bearer token.
 		return !isConfigured() || eventId <= 0 ? null
-			: etagGetOrNull(clanUrl("/api/plugin/board?eventId=" + eventId), BoardResponse.class, polls, "board preview fetch");
-	}
-
-	/**
-	 * {@code GET /api/plugin/event/<id>/roster} — one page of an event's teams (site capability
-	 * "event-roster"). {@code teamId > 0} lists that team's members; a non-blank {@code query} searches
-	 * players across every team; neither is the ranked overview. Null on any failure. Blocking; off the
-	 * EDT, on {@link #interactiveExecutor}.
-	 */
-	public EventRoster fetchRoster(int eventId, int teamId, String query, int page)
-	{
-		if (!isConfigured() || eventId <= 0)
-		{
-			return null;
-		}
-		StringBuilder path = new StringBuilder("/api/plugin/event/").append(eventId).append("/roster?page=").append(Math.max(1, page));
-		if (query != null && !query.trim().isEmpty())
-		{
-			path.append("&q=").append(URLEncoder.encode(query.trim(), StandardCharsets.UTF_8));
-		}
-		else if (teamId > 0)
-		{
-			path.append("&team=").append(teamId);
-		}
-		return etagGetOrNull(clanUrl(path.toString()), EventRoster.class, rosterPages, "roster fetch");
+			: etagGetOrNull(clanUrl("/api/plugin/event/" + eventId + "/roster"), EventRoster.class, rosterPages, "roster fetch");
 	}
 
 	/**
@@ -1174,113 +1081,6 @@ public class BingoApiClient
 	}
 
 	/** Gson shape of GET /api/plugin/board. Hidden staged tiles never arrive from the server. */
-	public static class BoardResponse
-	{
-		public int eventId;
-		public String name;
-		public boolean readOnly;
-		public String format;
-		public String scoringMode;
-		public int boardSize;
-		public boolean tilesRevealed = true;
-		public String revealPolicy;
-		public int hiddenTileCount;
-		public String nextRevealAt;
-		public List<BoardTile> tiles;
-		public List<BoardTeam> teams;
-	}
-
-	public static class BoardTile extends PluginConfigResponse.TrackedTile
-	{
-		public String tierKey;
-		public String tier;
-		public int itemId;
-		public List<Integer> itemIds;
-		public List<TrackedItem> trackedItems;
-		public int requiredAmount;
-		public String requirement;
-		public int autoTrackDisabled;
-		/**
-		 * The tile's item(s) never arrive as a drop (bought, made, handed over by a reward screen), so
-		 * the plugin can't track it — the site's "Manual" badge. False on older sites.
-		 */
-		public boolean manualOnly;
-		public List<String> sources;
-		public String tileType;
-		public String statType;
-		public String statName;
-		/** statName as a person writes it ("Kree'Arra"); null on older sites. */
-		public String statLabel;
-		public boolean complete;
-		public String revealedAt;
-		/**
-		 * When the tile stopped accepting completions (a mission expired or was claimed out, a bounty
-		 * taken). Null while open, and on older sites, which never sent it for missions on a classic board.
-		 */
-		public String closedAt;
-		public List<PluginConfigResponse.ItemRequirement> itemRequirements;
-		/** The site's one-sentence rule for an item tile — shown first in the detail view. Null on older sites. */
-		public String howItCounts;
-		/** Collections: "any" / "all", and sets needed in "any" mode (0 = 1). Absent on older sites. */
-		public String groupMode;
-		public int setsRequired;
-		/** "distinct" pools: only different items count; countedItemIds are the ones already counted. */
-		public String countMode;
-		public List<Integer> countedItemIds;
-		/**
-		 * Teammates planning to go for this tile, oldest claim first (server capability
-		 * {@code tile-claims}). Team-private: only the authed board carries it, and only for the
-		 * caller's own team. Null when nobody has claimed it, and always on older sites.
-		 */
-		public List<BoardClaim> claims;
-		/**
-		 * Your team's done tile only: who finished it, biggest share first (capped; the rest counted in
-		 * {@link #finishedByMore}). Null on open tiles and on older sites.
-		 */
-		public List<BoardFinisher> finishedBy;
-		public int finishedByMore;
-		/** Your team's open tile: who has put work in so far, biggest first (capped). Null when nobody has. */
-		public List<BoardFinisher> contributors;
-
-		/** Closed without your team finishing it — no longer something left to do. */
-		public boolean isClosedUndone()
-		{
-			return !complete && closedAt != null && !closedAt.isEmpty();
-		}
-		public int contributorsMore;
-	}
-
-	/** One member's share of a finished tile: KC/XP gained, or the amount they submitted (0 = unknown). */
-	public static class BoardFinisher
-	{
-		public String name;
-		public long amount;
-	}
-
-	/** Canonical display name for one numeric item id the tile tracker accepts. */
-	public static class TrackedItem
-	{
-		public int itemId;
-		public String name;
-	}
-
-	/** One teammate's "I'm going for this" on a tile. */
-	public static class BoardClaim
-	{
-		public String name;
-		public String note;
-		public boolean mine;
-	}
-
-	public static class BoardTeam
-	{
-		public int teamId;
-		public String name;
-		public String color;
-		/** Tiles this team has finished. Every board carries it, read-only previews included. */
-		public List<Integer> completedTileIds;
-	}
-
 	/**
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */

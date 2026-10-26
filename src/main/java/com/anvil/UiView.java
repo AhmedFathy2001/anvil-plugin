@@ -42,6 +42,9 @@ final class UiView extends JPanel
 		void lookup(String rsn);
 
 		void clan(String slug);
+
+		/** Pin (or unpin) a tile's in-game tracker on this client. */
+		void pin(int event, int tile, boolean on);
 	}
 
 	/** Toggle faces and section choices outlive a redraw (and the card), like the old virtual-levels switch. */
@@ -57,6 +60,8 @@ final class UiView extends JPanel
 	private final Map<String, Slot> slots = new HashMap<>();
 	private final Map<String, List<Runnable>> toggles = new HashMap<>();
 	private final Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
+	/** The last request for each place, for {@link #refresh}. */
+	private final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
@@ -97,6 +102,21 @@ final class UiView extends JPanel
 		fetch(null, view, args);
 	}
 
+	/**
+	 * Ask again for what's on screen — the board moved. Each slot that was loaded since the view was
+	 * drawn asks for its latest; with none, the whole view does (nothing typed into it can be lost).
+	 */
+	void refresh()
+	{
+		Map<String, Object[]> loads = new LinkedHashMap<>(lastLoads);
+		Object[] root = loads.remove("null");
+		if (loads.isEmpty() && root != null)
+		{
+			fetch(null, (String) root[0], (Map<String, String>) root[1]);
+		}
+		loads.forEach((place, l) -> fetch(place, (String) l[0], (Map<String, String>) l[1]));
+	}
+
 	/** Show a line of text in place of everything, dropping any answer still on its way. */
 	void say(String text)
 	{
@@ -112,6 +132,7 @@ final class UiView extends JPanel
 		inputs.clear();
 		// The slots are gone, so whatever they were waiting for is too.
 		seq.keySet().removeIf(k -> !"null".equals(k));
+		lastLoads.keySet().removeIf(k -> !"null".equals(k));
 		replace(this, view == null || !view.has("ui") ? message("Couldn't reach Anvil — try again in a moment.") : node(view.getAsJsonObject("ui")));
 	}
 
@@ -123,6 +144,7 @@ final class UiView extends JPanel
 
 	private void fetch(String into, String view, Map<String, String> args)
 	{
+		lastLoads.put(String.valueOf(into), new Object[]{view, args});
 		int n = bump(into);
 		host.load(view, args, v -> land(into, n, v));
 	}
@@ -200,13 +222,39 @@ final class UiView extends JPanel
 			case "post":
 				Map<String, String> fields = new HashMap<>();
 				inputs.forEach((k, v) -> fields.put(k, v.get()));
+				if (a.has("ask"))
+				{
+					Object answer = JOptionPane.showInputDialog(this, str(a, "ask"), "Anvil", JOptionPane.PLAIN_MESSAGE, null, null, str(a, "askValue"));
+					if (answer == null)
+					{
+						return; // cancelled
+					}
+					fields.put("note", answer.toString());
+				}
 				String place = into.isEmpty() ? null : into;
 				int n = bump(place);
 				host.post(str(a, "act"), strings(a.get("args")), fields, v -> land(place, n, v));
 				break;
+			case "pin":
+				host.pin(num(a, "event", 0), num(a, "tile", 0), bool(a, "on"));
+				if (a.has("then") && a.get("then").isJsonObject())
+				{
+					act(a.getAsJsonObject("then"));
+				}
+				break;
 			default:
 				// An action this version doesn't know does nothing.
 		}
+	}
+
+	/** An input's own action: its args plus every input's current value, so a search keeps its filter. */
+	private void fire(JsonObject on)
+	{
+		JsonObject a = on.deepCopy();
+		JsonObject args = a.has("args") && a.get("args").isJsonObject() ? a.getAsJsonObject("args") : new JsonObject();
+		inputs.forEach((k, v) -> args.addProperty(k, v.get()));
+		a.add("args", args);
+		act(a);
 	}
 
 	// ---- Nodes -------------------------------------------------------------------------------------
@@ -254,7 +302,9 @@ final class UiView extends JPanel
 				break;
 			case "button":
 				JsonObject on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
-				return AnvilSidebarPanel.fullWidthButton(str(n, "label"), tip(n), () -> act(on));
+				JPanel button = AnvilSidebarPanel.fullWidthButton(str(n, "label"), tip(n), () -> act(on));
+				button.getComponent(0).setEnabled(!bool(n, "off"));
+				return button;
 			case "gap":
 				c = (JComponent) gap(num(n, "h", 0));
 				break;
@@ -266,10 +316,15 @@ final class UiView extends JPanel
 		{
 			c.setToolTipText(tip);
 		}
-		if (n.has("on") && n.get("on").isJsonObject())
+		// An input's action fires on a change, not on a click of the box.
+		if (n.has("on") && n.get("on").isJsonObject() && !"input".equals(str(n, "t")))
 		{
 			JsonObject on = n.getAsJsonObject("on");
 			clickable(c, () -> act(on));
+		}
+		if (n.has("menu") && n.get("menu").isJsonArray())
+		{
+			menu(c, n.getAsJsonArray("menu"));
 		}
 		return left(c);
 	}
@@ -357,6 +412,11 @@ final class UiView extends JPanel
 			}
 		}
 		l.setText(bool(n, "wrap") ? wrapHtml(esc(s), WRAP_PT) : plainText(s));
+		int w = num(n, "w", 0);
+		if (w > 0)
+		{
+			l.setPreferredSize(new Dimension(w, l.getPreferredSize().height));
+		}
 		if (bool(n, "cell"))
 		{
 			l.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
@@ -402,6 +462,11 @@ final class UiView extends JPanel
 	private boolean draw(JLabel l, JsonObject spec)
 	{
 		int size = num(spec, "w", 12);
+		if ("swatch".equals(str(spec, "glyph")))
+		{
+			l.setIcon(swatch(color(str(spec, "color"), MUTED), size));
+			return true;
+		}
 		if (spec.has("glyph"))
 		{
 			GlyphIcon.Shape shape = glyph(str(spec, "glyph"));
@@ -630,6 +695,33 @@ final class UiView extends JPanel
 		return wrap;
 	}
 
+	/**
+	 * A search box that asks again as the member pauses typing (or presses Enter), its action carrying
+	 * every input's value. The results belong in a slot, so the box itself — and its caret — stays put.
+	 */
+	private JComponent search(JsonObject n, String name, String value)
+	{
+		SearchField field = new SearchField(str(n, "label"), value);
+		styleSearch(field);
+		field.setFont(SMALL);
+		field.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(new Color(0x47_47_47)), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
+		inputs.put(name, () -> field.getText().trim());
+		JsonObject on = n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null;
+		if (on != null)
+		{
+			javax.swing.Timer pause = new javax.swing.Timer(350, e -> fire(on));
+			pause.setRepeats(false);
+			onEdit(field, pause::restart);
+			field.addActionListener(e ->
+			{
+				pause.stop();
+				fire(on);
+			});
+		}
+		return capH(field);
+	}
+
 	private JComponent slot(JsonObject n)
 	{
 		JPanel holder = Ui.row(0);
@@ -676,7 +768,14 @@ final class UiView extends JPanel
 					}
 				}
 				inputs.put(name, () -> combo.getSelectedIndex() < 0 ? "" : options.get(combo.getSelectedIndex())[0]);
+				if (n.has("on") && n.get("on").isJsonObject())
+				{
+					JsonObject on = n.getAsJsonObject("on");
+					combo.addActionListener(e -> fire(on));
+				}
 				return capH(combo);
+			case "search":
+				return search(n, name, value);
 			case "number":
 				int min = num(n, "min", 0);
 				int max = num(n, "max", Integer.MAX_VALUE);
@@ -704,6 +803,51 @@ final class UiView extends JPanel
 	}
 
 	// ---- Pieces ------------------------------------------------------------------------------------
+
+	/** A right-click menu on {@code c} and everything in it (Swing doesn't bubble a click up from a label). */
+	private void menu(JComponent c, JsonArray items)
+	{
+		MouseAdapter popup = new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				show(e);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e)
+			{
+				show(e);
+			}
+
+			private void show(MouseEvent e)
+			{
+				if (!e.isPopupTrigger())
+				{
+					return;
+				}
+				JPopupMenu menu = new JPopupMenu();
+				for (JsonElement el : items)
+				{
+					JsonObject item = el.getAsJsonObject();
+					JMenuItem mi = new JMenuItem(plainText(str(item, "label")));
+					if (item.has("on") && item.get("on").isJsonObject())
+					{
+						JsonObject on = item.getAsJsonObject("on");
+						mi.addActionListener(ev -> act(on));
+					}
+					else
+					{
+						mi.setEnabled(false);
+					}
+					menu.add(mi);
+				}
+				menu.show(e.getComponent(), e.getX(), e.getY());
+			}
+		};
+		AnvilSidebarPanel.addMouseListenerToTree(c, popup);
+	}
 
 	/** Lights up under the mouse and runs {@code action} on a click. */
 	private static void clickable(JComponent c, Runnable action)
@@ -769,6 +913,32 @@ final class UiView extends JPanel
 			default:
 				return teamColor(c, fallback);
 		}
+	}
+
+	/** A team's colour as a square. */
+	static Icon swatch(Color c, int size)
+	{
+		return new Icon()
+		{
+			@Override
+			public void paintIcon(Component comp, Graphics g, int x, int y)
+			{
+				g.setColor(c);
+				g.fillRect(x, y, size, size);
+			}
+
+			@Override
+			public int getIconWidth()
+			{
+				return size;
+			}
+
+			@Override
+			public int getIconHeight()
+			{
+				return size;
+			}
+		};
 	}
 
 	private static GlyphIcon.Shape glyph(String g)

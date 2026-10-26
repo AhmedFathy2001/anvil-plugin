@@ -244,7 +244,12 @@ public class AnvilSidebarDataSource
 	/** Tiles pinned on screen for the live board, in pin order. */
 	public List<Integer> trackedTileIds()
 	{
-		int eventId = activeEventId();
+		return pinnedTiles(activeEventId());
+	}
+
+	/** The tiles pinned over the game on {@code eventId}. */
+	public List<Integer> pinnedTiles(int eventId)
+	{
 		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), Collections.<Integer>emptyList())
 			: Collections.<Integer>emptyList();
 	}
@@ -286,47 +291,6 @@ public class AnvilSidebarDataSource
 		{
 			capture.run();
 		}
-	}
-
-	/**
-	 * Full visible board for the sidebar catalogue. {@code eventId <= 0} means the caller's active,
-	 * team-scoped board; a positive id is a named board (team-scoped when the caller is enrolled,
-	 * otherwise a read-only preview, including a revealed pre-start board). Blocking.
-	 */
-	public BingoApiClient.BoardResponse fetchBoard(int eventId)
-	{
-		if (eventId > 0)
-		{
-			return apiClient.fetchBoardPreview(eventId);
-		}
-		BingoApiClient.BoardResponse live = apiClient.fetchBoard();
-		if (live != null)
-		{
-			savedBoardServed = null;
-			return live;
-		}
-		// Until the site's first config answer the card is last session's copy; so may the board be.
-		BingoApiClient.BoardResponse saved = fromPlugin(AnvilPlugin::savedBoardForDisplay, null);
-		savedBoardServed = saved;
-		return saved;
-	}
-
-	/** The last board {@link #fetchBoard} answered from disk rather than the site; null once a live one lands. */
-	private volatile BingoApiClient.BoardResponse savedBoardServed;
-
-	/** {@code board} is last session's copy and the site has since answered — it wants a live re-read. */
-	public boolean boardNeedsLiveRead(BingoApiClient.BoardResponse board)
-	{
-		return board != null && board == savedBoardServed && !fromPlugin(AnvilPlugin::showingSavedConfig, false);
-	}
-
-	/**
-	 * Logged in as a character the site can name. A claim is that character's, so it needs the played
-	 * name; at the login screen the board can still be shown (off the launcher hint) but not claimed on.
-	 */
-	public boolean canClaimNow()
-	{
-		return apiClient.getCurrentRsn() != null;
 	}
 
 	/** Whether the site builds the Lookup and You tabs ({@link UiView}). False ⇒ no tabs, and a lookup opens the browser. */
@@ -378,24 +342,6 @@ public class AnvilSidebarDataSource
 	 * Whether the site takes tile claims (capability {@code tile-claims}). The catalogue only offers
 	 * "I'm going for this" when it does, so an older site never sees a click it can't answer.
 	 */
-	public boolean supportsTileClaims()
-	{
-		PluginConfigResponse cfg = configSupplier.get();
-		return cfg != null && cfg.serverSupports("tile-claims");
-	}
-
-	/** Claim a tile on your own team, or update your note. Blocking; call from a SwingWorker. */
-	public void claimTile(int eventId, int tileId, String note) throws java.io.IOException
-	{
-		apiClient.claimTile(eventId, tileId, note);
-	}
-
-	/** Drop your own claim on a tile. Blocking; call from a SwingWorker. */
-	public void unclaimTile(int eventId, int tileId) throws java.io.IOException
-	{
-		apiClient.unclaimTile(eventId, tileId);
-	}
-
 	/**
 	 * The addressed clan and its board progress, or null when there is no config to anchor a card on.
 	 * Blocking; the panel calls it off the EDT. {@code force} = the member clicked Refresh — re-reads
@@ -506,7 +452,7 @@ public class AnvilSidebarDataSource
 			return;
 		}
 		standingsAt = now;
-		EventRoster overview = apiClient.fetchRoster(eventId, 0, null, 1);
+		EventRoster overview = apiClient.fetchStandings(eventId);
 		if (overview == null || overview.teams == null || overview == standingsFrom)
 		{
 			return; // failed (keep what we had; the next window retries) or unchanged
