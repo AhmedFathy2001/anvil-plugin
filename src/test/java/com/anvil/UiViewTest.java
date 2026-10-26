@@ -147,8 +147,15 @@ public class UiViewTest
 	public void markupInSiteTextStaysText()
 	{
 		UiView v = new UiView(new FakeHost(), null, null, null);
-		v.render(view("{\"t\":\"text\",\"s\":\"<html><b>x</b>\"}"));
-		assertFalse(texts(v).get(0).startsWith("<html><b>"));
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"<html><b>x</b>\"},"
+			+ "{\"t\":\"tabs\",\"key\":\"test-markup\",\"tabs\":[{\"label\":\"<html><i>t</i>\",\"c\":{\"t\":\"gap\",\"h\":1}}]},"
+			+ "{\"t\":\"input\",\"name\":\"m\",\"kind\":\"select\",\"options\":[{\"v\":\"a\",\"label\":\"<html><u>o</u>\"}]}]}"));
+		for (String t : texts(v))
+		{
+			assertFalse(t, t.toLowerCase().startsWith("<html><b>") || t.toLowerCase().startsWith("<html><i>"));
+		}
+		Object option = findCombo(v).getItemAt(0);
+		assertFalse(String.valueOf(option).startsWith("<html><u>"));
 	}
 
 	@Test

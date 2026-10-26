@@ -224,7 +224,7 @@ final class UiView extends JPanel
 				inputs.forEach((k, v) -> fields.put(k, v.get()));
 				if (a.has("ask"))
 				{
-					Object answer = JOptionPane.showInputDialog(this, str(a, "ask"), "Anvil", JOptionPane.PLAIN_MESSAGE, null, null, str(a, "askValue"));
+					Object answer = JOptionPane.showInputDialog(this, plainText(str(a, "ask")), "Anvil", JOptionPane.PLAIN_MESSAGE, null, null, str(a, "askValue"));
 					if (answer == null)
 					{
 						return; // cancelled
@@ -568,7 +568,7 @@ final class UiView extends JPanel
 			TABS.put(key, name);
 			for (JLabel l : labels)
 			{
-				boolean on = l.getText().equals(name);
+				boolean on = l.getText().equals(plainText(name));
 				l.setForeground(on ? Color.WHITE : MUTED);
 				l.setBackground(on ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
 			}
@@ -576,7 +576,7 @@ final class UiView extends JPanel
 		};
 		for (String name : bodies.keySet())
 		{
-			JLabel l = onClick(new JLabel(name, SwingConstants.CENTER), () -> pick.accept(name));
+			JLabel l = onClick(new JLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
 			l.setFont(SMALL);
 			l.setOpaque(true);
 			l.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
@@ -756,7 +756,7 @@ final class UiView extends JPanel
 				List<String[]> options = new ArrayList<>();
 				for (JsonElement e : n.has("options") ? n.getAsJsonArray("options") : new JsonArray())
 				{
-					options.add(new String[]{str(e.getAsJsonObject(), "v"), str(e.getAsJsonObject(), "label")});
+					options.add(new String[]{str(e.getAsJsonObject(), "v"), plainText(str(e.getAsJsonObject(), "label"))});
 				}
 				JComboBox<String> combo = new JComboBox<>(options.stream().map(o -> o[1]).toArray(String[]::new));
 				AnvilSidebarPanel.styleCombo(combo);
@@ -792,7 +792,7 @@ final class UiView extends JPanel
 				row.add(spinner, BorderLayout.CENTER);
 				return capH(row);
 			case "check":
-				JCheckBox check = new JCheckBox(str(n, "label"), "1".equals(value));
+				JCheckBox check = new JCheckBox(plainText(str(n, "label")), "1".equals(value));
 				check.setFont(SMALL);
 				check.setOpaque(false);
 				inputs.put(name, () -> check.isSelected() ? "1" : "");
