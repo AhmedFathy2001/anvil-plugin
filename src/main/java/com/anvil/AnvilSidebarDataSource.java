@@ -329,28 +329,10 @@ public class AnvilSidebarDataSource
 		return apiClient.getCurrentRsn() != null;
 	}
 
-	/** Whether the site serves player cards (the Lookup and You tabs). False ⇒ fall back to the browser. */
-	public boolean supportsPlayerCard()
+	/** Whether the site builds the Lookup and You tabs ({@link UiView}). False ⇒ no tabs, and a lookup opens the browser. */
+	public boolean supportsPluginUi()
 	{
-		return siteSupports("player-card");
-	}
-
-	/** The site falls back to the official hiscores for names with no Anvil account (and may say it's busy). */
-	public boolean hiscoresCardsAvailable()
-	{
-		return siteSupports("player-card-hiscores");
-	}
-
-	/** Whether the site serves clan cards and clan lookup. */
-	public boolean supportsClanCard()
-	{
-		return siteSupports("clan-card");
-	}
-
-	/** Whether the site keeps goals (the You tab's targets). */
-	public boolean supportsGoals()
-	{
-		return siteSupports("goals");
+		return siteSupports("plugin-ui");
 	}
 
 	/** Whether the site serves paged event rosters (the event's Teams page). False ⇒ no Teams row. */
@@ -372,12 +354,6 @@ public class AnvilSidebarDataSource
 			return cfg.serverSupports(capability);
 		}
 		return apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
-	}
-
-	/** Whether the site serves the Lookup CA tab. */
-	public boolean supportsCas()
-	{
-		return siteSupports("player-cas");
 	}
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */

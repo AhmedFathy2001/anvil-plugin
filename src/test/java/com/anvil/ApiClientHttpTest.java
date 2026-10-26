@@ -191,22 +191,40 @@ public class ApiClientHttpTest
 	}
 
 	@Test
-	public void publicReadsCarryOnlyTheToken()
+	public void panelViewsNameTheCharacterUnlessItIsPaused()
 	{
 		BingoApiClient c = client();
 		c.setCurrentRsn("Zezima");
-		reply = "{\"clans\":[]}";
-		assertFalse(c.lookupClans("foo") == null);
-		assertNull("lookups are anonymous", seen.get(0).header("Authorization"));
-		code = 404;
-		assertTrue(c.fetchPlayerCard("Zezima").notFound);
-		code = 503;
-		BingoApiClient.PlayerCardResult busy = c.fetchPlayerCard("Zezima");
-		assertTrue("hiscores budget busy, not 'not found'", busy.busy);
-		assertFalse(busy.notFound);
-		code = 404;
-		assertEquals("Bearer tok", seen.get(1).header("Authorization"));
-		assertNull(seen.get(1).header("X-RSN"));
+		reply = "{\"ui\":{\"t\":\"text\",\"s\":\"hi\"}}";
+		Map<String, String> args = new LinkedHashMap<>();
+		args.put("rsn", "Lynx Titan");
+		assertEquals("hi", c.fetchUi("player", args, "theafkspot").getAsJsonObject("ui").get("s").getAsString());
+		Request r = seen.get(0);
+		assertTrue(r.url().encodedPath().endsWith("/api/plugin/ui"));
+		assertEquals("player", r.url().queryParameter("v"));
+		assertEquals("Lynx Titan", r.url().queryParameter("rsn"));
+		assertEquals("theafkspot", r.url().queryParameter("clan"));
+		assertEquals("Bearer tok", r.header("Authorization"));
+		assertEquals("Zezima", r.header("X-RSN"));
+
+		c.setAccountPaused(true);
+		c.postUi("goal-remove", Collections.singletonMap("id", "4"), Collections.emptyMap());
+		assertNull("a paused character is never named", seen.get(1).header("X-RSN"));
+		assertEquals("POST", seen.get(1).method());
+		assertTrue(bodies.get(1).contains("\"act\":\"goal-remove\""));
+		assertTrue(bodies.get(1).contains("\"id\":\"4\""));
+
+		code = 500;
+		assertNull(c.fetchUi("you", Collections.emptyMap(), null));
+	}
+
+	@Test
+	public void siteLinksStayOnTheSitesHost()
+	{
+		BingoApiClient c = client();
+		String link = c.siteLink("/p/Zezima?tab=records");
+		assertTrue(link, link.endsWith("/p/Zezima?tab=records"));
+		assertEquals(okhttp3.HttpUrl.parse(c.rootUrl("/")).host(), okhttp3.HttpUrl.parse(link).host());
 	}
 
 	@Test

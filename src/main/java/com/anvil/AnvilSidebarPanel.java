@@ -1,5 +1,6 @@
 package com.anvil;
 
+import com.google.gson.JsonObject;
 import lombok.RequiredArgsConstructor;
 import java.awt.*;
 import java.util.*;
@@ -81,10 +82,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final SkillIconManager skillIconManager;
 
 	// ---- Tabs: Clan · You · Lookup ----------------------------------------------------------------
-	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are the
-	// player card (PlayerCardView), and only exist while the site serves cards (the `player-card`
-	// capability): without it the strip hides and the panel is exactly what it was, Sync profile and
-	// the sound lists included. That is the rollback — pull the capability and every client goes back.
+	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are views
+	// the site builds (UiView), and only exist while it does (the `plugin-ui` capability): without it
+	// the strip hides and the panel is exactly what it was, Sync profile and the sound lists included.
 	enum Tab { CLAN, YOU, LOOKUP, SETTINGS }
 	private Tab tab = Tab.CLAN;
 	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
@@ -95,22 +95,21 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel tabBody = new JPanel(new BorderLayout());
 	private final JPanel tabStrip = new JPanel(new GridBagLayout());
 	private final Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
-	private final JPanel youPanel = column();
 	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	private boolean lookupClans;
 	private final JLabel lookupModePlayers = new JLabel("Players", SwingConstants.CENTER);
 	private final JLabel lookupModeClans = new JLabel("Clans", SwingConstants.CENTER);
-	/** The player card on screen in Lookup, for "Compare with me". */
-	private PlayerCard lookupCard;
-	/** Your clan's card under Events — cached per slug for a few minutes; the clan doesn't change by the second. */
-	private ClanCard ownClanCard;
+	/** The site-built views: the You tab, what Lookup found, and your clan's card under Events. */
+	private final UiView youView;
+	private final UiView lookupView;
+	private final UiView ownClanView;
+	/** Whose card You holds, and which clan's card is under Events and since when. */
+	private String youRsn;
 	private String ownClanSlug;
 	private long ownClanAt;
-	private boolean ownClanLoading;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
 	private final JPanel settingsPanel = column();
-	private final JPanel lookupResult = column();
 	private final JPanel lookupRecentRow = column();
 	private final JTextField lookupSearch = new JTextField();
 	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
@@ -123,23 +122,6 @@ public class AnvilSidebarPanel extends PluginPanel
 	private boolean pickerWanted;
 	/** Latest clan view, so the You tab can offer Sync profile for the clan being addressed. */
 	private ConnectionView lastConnection;
-	/** Discards a card that lands after a newer request was made. */
-	private int lookupSeq;
-	private int youSeq;
-	/** Which profile section each tab's card has open, so a refresh doesn't snap it back. */
-	private String youSection;
-	private String lookupSection;
-	private PlayerCard youCard;
-	/** The You card as last built, reused while {@link #youCard} is unchanged — a 15s refresh must not
-	 * rebuild it (that reset the open section's layout and collapsed any open log category). */
-	private JPanel youCardView;
-	private PlayerCard youCardViewOf;
-	/** Your goals as last fetched (null until the first fetch lands), and the last thing the site refused. */
-	private List<BingoApiClient.PlayerGoal> youGoals;
-	/** A goals fetch was already made for this character: a redraw doesn't ask again (only opening the tab does). */
-	private boolean goalsAsked;
-	private String goalsError;
-	private String youCardRsn;
 
 	// Header controls (persistent across state changes).
 	// Which clan the plugin is pointed at. One Anvil serves every clan and a person can hold seats in
@@ -273,6 +255,9 @@ public class AnvilSidebarPanel extends PluginPanel
 		this.apiClient = apiClient;
 		this.configManager = configManager;
 		this.executor = executor;
+		youView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+		lookupView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+		ownClanView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -454,7 +439,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			if (lookupClans)
 			{
-				searchClans(lookupSearch.getText());
+				lookupView.show("clans", Collections.singletonMap("q", lookupSearch.getText().trim()), "Searching…");
 			}
 			else
 			{
@@ -471,7 +456,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		{
 			lookupSearch.setText("");
 			lookupSearch.requestFocusInWindow();
-			showLookupMessage(LOOKUP_HINT);
+			lookupView.say(lookupClans ? "Search a clan by name." : LOOKUP_HINT);
 		});
 		lookupBox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		setBoxLine(ColorScheme.MEDIUM_GRAY_COLOR);
@@ -512,25 +497,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		lookupPanel.add(lookupBox);
 		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupRecentRow);
-		lookupPanel.add(lookupResult);
-		lookupResult.add(cardMessage(LOOKUP_HINT));
+		lookupPanel.add(lookupView);
+		lookupView.say(LOOKUP_HINT);
 	}
 
 	private static final String LOOKUP_HINT = "Search a name — or right-click anyone in game and pick Anvil.";
-
-	/**
-	 * Replace whatever Lookup shows with one line, and drop any answer still on its way for what was
-	 * there. Returns the new request number for a fetch to check its answer against.
-	 */
-	private int showLookupMessage(String text)
-	{
-		lookupResult.removeAll();
-		lookupResult.add(cardMessage(text));
-		lookupResult.revalidate();
-		lookupResult.repaint();
-		return ++lookupSeq;
-	}
-
 
 	private void setBoxLine(Color c)
 	{
@@ -539,16 +510,16 @@ public class AnvilSidebarPanel extends PluginPanel
 			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
 	}
 
-	/** Signed in to a site that serves player cards — the condition for the strip to show at all. */
+	/** Signed in to a site that builds the panel's cards — the condition for the strip to show at all. */
 	private boolean playerCardsOn()
 	{
-		return !apiClient.needsSignIn() && dataSource.supportsPlayerCard();
+		return !apiClient.needsSignIn() && dataSource.supportsPluginUi();
 	}
 
 	/** Re-checked on every render: the capability arrives with the config, and sign-out takes it away. */
 	private void updateTabStrip()
 	{
-		styleLookupModes(); // the Clans switch appears once the site says it has clan cards
+		styleLookupModes();
 		boolean on = playerCardsOn();
 		if (on != tabsOn)
 		{
@@ -577,7 +548,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		tab = next;
 		tabBody.removeAll();
-		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youPanel : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
+		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
 			BorderLayout.NORTH);
 		tabBody.revalidate();
 		styleTabs();
@@ -611,7 +582,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		SwingUtilities.invokeLater(() ->
 		{
-			String name = rawName == null ? "" : rawName.replace('\u00A0', ' ').trim();
+			String name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
 			if (tab != Tab.LOOKUP)
 			{
 				selectTab(Tab.LOOKUP);
@@ -620,39 +591,13 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				return;
 			}
+			if (lookupClans)
+			{
+				setLookupMode(false);
+			}
 			lookupSearch.setText(name);
 			remember(name);
-			lookupThen("Looking up " + name + "…", () -> apiClient.fetchPlayerCard(name), result ->
-			{
-				lookupResult.add(cardFor(name, result, false));
-				lookupCard = result != null ? result.card : null;
-				String me = dataSource.myRsn();
-				// Not for a hiscores card: the comparison (and its page on the site) is between Anvil profiles.
-				if (lookupCard != null && !lookupCard.fromHiscores() && me != null && !Rsn.same(me, lookupCard.rsn))
-				{
-					lookupButton("Compare with me", "Side by side: levels, bosses and the log", () -> showPlayerCompare(lookupCard));
-				}
-			});
-		});
-	}
-
-	/**
-	 * Show {@code waiting} in Lookup, fetch off the EDT, then fill Lookup from the answer — unless a
-	 * newer lookup started meanwhile, in which case this answer is for something nobody's looking at.
-	 */
-	private <T> void lookupThen(String waiting, Supplier<T> fetch, Consumer<T> show)
-	{
-		int seq = showLookupMessage(waiting);
-		async(fetch, result ->
-		{
-			if (seq != lookupSeq)
-			{
-				return;
-			}
-			lookupResult.removeAll();
-			show.accept(result);
-			lookupResult.revalidate();
-			lookupResult.repaint();
+			lookupView.show("player", Collections.singletonMap("rsn", name), "Looking up " + name + "…");
 		});
 	}
 
@@ -666,10 +611,50 @@ public class AnvilSidebarPanel extends PluginPanel
 		});
 	}
 
-	private void lookupButton(String label, String tooltip, Runnable action)
+	/**
+	 * Where the site-built views ({@link UiView}) fetch, post and send their clicks: the interactive
+	 * executor for the calls, the browser for the site's own pages, Lookup for a name or a clan.
+	 */
+	private UiView.Host uiHost()
 	{
-		lookupResult.add(gap(6));
-		lookupResult.add(fullWidthButton(label, tooltip, action));
+		return new UiView.Host()
+		{
+			@Override
+			public void load(String view, Map<String, String> args, Consumer<JsonObject> done)
+			{
+				String clan = dataSource.activeClan();
+				async(() -> apiClient.fetchUi(view, args, clan), done);
+			}
+
+			@Override
+			public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done)
+			{
+				async(() -> apiClient.postUi(act, args, fields), done);
+			}
+
+			@Override
+			public void site(String path)
+			{
+				LinkBrowser.browse(apiClient.siteLink(path));
+			}
+
+			@Override
+			public void lookup(String rsn)
+			{
+				showLookup(rsn);
+			}
+
+			@Override
+			public void clan(String slug)
+			{
+				if (tab != Tab.LOOKUP)
+				{
+					selectTab(Tab.LOOKUP);
+				}
+				setLookupMode(true);
+				lookupView.show("clan", Collections.singletonMap("slug", slug), "Loading the clan…");
+			}
+		};
 	}
 
 	private void remember(String name)
@@ -704,51 +689,31 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
-	 * Your own card, Sync profile and your sounds.
-	 *
-	 * @param refetch fetch the card again (opening the tab) rather than redraw what we hold (a refresh)
+	 * Your own card and goals. Opening the tab fetches them again; a refresh only notices a change of
+	 * character, so the card isn't rebuilt (and its open section reset) every few seconds.
 	 */
 	private void renderYou(boolean refetch)
 	{
-		youPanel.removeAll();
 		String me = dataSource.myRsn();
 		if (me == null)
 		{
-			youPanel.add(cardMessage("Log in to a character to see your card."));
+			youRsn = null;
+			youView.say("Log in to a character to see your card.");
+			return;
 		}
-		else
+		boolean same = Rsn.same(me, youRsn);
+		if (refetch || !same)
 		{
-			boolean cached = youCard != null && Rsn.same(youCardRsn, me);
-			if (cached && youCardViewOf != youCard)
-			{
-				youCardView = PlayerCardView.render(youCard, cardIcons(youCard.rsn), youSection, sec -> youSection = sec);
-				youCardViewOf = youCard;
-			}
-			youPanel.add(cached ? youCardView : cardMessage("Loading your card…"));
-			if (refetch || !cached)
-			{
-				fetchYou(me);
-			}
-			if (dataSource.supportsGoals())
-			{
-				youPanel.add(gap(6));
-				youPanel.add(GoalsView.render(youGoals, this::addGoal, this::removeGoal, goalsError));
-				if (refetch || (youGoals == null && !goalsAsked))
-				{
-					fetchGoals();
-				}
-			}
+			youRsn = me;
+			youView.show("you", Collections.emptyMap(), same ? null : "Loading your card…");
 		}
-
-		youPanel.revalidate();
-		youPanel.repaint();
 	}
 
 	private void setLookupMode(boolean clans)
 	{
 		lookupClans = clans;
 		styleLookupModes();
-		showLookupMessage(clans ? "Search a clan by name." : LOOKUP_HINT);
+		lookupView.say(clans ? "Search a clan by name." : LOOKUP_HINT);
 	}
 
 	private void styleLookupModes()
@@ -759,159 +724,27 @@ public class AnvilSidebarPanel extends PluginPanel
 			m.setForeground(on ? Color.WHITE : MUTED);
 			m.setBackground(on ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
 		}
-		// Clans only where the site has them; otherwise Lookup stays players-only, as it was.
-		lookupModeClans.setVisible(dataSource.supportsClanCard());
-		lookupModePlayers.setVisible(dataSource.supportsClanCard());
 	}
 
-	private void searchClans(String q)
-	{
-		String query = q == null ? "" : q.trim();
-		lookupThen("Searching…", () -> apiClient.lookupClans(query), found ->
-		{
-			if (found.isEmpty())
-			{
-				lookupResult.add(cardMessage("No listed clan matches \"" + query + "\"."));
-			}
-			for (ClanCard.Found f : found)
-			{
-				JPanel row = left(new JPanel(new BorderLayout(6, 0)));
-				row.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-				row.add(small(f.name, Color.WHITE), BorderLayout.CENTER);
-				row.add(new JLabel(new GlyphIcon(GlyphIcon.Shape.CHEVRON_RIGHT, 9, MUTED)), BorderLayout.EAST);
-				hoverable(capH(row), ColorScheme.DARKER_GRAY_COLOR, () -> showClan(f.slug));
-				lookupResult.add(row);
-				lookupResult.add(gap(2));
-			}
-		});
-	}
-
-	/** A clan's card in Lookup — its members open as player cards, and it compares with yours. */
-	private void showClan(String slug)
-	{
-		lookupThen("Loading the clan…", () -> apiClient.fetchClanCard(slug), card ->
-		{
-			if (card == null)
-			{
-				lookupResult.add(cardMessage("That clan isn't listed on Anvil."));
-				return;
-			}
-			String mine = dataSource.activeClan();
-			boolean own = mine != null && mine.equalsIgnoreCase(card.slug);
-			lookupResult.add(ClanCardView.render(card, cardIcons(null), name ->
-			{
-				setLookupMode(false);
-				showLookup(name);
-			}, own || mine == null || mine.isEmpty() ? null : () -> showClanCompare(card, mine)));
-		});
-	}
-
-	private void showClanCompare(ClanCard theirs, String mySlug)
-	{
-		lookupThen("Comparing…", () -> apiClient.fetchClanCard(mySlug), mine ->
-		{
-			lookupResult.add(backRow("Back to " + theirs.name, () -> showClan(theirs.slug)));
-			lookupResult.add(mine == null ? cardMessage("Couldn't load your clan — try again in a moment.") : ClanCardView.compare(mine, theirs));
-			if (mine != null)
-			{
-				lookupButton("Full comparison on the site ↗", "Top players, gainers and highlights side by side",
-					() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare/clans?a=" + urlPart(mine.slug) + "&b=" + urlPart(theirs.slug)));
-			}
-		});
-	}
-
-	private void showPlayerCompare(PlayerCard them)
-	{
-		String me = dataSource.myRsn();
-		if (me == null)
-		{
-			return;
-		}
-		lookupThen("Comparing…", () ->
-		{
-			if (youCard != null && Rsn.same(youCardRsn, me))
-			{
-				return youCard;
-			}
-			BingoApiClient.PlayerCardResult r = apiClient.fetchPlayerCard(me);
-			return r == null ? null : r.card;
-		}, myCard ->
-		{
-			lookupResult.add(backRow("Back to " + them.rsn, () -> showLookup(them.rsn)));
-			lookupResult.add(myCard == null ? cardMessage("Couldn't load your card — try again in a moment.")
-				: CompareView.players(myCard, them, cardIcons(null)));
-			if (myCard != null)
-			{
-				// The panel shows the headline and the biggest gaps; the page has every skill, boss and page.
-				lookupButton("Full comparison on the site ↗", "Every skill, boss and log page side by side",
-					() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE + "/compare?a=" + urlPart(myCard.rsn) + "&b=" + urlPart(them.rsn)));
-			}
-		});
-	}
-
-	private static String urlPart(String s)
-	{
-		return java.net.URLEncoder.encode(s == null ? "" : s.replace('\u00A0', ' ').trim(), java.nio.charset.StandardCharsets.UTF_8)
-			.replace("+", "%20");
-	}
-
-	private JPanel backRow(String text, Runnable back)
-	{
-		JPanel row = left(new JPanel(new BorderLayout()));
-		row.setBorder(BorderFactory.createEmptyBorder(4, 4, 6, 4));
-		JLabel l = small(text, MUTED);
-		l.setIcon(new GlyphIcon(GlyphIcon.Shape.CHEVRON_LEFT, 9, MUTED));
-		row.add(l, BorderLayout.WEST);
-		hoverable(capH(row), ColorScheme.DARK_GRAY_COLOR, back);
-		return row;
-	}
-
-	/** Your clan's card for the Clan tab, or null when the site has none or there's no clan. Cached. */
+	/** Your clan's card for the Clan tab, or null when there's no clan. Fetched again every few minutes. */
 	private JPanel ownClanBlock()
 	{
-		if (!dataSource.supportsClanCard())
-		{
-			return null;
-		}
 		String slug = dataSource.activeClan();
-		if (slug == null || slug.isEmpty())
+		if (slug == null || slug.isEmpty() || !playerCardsOn())
 		{
 			return null;
 		}
-		boolean fresh = ownClanCard != null && slug.equalsIgnoreCase(ownClanSlug)
-			&& System.currentTimeMillis() - ownClanAt < 5 * 60_000L;
-		if (!fresh && !ownClanLoading)
+		if (!slug.equalsIgnoreCase(ownClanSlug) || System.currentTimeMillis() - ownClanAt > 5 * 60_000L)
 		{
-			ownClanLoading = true;
-			async(() -> apiClient.fetchClanCard(slug), card ->
-			{
-				ownClanLoading = false;
-				ownClanAt = System.currentTimeMillis();
-				if (card != null)
-				{
-					ownClanCard = card;
-					ownClanSlug = slug;
-					if (tab == Tab.CLAN)
-					{
-						renderSelected();
-					}
-				}
-			});
-		}
-		if (ownClanCard == null || !slug.equalsIgnoreCase(ownClanSlug))
-		{
-			return null;
+			Map<String, String> args = new HashMap<>();
+			args.put("slug", slug);
+			args.put("own", "1");
+			ownClanView.show("clan", args, slug.equalsIgnoreCase(ownClanSlug) ? null : "Loading your clan…");
+			ownClanSlug = slug;
+			ownClanAt = System.currentTimeMillis();
 		}
 		JPanel wrap = section("Your clan");
-		wrap.add(ClanCardView.render(ownClanCard, cardIcons(null), name ->
-		{
-			if (tabsOn)
-			{
-				selectTab(Tab.LOOKUP);
-				setLookupMode(false);
-				showLookup(name);
-			}
-		}, null));
+		wrap.add(ownClanView);
 		return wrap;
 	}
 
@@ -941,118 +774,6 @@ public class AnvilSidebarPanel extends PluginPanel
 		settingsPanel.add(buildBannerSounds());
 		settingsPanel.revalidate();
 		settingsPanel.repaint();
-	}
-
-	private void fetchGoals()
-	{
-		goalsAsked = true;
-		async(apiClient::fetchGoals, r -> applyGoals(r, false));
-	}
-
-	private void addGoal()
-	{
-		GoalsView.NewGoal goal = GoalsView.ask(this, youCard);
-		if (goal == null)
-		{
-			return;
-		}
-		async(() -> apiClient.addGoal(goal.kind, goal.metric, goal.target, goal.dueOn), r -> applyGoals(r, true));
-	}
-
-	private void removeGoal(int id)
-	{
-		async(() -> apiClient.removeGoal(id), r -> applyGoals(r, true));
-	}
-
-	/** On the EDT: take the site's answer (the whole list, or why it refused) and redraw You. */
-	private void applyGoals(BingoApiClient.GoalsResult result, boolean userAction)
-	{
-		if (result == null)
-		{
-			goalsError = "Couldn't reach Anvil — try again in a moment.";
-		}
-		else
-		{
-			goalsError = result.error;
-			if (result.goals != null)
-			{
-				youGoals = result.goals;
-			}
-		}
-		if (tab == Tab.YOU)
-		{
-			renderYou(false);
-		}
-	}
-
-	private void fetchYou(String me)
-	{
-		if (youCardRsn != null && !Rsn.same(youCardRsn, me))
-		{
-			youGoals = null; // another character: their goals, not the last one's
-			goalsError = null;
-			goalsAsked = false;
-		}
-		int seq = ++youSeq;
-		async(() -> apiClient.fetchPlayerCard(me), result ->
-		{
-			if (seq != youSeq)
-			{
-				return;
-			}
-			if (result != null && result.card != null)
-			{
-				youCard = result.card;
-				youCardRsn = me;
-				if (tab == Tab.YOU)
-				{
-					renderYou(false);
-				}
-			}
-			else if (tab == Tab.YOU)
-			{
-				youPanel.remove(0);
-				youPanel.add(cardFor(me, result, true), 0);
-				youPanel.revalidate();
-				youPanel.repaint();
-			}
-		});
-	}
-
-	private PlayerCardView.Icons cardIcons(String rsn)
-	{
-		return new PlayerCardView.Icons(itemManager, spriteManager, skillIconManager,
-			(page, done) -> async(() -> apiClient.fetchClogPage(rsn, page), done),
-			dataSource.supportsCas() ? done -> async(() -> apiClient.fetchCas(rsn), done) : null);
-	}
-
-	private JPanel cardFor(String name, BingoApiClient.PlayerCardResult result, boolean you)
-	{
-		if (result != null && result.busy && dataSource.hiscoresCardsAvailable())
-		{
-			return cardMessage("Hiscores busy — try again in a moment.");
-		}
-		if (result == null || result.busy)
-		{
-			return cardMessage("Couldn't reach Anvil — try again in a moment.");
-		}
-		if (result.notFound || result.card == null)
-		{
-			return PlayerCardView.notFound(name);
-		}
-		return you
-			? PlayerCardView.render(result.card, cardIcons(result.card.rsn), youSection, sec -> youSection = sec)
-			: PlayerCardView.render(result.card, cardIcons(result.card.rsn), lookupSection, sec -> lookupSection = sec);
-	}
-
-	private static JPanel cardMessage(String text)
-	{
-		JPanel p = left(new JPanel(new BorderLayout()));
-		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		p.setBorder(BorderFactory.createEmptyBorder(10, 8, 10, 8));
-		p.add(small(text, MUTED), BorderLayout.CENTER);
-		return capH(p);
-
 	}
 
 	// ---- Lifecycle (Activatable) — poll only while the panel is on screen -------------------------
@@ -5190,7 +4911,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** Flat combo for the clan selector and tile-status filter: dark field, gold arrow — default Swing sticks out. */
-	private static void styleCombo(JComboBox<?> combo)
+	static void styleCombo(JComboBox<?> combo)
 	{
 		combo.setBackground(WIDGET_BG);
 		combo.setForeground(Color.WHITE);

@@ -946,196 +946,51 @@ public class BingoApiClient
 			: null;
 	}
 
-	/** One of the player's goals ({@code goals} capability). */
-	public static final class PlayerGoal
-	{
-		public int id;
-		/** "skill" (target = level), "boss" (target = kill count) or "clog" (a whole page). */
-		public String kind;
-		/** Skill key, boss key, or log page name. */
-		public String metric;
-		public int target;
-		/** Optional deadline, YYYY-MM-DD. */
-		public String dueOn;
-		// Where it stands, as the site reads it (lib/goalProgress — the profile page's own reading).
-		/** "99 Slayer", "500 Vorkath", "Barrows Chests log". */
-		public String label = "";
-		/** Null when there's nothing to measure it with yet (no stats, log not synced). */
-		public Long current;
-		/** What {@code current} is measured against: XP for the level, the KC, the page's slots. */
-		public long of;
-		/** "Lv 87 / 99", "312 / 500", "no stats yet". */
-		public String text = "";
-		public boolean done;
-		/** The deadline line; null with no deadline, or once it's done. */
-		public GoalDue due;
-	}
-
-	public static final class GoalDue
-	{
-		/** "by 1 Dec · 50 days left", "due today", "overdue by 3 days". */
-		public String text;
-		/** "ok" | "behind" | "overdue". */
-		public String tone;
-	}
-
-	/** The goals list after a call, or the site's reason it refused. */
-	public static final class GoalsResult
-	{
-		public List<PlayerGoal> goals;
-		public String error;
-	}
-
 	/**
-	 * List (GET), add (POST) or remove (DELETE ?id=) — always the full list back. The list is a sidebar
-	 * read (the You tab), so it gets the read timeout; add and remove keep the write one.
+	 * One panel view ({@code plugin-ui}, {@link UiView}): {@code GET /api/plugin/ui?v=view&args}, plus
+	 * {@code clan}, the clan the panel is on. The token and X-RSN go with it: "Compare with me" and the
+	 * goals are about the character being played — except while that character is paused, when nothing
+	 * names it. Null on any failure. Blocking; off the EDT.
 	 */
-	private GoalsResult goalsCall(OkHttpClient client, Request.Builder rb)
+	public JsonObject fetchUi(String view, Map<String, String> args, String clan)
 	{
-		return !isConfigured() ? null : executeOrNull(client, rb, "goals call", (response, body) ->
+		HttpUrl.Builder url = HttpUrl.get(rootUrl("/api/plugin/ui")).newBuilder().addQueryParameter("v", view);
+		args.forEach(url::addQueryParameter);
+		if (clan != null && !clan.isEmpty())
 		{
-			GoalsResult r = gson.fromJson(body, GoalsResult.class);
-			if (r != null && !response.isSuccessful() && r.error == null)
-			{
-				r.error = "Couldn't save that goal (HTTP " + response.code() + ").";
-			}
-			return r;
-		});
+			url.addQueryParameter("clan", clan);
+		}
+		return getOrNull(uiRequest(url.build().toString()).get(), JsonObject.class, "panel view");
 	}
 
-	public GoalsResult fetchGoals()
-	{
-		return goalsCall(readClient, authedRequest(rootUrl("/api/plugin/goals")).get());
-	}
-
-	public GoalsResult addGoal(String kind, String metric, int target, String dueOn)
+	/** {@code POST /api/plugin/ui}: one of a view's actions, answered with the view to show next. */
+	public JsonObject postUi(String act, Map<String, String> args, Map<String, String> fields)
 	{
 		JsonObject body = new JsonObject();
-		body.addProperty("kind", kind);
-		body.addProperty("metric", metric);
-		body.addProperty("target", target);
-		if (dueOn != null && !dueOn.isEmpty())
-		{
-			body.addProperty("dueOn", dueOn);
-		}
-		return goalsCall(httpClient, authedRequest(rootUrl("/api/plugin/goals")).post(json(body)));
+		body.addProperty("act", act);
+		body.add("args", strings(args));
+		body.add("fields", strings(fields));
+		return getOrNull(uiRequest(rootUrl("/api/plugin/ui")).post(json(body)), JsonObject.class, "panel action");
 	}
 
-	public GoalsResult removeGoal(int id)
+	private static JsonObject strings(Map<String, String> map)
 	{
-		return goalsCall(httpClient, authedRequest(rootUrl("/api/plugin/goals?id=" + id)).delete());
+		JsonObject o = new JsonObject();
+		map.forEach(o::addProperty);
+		return o;
 	}
 
-	/** One collection log page as the card's Log section opens it. */
-	public static final class ClogPageView
+	/** A page on the site this plugin talks to: a view's link names a path, never a host. */
+	public String siteLink(String path)
 	{
-		public String page;
-		public int obtained;
-		public int total;
-		public boolean synced;
-		public List<ClogPageItem> items;
+		HttpUrl base = HttpUrl.parse(getApiUrl().isEmpty() ? CANONICAL_SITE : getApiUrl());
+		HttpUrl url = base == null ? null : base.resolve(path);
+		return url == null ? CANONICAL_SITE : url.toString();
 	}
 
-	public static final class ClogPageItem
+	private Request.Builder uiRequest(String url)
 	{
-		public int id;
-		public String name;
-		public boolean owned;
-		public int quantity;
-	}
-
-	/** {@code GET /api/players/<rsn>/clog-page?name=} — null on failure or 404. Blocking; off the EDT. */
-	public ClogPageView fetchClogPage(String rsn, String page)
-	{
-		String url = page == null ? null : ProfileLookup.apiPlayerUrl(rsn, "/clog-page?name="
-			+ URLEncoder.encode(page, StandardCharsets.UTF_8).replace("+", "%20"));
-		return url == null ? null : getOrNull(publicRequest(url), ClogPageView.class, "clog page fetch");
-	}
-
-	/** {@code GET /api/players/<rsn>/cas} ({@code player-cas}) — null on failure or 404. Blocking; off the EDT. */
-	public CaLookup fetchCas(String rsn)
-	{
-		String url = ProfileLookup.apiPlayerUrl(rsn, "/cas");
-		return url == null ? null : getOrNull(publicRequest(url), CaLookup.class, "CA fetch");
-	}
-
-	/** A player's combat achievements, grouped by boss — the Lookup "CAs" tab. */
-	public static final class CaLookup
-	{
-		public List<String> tiers;
-		public int earned;
-		public String nextTier;
-		public Integer nextAt;
-		/** Done/total per tier, in {@link #tiers} order. */
-		public List<CaCount> perTier;
-		/** Unfinished bosses first; each one's missing tasks first. */
-		public List<CaMonster> monsters;
-	}
-
-	public static final class CaCount
-	{
-		public int done;
-		public int total;
-	}
-
-	public static final class CaMonster
-	{
-		public String name;
-		public int done;
-		public int total;
-		public List<CaTask> tasks;
-	}
-
-	/** Short keys: ~650 of these ride in one reply. */
-	public static final class CaTask
-	{
-		/** Name, tier index, type, done, description. */
-		public String n;
-		public int t;
-		public String y;
-		public boolean d;
-		public String x;
-	}
-
-	/** A clan's card ({@code clan-card}); null when it isn't visible or the call failed. Off the EDT. */
-	public ClanCard fetchClanCard(String slug)
-	{
-		if (slug == null || slug.trim().isEmpty())
-		{
-			return null;
-		}
-		String url = CANONICAL_SITE + "/api/clans/"
-			+ URLEncoder.encode(slug.trim().toLowerCase(Locale.ROOT), StandardCharsets.UTF_8) + "/card";
-		return getOrNull(publicRequest(url), ClanCard.class, "clan card fetch");
-	}
-
-	/** Listed clans whose name matches {@code q}; empty on failure. Off the EDT. */
-	public List<ClanCard.Found> lookupClans(String q)
-	{
-		if (q == null || q.trim().length() < 2)
-		{
-			return Collections.emptyList();
-		}
-		String url = CANONICAL_SITE + "/api/clans/lookup?q=" + URLEncoder.encode(q.trim(), StandardCharsets.UTF_8);
-		ClanCard.LookupResult r = getOrNull(plainRequest(url).get(), ClanCard.LookupResult.class, "clan lookup");
-		return r == null || r.clans == null ? Collections.emptyList() : r.clans;
-	}
-
-	/** What {@link #fetchPlayerCard} found: the card, or why there isn't one. */
-	public static final class PlayerCardResult
-	{
-		public final PlayerCard card;
-		/** True when the site answered 404 — not on Anvil, or not shared. */
-		public final boolean notFound;
-		/** True on a 503: the site's hiscores budget is busy (player-card-hiscores) — try again shortly. */
-		public final boolean busy;
-
-		PlayerCardResult(PlayerCard card, boolean notFound, boolean busy)
-		{
-			this.card = card;
-			this.notFound = notFound;
-			this.busy = busy;
-		}
+		return accountPaused ? publicRequest(url) : authedRequest(url);
 	}
 
 	/**
@@ -1150,25 +1005,6 @@ public class BingoApiClient
 	public ExecutorService interactiveExecutor()
 	{
 		return httpClient.dispatcher().executorService();
-	}
-
-	/**
-	 * One character's card for the Lookup / You tabs ({@code player-card} capability). Blocking; call
-	 * off the EDT. Null on a network failure, a result with {@code notFound} on a 404. Only the Account
-	 * Token travels (see {@link #publicRequest}).
-	 */
-	public PlayerCardResult fetchPlayerCard(String rsn)
-	{
-		String url = ProfileLookup.apiPlayerUrl(rsn, "/card");
-		return url == null ? null : executeOrNull(readClient, publicRequest(url), "player card fetch", (r, body) ->
-		{
-			if (r.code() == 404 || r.code() == 503)
-			{
-				return new PlayerCardResult(null, r.code() == 404, r.code() == 503);
-			}
-			PlayerCard card = r.isSuccessful() ? gson.fromJson(body, PlayerCard.class) : null;
-			return card == null ? null : new PlayerCardResult(card, false, false);
-		});
 	}
 
 	/**
