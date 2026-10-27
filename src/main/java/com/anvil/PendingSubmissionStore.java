@@ -61,6 +61,8 @@ public class PendingSubmissionStore
 		// scroll — the "would have received" line names no item), captured so the player has a ready
 		// screenshot to attach when they submit by hand on the site. The retry loop skips these.
 		public boolean manual;
+		// What the site draws the proof's banner from (lib/proofStamp); null on an older capture.
+		public com.google.gson.JsonObject proof;
 	}
 
 	public void setRoot(Filepath dir)

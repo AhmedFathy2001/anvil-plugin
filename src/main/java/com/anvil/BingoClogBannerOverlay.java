@@ -108,7 +108,7 @@ public class BingoClogBannerOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D g)
 	{
-		if (background == null)
+		if (background == null || AnvilPlugin.capturing)
 		{
 			return null;
 		}

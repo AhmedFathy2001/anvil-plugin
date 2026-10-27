@@ -991,6 +991,10 @@ public class AnvilPlugin extends Plugin {
 	// Distinct players seen in the current instance (party size for tiles that require one).
 	// Raid teams share the entry room, so everyone renders at least once.
 	private final Set<String> instancePlayersSeen = new HashSet<>();
+	// Our overlays sit out the frame a proof is captured from (the site stamps the facts instead).
+	static volatile boolean capturing;
+	// Recent non-player chat, raw. Sent with a proof; the SITE decides which lines mean anything.
+	private final ArrayDeque<JsonObject> recentChat = new ArrayDeque<>();
 
 	// ---- Timed-clear tiles ---------------------------------------------------------------
 	// Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
@@ -3625,6 +3629,16 @@ public class AnvilPlugin extends Plugin {
 		// line is attribution only — the widget's before/after amount is what can move the ledger.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
 		if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
+			JsonObject line = new JsonObject();
+			line.addProperty("tick", client.getTickCount());
+			line.addProperty("type", event.getType().name());
+			line.addProperty("text", msg);
+			synchronized (recentChat) {
+				recentChat.addLast(line);
+				if (recentChat.size() > 30) {
+					recentChat.removeFirst();
+				}
+			}
 			String sender = event.getName();
 			String cofferLine = sender == null || sender.trim().isEmpty() ? msg : sender + " " + msg;
 			clanCofferTracker.onChatLine(stripChatTags(cofferLine), getLocalPlayerName(), now());
@@ -4441,7 +4455,11 @@ public class AnvilPlugin extends Plugin {
 				// COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
 				// visible — the proof shows both moments.
 				agg.trackingItemId = trackingItemId;
-				drawManager.requestNextFrameListener(img -> agg.triggerFrame = (BufferedImage) img);
+				capturing = true;
+				drawManager.requestNextFrameListener(img -> {
+					capturing = false;
+					agg.triggerFrame = (BufferedImage) img;
+				});
 			}
 			agg.total += amount;
 			if (inferringFlag != null) {
@@ -4708,7 +4726,7 @@ public class AnvilPlugin extends Plugin {
 			try {
 				warnStartProofBeforeCredit();
 				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null);
+						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null, null);
 				log.debug("{} ping sent: '{}' ×{}", noun, label, amount);
 				refreshConfig();
 			} catch (IOException e) {
@@ -5096,15 +5114,28 @@ public class AnvilPlugin extends Plugin {
 		final int teamId = pluginConfig.team.id;
 		final int playerId = pluginConfig.player.id;
 		final String capturedRsn = getLocalPlayerName();
-		// Item icon, so it's baked into the proof even with chat off.
-		final BufferedImage icon = itemId != null ? itemManager.getImage(itemId) : null;
+		// The site draws the banner from these (lib/proofStamp), so the upload stays a clean frame.
+		final JsonObject proof = new JsonObject();
+		proof.addProperty("title", bannerTitle);
+		proof.addProperty("detail", bannerDetail);
+		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
+		proof.addProperty("capturedAt", now());
+		proof.addProperty("tick", client.getTickCount());
+		synchronized (recentChat) {
+			proof.add("chat", gson.toJsonTree(recentChat));
+		}
 
+		capturing = true;
 		onNextFrame(image -> {
+			capturing = false;
 			try {
 				BufferedImage buffered = composeDualProof(triggerFrame, image);
-				annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, icon);
+				if (triggerFrame != null) {
+					proof.addProperty("split", (double) triggerFrame.getHeight() / buffered.getHeight());
+				}
 				byte[] png = png(buffered);
 				PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
+				pending.proof = proof;
 				pending.itemId = itemId;
 				pending.durationSeconds = durationSeconds;
 				pending.inferred = inferred;
@@ -5452,15 +5483,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Stacks the at-drop frame above the flush frame (thin gold divider, corner
-	 * time tags) so the proof shows both the moment of the drop and the floor
-	 * loot once it settled. Returns the flush frame untouched when there is no
-	 * trigger frame (toggle off, or the frame never arrived).
+	 * Stacks the at-drop frame above the flush frame (thin gold divider) so the proof shows both the
+	 * moment of the drop and the floor loot once it settled; the site tags the two halves. Returns the
+	 * flush frame untouched when there is no trigger frame (toggle off, or the frame never arrived).
 	 */
 	private BufferedImage composeDualProof(BufferedImage triggerFrame, BufferedImage flushFrame) {
 		if (triggerFrame == null) {
-			// A copy: the banner is drawn onto what we return, and the frame is shared.
-			return copyFrame(flushFrame);
+			return flushFrame;
 		}
 		int divider = 4;
 		int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
@@ -5474,30 +5503,10 @@ public class AnvilPlugin extends Plugin {
 			g.setColor(new Color(212, 160, 23));
 			g.fillRect(0, triggerFrame.getHeight(), w, divider);
 			g.drawImage(flushFrame, 0, triggerFrame.getHeight() + divider, null);
-			tagProofFrame(g, "AT DROP", w, 0);
-			tagProofFrame(g, "MOMENTS LATER", w, triggerFrame.getHeight() + divider);
 		} finally {
 			g.dispose();
 		}
 		return out;
-	}
-
-	// Small top-right tag naming which moment a stacked proof frame shows.
-	private void tagProofFrame(Graphics2D g, String text, int frameW, int frameTop) {
-		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-		Font font = new Font(Font.SANS_SERIF, Font.BOLD, 12);
-		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics(font);
-		int padX = 8, padY = 4;
-		int bw = fm.stringWidth(text) + padX * 2;
-		int bh = fm.getHeight() + padY * 2;
-		int x = frameW - bw - 10;
-		int y = frameTop + 10;
-		g.setColor(new Color(20, 18, 14, 230));
-		g.fillRoundRect(x, y, bw, bh, 8, 8);
-		g.setColor(new Color(212, 160, 23));
-		g.drawRoundRect(x, y, bw, bh, 8, 8);
-		g.drawString(text, x + padX, y + padY + fm.getAscent());
 	}
 
 	/**
@@ -5511,12 +5520,10 @@ public class AnvilPlugin extends Plugin {
 
 
 	/**
-	 * Burns a self-attesting proof banner (title + detail line +
-	 * RSN/team/event/UTC) onto the top-left of a screenshot. Shared by drop,
-	 * kill and timed submissions so every saved PNG stands on its own
-	 * regardless of chat/overlay state.
+	 * Burns a self-attesting proof banner (title + detail line + RSN/team/event/UTC) onto the
+	 * top-left of a screenshot. Starting shots only: bingo proofs are stamped by the site.
 	 */
-	private void annotateProofBanner(BufferedImage img, String title, String detail, String rsn, BufferedImage itemIcon) {
+	private void annotateProofBanner(BufferedImage img, String title, String detail, String rsn) {
 		Graphics2D g = img.createGraphics();
 		try {
 			g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -5541,19 +5548,15 @@ public class AnvilPlugin extends Plugin {
 			FontMetrics dfm = g.getFontMetrics(detailFont);
 			FontMetrics mfm = g.getFontMetrics(metaFont);
 
-			boolean hasIcon = itemIcon != null && itemIcon.getWidth() > 0 && itemIcon.getHeight() > 0;
-			int iconW = hasIcon ? 36 : 0;
-			int iconGap = hasIcon ? 10 : 0;
-
 			int textW = Math.max(dfm.stringWidth(detail), tfm.stringWidth(title));
 			for (String s : meta) {
 				textW = Math.max(textW, mfm.stringWidth(s));
 			}
 
 			int padX = 14, padY = 10;
-			int boxW = iconW + iconGap + textW + padX * 2;
+			int boxW = textW + padX * 2;
 			int contentH = tfm.getHeight() + dfm.getHeight() + 4 + 6 + meta.size() * (mfm.getHeight() + 1);
-			int boxH = Math.max(contentH, iconW > 0 ? 32 : 0) + padY * 2;
+			int boxH = contentH + padY * 2;
 			int boxX = 12, boxY = 12;
 
 			// Drop shadow
@@ -5567,10 +5570,7 @@ public class AnvilPlugin extends Plugin {
 			g.setColor(new Color(212, 160, 23));
 			g.drawRoundRect(boxX, boxY, boxW, boxH, 10, 10);
 
-			if (hasIcon) {
-				g.drawImage(itemIcon, boxX + padX, boxY + padY, 36, 32, null);
-			}
-			int textX = boxX + padX + iconW + iconGap;
+			int textX = boxX + padX;
 
 			// Title in gold
 			g.setFont(titleFont);
@@ -5732,11 +5732,11 @@ public class AnvilPlugin extends Plugin {
 			if (pending.durationSeconds != null) {
 				log.info("Submitting timed clear for tile '{}'...", pending.label);
 				apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
-						imageUrl, pending.note, pending.playerId);
+						imageUrl, pending.note, pending.playerId, pending.proof);
 			} else {
 				log.info("Submitting drop for tile '{}'...", pending.label);
 				apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
-						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred);
+						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof);
 			}
 
 			log.info("Submission '{}' sent successfully!", pending.label);
@@ -9946,7 +9946,7 @@ public class AnvilPlugin extends Plugin {
 	/** Copy the shared frame — never mutate the draw manager's buffer — burn the proof banner on, encode. */
 	private byte[] bakeCopy(BufferedImage src, String title, String detail, String rsn) throws IOException {
 		BufferedImage copy = copyFrame(src);
-		annotateProofBanner(copy, title, detail, rsn, null);
+		annotateProofBanner(copy, title, detail, rsn);
 		return png(copy);
 	}
 

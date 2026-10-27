@@ -39,7 +39,7 @@ public class AnvilOverlay extends OverlayPanel {
 
 	@Override
 	public Dimension render(Graphics2D graphics) {
-		if (!config.showOverlay()) {
+		if (!config.showOverlay() || AnvilPlugin.capturing) {
 			return null;
 		}
 
