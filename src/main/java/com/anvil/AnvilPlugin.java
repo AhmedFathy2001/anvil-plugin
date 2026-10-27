@@ -7287,8 +7287,17 @@ public class AnvilPlugin extends Plugin {
 					}
 					for (JsonElement row : e.getValue().getAsJsonArray()) {
 						JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
-						if (r != null && r.has("tileId") && r.has("currentAmount")) {
-							counts.merge(r.get("tileId").getAsInt(), r.get("currentAmount").getAsLong(), Math::max);
+						if (r == null || !r.has("tileId") || !r.has("currentAmount")) {
+							continue;
+						}
+						int tile = r.get("tileId").getAsInt();
+						// A set or collection tile counts pieces here, but the panel shows the best
+						// set (10 pieces vs "2 / 4"): not the same number, so it doesn't move live.
+						JsonElement reqs = r.get("itemRequirements");
+						if (reqs != null && reqs.isJsonArray() && reqs.getAsJsonArray().size() > 0) {
+							counts.put(tile, -1L);
+						} else if (counts.getOrDefault(tile, 0L) >= 0) {
+							counts.merge(tile, r.get("currentAmount").getAsLong(), Math::max);
 						}
 					}
 				}
@@ -7297,6 +7306,12 @@ public class AnvilPlugin extends Plugin {
 			tileCountsFor = cfg;
 		}
 		Long site = tileCounts.get(tileId);
+		if (site != null && site < 0) {
+			return -1; // a set tile: see above
+		}
+		if (site != null) {
+			optimistic.seen(tileId, site);
+		}
 		long floor = optimistic.floor(tileId, now());
 		return site == null ? (floor > 0 ? floor : -1) : Math.max(site, floor);
 	}
