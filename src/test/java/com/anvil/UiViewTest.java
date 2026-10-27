@@ -102,8 +102,16 @@ public class UiViewTest
 		return out;
 	}
 
+	/** A left press and release in the middle of the label, the way a real click arrives. */
 	private static void click(Component c, String text)
 	{
+		Component root = c;
+		while (root.getParent() != null)
+		{
+			root = root.getParent();
+		}
+		root.setSize(240, 4000);
+		layOut(root);
 		JLabel l = find(c, text);
 		assertNotNull("no label " + text, l);
 		Component target = l;
@@ -112,9 +120,42 @@ public class UiViewTest
 			target = target.getParent();
 		}
 		assertNotNull("nothing to click for " + text, target);
-		for (java.awt.event.MouseListener m : target.getMouseListeners())
+		int x = Math.max(0, target.getWidth() / 2);
+		int y = Math.max(0, target.getHeight() / 2);
+		for (int id : new int[]{java.awt.event.MouseEvent.MOUSE_PRESSED, java.awt.event.MouseEvent.MOUSE_RELEASED, java.awt.event.MouseEvent.MOUSE_CLICKED})
 		{
-			m.mouseClicked(new java.awt.event.MouseEvent(target, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, 1, 1, 1, false));
+			java.awt.event.MouseEvent e = new java.awt.event.MouseEvent(target, id, 0,
+				id == java.awt.event.MouseEvent.MOUSE_PRESSED ? java.awt.event.InputEvent.BUTTON1_DOWN_MASK : 0, x, y, 1, false, java.awt.event.MouseEvent.BUTTON1);
+			for (java.awt.event.MouseListener m : target.getMouseListeners())
+			{
+				if (id == java.awt.event.MouseEvent.MOUSE_PRESSED) m.mousePressed(e);
+				else if (id == java.awt.event.MouseEvent.MOUSE_RELEASED) m.mouseReleased(e);
+				else m.mouseClicked(e);
+			}
+		}
+	}
+
+	/** Let a refresh held back for a click land (its timer runs on the event thread). */
+	private static void settle() throws Exception
+	{
+		Thread.sleep(600);
+		SwingUtilities.invokeAndWait(() -> { });
+	}
+
+	private static void layOut(Component c)
+	{
+		if (c instanceof Container)
+		{
+			((Container) c).doLayout();
+			for (Component child : ((Container) c).getComponents())
+			{
+				Dimension pref = child.getPreferredSize();
+				if (child.getWidth() == 0 || child.getHeight() == 0)
+				{
+					child.setSize(Math.max(child.getWidth(), Math.max(1, pref.width)), Math.max(child.getHeight(), Math.max(1, pref.height)));
+				}
+				layOut(child);
+			}
 		}
 	}
 
@@ -406,7 +447,7 @@ public class UiViewTest
 	}
 
 	@Test
-	public void anOpenPaneSurvivesARefreshButNotGoingSomewhere()
+	public void anOpenPaneSurvivesARefreshButNotGoingSomewhere() throws Exception
 	{
 		FakeHost host = new FakeHost();
 		UiView v = new UiView(host, null, null, null);
@@ -417,6 +458,8 @@ public class UiViewTest
 		click(v, "Page 1 a");
 		v.refresh();
 		host.pending.get(1).accept(view(String.format(board, "b", "b")));
+		assertEquals("a refresh right after a click waits, so the click isn't lost", Collections.singletonList("Tile 5 a"), texts(v));
+		settle();
 		assertEquals("the reader stays on the tile they opened", Collections.singletonList("Tile 5 b"), texts(v));
 		click(v, "Tile 5 b");
 		host.pending.get(2).accept(view(String.format(board, "c", "c")));
@@ -439,5 +482,21 @@ public class UiViewTest
 		host.pending.get(1).accept(view("{\"t\":\"slot\",\"id\":\"tile\",\"c\":{\"t\":\"text\",\"s\":\"List\"},"
 			+ "\"panes\":{\"t:5\":{\"t\":\"text\",\"s\":\"Detail 5\"}}}"));
 		assertEquals(Collections.singletonList("Detail 5"), texts(v));
+	}
+
+	@Test
+	public void aRowTakesClicksOnItsTooltipLinesButLeavesAChildsOwnClickToIt()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"on\":{\"a\":\"lookup\",\"rsn\":\"Row\"},\"c\":["
+			+ "{\"t\":\"text\",\"s\":\"Hint\",\"tip\":\"1,234 / 5,000\"},"
+			+ "{\"t\":\"text\",\"s\":\"Own\",\"on\":{\"a\":\"site\",\"path\":\"/x\"}}]}"));
+		click(v, "Hint");
+		assertEquals("a line with a tooltip still opens its row", "Row", host.lookedUp);
+		host.lookedUp = null;
+		click(v, "Own");
+		assertEquals("/x", host.site);
+		assertNull("the row doesn't also fire", host.lookedUp);
 	}
 }
