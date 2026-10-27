@@ -5,6 +5,7 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.*;
 import javax.swing.*;
 import javax.swing.Timer;
@@ -598,6 +599,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			public void switchClan(String slug)
 			{
 				AnvilSidebarPanel.this.switchClan(slug);
+			}
+
+			@Override
+			public long count(int tile)
+			{
+				return dataSource.tileCount(tile);
 			}
 
 			@Override
@@ -1210,6 +1217,37 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		clanAskedAt = 0;
 		SwingUtilities.invokeLater(this::poll);
+	}
+
+	private final AtomicBoolean liveQueued = new AtomicBoolean();
+	/** After counts alone moved, the rest of the view (who's on what, the feed) is asked for this much later. */
+	private static final int COUNTS_CATCH_UP_MS = 15_000;
+	private final Timer countsCatchUp = new Timer(COUNTS_CATCH_UP_MS, e -> boardChanged());
+
+	/** Counts moved here (own progress, the push): the Clan tab's live ones redraw, at most once per frame. Any thread. */
+	void liveCountsMoved()
+	{
+		if (liveQueued.compareAndSet(false, true))
+		{
+			SwingUtilities.invokeLater(() ->
+			{
+				liveQueued.set(false);
+				clanView.tickLive();
+			});
+		}
+	}
+
+	/** The push carried counts only: they're on screen already; the rest catches up once, a little later. */
+	void countsChanged()
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			if (!countsCatchUp.isRunning())
+			{
+				countsCatchUp.setRepeats(false);
+				countsCatchUp.start();
+			}
+		});
 	}
 
 	private void tickStartProof()

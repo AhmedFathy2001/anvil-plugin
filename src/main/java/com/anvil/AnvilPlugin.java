@@ -6858,28 +6858,57 @@ public class AnvilPlugin extends Plugin {
 					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam, me);
 			return;
 		}
-		if (cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt() && m.has("config")) {
+		String kind = m.get("t").getAsString();
+		boolean ours = cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt();
+		AnvilSidebarPanel panel = sidebarPanel;
+		if ("counts".equals(kind)) {
+			// Only counts moved: the team's by tile in c, ours over them, laid on what we hold. The
+			// panel's live counts follow at once; the rest of it (who's on what) catches up lazily.
+			if (ours) {
+				JsonObject members = m.has("m") ? m.getAsJsonObject("m") : new JsonObject();
+				JsonObject own = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : new JsonObject();
+				JsonObject counts = m.has("c") ? m.getAsJsonObject("c").deepCopy() : new JsonObject();
+				if (own.has("c")) {
+					own.getAsJsonObject("c").entrySet().forEach(e -> counts.add(e.getKey(), e.getValue()));
+				}
+				JsonObject mine = new JsonObject();
+				mine.add("c", counts);
+				if (own.has("y")) {
+					mine.add("y", own.get("y"));
+				}
+				adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), new JsonObject(), mine));
+			}
+			if (panel != null) {
+				panel.countsChanged();
+			}
+			return;
+		}
+		if (ours && m.has("config")) {
 			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
 			JsonObject mine = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : null;
-			PluginConfigResponse fresh = gson.fromJson(PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(),
-					m.getAsJsonObject("config"), mine), PluginConfigResponse.class);
-			configFetchLock.lock();
-			try {
-				// A fetch that landed meanwhile is at least as new: keep it.
-				if (pluginConfig == cfg) {
-					adoptTracking(fresh);
-					if (apiClient.getCurrentRsn() != null) {
-						checkTileCompletions(fresh);
-						checkMissionAlerts(fresh);
-					}
-				}
-			} finally {
-				configFetchLock.unlock();
-			}
+			adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), m.getAsJsonObject("config"), mine));
 		}
-		AnvilSidebarPanel panel = sidebarPanel;
+		// A whole view (something other than counts changed) or "moved" (the board did, not our team).
 		if (panel != null) {
 			panel.boardChanged();
+		}
+	}
+
+	/** A config built from a push, taken up like a fetched one — unless a fetch landed meanwhile. */
+	private void adoptPushed(PluginConfigResponse held, JsonObject merged) {
+		PluginConfigResponse fresh = gson.fromJson(merged, PluginConfigResponse.class);
+		configFetchLock.lock();
+		try {
+			// A fetch that landed meanwhile is at least as new: keep it.
+			if (pluginConfig == held) {
+				adoptTracking(fresh);
+				if (apiClient.getCurrentRsn() != null) {
+					checkTileCompletions(fresh);
+					checkMissionAlerts(fresh);
+				}
+			}
+		} finally {
+			configFetchLock.unlock();
 		}
 	}
 
@@ -6897,6 +6926,8 @@ public class AnvilPlugin extends Plugin {
 				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
 		keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
 				k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
+		tileCountsFor = null; // the floors above changed it in place
+		liveCountsMoved();
 	}
 
 	/** The fetch, by a caller already holding {@link #configFetchLock}, which this releases. */
@@ -7224,6 +7255,7 @@ public class AnvilPlugin extends Plugin {
 		boolean finishes = false;
 		for (TrackedStat s : statTileIndex.getOrDefault(statKey(kind, name), Collections.emptyList())) {
 			optimistic.add(s.tileId, s.currentAmount, delta, now());
+			liveCountsMoved();
 			finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
 					&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
 		}
@@ -7233,6 +7265,48 @@ public class AnvilPlugin extends Plugin {
 	/** This client just bumped a tile to {@code current}: hold that count and show it now. */
 	private void raiseLocal(int tileId, long current, long at) {
 		optimistic.raise(tileId, current, at);
+		liveCountsMoved();
+	}
+
+	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */
+	private volatile Map<Integer, Long> tileCounts = Collections.emptyMap();
+	private volatile PluginConfigResponse tileCountsFor;
+
+	/**
+	 * The newest count this client has for a tile: the held config's, or its own unconfirmed one when
+	 * higher; -1 when it tracks no such tile. What the panel's live counts move to (UiView.tickLive).
+	 */
+	long tileCount(int tileId) {
+		PluginConfigResponse cfg = pluginConfig;
+		if (cfg != tileCountsFor) {
+			Map<Integer, Long> counts = new HashMap<>();
+			if (cfg != null) {
+				for (Map.Entry<String, JsonElement> e : gson.toJsonTree(cfg).getAsJsonObject().entrySet()) {
+					if (!e.getKey().startsWith("tracked") || !e.getValue().isJsonArray()) {
+						continue;
+					}
+					for (JsonElement row : e.getValue().getAsJsonArray()) {
+						JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
+						if (r != null && r.has("tileId") && r.has("currentAmount")) {
+							counts.merge(r.get("tileId").getAsInt(), r.get("currentAmount").getAsLong(), Math::max);
+						}
+					}
+				}
+			}
+			tileCounts = counts;
+			tileCountsFor = cfg;
+		}
+		Long site = tileCounts.get(tileId);
+		long floor = optimistic.floor(tileId, now());
+		return site == null ? (floor > 0 ? floor : -1) : Math.max(site, floor);
+	}
+
+	/** Counts moved here (own progress, a pushed or fetched config): the panel redraws its live ones. */
+	private void liveCountsMoved() {
+		AnvilSidebarPanel panel = sidebarPanel;
+		if (panel != null) {
+			panel.liveCountsMoved();
+		}
 	}
 
 	/** This client's unconfirmed count for a tile (0 when none) — read-only, see OptimisticProgress.floor. */
