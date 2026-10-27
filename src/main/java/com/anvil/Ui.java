@@ -104,10 +104,23 @@ final class Ui
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.addMouseListener(new MouseAdapter()
 		{
+			private boolean down;
+
+			// A left press and release inside: Swing's mouseClicked drops a click whose mouse moved a pixel.
 			@Override
-			public void mouseClicked(MouseEvent e)
+			public void mousePressed(MouseEvent e)
 			{
-				action.run();
+				down = SwingUtilities.isLeftMouseButton(e);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e)
+			{
+				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(e.getPoint()))
+				{
+					action.run();
+				}
+				down = false;
 			}
 		});
 		return c;

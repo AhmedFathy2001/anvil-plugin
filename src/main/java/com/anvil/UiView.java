@@ -70,6 +70,12 @@ final class UiView extends JPanel
 	private final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
 	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. */
 	private final Map<String, Long> warmed = new HashMap<>();
+	/** A clickable part's marker, so the row around it leaves its clicks to it. */
+	private static final String CLICKS = "anvil.clicks";
+	/** How long after a click a background refresh waits before redrawing. */
+	private static final long CLICK_SETTLE_MS = 400;
+	private boolean pressing;
+	private long pressedAt;
 	private static final long WARM_EVERY_MS = 60_000;
 
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
@@ -134,9 +140,9 @@ final class UiView extends JPanel
 		Object[] root = loads.remove("null");
 		if (loads.isEmpty() && root != null)
 		{
-			fetch(null, (String) root[0], (Map<String, String>) root[1]);
+			fetch(null, (String) root[0], (Map<String, String>) root[1], true);
 		}
-		loads.forEach((place, l) -> fetch(place, (String) l[0], (Map<String, String>) l[1]));
+		loads.forEach((place, l) -> fetch(place, (String) l[0], (Map<String, String>) l[1], true));
 	}
 
 	/** Show a line of text in place of everything, dropping any answer still on its way. */
@@ -177,15 +183,29 @@ final class UiView extends JPanel
 
 	private void fetch(String into, String view, Map<String, String> args)
 	{
-		lastLoads.put(String.valueOf(into), new Object[]{view, args});
-		int n = bump(into);
-		host.load(view, args, v -> land(into, n, v));
+		fetch(into, view, args, false);
 	}
 
-	private void land(String into, int n, JsonObject view)
+	/** {@code background}: a refresh nobody clicked for, which waits for a click in progress to finish. */
+	private void fetch(String into, String view, Map<String, String> args, boolean background)
+	{
+		lastLoads.put(String.valueOf(into), new Object[]{view, args});
+		int n = bump(into);
+		host.load(view, args, v -> land(into, n, v, background));
+	}
+
+	private void land(String into, int n, JsonObject view, boolean background)
 	{
 		if (seq.getOrDefault(String.valueOf(into), 0) != n)
 		{
+			return;
+		}
+		if (background && (pressing || System.currentTimeMillis() - pressedAt < CLICK_SETTLE_MS))
+		{
+			// Redrawing now would swap the row out from under the press, and the click would be lost.
+			javax.swing.Timer later = new javax.swing.Timer((int) CLICK_SETTLE_MS, e -> land(into, n, view, true));
+			later.setRepeats(false);
+			later.start();
 			return;
 		}
 		JsonElement ui = view == null ? null : view.get("ui");
@@ -280,7 +300,7 @@ final class UiView extends JPanel
 				}
 				String place = into.isEmpty() ? null : into;
 				int n = bump(place);
-				host.post(str(a, "act"), strings(a.get("args")), fields, v -> land(place, n, v));
+				host.post(str(a, "act"), strings(a.get("args")), fields, v -> land(place, n, v, false));
 				break;
 			case "switch":
 				host.switchClan(str(a, "slug"));
@@ -957,13 +977,45 @@ final class UiView extends JPanel
 		AnvilSidebarPanel.addMouseListenerToTree(c, popup);
 	}
 
-	/** Lights up under the mouse and runs {@code action} on a click. */
-	private static void clickable(JComponent c, Runnable action)
+	/**
+	 * Lights up under the mouse and runs {@code action} on a left click: a press and a release inside
+	 * it, so a mouse that moves a pixel still clicks. Its whole tree listens — a label with a tooltip
+	 * takes the mouse for itself and Swing doesn't hand the click up — except what has its own click.
+	 */
+	private void clickable(JComponent c, Runnable action)
 	{
 		boolean opaque = c.isOpaque();
 		Color base = c.getBackground();
-		onClick(c, action).addMouseListener(new MouseAdapter()
+		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		c.putClientProperty(CLICKS, Boolean.TRUE);
+		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter()
 		{
+			private boolean down;
+
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				down = SwingUtilities.isLeftMouseButton(e) && ownClick(c, e);
+				if (down)
+				{
+					pressing = true;
+				}
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e)
+			{
+				boolean click = down && SwingUtilities.isLeftMouseButton(e)
+					&& c.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), c));
+				down = false;
+				pressing = false;
+				pressedAt = System.currentTimeMillis();
+				if (click)
+				{
+					action.run();
+				}
+			}
+
 			@Override
 			public void mouseEntered(MouseEvent e)
 			{
@@ -975,11 +1027,27 @@ final class UiView extends JPanel
 			@Override
 			public void mouseExited(MouseEvent e)
 			{
-				c.setOpaque(opaque);
-				c.setBackground(base);
-				c.repaint();
+				if (c.getMousePosition(true) == null) // into a child is still inside
+				{
+					c.setOpaque(opaque);
+					c.setBackground(base);
+					c.repaint();
+				}
 			}
 		});
+	}
+
+	/** Whether the press is {@code c}'s: no clickable part inside it is nearer the pointer. */
+	private static boolean ownClick(JComponent c, MouseEvent e)
+	{
+		for (Component at = e.getComponent(); at != null && at != c; at = at.getParent())
+		{
+			if (at instanceof JComponent && ((JComponent) at).getClientProperty(CLICKS) != null)
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static void background(JPanel p, String bg)
