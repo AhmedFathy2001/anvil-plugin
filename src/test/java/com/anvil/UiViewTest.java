@@ -422,4 +422,22 @@ public class UiViewTest
 		host.pending.get(2).accept(view(String.format(board, "c", "c")));
 		assertEquals(Collections.singletonList("Page 1 c"), texts(v));
 	}
+
+	@Test
+	public void aWarmLoadIsFetchedAheadOnceAndALoadCanOpenAPane()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		String warm = "{\"t\":\"warm\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"0\"}}}";
+		v.render(view("{\"t\":\"col\",\"c\":[" + warm + ",{\"t\":\"text\",\"s\":\"Tile 5\","
+			+ "\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"0\"},\"open\":{\"into\":\"tile\",\"pane\":\"t:5\"}}}]}"));
+		assertEquals(Collections.singletonList("board{event=0}"), host.loads);
+		v.render(view("{\"t\":\"col\",\"c\":[" + warm + ",{\"t\":\"text\",\"s\":\"Tile 5\","
+			+ "\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"0\"},\"open\":{\"into\":\"tile\",\"pane\":\"t:5\"}}}]}"));
+		assertEquals("a redraw doesn't fetch it again", 1, host.loads.size());
+		click(v, "Tile 5");
+		host.pending.get(1).accept(view("{\"t\":\"slot\",\"id\":\"tile\",\"c\":{\"t\":\"text\",\"s\":\"List\"},"
+			+ "\"panes\":{\"t:5\":{\"t\":\"text\",\"s\":\"Detail 5\"}}}"));
+		assertEquals(Collections.singletonList("Detail 5"), texts(v));
+	}
 }
