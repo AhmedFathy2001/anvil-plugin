@@ -68,6 +68,10 @@ final class UiView extends JPanel
 	private final Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
 	/** The last request for each place, for {@link #refresh}. */
 	private final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
+	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. */
+	private final Map<String, Long> warmed = new HashMap<>();
+	private static final long WARM_EVERY_MS = 60_000;
+
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
 	private final Map<String, JsonElement> drawn = new HashMap<>();
 	/**
@@ -240,6 +244,11 @@ final class UiView extends JPanel
 				break;
 			case "load":
 				openPanes.clear();
+				if (a.has("open") && a.get("open").isJsonObject())
+				{
+					JsonObject open = a.getAsJsonObject("open");
+					openPanes.put(str(open, "into"), str(open, "pane"));
+				}
 				fetch(into.isEmpty() ? null : into, str(a, "v"), strings(a.get("args")));
 				break;
 			case "pane":
@@ -352,6 +361,9 @@ final class UiView extends JPanel
 			case "countdown":
 				c = countdown(n);
 				break;
+			case "warm":
+				warm(n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null);
+				return new JPanel();
 			case "native":
 				JComponent part = host.nativePart(str(n, "name"));
 				return part == null ? new JPanel() : part;
@@ -773,6 +785,23 @@ final class UiView extends JPanel
 		return capH(field);
 	}
 
+	/** Fetch a load ahead of its click; the host keeps the answer, so the click draws it at once. */
+	private void warm(JsonObject on)
+	{
+		if (on == null || !"load".equals(str(on, "a")))
+		{
+			return;
+		}
+		String key = str(on, "v") + on.get("args");
+		long now = System.currentTimeMillis();
+		Long last = warmed.get(key);
+		if (last == null || now - last >= WARM_EVERY_MS)
+		{
+			warmed.put(key, now);
+			host.load(str(on, "v"), strings(on.get("args")), v -> { });
+		}
+	}
+
 	private JComponent slot(JsonObject n)
 	{
 		JPanel holder = Ui.row(0);
@@ -979,6 +1008,8 @@ final class UiView extends JPanel
 		{
 			case "white":
 				return Color.WHITE;
+			case "text":
+				return ColorScheme.TEXT_COLOR;
 			case "muted":
 				return MUTED;
 			case "brand":
