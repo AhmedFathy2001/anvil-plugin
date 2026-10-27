@@ -23,6 +23,13 @@ public class UiViewTest
 		String lookedUp;
 		String pinned;
 		String switched;
+		final Map<Integer, Long> counts = new HashMap<>();
+
+		@Override
+		public long count(int tile)
+		{
+			return counts.getOrDefault(tile, -1L);
+		}
 
 		@Override
 		public void load(String view, Map<String, String> args, Consumer<JsonObject> done)
@@ -498,5 +505,25 @@ public class UiViewTest
 		click(v, "Own");
 		assertEquals("/x", host.site);
 		assertNull("the row doesn't also fire", host.lookedUp);
+	}
+
+	@Test
+	public void liveCountsMoveUpFromWhatThisClientKnowsAndNeverBelowTheSite()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":["
+			+ "{\"t\":\"text\",\"s\":\"40 / 50\",\"live\":{\"tile\":1,\"cur\":40,\"goal\":50}},"
+			+ "{\"t\":\"text\",\"s\":\"80%\",\"live\":{\"tile\":1,\"cur\":40,\"goal\":50,\"fmt\":\"pct\"}},"
+			+ "{\"t\":\"text\",\"s\":\"1 / 200000\",\"live\":{\"tile\":2,\"cur\":1,\"goal\":200000,\"fmt\":\"near\"}}]}"));
+		host.counts.put(1, 30L); // older than the view
+		v.tickLive();
+		assertEquals(Arrays.asList("40 / 50", "80%", "1 / 200000"), texts(v));
+		host.counts.put(1, 45L);
+		host.counts.put(2, 150_000L);
+		v.tickLive();
+		assertEquals(Arrays.asList("45 / 50", "90%", "75%"), texts(v));
+		assertEquals("9,999 / 1.5M", UiView.liveText("of", 9_999, 1_500_000));
+		assertEquals("12K / 1.5M", UiView.liveText("of", 12_345, 1_500_000));
 	}
 }

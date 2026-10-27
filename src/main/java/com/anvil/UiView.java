@@ -51,6 +51,12 @@ final class UiView extends JPanel
 
 		/** A part only the plugin can draw (it reads the game), or null for none. */
 		JComponent nativePart(String name);
+
+		/** This client's newest count for a tile (its own progress, the live push's), or -1 for none. */
+		default long count(int tile)
+		{
+			return -1;
+		}
 	}
 
 	/** Toggle faces and section choices outlive a redraw (and the card), like the old virtual-levels switch. */
@@ -87,6 +93,8 @@ final class UiView extends JPanel
 	private final Map<String, String> openPanes = new HashMap<>();
 	/** Countdowns on screen, run once a second while there are any. */
 	private final List<Runnable> tickers = new ArrayList<>();
+	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
+	private final List<Runnable> lives = new ArrayList<>();
 	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
@@ -160,6 +168,7 @@ final class UiView extends JPanel
 		toggles.clear();
 		inputs.clear();
 		tickers.clear();
+		lives.clear();
 		drawn.keySet().removeIf(k -> !"null".equals(k));
 		// The slots are gone, so whatever they were waiting for is too.
 		seq.keySet().removeIf(k -> !"null".equals(k));
@@ -495,6 +504,7 @@ final class UiView extends JPanel
 			}
 		}
 		l.setText(bool(n, "wrap") ? wrapHtml(esc(s), WRAP_PT) : plainText(s));
+		live(n, (v, goal) -> l.setText(liveText(str(n.getAsJsonObject("live"), "fmt"), v, goal)));
 		int w = num(n, "w", 0);
 		if (w > 0)
 		{
@@ -604,6 +614,7 @@ final class UiView extends JPanel
 			bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
 			return bar;
 		}
+		int[] fill = {pct};
 		JPanel bar = new JPanel()
 		{
 			@Override
@@ -612,9 +623,14 @@ final class UiView extends JPanel
 				g.setColor(bg);
 				g.fillRect(0, 0, getWidth(), getHeight());
 				g.setColor(fg);
-				g.fillRect(0, 0, getWidth() * pct / 100, getHeight());
+				g.fillRect(0, 0, getWidth() * fill[0] / 100, getHeight());
 			}
 		};
+		live(n, (v, goal) ->
+		{
+			fill[0] = percent(v, goal);
+			bar.repaint();
+		});
 		bar.setPreferredSize(new Dimension(0, h));
 		return capH(bar);
 	}
@@ -803,6 +819,55 @@ final class UiView extends JPanel
 			});
 		}
 		return capH(field);
+	}
+
+	/**
+	 * Redraw every {@code live} count from what this client now knows: its own progress the moment it
+	 * happens, a teammate's from the live push. A count only ever moves up from the site's {@code cur}.
+	 */
+	void tickLive()
+	{
+		lives.forEach(Runnable::run);
+	}
+
+	private void live(JsonObject n, java.util.function.BiConsumer<Long, Long> show)
+	{
+		if (!n.has("live") || !n.get("live").isJsonObject())
+		{
+			return;
+		}
+		JsonObject live = n.getAsJsonObject("live");
+		int tile = num(live, "tile", 0);
+		long cur = live.has("cur") ? live.get("cur").getAsLong() : 0;
+		long goal = live.has("goal") ? live.get("goal").getAsLong() : 0;
+		long[] shown = {cur};
+		lives.add(() ->
+		{
+			long v = Math.max(cur, host.count(tile));
+			if (v != shown[0])
+			{
+				shown[0] = v;
+				show.accept(v, goal);
+			}
+		});
+	}
+
+	/** A live count as the site words it (lib/pluginUi/nodes {@code Live}): of, raw, pct or near. */
+	static String liveText(String fmt, long v, long goal)
+	{
+		String pct = percent(v, goal) + "%";
+		String raw = v + " / " + goal;
+		switch (fmt)
+		{
+			case "pct":
+				return pct;
+			case "raw":
+				return raw;
+			case "near":
+				return goal >= 100_000 ? pct : raw;
+			default:
+				return Ui.count(v) + " / " + Ui.count(goal);
+		}
 	}
 
 	/** Fetch a load ahead of its click; the host keeps the answer, so the click draws it at once. */

@@ -193,7 +193,13 @@ public class AnvilSidebarDataSource
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
 	}
 
-	/** The tiles pinned over the game on {@code eventId}. */
+	/** This client's newest count for a tile, or -1 (AnvilPlugin.tileCount). */
+	public long tileCount(int tileId)
+	{
+		return fromPlugin(p -> p.tileCount(tileId), -1L);
+	}
+
+		/** The tiles pinned over the game on {@code eventId}. */
 	public List<Integer> pinnedTiles(int eventId)
 	{
 		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), Collections.<Integer>emptyList())
