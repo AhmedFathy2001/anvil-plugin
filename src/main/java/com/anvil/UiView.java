@@ -70,6 +70,11 @@ final class UiView extends JPanel
 	private final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
 	private final Map<String, JsonElement> drawn = new HashMap<>();
+	/**
+	 * The pane each slot was switched to, kept while the view refreshes so a new answer doesn't throw
+	 * the reader back to the first page. Going somewhere (a load, a new view) forgets them.
+	 */
+	private final Map<String, String> openPanes = new HashMap<>();
 	/** Countdowns on screen, run once a second while there are any. */
 	private final List<Runnable> tickers = new ArrayList<>();
 	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
@@ -106,6 +111,7 @@ final class UiView extends JPanel
 	/** Fetch a view and show it in place of everything; {@code waiting} shows meanwhile. */
 	void show(String view, Map<String, String> args, String waiting)
 	{
+		openPanes.clear();
 		if (waiting != null)
 		{
 			drawn.remove("null");
@@ -233,6 +239,7 @@ final class UiView extends JPanel
 				host.clan(str(a, "slug"));
 				break;
 			case "load":
+				openPanes.clear();
 				fetch(into.isEmpty() ? null : into, str(a, "v"), strings(a.get("args")));
 				break;
 			case "pane":
@@ -240,6 +247,7 @@ final class UiView extends JPanel
 				JsonElement pane = slot == null || slot.panes == null ? null : slot.panes.get(str(a, "pane"));
 				if (pane != null && pane.isJsonObject())
 				{
+					openPanes.put(into, str(a, "pane"));
 					drawn.remove(into);
 					replace(slot.holder, node(pane.getAsJsonObject()));
 				}
@@ -769,8 +777,10 @@ final class UiView extends JPanel
 	{
 		JPanel holder = Ui.row(0);
 		String id = str(n, "id");
-		slots.put(id, new Slot(holder, n.has("panes") ? n.getAsJsonObject("panes") : null));
-		holder.add(node(n.getAsJsonObject("c")), BorderLayout.CENTER);
+		JsonObject panes = n.has("panes") && n.get("panes").isJsonObject() ? n.getAsJsonObject("panes") : null;
+		slots.put(id, new Slot(holder, panes));
+		JsonElement open = panes == null || !openPanes.containsKey(id) ? null : panes.get(openPanes.get(id));
+		holder.add(node(open != null && open.isJsonObject() ? open.getAsJsonObject() : n.getAsJsonObject("c")), BorderLayout.CENTER);
 		if (n.has("load") && n.get("load").isJsonObject())
 		{
 			JsonObject load = n.getAsJsonObject("load");
@@ -979,6 +989,8 @@ final class UiView extends JPanel
 				return ColorScheme.PROGRESS_ERROR_COLOR;
 			case "claim":
 				return new Color(0x7D_C4_F0);
+			case "progress":
+				return ColorScheme.PROGRESS_INPROGRESS_COLOR;
 			default:
 				return teamColor(c, fallback);
 		}

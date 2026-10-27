@@ -525,6 +525,20 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/** {@code fetch} on the interactive executor, then {@code then} with its answer on the EDT. */
+	/**
+	 * The last answer for each request (clan, character, view and args), drawn the moment it's asked
+	 * for again while the fresh one is on its way — going back, or between tabs, is instant. Anything
+	 * sent to the site (a claim, a pin) may change every view, so it empties. EDT only.
+	 */
+	private final Map<String, JsonObject> uiCache = new LinkedHashMap<String, JsonObject>(16, 0.75f, true)
+	{
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<String, JsonObject> eldest)
+		{
+			return size() > 40;
+		}
+	};
+
 	private <T> void async(Supplier<T> fetch, Consumer<T> then)
 	{
 		interactive().execute(() ->
@@ -547,12 +561,29 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				String clan = dataSource.activeClan();
 				Map<String, String> sent = withPins(args);
-				async(() -> apiClient.fetchUi(view, sent, clan), done);
+				String key = clan + '|' + apiClient.getCurrentRsn() + '|' + view + '|' + new TreeMap<>(sent);
+				JsonObject seen = uiCache.get(key);
+				if (seen != null)
+				{
+					done.accept(seen);
+				}
+				async(() -> apiClient.fetchUi(view, sent, clan), v ->
+				{
+					if (v != null)
+					{
+						uiCache.put(key, v);
+					}
+					if (v != null || seen == null)
+					{
+						done.accept(v); // a failed fetch leaves the remembered answer up
+					}
+				});
 			}
 
 			@Override
 			public void pin(int event, int tile, boolean on)
 			{
+				uiCache.clear();
 				if (tile <= 0)
 				{
 					dataSource.unpinAll(event);
@@ -579,6 +610,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			@Override
 			public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done)
 			{
+				uiCache.clear();
 				async(() -> apiClient.postUi(act, args, fields), done);
 			}
 

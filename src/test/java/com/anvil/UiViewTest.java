@@ -404,4 +404,22 @@ public class UiViewTest
 		host.pending.get(2).accept(view("{\"t\":\"text\",\"s\":\"Board 2\"}"));
 		assertEquals(Collections.singletonList("Board 2"), texts(v));
 	}
+
+	@Test
+	public void anOpenPaneSurvivesARefreshButNotGoingSomewhere()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		String board = "{\"t\":\"slot\",\"id\":\"tile\",\"c\":{\"t\":\"text\",\"s\":\"Page 1 %s\",\"on\":{\"a\":\"pane\",\"into\":\"tile\",\"pane\":\"t:5\"}},"
+			+ "\"panes\":{\"t:5\":{\"t\":\"text\",\"s\":\"Tile 5 %s\",\"on\":{\"a\":\"load\",\"v\":\"home\"}}}}";
+		v.show("board", Collections.emptyMap(), null);
+		host.pending.get(0).accept(view(String.format(board, "a", "a")));
+		click(v, "Page 1 a");
+		v.refresh();
+		host.pending.get(1).accept(view(String.format(board, "b", "b")));
+		assertEquals("the reader stays on the tile they opened", Collections.singletonList("Tile 5 b"), texts(v));
+		click(v, "Tile 5 b");
+		host.pending.get(2).accept(view(String.format(board, "c", "c")));
+		assertEquals(Collections.singletonList("Page 1 c"), texts(v));
+	}
 }
