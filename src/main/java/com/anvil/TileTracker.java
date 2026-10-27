@@ -42,6 +42,8 @@ public class TileTracker
 	/** tileId → its widget, in pin order. Guarded by {@code this}. */
 	private final Map<Integer, Widget> pins = new LinkedHashMap<>();
 	private int eventId;
+	/** The logged-in account's hash, or -1 at the login screen: pins are saved per account. */
+	private long account = -1;
 	/**
 	 * (tileId, site count) → what to show for your team: the plugin's own newer count when it has one,
 	 * so a pinned tile moves on your kill. Identity until the plugin sets it.
@@ -129,10 +131,27 @@ public class TileTracker
 		}
 	}
 
-	/** Restore the pins saved for the event in config ("eventId:tileId,tileId"). */
-	synchronized void startUp()
+	/** Drops the pins saved before they were kept per account: they could belong to any account. */
+	void startUp()
 	{
-		String saved = configManager.getConfiguration("osrsbingo", CFG_PINS);
+		configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+	}
+
+	/**
+	 * The account now logged in ({@code -1} at the login screen): take the last one's pins down and
+	 * restore this one's ("eventId:tileId,tileId"). One client plays several accounts, and an alt
+	 * that isn't on the event has no board to unpin them from.
+	 */
+	synchronized void forAccount(long hash)
+	{
+		if (hash == account)
+		{
+			return;
+		}
+		shutDown();
+		eventId = 0;
+		account = hash;
+		String saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
 		if (saved == null || !saved.contains(":"))
 		{
 			return;
@@ -152,6 +171,7 @@ public class TileTracker
 		catch (NumberFormatException e)
 		{
 			unpinAll();
+			save();
 		}
 	}
 
@@ -341,6 +361,24 @@ public class TileTracker
 		return this.eventId == eventId ? new ArrayList<>(pins.keySet()) : new ArrayList<>();
 	}
 
+	/** The widget's right-click "Unpin": one pin, or every pin from the shared panel. */
+	synchronized void unpinFrom(Overlay overlay)
+	{
+		if (overlay == combined)
+		{
+			unpinAll();
+		}
+		else if (overlay instanceof Widget && pins.get(((Widget) overlay).tileId) == overlay)
+		{
+			hide(removePin(((Widget) overlay).tileId));
+		}
+		else
+		{
+			return;
+		}
+		save();
+	}
+
 	/** Take every pin for this event down. */
 	synchronized void clear(int eventId)
 	{
@@ -397,11 +435,20 @@ public class TileTracker
 		eventId = 0;
 	}
 
+	private String key()
+	{
+		return CFG_PINS + "." + account;
+	}
+
 	private void save()
 	{
+		if (account == -1)
+		{
+			return;
+		}
 		if (pins.isEmpty())
 		{
-			configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+			configManager.unsetConfiguration("osrsbingo", key());
 			return;
 		}
 		StringBuilder sb = new StringBuilder().append(eventId).append(':');
@@ -409,7 +456,7 @@ public class TileTracker
 		{
 			sb.append(id).append(',');
 		}
-		configManager.setConfiguration("osrsbingo", CFG_PINS, sb.substring(0, sb.length() - 1));
+		configManager.setConfiguration("osrsbingo", key(), sb.substring(0, sb.length() - 1));
 	}
 
 	/** Every pin in one movable panel, in pin order, a blank line between them — name and bar each. */
@@ -417,6 +464,7 @@ public class TileTracker
 	{
 		Combined()
 		{
+			addUnpin(this, "Unpin all");
 			setPosition(OverlayPosition.TOP_LEFT);
 			setResizable(true);
 			setMovable(true);
@@ -442,6 +490,11 @@ public class TileTracker
 			}
 			return shown.isEmpty() ? null : super.render(graphics);
 		}
+	}
+
+	private static void addUnpin(Overlay overlay, String option)
+	{
+		overlay.getMenuEntries().add(new OverlayMenuEntry(net.runelite.api.MenuAction.RUNELITE_OVERLAY, option, "Anvil tile"));
 	}
 
 	/** The site's answer (lib/tileTracker): the viewer's team first, then the rest by progress. */
@@ -516,6 +569,7 @@ public class TileTracker
 			this.slot = slot;
 			this.tileId = tileId;
 			this.shown = shown;
+			addUnpin(this, "Unpin");
 			setPosition(OverlayPosition.TOP_LEFT);
 			setResizable(true);
 			setMovable(true);

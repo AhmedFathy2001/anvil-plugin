@@ -1657,6 +1657,12 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	@Subscribe
+	public void onOverlayMenuClicked(OverlayMenuClicked event) {
+		tileTracker.unpinFrom(event.getOverlay());
+		SwingUtilities.invokeLater(sidebarPanel::refresh);
+	}
+
 	/**
 	 * Skill 99s + total-level milestones, detected off StatChanged so they fire regardless of the
 	 * in-game "Level-up interface" setting. (We also parse the level-up chat line, but that only
@@ -2587,6 +2593,7 @@ public class AnvilPlugin extends Plugin {
 			// channel to read here.
 			clanRosterReadable = false;
 			clanRosterMissingTicks = 0;
+			tileTracker.forAccount(-1);
 			SwingUtilities.invokeLater(sidebarPanel::refresh); // drop "Track on screen" with the session
 			// Back at the login screen: the next LOGGED_IN really is a new session, and until it
 			// arrives we don't have one at all.
@@ -2752,6 +2759,7 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setCurrentRsn(rsn);
 		apiClient.setAccountHash(accountHash);
 		apiClient.setSeasonal(onSeasonalWorld());
+		tileTracker.forAccount(accountHash);
 		// "Not my account" on this install: send nothing at all while this character is logged in —
 		// no config, no hello, no drops. Set before anything below can fire a request. If the
 		// retries ran out without a name or hash we can't tell whose character this is, so with
