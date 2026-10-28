@@ -44,12 +44,14 @@ final class ClanCofferTracker
 	}
 
 	private Integer lastBalance;
+	private Integer candidate;
 	private Kind recentSelfAction;
 	private long recentSelfActionAt;
 
 	void reset()
 	{
 		lastBalance = null;
+		candidate = null;
 		recentSelfAction = null;
 		recentSelfActionAt = 0L;
 	}
@@ -69,6 +71,13 @@ final class ClanCofferTracker
 	{
 		if (balance < 0)
 		{
+			return null;
+		}
+		// The coin stack can read empty for a tick while the container refreshes; a balance counts
+		// only once two polls in a row agree on it.
+		if (candidate == null || candidate != balance)
+		{
+			candidate = balance;
 			return null;
 		}
 		if (lastBalance == null)

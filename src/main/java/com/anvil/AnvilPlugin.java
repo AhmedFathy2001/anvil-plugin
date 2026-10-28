@@ -2282,6 +2282,30 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/** Send a clan-chat coffer line to the site (client thread: reads the clan channel's name). */
+	private void maybeReportCofferLine(String msg) {
+		if (!config.syncClanCoffer() || !loggedIn() || !apiClient.isConfigured()
+				|| !msg.toLowerCase(Locale.ROOT).contains("coffer")) {
+			return;
+		}
+		PluginConfigResponse cfg = pluginConfig;
+		ClanChannel channel = client.getClanChannel();
+		ScheduledExecutorService ex = executor;
+		if (cfg == null || !cfg.serverSupports("coffer-chat") || channel == null || channel.getName() == null
+				|| ex == null || ex.isShutdown()) {
+			return;
+		}
+		final String line = stripChatTags(msg);
+		final String clanName = channel.getName();
+		ex.submit(() -> {
+			try {
+				apiClient.submitCofferLine(line, clanName);
+			} catch (IOException e) {
+				log.debug("Coffer line not sent: {}", e.getMessage());
+			}
+		});
+	}
+
 	/** Read the visible coffer after its item widgets have had a few ticks to populate. */
 	private void pollClanCoffer() {
 		if (!config.syncClanCoffer() || !clanCofferOpen
@@ -3708,8 +3732,14 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 
-		// Deposits are private to the depositor; withdrawals may be clan broadcasts. Either way the
-		// line is attribution only — the widget's before/after amount is what can move the ledger.
+		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
+		// the actor included. Each client reports it; the site parses it and books it once two members
+		// agree, which is what catches deposits made on mobile.
+		if (event.getType() == ChatMessageType.CLAN_MESSAGE) {
+			maybeReportCofferLine(msg);
+		}
+
+		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
 		if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
 			String sender = event.getName();
