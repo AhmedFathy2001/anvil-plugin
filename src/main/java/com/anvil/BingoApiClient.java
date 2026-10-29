@@ -1602,7 +1602,7 @@ public class BingoApiClient
 
 	/**
 	 * POST /api/plugin/coffer/broadcast — this player's own coffer line from clan chat. The site parses
-	 * it and books it, named.
+	 * it and books it once a coffer reading shows the money.
 	 */
 	public void submitCofferLine(String line, String clanName) throws IOException
 	{
