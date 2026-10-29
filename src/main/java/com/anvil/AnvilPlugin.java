@@ -2228,10 +2228,18 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Send a clan-chat coffer line to the site (client thread: reads the clan channel's name). */
+	/**
+	 * Send this player's own clan-chat coffer line to the site (client thread: reads the clan channel's
+	 * name). Other members' lines are never sent: they'd be crowdsourcing other players' names.
+	 */
 	private void maybeReportCofferLine(String msg) {
 		if (!config.syncClanCoffer() || !loggedIn() || !apiClient.isConfigured()
 				|| !msg.toLowerCase(Locale.ROOT).contains("coffer")) {
+			return;
+		}
+		final String line = stripChatTags(msg);
+		int has = line.indexOf(" has ");
+		if (has <= 0 || !Rsn.same(line.substring(0, has), getLocalPlayerName())) {
 			return;
 		}
 		PluginConfigResponse cfg = pluginConfig;
@@ -2241,7 +2249,6 @@ public class AnvilPlugin extends Plugin {
 				|| ex == null || ex.isShutdown()) {
 			return;
 		}
-		final String line = stripChatTags(msg);
 		final String clanName = channel.getName();
 		ex.submit(() -> {
 			try {
@@ -3661,8 +3668,8 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
-		// the actor included. Each client reports it; the site parses it and books it once two members
-		// agree, which is what catches deposits made on mobile.
+		// the actor included. Each client reports only its own player's line; the site names the
+		// movement with it and books it once another member's coffer reading agrees.
 		if (event.getType() == ChatMessageType.CLAN_MESSAGE) {
 			maybeReportCofferLine(msg);
 		}

@@ -1601,8 +1601,8 @@ public class BingoApiClient
 	}
 
 	/**
-	 * POST /api/plugin/coffer/broadcast — the coffer's clan-chat line as this client saw it. The site
-	 * parses it and books it once two members' clients agree.
+	 * POST /api/plugin/coffer/broadcast — this player's own coffer line from clan chat. The site parses
+	 * it and books it once another member's coffer reading agrees.
 	 */
 	public void submitCofferLine(String line, String clanName) throws IOException
 	{

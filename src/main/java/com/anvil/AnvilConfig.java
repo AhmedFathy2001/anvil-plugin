@@ -485,7 +485,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "syncClanCoffer",
 		name = "Sync Clan Coffer",
-		description = "Send Clan Coffer deposits and withdrawals to your clan site, from the clan chat line and the coffer screen.",
+		description = "Send Clan Coffer deposits and withdrawals to your clan site, from your own clan chat line and the coffer screen.",
 		position = 1,
 		section = "profileSection"
 	)
