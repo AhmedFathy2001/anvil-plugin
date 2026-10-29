@@ -1593,6 +1593,18 @@ public class BingoApiClient
 	}
 
 	/**
+	 * POST /api/plugin/coffer/broadcast — the coffer's clan-chat line as this client saw it. The site
+	 * parses it and books it once two members' clients agree.
+	 */
+	public void submitCofferLine(String line, String clanName) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("line", line);
+		payload.addProperty("clanName", clanName);
+		postJson("/api/plugin/coffer/broadcast", payload, "Coffer line failed", false);
+	}
+
+	/**
 	 * POST /api/plugin/coffer — one absolute in-game Clan Coffer transition. The event key makes a
 	 * retry idempotent; the server also serializes distinct clients observing the same final balance.
 	 */
