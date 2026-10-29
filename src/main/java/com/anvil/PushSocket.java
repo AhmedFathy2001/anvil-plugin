@@ -101,7 +101,20 @@ final class PushSocket extends WebSocketListener
 		{
 			pending = null;
 		}
-		BingoApiClient.PushTicket ticket = api.fetchPushTicket();
+		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
+		// (a hung site would stall all of it for the read timeout, on every retry).
+		try
+		{
+			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket()));
+		}
+		catch (RejectedExecutionException e)
+		{
+			// shutting down
+		}
+	}
+
+	private void withTicket(BingoApiClient.PushTicket ticket)
+	{
 		synchronized (this)
 		{
 			if (scope == null || socket != null)

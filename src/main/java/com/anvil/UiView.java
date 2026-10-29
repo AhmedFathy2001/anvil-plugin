@@ -82,6 +82,7 @@ final class UiView extends JPanel
 	private static final long CLICK_SETTLE_MS = 400;
 	private boolean pressing;
 	private long pressedAt;
+	private static final long PRESS_STALE_MS = 2_000;
 	private static final long WARM_EVERY_MS = 60_000;
 
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
@@ -184,6 +185,21 @@ final class UiView extends JPanel
 		}
 	}
 
+	/** The panel went off screen (or the plugin stopped): no countdowns tick unseen. */
+	void stop()
+	{
+		ticker.stop();
+	}
+
+	/** Back on screen: the countdowns drawn before resume. */
+	void resume()
+	{
+		if (!tickers.isEmpty())
+		{
+			ticker.start();
+		}
+	}
+
 	private int bump(String place)
 	{
 		seq.put(String.valueOf(place), ++requests);
@@ -209,7 +225,10 @@ final class UiView extends JPanel
 		{
 			return;
 		}
-		if (background && (pressing || System.currentTimeMillis() - pressedAt < CLICK_SETTLE_MS))
+		// A press older than PRESS_STALE_MS is over: a redraw under it can swallow its release, and the
+		// flag would otherwise hold every later background refresh off for good.
+		long sincePress = System.currentTimeMillis() - pressedAt;
+		if (background && ((pressing && sincePress < PRESS_STALE_MS) || sincePress < CLICK_SETTLE_MS))
 		{
 			// Redrawing now would swap the row out from under the press, and the click would be lost.
 			javax.swing.Timer later = new javax.swing.Timer((int) CLICK_SETTLE_MS, e -> land(into, n, view, true));
@@ -260,7 +279,9 @@ final class UiView extends JPanel
 		{
 			case "site":
 				String path = str(a, "path");
-				if (path.startsWith("/") && !path.startsWith("//"))
+				// A path on the site, never a host: "//" and a backslash ("/\\evil.example") both resolve
+				// to another host.
+				if (path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0)
 				{
 					host.site(path);
 				}
@@ -381,7 +402,7 @@ final class UiView extends JPanel
 				break;
 			case "button":
 				JsonObject on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
-				JPanel button = AnvilSidebarPanel.fullWidthButton(str(n, "label"), tip(n), () -> act(on));
+				JPanel button = AnvilSidebarPanel.fullWidthButton(Ui.plainText(str(n, "label")), tip(n), () -> act(on));
 				button.getComponent(0).setEnabled(!bool(n, "off"));
 				return button;
 			case "gap":
@@ -605,7 +626,7 @@ final class UiView extends JPanel
 			ProgressBar bar = new ProgressBar();
 			bar.setMaximumValue(100);
 			bar.setValue(pct);
-			bar.setCenterLabel(str(n, "label"));
+			bar.setCenterLabel(Ui.plainText(str(n, "label")));
 			bar.setLeftLabel("");
 			bar.setRightLabel("");
 			bar.setForeground(fg);

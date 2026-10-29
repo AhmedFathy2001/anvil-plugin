@@ -84,6 +84,7 @@ public class BingoApiClient
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
 			.build();
+		this.pushClient = httpClient.newBuilder().pingInterval(30, TimeUnit.SECONDS).build();
 		// Reads the sidebar waits on (config, feed, board, cards) give up sooner: a panel stuck on
 		// "Loading…" for a minute and a half is worse than one that says the site is slow and keeps
 		// what it had. Uploads and submissions keep the long timeout above.
@@ -344,9 +345,16 @@ public class BingoApiClient
 		return socket != null && site != null && socket.host().equals(site.host()) ? t : null;
 	}
 
+	/**
+	 * Pings keep the push socket honest: without them a connection that died quietly (sleep, a Wi-Fi
+	 * change, an expired NAT entry) sends no close and no failure, and the plugin would believe it's
+	 * live — polling slowly — forever. Derived from the injected client, so it shares its pool.
+	 */
+	private final OkHttpClient pushClient;
+
 	WebSocket openPush(PushTicket ticket, WebSocketListener listener)
 	{
-		return httpClient.newWebSocket(plainRequest(ticket.url).header("Authorization", "Bearer " + ticket.ticket).build(), listener);
+		return pushClient.newWebSocket(plainRequest(ticket.url).header("Authorization", "Bearer " + ticket.ticket).build(), listener);
 	}
 
 	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */

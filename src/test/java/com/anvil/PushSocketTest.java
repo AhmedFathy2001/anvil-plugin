@@ -50,6 +50,21 @@ public class PushSocketTest
 			return t;
 		}
 
+		/** The ticket fetch runs inline, so a test sees its socket as soon as the executor settles. */
+		@Override
+		public ExecutorService interactiveExecutor()
+		{
+			return new AbstractExecutorService()
+			{
+				@Override public void execute(Runnable r) { r.run(); }
+				@Override public void shutdown() { }
+				@Override public List<Runnable> shutdownNow() { return Collections.emptyList(); }
+				@Override public boolean isShutdown() { return false; }
+				@Override public boolean isTerminated() { return false; }
+				@Override public boolean awaitTermination(long t, TimeUnit u) { return true; }
+			};
+		}
+
 		@Override
 		WebSocket openPush(PushTicket ticket, WebSocketListener listener)
 		{

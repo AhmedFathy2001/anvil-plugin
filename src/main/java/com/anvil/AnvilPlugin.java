@@ -1073,6 +1073,8 @@ public class AnvilPlugin extends Plugin {
 
 	@Override
 	protected void startUp() {
+		// A capture cut short by the last shutdown must not keep every overlay hidden.
+		capturing = false;
 		// Every chat parser reads its line shape from here — before anything can see a chat line.
 		ChatPatterns.loadDefaults(gson);
 		OffThread.bindClientThread(client::isClientThread);
@@ -1526,8 +1528,13 @@ public class AnvilPlugin extends Plugin {
 			clientToolbar.removeNavigation(sidebarNavButton);
 			sidebarNavButton = null;
 		}
+		if (sidebarPanel != null) {
+			// Its timers (countdowns, auto-refresh) must not outlive the plugin; the panel is a singleton.
+			SwingUtilities.invokeLater(sidebarPanel::onDeactivate);
+		}
 		bannerSound.shutdown();
 		resetCoffer(false);
+		capturing = false;
 		profileLookup.shutDown();
 		if (sidebarPanel != null) {
 			sidebarPanel.cancelSignIn();
@@ -1663,8 +1670,10 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onOverlayMenuClicked(OverlayMenuClicked event) {
-		tileTracker.unpinFrom(event.getOverlay());
-		SwingUtilities.invokeLater(sidebarPanel::refresh);
+		// Every plugin's overlay menu clicks arrive here; only our own Unpin entries are ours to act on.
+		if (tileTracker.unpinFrom(event.getOverlay(), event.getEntry().getOption())) {
+			SwingUtilities.invokeLater(sidebarPanel::refresh);
+		}
 	}
 
 	/**
@@ -2610,6 +2619,8 @@ public class AnvilPlugin extends Plugin {
 			chestLineCredits.clear();
 		}
 		if (event.getGameState() == GameState.LOGIN_SCREEN) {
+			// The next account may be on another team: its gains don't build on this one's counts.
+			optimistic.reset();
 			// The next account's stats haven't been sent yet; what the client holds until then is
 			// either a placeholder or the previous account's.
 			unsettleStats();
@@ -5155,9 +5166,7 @@ public class AnvilPlugin extends Plugin {
 			proof.add("chat", gson.toJsonTree(recentChat));
 		}
 
-		capturing = true;
-		onNextFrame(image -> {
-			capturing = false;
+		onCleanFrame(image -> {
 			try {
 				BufferedImage buffered = composeDualProof(triggerFrame, image);
 				if (triggerFrame != null) {
@@ -5194,7 +5203,7 @@ public class AnvilPlugin extends Plugin {
 					rollback.run();
 				}
 			}
-		}, null);
+		});
 	}
 
 	private static PendingSubmission pending(int eventId, int tileId, int teamId, int playerId,
@@ -6913,6 +6922,13 @@ public class AnvilPlugin extends Plugin {
 			}
 			return;
 		}
+		// A whole view for a different team of the event we hold: the site moved us (it re-scopes the
+		// socket on a team change). Fetch the config now instead of tracking the old team until the
+		// slow while-live poll.
+		if ("team".equals(kind) && cfg != null && cfg.event != null && cfg.event.id == eventId
+				&& m.get("teamId").getAsInt() != myTeam) {
+			refreshConfig();
+		}
 		if (ours && m.has("config")) {
 			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
 			JsonObject mine = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : null;
@@ -6942,6 +6958,11 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	private static boolean sameTeam(PluginConfigResponse a, PluginConfigResponse b) {
+		return a != null && b != null && a.event != null && b.event != null && a.event.id == b.event.id
+				&& (a.team == null ? 0 : a.team.id) == (b.team == null ? 0 : b.team.id);
+	}
+
 	/**
 	 * A newer config takes over tracking, fetched or pushed. Locally-counted gain and kill progress is
 	 * kept: the server's copy lags while gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so
@@ -6949,7 +6970,13 @@ public class AnvilPlugin extends Plugin {
 	 * karambwan/impling flakiness). Each fresh count is floored at what we've already counted.
 	 */
 	private void adoptTracking(PluginConfigResponse fresh) {
-		PluginConfigResponse prior = pluginConfig;
+		PluginConfigResponse held = pluginConfig;
+		// Another team's (or event's) counts are no floor for this one: a team move, or an alt on the
+		// other side, would otherwise build on the old team's numbers.
+		PluginConfigResponse prior = sameTeam(held, fresh) ? held : null;
+		if (prior == null) {
+			optimistic.reset();
+		}
 		pluginConfig = fresh;
 		rebuildItemDropIndex();
 		keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
@@ -10036,6 +10063,29 @@ public class AnvilPlugin extends Plugin {
 	 * the client/AWT thread, so encoding and sending never hold up the game loop. {@code dead} runs
 	 * instead when the executor has gone away in the meantime.
 	 */
+	/**
+	 * The next frame drawn with our overlays hidden (they skip drawing while {@link #capturing}). Asked
+	 * for from the client thread, between frames: from the executor the request could land mid-draw and
+	 * return a frame our overlays were already painted into. The flag is cleared however the request
+	 * ends, so a plugin stopped in between can't leave every overlay hidden.
+	 */
+	private void onCleanFrame(Consumer<BufferedImage> work) {
+		clientThread.invokeLater(() -> {
+			capturing = true;
+			drawManager.requestNextFrameListener(image -> {
+				capturing = false;
+				if (!execLive()) {
+					return;
+				}
+				try {
+					executor.submit(() -> work.accept((BufferedImage) image));
+				} catch (RejectedExecutionException e) {
+					log.debug("Proof frame dropped: plugin stopping");
+				}
+			});
+		});
+	}
+
 	private void onNextFrame(Consumer<BufferedImage> work, Runnable dead) {
 		drawManager.requestNextFrameListener(image -> {
 			if (!execLive()) {

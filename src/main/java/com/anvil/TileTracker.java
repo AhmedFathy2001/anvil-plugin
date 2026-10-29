@@ -131,10 +131,23 @@ public class TileTracker
 		}
 	}
 
-	/** Drops the pins saved before they were kept per account: they could belong to any account. */
-	void startUp()
+	/** Pins saved before they were kept per account, handed to the first account that logs in. */
+	private String legacyPins;
+
+	/**
+	 * A fresh start: the next login restores its pins even if it's the account that was logged in when
+	 * the plugin stopped. Pins saved before they were kept per account go to the first account seen —
+	 * almost always the one that pinned them — rather than being lost on the upgrade.
+	 */
+	synchronized void startUp()
 	{
-		configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+		account = -1;
+		String old = configManager.getConfiguration("osrsbingo", CFG_PINS);
+		if (old != null)
+		{
+			legacyPins = old;
+			configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+		}
 	}
 
 	/**
@@ -152,6 +165,15 @@ public class TileTracker
 		eventId = 0;
 		account = hash;
 		String saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
+		if (saved == null && hash != -1 && legacyPins != null)
+		{
+			saved = legacyPins;
+			configManager.setConfiguration("osrsbingo", key(), saved);
+		}
+		if (hash != -1)
+		{
+			legacyPins = null;
+		}
 		if (saved == null || !saved.contains(":"))
 		{
 			return;
@@ -362,8 +384,12 @@ public class TileTracker
 	}
 
 	/** The widget's right-click "Unpin": one pin, or every pin from the shared panel. */
-	synchronized void unpinFrom(Overlay overlay)
+	synchronized boolean unpinFrom(Overlay overlay, String option)
 	{
+		if (option == null || !option.startsWith("Unpin"))
+		{
+			return false;
+		}
 		if (overlay == combined)
 		{
 			unpinAll();
@@ -374,9 +400,10 @@ public class TileTracker
 		}
 		else
 		{
-			return;
+			return false;
 		}
 		save();
+		return true;
 	}
 
 	/** Take every pin for this event down. */
