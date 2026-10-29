@@ -1,22 +1,13 @@
 package com.anvil;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JProgressBar;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import java.awt.*;
+import java.awt.event.*;
+import java.time.*;
+import java.time.format.DateTimeParseException;
+import java.util.Locale;
+import javax.swing.*;
+import net.runelite.client.ui.*;
+import javax.swing.event.DocumentEvent;
 
 /**
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds
@@ -113,10 +104,23 @@ final class Ui
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.addMouseListener(new MouseAdapter()
 		{
+			private boolean down;
+
+			// A left press and release inside: Swing's mouseClicked drops a click whose mouse moved a pixel.
 			@Override
-			public void mouseClicked(MouseEvent e)
+			public void mousePressed(MouseEvent e)
 			{
-				action.run();
+				down = SwingUtilities.isLeftMouseButton(e);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e)
+			{
+				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(e.getPoint()))
+				{
+					action.run();
+				}
+				down = false;
 			}
 		});
 		return c;
@@ -169,13 +173,22 @@ final class Ui
 		return left(p);
 	}
 
+	/** {@link #row(int)} on an opaque {@code bg}. */
+	static JPanel row(int hgap, Color bg)
+	{
+		JPanel p = row(hgap);
+		p.setOpaque(true);
+		p.setBackground(bg);
+		return p;
+	}
+
 	static Component gap(int h)
 	{
 		return Box.createVerticalStrut(h);
 	}
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
-	static void styleSearch(javax.swing.JTextField f)
+	static void styleSearch(JTextField f)
 	{
 		f.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		f.setForeground(Color.WHITE);
@@ -191,19 +204,19 @@ final class Ui
 		f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
 		{
 			@Override
-			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			public void insertUpdate(DocumentEvent e)
 			{
 				changed.run();
 			}
 
 			@Override
-			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			public void removeUpdate(DocumentEvent e)
 			{
 				changed.run();
 			}
 
 			@Override
-			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			public void changedUpdate(DocumentEvent e)
 			{
 				changed.run();
 			}
@@ -223,8 +236,120 @@ final class Ui
 		return bar;
 	}
 
+	/** A transparent, left-aligned grid {@code cols} across. */
+	static JPanel grid(int cols, int hgap, int vgap)
+	{
+		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
+		grid.setOpaque(false);
+		return grid;
+	}
+
+	/** A section's orange name, with an optional white figure at the right. */
+	static JPanel header(String left, String right)
+	{
+		JPanel row = row(0);
+		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
+		if (right != null)
+		{
+			row.add(small(right, Color.WHITE), BorderLayout.EAST);
+		}
+		return capH(row);
+	}
+
+	/** {@code part} of {@code whole} as 0..100, rounded down so a goal never reads as reached before it is. */
+	static int percent(long part, long whole)
+	{
+		return whole <= 0 ? 0 : (int) Math.max(0, Math.min(100, Math.floor(part * 100.0 / whole)));
+	}
+
+	/**
+	 * The one way a count is shown, panel and overlays alike: "9,999", "12K", "4.1M", "4.6B" — the game's
+	 * own capital suffixes, rounded down so a goal never reads as reached before it is.
+	 */
+	static String count(long n)
+	{
+		if (n < 10_000)
+		{
+			return String.format(Locale.ROOT, "%,d", n);
+		}
+		if (n < 1_000_000)
+		{
+			return n / 1000 + "K";
+		}
+		boolean b = n >= 1_000_000_000;
+		long tenths = n / (b ? 100_000_000 : 100_000);
+		return tenths / 10 + (tenths % 10 == 0 ? "" : "." + tenths % 10) + (b ? "B" : "M");
+	}
+
+	/** "1 player", "1,204 players". */
+	static String plural(long n, String one)
+	{
+		return plural(n, one, one + "s");
+	}
+
+	static String plural(long n, String one, String many)
+	{
+		return String.format(Locale.ROOT, "%,d %s", n, n == 1 ? one : many);
+	}
+
+	/** A team's colour; the server stores "#rrggbb", and anything else reads as {@code fallback}. */
+	static Color teamColor(String hex, Color fallback)
+	{
+		return hex != null && hex.matches("#[0-9a-fA-F]{6}") ? new Color(Integer.parseInt(hex.substring(1), 16)) : fallback;
+	}
+
+	/** "3d ago" from either timestamp format the site sends ("2026-10-12 08:00:00" or ISO). */
+	static String ago(String at)
+	{
+		return ago(at, Instant.now());
+	}
+
+	static String ago(String at, Instant now)
+	{
+		if (at == null || at.isEmpty())
+		{
+			return "";
+		}
+		String iso = at.trim().replace(' ', 'T');
+		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
+		{
+			iso = iso + "Z";
+		}
+		try
+		{
+			long minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
+			if (minutes < 60)
+			{
+				return minutes <= 1 ? "just now" : minutes + "m ago";
+			}
+			long hours = minutes / 60;
+			if (hours < 24)
+			{
+				return hours + "h ago";
+			}
+			long days = hours / 24;
+			if (days < 14)
+			{
+				return days + "d ago";
+			}
+			if (days < 60)
+			{
+				return (days / 7) + "w ago";
+			}
+			if (days < 730)
+			{
+				return (days / 30) + "mo ago";
+			}
+			return (days / 365) + "y ago";
+		}
+		catch (DateTimeParseException e)
+		{
+			return "";
+		}
+	}
+
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	static final class SearchField extends javax.swing.JTextField
+	static final class SearchField extends JTextField
 	{
 		private final String placeholder;
 
@@ -232,29 +357,49 @@ final class Ui
 		{
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
-			addFocusListener(new java.awt.event.FocusAdapter()
+			addFocusListener(new FocusAdapter()
 			{
-				@Override public void focusGained(java.awt.event.FocusEvent e) { repaint(); }
-				@Override public void focusLost(java.awt.event.FocusEvent e) { repaint(); }
+				@Override public void focusGained(FocusEvent e) { repaint(); }
+				@Override public void focusLost(FocusEvent e) { repaint(); }
 			});
 		}
 
 		@Override
-		protected void paintComponent(java.awt.Graphics graphics)
+		protected void paintComponent(Graphics graphics)
 		{
 			super.paintComponent(graphics);
 			if (!getText().isEmpty() || isFocusOwner())
 			{
 				return;
 			}
-			java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+			Graphics2D g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());
-			java.awt.FontMetrics metrics = g.getFontMetrics();
-			java.awt.Insets insets = getInsets();
+			FontMetrics metrics = g.getFontMetrics();
+			Insets insets = getInsets();
 			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
 			g.drawString(placeholder, insets.left, y);
 			g.dispose();
 		}
 	}
+
+	/**
+	 * The server's UTC stamp — ISO ({@code 2026-07-29T12:00:00.000Z}), the space-separated SQLite
+	 * {@code yyyy-MM-dd HH:mm:ss} form, or a bare date (midnight UTC) — as epoch millis; -1 if unparseable.
+	 */
+	static long utcMillis(String ts)
+	{
+		String s = ts == null ? "" : ts.trim().replace(' ', 'T');
+		try
+		{
+			return s.length() == 10
+				? java.time.LocalDate.parse(s).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+				: java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
+		}
+		catch (RuntimeException e)
+		{
+			return -1;
+		}
+	}
+
 }

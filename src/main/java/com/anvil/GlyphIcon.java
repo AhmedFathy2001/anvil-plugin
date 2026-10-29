@@ -1,11 +1,7 @@
 package com.anvil;
 
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import lombok.RequiredArgsConstructor;
+import java.awt.*;
 import java.awt.geom.Path2D;
 import javax.swing.Icon;
 
@@ -21,6 +17,7 @@ import javax.swing.Icon;
  * <p>The colour follows the component's foreground (a hovered button's orange, a done tick's green)
  * unless one is fixed at construction.
  */
+@RequiredArgsConstructor
 final class GlyphIcon implements Icon
 {
 	enum Shape
@@ -37,12 +34,6 @@ final class GlyphIcon implements Icon
 		this(shape, size, null);
 	}
 
-	GlyphIcon(Shape shape, int size, Color color)
-	{
-		this.shape = shape;
-		this.size = size;
-		this.color = color;
-	}
 
 	@Override
 	public int getIconWidth()

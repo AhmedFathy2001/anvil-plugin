@@ -86,10 +86,9 @@ public class OutageResilienceTest
 	@Test
 	public void syncBackoffTakesItsOwnSchedule()
 	{
-		SyncBackoff b = new SyncBackoff(30_000, 300_000);
-		assertFalse(b.backingOff());
+		SyncBackoff b = new SyncBackoff(30_000, 300_000, () -> 0.5);
+		assertTrue(b.ready(0));
 		b.onFailure(0);
-		assertTrue(b.backingOff());
 		assertFalse(b.ready(29_999));
 		assertTrue(b.ready(30_000));
 		for (int i = 0; i < 10; i++)
@@ -118,7 +117,7 @@ public class OutageResilienceTest
 		CoalescedPush push = new CoalescedPush("KC", 60_000, false, () -> scheduler, () -> true, b ->
 		{
 			sends.incrementAndGet();
-			throw new BingoApiClient.PermanentSubmissionException("KC push failed: HTTP 403");
+			throw new BingoApiClient.PermanentSubmissionException("KC push failed: HTTP 403", 403);
 		}, () -> { });
 		push.queue("Vorkath", 10);
 		push.flush();

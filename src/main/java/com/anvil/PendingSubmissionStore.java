@@ -1,19 +1,12 @@
 package com.anvil;
 
 import com.google.gson.Gson;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import java.io.Writer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.io.*;
+import java.util.*;
 
 @Slf4j
 @Singleton
@@ -62,12 +55,14 @@ public class PendingSubmissionStore
 		public String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
 		// Shared kills/runs: teammates seen + party size at the time (lib/coopRuns on the site). Null
 		// when the tile doesn't ask; kept on disk so a retried proof still says who was there.
-		public java.util.List<String> coopGroup;
+		public List<String> coopGroup;
 		public int coopPartySize;
 		// A proof the plugin can't auto-submit to a specific tile (pet drop, duplicate Champion's
 		// scroll — the "would have received" line names no item), captured so the player has a ready
 		// screenshot to attach when they submit by hand on the site. The retry loop skips these.
 		public boolean manual;
+		// What the site draws the proof's banner from (lib/proofStamp); null on an older capture.
+		public com.google.gson.JsonObject proof;
 	}
 
 	public void setRoot(Filepath dir)
@@ -78,24 +73,7 @@ public class PendingSubmissionStore
 	/** The directory, created on demand, or null when there is nowhere to write. */
 	private Filepath dir()
 	{
-		Filepath d = root;
-		if (d == null)
-		{
-			return null;
-		}
-		try
-		{
-			if (!d.exists())
-			{
-				d.createDirectories();
-			}
-			return d;
-		}
-		catch (IOException e)
-		{
-			log.warn("Anvil: cannot create the pending-submission directory: {}", e.getMessage());
-			return null;
-		}
+		return DiskFiles.ensureDir(root);
 	}
 
 	public String save(PendingSubmission sub, byte[] pngBytes)
@@ -107,10 +85,11 @@ public class PendingSubmissionStore
 		}
 		String id = sub.tileId + "-" + sub.timestamp;
 
+		// Both atomic: a client killed mid-write leaves no half file for the retry loop to choke on.
 		Filepath png = dir.joinSegment(id + ".png");
 		try
 		{
-			png.write(pngBytes);
+			DiskFiles.writeAtomic(png, pngBytes);
 		}
 		catch (IOException e)
 		{
@@ -119,22 +98,15 @@ public class PendingSubmissionStore
 		}
 
 		sub.screenshotFile = id + ".png";
-		try (Writer w = dir.joinSegment(id + ".json").openWriter())
+		try
 		{
-			gson.toJson(sub, w);
+			DiskFiles.writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
 		}
 		catch (IOException e)
 		{
 			log.error("Failed to save pending submission metadata: {}", e.getMessage());
 			// The PNG without its metadata is an orphan nothing will ever read.
-			try
-			{
-				png.deleteIfExists();
-			}
-			catch (IOException ignored)
-			{
-				// Already logged the real failure; a leftover file is the lesser problem.
-			}
+			DiskFiles.deleteQuietly(png);
 			return null;
 		}
 
@@ -142,56 +114,33 @@ public class PendingSubmissionStore
 		return id;
 	}
 
+	/**
+	 * Every queued submission. Depth 1 rather than a full walk: the migration drops these at the root
+	 * of the plugin directory alongside `sounds/`, and descending would read a banner clip's
+	 * neighbours looking for JSON. An empty or truncated file reads as nothing and is skipped.
+	 */
 	public List<PendingSubmission> loadAll()
 	{
 		List<PendingSubmission> result = new ArrayList<>();
-		List<Filepath> jsonFiles = listJson();
 		long now = System.currentTimeMillis();
-		for (Filepath f : jsonFiles)
+		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json")))
 		{
-			try (Reader r = f.openReader())
+			PendingSubmission sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
+			if (sub == null)
 			{
-				PendingSubmission sub = gson.fromJson(r, PendingSubmission.class);
-				if (sub != null && sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS)
-				{
-					log.info("Pruning expired pending submission '{}' ({} days old)",
-						sub.label, (now - sub.timestamp) / (24 * 60 * 60 * 1000));
-					remove(sub);
-					continue;
-				}
-				result.add(sub);
+				log.warn("Failed to read pending submission {}", f.getFileName());
+				continue;
 			}
-			catch (Exception e)
+			if (sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS)
 			{
-				log.warn("Failed to read pending submission {}: {}", f.getFileName(), e.getMessage());
+				log.info("Pruning expired pending submission '{}' ({} days old)",
+					sub.label, (now - sub.timestamp) / (24 * 60 * 60 * 1000));
+				remove(sub);
+				continue;
 			}
+			result.add(sub);
 		}
 		return result;
-	}
-
-	/**
-	 * The queued metadata files, one per waiting submission.
-	 *
-	 * Depth 1 rather than a full walk: the migration drops these at the root of the plugin directory
-	 * alongside `sounds/`, and descending would read a banner clip's neighbours looking
-	 * for JSON.
-	 */
-	private List<Filepath> listJson()
-	{
-		Filepath dir = dir();
-		if (dir == null)
-		{
-			return new ArrayList<>();
-		}
-		try (Stream<Filepath> walk = dir.walk(1))
-		{
-			return walk.filter(f -> f.isFile() && f.getFileName().endsWith(".json")).collect(Collectors.toList());
-		}
-		catch (IOException e)
-		{
-			log.warn("Failed to list pending submissions: {}", e.getMessage());
-			return new ArrayList<>();
-		}
 	}
 
 	public byte[] readScreenshot(PendingSubmission sub)

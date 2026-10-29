@@ -1,18 +1,11 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
+import java.util.*;
+import java.util.regex.*;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -214,11 +207,6 @@ final class ChatPatterns
 		return e == null || e.hint == null || text.contains(e.hint);
 	}
 
-	static boolean isOverridden(String key)
-	{
-		return live.patterns.containsKey(key);
-	}
-
 	/**
 	 * Replace the override set with {@code list}, keeping only the overrides that pass {@link #vet}.
 	 * Keys not named fall back to their defaults. Returns one "key: reason" per rejection.
@@ -323,9 +311,9 @@ final class ChatPatterns
 			}
 		}
 		char[] a = new char[MAX_LENGTH];
-		java.util.Arrays.fill(a, 'a');
+		Arrays.fill(a, 'a');
 		out.add(new String(a));
-		java.util.Arrays.fill(a, ' ');
+		Arrays.fill(a, ' ');
 		out.add(new String(a) + "!");
 		return out;
 	}
@@ -364,6 +352,7 @@ final class ChatPatterns
 	}
 
 	/** A CharSequence that gives up once the regex engine has read it too many times. */
+	@RequiredArgsConstructor
 	private static final class Budgeted implements CharSequence
 	{
 		private final String s;
@@ -379,11 +368,6 @@ final class ChatPatterns
 			this(s, new long[]{budget});
 		}
 
-		private Budgeted(String s, long[] left)
-		{
-			this.s = s;
-			this.left = left;
-		}
 
 		@Override
 		public char charAt(int i)

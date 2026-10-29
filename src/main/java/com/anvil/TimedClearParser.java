@@ -1,11 +1,7 @@
 package com.anvil;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
+import java.util.*;
+import java.util.regex.*;
 
 /**
  * Pure, side-effect-free parsing for timed-clear tiles. Kept out of the plugin so the fragile,
@@ -40,6 +36,9 @@ import java.util.regex.Matcher;
 final class TimedClearParser
 {
 	private TimedClearParser() {}
+
+	private static final Pattern SPACES = Pattern.compile("\\s+");
+	private static final Pattern TRAILING_NON_LETTERS = Pattern.compile("[^a-z]+$");
 
 	// A duration keyword followed (within a few non-digits) by an [h:]mm:ss token. Fractional
 	// ".ff" tails are intentionally left out of the capture group. Minutes go to three digits:
@@ -154,9 +153,7 @@ final class TimedClearParser
 		String[] p = m.group("time").split(":");
 		try
 		{
-			int s = p.length == 3
-					? Integer.parseInt(p[0]) * 3600 + Integer.parseInt(p[1]) * 60 + Integer.parseInt(p[2])
-					: Integer.parseInt(p[0]) * 60 + Integer.parseInt(p[1]);
+			int s = clockSeconds(p[0], p[1], p.length == 3 ? p[2] : null);
 			return s > 0 ? s : null;
 		}
 		catch (NumberFormatException e)
@@ -188,7 +185,7 @@ final class TimedClearParser
 		{
 			return "";
 		}
-		return s.toLowerCase(java.util.Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
+		return SPACES.matcher(s.toLowerCase(Locale.ROOT).replace(':', ' ')).replaceAll(" ").trim();
 	}
 
 	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
@@ -207,7 +204,7 @@ final class TimedClearParser
 		}
 		for (String line : nearbyLines)
 		{
-			if (line != null && line.toLowerCase(java.util.Locale.ROOT).contains(KET_RAK_CLEAR))
+			if (line != null && line.toLowerCase(Locale.ROOT).contains(KET_RAK_CLEAR))
 			{
 				return true;
 			}
@@ -223,9 +220,10 @@ final class TimedClearParser
 			return false;
 		}
 		String nmsg = norm(message);
+		// Every signature is already in norm() form: the table is written that way, the fallback is norm()ed.
 		for (String sig : signaturesFor(activity))
 		{
-			if (nmsg.contains(norm(sig)))
+			if (nmsg.contains(sig))
 			{
 				return true;
 			}
@@ -291,7 +289,7 @@ final class TimedClearParser
 		{
 			if (a.endsWith(" " + r))
 			{
-				String course = a.substring(0, a.length() - r.length()).replaceAll("[^a-z]+$", "");
+				String course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
 				for (String c : TRIAL_COURSES)
 				{
 					if (course.equals(c) || course.endsWith(c))
@@ -302,5 +300,13 @@ final class TimedClearParser
 			}
 		}
 		return null;
+	}
+
+	/** {@code a:b:c} as h:mm:ss, or {@code a:b} as mm:ss when {@code c} is null. Throws on a non-number. */
+	static int clockSeconds(String a, String b, String c)
+	{
+		return c != null
+			? Integer.parseInt(a) * 3600 + Integer.parseInt(b) * 60 + Integer.parseInt(c)
+			: Integer.parseInt(a) * 60 + Integer.parseInt(b);
 	}
 }

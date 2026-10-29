@@ -1,131 +1,49 @@
 package com.anvil;
 
-import com.anvil.BingoApiClient.CoopFingerprint;
-import com.anvil.BingoApiClient.PermanentSubmissionException;
-import com.anvil.BingoApiClient.RateLimitedException;
+import lombok.RequiredArgsConstructor;
+import com.anvil.BingoApiClient.*;
 import com.anvil.PendingSubmissionStore.PendingSubmission;
-import com.anvil.PluginConfigResponse.Claim;
-import com.anvil.PluginConfigResponse.CompletedTile;
-import com.anvil.PluginConfigResponse.Mission;
-import com.anvil.PluginConfigResponse.StartProof;
-import com.anvil.PluginConfigResponse.TrackedCombatTask;
-import com.anvil.PluginConfigResponse.TrackedDrop;
-import com.anvil.PluginConfigResponse.TrackedGain;
-import com.anvil.PluginConfigResponse.TrackedKill;
-import com.anvil.PluginConfigResponse.TrackedPvp;
-import com.anvil.SidebarDataSource.AccountRow;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
+import com.anvil.PluginConfigResponse.*;
+import com.anvil.AnvilSidebarDataSource.AccountRow;
+import com.google.gson.*;
 import com.google.inject.Provides;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Actor;
-import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.Hitsplat;
-import net.runelite.api.Item;
-import net.runelite.api.ItemComposition;
-import net.runelite.api.ItemContainer;
-import net.runelite.api.MenuAction;
-import net.runelite.api.NPC;
-import net.runelite.api.Player;
-import net.runelite.api.ScriptID;
-import net.runelite.api.Skill;
-import net.runelite.api.SoundEffectID;
-import net.runelite.api.WorldType;
-import net.runelite.api.WorldView;
-import net.runelite.api.clan.ClanChannel;
-import net.runelite.api.clan.ClanRank;
-import net.runelite.api.clan.ClanSettings;
-import net.runelite.api.clan.ClanTitle;
+import net.runelite.api.*;
+import net.runelite.api.clan.*;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.events.ActorDeath;
-import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.ClanChannelChanged;
-import net.runelite.api.events.GameStateChanged;
-import net.runelite.api.events.GameTick;
-import net.runelite.api.events.PlayerSpawned;
-import net.runelite.api.events.HitsplatApplied;
-import net.runelite.api.events.InteractingChanged;
-import net.runelite.api.events.ItemContainerChanged;
-import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.ScriptPostFired;
-import net.runelite.api.events.ScriptPreFired;
-import net.runelite.api.events.StatChanged;
-import net.runelite.api.events.VarbitChanged;
-import net.runelite.api.events.WidgetClosed;
-import net.runelite.api.events.WidgetLoaded;
-import net.runelite.api.events.WorldChanged;
-import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.events.*;
+import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.ItemID;
-import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.events.ClientShutdown;
-import net.runelite.client.events.ConfigChanged;
-import net.runelite.client.events.NpcLootReceived;
-import net.runelite.client.events.PlayerLootReceived;
-import net.runelite.client.events.ServerNpcLoot;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.ItemStack;
-import net.runelite.client.plugins.Plugin;
-import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.events.*;
+import net.runelite.client.game.*;
+import net.runelite.client.plugins.*;
 import net.runelite.client.plugins.loottracker.LootReceived;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.DrawManager;
-import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.Filepath;
-import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.*;
 
 import javax.imageio.ImageIO;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import javax.swing.SwingUtilities;
 
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.ObjIntConsumer;
-import java.util.function.ToIntFunction;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.*;
+import java.util.regex.*;
+import java.time.LocalDate;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @PluginDescriptor(
@@ -165,8 +83,7 @@ public class AnvilPlugin extends Plugin {
 	private OverlayManager overlayManager;
 
 	// Always-on progress sidebar — a toolbar PluginPanel showing per-clan tile progress. Reads
-	// through SidebarDataSource (mock for now; see provideSidebarDataSource) so it's independent
-	// of the multi-home backend track.
+	// through AnvilSidebarDataSource (see provideSidebarDataSource).
 	@Inject
 	private ClientToolbar clientToolbar;
 
@@ -182,6 +99,9 @@ public class AnvilPlugin extends Plugin {
 	private BingoClogBannerOverlay clogBanner;
 	@Inject
 	private TileTracker tileTracker;
+	/** The site's live channel; while it's up, the timed polls only back it up (PUSH_FALLBACK_MS). */
+	private PushSocket pushSocket;
+	private static final long PUSH_FALLBACK_MS = 120_000L;
 	@Inject
 	private StartSpotMarker startSpotMarker;
 	@Inject
@@ -258,14 +178,13 @@ public class AnvilPlugin extends Plugin {
 	private volatile PluginConfigResponse pluginConfig;
 
 	// ── SAVED ANSWERS (ResponseDiskCache) ─────────────────────────────────────────────────────
-	// The last session's config and board, read off disk at startUp so the side panel draws at once
+	// The last session's config, read off disk at startUp so the side panel draws at once
 	// instead of "Loading…" for a full round trip. FOR DISPLAY ONLY: `pluginConfig` above — the one
 	// tracking, submissions, overlays and every gate read — stays null until the site itself answers,
 	// so an event that ended (or a team that changed) since last time can never be tracked off this.
-	// The first live answer, of any kind, retires both.
+	// The first live answer, of any kind, retires it.
 	private volatile ResponseDiskCache responseCache;
 	private volatile PluginConfigResponse savedConfig;
-	private volatile BingoApiClient.BoardResponse savedBoard;
 	/** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
 	private volatile boolean liveConfigAnswered;
 	/** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
@@ -573,7 +492,7 @@ public class AnvilPlugin extends Plugin {
 	// Compiled once: these run per chat line, per XP drop and per LMS tick.
 	static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>");
 	private static final Pattern NON_DIGIT = Pattern.compile("[^0-9]");
-	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]");
+	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
 	/** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
 	static String stripChatTags(String msg) {
@@ -659,15 +578,12 @@ public class AnvilPlugin extends Plugin {
 	private int lastCaPoints = -1;
 	private boolean caPointsInitialized;
 
+	@RequiredArgsConstructor
 	private static final class PendingCaTask {
 
 		final CombatAchievementTier tier;
 		final String task;
 
-		PendingCaTask(CombatAchievementTier tier, String task) {
-			this.tier = tier;
-			this.task = task;
-		}
 	}
 	// Last-known total level, baselined at login so we only announce genuine crossings (not the
 	// total we logged in with). Total only ever rises on a skill level-up, so we check it there.
@@ -710,6 +626,7 @@ public class AnvilPlugin extends Plugin {
 	 * is one screenshot + one submission. Keeps the count + snapshots up-to-date, so when the flush
 	 * fires it has the latest totals.
 	 */
+	@RequiredArgsConstructor
 	private static final class Aggregate<T> {
 
 		final T tile;
@@ -730,9 +647,6 @@ public class AnvilPlugin extends Plugin {
 		// runs the party has scattered and the scene says nothing.
 		CoopFingerprint coop;
 
-		Aggregate(T tile) {
-			this.tile = tile;
-		}
 	}
 
 	// Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
@@ -954,6 +868,11 @@ public class AnvilPlugin extends Plugin {
 	// Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
 	// config refresh; empty unless the event has skill tiles.
 	private volatile Set<String> trackedSkillNames = Collections.emptySet();
+	// Also rebuilt with the drop index, so the XP/KC and loot paths only look up: stat tiles by
+	// kind + compactStat key, the first stat tile per lowercased name, and the server allowlist lowercased.
+	private volatile Map<String, List<TrackedStat>> statTileIndex = Collections.emptyMap();
+	private volatile Map<String, Integer> statTileByName = Collections.emptyMap();
+	private volatile Set<String> alwaysNotifyLower = Collections.emptySet();
 	// Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
 	// collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
 	private final CoalescedPush skillXpPush = new CoalescedPush("Skill XP", KC_PUSH_COALESCE_MS, false,
@@ -977,12 +896,6 @@ public class AnvilPlugin extends Plugin {
 	// into the dead name and a stranger holding the new one. Re-read it every few ticks.
 	private static final int NAME_CHECK_TICKS = 10;
 	private int nameCheckCountdown = NAME_CHECK_TICKS;
-	// Stat tiles (skill XP / boss KC) the LOCAL player has recently made progress on: tileId → last
-	// gain millis. A stat tile's team total can rise from ANY teammate (the server aggregates the
-	// hiscores overlay), so the config alone can't say who's grinding it. This records what THIS
-	// account just did, letting the sidebar's "Active now" attribute a stat tile to "You" vs a
-	// teammate without the server having to attribute stat pushes. Read as a snapshot by the sidebar.
-	private final Map<Integer, Long> localStatProgressAt = new java.util.concurrent.ConcurrentHashMap<>();
 	// Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
 	// the first snapshot after login/config load, so the baseline never counts as a gain. Worn
 	// items are folded in so equipping/unequipping — which just moves an item between the two
@@ -995,6 +908,12 @@ public class AnvilPlugin extends Plugin {
 	// Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
 	// both containers in one tick) is evaluated once, after both have updated.
 	private boolean heldItemsDirty = false;
+
+	/** Drop the held-item baseline, so the next snapshot re-seeds instead of reading it all as a gain. */
+	private void forgetHeldItems() {
+		lastHeldItemCounts = null;
+		heldItemsDirty = false;
+	}
 
 	// LOOTING-BAG CHEST LOOT. RuneLite's loot tracker reads a Larran's chest by diffing the INVENTORY
 	// around the "You have opened Larran's … chest" line, so whatever the game puts straight into an
@@ -1012,10 +931,25 @@ public class AnvilPlugin extends Plugin {
 	// → chat-patterns.json "drop.plain" (ChatPatterns).
 	// → chat-patterns.json "drop.valuable" (ChatPatterns).
 	private static final int CHEST_LINE_SETTLE_TICKS = LOOTING_BAG_WATCH_TICKS + 2;
-	/** Item lines this tick and last, waiting to learn whether a chest opened: {tick, qty, name}. */
-	private final List<Object[]> recentDropLines = new ArrayList<>();
-	/** Lines tied to a chest open, credited at their tick unless another path saw the item: {dueTick, source, qty, name, openedAtMs}. */
-	private final List<Object[]> chestLineCredits = new ArrayList<>();
+	@RequiredArgsConstructor
+	private static final class DropLine {
+		final int tick;
+		final int qty;
+		final String name;
+	}
+
+	/** A held line tied to a chest open: credited at {@code dueTick} unless another path saw the item. */
+	@RequiredArgsConstructor
+	private static final class ChestLineCredit {
+		final int dueTick;
+		final String source;
+		final DropLine line;
+		final long openedAtMs;
+	}
+
+	/** Item lines this tick and last, waiting to learn whether a chest opened. */
+	private final List<DropLine> recentDropLines = new ArrayList<>();
+	private final List<ChestLineCredit> chestLineCredits = new ArrayList<>();
 	// Contents before the most recent bag change, and after it; null = the client hasn't been told.
 	private Map<Integer, Integer> lootingBagBefore;
 	private Map<Integer, Integer> lootingBagNow;
@@ -1057,6 +991,10 @@ public class AnvilPlugin extends Plugin {
 	// Distinct players seen in the current instance (party size for tiles that require one).
 	// Raid teams share the entry room, so everyone renders at least once.
 	private final Set<String> instancePlayersSeen = new HashSet<>();
+	// Our overlays sit out the frame a proof is captured from (the site stamps the facts instead).
+	static volatile boolean capturing;
+	// Recent non-player chat, raw. Sent with a proof; the SITE decides which lines mean anything.
+	private final ArrayDeque<JsonObject> recentChat = new ArrayDeque<>();
 
 	// ---- Timed-clear tiles ---------------------------------------------------------------
 	// Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
@@ -1069,15 +1007,12 @@ public class AnvilPlugin extends Plugin {
 	// count first). We buffer recent lines + a pending duration so either order resolves.
 	private static final long TIMED_CORRELATION_MS = 8_000;
 
+	@RequiredArgsConstructor
 	private static class TimedMsg {
 
 		final String lower;
 		final long ts;
 
-		TimedMsg(String lower, long ts) {
-			this.lower = lower;
-			this.ts = ts;
-		}
 	}
 	private final ArrayDeque<TimedMsg> recentTimedMessages = new ArrayDeque<>();
 	private Integer pendingTimedSeconds = null;
@@ -1138,6 +1073,8 @@ public class AnvilPlugin extends Plugin {
 
 	@Override
 	protected void startUp() {
+		// A capture cut short by the last shutdown must not keep every overlay hidden.
+		capturing = false;
 		// Every chat parser reads its line shape from here — before anything can see a chat line.
 		ChatPatterns.loadDefaults(gson);
 		OffThread.bindClientThread(client::isClientThread);
@@ -1175,7 +1112,7 @@ public class AnvilPlugin extends Plugin {
 		} catch (IOException | RuntimeException e) {
 			log.warn("No plugin directory — pending submissions and banner sounds are off this session", e);
 		}
-		try (java.io.Reader r = new java.io.InputStreamReader(getClass().getResourceAsStream("/anvil_text.json"),
+		try (Reader r = new InputStreamReader(getClass().getResourceAsStream("/anvil_text.json"),
 				java.nio.charset.StandardCharsets.UTF_8)) {
 			text = gson.fromJson(r, ShippedText.class);
 		} catch (IOException | RuntimeException e) {
@@ -1232,10 +1169,10 @@ public class AnvilPlugin extends Plugin {
 				.build();
 		clientToolbar.addNavigation(sidebarNavButton);
 
-		notifiedCompletedTiles.clear();
-		locallyShownTiles.clear();
-		completionBaselineEventId = null;
+		resetCompletionBaseline();
 		executor = Executors.newSingleThreadScheduledExecutor();
+		pushSocket = new PushSocket(apiClient, executor, gson, this::onPush);
+		sidebarPanel.setPushLive(pushSocket::live);
 		profileLookup.setPanelOpener(name -> {
 			NavigationButton nav = sidebarNavButton;
 			if (nav == null || !sidebarPanel.playerCardsAvailable()) {
@@ -1302,9 +1239,12 @@ public class AnvilPlugin extends Plugin {
 		// Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
 		// cancels the task forever, so a single hiccup would stop all future refreshes.
 		loopTasks.add(executor.scheduleAtFixedRate(() -> {
-			safely("refreshConfig", this::refreshConfig);
+			// With the live push up, the site says when something moved; these are only its backstop.
+			if (!pushLive() || now() - lastConfigAttemptAt >= PUSH_FALLBACK_MS) {
+				safely("refreshConfig", this::refreshConfig);
+				safely("tileTracker", tileTracker::poll);
+			}
 			safely("retryPendingSubmissions", this::retryPendingSubmissions);
-			safely("tileTracker", tileTracker::poll);
 
 			safely("pruneDedupMap", this::pruneDedupMap);
 			safely("importRuneLitePbs", this::retryPersonalBestImport);
@@ -1423,7 +1363,7 @@ public class AnvilPlugin extends Plugin {
 			String clanName = null;
 			Integer rankValue = null;
 			String titleName = null;
-			java.time.LocalDate joined = null;
+			LocalDate joined = null;
 			if (settings == null || settings.getName() == null) {
 				if (++gameClanMissingChecks < 2) {
 					return;
@@ -1452,7 +1392,7 @@ public class AnvilPlugin extends Plugin {
 			final String name = clanName;
 			final Integer rankOut = rankValue;
 			final String titleOut = titleName;
-			final java.time.LocalDate joinedOut = joined;
+			final LocalDate joinedOut = joined;
 			submit(() -> {
 				try {
 					apiClient.submitGameClan(name, rankOut, titleOut, joinedOut);
@@ -1588,8 +1528,13 @@ public class AnvilPlugin extends Plugin {
 			clientToolbar.removeNavigation(sidebarNavButton);
 			sidebarNavButton = null;
 		}
+		if (sidebarPanel != null) {
+			// Its timers (countdowns, auto-refresh) must not outlive the plugin; the panel is a singleton.
+			SwingUtilities.invokeLater(sidebarPanel::onDeactivate);
+		}
 		bannerSound.shutdown();
 		resetCoffer(false);
+		capturing = false;
 		profileLookup.shutDown();
 		if (sidebarPanel != null) {
 			sidebarPanel.cancelSignIn();
@@ -1606,6 +1551,9 @@ public class AnvilPlugin extends Plugin {
 		if (save != null) {
 			sharedExecutor.submit(save);
 		}
+		if (pushSocket != null) {
+			pushSocket.scope(null);
+		}
 		if (executor != null) {
 			executor.shutdownNow();
 			executor = null;
@@ -1616,8 +1564,7 @@ public class AnvilPlugin extends Plugin {
 		itemDropIndex = Collections.emptyMap();
 		killNpcIndex = Collections.emptyMap();
 		gainItemIndex = Collections.emptyMap();
-		lastHeldItemCounts = null;
-		heldItemsDirty = false;
+		forgetHeldItems();
 		trackedKcNames = Collections.emptySet();
 		kcPush.reset();
 		optimistic.reset();
@@ -1649,14 +1596,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Skill 99s + total-level milestones, detected off StatChanged so they fire regardless of the
-	 * in-game "Level-up interface" setting. (We also parse the level-up chat line, but that only
-	 * carries the level number when the popup is disabled — with it on, the default, nothing matched,
-	 * so 99s/totals silently never posted.) Each skill is baselined on its first event of the session
-	 * (login), so pre-existing 99s and the starting total don't announce; handleTotalMilestone's own
-	 * baseline guards the total the same way.
-	 */
-	/**
 	 * Record every skill's real level as the session's starting point.
 	 *
 	 * <p>WHAT THIS FIXES. The baseline used to be taken lazily: the first StatChanged for a skill was
@@ -1680,9 +1619,6 @@ public class AnvilPlugin extends Plugin {
 			lastSkillLevel.clear();
 			announcedLevel.clear();
 			for (Skill skill : Skill.values()) {
-				if (skill == Skill.OVERALL) {
-					continue;
-				}
 				int level = client.getRealSkillLevel(skill);
 				if (level <= 0) {
 					continue; // not populated yet — the next StatChanged baselines it the old way
@@ -1733,9 +1669,25 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
+	public void onOverlayMenuClicked(OverlayMenuClicked event) {
+		// Every plugin's overlay menu clicks arrive here; only our own Unpin entries are ours to act on.
+		if (tileTracker.unpinFrom(event.getOverlay(), event.getEntry().getOption())) {
+			SwingUtilities.invokeLater(sidebarPanel::refresh);
+		}
+	}
+
+	/**
+	 * Skill 99s + total-level milestones, detected off StatChanged so they fire regardless of the
+	 * in-game "Level-up interface" setting. (We also parse the level-up chat line, but that only
+	 * carries the level number when the popup is disabled — with it on, the default, nothing matched,
+	 * so 99s/totals silently never posted.) Each skill is baselined on its first event of the session
+	 * (login), so pre-existing 99s and the starting total don't announce; handleTotalMilestone's own
+	 * baseline guards the total the same way.
+	 */
+	@Subscribe
 	public void onStatChanged(StatChanged event) {
 		Skill skill = event.getSkill();
-		if (skill == null || skill == Skill.OVERALL) {
+		if (skill == null) {
 			return;
 		}
 		// Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels/XP that aren't the
@@ -1802,8 +1754,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Data source for the progress sidebar. This is the single wiring seam between the panel and its
-	 * data — the panel only knows the {@link SidebarDataSource} interface.
+	 * Data source for the progress sidebar — the single wiring seam between the panel and its data.
 	 *
 	 * <p>One {@link AnvilSidebarDataSource} over the config THIS plugin already polls, so rendering the
 	 * board costs no extra request. It used to sit under a federation layer that fanned several sites
@@ -1813,7 +1764,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Provides
 	@Singleton
-	SidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, ScheduledExecutorService sharedExecutor) {
+	AnvilSidebarDataSource provideSidebarDataSource(BingoApiClient apiClient, ScheduledExecutorService sharedExecutor) {
 		// Take the (singleton) client as a PARAMETER, not this.field: Guice can invoke this provider to
 		// satisfy the sidebarPanel dependency BEFORE the plugin's own @Inject fields are populated, so
 		// reading this.apiClient here would NPE and the whole plugin would fail to load. The param is
@@ -1821,12 +1772,7 @@ public class AnvilPlugin extends Plugin {
 		// method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
 		// shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
 		// Kept in the signature because the sidebar's device sign-in still paces its poll on it.
-		// "You" on the weekly boards: the logged-in name, else the launcher's character at the login screen.
-		AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient,
-			this::localStatProgress, () -> {
-				String name = getLocalPlayerName();
-				return name != null && !name.isEmpty() ? name : apiClient.getRsnHint();
-			});
+		AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient);
 		// The starting-shot button's action. Bound after construction for the same reason the
 		// suppliers above are method references: this provider can run before the plugin's own
 		// @Inject fields exist, and the capture only ever fires from a click, long after that.
@@ -2051,6 +1997,9 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/** What a transmit request did, so the button can say something true about it. */
+	private enum TransmitResult { STARTED, BUSY, COOLING_DOWN, LOG_CLOSED, UNAVAILABLE }
+
 	/**
 	 * Ask the server for the whole collection log, now that the interface is open.
 	 *
@@ -2058,9 +2007,6 @@ public class AnvilPlugin extends Plugin {
 	 * script puts the view back as it was, so the player sees their log open normally. Runs on the
 	 * client thread (it's a script hook) and only ever while their OWN log is open.
 	 */
-	/** What a transmit request did, so the button can say something true about it. */
-	private enum TransmitResult { STARTED, BUSY, COOLING_DOWN, LOG_CLOSED, UNAVAILABLE }
-
 	private TransmitResult requestFullClogTransmit() {
 		if (!supportsProfileSync()) {
 			return TransmitResult.UNAVAILABLE;
@@ -2120,14 +2066,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Stand the transmit guard down once the items have stopped arriving (or never started).
-	 *
-	 * <p>Held for at least {@link #CLOG_TRANSMIT_MIN_TICKS} so the re-fire of the setup script — the
-	 * one our own init causes — always lands while the flag is still up, and released after that so a
-	 * later, genuine open can sync again. The absolute ceiling covers the case where the toggle
-	 * yielded nothing at all, so a failed attempt can't wedge the flag on for the session.
-	 */
-	/**
 	 * A manual sync that produced nothing has to say so.
 	 *
 	 * <p>If the search toggle doesn't make the server transmit — a game update moving the script, an
@@ -2152,6 +2090,14 @@ public class AnvilPlugin extends Plugin {
 		clogFullSync.reset();
 	}
 
+	/**
+	 * Stand the transmit guard down once the items have stopped arriving (or never started).
+	 *
+	 * <p>Held for at least {@link #CLOG_TRANSMIT_MIN_TICKS} so the re-fire of the setup script — the
+	 * one our own init causes — always lands while the flag is still up, and released after that so a
+	 * later, genuine open can sync again. The absolute ceiling covers the case where the toggle
+	 * yielded nothing at all, so a failed attempt can't wedge the flag on for the session.
+	 */
 	private void tickClogTransmitGuard() {
 		if (!clogTransmitInFlight) {
 			return;
@@ -2179,7 +2125,7 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage("Sign in first — open the Anvil panel (the anvil icon on the right) and press \"Sign in with Discord\".");
 			return;
 		}
-		if (!serverSupportsProfileSync()) {
+		if (!serverSupportsCap("profile-sync")) {
 			sendChatMessage("This clan's site doesn't support profile sync yet.");
 			return;
 		}
@@ -2282,6 +2228,37 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Send this player's own clan-chat coffer line to the site (client thread: reads the clan channel's
+	 * name). Other members' lines are never sent: they'd be crowdsourcing other players' names.
+	 */
+	private void maybeReportCofferLine(String msg) {
+		if (!config.syncClanCoffer() || !loggedIn() || !apiClient.isConfigured()
+				|| !msg.toLowerCase(Locale.ROOT).contains("coffer")) {
+			return;
+		}
+		final String line = stripChatTags(msg);
+		int has = line.indexOf(" has ");
+		if (has <= 0 || !Rsn.same(line.substring(0, has), getLocalPlayerName())) {
+			return;
+		}
+		PluginConfigResponse cfg = pluginConfig;
+		ClanChannel channel = client.getClanChannel();
+		ScheduledExecutorService ex = executor;
+		if (cfg == null || !cfg.serverSupports("coffer-chat") || channel == null || channel.getName() == null
+				|| ex == null || ex.isShutdown()) {
+			return;
+		}
+		final String clanName = channel.getName();
+		ex.submit(() -> {
+			try {
+				apiClient.submitCofferLine(line, clanName);
+			} catch (IOException e) {
+				log.debug("Coffer line not sent: {}", e.getMessage());
+			}
+		});
+	}
+
 	/** Read the visible coffer after its item widgets have had a few ticks to populate. */
 	private void pollClanCoffer() {
 		if (!config.syncClanCoffer() || !clanCofferOpen
@@ -2304,7 +2281,7 @@ public class AnvilPlugin extends Plugin {
 		if (observation == null || ex == null || ex.isShutdown()) {
 			return;
 		}
-		final String eventKey = java.util.UUID.randomUUID().toString();
+		final String eventKey = UUID.randomUUID().toString();
 		ex.submit(() -> {
 			try {
 				apiClient.submitClanCoffer(eventKey, observation);
@@ -2561,7 +2538,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		final int kills = lmsKills;
 		final String place = ordinal(placement);
-		for (PluginConfigResponse.TrackedLms tile : pluginConfig.trackedLms) {
+		for (TrackedLms tile : pluginConfig.trackedLms) {
 			if (tile.completed) {
 				continue;
 			}
@@ -2569,7 +2546,7 @@ public class AnvilPlugin extends Plugin {
 			if (placement > cap) {
 				continue;
 			}
-			log.info("Tracked LMS placement: {} ({} kills) for '{}' (cap top {})", place, kills, tile.label, cap);
+			log.debug("Tracked LMS placement: {} ({} kills) for '{}' (cap top {})", place, kills, tile.label, cap);
 			tile.currentAmount += 1;
 			raiseLocal(tile.tileId, tile.currentAmount, now());
 			sendChatMessage("Tracked LMS placement: " + place + " — " + tile.label);
@@ -2638,8 +2615,7 @@ public class AnvilPlugin extends Plugin {
 			// Gain tiles: drop the held-item baseline so the next snapshot after login/hop
 			// re-seeds instead of reading the whole inventory as a "gain". Deathless: leave
 			// the instance so re-entry re-arms the death counter.
-			lastHeldItemCounts = null;
-			heldItemsDirty = false;
+			forgetHeldItems();
 			wasInInstance = false;
 			// The bag's contents are per account and re-sent after login; forget them.
 			lootingBagBefore = null;
@@ -2650,6 +2626,8 @@ public class AnvilPlugin extends Plugin {
 			chestLineCredits.clear();
 		}
 		if (event.getGameState() == GameState.LOGIN_SCREEN) {
+			// The next account may be on another team: its gains don't build on this one's counts.
+			optimistic.reset();
 			// The next account's stats haven't been sent yet; what the client holds until then is
 			// either a placeholder or the previous account's.
 			unsettleStats();
@@ -2661,6 +2639,7 @@ public class AnvilPlugin extends Plugin {
 			// channel to read here.
 			clanRosterReadable = false;
 			clanRosterMissingTicks = 0;
+			tileTracker.forAccount(-1);
 			SwingUtilities.invokeLater(sidebarPanel::refresh); // drop "Track on screen" with the session
 			// Back at the login screen: the next LOGGED_IN really is a new session, and until it
 			// arrives we don't have one at all.
@@ -2731,9 +2710,7 @@ public class AnvilPlugin extends Plugin {
 			// may finish tiles, and those shouldn't fire a completion banner when you come back —
 			// only tiles completed while you're actually online should. Clearing the baseline makes
 			// the first refresh after login silently absorb whatever's already done.
-			completionBaselineEventId = null;
-			notifiedCompletedTiles.clear();
-			locallyShownTiles.clear();
+			resetCompletionBaseline();
 			// Logged out: claims and roster sync need a character in game, so redraw now rather than
 			// leaving their buttons up until the panel's next 15s poll.
 			repaintSidebar();
@@ -2828,6 +2805,7 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setCurrentRsn(rsn);
 		apiClient.setAccountHash(accountHash);
 		apiClient.setSeasonal(onSeasonalWorld());
+		tileTracker.forAccount(accountHash);
 		// "Not my account" on this install: send nothing at all while this character is logged in —
 		// no config, no hello, no drops. Set before anything below can fire a request. If the
 		// retries ran out without a name or hash we can't tell whose character this is, so with
@@ -2946,7 +2924,7 @@ public class AnvilPlugin extends Plugin {
 				// Local first: whatever the site says, this computer stops sending for it now.
 				optedOutAccounts = optedOutAccounts.with(hash, rsn);
 				cfgSet(CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
-				BingoApiClient.AccountActionResult r = apiClient.postAccountAction("release");
+				AccountActionResult r = apiClient.postAccountAction("release");
 				apiClient.setAccountPaused(true);
 				dropConfigForPausedAccount();
 				if (r.ok) {
@@ -2966,14 +2944,14 @@ public class AnvilPlugin extends Plugin {
 				optedOutAccounts = optedOutAccounts.without(hash, rsn);
 				cfgSet(CFG_OPTED_OUT_ACCOUNTS, optedOutAccounts.serialize());
 				apiClient.setAccountPaused(false);
-				BingoApiClient.AccountActionResult r = apiClient.postAccountAction("resume");
+				AccountActionResult r = apiClient.postAccountAction("resume");
 				// The normal login round-trip re-links it (the site's auto-link, now that it's no
 				// longer ignored) and loads its board.
 				stampIdentityAndGreet();
 				return r.ok ? "Tracking " + rsn + " again." : "Tracking again here. " + (r.error == null ? "" : r.error);
 			}
 			case DISPUTE: {
-				BingoApiClient.AccountActionResult r = apiClient.postAccountAction("dispute");
+				AccountActionResult r = apiClient.postAccountAction("dispute");
 				if (r.ok) {
 					return r.alreadyOpen
 							? "Already with Anvil staff — they'll sort it out."
@@ -3116,8 +3094,8 @@ public class AnvilPlugin extends Plugin {
 				|| e instanceof javax.net.ssl.SSLException) {
 			return ConnProblem.UNREACHABLE;
 		}
-		String m = e.getMessage();
-		if (m != null && (m.contains("HTTP 401") || m.contains("HTTP 403"))) {
+		int code = e instanceof BingoApiClient.HttpStatusException ? ((BingoApiClient.HttpStatusException) e).code : 0;
+		if (code == 401 || code == 403) {
 			return ConnProblem.TOKEN;
 		}
 		return ConnProblem.NONE; // e.g. a 5xx / other transient — logged, but not a config problem
@@ -3139,7 +3117,7 @@ public class AnvilPlugin extends Plugin {
 		if (apiClient.getApiUrl().isEmpty()) {
 			return; // signed out: the plugin contacts nothing (BingoApiClient.configure)
 		}
-		BingoApiClient.HelloResponse resp = apiClient.hello(rsn);
+		HelloResponse resp = apiClient.hello(rsn);
 		helloSent = true;
 		if (resp == null) {
 			return;
@@ -3167,13 +3145,13 @@ public class AnvilPlugin extends Plugin {
 
 		// Greet with whatever's running right now so members know to jump in.
 		if (resp.activeWeekly != null) {
-			for (BingoApiClient.WeeklyInfo w : resp.activeWeekly) {
-				String kind = ConnectionView.WeeklyView.kindLabel(w.type);
+			for (WeeklyInfo w : resp.activeWeekly) {
+				String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "efficiency".equalsIgnoreCase(w.type) ? "Efficiency of the Week" : "Boss of the Week";
 				sendChatMessage(kind + " is live: " + w.title + "!");
 			}
 		}
 		if (resp.activeBingos != null) {
-			for (BingoApiClient.BingoInfo b : resp.activeBingos) {
+			for (BingoInfo b : resp.activeBingos) {
 				sendChatMessage("Bingo running: " + b.name + ".");
 			}
 		}
@@ -3390,7 +3368,7 @@ public class AnvilPlugin extends Plugin {
 		if (haulGp <= 0) {
 			return;
 		}
-		for (PluginConfigResponse.TrackedValue v : pluginConfig.trackedValues) {
+		for (TrackedValue v : pluginConfig.trackedValues) {
 			if (v == null || v.completed) {
 				continue;
 			}
@@ -3415,7 +3393,7 @@ public class AnvilPlugin extends Plugin {
 				// verifiable — and removable — on the site. The server sums the submitted amounts and
 				// completes at the target, so we don't optimistically mark the tile done (and need no
 				// rollback).
-				log.info("Value tile credited (total): '{}' +{} gp", v.label, haulGp);
+				log.debug("Value tile credited (total): '{}' +{} gp", v.label, haulGp);
 				v.currentGp += haulGp;
 				raiseLocal(v.tileId, Math.min(ClogTaskModel.clampGp(v.currentGp), ClogTaskModel.clampGp(v.thresholdGp)), now());
 				captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
@@ -3424,7 +3402,7 @@ public class AnvilPlugin extends Plugin {
 				// Single-haul completion: optimistically mark done so a follow-up haul in the same
 				// stint doesn't double-submit; capture a proof screenshot (rollback reverts on failure).
 				v.completed = true;
-				log.info("Value tile credited (single): '{}' haul {} gp (threshold {})", v.label, haulGp, v.thresholdGp);
+				log.debug("Value tile credited (single): '{}' haul {} gp (threshold {})", v.label, haulGp, v.thresholdGp);
 				captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
 						"[Auto] loot worth " + gp + " (" + v.label + ") detected by RuneLite plugin",
 						() -> v.completed = false);
@@ -3551,44 +3529,25 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Opens the OS file picker to add banner-sound WAVs. Wired to the "Banner
-	 * sounds" button in the Anvil side panel (visible to all users) —
-	 * see AnvilSidebarPanel.buildPanelActions.
-	 */
-	public void importBannerSounds() {
-		bannerSound.importSounds(BannerSoundService.Kind.BANNER, names -> {
-			// New files join the cycle automatically (empty allowlist = all clips play). Users curate
-			// which ones cycle by tapping them in the tab list; no need to touch config on import.
-			sendChatMessage("Added to banner sounds: " + String.join(", ", names)
-					+ ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off.");
-		});
-	}
-
-	/**
-	 * The same, for the clip a MISSION plays. Wired to "Mission sounds" in the side panel.
+	 * Opens the OS file picker to add WAVs of {@code kind}. Wired to the "Banner sounds" and "Mission
+	 * sounds" buttons in the side panel (see AnvilSidebarPanel.buildPanelActions).
 	 *
-	 * <p>A separate folder rather than a separate setting: adding a clip here is the whole act of
-	 * choosing one, and an empty folder means missions keep the built-in chime that tells them apart
-	 * from a completed tile.</p>
+	 * <p>New banner clips join the cycle automatically (empty allowlist = all clips play); users curate
+	 * it by tapping them in the tab list. Missions get a separate folder rather than a separate
+	 * setting: adding a clip there is the whole act of choosing one, and an empty folder means
+	 * missions keep the built-in chime that tells them apart from a completed tile.</p>
 	 */
-	public void importMissionSounds() {
-		bannerSound.importSounds(BannerSoundService.Kind.MISSION, names -> {
-			sendChatMessage("Added to mission sounds: " + String.join(", ", names)
-					+ ". Missions play these now, instead of the game sound they used before.");
-		});
+	public void importSounds(BannerSoundService.Kind kind) {
+		boolean banner = kind == BannerSoundService.Kind.BANNER;
+		bannerSound.importSounds(kind, names -> sendChatMessage("Added to " + (banner ? "banner" : "mission")
+				+ " sounds: " + String.join(", ", names) + (banner
+						? ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off."
+						: ". Missions play these now, instead of the game sound they used before.")));
 	}
 
-	/**
-	 * Clip filenames in the user's sounds folder — backs the in-tab manager
-	 * list.
-	 */
-	public List<String> bannerSoundClips() {
-		return bannerSound.listClips(BannerSoundService.Kind.BANNER);
-	}
-
-	/** Clip filenames in the mission folder — the panel says "chime" when this is empty. */
-	public List<String> missionSoundClips() {
-		return bannerSound.listClips(BannerSoundService.Kind.MISSION);
+	/** Clip filenames in {@code kind}'s folder — the tab's list; missions say "chime" when it's empty. */
+	public List<String> soundClips(BannerSoundService.Kind kind) {
+		return bannerSound.listClips(kind);
 	}
 
 	/**
@@ -3708,10 +3667,26 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 
-		// Deposits are private to the depositor; withdrawals may be clan broadcasts. Either way the
-		// line is attribution only — the widget's before/after amount is what can move the ledger.
+		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
+		// the actor included. Each client reports only its own player's line; the site books the
+		// movement with it once a coffer reading shows the money.
+		if (event.getType() == ChatMessageType.CLAN_MESSAGE) {
+			maybeReportCofferLine(msg);
+		}
+
+		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
 		if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
+			JsonObject line = new JsonObject();
+			line.addProperty("tick", client.getTickCount());
+			line.addProperty("type", event.getType().name());
+			line.addProperty("text", msg);
+			synchronized (recentChat) {
+				recentChat.addLast(line);
+				if (recentChat.size() > 30) {
+					recentChat.removeFirst();
+				}
+			}
 			String sender = event.getName();
 			String cofferLine = sender == null || sender.trim().isEmpty() ? msg : sender + " " + msg;
 			clanCofferTracker.onChatLine(stripChatTags(cofferLine), getLocalPlayerName(), now());
@@ -3989,7 +3964,7 @@ public class AnvilPlugin extends Plugin {
 			return; // already handled this session — the other line got here first
 		}
 		if (recentClogUnlocks.size() > MAX_RECENT_CLOG_UNLOCKS) {
-			java.util.Iterator<String> it = recentClogUnlocks.iterator();
+			Iterator<String> it = recentClogUnlocks.iterator();
 			it.next();
 			it.remove();
 		}
@@ -4150,9 +4125,7 @@ public class AnvilPlugin extends Plugin {
 		if (local == null || recipient == null || itemName == null || itemName.isEmpty()) {
 			return;
 		}
-		// Chat renders RSN spaces as non-breaking spaces; normalise both sides before comparing.
-		String who = recipient.replace('\u00A0', ' ').trim();
-		if (!who.equalsIgnoreCase(local.replace('\u00A0', ' ').trim()) && !who.equalsIgnoreCase("You")) {
+		if (!Rsn.same(recipient, local) && !recipient.trim().equalsIgnoreCase("You")) {
 			return; // another player's drop
 		}
 		int qty = 1;
@@ -4204,18 +4177,6 @@ public class AnvilPlugin extends Plugin {
 		return null;
 	}
 
-	/**
-	 * Credits drop/collection tiles for a completion-awarded item (Infernal cape,
-	 * Fire cape) off the Jagex kill-count chat line. These go straight to the
-	 * inventory — no loot event — and the clog line only fires on the first-ever
-	 * award, so repeat capes would otherwise need manual submission. The KC line
-	 * fires on every completion.
-	 *
-	 * Synthesised as loot FROM the boss (sourceKind "npc"), so a tile restricted
-	 * to e.g. sourceNpcs=["TzKal-Zuk"] still matches. On a first-ever award the
-	 * clog line lands in the same message batch; processLoot's per-(tile,item)
-	 * dedup counts the pair exactly once.
-	 */
 	// ---- Duplicates the game doesn't name (DuplicateInference) ----------------------------------
 	// Set only around the synthetic processLoot call below, on the client thread: queueDropForFlush
 	// copies it onto the aggregate, and from there it rides the pending submission to the site.
@@ -4301,6 +4262,18 @@ public class AnvilPlugin extends Plugin {
 		return true;
 	}
 
+	/**
+	 * Credits drop/collection tiles for a completion-awarded item (Infernal cape,
+	 * Fire cape) off the Jagex kill-count chat line. These go straight to the
+	 * inventory — no loot event — and the clog line only fires on the first-ever
+	 * award, so repeat capes would otherwise need manual submission. The KC line
+	 * fires on every completion.
+	 *
+	 * Synthesised as loot FROM the boss (sourceKind "npc"), so a tile restricted
+	 * to e.g. sourceNpcs=["TzKal-Zuk"] still matches. On a first-ever award the
+	 * clog line lands in the same message batch; processLoot's per-(tile,item)
+	 * dedup counts the pair exactly once.
+	 */
 	private void creditGuaranteedAward(String bossName, String itemName) {
 		if (trackingOff() || pluginConfig.trackedDrops == null) {
 			return;
@@ -4433,7 +4406,7 @@ public class AnvilPlugin extends Plugin {
 				Integer trackingItemId = null;
 				int amount;
 				if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-					PluginConfigResponse.ItemRequirement req = drop.itemRequirements.stream()
+					ItemRequirement req = drop.itemRequirements.stream()
 							.filter(r -> r.itemId == itemId).findFirst().orElse(null);
 					// A tile needing N sets can use a set's piece N times (Ahrim's twice).
 					int cap = req == null ? 0 : ClogTaskModel.itemCap(req, drop.groupMode, drop.setsRequired);
@@ -4468,7 +4441,7 @@ public class AnvilPlugin extends Plugin {
 					creditedThisKill.merge(drop.tileId, amount, Integer::sum);
 				}
 
-				log.info("Tracked drop detected: {} (item {} ×{}), tile '{}'", source, itemId, amount, drop.label);
+				log.debug("Tracked drop detected: {} (item {} ×{}), tile '{}'", source, itemId, amount, drop.label);
 
 				drop.currentAmount += amount;
 				// A collection's row counts what its SETS have (ClogTaskModel), not the summed drops —
@@ -4530,7 +4503,11 @@ public class AnvilPlugin extends Plugin {
 				// COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
 				// visible — the proof shows both moments.
 				agg.trackingItemId = trackingItemId;
-				drawManager.requestNextFrameListener(img -> agg.triggerFrame = (BufferedImage) img);
+				capturing = true;
+				drawManager.requestNextFrameListener(img -> {
+					capturing = false;
+					agg.triggerFrame = (BufferedImage) img;
+				});
 			}
 			agg.total += amount;
 			if (inferringFlag != null) {
@@ -4586,12 +4563,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/* ----------------------------- Kill-count tiles ----------------------------- */
-	/**
-	 * Counts a kill toward any kill tile that targets this NPC. Mirrors the
-	 * drop flow: increment the local count (capped at the requirement),
-	 * coalesce a kill spree into one screenshot, and queue a submission. Runs
-	 * on the client thread (called from loot event).
-	 */
 	/**
 	 * Loot-driven kill crediting: the right signal for anything with no Jagex
 	 * count message. Two callers — NpcLootReceived for normal NPCs, and the
@@ -4688,6 +4659,12 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Counts a kill toward any kill tile that targets this NPC. Mirrors the
+	 * drop flow: increment the local count (capped at the requirement),
+	 * coalesce a kill spree into one screenshot, and queue a submission. Runs
+	 * on the client thread (called from loot event).
+	 */
 	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount) {
 		for (TrackedKill kill : matches) {
 			if (kill.currentAmount >= kill.requiredAmount) {
@@ -4701,7 +4678,7 @@ public class AnvilPlugin extends Plugin {
 			// "kill" for a normal kill tile, "lap" for an agility-lap tile — same counting path,
 			// and the noun is the only thing that differs (see TrackedKill.unit).
 			String noun = kill.unitNoun();
-			log.info("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
+			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
 			sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
 
 			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired);
@@ -4753,23 +4730,30 @@ public class AnvilPlugin extends Plugin {
 	// A kill submission credits the caller's team/tile on the clan this plugin is addressing.
 	// The count-only ping carries no image; the milestone/complete proof re-uses its PNG (below).
 	private void submitKillBurst(Aggregate<TrackedKill> agg) {
-		final TrackedKill kill = agg.tile;
-		final int amount = agg.total;
-		// Intermediate kills (not at a milestone, not completing) are count-only pings — no
-		// screenshot — so a long grind doesn't upload a PNG per burst. Mirrors the gain path; the
-		// single/milestone proof screenshots below are the audit trail.
+		submitCountedBurst(agg, pendingKillAggregates, "kill", true, () -> flushKills(agg.tile.tileId), COALESCE_FLUSH_MS);
+	}
+
+	/**
+	 * A settled kill or gain burst. Intermediate flushes are count-only pings, no screenshot: a long
+	 * grind (or AFK gathering, flushing every full inventory) would otherwise upload a PNG per burst.
+	 * The proof screenshot lands on the flush that completes the tile — and for kills, on each proof
+	 * milestone. A kill proof carries who was there: a small tile proves EVERY credit, so without it a
+	 * count-once tile counted each teammate's report of one raid separately.
+	 */
+	private <T extends CountedTile> void submitCountedBurst(Aggregate<T> agg, Map<Integer, Aggregate<T>> pending,
+			String noun, boolean milestones, Runnable flush, long coalesceMs) {
+		T tile = agg.tile;
+		int amount = agg.total;
 		if (agg.snapshotCurrent < agg.snapshotRequired
-				&& !crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired)) {
-			pingTile(kill.tileId, kill.label, "kill", amount, agg.coop, () -> requeue(pendingKillAggregates, kill.tileId,
-					kill, amount, kill.currentAmount, kill.requiredAmount, () -> flushKills(kill.tileId), COALESCE_FLUSH_MS));
+				&& !(milestones && crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired))) {
+			pingTile(tile.tileId, tile.label, noun, amount, agg.coop, () -> requeue(pending, tile.tileId,
+					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs));
 			return;
 		}
-		String detail = kill.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		// The proof carries who was there too: a small tile proves EVERY credit, so without it a
-		// count-once tile counted each teammate's report of one raid separately.
-		captureAndSubmitProof(kill.tileId, kill.label, amount, null, agg.coop, "BINGO KILL", detail,
-				"[Auto] " + kill.label + " kill(s) detected by RuneLite plugin",
-				() -> kill.currentAmount = Math.max(0, kill.currentAmount - amount));
+		String detail = tile.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+		captureAndSubmitProof(tile.tileId, tile.label, amount, null, agg.coop, "BINGO " + noun.toUpperCase(Locale.ROOT),
+				detail, "[Auto] " + tile.label + " " + noun + "(s) detected by RuneLite plugin",
+				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
 	}
 
 	/**
@@ -4790,8 +4774,8 @@ public class AnvilPlugin extends Plugin {
 			try {
 				warnStartProofBeforeCredit();
 				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null);
-				log.info("{} ping sent: '{}' ×{}", noun, label, amount);
+						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null, null);
+				log.debug("{} ping sent: '{}' ×{}", noun, label, amount);
 				refreshConfig();
 			} catch (IOException e) {
 				log.warn("{} ping failed for '{}' ×{} — requeueing: {}", noun, label, amount, e.getMessage());
@@ -4866,8 +4850,7 @@ public class AnvilPlugin extends Plugin {
 			name = v.group("item");
 		} else if (d != null && !line.endsWith(")") && !line.contains(") from ")) {
 			String local = getLocalPlayerName();
-			String who = d.group("rsn").replace('\u00A0', ' ').trim();
-			if (local == null || !who.equalsIgnoreCase(local.replace('\u00A0', ' ').trim())) {
+			if (!Rsn.same(d.group("rsn"), local)) {
 				return; // someone else's drop
 			}
 			qty = d.group("qty");
@@ -4882,8 +4865,8 @@ public class AnvilPlugin extends Plugin {
 		} catch (NumberFormatException ignored) {
 		}
 		int tick = client.getTickCount();
-		recentDropLines.removeIf(l -> tick - (int) l[0] > 1);
-		recentDropLines.add(new Object[]{tick, n, name.trim()});
+		recentDropLines.removeIf(l -> tick - l.tick > 1);
+		recentDropLines.add(new DropLine(tick, n, name.trim()));
 	}
 
 	/** Credit held chest lines whose items no loot event or bag change accounted for. Client thread. */
@@ -4892,28 +4875,28 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		int tick = client.getTickCount();
-		java.util.Iterator<Object[]> it = chestLineCredits.iterator();
+		Iterator<ChestLineCredit> it = chestLineCredits.iterator();
 		while (it.hasNext()) {
-			Object[] c = it.next();
-			if ((int) c[0] > tick) {
+			ChestLineCredit c = it.next();
+			if (c.dueTick > tick) {
 				continue;
 			}
 			it.remove();
 			List<ItemStack> unseen = new ArrayList<>(1);
-			for (ItemStack st : trackedStacks((String) c[3], (int) c[2])) {
+			for (ItemStack st : trackedStacks(c.line.name, c.line.qty)) {
 				synchronized (recentLootItemIds) {
 					// Seen by a loot event since this open (a second's slack for the order lines land in):
 					// the inventory or bag path counted it. An older sighting is an earlier chest.
 					Long seen = recentLootItemIds.get(st.getId());
-					if (seen != null && seen >= (long) c[4] - 1000) {
+					if (seen != null && seen >= c.openedAtMs - 1000) {
 						continue;
 					}
 				}
 				unseen.add(st);
 			}
 			if (!unseen.isEmpty()) {
-				log.info("{}: {} named in chat but seen by no loot event — crediting it to the chest", c[1], c[3]);
-				processLoot((String) c[1], unseen, "event");
+				log.debug("{}: {} named in chat but seen by no loot event — crediting it to the chest", c.source, c.line.name);
+				processLoot(c.source, unseen, "event");
 			}
 		}
 	}
@@ -4924,9 +4907,9 @@ public class AnvilPlugin extends Plugin {
 		// The item lines printed with this open (same tick, or the one before) belong to it.
 		int tick = client.getTickCount();
 		Set<String> named = new HashSet<>();
-		for (Object[] l : recentDropLines) {
-			if (tick - (int) l[0] <= 1 && named.add(((String) l[2]).toLowerCase(Locale.ROOT))) {
-				chestLineCredits.add(new Object[]{tick + CHEST_LINE_SETTLE_TICKS, source, l[1], l[2], now()});
+		for (DropLine l : recentDropLines) {
+			if (tick - l.tick <= 1 && named.add(l.name.toLowerCase(Locale.ROOT))) {
+				chestLineCredits.add(new ChestLineCredit(tick + CHEST_LINE_SETTLE_TICKS, source, l, now()));
 			}
 		}
 		recentDropLines.clear();
@@ -5030,14 +5013,13 @@ public class AnvilPlugin extends Plugin {
 				int amount = Math.min(delta, Math.max(1, gain.requiredAmount - gain.currentAmount));
 				gain.currentAmount += amount;
 				raiseLocal(gain.tileId, gain.currentAmount, now());
-				log.info("Tracked gain: item {} ×{}, tile '{}' ({}/{})", itemId, amount, gain.label,
+				log.debug("Tracked gain: item {} ×{}, tile '{}' ({}/{})", itemId, amount, gain.label,
 						gain.currentAmount, gain.requiredAmount);
 				queueGainForFlush(gain, amount);
 			}
 		}
 	}
 
-	/** Adds a container's item quantities (itemId → total) into {@code counts}. No-op if absent. */
 	private Set<Integer> wornItemIds() {
 		ItemContainer c = client.getItemContainer(InventoryID.WORN);
 		if (c == null) {
@@ -5052,6 +5034,7 @@ public class AnvilPlugin extends Plugin {
 		return ids;
 	}
 
+	/** Adds a container's item quantities (itemId → total) into {@code counts}. No-op if absent. */
 	private void addContainerCounts(Map<Integer, Integer> counts, int containerId) {
 		ItemContainer c = client.getItemContainer(containerId);
 		if (c == null) {
@@ -5138,21 +5121,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private void submitGainBurst(Aggregate<TrackedGain> agg) {
-		final TrackedGain gain = agg.tile;
-		final int amount = agg.total;
-		// Intermediate flushes are count-only pings — AFK gathering flushes every time the
-		// inventory fills or the spot depletes, and a screenshot per cycle would swamp the
-		// media store for zero evidentiary value. The single proof screenshot lands on the
-		// flush that completes the tile (manual web submissions still require an image).
-		if (agg.snapshotCurrent < agg.snapshotRequired) {
-			pingTile(gain.tileId, gain.label, "gain", amount, null, () -> requeue(pendingGainAggregates, gain.tileId,
-					gain, amount, gain.currentAmount, gain.requiredAmount, () -> flushGains(gain.tileId), GAIN_COALESCE_MS));
-			return;
-		}
-		String detail = gain.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		captureAndSubmitProof(gain.tileId, gain.label, amount, null, "BINGO GAIN", detail,
-				"[Auto] " + gain.label + " gain(s) detected by RuneLite plugin",
-				() -> gain.currentAmount = Math.max(0, gain.currentAmount - amount));
+		submitCountedBurst(agg, pendingGainAggregates, "gain", false, () -> flushGains(agg.tile.tileId), GAIN_COALESCE_MS);
 	}
 
 	/**
@@ -5193,15 +5162,26 @@ public class AnvilPlugin extends Plugin {
 		final int teamId = pluginConfig.team.id;
 		final int playerId = pluginConfig.player.id;
 		final String capturedRsn = getLocalPlayerName();
-		// Item icon, so it's baked into the proof even with chat off.
-		final BufferedImage icon = itemId != null ? itemManager.getImage(itemId) : null;
+		// The site draws the banner from these (lib/proofStamp), so the upload stays a clean frame.
+		final JsonObject proof = new JsonObject();
+		proof.addProperty("title", bannerTitle);
+		proof.addProperty("detail", bannerDetail);
+		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
+		proof.addProperty("capturedAt", now());
+		proof.addProperty("tick", client.getTickCount());
+		synchronized (recentChat) {
+			proof.add("chat", gson.toJsonTree(recentChat));
+		}
 
-		onNextFrame(image -> {
+		onCleanFrame(image -> {
 			try {
 				BufferedImage buffered = composeDualProof(triggerFrame, image);
-				annotateProofBanner(buffered, bannerTitle, bannerDetail, capturedRsn, icon);
+				if (triggerFrame != null) {
+					proof.addProperty("split", (double) triggerFrame.getHeight() / buffered.getHeight());
+				}
 				byte[] png = png(buffered);
 				PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
+				pending.proof = proof;
 				pending.itemId = itemId;
 				pending.durationSeconds = durationSeconds;
 				pending.inferred = inferred;
@@ -5230,7 +5210,7 @@ public class AnvilPlugin extends Plugin {
 					rollback.run();
 				}
 			}
-		}, null);
+		});
 	}
 
 	private static PendingSubmission pending(int eventId, int tileId, int teamId, int playerId,
@@ -5249,15 +5229,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/* ----------------------------- Timed-clear tiles ----------------------------- */
-	/**
-	 * Correlates a clear time (from a "Duration:/completion time:" line) with
-	 * the adjacent line that names the activity (the boss kill/completion-count
-	 * line). The two are separate chat messages and their order varies, so we
-	 * keep a short ring buffer of recent lines plus a pending duration and
-	 * resolve whichever arrives second. Parsing/matching is delegated to the
-	 * unit-tested {@link TimedClearParser}. Runs on the client thread (from
-	 * onChatMessage).
-	 */
 	/** Raid party size from the varbits, else the distinct players seen in this instance. */
 	private int partySize() {
 		return lastRaidPartySize > 0 ? lastRaidPartySize : instancePlayersSeen.size();
@@ -5273,7 +5244,7 @@ public class AnvilPlugin extends Plugin {
 	private Set<String> myTeamRoster() {
 		Set<String> mine = new HashSet<>();
 		if (pluginConfig != null && pluginConfig.pvpRoster != null && pluginConfig.team != null) {
-			for (PluginConfigResponse.RosterEntry e : pluginConfig.pvpRoster) {
+			for (RosterEntry e : pluginConfig.pvpRoster) {
 				if (e != null && e.name != null && e.teamId == pluginConfig.team.id) {
 					mine.add(Rsn.normalize(e.name));
 				}
@@ -5305,6 +5276,15 @@ public class AnvilPlugin extends Plugin {
 		return lines;
 	}
 
+	/**
+	 * Correlates a clear time (from a "Duration:/completion time:" line) with
+	 * the adjacent line that names the activity (the boss kill/completion-count
+	 * line). The two are separate chat messages and their order varies, so we
+	 * keep a short ring buffer of recent lines plus a pending duration and
+	 * resolve whichever arrives second. Parsing/matching is delegated to the
+	 * unit-tested {@link TimedClearParser}. Runs on the client thread (from
+	 * onChatMessage).
+	 */
 	private void handleTimedChat(String plain) {
 		if (pluginConfig == null) {
 			return;
@@ -5380,7 +5360,7 @@ public class AnvilPlugin extends Plugin {
 			return false;
 		}
 		boolean any = false;
-		for (PluginConfigResponse.TrackedDeathless tile : pluginConfig.trackedDeathless) {
+		for (TrackedDeathless tile : pluginConfig.trackedDeathless) {
 			if (tile == null || tile.completed || tile.activity == null
 					|| tile.currentAmount >= Math.max(1, tile.requiredAmount)) {
 				continue;
@@ -5411,24 +5391,14 @@ public class AnvilPlugin extends Plugin {
 			}
 			// Who was there is read NOW, while the party is still together in the Warden's room.
 			CoopFingerprint coop = tile.needsCoopFingerprint() ? coopFingerprint() : null;
-			if (holdsForRaidLevel(tile.activity, tile.minRaidLevel)) {
-				holdForRaidLevel(tile.label, level -> {
-					String why = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, level);
-					if (why != null) {
-						sendChatMessage("Deathless run not counted for " + tile.label + ": " + why + ".");
-					} else {
-						creditDeathless(tile, partySeen, level, coop);
-					}
-				});
-			} else {
-				creditDeathless(tile, partySeen, raidLevelNow(), coop);
-			}
+			creditAtRaidLevel(tile.activity, tile.minRaidLevel, "Deathless run", tile.label,
+					level -> creditDeathless(tile, partySeen, level, coop));
 			any = true;
 		}
 		return any;
 	}
 
-	private void creditDeathless(PluginConfigResponse.TrackedDeathless tile, int partySeen, int raidLevel,
+	private void creditDeathless(TrackedDeathless tile, int partySeen, int raidLevel,
 			CoopFingerprint coop) {
 		int goal = Math.max(1, tile.requiredAmount);
 		if (tile.completed || tile.currentAmount >= goal) {
@@ -5436,7 +5406,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		tile.currentAmount++;
 		raiseLocal(tile.tileId, tile.currentAmount, now());
-		log.info("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
+		log.debug("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
 				tile.activity, partySeen, tile.label, tile.currentAmount, goal);
 		sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
 		String detail = tile.activity + "  deathless"
@@ -5455,18 +5425,29 @@ public class AnvilPlugin extends Plugin {
 	// judges it when the chest is looted, or on leaving the raid, or after HELD_RUN_MAX_MS, each
 	// with the level read then. Client thread only.
 	private static final long HELD_RUN_MAX_MS = 15 * 60_000;
-	private final List<java.util.function.IntConsumer> heldToaRuns = new ArrayList<>();
+	private final List<IntConsumer> heldToaRuns = new ArrayList<>();
 	private long heldToaRunsSince;
 
-	private static boolean holdsForRaidLevel(String activity, int minRaidLevel) {
-		return minRaidLevel > 0 && RaidGates.isToa(activity);
-	}
-
-	private void holdForRaidLevel(String label, java.util.function.IntConsumer judge) {
+	/**
+	 * Credit with the raid level now — or, for a ToA tile with a level floor, hold the run and credit
+	 * it with the level read at the chest, saying "{what} not counted" when that falls short.
+	 */
+	private void creditAtRaidLevel(String activity, int minRaidLevel, String what, String label, IntConsumer credit) {
+		if (minRaidLevel <= 0 || !RaidGates.isToa(activity)) {
+			credit.accept(raidLevelNow());
+			return;
+		}
 		if (heldToaRuns.isEmpty()) {
 			heldToaRunsSince = now();
 		}
-		heldToaRuns.add(judge);
+		heldToaRuns.add(level -> {
+			String why = RaidGates.raidLevel(activity, minRaidLevel, level);
+			if (why != null) {
+				sendChatMessage(what + " not counted for " + label + ": " + why + ".");
+			} else {
+				credit.accept(level);
+			}
+		});
 		sendChatMessage(label + ": checking the raid level at the chest.");
 	}
 
@@ -5474,10 +5455,10 @@ public class AnvilPlugin extends Plugin {
 		if (heldToaRuns.isEmpty()) {
 			return;
 		}
-		List<java.util.function.IntConsumer> held = new ArrayList<>(heldToaRuns);
+		List<IntConsumer> held = new ArrayList<>(heldToaRuns);
 		heldToaRuns.clear();
 		log.debug("Judging {} held ToA run(s) at raid level {}", held.size(), level);
-		for (java.util.function.IntConsumer judge : held) {
+		for (IntConsumer judge : held) {
 			judge.accept(level);
 		}
 	}
@@ -5489,7 +5470,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private boolean submitTimedForMessage(String lowerMessage, int seconds, long now) {
 		boolean any = false;
-		for (PluginConfigResponse.TrackedTimed tile : pluginConfig.trackedTimed) {
+		for (TrackedTimed tile : pluginConfig.trackedTimed) {
 			if (tile.completed || tile.activity == null) {
 				continue;
 			}
@@ -5524,28 +5505,18 @@ public class AnvilPlugin extends Plugin {
 			if (!claim(lastTimedSubmittedAt, tile.tileId, now, TIMED_DEDUP_WINDOW_MS)) {
 				continue;
 			}
-			if (trialTarget == null && holdsForRaidLevel(tile.activity, tile.minRaidLevel)) {
-				holdForRaidLevel(tile.label, level -> {
-					String why = RaidGates.raidLevel(tile.activity, tile.minRaidLevel, level);
-					if (why != null) {
-						sendChatMessage("Timed clear not counted for " + tile.label + ": " + why + ".");
-					} else {
-						creditTimed(tile, seconds, null, level);
-					}
-				});
-			} else {
-				creditTimed(tile, seconds, trialTarget, raidLevelNow());
-			}
+			creditAtRaidLevel(tile.activity, tile.minRaidLevel, "Timed clear", tile.label,
+					level -> creditTimed(tile, seconds, trialTarget, level));
 			any = true;
 		}
 		return any;
 	}
 
-	private void creditTimed(PluginConfigResponse.TrackedTimed tile, int seconds, String[] trialTarget, int raidLevel) {
+	private void creditTimed(TrackedTimed tile, int seconds, String[] trialTarget, int raidLevel) {
 		if (tile.completed) {
 			return;
 		}
-		log.info("Tracked timed clear: {} in {} (cap {})", tile.label,
+		log.debug("Tracked timed clear: {} in {} (cap {})", tile.label,
 				TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
 		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
 		String detail = trialTarget != null
@@ -5558,15 +5529,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Stacks the at-drop frame above the flush frame (thin gold divider, corner
-	 * time tags) so the proof shows both the moment of the drop and the floor
-	 * loot once it settled. Returns the flush frame untouched when there is no
-	 * trigger frame (toggle off, or the frame never arrived).
+	 * Stacks the at-drop frame above the flush frame (thin gold divider) so the proof shows both the
+	 * moment of the drop and the floor loot once it settled; the site tags the two halves. Returns the
+	 * flush frame untouched when there is no trigger frame (toggle off, or the frame never arrived).
 	 */
 	private BufferedImage composeDualProof(BufferedImage triggerFrame, BufferedImage flushFrame) {
 		if (triggerFrame == null) {
-			// A copy: the banner is drawn onto what we return, and the frame is shared.
-			return copyFrame(flushFrame);
+			return flushFrame;
 		}
 		int divider = 4;
 		int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
@@ -5580,30 +5549,10 @@ public class AnvilPlugin extends Plugin {
 			g.setColor(new Color(212, 160, 23));
 			g.fillRect(0, triggerFrame.getHeight(), w, divider);
 			g.drawImage(flushFrame, 0, triggerFrame.getHeight() + divider, null);
-			tagProofFrame(g, "AT DROP", w, 0);
-			tagProofFrame(g, "MOMENTS LATER", w, triggerFrame.getHeight() + divider);
 		} finally {
 			g.dispose();
 		}
 		return out;
-	}
-
-	// Small top-right tag naming which moment a stacked proof frame shows.
-	private void tagProofFrame(Graphics2D g, String text, int frameW, int frameTop) {
-		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-		Font font = new Font(Font.SANS_SERIF, Font.BOLD, 12);
-		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics(font);
-		int padX = 8, padY = 4;
-		int bw = fm.stringWidth(text) + padX * 2;
-		int bh = fm.getHeight() + padY * 2;
-		int x = frameW - bw - 10;
-		int y = frameTop + 10;
-		g.setColor(new Color(20, 18, 14, 230));
-		g.fillRoundRect(x, y, bw, bh, 8, 8);
-		g.setColor(new Color(212, 160, 23));
-		g.drawRoundRect(x, y, bw, bh, 8, 8);
-		g.drawString(text, x + padX, y + padY + fm.getAscent());
 	}
 
 	/**
@@ -5617,12 +5566,10 @@ public class AnvilPlugin extends Plugin {
 
 
 	/**
-	 * Burns a self-attesting proof banner (title + detail line +
-	 * RSN/team/event/UTC) onto the top-left of a screenshot. Shared by drop,
-	 * kill and timed submissions so every saved PNG stands on its own
-	 * regardless of chat/overlay state.
+	 * Burns a self-attesting proof banner (title + detail line + RSN/team/event/UTC) onto the
+	 * top-left of a screenshot. Starting shots only: bingo proofs are stamped by the site.
 	 */
-	private void annotateProofBanner(BufferedImage img, String title, String detail, String rsn, BufferedImage itemIcon) {
+	private void annotateProofBanner(BufferedImage img, String title, String detail, String rsn) {
 		Graphics2D g = img.createGraphics();
 		try {
 			g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -5647,19 +5594,15 @@ public class AnvilPlugin extends Plugin {
 			FontMetrics dfm = g.getFontMetrics(detailFont);
 			FontMetrics mfm = g.getFontMetrics(metaFont);
 
-			boolean hasIcon = itemIcon != null && itemIcon.getWidth() > 0 && itemIcon.getHeight() > 0;
-			int iconW = hasIcon ? 36 : 0;
-			int iconGap = hasIcon ? 10 : 0;
-
 			int textW = Math.max(dfm.stringWidth(detail), tfm.stringWidth(title));
 			for (String s : meta) {
 				textW = Math.max(textW, mfm.stringWidth(s));
 			}
 
 			int padX = 14, padY = 10;
-			int boxW = iconW + iconGap + textW + padX * 2;
+			int boxW = textW + padX * 2;
 			int contentH = tfm.getHeight() + dfm.getHeight() + 4 + 6 + meta.size() * (mfm.getHeight() + 1);
-			int boxH = Math.max(contentH, iconW > 0 ? 32 : 0) + padY * 2;
+			int boxH = contentH + padY * 2;
 			int boxX = 12, boxY = 12;
 
 			// Drop shadow
@@ -5669,14 +5612,11 @@ public class AnvilPlugin extends Plugin {
 			g.setColor(new Color(20, 18, 14, 230));
 			g.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
 			// Gold accent border
-			g.setStroke(new java.awt.BasicStroke(2f));
+			g.setStroke(new BasicStroke(2f));
 			g.setColor(new Color(212, 160, 23));
 			g.drawRoundRect(boxX, boxY, boxW, boxH, 10, 10);
 
-			if (hasIcon) {
-				g.drawImage(itemIcon, boxX + padX, boxY + padY, 36, 32, null);
-			}
-			int textX = boxX + padX + iconW + iconGap;
+			int textX = boxX + padX;
 
 			// Title in gold
 			g.setFont(titleFont);
@@ -5816,7 +5756,7 @@ public class AnvilPlugin extends Plugin {
 		// if it was queued during the brief window after switching characters.
 		if (pending.capturedRsn != null && !pending.capturedRsn.isEmpty()) {
 			String current = apiClient.getCurrentRsn();
-			if (current == null || !pending.capturedRsn.equalsIgnoreCase(current)) {
+			if (!Rsn.same(pending.capturedRsn, current)) {
 				log.debug("Holding pending '{}' — captured on '{}', currently '{}'", pending.label, pending.capturedRsn, current);
 				return false;
 			}
@@ -5838,11 +5778,11 @@ public class AnvilPlugin extends Plugin {
 			if (pending.durationSeconds != null) {
 				log.info("Submitting timed clear for tile '{}'...", pending.label);
 				apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
-						imageUrl, pending.note, pending.playerId);
+						imageUrl, pending.note, pending.playerId, pending.proof);
 			} else {
 				log.info("Submitting drop for tile '{}'...", pending.label);
 				apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
-						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred);
+						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof);
 			}
 
 			log.info("Submission '{}' sent successfully!", pending.label);
@@ -5888,7 +5828,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			// Held for the character that caught it — waiting on a login, not a failure to back off from.
 			if (sub.capturedRsn != null && !sub.capturedRsn.isEmpty()
-					&& !sub.capturedRsn.equalsIgnoreCase(apiClient.getCurrentRsn())) {
+					&& !Rsn.same(sub.capturedRsn, apiClient.getCurrentRsn())) {
 				continue;
 			}
 			boolean success = processPendingSubmission(sub);
@@ -5912,10 +5852,6 @@ public class AnvilPlugin extends Plugin {
 		refreshConfig();
 	}
 
-	/**
-	 * Debounced config refresh — collapses multiple rapid onConfigChanged calls
-	 * into one fetch.
-	 */
 	/**
 	 * Fetch config immediately (cancelling any debounced refresh) and repaint the sidebar once it
 	 * lands. For credential changes only — everything else can wait for the debounce.
@@ -5968,6 +5904,10 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * Debounced config refresh — collapses multiple rapid onConfigChanged calls
+	 * into one fetch.
+	 */
 	private synchronized void scheduleRefresh() {
 		if (apiClient.isConfigured() && execLive()) {
 			pendingRefresh = reschedule(pendingRefresh, this::refreshConfig, REFRESH_DEBOUNCE_MS);
@@ -5988,7 +5928,7 @@ public class AnvilPlugin extends Plugin {
 	 * The names the Lookup box suggests — clan (online and the whole roster), friends, and players
 	 * nearby — read on the client thread, then handed to {@code then} there. Empty while logged out.
 	 */
-	void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then) {
+	void lookupNames(Consumer<LookupSuggestions.Names> then) {
 		if (client == null || clientThread == null) {
 			then.accept(LookupSuggestions.Names.EMPTY);
 			return;
@@ -6009,9 +5949,9 @@ public class AnvilPlugin extends Plugin {
 				cs.getMembers().forEach(m -> clan.add(m.getName()));
 			}
 			List<String> friends = new ArrayList<>();
-			net.runelite.api.NameableContainer<net.runelite.api.Friend> fc = client.getFriendContainer();
+			NameableContainer<Friend> fc = client.getFriendContainer();
 			if (fc != null && fc.getMembers() != null) {
-				for (net.runelite.api.Friend f : fc.getMembers()) {
+				for (Friend f : fc.getMembers()) {
 					friends.add(f.getName());
 				}
 			}
@@ -6025,10 +5965,6 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/**
-	 * This account's world position, for the starting shot's position check (StartProofRules).
-	 * Null while logged out — which simply means the check doesn't run.
-	 */
 	// Where the player really stands, refreshed every tick for the starting-shot card's live checks
 	// (the panel reads it off the Swing thread, where the client can't be asked). Null when unknown.
 	private volatile WorldPoint startProofPosition;
@@ -6250,7 +6186,7 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Read last session's config + board off disk for the panel. Executor only (disk). */
+	/** Read last session's config off disk for the panel. Executor only (disk). */
 	private void loadSavedResponses() {
 		ResponseDiskCache rc = responseCache;
 		if (rc == null || !apiClient.isConfigured() || liveConfigAnswered) {
@@ -6263,13 +6199,10 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		PluginConfigResponse cfg = apiClient.seedFromDisk(cfgEntry, PluginConfigResponse.class);
-		BingoApiClient.BoardResponse board = cfg == null ? null
-				: apiClient.seedFromDisk(rc.load(ResponseDiskCache.BOARD), BingoApiClient.BoardResponse.class);
 		if (cfg == null || liveConfigAnswered) {
 			return; // the site beat the disk to it
 		}
 		savedConfig = cfg;
-		savedBoard = board;
 		log.debug("Showing last session's config until the site answers");
 		repaintSidebar();
 	}
@@ -6277,7 +6210,6 @@ public class AnvilPlugin extends Plugin {
 	/** The site has answered (or the account changed): stop showing last session's copy. */
 	private void forgetSavedResponses() {
 		savedConfig = null;
-		savedBoard = null;
 	}
 
 	/**
@@ -6292,11 +6224,6 @@ public class AnvilPlugin extends Plugin {
 	/** The panel is drawing last session's copy, not a live answer. */
 	boolean showingSavedConfig() {
 		return pluginConfig == null && !liveConfigAnswered && savedConfig != null;
-	}
-
-	/** Last session's active board, for the panel while {@link #showingSavedConfig()}; else null. */
-	BingoApiClient.BoardResponse savedBoardForDisplay() {
-		return showingSavedConfig() ? savedBoard : null;
 	}
 
 	// ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
@@ -6328,9 +6255,6 @@ public class AnvilPlugin extends Plugin {
 		// Repaint the side panel so the admin button appears/disappears.
 	}
 
-	/**
-	 * Whether the local player is currently in a clan channel we can scrape.
-	 */
 	/**
 	 * Is the clan roster readable RIGHT NOW, as last seen from the client thread?
 	 *
@@ -6443,16 +6367,16 @@ public class AnvilPlugin extends Plugin {
 					ClanTitle title = settings.titleForRank(rank);
 					out.rank = title != null ? title.getName() : String.valueOf(rank.getRank());
 				}
-				java.time.LocalDate joined = m.getJoinDate();
+				LocalDate joined = m.getJoinDate();
 				if (joined != null) {
-					out.joinedDays = (int) java.time.temporal.ChronoUnit.DAYS.between(joined, java.time.LocalDate.now());
+					out.joinedDays = (int) java.time.temporal.ChronoUnit.DAYS.between(joined, LocalDate.now());
 				}
 				members.add(out);
 			}
 
 			executor.submit(() -> {
 				try {
-					BingoApiClient.ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
+					ClanSyncResponse r = apiClient.syncClan(config.playerToken(), clanName, members);
 					rosterBackoff.onSuccess();
 					rosterPushAllowedAt = now() + ROSTER_PUSH_COOLDOWN_MS;
 					lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
@@ -6492,7 +6416,7 @@ public class AnvilPlugin extends Plugin {
 					if (!automatic && r.changes != null && !r.changes.isEmpty()) {
 						int cap = 12;
 						int shown = 0;
-						for (BingoApiClient.ClanChange ch : r.changes) {
+						for (ClanChange ch : r.changes) {
 							if (shown >= cap) {
 								break;
 							}
@@ -6541,11 +6465,11 @@ public class AnvilPlugin extends Plugin {
 						sendChatMessage(r.capNotice);
 					}
 					cb.onResult(true, lastSyncSummary);
-				} catch (BingoApiClient.AdminUnauthorizedException e) {
+				} catch (AdminUnauthorizedException e) {
 					// Token isn't (or is no longer) an admin — hide the button until the next login probe.
 					isAdmin = false;
 					syncFailed(cb, true, null, "Your account token isn't an admin (or was revoked).");
-				} catch (BingoApiClient.ClanMismatchException e) {
+				} catch (ClanMismatchException e) {
 					String server = e.serverClanName == null ? "(not set)" : e.serverClanName;
 					syncFailed(cb, true, null, "Clan name doesn't match site config (" + server + ").");
 				} catch (RateLimitedException e) {
@@ -6601,14 +6525,20 @@ public class AnvilPlugin extends Plugin {
 	private final Set<Integer> notifiedClaimTiles = new HashSet<>();
 	private Integer ladderBaselineEventId;
 
+	/** Forget which tiles were seen done, so the next poll silently absorbs whatever already is. */
+	private void resetCompletionBaseline() {
+		notifiedCompletedTiles.clear();
+		locallyShownTiles.clear();
+		completionBaselineEventId = null;
+	}
+
 	private void checkTileCompletions(PluginConfigResponse cfg) {
 		if (cfg == null || cfg.event == null || cfg.completedTiles == null) {
 			return;
 		}
 		boolean seeding = completionBaselineEventId == null || completionBaselineEventId != cfg.event.id;
 		if (seeding) {
-			notifiedCompletedTiles.clear();
-			locallyShownTiles.clear();
+			resetCompletionBaseline();
 			completionBaselineEventId = cfg.event.id;
 		}
 		// Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
@@ -6668,12 +6598,12 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		boolean revealBoard = cfg.event.revealPolicy != null && !cfg.event.revealPolicy.isEmpty();
-		boolean surface = LadderMissions.isLadder(cfg.event.format)
+		boolean surface = "ladder".equalsIgnoreCase(cfg.event.format)
 			|| (!revealBoard && cfg.serverSupports("bingo-missions"));
 		if (!surface) {
 			return;
 		}
-		String tag = LadderMissions.isLadder(cfg.event.format) ? "Anvil Ladder" : "Anvil";
+		String tag = "ladder".equalsIgnoreCase(cfg.event.format) ? "Anvil Ladder" : "Anvil";
 		boolean seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
 		if (seeding) {
 			notifiedMissionTiles.clear();
@@ -6696,9 +6626,6 @@ public class AnvilPlugin extends Plugin {
 			playMissionSound(false);
 			for (Mission m : fresh) {
 				sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
-			}
-			if (sidebarPanel != null) {
-				sidebarPanel.flashLadder();
 			}
 		}
 
@@ -6724,9 +6651,6 @@ public class AnvilPlugin extends Plugin {
 			for (Claim c : claims) {
 				String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
 				sendChatMessage(by + " claimed " + c.label + " - " + c.points + " pts!");
-			}
-			if (sidebarPanel != null) {
-				sidebarPanel.flashLadder();
 			}
 		}
 	}
@@ -6789,7 +6713,7 @@ public class AnvilPlugin extends Plugin {
 		if (chosen.isEmpty() || fresh.clans == null || fresh.clans.isEmpty()) {
 			return;
 		}
-		for (PluginConfigResponse.ClanRef c : fresh.clans) {
+		for (ClanRef c : fresh.clans) {
 			if (c != null && chosen.equalsIgnoreCase(c.slug)) {
 				return;
 			}
@@ -6828,12 +6752,9 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Redraw the sidebar from what it holds, no fetch (AnvilSidebarPanel.redrawLocal). Any thread. */
+	/** Something only this client shows on the panel changed (a pin, the starting shot): redraw it. Any thread. */
 	private void redrawSidebarLocal() {
-		AnvilSidebarPanel panel = sidebarPanel;
-		if (panel != null) {
-			SwingUtilities.invokeLater(panel::redrawLocal);
-		}
+		repaintSidebar();
 	}
 
 	/** Ask the sidebar to re-read, from the EDT — it is Swing, and callers here are on worker threads. */
@@ -6866,14 +6787,8 @@ public class AnvilPlugin extends Plugin {
 			// the login greet) draws from the config already held and picks up the new one next tick —
 			// queueing behind it left "Loading…" up for as long as the site took, up to the read timeout.
 			// The plugin's own poll keeps the config fresh; this only covers a gap in it.
-			if (now() - lastConfigAttemptAt < 25_000L || !configFetchLock.tryLock()) {
-				return;
-			}
-			try {
-				refreshConfigLocked();
-			} finally {
-				lastConfigAttemptAt = now();
-				configFetchLock.unlock();
+			if (now() - lastConfigAttemptAt >= (pushLive() ? PUSH_FALLBACK_MS : 25_000L) && configFetchLock.tryLock()) {
+				fetchConfigAndUnlock();
 			}
 			return;
 		}
@@ -6881,12 +6796,9 @@ public class AnvilPlugin extends Plugin {
 		// wait for it rather than sending a second one behind it.
 		long asked = now();
 		configFetchLock.lock();
-		try {
-			if (lastConfigAttemptAt < asked) {
-				refreshConfigLocked();
-				lastConfigAttemptAt = now();
-			}
-		} finally {
+		if (lastConfigAttemptAt < asked) {
+			fetchConfigAndUnlock();
+		} else {
 			configFetchLock.unlock();
 		}
 	}
@@ -6898,7 +6810,7 @@ public class AnvilPlugin extends Plugin {
 	 * new biggest hit, death. Sharing it froze the game for as long as the site took to answer,
 	 * most visibly right after a proof upload.
 	 */
-	private final java.util.concurrent.locks.ReentrantLock configFetchLock = new java.util.concurrent.locks.ReentrantLock();
+	private final ReentrantLock configFetchLock = new ReentrantLock();
 
 	/** When a config fetch last FINISHED, success or not — so a failing site isn't asked again on every paint. */
 	private volatile long lastConfigAttemptAt;
@@ -6948,8 +6860,145 @@ public class AnvilPlugin extends Plugin {
 
 	private void refreshConfig() {
 		configFetchLock.lock();
+		fetchConfigAndUnlock();
+	}
+
+	private boolean pushLive() {
+		PushSocket p = pushSocket;
+		return p != null && p.live();
+	}
+
+	/**
+	 * Live push on, off, or re-ticketed: it listens for the board (and team) this config answers for,
+	 * so a new one of either needs a new ticket. Off where the site doesn't run it.
+	 */
+	private void syncPush() {
+		PushSocket p = pushSocket;
+		PluginConfigResponse cfg = pluginConfig;
+		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
+		if (p != null) {
+			p.scope(eventId > 0 && apiClient.isConfigured() && serverSupportsCap("push-ws")
+					? eventId + ":" + (cfg.team != null ? cfg.team.id : 0) : null);
+		}
+	}
+
+	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
+	private void onPush(JsonObject m) {
+		if (execLive()) {
+			executor.execute(() -> safely("push", () -> applyPush(m)));
+		}
+	}
+
+	/**
+	 * "tile": a pinned tile's numbers for every team. "team": our team's share of the config, its
+	 * board, and each member's own numbers — laid over the config we hold (PushMerge) and adopted the
+	 * way a fetched one is, so tile completions and missions announce exactly as they do on a poll.
+	 */
+	private void applyPush(JsonObject m) {
+		PluginConfigResponse cfg = pluginConfig;
+		int eventId = m.get("eventId").getAsInt();
+		int myTeam = cfg != null && cfg.team != null ? cfg.team.id : 0;
+		int me = cfg != null && cfg.player != null ? cfg.player.id : 0;
+		if ("tile".equals(m.get("t").getAsString())) {
+			tileTracker.pushed(eventId, m.get("tileId").getAsInt(),
+					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam, me);
+			return;
+		}
+		String kind = m.get("t").getAsString();
+		boolean ours = cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt();
+		AnvilSidebarPanel panel = sidebarPanel;
+		if ("counts".equals(kind)) {
+			// Only counts moved: the team's by tile in c, ours over them, laid on what we hold. The
+			// panel's live counts follow at once; the rest of it (who's on what) catches up lazily.
+			if (ours) {
+				JsonObject members = m.has("m") ? m.getAsJsonObject("m") : new JsonObject();
+				JsonObject own = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : new JsonObject();
+				JsonObject counts = m.has("c") ? m.getAsJsonObject("c").deepCopy() : new JsonObject();
+				if (own.has("c")) {
+					own.getAsJsonObject("c").entrySet().forEach(e -> counts.add(e.getKey(), e.getValue()));
+				}
+				JsonObject mine = new JsonObject();
+				mine.add("c", counts);
+				if (own.has("y")) {
+					mine.add("y", own.get("y"));
+				}
+				adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), new JsonObject(), mine));
+			}
+			if (panel != null) {
+				panel.countsChanged();
+			}
+			return;
+		}
+		// A whole view for a different team of the event we hold: the site moved us (it re-scopes the
+		// socket on a team change). Fetch the config now instead of tracking the old team until the
+		// slow while-live poll.
+		if ("team".equals(kind) && cfg != null && cfg.event != null && cfg.event.id == eventId
+				&& m.get("teamId").getAsInt() != myTeam) {
+			refreshConfig();
+		}
+		if (ours && m.has("config")) {
+			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
+			JsonObject mine = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : null;
+			adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), m.getAsJsonObject("config"), mine));
+		}
+		// A whole view (something other than counts changed) or "moved" (the board did, not our team).
+		if (panel != null) {
+			panel.boardChanged();
+		}
+	}
+
+	/** A config built from a push, taken up like a fetched one — unless a fetch landed meanwhile. */
+	private void adoptPushed(PluginConfigResponse held, JsonObject merged) {
+		PluginConfigResponse fresh = gson.fromJson(merged, PluginConfigResponse.class);
+		configFetchLock.lock();
+		try {
+			// A fetch that landed meanwhile is at least as new: keep it.
+			if (pluginConfig == held) {
+				adoptTracking(fresh);
+				if (apiClient.getCurrentRsn() != null) {
+					checkTileCompletions(fresh);
+					checkMissionAlerts(fresh);
+				}
+			}
+		} finally {
+			configFetchLock.unlock();
+		}
+	}
+
+	private static boolean sameTeam(PluginConfigResponse a, PluginConfigResponse b) {
+		return a != null && b != null && a.event != null && b.event != null && a.event.id == b.event.id
+				&& (a.team == null ? 0 : a.team.id) == (b.team == null ? 0 : b.team.id);
+	}
+
+	/**
+	 * A newer config takes over tracking, fetched or pushed. Locally-counted gain and kill progress is
+	 * kept: the server's copy lags while gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so
+	 * wholesale-replacing would snap an in-progress tile's live count backward (the reported
+	 * karambwan/impling flakiness). Each fresh count is floored at what we've already counted.
+	 */
+	private void adoptTracking(PluginConfigResponse fresh) {
+		PluginConfigResponse held = pluginConfig;
+		// Another team's (or event's) counts are no floor for this one: a team move, or an alt on the
+		// other side, would otherwise build on the old team's numbers.
+		PluginConfigResponse prior = sameTeam(held, fresh) ? held : null;
+		if (prior == null) {
+			optimistic.reset();
+		}
+		pluginConfig = fresh;
+		rebuildItemDropIndex();
+		keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
+				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
+		keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
+				k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
+		tileCountsFor = null; // the floors above changed it in place
+		liveCountsMoved();
+	}
+
+	/** The fetch, by a caller already holding {@link #configFetchLock}, which this releases. */
+	private void fetchConfigAndUnlock() {
 		try {
 			refreshConfigLocked();
+			syncPush();
 		} finally {
 			lastConfigAttemptAt = now();
 			configFetchLock.unlock();
@@ -7002,17 +7051,7 @@ public class AnvilPlugin extends Plugin {
 				cfgSet("playerToken", "");
 				return;
 			}
-			// Preserve locally-counted gain progress across the refresh. The server's copy lags while
-			// gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so wholesale-replacing would snap an
-			// in-progress tile's live count backward (the reported karambwan/impling flakiness). Floor
-			// each fresh gain at what we've already counted locally.
-			PluginConfigResponse prior = pluginConfig;
-			pluginConfig = fresh;
-			rebuildItemDropIndex();
-			keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
-					g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
-			keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
-					k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
+			adoptTracking(fresh);
 			// One tracking-state summary, logged only when it CHANGES (the refresh runs every
 			// ~30s) — the first thing to read in a client.log when "nothing tracked": it says
 			// what the plugin believed it was tracking, and when that belief changed.
@@ -7052,7 +7091,7 @@ public class AnvilPlugin extends Plugin {
 			log.warn("Failed to refresh Anvil config: {}", e.getMessage());
 			// A definite refusal (no clan, bad token) is an answer too: the saved copy goes. A site
 			// that is down or slow is not — keep showing it until one does answer.
-			int code = e instanceof BingoApiClient.HttpStatusException ? ((BingoApiClient.HttpStatusException) e).code : 0;
+			int code = e instanceof HttpStatusException ? ((HttpStatusException) e).code : 0;
 			if (code >= 400 && code < 500 && code != 408 && code != 429) {
 				liveConfigAnswered = true;
 				forgetSavedResponses();
@@ -7151,7 +7190,7 @@ public class AnvilPlugin extends Plugin {
 		isAdmin = admin;
 	}
 
-	private static boolean eventIsOver(PluginConfigResponse.EventInfo ev) {
+	private static boolean eventIsOver(EventInfo ev) {
 		if (ev == null) {
 			return false;
 		}
@@ -7187,7 +7226,29 @@ public class AnvilPlugin extends Plugin {
 		// The in-game KC-line boss names and the skill names to push real-time counts for.
 		trackedKcNames = names(has ? cfg.trackedKcNames : null, n -> n.isEmpty() ? null : normalizeBossName(n));
 		trackedSkillNames = names(has ? cfg.trackedSkillNames : null, n -> n.isEmpty() ? null : n.toLowerCase(Locale.ROOT).trim());
+		Map<String, List<TrackedStat>> stats = new HashMap<>();
+		Map<String, Integer> byName = new HashMap<>();
+		for (TrackedStat t : has && cfg.trackedStats != null ? cfg.trackedStats : Collections.<TrackedStat>emptyList()) {
+			if (t != null && t.statName != null) {
+				byName.putIfAbsent(t.statName.toLowerCase(Locale.ROOT).trim(), t.tileId);
+				// A composite tile listing one name twice is still bumped once.
+				for (String key : t.statType == null ? new String[0] : t.statName.split(",")) {
+					List<TrackedStat> l = stats.computeIfAbsent(statKey(t.statType, key), x -> new ArrayList<>());
+					if (!l.contains(t)) {
+						l.add(t);
+					}
+				}
+			}
+		}
+		statTileIndex = stats;
+		statTileByName = byName;
+		alwaysNotifyLower = names(has ? cfg.alwaysNotifyItems : null, n -> n.isEmpty() ? null : n.toLowerCase());
 		rebuildTrackedActivityKeys();
+	}
+
+	/** Skill tiles and boss/KC tiles keyed apart, each by {@link #compactStat}. */
+	private static String statKey(String kind, String name) {
+		return ("skill".equals(kind) ? "s:" : "b:") + compactStat(name);
 	}
 
 	/**
@@ -7256,21 +7317,11 @@ public class AnvilPlugin extends Plugin {
 			return false;
 		}
 		boolean finishes = false;
-		String want = compactStat(name);
-		for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
-			if (s == null || s.statName == null || s.statType == null
-					|| !("skill".equals(kind) ? "skill".equals(s.statType) : !"skill".equals(s.statType))) {
-				continue;
-			}
-			for (String key : s.statName.split(",")) {
-				if (compactStat(key).equals(want)) {
-					optimistic.add(s.tileId, s.currentAmount, delta, now());
-					finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
-							&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
-					repaintSidebarSoon();
-					break;
-				}
-			}
+		for (TrackedStat s : statTileIndex.getOrDefault(statKey(kind, name), Collections.emptyList())) {
+			optimistic.add(s.tileId, s.currentAmount, delta, now());
+			liveCountsMoved();
+			finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
+					&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
 		}
 		return finishes;
 	}
@@ -7278,20 +7329,62 @@ public class AnvilPlugin extends Plugin {
 	/** This client just bumped a tile to {@code current}: hold that count and show it now. */
 	private void raiseLocal(int tileId, long current, long at) {
 		optimistic.raise(tileId, current, at);
-		repaintSidebarSoon();
+		liveCountsMoved();
 	}
 
-	private volatile long lastLocalRepaintAt;
+	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */
+	private volatile Map<Integer, Long> tileCounts = Collections.emptyMap();
+	private volatile PluginConfigResponse tileCountsFor;
 
 	/**
-	 * Move the sidebar's numbers off a local bump — at most once a second, since an XP tile bumps on
-	 * every drop. Only the labels and bars change (no fetch, no rebuild); the 15s poll brings the rest.
+	 * The newest count this client has for a tile: the held config's, or its own unconfirmed one when
+	 * higher; -1 when it tracks no such tile. What the panel's live counts move to (UiView.tickLive).
 	 */
-	private void repaintSidebarSoon() {
-		long t = now();
-		if (sidebarPanel != null && t - lastLocalRepaintAt >= 1_000) {
-			lastLocalRepaintAt = t;
-			SwingUtilities.invokeLater(sidebarPanel::bumpProgress);
+	long tileCount(int tileId) {
+		PluginConfigResponse cfg = pluginConfig;
+		if (cfg != tileCountsFor) {
+			Map<Integer, Long> counts = new HashMap<>();
+			if (cfg != null) {
+				for (Map.Entry<String, JsonElement> e : gson.toJsonTree(cfg).getAsJsonObject().entrySet()) {
+					if (!e.getKey().startsWith("tracked") || !e.getValue().isJsonArray()) {
+						continue;
+					}
+					for (JsonElement row : e.getValue().getAsJsonArray()) {
+						JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
+						if (r == null || !r.has("tileId") || !r.has("currentAmount")) {
+							continue;
+						}
+						int tile = r.get("tileId").getAsInt();
+						// A set or collection tile counts pieces here, but the panel shows the best
+						// set (10 pieces vs "2 / 4"): not the same number, so it doesn't move live.
+						JsonElement reqs = r.get("itemRequirements");
+						if (reqs != null && reqs.isJsonArray() && reqs.getAsJsonArray().size() > 0) {
+							counts.put(tile, -1L);
+						} else if (counts.getOrDefault(tile, 0L) >= 0) {
+							counts.merge(tile, r.get("currentAmount").getAsLong(), Math::max);
+						}
+					}
+				}
+			}
+			tileCounts = counts;
+			tileCountsFor = cfg;
+		}
+		Long site = tileCounts.get(tileId);
+		if (site != null && site < 0) {
+			return -1; // a set tile: see above
+		}
+		if (site != null) {
+			optimistic.seen(tileId, site);
+		}
+		long floor = optimistic.floor(tileId, now());
+		return site == null ? (floor > 0 ? floor : -1) : Math.max(site, floor);
+	}
+
+	/** Counts moved here (own progress, a pushed or fetched config): the panel redraws its live ones. */
+	private void liveCountsMoved() {
+		AnvilSidebarPanel panel = sidebarPanel;
+		if (panel != null) {
+			panel.liveCountsMoved();
 		}
 	}
 
@@ -7306,50 +7399,30 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Record that the local player just gained on the tracked stat tile whose {@code statName} matches
-	 * {@code name} (skill name or boss KC name, case-insensitive). Best-effort: a name that maps to no
-	 * stat tile is ignored (the tile then falls to the sidebar's "a teammate" attribution via config
-	 * deltas). Called from the XP/KC push path, so it only fires on the local account's own gains.
+	 * The local player just gained on the tracked stat tile whose {@code statName} matches {@code name}
+	 * (skill name or boss KC name, case-insensitive); a name that maps to no stat tile is ignored.
+	 * Called from the XP/KC push path, so it only fires on the local account's own gains.
 	 */
 	private void noteLocalStatProgress(String name) {
 		PluginConfigResponse cfg = pluginConfig;
 		if (cfg == null || cfg.trackedStats == null || name == null) {
 			return;
 		}
-		String n = name.toLowerCase(Locale.ROOT).trim();
-		for (PluginConfigResponse.TrackedStat s : cfg.trackedStats) {
-			if (s != null && s.statName != null
-					&& n.equals(s.statName.toLowerCase(Locale.ROOT).trim())) {
-				noteLocalProgress(s.tileId);
-				return;
-			}
+		Integer tileId = statTileByName.get(name.toLowerCase(Locale.ROOT).trim());
+		if (tileId != null) {
+			noteLocalProgress(tileId);
 		}
 	}
 
 	/**
-	 * Record that THIS account just progressed {@code tileId} — for any tile kind. Stat tiles arrive via
-	 * {@link #noteLocalStatProgress}; submission tiles (drops/kills/…) call this straight from the submit
-	 * path. Lets the sidebar's "Active now" attribute the tile to "You" vs "a teammate" without waiting on
-	 * the (undeployed) activity feed.
+	 * THIS account just progressed {@code tileId} — any tile kind. A pinned tile then shows it a few
+	 * seconds later rather than on the next 30s poll — long enough for the push that carries it to land
+	 * on the site first.
 	 */
 	private void noteLocalProgress(int tileId) {
-		if (tileId > 0) {
-			localStatProgressAt.put(tileId, now());
-			// A pinned tile shows your own kill a few seconds later rather than on the next 30s poll —
-			// long enough for the push that carries it to land on the site first.
-			if (tileTracker.tracks(tileId)) {
-				later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), 4_000);
-			}
+		if (tileId > 0 && tileTracker.tracks(tileId)) {
+			later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), 4_000);
 		}
-	}
-
-	/**
-	 * Snapshot of tiles this account recently progressed (tileId → epoch millis), for the sidebar's
-	 * "Active now" self-attribution. A fresh copy so the caller (off the client thread) never sees a
-	 * partially-mutated map.
-	 */
-	public Map<Integer, Long> localStatProgress() {
-		return new HashMap<>(localStatProgressAt);
 	}
 
 	/**
@@ -7432,14 +7505,9 @@ public class AnvilPlugin extends Plugin {
 	 * regardless of punctuation — e.g. "Tombs of Amascut: Expert Mode" ↔ "tombs of amascut expert mode".
 	 */
 	private static String normalizeBossName(String s) {
-		return s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+		return SearchAliases.fold(s);
 	}
 
-	/**
-	 * Buffers an absolute boss KC for a debounced push, if the event tracks this boss as a KC tile.
-	 * Absolute counts are idempotent, so the latest value overwrites and a kill streak becomes one
-	 * push. Runs on the client thread (onChatMessage); the network send happens on the executor.
-	 */
 	/**
 	 * Push the killcount an unlock just happened at, bypassing the tracked-boss gate.
 	 *
@@ -7570,11 +7638,17 @@ public class AnvilPlugin extends Plugin {
 				task, tier.getDisplayName(), now()));
 		scheduleMomentPush();
 
+		// No live event of ours: the feed still took it, the counter has nowhere to go.
+		bumpEventCounter(() -> eventCaTasks++);
+	}
+
+	/** Bump a per-event counter (only during an event of ours), save it and push it soon. */
+	private void bumpEventCounter(Runnable bump) {
 		synchronized (counterLock) {
 			if (!ensureCounterEvent()) {
-				return; // no live event of ours — the feed still took it, the counter has nowhere to go
+				return;
 			}
-			eventCaTasks++;
+			bump.run();
 			persistCounters();
 		}
 		scheduleCounterPush();
@@ -7582,14 +7656,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Our own death happened during an active event → bump the per-event death counter and push. */
 	private void recordEventDeath() {
-		synchronized (counterLock) {
-			if (!ensureCounterEvent()) {
-				return;
-			}
-			eventDeaths++;
-			persistCounters();
-		}
-		scheduleCounterPush();
+		bumpEventCounter(() -> eventDeaths++);
 	}
 
 	/**
@@ -7602,13 +7669,8 @@ public class AnvilPlugin extends Plugin {
 			if (damage <= eventBiggestHit) {
 				return;
 			}
-			if (!ensureCounterEvent() || damage <= eventBiggestHit) {
-				return;
-			}
-			eventBiggestHit = damage;
-			persistCounters();
 		}
-		scheduleCounterPush();
+		bumpEventCounter(() -> eventBiggestHit = Math.max(eventBiggestHit, damage));
 	}
 
 	/**
@@ -7640,14 +7702,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** One attributed dangerous-PvP kill (see onActorDeath) → the per-event PKer counter. */
 	private void recordEventPvpKill() {
-		synchronized (counterLock) {
-			if (!ensureCounterEvent()) {
-				return;
-			}
-			eventPvpKills++;
-			persistCounters();
-		}
-		scheduleCounterPush();
+		bumpEventCounter(() -> eventPvpKills++);
 	}
 
 	/**
@@ -7958,7 +8013,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		try {
 			apiClient.submitMoments(batch);
-		} catch (BingoApiClient.PermanentSubmissionException e) {
+		} catch (PermanentSubmissionException e) {
 			// The site will never take this batch; drop it rather than resend it forever.
 			log.warn("Moment push refused — dropping {}: {}", batch.size(), e.getMessage());
 			moments.onSent(batch);
@@ -8003,8 +8058,8 @@ public class AnvilPlugin extends Plugin {
 		if (pluginConfig == null || pluginConfig.rollTables == null || items == null || items.isEmpty()) {
 			return;
 		}
-		PluginConfigResponse.RollTable table = null;
-		for (PluginConfigResponse.RollTable t : pluginConfig.rollTables) {
+		RollTable table = null;
+		for (RollTable t : pluginConfig.rollTables) {
 			if (t != null && t.boss != null && t.boss.equalsIgnoreCase(source)) {
 				table = t;
 				break;
@@ -8078,7 +8133,7 @@ public class AnvilPlugin extends Plugin {
 	private void rebuildPvpRosterIndex() {
 		Map<String, Integer> index = new HashMap<>();
 		if (pluginConfig != null && pluginConfig.pvpRoster != null) {
-			for (PluginConfigResponse.RosterEntry entry : pluginConfig.pvpRoster) {
+			for (RosterEntry entry : pluginConfig.pvpRoster) {
 				if (entry != null && entry.name != null && !entry.name.isEmpty()) {
 					index.put(Rsn.normalize(entry.name), entry.teamId);
 				}
@@ -8397,7 +8452,7 @@ public class AnvilPlugin extends Plugin {
 	private void creditOnePvpTile(TrackedPvp tile, String victimName) {
 		tile.currentAmount += 1;
 		raiseLocal(tile.tileId, tile.currentAmount, now());
-		log.info("Tracked PvP kill: {} → tile '{}' ({}/{})",
+		log.debug("Tracked PvP kill: {} → tile '{}' ({}/{})",
 				victimName, tile.label, tile.currentAmount, tile.requiredAmount);
 		String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
 		captureAndSubmitProof(tile.tileId, tile.label, 1, null,
@@ -8450,12 +8505,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Posts any item worth at least the configured threshold to the rare-drops
-	 * channel. Runs on the client thread (loot events fire there), so
-	 * item-value lookups are safe; the screenshot and network send are deferred
-	 * off-thread.
-	 */
-	/**
 	 * Reports loot to the rare-drops channel. Loot keys and regular drops are
 	 * kept separate: - A loot key (the "Loot Chest" open) is reported as ONE
 	 * unit, gated only by "Loot key value" (the contents' combined total).
@@ -8483,7 +8532,7 @@ public class AnvilPlugin extends Plugin {
 			List<RareItem> contents = new ArrayList<>();
 			for (ItemStack item : items) {
 				int itemId = item.getId();
-				if (isLootKeyItem(itemId)) {
+				if (isLootKey(itemName(itemId))) {
 					continue;
 				}
 				int qty = Math.max(1, item.getQuantity());
@@ -8515,7 +8564,8 @@ public class AnvilPlugin extends Plugin {
 
 		for (ItemStack item : items) {
 			int itemId = item.getId();
-			if (isLootKeyItem(itemId)) {
+			String iname = itemName(itemId);
+			if (isLootKey(iname)) {
 				continue;
 			}
 			int qty = Math.max(1, item.getQuantity());
@@ -8527,12 +8577,11 @@ public class AnvilPlugin extends Plugin {
 			// its own dedup suppresses this fire. Otherwise a second loot event for the same kill
 			// (NpcLootReceived + LootReceived) finds the allowlist already claimed, falls through,
 			// and posts a duplicate "Rare drop" for a high-value allowlist item (e.g. a Blood shard).
-			String iname = itemName(itemId);
 			// Match by item ID (server-resolved) first — reliable for untradeables like a ToA Cursed phalanx
 			// that have no value to gate on — then fall back to the name allowlist for back-compat.
 			if (notableItemIds.contains(itemId) || isAlwaysNotifyItem(iname)) {
 				if (claimAllowlistNotify(iname, now)) {
-					postSpecialDrop(source, sourceKind, itemId, qty, itemValue);
+					postSpecialDrop(source, sourceKind, itemId, iname, qty, itemValue);
 				}
 				continue;
 			}
@@ -8541,7 +8590,7 @@ public class AnvilPlugin extends Plugin {
 
 			Double dropRate = null; // probability (1/N) when rare enough to report
 			if (rarityThreshold > 0 && rarity != null && source != null && !source.isEmpty()) {
-				java.util.OptionalDouble r = rarity.getRarity(source, itemId, qty);
+				OptionalDouble r = rarity.getRarity(source, itemId, qty);
 				if (r.isPresent()) {
 					double p = r.getAsDouble();
 					if (p > 0 && MathUtils.lessThanOrEqual(p, 1.0 / rarityThreshold)) {
@@ -8588,10 +8637,9 @@ public class AnvilPlugin extends Plugin {
 				return true;
 			}
 		}
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg != null && cfg.alwaysNotifyItems != null) {
-			for (String pattern : cfg.alwaysNotifyItems) {
-				if (pattern != null && !pattern.isEmpty() && n.contains(pattern.toLowerCase())) {
+		if (pluginConfig != null) {
+			for (String pattern : alwaysNotifyLower) {
+				if (n.contains(pattern)) {
 					return true;
 				}
 			}
@@ -8627,8 +8675,7 @@ public class AnvilPlugin extends Plugin {
 	 * Posts a notable collection-log unlock (a prestige item) when it lands via
 	 * a loot event.
 	 */
-	private void postSpecialDrop(String source, String sourceKind, int itemId, int qty, long value) {
-		String name = itemName(itemId);
+	private void postSpecialDrop(String source, String sourceKind, int itemId, String name, int qty, long value) {
 		// value can be 0 for untradeables — the post then shows no value.
 		postNotable(name, "loot", source, sourceKind, itemId, qty, value, killCountFor(source));
 	}
@@ -8839,11 +8886,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * True when the item is a loot key — its contents fire a separate
+	 * True when the item (by name) is a loot key — its contents fire a separate
 	 * LootReceived when opened.
 	 */
-	private boolean isLootKeyItem(int itemId) {
-		String name = itemName(itemId);
+	private static boolean isLootKey(String name) {
 		return name != null && name.toLowerCase().contains("loot key");
 	}
 
@@ -8862,10 +8908,6 @@ public class AnvilPlugin extends Plugin {
 		return "Item " + itemId;
 	}
 
-	/**
-	 * Most recent kill/clear count parsed for a loot source, or null if unknown
-	 * or the server has switched the KC display off.
-	 */
 	/**
 	 * Move stale shipped defaults forward, once per install.
 	 *
@@ -8911,20 +8953,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * The kill count to stamp on a drop from {@code source}.
-	 *
-	 * A RAID REPORTS ITS LOOT UNDER THE BASE NAME. RuneLite's loot event says "Tombs of Amascut"
-	 * whichever mode you ran, while the game's kill-count line names the mode — "Your completed Tombs
-	 * of Amascut: Expert Mode count is: 220". Those are different keys, so looking the base name up
-	 * answered with whatever the NORMAL-mode count happened to be, and an Expert drop at 220 was
-	 * posted to Discord as "KC 54". Same shape for CoX Challenge Mode and ToB Hard Mode.
-	 *
-	 * The kill line always precedes the loot, so a recent line naming this source — or any mode of it
-	 * — is the one this drop belongs to. Outside that window nothing recent is claimed and the
-	 * per-name map answers as before, which is what a drop with no kill line (a clue casket, an
-	 * impling) still wants.
-	 */
-	/**
 	 * The raid modes the game appends to a base name. A CLOSED SET, deliberately.
 	 *
 	 * The first attempt at this accepted any extra words after the base, on the reasoning that "a
@@ -8968,11 +8996,25 @@ public class AnvilPlugin extends Plugin {
 	 * method rather than the field so every caller sees the same null-safety and the capability
 	 * gate lives in one place.
 	 */
-	private PluginConfigResponse.DropFacts dropFacts() {
+	private DropFacts dropFacts() {
 		PluginConfigResponse cfg = pluginConfig;
 		return cfg != null && cfg.serverSupports("drop-facts") ? cfg.dropFacts : null;
 	}
 
+	/**
+	 * The kill count to stamp on a drop from {@code source}.
+	 *
+	 * A RAID REPORTS ITS LOOT UNDER THE BASE NAME. RuneLite's loot event says "Tombs of Amascut"
+	 * whichever mode you ran, while the game's kill-count line names the mode — "Your completed Tombs
+	 * of Amascut: Expert Mode count is: 220". Those are different keys, so looking the base name up
+	 * answered with whatever the NORMAL-mode count happened to be, and an Expert drop at 220 was
+	 * posted to Discord as "KC 54". Same shape for CoX Challenge Mode and ToB Hard Mode.
+	 *
+	 * The kill line always precedes the loot, so a recent line naming this source — or any mode of it
+	 * — is the one this drop belongs to. Outside that window nothing recent is claimed and the
+	 * per-name map answers as before, which is what a drop with no kill line (a clue casket, an
+	 * impling) still wants.
+	 */
 	private Integer killCountFor(String source) {
 		PluginConfigResponse cfg = pluginConfig;
 		if (cfg != null && !cfg.showKillCount) {
@@ -9027,6 +9069,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * A standout item collected for a combined rare-drop post.
 	 */
+	@RequiredArgsConstructor
 	private static final class RareItem {
 
 		final int itemId;
@@ -9034,12 +9077,6 @@ public class AnvilPlugin extends Plugin {
 		final long value;
 		final Double dropRate;
 
-		RareItem(int itemId, int qty, long value, Double dropRate) {
-			this.itemId = itemId;
-			this.qty = qty;
-			this.value = value;
-			this.dropRate = dropRate;
-		}
 	}
 
 	/**
@@ -9101,10 +9138,11 @@ public class AnvilPlugin extends Plugin {
 	 * How long the pet post waits for its collection-log line. Long enough to cover the unlock
 	 * landing a tick or two later, short enough that the post still reads as immediate — and short
 	 * enough that it can't swallow an unrelated unlock from the next kill.
+	 *
+	 * <p>Six seconds, not two: with the player's own collection-log line switched off, the clan's copy is
+	 * the one that names it, and it can land a few ticks after the pet line — after a two-second wait
+	 * the pet had already posted as just "pet" and the name went out as a separate unlock.
 	 */
-	// Six seconds, not two: with the player's own collection-log line switched off, the clan's copy is
-	// the one that names it, and it can land a few ticks after the pet line — after a two-second wait
-	// the pet had already posted as just "pet" and the name went out as a separate unlock.
 	private static final long PET_NAME_WINDOW_MS = 6_000;
 	/** How long a named pet still claims a line repeating its name (see claimPetName). */
 	private static final long PET_RECLAIM_MS = 60_000;
@@ -9296,7 +9334,7 @@ public class AnvilPlugin extends Plugin {
 			// Real rarity or none: asked of the same service the rare-drop posts price against.
 			f.put("itemId", pet.itemId).put("dropRate", pet.dropRate);
 			// A skilling pet has no monster; its skill is the only true thing to say about where from.
-			PluginConfigResponse.DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
+			DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
 			if (entry != null) {
 				f.put("skill", entry.skill);
 			}
@@ -9316,7 +9354,7 @@ public class AnvilPlugin extends Plugin {
 		if (service == null) {
 			return null;
 		}
-		java.util.OptionalDouble r = service.getRarity(source, itemId, 1);
+		OptionalDouble r = service.getRarity(source, itemId, 1);
 		return r.isPresent() && r.getAsDouble() > 0 ? r.getAsDouble() : null;
 	}
 
@@ -9415,14 +9453,6 @@ public class AnvilPlugin extends Plugin {
 				.put("tier", tier), "anvil-diary.png");
 	}
 
-	/**
-	 * Credits diary bingo tiles whose selector list matches this completion.
-	 * Selectors are "&lt;Area&gt; &lt;Tier&gt;" with "Any" as a wildcard on
-	 * either side ("Any Elite", "Wilderness Any"); area matching is
-	 * contains-based so "Lumbridge Any" matches the "Lumbridge &amp; Draynor"
-	 * area. One completion == amount 1 through the shared proof pipeline
-	 * (banner + screenshot + retry store).
-	 */
 	/** One "&lt;Area&gt; &lt;Tier&gt;" selector against a completion; "Any" is a wildcard on either side. */
 	private static boolean diarySelectorMatches(String sel, String areaLower, String tierLower) {
 		if (sel == null) {
@@ -9439,13 +9469,21 @@ public class AnvilPlugin extends Plugin {
 				&& (selTier.equals("any") || tierLower.equals(selTier));
 	}
 
+	/**
+	 * Credits diary bingo tiles whose selector list matches this completion.
+	 * Selectors are "&lt;Area&gt; &lt;Tier&gt;" with "Any" as a wildcard on
+	 * either side ("Any Elite", "Wilderness Any"); area matching is
+	 * contains-based so "Lumbridge Any" matches the "Lumbridge &amp; Draynor"
+	 * area. One completion == amount 1 through the shared proof pipeline
+	 * (banner + screenshot + retry store).
+	 */
 	private void creditDiaryTiles(String area, String tier) {
 		if (trackingOff() || pluginConfig.trackedDiaries == null) {
 			return;
 		}
 		String areaLower = area.toLowerCase();
 		String tierLower = tier.toLowerCase();
-		for (PluginConfigResponse.TrackedDiary d : pluginConfig.trackedDiaries) {
+		for (TrackedDiary d : pluginConfig.trackedDiaries) {
 			if (d == null || d.diaries == null || d.currentAmount >= d.requiredAmount) {
 				continue;
 			}
@@ -9454,7 +9492,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			d.currentAmount += 1;
 			raiseLocal(d.tileId, d.currentAmount, now());
-			log.info("Tracked diary completion: {} {} → tile '{}' ({}/{})",
+			log.debug("Tracked diary completion: {} {} → tile '{}' ({}/{})",
 					area, tier, d.label, d.currentAmount, d.requiredAmount);
 			captureAndSubmitProof(d.tileId, d.label, 1, null,
 					"DIARY COMPLETE", area + " " + tier + " Diary",
@@ -9492,7 +9530,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			t.currentAmount += 1;
 			raiseLocal(t.tileId, t.currentAmount, now());
-			log.info("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
+			log.debug("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
 					tier.getDisplayName(), task, t.label, t.currentAmount, t.requiredAmount);
 			captureAndSubmitProof(t.tileId, t.label, 1, null,
 					"COMBAT TASK", tier.getDisplayName() + ": " + task,
@@ -9521,12 +9559,6 @@ public class AnvilPlugin extends Plugin {
 				|| (cfg.trackedValues != null && !cfg.trackedValues.isEmpty());
 	}
 
-	/**
-	 * One-time (per session) reminder to enable the in-game "Repeat completion" Combat
-	 * Achievement setting when the active event has incomplete CA tiles — without it, tasks
-	 * the player already owns never re-fire the completion line, so those tiles can never
-	 * track for them. Reads the setting's varbit, so the check runs on the client thread.
-	 */
 	/** On the client thread, and only while logged in — the nudges read settings varbits. */
 	private void whenLoggedIn(Runnable r) {
 		clientThread.invokeLater(() -> {
@@ -9536,6 +9568,12 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * One-time (per session) reminder to enable the in-game "Repeat completion" Combat
+	 * Achievement setting when the active event has incomplete CA tiles — without it, tasks
+	 * the player already owns never re-fire the completion line, so those tiles can never
+	 * track for them. Reads the setting's varbit, so the check runs on the client thread.
+	 */
 	private void maybeNudgeCaRepeatSetting() {
 		if (caRepeatNudgeSent || pluginConfig == null || pluginConfig.trackedCombatTasks == null
 				|| pluginConfig.trackedCombatTasks.isEmpty() || !AnvilOverlay.isEventActive(pluginConfig.event)) {
@@ -9561,14 +9599,6 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/**
-	 * One-time (per session) reminder to enable the in-game loot drop notifications when clan
-	 * rare-drop posts are on. The "&lt;player&gt; received a drop: …" chat line those posts key
-	 * off for corpse-boss spill loot (Maggot King uniques — see creditDropFromChat) is Jagex's
-	 * opt-in loot notification: with the setting off, or its value threshold above the drop's
-	 * price, the line never prints and the plugin has nothing to parse — a 50m fang can pass
-	 * completely silently. Varbit read requires the client thread.
-	 */
 	/**
 	 * The in-game collection-log notification, which is what prints the line the plugin reads.
 	 *
@@ -9597,6 +9627,14 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * One-time (per session) reminder to enable the in-game loot drop notifications when clan
+	 * rare-drop posts are on. The "&lt;player&gt; received a drop: …" chat line those posts key
+	 * off for corpse-boss spill loot (Maggot King uniques — see creditDropFromChat) is Jagex's
+	 * opt-in loot notification: with the setting off, or its value threshold above the drop's
+	 * price, the line never prints and the plugin has nothing to parse — a 50m fang can pass
+	 * completely silently. Varbit read requires the client thread.
+	 */
 	private void maybeNudgeLootNotifications() {
 		if (lootNotifyNudgeSent) {
 			return;
@@ -9770,13 +9808,11 @@ public class AnvilPlugin extends Plugin {
 		// How far along they are. A level post is about skills rather than total, so it counts those —
 		// and a build not chasing max still gets it, because "12 of 23 skills at 99" is a fact about
 		// what they have done rather than a distance from somebody else's goal.
+		// Skill.OVERALL is a null tombstone, never in values().
 		int at99 = 0;
-		int of = 0;
+		int of = Skill.values().length;
 		for (Skill sk : Skill.values()) {
-			if (sk != Skill.OVERALL) {
-				of++;
-				at99 += client.getRealSkillLevel(sk) >= 99 ? 1 : 0;
-			}
+			at99 += client.getRealSkillLevel(sk) >= 99 ? 1 : 0;
 		}
 		// An older site knows only 99s (all its fixed rules can match) under the old kind.
 		boolean rules = pluginConfig != null && pluginConfig.serverSupports("level-rules");
@@ -9834,13 +9870,7 @@ public class AnvilPlugin extends Plugin {
 	 * skills are added).
 	 */
 	private int maxTotalLevel() {
-		int max = 0;
-		for (Skill s : Skill.values()) {
-			if (s != Skill.OVERALL) {
-				max += 99;
-			}
-		}
-		return max;
+		return 99 * Skill.values().length;
 	}
 
 	/**
@@ -9950,14 +9980,6 @@ public class AnvilPlugin extends Plugin {
 
 
 	/**
-	 * Whether a clan notification channel ("deaths", "pvpKills", "rareDrops",
-	 * "combatAchievements") has a Discord webhook configured on the site. The
-	 * flags are fetched on launch as part of the plugin config and refreshed
-	 * periodically. When true, the plugin posts the notification to its own
-	 * server (/api/plugin/notify), which forwards it to Discord — the plugin
-	 * never sees the webhook URL itself.
-	 */
-	/**
 	 * Whether the clan has somewhere to put this kind of post.
 	 *
 	 * <p>Five kinds -- pets, levels, quests, diaries, collection-log slots -- used to be announced
@@ -9977,7 +9999,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** The resolution itself, free of plugin state so the inheritance can be tested directly. */
-	static boolean channelEnabled(PluginConfigResponse.NotifyChannels n, String channel) {
+	static boolean channelEnabled(NotifyChannels n, String channel) {
 		if (n == null) {
 			return false;
 		}
@@ -10048,6 +10070,29 @@ public class AnvilPlugin extends Plugin {
 	 * the client/AWT thread, so encoding and sending never hold up the game loop. {@code dead} runs
 	 * instead when the executor has gone away in the meantime.
 	 */
+	/**
+	 * The next frame drawn with our overlays hidden (they skip drawing while {@link #capturing}). Asked
+	 * for from the client thread, between frames: from the executor the request could land mid-draw and
+	 * return a frame our overlays were already painted into. The flag is cleared however the request
+	 * ends, so a plugin stopped in between can't leave every overlay hidden.
+	 */
+	private void onCleanFrame(Consumer<BufferedImage> work) {
+		clientThread.invokeLater(() -> {
+			capturing = true;
+			drawManager.requestNextFrameListener(image -> {
+				capturing = false;
+				if (!execLive()) {
+					return;
+				}
+				try {
+					executor.submit(() -> work.accept((BufferedImage) image));
+				} catch (RejectedExecutionException e) {
+					log.debug("Proof frame dropped: plugin stopping");
+				}
+			});
+		});
+	}
+
 	private void onNextFrame(Consumer<BufferedImage> work, Runnable dead) {
 		drawManager.requestNextFrameListener(image -> {
 			if (!execLive()) {
@@ -10077,7 +10122,7 @@ public class AnvilPlugin extends Plugin {
 	/** Copy the shared frame — never mutate the draw manager's buffer — burn the proof banner on, encode. */
 	private byte[] bakeCopy(BufferedImage src, String title, String detail, String rsn) throws IOException {
 		BufferedImage copy = copyFrame(src);
-		annotateProofBanner(copy, title, detail, rsn, null);
+		annotateProofBanner(copy, title, detail, rsn);
 		return png(copy);
 	}
 
@@ -10112,7 +10157,7 @@ public class AnvilPlugin extends Plugin {
 
 	// Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text
 	// has a built-in shadow). Both are the player's to change (Chat messages in the config).
-	private static String hexOf(java.awt.Color c, String fallback) {
+	private static String hexOf(Color c, String fallback) {
 		return c == null ? fallback : String.format("%06x", c.getRGB() & 0xFFFFFF);
 	}
 
@@ -10146,14 +10191,6 @@ public class AnvilPlugin extends Plugin {
 	// nothing is read at all while the toggles are off.
 
 	/**
-	 * Whether the clan site can store profile data at all.
-	 *
-	 * <p>Gated on the capability rather than discovered by 404ing: a site that predates these
-	 * endpoints would otherwise be asked every 30 seconds, forever, by every member of the clan.
-	 * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
-	 * no batching and no requests.
-	 */
-	/**
 	 * The sidebar's "Sync clan roster" button.
 	 *
 	 * <p>Same work as the in-game one, with its own in-flight guard so a double click is one push,
@@ -10183,9 +10220,16 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/** Does this clan's site take profile data? Drives the in-tab "Sync profile" row. */
+	/**
+	 * Whether the clan site can store profile data at all — drives the in-tab "Sync profile" row.
+	 *
+	 * <p>Gated on the capability rather than discovered by 404ing: a site that predates these
+	 * endpoints would otherwise be asked every 30 seconds, forever, by every member of the clan.
+	 * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
+	 * no batching and no requests.
+	 */
 	public boolean supportsProfileSync() {
-		return config.syncClog() && apiClient.isConfigured() && serverSupportsProfileSync();
+		return config.syncClog() && apiClient.isConfigured() && serverSupportsCap("profile-sync");
 	}
 
 	// Whether the collection log is on screen, as last seen on a tick. The panel's "Sync profile" can
@@ -10236,19 +10280,16 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * In no clan the config is a 404 and carries no capabilities; /api/version answers instead — the
+	 * log and bests are the person's, so a solo player syncs them like anyone else.
+	 */
 	private boolean serverSupportsCap(String capability) {
 		PluginConfigResponse cfg = pluginConfig;
 		return cfg != null ? cfg.serverSupports(capability)
 				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
-	private boolean serverSupportsProfileSync() {
-		// In no clan the config is a 404 and carries no capabilities; /api/version answers instead.
-		// The log and bests are the person's, so a solo player syncs them like anyone else.
-		PluginConfigResponse cfg = pluginConfig;
-		return cfg != null ? cfg.serverSupports("profile-sync")
-				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises("profile-sync");
-	}
 
 	/**
 	 * Point the profile-sync state at the account that just logged in.
@@ -10377,6 +10418,31 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
+	 * The send contract the profile-sync pushes share: the result on success (backoff cleared), else
+	 * null after the matching handler ran — rate-limited (gets the wait in ms), refused for good
+	 * (drop the batch) or failed (backoff bumped, batch kept); the last two get the error message.
+	 */
+	private <T> T pushBatch(String what, SyncBackoff backoff, long now, Callable<T> send,
+			LongConsumer limited, Consumer<String> refused, Consumer<String> failed) {
+		try {
+			T result = send.call();
+			backoff.onSuccess();
+			return result;
+		} catch (RateLimitedException e) {
+			log.debug("{} rate-limited for {}ms", what, e.retryAfterMs);
+			limited.accept(e.retryAfterMs);
+		} catch (PermanentSubmissionException e) {
+			log.info("{} refused, dropping it: {}", what, e.getMessage());
+			refused.accept(e.getMessage());
+		} catch (Exception e) {
+			backoff.onFailure(now);
+			log.debug("{} push failed, retrying in {}s: {}", what, backoff.secondsUntilReady(now), e.getMessage());
+			failed.accept(e.getMessage());
+		}
+		return null;
+	}
+
+	/**
 	 * Send any collection-log pages that have changed. Runs on the shared executor's 30s tick --
 	 * no thread of our own, and nothing on the client thread.
 	 */
@@ -10389,27 +10455,16 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		List<ClogPage> batch = clogSync.nextBatch();
-		try {
+		// Rate-limited: background sync, nothing to tell the player, just wait as long as the site asked.
+		// Refused outright (a malformed page, a site that doesn't take these): dropping the batch is the
+		// only way out of an otherwise permanent 30-second retry loop.
+		if (pushBatch("Collection log pages", clogBackoff, now, () -> {
 			apiClient.submitClogPages(batch, clogSync.syncedPages());
-		} catch (RateLimitedException e) {
-			// Background sync: nothing to tell the player, just wait as long as the site asked.
-			clogPushAllowedAt = now() + Math.max(e.retryAfterMs, 1_000L);
-			log.debug("Collection log pages rate-limited for {}ms", e.retryAfterMs);
-			return;
-		} catch (PermanentSubmissionException e) {
-			// Refused outright (a malformed page, a site that doesn't take these): dropping the batch
-			// is the only way out of an otherwise permanent 30-second retry loop.
-			log.info("Collection log pages refused, dropping the batch: {}", e.getMessage());
-			clogSync.onSent(batch);
-			return;
-		} catch (Exception e) {
-			// Left queued: we retry after the backoff. A clan site being down must not lose a sync.
-			clogBackoff.onFailure(now);
-			log.debug("Collection log push failed, retrying in {}s: {}",
-					clogBackoff.secondsUntilReady(now), e.getMessage());
+			return batch;
+		}, ms -> clogPushAllowedAt = now() + Math.max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {
+		}) == null) {
 			return;
 		}
-		clogBackoff.onSuccess();
 		clogSync.onSent(batch);
 		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn),
 				clogSync.serializeState());
@@ -10450,44 +10505,33 @@ public class AnvilPlugin extends Plugin {
 			}
 			return;
 		}
-		BingoApiClient.ClogPushResult result;
-		try {
-			result = apiClient.submitClogItems(clogFullSync.snapshot());
-		} catch (RateLimitedException e) {
-			// It said when. Wait exactly that long instead of doubling blindly, and keep the batch.
-			clogPushAllowedAt = now + Math.max(e.retryAfterMs, 1_000L);
-			clogFullSync.onSendFailed(now);
-			manualSyncStartedAt = 0;
-			log.debug("Collection log push rate-limited for {}ms", e.retryAfterMs);
-			if (manual) {
-				sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
-						+ secs(e.retryAfterMs) + "s.");
-			}
-			return;
-		} catch (PermanentSubmissionException e) {
-			// The site said no and will keep saying no — most often because it predates whole-log
-			// pushes and wants pages instead. Retrying that forever is just noise on their server.
-			log.info("Whole-log push refused, dropping it: {}", e.getMessage());
-			manualSyncStartedAt = 0;
-			clogFullSync.onSent();
-			if (manual) {
-				sendChatMessage("Couldn't sync your profile: " + e.getMessage() + ".");
-			}
-			return;
-		} catch (Exception e) {
-			// Kept for the next attempt: a site that's down mustn't cost them the transmit.
-			clogFullBackoff.onFailure(now);
-			log.debug("Whole-log push failed, retrying in {}s: {}",
-					clogFullBackoff.secondsUntilReady(now), e.getMessage());
-			clogFullSync.onSendFailed(now);
-			manualSyncStartedAt = 0;
-			if (manual) {
-				sendChatMessage("Couldn't sync your profile: " + e.getMessage() + ". It'll retry on its own.");
-			}
+		// Rate-limited: it said when. Wait exactly that long instead of doubling blindly, and keep the
+		// batch. Refused: the site will keep saying no — most often because it predates whole-log pushes
+		// and wants pages instead — so retrying forever is just noise on their server. Failed: kept for
+		// the next attempt; a site that's down mustn't cost them the transmit.
+		ClogPushResult result = pushBatch("Whole-log", clogFullBackoff, now,
+				() -> apiClient.submitClogItems(clogFullSync.snapshot()), ms -> {
+					clogPushAllowedAt = now + Math.max(ms, 1_000L);
+					clogFullSync.onSendFailed(now);
+					if (manual) {
+						sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
+								+ secs(ms) + "s.");
+					}
+				}, m -> {
+					clogFullSync.onSent();
+					if (manual) {
+						sendChatMessage("Couldn't sync your profile: " + m + ".");
+					}
+				}, m -> {
+					clogFullSync.onSendFailed(now);
+					if (manual) {
+						sendChatMessage("Couldn't sync your profile: " + m + ". It'll retry on its own.");
+					}
+				});
+		manualSyncStartedAt = 0; // landed or given up on — nothing for the watchdog to complain about
+		if (result == null) {
 			return;
 		}
-		clogFullBackoff.onSuccess();
-		manualSyncStartedAt = 0; // it landed — nothing for the watchdog to complain about
 		clogPushAllowedAt = now + SERVER_CLOG_COOLDOWN_MS;
 		lastClogFingerprint = fingerprint;
 		if (profileSyncRsn != null) {
@@ -10513,7 +10557,7 @@ public class AnvilPlugin extends Plugin {
 	/** Same contract for best times. */
 	private void flushPersonalBests() {
 		if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null
-				|| !serverSupportsProfileSync()) {
+				|| !serverSupportsCap("profile-sync")) {
 			return;
 		}
 		long now = now();
@@ -10521,24 +10565,14 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		Map<String, Integer> batch = personalBests.nextBatch();
-		try {
+		// Bests ride the same limiter; a rate-limited batch stays dirty and goes up when it clears.
+		if (pushBatch("Personal bests", pbBackoff, now, () -> {
 			apiClient.submitPersonalBests(batch);
-		} catch (RateLimitedException e) {
-			// Bests ride the same limiter; the batch stays dirty and goes up when it clears.
-			pbBackoff.onFailure(now());
-			log.debug("Personal bests rate-limited for {}ms", e.retryAfterMs);
-			return;
-		} catch (PermanentSubmissionException e) {
-			log.info("Personal bests refused, dropping the batch: {}", e.getMessage());
-			personalBests.onSent(batch);
-			return;
-		} catch (Exception e) {
-			pbBackoff.onFailure(now);
-			log.debug("Personal best push failed, retrying in {}s: {}",
-					pbBackoff.secondsUntilReady(now), e.getMessage());
+			return batch;
+		}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {
+		}) == null) {
 			return;
 		}
-		pbBackoff.onSuccess();
 		personalBests.onSent(batch);
 		cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn),
 				personalBests.serializeState());

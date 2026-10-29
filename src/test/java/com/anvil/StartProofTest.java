@@ -44,7 +44,7 @@ public class StartProofTest
 
 	private static AnvilSidebarDataSource sourceFor(PluginConfigResponse cfg)
 	{
-		return new AnvilSidebarDataSource(() -> cfg, new BingoApiClient(new Gson(), new OkHttpClient()), null, null);
+		return new AnvilSidebarDataSource(() -> cfg, new BingoApiClient(new Gson(), new OkHttpClient()));
 	}
 
 	@Test

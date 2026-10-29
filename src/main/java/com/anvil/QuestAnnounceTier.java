@@ -1,11 +1,14 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
+
 /**
  * The lowest quest difficulty posted to the clan achievements channel, or OFF for none. A quest's
  * difficulty comes from {@code questTiers} in anvil_text.json; a quest missing there (the wiki's
  * "Special" ones, such as most of Recipe for Disaster) posts only on ALL. ALL keeps its old name
  * so a saved "All quests" setting still loads; MASTER and GRANDMASTER likewise.
  */
+@RequiredArgsConstructor
 public enum QuestAnnounceTier
 {
 	ALL("All"),
@@ -17,10 +20,6 @@ public enum QuestAnnounceTier
 
 	private final String label;
 
-	QuestAnnounceTier(String label)
-	{
-		this.label = label;
-	}
 
 	/**
 	 * Whether a quest of {@code difficulty} ("NOVICE" … "GRANDMASTER", or null when unknown) is

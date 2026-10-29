@@ -13,6 +13,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -103,6 +104,7 @@ public class ChatPatternsTest
 	public void badOverridesAreRejectedAndKeepTheDefault()
 	{
 		Pattern def = ChatPatterns.get("kc.count");
+		Pattern coffin = ChatPatterns.get("sepulchre.coffin");
 		char[] longRx = new char[ChatPatterns.MAX_LENGTH + 1];
 		Arrays.fill(longRx, 'x');
 		List<String> rejected = ChatPatterns.applyOverrides(Arrays.asList(
@@ -116,21 +118,22 @@ public class ChatPatternsTest
 		assertSame(def, ChatPatterns.get("kc.count"));
 		assertTrue(ChatPatterns.get("ca.task").matcher("Congratulations, you've completed an Elite combat task: Whack-a-Mole.").find());
 		assertTrue(ChatPatterns.get("pet.drop").matcher("You have a funny feeling like you're being followed.").find());
-		assertFalse(ChatPatterns.isOverridden("sepulchre.coffin"));
+		assertSame(coffin, ChatPatterns.get("sepulchre.coffin"));
 	}
 
 	@Test
 	public void anOverrideThatOverspendsOnARealLineIsDroppedForTheSession()
 	{
 		// Quadratic at worst on every vetting input (none carries an 'x'), combinatorial on a line of x's.
+		Pattern def = ChatPatterns.get("pet.drop");
 		List<String> rejected = ChatPatterns.applyOverrides(Collections.singletonList(o("pet.drop", "(.*x){12}y")));
 		assertTrue(rejected.toString(), rejected.isEmpty());
-		assertTrue(ChatPatterns.isOverridden("pet.drop"));
+		assertNotSame(def, ChatPatterns.get("pet.drop"));
 
 		char[] xs = new char[40];
 		Arrays.fill(xs, 'x');
 		assertNull(ChatPatterns.find("pet.drop", new String(xs)));
-		assertFalse(ChatPatterns.isOverridden("pet.drop"));
+		assertSame(def, ChatPatterns.get("pet.drop"));
 		assertNotNull(ChatPatterns.find("pet.drop", "You have a funny feeling like you're being followed."));
 	}
 
@@ -158,10 +161,11 @@ public class ChatPatternsTest
 	@Test
 	public void aLaterSetDropsOverridesItNoLongerNames()
 	{
+		Pattern def = ChatPatterns.get("pet.duplicate");
 		ChatPatterns.applyOverrides(Collections.singletonList(o("pet.duplicate", "already have this pet")));
-		assertTrue(ChatPatterns.isOverridden("pet.duplicate"));
+		assertNotSame(def, ChatPatterns.get("pet.duplicate"));
 		ChatPatterns.applyOverrides(Collections.emptyList());
-		assertFalse(ChatPatterns.isOverridden("pet.duplicate"));
+		assertSame(def, ChatPatterns.get("pet.duplicate"));
 		assertTrue(ChatPatterns.get("pet.duplicate").matcher("You have a funny feeling like you would have been followed...").find());
 	}
 }

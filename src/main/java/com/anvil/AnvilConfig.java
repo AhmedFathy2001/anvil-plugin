@@ -1,10 +1,7 @@
 package com.anvil;
 
 import java.awt.Color;
-import net.runelite.client.config.Config;
-import net.runelite.client.config.ConfigGroup;
-import net.runelite.client.config.ConfigItem;
-import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.*;
 
 @ConfigGroup("osrsbingo")
 public interface AnvilConfig extends Config
@@ -488,7 +485,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "syncClanCoffer",
 		name = "Sync Clan Coffer",
-		description = "Send Clan Coffer balance changes to your clan site while it is open.",
+		description = "Send Clan Coffer deposits and withdrawals to your clan site, from your own clan chat line and the coffer screen.",
 		position = 1,
 		section = "profileSection"
 	)

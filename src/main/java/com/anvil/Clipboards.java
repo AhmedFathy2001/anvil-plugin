@@ -1,8 +1,7 @@
 package com.anvil;
 
 import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
-import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.*;
 import lombok.extern.slf4j.Slf4j;
 
 /**

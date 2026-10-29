@@ -1,9 +1,6 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * The queue behind the clan's highlight feed: pets, uniques, big hauls and deaths, held until the
@@ -103,7 +100,7 @@ class AnvilMoments
 		static Moment level(String skill, int level, String scope, long at)
 		{
 			return new Moment("level", null, skill, level, null, null, scope, null, at,
-				"level|" + (skill == null ? "total" : skill.toLowerCase()) + "|" + level);
+				"level|" + (skill == null ? "total" : skill.toLowerCase(Locale.ROOT)) + "|" + level);
 		}
 	}
 
@@ -249,7 +246,7 @@ class AnvilMoments
 	static String keyFor(String kind, String source, Integer itemId, long at)
 	{
 		long bucket = at / 10_000L;
-		return kind + "|" + (source == null ? "" : source.toLowerCase()) + "|"
+		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
 			+ (itemId == null ? "" : itemId) + "|" + bucket;
 	}
 }

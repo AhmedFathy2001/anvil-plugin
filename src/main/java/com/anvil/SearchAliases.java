@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Boss nicknames both ways, so a search finds a thing by whichever name the player knows it by:
@@ -26,8 +27,16 @@ final class SearchAliases
 		{"ba", "barbarian assault"}, {"lms", "last man standing"}, {"pc", "pest control"}, {"ca", "combat achievement"},
 	};
 
+	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
+
 	private SearchAliases()
 	{
+	}
+
+	/** Lower-cased with every run of punctuation and spaces turned into one space: "K'ril  Tsutsaroth" → "k ril tsutsaroth". */
+	static String fold(String s)
+	{
+		return NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
 	}
 
 	/** {@code text} plus the other name of every boss it mentions — search it like any other text. */
@@ -37,7 +46,7 @@ final class SearchAliases
 		{
 			return "";
 		}
-		String words = " " + text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim() + " ";
+		String words = " " + fold(text) + " ";
 		StringBuilder out = new StringBuilder(text);
 		for (String[] p : PAIRS)
 		{

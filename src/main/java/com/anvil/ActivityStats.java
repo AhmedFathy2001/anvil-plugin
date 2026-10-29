@@ -1,14 +1,9 @@
 package com.anvil;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Set;
+import lombok.RequiredArgsConstructor;
+import java.util.*;
 import java.util.function.IntUnaryOperator;
-import net.runelite.api.gameval.VarPlayerID;
-import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.*;
 
 /**
  * The hiscores counters that are neither a boss nor a skill — clue completions per tier, Colosseum
@@ -40,16 +35,12 @@ final class ActivityStats
 		VARP
 	}
 
+	@RequiredArgsConstructor
 	private static final class Source
 	{
 		final Kind kind;
 		final int id;
 
-		Source(Kind kind, int id)
-		{
-			this.kind = kind;
-			this.id = id;
-		}
 	}
 
 	/** Site tracked-stat key -> where to read it. Keys mirror lib/hiscoresActivities.ts exactly. */

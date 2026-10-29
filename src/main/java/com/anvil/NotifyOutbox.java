@@ -1,19 +1,12 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.stream.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
 
@@ -36,6 +29,7 @@ import net.runelite.client.util.Filepath;
  * Sends run on the OkHttp pool, never the client thread; disk writes on the thread that enqueued
  * (an OkHttp callback) or that pool.
  */
+@RequiredArgsConstructor
 @Slf4j
 final class NotifyOutbox
 {
@@ -85,12 +79,6 @@ final class NotifyOutbox
 	private ScheduledFuture<?> task;
 	private boolean pumping;
 
-	NotifyOutbox(Gson gson, Supplier<ScheduledExecutorService> scheduler, Supplier<ExecutorService> sendPool)
-	{
-		this.gson = gson;
-		this.scheduler = scheduler;
-		this.sendPool = sendPool;
-	}
 
 	void setDir(Filepath dir)
 	{
@@ -152,48 +140,24 @@ final class NotifyOutbox
 	/** Read what a previous session left. Blocking (disk); call off the client thread. */
 	void load()
 	{
-		Filepath d = DiskFiles.ensureDir(dir);
-		if (d == null)
-		{
-			return;
-		}
 		List<Item> found = new ArrayList<>();
 		List<Filepath> pngs = new ArrayList<>();
-		try (Stream<Filepath> walk = d.walk(1))
+		for (Filepath f : DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png")))
 		{
-			List<Filepath> files = walk.filter(Filepath::isFile).collect(Collectors.toList());
-			for (Filepath f : files)
+			if (f.getFileName().endsWith(".png"))
 			{
-				if (f.getFileName().endsWith(".png"))
-				{
-					pngs.add(f);
-				}
-				if (!f.getFileName().endsWith(".json"))
-				{
-					continue;
-				}
-				try
-				{
-					Item it = gson.fromJson(DiskFiles.readText(f), Item.class);
-					if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json"))
-					{
-						found.add(it);
-					}
-					else
-					{
-						DiskFiles.deleteQuietly(f);
-					}
-				}
-				catch (JsonParseException e)
-				{
-					DiskFiles.deleteQuietly(f);
-				}
+				pngs.add(f);
+				continue;
 			}
-		}
-		catch (IOException | RuntimeException e)
-		{
-			log.debug("Notification outbox unreadable: {}", e.getMessage());
-			return;
+			Item it = DiskFiles.readJson(gson, f, Item.class);
+			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json"))
+			{
+				found.add(it);
+			}
+			else
+			{
+				DiskFiles.deleteQuietly(f);
+			}
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
 		for (Filepath png : pngs)

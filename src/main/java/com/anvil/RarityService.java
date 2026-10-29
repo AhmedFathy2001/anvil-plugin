@@ -3,8 +3,7 @@ package com.anvil;
 import com.google.gson.Gson;
 import net.runelite.client.game.ItemManager;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 
 /**
  * NPC drop rarity, backed by the bundled npc_drops.json.

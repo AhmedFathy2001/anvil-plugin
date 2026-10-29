@@ -1,22 +1,14 @@
 package com.anvil;
 
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Graphics2D;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.ui.overlay.OverlayPanel;
-import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.components.LineComponent;
-import net.runelite.client.ui.overlay.components.PanelComponent;
-import net.runelite.client.ui.overlay.components.ProgressBarComponent;
-import net.runelite.client.ui.overlay.components.TitleComponent;
+import net.runelite.client.ui.overlay.*;
+import net.runelite.client.ui.overlay.components.*;
+import java.util.function.ToLongBiFunction;
+import java.time.*;
 
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable
@@ -38,6 +30,8 @@ public class TileTracker
 	private static final String CFG_PINS = "trackedTiles";
 	private static final Color GOLD = new Color(255, 215, 0);
 	private static final int OTHER_TEAMS_SHOWN = 4;
+	/** The blank line between pins in the shared panel; one instance serves every gap. */
+	private static final LineComponent GAP = LineComponent.builder().build();
 	/** How long a just-finished pin keeps showing "Done" before it unpins (hidden on the next fetch after). */
 	static final long DONE_LINGER_MS = 10_000;
 
@@ -48,11 +42,13 @@ public class TileTracker
 	/** tileId → its widget, in pin order. Guarded by {@code this}. */
 	private final Map<Integer, Widget> pins = new LinkedHashMap<>();
 	private int eventId;
+	/** The logged-in account's hash, or -1 at the login screen: pins are saved per account. */
+	private long account = -1;
 	/**
 	 * (tileId, site count) → what to show for your team: the plugin's own newer count when it has one,
 	 * so a pinned tile moves on your kill. Identity until the plugin sets it.
 	 */
-	private volatile java.util.function.ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
+	private volatile ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
 	/**
 	 * One panel holding every pin (the default) or a movable widget per pin. One panel can't end up
 	 * with pins on top of each other, and is one thing to place; separate ones can be put anywhere.
@@ -73,7 +69,7 @@ public class TileTracker
 		this.apiClient = apiClient;
 	}
 
-	void setShownProgress(java.util.function.ToLongBiFunction<Integer, Long> shown)
+	void setShownProgress(ToLongBiFunction<Integer, Long> shown)
 	{
 		shownProgress = shown;
 	}
@@ -135,10 +131,49 @@ public class TileTracker
 		}
 	}
 
-	/** Restore the pins saved for the event in config ("eventId:tileId,tileId"). */
+	/** Pins saved before they were kept per account, handed to the first account that logs in. */
+	private String legacyPins;
+
+	/**
+	 * A fresh start: the next login restores its pins even if it's the account that was logged in when
+	 * the plugin stopped. Pins saved before they were kept per account go to the first account seen —
+	 * almost always the one that pinned them — rather than being lost on the upgrade.
+	 */
 	synchronized void startUp()
 	{
-		String saved = configManager.getConfiguration("osrsbingo", CFG_PINS);
+		account = -1;
+		String old = configManager.getConfiguration("osrsbingo", CFG_PINS);
+		if (old != null)
+		{
+			legacyPins = old;
+			configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+		}
+	}
+
+	/**
+	 * The account now logged in ({@code -1} at the login screen): take the last one's pins down and
+	 * restore this one's ("eventId:tileId,tileId"). One client plays several accounts, and an alt
+	 * that isn't on the event has no board to unpin them from.
+	 */
+	synchronized void forAccount(long hash)
+	{
+		if (hash == account)
+		{
+			return;
+		}
+		shutDown();
+		eventId = 0;
+		account = hash;
+		String saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
+		if (saved == null && hash != -1 && legacyPins != null)
+		{
+			saved = legacyPins;
+			configManager.setConfiguration("osrsbingo", key(), saved);
+		}
+		if (hash != -1)
+		{
+			legacyPins = null;
+		}
 		if (saved == null || !saved.contains(":"))
 		{
 			return;
@@ -158,6 +193,7 @@ public class TileTracker
 		catch (NumberFormatException e)
 		{
 			unpinAll();
+			save();
 		}
 	}
 
@@ -171,11 +207,6 @@ public class TileTracker
 	synchronized boolean isPinned(int eventId, int tileId)
 	{
 		return this.eventId == eventId && pins.containsKey(tileId);
-	}
-
-	synchronized boolean isFull(int eventId)
-	{
-		return this.eventId == eventId && pins.size() >= MAX_PINS;
 	}
 
 	/**
@@ -257,11 +288,43 @@ public class TileTracker
 		}
 		else if (p != null)
 		{
-			w.progress = p;
-			if (finishedAndShown(w, p, System.currentTimeMillis()))
+			show(event, tileId, w, p);
+		}
+	}
+
+	/**
+	 * A tile's numbers from the live push: the whole board's view, so ours is marked here (team first,
+	 * as the route ranks it for a caller), then shown like a fetch.
+	 */
+	void pushed(int event, int tileId, Progress p, int myTeam, int myPlayer)
+	{
+		Widget w;
+		synchronized (this)
+		{
+			w = event == eventId ? pins.get(tileId) : null;
+		}
+		if (w == null || p == null || p.teams == null || p.phase == null || p.phase.contains("ended"))
+		{
+			return;
+		}
+		for (Team t : p.teams)
+		{
+			t.mine = t.teamId == myTeam;
+			if (t.members != null)
 			{
-				unpinDone(event, tileId, w);
+				t.members.forEach(m -> m.mine = m.id > 0 && m.id == myPlayer);
 			}
+		}
+		p.teams.sort((a, b) -> Boolean.compare(b.mine, a.mine));
+		show(event, tileId, w, p);
+	}
+
+	private void show(int event, int tileId, Widget w, Progress p)
+	{
+		w.progress = p;
+		if (finishedAndShown(w, p, System.currentTimeMillis()))
+		{
+			unpinDone(event, tileId, w);
 		}
 	}
 
@@ -320,6 +383,29 @@ public class TileTracker
 		return this.eventId == eventId ? new ArrayList<>(pins.keySet()) : new ArrayList<>();
 	}
 
+	/** The widget's right-click "Unpin": one pin, or every pin from the shared panel. */
+	synchronized boolean unpinFrom(Overlay overlay, String option)
+	{
+		if (option == null || !option.startsWith("Unpin"))
+		{
+			return false;
+		}
+		if (overlay == combined)
+		{
+			unpinAll();
+		}
+		else if (overlay instanceof Widget && pins.get(((Widget) overlay).tileId) == overlay)
+		{
+			hide(removePin(((Widget) overlay).tileId));
+		}
+		else
+		{
+			return false;
+		}
+		save();
+		return true;
+	}
+
 	/** Take every pin for this event down. */
 	synchronized void clear(int eventId)
 	{
@@ -376,11 +462,20 @@ public class TileTracker
 		eventId = 0;
 	}
 
+	private String key()
+	{
+		return CFG_PINS + "." + account;
+	}
+
 	private void save()
 	{
+		if (account == -1)
+		{
+			return;
+		}
 		if (pins.isEmpty())
 		{
-			configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+			configManager.unsetConfiguration("osrsbingo", key());
 			return;
 		}
 		StringBuilder sb = new StringBuilder().append(eventId).append(':');
@@ -388,7 +483,7 @@ public class TileTracker
 		{
 			sb.append(id).append(',');
 		}
-		configManager.setConfiguration("osrsbingo", CFG_PINS, sb.substring(0, sb.length() - 1));
+		configManager.setConfiguration("osrsbingo", key(), sb.substring(0, sb.length() - 1));
 	}
 
 	/** Every pin in one movable panel, in pin order, a blank line between them — name and bar each. */
@@ -396,6 +491,7 @@ public class TileTracker
 	{
 		Combined()
 		{
+			addUnpin(this, "Unpin all");
 			setPosition(OverlayPosition.TOP_LEFT);
 			setResizable(true);
 			setMovable(true);
@@ -410,17 +506,26 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
+			if (AnvilPlugin.capturing)
+			{
+				return null;
+			}
 			List<Widget> shown = drawn; // no lock on the frame path
 			for (int i = 0; i < shown.size(); i++)
 			{
 				if (i > 0)
 				{
-					panelComponent.getChildren().add(LineComponent.builder().build());
+					panelComponent.getChildren().add(GAP);
 				}
 				shown.get(i).drawInto(panelComponent, true);
 			}
 			return shown.isEmpty() ? null : super.render(graphics);
 		}
+	}
+
+	private static void addUnpin(Overlay overlay, String option)
+	{
+		overlay.getMenuEntries().add(new OverlayMenuEntry(net.runelite.api.MenuAction.RUNELITE_OVERLAY, option, "Anvil tile"));
 	}
 
 	/** The site's answer (lib/tileTracker): the viewer's team first, then the rest by progress. */
@@ -450,6 +555,8 @@ public class TileTracker
 
 	static class Member
 	{
+		/** Participant id, so a view sent to the whole board can be marked as ours. */
+		int id;
 		String name;
 		long amount;
 		boolean mine;
@@ -463,7 +570,7 @@ public class TileTracker
 	{
 		final int slot;
 		final int tileId;
-		private final java.util.function.ToLongBiFunction<Integer, Long> shown;
+		private final ToLongBiFunction<Integer, Long> shown;
 		volatile Progress progress;
 		/**
 		 * Stay up after the team finishes? Pins restored from config start false, so a tile finished
@@ -472,17 +579,28 @@ public class TileTracker
 		Boolean keepWhenDone = false;
 		/** When this pin was first seen done, or 0. */
 		long doneSinceMs;
+		/**
+		 * The lines drawn every frame, built once per fetch (or layout switch) on the client thread — the
+		 * frame only moves your team's bar, your own count and the countdown, and only when they change.
+		 */
+		private final List<LayoutableRenderableEntity> lines = new ArrayList<>();
+		private Progress builtFor;
+		private boolean builtCompact;
+		private Team mine;
+		private ProgressBarComponent bar;
+		private LineComponent you;
+		private LineComponent startsIn;
+		private Instant startsAt;
+		private long youBase;
+		private long shownAhead;
+		private long shownSecs;
 
-		Widget(int slot)
-		{
-			this(slot, 0, (id, site) -> site);
-		}
-
-		Widget(int slot, int tileId, java.util.function.ToLongBiFunction<Integer, Long> shown)
+		Widget(int slot, int tileId, ToLongBiFunction<Integer, Long> shown)
 		{
 			this.slot = slot;
 			this.tileId = tileId;
 			this.shown = shown;
+			addUnpin(this, "Unpin");
 			setPosition(OverlayPosition.TOP_LEFT);
 			setResizable(true);
 			setMovable(true);
@@ -497,6 +615,10 @@ public class TileTracker
 		@Override
 		public Dimension render(Graphics2D graphics)
 		{
+			if (AnvilPlugin.capturing)
+			{
+				return null;
+			}
 			drawInto(panelComponent, false);
 			return super.render(graphics);
 		}
@@ -509,18 +631,63 @@ public class TileTracker
 		void drawInto(PanelComponent panelComponent, boolean compact)
 		{
 			Progress p = progress;
+			if (p != builtFor || compact != builtCompact || lines.isEmpty())
+			{
+				build(p, compact);
+			}
+			if (startsIn != null && startsAt != null)
+			{
+				long s = Math.max(0, Duration.between(Instant.now(), startsAt).getSeconds());
+				if (s != shownSecs)
+				{
+					shownSecs = s;
+					startsIn.setRight(s >= 3600 ? (s / 3600) + "h " + (s % 3600 / 60) + "m" : s >= 60 ? (s / 60) + "m " + (s % 60) + "s" : s + "s");
+				}
+			}
+			if (bar != null && !mine.complete)
+			{
+				// Your own kill counts here the moment it happens; the fetch after the push confirms it.
+				long current = shown.applyAsLong(tileId, mine.current);
+				bar.setValue(Math.min(current, p.goal));
+				long ahead = Math.max(0, current - mine.current);
+				if (you != null && ahead != shownAhead)
+				{
+					shownAhead = ahead;
+					you.setRight(Ui.count(youBase + ahead));
+				}
+			}
+			panelComponent.getChildren().addAll(lines);
+		}
+
+		private void build(Progress p, boolean compact)
+		{
+			builtFor = p;
+			builtCompact = compact;
+			lines.clear();
+			mine = null;
+			bar = null;
+			you = startsIn = null;
+			shownAhead = shownSecs = -1;
 			if (p == null || p.teams == null)
 			{
-				panelComponent.getChildren().add(TitleComponent.builder().text("Anvil: loading tile…").color(GOLD).build());
+				lines.add(TitleComponent.builder().text("Anvil: loading tile…").color(GOLD).build());
 				return;
 			}
-			panelComponent.getChildren().add(TitleComponent.builder().text(p.label).color(GOLD).build());
+			lines.add(TitleComponent.builder().text(p.label).color(GOLD).build());
 			if ("upcoming".equals(p.phase))
 			{
 				// Nothing counts before the start, so there is no progress to draw yet — only when.
-				panelComponent.getChildren().add(LineComponent.builder().left("Goal").right(fmt(p.goal)).build());
-				panelComponent.getChildren().add(LineComponent.builder()
-					.left("Starts in").right(countdown(p.startsAt)).rightColor(Color.YELLOW).build());
+				lines.add(LineComponent.builder().left("Goal").right(Ui.count(p.goal)).build());
+				startsIn = LineComponent.builder().left("Starts in").right("soon").rightColor(Color.YELLOW).build();
+				lines.add(startsIn);
+				try
+				{
+					startsAt = Instant.parse(p.startsAt);
+				}
+				catch (RuntimeException e)
+				{
+					startsAt = null;
+				}
 				return;
 			}
 			int others = 0;
@@ -528,73 +695,47 @@ public class TileTracker
 			{
 				if (t.mine)
 				{
-					renderOwnTeam(panelComponent, p, t, compact);
+					buildOwnTeam(p, t, compact);
 				}
 				else if (!compact && others++ < OTHER_TEAMS_SHOWN)
 				{
-					panelComponent.getChildren().add(LineComponent.builder()
+					lines.add(LineComponent.builder()
 						.left(t.name)
-						.leftColor(teamColor(t.color))
-						.right(t.complete ? "Done" : fmt(t.current) + "/" + fmt(p.goal))
+						.leftColor(Ui.teamColor(t.color, Color.WHITE))
+						.right(t.complete ? "Done" : Ui.count(t.current) + "/" + Ui.count(p.goal))
 						.rightColor(t.complete ? Color.GREEN : Color.WHITE)
 						.build());
 				}
 			}
 		}
 
-		private void renderOwnTeam(PanelComponent panelComponent, Progress p, Team t, boolean compact)
+		private void buildOwnTeam(Progress p, Team t, boolean compact)
 		{
-			// Your own kill counts here the moment it happens; the fetch after the push confirms it.
-			long current = t.complete ? t.current : shown.applyAsLong(tileId, t.current);
-			long ahead = current - t.current;
-			ProgressBarComponent bar = new ProgressBarComponent();
+			mine = t;
+			bar = new ProgressBarComponent();
 			bar.setMaximum(Math.max(1, p.goal));
-			bar.setValue(t.complete ? p.goal : Math.min(current, p.goal));
-			bar.setForegroundColor(t.complete ? new Color(0, 160, 0) : teamColor(t.color).darker());
+			bar.setValue(p.goal);
+			bar.setForegroundColor(t.complete ? new Color(0, 160, 0) : Ui.teamColor(t.color, Color.WHITE).darker());
 			bar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.FULL);
-			panelComponent.getChildren().add(bar);
+			lines.add(bar);
 			if (compact || t.members == null)
 			{
 				return;
 			}
 			for (Member m : t.members)
 			{
-				panelComponent.getChildren().add(LineComponent.builder()
+				LineComponent line = LineComponent.builder()
 					.left(m.mine ? "You" : m.name)
 					.leftColor(m.mine ? GOLD : Color.LIGHT_GRAY)
-					.right(fmt(m.mine ? m.amount + Math.max(0, ahead) : m.amount))
-					.build());
+					.right(Ui.count(m.amount))
+					.build();
+				if (m.mine && !t.complete)
+				{
+					you = line;
+					youBase = m.amount;
+				}
+				lines.add(line);
 			}
-		}
-
-		private static Color teamColor(String hex)
-		{
-			try
-			{
-				return hex != null && hex.startsWith("#") ? Color.decode(hex) : Color.WHITE;
-			}
-			catch (NumberFormatException e)
-			{
-				return Color.WHITE;
-			}
-		}
-
-		private static String countdown(String iso)
-		{
-			try
-			{
-				long s = Math.max(0, java.time.Duration.between(java.time.Instant.now(), java.time.Instant.parse(iso)).getSeconds());
-				return s >= 3600 ? (s / 3600) + "h " + (s % 3600 / 60) + "m" : s >= 60 ? (s / 60) + "m " + (s % 60) + "s" : s + "s";
-			}
-			catch (RuntimeException e)
-			{
-				return "soon";
-			}
-		}
-
-		private static String fmt(long n)
-		{
-			return n >= 10_000_000 ? (n / 1_000_000) + "M" : n >= 100_000 ? (n / 1_000) + "K" : String.format("%,d", n);
 		}
 	}
 }

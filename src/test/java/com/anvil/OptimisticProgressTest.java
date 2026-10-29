@@ -72,4 +72,14 @@ public class OptimisticProgressTest
 		assertEquals(0, p.floor(7, OptimisticProgress.TTL_MS + 1));
 		assertEquals(0, p.floor(8, 0));
 	}
+
+	@Test
+	public void aTeammatesPushedCountIsWhatOurNextGainBuildsOn()
+	{
+		OptimisticProgress o = new OptimisticProgress();
+		o.add(7, 1_000, 10, 0); // ours: 1,010 while the config still says 1,000
+		assertEquals(1_500, o.apply(7, 1_500, 1)); // a teammate's push puts the tile at 1,500
+		o.add(7, 1_000, 10, 2); // our next gain, the config's count still the old one
+		assertEquals("moves on from what's shown, not from the old count", 1_510, o.apply(7, 1_500, 3));
+	}
 }

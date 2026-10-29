@@ -1,84 +1,25 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Supplier;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonSerializer;
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
+import java.util.function.Consumer;
 
 /**
- * The data source behind the sidebar: renders the plugin's one home — a view over the
- * already-polled {@link PluginConfigResponse} plus the injected {@link BingoApiClient} — into a single
- * {@link ConnectionView}. Board summary + nearest tiles come from config; while the sidebar is open it may
- * tighten the config refresh window so browser-side sign-ups appear promptly. The feed remains a conditional
- * GET to {@code /api/plugin/activity} (304 while idle).
- *
- * <p><b>"Active now"</b> fuses three signals so it works for every tile kind: config-count deltas (the only
- * signal for stat grinds, and the unnamed "a teammate" fallback for any kind), the local stat signal
- * ({@code AnvilPlugin::localStatProgress}, which attributes a rise to "You"), and the feed (submission tiles
- * by name). Signals merge by tile (deduped, "You" first), newest-first, capped.</p>
- *
- * <p>Called off the EDT by the panel's worker (one at a time), so the delta state needs no locking.</p>
+ * What the side panel reads from the plugin itself: the polled config (the clan picker, capabilities),
+ * the logged-in character, pins, the starting shot, syncs and banner sounds. What it shows of the
+ * clan and its boards is the site's (UiView); this is only what the client alone can know or do.
  */
-@Slf4j
-public class AnvilSidebarDataSource implements SidebarDataSource
+public class AnvilSidebarDataSource
 {
-	private static final int NEAREST_LIMIT = 10;
-	private static final int MAX_ACTIVE = 4;
-
-	/** How recent a signal counts as "active now" — matched to the Site's 5-min stat-worker window. */
-	private static final long ACTIVE_WINDOW_MS = 5 * 60_000L;
-
-	/** How long a weekly's standings stay good. Way slacker than the 15 s panel poll — weekly gains are
-	 *  swept by the site's 15-min stats cron, so re-reading a leaderboard every refresh is pure noise. */
-	private static final long WEEKLY_STANDINGS_TTL_MS = 60_000L;
-
-	/** Leaderboard rows kept per weekly — the sidebar shows the head of the board, not all 50. */
-	private static final int WEEKLY_TOP_LIMIT = 10;
-
 	private final Supplier<PluginConfigResponse> configSupplier;
 
-	/** The plugin's injected client — the sidebar's one network call (the activity feed) rides on it. */
 	private final BingoApiClient apiClient;
 
-	/** Stat tiles this account recently progressed (tileId → millis) — the "You" attribution for stat grinds. */
-	private final Supplier<Map<Integer, Long>> localStatProgress;
-
-	/** The playing account's RSN — flags "you" in a weekly's standings. Null/blank while logged out. */
-	private final Supplier<String> localRsn;
-
-	// Weekly standings cache (compId → last leaderboard read), the comps already read this generation,
-	// and when the generation opened — so the panel's 15 s poll doesn't re-read the same board four
-	// times a minute (nor hammer a failing one). See refreshWeeklyBoards.
-	private final Map<Integer, BingoApiClient.WeeklyLeaderboard> weeklyBoards = new HashMap<>();
-	private final java.util.Set<Integer> weeklyBoardsTried = new java.util.HashSet<>();
-	private long weeklyBoardsAt;
-
-	// Live-sidebar state, scoped to the active event.
-	private final AnvilActivityLog activityLog = new AnvilActivityLog();
-	private int scopedEventId = -1;
-
-	// Config-delta signal state: last-seen amount per tile + when each rose. Cleared on event change.
-	private Map<Integer, Integer> lastAmounts = new HashMap<>();
-	/** When {@link #lastAmounts} was taken; a rise measured across a longer gap isn't "now". */
-	long lastAmountsAt; // package-visible so a test can age it
-	private final Map<Integer, Long> roseAt = new HashMap<>();
-
-	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient,
-		Supplier<Map<Integer, Long>> localStatProgress, Supplier<String> localRsn)
+	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient)
 	{
 		this.configSupplier = configSupplier;
 		this.apiClient = apiClient;
-		this.localStatProgress = localStatProgress == null ? Collections::emptyMap : localStatProgress;
-		this.localRsn = localRsn == null ? () -> null : localRsn;
 	}
 
 	/**
@@ -103,7 +44,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
-	private void withPlugin(java.util.function.Consumer<AnvilPlugin> f)
+	private void withPlugin(Consumer<AnvilPlugin> f)
 	{
 		AnvilPlugin p = plugin;
 		if (p != null)
@@ -117,16 +58,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	{
 		AnvilPlugin p = plugin;
 		return p == null ? none : f.apply(p);
-	}
-
-	/**
-	 * The count to show for a tile already drawn at {@code drawn}: that, or this client's newer local
-	 * count. Read-only — {@code drawn} may already include the local count, so it can't stand in for
-	 * the site's (which would discard the local count as "confirmed" and wind the tile back).
-	 */
-	public long shownProgress(int tileId, long drawn)
-	{
-		return Math.max(drawn, fromPlugin(p -> p.optimisticFloor(tileId), 0L));
 	}
 
 	/** Actions available for the clan on screen. Never null. */
@@ -156,7 +87,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	}
 
 	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
-	public void accountAction(AccountRow.Action action, java.util.function.Consumer<String> done)
+	public void accountAction(AccountRow.Action action, Consumer<String> done)
 	{
 		withPlugin(p -> p.accountAction(action, done));
 	}
@@ -171,12 +102,6 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	public void syncProfile()
 	{
 		withPlugin(AnvilPlugin::syncProfileNow);
-	}
-
-	/** Local banner-sound clips, newest listing each call. Empty when the folder has none. */
-	public java.util.List<String> bannerSounds()
-	{
-		return fromPlugin(AnvilPlugin::bannerSoundClips, Collections.emptyList());
 	}
 
 	/** Is this clip in the play cycle? */
@@ -197,22 +122,16 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		withPlugin(AnvilPlugin::copyBannerSoundsPath);
 	}
 
-	/** Import a .wav into the local clips folder. */
-	public void importBannerSounds()
+	/** Import a .wav into {@code kind}'s clips folder. */
+	public void importSounds(BannerSoundService.Kind kind)
 	{
-		withPlugin(AnvilPlugin::importBannerSounds);
+		withPlugin(p -> p.importSounds(kind));
 	}
 
-	/** Mission clips — the folder that decides whether missions play a clip or the built-in chime. */
-	public java.util.List<String> missionSounds()
+	/** {@code kind}'s clips; for missions, the folder that decides between a clip and the built-in chime. */
+	public List<String> sounds(BannerSoundService.Kind kind)
 	{
-		return fromPlugin(AnvilPlugin::missionSoundClips, Collections.emptyList());
-	}
-
-	/** Import a .wav into the mission clips folder. */
-	public void importMissionSounds()
-	{
-		withPlugin(AnvilPlugin::importMissionSounds);
+		return fromPlugin(p -> p.soundClips(kind), Collections.emptyList());
 	}
 
 	/**
@@ -237,7 +156,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 	 * The starting shot's live requirements (session age, position) for the card, in display order.
 	 * Empty where nothing is checked. Cheap and non-blocking: the panel polls it every second.
 	 */
-	public java.util.List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
+	public List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof)
 	{
 		return fromPlugin(p -> p.startProofChecks(proof), Collections.emptyList());
 	}
@@ -274,36 +193,29 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
 	}
 
-	/** Tiles pinned on screen for the live board, in pin order. */
-	public java.util.List<Integer> trackedTileIds()
+	/** This client's newest count for a tile, or -1 (AnvilPlugin.tileCount). */
+	public long tileCount(int tileId)
 	{
-		int eventId = activeEventId();
-		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), java.util.Collections.<Integer>emptyList())
-			: java.util.Collections.<Integer>emptyList();
+		return fromPlugin(p -> p.tileCount(tileId), -1L);
 	}
 
-	/** Unpin every tile on the live board. */
-	public void untrackAll()
+		/** The tiles pinned over the game on {@code eventId}. */
+	public List<Integer> pinnedTiles(int eventId)
 	{
-		int eventId = activeEventId();
-		withPlugin(p -> p.tileTracker().clear(eventId));
-	}
-
-	public boolean isTileTracked(int eventId, int tileId)
-	{
-		return fromPlugin(p -> p.tileTracker().isPinned(eventId, tileId), false);
-	}
-
-	/** True when this event already has the most pins allowed, so another can't be added. */
-	public boolean tileTrackerFull(int eventId)
-	{
-		return fromPlugin(p -> p.tileTracker().isFull(eventId), false);
+		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), Collections.<Integer>emptyList())
+			: Collections.<Integer>emptyList();
 	}
 
 	/** Signed in, and the first config answer hasn't come back (or failed) yet. */
 	public boolean awaitingFirstConfig()
 	{
 		return fromPlugin(AnvilPlugin::awaitingFirstConfig, false);
+	}
+
+	/** Take every pin on {@code eventId} off the screen. */
+	public void unpinAll(int eventId)
+	{
+		withPlugin(p -> p.tileTracker().clear(eventId));
 	}
 
 	public void setTileTracked(int eventId, int tileId, boolean on)
@@ -321,96 +233,10 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		}
 	}
 
-	/**
-	 * Full visible board for the sidebar catalogue. {@code eventId <= 0} means the caller's active,
-	 * team-scoped board; a positive id is a named board (team-scoped when the caller is enrolled,
-	 * otherwise a read-only preview, including a revealed pre-start board). Blocking.
-	 */
-	public BingoApiClient.BoardResponse fetchBoard(int eventId)
+	/** Whether the site builds the Lookup and You tabs ({@link UiView}). False ⇒ no tabs, and a lookup opens the browser. */
+	public boolean supportsPluginUi()
 	{
-		if (eventId > 0)
-		{
-			return apiClient.fetchBoardPreview(eventId);
-		}
-		BingoApiClient.BoardResponse live = apiClient.fetchBoard();
-		if (live != null)
-		{
-			savedBoardServed = null;
-			return live;
-		}
-		// Until the site's first config answer the card is last session's copy; so may the board be.
-		BingoApiClient.BoardResponse saved = fromPlugin(AnvilPlugin::savedBoardForDisplay, null);
-		savedBoardServed = saved;
-		return saved;
-	}
-
-	/** The last board {@link #fetchBoard} answered from disk rather than the site; null once a live one lands. */
-	private volatile BingoApiClient.BoardResponse savedBoardServed;
-
-	/** {@code board} is last session's copy and the site has since answered — it wants a live re-read. */
-	public boolean boardNeedsLiveRead(BingoApiClient.BoardResponse board)
-	{
-		return board != null && board == savedBoardServed && !fromPlugin(AnvilPlugin::showingSavedConfig, false);
-	}
-
-	/**
-	 * Logged in as a character the site can name. A claim is that character's, so it needs the played
-	 * name; at the login screen the board can still be shown (off the launcher hint) but not claimed on.
-	 */
-	public boolean canClaimNow()
-	{
-		return apiClient.getCurrentRsn() != null;
-	}
-
-	/** Whether the site serves player cards (the Lookup and You tabs). False ⇒ fall back to the browser. */
-	public boolean supportsPlayerCard()
-	{
-		return siteSupports("player-card");
-	}
-
-	/** The site falls back to the official hiscores for names with no Anvil account (and may say it's busy). */
-	public boolean hiscoresCardsAvailable()
-	{
-		return siteSupports("player-card-hiscores");
-	}
-
-	/** Whether the site serves clan cards and clan lookup. */
-	public boolean supportsClanCard()
-	{
-		return siteSupports("clan-card");
-	}
-
-	/** Blocking; off the EDT. Null when not visible or on failure. */
-	public ClanCard fetchClanCard(String slug)
-	{
-		return apiClient.fetchClanCard(slug);
-	}
-
-	/** Blocking; off the EDT. */
-	public java.util.List<ClanCard.Found> lookupClans(String q)
-	{
-		return apiClient.lookupClans(q);
-	}
-
-	/** Whether the site keeps goals (the You tab's targets). */
-	public boolean supportsGoals()
-	{
-		return siteSupports("goals");
-	}
-
-	/** Whether the site serves paged event rosters (the event's Teams page). False ⇒ no Teams row. */
-	public boolean supportsEventRoster()
-	{
-		return siteSupports("event-roster");
-	}
-
-	/**
-	 * One page of an event's roster: {@code teamId > 0} for a team's members, a non-blank
-	 * {@code query} to search players, neither for the ranked overview. Null on failure. Blocking.
-	 */
-	public EventRoster fetchRoster(int eventId, int teamId, String query, int page)
-	{
-		return apiClient.fetchRoster(eventId, teamId, query, page);
+		return siteSupports("plugin-ui");
 	}
 
 	/**
@@ -428,48 +254,8 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
-	/** One log page's items for the card. Blocking; off the EDT. Null on failure. */
-	public BingoApiClient.ClogPageView fetchClogPage(String rsn, String page)
-	{
-		return apiClient.fetchClogPage(rsn, page);
-	}
-
-	/** Blocking; off the EDT. Null when the site has none for them. */
-	public BingoApiClient.CaLookup fetchCas(String rsn)
-	{
-		return apiClient.fetchCas(rsn);
-	}
-
-	/** Whether the site serves the Lookup CA tab. */
-	public boolean supportsCas()
-	{
-		return siteSupports("player-cas");
-	}
-
-	/** Blocking; off the EDT. Null on a network failure. */
-	public BingoApiClient.GoalsResult fetchGoals()
-	{
-		return apiClient.fetchGoals();
-	}
-
-	public BingoApiClient.GoalsResult addGoal(String kind, String metric, int target, String dueOn)
-	{
-		return apiClient.addGoal(kind, metric, target, dueOn);
-	}
-
-	public BingoApiClient.GoalsResult removeGoal(int id)
-	{
-		return apiClient.removeGoal(id);
-	}
-
-	/** One character's card. Blocking; call off the EDT. Null on a network failure. */
-	public BingoApiClient.PlayerCardResult fetchPlayerCard(String rsn)
-	{
-		return apiClient.fetchPlayerCard(rsn);
-	}
-
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
-	public void lookupNames(java.util.function.Consumer<LookupSuggestions.Names> then)
+	public void lookupNames(Consumer<LookupSuggestions.Names> then)
 	{
 		AnvilPlugin p = plugin;
 		if (p == null)
@@ -486,37 +272,18 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.getCurrentRsn();
 	}
 
-	/**
-	 * Whether the site takes tile claims (capability {@code tile-claims}). The catalogue only offers
-	 * "I'm going for this" when it does, so an older site never sees a click it can't answer.
-	 */
-	public boolean supportsTileClaims()
-	{
-		PluginConfigResponse cfg = configSupplier.get();
-		return cfg != null && cfg.serverSupports("tile-claims");
-	}
-
-	/** Claim a tile on your own team, or update your note. Blocking; call from a SwingWorker. */
-	public void claimTile(int eventId, int tileId, String note) throws java.io.IOException
-	{
-		apiClient.claimTile(eventId, tileId, note);
-	}
-
-	/** Drop your own claim on a tile. Blocking; call from a SwingWorker. */
-	public void unclaimTile(int eventId, int tileId) throws java.io.IOException
-	{
-		apiClient.unclaimTile(eventId, tileId);
-	}
+	// ── The clan switcher's data ────────────────────────────────────────────────────────────────
+	//
+	// One Anvil serves every clan, so the Site URL names none of them and a person may hold seats in
+	// several. Straight off the config this source already reads, so offering the dropdown costs no
+	// request.
 
 	/**
-	 * The addressed clan and its board progress, or null when there is no config to anchor a card on.
-	 * Blocking; the panel calls it off the EDT. {@code force} = the member clicked Refresh — re-reads
-	 * config and bypasses the weekly throttle.
+	 * Re-read the config if it's stale (always, on a clicked Refresh — often someone was just made a
+	 * clan admin, so ask about that now too). Blocking; the panel calls it off the EDT.
 	 */
-	public ConnectionView fetch(boolean force)
+	public void refreshConfig(boolean force)
 	{
-		// A clicked Refresh is the member saying "I just changed something" — often that they were
-		// made a clan admin. Ask now, not on the five-minute re-probe, so the roster-sync button shows.
 		withPlugin(p ->
 		{
 			p.refreshConfigForSidebar(force);
@@ -525,130 +292,7 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 				p.reprobeAdminNow();
 			}
 		});
-		ConnectionView view = buildView(force);
-		refreshStandings(force);
-		return view;
 	}
-
-	private volatile Gson fingerprintGson;
-
-	/**
-	 * The injected Gson, writing collections and maps element by element. Left to itself it wants a
-	 * constructor for the runtime class even to write one, and Java 17 won't open the JDK's own
-	 * (Collections.emptyList, unmodifiableList…), which the snapshot is full of.
-	 */
-	private static Gson fingerprintGson(Gson base)
-	{
-		JsonSerializer<java.util.Collection<?>> list = (src, type, ctx) ->
-		{
-			JsonArray out = new JsonArray();
-			for (Object o : src)
-			{
-				out.add(ctx.serialize(o));
-			}
-			return out;
-		};
-		JsonSerializer<Map<?, ?>> map = (src, type, ctx) ->
-		{
-			JsonObject out = new JsonObject();
-			for (Map.Entry<?, ?> e : src.entrySet())
-			{
-				out.add(String.valueOf(e.getKey()), ctx.serialize(e.getValue()));
-			}
-			return out;
-		};
-		return base.newBuilder()
-			.registerTypeHierarchyAdapter(java.util.Collection.class, list)
-			.registerTypeHierarchyAdapter(Map.class, map)
-			.create();
-	}
-
-	/**
-	 * A cheap stand-in for "would the panel draw this differently": a hash of the snapshot and the
-	 * standings drawn above it. 0 when it can't be worked out, which reads as "changed". Off the EDT.
-	 */
-	public long fingerprint(ConnectionView view)
-	{
-		if (view == null || apiClient == null)
-		{
-			return 0;
-		}
-		try
-		{
-			Gson g = fingerprintGson;
-			if (g == null)
-			{
-				g = fingerprintGson = fingerprintGson(apiClient.gson());
-			}
-			String json = g.toJson(view) + g.toJson(standings());
-			long h = 1125899906842597L;
-			for (int i = 0; i < json.length(); i++)
-			{
-				h = 31 * h + json.charAt(i);
-			}
-			return h == 0 ? 1 : h;
-		}
-		catch (RuntimeException e)
-		{
-			log.debug("Couldn't fingerprint the sidebar snapshot: {}", e.getMessage());
-			return 0;
-		}
-	}
-
-	// ---- Standings ------------------------------------------------------------------------------
-	//
-	// Every team's rank and score for the live board, shown at the top of the event view. The same
-	// ranked overview the Teams page reads (event-roster, ETag'd), at most once per STANDINGS_TTL_MS
-	// (a clicked Refresh asks now), kept in memory so the panel draws it without a request.
-
-	private static final long STANDINGS_TTL_MS = 30_000L;
-	private volatile List<EventRoster.Team> standings = Collections.emptyList();
-	private volatile int standingsEventId;
-	private long standingsAt;
-
-	/** The live board's teams, best first; empty before the reveal, on older sites, or with no board. */
-	public List<EventRoster.Team> standings()
-	{
-		return standingsEventId == activeEventId() ? standings : Collections.emptyList();
-	}
-
-	private void refreshStandings(boolean force)
-	{
-		int eventId = activeEventId();
-		if (eventId <= 0 || !supportsEventRoster())
-		{
-			standings = Collections.emptyList();
-			return;
-		}
-		long now = System.currentTimeMillis();
-		if (!force && eventId == standingsEventId && now - standingsAt < STANDINGS_TTL_MS)
-		{
-			return;
-		}
-		standingsAt = now;
-		EventRoster overview = apiClient.fetchRoster(eventId, 0, null, 1);
-		if (overview == null || overview.teams == null)
-		{
-			return; // keep what we had; the next window retries
-		}
-		List<EventRoster.Team> ranked = new ArrayList<>();
-		for (EventRoster.Team t : overview.teams)
-		{
-			if (t != null && t.rank != null)
-			{
-				ranked.add(t);
-			}
-		}
-		ranked.sort(Comparator.comparingInt(t -> t.rank));
-		standings = ranked;
-		standingsEventId = eventId;
-	}
-
-	// ── The clan switcher's data ────────────────────────────────────────────────────────────────
-	//
-	// One Anvil serves every clan, so the Site URL names none of them and a person may hold seats in
-	// several. Straight off the config this source already reads, so offering the dropdown costs no
-	// request.
 
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	public List<PluginConfigResponse.ClanRef> clans()
@@ -672,800 +316,68 @@ public class AnvilSidebarDataSource implements SidebarDataSource
 		return apiClient.getActiveClan();
 	}
 
-	/**
-	 * The board the panel is RENDERING, as a cross-clan identity ({@code "bingo:<id>"}), or "" when
-	 * there is none.
-	 *
-	 * <p>Not the same question as {@link #activeClan()}: a co-hosted board belongs to both hosts, so
-	 * the clan being addressed and the clan whose row reports that board need not be the same one.
-	 * Dedup "Also live" against the board on screen and the two can drift as much as they like
-	 * without the panel listing one event twice.</p>
-	 */
-	public String addressedBoard()
-	{
-		PluginConfigResponse cfg = configSupplier.get();
-		if (cfg == null)
-		{
-			return "";
-		}
-		// The member-scoped event when one resolved, else the board the site resolved from the token
-		// alone (the logged-out card). Both are the SAME board a clan row may also be reporting.
-		if (cfg.event != null && AnvilOverlay.isEventActive(cfg.event))
-		{
-			return PluginConfigResponse.boardIdentity(cfg.event.id);
-		}
-		return cfg.homeBoard != null && cfg.homeBoard.eventId > 0
-			? PluginConfigResponse.boardIdentity(cfg.homeBoard.eventId)
-			: "";
-	}
-
 	/** The member picked a clan (or "" for Auto): persist it and refetch, without waiting. EDT-safe. */
 	public void chooseClan(String slug)
 	{
 		withPlugin(p -> p.setChosenClan(slug));
 	}
 
-	private ConnectionView buildView(boolean force)
-	{
-		PluginConfigResponse cfg = configSupplier.get();
-		if (cfg == null)
-		{
-			if (scopedEventId != -1)
-			{
-				resetLiveState();
-			}
-			return null; // no config at all (site unreachable / bad token) — nothing to anchor a card on
-		}
-
-		// SOTW/BOTW ride alongside the board as events of their own, so they show up whether or not the
-		// member is in a live bingo — a weekly-only clan still has something on the card. The clan's
-		// other/coming bingos ride along the same way, so "what's next" needs no site visit.
-		List<ConnectionView.WeeklyView> weeklies = buildWeeklies(cfg, force);
-		List<ConnectionView.ScheduledView> scheduled = buildScheduled(cfg);
-
-		// A current Site never sends an upcoming board as event-scoped config, but older/self-hosted
-		// versions can. Treat it exactly like no live event: the schedule card already carries what is
-		// coming, while fetching/rendering its activity feed can show prepared completion rows before
-		// the whistle ("Team completed 2m Woodcutting XP" on a board that has not started).
-		if (cfg.event == null || !AnvilOverlay.isEventActive(cfg.event))
-		{
-			if (scopedEventId != -1)
-			{
-				resetLiveState();
-			}
-			// No member-scoped event: either the clan genuinely has no live event, or one IS running
-			// but this account can't be resolved right now (logged out / unlinked RSN). Still render a
-			// home card.
-			PluginConfigResponse.HomeBoard hb = cfg.homeBoard;
-			if (hb != null)
-			{
-				// The site resolved the user's live enrollment server-side (token → linked member →
-				// team), so the board summary renders even at the login screen; the live layers
-				// (nearest tiles, active-now) still wait for a playing account.
-				// In-game already, yet no member-scoped event: this character isn't on a team there
-				// (an alt while the main plays), so it watches the board rather than plays it.
-				boolean spectating = apiClient.getCurrentRsn() != null;
-				return new ConnectionView(homeClanName(cfg), hb.eventName,
-					null, hb.tilesComplete, hb.tilesTotal, null, null, null, null, hb.pointsScored,
-					spectating ? "This character isn't on a team in this event." : "Log in in-game for live tracking.",
-					null, null, weeklies, scheduled, null, spectating);
-			}
-			String note = cfg.unlinkedActiveEvent != null && !cfg.unlinkedActiveEvent.isEmpty()
-				? "Log in in-game to load your board."
-				: null; // null → the panel's "No active event yet."
-			return new ConnectionView(homeClanName(cfg), cfg.unlinkedActiveEvent,
-				null, 0, 0, null, null, null, null, false, note, null, null, weeklies, scheduled);
-		}
-
-		if (cfg.event.id != scopedEventId)
-		{
-			resetLiveState(); // a new event's deltas must not inherit the old board's amounts
-			scopedEventId = cfg.event.id;
-		}
-
-		List<ClogTaskModel.TaskRow> rows = withLocalProgress(ClogTaskModel.build(cfg));
-		// Optional tiles are bonus: excluded from BOTH the total and the earned/complete tally, exactly
-		// like the website's scoredTiles filter (else a completed optional tile inflates the numerator
-		// and every optional tile inflates the denominator).
-		java.util.Set<Integer> optionalIds = cfg.optionalTileIds == null
-			? java.util.Collections.emptySet()
-			: new java.util.HashSet<>(cfg.optionalTileIds);
-		// Leagues (scoringMode=points) ranks by summed tile WEIGHT, so the summary reads earned/total
-		// POINTS (matching the website + board banner); classic bingo + tile race stay tile counts.
-		// Guard the degenerate no-points board so a mis-tagged event still shows a sane count.
-		boolean pointsScored = "points".equalsIgnoreCase(cfg.event.scoringMode)
-			&& ClogTaskModel.tally(rows, optionalIds, false, true) > 0;
-		int tilesTotal = ClogTaskModel.tally(rows, optionalIds, false, pointsScored);
-		int tilesComplete = ClogTaskModel.tally(rows, optionalIds, true, pointsScored);
-		// THE BOARD, NOT THE PART OF IT THIS PLUGIN CAN SEE. The rows above are the tiles it can
-		// DETECT — a drop, a KC, an XP goal — so a board carrying manual tiles counted 10 of its 25
-		// and called that 50% while every other surface said 20%. When the site sends the board's own
-		// fraction, that is the board's fraction; the local count stays the answer for sites that don't.
-		if (cfg.board != null && cfg.board.tilesTotal > 0)
-		{
-			pointsScored = cfg.board.pointsScored;
-			tilesTotal = cfg.board.tilesTotal;
-			tilesComplete = cfg.board.tilesComplete;
-		}
-		List<ConnectionView.TileProgressView> nearest = nearestTiles(rows);
-
-		// One conditional GET for the feed. A failure leaves the log as-is (partial failure), surfaced inline.
-		String error = null;
-		try
-		{
-			BingoApiClient.ActivityResponse ar = apiClient.fetchActivity(activityLog.getCursor());
-			if (ar != null && !ar.noActiveEvent)
-			{
-				activityLog.ingest(ar.cursor, toEntries(ar.activity));
-			}
-		}
-		catch (RuntimeException e)
-		{
-			log.debug("activity fetch failed", e);
-			error = "Live feed unavailable";
-		}
-
-		// Last session's saved copy, drawn before the site has answered: say so rather than pass it off as live.
-		if (fromPlugin(AnvilPlugin::showingSavedConfig, false))
-		{
-			error = "Last session's copy — reconnecting to Anvil…";
-		}
-
-		List<ActivityEntry> feed = activityLog.snapshot();
-		// Raw feed drives "Active now"; the display list folds a grind's "+1" rows into one "+N" (Team activity).
-		List<ConnectionView.ActiveTask> activeNow = buildActiveNow(cfg, rows, feed);
-
-		// Ladder events render a DMM-All-Stars-style missions board instead of the tile-count reveal note:
-		// a live countdown, the open missions with their live grow/decay value, and your rank.
-		ConnectionView.Ladder ladder = buildLadder(cfg.event);
-
-		// The clan filter is a CLAN switcher, so the label is the clan name (site-provided) — the
-		// event name lives on the card itself. Falls back to team/event for pre-clanName sites;
-		// ConnectionView maps "" → "(unnamed clan)".
-		return new ConnectionView(
-			homeClanName(cfg), cfg.event.name, error,
-			tilesComplete, tilesTotal, nearest, AnvilActivityLog.aggregateForDisplay(feed), activeNow, boardUrlFor(cfg), pointsScored,
-			null, ladder != null && ladder.ladderFormat ? null : revealNote(cfg.event),
-			ladder, weeklies, scheduled, rows);
-	}
-
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------
 
-	/**
-	 * The clan's weeklies — live ones folded with the caller's standing, upcoming ones as an
-	 * announcement. The comps themselves come from the config the plugin already polls (no extra
-	 * request); a LIVE comp's standings are one throttled read ({@link #WEEKLY_STANDINGS_TTL_MS}) that
-	 * degrades to a comp-only card when unreachable, and an upcoming one is never read at all (nothing
-	 * has happened yet). Live first, then soonest-starting.
-	 */
-	private List<ConnectionView.WeeklyView> buildWeeklies(PluginConfigResponse cfg, boolean force)
-	{
-		List<BingoApiClient.ScheduledWeekly> weeklies = scheduledWeeklies(cfg);
-		if (weeklies.isEmpty())
-		{
-			weeklyBoards.clear();
-			weeklyBoardsTried.clear();
-			return Collections.emptyList();
-		}
-		List<BingoApiClient.ScheduledWeekly> live = new ArrayList<>();
-		for (BingoApiClient.ScheduledWeekly w : weeklies)
-		{
-			if (isLive(w.status))
-			{
-				live.add(w);
-			}
-		}
-		refreshWeeklyBoards(live, force);
+	// ── The logged-in character: whose it's tracked as, and the way out ──────────────────────────
+	//
+	// The Account Token names whoever set this RuneLite up, not whoever is playing. Every character
+	// links to it by default (the one-click path); siblings and visitors use this row to say "not
+	// mine", and to claim back a character that's linked to somebody else.
 
-		String me = Rsn.normalize(localRsn.get());
-		List<ConnectionView.WeeklyView> out = new ArrayList<>(weeklies.size());
-		for (BingoApiClient.ScheduledWeekly w : weeklies)
+	/** One line about the logged-in character. */
+	@RequiredArgsConstructor
+	public static final class AccountRow
+	{
+		public enum State
 		{
-			out.add(toWeeklyView(w, weeklyBoards.get(w.id), me));
+			/** Linked to (or linking to) the signed-in Anvil account. Offers Not my account. */
+			TRACKING,
+			/** Marked Not my account on this computer; nothing is sent. Offers Track it again. */
+			PAUSED,
+			/** Claimed by another Anvil account; nothing tracks for this token. Offers It's mine. */
+			OTHER,
 		}
-		return out;
+
+		public enum Action
+		{
+			NOT_MINE,
+			TRACK_AGAIN,
+			DISPUTE,
+		}
+
+		public final String rsn;
+		public final State state;
+
 	}
 
 	/**
-	 * Every weekly the site is advertising (live AND upcoming), deduped by id, live first then by
-	 * soonest start. Reads the schedule — which carries both comps when a SOTW and a BOTW overlap —
-	 * and falls back to the single {@code activeWeekly} field so an older site still surfaces its one
-	 * live comp. The site only ships non-completed comps, so nothing here is over.
-	 */
-	private static List<BingoApiClient.ScheduledWeekly> scheduledWeeklies(PluginConfigResponse cfg)
-	{
-		List<BingoApiClient.ScheduledWeekly> out = new ArrayList<>();
-		java.util.Set<Integer> seen = new java.util.HashSet<>();
-		if (cfg.schedule != null && cfg.schedule.weeklies != null)
-		{
-			for (BingoApiClient.ScheduledWeekly w : cfg.schedule.weeklies)
-			{
-				if (w != null && seen.add(w.id))
-				{
-					out.add(w);
-				}
-			}
-		}
-		BingoApiClient.ActiveWeekly a = cfg.activeWeekly;
-		if (a != null && seen.add(a.id))
-		{
-			BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
-			w.id = a.id;
-			w.title = a.title;
-			w.type = a.type;
-			w.metric = a.metric;
-			w.metricLabel = a.metricLabel;
-			w.status = "active";
-			w.startDate = a.startDate;
-			w.endDate = a.endDate;
-			out.add(w);
-		}
-		out.sort(SCHEDULE_ORDER);
-		return out;
-	}
-
-	/**
-	 * Bingo events on the clan's schedule other than the caller's own board — live ones they aren't in,
-	 * plus what's coming up. Straight off the polled config; the caller's own event is dropped because
-	 * the board card already IS that event.
-	 */
-	private List<ConnectionView.ScheduledView> buildScheduled(PluginConfigResponse cfg)
-	{
-		if (cfg.schedule == null || cfg.schedule.bingos == null)
-		{
-			return Collections.emptyList();
-		}
-		int ownEventId = cfg.event != null ? cfg.event.id : -1;
-		List<BingoApiClient.ScheduledBingo> bingos = new ArrayList<>();
-		for (BingoApiClient.ScheduledBingo b : cfg.schedule.bingos)
-		{
-			if (b != null && b.id != ownEventId)
-			{
-				bingos.add(b);
-			}
-		}
-		bingos.sort((x, y) -> SCHEDULE_ORDER.compare(
-			asEntry(x.status, x.startDate), asEntry(y.status, y.startDate)));
-
-		String base = apiClient.getApiUrl();
-		List<ConnectionView.ScheduledView> out = new ArrayList<>(bingos.size());
-		for (BingoApiClient.ScheduledBingo b : bingos)
-		{
-			out.add(new ConnectionView.ScheduledView(b.id, b.title, b.startDate, b.endDate,
-				isLive(b.status), b.tileCount == null ? 0 : b.tileCount,
-				b.boardSize == null ? 0 : b.boardSize, b.format, b.scoringMode,
-				base == null || base.isEmpty() ? null : apiClient.clanUrl("/events/" + b.id), b.yourEntry));
-		}
-		return out;
-	}
-
-	/** Live first, then soonest start (ISO strings sort chronologically); undated last. */
-	private static final Comparator<BingoApiClient.ScheduledWeekly> SCHEDULE_ORDER = (a, b) ->
-	{
-		boolean la = isLive(a.status);
-		boolean lb = isLive(b.status);
-		if (la != lb)
-		{
-			return la ? -1 : 1;
-		}
-		String sa = a.startDate == null ? "" : a.startDate;
-		String sb = b.startDate == null ? "" : b.startDate;
-		if (sa.isEmpty() != sb.isEmpty())
-		{
-			return sa.isEmpty() ? 1 : -1;
-		}
-		return sa.compareTo(sb);
-	};
-
-	/** Adapter so the bingo list can reuse {@link #SCHEDULE_ORDER} (same status/start ordering). */
-	private static BingoApiClient.ScheduledWeekly asEntry(String status, String startDate)
-	{
-		BingoApiClient.ScheduledWeekly w = new BingoApiClient.ScheduledWeekly();
-		w.status = status;
-		w.startDate = startDate;
-		return w;
-	}
-
-	private static boolean isLive(String status)
-	{
-		return "active".equalsIgnoreCase(status);
-	}
-
-	/**
-	 * One standings read per live comp per {@link #WEEKLY_STANDINGS_TTL_MS} window (a member-forced
-	 * Refresh opens a new window immediately) — including a comp whose read FAILED, so an unreachable
-	 * leaderboard is retried on the same slow cadence instead of every poll. A comp that stopped
-	 * running is dropped, so the cache can't outlive it.
-	 */
-	private void refreshWeeklyBoards(List<BingoApiClient.ScheduledWeekly> live, boolean force)
-	{
-		final long now = System.currentTimeMillis();
-		if (force || now - weeklyBoardsAt >= WEEKLY_STANDINGS_TTL_MS)
-		{
-			weeklyBoardsTried.clear();
-			weeklyBoardsAt = now;
-		}
-		java.util.Set<Integer> liveIds = new java.util.HashSet<>();
-		// All at once rather than one after another: each is a full round trip, and the panel waits
-		// for the slowest, not the sum.
-		Map<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> reads = new HashMap<>();
-		for (BingoApiClient.ScheduledWeekly w : live)
-		{
-			liveIds.add(w.id);
-			if (!weeklyBoardsTried.add(w.id))
-			{
-				continue; // already read this window — the cached board stands
-			}
-			final int id = w.id;
-			reads.put(id, java.util.concurrent.CompletableFuture.supplyAsync(() -> apiClient.fetchWeeklyLeaderboard(id),
-				apiClient.interactiveExecutor()));
-		}
-		for (Map.Entry<Integer, java.util.concurrent.CompletableFuture<BingoApiClient.WeeklyLeaderboard>> r : reads.entrySet())
-		{
-			try
-			{
-				BingoApiClient.WeeklyLeaderboard lb = r.getValue().join();
-				if (lb != null)
-				{
-					weeklyBoards.put(r.getKey(), lb);
-				}
-			}
-			catch (RuntimeException e)
-			{
-				// A weekly board is a nice-to-have: keep whatever we had and render the comp without it.
-				log.debug("weekly leaderboard fetch failed for {}", r.getKey(), e);
-			}
-		}
-		weeklyBoards.keySet().retainAll(liveIds);
-		weeklyBoardsTried.retainAll(liveIds);
-	}
-
-	/** Fold one comp + its (possibly absent) leaderboard into the panel's weekly card. */
-	private ConnectionView.WeeklyView toWeeklyView(BingoApiClient.ScheduledWeekly w,
-		BingoApiClient.WeeklyLeaderboard lb, String me)
-	{
-		List<ConnectionView.Standing> top = new ArrayList<>();
-		int yourRank = 0;
-		long yourGained = 0;
-		int participants = 0;
-		if (lb != null && isLive(w.status))
-		{
-			participants = lb.total;
-			if (lb.entries != null)
-			{
-				for (BingoApiClient.LeaderboardEntry e : lb.entries)
-				{
-					if (e == null)
-					{
-						continue;
-					}
-					// Match on whitespace-normalized names — OSRS display names carry non-breaking
-					// spaces, so a raw equalsIgnoreCase both misses and mis-flags the local player.
-					boolean self = !me.isEmpty() && me.equals(Rsn.normalize(e.rsn));
-					if (self)
-					{
-						yourRank = e.rank;
-						yourGained = e.gained;
-					}
-					if (top.size() < WEEKLY_TOP_LIMIT || self)
-					{
-						top.add(new ConnectionView.Standing(e.rank, e.rsn, e.gained, self));
-					}
-				}
-			}
-		}
-		return new ConnectionView.WeeklyView(w.id, w.title, w.type, w.metric, w.metricLabel,
-			w.startDate, w.endDate, !isLive(w.status), yourRank, yourGained, participants, top,
-			weeklyUrlFor(w.id));
-	}
-
-	/** The comp's page on the site, or null when the base URL is unknown (offline / unconfigured). */
-	private String weeklyUrlFor(int competitionId)
-	{
-		String base = apiClient.getApiUrl();
-		return base == null || base.isEmpty() ? null : base + "/weekly/" + competitionId;
-	}
-
-	/**
-	 * Fold missions into the sidebar's {@link ConnectionView.Ladder} view-model: the countdown target,
-	 * the caller's month + all-time rank, and the open missions.
+	 * What the panel may DO for the addressed clan.
 	 *
-	 * Built for a ladder (where it REPLACES the board summary) and, since a normal bingo can drop
-	 * hidden missions mid-event too, for any board that currently has missions — there it renders as
-	 * a strip under the usual summary. Null when neither applies, and the plain summary + reveal note
-	 * render on their own.
+	 * <p>A roster sync scrapes the clan channel you are standing in, so it needs an admin with that
+	 * channel readable. A profile sync goes to the site the plugin is authenticated against.
 	 */
-	static ConnectionView.Ladder buildLadder(PluginConfigResponse.EventInfo event)
+	public static final class PanelActions
 	{
-		if (event == null)
-		{
-			return null;
-		}
-		boolean ladder = LadderMissions.isLadder(event.format);
-		boolean hasMissions = event.missions != null && !event.missions.isEmpty();
-		if (!ladder && !hasMissions)
-		{
-			return null;
-		}
-		List<ConnectionView.Ladder.Mission> missions = new ArrayList<>();
-		if (event.missions != null)
-		{
-			for (PluginConfigResponse.Mission m : event.missions)
-			{
-				if (m != null)
-				{
-					missions.add(new ConnectionView.Ladder.Mission(m.tileId, m.label, m.points, m.revealedAt, m.expiresAt));
-				}
-			}
-		}
-		int monthRank = event.monthlyStandings != null ? event.monthlyStandings.yourRank : 0;
-		long monthPoints = event.monthlyStandings != null ? event.monthlyStandings.yourPoints : 0;
-		int allTimeRank = event.standings != null ? event.standings.yourRank : 0;
-		return new ConnectionView.Ladder(event.nextRevealAt, monthRank, monthPoints, allTimeRank,
-			event.decay, missions, ladder, event.missionsLeft == null ? -1 : event.missionsLeft);
-	}
+		public static final PanelActions NONE = new PanelActions(false, false, null);
 
-	/**
-	 * Reveal-policy boards: the "still hidden" one-liner under the board summary, or null on classic
-	 * boards / older servers (no field). Bounty draws on claim, the others on a clock the server sends.
-	 */
-	static String revealNote(PluginConfigResponse.EventInfo event)
-	{
-		if (event == null || event.revealPolicy == null || event.revealPolicy.isEmpty() || event.hiddenTileCount <= 0)
-		{
-			return null;
-		}
-		boolean bounty = "bounty".equalsIgnoreCase(event.revealPolicy);
-		String what = bounty
-			? event.hiddenTileCount + (event.hiddenTileCount == 1 ? " bounty" : " bounties") + " left"
-			: event.hiddenTileCount + (event.hiddenTileCount == 1 ? " tile" : " tiles") + " hidden";
-		String next = bounty ? "next on claim" : nextRevealLabel(event.nextRevealAt);
-		return what + (next == null ? "" : " · " + next);
-	}
+		/** Show "Sync clan roster": admin, at home, with a readable clan channel. */
+		public final boolean canSyncRoster;
+		/** Show "Sync profile": the site takes profile data and it's the one we're signed in to. */
+		public final boolean canSyncProfile;
+		/** Why the roster button is absent, when the reason is worth saying. Null when it isn't. */
+		public final String rosterNote;
 
-	/** "next in 42m" / "next in 3h 10m" from the server's ISO next-reveal stamp; null when absent/past. */
-	private static String nextRevealLabel(String nextRevealAt)
-	{
-		if (nextRevealAt == null || nextRevealAt.isEmpty())
+		public PanelActions(boolean canSyncRoster, boolean canSyncProfile, String rosterNote)
 		{
-			return null;
+			this.canSyncRoster = canSyncRoster;
+			this.canSyncProfile = canSyncProfile;
+			this.rosterNote = rosterNote;
 		}
-		try
-		{
-			long at = java.time.Instant.parse(nextRevealAt).toEpochMilli();
-			long mins = Math.max(0, (at - System.currentTimeMillis()) / 60_000);
-			if (mins < 1)
-			{
-				return "next any minute";
-			}
-			if (mins < 60)
-			{
-				return "next in " + mins + "m";
-			}
-			return "next in " + (mins / 60) + "h " + (mins % 60) + "m";
-		}
-		catch (RuntimeException e)
-		{
-			return null;
-		}
-	}
-
-	/** The home entry's clan-filter label: the site's clan name, else the old team/event fallback. */
-	private static String homeClanName(PluginConfigResponse cfg)
-	{
-		if (cfg.clanName != null && !cfg.clanName.isEmpty())
-		{
-			return cfg.clanName;
-		}
-		return primaryDisplayName(cfg);
-	}
-
-	/** The site's public board/standings page for the active event, or null when the base URL is unknown. */
-	private String boardUrlFor(PluginConfigResponse cfg)
-	{
-		String base = apiClient.getApiUrl();
-		if (base == null || base.isEmpty() || cfg.event == null)
-		{
-			return null;
-		}
-		// Under the clan this board was served for (/c/<slug>/events/<id>) — a bare /events/<id> names no
-		// clan and the site can only redirect it.
-		return apiClient.clanUrl("/events/" + cfg.event.id);
-	}
-
-	/**
-	 * Each row at this client's own newer count where it has one (a kill the site hasn't heard about
-	 * yet), so "Nearest tiles", "Active now" and the tile detail move on the kill, not the next poll.
-	 */
-	private List<ClogTaskModel.TaskRow> withLocalProgress(List<ClogTaskModel.TaskRow> rows)
-	{
-		AnvilPlugin p = plugin;
-		if (p == null)
-		{
-			return rows;
-		}
-		List<ClogTaskModel.TaskRow> out = new ArrayList<>(rows.size());
-		for (ClogTaskModel.TaskRow r : rows)
-		{
-			long shown = r.isCompleted() ? r.current : p.shownProgress(r.tileId, r.current);
-			if (shown == r.current)
-			{
-				out.add(r);
-				continue;
-			}
-			ClogTaskModel.TaskRow bumped = new ClogTaskModel.TaskRow(r.tileId, r.label,
-				(int) Math.min(shown, Integer.MAX_VALUE), r.goal, r.points, false);
-			bumped.position = r.position;
-			bumped.description = r.description;
-			out.add(bumped);
-		}
-		return out;
-	}
-
-	/** Reset the feed + delta state when the active event changes (or clears). */
-	private void resetLiveState()
-	{
-		activityLog.reset();
-		scopedEventId = -1;
-		lastAmounts.clear();
-		roseAt.clear();
-	}
-
-	/** The clan/event label for the header: team name ?? event name ?? "". */
-	private static String primaryDisplayName(PluginConfigResponse cfg)
-	{
-		if (cfg.team != null && cfg.team.name != null && !cfg.team.name.isEmpty())
-		{
-			return cfg.team.name;
-		}
-		if (cfg.event != null && cfg.event.name != null && !cfg.event.name.isEmpty())
-		{
-			return cfg.event.name;
-		}
-		return "";
-	}
-
-	/** Fuse the feed, named stat workers, the local stat signal, and config deltas into "Active now". */
-	private List<ConnectionView.ActiveTask> buildActiveNow(PluginConfigResponse cfg,
-		List<ClogTaskModel.TaskRow> rows, List<ActivityEntry> feed)
-	{
-		final long now = System.currentTimeMillis();
-		Map<Integer, ClogTaskModel.TaskRow> incompleteById = new HashMap<>();
-		for (ClogTaskModel.TaskRow r : rows)
-		{
-			if (!r.isCompleted())
-			{
-				incompleteById.put(r.tileId, r);
-			}
-		}
-
-		// Server-computed named teammates per stat tile (tileId → RSNs); absent on an older server (unnamed fallback).
-		Map<Integer, List<String>> namedByTile = new HashMap<>();
-		// …and what each of them (and you) has gained on it, when the server sends numbers.
-		Map<Integer, Map<String, Long>> gainsByTile = new HashMap<>();
-		if (cfg.trackedStats != null)
-		{
-			for (PluginConfigResponse.TrackedStat s : cfg.trackedStats)
-			{
-				if (s != null && s.activeWorkers != null)
-				{
-					namedByTile.put(s.tileId, s.activeWorkers);
-					if (s.activeWorkerGains != null && s.activeWorkerGains.size() == s.activeWorkers.size())
-					{
-						Map<String, Long> gains = new HashMap<>();
-						for (int i = 0; i < s.activeWorkers.size(); i++)
-						{
-							Long g = s.activeWorkerGains.get(i);
-							gains.put(s.activeWorkers.get(i), g == null ? 0L : g);
-						}
-						// Yours as the site has it, plus what this client has seen land since.
-						AnvilPlugin p = plugin;
-						long ahead = p == null ? 0 : p.shownProgress(s.tileId, s.currentAmount) - s.currentAmount;
-						gains.put("You", s.yourGained + Math.max(0, ahead));
-						gainsByTile.put(s.tileId, gains);
-					}
-				}
-			}
-		}
-		Map<Integer, Acc> acc = new HashMap<>();
-
-		// 1. Feed — submission tiles, named. Newest-first.
-		for (ActivityEntry e : feed)
-		{
-			if (e.kind != ActivityEntry.Kind.PROGRESS)
-			{
-				continue;
-			}
-			long t = parseTsMillis(e.ts);
-			if (t >= 0 && now - t > ACTIVE_WINDOW_MS)
-			{
-				continue;
-			}
-			String worker = e.self ? "You" : (e.player == null || e.player.isEmpty() ? null : e.player);
-			add(acc, incompleteById, e.tileId, worker, e.self, t < 0 ? now : t);
-		}
-
-		// 2. Local stat signal — "You" on stat tiles this account is grinding.
-		Map<Integer, Long> local = localStatProgress.get();
-		if (local != null)
-		{
-			for (Map.Entry<Integer, Long> en : local.entrySet())
-			{
-				long t = en.getValue() == null ? 0 : en.getValue();
-				if (now - t > ACTIVE_WINDOW_MS)
-				{
-					continue;
-				}
-				add(acc, incompleteById, en.getKey(), "You", true, t);
-			}
-		}
-
-		// 2b. Named teammates on stat tiles (server-computed) — the good version of "a teammate".
-		for (Map.Entry<Integer, List<String>> en : namedByTile.entrySet())
-		{
-			for (String name : en.getValue())
-			{
-				add(acc, incompleteById, en.getKey(), name, false, now);
-			}
-		}
-
-		// 3. Config-count deltas → an UNNAMED "a teammate" for ANY tile kind — the only signal for a teammate
-		//    grinding before the feed ships. Suppressed where the server named the tile (2b) or you're on it (2).
-		Map<Integer, Integer> current = new HashMap<>();
-		// The panel only samples while it's on screen. Reopened after twenty minutes, every tile that
-		// moved meanwhile would rise "just now" and show a teammate active who stopped long ago — so a
-		// baseline older than the window re-seeds instead. (Named teammates and the feed carry the
-		// site's own times and are unaffected.)
-		boolean freshBaseline = now - lastAmountsAt <= ACTIVE_WINDOW_MS;
-		for (ClogTaskModel.TaskRow r : rows)
-		{
-			current.put(r.tileId, r.current);
-			if (r.isCompleted())
-			{
-				continue;
-			}
-			Integer prev = lastAmounts.get(r.tileId);
-			if (freshBaseline && prev != null && r.current > prev)
-			{
-				roseAt.put(r.tileId, now); // first call has no prev → seeds silently, never a false "active"
-			}
-		}
-		for (Map.Entry<Integer, Long> en : roseAt.entrySet())
-		{
-			if (now - en.getValue() > ACTIVE_WINDOW_MS || !incompleteById.containsKey(en.getKey()))
-			{
-				continue;
-			}
-			if (namedByTile.containsKey(en.getKey()))
-			{
-				continue; // the server named this tile's teammates (stat tile) — don't add an unnamed one
-			}
-			Acc a = acc.get(en.getKey());
-			if (a != null && a.self)
-			{
-				continue; // you're already credited on this tile — don't also tag a teammate
-			}
-			add(acc, incompleteById, en.getKey(), "a teammate", false, en.getValue());
-		}
-		lastAmounts = current;
-		lastAmountsAt = now;
-
-		// Newest-active first, capped; "You" leads each row's workers.
-		List<Map.Entry<Integer, Acc>> ordered = new ArrayList<>(acc.entrySet());
-		ordered.sort((x, y) -> Long.compare(y.getValue().recency, x.getValue().recency));
-		List<ConnectionView.ActiveTask> out = new ArrayList<>();
-		for (Map.Entry<Integer, Acc> en : ordered)
-		{
-			if (out.size() >= MAX_ACTIVE)
-			{
-				break;
-			}
-			Acc a = en.getValue();
-			List<String> workers = new ArrayList<>();
-			if (a.self)
-			{
-				workers.add("You");
-			}
-			for (String w : a.workers)
-			{
-				if (!"You".equals(w))
-				{
-					workers.add(w);
-				}
-			}
-			out.add(new ConnectionView.ActiveTask(incompleteById.get(en.getKey()), workers, a.self,
-				gainsByTile.get(en.getKey())));
-		}
-		return out;
-	}
-
-	/** Per-tile accumulator while fusing signals. */
-	private static final class Acc
-	{
-		final LinkedHashSet<String> workers = new LinkedHashSet<>();
-		boolean self;
-		long recency;
-	}
-
-	private static void add(Map<Integer, Acc> acc, Map<Integer, ClogTaskModel.TaskRow> incompleteById,
-		int tileId, String worker, boolean self, long recency)
-	{
-		if (worker == null || !incompleteById.containsKey(tileId))
-		{
-			return;
-		}
-		Acc a = acc.computeIfAbsent(tileId, k -> new Acc());
-		a.workers.add(worker);
-		a.self |= self;
-		a.recency = Math.max(a.recency, recency);
-	}
-
-	/** Incomplete tiles, nearest-to-done first (highest completion fraction), capped at {@link #NEAREST_LIMIT}. */
-	private static List<ConnectionView.TileProgressView> nearestTiles(List<ClogTaskModel.TaskRow> rows)
-	{
-		List<ClogTaskModel.TaskRow> incomplete = new ArrayList<>();
-		for (ClogTaskModel.TaskRow r : rows)
-		{
-			if (!r.isCompleted())
-			{
-				incomplete.add(r);
-			}
-		}
-		incomplete.sort(Comparator.comparingDouble(AnvilSidebarDataSource::fraction).reversed()
-			.thenComparingInt(r -> r.position));
-
-		List<ConnectionView.TileProgressView> out = new ArrayList<>();
-		for (int i = 0; i < incomplete.size() && i < NEAREST_LIMIT; i++)
-		{
-			ClogTaskModel.TaskRow r = incomplete.get(i);
-			out.add(new ConnectionView.TileProgressView(r.tileId, r.label, r.current, r.goal, false));
-		}
-		return out;
-	}
-
-	private static double fraction(ClogTaskModel.TaskRow r)
-	{
-		return r.goal > 0 ? Math.min(1.0, (double) r.current / r.goal) : 0.0;
-	}
-
-	/** Parse the server's {@code "yyyy-MM-dd HH:mm:ss"} UTC timestamp to epoch millis, or -1 if unparseable. */
-	private static long parseTsMillis(String ts)
-	{
-		if (ts == null || ts.isEmpty())
-		{
-			return -1;
-		}
-		String s = ts.trim().replace(' ', 'T');
-		if (s.endsWith("Z"))
-		{
-			s = s.substring(0, s.length() - 1);
-		}
-		try
-		{
-			return java.time.LocalDateTime.parse(s).toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
-		}
-		catch (RuntimeException e)
-		{
-			return -1;
-		}
-	}
-
-	private static List<ActivityEntry> toEntries(List<BingoApiClient.ActivityItem> items)
-	{
-		if (items == null || items.isEmpty())
-		{
-			return Collections.emptyList();
-		}
-		List<ActivityEntry> out = new ArrayList<>(items.size());
-		for (BingoApiClient.ActivityItem it : items)
-		{
-			if (it == null)
-			{
-				continue;
-			}
-			out.add(new ActivityEntry(it.id, it.ts, it.player, it.tileId, it.tileLabel,
-				ActivityEntry.Kind.fromWire(it.kind), it.amount, it.isSelf, it.participants));
-		}
-		return out;
 	}
 }

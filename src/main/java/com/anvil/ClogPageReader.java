@@ -1,12 +1,9 @@
 package com.anvil;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.*;
+import java.util.regex.*;
 import net.runelite.api.Client;
-import net.runelite.api.widgets.ComponentID;
-import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.*;
 
 /**
  * Reads the collection-log page the game is currently showing.

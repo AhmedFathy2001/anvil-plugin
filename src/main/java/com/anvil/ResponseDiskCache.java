@@ -1,7 +1,7 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,11 +21,11 @@ import net.runelite.client.util.Filepath;
  * fingerprint is a truncated SHA-256 of the Account Token: the token itself never touches disk. Not
  * at the plugin directory's root, where PendingSubmissionStore reads every JSON file as a proof.
  */
+@RequiredArgsConstructor
 @Slf4j
 final class ResponseDiskCache
 {
 	static final String CONFIG = "config";
-	static final String BOARD = "board";
 	static final String CHAT_PATTERNS = "chat-patterns";
 	/** A board bigger than this isn't worth the disk; the next launch just downloads it. */
 	private static final int MAX_BODY_CHARS = 2_000_000;
@@ -48,10 +48,6 @@ final class ResponseDiskCache
 	/** kind → etag (or body hash) last written, so an unchanged 30s poll doesn't rewrite the file. */
 	private final Map<String, String> written = new ConcurrentHashMap<>();
 
-	ResponseDiskCache(Gson gson)
-	{
-		this.gson = gson;
-	}
 
 	void setDir(Filepath dir)
 	{
@@ -76,11 +72,6 @@ final class ResponseDiskCache
 		return prev.isEmpty() ? null : prev;
 	}
 
-	String account()
-	{
-		return account;
-	}
-
 	private Filepath file(String kind, String acct)
 	{
 		Filepath d = DiskFiles.ensureDir(dir);
@@ -90,28 +81,14 @@ final class ResponseDiskCache
 	/** The saved answer of {@code kind} for the current account, or null. Blocking. */
 	Entry load(String kind)
 	{
-		Filepath f = file(kind, account);
-		String text = DiskFiles.readText(f);
-		if (text == null)
+		// Missing or unreadable reads as nothing saved; the next fresh answer overwrites a bad file.
+		Entry e = DiskFiles.readJson(gson, file(kind, account), Entry.class);
+		if (e == null || e.body == null || e.url == null)
 		{
 			return null;
 		}
-		try
-		{
-			Entry e = gson.fromJson(text, Entry.class);
-			if (e == null || e.body == null || e.url == null)
-			{
-				return null;
-			}
-			written.put(kind, e.etag != null ? e.etag : Integer.toString(e.body.hashCode()));
-			return e;
-		}
-		catch (JsonParseException e)
-		{
-			log.debug("Saved {} unreadable, ignoring: {}", kind, e.getMessage());
-			DiskFiles.deleteQuietly(f);
-			return null;
-		}
+		written.put(kind, e.etag != null ? e.etag : Integer.toString(e.body.hashCode()));
+		return e;
 	}
 
 	/** Save a fresh 200 body. Blocking; called from the HTTP worker that fetched it, never the client thread. */
@@ -157,6 +134,5 @@ final class ResponseDiskCache
 			return;
 		}
 		DiskFiles.deleteQuietly(file(CONFIG, acct));
-		DiskFiles.deleteQuietly(file(BOARD, acct));
 	}
 }

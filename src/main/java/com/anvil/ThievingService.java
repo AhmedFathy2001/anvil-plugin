@@ -4,8 +4,7 @@ import com.google.gson.Gson;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.client.game.ItemManager;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import java.util.OptionalDouble;
 
 /**
