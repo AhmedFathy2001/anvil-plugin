@@ -3668,8 +3668,8 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
-		// the actor included. Each client reports only its own player's line; the site names the
-		// movement with it and books it once another member's coffer reading agrees.
+		// the actor included. Each client reports only its own player's line; the site books the
+		// movement with it, named.
 		if (event.getType() == ChatMessageType.CLAN_MESSAGE) {
 			maybeReportCofferLine(msg);
 		}
