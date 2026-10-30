@@ -1200,7 +1200,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Somebody is in the tiles or Teams search: don't ask again under their caret. */
 	private boolean typingInSearch()
 	{
-		Component f = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+		Window w = SwingUtilities.getWindowAncestor(clanView);
+		Component f = w == null ? null : w.getFocusOwner();
 		return f instanceof JTextField && SwingUtilities.isDescendingFrom(f, clanView);
 	}
 
