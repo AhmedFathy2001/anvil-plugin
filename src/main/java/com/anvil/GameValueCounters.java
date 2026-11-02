@@ -20,6 +20,10 @@ import java.util.function.Predicate;
  * with {@code changes}, counts 1 per tick on which any source moved (one slayer task may bump both
  * the main streak and Mortimer's own). {@code unless} vetoes a tick on which another var moved.
  *
+ * <p>A var that arrives AFTER settling (0, then the real value) is the one false-credit risk. Two
+ * guards: {@code maxDelta} set per entry to one real action's ceiling, so a big balance re-baselines;
+ * and {@code balance} entries never count a rise from 0.
+ *
  * <p>The baseline is taken only once logged in and settled ({@link #SETTLE_TICKS} ticks): right at
  * login the client's vars are still arriving, and a 0 → real-balance jump read then would credit a
  * whole bank of points. A single source jump bigger than {@code maxDelta} is re-baselined instead of
@@ -79,6 +83,12 @@ final class GameValueCounters
 		int maxDelta;
 		/** Count 1 per tick on which any source moved, instead of summing the deltas. */
 		boolean changes;
+		/**
+		 * A points BALANCE (Tithe Farm, Foundry reputation): a rise from 0 is the value arriving late,
+		 * not points earned, so it re-baselines. Costs one action for a player sitting on exactly 0;
+		 * never set on streaks or pools where 0 → small is the normal case.
+		 */
+		boolean balance;
 		/**
 		 * Skip a tick on which any of these moved the same way: "other masters" is the main slayer
 		 * streak rising when neither Mortimer's nor Krystilia's own did.
@@ -283,6 +293,10 @@ final class GameValueCounters
 		if (before == null)
 		{
 			return 0;
+		}
+		if (e.balance && before == 0 && !e.decreasing())
+		{
+			return 0; // a balance reading 0 then a real number: it arrived, nobody earned it
 		}
 		int delta = e.decreasing() ? before - now : now - before;
 		return delta <= 0 || delta > e.cap() ? 0 : delta;

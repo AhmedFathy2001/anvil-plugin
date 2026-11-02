@@ -7398,8 +7398,7 @@ public class AnvilPlugin extends Plugin {
 		notableItemIds = notable;
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
 		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
-		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs,
-				n -> n.isEmpty() ? null : DropSource.inGameNpcName(n).toLowerCase());
+		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs, DropSource::killTargetKey);
 		gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
 		rebuildPvpRosterIndex();
 		// The in-game KC-line boss names and the skill names to push real-time counts for.

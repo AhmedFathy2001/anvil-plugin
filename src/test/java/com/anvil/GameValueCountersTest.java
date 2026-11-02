@@ -228,4 +228,37 @@ public class GameValueCountersTest
 			tithe));
 		assertEquals(1, counters.entries().size());
 	}
+
+	@Test
+	public void lateBalanceArrivalNeverCredits()
+	{
+		GameValueCounters.Entry balance = new GameValueCounters.Entry("Tithe Farm points", true, 40, varbit(4893));
+		balance.balance = true;
+		counters.configure(Arrays.asList(balance));
+		settle();
+		tick(); // seeds 0: the var hasn't arrived
+		vars.put("b4893", 33); // arrives late, under the per-action cap
+		assertTrue("0 -> balance is arrival, not earning", tick().isEmpty());
+		vars.put("b4893", 68);
+		assertEquals(35, amountFor(tick(), "Tithe Farm points"));
+		vars.put("b4893", 0); // spent everything
+		assertTrue(tick().isEmpty());
+		vars.put("b4893", 30); // the one action a 0-balance player loses
+		assertTrue(tick().isEmpty());
+		vars.put("b4893", 41);
+		assertEquals(11, amountFor(tick(), "Tithe Farm points"));
+	}
+
+	@Test
+	public void lateArrivalOverTheActionCeilingReBaselines()
+	{
+		GameValueCounters.Entry pool = new GameValueCounters.Entry("Wintertodt rewards earned", false, 30, varbit(11435));
+		counters.configure(Arrays.asList(pool));
+		settle();
+		tick();
+		vars.put("b11435", 412); // a banked cart arriving late
+		assertTrue(tick().isEmpty());
+		vars.put("b11435", 418);
+		assertEquals(6, amountFor(tick(), "Wintertodt rewards earned"));
+	}
 }
