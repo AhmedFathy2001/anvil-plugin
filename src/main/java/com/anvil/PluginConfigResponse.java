@@ -192,6 +192,12 @@ public class PluginConfigResponse
 	 * Null on sites that predate it — then nothing is read.
 	 */
 	public List<Integer> caVarps;
+	/**
+	 * Counters read off a varbit/varp (site lib/gameCounters, capability 'game-counters'): each
+	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on
+	 * sites that predate it — then nothing is read.
+	 */
+	public List<GameValueCounters.Entry> gameCounters;
 
 	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
 	// requires one; null everywhere else, including on sites that predate the 'start-proof'

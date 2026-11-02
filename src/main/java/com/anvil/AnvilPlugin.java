@@ -379,14 +379,39 @@ public class AnvilPlugin extends Plugin {
 	// this is the one counter here that would misfire if another piece of content ever printed the
 	// same sentence — kept because nothing else does today, but that's the risk if it ever breaks.
 	// → chat-patterns.json "counter.egg_offering" (ChatPatterns).
-	//   "Delve level: 3 duration: 1:12. Personal best: 0:58" / "Delve level: 8+ (9) duration: ..."
-	// Printed after EVERY Doom of Mokhaiotl delve cleared (any level, repeats included); a death or
-	// teleport out ends the run without clearing, so no line. Separate name from the boss so it never
-	// stacks on the loot-path Doom kill credit or the deep-delve KC push.
-	// → chat-patterns.json "counter.doom_delve" (ChatPatterns).
+	// ("Doom of Mokhaiotl delves" is a game-value counter now — the per-level completion varps, site
+	// lib/gameCounters — so the "Delve level: N duration:" line, chat-patterns.json "counter.doom_delve",
+	// stays parsed but credits nothing: counting both would double every delve.)
 	static final String HUNTER_RUMOURS = "Hunter Rumours";
 	static final String EGG_OFFERINGS = "Bird's egg offerings";
-	static final String DOOM_DELVES = "Doom of Mokhaiotl delves";
+
+	// Flag on a credit from a signal nobody has checked in game yet (site INFERRED_FLAGS): it counts,
+	// and staff see a "check" badge. Every unconfirmed game-value counter carries it.
+	static final String UNVERIFIED_COUNTER = "unverified_counter";
+
+	// Slayer tasks, Doom delves, Tithe/Foundry points, Wintertodt rewards: read off varbits/varps
+	// (GameValueCounters, catalog on the site — lib/gameCounters). The names below are the chat-line
+	// counters, credited here.
+	//
+	// GOTR reward searches: one per "You found some loot:" inside the GOTR region (14484, as
+	// RuneLite's LootTrackerPlugin gates it) — under OUR name, so a "Guardians of the Rift" kill tile
+	// (the KC) never takes a search.
+	static final int GOTR_REGION = 14484;
+	static final String GOTR_SEARCHES = "Guardians of the Rift searches";
+	// "Elemental energy attuned: 1. Catalytic energy attuned: 2." at the end of a GOTR game — the
+	// reward points earned that game (chat-patterns.json "counter.gotr_energy"); amount = N.
+	static final String GOTR_ELEMENTAL = "GOTR elemental energy";
+	static final String GOTR_CATALYTIC = "GOTR catalytic energy";
+	static final String GOTR_ENERGY_TOTAL = "GOTR total energy";
+	// "You rummage through the offerings..." — one Vale Totems research point, five for the bulk
+	// "...five times" line (chat-patterns.json "counter.vale_offerings").
+	static final String VALE_RESEARCH = "Vale research points";
+	// "As you complete the golem it leaves a gift on the ground for you:" — one per sunstone golem
+	// (chat-patterns.json "counter.sunstone_golem"). The "You have crafted X golems on Wyrmscraig."
+	// tally is deliberately NOT read, so a golem counts once.
+	static final String SUNSTONE_GOLEMS = "Sunstone golems crafted";
+	// No trailing "(...)" in any counter name: the kill index drops a trailing parenthetical as a wiki
+	// qualifier (DropSource.inGameNpcName).
 
 	// Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
 	// handler can tell whether the very first KC message of the session is for a kill the loot path
@@ -661,6 +686,8 @@ public class AnvilPlugin extends Plugin {
 	// ---- Kill-count tiles ----------------------------------------------------------------
 	// Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
 	private volatile Map<String, List<TrackedKill>> killNpcIndex = Collections.emptyMap();
+	// Counters read off varbits/varps (site lib/gameCounters); client thread only.
+	private final GameValueCounters gameValueCounters = new GameValueCounters();
 
 	// ---- PvP-kill tiles --------------------------------------------------------------------
 	// Normalised RSN -> teamId for every enrolled event player, so 'team:other' selectors can
@@ -2332,6 +2359,7 @@ public class AnvilPlugin extends Plugin {
 	public void onGameTick(GameTick event) {
 		lastWornItemIds = wornItemIds();
 		maybeSettleStats();
+		tickGameCounters();
 		maybeStampIdentityOnTick();
 		WorldPoint here = needsStartProof() ? realWorldPosition() : null;
 		startProofStillTicks = here != null && here.equals(startProofPosition) ? startProofStillTicks + 1 : 0;
@@ -2595,6 +2623,14 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event) {
+		// Game-value counters: a loading zone pauses reads (same account, values persist); leaving the
+		// session forgets the baselines — the next account's balances are not this one's.
+		GameState gs = event.getGameState();
+		if (gs == GameState.LOADING) {
+			gameValueCounters.onLoading();
+		} else if (gs == GameState.LOGIN_SCREEN || gs == GameState.HOPPING || gs == GameState.CONNECTION_LOST) {
+			gameValueCounters.onSessionEnd();
+		}
 		// SESSION CLOCK for the starting shot (StartProofRules). Only the login screen starts a new
 		// session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
 		// logout that flushes the hiscores — treating either as a fresh login would hand out a clean
@@ -3839,8 +3875,27 @@ public class AnvilPlugin extends Plugin {
 		if (ChatPatterns.find("counter.egg_offering", plain) != null) {
 			creditNamedCounter(EGG_OFFERINGS);
 		}
-		if (ChatPatterns.find("counter.doom_delve", plain) != null) {
-			creditNamedCounter(DOOM_DELVES);
+		// counter.doom_delve deliberately credits nothing: "Doom of Mokhaiotl delves" is the sum of
+		// the per-level completion varps (site lib/gameCounters), which counts the same delves.
+		if (ChatPatterns.find("counter.reward_search", plain) != null && regionId() == GOTR_REGION) {
+			creditNamedCounter(GOTR_SEARCHES);
+		}
+		Matcher vale = ChatPatterns.find("counter.vale_offerings", plain);
+		if (vale != null) {
+			creditNamedCounter("five".equalsIgnoreCase(vale.group("times")) ? 5 : 1, null, VALE_RESEARCH);
+		}
+		if (ChatPatterns.find("counter.sunstone_golem", plain) != null) {
+			creditNamedCounter(SUNSTONE_GOLEMS);
+		}
+		Matcher energy = ChatPatterns.find("counter.gotr_energy", plain);
+		if (energy != null) {
+			int elemental = parseCount(energy.group("elemental"));
+			int catalytic = parseCount(energy.group("catalytic"));
+			Map<String, Integer> amounts = new HashMap<>();
+			amounts.put(GOTR_ELEMENTAL, elemental);
+			amounts.put(GOTR_CATALYTIC, catalytic);
+			amounts.put(GOTR_ENERGY_TOTAL, elemental + catalytic);
+			creditOncePerTile(amounts, Collections.emptySet());
 		}
 		// (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
 		// so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
@@ -4644,7 +4699,16 @@ public class AnvilPlugin extends Plugin {
 	 * bucket its names put it in) and credit each exactly once.
 	 */
 	private void creditNamedCounter(String... names) {
-		if (trackingOff()) {
+		creditNamedCounter(1, null, names);
+	}
+
+	/**
+	 * As above, crediting {@code amount} (a game-value delta, or the N in "energy attuned: N") and
+	 * carrying {@code inferred} — {@link #UNVERIFIED_COUNTER} for a signal nobody has checked in game
+	 * yet, so the credit counts but staff see a "check" badge on it.
+	 */
+	private void creditNamedCounter(int amount, String inferred, String... names) {
+		if (amount <= 0 || trackingOff()) {
 			return;
 		}
 		// Identity set: two DIFFERENT tiles with the same name must both credit, but the SAME tile
@@ -4664,7 +4728,95 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		if (!unique.isEmpty()) {
-			creditKillTiles(names[0], unique, 1); // one line == one floor/run
+			creditKillTiles(names[0], unique, amount, inferred);
+		}
+	}
+
+	private static int parseCount(String digits) {
+		try {
+			return digits == null ? 0 : Integer.parseInt(digits.replace(",", ""));
+		} catch (NumberFormatException e) {
+			return 0;
+		}
+	}
+
+	/** The region the local player stands in, or -1. Client thread. */
+	private int regionId() {
+		Player me = client.getLocalPlayer();
+		if (me == null) {
+			return -1;
+		}
+		WorldPoint wp = WorldPoint.fromLocalInstance(client, me.getLocalLocation());
+		return wp == null ? -1 : wp.getRegionID();
+	}
+
+	/**
+	 * Per tick: read the catalog's varbits/varps that some kill tile targets and credit each positive
+	 * change (GameValueCounters). Reading a handful of ids a tick is cheaper than filtering every
+	 * VarbitChanged, and catches changes that landed while the baseline was settling.
+	 */
+	private void tickGameCounters() {
+		if (!loggedIn()) {
+			return;
+		}
+		PluginConfigResponse cfg = pluginConfig;
+		boolean on = cfg != null && cfg.serverSupports("game-counters");
+		gameValueCounters.configure(on ? cfg.gameCounters : null);
+		if (gameValueCounters.entries().isEmpty()) {
+			return;
+		}
+		gameValueCounters.onLoggedIn();
+		Map<String, List<TrackedKill>> index = killNpcIndex;
+		List<GameValueCounters.Credit> credits = gameValueCounters.tick(
+				(varp, id) -> varp ? client.getVarpValue(id) : client.getVarbitValue(id),
+				e -> index.containsKey(e.name.toLowerCase(Locale.ROOT)));
+		if (credits.isEmpty()) {
+			return;
+		}
+		Map<String, Integer> amounts = new HashMap<>();
+		Set<String> unverified = new HashSet<>();
+		for (GameValueCounters.Credit c : credits) {
+			amounts.merge(c.entry.name, c.amount, Math::max);
+			if (!c.entry.confirmed) {
+				unverified.add(c.entry.name);
+			}
+		}
+		creditOncePerTile(amounts, unverified);
+	}
+
+	/**
+	 * Credit several counter names that moved for ONE event (a slayer task: "any master" AND
+	 * "Mortimer"; a delve: the total AND its level; a GOTR game: elemental, catalytic AND total). A
+	 * tile listing more than one of them takes the largest amount among its matches, once — never the
+	 * sum — and is flagged when any of its matching names is unverified.
+	 */
+	private void creditOncePerTile(Map<String, Integer> amountByName, Set<String> unverified) {
+		if (trackingOff()) {
+			return;
+		}
+		Map<String, List<TrackedKill>> index = killNpcIndex;
+		Map<TrackedKill, Integer> amountByTile = new IdentityHashMap<>();
+		Map<TrackedKill, String> nameByTile = new IdentityHashMap<>();
+		Set<TrackedKill> flagged = Collections.newSetFromMap(new IdentityHashMap<>());
+		for (Map.Entry<String, Integer> n : amountByName.entrySet()) {
+			if (n.getValue() <= 0) {
+				continue;
+			}
+			for (TrackedKill kill : index.getOrDefault(n.getKey().toLowerCase(Locale.ROOT), Collections.emptyList())) {
+				Integer had = amountByTile.get(kill);
+				if (had == null || n.getValue() > had) {
+					amountByTile.put(kill, n.getValue());
+					nameByTile.put(kill, n.getKey());
+				}
+				if (unverified.contains(n.getKey())) {
+					flagged.add(kill);
+				}
+			}
+		}
+		for (Map.Entry<TrackedKill, Integer> e : amountByTile.entrySet()) {
+			TrackedKill kill = e.getKey();
+			creditKillTiles(nameByTile.get(kill), Collections.singletonList(kill), e.getValue(),
+					flagged.contains(kill) ? UNVERIFIED_COUNTER : null);
 		}
 	}
 
@@ -4675,6 +4827,10 @@ public class AnvilPlugin extends Plugin {
 	 * on the client thread (called from loot event).
 	 */
 	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount) {
+		creditKillTiles(npcName, matches, amount, null);
+	}
+
+	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount, String inferred) {
 		for (TrackedKill kill : matches) {
 			if (kill.currentAmount >= kill.requiredAmount) {
 				continue;
@@ -4690,12 +4846,12 @@ public class AnvilPlugin extends Plugin {
 			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
 			sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
 
-			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired);
+			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired, inferred);
 		}
 	}
 
 	private void queueKillForFlush(TrackedKill kill, int amount,
-			int snapshotCurrent, int snapshotRequired) {
+			int snapshotCurrent, int snapshotRequired, String inferred) {
 		if (!execLive()) {
 			return;
 		}
@@ -4703,6 +4859,9 @@ public class AnvilPlugin extends Plugin {
 			Aggregate<TrackedKill> agg =
 					pendingKillAggregates.computeIfAbsent(kill.tileId, k -> new Aggregate<>(kill));
 			agg.total += amount;
+			if (inferred != null) {
+				agg.inferred = inferred; // one unverified credit in the burst flags the whole submission
+			}
 			if (kill.needsCoopFingerprint()) {
 				CoopFingerprint fp = coopFingerprint();
 				// Keep the richest view across a coalesced burst: one kill in the window may have
@@ -4753,17 +4912,25 @@ public class AnvilPlugin extends Plugin {
 			String noun, boolean milestones, Runnable flush, long coalesceMs) {
 		T tile = agg.tile;
 		int amount = agg.total;
-		if (agg.snapshotCurrent < agg.snapshotRequired
+		final String inferred = agg.inferred;
+		// A kill burst bigger than the site takes without a screenshot (MAX_PING_AMOUNT in the
+		// submissions route — a game-value delta or "energy attuned: N" easily is) goes as a proof, not
+		// a ping the site would clamp to 10. Gains are not capped there, so they keep pinging.
+		if (agg.snapshotCurrent < agg.snapshotRequired && (!milestones || amount <= MAX_PING_AMOUNT)
 				&& !(milestones && crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired))) {
-			pingTile(tile.tileId, tile.label, noun, amount, agg.coop, () -> requeue(pending, tile.tileId,
-					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs));
+			pingTile(tile.tileId, tile.label, noun, amount, agg.coop, inferred, () -> requeue(pending, tile.tileId,
+					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
 			return;
 		}
 		String detail = tile.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		captureAndSubmitProof(tile.tileId, tile.label, amount, null, agg.coop, "BINGO " + noun.toUpperCase(Locale.ROOT),
-				detail, "[Auto] " + tile.label + " " + noun + "(s) detected by RuneLite plugin",
+		submitProof(tile.tileId, tile.label, amount, null, null, inferred, null, agg.coop,
+				"BINGO " + noun.toUpperCase(Locale.ROOT), detail,
+				"[Auto] " + tile.label + " " + noun + "(s) detected by RuneLite plugin", "Submitted: " + tile.label,
 				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
 	}
+
+	/** The most one image-less ping may credit on the site (submissions route MAX_PING_AMOUNT). */
+	private static final int MAX_PING_AMOUNT = 10;
 
 	/**
 	 * Count-only ping for an intermediate flush — no screenshot. Ids are captured now: the config can
@@ -4771,7 +4938,7 @@ public class AnvilPlugin extends Plugin {
 	 * tile's burst so a later flush retries it.
 	 */
 	private void pingTile(int tileId, String label, String noun, int amount, CoopFingerprint coop,
-			Runnable requeue) {
+			String inferred, Runnable requeue) {
 		if (!execLive() || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null
 				|| pluginConfig.player == null) {
 			return;
@@ -4783,7 +4950,7 @@ public class AnvilPlugin extends Plugin {
 			try {
 				warnStartProofBeforeCredit();
 				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null, null);
+						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, inferred, null);
 				log.debug("{} ping sent: '{}' ×{}", noun, label, amount);
 				refreshConfig();
 			} catch (IOException e) {
@@ -4795,10 +4962,13 @@ public class AnvilPlugin extends Plugin {
 
 	/** Fold a failed ping's amount back into its tile's burst and restart the burst's settle timer. */
 	private <T> void requeue(Map<Integer, Aggregate<T>> pending, int tileId, T tile, int amount, int current,
-			int required, Runnable flush, long ms) {
+			int required, Runnable flush, long ms, String inferred) {
 		synchronized (pending) {
 			Aggregate<T> retry = pending.computeIfAbsent(tileId, k -> new Aggregate<>(tile));
 			retry.total += amount;
+			if (inferred != null) {
+				retry.inferred = inferred;
+			}
 			settle(retry, current, required, flush, ms);
 		}
 	}
