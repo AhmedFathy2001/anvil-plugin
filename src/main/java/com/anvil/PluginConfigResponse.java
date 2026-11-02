@@ -435,6 +435,10 @@ public class PluginConfigResponse
 	{
 		public int requiredAmount;
 		public int currentAmount;     // the team's submitted progress so far
+		// Kill entries only: the most one image-less ping may credit, sent by the site for a counter
+		// whose ONE real action steps by more than 10 (a Foundry sword's reputation, a game's energy).
+		// 0/absent = 10 and a bigger burst goes as a screenshot proof — today's behaviour.
+		public int pingMax;
 	}
 
 	public static class TrackedDrop extends CountedTile

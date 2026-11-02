@@ -662,6 +662,8 @@ public class AnvilPlugin extends Plugin {
 
 		final T tile;
 		int total;
+		/** Kills: the credits that make up {@link #total}, one per real action, for splitting into pings. */
+		final List<Integer> parts = new ArrayList<>();
 		int snapshotCurrent;
 		int snapshotRequired;
 		ScheduledFuture<?> flushTask;
@@ -4869,6 +4871,7 @@ public class AnvilPlugin extends Plugin {
 			Aggregate<TrackedKill> agg =
 					pendingKillAggregates.computeIfAbsent(kill.tileId, k -> new Aggregate<>(kill));
 			agg.total += amount;
+			agg.parts.add(amount);
 			if (inferred != null) {
 				agg.inferred = inferred; // one unverified credit in the burst flags the whole submission
 			}
@@ -4927,14 +4930,20 @@ public class AnvilPlugin extends Plugin {
 		TrackedKill alt = tile instanceof TrackedKill && ((TrackedKill) tile).isAlt() ? (TrackedKill) tile : null;
 		final String label = alt != null ? killDisplayLabel(alt, agg.snapshotCurrent) : tile.label;
 		final boolean quiet = alt != null && !alt.isAltGoal();
-		// A kill burst bigger than the site takes without a screenshot (MAX_PING_AMOUNT in the
-		// submissions route — a game-value delta or "energy attuned: N" easily is) goes as a proof, not
-		// a ping the site would clamp to 10. Gains are not capped there, so they keep pinging.
-		if (agg.snapshotCurrent < agg.snapshotRequired && (!milestones || amount <= MAX_PING_AMOUNT)
+		// Gains are not capped on the site, so they always ping. A kill burst pings when the site takes it
+		// without a screenshot (planPings: up to 10, or the tile's pingMax split into whole actions) —
+		// otherwise it goes as a proof rather than a ping the site would clamp to 10.
+		if (agg.snapshotCurrent < agg.snapshotRequired
 				&& !(milestones && crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired))) {
-			pingTile(tile.tileId, label, noun, amount, agg.coop, inferred, () -> requeue(pending, tile.tileId,
-					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
-			return;
+			List<Integer> pings = milestones ? planPings(agg.parts, amount, tile.pingMax)
+					: Collections.singletonList(amount);
+			if (pings != null) {
+				for (int chunk : pings) {
+					pingTile(tile.tileId, label, noun, chunk, agg.coop, inferred, () -> requeue(pending, tile.tileId,
+							tile, chunk, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
+				}
+				return;
+			}
 		}
 		String detail = label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
 		submitProof(tile.tileId, label, amount, null, null, inferred, null, agg.coop,
@@ -4943,8 +4952,45 @@ public class AnvilPlugin extends Plugin {
 				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
 	}
 
-	/** The most one image-less ping may credit on the site (submissions route MAX_PING_AMOUNT). */
-	private static final int MAX_PING_AMOUNT = 10;
+	/** The most one image-less ping may credit on a tile the site sent no pingMax for (site lib/pingMax). */
+	static final int MAX_PING_AMOUNT = 10;
+
+	/**
+	 * The image-less pings a settled kill burst (not a milestone, not the completion) goes out as, or
+	 * null when it must be a screenshot proof.
+	 *
+	 * <p>No {@code pingMax} from the site (0): today's rule — one ping up to {@link #MAX_PING_AMOUNT},
+	 * a proof above it. With one, the burst is never a proof: a debounced burst can hold several real
+	 * actions (two quick Vale searches, a run of reputation swords if the window keeps resetting), so
+	 * its credits are packed in order into pings of at most pingMax each — every ping is whole actions,
+	 * none trips the site's "bigger than one action" flag. A SINGLE credit above pingMax still goes
+	 * alone, so the site flags it: that one is genuinely odd.
+	 */
+	static List<Integer> planPings(List<Integer> parts, int total, int pingMax) {
+		if (pingMax <= 0) {
+			return total <= MAX_PING_AMOUNT ? Collections.singletonList(total) : null;
+		}
+		int sum = 0;
+		for (int p : parts) {
+			sum += p;
+		}
+		if (sum != total || total <= pingMax) {
+			return Collections.singletonList(total);
+		}
+		List<Integer> out = new ArrayList<>();
+		int chunk = 0;
+		for (int p : parts) {
+			if (chunk > 0 && chunk + p > pingMax) {
+				out.add(chunk);
+				chunk = 0;
+			}
+			chunk += p;
+		}
+		if (chunk > 0) {
+			out.add(chunk);
+		}
+		return out;
+	}
 
 	/**
 	 * Count-only ping for an intermediate flush — no screenshot. Ids are captured now: the config can
@@ -4980,6 +5026,7 @@ public class AnvilPlugin extends Plugin {
 		synchronized (pending) {
 			Aggregate<T> retry = pending.computeIfAbsent(tileId, k -> new Aggregate<>(tile));
 			retry.total += amount;
+			retry.parts.add(amount);
 			if (inferred != null) {
 				retry.inferred = inferred;
 			}
