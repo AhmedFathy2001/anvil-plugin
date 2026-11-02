@@ -120,6 +120,14 @@ public class TileNotesTest
 		assertEquals(Arrays.asList("1 of 2 done", "GOTR rare reward  done", "100 searches  37/100"), TileNotes.comboLines(combo, counts));
 		assertEquals("GOTR rare or searches \u2014 100 searches", TileNotes.partLabel(combo.label, "100 searches"));
 		assertEquals("100 searches", TileNotes.partLabel(null, "100 searches"));
+		combo.rule = "mix";
+		combo.percent = 75;
+		assertEquals("75%", TileNotes.comboLines(combo, counts).get(0));
+		assertEquals(3, TileNotes.comboLines(combo, counts).size());
+		PluginConfigResponse mix = GSON.fromJson("{\"trackedCombos\":[{\"tileId\":40,\"rule\":\"mix\",\"percent\":140,"
+			+ "\"parts\":[{\"tileId\":41,\"label\":\"A\",\"weight\":0.5}]}]}", PluginConfigResponse.class);
+		assertEquals(0.5, mix.trackedCombos.get(0).parts.get(0).weight, 1e-9);
+		assertEquals("100%", TileNotes.comboLines(mix.trackedCombos.get(0), null).get(0));
 	}
 
 	@Test

@@ -105,7 +105,10 @@ final class TileNotes
 	{
 		List<String> out = new ArrayList<>();
 		int needed = Math.max(1, combo.needed);
-		out.add(fmt(Math.min(combo.done, needed)) + " of " + fmt(needed) + " done");
+		// A "mix" combo is weighted shares, so it reads as the server's percentage instead.
+		out.add("mix".equals(combo.rule)
+			? Math.max(0, Math.min(100, combo.percent)) + "%"
+			: fmt(Math.min(combo.done, needed)) + " of " + fmt(needed) + " done");
 		if (combo.parts != null)
 		{
 			for (ComboPart p : combo.parts)

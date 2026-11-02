@@ -532,6 +532,7 @@ public class PluginConfigResponse
 		public String rule;
 		public int needed;
 		public int done;
+		public int percent; // rule "mix" only: weighted progress 0–100, done at 100
 		public List<ComboPart> parts;
 		public boolean completed;
 	}
@@ -541,6 +542,7 @@ public class PluginConfigResponse
 		public int tileId;
 		public String label;
 		public boolean completed;
+		public Double weight; // rule "mix" only: this part's share (0..1, absent = 1)
 	}
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
