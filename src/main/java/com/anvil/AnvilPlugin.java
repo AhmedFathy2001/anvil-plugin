@@ -171,6 +171,7 @@ public class AnvilPlugin extends Plugin {
 	// The in-game Clan Coffer is an absolute coin stack. The tracker converts widget reads into a
 	// baseline or signed transition; the server owns cross-client dedupe and the audited ledger.
 	private final ClanCofferTracker clanCofferTracker = new ClanCofferTracker();
+	private final ModeLines modeLines = new ModeLines();
 	private boolean clanCofferOpen;
 	private int clanCofferOpenTicks;
 
@@ -2281,6 +2282,23 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	private void flushModeLines() {
+		List<String> batch = modeLines.drain(now());
+		PluginConfigResponse cfg = pluginConfig;
+		ScheduledExecutorService ex = executor;
+		if (batch == null || cfg == null || !cfg.serverSupports("mode-lines") || !apiClient.isConfigured()
+				|| ex == null || ex.isShutdown()) {
+			return;
+		}
+		ex.submit(() -> {
+			try {
+				apiClient.submitModeLines(batch);
+			} catch (IOException e) {
+				log.debug("Mode lines not sent: {}", e.getMessage());
+			}
+		});
+	}
+
 	/** Read the visible coffer after its item widgets have had a few ticks to populate. */
 	private void pollClanCoffer() {
 		if (!config.syncClanCoffer() || !clanCofferOpen
@@ -2359,6 +2377,7 @@ public class AnvilPlugin extends Plugin {
 				cfgNow != null && cfgNow.startProof != null ? cfgNow.startProof.location : null);
 		resolveDuplicateScroll();
 		trackClogOpen();
+		flushModeLines();
 		// KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
 		//
 		// They were drawn on two scripts and never reconsidered, so anything that changed while the
@@ -3694,6 +3713,10 @@ public class AnvilPlugin extends Plugin {
 		// movement with it once a coffer reading shows the money.
 		if (event.getType() == ChatMessageType.CLAN_MESSAGE) {
 			maybeReportCofferLine(msg);
+		}
+		// On a game-mode world the site turns the game's announcements into relic/area/task posts.
+		if (event.getType() == ChatMessageType.GAMEMESSAGE && WorldInfo.separateSave(client.getWorldType())) {
+			modeLines.offer(msg, now());
 		}
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.

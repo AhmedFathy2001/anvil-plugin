@@ -1634,6 +1634,16 @@ public class BingoApiClient
 	 * POST /api/plugin/coffer/broadcast — this player's own coffer line from clan chat. The site parses
 	 * it and books it once a coffer reading shows the money.
 	 */
+	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
+	public void submitModeLines(java.util.List<String> lines) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+		lines.forEach(arr::add);
+		payload.add("lines", arr);
+		postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
+	}
+
 	public void submitCofferLine(String line, String clanName) throws IOException
 	{
 		JsonObject payload = new JsonObject();
