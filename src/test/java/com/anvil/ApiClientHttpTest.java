@@ -83,6 +83,33 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void theWorldRidesEveryRequestAndIsFrozenIntoNotifications() throws Exception
+	{
+		BingoApiClient c = client();
+		Map<String, Integer> kc = new LinkedHashMap<>();
+		kc.put("Zulrah", 5);
+		c.submitStatKc(kc);
+		assertNull(seen.get(0).header("X-World-Types"));
+		assertNull(seen.get(0).header("X-World-Activity"));
+
+		c.setWorld("DEADMAN,MEMBERS", "Deadman");
+		c.submitStatKc(kc);
+		assertEquals("DEADMAN,MEMBERS", seen.get(1).header("X-World-Types"));
+		assertEquals("Deadman", seen.get(1).header("X-World-Activity"));
+
+		// Async: wait for the notification to reach the interceptor.
+		int before = seen.size();
+		c.postNotification("rareDrops", null, new NotifyFacts("drop", "Zezima").put("item", "Twisted bow"), null, null);
+		long until = System.currentTimeMillis() + 5000;
+		while (seen.size() == before && System.currentTimeMillis() < until)
+		{
+			Thread.sleep(10);
+		}
+		String body = bodies.get(before);
+		assertTrue(body, body.contains("\"world\":{\"types\":\"DEADMAN,MEMBERS\",\"activity\":\"Deadman\"}"));
+	}
+
+	@Test
 	public void configFetch404IsTheNoClanState()
 	{
 		BingoApiClient c = client();
