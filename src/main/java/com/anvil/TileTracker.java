@@ -7,6 +7,7 @@ import javax.inject.*;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
+import java.util.function.IntFunction;
 import java.util.function.ToLongBiFunction;
 import java.time.*;
 
@@ -50,6 +51,11 @@ public class TileTracker
 	 */
 	private volatile ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
 	/**
+	 * tileId → the plugin's extra lines for it ("3/5 runs", "or 37/100 searches", TileNotes), read from
+	 * the polled config each frame. None until the plugin sets it.
+	 */
+	private volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
+	/**
 	 * One panel holding every pin (the default) or a movable widget per pin. One panel can't end up
 	 * with pins on top of each other, and is one thing to place; separate ones can be put anywhere.
 	 */
@@ -72,6 +78,11 @@ public class TileTracker
 	void setShownProgress(ToLongBiFunction<Integer, Long> shown)
 	{
 		shownProgress = shown;
+	}
+
+	void setNotes(IntFunction<List<String>> lines)
+	{
+		notes = lines;
 	}
 
 	/** Switch between one panel and a widget per pin, moving whatever is pinned across. */
@@ -224,6 +235,10 @@ public class TileTracker
 	/** Pin or unpin; pinning a tile from another event drops the old event's pins. */
 	synchronized void toggle(int eventId, int tileId)
 	{
+		if (!TileNotes.pinnable(tileId))
+		{
+			return; // an either/or goal's virtual entry: shown on its parent's pin, never one of its own
+		}
 		if (isPinned(eventId, tileId))
 		{
 			hide(removePin(tileId));
@@ -437,6 +452,7 @@ public class TileTracker
 			slot++;
 		}
 		Widget w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
+		w.notes = id -> notes.apply(id);
 		pins.put(tileId, w);
 		drawn = new ArrayList<>(pins.values());
 		if (onePanel)
@@ -571,6 +587,9 @@ public class TileTracker
 		final int slot;
 		final int tileId;
 		private final ToLongBiFunction<Integer, Long> shown;
+		/** This tile's extra lines (TileTracker.notes); none by default. */
+		volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
+		private List<String> builtNotes = Collections.emptyList();
 		volatile Progress progress;
 		/**
 		 * Stay up after the team finishes? Pins restored from config start false, so a tile finished
@@ -631,8 +650,14 @@ public class TileTracker
 		void drawInto(PanelComponent panelComponent, boolean compact)
 		{
 			Progress p = progress;
-			if (p != builtFor || compact != builtCompact || lines.isEmpty())
+			List<String> n = notes.apply(tileId);
+			if (n == null)
 			{
+				n = Collections.emptyList();
+			}
+			if (p != builtFor || compact != builtCompact || lines.isEmpty() || !n.equals(builtNotes))
+			{
+				builtNotes = n;
 				build(p, compact);
 			}
 			if (startsIn != null && startsAt != null)
@@ -674,6 +699,10 @@ public class TileTracker
 				return;
 			}
 			lines.add(TitleComponent.builder().text(p.label).color(GOLD).build());
+			for (String note : builtNotes)
+			{
+				lines.add(LineComponent.builder().left(note).leftColor(Color.LIGHT_GRAY).build());
+			}
 			if ("upcoming".equals(p.phase))
 			{
 				// Nothing counts before the start, so there is no progress to draw yet — only when.

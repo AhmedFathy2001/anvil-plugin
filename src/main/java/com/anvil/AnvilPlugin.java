@@ -1188,6 +1188,7 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
+		tileTracker.setNotes(this::tileNotes);
 		tileTracker.setOnePanel(config.trackerOnePanel());
 		tileTracker.startUp();
 		overlayManager.add(startProofOverlay);
@@ -4835,6 +4836,10 @@ public class AnvilPlugin extends Plugin {
 			if (kill.currentAmount >= kill.requiredAmount) {
 				continue;
 			}
+			// An either/or goal's entries are moot once the tile they finish is done.
+			if (kill.isAlt() && isTileCompleted(kill.altOf)) {
+				continue;
+			}
 			kill.currentAmount += amount;
 			raiseLocal(kill.tileId, kill.currentAmount, now());
 			int snapshotCurrent = kill.currentAmount;
@@ -4844,7 +4849,12 @@ public class AnvilPlugin extends Plugin {
 			// and the noun is the only thing that differs (see TrackedKill.unit).
 			String noun = kill.unitNoun();
 			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
-			sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+			if (kill.isAltGoal()) {
+				// Named after the tile it finishes: "GOTR rare reward — or 38/100 searches".
+				sendChatMessage("Tracked " + noun + ": " + killDisplayLabel(kill, snapshotCurrent));
+			} else if (!kill.isAlt()) {
+				sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+			} // an either/or cap counter is counted and submitted silently
 
 			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired, inferred);
 		}
@@ -4913,19 +4923,23 @@ public class AnvilPlugin extends Plugin {
 		T tile = agg.tile;
 		int amount = agg.total;
 		final String inferred = agg.inferred;
+		// An either/or goal's entries speak as their parent tile; a cap counter says nothing in chat.
+		TrackedKill alt = tile instanceof TrackedKill && ((TrackedKill) tile).isAlt() ? (TrackedKill) tile : null;
+		final String label = alt != null ? killDisplayLabel(alt, agg.snapshotCurrent) : tile.label;
+		final boolean quiet = alt != null && !alt.isAltGoal();
 		// A kill burst bigger than the site takes without a screenshot (MAX_PING_AMOUNT in the
 		// submissions route — a game-value delta or "energy attuned: N" easily is) goes as a proof, not
 		// a ping the site would clamp to 10. Gains are not capped there, so they keep pinging.
 		if (agg.snapshotCurrent < agg.snapshotRequired && (!milestones || amount <= MAX_PING_AMOUNT)
 				&& !(milestones && crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired))) {
-			pingTile(tile.tileId, tile.label, noun, amount, agg.coop, inferred, () -> requeue(pending, tile.tileId,
+			pingTile(tile.tileId, label, noun, amount, agg.coop, inferred, () -> requeue(pending, tile.tileId,
 					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
 			return;
 		}
-		String detail = tile.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		submitProof(tile.tileId, tile.label, amount, null, null, inferred, null, agg.coop,
+		String detail = label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+		submitProof(tile.tileId, label, amount, null, null, inferred, null, agg.coop,
 				"BINGO " + noun.toUpperCase(Locale.ROOT), detail,
-				"[Auto] " + tile.label + " " + noun + "(s) detected by RuneLite plugin", "Submitted: " + tile.label,
+				"[Auto] " + label + " " + noun + "(s) detected by RuneLite plugin", quiet ? null : "Submitted: " + label,
 				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
 	}
 
@@ -5372,9 +5386,14 @@ public class AnvilPlugin extends Plugin {
 					log.error("Failed to persist submission '{}' to disk", label);
 					return;
 				}
-				sendChatMessage("Uploading proof: " + label + "...");
+				// submitted == null: a quiet credit (an either/or cap counter) — no progress chatter.
+				if (submitted != null) {
+					sendChatMessage("Uploading proof: " + label + "...");
+				}
 				if (processPendingSubmission(pending)) {
-					sendChatMessage(submitted);
+					if (submitted != null) {
+						sendChatMessage(submitted);
+					}
 					proofBackoff.onSuccess();
 				} else {
 					notifyUploadFailed(label);
@@ -5697,14 +5716,28 @@ public class AnvilPlugin extends Plugin {
 		}
 		log.debug("Tracked timed clear: {} in {} (cap {})", tile.label,
 				TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
-		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
+		// A tile needing several qualifying runs (Barracuda Trials ranks) counts this one now, as a
+		// counted tile does, so the tracker and chat don't wait for the next poll; undone if the
+		// proof can't be captured.
+		int required = tile.runsRequired();
+		Runnable rollback = null;
+		String runs = null;
+		if (required > 1) {
+			int done = Math.min(required, Math.max(tile.runsDone(), (int) optimisticFloor(tile.tileId)) + 1);
+			tile.currentAmount = done;
+			raiseLocal(tile.tileId, done, now());
+			runs = TileNotes.runs(done, required);
+			rollback = () -> tile.currentAmount = Math.max(0, tile.runsDone() - 1);
+		}
+		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds)
+				+ (runs != null ? " (" + runs + ")" : ""));
 		String detail = trialTarget != null
 				? tile.activity + "  " + TimedClearParser.formatClock(seconds)
 				: tile.activity + "  " + TimedClearParser.formatClock(seconds)
 						+ "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")"
 						+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "");
 		captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
-				"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
+				"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", rollback);
 	}
 
 	/**
@@ -6231,6 +6264,9 @@ public class AnvilPlugin extends Plugin {
 
 	/** Pin or unpin a tile's in-game widget, fetching a fresh pin straight away. */
 	void setTrackedTile(int eventId, int tileId, boolean on) {
+		if (!TileNotes.pinnable(tileId)) {
+			return; // an either/or goal's virtual entry rides its parent's pin
+		}
 		tileTracker.set(eventId, tileId, on);
 		submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
 	}
@@ -7169,6 +7205,9 @@ public class AnvilPlugin extends Plugin {
 				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
 		keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
 				k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
+		// Multi-run timed tiles (Barracuda Trials ranks) count runs locally the same way.
+		keepLocalFloor(prior == null ? null : prior.trackedTimed, fresh.trackedTimed, t -> t.tileId,
+				TrackedTimed::runsDone, TrackedTimed::runsRequired, (t, v) -> t.currentAmount = v);
 		tileCountsFor = null; // the floors above changed it in place
 		liveCountsMoved();
 	}
@@ -7508,6 +7547,91 @@ public class AnvilPlugin extends Plugin {
 	private void raiseLocal(int tileId, long current, long at) {
 		optimistic.raise(tileId, current, at);
 		liveCountsMoved();
+	}
+
+	/** Per-config lookups for the tracker's extra lines and alt-goal chat (see TileNotes). */
+	private volatile PluginConfigResponse notesFor;
+	private volatile Map<Integer, TrackedKill> altGoalByParent = Collections.emptyMap();
+	private volatile Map<Integer, TrackedTimed> multiRunTimed = Collections.emptyMap();
+	private volatile Map<Integer, String> tileLabels = Collections.emptyMap();
+
+	private void indexNotes(PluginConfigResponse cfg) {
+		if (cfg == notesFor) {
+			return;
+		}
+		Map<Integer, TrackedTimed> runs = new HashMap<>();
+		Map<Integer, String> labels = new HashMap<>();
+		if (cfg != null) {
+			if (cfg.trackedTimed != null) {
+				for (TrackedTimed t : cfg.trackedTimed) {
+					if (t != null && t.runsRequired() > 1) {
+						runs.put(t.tileId, t);
+					}
+				}
+			}
+			for (Map.Entry<String, JsonElement> e : gson.toJsonTree(cfg).getAsJsonObject().entrySet()) {
+				if (!e.getKey().startsWith("tracked") || !e.getValue().isJsonArray()) {
+					continue;
+				}
+				for (JsonElement row : e.getValue().getAsJsonArray()) {
+					JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
+					if (r != null && r.has("tileId") && r.has("label") && r.get("label").isJsonPrimitive()) {
+						labels.putIfAbsent(r.get("tileId").getAsInt(), r.get("label").getAsString());
+					}
+				}
+			}
+		}
+		altGoalByParent = TileNotes.altGoals(cfg == null ? null : cfg.trackedKills);
+		multiRunTimed = runs;
+		tileLabels = labels;
+		notesFor = cfg;
+	}
+
+	/**
+	 * A pinned tile's extra lines: "3/5 runs" on a multi-run timed tile, "or 37/100 searches" for a tile
+	 * with an either/or goal — each at this client's newest count. Empty for everything else. Read every
+	 * frame by the tracker, so it only looks up maps built once per config.
+	 */
+	List<String> tileNotes(int tileId) {
+		PluginConfigResponse cfg = pluginConfig;
+		if (cfg == null) {
+			return Collections.emptyList();
+		}
+		indexNotes(cfg);
+		List<String> out = null;
+		TrackedTimed timed = multiRunTimed.get(tileId);
+		if (timed != null && !timed.completed) {
+			out = new ArrayList<>(2);
+			out.add(TileNotes.runs(shownProgress(tileId, timed.runsDone()), timed.runsRequired()));
+		}
+		TrackedKill alt = altGoalByParent.get(tileId);
+		if (alt != null) {
+			if (out == null) {
+				out = new ArrayList<>(1);
+			}
+			out.add(TileNotes.altLine(shownProgress(alt.tileId, alt.currentAmount), alt.requiredAmount, alt.unit));
+		}
+		return out == null ? Collections.emptyList() : out;
+	}
+
+	/**
+	 * What a kill entry is called in chat and on its proof: its own label, or for an either/or goal's
+	 * entry the tile it finishes — "GOTR rare reward — or 38/100 searches" ({@code current} is the count
+	 * to show), and a cap counter as "GOTR rare reward (counter)".
+	 */
+	private String killDisplayLabel(TrackedKill kill, long current) {
+		if (!kill.isAlt()) {
+			return kill.label;
+		}
+		indexNotes(pluginConfig);
+		String parent = tileLabels.get(kill.altOf);
+		if (parent == null || parent.trim().isEmpty()) {
+			parent = kill.label;
+		}
+		if (!kill.isAltGoal()) {
+			return (parent == null ? "" : parent) + " (counter)";
+		}
+		return TileNotes.altChat(parent, current, kill.requiredAmount, kill.unit);
 	}
 
 	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */

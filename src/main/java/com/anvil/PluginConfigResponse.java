@@ -523,6 +523,25 @@ public class PluginConfigResponse
 		// ride this list because the game's lap counter is the same chat line boss KC uses, so the
 		// matching is identical and only the noun differs. Null on older servers → "kill".
 		public String unit;
+		// Either/or goals ("rare reward OR 100 reward searches"). A kill entry with altOf set is not a
+		// tile of its own: it carries a VIRTUAL tileId, -(altOf * 8 + slot), and credits exactly like
+		// any kill entry (submitted to that negative id). altRole "goal" is the alternative's progress,
+		// shown as a line on the parent; "cap" is a counter the site only needs counted, never shown.
+		// Both absent on older servers.
+		public Integer altOf;
+		public String altRole;
+
+		/** An entry standing in for another tile's alternative goal (never a row or pin of its own). */
+		public boolean isAlt()
+		{
+			return altOf != null && altOf > 0;
+		}
+
+		/** The alternative goal itself — the one alt entry the parent's row and tracker show. */
+		public boolean isAltGoal()
+		{
+			return isAlt() && "goal".equalsIgnoreCase(altRole == null ? null : altRole.trim());
+		}
 
 		/** Singular noun for one credit on this tile — "kill" unless the server says otherwise. */
 		public String unitNoun()
@@ -585,6 +604,22 @@ public class PluginConfigResponse
 		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
 		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
 		public boolean completed;          // team already completed this tile
+		// Runs needed to complete (Barracuda Trials rank tiles: N qualifying runs) and the team's count
+		// so far. Boxed so an older server, which sends neither, stays exactly as before (a plain
+		// one-clear tile) — the panel's live counts only pick up a timed row that carries a count.
+		public Integer requiredAmount;
+		public Integer currentAmount;
+
+		/** Qualifying runs the tile needs — 1 for a plain timed tile and on older servers. */
+		public int runsRequired()
+		{
+			return requiredAmount == null || requiredAmount < 1 ? 1 : requiredAmount;
+		}
+
+		public int runsDone()
+		{
+			return currentAmount == null ? 0 : Math.max(0, currentAmount);
+		}
 	}
 
 	public static class TrackedLms extends CountedTile
