@@ -277,6 +277,7 @@ public class PluginConfigResponse
 	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
+	public List<TrackedClog> trackedClog; // collection-log tiles (new slots / whole pages)
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
@@ -596,6 +597,53 @@ public class PluginConfigResponse
 	public static class TrackedCombatTask extends CountedTile
 	{
 		public List<String> tasks;        // selectors — any matching one counts a completion
+	}
+
+	// Collection-log tile. Credited off "New item added to your collection log: X" when X is in
+	// `items` (null = any item); the site decides whether it is really a new slot for this player.
+	public static class TrackedClog extends CountedTile
+	{
+		public String mode;                        // "slots" | "complete" (finish pages)
+		public List<String> items;                 // names that count, normalised by key(); null = any
+		public Map<String, List<Integer>> groups;  // "complete": page -> its chosen item ids
+		public boolean completed;
+
+		/** Lowercase, punctuation as single spaces — the way the site writes {@code items}. */
+		static String key(String name)
+		{
+			return name == null ? "" : name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+		}
+
+		boolean complete()
+		{
+			return "complete".equals(mode);
+		}
+
+		/** Does this unlock count toward the tile? */
+		boolean counts(String itemName)
+		{
+			if (completed || itemName == null || (!complete() && currentAmount >= requiredAmount))
+			{
+				return false;
+			}
+			return items == null || items.contains(key(itemName));
+		}
+
+		/** "complete": is this open log page, with these obtained ids, one of the tile's finished pages? */
+		boolean pageFull(String page, int[] obtained)
+		{
+			List<Integer> want = completed || groups == null || page == null ? null : groups.get(page);
+			if (want == null || want.isEmpty() || obtained == null)
+			{
+				return false;
+			}
+			Set<Integer> have = new HashSet<>();
+			for (int id : obtained)
+			{
+				have.add(id);
+			}
+			return have.containsAll(want);
+		}
 	}
 
 	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
