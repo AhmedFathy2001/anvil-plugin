@@ -588,6 +588,8 @@ public class AnvilPlugin extends Plugin {
 	// multi-count wildcard tile ("any 5 Master tasks" needs 5 distinct tasks, not one task
 	// five times). Cleared on the login screen so account swaps start fresh.
 	private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
+	// Whole-page clog tiles already proven this session (proveClogPage).
+	private final Set<Integer> provedClogPages = new HashSet<>();
 	// Slots announced this session, so the personal line and the clan broadcast — which can both
 	// arrive for the same unlock — post it once. Item names, lowercased; cleared per account.
 	private final Set<String> recentClogUnlocks = new LinkedHashSet<>();
@@ -2211,12 +2213,16 @@ public class AnvilPlugin extends Plugin {
 	 *
 	 */
 	private void captureClogPage() {
-		if (!supportsProfileSync()) {
+		boolean sync = supportsProfileSync();
+		if (!sync && (pluginConfig == null || pluginConfig.trackedClog == null || pluginConfig.trackedClog.isEmpty())) {
 			return;
 		}
 		ClogPage page = ClogPageReader.read(client);
 		if (page != null) {
-			clogSync.offer(page, now());
+			if (sync) {
+				clogSync.offer(page, now());
+			}
+			proveClogPage(page);
 		}
 	}
 
@@ -2723,6 +2729,7 @@ public class AnvilPlugin extends Plugin {
 			// CA per-session state: the next account may legitimately re-credit the same task
 			// (a teammate's alt), and deserves its own repeat-setting reminder.
 			creditedCaTaskTiles.clear();
+			provedClogPages.clear();
 			recentClogUnlocks.clear();
 			// Nothing is attacking a logged-out player, and whatever was is not attacking the next
 			// account either.
@@ -4069,6 +4076,49 @@ public class AnvilPlugin extends Plugin {
 		// minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
 		// other collection-log-only unlock. Loot-fired items are deduped by processLoot.
 		creditClogUnlock(item);
+		creditClogTiles(item);
+	}
+
+	/**
+	 * Collection-log tiles: the unlock line is a new slot (the game only prints it once per account
+	 * per item). One screenshot per slot with the line in it; the site checks the item, the pages and
+	 * whether it was really new, and counts it once.
+	 */
+	private void creditClogTiles(String item) {
+		if (trackingOff() || pluginConfig.trackedClog == null) {
+			return;
+		}
+		for (TrackedClog t : pluginConfig.trackedClog) {
+			if (t == null || !t.counts(item)) {
+				continue;
+			}
+			if (!t.complete()) {
+				t.currentAmount += 1;
+				raiseLocal(t.tileId, t.currentAmount, now());
+			}
+			sendChatMessage("Collection log: +1 slot for " + t.label
+					+ (t.complete() ? "" : " (" + t.currentAmount + "/" + t.requiredAmount + ")"));
+			captureAndSubmitProof(t.tileId, t.label, 1, null, "COLLECTION LOG", item,
+					"[Auto] New collection log slot: " + item + " — detected by RuneLite plugin",
+					() -> t.currentAmount = Math.max(0, t.currentAmount - (t.complete() ? 0 : 1)));
+		}
+	}
+
+	/**
+	 * A whole-page clog tile waits for a screenshot of the finished page: take it when the player
+	 * opens one, once per tile per session.
+	 */
+	private void proveClogPage(ClogPage page) {
+		if (trackingOff() || pluginConfig.trackedClog == null) {
+			return;
+		}
+		for (TrackedClog t : pluginConfig.trackedClog) {
+			if (t != null && t.pageFull(page.name, page.itemIds) && provedClogPages.add(t.tileId)) {
+				captureAndSubmitProof(t.tileId, t.label, 1, null, "COLLECTION LOG PAGE", page.name,
+						"[Auto] Finished collection log page: " + page.name,
+						() -> provedClogPages.remove(t.tileId));
+			}
+		}
 	}
 
 	/**
