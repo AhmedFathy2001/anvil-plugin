@@ -6366,6 +6366,7 @@ public class AnvilPlugin extends Plugin {
 				if (rank != null) {
 					ClanTitle title = settings.titleForRank(rank);
 					out.rank = title != null ? title.getName() : String.valueOf(rank.getRank());
+					out.rankNum = rank.getRank();
 				}
 				LocalDate joined = m.getJoinDate();
 				if (joined != null) {
