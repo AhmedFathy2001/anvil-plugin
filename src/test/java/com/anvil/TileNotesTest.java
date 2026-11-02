@@ -3,6 +3,7 @@ package com.anvil;
 import static org.junit.Assert.*;
 
 import com.anvil.PluginConfigResponse.CompletedTile;
+import com.anvil.PluginConfigResponse.TrackedClog;
 import com.anvil.PluginConfigResponse.TrackedCombo;
 import com.anvil.PluginConfigResponse.TrackedKill;
 import com.anvil.PluginConfigResponse.TrackedTimed;
@@ -94,6 +95,11 @@ public class TileNotesTest
 		assertFalse(part.isCap());
 		CompletedTile done = GSON.fromJson("{\"tileId\":31,\"label\":\"GOTR - 100 searches\",\"points\":0,\"partOf\":30}", CompletedTile.class);
 		assertEquals(30, (int) done.partOf);
+		// A collection-log tile can be a combo's part too; it folds the same way.
+		TrackedClog clog = GSON.fromJson("{\"tileId\":32,\"label\":\"2 new clog slots\",\"partOf\":30,\"mode\":\"slots\",\"requiredAmount\":2,\"currentAmount\":1}", TrackedClog.class);
+		assertTrue(clog.isPart());
+		assertEquals(30, (int) clog.partOf);
+		assertEquals("GOTR — 2 new clog slots", TileNotes.partLabel("GOTR", clog.label));
 	}
 
 	@Test

@@ -4096,9 +4096,11 @@ public class AnvilPlugin extends Plugin {
 				t.currentAmount += 1;
 				raiseLocal(t.tileId, t.currentAmount, now());
 			}
-			sendChatMessage("Collection log: +1 slot for " + t.label
+			// A combo's part reads as "Combo — Part" (its combo is the board tile).
+			String label = tileDisplayLabel(t);
+			sendChatMessage("Collection log: +1 slot for " + label
 					+ (t.complete() ? "" : " (" + t.currentAmount + "/" + t.requiredAmount + ")"));
-			captureAndSubmitProof(t.tileId, t.label, 1, null, "COLLECTION LOG", item,
+			captureAndSubmitProof(t.tileId, label, 1, null, "COLLECTION LOG", item,
 					"[Auto] New collection log slot: " + item + " — detected by RuneLite plugin",
 					() -> t.currentAmount = Math.max(0, t.currentAmount - (t.complete() ? 0 : 1)));
 		}
@@ -4114,7 +4116,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		for (TrackedClog t : pluginConfig.trackedClog) {
 			if (t != null && t.pageFull(page.name, page.itemIds) && provedClogPages.add(t.tileId)) {
-				captureAndSubmitProof(t.tileId, t.label, 1, null, "COLLECTION LOG PAGE", page.name,
+				captureAndSubmitProof(t.tileId, tileDisplayLabel(t), 1, null, "COLLECTION LOG PAGE", page.name,
 						"[Auto] Finished collection log page: " + page.name,
 						() -> provedClogPages.remove(t.tileId));
 			}
