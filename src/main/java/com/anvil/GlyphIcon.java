@@ -22,7 +22,7 @@ final class GlyphIcon implements Icon
 {
 	enum Shape
 	{
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR
 	}
 
 	private final Shape shape;
@@ -104,6 +104,26 @@ final class GlyphIcon implements Icon
 						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
 					}
 					g.draw(p);
+					break;
+				case STAR:
+					// Filled five points: an Anvil Supporter, beside their name.
+					for (int i = 0; i < 10; i++)
+					{
+						double ang = -Math.PI / 2 + Math.PI / 5 * i;
+						double rad = s * (i % 2 == 0 ? 0.5 : 0.21);
+						double px = s / 2.0 + Math.cos(ang) * rad;
+						double py = s * 0.53 + Math.sin(ang) * rad;
+						if (i == 0)
+						{
+							p.moveTo(px, py);
+						}
+						else
+						{
+							p.lineTo(px, py);
+						}
+					}
+					p.closePath();
+					g.fill(p);
 					break;
 				default:
 					break;
