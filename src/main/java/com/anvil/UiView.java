@@ -508,7 +508,7 @@ final class UiView extends JPanel
 	{
 		String s = n.has("at") ? ago(str(n, "at")) : str(n, "s");
 		Color ink = color(str(n, "color"), Color.WHITE);
-		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink) : new JLabel();
+		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new JLabel();
 		l.setFont(font(str(n, "font")));
 		l.setForeground(ink);
 		String align = str(n, "align");
@@ -543,8 +543,8 @@ final class UiView extends JPanel
 		return l;
 	}
 
-	/** A Supporter's name: up to four "#rrggbb" stops; anything else falls back to the plain colour. */
-	private static JLabel gradient(JsonArray grad, Color fallback)
+	/** A Supporter's name: up to four "#rrggbb" stops ({@code move}: sliding); else the plain colour. */
+	private static JLabel gradient(JsonArray grad, Color fallback, boolean move)
 	{
 		List<Color> stops = new ArrayList<>();
 		for (JsonElement e : grad)
@@ -554,7 +554,7 @@ final class UiView extends JPanel
 				stops.add(teamColor(e.getAsString(), fallback));
 			}
 		}
-		return stops.size() < 2 ? new JLabel() : new GradientLabel(stops.toArray(new Color[0]));
+		return stops.size() < 2 ? new JLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
 
 	private JComponent icon(JsonObject n)

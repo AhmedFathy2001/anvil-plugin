@@ -3,26 +3,58 @@ package com.anvil;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
+import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.Collections;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 
 /**
  * A label whose text is painted with a left-to-right gradient (an Anvil Supporter's name). The icon
  * keeps its own colours: only the text's box is recoloured. Swing has no gradient text, so the label
  * is drawn to an image at the screen's scale and the text box is filled through its own pixels.
+ * A moving one (Patron) slides its gradient along: one shared timer repaints only those on screen.
  */
 final class GradientLabel extends JLabel
 {
+	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
+	private static final Timer TICK = new Timer(66, e -> MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }));
+
 	private final Color[] stops;
 	private final float[] fractions;
+	private final boolean moving;
 
-	GradientLabel(Color[] stops)
+	GradientLabel(Color[] stops, boolean moving)
 	{
 		this.stops = stops;
+		this.moving = moving;
 		this.fractions = new float[stops.length];
 		for (int i = 0; i < stops.length; i++)
 		{
 			fractions[i] = stops.length == 1 ? 0f : (float) i / (stops.length - 1);
+		}
+	}
+
+	@Override
+	public void addNotify()
+	{
+		super.addNotify();
+		if (moving)
+		{
+			MOVING.add(this);
+			TICK.start();
+		}
+	}
+
+	@Override
+	public void removeNotify()
+	{
+		super.removeNotify();
+		MOVING.remove(this);
+		if (MOVING.isEmpty())
+		{
+			TICK.stop();
 		}
 	}
 
@@ -60,7 +92,10 @@ final class GradientLabel extends JLabel
 			if (textR.width > 0)
 			{
 				ig.setComposite(AlphaComposite.SrcIn);
-				ig.setPaint(new LinearGradientPaint(textR.x, 0, textR.x + textR.width, 0, fractions, stops));
+				// Moving: one pass across the name every 4s, wrapping (the stops repeat).
+				float shift = moving ? (System.currentTimeMillis() % 4000) / 4000f * textR.width : 0;
+				ig.setPaint(new LinearGradientPaint(textR.x - shift, 0, textR.x - shift + textR.width, 0, fractions, stops,
+					MultipleGradientPaint.CycleMethod.REFLECT));
 				ig.fillRect(textR.x, textR.y, textR.width, textR.height);
 			}
 		}
