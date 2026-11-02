@@ -379,8 +379,14 @@ public class AnvilPlugin extends Plugin {
 	// this is the one counter here that would misfire if another piece of content ever printed the
 	// same sentence — kept because nothing else does today, but that's the risk if it ever breaks.
 	// → chat-patterns.json "counter.egg_offering" (ChatPatterns).
+	//   "Delve level: 3 duration: 1:12. Personal best: 0:58" / "Delve level: 8+ (9) duration: ..."
+	// Printed after EVERY Doom of Mokhaiotl delve cleared (any level, repeats included); a death or
+	// teleport out ends the run without clearing, so no line. Separate name from the boss so it never
+	// stacks on the loot-path Doom kill credit or the deep-delve KC push.
+	// → chat-patterns.json "counter.doom_delve" (ChatPatterns).
 	static final String HUNTER_RUMOURS = "Hunter Rumours";
 	static final String EGG_OFFERINGS = "Bird's egg offerings";
+	static final String DOOM_DELVES = "Doom of Mokhaiotl delves";
 
 	// Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
 	// handler can tell whether the very first KC message of the session is for a kill the loot path
@@ -3832,6 +3838,9 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (ChatPatterns.find("counter.egg_offering", plain) != null) {
 			creditNamedCounter(EGG_OFFERINGS);
+		}
+		if (ChatPatterns.find("counter.doom_delve", plain) != null) {
+			creditNamedCounter(DOOM_DELVES);
 		}
 		// (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
 		// so it works for loot-key kills where no reliable "you defeated X" chat line exists.)

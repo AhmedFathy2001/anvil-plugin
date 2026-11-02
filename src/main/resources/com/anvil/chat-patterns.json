@@ -576,6 +576,37 @@
       ]
     },
     {
+      "key": "counter.doom_delve",
+      "description": "Doom of Mokhaiotl delve cleared (any level, printed after every one). One line, one credit.",
+      "types": [
+        "GAMEMESSAGE",
+        "SPAM",
+        "MESBOX",
+        "FRIENDSCHATNOTIFICATION"
+      ],
+      "input": "plain",
+      "match": "find",
+      "regex": "^Delve level: (?<level>\\d+)\\+?(?: \\((?<deep>\\d+)\\))? duration:",
+      "groups": [
+        "level"
+      ],
+      "samples": [
+        {
+          "line": "Delve level: 3 duration: 1:12. Personal best: 0:58",
+          "expect": {
+            "level": "3"
+          }
+        },
+        {
+          "line": "Delve level: 8+ (9) duration: 1:38. Personal best: 0:56",
+          "expect": {
+            "level": "8",
+            "deep": "9"
+          }
+        }
+      ]
+    },
+    {
       "key": "pickpocket",
       "description": "A successful pickpocket. Marks the tick so that tick's NPC loot isn't counted as a kill.",
       "types": [
