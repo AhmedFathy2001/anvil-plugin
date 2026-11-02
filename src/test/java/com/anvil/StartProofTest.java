@@ -218,6 +218,20 @@ public class StartProofTest
 		assertTrue(other instanceof BingoApiClient.PermanentSubmissionException);
 	}
 
+	@Test
+	public void chatGetsTheSitesSentenceNotTheRawResponse()
+	{
+		java.io.IOException refused = BingoApiClient.submissionError(
+			"Start proof failed", 403, "{\"error\":\"Sign-ups are closed\",\"code\":\"closed\"}");
+		assertEquals("Sign-ups are closed", BingoApiClient.forPlayer(refused));
+		// The diagnostic form stays on getMessage() for the log.
+		assertTrue(refused.getMessage().contains("HTTP 403"));
+
+		java.io.IOException noWords = BingoApiClient.submissionError("Start proof failed", 503, "<html>oops</html>");
+		assertEquals("the clan's site is having trouble", BingoApiClient.forPlayer(noWords));
+		assertEquals("couldn't reach the site", BingoApiClient.forPlayer(new java.io.IOException("timeout")));
+	}
+
 	// ── Live checks on the card — the same thresholds the button refuses on ───────────────────────
 
 	private static PluginConfigResponse.StartProof pinned(int maxMinutes)

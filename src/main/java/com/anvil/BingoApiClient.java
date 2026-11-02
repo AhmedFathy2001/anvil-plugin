@@ -800,12 +800,37 @@ public class BingoApiClient
 	static class HttpStatusException extends IOException
 	{
 		final int code;
+		/**
+		 * What a player reads in chat. {@link #getMessage()} keeps the diagnostic "context: HTTP n —
+		 * body" for the log and the retry loop; this is the site's own sentence (or a plain one).
+		 */
+		String playerMessage;
 
 		HttpStatusException(String message, int code)
 		{
 			super(message);
 			this.code = code;
 		}
+
+		HttpStatusException withPlayerMessage(String m)
+		{
+			this.playerMessage = m;
+			return this;
+		}
+	}
+
+	/**
+	 * The words for a chat line about a failed request. Never the raw response: a JSON blob in chat
+	 * reads as a bug report, not an explanation.
+	 */
+	static String forPlayer(IOException e)
+	{
+		if (e instanceof HttpStatusException)
+		{
+			HttpStatusException h = (HttpStatusException) e;
+			return h.playerMessage != null ? h.playerMessage : friendlyError(h.code, null);
+		}
+		return "couldn't reach the site";
 	}
 
 	/** A bounded URL → {etag, parsed body} cache, for If-None-Match. */
@@ -1340,9 +1365,10 @@ public class BingoApiClient
 	private static HttpStatusException classified(String message, int code, String body)
 	{
 		boolean awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
-		return RetryPolicy.isPermanent(code) && !awaitingStartProof
+		HttpStatusException e = RetryPolicy.isPermanent(code) && !awaitingStartProof
 			? new PermanentSubmissionException(message, code)
 			: new HttpStatusException(message, code);
+		return e.withPlayerMessage(friendlyError(code, body));
 	}
 
 	/**
@@ -1372,7 +1398,9 @@ public class BingoApiClient
 				throw friendlyFailure(code, body);
 			}
 			String shown = body.isEmpty() ? "no body" : body;
-			throw classify ? submissionError(what, code, shown) : new HttpStatusException(what + ": HTTP " + code + " — " + shown, code);
+			throw classify
+				? submissionError(what, code, shown)
+				: new HttpStatusException(what + ": HTTP " + code + " — " + shown, code).withPlayerMessage(friendlyError(code, body));
 		});
 	}
 
