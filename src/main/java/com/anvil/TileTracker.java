@@ -51,7 +51,7 @@ public class TileTracker
 	 */
 	private volatile ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
 	/**
-	 * tileId → the plugin's extra lines for it ("3/5 runs", "or 37/100 searches", TileNotes), read from
+	 * tileId → the plugin's extra lines for it ("3/5 runs", a combo's parts, TileNotes), read from
 	 * the polled config each frame. None until the plugin sets it.
 	 */
 	private volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
@@ -237,7 +237,7 @@ public class TileTracker
 	{
 		if (!TileNotes.pinnable(tileId))
 		{
-			return; // an either/or goal's virtual entry: shown on its parent's pin, never one of its own
+			return; // a cap counter's virtual entry is never pinned
 		}
 		if (isPinned(eventId, tileId))
 		{

@@ -278,6 +278,7 @@ public class PluginConfigResponse
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
+	public List<TrackedCombo> trackedCombos;     // combo tiles: their parts ride the lists above (partOf)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
@@ -428,6 +429,14 @@ public class PluginConfigResponse
 		public String description;   // tile description, for the clog task accordion
 		public int points;           // Leagues-style reward value (0 = not a points event)
 		public String category;      // free-text grouping (boss/skill) for the clog task filter
+		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
+		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
+		public Integer partOf;
+
+		public boolean isPart()
+		{
+			return partOf != null && partOf > 0;
+		}
 	}
 
 	/** A tracked tile that completes at a count. */
@@ -510,6 +519,28 @@ public class PluginConfigResponse
 		public String label;
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
 		public String completedBy; // crediting player of the finishing submission; null for stat/manual tiles
+		public Integer partOf; // a combo's part finishing: progress on the combo, not a tile complete
+	}
+
+	/**
+	 * A COMBO tile: done when its parts satisfy the rule ("any" one, "all", or at least {@code needed}
+	 * of them — "nOf"). The parts ride the ordinary tracked lists tagged {@code partOf}; this says how
+	 * they fold together. The site counts {@code done} and decides completion.
+	 */
+	public static class TrackedCombo extends TrackedTile
+	{
+		public String rule;
+		public int needed;
+		public int done;
+		public List<ComboPart> parts;
+		public boolean completed;
+	}
+
+	public static class ComboPart
+	{
+		public int tileId;
+		public String label;
+		public boolean completed;
 	}
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
@@ -527,24 +558,16 @@ public class PluginConfigResponse
 		// ride this list because the game's lap counter is the same chat line boss KC uses, so the
 		// matching is identical and only the noun differs. Null on older servers → "kill".
 		public String unit;
-		// Either/or goals ("rare reward OR 100 reward searches"). A kill entry with altOf set is not a
-		// tile of its own: it carries a VIRTUAL tileId, -(altOf * 8 + slot), and credits exactly like
-		// any kill entry (submitted to that negative id). altRole "goal" is the alternative's progress,
-		// shown as a line on the parent; "cap" is a counter the site only needs counted, never shown.
-		// Both absent on older servers.
-		public Integer altOf;
-		public String altRole;
+		// A CAP counter of a capped tile ("100 searches paid for with event energy"): not a tile of its
+		// own. It carries a VIRTUAL tileId, -(capOf * 8 + slot), and credits exactly like any kill entry
+		// (submitted to that negative id) — the site only needs it counted. Never a row, pin or chat
+		// line. Absent on older servers.
+		public Integer capOf;
 
-		/** An entry standing in for another tile's alternative goal (never a row or pin of its own). */
-		public boolean isAlt()
+		/** A capped tile's cap counter (counted and submitted silently). */
+		public boolean isCap()
 		{
-			return altOf != null && altOf > 0;
-		}
-
-		/** The alternative goal itself — the one alt entry the parent's row and tracker show. */
-		public boolean isAltGoal()
-		{
-			return isAlt() && "goal".equalsIgnoreCase(altRole == null ? null : altRole.trim());
+			return capOf != null && capOf > 0;
 		}
 
 		/** Singular noun for one credit on this tile — "kill" unless the server says otherwise. */

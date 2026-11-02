@@ -1,38 +1,42 @@
 package com.anvil;
 
+import com.anvil.PluginConfigResponse.ComboPart;
+import com.anvil.PluginConfigResponse.TrackedCombo;
 import com.anvil.PluginConfigResponse.TrackedKill;
 import java.util.*;
 
 /**
  * The extra progress lines a tile carries beyond its own count — "3/5 runs" on a multi-run timed tile
- * (Barracuda Trials ranks), "or 37/100 searches" on a tile that can also be finished another way — and
- * the virtual-id rule behind the second.
+ * (Barracuda Trials ranks), and a COMBO's parts ("1 of 2 done", then one line per part) — plus the
+ * virtual-id rule behind capped counters.
  *
- * <p>An either/or goal reaches the plugin as extra {@code trackedKills} entries with {@code altOf} set
- * and a VIRTUAL negative tileId, {@code -(altOf * 8 + slot)}: slot 0 is the alternative goal itself,
- * the rest are "cap" counters the site only needs counted. They credit like any kill entry; they are
- * never rows, pins or chat subjects of their own — the parent tile speaks for them.
+ * <p>A capped counter tile's cap counters reach the plugin as extra {@code trackedKills} entries with
+ * {@code capOf} set and a VIRTUAL negative tileId, {@code -(capOf * 8 + slot)}. They credit like any
+ * kill entry; they are never rows, pins or chat subjects of their own.
+ *
+ * <p>A combo's parts ride the ordinary tracked lists with {@code partOf} set; they credit as usual and
+ * fold under their combo, which is what pins.
  *
  * <p>No RuneLite dependencies, so it is unit-testable.
  */
 final class TileNotes
 {
-	/** Virtual ids leave this many slots per parent tile (site contract). */
-	static final int ALT_SLOTS = 8;
+	/** Virtual ids leave this many slots per capped tile (site contract). */
+	static final int CAP_SLOTS = 8;
 
 	private TileNotes()
 	{
 	}
 
-	static int virtualId(int parentTileId, int slot)
+	static int virtualId(int tileId, int slot)
 	{
-		return -(parentTileId * ALT_SLOTS + slot);
+		return -(tileId * CAP_SLOTS + slot);
 	}
 
-	/** The real tile a (possibly virtual) id belongs to; a real id is its own parent. */
+	/** The real tile a (possibly virtual) id belongs to; a real id is its own. */
 	static int parentOf(int tileId)
 	{
-		return tileId < 0 ? -tileId / ALT_SLOTS : tileId;
+		return tileId < 0 ? -tileId / CAP_SLOTS : tileId;
 	}
 
 	/** Only real tiles can be pinned (the site serves no progress for a virtual id). */
@@ -51,39 +55,7 @@ final class TileNotes
 		return fmt(Math.max(0, Math.min(done, required))) + "/" + fmt(required) + " runs";
 	}
 
-	/** "or 37/100 searches" — the parent tile's line for its alternative goal. */
-	static String altLine(long current, int required, String unit)
-	{
-		String noun = unit == null || unit.trim().isEmpty() ? "" : " " + (required == 1 ? unit.trim() : plural(unit.trim()));
-		return "or " + fmt(Math.max(0, Math.min(current, required))) + "/" + fmt(required) + noun;
-	}
-
-	/** Chat notice for a credit on an alternative goal, named after the parent: "GOTR rare reward — or 38/100 searches". */
-	static String altChat(String parentLabel, long current, int required, String unit)
-	{
-		String line = altLine(current, required, unit);
-		return parentLabel == null || parentLabel.trim().isEmpty() ? line : parentLabel.trim() + " — " + line;
-	}
-
-	/** Parent tileId → its alternative-goal entry. Cap entries and plain kill tiles aren't in it. */
-	static Map<Integer, TrackedKill> altGoals(List<TrackedKill> kills)
-	{
-		if (kills == null || kills.isEmpty())
-		{
-			return Collections.emptyMap();
-		}
-		Map<Integer, TrackedKill> out = new HashMap<>();
-		for (TrackedKill k : kills)
-		{
-			if (k != null && k.isAltGoal())
-			{
-				out.putIfAbsent(k.altOf, k);
-			}
-		}
-		return out;
-	}
-
-	/** The kill entries that are tiles of their own — what a row or pin list may show. */
+	/** The kill entries that are tiles of their own — cap counters excluded. */
 	static List<TrackedKill> ownTiles(List<TrackedKill> kills)
 	{
 		List<TrackedKill> out = new ArrayList<>();
@@ -91,13 +63,84 @@ final class TileNotes
 		{
 			for (TrackedKill k : kills)
 			{
-				if (k != null && !k.isAlt())
+				if (k != null && !k.isCap())
 				{
 					out.add(k);
 				}
 			}
 		}
 		return out;
+	}
+
+	/** Part tileId → its combo's tileId. */
+	static Map<Integer, Integer> partCombos(List<TrackedCombo> combos)
+	{
+		if (combos == null || combos.isEmpty())
+		{
+			return Collections.emptyMap();
+		}
+		Map<Integer, Integer> out = new HashMap<>();
+		for (TrackedCombo c : combos)
+		{
+			if (c != null && c.parts != null)
+			{
+				for (ComboPart p : c.parts)
+				{
+					if (p != null)
+					{
+						out.put(p.tileId, c.tileId);
+					}
+				}
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * A pinned combo's lines: "1 of 2 done", then each part — "Zulrah pet  done" once done, else its label
+	 * with its count when it has one ("Searches 37/100"). {@code counts} maps a part's tileId to
+	 * {current, required} at this client's newest count; a part missing from it shows just its label.
+	 */
+	static List<String> comboLines(TrackedCombo combo, Map<Integer, long[]> counts)
+	{
+		List<String> out = new ArrayList<>();
+		int needed = Math.max(1, combo.needed);
+		out.add(fmt(Math.min(combo.done, needed)) + " of " + fmt(needed) + " done");
+		if (combo.parts != null)
+		{
+			for (ComboPart p : combo.parts)
+			{
+				if (p == null)
+				{
+					continue;
+				}
+				String label = p.label == null ? "Part" : p.label.trim();
+				long[] c = counts == null ? null : counts.get(p.tileId);
+				if (p.completed)
+				{
+					out.add(label + "  done");
+				}
+				else if (c != null && c[1] > 1)
+				{
+					out.add(label + "  " + fmt(Math.max(0, Math.min(c[0], c[1]))) + "/" + fmt(c[1]));
+				}
+				else
+				{
+					out.add(label);
+				}
+			}
+		}
+		return out;
+	}
+
+	/** A part named with its combo, for chat: "GOTR rare or searches — 100 searches". */
+	static String partLabel(String comboLabel, String partLabel)
+	{
+		if (comboLabel == null || comboLabel.trim().isEmpty())
+		{
+			return partLabel;
+		}
+		return comboLabel.trim() + " \u2014 " + (partLabel == null ? "" : partLabel.trim());
 	}
 
 	static String plural(String noun)

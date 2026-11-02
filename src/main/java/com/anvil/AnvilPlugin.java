@@ -4838,8 +4838,8 @@ public class AnvilPlugin extends Plugin {
 			if (kill.currentAmount >= kill.requiredAmount) {
 				continue;
 			}
-			// An either/or goal's entries are moot once the tile they finish is done.
-			if (kill.isAlt() && isTileCompleted(kill.altOf)) {
+			// A cap counter is moot once the tile it caps is done.
+			if (kill.isCap() && isTileCompleted(kill.capOf)) {
 				continue;
 			}
 			kill.currentAmount += amount;
@@ -4851,12 +4851,9 @@ public class AnvilPlugin extends Plugin {
 			// and the noun is the only thing that differs (see TrackedKill.unit).
 			String noun = kill.unitNoun();
 			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
-			if (kill.isAltGoal()) {
-				// Named after the tile it finishes: "GOTR rare reward — or 38/100 searches".
-				sendChatMessage("Tracked " + noun + ": " + killDisplayLabel(kill, snapshotCurrent));
-			} else if (!kill.isAlt()) {
-				sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
-			} // an either/or cap counter is counted and submitted silently
+			if (!kill.isCap()) {
+				sendChatMessage("Tracked " + noun + ": " + killDisplayLabel(kill) + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+			} // a cap counter is counted and submitted silently
 
 			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired, inferred);
 		}
@@ -4926,10 +4923,9 @@ public class AnvilPlugin extends Plugin {
 		T tile = agg.tile;
 		int amount = agg.total;
 		final String inferred = agg.inferred;
-		// An either/or goal's entries speak as their parent tile; a cap counter says nothing in chat.
-		TrackedKill alt = tile instanceof TrackedKill && ((TrackedKill) tile).isAlt() ? (TrackedKill) tile : null;
-		final String label = alt != null ? killDisplayLabel(alt, agg.snapshotCurrent) : tile.label;
-		final boolean quiet = alt != null && !alt.isAltGoal();
+		// A combo's part speaks with its combo's name; a cap counter says nothing in chat.
+		final String label = tileDisplayLabel(tile);
+		final boolean quiet = tile instanceof TrackedKill && ((TrackedKill) tile).isCap();
 		// Gains are not capped on the site, so they always ping. A kill burst pings when the site takes it
 		// without a screenshot (planPings: up to 10, or the tile's pingMax split into whole actions) —
 		// otherwise it goes as a proof rather than a ping the site would clamp to 10.
@@ -5433,7 +5429,7 @@ public class AnvilPlugin extends Plugin {
 					log.error("Failed to persist submission '{}' to disk", label);
 					return;
 				}
-				// submitted == null: a quiet credit (an either/or cap counter) — no progress chatter.
+				// submitted == null: a quiet credit (a capped tile's cap counter) — no progress chatter.
 				if (submitted != null) {
 					sendChatMessage("Uploading proof: " + label + "...");
 				}
@@ -6312,10 +6308,13 @@ public class AnvilPlugin extends Plugin {
 	/** Pin or unpin a tile's in-game widget, fetching a fresh pin straight away. */
 	void setTrackedTile(int eventId, int tileId, boolean on) {
 		if (!TileNotes.pinnable(tileId)) {
-			return; // an either/or goal's virtual entry rides its parent's pin
+			return; // a cap counter's virtual entry is never pinned
 		}
-		tileTracker.set(eventId, tileId, on);
-		submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
+		// A combo's part pins its combo, whose pin lists every part.
+		indexNotes(pluginConfig);
+		final int pin = partCombo.getOrDefault(tileId, tileId);
+		tileTracker.set(eventId, pin, on);
+		submit(() -> safely("tileTracker", () -> tileTracker.refresh(pin)));
 	}
 
 	/** The starting-shot card's live requirements: session age, then position. Any thread. */
@@ -6811,7 +6810,11 @@ public class AnvilPlugin extends Plugin {
 			if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
 				anyDone = true;
 				onTileConfirmedDone(t.tileId);
-				if (!locallyShownTiles.contains(t.tileId)) {
+				if (t.partOf != null) {
+					// A combo's part: progress on the combo, not a tile complete (no banner).
+					onTileConfirmedDone(t.partOf);
+					sendChatMessage("Combo part done: " + t.label + "!");
+				} else if (!locallyShownTiles.contains(t.tileId)) {
 					newlyDone.add(t);
 				}
 			}
@@ -7596,11 +7599,14 @@ public class AnvilPlugin extends Plugin {
 		liveCountsMoved();
 	}
 
-	/** Per-config lookups for the tracker's extra lines and alt-goal chat (see TileNotes). */
+	/** Per-config lookups for the tracker's extra lines and part/cap labels (see TileNotes). */
 	private volatile PluginConfigResponse notesFor;
-	private volatile Map<Integer, TrackedKill> altGoalByParent = Collections.emptyMap();
+	private volatile Map<Integer, TrackedCombo> combos = Collections.emptyMap();
+	private volatile Map<Integer, Integer> partCombo = Collections.emptyMap();
 	private volatile Map<Integer, TrackedTimed> multiRunTimed = Collections.emptyMap();
 	private volatile Map<Integer, String> tileLabels = Collections.emptyMap();
+	/** tileId → {current, required} off the config, for a combo's part lines. */
+	private volatile Map<Integer, long[]> tileGoals = Collections.emptyMap();
 
 	private void indexNotes(PluginConfigResponse cfg) {
 		if (cfg == notesFor) {
@@ -7608,11 +7614,20 @@ public class AnvilPlugin extends Plugin {
 		}
 		Map<Integer, TrackedTimed> runs = new HashMap<>();
 		Map<Integer, String> labels = new HashMap<>();
+		Map<Integer, long[]> goals = new HashMap<>();
+		Map<Integer, TrackedCombo> comboById = new HashMap<>();
 		if (cfg != null) {
 			if (cfg.trackedTimed != null) {
 				for (TrackedTimed t : cfg.trackedTimed) {
 					if (t != null && t.runsRequired() > 1) {
 						runs.put(t.tileId, t);
+					}
+				}
+			}
+			if (cfg.trackedCombos != null) {
+				for (TrackedCombo c : cfg.trackedCombos) {
+					if (c != null) {
+						comboById.put(c.tileId, c);
 					}
 				}
 			}
@@ -7622,22 +7637,32 @@ public class AnvilPlugin extends Plugin {
 				}
 				for (JsonElement row : e.getValue().getAsJsonArray()) {
 					JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
-					if (r != null && r.has("tileId") && r.has("label") && r.get("label").isJsonPrimitive()) {
-						labels.putIfAbsent(r.get("tileId").getAsInt(), r.get("label").getAsString());
+					if (r == null || !r.has("tileId")) {
+						continue;
+					}
+					int id = r.get("tileId").getAsInt();
+					if (r.has("label") && r.get("label").isJsonPrimitive()) {
+						labels.putIfAbsent(id, r.get("label").getAsString());
+					}
+					String goalKey = r.has("requiredAmount") ? "requiredAmount" : r.has("goalAmount") ? "goalAmount" : null;
+					if (goalKey != null && r.has("currentAmount")) {
+						goals.putIfAbsent(id, new long[]{r.get("currentAmount").getAsLong(), r.get(goalKey).getAsLong()});
 					}
 				}
 			}
 		}
-		altGoalByParent = TileNotes.altGoals(cfg == null ? null : cfg.trackedKills);
+		combos = comboById;
+		partCombo = TileNotes.partCombos(cfg == null ? null : cfg.trackedCombos);
 		multiRunTimed = runs;
 		tileLabels = labels;
+		tileGoals = goals;
 		notesFor = cfg;
 	}
 
 	/**
-	 * A pinned tile's extra lines: "3/5 runs" on a multi-run timed tile, "or 37/100 searches" for a tile
-	 * with an either/or goal — each at this client's newest count. Empty for everything else. Read every
-	 * frame by the tracker, so it only looks up maps built once per config.
+	 * A pinned tile's extra lines: "3/5 runs" on a multi-run timed tile, and a combo's parts ("1 of 2
+	 * done", then each part at this client's newest count). Empty for everything else. Read every frame
+	 * by the tracker, so it only looks up maps built once per config.
 	 */
 	List<String> tileNotes(int tileId) {
 		PluginConfigResponse cfg = pluginConfig;
@@ -7645,40 +7670,38 @@ public class AnvilPlugin extends Plugin {
 			return Collections.emptyList();
 		}
 		indexNotes(cfg);
-		List<String> out = null;
 		TrackedTimed timed = multiRunTimed.get(tileId);
 		if (timed != null && !timed.completed) {
-			out = new ArrayList<>(2);
-			out.add(TileNotes.runs(shownProgress(tileId, timed.runsDone()), timed.runsRequired()));
+			return Collections.singletonList(TileNotes.runs(shownProgress(tileId, timed.runsDone()), timed.runsRequired()));
 		}
-		TrackedKill alt = altGoalByParent.get(tileId);
-		if (alt != null) {
-			if (out == null) {
-				out = new ArrayList<>(1);
+		TrackedCombo combo = combos.get(tileId);
+		if (combo != null && !combo.completed) {
+			Map<Integer, long[]> counts = new HashMap<>();
+			if (combo.parts != null) {
+				for (ComboPart p : combo.parts) {
+					long[] g = p == null ? null : tileGoals.get(p.tileId);
+					if (g != null) {
+						counts.put(p.tileId, new long[]{shownProgress(p.tileId, g[0]), g[1]});
+					}
+				}
 			}
-			out.add(TileNotes.altLine(shownProgress(alt.tileId, alt.currentAmount), alt.requiredAmount, alt.unit));
+			return TileNotes.comboLines(combo, counts);
 		}
-		return out == null ? Collections.emptyList() : out;
+		return Collections.emptyList();
 	}
 
-	/**
-	 * What a kill entry is called in chat and on its proof: its own label, or for an either/or goal's
-	 * entry the tile it finishes — "GOTR rare reward — or 38/100 searches" ({@code current} is the count
-	 * to show), and a cap counter as "GOTR rare reward (counter)".
-	 */
-	private String killDisplayLabel(TrackedKill kill, long current) {
-		if (!kill.isAlt()) {
-			return kill.label;
+	/** What a tile is called in chat and on its proof: a combo's part carries its combo's name. */
+	private String tileDisplayLabel(TrackedTile tile) {
+		if (tile == null || !tile.isPart()) {
+			return tile == null ? null : tile.label;
 		}
 		indexNotes(pluginConfig);
-		String parent = tileLabels.get(kill.altOf);
-		if (parent == null || parent.trim().isEmpty()) {
-			parent = kill.label;
-		}
-		if (!kill.isAltGoal()) {
-			return (parent == null ? "" : parent) + " (counter)";
-		}
-		return TileNotes.altChat(parent, current, kill.requiredAmount, kill.unit);
+		TrackedCombo combo = combos.get(tile.partOf);
+		return TileNotes.partLabel(combo == null ? null : combo.label, tile.label);
+	}
+
+	private String killDisplayLabel(TrackedKill kill) {
+		return tileDisplayLabel(kill);
 	}
 
 	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */

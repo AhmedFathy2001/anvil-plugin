@@ -15,8 +15,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class OptimisticProgress
 {
-	// Tile ids may be negative: an either/or goal's entries carry virtual ids (-(parent * 8 + slot),
-	// PluginConfigResponse.TrackedKill.altOf). Only 0 means "no tile".
+	// Tile ids may be negative: a capped tile's cap counters carry virtual ids (-(tileId * 8 + slot),
+	// PluginConfigResponse.TrackedKill.capOf). Only 0 means "no tile".
 	static final long TTL_MS = 120_000;
 
 	/** tileId → {floor, expiresAt}. */
