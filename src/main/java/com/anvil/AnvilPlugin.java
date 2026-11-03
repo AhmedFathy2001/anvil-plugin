@@ -78,6 +78,9 @@ public class AnvilPlugin extends Plugin {
 	private ClientThread clientThread;
 
 	@Inject
+	private net.runelite.client.game.ChatIconManager chatIconManager;
+
+	@Inject
 	private AnvilConfig config;
 
 	@Inject
@@ -2149,9 +2152,9 @@ public class AnvilPlugin extends Plugin {
 		manualSyncStartedAt = 0;
 		// A push in flight or already sent clears the batch, so anything still here never landed.
 		if (clogFullSync.size() == 0) {
-			sendChatMessage("The game didn't send your collection log. Close and reopen it, then try again.");
+			sendChatMessage(ChatPalette.Tone.WARN, "The game didn't send your collection log. Close and reopen it, then try again.");
 		} else {
-			sendChatMessage("Only part of your collection log arrived — reopen it and sync again.");
+			sendChatMessage(ChatPalette.Tone.WARN, "Only part of your collection log arrived — reopen it and sync again.");
 		}
 		clogFullSync.reset();
 	}
@@ -2638,7 +2641,7 @@ public class AnvilPlugin extends Plugin {
 			log.debug("Tracked LMS placement: {} ({} kills) for '{}' (cap top {})", place, kills, tile.label, cap);
 			tile.currentAmount += 1;
 			raiseLocal(tile.tileId, tile.currentAmount, now());
-			sendChatMessage("Tracked LMS placement: " + place + " — " + tile.label);
+			sendChatMessage(ChatPalette.Tone.NEAR, "Tracked LMS placement: " + place + " — " + tile.label);
 			String detail = "Placed " + place + " — " + kills + (kills == 1 ? " kill" : " kills")
 					+ "  (needs top " + cap + ")";
 			captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO LMS", detail,
@@ -2955,7 +2958,7 @@ public class AnvilPlugin extends Plugin {
 		announcedAccounts = announcedAccounts.with(accountHash, rsn);
 		cfgSet(CFG_ANNOUNCED_ACCOUNTS, announcedAccounts.serialize());
 		if ("other".equals(standing)) {
-			sendChatMessage(rsn + " is linked to another Anvil account, so nothing is tracked here. "
+			sendChatMessage(ChatPalette.Tone.WARN, rsn + " is linked to another Anvil account, so nothing is tracked here. "
 					+ "If it's yours, open the Anvil side panel and press \"It's mine\".");
 		} else if (!"ignored".equals(standing)) {
 			sendChatMessage("Tracking " + rsn + " for your Anvil account. Not yours? "
@@ -3034,7 +3037,7 @@ public class AnvilPlugin extends Plugin {
 							+ "linked on the site until the event ends — ask your clan staff if it isn't yours.");
 					return "Stopped here. Still linked on the site until the event ends.";
 				}
-				sendChatMessage("Stopped tracking " + rsn + " on this computer. Couldn't reach Anvil to unlink it — "
+				sendChatMessage(ChatPalette.Tone.WARN, "Stopped tracking " + rsn + " on this computer. Couldn't reach Anvil to unlink it — "
 						+ "remove it from your profile on the site.");
 				return "Stopped here. " + (r.error == null ? "" : r.error);
 			}
@@ -3146,7 +3149,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if (connLastWarnedMs != 0L && loggedIn()) {
-			sendChatMessage("Anvil: reconnected — tracking is back on.");
+			sendChatMessage(ChatPalette.Tone.DONE, "Anvil: reconnected — tracking is back on.");
 		}
 		connProblem = ConnProblem.NONE;
 		connFailingSinceMs = 0L;
@@ -3177,10 +3180,10 @@ public class AnvilPlugin extends Plugin {
 		}
 		connLastWarnedMs = now;
 		if (problem == ConnProblem.TOKEN) {
-			sendChatMessage("Anvil: your Account Token was rejected — tracking is OFF. "
+			sendChatMessage(ChatPalette.Tone.WARN, "Anvil: your Account Token was rejected — tracking is OFF. "
 					+ "Press Sign out in the Anvil side panel, then Sign in again.");
 		} else {
-			sendChatMessage("Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
+			sendChatMessage(ChatPalette.Tone.WARN, "Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
 					+ "Check your connection.");
 		}
 	}
@@ -3241,6 +3244,11 @@ public class AnvilPlugin extends Plugin {
 					+ " — a clan admin can promote you to member on the site.");
 		}
 
+		// The brief says where you stand, not only what's on; a site without it gets the old greeting.
+		if (serverSupportsCap("login-brief")) {
+			sendBrief();
+			return;
+		}
 		// Greet with whatever's running right now so members know to jump in.
 		if (resp.activeWeekly != null) {
 			for (WeeklyInfo w : resp.activeWeekly) {
@@ -4152,7 +4160,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			// A combo's part reads as "Combo — Part" (its combo is the board tile).
 			String label = tileDisplayLabel(t);
-			sendChatMessage("Collection log: +1 slot for " + label
+			sendChatMessage(ChatPalette.Tone.NEAR, "Collection log: +1 slot for " + label
 					+ (t.complete() ? "" : " (" + t.currentAmount + "/" + t.requiredAmount + ")"));
 			captureAndSubmitProof(t.tileId, label, 1, null, "COLLECTION LOG", item,
 					"[Auto] New collection log slot: " + item + " — detected by RuneLite plugin",
@@ -4537,7 +4545,7 @@ public class AnvilPlugin extends Plugin {
 				if (drop.partySize > 0) {
 					int partySeen = partySize();
 					if (!wasInInstance || partySeen != drop.partySize) {
-						sendChatMessage("Drop not counted for " + drop.label + ": party of "
+						sendChatMessage(ChatPalette.Tone.WARN, "Drop not counted for " + drop.label + ": party of "
 								+ partySeen + ", tile requires " + drop.partySize + ".");
 						continue;
 					}
@@ -4647,7 +4655,7 @@ public class AnvilPlugin extends Plugin {
 				queueDropForFlush(drop, amount, snapshotCurrent, snapshotRequired, trackingItemId);
 
 				showBingoToast(drop, snapshotCurrent, snapshotRequired);
-				sendChatMessage("Tracked drop detected: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+				sendChatMessage(ChatPalette.Tone.NEAR, "Tracked drop detected: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
 				// No break: one drop credits EVERY tile tracking this item (e.g. a sunfire
 				// piece counting toward both "any Colosseum unique" and "sunfire piece"
 				// tiles). Each tile has its own aggregate, so each gets its own proof —
@@ -4958,7 +4966,7 @@ public class AnvilPlugin extends Plugin {
 			String noun = kill.unitNoun();
 			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
 			if (!kill.isCap()) {
-				sendChatMessage("Tracked " + noun + ": " + killDisplayLabel(kill) + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+				sendChatMessage(ChatPalette.Tone.NEAR, "Tracked " + noun + ": " + killDisplayLabel(kill) + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
 			} // a cap counter is counted and submitted silently
 
 			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired, inferred);
@@ -5443,7 +5451,7 @@ public class AnvilPlugin extends Plugin {
 			Aggregate<TrackedGain> agg =
 					pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new Aggregate<>(gain));
 			if (agg.total == 0) {
-				sendChatMessage("Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
+				sendChatMessage(ChatPalette.Tone.NEAR, "Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
 			}
 			agg.total += amount;
 			// Flush immediately once the tile is done — the completing proof shouldn't wait out the
@@ -5541,7 +5549,7 @@ public class AnvilPlugin extends Plugin {
 				}
 				if (processPendingSubmission(pending)) {
 					if (submitted != null) {
-						sendChatMessage(submitted);
+						sendChatMessage(ChatPalette.Tone.DONE, submitted);
 					}
 					proofBackoff.onSuccess();
 				} else {
@@ -5551,7 +5559,7 @@ public class AnvilPlugin extends Plugin {
 				refreshConfig();
 			} catch (IOException e) {
 				log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
-				sendChatMessage("Screenshot failed for " + label + ": " + BingoApiClient.forPlayer(e));
+				sendChatMessage(ChatPalette.Tone.WARN, "Screenshot failed for " + label + ": " + BingoApiClient.forPlayer(e));
 				optimistic.clear(tileId);
 				if (rollback != null) {
 					rollback.run();
@@ -5719,20 +5727,20 @@ public class AnvilPlugin extends Plugin {
 				continue;
 			}
 			if (instancePlayerDeaths > 0) {
-				sendChatMessage("Not deathless: " + tile.label + " — " + instancePlayerDeaths
+				sendChatMessage(ChatPalette.Tone.WARN, "Not deathless: " + tile.label + " — " + instancePlayerDeaths
 						+ (instancePlayerDeaths == 1 ? " death" : " deaths") + " this run.");
 				continue;
 			}
 			int partySeen = partySize();
 			if (tile.partySize > 0 && partySeen != tile.partySize) {
-				sendChatMessage("Deathless run not counted for " + tile.label + ": party of "
+				sendChatMessage(ChatPalette.Tone.WARN, "Deathless run not counted for " + tile.label + ": party of "
 						+ partySeen + ", tile requires " + tile.partySize + ".");
 				continue;
 			}
 			if (tile.partyTeamOnly) {
 				String why = RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), partySeen);
 				if (why != null) {
-					sendChatMessage("Deathless run not counted for " + tile.label + ": " + why + ".");
+					sendChatMessage(ChatPalette.Tone.WARN, "Deathless run not counted for " + tile.label + ": " + why + ".");
 					continue;
 				}
 			}
@@ -5755,7 +5763,7 @@ public class AnvilPlugin extends Plugin {
 		raiseLocal(tile.tileId, tile.currentAmount, now());
 		log.debug("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
 				tile.activity, partySeen, tile.label, tile.currentAmount, goal);
-		sendChatMessage("Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
+		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
 		String detail = tile.activity + "  deathless"
 				+ (tile.partySize > 0 ? "  party " + partySeen : "")
 				+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "")
@@ -5790,7 +5798,7 @@ public class AnvilPlugin extends Plugin {
 		heldToaRuns.add(level -> {
 			String why = RaidGates.raidLevel(activity, minRaidLevel, level);
 			if (why != null) {
-				sendChatMessage(what + " not counted for " + label + ": " + why + ".");
+				sendChatMessage(ChatPalette.Tone.WARN, what + " not counted for " + label + ": " + why + ".");
 			} else {
 				credit.accept(level);
 			}
@@ -5878,7 +5886,7 @@ public class AnvilPlugin extends Plugin {
 			runs = TileNotes.runs(done, required);
 			rollback = () -> tile.currentAmount = Math.max(0, tile.runsDone() - 1);
 		}
-		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds)
+		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds)
 				+ (runs != null ? " (" + runs + ")" : ""));
 		String detail = trialTarget != null
 				? tile.activity + "  " + TimedClearParser.formatClock(seconds)
@@ -5922,7 +5930,7 @@ public class AnvilPlugin extends Plugin {
 	 * backoff — this just makes the failure visible and points at the file.
 	 */
 	private void notifyUploadFailed(String label) {
-		sendChatMessage("Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying.");
+		sendChatMessage(ChatPalette.Tone.WARN, "Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying.");
 	}
 
 
@@ -6009,7 +6017,7 @@ public class AnvilPlugin extends Plugin {
 	 * nothing to infer it from), so nothing was credited. Say so, rather than leave a tile waiting.
 	 */
 	private void askForManualSubmission(String label) {
-		sendChatMessage(label + " — the game didn't say which, so it wasn't counted. "
+		sendChatMessage(ChatPalette.Tone.WARN, label + " — the game didn't say which, so it wasn't counted. "
 				+ "If a tile needs it, submit it on the Anvil site with a screenshot.");
 	}
 
@@ -6096,11 +6104,11 @@ public class AnvilPlugin extends Plugin {
 				apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
 				startProofFiled = true;
 				startProofFiledAt = System.currentTimeMillis();
-				sendChatMessage("Starting shot sent. You're clear to play.");
+				sendChatMessage(ChatPalette.Tone.DONE, "Starting shot sent. You're clear to play.");
 				refreshConfig();
 			} catch (IOException e) {
 				log.error("Failed to file starting shot: {}", e.getMessage());
-				sendChatMessage("Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
+				sendChatMessage(ChatPalette.Tone.WARN, "Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
 			} finally {
 				startProofInFlight = false;
 			}
@@ -6198,7 +6206,7 @@ public class AnvilPlugin extends Plugin {
 			} else {
 				// A previously-failed proof finally made it — say so, since the original
 				// "submitted" message never fired.
-				sendChatMessage("Queued proof submitted: " + sub.label);
+				sendChatMessage(ChatPalette.Tone.DONE, "Queued proof submitted: " + sub.label);
 			}
 		}
 
@@ -6827,7 +6835,7 @@ public class AnvilPlugin extends Plugin {
 						String more = r.refusedNewMembers.size() > refusedCap
 								? " and " + (r.refusedNewMembers.size() - refusedCap) + " more"
 								: "";
-						sendChatMessage("Not added (plan limit): " + names + more + ".");
+						sendChatMessage(ChatPalette.Tone.WARN, "Not added (plan limit): " + names + more + ".");
 					}
 					if (r.capNotice != null && !r.capNotice.isEmpty()) {
 						sendChatMessage(r.capNotice);
@@ -6868,7 +6876,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void syncFailed(AdminActionCallback cb, boolean say, String chat, String why) {
 		if (say) {
-			sendChatMessage(chat != null ? chat : "Clan sync failed: " + Character.toLowerCase(why.charAt(0)) + why.substring(1));
+			sendChatMessage(ChatPalette.Tone.WARN, chat != null ? chat : "Clan sync failed: " + Character.toLowerCase(why.charAt(0)) + why.substring(1));
 		}
 		cb.onResult(false, why);
 	}
@@ -6920,7 +6928,7 @@ public class AnvilPlugin extends Plugin {
 				if (t.partOf != null) {
 					// A combo's part: progress on the combo, not a tile complete (no banner).
 					onTileConfirmedDone(t.partOf);
-					sendChatMessage("Combo part done: " + t.label + "!");
+					sendChatMessage(ChatPalette.Tone.DONE, "Combo part done: " + t.label + "!");
 				} else if (!locallyShownTiles.contains(t.tileId)) {
 					newlyDone.add(t);
 				}
@@ -6942,7 +6950,7 @@ public class AnvilPlugin extends Plugin {
 		for (CompletedTile t : newlyDone) {
 			String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
 					? " — by " + t.completedBy.trim() : "";
-			sendChatMessage("Tile complete: " + t.label + by + "!");
+			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + by + "!");
 		}
 	}
 
@@ -6997,7 +7005,7 @@ public class AnvilPlugin extends Plugin {
 			clogBanner.show(tag, "New mission!", top.label);
 			playMissionSound(false);
 			for (Mission m : fresh) {
-				sendChatMessage("New mission: " + m.label + " - " + m.points + " pts!");
+				sendChatMessage(ChatPalette.Tone.NEAR, "New mission: " + m.label + " - " + m.points + " pts!");
 			}
 		}
 
@@ -7022,7 +7030,7 @@ public class AnvilPlugin extends Plugin {
 			playMissionSound(true);
 			for (Claim c : claims) {
 				String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
-				sendChatMessage(by + " claimed " + c.label + " - " + c.points + " pts!");
+				sendChatMessage(ChatPalette.Tone.DONE, by + " claimed " + c.label + " - " + c.points + " pts!");
 			}
 		}
 	}
@@ -7495,7 +7503,7 @@ public class AnvilPlugin extends Plugin {
 		StartProof sp = pluginConfig.startProof;
 		startProofNudged = true;
 		String left = StartProofRules.describeWindow(sp, now());
-		sendChatMessage("Starting shot needed before you play"
+		sendChatMessage(ChatPalette.Tone.WARN, "Starting shot needed before you play"
 				+ (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
 				+ (sp.spot != null && config.autoStartShot()
 						? ". Stand there and it's taken and sent for you (or press \"Take starting shot\" in the Anvil side panel)."
@@ -7524,7 +7532,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		startProofCreditWarned = true;
-		sendChatMessage("That's recorded, but your starting shot is still missing — it stays held for"
+		sendChatMessage(ChatPalette.Tone.WARN, "That's recorded, but your starting shot is still missing — it stays held for"
 				+ " review until you take it. Anvil side panel → \"Take starting shot\".");
 	}
 
@@ -10669,7 +10677,49 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private void sendChatMessage(String message) {
-		sendChatLine("Anvil", message);
+		sendChatLine("Anvil", message, ChatPalette.Tone.INFO, null);
+	}
+
+	private void sendChatMessage(ChatPalette.Tone tone, String message) {
+		sendChatLine("Anvil", message, tone, null);
+	}
+
+	/** How Anvil lines are coloured; replaced by the site's look with each login brief. */
+	private volatile ChatPalette chatPalette = ChatPalette.ANVIL;
+	/** The Patron star's chat icon, registered once; -1 until then. */
+	private int chatStarIcon = -1;
+
+	private String chatStar() {
+		if (chatStarIcon < 0) {
+			BufferedImage img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
+			java.awt.Graphics2D g = img.createGraphics();
+			try {
+				new GlyphIcon(GlyphIcon.Shape.STAR, 11, new Color(0xff, 0xd2, 0x7a)).paintIcon(null, g, 0, 0);
+			} finally {
+				g.dispose();
+			}
+			chatStarIcon = chatIconManager.registerChatIcon(img);
+		}
+		int index = chatIconManager.chatIconIndex(chatStarIcon);
+		return index >= 0 ? "<img=" + index + ">" : "";
+	}
+
+	/** The login brief (site lib/chatBrief): where this character stands, in a line or two. */
+	private void sendBrief() {
+		BingoApiClient.Brief b = apiClient.fetchBrief();
+		if (b == null) {
+			return;
+		}
+		if (b.look != null) {
+			chatPalette = ChatPalette.from(b.look.palette, b.look.colors);
+		}
+		if (b.lines != null) {
+			for (BingoApiClient.BriefLine l : b.lines) {
+				if (l != null && l.text != null) {
+					sendChatMessage(ChatPalette.Tone.of(l.tone), l.text);
+				}
+			}
+		}
 	}
 
 	/** At most this many chat-feed lines a minute; the rest are counted and summed up in one line. */
@@ -10702,18 +10752,25 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		feedShownAt.addLast(now);
-		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, (who + " " + text).trim());
+		// The sender's Supporter colour on their name, and a Patron's star; the rest in the line's tone.
+		String whoColor = m.has("whoColor") ? ChatPalette.nameColor(m.get("whoColor").getAsString()) : null;
+		boolean star = m.has("star") && m.get("star").getAsBoolean();
+		String lead = who.isEmpty() ? null
+				: (star ? chatStar() : "") + (whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who));
+		ChatPalette.Tone tone = ChatPalette.Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
+		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
 	}
 
 	private synchronized void flushFeedHeld() {
 		feedHeldFlush = null;
 		if (feedHeld > 0) {
-			sendChatLine("Anvil", "+" + feedHeld + " more in the chat feed. Choose what shows on your Anvil profile.");
+			sendChatLine("Anvil", "+" + feedHeld + " more in the chat feed. Choose what shows on your Anvil profile.", ChatPalette.Tone.FEED, null);
 			feedHeld = 0;
 		}
 	}
 
-	private void sendChatLine(String tag, String message) {
+	/** {@code lead}: markup already made safe (a coloured name, an icon) before the message's own colour. */
+	private void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead) {
 		if (message == null || message.isEmpty()) {
 			return;
 		}
@@ -10722,8 +10779,9 @@ public class AnvilPlugin extends Plugin {
 		// admin-authored, so swap in the visually-identical broken bar instead. And no '<' or '>':
 		// feed lines carry other players' names, which must never open a chat tag.
 		String safe = clean(message);
-		String line = "<col=" + hexOf(config.chatPrefixColor(), "ffd700") + ">[" + clean(tag) + "]</col> <col="
-				+ hexOf(config.chatTextColor(), "ffffff") + ">" + safe + "</col>";
+		String text = chatPalette.text(tone, hexOf(config.chatTextColor(), "ffffff"));
+		String line = "<col=" + hexOf(config.chatPrefixColor(), "ffd700") + ">[" + clean(tag) + "]</col> "
+				+ (lead != null ? lead + " " : "") + "<col=" + text + ">" + safe + "</col>";
 		clientThread.invokeLater(() -> {
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
@@ -11073,12 +11131,12 @@ public class AnvilPlugin extends Plugin {
 				}, m -> {
 					clogFullSync.onSent();
 					if (manual) {
-						sendChatMessage("Couldn't sync your profile: " + m + ".");
+						sendChatMessage(ChatPalette.Tone.WARN, "Couldn't sync your profile: " + m + ".");
 					}
 				}, m -> {
 					clogFullSync.onSendFailed(now);
 					if (manual) {
-						sendChatMessage("Couldn't sync your profile: " + m + ". It'll retry on its own.");
+						sendChatMessage(ChatPalette.Tone.WARN, "Couldn't sync your profile: " + m + ". It'll retry on its own.");
 					}
 				});
 		manualSyncStartedAt = 0; // landed or given up on — nothing for the watchdog to complain about
@@ -11094,11 +11152,11 @@ public class AnvilPlugin extends Plugin {
 		clogFullSync.onSent();
 		log.info("Collection log synced: {} items", count);
 		if (manual) {
-			sendChatMessage("Profile synced — " + count + " collection log slots.");
+			sendChatMessage(ChatPalette.Tone.DONE, "Profile synced — " + count + " collection log slots.");
 		} else if (result.added > 0) {
 			// New slots are news: always said.
 			autoClogReportedThisLogin = true;
-			sendChatMessage("Collection log synced — " + result.added + " new slot"
+			sendChatMessage(ChatPalette.Tone.DONE, "Collection log synced — " + result.added + " new slot"
 					+ (result.added == 1 ? "" : "s") + ".");
 		} else if (!autoClogReportedThisLogin) {
 			// A push that added nothing still proves the round trip worked — once a login.
