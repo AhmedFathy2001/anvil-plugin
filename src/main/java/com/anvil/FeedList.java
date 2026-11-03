@@ -174,7 +174,7 @@ final class FeedList extends JPanel
 			}
 		});
 
-		empty = new JLabel(UiView.str(n, "empty"));
+		empty = new JLabel(plainText(UiView.str(n, "empty")));
 		empty.setFont(SMALL);
 		empty.setForeground(MUTED);
 
@@ -228,7 +228,7 @@ final class FeedList extends JPanel
 		}
 		boolean locked = why != null && !why.isEmpty();
 		input.setEnabled(!locked);
-		lockLine.setText(locked ? why : "");
+		lockLine.setText(locked ? plainText(why) : "");
 		lockLine.setVisible(locked);
 		revalidate();
 	}
@@ -332,11 +332,11 @@ final class FeedList extends JPanel
 		box.setOpaque(false);
 		input = new JTextField();
 		styleSearch(input);
-		input.setToolTipText(UiView.str(send, "hint"));
+		input.setToolTipText(plainText(UiView.str(send, "hint")));
 		int max = send.has("max") ? send.get("max").getAsInt() : 200;
 		((AbstractDocument) input.getDocument()).setDocumentFilter(new MaxLength(max));
 		input.addActionListener(e -> sendNow());
-		JLabel hint = new JLabel(UiView.str(send, "hint") + " — Enter to send");
+		JLabel hint = new JLabel(plainText(UiView.str(send, "hint") + " — Enter to send"));
 		hint.setFont(SMALL);
 		hint.setForeground(MUTED);
 		error.setFont(SMALL);
@@ -379,7 +379,7 @@ final class FeedList extends JPanel
 
 	private void showError(String err)
 	{
-		error.setText(err == null ? "" : err);
+		error.setText(err == null ? "" : plainText(err));
 		error.setVisible(err != null);
 		revalidate();
 	}
@@ -713,7 +713,7 @@ final class FeedList extends JPanel
 			if (!title.isEmpty())
 			{
 				// A moment: the item on top, who got it (and their team) under it.
-				line1.setText(title);
+				line1.setText(plainText(title));
 				line1.setForeground(UiView.color(UiView.str(r, "textColor"), Color.WHITE));
 				line2.setText("<html>" + span(who, whoInk) + (tag.isEmpty() ? "" : " " + span("· " + tag, tagInk)) + "</html>");
 				line2.setVisible(true);
@@ -722,7 +722,7 @@ final class FeedList extends JPanel
 			{
 				// A chat line (or a roll-up): one wrapped paragraph, the name leading it.
 				int wrap = Math.max(80, l.getWidth() - (ic != null ? ICON_W + 6 : 0) - 70);
-				String text = esc(UiView.str(r, "text"));
+				String text = esc(Ui.fontSafe(UiView.str(r, "text")));
 				Color textInk = UiView.color(UiView.str(r, "textColor"), ColorScheme.TEXT_COLOR);
 				line1.setText("<html><div style='width:" + wrap + "px'>"
 					+ (tag.isEmpty() ? "" : "<b>" + span(tag, tagInk) + "</b> ")
@@ -730,7 +730,7 @@ final class FeedList extends JPanel
 					+ span(text, textInk, true) + "</div></html>");
 				line2.setVisible(false);
 			}
-			value.setText(r.has("value") ? UiView.str(r, "value") : when);
+			value.setText(plainText(r.has("value") ? UiView.str(r, "value") : when));
 			value.setForeground(r.has("value") ? GOLD : MUTED);
 			if (r.has("gz") && r.get("gz").isJsonObject())
 			{
@@ -744,7 +744,7 @@ final class FeedList extends JPanel
 			}
 			else
 			{
-				gz.setText(r.has("value") ? when : "");
+				gz.setText(r.has("value") ? plainText(when) : "");
 				gz.setForeground(MUTED);
 				gz.setVisible(r.has("value"));
 			}
@@ -753,7 +753,7 @@ final class FeedList extends JPanel
 
 		private String span(String s, Color c)
 		{
-			return span(esc(s), c, true);
+			return span(esc(Ui.fontSafe(s)), c, true);
 		}
 
 		private String span(String escaped, Color c, boolean already)

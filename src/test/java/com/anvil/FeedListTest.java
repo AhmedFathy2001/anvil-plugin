@@ -168,7 +168,7 @@ public class FeedListTest
 		assertTrue(host.posts.get(0).startsWith("chat-send{"));
 		assertTrue(host.posts.get(0).contains("msg=hello ther"));
 		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"text\",\"s\":\"Slow mode — wait 4s.\",\"color\":\"error\"}}"));
-		assertEquals("Slow mode — wait 4s.", f.errorLine());
+		assertEquals("Slow mode - wait 4s.", f.errorLine());
 		assertEquals("kept for another try", "hello ther", f.box().getText());
 		assertSame("the view was not redrawn", f, find(v));
 
@@ -206,5 +206,18 @@ public class FeedListTest
 		now.flush();
 		assertEquals(0, old.rowCount());
 		assertEquals(1, now.rowCount());
+	}
+
+	@Test
+	public void serverTextNeverRendersAsHtml()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9\",\"empty\":\"<html><img src=x>\",\"rows\":[],"
+			+ "\"send\":{\"act\":\"chat-send\",\"hint\":\"<html><b>hi\"}}");
+		FeedList f = find(v);
+		f.box().setText("x");
+		f.box().postActionEvent();
+		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"text\",\"s\":\"<html><font size=99>boom\",\"color\":\"error\"}}"));
+		assertFalse(f.errorLine().startsWith("<html>"));
 	}
 }
