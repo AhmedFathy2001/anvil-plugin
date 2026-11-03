@@ -12,7 +12,8 @@ import javax.swing.Timer;
 
 /**
  * A label whose text is painted with a left-to-right gradient (an Anvil Supporter's name). The icon
- * keeps its own colours: only the text's box is recoloured. Swing has no gradient text, so the label
+ * keeps its own colours (a team swatch is information) unless it's the supporter star, which the
+ * gradient runs on through as the name's last letter. Swing has no gradient text, so the label
  * is drawn to an image at the screen's scale and the text box is filled through its own pixels.
  * A moving one (Patron) slides its gradient along: one shared timer repaints only those on screen.
  */
@@ -24,6 +25,7 @@ final class GradientLabel extends JLabel
 	private final Color[] stops;
 	private final float[] fractions;
 	private final boolean moving;
+	private boolean tintIcon;
 
 	GradientLabel(Color[] stops, boolean moving)
 	{
@@ -34,6 +36,13 @@ final class GradientLabel extends JLabel
 		{
 			fractions[i] = stops.length == 1 ? 0f : (float) i / (stops.length - 1);
 		}
+	}
+
+	/** Paint the icon with the gradient too (the supporter star), not only the text. */
+	void setTintIcon(boolean tintIcon)
+	{
+		this.tintIcon = tintIcon;
+		repaint();
 	}
 
 	@Override
@@ -89,14 +98,15 @@ final class GradientLabel extends JLabel
 			SwingUtilities.layoutCompoundLabel(this, getFontMetrics(getFont()), getText(), getIcon(),
 				getVerticalAlignment(), getHorizontalAlignment(), getVerticalTextPosition(), getHorizontalTextPosition(),
 				view, iconR, textR, getIconTextGap());
-			if (textR.width > 0)
+			Rectangle fill = tintIcon && getIcon() != null && !iconR.isEmpty() ? textR.union(iconR) : textR;
+			if (fill.width > 0)
 			{
 				ig.setComposite(AlphaComposite.SrcIn);
 				// Moving: one pass across the name every 4s, wrapping (the stops repeat).
-				float shift = moving ? (System.currentTimeMillis() % 4000) / 4000f * textR.width : 0;
-				ig.setPaint(new LinearGradientPaint(textR.x - shift, 0, textR.x - shift + textR.width, 0, fractions, stops,
+				float shift = moving ? (System.currentTimeMillis() % 4000) / 4000f * fill.width : 0;
+				ig.setPaint(new LinearGradientPaint(fill.x - shift, 0, fill.x - shift + fill.width, 0, fractions, stops,
 					MultipleGradientPaint.CycleMethod.REFLECT));
-				ig.fillRect(textR.x, textR.y, textR.width, textR.height);
+				ig.fillRect(fill.x, fill.y, fill.width, fill.height);
 			}
 		}
 		finally

@@ -526,6 +526,11 @@ final class UiView extends JPanel
 				// No picture for it: the name has to carry it, or it's an unlabelled number.
 				s = str(spec, "alt") + " " + s;
 			}
+			else if (l instanceof GradientLabel && "star".equals(str(spec, "glyph")))
+			{
+				// A supporter's star is part of their name: the gradient runs through it.
+				((GradientLabel) l).setTintIcon(true);
+			}
 		}
 		l.setText(bool(n, "wrap") ? wrapHtml(esc(s), WRAP_PT) : plainText(s));
 		live(n, (v, goal) -> l.setText(liveText(str(n.getAsJsonObject("live"), "fmt"), v, goal)));
