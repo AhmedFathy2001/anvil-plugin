@@ -1,7 +1,6 @@
 package com.anvil;
 
 import java.awt.event.MouseEvent;
-import javax.swing.Icon;
 import javax.swing.JLabel;
 import javax.swing.ToolTipManager;
 
@@ -26,24 +25,6 @@ class ClipLabel extends JLabel
 	ClipLabel(String text, int align)
 	{
 		super(text, align);
-		ToolTipManager.sharedInstance().registerComponent(this);
-	}
-
-	ClipLabel(Icon icon)
-	{
-		super(icon);
-		ToolTipManager.sharedInstance().registerComponent(this);
-	}
-
-	ClipLabel(Icon icon, int align)
-	{
-		super(icon, align);
-		ToolTipManager.sharedInstance().registerComponent(this);
-	}
-
-	ClipLabel(String text, Icon icon, int align)
-	{
-		super(text, icon, align);
 		ToolTipManager.sharedInstance().registerComponent(this);
 	}
 

@@ -220,4 +220,29 @@ public class FeedListTest
 		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"text\",\"s\":\"<html><font size=99>boom\",\"color\":\"error\"}}"));
 		assertFalse(f.errorLine().startsWith("<html>"));
 	}
+
+	@Test
+	public void aChatReadsOldestFirstAndGrowsAtTheBottom()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9\",\"cap\":20,\"rows\":[" + row("c2") + "," + row("c1") + "],"
+			+ "\"send\":{\"act\":\"chat-send\",\"hint\":\"x\"}}");
+		FeedList f = find(v);
+		assertEquals("c1", f.rowId(0));
+		assertEquals("c2", f.rowId(1));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\"],\"rows\":[" + row("c4") + "," + row("c3") + "]}"));
+		f.flush();
+		assertEquals("c1", f.rowId(0));
+		assertEquals("c4", f.rowId(3));
+		StringBuilder more = new StringBuilder();
+		for (int i = 30; i >= 5; i--)
+		{
+			more.append(i < 30 ? "," : "").append(row("c" + i));
+		}
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\"],\"rows\":[" + more + "]}"));
+		f.flush();
+		assertEquals(20, f.rowCount());
+		assertEquals("the oldest went from the top", "c11", f.rowId(0));
+		assertEquals("c30", f.rowId(19));
+	}
 }

@@ -53,6 +53,12 @@ final class UiView extends JPanel
 		JComponent nativePart(String name);
 
 		/** This client's newest count for a tile (its own progress, the live push's), or -1 for none. */
+		/** The signed-in character's name, so a live list can mark the viewer's own lines. */
+		default String myName()
+		{
+			return null;
+		}
+
 		default long count(int tile)
 		{
 			return -1;

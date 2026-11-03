@@ -84,6 +84,12 @@ final class FeedList extends JPanel
 	private final RowModel model = new RowModel();
 	private final JList<JsonObject> list = new JList<JsonObject>(model)
 	{
+		@Override
+		public boolean getScrollableTracksViewportWidth()
+		{
+			return true;
+		}
+
 		/** A row's whole text, for when the width cut it short. */
 		@Override
 		public String getToolTipText(MouseEvent e)
@@ -109,6 +115,12 @@ final class FeedList extends JPanel
 	private final JLabel lockLine = new ClipLabel();
 	private JTextField input;
 	private JsonObject send;
+	/** A chat (it has a message box): oldest at the top, newest at the bottom, pinned to the latest. */
+	private final boolean chat;
+	/** Pinned to the newest line: true until the reader scrolls away from it. */
+	private boolean following = true;
+	/** Whose lines are the viewer's own, re-read at each flush. */
+	private String me;
 	/** Arrived since the last flush, oldest first. */
 	private final List<JsonObject> pending = new ArrayList<>();
 	private final Set<String> pendingDel = new HashSet<>();
@@ -127,6 +139,8 @@ final class FeedList extends JPanel
 		int h = n.has("h") ? Math.max(120, n.get("h").getAsInt()) : 420;
 		flush.setRepeats(false);
 		setOpaque(false);
+		chat = n.has("send") && n.get("send").isJsonObject();
+		me = host == null ? null : host.myName();
 
 		List<JsonObject> first = new ArrayList<>();
 		if (n.has("rows") && n.get("rows").isJsonArray())
@@ -139,7 +153,13 @@ final class FeedList extends JPanel
 				}
 			}
 		}
-		model.reset(first.size() > cap ? first.subList(0, cap) : first);
+		List<JsonObject> kept = new ArrayList<>(first.size() > cap ? first.subList(0, cap) : first);
+		if (chat)
+		{
+			// The site sends newest first; a chat reads top to bottom.
+			Collections.reverse(kept);
+		}
+		model.reset(kept);
 
 		list.setCellRenderer(new RowRenderer());
 		list.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -161,6 +181,10 @@ final class FeedList extends JPanel
 					list.setFixedCellHeight(10);
 					list.setFixedCellHeight(-1);
 				}
+				if (chat && following)
+				{
+					toLatest();
+				}
 			}
 		});
 
@@ -168,7 +192,12 @@ final class FeedList extends JPanel
 		scroll.setBorder(BorderFactory.createEmptyBorder());
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
 		scroll.getViewport().addChangeListener(e -> {
-			if (unseen > 0 && scroll.getViewport().getViewPosition().y <= 2)
+			boolean atLatest = atLatest();
+			if (chat)
+			{
+				following = atLatest;
+			}
+			if (unseen > 0 && atLatest)
 			{
 				unseen = 0;
 				newPill.setVisible(false);
@@ -190,7 +219,7 @@ final class FeedList extends JPanel
 			@Override
 			public void mouseClicked(MouseEvent e)
 			{
-				scroll.getViewport().setViewPosition(new Point(0, 0));
+				toLatest();
 			}
 		});
 
@@ -201,16 +230,24 @@ final class FeedList extends JPanel
 
 		JPanel top = new JPanel(new BorderLayout());
 		top.setOpaque(false);
-		top.add(newPill, BorderLayout.NORTH);
+		if (!chat)
+		{
+			top.add(newPill, BorderLayout.NORTH);
+		}
 		top.add(empty, BorderLayout.SOUTH);
 		add(top, BorderLayout.NORTH);
 		add(scroll, BorderLayout.CENTER);
 
-		if (n.has("send") && n.get("send").isJsonObject())
+		if (chat)
 		{
 			send = n.getAsJsonObject("send");
-			add(sendBox(), BorderLayout.SOUTH);
+			JPanel bottom = new JPanel(new BorderLayout(0, 4));
+			bottom.setOpaque(false);
+			bottom.add(newPill, BorderLayout.NORTH);
+			bottom.add(sendBox(), BorderLayout.CENTER);
+			add(bottom, BorderLayout.SOUTH);
 			lock(n.has("locked") && !n.get("locked").isJsonNull() ? UiView.str(n, "locked") : null);
+			javax.swing.SwingUtilities.invokeLater(this::toLatest);
 		}
 		syncEmpty();
 		setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
@@ -321,6 +358,26 @@ final class FeedList extends JPanel
 		{
 			return;
 		}
+		me = host == null ? null : host.myName();
+		if (chat)
+		{
+			// Oldest first at the bottom; follow it down unless the reader has scrolled up.
+			boolean stick = following;
+			Collections.reverse(fresh);
+			model.append(fresh, cap);
+			if (stick)
+			{
+				javax.swing.SwingUtilities.invokeLater(this::toLatest);
+			}
+			else
+			{
+				unseen += fresh.size();
+				newPill.setText("↓ " + unseen + " new");
+				newPill.setVisible(true);
+			}
+			syncEmpty();
+			return;
+		}
 		int y = scroll.getViewport().getViewPosition().y;
 		model.prepend(fresh, cap);
 		if (y > 2)
@@ -333,6 +390,41 @@ final class FeedList extends JPanel
 			newPill.setVisible(true);
 		}
 		syncEmpty();
+	}
+
+	/** At the newest row: the bottom for a chat, the top for a feed. */
+	private boolean atLatest()
+	{
+		javax.swing.JViewport vp = scroll.getViewport();
+		if (!chat)
+		{
+			return vp.getViewPosition().y <= 2;
+		}
+		return vp.getViewPosition().y + vp.getExtentSize().height >= list.getHeight() - 4;
+	}
+
+	private void toLatest()
+	{
+		following = true;
+		unseen = 0;
+		newPill.setVisible(false);
+		if (chat)
+		{
+			int last = model.getSize() - 1;
+			if (last >= 0)
+			{
+				list.ensureIndexIsVisible(last);
+				Rectangle b = list.getCellBounds(last, last);
+				if (b != null)
+				{
+					list.scrollRectToVisible(b);
+				}
+			}
+		}
+		else
+		{
+			scroll.getViewport().setViewPosition(new Point(0, 0));
+		}
 	}
 
 	private void syncEmpty()
@@ -589,6 +681,28 @@ final class FeedList extends JPanel
 			}
 		}
 
+		/** A chat's new lines at the bottom; the oldest past {@code cap} go from the top. */
+		void append(List<JsonObject> fresh, int cap)
+		{
+			int at = rows.size();
+			for (JsonObject r : fresh)
+			{
+				ids.add(UiView.str(r, "id"));
+			}
+			rows.addAll(fresh);
+			fireIntervalAdded(this, at, rows.size() - 1);
+			if (rows.size() > cap)
+			{
+				int gone = rows.size() - cap;
+				for (JsonObject r : rows.subList(0, gone))
+				{
+					ids.remove(UiView.str(r, "id"));
+				}
+				rows.subList(0, gone).clear();
+				fireIntervalRemoved(this, 0, gone - 1);
+			}
+		}
+
 		/** Newest first; the oldest past {@code cap} go. Two events however many rows. */
 		void prepend(List<JsonObject> fresh, int cap)
 		{
@@ -717,10 +831,62 @@ final class FeedList extends JPanel
 			add(right, BorderLayout.EAST);
 		}
 
+		private final javax.swing.border.Border feedBorder = BorderFactory.createCompoundBorder(
+			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.DARK_GRAY_COLOR),
+			BorderFactory.createEmptyBorder(4, 6, 4, 6));
+		private final javax.swing.border.Border chatFirst = BorderFactory.createEmptyBorder(6, 8, 2, 8);
+		private final javax.swing.border.Border chatMore = BorderFactory.createEmptyBorder(0, 8, 2, 8);
+
+		private boolean mine(JsonObject r)
+		{
+			return (r.has("mine") && r.get("mine").getAsBoolean()) || (me != null && !me.isEmpty() && Rsn.same(me, UiView.str(r, "who")));
+		}
+
+		/**
+		 * A chat line: the name (and team, or HOST / MOD / TEAM) with the time on the first line, the
+		 * message wrapped under it. A run of lines from one person shows the name once, like any chat.
+		 */
+		private Component chatLine(JList<? extends JsonObject> l, JsonObject r, int index)
+		{
+			JsonObject prev = index > 0 ? model.getElementAt(index - 1) : null;
+			String who = UiView.str(r, "who");
+			String tag = UiView.str(r, "tag");
+			boolean grouped = prev != null && who.equals(UiView.str(prev, "who")) && tag.equals(UiView.str(prev, "tag"));
+			setBorder(grouped ? chatMore : chatFirst);
+			setBackground(mine(r) ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
+			icon.setVisible(false);
+			gz.setVisible(false);
+
+			Color whoInk = mine(r) ? ColorScheme.BRAND_ORANGE : UiView.color(UiView.str(r, "whoColor"), Color.WHITE);
+			Color tagInk = UiView.color(UiView.str(r, "tagColor"), MUTED);
+			line1.setFont(REGULAR);
+			line1.setForeground(Color.WHITE);
+			line1.setText("<html><b>" + span(who, whoInk) + "</b>" + (tag.isEmpty() ? "" : "&nbsp;&nbsp;" + span(tag, tagInk)) + "</html>");
+			line1.setVisible(!grouped);
+			value.setText(plainText(Ui.ago(UiView.str(r, "at")).replace(" ago", "")));
+			value.setForeground(MUTED);
+			value.setVisible(!grouped);
+
+			int wrap = Math.max(80, l.getWidth() - 20 - (grouped ? 0 : 40));
+			Color textInk = UiView.color(UiView.str(r, "textColor"), ColorScheme.TEXT_COLOR);
+			line2.setFont(REGULAR);
+			line2.setText("<html><div style='width:" + wrap + "px'>" + span(UiView.str(r, "text"), textInk) + "</div></html>");
+			line2.setVisible(true);
+			return this;
+		}
+
 		@Override
 		public Component getListCellRendererComponent(JList<? extends JsonObject> l, JsonObject r, int index, boolean selected, boolean focus)
 		{
-			setBackground(r.has("mine") && r.get("mine").getAsBoolean() ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
+			if (chat)
+			{
+				return chatLine(l, r, index);
+			}
+			setBorder(feedBorder);
+			line1.setVisible(true);
+			line2.setFont(SMALL);
+			value.setVisible(true);
+			setBackground(mine(r) ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
 			Icon ic = iconFor(r);
 			icon.setIcon(ic);
 			icon.setVisible(ic != null);

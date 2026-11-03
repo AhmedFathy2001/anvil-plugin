@@ -100,7 +100,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JTextField lookupSearch = new JTextField();
 	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
 	private LookupSuggestions lookupCompleter;
-	private final JLabel lookupClear = new ClipLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
+	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
 	private final LinkedList<String> recentLookups = new LinkedList<>();
@@ -127,7 +127,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
 	private final JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
 	/** Opens the account menu: Not my account / Sign out. */
-	private final JLabel accountMenuLink = new ClipLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
+	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/**
 	 * Between {@link #onActivate} and {@link #onDeactivate}. Off screen, a refresh is skipped outright:
 	 * XP bumps, config changes and logins all ask for one, and drawing a panel nobody can see is EDT
@@ -322,7 +322,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (t == Tab.SETTINGS)
 			{
 				// An icon, not a fourth word: three named tabs and a narrow gear keep the strip calm.
-				label = new ClipLabel(new GlyphIcon(GlyphIcon.Shape.GEAR, 13), SwingConstants.CENTER);
+				label = new JLabel(new GlyphIcon(GlyphIcon.Shape.GEAR, 13), SwingConstants.CENTER);
 				label.setToolTipText("Syncing and settings");
 				label.setPreferredSize(new Dimension(34, label.getPreferredSize().height));
 				gc.weightx = 0;
@@ -613,6 +613,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			public long count(int tile)
 			{
 				return dataSource.tileCount(tile);
+			}
+
+			@Override
+			public String myName()
+			{
+				return dataSource.myRsn();
 			}
 
 			@Override
