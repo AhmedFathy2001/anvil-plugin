@@ -10840,10 +10840,20 @@ public class AnvilPlugin extends Plugin {
 		// admin-authored, so swap in the visually-identical broken bar instead. And no '<' or '>':
 		// feed lines carry other players' names, which must never open a chat tag.
 		String safe = clean(message);
-		String text = chatPalette.text(tone, hexOf(config.chatTextColor(), "ffffff"));
-		String line = "<col=" + hexOf(config.chatPrefixColor(), "ffd700") + ">[" + clean(tag) + "]</col> "
-				+ (lead != null ? lead + " " : "") + "<col=" + text + ">" + safe + "</col>";
 		clientThread.invokeLater(() -> {
+			// The opaque chatbox (fixed mode, or resizable with transparency off) is light parchment: the
+			// default bright colours swap for dark ones there. Colours the player picked are kept.
+			boolean opaque = !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+			String own = hexOf(config.chatTextColor(), "ffffff");
+			String prefix = hexOf(config.chatPrefixColor(), "ffd700");
+			if (opaque && "ffffff".equals(own)) {
+				own = "000000";
+			}
+			if (opaque && "ffd700".equals(prefix)) {
+				prefix = "8a3b00";
+			}
+			String line = "<col=" + prefix + ">[" + clean(tag) + "]</col> "
+					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>";
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
 			// of third-party subscribers assume both exist. Never inject an Anvil line into that
