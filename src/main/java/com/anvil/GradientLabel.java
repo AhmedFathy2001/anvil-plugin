@@ -12,7 +12,8 @@ import javax.swing.Timer;
 
 /**
  * A label whose text is painted with a left-to-right gradient (an Anvil Supporter's name). The icon
- * keeps its own colours: only the text's box is recoloured. Swing has no gradient text, so the label
+ * keeps its own colours (a team swatch is information) unless it's the supporter star, which the
+ * gradient runs on through as the name's last letter. Swing has no gradient text, so the label
  * is drawn once to an image at the screen's scale (redrawn only when its size, text, font or scale
  * change) and each frame fills the text box through that image's pixels into a reused buffer.
  * A moving one (Patron) slides its gradient along: one shared timer repaints only those on screen.
@@ -32,7 +33,20 @@ final class GradientLabel extends JLabel
 	private BufferedImage base;
 	private BufferedImage frame;
 	private final Rectangle textR = new Rectangle();
+	private final Rectangle iconR = new Rectangle();
+	/** The supporter star takes the gradient too; any other icon keeps its colours. */
+	private boolean tintIcon;
+	/** What the gradient fills: the text, or the text and the star. */
+	private final Rectangle fillR = new Rectangle();
 	private String baseKey;
+
+	/** Paint the icon with the gradient too (the supporter star), not only the text. */
+	void setTintIcon(boolean tintIcon)
+	{
+		this.tintIcon = tintIcon;
+		baseKey = null;
+		repaint();
+	}
 
 	GradientLabel(Color[] stops, boolean moving)
 	{
@@ -100,16 +114,16 @@ final class GradientLabel extends JLabel
 		{
 			fg.setComposite(AlphaComposite.Src);
 			fg.drawImage(base, 0, 0, null);
-			if (textR.width > 0)
+			if (fillR.width > 0)
 			{
 				fg.scale(sx, sy);
 				fg.setComposite(AlphaComposite.SrcIn);
 				// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
-				float period = 2f * textR.width;
+				float period = 2f * fillR.width;
 				float shift = moving ? (System.currentTimeMillis() % CYCLE_MS) / (float) CYCLE_MS * period : 0;
-				fg.setPaint(new LinearGradientPaint(textR.x - shift, 0, textR.x - shift + textR.width, 0, fractions, stops,
+				fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
 					MultipleGradientPaint.CycleMethod.REFLECT));
-				fg.fillRect(textR.x, textR.y, textR.width, textR.height);
+				fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);
 			}
 		}
 		finally
@@ -156,8 +170,10 @@ final class GradientLabel extends JLabel
 		Insets in = getInsets();
 		Rectangle view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
 		textR.setBounds(0, 0, 0, 0);
+		iconR.setBounds(0, 0, 0, 0);
 		SwingUtilities.layoutCompoundLabel(this, getFontMetrics(getFont()), getText(), getIcon(),
 			getVerticalAlignment(), getHorizontalAlignment(), getVerticalTextPosition(), getHorizontalTextPosition(),
-			view, new Rectangle(), textR, getIconTextGap());
+			view, iconR, textR, getIconTextGap());
+		fillR.setBounds(tintIcon && getIcon() != null && !iconR.isEmpty() ? textR.union(iconR) : textR);
 	}
 }
