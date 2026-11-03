@@ -1253,6 +1253,7 @@ public class AnvilPlugin extends Plugin {
 			safely("flushPersonalBests", this::flushPersonalBests);
 			safely("pushAccountProgress", this::pushAccountProgress);
 			safely("pushGameClan", this::pushGameClan);
+			safely("pushGuestChannel", this::pushGuestChannel);
 		}, 30, 30, TimeUnit.SECONDS));
 	}
 
@@ -1823,6 +1824,10 @@ public class AnvilPlugin extends Plugin {
 		}
 		if ("trackerOnePanel".equals(event.getKey())) {
 			tileTracker.setOnePanel(config.trackerOnePanel());
+		}
+		if ("chatFeed".equals(event.getKey())) {
+			syncPush();
+			submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		}
 		// Setting the Account Token is a deliberate one-shot edit — a paste, or the
 		// sign-in flow storing the token — not the rapid churn the debounce exists to coalesce.
@@ -3883,6 +3888,8 @@ public class AnvilPlugin extends Plugin {
 				// even when no tile matches.
 				log.debug("Diary line: {} {}", area, tier);
 				maybeNotifyDiaryCompletion(area, tier);
+				recordFeedMoment(new AnvilMoments.Moment("diary", null, area, 1, null, null, null, null, null, tier,
+						now(), ("diary|" + area + "|" + tier).toLowerCase(Locale.ROOT)));
 				creditDiaryTiles(area, tier);
 			}
 		}
@@ -3997,6 +4004,8 @@ public class AnvilPlugin extends Plugin {
 			// so a Dizana's quiver never lands twice.
 			maybeNotifyCollectionUnlock(item);
 			maybeNotifyClogSlot(item);
+			recordFeedMoment(new AnvilMoments.Moment("clog", null, item, 1, null, null, null, null, now(),
+					"clog|" + item.toLowerCase(Locale.ROOT)));
 		}
 		// Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
 		// minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
@@ -6876,9 +6885,11 @@ public class AnvilPlugin extends Plugin {
 		PushSocket p = pushSocket;
 		PluginConfigResponse cfg = pluginConfig;
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
+		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
+		boolean feed = config.chatFeed() && serverSupportsCap("chat-feed");
 		if (p != null) {
-			p.scope(eventId > 0 && apiClient.isConfigured() && serverSupportsCap("push-ws")
-					? eventId + ":" + (cfg.team != null ? cfg.team.id : 0) : null);
+			p.scope((eventId > 0 || feed) && apiClient.isConfigured() && serverSupportsCap("push-ws")
+					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") : null);
 		}
 	}
 
@@ -6895,6 +6906,10 @@ public class AnvilPlugin extends Plugin {
 	 * way a fetched one is, so tile completions and missions announce exactly as they do on a poll.
 	 */
 	private void applyPush(JsonObject m) {
+		if ("feed".equals(m.get("t").getAsString())) {
+			feedLine(m);
+			return;
+		}
 		PluginConfigResponse cfg = pluginConfig;
 		int eventId = m.get("eventId").getAsInt();
 		int myTeam = cfg != null && cfg.team != null ? cfg.team.id : 0;
@@ -7982,6 +7997,19 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		moments.record(AnvilMoments.Moment.level(skill, level, scope, now()));
+		scheduleMomentPush();
+	}
+
+	/**
+	 * A moment only the chat feed reads (capability {@code chat-feed}): a new collection-log slot or a
+	 * diary tier. Same queue and push as the rest; an older site would only discard it.
+	 */
+	private void recordFeedMoment(AnvilMoments.Moment m) {
+		PluginConfigResponse cfg = pluginConfig;
+		if (!momentsEnabled() || cfg == null || !cfg.serverSupports("chat-feed") || statsAreArtificial()) {
+			return;
+		}
+		moments.record(m);
 		scheduleMomentPush();
 	}
 
@@ -10157,19 +10185,69 @@ public class AnvilPlugin extends Plugin {
 
 	// Gold prefix flags the line as Anvil; white body stays readable on any background (OSRS text
 	// has a built-in shadow). Both are the player's to change (Chat messages in the config).
+	private static String clean(String s) {
+		return s.replace('|', '\u00A6').replace('<', '\u2039').replace('>', '\u203A');
+	}
+
 	private static String hexOf(Color c, String fallback) {
 		return c == null ? fallback : String.format("%06x", c.getRGB() & 0xFFFFFF);
 	}
 
 	private void sendChatMessage(String message) {
+		sendChatLine("Anvil", message);
+	}
+
+	/** At most this many chat-feed lines a minute; the rest are counted and summed up in one line. */
+	private static final int FEED_PER_MINUTE = 6;
+	private final ArrayDeque<Long> feedShownAt = new ArrayDeque<>();
+	private int feedHeld;
+	private ScheduledFuture<?> feedHeldFlush;
+
+	/**
+	 * A chat-feed line from the live push ({"t":"feed", tag, who, text}): another player's drop or
+	 * achievement, or another team's tile. The site already decided this player wants it; the cap here
+	 * only keeps a busy minute from burying the chatbox.
+	 */
+	private synchronized void feedLine(JsonObject m) {
+		if (!config.chatFeed()) {
+			return;
+		}
+		String tag = m.has("tag") ? m.get("tag").getAsString() : "";
+		String who = m.has("who") ? m.get("who").getAsString() : "";
+		String text = m.has("text") ? m.get("text").getAsString() : "";
+		long now = now();
+		while (!feedShownAt.isEmpty() && now - feedShownAt.peekFirst() >= 60_000L) {
+			feedShownAt.pollFirst();
+		}
+		if (feedShownAt.size() >= FEED_PER_MINUTE) {
+			feedHeld++;
+			if (feedHeldFlush == null) {
+				feedHeldFlush = later(this::flushFeedHeld, Math.max(1_000L, 60_000L - (now - feedShownAt.peekFirst())));
+			}
+			return;
+		}
+		feedShownAt.addLast(now);
+		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, (who + " " + text).trim());
+	}
+
+	private synchronized void flushFeedHeld() {
+		feedHeldFlush = null;
+		if (feedHeld > 0) {
+			sendChatLine("Anvil", "+" + feedHeld + " more in the chat feed. Choose what shows on your Anvil profile.");
+			feedHeld = 0;
+		}
+	}
+
+	private void sendChatLine(String tag, String message) {
 		if (message == null || message.isEmpty()) {
 			return;
 		}
 		// A raw '|' in a chat line gets mangled by the chat pipeline (an event named
 		// "The AFK Spot | July Bingo" printed as a bare "July Bingo."). Interpolated names are
-		// admin-authored, so swap in the visually-identical broken bar instead.
-		String safe = message.replace('|', '\u00A6');
-		String line = "<col=" + hexOf(config.chatPrefixColor(), "ffd700") + ">[Anvil]</col> <col="
+		// admin-authored, so swap in the visually-identical broken bar instead. And no '<' or '>':
+		// feed lines carry other players' names, which must never open a chat tag.
+		String safe = clean(message);
+		String line = "<col=" + hexOf(config.chatPrefixColor(), "ffd700") + ">[" + clean(tag) + "]</col> <col="
 				+ hexOf(config.chatTextColor(), "ffffff") + ">" + safe + "</col>";
 		clientThread.invokeLater(() -> {
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
@@ -10587,8 +10665,56 @@ public class AnvilPlugin extends Plugin {
 	 * per session, and silent — an automatic sync that announced itself in chat every login would be
 	 * worse than the drift.
 	 */
+	/** The guest channel last reported for the chat feed's guest bridge, and when. */
+	private volatile String lastGuestChannel;
+	private volatile long lastGuestChannelAt;
+	/** Under the site's presence TTL (10 minutes), so sitting in a channel never lapses. */
+	private static final long GUEST_PRESENCE_REFRESH_MS = 4 * 60_000L;
+
+	/**
+	 * The clan whose guest channel this character sits in → the site, for the chat feed's guest bridge.
+	 * Only while the feed is on; again every few minutes while it stays, and null once it's left.
+	 */
+	private void pushGuestChannel() {
+		PluginConfigResponse cfg = pluginConfig;
+		if (!apiClient.isConfigured() || cfg == null || !cfg.serverSupports("chat-feed")) {
+			return;
+		}
+		if (!config.chatFeed() || !loggedIn()) {
+			if (lastGuestChannel != null) {
+				sendGuestChannel(null);
+			}
+			return;
+		}
+		clientThread.invoke(() -> {
+			ClanChannel guest = client.getGuestClanChannel();
+			String name = guest != null ? guest.getName() : null;
+			boolean changed = !Objects.equals(name, lastGuestChannel);
+			if (changed || (name != null && now() - lastGuestChannelAt >= GUEST_PRESENCE_REFRESH_MS)) {
+				sendGuestChannel(name);
+			}
+		});
+	}
+
+	private void sendGuestChannel(String name) {
+		lastGuestChannel = name;
+		lastGuestChannelAt = now();
+		submit(() -> {
+			try {
+				apiClient.submitGuestChannel(name);
+			} catch (IOException e) {
+				lastGuestChannelAt = 0; // the next tick tries again
+				log.debug("Guest channel push failed: {}", e.getMessage());
+			}
+		});
+	}
+
 	@Subscribe
 	public void onClanChannelChanged(ClanChannelChanged event) {
+		if (event.isGuest()) {
+			// Joined or left a guest channel: tell the guest bridge now rather than on the next tick.
+			submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
+		}
 		if (!event.isGuest() && config.autoSyncClanRoster()) {
 			// The member list arrives just after the channel; a delay is cheaper than polling for it.
 			later(() -> safely("autoRosterSync", this::autoSyncClanRoster), AUTO_ROSTER_DELAY_MS);
