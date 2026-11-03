@@ -65,7 +65,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "chatPrefixColor",
 		name = "[Anvil] tag colour",
-		description = "Colour of the [Anvil] tag at the start of each line.",
+		description = "Colour of the [Anvil] tag at the start of each line. Left at gold, it turns dark on an opaque chatbox.",
 		position = 1,
 		section = "chatSection"
 	)
@@ -77,7 +77,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "chatTextColor",
 		name = "Message colour",
-		description = "Colour of the message after the tag. Pick something dark on an opaque chatbox.",
+		description = "Colour of the message after the tag. Left at white, it turns black on an opaque chatbox.",
 		position = 2,
 		section = "chatSection"
 	)

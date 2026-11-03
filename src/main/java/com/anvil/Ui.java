@@ -83,7 +83,7 @@ final class Ui
 	/** A label in {@code font} and {@code color}, its text sanitized ({@link #plainText}). */
 	static JLabel label(String text, Font font, Color color)
 	{
-		JLabel l = new JLabel(plainText(text));
+		JLabel l = new ClipLabel(plainText(text));
 		l.setFont(font);
 		l.setForeground(color);
 		return l;

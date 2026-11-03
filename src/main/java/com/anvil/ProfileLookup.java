@@ -75,14 +75,14 @@ final class ProfileLookup
 	static String profileUrl(String rsn)
 	{
 		String name = pathName(rsn);
-		return name == null ? null : BingoApiClient.CANONICAL_SITE + "/p/" + name;
+		return name == null ? null : BingoApiClient.site() + "/p/" + name;
 	}
 
 	/** {@code /api/players/<rsn>} plus {@code tail} ("/card", "/cas", …), or null when there is no name. */
 	static String apiPlayerUrl(String rsn, String tail)
 	{
 		String name = pathName(rsn);
-		return name == null ? null : BingoApiClient.CANONICAL_SITE + "/api/players/" + name + tail;
+		return name == null ? null : BingoApiClient.site() + "/api/players/" + name + tail;
 	}
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */

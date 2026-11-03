@@ -53,6 +53,17 @@ final class UiView extends JPanel
 		JComponent nativePart(String name);
 
 		/** This client's newest count for a tile (its own progress, the live push's), or -1 for none. */
+		/** Give the keyboard back to the game (after a chat line is sent from the panel). */
+		default void gameFocus()
+		{
+		}
+
+		/** The signed-in character's name, so a live list can mark the viewer's own lines. */
+		default String myName()
+		{
+			return null;
+		}
+
 		default long count(int tile)
 		{
 			return -1;
@@ -97,6 +108,8 @@ final class UiView extends JPanel
 	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
 	private final List<Runnable> lives = new ArrayList<>();
 	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
+	/** Live lists on screen (node {@code feed}): push rows find them by id, see {@link #feedPush}. */
+	private final List<FeedList> feeds = new ArrayList<>();
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
@@ -165,6 +178,8 @@ final class UiView extends JPanel
 	/** Draw a view already in hand. */
 	void render(JsonObject view)
 	{
+		feeds.forEach(FeedList::stop);
+		feeds.clear();
 		slots.clear();
 		toggles.clear();
 		inputs.clear();
@@ -182,6 +197,47 @@ final class UiView extends JPanel
 		else
 		{
 			ticker.start();
+		}
+	}
+
+	/**
+	 * Push rows for the live lists ({@code {t:'rows'|'rowsdel'|'rowslock', feeds:[…]}}): each list
+	 * named takes them; nothing is redrawn. A lock names id prefixes (a board's every chat list).
+	 */
+	void feedPush(JsonObject m)
+	{
+		// A list whose slot was redrawn is no longer under this view: forget it.
+		feeds.removeIf(f -> !SwingUtilities.isDescendingFrom(f, this));
+		if (feeds.isEmpty() || !m.has("feeds") || !m.get("feeds").isJsonArray())
+		{
+			return;
+		}
+		java.util.Set<String> named = new java.util.HashSet<>();
+		for (JsonElement e : m.getAsJsonArray("feeds"))
+		{
+			named.add(e.getAsString());
+		}
+		String t = str(m, "t");
+		for (FeedList f : feeds)
+		{
+			if ("rowslock".equals(t))
+			{
+				if (f.hasBox() && named.stream().anyMatch(p -> f.id.equals(p) || f.id.startsWith(p + ":")))
+				{
+					f.lock(m.has("locked") && !m.get("locked").isJsonNull() ? str(m, "locked") : null);
+				}
+			}
+			else if (named.contains(f.id))
+			{
+				if ("rows".equals(t) && m.has("rows") && m.get("rows").isJsonArray())
+				{
+					f.add(m.getAsJsonArray("rows"));
+				}
+				else if ("rowsdel".equals(t) && m.has("ids") && m.get("ids").isJsonArray())
+				{
+					f.remove(m.getAsJsonArray("ids"));
+				}
+			}
 		}
 	}
 
@@ -417,6 +473,12 @@ final class UiView extends JPanel
 			case "native":
 				JComponent part = host.nativePart(str(n, "name"));
 				return part == null ? new JPanel() : part;
+			case "feed":
+			{
+				FeedList f = new FeedList(n, host, items, this::act);
+				feeds.add(f);
+				return left(f);
+			}
 			default:
 				return new JPanel(); // a block this version doesn't know is left out
 		}
@@ -508,7 +570,7 @@ final class UiView extends JPanel
 	{
 		String s = n.has("at") ? ago(str(n, "at")) : str(n, "s");
 		Color ink = color(str(n, "color"), Color.WHITE);
-		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new JLabel();
+		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new ClipLabel();
 		l.setFont(font(str(n, "font")));
 		l.setForeground(ink);
 		String align = str(n, "align");
@@ -554,13 +616,13 @@ final class UiView extends JPanel
 				stops.add(teamColor(e.getAsString(), fallback));
 			}
 		}
-		return stops.size() < 2 ? new JLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
+		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
 
 	private JComponent icon(JsonObject n)
 	{
 		boolean dim = bool(n, "dim");
-		JLabel l = new JLabel()
+		JLabel l = new ClipLabel()
 		{
 			@Override
 			protected void paintComponent(Graphics g)
@@ -713,7 +775,7 @@ final class UiView extends JPanel
 		};
 		for (String name : bodies.keySet())
 		{
-			JLabel l = onClick(new JLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
+			JLabel l = onClick(new ClipLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
 			l.setFont(SMALL);
 			l.setOpaque(true);
 			l.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
@@ -733,7 +795,7 @@ final class UiView extends JPanel
 		wrap.setOpaque(false);
 		JPanel head = Ui.row(5);
 		head.add(node(n.getAsJsonObject("head")), BorderLayout.CENTER);
-		JLabel chevron = new JLabel();
+		JLabel chevron = new ClipLabel();
 		head.add(chevron, BorderLayout.EAST);
 		JComponent body = node(n.getAsJsonObject("c"));
 		boolean chev = bool(n, "chev");

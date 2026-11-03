@@ -25,7 +25,7 @@ public final class SetupNudge
 	static final int FIRST_RUN_NUDGES = 3;
 
 	/** The site, as it reads in a chat line — one source of truth with the address the plugin uses. */
-	static final String SITE_HOST = BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "");
+	static final String SITE_HOST = BingoApiClient.site().replaceFirst("^https?://", "");
 
 	public enum Kind
 	{

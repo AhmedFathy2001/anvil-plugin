@@ -67,7 +67,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// the site builds (UiView), and only exist while it does (the `plugin-ui` capability): without it
 	// the strip hides and the Clan tab says the site is too old, with Sync profile and the sound lists
 	// under it (renderEmpty).
-	enum Tab { CLAN, YOU, LOOKUP, SETTINGS }
+	enum Tab { CLAN, FEED, YOU, LOOKUP, SETTINGS }
 	private Tab tab = Tab.CLAN;
 	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
 	private boolean tabsOn;
@@ -80,12 +80,14 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	private boolean lookupClans;
-	private final JLabel lookupModePlayers = new JLabel("Players", SwingConstants.CENTER);
-	private final JLabel lookupModeClans = new JLabel("Clans", SwingConstants.CENTER);
+	private final JLabel lookupModePlayers = new ClipLabel("Players", SwingConstants.CENTER);
+	private final JLabel lookupModeClans = new ClipLabel("Clans", SwingConstants.CENTER);
 	/** The site-built views: the Clan tab, the You tab, and what Lookup found. */
 	private final UiView clanView;
 	private final UiView youView;
 	private final UiView lookupView;
+	/** The Feed tab: the clan's and the board's live lists, and the board's chat (view 'feed'). */
+	private final UiView feedView;
 	/** Whose card You holds. */
 	private String youRsn;
 	/** The Clan tab has asked for its view since it was last reset (sign-in, a clan switch). */
@@ -123,7 +125,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
-	private final JLabel pasteTokenLink = new JLabel("Paste a token instead");
+	private final JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
 	/** Opens the account menu: Not my account / Sign out. */
 	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/**
@@ -184,6 +186,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		clanView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 		youView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 		lookupView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+		feedView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -326,7 +329,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			else
 			{
-				label = new JLabel(t == Tab.CLAN ? "Clan" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
+				label = new ClipLabel(t == Tab.CLAN ? "Clan" : t == Tab.FEED ? "Feed" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
 				label.setFont(SMALL);
 				gc.weightx = 1;
 			}
@@ -472,8 +475,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void selectTab(Tab next)
 	{
 		tab = next;
+		dataSource.feedOnScreen(onScreen && next == Tab.FEED);
 		tabBody.removeAll();
-		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
+		tabBody.add(next == Tab.CLAN ? content : next == Tab.FEED ? feedView : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
 			BorderLayout.NORTH);
 		tabBody.revalidate();
 		styleTabs();
@@ -481,6 +485,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (next == Tab.YOU)
 		{
 			renderYou(true);
+		}
+		else if (next == Tab.FEED)
+		{
+			renderFeed();
 		}
 		else if (next == Tab.SETTINGS)
 		{
@@ -609,6 +617,18 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			@Override
+			public String myName()
+			{
+				return dataSource.myRsn();
+			}
+
+			@Override
+			public void gameFocus()
+			{
+				dataSource.gameFocus();
+			}
+
+			@Override
 			public JComponent nativePart(String name)
 			{
 				PluginConfigResponse.StartProof proof = "start-proof".equals(name) ? dataSource.startProof() : null;
@@ -705,13 +725,33 @@ public class AnvilSidebarPanel extends PluginPanel
 					wrap.add(small(" · ", MUTED));
 				}
 				first = false;
-				wrap.add(styleLink(new JLabel(plainText(n)), plainText("Look up " + n), () -> showLookup(n)));
+				wrap.add(styleLink(new ClipLabel(plainText(n)), plainText("Look up " + n), () -> showLookup(n)));
 			}
 			wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrap.getPreferredSize().height * 2));
 			lookupRecentRow.add(wrap);
 			lookupRecentRow.add(gap(6));
 		}
 		lookupRecentRow.revalidate();
+	}
+
+	/**
+	 * The Feed tab. Opening it asks again (the list is live from there on, push rows grow it), so a
+	 * row missed while the socket was down is back the next time anyone looks.
+	 */
+	private void renderFeed()
+	{
+		if (!dataSource.feedTabAvailable())
+		{
+			feedView.say("Your Anvil site doesn't serve the live feed yet.");
+			return;
+		}
+		feedView.show("feed", Collections.emptyMap(), "Loading the feed…");
+	}
+
+	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
+	public void feedPush(com.google.gson.JsonObject m)
+	{
+		SwingUtilities.invokeLater(() -> feedView.feedPush(m));
 	}
 
 	/**
@@ -782,11 +822,13 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void onActivate()
 	{
 		onScreen = true;
+		dataSource.feedOnScreen(tab == Tab.FEED);
 		refresh();
 		autoRefresh.start();
 		clanView.resume();
 		youView.resume();
 		lookupView.resume();
+		feedView.resume();
 		startProofTimer.start();
 	}
 
@@ -794,10 +836,12 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void onDeactivate()
 	{
 		onScreen = false;
+		dataSource.feedOnScreen(false);
 		autoRefresh.stop();
 		clanView.stop();
 		youView.stop();
 		lookupView.stop();
+		feedView.stop();
 		startProofTimer.stop();
 	}
 
@@ -1385,7 +1429,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		// The picker STAYS. Switching clan renders this state on purpose, and yanking the control the
 		// member is holding — then putting it back a second later — reads as the click having failed.
-		JLabel loading = new JLabel("Loading progress…", SwingConstants.CENTER);
+		JLabel loading = new ClipLabel("Loading progress…", SwingConstants.CENTER);
 		loading.setForeground(MUTED);
 		loading.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
 		setContent(loading);
@@ -1437,8 +1481,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		card.add(gap(6));
 		card.add(note("You don't need a clan: your profile is your own. If you run one, starting it"
 			+ " there is free too."));
-		JLabel site = styleLink(new JLabel(BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "")), "Open Anvil in your browser",
-			() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE));
+		JLabel site = styleLink(new ClipLabel(BingoApiClient.site().replaceFirst("^https?://", "")), "Open Anvil in your browser",
+			() -> LinkBrowser.browse(BingoApiClient.site()));
 		site.setIcon(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11));
 		site.setHorizontalTextPosition(SwingConstants.LEADING);
 		site.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
@@ -1455,7 +1499,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private static JLabel note(String text, Color color)
 	{
-		JLabel label = new JLabel(wrapHtml(esc(text == null ? "" : text), STATUS_WRAP_PX));
+		JLabel label = new ClipLabel(wrapHtml(esc(text == null ? "" : text), STATUS_WRAP_PX));
 		label.setFont(SMALL);
 		label.setForeground(color);
 		return label;
@@ -1928,8 +1972,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final class ClanChoiceRenderer implements ListCellRenderer<ClanChoice>
 	{
 		private final JPanel row = new JPanel(new BorderLayout(0, 1));
-		private final JLabel name = new JLabel();
-		private final JLabel detail = new JLabel();
+		private final JLabel name = new ClipLabel();
+		private final JLabel detail = new ClipLabel();
 
 		ClanChoiceRenderer()
 		{

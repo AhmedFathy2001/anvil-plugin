@@ -37,7 +37,7 @@ public class PushSocketTest
 		}
 
 		@Override
-		PushTicket fetchPushTicket(boolean feed)
+		PushTicket fetchPushTicket(boolean feed, boolean rows)
 		{
 			ticketsAsked++;
 			if (!ticketsAvailable)

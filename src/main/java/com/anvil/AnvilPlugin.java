@@ -1510,6 +1510,13 @@ public class AnvilPlugin extends Plugin {
 			cancel(task);
 		}
 		loopTasks.clear();
+		synchronized (this) {
+			if (feedLinger != null) {
+				feedLinger.cancel(false);
+				feedLinger = null;
+			}
+			feedWatching = false;
+		}
 		cancel(pendingRefresh);
 		pendingRefresh = null;
 		synchronized (moments) {
@@ -7292,15 +7299,57 @@ public class AnvilPlugin extends Plugin {
 	 * Live push on, off, or re-ticketed: it listens for the board (and team) this config answers for,
 	 * so a new one of either needs a new ticket. Off where the site doesn't run it.
 	 */
+	/** Keyboard back to the game: typing in the panel's chat box must not leave the game deaf to keys. */
+	void gameFocus() {
+		java.awt.Canvas canvas = client.getCanvas();
+		if (canvas != null) {
+			canvas.requestFocusInWindow();
+		}
+	}
+
+	/** The Feed tab is on screen (or was, within the last minute): only then does a player with no board listen. */
+	private volatile boolean feedWatching;
+	private ScheduledFuture<?> feedLinger;
+
+	/**
+	 * The side panel's Feed tab came on screen, or went. A player on a board already listens, so this
+	 * only opens (or, a minute after the tab goes, closes) the socket of one who isn't.
+	 */
+	void feedOnScreen(boolean on) {
+		ScheduledExecutorService ex = executor;
+		if (ex == null) {
+			return;
+		}
+		synchronized (this) {
+			if (feedLinger != null) {
+				feedLinger.cancel(false);
+				feedLinger = null;
+			}
+			if (on) {
+				feedWatching = true;
+				ex.execute(() -> safely("push", this::syncPush));
+			} else if (feedWatching) {
+				feedLinger = ex.schedule(() -> safely("push", () -> {
+					feedWatching = false;
+					syncPush();
+				}), 60, TimeUnit.SECONDS);
+			}
+		}
+	}
+
 	private void syncPush() {
 		PushSocket p = pushSocket;
 		PluginConfigResponse cfg = pluginConfig;
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
 		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
 		boolean feed = config.chatFeed() && serverSupportsCap("chat-feed");
+		// One socket carries everything, rows included. Most players already hold one (a board, or the chat
+		// feed, which is on by default); only a player with neither asks for one for the Feed, and only
+		// while it's on screen. Anyone else adding the flag would just reconnect for nothing.
+		boolean rows = eventId == 0 && !feed && feedWatching && serverSupportsCap("panel-rows");
 		if (p != null) {
-			p.scope((eventId > 0 || feed) && apiClient.isConfigured() && serverSupportsCap("push-ws")
-					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") : null);
+			p.scope((eventId > 0 || feed || rows) && apiClient.isConfigured() && serverSupportsCap("push-ws")
+					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") : null);
 		}
 	}
 
@@ -7319,6 +7368,14 @@ public class AnvilPlugin extends Plugin {
 	private void applyPush(JsonObject m) {
 		if ("feed".equals(m.get("t").getAsString())) {
 			feedLine(m);
+			return;
+		}
+		if (m.get("t").getAsString().startsWith("rows")) {
+			// Panel rows (the Feed tab's lists): never the chatbox, never capped — the list batches them.
+			AnvilSidebarPanel panel = sidebarPanel;
+			if (panel != null) {
+				panel.feedPush(m);
+			}
 			return;
 		}
 		PluginConfigResponse cfg = pluginConfig;
@@ -10832,10 +10889,20 @@ public class AnvilPlugin extends Plugin {
 		// admin-authored, so swap in the visually-identical broken bar instead. And no '<' or '>':
 		// feed lines carry other players' names, which must never open a chat tag.
 		String safe = clean(message);
-		String text = chatPalette.text(tone, hexOf(config.chatTextColor(), "ffffff"));
-		String line = "<col=" + hexOf(config.chatPrefixColor(), "ffd700") + ">[" + clean(tag) + "]</col> "
-				+ (lead != null ? lead + " " : "") + "<col=" + text + ">" + safe + "</col>";
 		clientThread.invokeLater(() -> {
+			// The opaque chatbox (fixed mode, or resizable with transparency off) is light parchment: the
+			// default bright colours swap for dark ones there. Colours the player picked are kept.
+			boolean opaque = !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+			String own = hexOf(config.chatTextColor(), "ffffff");
+			String prefix = hexOf(config.chatPrefixColor(), "ffd700");
+			if (opaque && "ffffff".equals(own)) {
+				own = "000000";
+			}
+			if (opaque && "ffd700".equals(prefix)) {
+				prefix = "8a3b00";
+			}
+			String line = "<col=" + prefix + ">[" + clean(tag) + "]</col> "
+					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>";
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
 			// of third-party subscribers assume both exist. Never inject an Anvil line into that

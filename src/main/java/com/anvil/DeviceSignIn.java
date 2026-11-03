@@ -95,7 +95,7 @@ public final class DeviceSignIn
 			? start.verification_url_complete : start.verification_url;
 		// Checked against the fixed site, not the client's address — that stays empty until there is a
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
-		if (!isConfiguredHomeUrl(BingoApiClient.CANONICAL_SITE, url))
+		if (!isConfiguredHomeUrl(BingoApiClient.site(), url))
 		{
 			// A response steering the browser anywhere but the member's own configured site is hostile.
 			log.warn("refusing sign-in URL not on the configured home: {}", url);

@@ -38,6 +38,26 @@ public class AnvilSidebarDataSource
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	private volatile AnvilPlugin plugin;
 
+	/** Hand the keyboard back to the game canvas. */
+	public void gameFocus()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.gameFocus();
+		}
+	}
+
+	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
+	public void feedOnScreen(boolean on)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.feedOnScreen(on);
+		}
+	}
+
 	public void setPlugin(AnvilPlugin plugin)
 	{
 		this.plugin = plugin;
@@ -244,6 +264,12 @@ public class AnvilSidebarDataSource
 	 * clan (a 404 config carries none). The You and Lookup tabs are exactly what someone without a
 	 * clan should still get.
 	 */
+	/** The site serves the Feed tab's live lists (capability 'panel-rows'). */
+	public boolean feedTabAvailable()
+	{
+		return siteSupports("panel-rows");
+	}
+
 	private boolean siteSupports(String capability)
 	{
 		PluginConfigResponse cfg = configSupplier.get();
