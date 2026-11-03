@@ -38,4 +38,15 @@ public class ChatPaletteTest
 		assertNull(ChatPalette.nameColor("<col=ff>"));
 		assertEquals("ff7ab8", ChatPalette.nameColor("#FF7AB8"));
 	}
+
+	@Test
+	public void gradientNameColoursEachLetterAcrossTheStops()
+	{
+		java.util.List<String> two = java.util.Arrays.asList("#ff0000", "#0000ff");
+		assertEquals("<col=ff0000>A</col><col=800080>b</col><col=0000ff>c</col>", ChatPalette.gradientName("Abc", two));
+		// Spaces take no colour of their own; the ends still land on the first and last stops.
+		assertEquals("<col=ff0000>A </col><col=0000ff>c</col>", ChatPalette.gradientName("A c", two));
+		assertNull(ChatPalette.gradientName("Abc", java.util.Arrays.asList("#ff0000", "red")));
+		assertNull(ChatPalette.gradientName("", two));
+	}
 }
