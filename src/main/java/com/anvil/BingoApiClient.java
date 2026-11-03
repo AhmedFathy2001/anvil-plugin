@@ -1188,6 +1188,8 @@ public class BingoApiClient
 	{
 		public String rsn;
 		public String rank;
+		// The in-game rank number (higher = more senior), so the site can order custom titles.
+		public Integer rankNum;
 		public Integer joinedDays;
 		// Only set for the locally-logged-in player — used by the site for stable identity /
 		// rename detection. Null for everyone else; gson omits it from the payload.
