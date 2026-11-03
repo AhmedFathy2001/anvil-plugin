@@ -1466,8 +1466,8 @@ public class AnvilSidebarPanel extends PluginPanel
 		card.add(gap(6));
 		card.add(note("You don't need a clan: your profile is your own. If you run one, starting it"
 			+ " there is free too."));
-		JLabel site = styleLink(new JLabel(BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "")), "Open Anvil in your browser",
-			() -> LinkBrowser.browse(BingoApiClient.CANONICAL_SITE));
+		JLabel site = styleLink(new JLabel(BingoApiClient.site().replaceFirst("^https?://", "")), "Open Anvil in your browser",
+			() -> LinkBrowser.browse(BingoApiClient.site()));
 		site.setIcon(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11));
 		site.setHorizontalTextPosition(SwingConstants.LEADING);
 		site.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));

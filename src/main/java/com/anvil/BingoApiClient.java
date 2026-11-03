@@ -110,7 +110,7 @@ public class BingoApiClient
 	public void configure(String playerToken)
 	{
 		this.playerToken = playerToken;
-		this.apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : CANONICAL_SITE;
+		this.apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : site();
 	}
 
 	/** The site base URL in use, or "" while signed out (see {@link #configure}). */
@@ -226,7 +226,7 @@ public class BingoApiClient
 	 * cannot wait for {@code apiUrl}: always the fixed site. */
 	static String authUrl(String path)
 	{
-		return CANONICAL_SITE + path;
+		return site() + path;
 	}
 
 	/**
@@ -298,6 +298,23 @@ public class BingoApiClient
 	 * resulting Account Token.
 	 */
 	public static final String CANONICAL_SITE = "https://anvilosrs.com";
+
+	/**
+	 * The site in use. Always {@link #CANONICAL_SITE} in a hub build: nothing in the plugin can change
+	 * it. Only the dev launcher in the test sources (AnvilPluginTest, never packaged) points it at
+	 * beta, so an unreleased site can be tried with the dev client.
+	 */
+	private static volatile String site = CANONICAL_SITE;
+
+	static String site()
+	{
+		return site;
+	}
+
+	static void useDevSite(String url)
+	{
+		site = url;
+	}
 
 	/**
 	 * True when there is no Account Token yet — the state the Sign-in button serves.
@@ -809,7 +826,7 @@ public class BingoApiClient
 			return;
 		}
 		versionCapsAt = now;
-		VersionInfo info = getOrNull(plainRequest(CANONICAL_SITE + "/api/version").get(), VersionInfo.class,
+		VersionInfo info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class,
 			"version capabilities fetch");
 		if (info != null)
 		{
@@ -1047,7 +1064,7 @@ public class BingoApiClient
 	/** A page on the site this plugin talks to: a view's link names a path, never a host. */
 	public String siteLink(String path)
 	{
-		HttpUrl base = HttpUrl.parse(getApiUrl().isEmpty() ? CANONICAL_SITE : getApiUrl());
+		HttpUrl base = HttpUrl.parse(getApiUrl().isEmpty() ? site() : getApiUrl());
 		HttpUrl url = base == null ? null : base.resolve(path);
 		return url == null ? CANONICAL_SITE : url.toString();
 	}
