@@ -98,4 +98,50 @@ final class ChatPalette
 		String v = s == null ? "" : s.replace("#", "");
 		return HEX.matcher(v).matches() ? v.toLowerCase(Locale.ROOT) : null;
 	}
+
+	/**
+	 * A name in a supporter's gradient: each letter its own colour, from the first stop to the last.
+	 * {@code safeName} is already escaped for chat. Null when fewer than two stops are usable, so the
+	 * caller falls back to the solid colour.
+	 */
+	static String gradientName(String safeName, java.util.List<String> stops)
+	{
+		java.util.List<int[]> rgb = new java.util.ArrayList<>();
+		if (stops != null)
+		{
+			for (String st : stops)
+			{
+				String hex = nameColor(st);
+				if (hex != null && rgb.size() < 4)
+				{
+					int v = Integer.parseInt(hex, 16);
+					rgb.add(new int[]{v >> 16 & 0xff, v >> 8 & 0xff, v & 0xff});
+				}
+			}
+		}
+		if (rgb.size() < 2 || safeName == null || safeName.isEmpty())
+		{
+			return null;
+		}
+		StringBuilder out = new StringBuilder();
+		int n = safeName.length();
+		for (int i = 0; i < n; i++)
+		{
+			char ch = safeName.charAt(i);
+			if (ch == ' ')
+			{
+				out.append(ch);
+				continue;
+			}
+			double t = n == 1 ? 0 : (double) i / (n - 1) * (rgb.size() - 1);
+			int seg = Math.min(rgb.size() - 2, (int) t);
+			double f = t - seg;
+			int[] a = rgb.get(seg);
+			int[] b = rgb.get(seg + 1);
+			out.append(String.format("<col=%02x%02x%02x>", (int) Math.round(a[0] + (b[0] - a[0]) * f),
+				(int) Math.round(a[1] + (b[1] - a[1]) * f), (int) Math.round(a[2] + (b[2] - a[2]) * f)))
+				.append(ch);
+		}
+		return out.append("</col>").toString();
+	}
 }

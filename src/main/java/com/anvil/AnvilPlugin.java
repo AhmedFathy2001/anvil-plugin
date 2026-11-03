@@ -10755,8 +10755,15 @@ public class AnvilPlugin extends Plugin {
 		// The sender's Supporter colour on their name, and a Patron's star; the rest in the line's tone.
 		String whoColor = m.has("whoColor") ? ChatPalette.nameColor(m.get("whoColor").getAsString()) : null;
 		boolean star = m.has("star") && m.get("star").getAsBoolean();
+		// A Champion's or Patron's gradient, letter by letter; the solid colour where there's none.
+		java.util.List<String> grad = new java.util.ArrayList<>();
+		if (m.has("whoGrad") && m.get("whoGrad").isJsonArray()) {
+			m.getAsJsonArray("whoGrad").forEach(e -> grad.add(e.isJsonPrimitive() ? e.getAsString() : ""));
+		}
+		String gradName = who.isEmpty() ? null : ChatPalette.gradientName(clean(who), grad);
 		String lead = who.isEmpty() ? null
-				: (star ? chatStar() : "") + (whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who));
+				: (star ? chatStar() : "") + (gradName != null ? gradName
+						: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who));
 		ChatPalette.Tone tone = ChatPalette.Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
 		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
 	}

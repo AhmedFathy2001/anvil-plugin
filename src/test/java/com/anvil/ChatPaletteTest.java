@@ -38,4 +38,16 @@ public class ChatPaletteTest
 		assertNull(ChatPalette.nameColor("<col=ff>"));
 		assertEquals("ff7ab8", ChatPalette.nameColor("#FF7AB8"));
 	}
+
+	@Test
+	public void aGradientNameIsColouredLetterByLetter()
+	{
+		org.junit.Assert.assertEquals("<col=ff0000>A<col=800080>b<col=0000ff>c</col>",
+			ChatPalette.gradientName("Abc", java.util.Arrays.asList("#ff0000", "#0000ff")));
+		org.junit.Assert.assertEquals("<col=ff0000>A <col=0000ff>b</col>",
+			ChatPalette.gradientName("A b", java.util.Arrays.asList("ff0000", "0000ff")));
+		org.junit.Assert.assertNull("one usable stop: the solid colour instead",
+			ChatPalette.gradientName("Abc", java.util.Arrays.asList("#ff0000", "nope")));
+		org.junit.Assert.assertNull(ChatPalette.gradientName("Abc", null));
+	}
 }
