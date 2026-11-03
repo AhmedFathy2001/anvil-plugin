@@ -5258,7 +5258,7 @@ public class AnvilPlugin extends Plugin {
 				refreshConfig();
 			} catch (IOException e) {
 				log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
-				sendChatMessage("Screenshot failed for " + label + ": " + e.getMessage());
+				sendChatMessage("Screenshot failed for " + label + ": " + BingoApiClient.forPlayer(e));
 				optimistic.clear(tileId);
 				if (rollback != null) {
 					rollback.run();
@@ -5793,7 +5793,7 @@ public class AnvilPlugin extends Plugin {
 				refreshConfig();
 			} catch (IOException e) {
 				log.error("Failed to file starting shot: {}", e.getMessage());
-				sendChatMessage("Starting shot failed: " + e.getMessage() + " — try again.");
+				sendChatMessage("Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
 			} finally {
 				startProofInFlight = false;
 			}
