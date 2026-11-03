@@ -334,12 +334,14 @@ public class BingoApiClient
 	}
 
 	/**
+	 * {@code feed}: also hear chat-feed lines, so there is something to listen to even with no board.
 	 * Null when signed out, refused, or there's no board to listen to (204) — and when the socket it
 	 * names isn't on the site this plugin already talks to, which it never dials anywhere else.
 	 */
-	PushTicket fetchPushTicket()
+	PushTicket fetchPushTicket(boolean feed)
 	{
-		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl("/api/plugin/push/ticket")).get(), PushTicket.class, "push ticket") : null;
+		String path = "/api/plugin/push/ticket" + (feed ? "?feed=1" : "");
+		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class, "push ticket") : null;
 		HttpUrl socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
 		HttpUrl site = HttpUrl.parse(getApiUrl());
 		return socket != null && site != null && socket.host().equals(site.host()) ? t : null;
@@ -1770,6 +1772,17 @@ public class BingoApiClient
 			payload.add("clan", clan);
 		}
 		postJson("/api/plugin/game-clan", payload, "Game clan push failed", false);
+	}
+
+	/**
+	 * POST /api/plugin/presence — the clan whose GUEST channel this character sits in now (null: none),
+	 * for the chat feed's guest bridge (capability {@code chat-feed}). Only the channel's name.
+	 */
+	public void submitGuestChannel(String guestChannel) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("guestChannel", guestChannel);
+		postJson("/api/plugin/presence", payload, "Presence push failed", false);
 	}
 
 	/**

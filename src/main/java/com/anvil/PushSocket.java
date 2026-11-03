@@ -97,15 +97,18 @@ final class PushSocket extends WebSocketListener
 
 	private void connect()
 	{
+		// A scope ending ":f" also listens for chat-feed lines (AnvilPlugin.syncPush).
+		boolean feed;
 		synchronized (this)
 		{
 			pending = null;
+			feed = scope != null && scope.endsWith(":f");
 		}
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try
 		{
-			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket()));
+			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed)));
 		}
 		catch (RejectedExecutionException e)
 		{

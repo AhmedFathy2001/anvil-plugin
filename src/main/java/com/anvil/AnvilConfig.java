@@ -86,6 +86,18 @@ public interface AnvilConfig extends Config
 		return Color.WHITE;
 	}
 
+	@ConfigItem(
+		keyName = "chatFeed",
+		name = "Chat feed",
+		description = "Other players' notable drops, pets and achievements in your chat: everyone on a board whose host turned it on, and clans you guest in that share theirs. Pick what shows on your Anvil profile.",
+		position = 3,
+		section = "chatSection"
+	)
+	default boolean chatFeed()
+	{
+		return true;
+	}
+
 	// ---- Setup ----
 
 	// No Site URL: the plugin only talks to https://anvilosrs.com (BingoApiClient.CANONICAL_SITE).
@@ -545,7 +557,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "shareMoments",
 		name = "Share highlights with the clan",
-		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events.",
+		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events, and in the Anvil chat feed of players who can see them.",
 		position = 6,
 		section = "profileSection"
 	)

@@ -42,7 +42,7 @@ class AnvilMoments
 
 	static final class Moment
 	{
-		/** 'pet' | 'drop' | 'death' | 'ca'. */
+		/** 'pet' | 'drop' | 'death' | 'ca' | 'level', and the chat feed's own 'clog' | 'diary'. */
 		final String kind;
 		final Integer itemId;
 		final String itemName;
