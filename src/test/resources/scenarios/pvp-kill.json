@@ -1,0 +1,33 @@
+{
+  "name": "pvp-kill",
+  "description": "A PK: Wilderness varbit on, our hitsplat on a fake player, their death (damage->death attribution)",
+  "params": {
+    "victim": "Some Pker"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "INSIDE_WILDERNESS",
+        "value": 1
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "pvpKill": {
+        "victim": "${victim}",
+        "damage": 25
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "varbit": {
+        "name": "INSIDE_WILDERNESS",
+        "value": 0
+      }
+    }
+  ]
+}

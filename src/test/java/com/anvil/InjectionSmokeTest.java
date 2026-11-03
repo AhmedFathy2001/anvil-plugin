@@ -67,9 +67,9 @@ public class InjectionSmokeTest
 		provider.setAccessible(true);
 		Object sds = provider.invoke(uninjectedPlugin, client, Executors.newSingleThreadScheduledExecutor());
 		assertNotNull("provider must not read not-yet-injected this.-fields", sds);
-		assertTrue(sds instanceof SidebarDataSource);
+		assertTrue(sds instanceof AnvilSidebarDataSource);
 
-		// A resolved SidebarDataSource is usable straight away (single-home; unconfigured ⇒ empty).
-		assertNull(((AnvilSidebarDataSource) sds).fetch(false));
+		// A resolved data source is usable straight away (unconfigured ⇒ nothing to offer).
+		assertTrue(((AnvilSidebarDataSource) sds).clans().isEmpty());
 	}
 }

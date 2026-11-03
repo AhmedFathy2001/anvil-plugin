@@ -17,7 +17,7 @@ public class CombatTaskLineTest
 	/** Runs a line through the same parse the plugin does: match, then strip the points suffix. */
 	private static String[] parse(String line)
 	{
-		Matcher m = AnvilPlugin.CA_TASK_PATTERN.matcher(line);
+		Matcher m = TestPatterns.get("ca.task").matcher(line);
 		if (!m.find())
 		{
 			return null;
@@ -61,7 +61,7 @@ public class CombatTaskLineTest
 	@Test
 	public void ignoresUnrelatedCongratulationsLines()
 	{
-		assertFalse(AnvilPlugin.CA_TASK_PATTERN.matcher(
+		assertFalse(TestPatterns.get("ca.task").matcher(
 			"Congratulations, you've just advanced your Mining level. You are now level 99.").find());
 	}
 
@@ -76,9 +76,9 @@ public class CombatTaskLineTest
 	@Test
 	public void matcherRequiresTierWord()
 	{
-		assertTrue(AnvilPlugin.CA_TASK_PATTERN.matcher(
+		assertTrue(TestPatterns.get("ca.task").matcher(
 			"Congratulations, you've completed a Hard combat task: Whack-a-Mole.").find());
-		assertFalse(AnvilPlugin.CA_TASK_PATTERN.matcher(
+		assertFalse(TestPatterns.get("ca.task").matcher(
 			"you've completed a combat task").find());
 	}
 }

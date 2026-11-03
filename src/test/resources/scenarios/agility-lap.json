@@ -1,0 +1,15 @@
+{
+  "name": "agility-lap",
+  "description": "One agility lap via the course's lap-count line",
+  "params": {
+    "course": "Seers' Village Rooftop",
+    "kc": "1234"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Your ${course} lap count is: ${kc}."
+      }
+    }
+  ]
+}

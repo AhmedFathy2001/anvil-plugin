@@ -19,14 +19,14 @@ public class SidebarActionsTest
 	private static AnvilSidebarDataSource source()
 	{
 		return new AnvilSidebarDataSource(() -> new PluginConfigResponse(),
-			new BingoApiClient(new Gson(), new OkHttpClient()), null, null);
+			new BingoApiClient(new Gson(), new OkHttpClient()));
 	}
 
 	@Test
 	public void offersNothingWithNoPluginBound()
 	{
 		// Tests and the pre-wiring window: the panel must render rather than blow up.
-		SidebarDataSource.PanelActions home = source().actionsFor();
+		AnvilSidebarDataSource.PanelActions home = source().actionsFor();
 		assertFalse(home.canSyncRoster);
 		assertFalse(home.canSyncProfile);
 		assertNull(home.rosterNote);
@@ -38,7 +38,7 @@ public class SidebarActionsTest
 		AnvilSidebarDataSource ds = source();
 		ds.toggleBannerSound("nope.wav");
 		ds.copyBannerSoundsPath();
-		ds.importBannerSounds();
+		ds.importSounds(BannerSoundService.Kind.BANNER);
 		assertFalse(ds.bannerSoundOn("nope.wav"));
 	}
 }

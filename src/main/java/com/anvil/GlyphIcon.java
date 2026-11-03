@@ -1,11 +1,7 @@
 package com.anvil;
 
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import lombok.RequiredArgsConstructor;
+import java.awt.*;
 import java.awt.geom.Path2D;
 import javax.swing.Icon;
 
@@ -21,11 +17,12 @@ import javax.swing.Icon;
  * <p>The colour follows the component's foreground (a hovered button's orange, a done tick's green)
  * unless one is fixed at construction.
  */
+@RequiredArgsConstructor
 final class GlyphIcon implements Icon
 {
 	enum Shape
 	{
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR
 	}
 
 	private final Shape shape;
@@ -37,12 +34,6 @@ final class GlyphIcon implements Icon
 		this(shape, size, null);
 	}
 
-	GlyphIcon(Shape shape, int size, Color color)
-	{
-		this.shape = shape;
-		this.size = size;
-		this.color = color;
-	}
 
 	@Override
 	public int getIconWidth()
@@ -113,6 +104,26 @@ final class GlyphIcon implements Icon
 						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
 					}
 					g.draw(p);
+					break;
+				case STAR:
+					// Filled five points: an Anvil Supporter, beside their name.
+					for (int i = 0; i < 10; i++)
+					{
+						double ang = -Math.PI / 2 + Math.PI / 5 * i;
+						double rad = s * (i % 2 == 0 ? 0.5 : 0.21);
+						double px = s / 2.0 + Math.cos(ang) * rad;
+						double py = s * 0.53 + Math.sin(ang) * rad;
+						if (i == 0)
+						{
+							p.moveTo(px, py);
+						}
+						else
+						{
+							p.lineTo(px, py);
+						}
+					}
+					p.closePath();
+					g.fill(p);
 					break;
 				default:
 					break;

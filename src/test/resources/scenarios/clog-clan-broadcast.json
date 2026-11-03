@@ -1,0 +1,16 @@
+{
+  "name": "clog-clan-broadcast",
+  "description": "The clan's copy of a clog unlock, naming you — the only sighting when the personal setting is off",
+  "params": {
+    "item": "Fighter torso",
+    "count": "356/1717"
+  },
+  "steps": [
+    {
+      "chat": {
+        "type": "CLAN_MESSAGE",
+        "message": "${me} received a new collection log item: ${item} (${count})"
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "self-death",
+  "description": "The local player dies (deaths channel, deathless tiles, recap counter)",
+  "params": {},
+  "steps": [
+    {
+      "death": {
+        "who": "self"
+      }
+    }
+  ]
+}

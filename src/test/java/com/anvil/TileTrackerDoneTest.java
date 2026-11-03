@@ -24,7 +24,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void freshPinComesDownAfterTheLinger()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0);
+		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
 		w.keepWhenDone = null; // a fresh pin
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 1_000)); // "Done" goes up
@@ -35,7 +35,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void tilePinnedAlreadyDoneStaysUp()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0);
+		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
 		w.keepWhenDone = null;
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 60_000));
@@ -44,7 +44,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void restoredPinFinishedWhileOfflineComesDown()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0); // restored from config: keepWhenDone false
+		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site); // restored from config: keepWhenDone false
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 100_000));
 		assertTrue(TileTracker.finishedAndShown(w, progress(true), 130_000));
 	}
@@ -52,7 +52,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void anotherTeamFinishingDoesNotUnpin()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0);
+		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 60_000));
 	}

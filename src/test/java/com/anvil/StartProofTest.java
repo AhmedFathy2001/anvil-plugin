@@ -44,7 +44,7 @@ public class StartProofTest
 
 	private static AnvilSidebarDataSource sourceFor(PluginConfigResponse cfg)
 	{
-		return new AnvilSidebarDataSource(() -> cfg, new BingoApiClient(new Gson(), new OkHttpClient()), null, null);
+		return new AnvilSidebarDataSource(() -> cfg, new BingoApiClient(new Gson(), new OkHttpClient()));
 	}
 
 	@Test
@@ -216,6 +216,20 @@ public class StartProofTest
 		java.io.IOException other = BingoApiClient.submissionError(
 			"Submission failed", 409, "{\"error\":\"Tile already complete\"}");
 		assertTrue(other instanceof BingoApiClient.PermanentSubmissionException);
+	}
+
+	@Test
+	public void chatGetsTheSitesSentenceNotTheRawResponse()
+	{
+		java.io.IOException refused = BingoApiClient.submissionError(
+			"Start proof failed", 403, "{\"error\":\"Sign-ups are closed\",\"code\":\"closed\"}");
+		assertEquals("Sign-ups are closed", BingoApiClient.forPlayer(refused));
+		// The diagnostic form stays on getMessage() for the log.
+		assertTrue(refused.getMessage().contains("HTTP 403"));
+
+		java.io.IOException noWords = BingoApiClient.submissionError("Start proof failed", 503, "<html>oops</html>");
+		assertEquals("the clan's site is having trouble", BingoApiClient.forPlayer(noWords));
+		assertEquals("couldn't reach the site", BingoApiClient.forPlayer(new java.io.IOException("timeout")));
 	}
 
 	// ── Live checks on the card — the same thresholds the button refuses on ───────────────────────

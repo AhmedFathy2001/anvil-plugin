@@ -1,0 +1,20 @@
+# Bundled scenarios — one file per line (a classpath directory can't be listed).
+# ScenarioFixturesTest fails if a .json here is missing from this list.
+boss-pet.json
+boss-pet-duplicate.json
+zulrah-unique.json
+npc-drop.json
+clog-unlock.json
+clog-clan-broadcast.json
+spill-drop.json
+cox-raid.json
+tob-raid.json
+boss-pb.json
+boss-kc.json
+level-99.json
+ca-task.json
+agility-lap.json
+sepulchre-run.json
+pvp-kill.json
+diary-tier.json
+self-death.json

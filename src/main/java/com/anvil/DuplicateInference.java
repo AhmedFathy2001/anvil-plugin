@@ -1,7 +1,6 @@
 package com.anvil;
 
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Predicate;
 import net.runelite.api.gameval.ItemID;
 
@@ -61,27 +60,36 @@ final class DuplicateInference
 
 	// Champion's scrolls by NPC name, checked in order: "x*" is a prefix (hobgoblin before goblin),
 	// "*x" a suffix, anything else the whole name.
-	private static final String[] CHAMPION_NPCS = {
-		"hobgoblin*", "goblin*", "imp", "skeleton*", "zombie*", "ghoul", "earth warrior", "jogre", "lesser demon", "* giant",
-	};
-	private static final int[] CHAMPION_SCROLLS = {
-		ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN, ItemID.CHAMPIONS_CHALLENGE_GOBLIN, ItemID.CHAMPIONS_CHALLENGE_IMP,
-		ItemID.CHAMPIONS_CHALLENGE_SKELETON, ItemID.CHAMPIONS_CHALLENGE_ZOMBIE, ItemID.CHAMPIONS_CHALLENGE_GHOUL,
-		ItemID.CHAMPIONS_CHALLENGE_EARTHWARRIOR, ItemID.CHAMPIONS_CHALLENGE_JOGRE, ItemID.CHAMPIONS_CHALLENGE_LESSERDEMON,
-		ItemID.CHAMPIONS_CHALLENGE_GIANT,
-	};
+	private static final Map<String, Integer> CHAMPION_SCROLLS = new LinkedHashMap<>();
+	static
+	{
+		CHAMPION_SCROLLS.put("hobgoblin*", ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN);
+		CHAMPION_SCROLLS.put("goblin*", ItemID.CHAMPIONS_CHALLENGE_GOBLIN);
+		CHAMPION_SCROLLS.put("imp", ItemID.CHAMPIONS_CHALLENGE_IMP);
+		CHAMPION_SCROLLS.put("skeleton*", ItemID.CHAMPIONS_CHALLENGE_SKELETON);
+		CHAMPION_SCROLLS.put("zombie*", ItemID.CHAMPIONS_CHALLENGE_ZOMBIE);
+		CHAMPION_SCROLLS.put("ghoul", ItemID.CHAMPIONS_CHALLENGE_GHOUL);
+		CHAMPION_SCROLLS.put("earth warrior", ItemID.CHAMPIONS_CHALLENGE_EARTHWARRIOR);
+		CHAMPION_SCROLLS.put("jogre", ItemID.CHAMPIONS_CHALLENGE_JOGRE);
+		CHAMPION_SCROLLS.put("lesser demon", ItemID.CHAMPIONS_CHALLENGE_LESSERDEMON);
+		CHAMPION_SCROLLS.put("* giant", ItemID.CHAMPIONS_CHALLENGE_GIANT);
+	}
 
 	/** The champion's scroll item id {@code npc} drops, or null. */
 	static Integer championScrollFor(String npc)
 	{
-		String n = npc == null ? null : npc.trim().toLowerCase(Locale.ROOT);
-		for (int i = 0; n != null && i < CHAMPION_NPCS.length; i++)
+		if (npc == null)
 		{
-			String k = CHAMPION_NPCS[i];
+			return null;
+		}
+		String n = npc.trim().toLowerCase(Locale.ROOT);
+		for (Map.Entry<String, Integer> e : CHAMPION_SCROLLS.entrySet())
+		{
+			String k = e.getKey();
 			if (k.endsWith("*") ? n.startsWith(k.substring(0, k.length() - 1))
 				: k.startsWith("*") ? n.endsWith(k.substring(1)) : n.equals(k))
 			{
-				return CHAMPION_SCROLLS[i];
+				return e.getValue();
 			}
 		}
 		return null;

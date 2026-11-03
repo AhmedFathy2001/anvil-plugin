@@ -11,18 +11,35 @@ import static org.junit.Assert.assertTrue;
  */
 public class SyncBackoffTest
 {
+	/** No jitter: the exact doubling, so the waits below are exact. */
+	private static SyncBackoff exact()
+	{
+		return new SyncBackoff(SyncBackoff.FIRST_MS, SyncBackoff.MAX_MS, () -> 0.5);
+	}
+
 	@Test
 	public void readyUntilSomethingFails()
 	{
-		SyncBackoff backoff = new SyncBackoff();
+		SyncBackoff backoff = exact();
 		assertTrue(backoff.ready(0));
 		assertTrue(backoff.ready(1_000_000));
 	}
 
 	@Test
+	public void spreadsEachWaitSoAClanDoesNotRetryInStep()
+	{
+		SyncBackoff early = new SyncBackoff(SyncBackoff.FIRST_MS, SyncBackoff.MAX_MS, () -> 0);
+		SyncBackoff late = new SyncBackoff(SyncBackoff.FIRST_MS, SyncBackoff.MAX_MS, () -> 0.999);
+		early.onFailure(0);
+		late.onFailure(0);
+		assertTrue(early.ready(SyncBackoff.FIRST_MS * 8 / 10));
+		assertFalse(late.ready(SyncBackoff.FIRST_MS));
+	}
+
+	@Test
 	public void waitsLongerEachTimeUpToTheCeiling()
 	{
-		SyncBackoff backoff = new SyncBackoff();
+		SyncBackoff backoff = exact();
 		long now = 10_000;
 
 		backoff.onFailure(now);
@@ -45,7 +62,7 @@ public class SyncBackoffTest
 	@Test
 	public void oneSuccessClearsTheWholeStreak()
 	{
-		SyncBackoff backoff = new SyncBackoff();
+		SyncBackoff backoff = exact();
 		long now = 10_000;
 		for (int i = 0; i < 5; i++)
 		{
@@ -63,7 +80,7 @@ public class SyncBackoffTest
 	@Test
 	public void reportsHowLongTheSilenceLasts()
 	{
-		SyncBackoff backoff = new SyncBackoff();
+		SyncBackoff backoff = exact();
 		backoff.onFailure(0);
 		assertEquals(SyncBackoff.FIRST_MS / 1000, backoff.secondsUntilReady(0));
 		assertEquals(0, backoff.secondsUntilReady(SyncBackoff.FIRST_MS));

@@ -3,28 +3,13 @@ package com.anvil;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
-import lombok.AccessLevel;
-import lombok.Data;
-import lombok.Setter;
-import lombok.Value;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ItemComposition;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.ItemVariationMapping;
+import net.runelite.client.game.*;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.OptionalDouble;
+import java.io.*;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**

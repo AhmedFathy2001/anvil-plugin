@@ -1,10 +1,7 @@
 package com.anvil;
 
 import java.awt.Color;
-import net.runelite.client.config.Config;
-import net.runelite.client.config.ConfigGroup;
-import net.runelite.client.config.ConfigItem;
-import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.*;
 
 @ConfigGroup("osrsbingo")
 public interface AnvilConfig extends Config
@@ -87,6 +84,18 @@ public interface AnvilConfig extends Config
 	default Color chatTextColor()
 	{
 		return Color.WHITE;
+	}
+
+	@ConfigItem(
+		keyName = "chatFeed",
+		name = "Chat feed",
+		description = "Other players' notable drops, pets and achievements in your chat: everyone on a board whose host turned it on, and clans you guest in that share theirs. Pick what shows on your Anvil profile.",
+		position = 3,
+		section = "chatSection"
+	)
+	default boolean chatFeed()
+	{
+		return true;
 	}
 
 	// ---- Setup ----
@@ -488,7 +497,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "syncClanCoffer",
 		name = "Sync Clan Coffer",
-		description = "Send Clan Coffer balance changes to your clan site while it is open.",
+		description = "Send Clan Coffer deposits and withdrawals to your clan site, from your own clan chat line and the coffer screen.",
 		position = 1,
 		section = "profileSection"
 	)
@@ -548,7 +557,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "shareMoments",
 		name = "Share highlights with the clan",
-		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events.",
+		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events, and in the Anvil chat feed of players who can see them.",
 		position = 6,
 		section = "profileSection"
 	)

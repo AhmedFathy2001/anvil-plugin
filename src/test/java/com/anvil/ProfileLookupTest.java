@@ -30,8 +30,8 @@ public class ProfileLookupTest
 	@Test
 	public void cardApiUrlUsesTheSameEncoding()
 	{
-		assertEquals("https://anvilosrs.com/api/players/Drenvox%20mdps/card", ProfileLookup.apiCardUrl("Drenvox\u00A0mdps"));
-		assertNull(ProfileLookup.apiCardUrl(" "));
+		assertEquals("https://anvilosrs.com/api/players/Drenvox%20mdps/card", ProfileLookup.apiPlayerUrl("Drenvox\u00A0mdps", "/card"));
+		assertNull(ProfileLookup.apiPlayerUrl(" ", "/card"));
 	}
 
 	@Test

@@ -26,4 +26,20 @@ public class BannerSoundServiceTest
 		sound.play(BannerSoundService.Kind.MISSION);
 		sound.shutdown();
 	}
+
+	/**
+	 * Startup lists every clip folder before any sound has played. The re-read went to the audio executor
+	 * directly, which only exists after the first play — the NullPointerException escaped setRoot() and
+	 * skipped the outbox, push stash and disk cache set-up that follows it, every session.
+	 */
+	@Test
+	public void listingBeforeAnySoundDoesNotThrow()
+	{
+		BannerSoundService sound = new BannerSoundService(soundOn(), null);
+		for (BannerSoundService.Kind kind : BannerSoundService.Kind.values())
+		{
+			sound.listClips(kind);
+		}
+		sound.shutdown();
+	}
 }

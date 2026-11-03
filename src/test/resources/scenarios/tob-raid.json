@@ -1,0 +1,38 @@
+{
+  "name": "tob-raid",
+  "description": "ToB completion: KC line, total-time line (on FRIENDSCHATNOTIFICATION, as the game sends it), chest loot",
+  "params": {
+    "kc": "5",
+    "time": "1:02:30",
+    "item": "22477"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Your completed Theatre of Blood count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "type": "FRIENDSCHATNOTIFICATION",
+        "message": "Theatre of Blood total completion time: ${time}"
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Theatre of Blood",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

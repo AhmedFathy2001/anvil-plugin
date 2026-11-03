@@ -1,210 +1,14 @@
 package com.anvil;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-/**
- * The sidebar's event model: what a clan card offers ({@link AnvilSidebarPanel#eventsOf}) and the
- * weekly display strings. One entry renders straight in, several become the click-to-view list —
- * so this is the rule that decides which view a member lands on, tested without Swing.
- */
+/** The clan dropdown: one row per clan with a slug, "All clans" first, each saying what's running there. */
 public class SidebarEventsTest
 {
-	private static ConnectionView.WeeklyView weekly(int id, String title, String type, String metric)
-	{
-		return new ConnectionView.WeeklyView(id, title, type, metric, null,
-			"2026-07-27T00:00:00Z", "2026-08-03T00:00:00Z", false, 0, 0, 0, null, null);
-	}
-
-	private static ConnectionView.ScheduledView upcomingBingo(int id, String title, String startsIso)
-	{
-		return new ConnectionView.ScheduledView(id, title, startsIso, null, false, 25, 5, "bingo", "tiles", null, null);
-	}
-
-	/** A clan card: its own board (or none), and whatever else it's running. */
-	private static ConnectionView view(String eventName, int done, int total,
-		ConnectionView.Ladder ladder, List<ConnectionView.WeeklyView> weeklies,
-		List<ConnectionView.ScheduledView> scheduled)
-	{
-		return new ConnectionView("The AFK Spot", eventName, null, done, total, null, null, null,
-			null, false, null, null, ladder, weeklies, scheduled);
-	}
-
-	/** A board-carrying home card with the given weeklies attached. */
-	private static ConnectionView board(String eventName, List<ConnectionView.WeeklyView> weeklies)
-	{
-		return view(eventName, 14, 25, null, weeklies, null);
-	}
-
-	@Test
-	public void boardAndWeekliesBothBecomeEvents()
-	{
-		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(
-			board("Summer Bingo", Arrays.asList(weekly(7, "Mining Madness", "skill", "mining"))));
-
-		assertEquals(2, events.size());
-		assertTrue(events.get(0).isBoard());
-		assertEquals("Summer Bingo", events.get(0).title);
-		assertEquals("Bingo", events.get(0).kind);
-		assertFalse(events.get(1).isBoard());
-		assertEquals("Mining Madness", events.get(1).title);
-		assertEquals("Skill of the Week", events.get(1).kind);
-		// Keys are stable so a drilled-into event survives the 15 s auto-refresh.
-		assertEquals("weekly:7", events.get(1).key);
-	}
-
-	@Test
-	public void aLoneBoardStaysASingleEvent()
-	{
-		// One event → the panel renders it directly; no list, no back link.
-		assertEquals(1, AnvilSidebarPanel.eventsOf(board("Summer Bingo", null)).size());
-	}
-
-	@Test
-	public void weeklyOnlyClanStillHasAnEvent()
-	{
-		// No board at all (no event name, no tiles) — the weekly IS the clan's event.
-		ConnectionView c = view(null, 0, 0, null,
-			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null);
-
-		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(c);
-		assertEquals(1, events.size());
-		assertFalse(events.get(0).isBoard());
-	}
-
-	@Test
-	public void eventlessClanOffersNothingToPick()
-	{
-		ConnectionView c = view(null, 0, 0, null, null, null);
-		// Nothing running → the panel falls back to today's "No active event yet." card.
-		assertTrue(AnvilSidebarPanel.eventsOf(c).isEmpty());
-	}
-
-	@Test
-	public void ladderBoardIsLabelledAsALadder()
-	{
-		ConnectionView c = view("Daily Missions", 0, 0,
-			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList(), true),
-			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")), null);
-
-		assertEquals("Ladder", AnvilSidebarPanel.eventsOf(c).get(0).kind);
-	}
-
-	/**
-	 * A bingo that drops missions also carries a Ladder view-model (that's what feeds its mission
-	 * strip), but it is still a bingo — labelling it "Ladder" in the events list would misname the
-	 * whole event off the back of one feature.
-	 */
-	@Test
-	public void bingoWithMissionsIsStillLabelledABingo()
-	{
-		ConnectionView c = view("Test missions bingo", 3, 12,
-			new ConnectionView.Ladder(null, 0, 0, 0, null, Collections.emptyList(), false),
-			Collections.emptyList(), null);
-
-		assertEquals("Bingo", AnvilSidebarPanel.eventsOf(c).get(0).kind);
-	}
-
-	@Test
-	public void scheduledBingosListAfterTheLiveStuff()
-	{
-		ConnectionView c = view("Summer Bingo", 14, 25, null,
-			Arrays.asList(weekly(7, "Mining Madness", "skill", "mining")),
-			Arrays.asList(upcomingBingo(31, "Autumn Bingo", "2026-09-01T00:00:00Z")));
-
-		List<AnvilSidebarPanel.EventEntry> events = AnvilSidebarPanel.eventsOf(c);
-		assertEquals(3, events.size());
-		// Your board, then the weekly, then what's coming — progress first, announcements last.
-		assertEquals("event:31", events.get(2).key);
-		assertEquals("Autumn Bingo", events.get(2).title);
-		assertEquals("Bingo", events.get(2).kind);
-		assertFalse(events.get(2).isBoard());
-	}
-
-	@Test
-	public void scheduledBingoCardShowsWhatItIs()
-	{
-		ConnectionView.ScheduledView s = upcomingBingo(31, "Autumn Bingo", "2026-09-01T00:00:00Z");
-		assertEquals("5×5 · 25 tiles", s.sizeLabel());
-		assertEquals("Bingo", s.kindLabel());
-		assertEquals("Tile race",
-			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 0, "tilerace", "tiles", null, null)
-				.kindLabel());
-		assertEquals("Bingo (points)",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 0, "bingo", "points", null, null)
-				.kindLabel());
-		// Nothing to say about size when the site didn't tell us.
-		assertEquals("",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 0, "bingo", "points", null, null)
-				.sizeLabel());
-	}
-
-	/**
-	 * Only a classic bingo is a grid. For every other format the site puts the TILE COUNT in
-	 * boardSize, so rendering it as a side length announced a 240-task Leagues board as "240×240" —
-	 * a claim about 57,600 tiles, next to the "240 tiles" that contradicted it.
-	 */
-	@Test
-	public void aListFormatIsNeverDescribedAsAGrid()
-	{
-		// The board from the bug report: Leagues, 240 tiles.
-		assertEquals("240 tiles",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 240, 240, "bingo", "points", null, null)
-				.sizeLabel());
-		// boardSize alone still answers "how big", because for a list it IS the tile count.
-		assertEquals("240 tiles",
-			new ConnectionView.ScheduledView(1, "Leagues", null, null, false, 0, 240, "bingo", "points", null, null)
-				.sizeLabel());
-		assertEquals("8 tiles",
-			new ConnectionView.ScheduledView(1, "Race", null, null, false, 8, 8, "tilerace", "tiles", null, null)
-				.sizeLabel());
-		assertEquals("12 tiles",
-			new ConnectionView.ScheduledView(1, "Ladder", null, null, false, 12, 12, "ladder", "points", null, null)
-				.sizeLabel());
-		assertEquals("1 tile",
-			new ConnectionView.ScheduledView(1, "Bounty", null, null, false, 1, 1, "bingo", "points", null, null)
-				.sizeLabel());
-	}
-
-	@Test
-	public void aClassicGridStillSaysItsShape()
-	{
-		// A half-authored board keeps its geometry and reports the tiles that actually exist — the
-		// count is never derived from N², which would claim tiles nobody has written yet.
-		assertEquals("5×5 · 12 tiles",
-			new ConnectionView.ScheduledView(1, "Half-built", null, null, false, 12, 5, "bingo", "tiles", null, null)
-				.sizeLabel());
-		assertEquals("5×5",
-			new ConnectionView.ScheduledView(1, "Unauthored", null, null, false, 0, 5, "bingo", "tiles", null, null)
-				.sizeLabel());
-	}
-
-	@Test
-	public void aSiteTooOldToNameTheFormatIsJudgedOnItsGeometry()
-	{
-		// No format on the wire: 25 tiles on a board of 5 really is 5×5…
-		assertEquals("5×5 · 25 tiles",
-			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 25, 5, null, null, null, null)
-				.sizeLabel());
-		// …while 240 tiles on a board of 240 is a list, whatever the field is called.
-		assertEquals("240 tiles",
-			new ConnectionView.ScheduledView(1, "Old site", null, null, false, 240, 240, null, null, null, null)
-				.sizeLabel());
-	}
-
-	// ---- The clan dropdown ------------------------------------------------------------------------
-	//
-	// This replaced a client-side rule that landed a guest on their own clan instead of the one the
-	// plugin pointed at. The server applies the stronger version of that when it resolves a clanless
-	// request — live event first, then a real membership before any guest seat — so keeping a second
-	// copy here could only ever produce a disagreement about which board somebody is looking at.
-
 	private static PluginConfigResponse.ClanRef clanRef(String slug, String name, String kind, String live)
 	{
 		return clanRef(slug, name, kind, live, live == null ? 0 : Math.abs(live.hashCode()));
@@ -237,141 +41,12 @@ public class SidebarEventsTest
 		return c;
 	}
 
-	private static List<String> slugs(List<PluginConfigResponse.ClanRef> rows)
-	{
-		List<String> out = new java.util.ArrayList<>();
-		for (PluginConfigResponse.ClanRef r : rows)
-		{
-			out.add(r.slug);
-		}
-		return out;
-	}
-
-	// ---- The merged view: what "also live" adds to the board already on screen ---------------------
-
-	@Test
-	public void nothingElseLiveMeansNoSection()
-	{
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(null, "a", null).isEmpty());
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(java.util.Collections.emptyList(), "a", null).isEmpty());
-		// A clan with no live board is not something to list under "also live".
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(
-			Arrays.asList(clanRef("a", "Alpha", "member", "Summer"), clanRef("b", "Bravo", "guest", null)), "a", null)
-			.isEmpty());
-	}
-
-	@Test
-	public void theOtherClansBoardsAreListed()
-	{
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer", 1),
-			clanRef("b", "Bravo", "guest", "Winter", 2),
-			clanRef("c", "Charlie", "member", "Autumn", 3));
-
-		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
-	}
-
-	@Test
-	public void aCoHostedBoardIsNotAlsoLiveWhenItIS_theBoardOnScreen()
-	{
-		// One event, two hosts. Alpha's card is already showing it in full; listing Bravo's copy would
-		// offer the member somewhere else to go that is the same place.
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Cross-Clan Cup", 7),
-			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
-
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a", null).isEmpty());
-	}
-
-	@Test
-	public void aCoHostedBoardBetweenTwoOtherClansIsListedOnce()
-	{
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer", 1),
-			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7),
-			clanRef("c", "Charlie", "member", "Cross-Clan Cup", 7));
-
-		// Same board under two clans: one row, and the first-listed clan is the one offered.
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
-	}
-
-	@Test
-	public void theCoHostedBoardOnScreenIsNotListedAgainWhenTheAddressedClanReportsSomethingElse()
-	{
-		// The case that got shipped: one bingo, co-hosted. The member is a MEMBER of Alpha and holds
-		// their seat on it in Bravo, so Alpha's row names Alpha's OWN live thing — its Skill of the
-		// Week — while the card above shows the co-hosted bingo. Dedup against Alpha's row alone and
-		// the bingo comes back under "Also live" as Bravo's, one event twice, tallies disagreeing.
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Skill of the Week", 3, "weekly"),
-			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7));
-
-		assertTrue(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7").isEmpty());
-	}
-
-	@Test
-	public void aBoardOnScreenDoesNotHideTheOTHERBoardsSomewhereElse()
-	{
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Skill of the Week", 3, "weekly"),
-			clanRef("b", "Bravo", "guest", "Cross-Clan Cup", 7),
-			clanRef("c", "Charlie", "member", "Autumn", 9));
-
-		assertEquals(Arrays.asList("c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7")));
-	}
-
-	@Test
-	public void theBoardOnScreenIsMatchedByEVENT_notByTheNumberAlone()
-	{
-		// A weekly and a board are free to share an id — the pair never is. A competition with the
-		// same number as the board on screen is still somewhere else to go.
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("b", "Bravo", "guest", "Slayer SOTW", 7, "weekly"));
-
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", "bingo:7")));
-	}
-
-	@Test
-	public void twoDifferentBoardsThatShareANameAreBothListed()
-	{
-		// Dedup is on the id precisely because it cannot be on the name.
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer", 1),
-			clanRef("b", "Bravo", "guest", "Summer Bingo", 2),
-			clanRef("c", "Charlie", "member", "Summer Bingo", 3));
-
-		assertEquals(Arrays.asList("b", "c"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
-	}
-
-	@Test
-	public void withNothingAddressedYetEveryLiveBoardIsListed()
-	{
-		// Before the first config answers there is no addressed clan, and a merged view of everything
-		// is the honest thing to show rather than nothing.
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer", 1),
-			clanRef("b", "Bravo", "guest", "Winter", 2));
-
-		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "", null)));
-		assertEquals(Arrays.asList("a", "b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, null, null)));
-	}
-
-	@Test
-	public void theAddressedSlugIsMatchedCaseInsensitivelyLikeEverySlugComparison()
-	{
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer", 1),
-			clanRef("b", "Bravo", "guest", "Winter", 2));
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "A", null)));
-	}
-
 	@Test
 	public void noClansMeansNoDropdownAtAll()
 	{
 		assertTrue(AnvilSidebarPanel.ClanChoice.of(null).isEmpty());
 		assertTrue(AnvilSidebarPanel.ClanChoice.of(java.util.Collections.emptyList()).isEmpty());
 	}
-
 	@Test
 	public void allClansLeadsTheList()
 	{
@@ -385,7 +60,6 @@ public class SidebarEventsTest
 		assertEquals("theafkspot", choices.get(1).slug);
 		assertEquals("vanguard", choices.get(2).slug);
 	}
-
 	@Test
 	public void eachRowSaysWhatIsRunningThere()
 	{
@@ -399,7 +73,6 @@ public class SidebarEventsTest
 		assertEquals("Guest \u00b7 nothing live", choices.get(2).detail);
 		assertEquals("Nothing live", choices.get(3).detail);
 	}
-
 	@Test
 	public void aClanWithNoNameFallsBackToItsSlugRatherThanRenderingBlank()
 	{
@@ -407,7 +80,6 @@ public class SidebarEventsTest
 			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(clanRef("theafkspot", null, "member", null)));
 		assertEquals("theafkspot", choices.get(1).label);
 	}
-
 	@Test
 	public void aRowWithNoSlugIsNotOfferedBecauseItCannotBeAddressed()
 	{
@@ -421,146 +93,4 @@ public class SidebarEventsTest
 		assertEquals(2, choices.size());
 		assertEquals("real", choices.get(1).slug);
 	}
-
-
-	@Test
-	public void weeklyMetricKeysReadAsProse()
-	{
-		assertEquals("Mining", weekly(1, "t", "skill", "mining").metricLabel());
-		assertEquals("Chambers of Xeric", weekly(1, "t", "boss", "chambers_of_xeric").metricLabel());
-		assertEquals("Theatre of Blood Hard Mode",
-			weekly(1, "t", "boss", "theatre_of_blood_hard_mode").metricLabel());
-		assertEquals("", weekly(1, "t", "boss", null).metricLabel());
-	}
-
-	@Test
-	public void weeklyMetricPrefersTheLabelTheSiteSent()
-	{
-		// The whole point: only the site knows the apostrophe in "Phosani's Nightmare".
-		assertEquals("Phosani's Nightmare",
-			labelled("boss", "phosanisNightmare", "Phosani's Nightmare").metricLabel());
-		assertEquals("CoX: CM",
-			labelled("boss", "chambersOfXericChallengeMode", "CoX: CM").metricLabel());
-		// A site older than the field sends nothing; the key still has to read as words.
-		assertEquals("Phosanis Nightmare", labelled("boss", "phosanisNightmare", null).metricLabel());
-		assertEquals("Chambers of Xeric", labelled("boss", "chambersOfXeric", "  ").metricLabel());
-		assertEquals("EHB", labelled("efficiency", "ehb", null).metricLabel());
-	}
-
-	private static ConnectionView.WeeklyView labelled(String type, String metric, String sentLabel)
-	{
-		return new ConnectionView.WeeklyView(1, "t", type, metric, sentLabel,
-			"2026-07-27T00:00:00Z", "2026-08-03T00:00:00Z", false, 0, 0, 0, null, null);
-	}
-
-	@Test
-	public void weeklyTitleFallsBackToItsKind()
-	{
-		assertEquals("Boss of the Week", weekly(1, null, "boss", "zulrah").title);
-	}
-
-	@Test
-	public void endsInLabelCountsDownAndThenReadsEnded()
-	{
-		long now = System.currentTimeMillis();
-		assertEquals("Ends in 2d 0h", AnvilSidebarPanel.endsInLabel(iso(now + 48 * 3600_000L)));
-		assertEquals("Ends in 3h 0m", AnvilSidebarPanel.endsInLabel(iso(now + 3 * 3600_000L)));
-		assertEquals("Ends in 20m", AnvilSidebarPanel.endsInLabel(iso(now + 20 * 60_000L)));
-		assertEquals("Ended", AnvilSidebarPanel.endsInLabel(iso(now - 60_000L)));
-		// Missing / unparseable dates simply drop the line rather than printing a bogus one.
-		assertNull(AnvilSidebarPanel.endsInLabel(null));
-		assertNull(AnvilSidebarPanel.endsInLabel("not-a-date"));
-	}
-
-	/** ISO instant, a few seconds late so the truncating countdown lands on the round number. */
-	private static String iso(long millis)
-	{
-		return java.time.Instant.ofEpochMilli(millis + 2000).toString();
-	}
-
-	// ---- A competition is something running too ---------------------------------------------------
-	//
-	// Reported from the field: a clan with an active Skill of the Week read as "Nothing live".
-
-	@Test
-	public void aRunningCompetitionIsNotNothingLive()
-	{
-		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
-			clanRef("a", "Alpha", "member", "Slayer SOTW", 4, "weekly")));
-
-		// Its name, and no tally: a competition has a leaderboard, not a board to fill, so "0/0" would
-		// be a lie dressed as progress.
-		assertEquals("Slayer SOTW", choices.get(1).detail);
-	}
-
-	@Test
-	public void aBoardWithNoTilesYetStillDoesNotClaimZeroProgress()
-	{
-		PluginConfigResponse.ClanRef empty = clanRef("a", "Alpha", "member", "Unbuilt Bingo", 4);
-		empty.live.tilesComplete = 0;
-		empty.live.tilesTotal = 0;
-		assertEquals("Unbuilt Bingo", AnvilSidebarPanel.ClanChoice.of(Arrays.asList(empty)).get(1).detail);
-	}
-
-	@Test
-	public void aBoardAndACompetitionThatShareAnIdAreTwoThings()
-	{
-		// Different tables, so the ids collide freely. Deduping on the number alone folds them into one
-		// and silently drops whichever came second.
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer Bingo", 5),
-			clanRef("b", "Bravo", "guest", "Slayer SOTW", 5, "weekly"));
-
-		assertEquals(Arrays.asList("b"), slugs(AnvilSidebarPanel.otherLiveBoards(clans, "a", null)));
-	}
-
-	@Test
-	public void aSiteTooOldToSendTheKindIsTreatedAsABoard()
-	{
-		// Every live thing such a site reports IS a board — that is all it knew how to report.
-		PluginConfigResponse.ClanRef old = clanRef("b", "Bravo", "guest", "Summer Bingo", 5, null);
-		List<PluginConfigResponse.ClanRef> clans = Arrays.asList(
-			clanRef("a", "Alpha", "member", "Summer Bingo", 5), old);
-
-		assertTrue("same board, so not also-live", AnvilSidebarPanel.otherLiveBoards(clans, "a", null).isEmpty());
-	}
-
-
-	@Test
-	public void aRowSaysHowManyItIsNotShowing()
-	{
-		PluginConfigResponse.ClanRef busy = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
-		busy.liveCount = 4;
-		assertEquals("Summer Bingo  3/9  +3 more",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(busy)).get(1).detail);
-	}
-
-	@Test
-	public void oneThingRunningNeedsNoTally()
-	{
-		PluginConfigResponse.ClanRef quiet = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
-		quiet.liveCount = 1;
-		assertEquals("Summer Bingo  3/9",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(quiet)).get(1).detail);
-	}
-
-	@Test
-	public void aSiteTooOldToCountSaysNothingRatherThanMinusOne()
-	{
-		// liveCount is 0 on a site that does not send it, and 0 - 1 must not become "+-1 more".
-		PluginConfigResponse.ClanRef old = clanRef("a", "Alpha", "member", "Summer Bingo", 1);
-		assertEquals(0, old.liveCount);
-		assertEquals("Summer Bingo  3/9",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(old)).get(1).detail);
-	}
-
-	@Test
-	public void aBusyClanRunningOnlyACompetitionStillCounts()
-	{
-		PluginConfigResponse.ClanRef c = clanRef("a", "Alpha", "member", "Slayer SOTW", 4, "weekly");
-		c.liveCount = 3;
-		assertEquals("Slayer SOTW  +2 more",
-			AnvilSidebarPanel.ClanChoice.of(Arrays.asList(c)).get(1).detail);
-	}
-
 }

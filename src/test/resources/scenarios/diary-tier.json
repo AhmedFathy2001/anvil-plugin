@@ -1,0 +1,15 @@
+{
+  "name": "diary-tier",
+  "description": "Achievement diary tier completion line",
+  "params": {
+    "tier": "hard",
+    "area": "Ardougne"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Congratulations! You have completed all of the ${tier} tasks in the ${area} area. Speak to the diary NPC to claim your reward."
+      }
+    }
+  ]
+}

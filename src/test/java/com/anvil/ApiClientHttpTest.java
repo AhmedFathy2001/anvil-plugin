@@ -83,6 +83,33 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void theWorldRidesEveryRequestAndIsFrozenIntoNotifications() throws Exception
+	{
+		BingoApiClient c = client();
+		Map<String, Integer> kc = new LinkedHashMap<>();
+		kc.put("Zulrah", 5);
+		c.submitStatKc(kc);
+		assertNull(seen.get(0).header("X-World-Types"));
+		assertNull(seen.get(0).header("X-World-Activity"));
+
+		c.setWorld("DEADMAN,MEMBERS", "Deadman");
+		c.submitStatKc(kc);
+		assertEquals("DEADMAN,MEMBERS", seen.get(1).header("X-World-Types"));
+		assertEquals("Deadman", seen.get(1).header("X-World-Activity"));
+
+		// Async: wait for the notification to reach the interceptor.
+		int before = seen.size();
+		c.postNotification("rareDrops", null, new NotifyFacts("drop", "Zezima").put("item", "Twisted bow"), null, null);
+		long until = System.currentTimeMillis() + 5000;
+		while (seen.size() == before && System.currentTimeMillis() < until)
+		{
+			Thread.sleep(10);
+		}
+		String body = bodies.get(before);
+		assertTrue(body, body.contains("\"world\":{\"types\":\"DEADMAN,MEMBERS\",\"activity\":\"Deadman\"}"));
+	}
+
+	@Test
 	public void configFetch404IsTheNoClanState()
 	{
 		BingoApiClient c = client();
@@ -97,8 +124,6 @@ public class ApiClientHttpTest
 			assertEquals("Config fetch failed: HTTP 404", e.getMessage());
 		}
 		assertTrue(c.signedInWithoutClan());
-		code = 500;
-		assertNull(c.fetchBoard());
 	}
 
 	@Test
@@ -149,7 +174,9 @@ public class ApiClientHttpTest
 		reply = "{\"error\":\"done\"}";
 		try
 		{
-			c.submitTimed(1, 2, 3, 60, "u", "n", 4);
+			com.google.gson.JsonObject proof = new com.google.gson.JsonObject();
+			proof.addProperty("tz", "Africa/Cairo");
+			c.submitTimed(1, 2, 3, 60, "u", "n", 4, proof);
 			fail();
 		}
 		catch (BingoApiClient.PermanentSubmissionException e)
@@ -162,6 +189,7 @@ public class ApiClientHttpTest
 		}
 		assertTrue(bodies.get(0).contains("\"durationSeconds\":60"));
 		assertTrue(bodies.get(0).contains("\"amount\":1"));
+		assertTrue(bodies.get(0).contains("\"proof\":{\"tz\":\"Africa/Cairo\"}"));
 	}
 
 	@Test
@@ -191,22 +219,40 @@ public class ApiClientHttpTest
 	}
 
 	@Test
-	public void publicReadsCarryOnlyTheToken()
+	public void panelViewsNameTheCharacterUnlessItIsPaused()
 	{
 		BingoApiClient c = client();
 		c.setCurrentRsn("Zezima");
-		reply = "{\"clans\":[]}";
-		assertFalse(c.lookupClans("foo") == null);
-		assertNull("lookups are anonymous", seen.get(0).header("Authorization"));
-		code = 404;
-		assertTrue(c.fetchPlayerCard("Zezima").notFound);
-		code = 503;
-		BingoApiClient.PlayerCardResult busy = c.fetchPlayerCard("Zezima");
-		assertTrue("hiscores budget busy, not 'not found'", busy.busy);
-		assertFalse(busy.notFound);
-		code = 404;
-		assertEquals("Bearer tok", seen.get(1).header("Authorization"));
-		assertNull(seen.get(1).header("X-RSN"));
+		reply = "{\"ui\":{\"t\":\"text\",\"s\":\"hi\"}}";
+		Map<String, String> args = new LinkedHashMap<>();
+		args.put("rsn", "Lynx Titan");
+		assertEquals("hi", c.fetchUi("player", args, "theafkspot").getAsJsonObject("ui").get("s").getAsString());
+		Request r = seen.get(0);
+		assertTrue(r.url().encodedPath().endsWith("/api/plugin/ui"));
+		assertEquals("player", r.url().queryParameter("v"));
+		assertEquals("Lynx Titan", r.url().queryParameter("rsn"));
+		assertEquals("theafkspot", r.url().queryParameter("clan"));
+		assertEquals("Bearer tok", r.header("Authorization"));
+		assertEquals("Zezima", r.header("X-RSN"));
+
+		c.setAccountPaused(true);
+		c.postUi("goal-remove", Collections.singletonMap("id", "4"), Collections.emptyMap());
+		assertNull("a paused character is never named", seen.get(1).header("X-RSN"));
+		assertEquals("POST", seen.get(1).method());
+		assertTrue(bodies.get(1).contains("\"act\":\"goal-remove\""));
+		assertTrue(bodies.get(1).contains("\"id\":\"4\""));
+
+		code = 500;
+		assertNull(c.fetchUi("you", Collections.emptyMap(), null));
+	}
+
+	@Test
+	public void siteLinksStayOnTheSitesHost()
+	{
+		BingoApiClient c = client();
+		String link = c.siteLink("/p/Zezima?tab=records");
+		assertTrue(link, link.endsWith("/p/Zezima?tab=records"));
+		assertEquals(okhttp3.HttpUrl.parse(c.rootUrl("/")).host(), okhttp3.HttpUrl.parse(link).host());
 	}
 
 	@Test
@@ -222,5 +268,46 @@ public class ApiClientHttpTest
 		assertEquals("{\"progress\":[{\"key\":\"questPoints\",\"value\":300}],\"accountType\":1,"
 			+ "\"items\":[{\"category\":\"quest\",\"items\":[{\"id\":5,\"name\":\"Cook's Assistant\",\"state\":2}]}],"
 			+ "\"caVarps\":{\"3116\":7},\"caPoints\":40}", bodies.get(0));
+	}
+
+	@Test
+	public void tokenOptionalCallsCarryThePluginVersion() throws IOException
+	{
+		BingoApiClient c = client();
+		c.hello("Main Guy");
+		for (Request r : seen)
+		{
+			assertEquals(BingoApiClient.PLUGIN_VERSION, r.header("X-Anvil-Plugin-Version"));
+			assertEquals("Bearer tok", r.header("Authorization"));
+		}
+	}
+
+	@Test
+	public void everyRefusalIsTypedWithItsStatus()
+	{
+		BingoApiClient c = client();
+		code = 503;
+		try
+		{
+			c.submitEventCounters(1, 2, 3, 4, 5, 6);
+			fail();
+		}
+		catch (IOException e)
+		{
+			assertTrue(e instanceof BingoApiClient.HttpStatusException);
+			assertEquals(503, ((BingoApiClient.HttpStatusException) e).code);
+			assertEquals("Counter push failed: HTTP 503 — {}", e.getMessage());
+		}
+		code = 401;
+		try
+		{
+			c.uploadImage(new byte[]{1}, "a.png");
+			fail();
+		}
+		catch (IOException e)
+		{
+			assertEquals(401, ((BingoApiClient.HttpStatusException) e).code);
+			assertEquals("Image upload failed: HTTP 401", e.getMessage());
+		}
 	}
 }

@@ -1,13 +1,9 @@
 package com.anvil;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
-import java.util.function.Supplier;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.function.*;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -66,7 +62,7 @@ final class CoalescedPush
 
 	void queue(String key, int value)
 	{
-		queue(java.util.Collections.singletonMap(key, value));
+		queue(Collections.singletonMap(key, value));
 	}
 
 	/** Buffer {@code values} and restart the settle timer — unless nothing in them is new. */

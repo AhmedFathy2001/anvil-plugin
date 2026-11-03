@@ -1,9 +1,6 @@
 package com.anvil;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class PluginConfigResponse
 {
@@ -119,7 +116,7 @@ public class PluginConfigResponse
 	 */
 	public List<ClanRef> switchableClans()
 	{
-		return clans == null ? java.util.Collections.emptyList() : clans;
+		return clans == null ? Collections.emptyList() : clans;
 	}
 
 	/** The slug this response was resolved for, or null on a site that does not say. */
@@ -195,6 +192,12 @@ public class PluginConfigResponse
 	 * Null on sites that predate it — then nothing is read.
 	 */
 	public List<Integer> caVarps;
+	/**
+	 * Counters read off a varbit/varp (site lib/gameCounters, capability 'game-counters'): each
+	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on
+	 * sites that predate it — then nothing is read.
+	 */
+	public List<GameValueCounters.Entry> gameCounters;
 
 	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
 	// requires one; null everywhere else, including on sites that predate the 'start-proof'
@@ -274,7 +277,9 @@ public class PluginConfigResponse
 	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
+	public List<TrackedClog> trackedClog; // collection-log tiles (new slots / whole pages)
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
+	public List<TrackedCombo> trackedCombos;     // combo tiles: their parts ride the lists above (partOf)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
@@ -303,9 +308,6 @@ public class PluginConfigResponse
 	public List<Integer> luckItemIds;
 	/** Which level-ups the clan and the player's own webhooks want (capability 'level-rules'); null on older sites. */
 	public LevelRules.Sets levelRules;
-	public BingoApiClient.ScheduleResponse schedule;   // was GET /api/plugin/schedule
-	public BingoApiClient.ActiveWeekly activeWeekly;   // was GET /api/plugin/active-weekly
-
 	/**
 	 * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for
 	 * {@code guaranteed}, the pet's for {@code pets} — because that is what the client has in hand
@@ -314,12 +316,12 @@ public class PluginConfigResponse
 	public static class DropFacts
 	{
 		/** Pet name -> where it really comes from. */
-		public java.util.Map<String, Pet> pets;
+		public Map<String, Pet> pets;
 		/**
 		 * Item name -> the sources that drop it EVERY time, lowercased. A single {@code "*"} entry
 		 * means "guaranteed wherever it drops" (a clan override that didn't name sources).
 		 */
-		public java.util.Map<String, List<String>> guaranteed;
+		public Map<String, List<String>> guaranteed;
 
 		public static class Pet
 		{
@@ -372,28 +374,12 @@ public class PluginConfigResponse
 		// classic events and older servers. The tracked* lists already contain ONLY revealed, still-open
 		// tiles.
 		public String revealPolicy;   // "scheduled" | "interval" | "bounty" | "rotating" | null
-		public int hiddenTileCount;   // tiles not yet revealed
-		public String nextRevealAt;   // ISO time of the next reveal; null when none is scheduled
-		// Points ramp for reveal-mode events: a mission's live value scales from 100% at reveal toward
-		// targetPct% over `hours` (<100 decays, >100 grows). Null when off. Lets the ladder board show a
-		// live grow/decay value per mission (see AnvilSidebarDataSource.liveValue).
-		public Decay decay;
-		// Open missions on a reveal-mode board (revealed + still-open), with face points and reveal time
-		// so the plugin can render the "active missions" list + per-second countdown. Absent on classic.
+		// Open missions on a reveal-mode board (revealed + still-open), for the in-game "New mission!"
+		// banner. Absent on classic boards.
 		public List<Mission> missions;
-		// Ladder events only: the individual leaderboard both all-time and for the current month, each
-		// with the caller's own rank. Drives the in-game missions board's standings + "You: #N".
-		public Standings standings;
-		public Standings monthlyStandings;
 		// Lock-out (bounty / lockout) events: the most recent EVENT-WIDE claims, so the plugin can
 		// announce "X claimed <mission>" to other players. Absent on non-lockout events.
 		public List<Claim> recentClaims;
-	}
-
-	public static class Decay
-	{
-		public int targetPct;   // ramp target as a percent of face (50 = decays to half; 200 = grows to 2x)
-		public int hours;       // hours over which the ramp reaches targetPct
 	}
 
 	public static class Mission
@@ -401,28 +387,8 @@ public class PluginConfigResponse
 		public int tileId;
 		public String label;
 		public int points;        // face value before the decay ramp
-		public String revealedAt; // ISO time this mission went live; null when unknown
 		public String category;
-		// Per-mission scoring so a bingo can mix missions with different behaviour. `decay` (may be
-		// null) drives this mission's live grow/decay value. Absent on older sites — fall back to the
-		// event-level decay.
-		public Decay decay;
-	}
-
-	public static class Standings
-	{
-		public int yourRank;      // caller's 1-based rank; 0 when they have no scoring row yet
-		public long yourPoints;
-		public int total;         // full board length (entries is capped)
-		public List<StandingEntry> entries;
-	}
-
-	public static class StandingEntry
-	{
-		public int rank;
-		public String rsn;
-		public long points;
-		public int tasks;
+		public String expiresAt;  // ISO time an unclaimed mission auto-closes; null when it doesn't
 	}
 
 	public static class Claim
@@ -464,6 +430,14 @@ public class PluginConfigResponse
 		public String description;   // tile description, for the clog task accordion
 		public int points;           // Leagues-style reward value (0 = not a points event)
 		public String category;      // free-text grouping (boss/skill) for the clog task filter
+		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
+		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
+		public Integer partOf;
+
+		public boolean isPart()
+		{
+			return partOf != null && partOf > 0;
+		}
 	}
 
 	/** A tracked tile that completes at a count. */
@@ -471,6 +445,10 @@ public class PluginConfigResponse
 	{
 		public int requiredAmount;
 		public int currentAmount;     // the team's submitted progress so far
+		// Kill entries only: the most one image-less ping may credit, sent by the site for a counter
+		// whose ONE real action steps by more than 10 (a Foundry sword's reputation, a game's energy).
+		// 0/absent = 10 and a bigger burst goes as a screenshot proof — today's behaviour.
+		public int pingMax;
 	}
 
 	public static class TrackedDrop extends CountedTile
@@ -502,8 +480,6 @@ public class PluginConfigResponse
 		public String countMode;
 		// "distinct" pools: the items the team already has counted. A repeat of one adds nothing.
 		public List<Integer> countedItemIds;
-		// The site's one-sentence rule for this tile ("Complete 2 sets — …"). Null on older servers.
-		public String howItCounts;
 	}
 
 	public static class ItemRequirement
@@ -544,6 +520,30 @@ public class PluginConfigResponse
 		public String label;
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
 		public String completedBy; // crediting player of the finishing submission; null for stat/manual tiles
+		public Integer partOf; // a combo's part finishing: progress on the combo, not a tile complete
+	}
+
+	/**
+	 * A COMBO tile: done when its parts satisfy the rule ("any" one, "all", or at least {@code needed}
+	 * of them — "nOf"). The parts ride the ordinary tracked lists tagged {@code partOf}; this says how
+	 * they fold together. The site counts {@code done} and decides completion.
+	 */
+	public static class TrackedCombo extends TrackedTile
+	{
+		public String rule;
+		public int needed;
+		public int done;
+		public int percent; // rule "mix" only: weighted progress 0–100, done at 100
+		public List<ComboPart> parts;
+		public boolean completed;
+	}
+
+	public static class ComboPart
+	{
+		public int tileId;
+		public String label;
+		public boolean completed;
+		public Double weight; // rule "mix" only: this part's share (0..1, absent = 1)
 	}
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
@@ -561,6 +561,17 @@ public class PluginConfigResponse
 		// ride this list because the game's lap counter is the same chat line boss KC uses, so the
 		// matching is identical and only the noun differs. Null on older servers → "kill".
 		public String unit;
+		// A CAP counter of a capped tile ("100 searches paid for with event energy"): not a tile of its
+		// own. It carries a VIRTUAL tileId, -(capOf * 8 + slot), and credits exactly like any kill entry
+		// (submitted to that negative id) — the site only needs it counted. Never a row, pin or chat
+		// line. Absent on older servers.
+		public Integer capOf;
+
+		/** A capped tile's cap counter (counted and submitted silently). */
+		public boolean isCap()
+		{
+			return capOf != null && capOf > 0;
+		}
 
 		/** Singular noun for one credit on this tile — "kill" unless the server says otherwise. */
 		public String unitNoun()
@@ -613,6 +624,53 @@ public class PluginConfigResponse
 		public List<String> tasks;        // selectors — any matching one counts a completion
 	}
 
+	// Collection-log tile. Credited off "New item added to your collection log: X" when X is in
+	// `items` (null = any item); the site decides whether it is really a new slot for this player.
+	public static class TrackedClog extends CountedTile
+	{
+		public String mode;                        // "slots" | "complete" (finish pages)
+		public List<String> items;                 // names that count, normalised by key(); null = any
+		public Map<String, List<Integer>> groups;  // "complete": page -> its chosen item ids
+		public boolean completed;
+
+		/** Lowercase, punctuation as single spaces — the way the site writes {@code items}. */
+		static String key(String name)
+		{
+			return name == null ? "" : name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+		}
+
+		boolean complete()
+		{
+			return "complete".equals(mode);
+		}
+
+		/** Does this unlock count toward the tile? */
+		boolean counts(String itemName)
+		{
+			if (completed || itemName == null || (!complete() && currentAmount >= requiredAmount))
+			{
+				return false;
+			}
+			return items == null || items.contains(key(itemName));
+		}
+
+		/** "complete": is this open log page, with these obtained ids, one of the tile's finished pages? */
+		boolean pageFull(String page, int[] obtained)
+		{
+			List<Integer> want = completed || groups == null || page == null ? null : groups.get(page);
+			if (want == null || want.isEmpty() || obtained == null)
+			{
+				return false;
+			}
+			Set<Integer> have = new HashSet<>();
+			for (int id : obtained)
+			{
+				have.add(id);
+			}
+			return have.containsAll(want);
+		}
+	}
+
 	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
 	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
 	public static class TrackedTimed extends TrackedTile
@@ -620,8 +678,25 @@ public class PluginConfigResponse
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
 		public int partySize;              // raids — exact party size required; 0/absent = any size
+		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
 		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
 		public boolean completed;          // team already completed this tile
+		// Runs needed to complete (Barracuda Trials rank tiles: N qualifying runs) and the team's count
+		// so far. Boxed so an older server, which sends neither, stays exactly as before (a plain
+		// one-clear tile) — the panel's live counts only pick up a timed row that carries a count.
+		public Integer requiredAmount;
+		public Integer currentAmount;
+
+		/** Qualifying runs the tile needs — 1 for a plain timed tile and on older servers. */
+		public int runsRequired()
+		{
+			return requiredAmount == null || requiredAmount < 1 ? 1 : requiredAmount;
+		}
+
+		public int runsDone()
+		{
+			return currentAmount == null ? 0 : Math.max(0, currentAmount);
+		}
 	}
 
 	public static class TrackedLms extends CountedTile
@@ -640,8 +715,20 @@ public class PluginConfigResponse
 	{
 		public String activity;            // the raid, e.g. "Theatre of Blood"
 		public int partySize;              // exact party size required; 0/absent = any size
+		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
+		public boolean partyTeamOnly;      // every player in the raid must be on the team
+		// Shared runs, as on a kill tile: "per-kill" = teammates in the same run credit it once;
+		// coopMinMembers = at least that many of the team in it. The server judges both off the
+		// fingerprint this client attaches. Absent on older servers.
+		public String coopCredit;
+		public int coopMinMembers;
 		public int itemId = -1;            // activity's signature reward (icon), -1 = book sprite
 		public boolean completed;          // team already completed this tile
+
+		public boolean needsCoopFingerprint()
+		{
+			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
+		}
 	}
 
 	public static class TrackedValue extends TrackedTile
@@ -661,14 +748,7 @@ public class PluginConfigResponse
 		public int itemId = -1;     // boss KC tiles: the boss's representative clog item (icon); -1 for skills
 		public int currentAmount;   // gained XP / KC since baseline
 		public int goalAmount;
-		// Teammates (RSNs) actively grinding this stat tile right now, for the sidebar's "Active now".
-		// The caller is never included (the plugin marks itself "You"). null on older servers that don't
-		// compute it (the sidebar then falls back to an unnamed "a teammate" via config-count deltas);
-		// an empty list means the server DID compute it and no teammate is currently active.
-		public List<String> activeWorkers;
-		// Each of activeWorkers' event gain on this tile (KC / XP), index-matched; and the caller's own.
-		// Null / 0 on older servers — the row then names people without numbers.
-		public List<Long> activeWorkerGains;
+		// The caller's own event gain on this tile (KC / XP). 0 on older servers.
 		public long yourGained;
 	}
 }

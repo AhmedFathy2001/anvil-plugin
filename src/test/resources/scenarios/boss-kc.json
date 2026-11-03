@@ -1,0 +1,21 @@
+{
+  "name": "boss-kc",
+  "description": "One boss kill credited off the Jagex KC line alone (kill tiles for corpse-loot bosses)",
+  "params": {
+    "boss": "Araxxor",
+    "kc": "10"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${boss}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${boss} kill count is: ${kc}."
+      }
+    }
+  ]
+}

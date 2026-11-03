@@ -1,8 +1,6 @@
 package com.anvil;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 /**
  * How a drop should be *talked about*: was it lucky, was it a long-overdue grind, or is it a rare

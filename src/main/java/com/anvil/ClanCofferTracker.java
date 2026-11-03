@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.Locale;
 
 /**
@@ -13,6 +14,7 @@ final class ClanCofferTracker
 {
 	private static final long ACTOR_WINDOW_MS = 15_000L;
 
+	@RequiredArgsConstructor
 	enum Kind
 	{
 		SNAPSHOT("snapshot"),
@@ -21,12 +23,9 @@ final class ClanCofferTracker
 
 		final String wire;
 
-		Kind(String wire)
-		{
-			this.wire = wire;
-		}
 	}
 
+	@RequiredArgsConstructor
 	static final class Observation
 	{
 		final Kind kind;
@@ -34,22 +33,17 @@ final class ClanCofferTracker
 		final int afterBalance;
 		final boolean actorConfirmed;
 
-		Observation(Kind kind, int beforeBalance, int afterBalance, boolean actorConfirmed)
-		{
-			this.kind = kind;
-			this.beforeBalance = beforeBalance;
-			this.afterBalance = afterBalance;
-			this.actorConfirmed = actorConfirmed;
-		}
 	}
 
 	private Integer lastBalance;
+	private Integer candidate;
 	private Kind recentSelfAction;
 	private long recentSelfActionAt;
 
 	void reset()
 	{
 		lastBalance = null;
+		candidate = null;
 		recentSelfAction = null;
 		recentSelfActionAt = 0L;
 	}
@@ -69,6 +63,13 @@ final class ClanCofferTracker
 	{
 		if (balance < 0)
 		{
+			return null;
+		}
+		// The coin stack can read empty for a tick while the container refreshes; a balance counts
+		// only once two polls in a row agree on it.
+		if (candidate == null || candidate != balance)
+		{
+			candidate = balance;
 			return null;
 		}
 		if (lastBalance == null)

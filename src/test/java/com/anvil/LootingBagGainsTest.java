@@ -40,8 +40,8 @@ public class LootingBagGainsTest
 	@Test
 	public void matchesBothChestLines()
 	{
-		assertTrue(AnvilPlugin.LARRAN_OPENED.matcher("You have opened Larran's big chest 12 times.").matches());
-		assertTrue(AnvilPlugin.LARRAN_OPENED.matcher("You have opened Larran's small chest 1 time.").matches());
+		assertTrue(TestPatterns.get("chest.larran").matcher("You have opened Larran's big chest 12 times.").matches());
+		assertTrue(TestPatterns.get("chest.larran").matcher("You have opened Larran's small chest 1 time.").matches());
 	}
 
 	@Test

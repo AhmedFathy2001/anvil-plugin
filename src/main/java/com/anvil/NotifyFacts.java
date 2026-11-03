@@ -1,7 +1,6 @@
 package com.anvil;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 
 /**
  * What a clan notification says happened, for the site to turn into a Discord post.

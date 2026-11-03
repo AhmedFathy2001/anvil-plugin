@@ -4,20 +4,14 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.function.Predicate;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import net.runelite.api.Client;
-import net.runelite.api.MenuAction;
-import net.runelite.api.Player;
-import net.runelite.api.events.MenuEntryAdded;
-import net.runelite.api.events.MenuOptionClicked;
+import javax.inject.*;
+import net.runelite.api.*;
+import net.runelite.api.events.*;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.WidgetUtil;
-import net.runelite.client.eventbus.EventBus;
-import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.eventbus.*;
 import net.runelite.client.menus.MenuManager;
-import net.runelite.client.util.LinkBrowser;
-import net.runelite.client.util.Text;
+import net.runelite.client.util.*;
 
 /**
  * "Anvil" on a player's right-click menu: opens their character page, {@code /p/<rsn>}.
@@ -64,8 +58,8 @@ final class ProfileLookup
 		this.eventBus = eventBus;
 	}
 
-	/** The character page for {@code rsn}, or null when there is no name to look up. */
-	static String profileUrl(String rsn)
+	/** {@code rsn} as a path segment, or null when there is no name to look up. */
+	private static String pathName(String rsn)
 	{
 		if (rsn == null)
 		{
@@ -74,19 +68,21 @@ final class ProfileLookup
 		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
 		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
 		String name = rsn.replace(' ', ' ').trim();
-		if (name.isEmpty())
-		{
-			return null;
-		}
-		return BingoApiClient.CANONICAL_SITE + "/p/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+		return name.isEmpty() ? null : URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
 	}
 
-	/** The card API for {@code rsn} ({@code player-card} capability), or null when there is no name. */
-	static String apiCardUrl(String rsn)
+	/** The character page for {@code rsn}, or null when there is no name to look up. */
+	static String profileUrl(String rsn)
 	{
-		String page = profileUrl(rsn);
-		return page == null ? null
-			: BingoApiClient.CANONICAL_SITE + "/api/players/" + page.substring(page.lastIndexOf('/') + 1) + "/card";
+		String name = pathName(rsn);
+		return name == null ? null : BingoApiClient.CANONICAL_SITE + "/p/" + name;
+	}
+
+	/** {@code /api/players/<rsn>} plus {@code tail} ("/card", "/cas", …), or null when there is no name. */
+	static String apiPlayerUrl(String rsn, String tail)
+	{
+		String name = pathName(rsn);
+		return name == null ? null : BingoApiClient.CANONICAL_SITE + "/api/players/" + name + tail;
 	}
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
@@ -224,7 +220,7 @@ final class ProfileLookup
 		}
 		// One per name. A name's menu often carries two of the options we sit beside ("Add friend" and
 		// "Add ignore" on a stranger in chat), and each used to add its own "Anvil".
-		for (net.runelite.api.MenuEntry existing : client.getMenu().getMenuEntries())
+		for (MenuEntry existing : client.getMenu().getMenuEntries())
 		{
 			if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget()))
 			{

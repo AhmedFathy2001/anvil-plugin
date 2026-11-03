@@ -1,16 +1,13 @@
 package com.anvil;
 
 import java.awt.image.BufferedImage;
-import java.util.Collections;
-import java.util.Objects;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.util.*;
+import javax.inject.*;
 import net.runelite.api.Client;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.events.PluginMessage;
-import net.runelite.client.ui.overlay.worldmap.WorldMapPoint;
-import net.runelite.client.ui.overlay.worldmap.WorldMapPointManager;
+import net.runelite.client.ui.overlay.worldmap.*;
 import net.runelite.client.util.ImageUtil;
 
 /**

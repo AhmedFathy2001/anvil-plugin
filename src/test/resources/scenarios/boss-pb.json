@@ -1,0 +1,27 @@
+{
+  "name": "boss-pb",
+  "description": "Timed clear: boss death, KC line, then the fight-duration personal-best line",
+  "params": {
+    "boss": "Vorkath",
+    "kc": "100",
+    "time": "1:36"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${boss}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${boss} kill count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "message": "Fight duration: ${time} (new personal best)."
+      }
+    }
+  ]
+}

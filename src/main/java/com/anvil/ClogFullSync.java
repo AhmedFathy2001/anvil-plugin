@@ -1,8 +1,6 @@
 package com.anvil;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Collects a WHOLE collection log, as the server transmits it.

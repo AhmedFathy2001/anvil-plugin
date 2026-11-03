@@ -23,7 +23,7 @@ public class ClogUnlockLineTest
 {
 	private static Matcher match(String line)
 	{
-		return AnvilPlugin.CLAN_CLOG_BROADCAST_PATTERN.matcher(line);
+		return TestPatterns.get("clog.clan_broadcast").matcher(line);
 	}
 
 	@Test
