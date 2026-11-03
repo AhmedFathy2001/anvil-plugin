@@ -3772,6 +3772,7 @@ public class AnvilPlugin extends Plugin {
 		if (msg == null || msg.isEmpty()) {
 			return;
 		}
+		maybeFlairSender(event);
 
 		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
 		// the actor included. Each client reports only its own player's line; the site books the
@@ -7208,6 +7209,45 @@ public class AnvilPlugin extends Plugin {
 	private ChatPatterns.OverridesResponse chatPatternsApplied;
 	private static final long CHAT_PATTERNS_EVERY_MS = 30 * 60_000L;
 
+	private final ChatFlair chatFlair = new ChatFlair();
+	private long chatFlairFetchedAt;
+	private static final long CHAT_FLAIR_EVERY_MS = 10 * 60_000L;
+	// Where a sender's name is a player who typed: Supporter flair goes on these (ChatFlair).
+	private static final Set<ChatMessageType> FLAIR_CHAT = EnumSet.of(
+			ChatMessageType.PUBLICCHAT,
+			ChatMessageType.MODCHAT,
+			ChatMessageType.PRIVATECHAT,
+			ChatMessageType.MODPRIVATECHAT,
+			ChatMessageType.FRIENDSCHAT,
+			ChatMessageType.CLAN_CHAT,
+			ChatMessageType.CLAN_GUEST_CHAT,
+			ChatMessageType.CLAN_GIM_CHAT);
+
+	/** Config-poll thread only: the Supporter names list, every 10 minutes (an ETag makes most a 304). */
+	private void maybeRefreshChatFlair(PluginConfigResponse cfg) {
+		if (!config.supporterChatFlair()
+				|| !((cfg != null && cfg.serverSupports("chat-flair")) || apiClient.siteAdvertises("chat-flair"))) {
+			return;
+		}
+		long at = now();
+		if (at - chatFlairFetchedAt < CHAT_FLAIR_EVERY_MS) {
+			return;
+		}
+		chatFlairFetchedAt = at;
+		chatFlair.adopt(apiClient.fetchChatFlair());
+	}
+
+	/** Client thread (onChatMessage): paint a Supporter's name before the line is drawn. */
+	private void maybeFlairSender(ChatMessage event) {
+		if (!FLAIR_CHAT.contains(event.getType()) || chatFlair.isEmpty() || !config.supporterChatFlair()) {
+			return;
+		}
+		String painted = chatFlair.decorate(event.getName(), chatStar());
+		if (painted != null && event.getMessageNode() != null) {
+			event.getMessageNode().setName(painted);
+		}
+	}
+
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */
 	private void maybeRefreshChatPatterns(PluginConfigResponse cfg) {
 		if (cfg == null || !cfg.serverSupports("chat-patterns")) {
@@ -7412,6 +7452,7 @@ public class AnvilPlugin extends Plugin {
 			noteConnectionOk();
 			adoptResolvedClan(fresh);
 			maybeRefreshChatPatterns(fresh);
+			maybeRefreshChatFlair(fresh);
 
 			// Token validated but the caller has no active event right now (server
 			// returns event: null + noActiveEvent: true). Clear local state so tracking

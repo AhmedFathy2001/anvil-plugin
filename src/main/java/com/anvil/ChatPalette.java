@@ -122,7 +122,7 @@ final class ChatPalette
 		{
 			int cp = safeName.codePointAt(off);
 			off += Character.charCount(cp);
-			if (!Character.isWhitespace(cp))
+			if (!Character.isWhitespace(cp) && !Character.isSpaceChar(cp))
 			{
 				double t = n == 1 ? 0 : (double) i / (n - 1) * (rgb.size() - 1);
 				int seg = Math.min((int) t, rgb.size() - 2);

@@ -98,6 +98,18 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "supporterChatFlair",
+		name = "Supporter names in chat",
+		description = "Show Anvil Supporters' name colours (and a Patron's star) in public, clan, friends and private chat. The list of names is downloaded from Anvil; nothing about who you see is sent.",
+		position = 4,
+		section = "chatSection"
+	)
+	default boolean supporterChatFlair()
+	{
+		return true;
+	}
+
 	// ---- Setup ----
 
 	// No Site URL: the plugin only talks to https://anvilosrs.com (BingoApiClient.CANONICAL_SITE).

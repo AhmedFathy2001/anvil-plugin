@@ -854,6 +854,12 @@ public class BingoApiClient
 			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
 	}
 
+	/** GET /api/plugin/chat-flair — Supporters' names and colours (ChatFlair). Global; null on any failure. */
+	ChatFlair.Response fetchChatFlair()
+	{
+		return etagGetOrNull(rootUrl("/api/plugin/chat-flair"), ChatFlair.Response.class, polls, "Chat flair");
+	}
+
 	/** A non-2xx answer, from any call: every refusal this client throws is one, so callers can go by {@link #code}. */
 	static class HttpStatusException extends IOException
 	{
