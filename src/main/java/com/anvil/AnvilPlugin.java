@@ -1510,6 +1510,13 @@ public class AnvilPlugin extends Plugin {
 			cancel(task);
 		}
 		loopTasks.clear();
+		synchronized (this) {
+			if (feedLinger != null) {
+				feedLinger.cancel(false);
+				feedLinger = null;
+			}
+			feedWatching = false;
+		}
 		cancel(pendingRefresh);
 		pendingRefresh = null;
 		synchronized (moments) {
@@ -7252,14 +7259,45 @@ public class AnvilPlugin extends Plugin {
 	 * Live push on, off, or re-ticketed: it listens for the board (and team) this config answers for,
 	 * so a new one of either needs a new ticket. Off where the site doesn't run it.
 	 */
+	/** The Feed tab is on screen (or was, within the last minute): only then does a player with no board listen. */
+	private volatile boolean feedWatching;
+	private ScheduledFuture<?> feedLinger;
+
+	/**
+	 * The side panel's Feed tab came on screen, or went. A player on a board already listens, so this
+	 * only opens (or, a minute after the tab goes, closes) the socket of one who isn't.
+	 */
+	void feedOnScreen(boolean on) {
+		ScheduledExecutorService ex = executor;
+		if (ex == null) {
+			return;
+		}
+		synchronized (this) {
+			if (feedLinger != null) {
+				feedLinger.cancel(false);
+				feedLinger = null;
+			}
+			if (on) {
+				feedWatching = true;
+				ex.execute(() -> safely("push", this::syncPush));
+			} else if (feedWatching) {
+				feedLinger = ex.schedule(() -> safely("push", () -> {
+					feedWatching = false;
+					syncPush();
+				}), 60, TimeUnit.SECONDS);
+			}
+		}
+	}
+
 	private void syncPush() {
 		PushSocket p = pushSocket;
 		PluginConfigResponse cfg = pluginConfig;
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
 		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
 		boolean feed = config.chatFeed() && serverSupportsCap("chat-feed");
-		// The panel's Feed tab listens for live rows (its clan's moments, a board's chat) with no board too.
-		boolean rows = serverSupportsCap("panel-rows");
+		// The panel's Feed tab listens for live rows (its clan's moments) with no board too — but only while
+		// it's on screen. On a board the socket is open anyway, so the flag would only cost a reconnect.
+		boolean rows = eventId == 0 && feedWatching && serverSupportsCap("panel-rows");
 		if (p != null) {
 			p.scope((eventId > 0 || feed || rows) && apiClient.isConfigured() && serverSupportsCap("push-ws")
 					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") : null);

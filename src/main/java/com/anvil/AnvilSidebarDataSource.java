@@ -38,6 +38,16 @@ public class AnvilSidebarDataSource
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	private volatile AnvilPlugin plugin;
 
+	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
+	public void feedOnScreen(boolean on)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.feedOnScreen(on);
+		}
+	}
+
 	public void setPlugin(AnvilPlugin plugin)
 	{
 		this.plugin = plugin;

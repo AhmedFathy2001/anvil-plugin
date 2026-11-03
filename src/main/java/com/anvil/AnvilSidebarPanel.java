@@ -475,6 +475,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void selectTab(Tab next)
 	{
 		tab = next;
+		dataSource.feedOnScreen(onScreen && next == Tab.FEED);
 		tabBody.removeAll();
 		tabBody.add(next == Tab.CLAN ? content : next == Tab.FEED ? feedView : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
 			BorderLayout.NORTH);
@@ -815,6 +816,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void onActivate()
 	{
 		onScreen = true;
+		dataSource.feedOnScreen(tab == Tab.FEED);
 		refresh();
 		autoRefresh.start();
 		clanView.resume();
@@ -828,6 +830,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void onDeactivate()
 	{
 		onScreen = false;
+		dataSource.feedOnScreen(false);
 		autoRefresh.stop();
 		clanView.stop();
 		youView.stop();
