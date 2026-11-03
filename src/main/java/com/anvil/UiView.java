@@ -559,7 +559,7 @@ final class UiView extends JPanel
 	{
 		String s = n.has("at") ? ago(str(n, "at")) : str(n, "s");
 		Color ink = color(str(n, "color"), Color.WHITE);
-		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new JLabel();
+		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new ClipLabel();
 		l.setFont(font(str(n, "font")));
 		l.setForeground(ink);
 		String align = str(n, "align");
@@ -605,13 +605,13 @@ final class UiView extends JPanel
 				stops.add(teamColor(e.getAsString(), fallback));
 			}
 		}
-		return stops.size() < 2 ? new JLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
+		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
 
 	private JComponent icon(JsonObject n)
 	{
 		boolean dim = bool(n, "dim");
-		JLabel l = new JLabel()
+		JLabel l = new ClipLabel()
 		{
 			@Override
 			protected void paintComponent(Graphics g)
@@ -764,7 +764,7 @@ final class UiView extends JPanel
 		};
 		for (String name : bodies.keySet())
 		{
-			JLabel l = onClick(new JLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
+			JLabel l = onClick(new ClipLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
 			l.setFont(SMALL);
 			l.setOpaque(true);
 			l.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
@@ -784,7 +784,7 @@ final class UiView extends JPanel
 		wrap.setOpaque(false);
 		JPanel head = Ui.row(5);
 		head.add(node(n.getAsJsonObject("head")), BorderLayout.CENTER);
-		JLabel chevron = new JLabel();
+		JLabel chevron = new ClipLabel();
 		head.add(chevron, BorderLayout.EAST);
 		JComponent body = node(n.getAsJsonObject("c"));
 		boolean chev = bool(n, "chev");

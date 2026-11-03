@@ -80,8 +80,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	private boolean lookupClans;
-	private final JLabel lookupModePlayers = new JLabel("Players", SwingConstants.CENTER);
-	private final JLabel lookupModeClans = new JLabel("Clans", SwingConstants.CENTER);
+	private final JLabel lookupModePlayers = new ClipLabel("Players", SwingConstants.CENTER);
+	private final JLabel lookupModeClans = new ClipLabel("Clans", SwingConstants.CENTER);
 	/** The site-built views: the Clan tab, the You tab, and what Lookup found. */
 	private final UiView clanView;
 	private final UiView youView;
@@ -100,7 +100,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JTextField lookupSearch = new JTextField();
 	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
 	private LookupSuggestions lookupCompleter;
-	private final JLabel lookupClear = new JLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
+	private final JLabel lookupClear = new ClipLabel(new GlyphIcon(GlyphIcon.Shape.CLOSE, 10, MUTED));
 	private final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
 	private final LinkedList<String> recentLookups = new LinkedList<>();
@@ -125,9 +125,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
-	private final JLabel pasteTokenLink = new JLabel("Paste a token instead");
+	private final JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
 	/** Opens the account menu: Not my account / Sign out. */
-	private final JLabel accountMenuLink = new JLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
+	private final JLabel accountMenuLink = new ClipLabel(new GlyphIcon(GlyphIcon.Shape.ELLIPSIS, 14));
 	/**
 	 * Between {@link #onActivate} and {@link #onDeactivate}. Off screen, a refresh is skipped outright:
 	 * XP bumps, config changes and logins all ask for one, and drawing a panel nobody can see is EDT
@@ -322,14 +322,14 @@ public class AnvilSidebarPanel extends PluginPanel
 			if (t == Tab.SETTINGS)
 			{
 				// An icon, not a fourth word: three named tabs and a narrow gear keep the strip calm.
-				label = new JLabel(new GlyphIcon(GlyphIcon.Shape.GEAR, 13), SwingConstants.CENTER);
+				label = new ClipLabel(new GlyphIcon(GlyphIcon.Shape.GEAR, 13), SwingConstants.CENTER);
 				label.setToolTipText("Syncing and settings");
 				label.setPreferredSize(new Dimension(34, label.getPreferredSize().height));
 				gc.weightx = 0;
 			}
 			else
 			{
-				label = new JLabel(t == Tab.CLAN ? "Clan" : t == Tab.FEED ? "Feed" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
+				label = new ClipLabel(t == Tab.CLAN ? "Clan" : t == Tab.FEED ? "Feed" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
 				label.setFont(SMALL);
 				gc.weightx = 1;
 			}
@@ -712,7 +712,7 @@ public class AnvilSidebarPanel extends PluginPanel
 					wrap.add(small(" · ", MUTED));
 				}
 				first = false;
-				wrap.add(styleLink(new JLabel(plainText(n)), plainText("Look up " + n), () -> showLookup(n)));
+				wrap.add(styleLink(new ClipLabel(plainText(n)), plainText("Look up " + n), () -> showLookup(n)));
 			}
 			wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrap.getPreferredSize().height * 2));
 			lookupRecentRow.add(wrap);
@@ -1414,7 +1414,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		// The picker STAYS. Switching clan renders this state on purpose, and yanking the control the
 		// member is holding — then putting it back a second later — reads as the click having failed.
-		JLabel loading = new JLabel("Loading progress…", SwingConstants.CENTER);
+		JLabel loading = new ClipLabel("Loading progress…", SwingConstants.CENTER);
 		loading.setForeground(MUTED);
 		loading.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
 		setContent(loading);
@@ -1466,7 +1466,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		card.add(gap(6));
 		card.add(note("You don't need a clan: your profile is your own. If you run one, starting it"
 			+ " there is free too."));
-		JLabel site = styleLink(new JLabel(BingoApiClient.site().replaceFirst("^https?://", "")), "Open Anvil in your browser",
+		JLabel site = styleLink(new ClipLabel(BingoApiClient.site().replaceFirst("^https?://", "")), "Open Anvil in your browser",
 			() -> LinkBrowser.browse(BingoApiClient.site()));
 		site.setIcon(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11));
 		site.setHorizontalTextPosition(SwingConstants.LEADING);
@@ -1484,7 +1484,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private static JLabel note(String text, Color color)
 	{
-		JLabel label = new JLabel(wrapHtml(esc(text == null ? "" : text), STATUS_WRAP_PX));
+		JLabel label = new ClipLabel(wrapHtml(esc(text == null ? "" : text), STATUS_WRAP_PX));
 		label.setFont(SMALL);
 		label.setForeground(color);
 		return label;
@@ -1957,8 +1957,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private static final class ClanChoiceRenderer implements ListCellRenderer<ClanChoice>
 	{
 		private final JPanel row = new JPanel(new BorderLayout(0, 1));
-		private final JLabel name = new JLabel();
-		private final JLabel detail = new JLabel();
+		private final JLabel name = new ClipLabel();
+		private final JLabel detail = new ClipLabel();
 
 		ClanChoiceRenderer()
 		{

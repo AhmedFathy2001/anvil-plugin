@@ -82,12 +82,31 @@ final class FeedList extends JPanel
 	private final Consumer<JsonObject> act;
 	private final int cap;
 	private final RowModel model = new RowModel();
-	private final JList<JsonObject> list = new JList<>(model);
+	private final JList<JsonObject> list = new JList<JsonObject>(model)
+	{
+		/** A row's whole text, for when the width cut it short. */
+		@Override
+		public String getToolTipText(MouseEvent e)
+		{
+			int i = locationToIndex(e.getPoint());
+			Rectangle b = i < 0 ? null : getCellBounds(i, i);
+			if (b == null || !b.contains(e.getPoint()))
+			{
+				return null;
+			}
+			JsonObject r = model.getElementAt(i);
+			String title = UiView.str(r, "title");
+			String line = title.isEmpty() ? (UiView.str(r, "who") + " " + UiView.str(r, "text")).trim()
+				: title + " — " + UiView.str(r, "who") + (UiView.str(r, "tag").isEmpty() ? "" : " · " + UiView.str(r, "tag"));
+			String value = UiView.str(r, "value");
+			return line.isEmpty() ? null : Ui.wrapHtml(esc(Ui.fontSafe(line + (value.isEmpty() ? "" : " · " + value))), 200);
+		}
+	};
 	private final JScrollPane scroll;
 	private final JLabel empty;
-	private final JLabel newPill = new JLabel("", SwingConstants.CENTER);
-	private final JLabel error = new JLabel();
-	private final JLabel lockLine = new JLabel();
+	private final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
+	private final JLabel error = new ClipLabel();
+	private final JLabel lockLine = new ClipLabel();
 	private JTextField input;
 	private JsonObject send;
 	/** Arrived since the last flush, oldest first. */
@@ -126,6 +145,7 @@ final class FeedList extends JPanel
 		list.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		list.setFocusable(false);
+		javax.swing.ToolTipManager.sharedInstance().registerComponent(list);
 		list.addMouseListener(new Clicks());
 		// Chat rows wrap to the width: a new width means new heights, so drop JList's cached ones.
 		list.addComponentListener(new ComponentAdapter()
@@ -174,7 +194,8 @@ final class FeedList extends JPanel
 			}
 		});
 
-		empty = new JLabel(plainText(UiView.str(n, "empty")));
+		// Wrapped, not cut: the empty line is the only thing in the list.
+		empty = new ClipLabel(Ui.wrapHtml(esc(Ui.fontSafe(UiView.str(n, "empty"))), 170));
 		empty.setFont(SMALL);
 		empty.setForeground(MUTED);
 
@@ -336,7 +357,7 @@ final class FeedList extends JPanel
 		int max = send.has("max") ? send.get("max").getAsInt() : 200;
 		((AbstractDocument) input.getDocument()).setDocumentFilter(new MaxLength(max));
 		input.addActionListener(e -> sendNow());
-		JLabel hint = new JLabel(plainText(UiView.str(send, "hint") + " — Enter to send"));
+		JLabel hint = new ClipLabel(plainText(UiView.str(send, "hint") + " — Enter to send"));
 		hint.setFont(SMALL);
 		hint.setForeground(MUTED);
 		error.setFont(SMALL);
@@ -661,11 +682,11 @@ final class FeedList extends JPanel
 
 	private final class RowRenderer extends JPanel implements ListCellRenderer<JsonObject>
 	{
-		private final JLabel icon = new JLabel();
-		private final JLabel line1 = new JLabel();
-		private final JLabel line2 = new JLabel();
-		private final JLabel value = new JLabel();
-		private final JLabel gz = new JLabel();
+		private final JLabel icon = new ClipLabel();
+		private final JLabel line1 = new ClipLabel();
+		private final JLabel line2 = new ClipLabel();
+		private final JLabel value = new ClipLabel();
+		private final JLabel gz = new ClipLabel();
 
 		RowRenderer()
 		{
