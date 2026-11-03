@@ -7258,9 +7258,11 @@ public class AnvilPlugin extends Plugin {
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
 		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
 		boolean feed = config.chatFeed() && serverSupportsCap("chat-feed");
+		// The panel's Feed tab listens for live rows (its clan's moments, a board's chat) with no board too.
+		boolean rows = serverSupportsCap("panel-rows");
 		if (p != null) {
-			p.scope((eventId > 0 || feed) && apiClient.isConfigured() && serverSupportsCap("push-ws")
-					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") : null);
+			p.scope((eventId > 0 || feed || rows) && apiClient.isConfigured() && serverSupportsCap("push-ws")
+					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") : null);
 		}
 	}
 
@@ -7279,6 +7281,14 @@ public class AnvilPlugin extends Plugin {
 	private void applyPush(JsonObject m) {
 		if ("feed".equals(m.get("t").getAsString())) {
 			feedLine(m);
+			return;
+		}
+		if (m.get("t").getAsString().startsWith("rows")) {
+			// Panel rows (the Feed tab's lists): never the chatbox, never capped — the list batches them.
+			AnvilSidebarPanel panel = sidebarPanel;
+			if (panel != null) {
+				panel.feedPush(m);
+			}
 			return;
 		}
 		PluginConfigResponse cfg = pluginConfig;

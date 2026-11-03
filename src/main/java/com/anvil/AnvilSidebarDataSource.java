@@ -244,6 +244,12 @@ public class AnvilSidebarDataSource
 	 * clan (a 404 config carries none). The You and Lookup tabs are exactly what someone without a
 	 * clan should still get.
 	 */
+	/** The site serves the Feed tab's live lists (capability 'panel-rows'). */
+	public boolean feedTabAvailable()
+	{
+		return siteSupports("panel-rows");
+	}
+
 	private boolean siteSupports(String capability)
 	{
 		PluginConfigResponse cfg = configSupplier.get();

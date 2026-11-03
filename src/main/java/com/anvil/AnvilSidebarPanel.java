@@ -67,7 +67,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	// the site builds (UiView), and only exist while it does (the `plugin-ui` capability): without it
 	// the strip hides and the Clan tab says the site is too old, with Sync profile and the sound lists
 	// under it (renderEmpty).
-	enum Tab { CLAN, YOU, LOOKUP, SETTINGS }
+	enum Tab { CLAN, FEED, YOU, LOOKUP, SETTINGS }
 	private Tab tab = Tab.CLAN;
 	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
 	private boolean tabsOn;
@@ -86,6 +86,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final UiView clanView;
 	private final UiView youView;
 	private final UiView lookupView;
+	/** The Feed tab: the clan's and the board's live lists, and the board's chat (view 'feed'). */
+	private final UiView feedView;
 	/** Whose card You holds. */
 	private String youRsn;
 	/** The Clan tab has asked for its view since it was last reset (sign-in, a clan switch). */
@@ -184,6 +186,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		clanView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 		youView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 		lookupView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+		feedView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -326,7 +329,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 			else
 			{
-				label = new JLabel(t == Tab.CLAN ? "Clan" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
+				label = new JLabel(t == Tab.CLAN ? "Clan" : t == Tab.FEED ? "Feed" : t == Tab.YOU ? "You" : "Lookup", SwingConstants.CENTER);
 				label.setFont(SMALL);
 				gc.weightx = 1;
 			}
@@ -473,7 +476,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		tab = next;
 		tabBody.removeAll();
-		tabBody.add(next == Tab.CLAN ? content : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
+		tabBody.add(next == Tab.CLAN ? content : next == Tab.FEED ? feedView : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
 			BorderLayout.NORTH);
 		tabBody.revalidate();
 		styleTabs();
@@ -481,6 +484,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		if (next == Tab.YOU)
 		{
 			renderYou(true);
+		}
+		else if (next == Tab.FEED)
+		{
+			renderFeed();
 		}
 		else if (next == Tab.SETTINGS)
 		{
@@ -715,6 +722,26 @@ public class AnvilSidebarPanel extends PluginPanel
 	}
 
 	/**
+	 * The Feed tab. Opening it asks again (the list is live from there on, push rows grow it), so a
+	 * row missed while the socket was down is back the next time anyone looks.
+	 */
+	private void renderFeed()
+	{
+		if (!dataSource.feedTabAvailable())
+		{
+			feedView.say("Your Anvil site doesn't serve the live feed yet.");
+			return;
+		}
+		feedView.show("feed", Collections.emptyMap(), "Loading the feed…");
+	}
+
+	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
+	public void feedPush(com.google.gson.JsonObject m)
+	{
+		SwingUtilities.invokeLater(() -> feedView.feedPush(m));
+	}
+
+	/**
 	 * Your own card and goals. Opening the tab fetches them again; a refresh only notices a change of
 	 * character, so the card isn't rebuilt (and its open section reset) every few seconds.
 	 */
@@ -787,6 +814,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		clanView.resume();
 		youView.resume();
 		lookupView.resume();
+		feedView.resume();
 		startProofTimer.start();
 	}
 
@@ -798,6 +826,7 @@ public class AnvilSidebarPanel extends PluginPanel
 		clanView.stop();
 		youView.stop();
 		lookupView.stop();
+		feedView.stop();
 		startProofTimer.stop();
 	}
 

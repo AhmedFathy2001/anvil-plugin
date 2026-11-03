@@ -97,6 +97,8 @@ final class UiView extends JPanel
 	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
 	private final List<Runnable> lives = new ArrayList<>();
 	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
+	/** Live lists on screen (node {@code feed}): push rows find them by id, see {@link #feedPush}. */
+	private final List<FeedList> feeds = new ArrayList<>();
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
@@ -165,6 +167,8 @@ final class UiView extends JPanel
 	/** Draw a view already in hand. */
 	void render(JsonObject view)
 	{
+		feeds.forEach(FeedList::stop);
+		feeds.clear();
 		slots.clear();
 		toggles.clear();
 		inputs.clear();
@@ -182,6 +186,47 @@ final class UiView extends JPanel
 		else
 		{
 			ticker.start();
+		}
+	}
+
+	/**
+	 * Push rows for the live lists ({@code {t:'rows'|'rowsdel'|'rowslock', feeds:[…]}}): each list
+	 * named takes them; nothing is redrawn. A lock names id prefixes (a board's every chat list).
+	 */
+	void feedPush(JsonObject m)
+	{
+		// A list whose slot was redrawn is no longer under this view: forget it.
+		feeds.removeIf(f -> !SwingUtilities.isDescendingFrom(f, this));
+		if (feeds.isEmpty() || !m.has("feeds") || !m.get("feeds").isJsonArray())
+		{
+			return;
+		}
+		java.util.Set<String> named = new java.util.HashSet<>();
+		for (JsonElement e : m.getAsJsonArray("feeds"))
+		{
+			named.add(e.getAsString());
+		}
+		String t = str(m, "t");
+		for (FeedList f : feeds)
+		{
+			if ("rowslock".equals(t))
+			{
+				if (f.hasBox() && named.stream().anyMatch(p -> f.id.equals(p) || f.id.startsWith(p + ":")))
+				{
+					f.lock(m.has("locked") && !m.get("locked").isJsonNull() ? str(m, "locked") : null);
+				}
+			}
+			else if (named.contains(f.id))
+			{
+				if ("rows".equals(t) && m.has("rows") && m.get("rows").isJsonArray())
+				{
+					f.add(m.getAsJsonArray("rows"));
+				}
+				else if ("rowsdel".equals(t) && m.has("ids") && m.get("ids").isJsonArray())
+				{
+					f.remove(m.getAsJsonArray("ids"));
+				}
+			}
 		}
 	}
 
@@ -417,6 +462,12 @@ final class UiView extends JPanel
 			case "native":
 				JComponent part = host.nativePart(str(n, "name"));
 				return part == null ? new JPanel() : part;
+			case "feed":
+			{
+				FeedList f = new FeedList(n, host, items, this::act);
+				feeds.add(f);
+				return left(f);
+			}
 			default:
 				return new JPanel(); // a block this version doesn't know is left out
 		}

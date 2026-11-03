@@ -377,9 +377,9 @@ public class BingoApiClient
 	 * Null when signed out, refused, or there's no board to listen to (204) — and when the socket it
 	 * names isn't on the site this plugin already talks to, which it never dials anywhere else.
 	 */
-	PushTicket fetchPushTicket(boolean feed)
+	PushTicket fetchPushTicket(boolean feed, boolean rows)
 	{
-		String path = "/api/plugin/push/ticket" + (feed ? "?feed=1" : "");
+		String path = "/api/plugin/push/ticket" + (feed ? "?feed=1" + (rows ? "&rows=1" : "") : rows ? "?rows=1" : "");
 		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class, "push ticket") : null;
 		HttpUrl socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
 		HttpUrl site = HttpUrl.parse(getApiUrl());
@@ -1054,7 +1054,8 @@ public class BingoApiClient
 
 	private Request.Builder uiRequest(String url)
 	{
-		return accountPaused ? publicRequest(url) : authedRequest(url);
+		// The panel draws the Feed tab: the site's clan card can keep its drop log short.
+		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1");
 	}
 
 	/**
