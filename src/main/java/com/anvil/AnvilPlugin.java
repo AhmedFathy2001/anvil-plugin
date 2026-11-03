@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.clan.*;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.http.api.worlds.WorldResult;
 import net.runelite.api.events.*;
 import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.ItemID;
@@ -126,6 +127,9 @@ public class AnvilPlugin extends Plugin {
 	private ItemManager itemManager;
 
 	@Inject
+	private WorldService worldService;
+
+	@Inject
 	private RarityService rarityService;
 
 	@Inject
@@ -167,6 +171,7 @@ public class AnvilPlugin extends Plugin {
 	// The in-game Clan Coffer is an absolute coin stack. The tracker converts widget reads into a
 	// baseline or signed transition; the server owns cross-client dedupe and the audited ledger.
 	private final ClanCofferTracker clanCofferTracker = new ClanCofferTracker();
+	private final ModeLines modeLines = new ModeLines();
 	private boolean clanCofferOpen;
 	private int clanCofferOpenTicks;
 
@@ -1915,7 +1920,25 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe
 	public void onWorldChanged(WorldChanged event) {
+		stampWorld();
+	}
+
+	/**
+	 * Tell the API client which world this is: the seasonal flag older sites read, plus the world's
+	 * flags and world-list activity the site maps to a game mode (lib/worldModes). The activity comes
+	 * from RuneLite's cached world list, so it costs nothing here and is null until that list has
+	 * loaded once — the flags alone still identify every mode RuneLite knows.
+	 */
+	private void stampWorld() {
+		EnumSet<WorldType> types = client.getWorldType();
+		String activity = null;
+		WorldResult worlds = worldService.getWorlds();
+		if (worlds != null) {
+			net.runelite.http.api.worlds.World w = worlds.findWorld(client.getWorld());
+			activity = w == null ? null : w.getActivity();
+		}
 		apiClient.setSeasonal(onSeasonalWorld());
+		apiClient.setWorld(WorldInfo.types(types), WorldInfo.activity(activity));
 	}
 
 	// --- Whole-log collection sync ---------------------------------------------------------------
@@ -2264,6 +2287,23 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	private void flushModeLines() {
+		List<String> batch = modeLines.drain(now());
+		PluginConfigResponse cfg = pluginConfig;
+		ScheduledExecutorService ex = executor;
+		if (batch == null || cfg == null || !cfg.serverSupports("mode-lines") || !apiClient.isConfigured()
+				|| ex == null || ex.isShutdown()) {
+			return;
+		}
+		ex.submit(() -> {
+			try {
+				apiClient.submitModeLines(batch);
+			} catch (IOException e) {
+				log.debug("Mode lines not sent: {}", e.getMessage());
+			}
+		});
+	}
+
 	/** Read the visible coffer after its item widgets have had a few ticks to populate. */
 	private void pollClanCoffer() {
 		if (!config.syncClanCoffer() || !clanCofferOpen
@@ -2342,6 +2382,7 @@ public class AnvilPlugin extends Plugin {
 				cfgNow != null && cfgNow.startProof != null ? cfgNow.startProof.location : null);
 		resolveDuplicateScroll();
 		trackClogOpen();
+		flushModeLines();
 		// KEEP THE TITLE-BAR BUTTONS HONEST WHILE THE WINDOW IS OPEN.
 		//
 		// They were drawn on two scripts and never reconsidered, so anything that changed while the
@@ -2809,7 +2850,7 @@ public class AnvilPlugin extends Plugin {
 		identityStampRetries = 0;
 		apiClient.setCurrentRsn(rsn);
 		apiClient.setAccountHash(accountHash);
-		apiClient.setSeasonal(onSeasonalWorld());
+		stampWorld();
 		tileTracker.forAccount(accountHash);
 		// "Not my account" on this install: send nothing at all while this character is logged in —
 		// no config, no hello, no drops. Set before anything below can fire a request. If the
@@ -3677,6 +3718,10 @@ public class AnvilPlugin extends Plugin {
 		// movement with it once a coffer reading shows the money.
 		if (event.getType() == ChatMessageType.CLAN_MESSAGE) {
 			maybeReportCofferLine(msg);
+		}
+		// On a game-mode world the site turns the game's announcements into relic/area/task posts.
+		if (event.getType() == ChatMessageType.GAMEMESSAGE && WorldInfo.separateSave(client.getWorldType())) {
+			modeLines.offer(msg, now());
 		}
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
@@ -9788,7 +9833,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * True when the current world's stats aren't the player's real main-game progression, so level-up
 	 * and total-level milestones must be suppressed. PvP Arena hands out a preset max-stat account;
-	 * Leagues (SEASONAL) / Deadman / Tournament / Beta / Fresh Start / Quest Speedrunning / LMS / no-save
+	 * Leagues (SEASONAL) / Deadman / hardcore / Tournament / Beta / Fresh Start / Quest Speedrunning / LMS / no-save
 	 * worlds are separate saves or preset loadouts. Hopping onto one otherwise spams "level 99!" for
 	 * stats the player never trained.
 	 */
@@ -9797,9 +9842,14 @@ public class AnvilPlugin extends Plugin {
 		return w != null && !Collections.disjoint(w, ARTIFICIAL_WORLDS);
 	}
 
-	private static final Set<WorldType> ARTIFICIAL_WORLDS = EnumSet.of(WorldType.PVP_ARENA, WorldType.SEASONAL,
-			WorldType.DEADMAN, WorldType.TOURNAMENT_WORLD, WorldType.BETA_WORLD, WorldType.FRESH_START_WORLD,
-			WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING, WorldType.NOSAVE_MODE);
+	private static final Set<WorldType> ARTIFICIAL_WORLDS;
+	static {
+		// Every separate-save mode (WorldInfo) plus the preset-loadout minigame worlds.
+		EnumSet<WorldType> w = EnumSet.copyOf(WorldInfo.SEPARATE_SAVE);
+		w.addAll(EnumSet.of(WorldType.PVP_ARENA, WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING,
+				WorldType.NOSAVE_MODE));
+		ARTIFICIAL_WORLDS = java.util.Collections.unmodifiableSet(w);
+	}
 
 	/** Which level-ups the clan and the player's own webhooks want; the clan's dropped without a channel. */
 	private LevelRules.Sets levelRules() {

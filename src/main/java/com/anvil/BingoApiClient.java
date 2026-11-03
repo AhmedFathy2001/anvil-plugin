@@ -38,6 +38,12 @@ public class BingoApiClient
 	private volatile String rsnHint;
 	/** True while the logged-in world is a seasonal (Leagues) world. Set from the plugin on login/hop. */
 	private volatile boolean seasonal;
+	// The world the player is on, as the site reads it (WorldInfo): its type flags and its world-list
+	// activity line. Sent as X-World-Types / X-World-Activity on every request so the site can tell
+	// a Deadman or Leagues drop from a main-game one wherever it lands, and copied into each
+	// notification so one resent later still says where it really happened. Null off a world.
+	private volatile String worldTypes;
+	private volatile String worldActivity;
 	// The logged-in character was marked "Not my account" on this install (AccountOptOut). While set,
 	// NOTHING carrying the Account Token leaves the client — isConfigured() says no, so every gated
 	// path stays quiet, and an interceptor refuses anything that slips past a gate. The one exception
@@ -276,6 +282,13 @@ public class BingoApiClient
 		this.seasonal = seasonal;
 	}
 
+	/** Called on login and every hop: the world's flags and activity, already cleaned (WorldInfo). */
+	public void setWorld(String types, String activity)
+	{
+		this.worldTypes = types;
+		this.worldActivity = activity;
+	}
+
 	/**
 	 * Anvil — the only server this plugin talks to. There is no Site URL setting: one site serves every
 	 * clan, and the clan is resolved from the Account Token.
@@ -485,6 +498,12 @@ public class BingoApiClient
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
 		else if (hint != null) b.header("X-RSN-Hint", hint);
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
+		// Ambient like the RSN. A queued notification carries its own copy in the payload (`world`),
+		// which the site prefers, so a resend from another world isn't misfiled by these.
+		String types = worldTypes;
+		String activity = worldActivity;
+		if (types != null) b.header("X-World-Types", types);
+		if (activity != null) b.header("X-World-Activity", activity);
 		return b;
 	}
 
@@ -578,6 +597,17 @@ public class BingoApiClient
 		if (seasonal)
 		{
 			payload.addProperty("seasonal", true);
+		}
+		// Where it happened, frozen into the post itself: the site routes Deadman, Leagues, hardcore
+		// and any mode it learns later off this (`seasonal` above stays for sites that predate it).
+		String types = worldTypes;
+		String activity = worldActivity;
+		if (types != null || activity != null)
+		{
+			JsonObject world = new JsonObject();
+			if (types != null) world.addProperty("types", types);
+			if (activity != null) world.addProperty("activity", activity);
+			payload.add("world", world);
 		}
 		if (content != null && !content.isEmpty())
 		{
@@ -1608,6 +1638,16 @@ public class BingoApiClient
 	 * POST /api/plugin/coffer/broadcast — this player's own coffer line from clan chat. The site parses
 	 * it and books it once a coffer reading shows the money.
 	 */
+	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
+	public void submitModeLines(java.util.List<String> lines) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+		lines.forEach(arr::add);
+		payload.add("lines", arr);
+		postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
+	}
+
 	public void submitCofferLine(String line, String clanName) throws IOException
 	{
 		JsonObject payload = new JsonObject();
