@@ -623,6 +623,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			@Override
+			public void gameFocus()
+			{
+				dataSource.gameFocus();
+			}
+
+			@Override
 			public JComponent nativePart(String name)
 			{
 				PluginConfigResponse.StartProof proof = "start-proof".equals(name) ? dataSource.startProof() : null;

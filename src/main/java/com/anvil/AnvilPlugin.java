@@ -7259,6 +7259,14 @@ public class AnvilPlugin extends Plugin {
 	 * Live push on, off, or re-ticketed: it listens for the board (and team) this config answers for,
 	 * so a new one of either needs a new ticket. Off where the site doesn't run it.
 	 */
+	/** Keyboard back to the game: typing in the panel's chat box must not leave the game deaf to keys. */
+	void gameFocus() {
+		java.awt.Canvas canvas = client.getCanvas();
+		if (canvas != null) {
+			canvas.requestFocusInWindow();
+		}
+	}
+
 	/** The Feed tab is on screen (or was, within the last minute): only then does a player with no board listen. */
 	private volatile boolean feedWatching;
 	private ScheduledFuture<?> feedLinger;

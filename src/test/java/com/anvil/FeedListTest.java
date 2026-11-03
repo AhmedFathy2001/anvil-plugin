@@ -18,6 +18,13 @@ public class FeedListTest
 	private static final class Host implements UiView.Host
 	{
 		final List<String> posts = new ArrayList<>();
+		int gameFocus;
+
+		@Override
+		public void gameFocus()
+		{
+			gameFocus++;
+		}
 		final List<Consumer<JsonObject>> pending = new ArrayList<>();
 
 		@Override
@@ -172,10 +179,12 @@ public class FeedListTest
 		assertEquals("kept for another try", "hello ther", f.box().getText());
 		assertSame("the view was not redrawn", f, find(v));
 
+		assertEquals("a refused line keeps the keyboard in the box", 0, host.gameFocus);
 		f.box().postActionEvent();
 		host.pending.get(1).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
 		assertNull(f.errorLine());
 		assertEquals("", f.box().getText());
+		assertEquals("a sent line hands the keyboard back to the game", 1, host.gameFocus);
 	}
 
 	@Test

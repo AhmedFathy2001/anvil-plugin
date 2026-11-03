@@ -38,6 +38,16 @@ public class AnvilSidebarDataSource
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	private volatile AnvilPlugin plugin;
 
+	/** Hand the keyboard back to the game canvas. */
+	public void gameFocus()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.gameFocus();
+		}
+	}
+
 	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
 	public void feedOnScreen(boolean on)
 	{

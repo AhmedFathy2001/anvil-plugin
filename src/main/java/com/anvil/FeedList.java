@@ -449,6 +449,16 @@ final class FeedList extends JPanel
 		int max = send.has("max") ? send.get("max").getAsInt() : 200;
 		((AbstractDocument) input.getDocument()).setDocumentFilter(new MaxLength(max));
 		input.addActionListener(e -> sendNow());
+		// Escape hands the keyboard back to the game without sending.
+		input.getInputMap().put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), "anvil-game");
+		input.getActionMap().put("anvil-game", new javax.swing.AbstractAction()
+		{
+			@Override
+			public void actionPerformed(java.awt.event.ActionEvent e)
+			{
+				host.gameFocus();
+			}
+		});
 		JLabel hint = new ClipLabel(plainText(UiView.str(send, "hint") + " — Enter to send"));
 		hint.setFont(SMALL);
 		hint.setForeground(MUTED);
@@ -468,25 +478,32 @@ final class FeedList extends JPanel
 		return box;
 	}
 
+	/** A send on its way: Enter again does nothing (the box is never disabled — that moves focus). */
+	private boolean sending;
+
+	/**
+	 * Post the line. Sent, the keyboard goes straight back to the game, so Key Remapping, WASD and
+	 * Enter-to-chat work as before; refused, it stays in the box so the line can be fixed.
+	 */
 	private void sendNow()
 	{
 		String text = input.getText().trim();
-		if (text.isEmpty() || !input.isEnabled())
+		if (text.isEmpty() || !input.isEnabled() || sending)
 		{
 			return;
 		}
-		input.setEnabled(false);
+		sending = true;
 		Map<String, String> fields = new HashMap<>();
 		fields.put("msg", text);
 		host.post(UiView.str(send, "act"), UiView.strings(send.get("args")), fields, v -> {
-			input.setEnabled(lockLine.getText().isEmpty());
+			sending = false;
 			String err = errorOf(v);
+			showError(err);
 			if (err == null)
 			{
 				input.setText("");
+				host.gameFocus();
 			}
-			showError(err);
-			input.requestFocusInWindow();
 		});
 	}
 

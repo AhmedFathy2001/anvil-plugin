@@ -53,6 +53,11 @@ final class UiView extends JPanel
 		JComponent nativePart(String name);
 
 		/** This client's newest count for a tile (its own progress, the live push's), or -1 for none. */
+		/** Give the keyboard back to the game (after a chat line is sent from the panel). */
+		default void gameFocus()
+		{
+		}
+
 		/** The signed-in character's name, so a live list can mark the viewer's own lines. */
 		default String myName()
 		{
