@@ -339,6 +339,32 @@ public class BingoApiClient
 			DeviceAuthStart.class, "auth/start");
 	}
 
+	/** GET /api/plugin/brief: the lines printed at login and the palette Anvil chat lines use. */
+	public static class Brief
+	{
+		public java.util.List<BriefLine> lines;
+		public Look look;
+	}
+
+	public static class BriefLine
+	{
+		public String tone;
+		public String text;
+	}
+
+	/** {@code colors} is null for "plain": the plugin's own prefix/text colours for everything. */
+	public static class Look
+	{
+		public String palette;
+		public java.util.Map<String, String> colors;
+	}
+
+	/** Asked like the config (the brief is built from the same answer). Null on any failure. */
+	Brief fetchBrief()
+	{
+		return isConfigured() ? getOrNull(authedRequest(configUrl("/api/plugin/brief")).get(), Brief.class, "brief") : null;
+	}
+
 	/** GET /api/plugin/push/ticket: a pass onto the live push socket ({@link PushSocket}). */
 	public static class PushTicket
 	{

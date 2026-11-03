@@ -1022,7 +1022,10 @@ final class UiView extends JPanel
 				return;
 			}
 			long secs = Math.max(0, (at - System.currentTimeMillis()) / 1000);
-			String clock = secs >= 3600
+			// Past a day, "4d 4h" — "100:15:48" reads as a clock, not as four days.
+			String clock = secs >= 86400
+				? String.format(Locale.ROOT, "%dd %dh", secs / 86400, secs % 86400 / 3600)
+				: secs >= 3600
 				? String.format(Locale.ROOT, "%d:%02d:%02d", secs / 3600, secs % 3600 / 60, secs % 60)
 				: String.format(Locale.ROOT, "%d:%02d", secs / 60, secs % 60);
 			l.setText(plainText(secs == 0 ? str(n, "due") : str(n, "prefix") + clock));

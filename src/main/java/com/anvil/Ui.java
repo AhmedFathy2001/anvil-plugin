@@ -43,12 +43,29 @@ final class Ui
 		{
 			return "";
 		}
+		s = fontSafe(s);
 		int i = 0;
 		while (i < s.length() && Character.isWhitespace(s.charAt(i)))
 		{
 			i++;
 		}
 		return s.regionMatches(true, i, "<html", 0, 5) ? esc(s) : s;
+	}
+
+	/**
+	 * The RuneScape fonts have no curly quotes or long dashes: on macOS they drew as a box ("You?re").
+	 * The site writes proper typography, so it is folded to the plain ASCII the font does have.
+	 */
+	static String fontSafe(String s)
+	{
+		if (s == null)
+		{
+			return null;
+		}
+		return s.replace('\u2019', '\'').replace('\u2018', '\'')
+			.replace('\u201C', '"').replace('\u201D', '"')
+			.replace('\u2013', '-').replace('\u2014', '-')
+			.replace("\u2026", "...");
 	}
 
 	/** Escape markup characters for text placed inside HTML we build ourselves. */

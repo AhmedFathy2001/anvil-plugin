@@ -23,6 +23,13 @@ public class UiTest
 	}
 
 	@Test
+	public void typographyFoldsToGlyphsTheFontHas()
+	{
+		assertEquals("You're not on the board yet", Ui.plainText("You\u2019re not on the board yet"));
+		assertEquals("\"Bingo\" - starting...", Ui.plainText("\u201CBingo\u201D \u2014 starting\u2026"));
+	}
+
+	@Test
 	public void countsReadTheSameEverywhere()
 	{
 		assertEquals("812", Ui.count(812));
