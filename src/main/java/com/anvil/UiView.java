@@ -507,7 +507,10 @@ final class UiView extends JPanel
 	private JComponent text(JsonObject n)
 	{
 		String s = n.has("at") ? ago(str(n, "at")) : str(n, "s");
-		JLabel l = label("", font(str(n, "font")), color(str(n, "color"), Color.WHITE));
+		Color ink = color(str(n, "color"), Color.WHITE);
+		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new JLabel();
+		l.setFont(font(str(n, "font")));
+		l.setForeground(ink);
 		String align = str(n, "align");
 		l.setHorizontalAlignment("r".equals(align) ? SwingConstants.RIGHT : "c".equals(align) ? SwingConstants.CENTER : SwingConstants.LEADING);
 		if (n.has("icon") && n.get("icon").isJsonObject())
@@ -538,6 +541,20 @@ final class UiView extends JPanel
 			l.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		}
 		return l;
+	}
+
+	/** A Supporter's name: up to four "#rrggbb" stops ({@code move}: sliding); else the plain colour. */
+	private static JLabel gradient(JsonArray grad, Color fallback, boolean move)
+	{
+		List<Color> stops = new ArrayList<>();
+		for (JsonElement e : grad)
+		{
+			if (stops.size() < 4 && e.isJsonPrimitive())
+			{
+				stops.add(teamColor(e.getAsString(), fallback));
+			}
+		}
+		return stops.size() < 2 ? new JLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
 
 	private JComponent icon(JsonObject n)
@@ -1221,6 +1238,8 @@ final class UiView extends JPanel
 				return GlyphIcon.Shape.EXTERNAL;
 			case "close":
 				return GlyphIcon.Shape.CLOSE;
+			case "star":
+				return GlyphIcon.Shape.STAR;
 			default:
 				return null;
 		}
