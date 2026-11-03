@@ -29,6 +29,27 @@ final class DropSource
 		return wikiName == null ? null : WIKI_QUALIFIER.matcher(wikiName).replaceFirst("").trim();
 	}
 
+	// A parenthetical that is NOT a wiki qualifier but part of the game's own counter name: the DT2
+	// awakened fights print "Your Vardorvis (awakened) kill count is: 3." as their own KC.
+	private static final Pattern MODE_QUALIFIER = Pattern.compile("\\(awakened\\)\\s*$", Pattern.CASE_INSENSITIVE);
+
+	/**
+	 * The kill-index key for a kill tile's target: lowercased, wiki qualifier dropped — except a
+	 * mode the game names itself ("Vardorvis (awakened)"). Stripping that folded the awakened tile
+	 * onto the base boss, so it counted every NORMAL kill (KC line "Vardorvis", and the loot event,
+	 * which names the NPC the same in both fights) and never its own awakened KC line.
+	 */
+	static String killTargetKey(String target)
+	{
+		if (target == null)
+		{
+			return null;
+		}
+		String trimmed = target.trim();
+		String name = MODE_QUALIFIER.matcher(trimmed).find() ? trimmed : inGameNpcName(trimmed);
+		return name.isEmpty() ? null : name.toLowerCase(java.util.Locale.ROOT);
+	}
+
 	/** True when the reported loot {@code source} is one of a tile's configured (wiki-named) NPCs. */
 	static boolean sourceMatches(List<String> sourceNpcs, String source)
 	{

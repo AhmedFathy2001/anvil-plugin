@@ -192,6 +192,12 @@ public class PluginConfigResponse
 	 * Null on sites that predate it — then nothing is read.
 	 */
 	public List<Integer> caVarps;
+	/**
+	 * Counters read off a varbit/varp (site lib/gameCounters, capability 'game-counters'): each
+	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on
+	 * sites that predate it — then nothing is read.
+	 */
+	public List<GameValueCounters.Entry> gameCounters;
 
 	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
 	// requires one; null everywhere else, including on sites that predate the 'start-proof'
@@ -271,7 +277,9 @@ public class PluginConfigResponse
 	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
 	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
+	public List<TrackedClog> trackedClog; // collection-log tiles (new slots / whole pages)
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
+	public List<TrackedCombo> trackedCombos;     // combo tiles: their parts ride the lists above (partOf)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
@@ -422,6 +430,14 @@ public class PluginConfigResponse
 		public String description;   // tile description, for the clog task accordion
 		public int points;           // Leagues-style reward value (0 = not a points event)
 		public String category;      // free-text grouping (boss/skill) for the clog task filter
+		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
+		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
+		public Integer partOf;
+
+		public boolean isPart()
+		{
+			return partOf != null && partOf > 0;
+		}
 	}
 
 	/** A tracked tile that completes at a count. */
@@ -429,6 +445,10 @@ public class PluginConfigResponse
 	{
 		public int requiredAmount;
 		public int currentAmount;     // the team's submitted progress so far
+		// Kill entries only: the most one image-less ping may credit, sent by the site for a counter
+		// whose ONE real action steps by more than 10 (a Foundry sword's reputation, a game's energy).
+		// 0/absent = 10 and a bigger burst goes as a screenshot proof — today's behaviour.
+		public int pingMax;
 	}
 
 	public static class TrackedDrop extends CountedTile
@@ -500,6 +520,30 @@ public class PluginConfigResponse
 		public String label;
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
 		public String completedBy; // crediting player of the finishing submission; null for stat/manual tiles
+		public Integer partOf; // a combo's part finishing: progress on the combo, not a tile complete
+	}
+
+	/**
+	 * A COMBO tile: done when its parts satisfy the rule ("any" one, "all", or at least {@code needed}
+	 * of them — "nOf"). The parts ride the ordinary tracked lists tagged {@code partOf}; this says how
+	 * they fold together. The site counts {@code done} and decides completion.
+	 */
+	public static class TrackedCombo extends TrackedTile
+	{
+		public String rule;
+		public int needed;
+		public int done;
+		public int percent; // rule "mix" only: weighted progress 0–100, done at 100
+		public List<ComboPart> parts;
+		public boolean completed;
+	}
+
+	public static class ComboPart
+	{
+		public int tileId;
+		public String label;
+		public boolean completed;
+		public Double weight; // rule "mix" only: this part's share (0..1, absent = 1)
 	}
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
@@ -517,6 +561,17 @@ public class PluginConfigResponse
 		// ride this list because the game's lap counter is the same chat line boss KC uses, so the
 		// matching is identical and only the noun differs. Null on older servers → "kill".
 		public String unit;
+		// A CAP counter of a capped tile ("100 searches paid for with event energy"): not a tile of its
+		// own. It carries a VIRTUAL tileId, -(capOf * 8 + slot), and credits exactly like any kill entry
+		// (submitted to that negative id) — the site only needs it counted. Never a row, pin or chat
+		// line. Absent on older servers.
+		public Integer capOf;
+
+		/** A capped tile's cap counter (counted and submitted silently). */
+		public boolean isCap()
+		{
+			return capOf != null && capOf > 0;
+		}
 
 		/** Singular noun for one credit on this tile — "kill" unless the server says otherwise. */
 		public String unitNoun()
@@ -569,6 +624,53 @@ public class PluginConfigResponse
 		public List<String> tasks;        // selectors — any matching one counts a completion
 	}
 
+	// Collection-log tile. Credited off "New item added to your collection log: X" when X is in
+	// `items` (null = any item); the site decides whether it is really a new slot for this player.
+	public static class TrackedClog extends CountedTile
+	{
+		public String mode;                        // "slots" | "complete" (finish pages)
+		public List<String> items;                 // names that count, normalised by key(); null = any
+		public Map<String, List<Integer>> groups;  // "complete": page -> its chosen item ids
+		public boolean completed;
+
+		/** Lowercase, punctuation as single spaces — the way the site writes {@code items}. */
+		static String key(String name)
+		{
+			return name == null ? "" : name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+		}
+
+		boolean complete()
+		{
+			return "complete".equals(mode);
+		}
+
+		/** Does this unlock count toward the tile? */
+		boolean counts(String itemName)
+		{
+			if (completed || itemName == null || (!complete() && currentAmount >= requiredAmount))
+			{
+				return false;
+			}
+			return items == null || items.contains(key(itemName));
+		}
+
+		/** "complete": is this open log page, with these obtained ids, one of the tile's finished pages? */
+		boolean pageFull(String page, int[] obtained)
+		{
+			List<Integer> want = completed || groups == null || page == null ? null : groups.get(page);
+			if (want == null || want.isEmpty() || obtained == null)
+			{
+				return false;
+			}
+			Set<Integer> have = new HashSet<>();
+			for (int id : obtained)
+			{
+				have.add(id);
+			}
+			return have.containsAll(want);
+		}
+	}
+
 	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
 	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
 	public static class TrackedTimed extends TrackedTile
@@ -579,6 +681,22 @@ public class PluginConfigResponse
 		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
 		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
 		public boolean completed;          // team already completed this tile
+		// Runs needed to complete (Barracuda Trials rank tiles: N qualifying runs) and the team's count
+		// so far. Boxed so an older server, which sends neither, stays exactly as before (a plain
+		// one-clear tile) — the panel's live counts only pick up a timed row that carries a count.
+		public Integer requiredAmount;
+		public Integer currentAmount;
+
+		/** Qualifying runs the tile needs — 1 for a plain timed tile and on older servers. */
+		public int runsRequired()
+		{
+			return requiredAmount == null || requiredAmount < 1 ? 1 : requiredAmount;
+		}
+
+		public int runsDone()
+		{
+			return currentAmount == null ? 0 : Math.max(0, currentAmount);
+		}
 	}
 
 	public static class TrackedLms extends CountedTile

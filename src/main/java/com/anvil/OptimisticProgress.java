@@ -15,6 +15,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class OptimisticProgress
 {
+	// Tile ids may be negative: a capped tile's cap counters carry virtual ids (-(tileId * 8 + slot),
+	// PluginConfigResponse.TrackedKill.capOf). Only 0 means "no tile".
 	static final long TTL_MS = 120_000;
 
 	/** tileId → {floor, expiresAt}. */
@@ -31,7 +33,7 @@ final class OptimisticProgress
 	/** This client now has the tile at {@code current} (an absolute team count it just bumped to). */
 	void raise(int tileId, long current, long now)
 	{
-		if (tileId <= 0 || current <= 0)
+		if (tileId == 0 || current <= 0)
 		{
 			return;
 		}
@@ -42,7 +44,7 @@ final class OptimisticProgress
 	/** This client gained {@code delta} on a tile the site last put at {@code siteCurrent}. */
 	void add(int tileId, long siteCurrent, long delta, long now)
 	{
-		if (tileId <= 0 || delta <= 0)
+		if (tileId == 0 || delta <= 0)
 		{
 			return;
 		}
@@ -73,7 +75,7 @@ final class OptimisticProgress
 	/** The site has this tile at {@code siteCurrent} (see {@link #seenSite}). */
 	void seen(int tileId, long siteCurrent)
 	{
-		if (tileId > 0 && siteCurrent > 0)
+		if (tileId != 0 && siteCurrent > 0)
 		{
 			seenSite.merge(tileId, siteCurrent, Math::max);
 		}

@@ -384,8 +384,39 @@ public class AnvilPlugin extends Plugin {
 	// this is the one counter here that would misfire if another piece of content ever printed the
 	// same sentence — kept because nothing else does today, but that's the risk if it ever breaks.
 	// → chat-patterns.json "counter.egg_offering" (ChatPatterns).
+	// ("Doom of Mokhaiotl delves" is a game-value counter now — the per-level completion varps, site
+	// lib/gameCounters — so the "Delve level: N duration:" line, chat-patterns.json "counter.doom_delve",
+	// stays parsed but credits nothing: counting both would double every delve.)
 	static final String HUNTER_RUMOURS = "Hunter Rumours";
 	static final String EGG_OFFERINGS = "Bird's egg offerings";
+
+	// Flag on a credit from a signal nobody has checked in game yet (site INFERRED_FLAGS): it counts,
+	// and staff see a "check" badge. Every unconfirmed game-value counter carries it.
+	static final String UNVERIFIED_COUNTER = "unverified_counter";
+
+	// Slayer tasks, Doom delves, Tithe/Foundry points, Wintertodt rewards: read off varbits/varps
+	// (GameValueCounters, catalog on the site — lib/gameCounters). The names below are the chat-line
+	// counters, credited here.
+	//
+	// GOTR reward searches: one per "You found some loot:" inside the GOTR region (14484, as
+	// RuneLite's LootTrackerPlugin gates it) — under OUR name, so a "Guardians of the Rift" kill tile
+	// (the KC) never takes a search.
+	static final int GOTR_REGION = 14484;
+	static final String GOTR_SEARCHES = "Guardians of the Rift searches";
+	// "Elemental energy attuned: 1. Catalytic energy attuned: 2." at the end of a GOTR game — the
+	// reward points earned that game (chat-patterns.json "counter.gotr_energy"); amount = N.
+	static final String GOTR_ELEMENTAL = "GOTR elemental energy";
+	static final String GOTR_CATALYTIC = "GOTR catalytic energy";
+	static final String GOTR_ENERGY_TOTAL = "GOTR total energy";
+	// "You rummage through the offerings..." — one Vale Totems research point, five for the bulk
+	// "...five times" line (chat-patterns.json "counter.vale_offerings").
+	static final String VALE_RESEARCH = "Vale research points";
+	// "As you complete the golem it leaves a gift on the ground for you:" — one per sunstone golem
+	// (chat-patterns.json "counter.sunstone_golem"). The "You have crafted X golems on Wyrmscraig."
+	// tally is deliberately NOT read, so a golem counts once.
+	static final String SUNSTONE_GOLEMS = "Sunstone golems crafted";
+	// No trailing "(...)" in any counter name: the kill index drops a trailing parenthetical as a wiki
+	// qualifier (DropSource.inGameNpcName).
 
 	// Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
 	// handler can tell whether the very first KC message of the session is for a kill the loot path
@@ -562,6 +593,8 @@ public class AnvilPlugin extends Plugin {
 	// multi-count wildcard tile ("any 5 Master tasks" needs 5 distinct tasks, not one task
 	// five times). Cleared on the login screen so account swaps start fresh.
 	private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
+	// Whole-page clog tiles already proven this session (proveClogPage).
+	private final Set<Integer> provedClogPages = new HashSet<>();
 	// Slots announced this session, so the personal line and the clan broadcast — which can both
 	// arrive for the same unlock — post it once. Item names, lowercased; cleared per account.
 	private final Set<String> recentClogUnlocks = new LinkedHashSet<>();
@@ -636,6 +669,8 @@ public class AnvilPlugin extends Plugin {
 
 		final T tile;
 		int total;
+		/** Kills: the credits that make up {@link #total}, one per real action, for splitting into pings. */
+		final List<Integer> parts = new ArrayList<>();
 		int snapshotCurrent;
 		int snapshotRequired;
 		ScheduledFuture<?> flushTask;
@@ -660,6 +695,8 @@ public class AnvilPlugin extends Plugin {
 	// ---- Kill-count tiles ----------------------------------------------------------------
 	// Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
 	private volatile Map<String, List<TrackedKill>> killNpcIndex = Collections.emptyMap();
+	// Counters read off varbits/varps (site lib/gameCounters); client thread only.
+	private final GameValueCounters gameValueCounters = new GameValueCounters();
 
 	// ---- PvP-kill tiles --------------------------------------------------------------------
 	// Normalised RSN -> teamId for every enrolled event player, so 'team:other' selectors can
@@ -1160,6 +1197,7 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
+		tileTracker.setNotes(this::tileNotes);
 		tileTracker.setOnePanel(config.trackerOnePanel());
 		tileTracker.startUp();
 		overlayManager.add(startProofOverlay);
@@ -2203,12 +2241,16 @@ public class AnvilPlugin extends Plugin {
 	 *
 	 */
 	private void captureClogPage() {
-		if (!supportsProfileSync()) {
+		boolean sync = supportsProfileSync();
+		if (!sync && (pluginConfig == null || pluginConfig.trackedClog == null || pluginConfig.trackedClog.isEmpty())) {
 			return;
 		}
 		ClogPage page = ClogPageReader.read(client);
 		if (page != null) {
-			clogSync.offer(page, now());
+			if (sync) {
+				clogSync.offer(page, now());
+			}
+			proveClogPage(page);
 		}
 	}
 
@@ -2371,6 +2413,7 @@ public class AnvilPlugin extends Plugin {
 	public void onGameTick(GameTick event) {
 		lastWornItemIds = wornItemIds();
 		maybeSettleStats();
+		tickGameCounters();
 		maybeStampIdentityOnTick();
 		WorldPoint here = needsStartProof() ? realWorldPosition() : null;
 		startProofStillTicks = here != null && here.equals(startProofPosition) ? startProofStillTicks + 1 : 0;
@@ -2635,6 +2678,14 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event) {
+		// Game-value counters: a loading zone pauses reads (same account, values persist); leaving the
+		// session forgets the baselines — the next account's balances are not this one's.
+		GameState gs = event.getGameState();
+		if (gs == GameState.LOADING) {
+			gameValueCounters.onLoading();
+		} else if (gs == GameState.LOGIN_SCREEN || gs == GameState.HOPPING || gs == GameState.CONNECTION_LOST) {
+			gameValueCounters.onSessionEnd();
+		}
 		// SESSION CLOCK for the starting shot (StartProofRules). Only the login screen starts a new
 		// session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
 		// logout that flushes the hiscores — treating either as a fresh login would hand out a clean
@@ -2724,6 +2775,7 @@ public class AnvilPlugin extends Plugin {
 			// CA per-session state: the next account may legitimately re-credit the same task
 			// (a teammate's alt), and deserves its own repeat-setting reminder.
 			creditedCaTaskTiles.clear();
+			provedClogPages.clear();
 			recentClogUnlocks.clear();
 			// Nothing is attacking a logged-out player, and whatever was is not attacking the next
 			// account either.
@@ -3883,6 +3935,28 @@ public class AnvilPlugin extends Plugin {
 		if (ChatPatterns.find("counter.egg_offering", plain) != null) {
 			creditNamedCounter(EGG_OFFERINGS);
 		}
+		// counter.doom_delve deliberately credits nothing: "Doom of Mokhaiotl delves" is the sum of
+		// the per-level completion varps (site lib/gameCounters), which counts the same delves.
+		if (ChatPatterns.find("counter.reward_search", plain) != null && regionId() == GOTR_REGION) {
+			creditNamedCounter(GOTR_SEARCHES);
+		}
+		Matcher vale = ChatPatterns.find("counter.vale_offerings", plain);
+		if (vale != null) {
+			creditNamedCounter("five".equalsIgnoreCase(vale.group("times")) ? 5 : 1, null, VALE_RESEARCH);
+		}
+		if (ChatPatterns.find("counter.sunstone_golem", plain) != null) {
+			creditNamedCounter(SUNSTONE_GOLEMS);
+		}
+		Matcher energy = ChatPatterns.find("counter.gotr_energy", plain);
+		if (energy != null) {
+			int elemental = parseCount(energy.group("elemental"));
+			int catalytic = parseCount(energy.group("catalytic"));
+			Map<String, Integer> amounts = new HashMap<>();
+			amounts.put(GOTR_ELEMENTAL, elemental);
+			amounts.put(GOTR_CATALYTIC, catalytic);
+			amounts.put(GOTR_ENERGY_TOTAL, elemental + catalytic);
+			creditOncePerTile(amounts, Collections.emptySet());
+		}
 		// (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
 		// so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
 		Matcher clogLine = ChatPatterns.find("clog.unlock", plain);
@@ -4056,6 +4130,51 @@ public class AnvilPlugin extends Plugin {
 		// minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
 		// other collection-log-only unlock. Loot-fired items are deduped by processLoot.
 		creditClogUnlock(item);
+		creditClogTiles(item);
+	}
+
+	/**
+	 * Collection-log tiles: the unlock line is a new slot (the game only prints it once per account
+	 * per item). One screenshot per slot with the line in it; the site checks the item, the pages and
+	 * whether it was really new, and counts it once.
+	 */
+	private void creditClogTiles(String item) {
+		if (trackingOff() || pluginConfig.trackedClog == null) {
+			return;
+		}
+		for (TrackedClog t : pluginConfig.trackedClog) {
+			if (t == null || !t.counts(item)) {
+				continue;
+			}
+			if (!t.complete()) {
+				t.currentAmount += 1;
+				raiseLocal(t.tileId, t.currentAmount, now());
+			}
+			// A combo's part reads as "Combo — Part" (its combo is the board tile).
+			String label = tileDisplayLabel(t);
+			sendChatMessage("Collection log: +1 slot for " + label
+					+ (t.complete() ? "" : " (" + t.currentAmount + "/" + t.requiredAmount + ")"));
+			captureAndSubmitProof(t.tileId, label, 1, null, "COLLECTION LOG", item,
+					"[Auto] New collection log slot: " + item + " — detected by RuneLite plugin",
+					() -> t.currentAmount = Math.max(0, t.currentAmount - (t.complete() ? 0 : 1)));
+		}
+	}
+
+	/**
+	 * A whole-page clog tile waits for a screenshot of the finished page: take it when the player
+	 * opens one, once per tile per session.
+	 */
+	private void proveClogPage(ClogPage page) {
+		if (trackingOff() || pluginConfig.trackedClog == null) {
+			return;
+		}
+		for (TrackedClog t : pluginConfig.trackedClog) {
+			if (t != null && t.pageFull(page.name, page.itemIds) && provedClogPages.add(t.tileId)) {
+				captureAndSubmitProof(t.tileId, tileDisplayLabel(t), 1, null, "COLLECTION LOG PAGE", page.name,
+						"[Auto] Finished collection log page: " + page.name,
+						() -> provedClogPages.remove(t.tileId));
+			}
+		}
 	}
 
 	/**
@@ -4689,7 +4808,16 @@ public class AnvilPlugin extends Plugin {
 	 * bucket its names put it in) and credit each exactly once.
 	 */
 	private void creditNamedCounter(String... names) {
-		if (trackingOff()) {
+		creditNamedCounter(1, null, names);
+	}
+
+	/**
+	 * As above, crediting {@code amount} (a game-value delta, or the N in "energy attuned: N") and
+	 * carrying {@code inferred} — {@link #UNVERIFIED_COUNTER} for a signal nobody has checked in game
+	 * yet, so the credit counts but staff see a "check" badge on it.
+	 */
+	private void creditNamedCounter(int amount, String inferred, String... names) {
+		if (amount <= 0 || trackingOff()) {
 			return;
 		}
 		// Identity set: two DIFFERENT tiles with the same name must both credit, but the SAME tile
@@ -4709,7 +4837,95 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		if (!unique.isEmpty()) {
-			creditKillTiles(names[0], unique, 1); // one line == one floor/run
+			creditKillTiles(names[0], unique, amount, inferred);
+		}
+	}
+
+	private static int parseCount(String digits) {
+		try {
+			return digits == null ? 0 : Integer.parseInt(digits.replace(",", ""));
+		} catch (NumberFormatException e) {
+			return 0;
+		}
+	}
+
+	/** The region the local player stands in, or -1. Client thread. */
+	private int regionId() {
+		Player me = client.getLocalPlayer();
+		if (me == null) {
+			return -1;
+		}
+		WorldPoint wp = WorldPoint.fromLocalInstance(client, me.getLocalLocation());
+		return wp == null ? -1 : wp.getRegionID();
+	}
+
+	/**
+	 * Per tick: read the catalog's varbits/varps that some kill tile targets and credit each positive
+	 * change (GameValueCounters). Reading a handful of ids a tick is cheaper than filtering every
+	 * VarbitChanged, and catches changes that landed while the baseline was settling.
+	 */
+	private void tickGameCounters() {
+		if (!loggedIn()) {
+			return;
+		}
+		PluginConfigResponse cfg = pluginConfig;
+		boolean on = cfg != null && cfg.serverSupports("game-counters");
+		gameValueCounters.configure(on ? cfg.gameCounters : null);
+		if (gameValueCounters.entries().isEmpty()) {
+			return;
+		}
+		gameValueCounters.onLoggedIn();
+		Map<String, List<TrackedKill>> index = killNpcIndex;
+		List<GameValueCounters.Credit> credits = gameValueCounters.tick(
+				(varp, id) -> varp ? client.getVarpValue(id) : client.getVarbitValue(id),
+				e -> index.containsKey(e.name.toLowerCase(Locale.ROOT)));
+		if (credits.isEmpty()) {
+			return;
+		}
+		Map<String, Integer> amounts = new HashMap<>();
+		Set<String> unverified = new HashSet<>();
+		for (GameValueCounters.Credit c : credits) {
+			amounts.merge(c.entry.name, c.amount, Math::max);
+			if (!c.entry.confirmed) {
+				unverified.add(c.entry.name);
+			}
+		}
+		creditOncePerTile(amounts, unverified);
+	}
+
+	/**
+	 * Credit several counter names that moved for ONE event (a slayer task: "any master" AND
+	 * "Mortimer"; a delve: the total AND its level; a GOTR game: elemental, catalytic AND total). A
+	 * tile listing more than one of them takes the largest amount among its matches, once — never the
+	 * sum — and is flagged when any of its matching names is unverified.
+	 */
+	private void creditOncePerTile(Map<String, Integer> amountByName, Set<String> unverified) {
+		if (trackingOff()) {
+			return;
+		}
+		Map<String, List<TrackedKill>> index = killNpcIndex;
+		Map<TrackedKill, Integer> amountByTile = new IdentityHashMap<>();
+		Map<TrackedKill, String> nameByTile = new IdentityHashMap<>();
+		Set<TrackedKill> flagged = Collections.newSetFromMap(new IdentityHashMap<>());
+		for (Map.Entry<String, Integer> n : amountByName.entrySet()) {
+			if (n.getValue() <= 0) {
+				continue;
+			}
+			for (TrackedKill kill : index.getOrDefault(n.getKey().toLowerCase(Locale.ROOT), Collections.emptyList())) {
+				Integer had = amountByTile.get(kill);
+				if (had == null || n.getValue() > had) {
+					amountByTile.put(kill, n.getValue());
+					nameByTile.put(kill, n.getKey());
+				}
+				if (unverified.contains(n.getKey())) {
+					flagged.add(kill);
+				}
+			}
+		}
+		for (Map.Entry<TrackedKill, Integer> e : amountByTile.entrySet()) {
+			TrackedKill kill = e.getKey();
+			creditKillTiles(nameByTile.get(kill), Collections.singletonList(kill), e.getValue(),
+					flagged.contains(kill) ? UNVERIFIED_COUNTER : null);
 		}
 	}
 
@@ -4720,8 +4936,16 @@ public class AnvilPlugin extends Plugin {
 	 * on the client thread (called from loot event).
 	 */
 	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount) {
+		creditKillTiles(npcName, matches, amount, null);
+	}
+
+	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount, String inferred) {
 		for (TrackedKill kill : matches) {
 			if (kill.currentAmount >= kill.requiredAmount) {
+				continue;
+			}
+			// A cap counter is moot once the tile it caps is done.
+			if (kill.isCap() && isTileCompleted(kill.capOf)) {
 				continue;
 			}
 			kill.currentAmount += amount;
@@ -4733,14 +4957,16 @@ public class AnvilPlugin extends Plugin {
 			// and the noun is the only thing that differs (see TrackedKill.unit).
 			String noun = kill.unitNoun();
 			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
-			sendChatMessage("Tracked " + noun + ": " + kill.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+			if (!kill.isCap()) {
+				sendChatMessage("Tracked " + noun + ": " + killDisplayLabel(kill) + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
+			} // a cap counter is counted and submitted silently
 
-			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired);
+			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired, inferred);
 		}
 	}
 
 	private void queueKillForFlush(TrackedKill kill, int amount,
-			int snapshotCurrent, int snapshotRequired) {
+			int snapshotCurrent, int snapshotRequired, String inferred) {
 		if (!execLive()) {
 			return;
 		}
@@ -4748,6 +4974,10 @@ public class AnvilPlugin extends Plugin {
 			Aggregate<TrackedKill> agg =
 					pendingKillAggregates.computeIfAbsent(kill.tileId, k -> new Aggregate<>(kill));
 			agg.total += amount;
+			agg.parts.add(amount);
+			if (inferred != null) {
+				agg.inferred = inferred; // one unverified credit in the burst flags the whole submission
+			}
 			if (kill.needsCoopFingerprint()) {
 				CoopFingerprint fp = coopFingerprint();
 				// Keep the richest view across a coalesced burst: one kill in the window may have
@@ -4798,16 +5028,70 @@ public class AnvilPlugin extends Plugin {
 			String noun, boolean milestones, Runnable flush, long coalesceMs) {
 		T tile = agg.tile;
 		int amount = agg.total;
+		final String inferred = agg.inferred;
+		// A combo's part speaks with its combo's name; a cap counter says nothing in chat.
+		final String label = tileDisplayLabel(tile);
+		final boolean quiet = tile instanceof TrackedKill && ((TrackedKill) tile).isCap();
+		// Gains are not capped on the site, so they always ping. A kill burst pings when the site takes it
+		// without a screenshot (planPings: up to 10, or the tile's pingMax split into whole actions) —
+		// otherwise it goes as a proof rather than a ping the site would clamp to 10.
 		if (agg.snapshotCurrent < agg.snapshotRequired
 				&& !(milestones && crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired))) {
-			pingTile(tile.tileId, tile.label, noun, amount, agg.coop, () -> requeue(pending, tile.tileId,
-					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs));
-			return;
+			List<Integer> pings = milestones ? planPings(agg.parts, amount, tile.pingMax)
+					: Collections.singletonList(amount);
+			if (pings != null) {
+				for (int chunk : pings) {
+					pingTile(tile.tileId, label, noun, chunk, agg.coop, inferred, () -> requeue(pending, tile.tileId,
+							tile, chunk, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
+				}
+				return;
+			}
 		}
-		String detail = tile.label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		captureAndSubmitProof(tile.tileId, tile.label, amount, null, agg.coop, "BINGO " + noun.toUpperCase(Locale.ROOT),
-				detail, "[Auto] " + tile.label + " " + noun + "(s) detected by RuneLite plugin",
+		String detail = label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
+		submitProof(tile.tileId, label, amount, null, null, inferred, null, agg.coop,
+				"BINGO " + noun.toUpperCase(Locale.ROOT), detail,
+				"[Auto] " + label + " " + noun + "(s) detected by RuneLite plugin", quiet ? null : "Submitted: " + label,
 				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
+	}
+
+	/** The most one image-less ping may credit on a tile the site sent no pingMax for (site lib/pingMax). */
+	static final int MAX_PING_AMOUNT = 10;
+
+	/**
+	 * The image-less pings a settled kill burst (not a milestone, not the completion) goes out as, or
+	 * null when it must be a screenshot proof.
+	 *
+	 * <p>No {@code pingMax} from the site (0): today's rule — one ping up to {@link #MAX_PING_AMOUNT},
+	 * a proof above it. With one, the burst is never a proof: a debounced burst can hold several real
+	 * actions (two quick Vale searches, a run of reputation swords if the window keeps resetting), so
+	 * its credits are packed in order into pings of at most pingMax each — every ping is whole actions,
+	 * none trips the site's "bigger than one action" flag. A SINGLE credit above pingMax still goes
+	 * alone, so the site flags it: that one is genuinely odd.
+	 */
+	static List<Integer> planPings(List<Integer> parts, int total, int pingMax) {
+		if (pingMax <= 0) {
+			return total <= MAX_PING_AMOUNT ? Collections.singletonList(total) : null;
+		}
+		int sum = 0;
+		for (int p : parts) {
+			sum += p;
+		}
+		if (sum != total || total <= pingMax) {
+			return Collections.singletonList(total);
+		}
+		List<Integer> out = new ArrayList<>();
+		int chunk = 0;
+		for (int p : parts) {
+			if (chunk > 0 && chunk + p > pingMax) {
+				out.add(chunk);
+				chunk = 0;
+			}
+			chunk += p;
+		}
+		if (chunk > 0) {
+			out.add(chunk);
+		}
+		return out;
 	}
 
 	/**
@@ -4816,7 +5100,7 @@ public class AnvilPlugin extends Plugin {
 	 * tile's burst so a later flush retries it.
 	 */
 	private void pingTile(int tileId, String label, String noun, int amount, CoopFingerprint coop,
-			Runnable requeue) {
+			String inferred, Runnable requeue) {
 		if (!execLive() || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null
 				|| pluginConfig.player == null) {
 			return;
@@ -4828,7 +5112,7 @@ public class AnvilPlugin extends Plugin {
 			try {
 				warnStartProofBeforeCredit();
 				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, null, null);
+						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, inferred, null);
 				log.debug("{} ping sent: '{}' ×{}", noun, label, amount);
 				refreshConfig();
 			} catch (IOException e) {
@@ -4840,10 +5124,14 @@ public class AnvilPlugin extends Plugin {
 
 	/** Fold a failed ping's amount back into its tile's burst and restart the burst's settle timer. */
 	private <T> void requeue(Map<Integer, Aggregate<T>> pending, int tileId, T tile, int amount, int current,
-			int required, Runnable flush, long ms) {
+			int required, Runnable flush, long ms, String inferred) {
 		synchronized (pending) {
 			Aggregate<T> retry = pending.computeIfAbsent(tileId, k -> new Aggregate<>(tile));
 			retry.total += amount;
+			retry.parts.add(amount);
+			if (inferred != null) {
+				retry.inferred = inferred;
+			}
 			settle(retry, current, required, flush, ms);
 		}
 	}
@@ -5247,9 +5535,14 @@ public class AnvilPlugin extends Plugin {
 					log.error("Failed to persist submission '{}' to disk", label);
 					return;
 				}
-				sendChatMessage("Uploading proof: " + label + "...");
+				// submitted == null: a quiet credit (a capped tile's cap counter) — no progress chatter.
+				if (submitted != null) {
+					sendChatMessage("Uploading proof: " + label + "...");
+				}
 				if (processPendingSubmission(pending)) {
-					sendChatMessage(submitted);
+					if (submitted != null) {
+						sendChatMessage(submitted);
+					}
 					proofBackoff.onSuccess();
 				} else {
 					notifyUploadFailed(label);
@@ -5572,14 +5865,28 @@ public class AnvilPlugin extends Plugin {
 		}
 		log.debug("Tracked timed clear: {} in {} (cap {})", tile.label,
 				TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
-		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds));
+		// A tile needing several qualifying runs (Barracuda Trials ranks) counts this one now, as a
+		// counted tile does, so the tracker and chat don't wait for the next poll; undone if the
+		// proof can't be captured.
+		int required = tile.runsRequired();
+		Runnable rollback = null;
+		String runs = null;
+		if (required > 1) {
+			int done = Math.min(required, Math.max(tile.runsDone(), (int) optimisticFloor(tile.tileId)) + 1);
+			tile.currentAmount = done;
+			raiseLocal(tile.tileId, done, now());
+			runs = TileNotes.runs(done, required);
+			rollback = () -> tile.currentAmount = Math.max(0, tile.runsDone() - 1);
+		}
+		sendChatMessage("Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds)
+				+ (runs != null ? " (" + runs + ")" : ""));
 		String detail = trialTarget != null
 				? tile.activity + "  " + TimedClearParser.formatClock(seconds)
 				: tile.activity + "  " + TimedClearParser.formatClock(seconds)
 						+ "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")"
 						+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "");
 		captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
-				"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", null);
+				"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", rollback);
 	}
 
 	/**
@@ -6106,8 +6413,14 @@ public class AnvilPlugin extends Plugin {
 
 	/** Pin or unpin a tile's in-game widget, fetching a fresh pin straight away. */
 	void setTrackedTile(int eventId, int tileId, boolean on) {
-		tileTracker.set(eventId, tileId, on);
-		submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
+		if (!TileNotes.pinnable(tileId)) {
+			return; // a cap counter's virtual entry is never pinned
+		}
+		// A combo's part pins its combo, whose pin lists every part.
+		indexNotes(pluginConfig);
+		final int pin = partCombo.getOrDefault(tileId, tileId);
+		tileTracker.set(eventId, pin, on);
+		submit(() -> safely("tileTracker", () -> tileTracker.refresh(pin)));
 	}
 
 	/** The starting-shot card's live requirements: session age, then position. Any thread. */
@@ -6604,7 +6917,11 @@ public class AnvilPlugin extends Plugin {
 			if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
 				anyDone = true;
 				onTileConfirmedDone(t.tileId);
-				if (!locallyShownTiles.contains(t.tileId)) {
+				if (t.partOf != null) {
+					// A combo's part: progress on the combo, not a tile complete (no banner).
+					onTileConfirmedDone(t.partOf);
+					sendChatMessage("Combo part done: " + t.label + "!");
+				} else if (!locallyShownTiles.contains(t.tileId)) {
 					newlyDone.add(t);
 				}
 			}
@@ -7051,6 +7368,9 @@ public class AnvilPlugin extends Plugin {
 				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
 		keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
 				k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
+		// Multi-run timed tiles (Barracuda Trials ranks) count runs locally the same way.
+		keepLocalFloor(prior == null ? null : prior.trackedTimed, fresh.trackedTimed, t -> t.tileId,
+				TrackedTimed::runsDone, TrackedTimed::runsRequired, (t, v) -> t.currentAmount = v);
 		tileCountsFor = null; // the floors above changed it in place
 		liveCountsMoved();
 	}
@@ -7280,8 +7600,7 @@ public class AnvilPlugin extends Plugin {
 		notableItemIds = notable;
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
 		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
-		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs,
-				n -> n.isEmpty() ? null : DropSource.inGameNpcName(n).toLowerCase());
+		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs, DropSource::killTargetKey);
 		gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
 		rebuildPvpRosterIndex();
 		// The in-game KC-line boss names and the skill names to push real-time counts for.
@@ -7391,6 +7710,111 @@ public class AnvilPlugin extends Plugin {
 	private void raiseLocal(int tileId, long current, long at) {
 		optimistic.raise(tileId, current, at);
 		liveCountsMoved();
+	}
+
+	/** Per-config lookups for the tracker's extra lines and part/cap labels (see TileNotes). */
+	private volatile PluginConfigResponse notesFor;
+	private volatile Map<Integer, TrackedCombo> combos = Collections.emptyMap();
+	private volatile Map<Integer, Integer> partCombo = Collections.emptyMap();
+	private volatile Map<Integer, TrackedTimed> multiRunTimed = Collections.emptyMap();
+	private volatile Map<Integer, String> tileLabels = Collections.emptyMap();
+	/** tileId → {current, required} off the config, for a combo's part lines. */
+	private volatile Map<Integer, long[]> tileGoals = Collections.emptyMap();
+
+	private void indexNotes(PluginConfigResponse cfg) {
+		if (cfg == notesFor) {
+			return;
+		}
+		Map<Integer, TrackedTimed> runs = new HashMap<>();
+		Map<Integer, String> labels = new HashMap<>();
+		Map<Integer, long[]> goals = new HashMap<>();
+		Map<Integer, TrackedCombo> comboById = new HashMap<>();
+		if (cfg != null) {
+			if (cfg.trackedTimed != null) {
+				for (TrackedTimed t : cfg.trackedTimed) {
+					if (t != null && t.runsRequired() > 1) {
+						runs.put(t.tileId, t);
+					}
+				}
+			}
+			if (cfg.trackedCombos != null) {
+				for (TrackedCombo c : cfg.trackedCombos) {
+					if (c != null) {
+						comboById.put(c.tileId, c);
+					}
+				}
+			}
+			for (Map.Entry<String, JsonElement> e : gson.toJsonTree(cfg).getAsJsonObject().entrySet()) {
+				if (!e.getKey().startsWith("tracked") || !e.getValue().isJsonArray()) {
+					continue;
+				}
+				for (JsonElement row : e.getValue().getAsJsonArray()) {
+					JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
+					if (r == null || !r.has("tileId")) {
+						continue;
+					}
+					int id = r.get("tileId").getAsInt();
+					if (r.has("label") && r.get("label").isJsonPrimitive()) {
+						labels.putIfAbsent(id, r.get("label").getAsString());
+					}
+					String goalKey = r.has("requiredAmount") ? "requiredAmount" : r.has("goalAmount") ? "goalAmount" : null;
+					if (goalKey != null && r.has("currentAmount")) {
+						goals.putIfAbsent(id, new long[]{r.get("currentAmount").getAsLong(), r.get(goalKey).getAsLong()});
+					}
+				}
+			}
+		}
+		combos = comboById;
+		partCombo = TileNotes.partCombos(cfg == null ? null : cfg.trackedCombos);
+		multiRunTimed = runs;
+		tileLabels = labels;
+		tileGoals = goals;
+		notesFor = cfg;
+	}
+
+	/**
+	 * A pinned tile's extra lines: "3/5 runs" on a multi-run timed tile, and a combo's parts ("1 of 2
+	 * done", then each part at this client's newest count). Empty for everything else. Read every frame
+	 * by the tracker, so it only looks up maps built once per config.
+	 */
+	List<String> tileNotes(int tileId) {
+		PluginConfigResponse cfg = pluginConfig;
+		if (cfg == null) {
+			return Collections.emptyList();
+		}
+		indexNotes(cfg);
+		TrackedTimed timed = multiRunTimed.get(tileId);
+		if (timed != null && !timed.completed) {
+			return Collections.singletonList(TileNotes.runs(shownProgress(tileId, timed.runsDone()), timed.runsRequired()));
+		}
+		TrackedCombo combo = combos.get(tileId);
+		if (combo != null && !combo.completed) {
+			Map<Integer, long[]> counts = new HashMap<>();
+			if (combo.parts != null) {
+				for (ComboPart p : combo.parts) {
+					long[] g = p == null ? null : tileGoals.get(p.tileId);
+					if (g != null) {
+						counts.put(p.tileId, new long[]{shownProgress(p.tileId, g[0]), g[1]});
+					}
+				}
+			}
+			return TileNotes.comboLines(combo, counts);
+		}
+		return Collections.emptyList();
+	}
+
+	/** What a tile is called in chat and on its proof: a combo's part carries its combo's name. */
+	private String tileDisplayLabel(TrackedTile tile) {
+		if (tile == null || !tile.isPart()) {
+			return tile == null ? null : tile.label;
+		}
+		indexNotes(pluginConfig);
+		TrackedCombo combo = combos.get(tile.partOf);
+		return TileNotes.partLabel(combo == null ? null : combo.label, tile.label);
+	}
+
+	private String killDisplayLabel(TrackedKill kill) {
+		return tileDisplayLabel(kill);
 	}
 
 	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */

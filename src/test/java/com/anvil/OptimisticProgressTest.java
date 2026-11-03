@@ -82,4 +82,16 @@ public class OptimisticProgressTest
 		o.add(7, 1_000, 10, 2); // our next gain, the config's count still the old one
 		assertEquals("moves on from what's shown, not from the old count", 1_510, o.apply(7, 1_500, 3));
 	}
+
+	@Test
+	public void virtualAltGoalIdsHoldAFloorToo()
+	{
+		// An either/or goal's entry carries a negative virtual tileId; its local count must still show.
+		OptimisticProgress p = new OptimisticProgress();
+		p.add(-96, 37, 1, 0);
+		assertEquals(38, p.apply(-96, 37, 1_000));
+		assertEquals(38, p.floor(-96, 1_000));
+		p.raise(0, 5, 0); // 0 is still "no tile"
+		assertEquals(0, p.floor(0, 1_000));
+	}
 }
