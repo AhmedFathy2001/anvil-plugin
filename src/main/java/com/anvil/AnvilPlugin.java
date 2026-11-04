@@ -162,6 +162,8 @@ public class AnvilPlugin extends Plugin {
 	private volatile PushStash pushStash;
 	/** The last config poll failed to reach the site (down, slow, 5xx) — the next success is a recovery. */
 	private volatile boolean siteUnreachable;
+	/** The board and team a pushed view last made us refetch the config for (applyPush). */
+	private volatile String seatRefetchedFor;
 
 	@Inject
 	private ProfileLookup profileLookup;
@@ -7664,6 +7666,18 @@ public class AnvilPlugin extends Plugin {
 		if ("team".equals(kind) && cfg != null && cfg.event != null && cfg.event.id == eventId
 				&& m.get("teamId").getAsInt() != myTeam) {
 			refreshConfig();
+		}
+		// A team's view for a board our config doesn't hold: the site just seated us there (it re-tickets
+		// the socket on a new seat, and the ticket's first board is the seat's). Fetch the config now
+		// rather than at the next poll — once per board and team, so a config that settles elsewhere
+		// can't refetch on every view.
+		int pushedTeam = m.has("teamId") ? m.get("teamId").getAsInt() : 0;
+		if ("team".equals(kind) && pushedTeam != 0 && (cfg == null || cfg.event == null || cfg.event.id != eventId)) {
+			String seat = eventId + ":" + pushedTeam;
+			if (!seat.equals(seatRefetchedFor)) {
+				seatRefetchedFor = seat;
+				refreshConfig();
+			}
 		}
 		if (ours && m.has("config")) {
 			JsonObject members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
