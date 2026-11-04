@@ -278,7 +278,11 @@ public class ChatFlairTest
 		assertEquals("To <col=00ff00>Drenvox</col>:", f.paintSender("To Drenvox:", null, false));
 		// Split private chat: the whole line is one widget, coloured by the game.
 		assertEquals("<col=00ffff>To <col=00ff00>Drenvox</col><col=00ffff>: hey there</col>",
-			f.paintSender("<col=00ffff>To Drenvox: hey there</col>", null, false));
+			f.paintPmLine("<col=00ffff>To Drenvox: hey there</col>", null, false));
+		// The chatbox never takes a whole line as a sender; a PM line needs From / To.
+		assertNull(f.paintSender("<col=00ffff>To Drenvox: hey there</col>", null, false));
+		assertNull(f.paintPmLine("Drenvox: hey", null, false));
+		assertNull(f.paintPmLine("[Clan] Drenvox: hey", null, false));
 		// A typed message that merely starts "Name:" is not a sender.
 		assertNull(f.paintSender("Drenvox: hey", null, false));
 	}
@@ -289,8 +293,8 @@ public class ChatFlairTest
 		ChatFlair f = with(entry("drenvox", "#00ff00", true), entry("ab", "#ffd35c", null, "#ff0000", "#00ff00"));
 		String once = f.paintSender("<img=2>Drenvox:", "<img=99>", false);
 		assertNull(f.paintSender(once, "<img=99>", false));
-		String grad = f.paintSender("From Ab: hi", null, false);
-		assertNull(f.paintSender(grad, null, false));
+		String grad = f.paintPmLine("From Ab: hi", null, false);
+		assertNull(f.paintPmLine(grad, null, false));
 		String b = f.paintLead("<col=ef1020>Ab received a drop: Bones</col>", null, false);
 		assertNull(f.paintLead(b, null, false));
 	}
@@ -380,15 +384,58 @@ public class ChatFlairTest
 	}
 
 	@Test
-	public void wholeClanLineInOneWidgetIsPaintedButTypedTextIsNot()
+	public void typedTextIsNeverASender()
 	{
 		ChatFlair f = drenvox();
-		assertEquals("<col=0000ff>[The AFK Spot]</col> <img=10><col=00ff00>GIM Drenvox</col>: <col=0000ff>Test</col>",
-			f.paintSender("<col=0000ff>[The AFK Spot]</col> <img=10>GIM Drenvox: <col=0000ff>Test</col>", null, false));
+		// Anyone can type a channel prefix: "[Clan] Drenvox: …" in a message widget is not painted.
+		assertNull(f.paintSender("[Clan] GIM Drenvox: hi", null, false));
+		assertNull(f.paintSender("<col=0000ff>[The AFK Spot]</col> <img=10>GIM Drenvox: <col=0000ff>Test</col>", null, false));
 		assertEquals(false, ChatFlair.column("[The AFK Spot] GIM Drenvox: Test"));
 		assertNull(f.paintSender("Bob: hi there", null, false));
 		assertNull("not a name: too long", f.paintSender("[Clan] Somebody With A Long Title:", null, false));
 		assertNull("Bobby is not Bob", f.paintSender("[Clan] <img=10>Bobby:", null, false));
+	}
+
+	/** One chatbox row as widgets: x, y and text per index (null text = hidden). */
+	private static boolean column(int i, int[] x, int[] y, String[] t)
+	{
+		return ChatFlair.senderColumn(i, t.length, j -> x[j], j -> y[j], j -> t[j]);
+	}
+
+	private static boolean typed(int i, int[] x, int[] y, String[] t)
+	{
+		return ChatFlair.typedBySomeone(i, j -> x[j], j -> y[j], j -> t[j]);
+	}
+
+	@Test
+	public void theLayoutNotTheTextSaysWhichWidgetIsTheSender()
+	{
+		// Row 0: sender "Mallory:" then her typed "[Clan] Bob:"; row 14: a real clan sender and its message.
+		int[] x = {0, 48, 0, 120};
+		int[] y = {0, 0, 14, 14};
+		String[] t = {"Mallory:", "[Clan] Bob:", "[The AFK Spot] <img=10>Bob:", "hi"};
+		assertEquals(true, column(0, x, y, t));
+		assertEquals("her typed text is the row's last widget", false, column(1, x, y, t));
+		assertEquals(true, column(2, x, y, t));
+		assertEquals(false, column(3, x, y, t));
+		// A hidden widget beside it doesn't make a sender.
+		assertEquals(false, column(0, x, y, new String[]{"Mallory:", null, "x", "y"}));
+	}
+
+	@Test
+	public void aTypedBroadcastLookalikeIsNotPainted()
+	{
+		// Mallory types "Bob has completed a quest: …" in public chat: a player's sender column is on its left.
+		int[] x = {0, 48, 0, 90};
+		int[] y = {0, 0, 14, 14};
+		String[] t = {"Mallory:", "Bob has completed a quest: Gertrude's Cat", "[The AFK Spot]", "Bob has completed a quest: Gertrude's Cat"};
+		assertEquals(true, typed(1, x, y, t));
+		// The real broadcast: only the channel to its left.
+		assertEquals(false, typed(3, x, y, t));
+		// And with no channel widget at all.
+		assertEquals(false, typed(0, new int[]{0}, new int[]{0}, new String[]{"Bob has completed a quest: Gertrude's Cat"}));
+		// A text that was never a real broadcast has no key in the set; typed text isn't added by anyone.
+		assertNull(drenvox().leadKey("Mallory has completed a quest: Gertrude's Cat"));
 	}
 
 	@Test

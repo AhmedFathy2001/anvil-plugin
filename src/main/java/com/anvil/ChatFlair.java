@@ -416,11 +416,26 @@ final class ChatFlair
 	private static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
 
 	/**
-	 * A chat widget whose text is a sender ("Name:", "[Clan] Name:", "From Name:", "To Name:", or a
-	 * split-PM line "From Name: hi"), with the name painted; null when it isn't one, the name has no
-	 * flair, or it is already painted. A plain-text line "Bob: hi" (no From/To) is left alone.
+	 * A chatbox SENDER COLUMN's text ("Name:", "[Clan] <icons>Name:", "From Name:", "To Name:") with the
+	 * name painted; null when it isn't one (anything after the colon), the name has no flair, or it is
+	 * painted already. Text alone proves nothing — anyone can type "[Clan] Bob:" — so the caller passes
+	 * only the widget the layout says is a sender column (senderColumn).
 	 */
 	String paintSender(String raw, String star, boolean opaque)
+	{
+		return paintSender(raw, star, opaque, false);
+	}
+
+	/**
+	 * A split-private-chat line ("From Name: hi" / "To Name: hi"), which the game writes as one widget:
+	 * only for widgets of that container (never the chatbox), and only with From / To before the name.
+	 */
+	String paintPmLine(String raw, String star, boolean opaque)
+	{
+		return paintSender(raw, star, opaque, true);
+	}
+
+	private String paintSender(String raw, String star, boolean opaque, boolean pmLine)
 	{
 		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0)
 		{
@@ -428,10 +443,9 @@ final class ChatFlair
 		}
 		Shown s = shown(raw);
 		Matcher m = SENDER_SHOWN.matcher(s.text);
-		// The chatbox's sender column ends at the colon. A whole line in one widget ("[Clan] Name: hi",
-		// split PMs "From Name: hi") is a sender only with a channel or From/To before the name: a typed
-		// "Bob: hi" is not.
-		if (!m.matches() || (!m.group(4).trim().isEmpty() && m.group(2) == null && m.group(1).isEmpty()))
+		// A sender column ends at the colon; a split-PM line is "From/To Name: …". A typed "[Clan] Bob: hi"
+		// in a message widget is neither.
+		if (!m.matches() || (pmLine ? m.group(2) == null || !m.group(1).isEmpty() : !m.group(4).trim().isEmpty()))
 		{
 			return null;
 		}
@@ -446,6 +460,43 @@ final class ChatFlair
 			to--;
 		}
 		return from < to && to - from <= 12 ? paintAt(raw, s, from, to, star, opaque) : null;
+	}
+
+	/**
+	 * Chatbox layout, not text, says which widget is a sender column: one with a line's text beside it
+	 * (same row, to its right, within the line's few widgets). A typed "[Clan] Bob:" is the message
+	 * widget, the last on its row. {@code text(j)} is null for a hidden or missing widget.
+	 */
+	static boolean senderColumn(int i, int n, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+		java.util.function.IntFunction<String> text)
+	{
+		for (int j = i + 1; j < n && j <= i + 3; j++)
+		{
+			String t = text.apply(j);
+			if (t != null && !t.isEmpty() && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) > x.applyAsInt(i))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A line text with a player's sender column to its left ("Name:" — someone typed it): never a
+	 * broadcast, whatever it says. A broadcast's row has only the channel ("[The AFK Spot]") or nothing.
+	 */
+	static boolean typedBySomeone(int i, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+		java.util.function.IntFunction<String> text)
+	{
+		for (int j = i - 1; j >= 0 && j >= i - 3; j--)
+		{
+			String t = text.apply(j);
+			if (t != null && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) < x.applyAsInt(i) && column(t))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */

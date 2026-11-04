@@ -7514,14 +7514,20 @@ public class AnvilPlugin extends Plugin {
 				star = chatStar();
 				opaque = opaqueChatbox();
 			}
-			String painted = chatFlair.paintSender(text, star, opaque);
-			boolean sender = painted != null;
-			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))) {
+			// Which widget is which comes from the layout, never from what the text says: a typed
+			// "[Clan] Bob:" or "Bob has completed a quest: …" is someone's message widget.
+			java.util.function.IntUnaryOperator x = j -> lines[j].getOriginalX();
+			java.util.function.IntUnaryOperator y = j -> lines[j].getOriginalY();
+			java.util.function.IntFunction<String> shown = j -> lines[j] == null || lines[j].isHidden() ? null : lines[j].getText();
+			boolean sender = text.indexOf(':') >= 0 && ChatFlair.senderColumn(i, lines.length, x, y, shown);
+			String painted = sender ? chatFlair.paintSender(text, star, opaque) : null;
+			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
+					&& !ChatFlair.typedBySomeone(i, x, y, shown)) {
 				painted = chatFlair.paintLead(text, star, opaque);
 			}
 			if (painted != null) {
 				w.setText(painted);
-				if (sender && ChatFlair.column(painted)) {
+				if (sender) {
 					makeRoom(lines, i, text, painted);
 				}
 				text = w.getText();
@@ -7593,7 +7599,7 @@ public class AnvilPlugin extends Plugin {
 				if (splitPmSeen.size() > 256) {
 					splitPmSeen.clear();
 				}
-				String painted = chatFlair.paintSender(text, chatStar(), false);
+				String painted = chatFlair.paintPmLine(text, chatStar(), false);
 				if (painted != null) {
 					w.setText(painted);
 					splitPmSeen.add(painted);
