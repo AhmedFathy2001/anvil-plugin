@@ -546,6 +546,113 @@ final class ChatFlair
 		return false;
 	}
 
+	/**
+	 * A side-panel list row's NAME widget ("<icons>GIM Drenvox<icons>": rank / account icons either side,
+	 * the game's own hardcore-group star kept) with the name in Supporter colours, no star; null when the
+	 * name isn't on the list or is painted already.
+	 */
+	String paintListName(String raw)
+	{
+		if (raw == null || raw.isEmpty() || isEmpty())
+		{
+			return null;
+		}
+		Shown s = shown(raw);
+		int from = 0;
+		int to = s.text.length();
+		while (from < to && s.text.charAt(from) == ' ')
+		{
+			from++;
+		}
+		while (to > from && s.text.charAt(to - 1) == ' ')
+		{
+			to--;
+		}
+		return from < to && to - from <= 12 ? paintAt(raw, s, from, to, null, false) : null;
+	}
+
+	private static final Pattern ON_WORLD = Pattern.compile("^(?:W|World\\s*)\\d+$");
+
+	/**
+	 * A member row's name is shown online: a widget on its row (within 3 px), to its right, reads a world
+	 * ("W308"), not "---" — the friends list's rule. Layout decides which widget is the name: the world
+	 * column itself has nothing to its right.
+	 */
+	static boolean onWorldBeside(int at, int n, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+		java.util.function.IntFunction<String> text)
+	{
+		for (int j = 0; j < n; j++)
+		{
+			String t = j == at ? null : text.apply(j);
+			if (t != null && Math.abs(y.applyAsInt(j) - y.applyAsInt(at)) <= 3 && x.applyAsInt(j) > x.applyAsInt(at)
+				&& ON_WORLD.matcher(TAGS.matcher(t).replaceAll("").trim()).matches())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A player's right-click target ("<col=ffffff>Name<col=40ff00>  (level-71)") with their name in their
+	 * colours, re-done after another plugin recoloured it: Player Indicators, on every client tick, drops
+	 * the target's FIRST tag and puts its own colour in front, which turned the start of a gradient into
+	 * its friend green. Null when it's ours already, the name isn't there or has no flair, or (override
+	 * off) another plugin's colour is on it — not the game's white.
+	 */
+	String paintMenuTarget(String target, String name, boolean override)
+	{
+		if (target == null || name == null || isEmpty())
+		{
+			return null;
+		}
+		String d = decorate(name, null);
+		if (d == null)
+		{
+			return null;
+		}
+		d = ChatPalette.readable(d, false);
+		Shown s = shown(target);
+		int from = s.text.indexOf(name.replace('\u00A0', ' '));
+		if (from < 0)
+		{
+			return null;
+		}
+		int rs = s.at[from];
+		int re = s.at[from + name.length() - 1] + 1;
+		int k = shown(d).at[0];
+		if (rs >= k && target.startsWith(d, rs - k))
+		{
+			return null;
+		}
+		// The colour tags right before the name are whoever coloured it last: replaced with ours.
+		int start = rs;
+		String col = null;
+		while (start > 0 && target.charAt(start - 1) == '>')
+		{
+			int open = target.lastIndexOf('<', start - 1);
+			if (open < 0 || !(target.startsWith("<col=", open) || target.startsWith("</col>", open)))
+			{
+				break;
+			}
+			if (col == null && target.startsWith("<col=", open))
+			{
+				col = target.substring(open + 5, start - 1);
+			}
+			start = open;
+		}
+		if (!override && col != null && !col.equalsIgnoreCase("ffffff"))
+		{
+			return null;
+		}
+		// Our paint ends with its own close: an old one after the name goes, or a repaint every tick would pile them up.
+		while (target.startsWith("</col>", re))
+		{
+			re += 6;
+		}
+		return target.substring(0, start) + d + target.substring(re);
+	}
+
 	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
 	static boolean column(String raw)
 	{

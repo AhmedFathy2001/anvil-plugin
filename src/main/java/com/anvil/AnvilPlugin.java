@@ -7442,6 +7442,7 @@ public class AnvilPlugin extends Plugin {
 			splitPmSeen.clear();
 			pmPainted.clear();
 			Arrays.fill(chatboxSeen, null);
+			Arrays.fill(gimSeen, null);
 			flairChatInput();
 			flairNameLists();
 			flairChatbox();
@@ -7694,6 +7695,68 @@ public class AnvilPlugin extends Plugin {
 		return ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
 	}
 
+	// Client thread: the group ironman member list's name and world texts last looked at, by widget index.
+	private String[] gimSeen = new String[0];
+	private String[] gimSeenWorld = new String[0];
+
+	/**
+	 * Client thread, each frame: the group ironman tab's members (GimSidepanel.MEMBERS) in Supporter
+	 * colours, like the friends and clan lists — only a member the row shows on a world, never "---".
+	 * Checked per frame because the tab redraws through paths we can't name; a quiet frame is a few
+	 * reference compares over a group's handful of widgets. Name widgets only: icons, the rank key and
+	 * the game's group star stay as they are.
+	 */
+	private void flairGimMembers() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
+			return;
+		}
+		Widget list = client.getWidget(InterfaceID.GimSidepanel.MEMBERS);
+		Widget[] ws = list == null || list.isHidden() ? null : list.getDynamicChildren();
+		if (ws == null || ws.length == 0) {
+			return;
+		}
+		if (gimSeen.length < ws.length) {
+			gimSeen = Arrays.copyOf(gimSeen, ws.length);
+			gimSeenWorld = Arrays.copyOf(gimSeenWorld, ws.length);
+		}
+		for (int i = 0; i < ws.length; i++) {
+			Widget w = ws[i];
+			String text = w == null || w.isHidden() ? null : w.getText();
+			if (text == null || text.isEmpty()) {
+				continue;
+			}
+			String world = rightText(ws, i);
+			if (text == gimSeen[i] && world == gimSeenWorld[i]) {
+				continue;
+			}
+			gimSeen[i] = text;
+			gimSeenWorld[i] = world;
+			if (world == null || !ChatFlair.onWorldBeside(i, ws.length, j -> ws[j] == null ? 0 : ws[j].getRelativeX(),
+					j -> ws[j] == null ? 0 : ws[j].getRelativeY(), j -> ws[j] == null || ws[j].isHidden() ? null : ws[j].getText())) {
+				continue;
+			}
+			String painted = chatFlair.paintListName(text);
+			if (painted != null) {
+				w.setText(painted);
+				gimSeen[i] = w.getText();
+			}
+		}
+	}
+
+	/** The first text on widget {@code at}'s row to its right (its world column), or null: no allocation. */
+	private static String rightText(Widget[] ws, int at) {
+		Widget a = ws[at];
+		for (Widget o : ws) {
+			if (o != null && o != a && !o.isHidden() && Math.abs(o.getRelativeY() - a.getRelativeY()) <= 3 && o.getRelativeX() > a.getRelativeX()) {
+				String t = o.getText();
+				if (t != null && !t.isEmpty()) {
+					return t;
+				}
+			}
+		}
+		return null;
+	}
+
 	/** Client thread: the opaque chatbox (fixed mode, or resizable with transparency off) is light parchment. */
 	private boolean opaqueChatbox() {
 		return !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
@@ -7719,6 +7782,31 @@ public class AnvilPlugin extends Plugin {
 		flairChatInput();
 		flairChatbox();
 		flairSplitPm();
+		flairGimMembers();
+		flairMenuTargets();
+	}
+
+	/**
+	 * Client thread, each frame: players' right-click names back in their Supporter colours after other
+	 * plugins. onMenuEntryAdded paints them as entries arrive, but RuneLite's Player Indicators recolours
+	 * player targets on every client tick (dropping the first tag and putting its friend / clan colour in
+	 * front), which split a gradient into green-then-gradient. BeforeRender comes after that tick, so the
+	 * frame draws ours — only with "paint over other plugins" on; off, their colour stays. Never in PvP
+	 * areas. A menu is a handful of entries, and an entry already in our colours is a string compare.
+	 */
+	private void flairMenuTargets() {
+		if (!config.menuNameFlair() || chatFlair.isEmpty() || inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) {
+			return;
+		}
+		boolean override = config.menuFlairOverride();
+		for (MenuEntry e : client.getMenuEntries()) {
+			Player p = e.getPlayer();
+			String name = p == null ? null : p.getName();
+			String t = name == null ? null : chatFlair.paintMenuTarget(e.getTarget(), name, override);
+			if (t != null) {
+				e.setTarget(t);
+			}
+		}
 	}
 
 	private void flairChatInput() {
