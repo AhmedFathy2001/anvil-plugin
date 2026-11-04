@@ -72,6 +72,9 @@ import net.runelite.client.util.ImageUtil;
  */
 final class FeedList extends JPanel
 {
+	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
+	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+
 	static final int FLUSH_MS = 400;
 	private static final int ICON_W = 24;
 	private static final int ICON_H = 21;
@@ -1297,7 +1300,7 @@ final class FeedList extends JPanel
 			return 0;
 		}
 		String iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
+		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches())
 		{
 			iso = iso + "Z";
 		}

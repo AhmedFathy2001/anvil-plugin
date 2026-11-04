@@ -15,6 +15,9 @@ import javax.swing.event.DocumentEvent;
  */
 final class Ui
 {
+	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
+	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+
 	// FontManager hands out the same static instances every call, so holding them changes nothing.
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
 	static final Font REGULAR = FontManager.getRunescapeFont();
@@ -328,7 +331,7 @@ final class Ui
 			return "";
 		}
 		String iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
+		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches())
 		{
 			iso = iso + "Z";
 		}

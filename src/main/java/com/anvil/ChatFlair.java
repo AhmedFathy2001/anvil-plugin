@@ -61,8 +61,12 @@ final class ChatFlair
 	/** The site's normalizeRsn: lower case, any run of spaces / underscores (and the game's nbsp) as one space. */
 	static String normalize(String name)
 	{
-		return name.replace(' ', ' ').trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_]+", " ");
+		return SPACES.matcher(name.replace(' ', ' ').trim().toLowerCase(Locale.ROOT)).replaceAll(" ");
 	}
+
+	// Compiled once: normalize runs for every chat sender and every friends / channel list row.
+	private static final Pattern SPACES = Pattern.compile("[\\s_]+");
+	private static final Pattern TAGS = Pattern.compile("<[^>]*>");
 
 	/** A sender column's text ("[02:25] <img=1>Name:" with any colouring): the name inside, or null. */
 	private static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)?(.+?):$");
@@ -78,7 +82,7 @@ final class ChatFlair
 		{
 			return null;
 		}
-		Matcher m = SENDER_COLUMN.matcher(widgetText.replaceAll("<[^>]*>", "").trim());
+		Matcher m = SENDER_COLUMN.matcher(TAGS.matcher(widgetText).replaceAll("").trim());
 		if (!m.matches())
 		{
 			return null;
