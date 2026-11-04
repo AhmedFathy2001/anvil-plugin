@@ -17,6 +17,13 @@ public class BingoApiClient
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final MediaType PNG = MediaType.parse("image/png");
+	private static final MediaType JPEG = MediaType.parse("image/jpeg");
+
+	/** JPEG by its first bytes (proofs are JPEG; older pending files and notifications are PNG). */
+	static boolean isJpeg(byte[] b)
+	{
+		return b != null && b.length > 2 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xd8;
+	}
 
 	private final Gson gson;
 	// Package-private so tests can drive a request through the pause gate (AccountOptOutTest).
@@ -1138,7 +1145,7 @@ public class BingoApiClient
 	public String uploadImage(byte[] pngBytes, String filename) throws IOException
 	{
 		MultipartBody multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
-			.addFormDataPart("file", filename, RequestBody.create(PNG, pngBytes)).build();
+			.addFormDataPart("file", filename, RequestBody.create(isJpeg(pngBytes) ? JPEG : PNG, pngBytes)).build();
 		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(multipart), (r, body) ->
 		{
 			if (!r.isSuccessful())
@@ -1463,6 +1470,13 @@ public class BingoApiClient
 	 * sentence, not its JSON — a player reading chat should be told what to do, and
 	 * "{"error":...,"retryAfterMs":49445}" tells them to file a bug.
 	 */
+	/** The submit answer says this submission completed its tile (sites that say so: {"completed":true}). */
+	static boolean completedIn(String body)
+	{
+		JsonObject o = body == null ? null : jsonObject(body);
+		return o != null && o.has("completed") && o.get("completed").isJsonPrimitive() && o.get("completed").getAsBoolean();
+	}
+
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException
 	{
 		return execute(httpClient, authedRequest(clanUrl(path)).post(json(payload)), (response, body) ->
@@ -1587,7 +1601,7 @@ public class BingoApiClient
 	 * never names. {@code inferred} is the reason the site stores so staff
 	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
 	 */
-	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
+	public boolean submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
 		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof) throws IOException
 	{
 		JsonObject payload = submission(tileId, teamId, amount, imageUrl, note, creditPlayerId, proof);
@@ -1610,8 +1624,9 @@ public class BingoApiClient
 				payload.addProperty("coopPartySize", coop.partySize);
 			}
 		}
-		postJson("/api/events/" + eventId + "/submissions", payload, "Submission failed", true);
+		boolean completed = completedIn(postJson("/api/events/" + eventId + "/submissions", payload, "Submission failed", true));
 		log.info("Drop submitted successfully for tile {}", tileId);
+		return completed;
 	}
 
 	/**
@@ -1619,13 +1634,14 @@ public class BingoApiClient
 	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
 	 * completes the tile when durationSeconds ≤ the tile's threshold.
 	 */
-	public void submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
+	public boolean submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
 		JsonObject proof) throws IOException
 	{
 		JsonObject payload = submission(tileId, teamId, 1, imageUrl, note, creditPlayerId, proof);
 		payload.addProperty("durationSeconds", durationSeconds);
-		postJson("/api/events/" + eventId + "/submissions", payload, "Timed submission failed", true);
+		boolean completed = completedIn(postJson("/api/events/" + eventId + "/submissions", payload, "Timed submission failed", true));
 		log.info("Timed clear submitted successfully for tile {}", tileId);
+		return completed;
 	}
 
 	private static JsonObject submission(int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId,

@@ -5549,7 +5549,9 @@ public class AnvilPlugin extends Plugin {
 				if (triggerFrame != null) {
 					proof.addProperty("split", (double) triggerFrame.getHeight() / buffered.getHeight());
 				}
-				byte[] png = png(buffered);
+				// JPEG, not PNG: a full-screen proof is 5-10x smaller, so encoding and uploading it is that
+				// much quicker — and the site re-compresses every upload anyway.
+				byte[] png = jpeg(buffered);
 				PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
 				pending.proof = proof;
 				pending.itemId = itemId;
@@ -5572,6 +5574,10 @@ public class AnvilPlugin extends Plugin {
 						sendChatMessage(ChatPalette.Tone.DONE, submitted);
 					}
 					proofBackoff.onSuccess();
+					if (pending.completedNow) {
+						// Said at once, from the submit's own answer — not after the config refresh.
+						announceCompletedNow(tileId, label);
+					}
 				} else {
 					notifyUploadFailed(label);
 				}
@@ -6158,7 +6164,7 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		try {
-			String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + ".png";
+			String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + (BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png");
 
 			warnStartProofBeforeCredit();
 			log.info("Uploading screenshot for tile '{}'...", pending.label);
@@ -6166,11 +6172,11 @@ public class AnvilPlugin extends Plugin {
 
 			if (pending.durationSeconds != null) {
 				log.info("Submitting timed clear for tile '{}'...", pending.label);
-				apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
+				pending.completedNow = apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
 						imageUrl, pending.note, pending.playerId, pending.proof);
 			} else {
 				log.info("Submitting drop for tile '{}'...", pending.label);
-				apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
+				pending.completedNow = apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
 						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof);
 			}
 
@@ -6928,6 +6934,45 @@ public class AnvilPlugin extends Plugin {
 		completionBaselineEventId = null;
 	}
 
+	/**
+	 * Our own submission just completed its tile (the submit's answer said so): banner and chat line
+	 * now, under the same lock and memory as {@link #checkTileCompletions}, so the poll that follows
+	 * doesn't say it again.
+	 */
+	private void announceCompletedNow(int tileId, String label) {
+		configFetchLock.lock();
+		try {
+			PluginConfigResponse cfg = pluginConfig;
+			if (cfg == null || cfg.event == null || completionBaselineEventId == null
+					|| completionBaselineEventId != cfg.event.id || !notifiedCompletedTiles.add(tileId)) {
+				return;
+			}
+		} finally {
+			configFetchLock.unlock();
+		}
+		onTileConfirmedDone(tileId);
+		if (sidebarPanel != null) {
+			SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
+		}
+		if (locallyShownTiles.contains(tileId) || !config.teamCompletionBanner()) {
+			return;
+		}
+		clogBanner.show("Anvil Bingo", "Tile complete!", label);
+		playBannerSound();
+		announceTileComplete(label, getLocalPlayerName());
+	}
+
+	/** "Tile complete: <label> — by <name>!", the name in its Supporter colours where it has them. */
+	private void announceTileComplete(String label, String completedBy) {
+		String who = completedBy == null ? "" : completedBy.trim();
+		String painted = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.decorate(clean(who), chatStar());
+		if (painted != null) {
+			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
+		} else {
+			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
+		}
+	}
+
 	private void checkTileCompletions(PluginConfigResponse cfg) {
 		if (cfg == null || cfg.event == null || cfg.completedTiles == null) {
 			return;
@@ -6941,6 +6986,19 @@ public class AnvilPlugin extends Plugin {
 		// popup is toggled off, so flipping it on later won't dump a backlog.
 		List<CompletedTile> newlyDone = new ArrayList<>();
 		boolean anyDone = false;
+		// A tile no longer complete (its completion was deleted) is forgotten, so finishing it again
+		// announces it again instead of staying silent until the client restarts.
+		Set<Integer> doneNow = new HashSet<>();
+		for (CompletedTile t : cfg.completedTiles) {
+			doneNow.add(t.tileId);
+		}
+		for (Iterator<Integer> it = notifiedCompletedTiles.iterator(); it.hasNext(); ) {
+			Integer was = it.next();
+			if (!doneNow.contains(was)) {
+				it.remove();
+				locallyShownTiles.remove(was);
+			}
+		}
 		for (CompletedTile t : cfg.completedTiles) {
 			if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
 				anyDone = true;
@@ -6968,14 +7026,7 @@ public class AnvilPlugin extends Plugin {
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
 		for (CompletedTile t : newlyDone) {
-			String who = t.completedBy == null ? "" : t.completedBy.trim();
-			// The finisher's name in their Supporter colours, like their own chat lines.
-			String painted = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.decorate(clean(who), chatStar());
-			if (painted != null) {
-				sendChatLine("Anvil", "Tile complete: " + t.label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
-			} else {
-				sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + (who.isEmpty() ? "" : " — by " + who) + "!");
-			}
+			announceTileComplete(t.label, t.completedBy);
 		}
 	}
 
@@ -10733,6 +10784,32 @@ public class AnvilPlugin extends Plugin {
 			}
 			executor.submit(() -> work.accept((BufferedImage) image));
 		});
+	}
+
+	/** A proof frame as a high-quality JPEG (no alpha: JPEG has none). */
+	private static byte[] jpeg(BufferedImage img) throws IOException {
+		BufferedImage rgb = img;
+		if (img.getType() != BufferedImage.TYPE_INT_RGB) {
+			rgb = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
+			Graphics2D g = rgb.createGraphics();
+			try {
+				g.drawImage(img, 0, 0, null);
+			} finally {
+				g.dispose();
+			}
+		}
+		javax.imageio.ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+		javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
+		param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
+		param.setCompressionQuality(0.9f);
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		try (javax.imageio.stream.ImageOutputStream out = ImageIO.createImageOutputStream(baos)) {
+			writer.setOutput(out);
+			writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+		} finally {
+			writer.dispose();
+		}
+		return baos.toByteArray();
 	}
 
 	private static byte[] png(BufferedImage img) throws IOException {
