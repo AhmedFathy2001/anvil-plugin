@@ -336,4 +336,14 @@ public class FeedListTest
 		JsonObject sneaky = new JsonParser().parse("{\"who\":\"<b>x\"}").getAsJsonObject();
 		assertFalse(FeedList.whoHtml(sneaky, "<b>x", "", white, team).contains("<b>"));
 	}
+
+	@Test
+	public void aMovingGradientReflectsLikeTheChatLines()
+	{
+		assertEquals(0f, FeedList.reflect(0f), 1e-6);
+		assertEquals(0.5f, FeedList.reflect(0.5f), 1e-6);
+		assertEquals(1f, FeedList.reflect(1f), 1e-6);
+		assertEquals(0.75f, FeedList.reflect(1.25f), 1e-6);
+		assertEquals(0.25f, FeedList.reflect(2.25f), 1e-6);
+	}
 }
