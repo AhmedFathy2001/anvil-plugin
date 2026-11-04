@@ -8724,7 +8724,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, sourceKind,
 				killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
-		scheduleMomentPush();
+		scheduleMomentPush(DEATH_PUSH_DELAY_MS);
 		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
 		// rather than waiting for each attacker to drop us, which an instance tear-down never
 		// reports — a stale attacker would otherwise be the prime suspect for the next death.
@@ -8765,12 +8765,23 @@ public class AnvilPlugin extends Plugin {
 
 	/** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
 	private void scheduleMomentPush() {
+		scheduleMomentPush(MOMENT_PUSH_COALESCE_MS);
+	}
+
+	/**
+	 * A death is one event with nothing to wait for (a pet is several chat lines that name it bit by
+	 * bit), so it goes out after a beat instead of the full coalescing window: the feed shows it while
+	 * the player is still looking at the death screen.
+	 */
+	private static final long DEATH_PUSH_DELAY_MS = 1_000;
+
+	private void scheduleMomentPush(long delayMs) {
 		synchronized (moments) {
 			// While backing off, a new moment rides the retry already waiting instead of pulling it forward.
 			if (momentFailures > 0 && momentPushTask != null && !momentPushTask.isDone()) {
 				return;
 			}
-			momentPushTask = reschedule(momentPushTask, this::flushMomentPush, MOMENT_PUSH_COALESCE_MS);
+			momentPushTask = reschedule(momentPushTask, this::flushMomentPush, delayMs);
 		}
 	}
 
