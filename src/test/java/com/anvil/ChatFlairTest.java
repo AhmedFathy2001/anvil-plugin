@@ -466,4 +466,109 @@ public class ChatFlairTest
 		assertNull("over the star", f.tierInLine(line, nameAt - 2, w));
 		assertNull("after the name", f.tierInLine(line, nameAt + 11 * 6 + 1, w));
 	}
+
+	// ---- Split private chat: sender and message are separate widgets laid out for the plain name
+
+	@Test
+	public void theStarGetsRoomOnTheSplitPmLineOnce()
+	{
+		final int min = Integer.MIN_VALUE;
+		// Row y=0: "From <helm>GIM Drenvox:" at x 0, w 100; "Test" at x 100. Row y=14: another line.
+		int[] ax = {0, 100, 0, 60};
+		int[] ay = {0, 0, 14, 14};
+		int[] x = {0, 100, 0, 60};
+		int[] w = {100, 300, 60, 340};
+		boolean[] shown = {true, true, true, true};
+		int[] recX = {min, min, min, min};
+		int[] recW = {min, min, min, min};
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(111, w[0]);
+		assertEquals("the message moves over by the star", 111, x[1]);
+		assertEquals(289, w[1]);
+		assertEquals("the next line is left alone", 60, x[3]);
+		// Next frame, nothing laid out again: not moved twice.
+		assertEquals(false, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(111, x[1]);
+		// The game lays the line out afresh (plain positions back): room made again.
+		x[1] = 100;
+		w[0] = 100;
+		w[1] = 300;
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(111, x[1]);
+		assertEquals(111, w[0]);
+		// No star (gradient / colour only): nothing to make room for.
+		assertEquals(false, ChatFlair.makeRoom(2, 0, 4, ax, ay, x, w, shown, recX, recW));
+	}
+
+	@Test
+	public void splitPmSenderIsFoundByLayout()
+	{
+		int[] ax = {0, 100, 0};
+		int[] ay = {0, 0, 14};
+		boolean[] shown = {true, true, true};
+		assertEquals("a sender column has its message to the right", true, ChatFlair.beside(0, 3, ax, ay, shown, false));
+		assertEquals("a typed \"From Bob:\" is the message: nothing to its right", false, ChatFlair.beside(1, 3, ax, ay, shown, false));
+		assertEquals("…and a sender to its left", true, ChatFlair.beside(1, 3, ax, ay, shown, true));
+		assertEquals("a whole line alone on its row", false, ChatFlair.beside(2, 3, ax, ay, shown, true));
+		assertEquals(false, ChatFlair.beside(0, 3, ax, ay, new boolean[]{true, false, true}, false));
+		// The star's room, from the widths of the icons only.
+		ChatFlair f = drenvox();
+		java.util.function.IntUnaryOperator icons = k -> k == 99 ? 11 : 13;
+		String plain = "From <img=10>GIM Drenvox:";
+		assertEquals(11, ChatFlair.measure(f.paintPmLine(plain, "<img=99>", false), t -> 0, icons) - ChatFlair.measure(plain, t -> 0, icons));
+	}
+
+	// ---- Group ironman side panel members
+
+	@Test
+	public void gimMemberNamesArePaintedKeepingIconsAndTheGroupStar()
+	{
+		ChatFlair f = drenvox();
+		assertEquals("<img=48><col=00ff00>GIM\u00A0Drenvox</col><img=60>", f.paintListName("<img=48>GIM\u00A0Drenvox<img=60>"));
+		assertEquals("no Patron star in a list", "<col=ffd35c>Bob</col>", f.paintListName("Bob"));
+		assertNull(f.paintListName(f.paintListName("Bob")));
+		assertNull("not a supporter", f.paintListName("GIM Minj"));
+		assertNull("Bobby is not Bob", f.paintListName("Bobby"));
+	}
+
+	@Test
+	public void gimMemberIsPaintedOnlyWhenTheRowShowsAWorld()
+	{
+		// Row 0: name, world "W308"; row 20: name, "---"; the world widgets have nothing to their right.
+		int[] x = {20, 140, 20, 140};
+		int[] y = {0, 1, 20, 20};
+		String[] t = {"GIM Drenvox", "<col=ffff00>W308</col>", "Bob", "---"};
+		assertEquals(true, ChatFlair.onWorldBeside(0, 4, j -> x[j], j -> y[j], j -> t[j]));
+		assertEquals("offline", false, ChatFlair.onWorldBeside(2, 4, j -> x[j], j -> y[j], j -> t[j]));
+		assertEquals("the world column is not a name", false, ChatFlair.onWorldBeside(1, 4, j -> x[j], j -> y[j], j -> t[j]));
+		assertEquals(true, ChatFlair.onWorldBeside(0, 2, j -> x[j], j -> y[j], j -> new String[]{"Bob", "World 302"}[j]));
+	}
+
+	// ---- Right-click names after Player Indicators
+
+	@Test
+	public void menuTargetGetsOurGradientBackAfterAFriendGreenPrefix()
+	{
+		ChatFlair f = with(entry("denoverse", "#ff7ab8", true, "#ffd27a", "#ff7ab8", "#7ae0ff"));
+		String ours = f.decorate("Denoverse", null);
+		String game = "<col=ffffff>Denoverse<col=ff00ff>  (level-71)";
+		String painted = f.paintMenuTarget(game, "Denoverse", false);
+		assertEquals(ours + "<col=ff00ff>  (level-71)", painted);
+		assertNull("ours already: nothing to do", f.paintMenuTarget(painted, "Denoverse", true));
+		// Player Indicators: drop the first tag, put friend green (and a rank icon) in front.
+		String pi = "<img=5><col=00ff00>" + painted.substring(painted.indexOf('>') + 1);
+		assertEquals("<img=5>" + ours + "<col=ff00ff>  (level-71)", f.paintMenuTarget(pi, "Denoverse", true));
+		assertNull("override off: their colour stays", f.paintMenuTarget(pi, "Denoverse", false));
+		// Their colour on the plain name: same rule.
+		assertNull(f.paintMenuTarget("<col=00ff00>Denoverse<col=ff00ff>  (level-71)", "Denoverse", false));
+		assertEquals(ours + "<col=ff00ff>  (level-71)", f.paintMenuTarget("<col=00ff00>Denoverse<col=ff00ff>  (level-71)", "Denoverse", true));
+		// Tick after tick (they strip, we repaint) the target stays the same length.
+		String again = f.paintMenuTarget(pi, "Denoverse", true);
+		for (int n = 0; n < 5; n++)
+		{
+			String next = f.paintMenuTarget("<img=5><col=00ff00>" + again.substring(again.indexOf("<col=") + again.substring(again.indexOf("<col=")).indexOf('>') + 1), "Denoverse", true);
+			assertEquals(again, next);
+		}
+		assertNull("not a supporter", f.paintMenuTarget("<col=ffffff>Someone<col=ff00ff>  (level-3)", "Someone", true));
+	}
 }
