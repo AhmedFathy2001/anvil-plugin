@@ -998,6 +998,50 @@ final class FeedList extends JPanel
 		}
 	}
 
+	/**
+	 * A moment's name line: the name in a Supporter's gradient (letter by letter; the panel's static
+	 * form of it) or in {@code whoColor}, and "· Team" after it in the team's colour. A site that only
+	 * sent the team (whoColor "muted") gets the name in the team's colour, as before.
+	 */
+	static String whoHtml(JsonObject r, String who, String tag, Color whoInk, Color tagInk)
+	{
+		Color[] grad = stops(r);
+		String whoColor = UiView.str(r, "whoColor");
+		Color nameInk = !tag.isEmpty() && (whoColor.isEmpty() || "muted".equals(whoColor)) ? tagInk : whoInk;
+		String name = Ui.fontSafe(who);
+		StringBuilder sb = new StringBuilder("<html>");
+		if (grad != null && name.length() > 1)
+		{
+			for (int i = 0; i < name.length(); i++)
+			{
+				float t = (float) i / (name.length() - 1) * (grad.length - 1);
+				int k = Math.min((int) t, grad.length - 2);
+				sb.append(font(mix(grad[k], grad[k + 1], t - k), String.valueOf(name.charAt(i))));
+			}
+		}
+		else
+		{
+			sb.append(font(nameInk, name));
+		}
+		if (!tag.isEmpty())
+		{
+			sb.append(font(tagInk, " \u00b7 " + Ui.fontSafe(tag)));
+		}
+		return sb.toString();
+	}
+
+	private static String font(Color c, String text)
+	{
+		return String.format("<font color='#%06x'>%s</font>", c.getRGB() & 0xffffff, Ui.esc(text));
+	}
+
+	private static Color mix(Color a, Color b, float t)
+	{
+		return new Color(Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
+				Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+				Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
+	}
+
 	/** A Supporter's name gradient ({@code grad}: 2+ "#rrggbb"), or null. */
 	static Color[] stops(JsonObject r)
 	{
@@ -1145,9 +1189,10 @@ final class FeedList extends JPanel
 				// A moment: the item on top, who got it (and their team) under it.
 				line1.setText(plainText(title));
 				line1.setForeground(UiView.color(UiView.str(r, "textColor"), Color.WHITE));
-				// Who got it, in their team's colour (the team's name is in the tooltip).
-				line2.setText(plainText(who));
-				line2.setForeground(tag.isEmpty() ? whoInk : tagInk);
+				// Who got it, in the colours the site picked (a Supporter's own, else their team's), then
+				// "· Team" in the team's colour on a board.
+				line2.setText(whoHtml(r, who, tag, whoInk, tagInk));
+				line2.setForeground(whoInk);
 				line2.setVisible(true);
 			}
 			else

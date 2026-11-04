@@ -298,4 +298,22 @@ public class FeedListTest
 		assertEquals(0, FeedList.reactAt(reacts, fm, sit + fm.stringWidth("   ") + 2));
 		assertEquals("left of every chip is the row itself", -1, FeedList.reactAt(reacts, fm, 400));
 	}
+
+	@Test
+	public void momentNameWearsSupporterColoursAndTheTeam()
+	{
+		java.awt.Color white = java.awt.Color.WHITE, team = new java.awt.Color(0xff8800);
+		JsonObject patron = new JsonParser().parse("{\"who\":\"Drenvox\",\"whoColor\":\"#f5c542\",\"grad\":[\"#f5c542\",\"#c86bff\"],\"tag\":\"Lab\",\"tagColor\":\"#ff8800\"}").getAsJsonObject();
+		String html = FeedList.whoHtml(patron, "Drenvox", "Lab", new java.awt.Color(0xf5c542), team);
+		assertTrue(html, html.startsWith("<html><font color='#f5c542'>D</font>"));
+		assertTrue(html, html.contains("<font color='#c86bff'>x</font>"));
+		assertTrue(html, html.endsWith("<font color='#ff8800'> \u00b7 Lab</font>"));
+
+		JsonObject plain = new JsonParser().parse("{\"who\":\"Mossy\",\"whoColor\":\"muted\",\"tag\":\"Ruby\"}").getAsJsonObject();
+		assertEquals("<html><font color='#ff8800'>Mossy</font><font color='#ff8800'> \u00b7 Ruby</font>",
+				FeedList.whoHtml(plain, "Mossy", "Ruby", white, team));
+
+		JsonObject sneaky = new JsonParser().parse("{\"who\":\"<b>x\"}").getAsJsonObject();
+		assertFalse(FeedList.whoHtml(sneaky, "<b>x", "", white, team).contains("<b>"));
+	}
 }
