@@ -9228,6 +9228,52 @@ public class AnvilPlugin extends Plugin {
 
 	/** Dangerous PvP only — the Wilderness or a PvP world. Safe minigames (LMS, Soul Wars,
 	 *  Castle Wars, PvP Arena) and DMM never count as PKs. Client thread (varbit read). */
+	/**
+	 * Client thread, for every menu entry as it's added, after other plugins (priority -1): a
+	 * Supporter's name wears their colours on a player's right-click options ("Trade with Name"),
+	 * the same as in chat. Display only, from the public flair list; nothing about who's around is
+	 * sent. Never in PvP areas: there a colour must not single anyone out.
+	 */
+	@Subscribe(priority = -1)
+	public void onMenuEntryAddedFlair(MenuEntryAdded event) {
+		if (!config.menuNameFlair() || chatFlair.isEmpty()) {
+			return;
+		}
+		MenuEntry entry = event.getMenuEntry();
+		Player p = entry.getPlayer();
+		String name = p == null ? null : p.getName();
+		if (name == null || inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) {
+			return;
+		}
+		String target = entry.getTarget();
+		java.util.regex.Matcher m = menuNamePattern(name).matcher(target == null ? "" : target);
+		if (!m.find()) {
+			return;
+		}
+		// Another plugin coloured it (any colour but the game's white): leave it unless told to paint over.
+		String col = m.group(1);
+		if (col != null && !col.equalsIgnoreCase("ffffff") && !config.menuFlairOverride()) {
+			return;
+		}
+		String painted = chatFlair.decorate(name, null);
+		if (painted != null) {
+			entry.setTarget(target.substring(0, m.start()) + ChatPalette.readable(painted, false) + target.substring(m.end()));
+		}
+	}
+
+	private String menuFlairName;
+	private java.util.regex.Pattern menuFlairPattern;
+
+	/** "<col=ffffff>Name" in a menu target (spaces may be the game's nbsp); cached for the last name. */
+	private java.util.regex.Pattern menuNamePattern(String name) {
+		if (!name.equals(menuFlairName)) {
+			String body = java.util.regex.Pattern.quote(name.replace('\u00a0', ' ')).replace(" ", "\\E[ \u00a0]\\Q");
+			menuFlairPattern = java.util.regex.Pattern.compile("(?:<col=([0-9a-fA-F]{6})>)?" + body);
+			menuFlairName = name;
+		}
+		return menuFlairPattern;
+	}
+
 	private boolean inDangerousPvp() {
 		return client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
 				|| client.getWorldType().contains(WorldType.PVP);

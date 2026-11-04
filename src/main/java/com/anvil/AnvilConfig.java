@@ -122,6 +122,30 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "menuNameFlair",
+		name = "Supporter names in menus",
+		description = "Show Anvil Supporters' name colours on their name when you right-click them. Never on PvP worlds or in the Wilderness. Nothing about who you see is sent.",
+		position = 6,
+		section = "chatSection"
+	)
+	default boolean menuNameFlair()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "menuFlairOverride",
+		name = "Over other plugins' colours",
+		description = "On: a Supporter's colours replace a name colour another plugin set (like Player Indicators' clan colour). Off: names another plugin coloured are left alone.",
+		position = 7,
+		section = "chatSection"
+	)
+	default boolean menuFlairOverride()
+	{
+		return true;
+	}
+
 	// ---- Setup ----
 
 	// No Site URL: the plugin only talks to https://anvilosrs.com (BingoApiClient.CANONICAL_SITE).
