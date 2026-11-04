@@ -64,6 +64,33 @@ final class ChatFlair
 		return name.replace(' ', ' ').trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_]+", " ");
 	}
 
+	/** A sender column's text ("[02:25] <img=1>Name:" with any colouring): the name inside, or null. */
+	private static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)?(.+?):$");
+
+	/**
+	 * What to say on hover over a chat line's SENDER: "Anvil Patron" / "Anvil Champion" / "Anvil
+	 * Supporter", or null (not a sender column, or no flair). The star means Patron, a gradient
+	 * Champion, a solid colour Supporter.
+	 */
+	String tierOfSender(String widgetText)
+	{
+		if (widgetText == null || byName.isEmpty())
+		{
+			return null;
+		}
+		Matcher m = SENDER_COLUMN.matcher(widgetText.replaceAll("<[^>]*>", "").trim());
+		if (!m.matches())
+		{
+			return null;
+		}
+		Entry e = byName.get(normalize(m.group(1)));
+		if (e == null)
+		{
+			return null;
+		}
+		return Boolean.TRUE.equals(e.s) ? "Anvil Patron" : e.g != null && e.g.size() >= 2 ? "Anvil Champion" : "Anvil Supporter";
+	}
+
 	/**
 	 * The sender with their flair: icons kept, then the star (when {@code star} is given and they are
 	 * a Patron), then the name in their gradient or colour. Null when they have none or the sender

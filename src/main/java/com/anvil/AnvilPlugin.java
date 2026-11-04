@@ -86,6 +86,12 @@ public class AnvilPlugin extends Plugin {
 	@Inject
 	private OverlayManager overlayManager;
 
+	@Inject
+	private net.runelite.client.ui.overlay.tooltip.TooltipManager tooltipManager;
+
+	/** Hover a Supporter's name in the chatbox: their tier (ChatFlairTooltip). */
+	private ChatFlairTooltip chatFlairTooltip;
+
 	// Always-on progress sidebar — a toolbar PluginPanel showing per-clan tile progress. Reads
 	// through AnvilSidebarDataSource (see provideSidebarDataSource).
 	@Inject
@@ -1199,6 +1205,8 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
+		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, () -> config.supporterChatFlair());
+		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
 		tileTracker.setNotes(this::tileNotes);
 		tileTracker.setOnePanel(config.trackerOnePanel());
@@ -1566,6 +1574,10 @@ public class AnvilPlugin extends Plugin {
 	protected void shutDown() {
 		overlayManager.remove(overlay);
 		overlayManager.remove(clogBanner);
+		if (chatFlairTooltip != null) {
+			overlayManager.remove(chatFlairTooltip);
+			chatFlairTooltip = null;
+		}
 		tileTracker.shutDown();
 		overlayManager.remove(startProofOverlay);
 		clientThread.invokeLater(startSpotMarker::clear);
@@ -6956,9 +6968,14 @@ public class AnvilPlugin extends Plugin {
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
 		for (CompletedTile t : newlyDone) {
-			String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
-					? " — by " + t.completedBy.trim() : "";
-			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + by + "!");
+			String who = t.completedBy == null ? "" : t.completedBy.trim();
+			// The finisher's name in their Supporter colours, like their own chat lines.
+			String painted = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.decorate(clean(who), chatStar());
+			if (painted != null) {
+				sendChatLine("Anvil", "Tile complete: " + t.label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
+			} else {
+				sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + (who.isEmpty() ? "" : " — by " + who) + "!");
+			}
 		}
 	}
 
@@ -10901,6 +10918,11 @@ public class AnvilPlugin extends Plugin {
 
 	/** {@code lead}: markup already made safe (a coloured name, an icon) before the message's own colour. */
 	private void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead) {
+		sendChatLine(tag, message, tone, lead, null);
+	}
+
+	/** {@code tail}: already-safe markup after the message (a flaired name), e.g. "<col=…>N</col>!". */
+	private void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead, String tail) {
 		if (message == null || message.isEmpty()) {
 			return;
 		}
@@ -10924,7 +10946,8 @@ public class AnvilPlugin extends Plugin {
 			}
 			// Every colour in the line, whoever chose it, readable on this chatbox (ChatPalette.readable).
 			String line = ChatPalette.readable("<col=" + prefix + ">[" + clean(tag) + "]</col> "
-					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>", opaque);
+					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>"
+					+ (tail != null ? tail : ""), opaque);
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
 			// of third-party subscribers assume both exist. Never inject an Anvil line into that

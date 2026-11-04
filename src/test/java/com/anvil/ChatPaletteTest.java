@@ -84,4 +84,25 @@ public class ChatPaletteTest
 		assertTrue(line.contains("[Anvil]") && line.contains(">W<") && line.contains(">y<"));
 		assertFalse(line.contains("ffd27a"));
 	}
+
+	@Test
+	public void aSupportersSenderColumnNamesTheirTier()
+	{
+		ChatFlair f = new ChatFlair();
+		ChatFlair.Response r = new ChatFlair.Response();
+		ChatFlair.Entry patron = new ChatFlair.Entry();
+		patron.n = "drenvox";
+		patron.c = "#ff7ab8";
+		patron.g = java.util.Arrays.asList("#ffd27a", "#ff7ab8");
+		patron.s = true;
+		ChatFlair.Entry supp = new ChatFlair.Entry();
+		supp.n = "rikkert";
+		supp.c = "#ffd35c";
+		r.names = java.util.Arrays.asList(patron, supp);
+		f.adopt(r);
+		assertEquals("Anvil Patron", f.tierOfSender("[02:25] <img=12><col=ffd27a>D</col><col=ff7ab8>renvox</col>:"));
+		assertEquals("Anvil Supporter", f.tierOfSender("Rikkert:"));
+		assertNull("a message, not a sender", f.tierOfSender("Drenvox is great"));
+		assertNull(f.tierOfSender("Somebody:"));
+	}
 }
