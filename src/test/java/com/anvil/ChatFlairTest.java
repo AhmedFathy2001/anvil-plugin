@@ -534,7 +534,10 @@ public class ChatFlairTest
 		// Player Indicators: drop the first tag, put friend green (and a rank icon) in front.
 		String pi = "<img=5><col=00ff00>" + painted.substring(painted.indexOf('>') + 1);
 		assertEquals("<img=5>" + ours + "<col=ff00ff>  (level-71)", f.paintMenuTarget(pi, "Denoverse", true));
-		assertNull("override off: their colour stays", f.paintMenuTarget(pi, "Denoverse", false));
+		String off = f.paintMenuTarget(pi, "Denoverse", false);
+		assertEquals("override off: what's left of ours goes, the whole name is theirs",
+			"<img=5><col=00ff00>Denoverse<col=ff00ff>  (level-71)", off);
+		assertNull("and then it's left alone", f.paintMenuTarget(off, "Denoverse", false));
 		// Their colour on the plain name: same rule.
 		assertNull(f.paintMenuTarget("<col=00ff00>Denoverse<col=ff00ff>  (level-71)", "Denoverse", false));
 		assertEquals(ours + "<col=ff00ff>  (level-71)", f.paintMenuTarget("<col=00ff00>Denoverse<col=ff00ff>  (level-71)", "Denoverse", true));
