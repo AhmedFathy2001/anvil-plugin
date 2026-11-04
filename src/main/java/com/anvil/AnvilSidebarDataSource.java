@@ -38,6 +38,26 @@ public class AnvilSidebarDataSource
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	private volatile AnvilPlugin plugin;
 
+	/** Hand the keyboard back to the game canvas. */
+	public void gameFocus()
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.gameFocus();
+		}
+	}
+
+	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
+	public void feedOnScreen(boolean on)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.feedOnScreen(on);
+		}
+	}
+
 	public void setPlugin(AnvilPlugin plugin)
 	{
 		this.plugin = plugin;
@@ -84,6 +104,12 @@ public class AnvilSidebarDataSource
 	public AccountRow accountRow()
 	{
 		return fromPlugin(AnvilPlugin::accountRow, null);
+	}
+
+	/** A character's Supporter look from the plugin's own list (ChatFlair), or null. */
+	public ChatFlair.Entry flairOf(String rsn)
+	{
+		return fromPlugin(p -> p.flairOf(rsn), null);
 	}
 
 	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
@@ -244,6 +270,12 @@ public class AnvilSidebarDataSource
 	 * clan (a 404 config carries none). The You and Lookup tabs are exactly what someone without a
 	 * clan should still get.
 	 */
+	/** The site serves the Feed tab's live lists (capability 'panel-rows'). */
+	public boolean feedTabAvailable()
+	{
+		return siteSupports("panel-rows");
+	}
+
 	private boolean siteSupports(String capability)
 	{
 		PluginConfigResponse cfg = configSupplier.get();
@@ -290,8 +322,19 @@ public class AnvilSidebarDataSource
 			if (force)
 			{
 				p.reprobeAdminNow();
+				p.refreshLook();
 			}
 		});
+	}
+
+	/**
+	 * Is the place the site answered for a creator space (a streamer's events, no in-game clan)? The
+	 * site sends {@code activeClan.kind = "creator"} for one; older sites send nothing, which reads as a clan.
+	 */
+	public boolean activeIsSpace()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg != null && cfg.activeClan != null && "creator".equals(cfg.activeClan.kind);
 	}
 
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */

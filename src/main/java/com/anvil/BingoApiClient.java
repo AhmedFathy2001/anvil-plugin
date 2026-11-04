@@ -5,6 +5,7 @@ import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -17,6 +18,13 @@ public class BingoApiClient
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final MediaType PNG = MediaType.parse("image/png");
+	private static final MediaType JPEG = MediaType.parse("image/jpeg");
+
+	/** JPEG by its first bytes (proofs are JPEG; older pending files and notifications are PNG). */
+	static boolean isJpeg(byte[] b)
+	{
+		return b != null && b.length > 2 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xd8;
+	}
 
 	private final Gson gson;
 	// Package-private so tests can drive a request through the pause gate (AccountOptOutTest).
@@ -110,7 +118,7 @@ public class BingoApiClient
 	public void configure(String playerToken)
 	{
 		this.playerToken = playerToken;
-		this.apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : CANONICAL_SITE;
+		this.apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : site();
 	}
 
 	/** The site base URL in use, or "" while signed out (see {@link #configure}). */
@@ -226,7 +234,7 @@ public class BingoApiClient
 	 * cannot wait for {@code apiUrl}: always the fixed site. */
 	static String authUrl(String path)
 	{
-		return CANONICAL_SITE + path;
+		return site() + path;
 	}
 
 	/**
@@ -300,6 +308,23 @@ public class BingoApiClient
 	public static final String CANONICAL_SITE = "https://anvilosrs.com";
 
 	/**
+	 * The site in use. Always {@link #CANONICAL_SITE} in a hub build: nothing in the plugin can change
+	 * it. Only the dev launcher in the test sources (AnvilPluginTest, never packaged) points it at
+	 * beta, so an unreleased site can be tried with the dev client.
+	 */
+	private static volatile String site = CANONICAL_SITE;
+
+	static String site()
+	{
+		return site;
+	}
+
+	static void useDevSite(String url)
+	{
+		site = url;
+	}
+
+	/**
 	 * True when there is no Account Token yet — the state the Sign-in button serves.
 	 *
 	 * The Sign-in button is the way in for a fresh install — it fills the token in itself
@@ -339,6 +364,32 @@ public class BingoApiClient
 			DeviceAuthStart.class, "auth/start");
 	}
 
+	/** GET /api/plugin/brief: the lines printed at login and the palette Anvil chat lines use. */
+	public static class Brief
+	{
+		public java.util.List<BriefLine> lines;
+		public Look look;
+	}
+
+	public static class BriefLine
+	{
+		public String tone;
+		public String text;
+	}
+
+	/** {@code colors} is null for "plain": the plugin's own prefix/text colours for everything. */
+	public static class Look
+	{
+		public String palette;
+		public java.util.Map<String, String> colors;
+	}
+
+	/** Asked like the config (the brief is built from the same answer). Null on any failure. */
+	Brief fetchBrief()
+	{
+		return isConfigured() ? getOrNull(authedRequest(configUrl("/api/plugin/brief")).get(), Brief.class, "brief") : null;
+	}
+
 	/** GET /api/plugin/push/ticket: a pass onto the live push socket ({@link PushSocket}). */
 	public static class PushTicket
 	{
@@ -347,12 +398,15 @@ public class BingoApiClient
 	}
 
 	/**
+	 * {@code feed}: also hear chat-feed lines, so there is something to listen to even with no board.
 	 * Null when signed out, refused, or there's no board to listen to (204) — and when the socket it
 	 * names isn't on the site this plugin already talks to, which it never dials anywhere else.
 	 */
-	PushTicket fetchPushTicket()
+	PushTicket fetchPushTicket(boolean feed, boolean rows)
 	{
-		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl("/api/plugin/push/ticket")).get(), PushTicket.class, "push ticket") : null;
+		// ?flair=1 always: this plugin applies Supporter-list deltas (ChatFlairSync).
+		String path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "");
+		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class, "push ticket") : null;
 		HttpUrl socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
 		HttpUrl site = HttpUrl.parse(getApiUrl());
 		return socket != null && site != null && socket.host().equals(site.host()) ? t : null;
@@ -492,7 +546,8 @@ public class BingoApiClient
 	 */
 	private Request.Builder authedRequest(String url, String rsn, String hint, String hash)
 	{
-		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken);
+		// X-Anvil-Boards: this client credits tiles tagged with another board (TrackedTile.board).
+		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken).header("X-Anvil-Boards", "1");
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
 		else if (hint != null) b.header("X-RSN-Hint", hint);
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
@@ -534,6 +589,8 @@ public class BingoApiClient
 		public String error;
 		public String reason;
 		public boolean alreadyOpen;
+		/** What to tell the player (e.g. the XP check that starts an ownership claim). Null on older sites. */
+		public String message;
 	}
 
 	/**
@@ -781,7 +838,7 @@ public class BingoApiClient
 			return;
 		}
 		versionCapsAt = now;
-		VersionInfo info = getOrNull(plainRequest(CANONICAL_SITE + "/api/version").get(), VersionInfo.class,
+		VersionInfo info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class,
 			"version capabilities fetch");
 		if (info != null)
 		{
@@ -826,16 +883,53 @@ public class BingoApiClient
 			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
 	}
 
+	/** GET chat-flair/v?since= — the Supporter list's version and the deltas to it (ChatFlairSync). Public; null on failure. */
+	ChatFlair.Since fetchChatFlairSince(int v)
+	{
+		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v?since=" + v)).get(), ChatFlair.Since.class, "Chat flair version");
+	}
+
+	/** GET chat-flair/v/&lt;v&gt; — the whole list at a version (CDN-cached, gzipped). Public; null on failure. */
+	ChatFlair.Wire fetchChatFlairList(int v)
+	{
+		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v/" + v)).get(), ChatFlair.Wire.class, "Chat flair");
+	}
+
 	/** A non-2xx answer, from any call: every refusal this client throws is one, so callers can go by {@link #code}. */
 	static class HttpStatusException extends IOException
 	{
 		final int code;
+		/**
+		 * What a player reads in chat. {@link #getMessage()} keeps the diagnostic "context: HTTP n —
+		 * body" for the log and the retry loop; this is the site's own sentence (or a plain one).
+		 */
+		String playerMessage;
 
 		HttpStatusException(String message, int code)
 		{
 			super(message);
 			this.code = code;
 		}
+
+		HttpStatusException withPlayerMessage(String m)
+		{
+			this.playerMessage = m;
+			return this;
+		}
+	}
+
+	/**
+	 * The words for a chat line about a failed request. Never the raw response: a JSON blob in chat
+	 * reads as a bug report, not an explanation.
+	 */
+	static String forPlayer(IOException e)
+	{
+		if (e instanceof HttpStatusException)
+		{
+			HttpStatusException h = (HttpStatusException) e;
+			return h.playerMessage != null ? h.playerMessage : friendlyError(h.code, null);
+		}
+		return "couldn't reach the site";
 	}
 
 	/** A bounded URL → {etag, parsed body} cache, for If-None-Match. */
@@ -994,14 +1088,145 @@ public class BingoApiClient
 	/** A page on the site this plugin talks to: a view's link names a path, never a host. */
 	public String siteLink(String path)
 	{
-		HttpUrl base = HttpUrl.parse(getApiUrl().isEmpty() ? CANONICAL_SITE : getApiUrl());
+		HttpUrl base = HttpUrl.parse(getApiUrl().isEmpty() ? site() : getApiUrl());
 		HttpUrl url = base == null ? null : base.resolve(path);
 		return url == null ? CANONICAL_SITE : url.toString();
 	}
 
+	private static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
+	/** Decoded panel pictures by path and size, least recently used first. */
+	private final Map<String, BufferedImage> thumbs = new LinkedHashMap<String, BufferedImage>(16, 0.75f, true)
+	{
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> e)
+		{
+			return size() > 50;
+		}
+	};
+
+	/**
+	 * A view's picture (node {@code img}): a PATH on this site, fetched off the EDT, scaled once to fit
+	 * {@code w}x{@code h} and kept. {@code done} gets it (null on any failure) on an OkHttp thread, or at
+	 * once from the cache. Anything bigger than {@link #THUMB_MAX_BYTES} is dropped unread.
+	 */
+	void thumb(String path, int w, int h, java.util.function.Consumer<BufferedImage> done)
+	{
+		String key = w + "x" + h + path;
+		BufferedImage hit;
+		synchronized (thumbs)
+		{
+			hit = thumbs.get(key);
+		}
+		HttpUrl url = path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0 ? HttpUrl.parse(siteLink(path)) : null;
+		HttpUrl base = HttpUrl.parse(siteLink("/"));
+		if (hit != null || url == null || base == null || !url.host().equals(base.host()) || w <= 0 || h <= 0)
+		{
+			done.accept(hit);
+			return;
+		}
+		readClient.newCall(plainRequest(url.toString()).get().build()).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				done.accept(null);
+			}
+
+			@Override
+			public void onResponse(Call call, Response r)
+			{
+				BufferedImage img = null;
+				try (Response res = r)
+				{
+					ResponseBody body = res.body();
+					// request() is false once the whole body is buffered: it fit under the cap.
+					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L))
+					{
+						img = fit(decodeSmall(body.source().buffer().readByteArray(), w, h), w, h);
+					}
+				}
+				catch (IOException | RuntimeException e)
+				{
+					log.debug("panel image failed: {}", e.getMessage());
+				}
+				if (img != null)
+				{
+					synchronized (thumbs)
+					{
+						thumbs.put(key, img);
+					}
+				}
+				done.accept(img);
+			}
+		});
+	}
+
+	/** {@code src} scaled to fit inside w x h (never up). */
+	/** Larger than this many pixels is refused unread: a few compressed KB can claim gigabytes decoded. */
+	static final long THUMB_MAX_PIXELS = 4096L * 4096L;
+
+	/**
+	 * Decode an image no bigger than it needs to be: its size is read from the header first (refused
+	 * past {@link #THUMB_MAX_PIXELS}), and a large one is decoded subsampled to about {@code w}×{@code h},
+	 * so neither a decompression bomb nor an honest full-screen shot costs more than a thumbnail's
+	 * memory. Null when unreadable or refused.
+	 */
+	static BufferedImage decodeSmall(byte[] bytes, int w, int h)
+	{
+		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes)))
+		{
+			java.util.Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
+			if (readers == null || !readers.hasNext())
+			{
+				return null;
+			}
+			javax.imageio.ImageReader reader = readers.next();
+			try
+			{
+				reader.setInput(in, true, true);
+				int sw = reader.getWidth(0);
+				int sh = reader.getHeight(0);
+				if (sw <= 0 || sh <= 0 || (long) sw * sh > THUMB_MAX_PIXELS)
+				{
+					return null;
+				}
+				javax.imageio.ImageReadParam param = reader.getDefaultReadParam();
+				int step = Math.max(1, Math.min(sw / Math.max(1, w), sh / Math.max(1, h)));
+				param.setSourceSubsampling(step, step, 0, 0);
+				return reader.read(0, param);
+			}
+			finally
+			{
+				reader.dispose();
+			}
+		}
+		catch (IOException | RuntimeException | OutOfMemoryError e)
+		{
+			return null;
+		}
+	}
+
+	static BufferedImage fit(BufferedImage src, int w, int h)
+	{
+		if (src == null)
+		{
+			return null;
+		}
+		double k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
+		int tw = Math.max(1, (int) Math.round(src.getWidth() * k));
+		int th = Math.max(1, (int) Math.round(src.getHeight() * k));
+		BufferedImage out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
+		java.awt.Graphics2D g = out.createGraphics();
+		g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.drawImage(src, 0, 0, tw, th, null);
+		g.dispose();
+		return out;
+	}
+
 	private Request.Builder uiRequest(String url)
 	{
-		return accountPaused ? publicRequest(url) : authedRequest(url);
+		// The panel draws the Feed tab: the site's clan card can keep its drop log short.
+		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1").header("X-Anvil-Panel-Images", "1");
 	}
 
 	/**
@@ -1061,7 +1286,7 @@ public class BingoApiClient
 	public String uploadImage(byte[] pngBytes, String filename) throws IOException
 	{
 		MultipartBody multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
-			.addFormDataPart("file", filename, RequestBody.create(PNG, pngBytes)).build();
+			.addFormDataPart("file", filename, RequestBody.create(isJpeg(pngBytes) ? JPEG : PNG, pngBytes)).build();
 		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(multipart), (r, body) ->
 		{
 			if (!r.isSuccessful())
@@ -1216,6 +1441,8 @@ public class BingoApiClient
 	{
 		public String rsn;
 		public String rank;
+		// The in-game rank number (higher = more senior), so the site can order custom titles.
+		public Integer rankNum;
 		public Integer joinedDays;
 		// Only set for the locally-logged-in player — used by the site for stable identity /
 		// rename detection. Null for everyone else; gson omits it from the payload.
@@ -1370,9 +1597,10 @@ public class BingoApiClient
 	private static HttpStatusException classified(String message, int code, String body)
 	{
 		boolean awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
-		return RetryPolicy.isPermanent(code) && !awaitingStartProof
+		HttpStatusException e = RetryPolicy.isPermanent(code) && !awaitingStartProof
 			? new PermanentSubmissionException(message, code)
 			: new HttpStatusException(message, code);
+		return e.withPlayerMessage(friendlyError(code, body));
 	}
 
 	/**
@@ -1383,9 +1611,18 @@ public class BingoApiClient
 	 * sentence, not its JSON — a player reading chat should be told what to do, and
 	 * "{"error":...,"retryAfterMs":49445}" tells them to file a bug.
 	 */
+	/** The submit answer says this submission completed its tile (sites that say so: {"completed":true}). */
+	static boolean completedIn(String body)
+	{
+		JsonObject o = body == null ? null : jsonObject(body);
+		return o != null && o.has("completed") && o.get("completed").isJsonPrimitive() && o.get("completed").getAsBoolean();
+	}
+
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException
 	{
-		return execute(httpClient, authedRequest(clanUrl(path)).post(json(payload)), (response, body) ->
+		// A full URL (another board's submissions) is already addressed.
+		String url = path.startsWith("/") ? clanUrl(path) : path;
+		return execute(httpClient, authedRequest(url).post(json(payload)), (response, body) ->
 		{
 			int code = response.code();
 			if (response.isSuccessful())
@@ -1402,7 +1639,9 @@ public class BingoApiClient
 				throw friendlyFailure(code, body);
 			}
 			String shown = body.isEmpty() ? "no body" : body;
-			throw classify ? submissionError(what, code, shown) : new HttpStatusException(what + ": HTTP " + code + " — " + shown, code);
+			throw classify
+				? submissionError(what, code, shown)
+				: new HttpStatusException(what + ": HTTP " + code + " — " + shown, code).withPlayerMessage(friendlyError(code, body));
 		});
 	}
 
@@ -1505,8 +1744,8 @@ public class BingoApiClient
 	 * never names. {@code inferred} is the reason the site stores so staff
 	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
 	 */
-	public void submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
-		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof) throws IOException
+	public boolean submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
+		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof, String clan) throws IOException
 	{
 		JsonObject payload = submission(tileId, teamId, amount, imageUrl, note, creditPlayerId, proof);
 		if (inferred != null)
@@ -1528,8 +1767,9 @@ public class BingoApiClient
 				payload.addProperty("coopPartySize", coop.partySize);
 			}
 		}
-		postJson("/api/events/" + eventId + "/submissions", payload, "Submission failed", true);
+		boolean completed = completedIn(postJson(submissionsUrl(clan, eventId), payload, "Submission failed", true));
 		log.info("Drop submitted successfully for tile {}", tileId);
+		return completed;
 	}
 
 	/**
@@ -1537,13 +1777,22 @@ public class BingoApiClient
 	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
 	 * completes the tile when durationSeconds ≤ the tile's threshold.
 	 */
-	public void submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
-		JsonObject proof) throws IOException
+	public boolean submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
+		JsonObject proof, String clan) throws IOException
 	{
 		JsonObject payload = submission(tileId, teamId, 1, imageUrl, note, creditPlayerId, proof);
 		payload.addProperty("durationSeconds", durationSeconds);
-		postJson("/api/events/" + eventId + "/submissions", payload, "Timed submission failed", true);
+		boolean completed = completedIn(postJson(submissionsUrl(clan, eventId), payload, "Timed submission failed", true));
 		log.info("Timed clear submitted successfully for tile {}", tileId);
+		return completed;
+	}
+
+	/** The active board's submissions URL as ever; another board's ({@code clan} non-null) under its own clan. */
+	String submissionsUrl(String clan, int eventId)
+	{
+		String path = "/api/events/" + eventId + "/submissions";
+		String slug = cleanSlug(clan);
+		return slug.isEmpty() ? clanUrl(path) : apiUrl + "/c/" + slug + path;
 	}
 
 	private static JsonObject submission(int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId,
@@ -1634,6 +1883,16 @@ public class BingoApiClient
 	 * POST /api/plugin/coffer/broadcast — this player's own coffer line from clan chat. The site parses
 	 * it and books it once a coffer reading shows the money.
 	 */
+	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
+	public void submitModeLines(java.util.List<String> lines) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+		lines.forEach(arr::add);
+		payload.add("lines", arr);
+		postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
+	}
+
 	public void submitCofferLine(String line, String clanName) throws IOException
 	{
 		JsonObject payload = new JsonObject();
@@ -1800,6 +2059,17 @@ public class BingoApiClient
 			payload.add("clan", clan);
 		}
 		postJson("/api/plugin/game-clan", payload, "Game clan push failed", false);
+	}
+
+	/**
+	 * POST /api/plugin/presence — the clan whose GUEST channel this character sits in now (null: none),
+	 * for the chat feed's guest bridge (capability {@code chat-feed}). Only the channel's name.
+	 */
+	public void submitGuestChannel(String guestChannel) throws IOException
+	{
+		JsonObject payload = new JsonObject();
+		payload.addProperty("guestChannel", guestChannel);
+		postJson("/api/plugin/presence", payload, "Presence push failed", false);
 	}
 
 	/**

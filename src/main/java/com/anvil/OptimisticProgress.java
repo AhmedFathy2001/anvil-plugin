@@ -15,6 +15,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class OptimisticProgress
 {
+	// Tile ids may be negative: a capped tile's cap counters carry virtual ids (-(tileId * 8 + slot),
+	// PluginConfigResponse.TrackedKill.capOf). Only 0 means "no tile".
 	static final long TTL_MS = 120_000;
 
 	/** tileId → {floor, expiresAt}. */
@@ -27,11 +29,18 @@ final class OptimisticProgress
 	 * gains hadn't reached the site yet), never overcount.
 	 */
 	private final Map<Integer, Long> seenSite = new ConcurrentHashMap<>();
+	/** Told when the site's count for a tile went DOWN (a deleted submission): views showing the old one redraw. */
+	private volatile Runnable onDrop;
+
+	void onDrop(Runnable r)
+	{
+		onDrop = r;
+	}
 
 	/** This client now has the tile at {@code current} (an absolute team count it just bumped to). */
 	void raise(int tileId, long current, long now)
 	{
-		if (tileId <= 0 || current <= 0)
+		if (tileId == 0 || current <= 0)
 		{
 			return;
 		}
@@ -42,7 +51,7 @@ final class OptimisticProgress
 	/** This client gained {@code delta} on a tile the site last put at {@code siteCurrent}. */
 	void add(int tileId, long siteCurrent, long delta, long now)
 	{
-		if (tileId <= 0 || delta <= 0)
+		if (tileId == 0 || delta <= 0)
 		{
 			return;
 		}
@@ -70,10 +79,31 @@ final class OptimisticProgress
 		return f == null || now > f[1] ? 0 : f[0];
 	}
 
-	/** The site has this tile at {@code siteCurrent} (see {@link #seenSite}). */
+	/**
+	 * The site has this tile at {@code siteCurrent} (see {@link #seenSite}). A LOWER number than seen
+	 * before means the site took progress away (a staff member deleted a submission, a reset): that
+	 * wins at once, and this client's floor for the tile goes with it — else the old high mark stayed
+	 * on screen, and every later gain built on it, until the client restarted.
+	 */
 	void seen(int tileId, long siteCurrent)
 	{
-		if (tileId > 0 && siteCurrent > 0)
+		if (tileId == 0 || siteCurrent < 0)
+		{
+			return;
+		}
+		Long before = seenSite.get(tileId);
+		if (before != null && siteCurrent < before)
+		{
+			seenSite.put(tileId, siteCurrent);
+			floors.remove(tileId);
+			Runnable r = onDrop;
+			if (r != null)
+			{
+				r.run();
+			}
+			return;
+		}
+		if (siteCurrent > 0)
 		{
 			seenSite.merge(tileId, siteCurrent, Math::max);
 		}

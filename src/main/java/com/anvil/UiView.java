@@ -53,9 +53,25 @@ final class UiView extends JPanel
 		JComponent nativePart(String name);
 
 		/** This client's newest count for a tile (its own progress, the live push's), or -1 for none. */
+		/** Give the keyboard back to the game (after a chat line is sent from the panel). */
+		default void gameFocus()
+		{
+		}
+
+		/** The signed-in character's name, so a live list can mark the viewer's own lines. */
+		default String myName()
+		{
+			return null;
+		}
+
 		default long count(int tile)
 		{
 			return -1;
+		}
+
+		/** A picture by site path (node {@code img}), fitted to w x h; {@code done} gets it, or null, on the EDT. */
+		default void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+		{
 		}
 	}
 
@@ -97,6 +113,8 @@ final class UiView extends JPanel
 	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
 	private final List<Runnable> lives = new ArrayList<>();
 	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
+	/** Live lists on screen (node {@code feed}): push rows find them by id, see {@link #feedPush}. */
+	private final List<FeedList> feeds = new ArrayList<>();
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
@@ -165,6 +183,8 @@ final class UiView extends JPanel
 	/** Draw a view already in hand. */
 	void render(JsonObject view)
 	{
+		feeds.forEach(FeedList::stop);
+		feeds.clear();
 		slots.clear();
 		toggles.clear();
 		inputs.clear();
@@ -182,6 +202,47 @@ final class UiView extends JPanel
 		else
 		{
 			ticker.start();
+		}
+	}
+
+	/**
+	 * Push rows for the live lists ({@code {t:'rows'|'rowsdel'|'rowslock', feeds:[…]}}): each list
+	 * named takes them; nothing is redrawn. A lock names id prefixes (a board's every chat list).
+	 */
+	void feedPush(JsonObject m)
+	{
+		// A list whose slot was redrawn is no longer under this view: forget it.
+		feeds.removeIf(f -> !SwingUtilities.isDescendingFrom(f, this));
+		if (feeds.isEmpty() || !m.has("feeds") || !m.get("feeds").isJsonArray())
+		{
+			return;
+		}
+		java.util.Set<String> named = new java.util.HashSet<>();
+		for (JsonElement e : m.getAsJsonArray("feeds"))
+		{
+			named.add(e.getAsString());
+		}
+		String t = str(m, "t");
+		for (FeedList f : feeds)
+		{
+			if ("rowslock".equals(t))
+			{
+				if (f.hasBox() && named.stream().anyMatch(p -> f.id.equals(p) || f.id.startsWith(p + ":")))
+				{
+					f.lock(m.has("locked") && !m.get("locked").isJsonNull() ? str(m, "locked") : null);
+				}
+			}
+			else if (named.contains(f.id))
+			{
+				if ("rows".equals(t) && m.has("rows") && m.get("rows").isJsonArray())
+				{
+					f.add(m.getAsJsonArray("rows"));
+				}
+				else if ("rowsdel".equals(t) && m.has("ids") && m.get("ids").isJsonArray())
+				{
+					f.remove(m.getAsJsonArray("ids"));
+				}
+			}
 		}
 	}
 
@@ -379,6 +440,9 @@ final class UiView extends JPanel
 			case "icon":
 				c = icon(n);
 				break;
+			case "img":
+				c = img(n);
+				break;
 			case "bar":
 				c = bar(n);
 				break;
@@ -404,7 +468,7 @@ final class UiView extends JPanel
 				JsonObject on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
 				JPanel button = AnvilSidebarPanel.fullWidthButton(Ui.plainText(str(n, "label")), tip(n), () -> act(on));
 				button.getComponent(0).setEnabled(!bool(n, "off"));
-				return button;
+				return left(button);
 			case "gap":
 				c = (JComponent) gap(num(n, "h", 0));
 				break;
@@ -413,12 +477,20 @@ final class UiView extends JPanel
 				break;
 			case "warm":
 				warm(n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null);
-				return new JPanel();
+				return left(new JPanel());
 			case "native":
 				JComponent part = host.nativePart(str(n, "name"));
-				return part == null ? new JPanel() : part;
+				// Left-aligned like every other node: one centred child in a BoxLayout column shifts all
+				// of its siblings sideways (an absent start-proof card indented a whole board page).
+				return left(part == null ? new JPanel() : part);
+			case "feed":
+			{
+				FeedList f = new FeedList(n, host, items, this::act);
+				feeds.add(f);
+				return left(f);
+			}
 			default:
-				return new JPanel(); // a block this version doesn't know is left out
+				return left(new JPanel()); // a block this version doesn't know is left out
 		}
 		String tip = tip(n);
 		if (tip != null)
@@ -507,7 +579,10 @@ final class UiView extends JPanel
 	private JComponent text(JsonObject n)
 	{
 		String s = n.has("at") ? ago(str(n, "at")) : str(n, "s");
-		JLabel l = label("", font(str(n, "font")), color(str(n, "color"), Color.WHITE));
+		Color ink = color(str(n, "color"), Color.WHITE);
+		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new ClipLabel();
+		l.setFont(font(str(n, "font")));
+		l.setForeground(ink);
 		String align = str(n, "align");
 		l.setHorizontalAlignment("r".equals(align) ? SwingConstants.RIGHT : "c".equals(align) ? SwingConstants.CENTER : SwingConstants.LEADING);
 		if (n.has("icon") && n.get("icon").isJsonObject())
@@ -522,6 +597,11 @@ final class UiView extends JPanel
 			{
 				// No picture for it: the name has to carry it, or it's an unlabelled number.
 				s = str(spec, "alt") + " " + s;
+			}
+			else if (l instanceof GradientLabel && "star".equals(str(spec, "glyph")))
+			{
+				// A supporter's star is part of their name: the gradient runs through it.
+				((GradientLabel) l).setTintIcon(true);
 			}
 		}
 		l.setText(bool(n, "wrap") ? wrapHtml(esc(s), WRAP_PT) : plainText(s));
@@ -540,10 +620,24 @@ final class UiView extends JPanel
 		return l;
 	}
 
+	/** A Supporter's name: up to four "#rrggbb" stops ({@code move}: sliding); else the plain colour. */
+	private static JLabel gradient(JsonArray grad, Color fallback, boolean move)
+	{
+		List<Color> stops = new ArrayList<>();
+		for (JsonElement e : grad)
+		{
+			if (stops.size() < 4 && e.isJsonPrimitive())
+			{
+				stops.add(teamColor(e.getAsString(), fallback));
+			}
+		}
+		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
+	}
+
 	private JComponent icon(JsonObject n)
 	{
 		boolean dim = bool(n, "dim");
-		JLabel l = new JLabel()
+		JLabel l = new ClipLabel()
 		{
 			@Override
 			protected void paintComponent(Graphics g)
@@ -569,6 +663,29 @@ final class UiView extends JPanel
 		{
 			draw(l, n.getAsJsonObject("or"));
 		}
+		return l;
+	}
+
+	/** A site picture (a proof's thumbnail): a dark box until it arrives. */
+	private JComponent img(JsonObject n)
+	{
+		int w = Math.max(1, Math.min(240, num(n, "w", 64)));
+		int h = Math.max(1, Math.min(240, num(n, "h", 40)));
+		JLabel l = new JLabel();
+		l.setHorizontalAlignment(SwingConstants.CENTER);
+		l.setOpaque(true);
+		l.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		Dimension d = new Dimension(w, h);
+		l.setPreferredSize(d);
+		l.setMinimumSize(d);
+		l.setMaximumSize(d);
+		host.image(str(n, "src"), w, h, image ->
+		{
+			if (image != null)
+			{
+				l.setIcon(new ImageIcon(image));
+			}
+		});
 		return l;
 	}
 
@@ -696,7 +813,7 @@ final class UiView extends JPanel
 		};
 		for (String name : bodies.keySet())
 		{
-			JLabel l = onClick(new JLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
+			JLabel l = onClick(new ClipLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
 			l.setFont(SMALL);
 			l.setOpaque(true);
 			l.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
@@ -716,7 +833,7 @@ final class UiView extends JPanel
 		wrap.setOpaque(false);
 		JPanel head = Ui.row(5);
 		head.add(node(n.getAsJsonObject("head")), BorderLayout.CENTER);
-		JLabel chevron = new JLabel();
+		JLabel chevron = new ClipLabel();
 		head.add(chevron, BorderLayout.EAST);
 		JComponent body = node(n.getAsJsonObject("c"));
 		boolean chev = bool(n, "chev");
@@ -864,7 +981,13 @@ final class UiView extends JPanel
 		long[] shown = {cur};
 		lives.add(() ->
 		{
+			// Never past the goal: a local count can run ahead of the site (a jump in KC, a lab
+			// session's held-back pushes), and "810 / 10" says nothing a full bar doesn't.
 			long v = Math.max(cur, host.count(tile));
+			if (goal > 0)
+			{
+				v = Math.min(v, goal);
+			}
 			if (v != shown[0])
 			{
 				shown[0] = v;
@@ -919,6 +1042,7 @@ final class UiView extends JPanel
 		if (n.has("load") && n.get("load").isJsonObject())
 		{
 			JsonObject load = n.getAsJsonObject("load");
+			drawn.remove(id); // a new slot shows its placeholder: whatever answer comes must replace it
 			fetch(id, str(load, "v"), strings(load.get("args")));
 		}
 		return holder;
@@ -1005,7 +1129,10 @@ final class UiView extends JPanel
 				return;
 			}
 			long secs = Math.max(0, (at - System.currentTimeMillis()) / 1000);
-			String clock = secs >= 3600
+			// Past a day, "4d 4h" — "100:15:48" reads as a clock, not as four days.
+			String clock = secs >= 86400
+				? String.format(Locale.ROOT, "%dd %dh", secs / 86400, secs % 86400 / 3600)
+				: secs >= 3600
 				? String.format(Locale.ROOT, "%d:%02d:%02d", secs / 3600, secs % 3600 / 60, secs % 60)
 				: String.format(Locale.ROOT, "%d:%02d", secs / 60, secs % 60);
 			l.setText(plainText(secs == 0 ? str(n, "due") : str(n, "prefix") + clock));
@@ -1221,6 +1348,8 @@ final class UiView extends JPanel
 				return GlyphIcon.Shape.EXTERNAL;
 			case "close":
 				return GlyphIcon.Shape.CLOSE;
+			case "star":
+				return GlyphIcon.Shape.STAR;
 			default:
 				return null;
 		}

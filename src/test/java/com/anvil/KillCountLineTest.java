@@ -147,6 +147,25 @@ public class KillCountLineTest
 		assertNull(parse("Deep delves completed: 893"));
 	}
 
+	/** Every cleared delve, any level, is one line — and the only line the delve counter takes. */
+	@Test
+	public void parsesDoomDelveClears()
+	{
+		java.util.regex.Pattern p = TestPatterns.get("counter.doom_delve");
+		Matcher m = p.matcher("Delve level: 3 duration: 1:12. Personal best: 0:58");
+		assertTrue(m.find());
+		assertEquals("3", m.group("level"));
+		m = p.matcher("Delve level: 8+ (9) duration: 1:38. Personal best: 0:56");
+		assertTrue(m.find());
+		assertEquals("8", m.group("level"));
+		assertEquals("9", m.group("deep"));
+		assertTrue(p.matcher("Delve level: 8+ (12) duration: 2:01 (new personal best)").find());
+		// The deep-delve tally is the KC push, not a second delve credit — and vice versa.
+		assertFalse(p.matcher("Deep delves completed: 893").find());
+		assertFalse(TestPatterns.get("kc.deep_delves").matcher("Delve level: 3 duration: 1:12. Personal best: 0:58").find());
+		assertNull(parse("Delve level: 3 duration: 1:12. Personal best: 0:58"));
+	}
+
 	@Test
 	public void recognisesPickpocketLines()
 	{

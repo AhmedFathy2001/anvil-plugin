@@ -81,6 +81,7 @@ public class DiskFilesTest
 		p.tileId = 7;
 		p.timestamp = System.currentTimeMillis();
 		p.label = "Vorkath head";
+		p.clan = "rivals";
 		assertNotNull(store.save(p, new byte[]{1, 2, 3}));
 		root.joinSegment("pending").joinSegment("1-1.json").write(new byte[0]);
 		root.joinSegment("pending").joinSegment("2-2.json").write("{\"tileId\": 2, \"lab");
@@ -88,6 +89,7 @@ public class DiskFilesTest
 		List<PendingSubmissionStore.PendingSubmission> all = store.loadAll();
 		assertEquals(1, all.size());
 		assertEquals("Vorkath head", all.get(0).label);
+		assertEquals("rivals", all.get(0).clan);
 		assertEquals(3, store.readScreenshot(all.get(0)).length);
 	}
 

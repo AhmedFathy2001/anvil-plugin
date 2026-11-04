@@ -97,15 +97,22 @@ final class PushSocket extends WebSocketListener
 
 	private void connect()
 	{
+		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows.
+		boolean feed;
+		boolean rows;
 		synchronized (this)
 		{
 			pending = null;
+			feed = scope != null && scope.matches(".*:f(:r)?$");
+			// Always: this plugin reads panel rows, and the site only sends them to one that says so
+			// (an older plugin would log each). ":r" only decides whether to connect with no board.
+			rows = true;
 		}
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try
 		{
-			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket()));
+			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed, rows)));
 		}
 		catch (RejectedExecutionException e)
 		{
@@ -155,7 +162,6 @@ final class PushSocket extends WebSocketListener
 			}
 			live = true;
 			log.debug("Live push connected");
-			return;
 		}
 		onMessage.accept(m);
 	}

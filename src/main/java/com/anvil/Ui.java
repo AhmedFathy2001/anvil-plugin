@@ -15,6 +15,9 @@ import javax.swing.event.DocumentEvent;
  */
 final class Ui
 {
+	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
+	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+
 	// FontManager hands out the same static instances every call, so holding them changes nothing.
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
 	static final Font REGULAR = FontManager.getRunescapeFont();
@@ -43,12 +46,29 @@ final class Ui
 		{
 			return "";
 		}
+		s = fontSafe(s);
 		int i = 0;
 		while (i < s.length() && Character.isWhitespace(s.charAt(i)))
 		{
 			i++;
 		}
 		return s.regionMatches(true, i, "<html", 0, 5) ? esc(s) : s;
+	}
+
+	/**
+	 * The RuneScape fonts have no curly quotes or long dashes: on macOS they drew as a box ("You?re").
+	 * The site writes proper typography, so it is folded to the plain ASCII the font does have.
+	 */
+	static String fontSafe(String s)
+	{
+		if (s == null)
+		{
+			return null;
+		}
+		return s.replace('\u2019', '\'').replace('\u2018', '\'')
+			.replace('\u201C', '"').replace('\u201D', '"')
+			.replace('\u2013', '-').replace('\u2014', '-')
+			.replace("\u2026", "...");
 	}
 
 	/** Escape markup characters for text placed inside HTML we build ourselves. */
@@ -66,7 +86,7 @@ final class Ui
 	/** A label in {@code font} and {@code color}, its text sanitized ({@link #plainText}). */
 	static JLabel label(String text, Font font, Color color)
 	{
-		JLabel l = new JLabel(plainText(text));
+		JLabel l = new ClipLabel(plainText(text));
 		l.setFont(font);
 		l.setForeground(color);
 		return l;
@@ -311,7 +331,7 @@ final class Ui
 			return "";
 		}
 		String iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
+		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches())
 		{
 			iso = iso + "Z";
 		}

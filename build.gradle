@@ -40,4 +40,19 @@ tasks.register('runClient', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'com.anvil.AnvilPluginTest'
     jvmArgs = ['-ea']
+    // ./gradlew runClient -Danvil.site=https://beta.anvilosrs.com — hand it on to the client's JVM
+    // (a -D on the gradle line only reaches gradle's own). ANVIL_SITE in the environment works too.
+    if (System.getProperty('anvil.site')) {
+        systemProperty 'anvil.site', System.getProperty('anvil.site')
+    }
+    // A second account side by side: ./gradlew runClient -Prlhome=$HOME/rl-b
+    // RuneLite reads ${user.home}/.runelite (config + credentials.properties), so a home holding
+    // account B's credentials logs that client into B, with its own settings and Anvil token.
+    if (project.hasProperty('rlhome')) {
+        systemProperty 'user.home', project.property('rlhome')
+    }
+    // RuneLite's own flags, e.g. -Prlargs="--developer-mode --debug"
+    if (project.hasProperty('rlargs')) {
+        args project.property('rlargs').toString().trim().split('\\s+')
+    }
 }

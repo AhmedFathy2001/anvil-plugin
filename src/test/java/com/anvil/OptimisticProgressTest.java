@@ -82,4 +82,47 @@ public class OptimisticProgressTest
 		o.add(7, 1_000, 10, 2); // our next gain, the config's count still the old one
 		assertEquals("moves on from what's shown, not from the old count", 1_510, o.apply(7, 1_500, 3));
 	}
+
+	@Test
+	public void virtualAltGoalIdsHoldAFloorToo()
+	{
+		// An either/or goal's entry carries a negative virtual tileId; its local count must still show.
+		OptimisticProgress p = new OptimisticProgress();
+		p.add(-96, 37, 1, 0);
+		assertEquals(38, p.apply(-96, 37, 1_000));
+		assertEquals(38, p.floor(-96, 1_000));
+		p.raise(0, 5, 0); // 0 is still "no tile"
+		assertEquals(0, p.floor(0, 1_000));
+	}
+
+	@Test
+	public void aLowerSiteCountWinsAndDropsTheFloor()
+	{
+		OptimisticProgress p = new OptimisticProgress();
+		p.seen(7, 5);
+		p.add(7, 5, 3, 0);
+		org.junit.Assert.assertEquals(8, p.apply(7, 5, 1));
+		// A staff member deleted submissions: the site now says 2.
+		org.junit.Assert.assertEquals(2, p.apply(7, 2, 2));
+		// The next gain builds on 2, not on the old high mark.
+		p.add(7, 2, 1, 3);
+		org.junit.Assert.assertEquals(3, p.apply(7, 2, 4));
+		// Cleared all the way to zero counts too.
+		org.junit.Assert.assertEquals(0, p.apply(7, 0, 5));
+	}
+
+	@Test
+	public void aDroppedCountAsksForARedrawOnceAndARiseDoesNot()
+	{
+		OptimisticProgress p = new OptimisticProgress();
+		int[] redraws = {0};
+		p.onDrop(() -> redraws[0]++);
+		p.seen(4, 3);
+		p.seen(4, 5);
+		org.junit.Assert.assertEquals("rises are quiet", 0, redraws[0]);
+		p.seen(4, 1);
+		org.junit.Assert.assertEquals(1, redraws[0]);
+		p.seen(4, 1);
+		org.junit.Assert.assertEquals("the same low number again is quiet", 1, redraws[0]);
+	}
 }

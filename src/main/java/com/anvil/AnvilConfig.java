@@ -65,7 +65,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "chatPrefixColor",
 		name = "[Anvil] tag colour",
-		description = "Colour of the [Anvil] tag at the start of each line.",
+		description = "Colour of the [Anvil] tag at the start of each line. Until you pick one, it turns dark gold on an opaque chatbox.",
 		position = 1,
 		section = "chatSection"
 	)
@@ -77,13 +77,73 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "chatTextColor",
 		name = "Message colour",
-		description = "Colour of the message after the tag. Pick something dark on an opaque chatbox.",
+		description = "Colour of the message after the tag. Until you pick one, it turns black on an opaque chatbox.",
 		position = 2,
 		section = "chatSection"
 	)
 	default Color chatTextColor()
 	{
 		return Color.WHITE;
+	}
+
+	@ConfigItem(
+		keyName = "chatFeed",
+		name = "Show feed in game chat",
+		description = "Also print the feed in your game chatbox as it happens: big drops, pets and achievements from boards whose host turned it on and clans you guest in, your teammates' tile progress, and other teams' finished tiles. The side panel's Feed tab works either way. Pick what shows on your Anvil profile.",
+		position = 3,
+		section = "chatSection"
+	)
+	default boolean chatFeed()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "supporterChatFlair",
+		name = "Supporter names in chat",
+		description = "Show Anvil Supporters' name colours (and a Patron's star) in public, clan, friends and private chat, and on your friends list and channel member lists while they are online. The list of names is downloaded from Anvil; nothing about who you see is sent.",
+		position = 4,
+		section = "chatSection"
+	)
+	default boolean supporterChatFlair()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "animatedNames",
+		name = "Animated names",
+		description = "Let a Patron's name gradient slide along in the side panel and the event chat. Off keeps it still.",
+		position = 5,
+		section = "chatSection"
+	)
+	default boolean animatedNames()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "menuNameFlair",
+		name = "Supporter names in menus",
+		description = "Show Anvil Supporters' name colours on their name when you right-click them. Never on PvP worlds or in the Wilderness. Nothing about who you see is sent.",
+		position = 6,
+		section = "chatSection"
+	)
+	default boolean menuNameFlair()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "menuFlairOverride",
+		name = "Over other plugins' colours",
+		description = "On: a Supporter's colours replace a name colour another plugin set (like Player Indicators' clan colour). Off: names another plugin coloured are left alone.",
+		position = 7,
+		section = "chatSection"
+	)
+	default boolean menuFlairOverride()
+	{
+		return true;
 	}
 
 	// ---- Setup ----
@@ -545,7 +605,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "shareMoments",
 		name = "Share highlights with the clan",
-		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events.",
+		description = "Show your pets, uniques, big drops and deaths on the clan site's feed during events, and in the Anvil chat feed of players who can see them.",
 		position = 6,
 		section = "profileSection"
 	)
