@@ -2035,6 +2035,10 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event) {
+		if (event.getScriptId() == ScriptID.CHAT_TEXT_INPUT_REBUILD) {
+			flairChatInput();
+			return;
+		}
 		if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
 			captureClogPage();
 			// A SECOND CHANCE AT THE BUTTON, and the reason it needs one: the setup script below is
@@ -7324,7 +7328,37 @@ public class AnvilPlugin extends Plugin {
 		}
 		String painted = chatFlair.decorate(event.getName(), chatStar());
 		if (painted != null && event.getMessageNode() != null) {
-			event.getMessageNode().setName(painted);
+			// Readable on this chatbox, like Anvil's own lines (pale Patron stops on parchment).
+			event.getMessageNode().setName(ChatPalette.readable(painted, opaqueChatbox()));
+		}
+	}
+
+	/** Client thread: the opaque chatbox (fixed mode, or resizable with transparency off) is light parchment. */
+	private boolean opaqueChatbox() {
+		return !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+	}
+
+	/**
+	 * Client thread, after the game redraws the chat input line ("Name: *" — every keystroke): our own
+	 * name there in our Supporter colours. Display only — the typed text is never read or changed.
+	 */
+	private void flairChatInput() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty() || client.getLocalPlayer() == null) {
+			return;
+		}
+		Widget input = client.getWidget(InterfaceID.Chatbox.INPUT);
+		String me = client.getLocalPlayer().getName();
+		if (input == null || me == null) {
+			return;
+		}
+		String text = input.getText();
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("^((?:<img=\\d+>)*)" + java.util.regex.Pattern.quote(me) + ":").matcher(text == null ? "" : text);
+		if (!m.find()) {
+			return;
+		}
+		String painted = chatFlair.decorate(m.group(1) + me, chatStar());
+		if (painted != null) {
+			input.setText(ChatPalette.readable(painted, opaqueChatbox()) + ":" + text.substring(m.end()));
 		}
 	}
 
@@ -11016,7 +11050,7 @@ public class AnvilPlugin extends Plugin {
 		clientThread.invokeLater(() -> {
 			// The opaque chatbox (fixed mode, or resizable with transparency off) is light parchment: the
 			// default bright colours swap for dark ones there. Colours the player picked are kept.
-			boolean opaque = !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+			boolean opaque = opaqueChatbox();
 			String own = hexOf(config.chatTextColor(), "ffffff");
 			String prefix = hexOf(config.chatPrefixColor(), "ffd700");
 			// Only a colour nobody set: one the player chose (even the default value itself) is kept.
