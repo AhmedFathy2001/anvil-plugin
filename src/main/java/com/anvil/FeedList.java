@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.Ui.BOLD;
 import static com.anvil.Ui.REGULAR;
 import static com.anvil.Ui.SMALL;
 import static com.anvil.Ui.MUTED;
@@ -161,7 +162,19 @@ final class FeedList extends JPanel
 		}
 		model.reset(kept);
 
-		list.setCellRenderer(new RowRenderer());
+		RowRenderer renderer = new RowRenderer();
+		list.setCellRenderer(renderer);
+		if (!chat)
+		{
+			// Every feed row is the same shape: measure one and never measure again.
+			JsonObject probe = new JsonObject();
+			probe.addProperty("id", "probe");
+			probe.addProperty("title", "Probe");
+			probe.addProperty("who", "Probe");
+			probe.addProperty("value", "1m");
+			probe.addProperty("glyph", "check");
+			list.setFixedCellHeight(renderer.getListCellRendererComponent(list, probe, 0, false, false).getPreferredSize().height);
+		}
 		list.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		list.setFocusable(false);
@@ -811,6 +824,140 @@ final class FeedList extends JPanel
 		}
 	}
 
+	private final ChatCell chatCell = new ChatCell();
+
+	/**
+	 * One chat line, painted straight onto the list: the name (and team, or HOST / MOD / TEAM) with
+	 * the time, the message wrapped under it, and a run of lines from one person showing the name once.
+	 *
+	 * No HTML: a Swing HTML label parses its markup every time a row is measured or painted, and a list
+	 * re-measures every row whenever one is added — 300 HTML rows cost ~100ms a flush on a fast PC. Here
+	 * the wrapping is done once per row and width with plain font metrics and kept, so a flush is cheap
+	 * however long the chat is, and nothing a player typed can ever become markup.
+	 */
+	private final class ChatCell extends javax.swing.JComponent
+	{
+		private static final int PAD_X = 8;
+		private static final int TIME_W = 34;
+		private final Map<String, List<String>> wraps = new HashMap<>();
+		private int wrapWidth = -1;
+		private JsonObject r;
+		private boolean grouped;
+		private boolean mine;
+		private List<String> lines = Collections.emptyList();
+		private int height;
+
+		ChatCell()
+		{
+			setOpaque(true);
+		}
+
+		ChatCell show(JsonObject row, int index, int width, boolean mine)
+		{
+			this.r = row;
+			this.mine = mine;
+			JsonObject prev = index > 0 ? model.getElementAt(index - 1) : null;
+			grouped = prev != null && UiView.str(row, "who").equals(UiView.str(prev, "who"))
+				&& UiView.str(row, "tag").equals(UiView.str(prev, "tag"));
+			int w = Math.max(80, width - PAD_X * 2);
+			if (w != wrapWidth)
+			{
+				wraps.clear();
+				wrapWidth = w;
+			}
+			lines = wraps.computeIfAbsent(UiView.str(row, "id"), k -> wrap(Ui.fontSafe(UiView.str(row, "text")), getFontMetrics(REGULAR), w));
+			java.awt.FontMetrics fm = getFontMetrics(REGULAR);
+			height = (grouped ? 0 : 6 + fm.getHeight()) + lines.size() * fm.getHeight() + 2;
+			return this;
+		}
+
+		@Override
+		public Dimension getPreferredSize()
+		{
+			return new Dimension(wrapWidth + PAD_X * 2, height);
+		}
+
+		@Override
+		protected void paintComponent(java.awt.Graphics g0)
+		{
+			java.awt.Graphics2D g = (java.awt.Graphics2D) g0;
+			g.setColor(mine ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
+			g.fillRect(0, 0, getWidth(), getHeight());
+			java.awt.FontMetrics fm = g.getFontMetrics(REGULAR);
+			int y = 0;
+			if (!grouped)
+			{
+				y = 6;
+				int x = PAD_X;
+				g.setFont(BOLD);
+				g.setColor(mine ? ColorScheme.BRAND_ORANGE : UiView.color(UiView.str(r, "whoColor"), Color.WHITE));
+				String who = Ui.fontSafe(UiView.str(r, "who"));
+				g.drawString(who, x, y + fm.getAscent());
+				x += g.getFontMetrics().stringWidth(who) + 6;
+				String tag = Ui.fontSafe(UiView.str(r, "tag"));
+				g.setFont(SMALL);
+				if (!tag.isEmpty())
+				{
+					g.setColor(UiView.color(UiView.str(r, "tagColor"), MUTED));
+					g.drawString(tag, x, y + fm.getAscent());
+				}
+				String when = Ui.ago(UiView.str(r, "at")).replace(" ago", "");
+				g.setColor(MUTED);
+				g.drawString(when, getWidth() - PAD_X - g.getFontMetrics().stringWidth(when), y + fm.getAscent());
+				y += fm.getHeight();
+			}
+			g.setFont(REGULAR);
+			g.setColor(UiView.color(UiView.str(r, "textColor"), ColorScheme.TEXT_COLOR));
+			for (String line : lines)
+			{
+				g.drawString(line, PAD_X, y + fm.getAscent());
+				y += fm.getHeight();
+			}
+		}
+	}
+
+	/** Words into lines no wider than {@code width}; a word longer than a line is broken where it must be. */
+	static List<String> wrap(String text, java.awt.FontMetrics fm, int width)
+	{
+		List<String> out = new ArrayList<>();
+		StringBuilder line = new StringBuilder();
+		for (String word : text.split(" "))
+		{
+			if (word.isEmpty())
+			{
+				continue;
+			}
+			String candidate = line.length() == 0 ? word : line + " " + word;
+			if (fm.stringWidth(candidate) <= width)
+			{
+				line.setLength(0);
+				line.append(candidate);
+				continue;
+			}
+			if (line.length() > 0)
+			{
+				out.add(line.toString());
+				line.setLength(0);
+			}
+			while (fm.stringWidth(word) > width)
+			{
+				int cut = 1;
+				while (cut < word.length() && fm.stringWidth(word.substring(0, cut + 1)) <= width)
+				{
+					cut++;
+				}
+				out.add(word.substring(0, cut));
+				word = word.substring(cut);
+			}
+			line.append(word);
+		}
+		if (line.length() > 0 || out.isEmpty())
+		{
+			out.add(line.toString());
+		}
+		return out;
+	}
+
 	private final class RowRenderer extends JPanel implements ListCellRenderer<JsonObject>
 	{
 		private final JLabel icon = new ClipLabel();
@@ -851,47 +998,10 @@ final class FeedList extends JPanel
 		private final javax.swing.border.Border feedBorder = BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.DARK_GRAY_COLOR),
 			BorderFactory.createEmptyBorder(4, 6, 4, 6));
-		private final javax.swing.border.Border chatFirst = BorderFactory.createEmptyBorder(6, 8, 2, 8);
-		private final javax.swing.border.Border chatMore = BorderFactory.createEmptyBorder(0, 8, 2, 8);
 
 		private boolean mine(JsonObject r)
 		{
 			return (r.has("mine") && r.get("mine").getAsBoolean()) || (me != null && !me.isEmpty() && Rsn.same(me, UiView.str(r, "who")));
-		}
-
-		/**
-		 * A chat line: the name (and team, or HOST / MOD / TEAM) with the time on the first line, the
-		 * message wrapped under it. A run of lines from one person shows the name once, like any chat.
-		 */
-		private Component chatLine(JList<? extends JsonObject> l, JsonObject r, int index)
-		{
-			JsonObject prev = index > 0 ? model.getElementAt(index - 1) : null;
-			String who = UiView.str(r, "who");
-			String tag = UiView.str(r, "tag");
-			boolean grouped = prev != null && who.equals(UiView.str(prev, "who")) && tag.equals(UiView.str(prev, "tag"));
-			setBorder(grouped ? chatMore : chatFirst);
-			setBackground(mine(r) ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
-			icon.setVisible(false);
-			gz.setVisible(false);
-
-			// Your own lines are marked by the background; the name keeps your Supporter colours, and
-			// only a name with none falls back to the orange that says "you".
-			String whoHtml = name(r, who, mine(r) ? ColorScheme.BRAND_ORANGE : Color.WHITE);
-			Color tagInk = UiView.color(UiView.str(r, "tagColor"), MUTED);
-			line1.setFont(REGULAR);
-			line1.setForeground(Color.WHITE);
-			line1.setText("<html><b>" + whoHtml + "</b>" + (tag.isEmpty() ? "" : "&nbsp;&nbsp;" + span(tag, tagInk)) + "</html>");
-			line1.setVisible(!grouped);
-			value.setText(plainText(Ui.ago(UiView.str(r, "at")).replace(" ago", "")));
-			value.setForeground(MUTED);
-			value.setVisible(!grouped);
-
-			int wrap = Math.max(80, l.getWidth() - 20 - (grouped ? 0 : 40));
-			Color textInk = UiView.color(UiView.str(r, "textColor"), ColorScheme.TEXT_COLOR);
-			line2.setFont(REGULAR);
-			line2.setText("<html><div style='width:" + wrap + "px'>" + span(UiView.str(r, "text"), textInk) + "</div></html>");
-			line2.setVisible(true);
-			return this;
 		}
 
 		@Override
@@ -899,7 +1009,7 @@ final class FeedList extends JPanel
 		{
 			if (chat)
 			{
-				return chatLine(l, r, index);
+				return chatCell.show(r, index, l.getWidth(), mine(r));
 			}
 			setBorder(feedBorder);
 			line1.setVisible(true);
@@ -920,19 +1030,15 @@ final class FeedList extends JPanel
 				// A moment: the item on top, who got it (and their team) under it.
 				line1.setText(plainText(title));
 				line1.setForeground(UiView.color(UiView.str(r, "textColor"), Color.WHITE));
-				line2.setText("<html>" + name(r, who, Color.WHITE) + (tag.isEmpty() ? "" : " " + span("· " + tag, tagInk)) + "</html>");
+				line2.setText(plainText(tag.isEmpty() ? who : who + " · " + tag));
+				line2.setForeground(tag.isEmpty() ? whoInk : tagInk);
 				line2.setVisible(true);
 			}
 			else
 			{
-				// A chat line (or a roll-up): one wrapped paragraph, the name leading it.
-				int wrap = Math.max(80, l.getWidth() - (ic != null ? ICON_W + 6 : 0) - 70);
-				String text = esc(Ui.fontSafe(UiView.str(r, "text")));
-				Color textInk = UiView.color(UiView.str(r, "textColor"), ColorScheme.TEXT_COLOR);
-				line1.setText("<html><div style='width:" + wrap + "px'>"
-					+ (tag.isEmpty() ? "" : "<b>" + span(tag, tagInk) + "</b> ")
-					+ (who.isEmpty() ? "" : "<b>" + name(r, who, Color.WHITE) + "</b> ")
-					+ span(text, textInk, true) + "</div></html>");
+				// A roll-up line ("+214 smaller drops…"): one plain line.
+				line1.setText(plainText(UiView.str(r, "text")));
+				line1.setForeground(UiView.color(UiView.str(r, "textColor"), MUTED));
 				line2.setVisible(false);
 			}
 			value.setText(plainText(r.has("value") ? UiView.str(r, "value") : when));
@@ -954,31 +1060,6 @@ final class FeedList extends JPanel
 				gz.setVisible(r.has("value"));
 			}
 			return this;
-		}
-
-		/**
-		 * A name as the site sent its colours: a Supporter's gradient letter by letter, else their solid
-		 * colour, else {@code fallback}.
-		 */
-		private String name(JsonObject r, String who, Color fallback)
-		{
-			String g = r.has("grad") && r.get("grad").isJsonArray() ? gradientHtml(Ui.fontSafe(who), r.getAsJsonArray("grad")) : null;
-			if (g != null)
-			{
-				return g;
-			}
-			String c = UiView.str(r, "whoColor");
-			return span(who, c.isEmpty() ? fallback : UiView.color(c, fallback));
-		}
-
-		private String span(String s, Color c)
-		{
-			return span(esc(Ui.fontSafe(s)), c, true);
-		}
-
-		private String span(String escaped, Color c, boolean already)
-		{
-			return String.format("<span style='color:#%06x'>%s</span>", c.getRGB() & 0xFFFFFF, escaped);
 		}
 	}
 

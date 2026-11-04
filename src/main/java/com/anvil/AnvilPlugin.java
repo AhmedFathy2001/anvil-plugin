@@ -10770,6 +10770,11 @@ public class AnvilPlugin extends Plugin {
 		return s.replace('|', '\u00A6').replace('<', '\u2039').replace('>', '\u203A');
 	}
 
+	/** A setting left at its default: RuneLite stores nothing until the player changes it. */
+	private boolean unset(String key) {
+		return configManager.getConfiguration("osrsbingo", key) == null;
+	}
+
 	private static String hexOf(Color c, String fallback) {
 		return c == null ? fallback : String.format("%06x", c.getRGB() & 0xFFFFFF);
 	}
@@ -10895,11 +10900,12 @@ public class AnvilPlugin extends Plugin {
 			boolean opaque = !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
 			String own = hexOf(config.chatTextColor(), "ffffff");
 			String prefix = hexOf(config.chatPrefixColor(), "ffd700");
-			if (opaque && "ffffff".equals(own)) {
+			// Only a colour nobody set: one the player chose (even the default value itself) is kept.
+			if (opaque && unset("chatTextColor")) {
 				own = "000000";
 			}
-			if (opaque && "ffd700".equals(prefix)) {
-				prefix = "8a3b00";
+			if (opaque && unset("chatPrefixColor")) {
+				prefix = "7a5600";
 			}
 			String line = "<col=" + prefix + ">[" + clean(tag) + "]</col> "
 					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>";
