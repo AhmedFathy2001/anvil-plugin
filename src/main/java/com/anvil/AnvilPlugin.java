@@ -2052,6 +2052,11 @@ public class AnvilPlugin extends Plugin {
 			flairChatInput();
 			return;
 		}
+		if (event.getScriptId() == ScriptID.FRIENDS_UPDATE || event.getScriptId() == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD
+				|| event.getScriptId() == ScriptID.CLAN_SIDEPANEL_DRAW) {
+			flairNameLists();
+			return;
+		}
 		if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
 			captureClogPage();
 			// A SECOND CHANCE AT THE BUTTON, and the reason it needs one: the setup script below is
@@ -7413,6 +7418,47 @@ public class AnvilPlugin extends Plugin {
 		if (painted != null) {
 			input.setText(ChatPalette.readable(painted, opaqueChatbox()) + ":" + text.substring(m.end()));
 		}
+	}
+
+	/** The side-panel lists whose names wear Supporter colours: friends chat, clan, guest clan, friends. */
+	private static final int[] FLAIR_LISTS = {InterfaceID.ChatchannelCurrent.LIST, InterfaceID.ClansSidepanel.PLAYERLIST,
+			InterfaceID.ClansGuestSidepanel.PLAYERLIST, InterfaceID.Friends.LIST};
+
+	/**
+	 * Client thread, after the game redraws a member or friends list: Supporters' names in their
+	 * colours, like their chat lines. Display only, from the same public list as chat (nothing about
+	 * who is listed is sent), and only names the game itself shows as online: the channel lists hold
+	 * only online players, and a friend must be on a world, so a Private-mode friend shown offline
+	 * stays plain. A painted name no longer matches decorate()'s plain-name test, so a repaint is a no-op.
+	 */
+	private void flairNameLists() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
+			return;
+		}
+		for (int id : FLAIR_LISTS) {
+			Widget list = client.getWidget(id);
+			Widget[] rows = list == null ? null : list.getDynamicChildren();
+			if (rows == null) {
+				continue;
+			}
+			boolean friends = id == InterfaceID.Friends.LIST;
+			for (Widget w : rows) {
+				String text = w.getText();
+				if (text == null || text.isEmpty() || (friends && !friendOnline(text))) {
+					continue;
+				}
+				String painted = chatFlair.decorate(text, null);
+				if (painted != null) {
+					w.setText(ChatPalette.readable(painted, false));
+				}
+			}
+		}
+	}
+
+	private boolean friendOnline(String name) {
+		NameableContainer<Friend> friends = client.getFriendContainer();
+		Friend f = friends == null ? null : friends.findByName(name);
+		return f != null && f.getWorld() > 0;
 	}
 
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */
