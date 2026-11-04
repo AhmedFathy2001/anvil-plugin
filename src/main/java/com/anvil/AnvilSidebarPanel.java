@@ -649,6 +649,12 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			@Override
+			public void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+			{
+				apiClient.thumb(path, w, h, img -> SwingUtilities.invokeLater(() -> done.accept(img)));
+			}
+
+			@Override
 			public void lookup(String rsn)
 			{
 				showLookup(rsn);

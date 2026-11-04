@@ -24,6 +24,15 @@ public class UiViewTest
 		String pinned;
 		String switched;
 		final Map<Integer, Long> counts = new HashMap<>();
+		String imagePath;
+		Consumer<java.awt.image.BufferedImage> imageDone;
+
+		@Override
+		public void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+		{
+			imagePath = path + " " + w + "x" + h;
+			imageDone = done;
+		}
 
 		@Override
 		public long count(int tile)
@@ -540,5 +549,83 @@ public class UiViewTest
 		{
 			assertEquals(c.getClass().getSimpleName(), Component.LEFT_ALIGNMENT, c.getAlignmentX(), 0.0001);
 		}
+	}
+
+	@Test
+	public void aPictureIsABoxUntilItArrivesAndOpensTheFullOneOnClick()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"img\",\"src\":\"/api/plugin/proof-image/4?t=1&s=x\",\"w\":64,\"h\":40,"
+			+ "\"on\":{\"a\":\"site\",\"path\":\"/api/plugin/proof-image/4?s=x\"}}]}"));
+		assertEquals("/api/plugin/proof-image/4?t=1&s=x 64x40", host.imagePath);
+		JLabel box = findIcon(v);
+		assertNotNull(box);
+		assertNull("a placeholder until it loads", box.getIcon());
+		assertEquals(new Dimension(64, 40), box.getPreferredSize());
+		host.imageDone.accept(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB));
+		assertNotNull(box.getIcon());
+		Component target = box;
+		while (target.getMouseListeners().length == 0)
+		{
+			target = target.getParent();
+		}
+		java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(target, java.awt.event.MouseEvent.MOUSE_PRESSED, 0, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 1, 1, 1, false, java.awt.event.MouseEvent.BUTTON1);
+		java.awt.event.MouseEvent release = new java.awt.event.MouseEvent(target, java.awt.event.MouseEvent.MOUSE_RELEASED, 0, 0, 1, 1, 1, false, java.awt.event.MouseEvent.BUTTON1);
+		target.setSize(64, 40);
+		for (java.awt.event.MouseListener m : target.getMouseListeners())
+		{
+			m.mousePressed(press);
+			m.mouseReleased(release);
+			m.mouseClicked(release);
+		}
+		assertEquals("/api/plugin/proof-image/4?s=x", host.site);
+	}
+
+	@Test
+	public void aReopenedSlotTakesTheSameAnswerAgain()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		String tile = "{\"t\":\"slot\",\"id\":\"proofs\",\"c\":{\"t\":\"text\",\"s\":\"Loading proofs\"},\"load\":{\"a\":\"load\",\"v\":\"proofs\"}}";
+		String list = "{\"t\":\"text\",\"s\":\"No proofs yet.\"}";
+		v.render(view("{\"t\":\"slot\",\"id\":\"tile\",\"c\":" + tile + ",\"panes\":{\"t\":" + tile + ",\"list\":{\"t\":\"text\",\"s\":\"List\",\"on\":{\"a\":\"pane\",\"into\":\"tile\",\"pane\":\"t\"}}}}"));
+		host.pending.get(0).accept(view(list));
+		assertEquals(Collections.singletonList("No proofs yet."), texts(v));
+		// Off to the list and back into the same tile: a fresh placeholder, then the same answer.
+		v.render(view("{\"t\":\"slot\",\"id\":\"tile\",\"c\":" + tile + "}"));
+		host.pending.get(1).accept(view(list));
+		assertEquals(Collections.singletonList("No proofs yet."), texts(v));
+	}
+
+	@Test
+	public void picturesAreScaledToFitTheirBoxNeverUp()
+	{
+		java.awt.image.BufferedImage big = BingoApiClient.fit(new java.awt.image.BufferedImage(1280, 720, java.awt.image.BufferedImage.TYPE_INT_RGB), 64, 40);
+		assertEquals(64, big.getWidth());
+		assertEquals(36, big.getHeight());
+		java.awt.image.BufferedImage small = BingoApiClient.fit(new java.awt.image.BufferedImage(20, 10, java.awt.image.BufferedImage.TYPE_INT_RGB), 64, 40);
+		assertEquals(20, small.getWidth());
+		assertNull(BingoApiClient.fit(null, 64, 40));
+	}
+
+	private static JLabel findIcon(Component c)
+	{
+		if (c instanceof JLabel && ((JLabel) c).getText() == null || c instanceof JLabel && ((JLabel) c).getText().isEmpty() && ((JLabel) c).isOpaque())
+		{
+			return (JLabel) c;
+		}
+		if (c instanceof Container)
+		{
+			for (Component child : ((Container) c).getComponents())
+			{
+				JLabel l = findIcon(child);
+				if (l != null)
+				{
+					return l;
+				}
+			}
+		}
+		return null;
 	}
 }

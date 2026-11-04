@@ -5,6 +5,7 @@ import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -1075,10 +1076,96 @@ public class BingoApiClient
 		return url == null ? CANONICAL_SITE : url.toString();
 	}
 
+	private static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
+	/** Decoded panel pictures by path and size, least recently used first. */
+	private final Map<String, BufferedImage> thumbs = new LinkedHashMap<String, BufferedImage>(16, 0.75f, true)
+	{
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> e)
+		{
+			return size() > 50;
+		}
+	};
+
+	/**
+	 * A view's picture (node {@code img}): a PATH on this site, fetched off the EDT, scaled once to fit
+	 * {@code w}x{@code h} and kept. {@code done} gets it (null on any failure) on an OkHttp thread, or at
+	 * once from the cache. Anything bigger than {@link #THUMB_MAX_BYTES} is dropped unread.
+	 */
+	void thumb(String path, int w, int h, java.util.function.Consumer<BufferedImage> done)
+	{
+		String key = w + "x" + h + path;
+		BufferedImage hit;
+		synchronized (thumbs)
+		{
+			hit = thumbs.get(key);
+		}
+		HttpUrl url = path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0 ? HttpUrl.parse(siteLink(path)) : null;
+		HttpUrl base = HttpUrl.parse(siteLink("/"));
+		if (hit != null || url == null || base == null || !url.host().equals(base.host()) || w <= 0 || h <= 0)
+		{
+			done.accept(hit);
+			return;
+		}
+		readClient.newCall(plainRequest(url.toString()).get().build()).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				done.accept(null);
+			}
+
+			@Override
+			public void onResponse(Call call, Response r)
+			{
+				BufferedImage img = null;
+				try (Response res = r)
+				{
+					ResponseBody body = res.body();
+					// request() is false once the whole body is buffered: it fit under the cap.
+					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L))
+					{
+						img = fit(javax.imageio.ImageIO.read(body.source().buffer().inputStream()), w, h);
+					}
+				}
+				catch (IOException | RuntimeException e)
+				{
+					log.debug("panel image failed: {}", e.getMessage());
+				}
+				if (img != null)
+				{
+					synchronized (thumbs)
+					{
+						thumbs.put(key, img);
+					}
+				}
+				done.accept(img);
+			}
+		});
+	}
+
+	/** {@code src} scaled to fit inside w x h (never up). */
+	static BufferedImage fit(BufferedImage src, int w, int h)
+	{
+		if (src == null)
+		{
+			return null;
+		}
+		double k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
+		int tw = Math.max(1, (int) Math.round(src.getWidth() * k));
+		int th = Math.max(1, (int) Math.round(src.getHeight() * k));
+		BufferedImage out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
+		java.awt.Graphics2D g = out.createGraphics();
+		g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.drawImage(src, 0, 0, tw, th, null);
+		g.dispose();
+		return out;
+	}
+
 	private Request.Builder uiRequest(String url)
 	{
 		// The panel draws the Feed tab: the site's clan card can keep its drop log short.
-		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1");
+		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1").header("X-Anvil-Panel-Images", "1");
 	}
 
 	/**
