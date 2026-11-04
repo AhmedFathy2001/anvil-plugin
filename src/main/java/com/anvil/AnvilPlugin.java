@@ -7368,6 +7368,20 @@ public class AnvilPlugin extends Plugin {
 	 * Client thread, after the game redraws the chat input line ("Name: *" — every keystroke): our own
 	 * name there in our Supporter colours. Display only — the typed text is never read or changed.
 	 */
+	private String inputFlairName;
+	private java.util.regex.Pattern inputFlairPattern;
+
+	/**
+	 * Client thread, every frame: the game redraws the chat input ("Name: *") through more than one path
+	 * (a keystroke, closing a bank prompt, login), and only one of them fires CHAT_TEXT_INPUT_REBUILD,
+	 * so the name went plain again until the next keystroke. Checked each frame instead; it only reads
+	 * a short string unless the name needs painting.
+	 */
+	@Subscribe
+	public void onClientTick(net.runelite.api.events.ClientTick event) {
+		flairChatInput();
+	}
+
 	private void flairChatInput() {
 		if (!config.supporterChatFlair() || chatFlair.isEmpty() || client.getLocalPlayer() == null) {
 			return;
@@ -7378,7 +7392,15 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		String text = input.getText();
-		java.util.regex.Matcher m = java.util.regex.Pattern.compile("^((?:<img=\\d+>)*)" + java.util.regex.Pattern.quote(me) + ":").matcher(text == null ? "" : text);
+		if (text == null || text.isEmpty()) {
+			return;
+		}
+		if (!me.equals(inputFlairName)) {
+			inputFlairName = me;
+			inputFlairPattern = java.util.regex.Pattern.compile("^((?:<img=\\d+>)*)" + java.util.regex.Pattern.quote(me) + ":");
+		}
+		// Already painted (a colour tag before the name): nothing to do — the cheap common case every frame.
+		java.util.regex.Matcher m = inputFlairPattern.matcher(text);
 		if (!m.find()) {
 			return;
 		}
