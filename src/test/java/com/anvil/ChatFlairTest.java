@@ -335,4 +335,88 @@ public class ChatFlairTest
 		assertEquals("Anvil Patron", f.tierOfSender(f.paintSender("From Drenvox:", "<img=99>", false)));
 		assertEquals("Anvil Patron", f.tierOfSender(f.paintSender("To Drenvox:", "<img=99>", false)));
 	}
+
+	// ---- Sender columns as the chatbox really writes them
+
+	private static ChatFlair drenvox()
+	{
+		return with(entry("gim drenvox", "#00ff00", true), entry("bob", "#ffd35c", null));
+	}
+
+	@Test
+	public void clanSenderWithChannelColoursAndIconsIsPainted()
+	{
+		ChatFlair f = drenvox();
+		String star = "<img=99>";
+		String name = "<col=00ff00>GIM\u00A0Drenvox</col>";
+		// Clan chat: channel in its own colour, rank key + HCGIM icons, then the name.
+		assertEquals("<col=0000ff>[The AFK Spot]</col> <img=48><img=10>" + star + name + ":",
+			f.paintSender("<col=0000ff>[The AFK Spot]</col> <img=48><img=10>GIM\u00A0Drenvox:", star, false));
+		// Brackets in the default colour, the channel name coloured inside them.
+		assertEquals("[<col=0000ff>The AFK Spot</col>] <img=10>" + star + name + ":",
+			f.paintSender("[<col=0000ff>The AFK Spot</col>] <img=10>GIM\u00A0Drenvox:", star, false));
+		// Guest clan / GIM group chat / friends chat: same shape, other channels.
+		assertEquals("<col=7f0000>[Guests]</col> <img=10>" + star + name + ":",
+			f.paintSender("<col=7f0000>[Guests]</col> <img=10>GIM\u00A0Drenvox:", star, false));
+		assertEquals("<col=7f0000>[Iron Pals]</col> <img=10>" + star + name + ":",
+			f.paintSender("<col=7f0000>[Iron Pals]</col> <img=10>GIM\u00A0Drenvox:", star, false));
+		assertEquals("[<col=0000ff>Fc Name</col>] <img=2><col=ffd35c>Bob</col>:", f.paintSender("[<col=0000ff>Fc Name</col>] <img=2>Bob:", star, false));
+		// A username colour from RuneLite's chat colours: it re-opens after ours.
+		assertEquals("[Clan] <col=ff00ff><img=10>" + star + name + "<col=ff00ff>:</col>",
+			f.paintSender("[Clan] <col=ff00ff><img=10>GIM\u00A0Drenvox:</col>", star, false));
+	}
+
+	@Test
+	public void timestampsOnOrOffAndPublicWithIcons()
+	{
+		ChatFlair f = drenvox();
+		assertEquals("<img=2><col=ffd35c>Bob</col>:", f.paintSender("<img=2>Bob:", null, false));
+		assertEquals("[12:34] <img=2><col=ffd35c>Bob</col>:", f.paintSender("[12:34] <img=2>Bob:", null, false));
+		assertEquals("<col=000000>[12:34]</col> <col=0000ff>[The AFK Spot]</col> <img=10><col=00ff00>GIM Drenvox</col>:",
+			f.paintSender("<col=000000>[12:34]</col> <col=0000ff>[The AFK Spot]</col> <img=10>GIM Drenvox:", null, false));
+		// Trailing space after the colon still a column.
+		assertEquals("<col=ffd35c>Bob</col>: ", f.paintSender("Bob: ", null, false));
+		assertEquals(true, ChatFlair.column("<img=2><col=ffd35c>Bob</col>:"));
+	}
+
+	@Test
+	public void wholeClanLineInOneWidgetIsPaintedButTypedTextIsNot()
+	{
+		ChatFlair f = drenvox();
+		assertEquals("<col=0000ff>[The AFK Spot]</col> <img=10><col=00ff00>GIM Drenvox</col>: <col=0000ff>Test</col>",
+			f.paintSender("<col=0000ff>[The AFK Spot]</col> <img=10>GIM Drenvox: <col=0000ff>Test</col>", null, false));
+		assertEquals(false, ChatFlair.column("[The AFK Spot] GIM Drenvox: Test"));
+		assertNull(f.paintSender("Bob: hi there", null, false));
+		assertNull("not a name: too long", f.paintSender("[Clan] Somebody With A Long Title:", null, false));
+		assertNull("Bobby is not Bob", f.paintSender("[Clan] <img=10>Bobby:", null, false));
+	}
+
+	@Test
+	public void widthCountsIconsAndTheStarButNotColours()
+	{
+		java.util.function.ToIntFunction<String> six = t -> 6 * t.length();
+		java.util.function.IntUnaryOperator icons = n -> n == 99 ? 11 : 13;
+		assertEquals(6 * 4, ChatFlair.measure("<col=ff0000>Bob:</col>", six, icons));
+		assertEquals(13 + 13 + 11 + 6 * 4, ChatFlair.measure("<img=48><img=10><img=99><col=00ff00>Bob</col>:", six, icons));
+		assertEquals(0, ChatFlair.measure("<col=ff0000></col>", six, icons));
+		// The room a Patron's star needs in a sender column: just the star.
+		ChatFlair f = drenvox();
+		java.util.function.ToIntFunction<String> none = t -> 0;
+		String plain = "[Clan] <img=10>GIM Drenvox:";
+		assertEquals(11, ChatFlair.measure(f.paintSender(plain, "<img=99>", false), none, icons) - ChatFlair.measure(plain, none, icons));
+	}
+
+	@Test
+	public void hoverZoneStartsAtTheNameAfterIconsAndStar()
+	{
+		ChatFlair f = drenvox();
+		java.util.function.IntUnaryOperator icons = n -> n == 99 ? 11 : 13;
+		java.util.function.ToIntFunction<String> w = raw -> ChatFlair.measure(raw, t -> 6 * t.length(), icons);
+		String line = f.paintLead("<img=10><col=ef1020>GIM Drenvox has reached a total level of 100.</col>", "<img=99>", false);
+		int nameAt = 13 + 11; // HCGIM icon, then the star
+		assertEquals("Anvil Patron", f.tierInLine(line, nameAt + 1, w));
+		assertEquals("Anvil Patron", f.tierInLine(line, nameAt + 11 * 6 - 1, w));
+		assertNull("over the star", f.tierInLine(line, nameAt - 2, w));
+		assertNull("after the name", f.tierInLine(line, nameAt + 11 * 6 + 1, w));
+	}
 }

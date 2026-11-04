@@ -411,7 +411,7 @@ final class ChatFlair
 	 * on a private message, then the name and a colon. Group 2 is From/To, group 3 the name, group 4
 	 * whatever follows the colon (empty in the chatbox's sender column; the message on a split-PM line).
 	 */
-	private static final Pattern SENDER_SHOWN = Pattern.compile("^((?:\\[[^\\]]*\\]\\s*)*(?:(From|To)\\s+)?)([^:\\[\\]]{1,12}):(.*)$", Pattern.DOTALL);
+	private static final Pattern SENDER_SHOWN = Pattern.compile("^\\s*((?:\\[[^\\]]*\\]\\s*)*)(?:(From|To)\\s+)?([^:\\[\\]]{1,24}):(.*)$", Pattern.DOTALL);
 	/** Leading "[channel]" / "[timestamp]" groups and spaces before a broadcast's text. */
 	private static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
 
@@ -428,7 +428,10 @@ final class ChatFlair
 		}
 		Shown s = shown(raw);
 		Matcher m = SENDER_SHOWN.matcher(s.text);
-		if (!m.matches() || (!m.group(4).isEmpty() && m.group(2) == null))
+		// The chatbox's sender column ends at the colon. A whole line in one widget ("[Clan] Name: hi",
+		// split PMs "From Name: hi") is a sender only with a channel or From/To before the name: a typed
+		// "Bob: hi" is not.
+		if (!m.matches() || (!m.group(4).trim().isEmpty() && m.group(2) == null && m.group(1).isEmpty()))
 		{
 			return null;
 		}
@@ -442,7 +445,52 @@ final class ChatFlair
 		{
 			to--;
 		}
-		return from < to ? paintAt(raw, s, from, to, star, opaque) : null;
+		return from < to && to - from <= 12 ? paintAt(raw, s, from, to, star, opaque) : null;
+	}
+
+	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
+	static boolean column(String raw)
+	{
+		String t = shown(raw).text.trim();
+		return t.endsWith(":");
+	}
+
+	/**
+	 * Raw chat text's drawn width: the visible characters measured by the font ({@code textWidth}, given
+	 * no tags), plus each {@code <img=n>} at {@code iconWidth(n)}. Colour tags take no room. The hover maths
+	 * and the room a star needs both go through this, so an icon or the star never shifts them.
+	 */
+	static int measure(String raw, java.util.function.ToIntFunction<String> textWidth, java.util.function.IntUnaryOperator iconWidth)
+	{
+		StringBuilder text = new StringBuilder(raw.length());
+		int icons = 0;
+		for (int i = 0; i < raw.length(); i++)
+		{
+			char ch = raw.charAt(i);
+			if (ch == '<')
+			{
+				int close = raw.indexOf('>', i);
+				if (close < 0)
+				{
+					break;
+				}
+				if (raw.startsWith("img=", i + 1))
+				{
+					try
+					{
+						icons += iconWidth.applyAsInt(Integer.parseInt(raw.substring(i + 5, close)));
+					}
+					catch (NumberFormatException ignored)
+					{
+						// not an icon after all: no room
+					}
+				}
+				i = close;
+				continue;
+			}
+			text.append(ch);
+		}
+		return (text.length() == 0 ? 0 : textWidth.applyAsInt(text.toString())) + icons;
 	}
 
 	/**

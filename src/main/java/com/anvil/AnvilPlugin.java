@@ -2054,10 +2054,6 @@ public class AnvilPlugin extends Plugin {
 			flairChatInput();
 			return;
 		}
-		if (event.getScriptId() == ScriptID.BUILD_CHATBOX) {
-			flairChatbox();
-			return;
-		}
 		if (event.getScriptId() == ScriptID.FRIENDS_UPDATE || event.getScriptId() == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD
 				|| event.getScriptId() == ScriptID.CLAN_SIDEPANEL_DRAW) {
 			flairNameLists();
@@ -7444,6 +7440,7 @@ public class AnvilPlugin extends Plugin {
 		// on the game's next rebuild: paint them now. The panel's "Tracking" name too.
 		clientThread.invokeLater(() -> {
 			splitPmSeen.clear();
+			Arrays.fill(chatboxSeen, null);
 			flairChatInput();
 			flairNameLists();
 			flairChatbox();
@@ -7476,35 +7473,93 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/** Client thread: per chatbox line widget (by index), the text it had when last looked at. */
+	private String[] chatboxSeen = new String[0];
+	/** Client thread: per widget, the x (or, for a sender, the width) we last set making room for a star. */
+	private int[] chatboxRoom = new int[0];
+
 	/**
-	 * Client thread, after the chatbox is built (and when the list changes): each sender column
-	 * ("Name:", "[Clan] Name:", "From Name:", "To Name:") and each noted broadcast's leading name in
-	 * Supporter colours. Widget text only — the line's menu options come from the message data, not
-	 * from this text. A painted widget no longer matches, so a repeat is a no-op.
+	 * Client thread, right before each frame: each sender column ("Name:", "[Clan] <icons>Name:", "From
+	 * Name:", "To Name:") and each noted broadcast's leading name in Supporter colours. The game redraws
+	 * these widgets through more than one path (a new line, a scroll, a tab or filter switch), and
+	 * painting only after BUILD_CHATBOX lost the colour until the next one — the chat input had the same
+	 * problem, fixed the same way. A widget whose text is still the very string seen last frame is
+	 * skipped by reference: no allocation unless the game wrote something new. Widget text only — the
+	 * line's menu options come from the message data, not from this text.
 	 */
 	private void flairChatbox() {
 		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
 			return;
 		}
 		Widget area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
-		Widget[] lines = area == null ? null : area.getDynamicChildren();
+		Widget[] lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines == null) {
 			return;
 		}
-		boolean opaque = opaqueChatbox();
-		String star = chatStar();
-		for (Widget w : lines) {
+		if (chatboxSeen.length < lines.length) {
+			int was = chatboxRoom.length;
+			chatboxSeen = Arrays.copyOf(chatboxSeen, lines.length);
+			chatboxRoom = Arrays.copyOf(chatboxRoom, lines.length);
+			Arrays.fill(chatboxRoom, was, lines.length, Integer.MIN_VALUE);
+		}
+		String star = null;
+		boolean opaque = false;
+		for (int i = 0; i < lines.length; i++) {
+			Widget w = lines[i];
 			String text = w == null ? null : w.getText();
-			if (text == null || text.isEmpty()) {
+			if (text == null || text == chatboxSeen[i] || text.isEmpty()) {
 				continue;
 			}
+			if (star == null) {
+				star = chatStar();
+				opaque = opaqueChatbox();
+			}
 			String painted = chatFlair.paintSender(text, star, opaque);
-			if (painted == null && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))) {
+			boolean sender = painted != null;
+			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))) {
 				painted = chatFlair.paintLead(text, star, opaque);
 			}
 			if (painted != null) {
 				w.setText(painted);
+				if (sender && ChatFlair.column(painted)) {
+					makeRoom(lines, i, text, painted);
+				}
+				text = w.getText();
 			}
+			chatboxSeen[i] = text;
+		}
+	}
+
+	/**
+	 * A sender column the game sized for the plain name now also draws the Patron star: widen it, and move
+	 * the line's text beside it (same row, to its right) over by the star's width, so the star doesn't
+	 * push the name into the message. Each move is remembered, so a widget the game didn't lay out
+	 * again is never moved twice.
+	 */
+	private void makeRoom(Widget[] lines, int at, String plain, String painted) {
+		java.util.function.ToIntFunction<String> text = t -> 0;
+		ChatFlairTooltip tip = chatFlairTooltip;
+		java.util.function.IntUnaryOperator icon = tip != null ? tip::iconWidth : n -> 13;
+		int d = ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
+		Widget s = lines[at];
+		if (d <= 0) {
+			return;
+		}
+		if (s.getOriginalWidth() != chatboxRoom[at]) {
+			s.setOriginalWidth(s.getOriginalWidth() + d);
+			chatboxRoom[at] = s.getOriginalWidth();
+			s.revalidate();
+		}
+		for (int j = 0; j < lines.length; j++) {
+			Widget o = lines[j];
+			if (j == at || o == null || o.isHidden() || o.getOriginalY() != s.getOriginalY()
+					|| o.getOriginalX() <= s.getOriginalX() || o.getOriginalX() == chatboxRoom[j]) {
+				continue;
+			}
+			o.setOriginalX(o.getOriginalX() + d);
+			o.setOriginalWidth(Math.max(1, o.getOriginalWidth() - d));
+			chatboxRoom[j] = o.getOriginalX();
+			o.revalidate();
 		}
 	}
 
@@ -7576,6 +7631,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onBeforeRender(net.runelite.api.events.BeforeRender event) {
 		flairChatInput();
+		flairChatbox();
 		flairSplitPm();
 	}
 
