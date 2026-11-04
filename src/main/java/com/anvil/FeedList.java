@@ -344,10 +344,9 @@ final class FeedList extends JPanel
 	public void addNotify()
 	{
 		super.addNotify();
-		if (chat)
-		{
-			slide.start();
-		}
+		// Chat lines and Feed rows both slide a Patron's gradient; slideVisible repaints only the
+		// visible rows that move, and nothing while the list is hidden or "Animated names" is off.
+		slide.start();
 	}
 
 	@Override
@@ -1024,9 +1023,11 @@ final class FeedList extends JPanel
 		StringBuilder sb = new StringBuilder("<html>");
 		if (grad != null && name.length() > 1)
 		{
+			// Sliding like the chat lines: the same 6s cycle, reflecting back, letter by letter.
+			float phase = moves(r) ? (System.currentTimeMillis() % 6000) / 6000f * 2 : 0;
 			for (int i = 0; i < name.length(); i++)
 			{
-				float t = (float) i / (name.length() - 1) * (grad.length - 1);
+				float t = reflect((float) i / (name.length() - 1) + phase) * (grad.length - 1);
 				int k = Math.min((int) t, grad.length - 2);
 				sb.append(font(mix(grad[k], grad[k + 1], t - k), String.valueOf(name.charAt(i))));
 			}
@@ -1072,6 +1073,13 @@ final class FeedList extends JPanel
 			out.add(new Color(Integer.parseInt(hex, 16)));
 		}
 		return out.toArray(new Color[0]);
+	}
+
+	/** A position along a reflecting gradient (0→1→0 every 2), as CycleMethod.REFLECT paints it. */
+	static float reflect(float p)
+	{
+		float m = p % 2f;
+		return m > 1f ? 2f - m : m;
 	}
 
 	/** A row whose name gradient should be sliding right now. */
