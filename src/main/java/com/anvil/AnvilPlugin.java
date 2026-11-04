@@ -503,8 +503,6 @@ public class AnvilPlugin extends Plugin {
 			ChatMessageType.MODAUTOTYPER,
 			ChatMessageType.PRIVATECHAT,
 			ChatMessageType.MODPRIVATECHAT,
-			// "To Drenvox: …" — your own private message; the name is who it went to.
-			ChatMessageType.PRIVATECHATOUT,
 			ChatMessageType.PRIVATECHATOUT,
 			ChatMessageType.FRIENDSCHAT,
 			ChatMessageType.CLAN_CHAT,
@@ -2054,6 +2052,10 @@ public class AnvilPlugin extends Plugin {
 	public void onScriptPostFired(ScriptPostFired event) {
 		if (event.getScriptId() == ScriptID.CHAT_TEXT_INPUT_REBUILD) {
 			flairChatInput();
+			return;
+		}
+		if (event.getScriptId() == ScriptID.BUILD_CHATBOX) {
+			flairChatbox();
 			return;
 		}
 		if (event.getScriptId() == ScriptID.FRIENDS_UPDATE || event.getScriptId() == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD
@@ -3830,7 +3832,7 @@ public class AnvilPlugin extends Plugin {
 		if (msg == null || msg.isEmpty()) {
 			return;
 		}
-		maybeFlairSender(event);
+		maybeKeepFlairBroadcast(event);
 
 		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
 		// the actor included. Each client reports only its own player's line; the site books the
@@ -7380,16 +7382,22 @@ public class AnvilPlugin extends Plugin {
 	}, () -> ThreadLocalRandom.current().nextLong(ChatFlairSync.JITTER_MS), this::chatFlairChanged);
 	private volatile boolean chatFlairSeeded;
 	private ScheduledFuture<?> chatFlairSave;
-	// Where a sender's name is a player who typed: Supporter flair goes on these (ChatFlair).
-	private static final Set<ChatMessageType> FLAIR_CHAT = EnumSet.of(
-			ChatMessageType.PUBLICCHAT,
-			ChatMessageType.MODCHAT,
-			ChatMessageType.PRIVATECHAT,
-			ChatMessageType.MODPRIVATECHAT,
-			ChatMessageType.FRIENDSCHAT,
-			ChatMessageType.CLAN_CHAT,
-			ChatMessageType.CLAN_GUEST_CHAT,
-			ChatMessageType.CLAN_GIM_CHAT);
+	// Broadcasts whose text starts with a player's name ("Nisbro HCM has completed a quest: …").
+	private static final Set<ChatMessageType> FLAIR_BROADCASTS = EnumSet.of(
+			ChatMessageType.CLAN_MESSAGE,
+			ChatMessageType.CLAN_GIM_MESSAGE,
+			ChatMessageType.CLAN_GUEST_MESSAGE,
+			ChatMessageType.FRIENDSCHATNOTIFICATION);
+	/** Client thread: keys (ChatFlair.key) of recent broadcasts that start with a Supporter's name. */
+	private final Set<String> flairBroadcasts = java.util.Collections.newSetFromMap(
+			new java.util.LinkedHashMap<String, Boolean>(16, 0.75f, false) {
+				@Override
+				protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+					return size() > 64;
+				}
+			});
+	/** Client thread: split-PM line texts already looked at (painted, or nothing to paint). */
+	private final Set<String> splitPmSeen = new java.util.HashSet<>();
 
 	/**
 	 * Config-poll thread, after every config attempt — answered or not: the list is public and in no
@@ -7435,8 +7443,10 @@ public class AnvilPlugin extends Plugin {
 		// The chat input and the side lists were drawn before the list changed and are only redrawn
 		// on the game's next rebuild: paint them now. The panel's "Tracking" name too.
 		clientThread.invokeLater(() -> {
+			splitPmSeen.clear();
 			flairChatInput();
 			flairNameLists();
+			flairChatbox();
 		});
 		AnvilSidebarPanel panel = sidebarPanel;
 		if (panel != null) {
@@ -7449,15 +7459,97 @@ public class AnvilPlugin extends Plugin {
 		return chatFlair.entry(rsn);
 	}
 
-	/** Client thread (onChatMessage): paint a Supporter's name before the line is drawn. */
-	private void maybeFlairSender(ChatMessage event) {
-		if (!FLAIR_CHAT.contains(event.getType()) || chatFlair.isEmpty() || !config.supporterChatFlair()) {
+	/**
+	 * Client thread (onChatMessage). Supporter flair is painted on the chatbox WIDGETS after the game
+	 * draws them (flairChatbox), never on the message: the game builds the line's right-click options
+	 * and actions ("Message", "Add friend" / "Remove friend", reply, report) from the MessageNode's
+	 * name, and a name carrying colour tags fails its friend check and acts on the wrong name. Here only
+	 * a broadcast that starts with a Supporter's name is noted, so the walk knows its widget.
+	 */
+	private void maybeKeepFlairBroadcast(ChatMessage event) {
+		if (!FLAIR_BROADCASTS.contains(event.getType()) || chatFlair.isEmpty() || !config.supporterChatFlair()) {
 			return;
 		}
-		String painted = chatFlair.decorate(event.getName(), chatStar());
-		if (painted != null && event.getMessageNode() != null) {
-			// Readable on this chatbox, like Anvil's own lines (pale Patron stops on parchment).
-			event.getMessageNode().setName(ChatPalette.readable(painted, opaqueChatbox()));
+		String key = chatFlair.leadKey(event.getMessage());
+		if (key != null) {
+			flairBroadcasts.add(key);
+		}
+	}
+
+	/**
+	 * Client thread, after the chatbox is built (and when the list changes): each sender column
+	 * ("Name:", "[Clan] Name:", "From Name:", "To Name:") and each noted broadcast's leading name in
+	 * Supporter colours. Widget text only — the line's menu options come from the message data, not
+	 * from this text. A painted widget no longer matches, so a repeat is a no-op.
+	 */
+	private void flairChatbox() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
+			return;
+		}
+		Widget area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
+		Widget[] lines = area == null ? null : area.getDynamicChildren();
+		if (lines == null) {
+			return;
+		}
+		boolean opaque = opaqueChatbox();
+		String star = chatStar();
+		for (Widget w : lines) {
+			String text = w == null ? null : w.getText();
+			if (text == null || text.isEmpty()) {
+				continue;
+			}
+			String painted = chatFlair.paintSender(text, star, opaque);
+			if (painted == null && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))) {
+				painted = chatFlair.paintLead(text, star, opaque);
+			}
+			if (painted != null) {
+				w.setText(painted);
+			}
+		}
+	}
+
+	/**
+	 * Client thread, each frame: the split private chat ("From Name: …" / "To Name: …" over the game
+	 * view) is redrawn by its own scripts; its few lines are checked against the texts already seen, so a
+	 * frame with nothing new costs a handful of set lookups. Widget text only, like flairChatbox.
+	 */
+	private void flairSplitPm() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
+			return;
+		}
+		Widget box = client.getWidget(InterfaceID.PmChat.CONTAINER);
+		if (box == null || box.isHidden()) {
+			return;
+		}
+		flairSplitPm(box.getStaticChildren());
+		flairSplitPm(box.getDynamicChildren());
+	}
+
+	private void flairSplitPm(Widget[] ws) {
+		if (ws == null) {
+			return;
+		}
+		for (Widget w : ws) {
+			if (w == null) {
+				continue;
+			}
+			String text = w.getText();
+			if (text != null && !text.isEmpty() && !splitPmSeen.contains(text)) {
+				if (splitPmSeen.size() > 256) {
+					splitPmSeen.clear();
+				}
+				String painted = chatFlair.paintSender(text, chatStar(), false);
+				if (painted != null) {
+					w.setText(painted);
+					splitPmSeen.add(painted);
+				} else {
+					splitPmSeen.add(text);
+				}
+			}
+			Widget[] kids = w.getDynamicChildren();
+			if (kids != null && kids.length > 0) {
+				flairSplitPm(kids);
+			}
 		}
 	}
 
@@ -7484,6 +7576,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onBeforeRender(net.runelite.api.events.BeforeRender event) {
 		flairChatInput();
+		flairSplitPm();
 	}
 
 	private void flairChatInput() {
