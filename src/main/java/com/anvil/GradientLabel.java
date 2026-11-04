@@ -23,9 +23,9 @@ final class GradientLabel extends JLabel
 	/** One full reflect cycle (there and back) across the name. */
 	private static final long CYCLE_MS = 6000;
 	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
-	private static final Timer TICK = new Timer(40, e -> { if (animate) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
 	static volatile boolean animate = true;
+	private static final Timer TICK = new Timer(40, e -> { if (animate) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
 
 	private final Color[] stops;
 	private final float[] fractions;
