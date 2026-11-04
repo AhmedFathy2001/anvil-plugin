@@ -1185,11 +1185,22 @@ public class AnvilSidebarPanel extends PluginPanel
 			return;
 		}
 		refreshAccountRow();
+		if (manual)
+		{
+			// A refresh with nothing new changes nothing on screen: the button says it's working.
+			refreshButton.setEnabled(false);
+			refreshButton.setText("Refreshing…");
+		}
 		interactive().execute(() ->
 		{
 			dataSource.refreshConfig(manual);
 			SwingUtilities.invokeLater(() ->
 			{
+				if (manual)
+				{
+					refreshButton.setText("Refresh");
+					refreshButton.setEnabled(true);
+				}
 				rebuildClanPicker();
 				updateTabStrip();
 				refreshSignInRow();
@@ -1201,6 +1212,10 @@ public class AnvilSidebarPanel extends PluginPanel
 				else if (tab == Tab.SETTINGS)
 				{
 					renderSettings(); // admin rights and the sound list can change under it
+				}
+				else if (tab == Tab.FEED && manual)
+				{
+					renderFeed(); // the Feed asks the site again; its live rows carry on from there
 				}
 				showClan(manual);
 			});
