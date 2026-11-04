@@ -7372,13 +7372,15 @@ public class AnvilPlugin extends Plugin {
 	private java.util.regex.Pattern inputFlairPattern;
 
 	/**
-	 * Client thread, every frame: the game redraws the chat input ("Name: *") through more than one path
-	 * (a keystroke, closing a bank prompt, login), and only one of them fires CHAT_TEXT_INPUT_REBUILD,
-	 * so the name went plain again until the next keystroke. Checked each frame instead; it only reads
-	 * a short string unless the name needs painting.
+	 * Client thread, right before each frame is drawn: the game redraws the chat input ("Name: *")
+	 * through more than one path (a keystroke, arrow keys, closing the bank or a prompt, login), and
+	 * only one of them fires CHAT_TEXT_INPUT_REBUILD. Checking on ClientTick wasn't enough: that runs
+	 * at the start of the cycle, before those scripts, so the plain name was drawn for a frame and
+	 * flashed. BeforeRender runs after every script of the cycle. It only reads a short string unless
+	 * the name needs painting.
 	 */
 	@Subscribe
-	public void onClientTick(net.runelite.api.events.ClientTick event) {
+	public void onBeforeRender(net.runelite.api.events.BeforeRender event) {
 		flairChatInput();
 	}
 
