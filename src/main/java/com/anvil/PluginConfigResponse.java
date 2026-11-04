@@ -314,6 +314,18 @@ public class PluginConfigResponse
 	/** Which level-ups the clan and the player's own webhooks want (capability 'level-rules'); null on older sites. */
 	public LevelRules.Sets levelRules;
 	/**
+	 * On a game-mode world, that mode's own thresholds: the loosest of the player's clans', each clan
+	 * re-checking its own on the site. 0 / null = the main-game gate. Null on the main game.
+	 */
+	public ModeThresholds modeThresholds;
+
+	public static class ModeThresholds
+	{
+		public int dropRarityFloor;
+		public long dropMinValue;
+		public LevelRules levelRules;
+	}
+	/**
 	 * Server-supplied drop knowledge. Both maps are keyed by LOWERCASED name — the item's for
 	 * {@code guaranteed}, the pet's for {@code pets} — because that is what the client has in hand
 	 * when a post is being written, and it survives an item-id variant swap.

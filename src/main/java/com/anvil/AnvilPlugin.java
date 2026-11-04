@@ -659,6 +659,8 @@ public class AnvilPlugin extends Plugin {
 	// it. Without this, the seed taken at LOGGED_IN read those placeholders and every existing 99
 	// "happened" again on the welcome screen (2026-10-12, a maxed-ish account posted 99 after 99).
 	private boolean statsUnsettled;
+	/** The separate-save / preset world flags the stat baseline was taken on (onWorldChanged); null = unknown. */
+	private Set<WorldType> statsRealm;
 	private int statsSettleTicks;
 	// Quiet ticks (no stat update) after login before the table counts as arrived. Counted from the
 	// LAST update, not from login: a client switching accounts (legacy logins, several on one RuneLite)
@@ -1745,7 +1747,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		statsUnsettled = false;
 		seedSkillLevels();
-		if (!statsAreArtificial()) {
+		if (levelsPost()) {
 			lastTotalLevel = client.getTotalLevel();
 			totalLevelInitialized = true;
 		}
@@ -1774,9 +1776,12 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		// Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels/XP that aren't the
-		// player's real progression — never notify off them, never overwrite the real-level baseline
-		// (lastSkillLevel), and never push their XP.
+		// player's real progression — never push their XP, and never notify off them unless the site
+		// sent that mode its own level rules (a hop between saves re-baselines, onWorldChanged).
 		if (statsAreArtificial()) {
+			if (levelsPost()) {
+				checkLevelUp(skill, event.getLevel());
+			}
 			return;
 		}
 		// Real-time skill-XP push (debounced), so skill-XP tiles move without waiting on the hourly
@@ -1792,6 +1797,10 @@ public class AnvilPlugin extends Plugin {
 		}
 		maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
 
+		checkLevelUp(skill, event.getLevel());
+	}
+
+	private void checkLevelUp(Skill skill, int level) {
 		if (statsUnsettled) {
 			statsSettleTicks = 0; // the table is still arriving — restart the quiet count
 			return;
@@ -1799,7 +1808,6 @@ public class AnvilPlugin extends Plugin {
 		if (!config.notifyLevelUps()) {
 			return;
 		}
-		int level = event.getLevel();
 		Integer prev = lastSkillLevel.put(skill, level);
 		if (prev == null) {
 			// First sighting this session = baseline; levels already held never announce.
@@ -2009,6 +2017,18 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onWorldChanged(WorldChanged event) {
 		stampWorld();
+		// Hopping between the main game and a separate save swaps the whole stat table: baseline
+		// again, or one character's levels would read as the other's level-ups.
+		EnumSet<WorldType> realm = EnumSet.noneOf(WorldType.class);
+		EnumSet<WorldType> w = client.getWorldType();
+		if (w != null) {
+			realm.addAll(w);
+			realm.retainAll(ARTIFICIAL_WORLDS);
+		}
+		if (!realm.equals(statsRealm)) {
+			statsRealm = realm;
+			unsettleStats();
+		}
 	}
 
 	/**
@@ -2573,7 +2593,7 @@ public class AnvilPlugin extends Plugin {
 		// Baseline total level once after login so high-total posts fire on real crossings only. Defer
 		// it on preset/alt-save worlds (PvP Arena, Leagues, …) so their inflated total isn't taken as
 		// the real baseline — it seeds on the first normal world instead.
-		if (!totalLevelInitialized && !statsUnsettled && loggedIn() && !statsAreArtificial()) {
+		if (!totalLevelInitialized && !statsUnsettled && loggedIn() && levelsPost()) {
 			int t = client.getTotalLevel();
 			if (t > 0) {
 				lastTotalLevel = t;
@@ -9846,16 +9866,21 @@ public class AnvilPlugin extends Plugin {
 			if (!claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS)) {
 				return;
 			}
-			postRare(source, sourceKind, contents);
+			postRare(source, sourceKind, contents, false);
 			return;
 		}
 
 		// ---- Regular drops: per-item value + rarity trigger. ----
 		// Enforced floors so a member can't spam the clan channel: drops must be worth at least
-		// 1m, and rarity posts must be rarer than 1/1000. 0 still means "disabled".
+		// 1m, and rarity posts must be rarer than 1/1000. 0 still means "disabled". A game mode's
+		// own thresholds (site-set) may loosen them there; a drop that needed that says modeOnly.
 		int rawValue = config.rareDropMinValue();
-		long valueThreshold = rawValue <= 0 ? 0 : Math.max(1_000_000, rawValue);
-		int rarityThreshold = effectiveRarityFloor();
+		long mainValue = rawValue <= 0 ? 0 : Math.max(1_000_000, rawValue);
+		int mainRarity = effectiveRarityFloor();
+		PluginConfigResponse.ModeThresholds mode = modeThresholds();
+		long valueThreshold = mode == null ? mainValue : WorldInfo.modeGate(mainValue, mode.dropMinValue);
+		int rarityThreshold = mode == null ? mainRarity : (int) WorldInfo.modeGate(mainRarity, mode.dropRarityFloor);
+		boolean modeOnly = true;
 		AbstractRarityService rarity = raritySource(sourceKind);
 
 		// Standout items get bundled into one post so a single kill never produces a surge.
@@ -9906,19 +9931,21 @@ public class AnvilPlugin extends Plugin {
 			// event both report the same item within the window.
 			if (claim(lastRareNotifyAt, itemId, now, RARE_DEDUP_WINDOW_MS)) {
 				qualifying.add(new RareItem(itemId, qty, itemValue, dropRate));
+				modeOnly &= !((mainValue > 0 && itemValue >= mainValue)
+						|| (dropRate != null && mainRarity > 0 && MathUtils.lessThanOrEqual(dropRate, 1.0 / mainRarity)));
 			}
 		}
 
-		postRare(source, sourceKind, qualifying);
+		postRare(source, sourceKind, qualifying, mode != null && modeOnly);
 	}
 
 	/** One item posts on its own; several are bundled into one post, so a single kill never produces a surge. */
-	private void postRare(String source, String sourceKind, List<RareItem> items) {
+	private void postRare(String source, String sourceKind, List<RareItem> items, boolean modeOnly) {
 		if (items.size() == 1) {
 			RareItem it = items.get(0);
-			postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, it.dropRate);
+			postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, it.dropRate, modeOnly);
 		} else if (items.size() > 1) {
-			postCombinedRareDrop(source, sourceKind, items, items.stream().mapToLong(it -> it.value).sum());
+			postCombinedRareDrop(source, sourceKind, items, items.stream().mapToLong(it -> it.value).sum(), modeOnly);
 		}
 	}
 
@@ -10330,7 +10357,7 @@ public class AnvilPlugin extends Plugin {
 		return killCounts.get(source.toLowerCase());
 	}
 
-	private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate) {
+	private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate, boolean modeOnly) {
 		String name = itemName(itemId);
 		Integer kc = killCountFor(source);
 		boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
@@ -10338,7 +10365,7 @@ public class AnvilPlugin extends Plugin {
 		// dressing a Dragon spear up as treasure. A guaranteed drop is neither.
 		boolean troll = !guaranteed && DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
 		NotifyFacts f = dropPost(source, sourceKind, kc).item(itemId, name, qty, value).put("dropRate", dropRate)
-				.flag("guaranteed", guaranteed).flag("troll", troll)
+				.flag("guaranteed", guaranteed).flag("troll", troll).flag("modeOnly", modeOnly)
 				// The reaction line is about beating the odds. There were none to beat.
 				.flag("spoon", !guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE));
 		// Where this leaves their vestige rotation, when the drop was a roll of one (set moments
@@ -10356,8 +10383,8 @@ public class AnvilPlugin extends Plugin {
 	 * highlights the single most valuable item, plus the combined total and
 	 * item count — instead of a post per item or a huge per-item list.
 	 */
-	private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total) {
-		NotifyFacts f = dropPost(source, sourceKind, killCountFor(source));
+	private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total, boolean modeOnly) {
+		NotifyFacts f = dropPost(source, sourceKind, killCountFor(source)).flag("modeOnly", modeOnly);
 		for (RareItem it : items) {
 			f.item(it.itemId, itemName(it.itemId), it.qty, it.value);
 		}
@@ -11075,14 +11102,25 @@ public class AnvilPlugin extends Plugin {
 	static {
 		// Every separate-save mode (WorldInfo) plus the preset-loadout minigame worlds.
 		EnumSet<WorldType> w = EnumSet.copyOf(WorldInfo.SEPARATE_SAVE);
-		w.addAll(EnumSet.of(WorldType.PVP_ARENA, WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING,
-				WorldType.NOSAVE_MODE));
+		w.addAll(WorldInfo.PRESET);
 		ARTIFICIAL_WORLDS = java.util.Collections.unmodifiableSet(w);
 	}
 
 	/** Which level-ups the clan and the player's own webhooks want; the clan's dropped without a channel. */
 	private LevelRules.Sets levelRules() {
-		return LevelRules.resolve(pluginConfig, notifyEnabled("levels"));
+		return LevelRules.resolve(pluginConfig, notifyEnabled("levels"), modeThresholds());
+	}
+
+	/** The site's thresholds for this game-mode world, or null on the main game / an older site. */
+	private PluginConfigResponse.ModeThresholds modeThresholds() {
+		PluginConfigResponse cfg = pluginConfig;
+		return cfg != null && WorldInfo.separateSave(client.getWorldType()) ? cfg.modeThresholds : null;
+	}
+
+	/** Level-ups may post here: the main game, or a mode its clan gave level rules (never a preset world). */
+	private boolean levelsPost() {
+		PluginConfigResponse.ModeThresholds m = modeThresholds();
+		return WorldInfo.levelsPost(client.getWorldType(), m != null && m.levelRules != null);
 	}
 
 	private void handleLevelMilestone(String skill, int prev, int level) {
@@ -11092,7 +11130,7 @@ public class AnvilPlugin extends Plugin {
 		if (skill == null) {
 			return;
 		}
-		if (statsAreArtificial()) {
+		if (!levelsPost()) {
 			if (level >= 99 && prev < 99) {
 				log.info("99 {} not announced — not real progression on this world", skill);
 			}
@@ -11137,7 +11175,7 @@ public class AnvilPlugin extends Plugin {
 		// NOT gated on the Discord channel here. The gate moved down to the post itself, because this
 		// method also advances lastTotalLevel and feeds the clan's highlight feed — returning early
 		// for want of a webhook froze the baseline and lost the milestone from both.
-		if (statsAreArtificial() || statsUnsettled) {
+		if (!levelsPost() || statsUnsettled) {
 			return;
 		}
 		int total = client.getTotalLevel();
