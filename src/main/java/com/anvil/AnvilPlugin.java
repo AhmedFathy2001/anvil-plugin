@@ -7549,10 +7549,12 @@ public class AnvilPlugin extends Plugin {
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
 		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
 		boolean feed = config.chatFeed() && serverSupportsCap("chat-feed");
-		// One socket carries everything, rows included. Most players already hold one (a board, or the chat
-		// feed, which is on by default); only a player with neither asks for one for the Feed, and only
-		// while it's on screen. Anyone else adding the flag would just reconnect for nothing.
-		boolean rows = eventId == 0 && !feed && feedWatching && serverSupportsCap("panel-rows");
+		// One socket carries everything, rows included — but the site only sends panel rows (Feed and
+		// chat lines) to a socket whose ticket ASKED for them (?rows=1), so a socket held for a board or
+		// the chat feed must ask too: without it, a board player's chat and Feed only filled in when
+		// something else redrew the panel. A player with neither a board nor the chat feed opens a
+		// socket just for the Feed, and only while it's on screen.
+		boolean rows = serverSupportsCap("panel-rows") && (eventId > 0 || feed || feedWatching);
 		if (p != null) {
 			p.scope((eventId > 0 || feed || rows) && apiClient.isConfigured() && serverSupportsCap("push-ws")
 					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") : null);
