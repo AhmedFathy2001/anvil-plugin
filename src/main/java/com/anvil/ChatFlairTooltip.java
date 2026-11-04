@@ -65,7 +65,8 @@ final class ChatFlairTooltip extends Overlay
 					// A name inside the line (an Anvil line naming its player): only over the name itself, and
 					// only on the first line of a wrapped one, where the measured position holds.
 					net.runelite.api.FontTypeFace font = w.getFont();
-					label = flair.tierInLine(w.getText(), mouse.getX() - w.getCanvasLocation().getX(), font::getTextWidth);
+					label = flair.tierInLine(w.getText(), mouse.getX() - w.getCanvasLocation().getX(),
+						raw -> ChatFlair.measure(raw, font::getTextWidth, this::iconWidth));
 				}
 				if (label != null)
 				{
@@ -75,5 +76,13 @@ final class ChatFlairTooltip extends Overlay
 			}
 		}
 		return null;
+	}
+
+	/** An {@code <img=n>}'s drawn width: the chat icon's own (the star included), the usual 13 when unknown. */
+	int iconWidth(int n)
+	{
+		net.runelite.api.IndexedSprite[] icons = client.getModIcons();
+		net.runelite.api.IndexedSprite icon = icons != null && n >= 0 && n < icons.length ? icons[n] : null;
+		return icon == null ? 13 : icon.getOriginalWidth();
 	}
 }

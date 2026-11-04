@@ -411,16 +411,31 @@ final class ChatFlair
 	 * on a private message, then the name and a colon. Group 2 is From/To, group 3 the name, group 4
 	 * whatever follows the colon (empty in the chatbox's sender column; the message on a split-PM line).
 	 */
-	private static final Pattern SENDER_SHOWN = Pattern.compile("^((?:\\[[^\\]]*\\]\\s*)*(?:(From|To)\\s+)?)([^:\\[\\]]{1,12}):(.*)$", Pattern.DOTALL);
+	private static final Pattern SENDER_SHOWN = Pattern.compile("^\\s*((?:\\[[^\\]]*\\]\\s*)*)(?:(From|To)\\s+)?([^:\\[\\]]{1,24}):(.*)$", Pattern.DOTALL);
 	/** Leading "[channel]" / "[timestamp]" groups and spaces before a broadcast's text. */
 	private static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
 
 	/**
-	 * A chat widget whose text is a sender ("Name:", "[Clan] Name:", "From Name:", "To Name:", or a
-	 * split-PM line "From Name: hi"), with the name painted; null when it isn't one, the name has no
-	 * flair, or it is already painted. A plain-text line "Bob: hi" (no From/To) is left alone.
+	 * A chatbox SENDER COLUMN's text ("Name:", "[Clan] <icons>Name:", "From Name:", "To Name:") with the
+	 * name painted; null when it isn't one (anything after the colon), the name has no flair, or it is
+	 * painted already. Text alone proves nothing — anyone can type "[Clan] Bob:" — so the caller passes
+	 * only the widget the layout says is a sender column (senderColumn).
 	 */
 	String paintSender(String raw, String star, boolean opaque)
+	{
+		return paintSender(raw, star, opaque, false);
+	}
+
+	/**
+	 * A split-private-chat line ("From Name: hi" / "To Name: hi"), which the game writes as one widget:
+	 * only for widgets of that container (never the chatbox), and only with From / To before the name.
+	 */
+	String paintPmLine(String raw, String star, boolean opaque)
+	{
+		return paintSender(raw, star, opaque, true);
+	}
+
+	private String paintSender(String raw, String star, boolean opaque, boolean pmLine)
 	{
 		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0)
 		{
@@ -428,7 +443,9 @@ final class ChatFlair
 		}
 		Shown s = shown(raw);
 		Matcher m = SENDER_SHOWN.matcher(s.text);
-		if (!m.matches() || (!m.group(4).isEmpty() && m.group(2) == null))
+		// A sender column ends at the colon; a split-PM line is "From/To Name: …". A typed "[Clan] Bob: hi"
+		// in a message widget is neither.
+		if (!m.matches() || (pmLine ? m.group(2) == null || !m.group(1).isEmpty() : !m.group(4).trim().isEmpty()))
 		{
 			return null;
 		}
@@ -442,7 +459,89 @@ final class ChatFlair
 		{
 			to--;
 		}
-		return from < to ? paintAt(raw, s, from, to, star, opaque) : null;
+		return from < to && to - from <= 12 ? paintAt(raw, s, from, to, star, opaque) : null;
+	}
+
+	/**
+	 * Chatbox layout, not text, says which widget is a sender column: one with a line's text beside it
+	 * (same row, to its right, within the line's few widgets). A typed "[Clan] Bob:" is the message
+	 * widget, the last on its row. {@code text(j)} is null for a hidden or missing widget.
+	 */
+	static boolean senderColumn(int i, int n, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+		java.util.function.IntFunction<String> text)
+	{
+		for (int j = i + 1; j < n && j <= i + 3; j++)
+		{
+			String t = text.apply(j);
+			if (t != null && !t.isEmpty() && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) > x.applyAsInt(i))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A line text with a player's sender column to its left ("Name:" — someone typed it): never a
+	 * broadcast, whatever it says. A broadcast's row has only the channel ("[The AFK Spot]") or nothing.
+	 */
+	static boolean typedBySomeone(int i, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+		java.util.function.IntFunction<String> text)
+	{
+		for (int j = i - 1; j >= 0 && j >= i - 3; j--)
+		{
+			String t = text.apply(j);
+			if (t != null && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) < x.applyAsInt(i) && column(t))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
+	static boolean column(String raw)
+	{
+		String t = shown(raw).text.trim();
+		return t.endsWith(":");
+	}
+
+	/**
+	 * Raw chat text's drawn width: the visible characters measured by the font ({@code textWidth}, given
+	 * no tags), plus each {@code <img=n>} at {@code iconWidth(n)}. Colour tags take no room. The hover maths
+	 * and the room a star needs both go through this, so an icon or the star never shifts them.
+	 */
+	static int measure(String raw, java.util.function.ToIntFunction<String> textWidth, java.util.function.IntUnaryOperator iconWidth)
+	{
+		StringBuilder text = new StringBuilder(raw.length());
+		int icons = 0;
+		for (int i = 0; i < raw.length(); i++)
+		{
+			char ch = raw.charAt(i);
+			if (ch == '<')
+			{
+				int close = raw.indexOf('>', i);
+				if (close < 0)
+				{
+					break;
+				}
+				if (raw.startsWith("img=", i + 1))
+				{
+					try
+					{
+						icons += iconWidth.applyAsInt(Integer.parseInt(raw.substring(i + 5, close)));
+					}
+					catch (NumberFormatException ignored)
+					{
+						// not an icon after all: no room
+					}
+				}
+				i = close;
+				continue;
+			}
+			text.append(ch);
+		}
+		return (text.length() == 0 ? 0 : textWidth.applyAsInt(text.toString())) + icons;
 	}
 
 	/**
