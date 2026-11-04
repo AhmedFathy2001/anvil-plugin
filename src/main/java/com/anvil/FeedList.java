@@ -874,11 +874,13 @@ final class FeedList extends JPanel
 			icon.setVisible(false);
 			gz.setVisible(false);
 
-			Color whoInk = mine(r) ? ColorScheme.BRAND_ORANGE : UiView.color(UiView.str(r, "whoColor"), Color.WHITE);
+			// Your own lines are marked by the background; the name keeps your Supporter colours, and
+			// only a name with none falls back to the orange that says "you".
+			String whoHtml = name(r, who, mine(r) ? ColorScheme.BRAND_ORANGE : Color.WHITE);
 			Color tagInk = UiView.color(UiView.str(r, "tagColor"), MUTED);
 			line1.setFont(REGULAR);
 			line1.setForeground(Color.WHITE);
-			line1.setText("<html><b>" + span(who, whoInk) + "</b>" + (tag.isEmpty() ? "" : "&nbsp;&nbsp;" + span(tag, tagInk)) + "</html>");
+			line1.setText("<html><b>" + whoHtml + "</b>" + (tag.isEmpty() ? "" : "&nbsp;&nbsp;" + span(tag, tagInk)) + "</html>");
 			line1.setVisible(!grouped);
 			value.setText(plainText(Ui.ago(UiView.str(r, "at")).replace(" ago", "")));
 			value.setForeground(MUTED);
@@ -909,7 +911,6 @@ final class FeedList extends JPanel
 			icon.setVisible(ic != null);
 
 			String who = UiView.str(r, "who");
-			Color whoInk = UiView.color(UiView.str(r, "whoColor"), Color.WHITE);
 			String tag = UiView.str(r, "tag");
 			Color tagInk = UiView.color(UiView.str(r, "tagColor"), MUTED);
 			String when = Ui.ago(UiView.str(r, "at")).replace(" ago", "");
@@ -919,7 +920,7 @@ final class FeedList extends JPanel
 				// A moment: the item on top, who got it (and their team) under it.
 				line1.setText(plainText(title));
 				line1.setForeground(UiView.color(UiView.str(r, "textColor"), Color.WHITE));
-				line2.setText("<html>" + span(who, whoInk) + (tag.isEmpty() ? "" : " " + span("· " + tag, tagInk)) + "</html>");
+				line2.setText("<html>" + name(r, who, Color.WHITE) + (tag.isEmpty() ? "" : " " + span("· " + tag, tagInk)) + "</html>");
 				line2.setVisible(true);
 			}
 			else
@@ -930,7 +931,7 @@ final class FeedList extends JPanel
 				Color textInk = UiView.color(UiView.str(r, "textColor"), ColorScheme.TEXT_COLOR);
 				line1.setText("<html><div style='width:" + wrap + "px'>"
 					+ (tag.isEmpty() ? "" : "<b>" + span(tag, tagInk) + "</b> ")
-					+ (who.isEmpty() ? "" : "<b>" + span(who, whoInk) + "</b> ")
+					+ (who.isEmpty() ? "" : "<b>" + name(r, who, Color.WHITE) + "</b> ")
 					+ span(text, textInk, true) + "</div></html>");
 				line2.setVisible(false);
 			}
@@ -955,6 +956,21 @@ final class FeedList extends JPanel
 			return this;
 		}
 
+		/**
+		 * A name as the site sent its colours: a Supporter's gradient letter by letter, else their solid
+		 * colour, else {@code fallback}.
+		 */
+		private String name(JsonObject r, String who, Color fallback)
+		{
+			String g = r.has("grad") && r.get("grad").isJsonArray() ? gradientHtml(Ui.fontSafe(who), r.getAsJsonArray("grad")) : null;
+			if (g != null)
+			{
+				return g;
+			}
+			String c = UiView.str(r, "whoColor");
+			return span(who, c.isEmpty() ? fallback : UiView.color(c, fallback));
+		}
+
 		private String span(String s, Color c)
 		{
 			return span(esc(Ui.fontSafe(s)), c, true);
@@ -964,5 +980,38 @@ final class FeedList extends JPanel
 		{
 			return String.format("<span style='color:#%06x'>%s</span>", c.getRGB() & 0xFFFFFF, escaped);
 		}
+	}
+
+	/** Each letter of {@code text} in its own colour along 2–4 hex stops; null with fewer than two. */
+	static String gradientHtml(String text, com.google.gson.JsonArray grad)
+	{
+		java.util.List<int[]> rgb = new java.util.ArrayList<>();
+		for (com.google.gson.JsonElement e : grad)
+		{
+			String hex = e.isJsonPrimitive() ? ChatPalette.nameColor(e.getAsString()) : null;
+			if (hex != null && rgb.size() < 4)
+			{
+				int v = Integer.parseInt(hex, 16);
+				rgb.add(new int[]{v >> 16 & 0xff, v >> 8 & 0xff, v & 0xff});
+			}
+		}
+		if (rgb.size() < 2 || text == null || text.isEmpty())
+		{
+			return null;
+		}
+		StringBuilder out = new StringBuilder();
+		int n = text.length();
+		for (int i = 0; i < n; i++)
+		{
+			double t = n == 1 ? 0 : (double) i / (n - 1) * (rgb.size() - 1);
+			int seg = Math.min(rgb.size() - 2, (int) t);
+			double f = t - seg;
+			int[] a = rgb.get(seg);
+			int[] b = rgb.get(seg + 1);
+			out.append(String.format("<span style='color:#%02x%02x%02x'>", (int) Math.round(a[0] + (b[0] - a[0]) * f),
+				(int) Math.round(a[1] + (b[1] - a[1]) * f), (int) Math.round(a[2] + (b[2] - a[2]) * f)))
+				.append(esc(String.valueOf(text.charAt(i)))).append("</span>");
+		}
+		return out.toString();
 	}
 }
