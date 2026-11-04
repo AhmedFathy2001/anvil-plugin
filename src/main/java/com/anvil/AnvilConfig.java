@@ -88,8 +88,8 @@ public interface AnvilConfig extends Config
 
 	@ConfigItem(
 		keyName = "chatFeed",
-		name = "Chat feed",
-		description = "Other players' notable drops, pets and achievements in your chat: everyone on a board whose host turned it on, and clans you guest in that share theirs. Pick what shows on your Anvil profile.",
+		name = "Show feed in game chat",
+		description = "Also print the feed in your game chatbox as it happens: big drops, pets and achievements from boards whose host turned it on and clans you guest in, your teammates' tile progress, and other teams' finished tiles. The side panel's Feed tab works either way. Pick what shows on your Anvil profile.",
 		position = 3,
 		section = "chatSection"
 	)
