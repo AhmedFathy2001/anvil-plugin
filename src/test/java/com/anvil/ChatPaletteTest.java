@@ -1,6 +1,8 @@
 package com.anvil;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNull;
 
 import java.util.HashMap;
@@ -60,5 +62,47 @@ public class ChatPaletteTest
 		mine.put("done", "#00ff00");
 		ChatPalette custom = ChatPalette.from("custom", mine);
 		assertEquals("00ff00", custom.text(ChatPalette.Tone.DONE, "000000", true));
+	}
+
+	@Test
+	public void everyColourInALineIsMadeReadableOnItsChatbox()
+	{
+		// Already readable: untouched.
+		assertEquals("006a00", ChatPalette.readableHex("006a00", true));
+		assertEquals("ffd700", ChatPalette.readableHex("ffd700", false));
+		// Pale on parchment gets darker; dark on the transparent box gets lighter — only as far as needed.
+		for (String pale : new String[]{"ffd27a", "7ae0ff", "ffffff", "ff7ab8"})
+		{
+			String fixed = ChatPalette.readableHex(pale, true);
+			assertTrue(pale + " -> " + fixed, ChatPalette.contrast(Integer.parseInt(fixed, 16), 0xC4B48C) >= ChatPalette.MIN_CONTRAST);
+		}
+		String dark = ChatPalette.readableHex("1a1a6e", false);
+		assertTrue(ChatPalette.contrast(Integer.parseInt(dark, 16), 0x262626) >= ChatPalette.MIN_CONTRAST);
+		// The whole line: every <col> rewritten, the text left alone.
+		String line = ChatPalette.readable("<col=ffd27a>[Anvil]</col> <col=ff7ab8>W</col><col=7ae0ff>y</col> got a <col=006a00>pet</col>", true);
+		assertTrue(line.contains("<col=006a00>pet</col>"));
+		assertTrue(line.contains("[Anvil]") && line.contains(">W<") && line.contains(">y<"));
+		assertFalse(line.contains("ffd27a"));
+	}
+
+	@Test
+	public void aSupportersSenderColumnNamesTheirTier()
+	{
+		ChatFlair f = new ChatFlair();
+		ChatFlair.Response r = new ChatFlair.Response();
+		ChatFlair.Entry patron = new ChatFlair.Entry();
+		patron.n = "drenvox";
+		patron.c = "#ff7ab8";
+		patron.g = java.util.Arrays.asList("#ffd27a", "#ff7ab8");
+		patron.s = true;
+		ChatFlair.Entry supp = new ChatFlair.Entry();
+		supp.n = "rikkert";
+		supp.c = "#ffd35c";
+		r.names = java.util.Arrays.asList(patron, supp);
+		f.adopt(r);
+		assertEquals("Anvil Patron", f.tierOfSender("[02:25] <img=12><col=ffd27a>D</col><col=ff7ab8>renvox</col>:"));
+		assertEquals("Anvil Supporter", f.tierOfSender("Rikkert:"));
+		assertNull("a message, not a sender", f.tierOfSender("Drenvox is great"));
+		assertNull(f.tierOfSender("Somebody:"));
 	}
 }

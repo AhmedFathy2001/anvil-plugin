@@ -72,10 +72,26 @@ final class OptimisticProgress
 		return f == null || now > f[1] ? 0 : f[0];
 	}
 
-	/** The site has this tile at {@code siteCurrent} (see {@link #seenSite}). */
+	/**
+	 * The site has this tile at {@code siteCurrent} (see {@link #seenSite}). A LOWER number than seen
+	 * before means the site took progress away (a staff member deleted a submission, a reset): that
+	 * wins at once, and this client's floor for the tile goes with it — else the old high mark stayed
+	 * on screen, and every later gain built on it, until the client restarted.
+	 */
 	void seen(int tileId, long siteCurrent)
 	{
-		if (tileId != 0 && siteCurrent > 0)
+		if (tileId == 0 || siteCurrent < 0)
+		{
+			return;
+		}
+		Long before = seenSite.get(tileId);
+		if (before != null && siteCurrent < before)
+		{
+			seenSite.put(tileId, siteCurrent);
+			floors.remove(tileId);
+			return;
+		}
+		if (siteCurrent > 0)
 		{
 			seenSite.merge(tileId, siteCurrent, Math::max);
 		}

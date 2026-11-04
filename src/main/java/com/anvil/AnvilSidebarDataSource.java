@@ -316,6 +316,7 @@ public class AnvilSidebarDataSource
 			if (force)
 			{
 				p.reprobeAdminNow();
+				p.refreshLook();
 			}
 		});
 	}

@@ -47,7 +47,9 @@ public class PendingSubmissionStore
 		public int amount;
 		public String label;
 		public String note;
-		public String screenshotFile; // filename of PNG in pending dir
+		public String screenshotFile;
+		/** The site said this submission completed its tile (not saved: only the live submit uses it). */
+		transient boolean completedNow; // filename of PNG in pending dir
 		public long timestamp;
 		public Integer itemId; // specific item ID for per-item tracking (nullable)
 		public Integer durationSeconds; // timed-tile clear time in seconds (nullable; non-null routes to submitTimed)
@@ -86,7 +88,8 @@ public class PendingSubmissionStore
 		String id = sub.tileId + "-" + sub.timestamp;
 
 		// Both atomic: a client killed mid-write leaves no half file for the retry loop to choke on.
-		Filepath png = dir.joinSegment(id + ".png");
+		String ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
+		Filepath png = dir.joinSegment(id + ext);
 		try
 		{
 			DiskFiles.writeAtomic(png, pngBytes);
@@ -97,7 +100,7 @@ public class PendingSubmissionStore
 			return null;
 		}
 
-		sub.screenshotFile = id + ".png";
+		sub.screenshotFile = id + ext;
 		try
 		{
 			DiskFiles.writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
@@ -170,10 +173,10 @@ public class PendingSubmissionStore
 		{
 			return;
 		}
-		String baseName = sub.screenshotFile.replace(".png", "");
+		String baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");
 		try
 		{
-			dir.joinSegment(baseName + ".png").deleteIfExists();
+			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();
 			log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
 		}

@@ -950,7 +950,13 @@ final class UiView extends JPanel
 		long[] shown = {cur};
 		lives.add(() ->
 		{
+			// Never past the goal: a local count can run ahead of the site (a jump in KC, a lab
+			// session's held-back pushes), and "810 / 10" says nothing a full bar doesn't.
 			long v = Math.max(cur, host.count(tile));
+			if (goal > 0)
+			{
+				v = Math.min(v, goal);
+			}
 			if (v != shown[0])
 			{
 				shown[0] = v;

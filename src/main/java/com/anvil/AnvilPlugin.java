@@ -86,6 +86,12 @@ public class AnvilPlugin extends Plugin {
 	@Inject
 	private OverlayManager overlayManager;
 
+	@Inject
+	private net.runelite.client.ui.overlay.tooltip.TooltipManager tooltipManager;
+
+	/** Hover a Supporter's name in the chatbox: their tier (ChatFlairTooltip). */
+	private ChatFlairTooltip chatFlairTooltip;
+
 	// Always-on progress sidebar — a toolbar PluginPanel showing per-clan tile progress. Reads
 	// through AnvilSidebarDataSource (see provideSidebarDataSource).
 	@Inject
@@ -1199,6 +1205,9 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
+		GradientLabel.animate = config.animatedNames();
+		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, () -> config.supporterChatFlair());
+		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
 		tileTracker.setNotes(this::tileNotes);
 		tileTracker.setOnePanel(config.trackerOnePanel());
@@ -1566,6 +1575,10 @@ public class AnvilPlugin extends Plugin {
 	protected void shutDown() {
 		overlayManager.remove(overlay);
 		overlayManager.remove(clogBanner);
+		if (chatFlairTooltip != null) {
+			overlayManager.remove(chatFlairTooltip);
+			chatFlairTooltip = null;
+		}
 		tileTracker.shutDown();
 		overlayManager.remove(startProofOverlay);
 		clientThread.invokeLater(startSpotMarker::clear);
@@ -1868,6 +1881,10 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The plugin's own bookkeeping (recap counters, sync state, nudges) is persisted from the
 		// client thread, often several keys at once — none of it changes what the site sends back.
+		if ("animatedNames".equals(event.getKey())) {
+			GradientLabel.animate = config.animatedNames();
+			return;
+		}
 		if (isInternalStateKey(event.getKey())) {
 			return;
 		}
@@ -2018,6 +2035,10 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event) {
+		if (event.getScriptId() == ScriptID.CHAT_TEXT_INPUT_REBUILD) {
+			flairChatInput();
+			return;
+		}
 		if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
 			captureClogPage();
 			// A SECOND CHANCE AT THE BUTTON, and the reason it needs one: the setup script below is
@@ -5537,7 +5558,9 @@ public class AnvilPlugin extends Plugin {
 				if (triggerFrame != null) {
 					proof.addProperty("split", (double) triggerFrame.getHeight() / buffered.getHeight());
 				}
-				byte[] png = png(buffered);
+				// JPEG, not PNG: a full-screen proof is 5-10x smaller, so encoding and uploading it is that
+				// much quicker — and the site re-compresses every upload anyway.
+				byte[] png = jpeg(buffered);
 				PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
 				pending.proof = proof;
 				pending.itemId = itemId;
@@ -5560,6 +5583,10 @@ public class AnvilPlugin extends Plugin {
 						sendChatMessage(ChatPalette.Tone.DONE, submitted);
 					}
 					proofBackoff.onSuccess();
+					if (pending.completedNow) {
+						// Said at once, from the submit's own answer — not after the config refresh.
+						announceCompletedNow(tileId, label);
+					}
 				} else {
 					notifyUploadFailed(label);
 				}
@@ -6146,7 +6173,7 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		try {
-			String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + ".png";
+			String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + (BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png");
 
 			warnStartProofBeforeCredit();
 			log.info("Uploading screenshot for tile '{}'...", pending.label);
@@ -6154,11 +6181,11 @@ public class AnvilPlugin extends Plugin {
 
 			if (pending.durationSeconds != null) {
 				log.info("Submitting timed clear for tile '{}'...", pending.label);
-				apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
+				pending.completedNow = apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
 						imageUrl, pending.note, pending.playerId, pending.proof);
 			} else {
 				log.info("Submitting drop for tile '{}'...", pending.label);
-				apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
+				pending.completedNow = apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
 						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof);
 			}
 
@@ -6916,6 +6943,45 @@ public class AnvilPlugin extends Plugin {
 		completionBaselineEventId = null;
 	}
 
+	/**
+	 * Our own submission just completed its tile (the submit's answer said so): banner and chat line
+	 * now, under the same lock and memory as {@link #checkTileCompletions}, so the poll that follows
+	 * doesn't say it again.
+	 */
+	private void announceCompletedNow(int tileId, String label) {
+		configFetchLock.lock();
+		try {
+			PluginConfigResponse cfg = pluginConfig;
+			if (cfg == null || cfg.event == null || completionBaselineEventId == null
+					|| completionBaselineEventId != cfg.event.id || !notifiedCompletedTiles.add(tileId)) {
+				return;
+			}
+		} finally {
+			configFetchLock.unlock();
+		}
+		onTileConfirmedDone(tileId);
+		if (sidebarPanel != null) {
+			SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
+		}
+		if (locallyShownTiles.contains(tileId) || !config.teamCompletionBanner()) {
+			return;
+		}
+		clogBanner.show("Anvil Bingo", "Tile complete!", label);
+		playBannerSound();
+		announceTileComplete(label, getLocalPlayerName());
+	}
+
+	/** "Tile complete: <label> — by <name>!", the name in its Supporter colours where it has them. */
+	private void announceTileComplete(String label, String completedBy) {
+		String who = completedBy == null ? "" : completedBy.trim();
+		String painted = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.decorate(clean(who), chatStar());
+		if (painted != null) {
+			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
+		} else {
+			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
+		}
+	}
+
 	private void checkTileCompletions(PluginConfigResponse cfg) {
 		if (cfg == null || cfg.event == null || cfg.completedTiles == null) {
 			return;
@@ -6929,6 +6995,19 @@ public class AnvilPlugin extends Plugin {
 		// popup is toggled off, so flipping it on later won't dump a backlog.
 		List<CompletedTile> newlyDone = new ArrayList<>();
 		boolean anyDone = false;
+		// A tile no longer complete (its completion was deleted) is forgotten, so finishing it again
+		// announces it again instead of staying silent until the client restarts.
+		Set<Integer> doneNow = new HashSet<>();
+		for (CompletedTile t : cfg.completedTiles) {
+			doneNow.add(t.tileId);
+		}
+		for (Iterator<Integer> it = notifiedCompletedTiles.iterator(); it.hasNext(); ) {
+			Integer was = it.next();
+			if (!doneNow.contains(was)) {
+				it.remove();
+				locallyShownTiles.remove(was);
+			}
+		}
 		for (CompletedTile t : cfg.completedTiles) {
 			if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
 				anyDone = true;
@@ -6956,9 +7035,7 @@ public class AnvilPlugin extends Plugin {
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
 		for (CompletedTile t : newlyDone) {
-			String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
-					? " — by " + t.completedBy.trim() : "";
-			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + by + "!");
+			announceTileComplete(t.label, t.completedBy);
 		}
 	}
 
@@ -7251,7 +7328,37 @@ public class AnvilPlugin extends Plugin {
 		}
 		String painted = chatFlair.decorate(event.getName(), chatStar());
 		if (painted != null && event.getMessageNode() != null) {
-			event.getMessageNode().setName(painted);
+			// Readable on this chatbox, like Anvil's own lines (pale Patron stops on parchment).
+			event.getMessageNode().setName(ChatPalette.readable(painted, opaqueChatbox()));
+		}
+	}
+
+	/** Client thread: the opaque chatbox (fixed mode, or resizable with transparency off) is light parchment. */
+	private boolean opaqueChatbox() {
+		return !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+	}
+
+	/**
+	 * Client thread, after the game redraws the chat input line ("Name: *" — every keystroke): our own
+	 * name there in our Supporter colours. Display only — the typed text is never read or changed.
+	 */
+	private void flairChatInput() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty() || client.getLocalPlayer() == null) {
+			return;
+		}
+		Widget input = client.getWidget(InterfaceID.Chatbox.INPUT);
+		String me = client.getLocalPlayer().getName();
+		if (input == null || me == null) {
+			return;
+		}
+		String text = input.getText();
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("^((?:<img=\\d+>)*)" + java.util.regex.Pattern.quote(me) + ":").matcher(text == null ? "" : text);
+		if (!m.find()) {
+			return;
+		}
+		String painted = chatFlair.decorate(m.group(1) + me, chatStar());
+		if (painted != null) {
+			input.setText(ChatPalette.readable(painted, opaqueChatbox()) + ":" + text.substring(m.end()));
 		}
 	}
 
@@ -7368,6 +7475,10 @@ public class AnvilPlugin extends Plugin {
 	private void applyPush(JsonObject m) {
 		if ("feed".equals(m.get("t").getAsString())) {
 			feedLine(m);
+			return;
+		}
+		if ("look".equals(m.get("t").getAsString())) {
+			refreshLook();
 			return;
 		}
 		if (m.get("t").getAsString().startsWith("rows")) {
@@ -10714,6 +10825,32 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/** A proof frame as a high-quality JPEG (no alpha: JPEG has none). */
+	private static byte[] jpeg(BufferedImage img) throws IOException {
+		BufferedImage rgb = img;
+		if (img.getType() != BufferedImage.TYPE_INT_RGB) {
+			rgb = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
+			Graphics2D g = rgb.createGraphics();
+			try {
+				g.drawImage(img, 0, 0, null);
+			} finally {
+				g.dispose();
+			}
+		}
+		javax.imageio.ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+		javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
+		param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
+		param.setCompressionQuality(0.9f);
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		try (javax.imageio.stream.ImageOutputStream out = ImageIO.createImageOutputStream(baos)) {
+			writer.setOutput(out);
+			writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+		} finally {
+			writer.dispose();
+		}
+		return baos.toByteArray();
+	}
+
 	private static byte[] png(BufferedImage img) throws IOException {
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
 		ImageIO.write(img, "png", baos);
@@ -10807,6 +10944,17 @@ public class AnvilPlugin extends Plugin {
 		return index >= 0 ? "<img=" + index + ">" : "";
 	}
 
+	/**
+	 * Re-read the chat colours alone (no lines): the player changed them on the site (a {"t":"look"}
+	 * push), or pressed Refresh. Without this they only took effect at the next login.
+	 */
+	void refreshLook() {
+		BingoApiClient.Brief b = apiClient.fetchBrief();
+		if (b != null && b.look != null) {
+			chatPalette = ChatPalette.from(b.look.palette, b.look.colors);
+		}
+	}
+
 	/** The login brief (site lib/chatBrief): where this character stands, in a line or two. */
 	private void sendBrief() {
 		BingoApiClient.Brief b = apiClient.fetchBrief();
@@ -10886,6 +11034,11 @@ public class AnvilPlugin extends Plugin {
 
 	/** {@code lead}: markup already made safe (a coloured name, an icon) before the message's own colour. */
 	private void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead) {
+		sendChatLine(tag, message, tone, lead, null);
+	}
+
+	/** {@code tail}: already-safe markup after the message (a flaired name), e.g. "<col=…>N</col>!". */
+	private void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead, String tail) {
 		if (message == null || message.isEmpty()) {
 			return;
 		}
@@ -10897,7 +11050,7 @@ public class AnvilPlugin extends Plugin {
 		clientThread.invokeLater(() -> {
 			// The opaque chatbox (fixed mode, or resizable with transparency off) is light parchment: the
 			// default bright colours swap for dark ones there. Colours the player picked are kept.
-			boolean opaque = !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+			boolean opaque = opaqueChatbox();
 			String own = hexOf(config.chatTextColor(), "ffffff");
 			String prefix = hexOf(config.chatPrefixColor(), "ffd700");
 			// Only a colour nobody set: one the player chose (even the default value itself) is kept.
@@ -10907,8 +11060,10 @@ public class AnvilPlugin extends Plugin {
 			if (opaque && unset("chatPrefixColor")) {
 				prefix = "7a5600";
 			}
-			String line = "<col=" + prefix + ">[" + clean(tag) + "]</col> "
-					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>";
+			// Every colour in the line, whoever chose it, readable on this chatbox (ChatPalette.readable).
+			String line = ChatPalette.readable("<col=" + prefix + ">[" + clean(tag) + "]</col> "
+					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>"
+					+ (tail != null ? tail : ""), opaque);
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
 			// of third-party subscribers assume both exist. Never inject an Anvil line into that
