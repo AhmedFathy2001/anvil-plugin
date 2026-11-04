@@ -162,7 +162,6 @@ final class PushSocket extends WebSocketListener
 			}
 			live = true;
 			log.debug("Live push connected");
-			return;
 		}
 		onMessage.accept(m);
 	}
