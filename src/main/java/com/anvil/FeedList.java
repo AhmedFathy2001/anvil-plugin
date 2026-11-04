@@ -106,6 +106,13 @@ final class FeedList extends JPanel
 				return null;
 			}
 			JsonObject r = model.getElementAt(i);
+			// Over a reaction chip: who gave it, as the site put it ("GZ \u00b7 Mossy and 3 others").
+			JsonObject chip = chipAt(r, getFontMetrics(SMALL), b.x + b.width - 6 - e.getX());
+			String who = chip == null ? "" : UiView.str(chip, "who");
+			if (!who.isEmpty())
+			{
+				return Ui.wrapHtml(esc(Ui.fontSafe(who)), 200);
+			}
 			String title = UiView.str(r, "title");
 			String line = title.isEmpty() ? (UiView.str(r, "who") + " " + UiView.str(r, "text")).trim()
 				: title + " — " + UiView.str(r, "who") + (UiView.str(r, "tag").isEmpty() ? "" : " · " + UiView.str(r, "tag"));
@@ -678,17 +685,7 @@ final class FeedList extends JPanel
 			}
 			JsonObject r = model.getElementAt(i);
 			Rectangle b = list.getCellBounds(i, i);
-			JsonObject chip = null;
-			if (r.has("reacts") && r.get("reacts").isJsonArray())
-			{
-				JsonArray reacts = r.getAsJsonArray("reacts");
-				int at = reactAt(reacts, list.getFontMetrics(SMALL), b.x + b.width - 6 - e.getX());
-				chip = at < 0 ? null : reacts.get(at).getAsJsonObject();
-			}
-			else if (r.has("gz") && r.get("gz").isJsonObject() && e.getX() > b.x + b.width - 44)
-			{
-				chip = r.getAsJsonObject("gz");
-			}
+			JsonObject chip = chipAt(r, list.getFontMetrics(SMALL), b.x + b.width - 6 - e.getX());
 			if (chip != null)
 			{
 				boolean mine = chip.has("mine") && chip.get("mine").getAsBoolean();
@@ -1259,6 +1256,26 @@ final class FeedList extends JPanel
 				.append("</font>");
 		}
 		return sb.append("</html>").toString();
+	}
+
+	/**
+	 * The reaction chip {@code fromRight} px left of the row's right edge (inside its 6px inset), or
+	 * null: one of a death's {@code reacts}, else the {@code gz} in the row's right-hand 44px. The same
+	 * zones serve a click (toggle it) and a hover (its {@code who} tooltip).
+	 */
+	static JsonObject chipAt(JsonObject r, java.awt.FontMetrics fm, int fromRight)
+	{
+		if (r.has("reacts") && r.get("reacts").isJsonArray())
+		{
+			JsonArray reacts = r.getAsJsonArray("reacts");
+			int at = reactAt(reacts, fm, fromRight);
+			return at < 0 ? null : reacts.get(at).getAsJsonObject();
+		}
+		if (r.has("gz") && r.get("gz").isJsonObject() && fromRight < 38)
+		{
+			return r.getAsJsonObject("gz");
+		}
+		return null;
 	}
 
 	/** Which chip a click {@code fromRight} px left of the row's right edge lands on, or -1. */

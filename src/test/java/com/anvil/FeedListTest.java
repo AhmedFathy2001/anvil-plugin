@@ -300,6 +300,26 @@ public class FeedListTest
 	}
 
 	@Test
+	public void aChipsHoverZoneIsItsClickZoneAndCarriesWhoGaveIt()
+	{
+		java.awt.FontMetrics fm = new javax.swing.JLabel().getFontMetrics(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
+		JsonObject death = json("{\"reacts\":[{\"kind\":\"sad\",\"label\":\"Sad\",\"n\":1,\"who\":\"Sad \u00b7 Mossy\"},"
+			+ "{\"kind\":\"sit\",\"label\":\"Sit\",\"n\":3,\"who\":\"Sit \u00b7 Mossy, Rikkert and 1 other\"}]}");
+		int sit = fm.stringWidth("Sit 3");
+		assertEquals("Sit \u00b7 Mossy, Rikkert and 1 other", UiView.str(FeedList.chipAt(death, fm, 2), "who"));
+		assertEquals("Sad \u00b7 Mossy", UiView.str(FeedList.chipAt(death, fm, sit + fm.stringWidth("   ") + 2), "who"));
+		assertNull("left of every chip is the row itself", FeedList.chipAt(death, fm, 400));
+
+		JsonObject drop = json("{\"gz\":{\"n\":2,\"who\":\"GZ \u00b7 Mossy and Rikkert\"}}");
+		assertEquals("GZ \u00b7 Mossy and Rikkert", UiView.str(FeedList.chipAt(drop, fm, 10), "who"));
+		assertEquals("the inset still counts", "GZ \u00b7 Mossy and Rikkert", UiView.str(FeedList.chipAt(drop, fm, -4), "who"));
+		assertNull("past the GZ's 44px is the row", FeedList.chipAt(drop, fm, 38));
+		assertNull(FeedList.chipAt(json("{\"title\":\"Pet\"}"), fm, 2));
+		// A site from before the who line: the chip is there, with nothing to say.
+		assertEquals("", UiView.str(FeedList.chipAt(json("{\"gz\":{\"n\":2}}"), fm, 2), "who"));
+	}
+
+	@Test
 	public void momentNameWearsSupporterColoursAndTheTeam()
 	{
 		java.awt.Color white = java.awt.Color.WHITE, team = new java.awt.Color(0xff8800);
