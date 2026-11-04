@@ -546,52 +546,7 @@ final class ChatFlair
 		return false;
 	}
 
-	/**
-	 * A side-panel list row's NAME widget ("<icons>GIM Drenvox<icons>": rank / account icons either side,
-	 * the game's own hardcore-group star kept) with the name in Supporter colours, no star; null when the
-	 * name isn't on the list or is painted already.
-	 */
-	String paintListName(String raw)
-	{
-		if (raw == null || raw.isEmpty() || isEmpty())
-		{
-			return null;
-		}
-		Shown s = shown(raw);
-		int from = 0;
-		int to = s.text.length();
-		while (from < to && s.text.charAt(from) == ' ')
-		{
-			from++;
-		}
-		while (to > from && s.text.charAt(to - 1) == ' ')
-		{
-			to--;
-		}
-		return from < to && to - from <= 12 ? paintAt(raw, s, from, to, null, false) : null;
-	}
-
 	private static final Pattern ON_WORLD = Pattern.compile("^(?:W|World\\s*)\\d+$");
-
-	/**
-	 * A member row's name is shown online: a widget on its row (within 3 px), to its right, reads a world
-	 * ("W308"), not "---" — the friends list's rule. Layout decides which widget is the name: the world
-	 * column itself has nothing to its right.
-	 */
-	static boolean onWorldBeside(int at, int n, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
-		java.util.function.IntFunction<String> text)
-	{
-		for (int j = 0; j < n; j++)
-		{
-			String t = j == at ? null : text.apply(j);
-			if (t != null && Math.abs(y.applyAsInt(j) - y.applyAsInt(at)) <= 3 && x.applyAsInt(j) > x.applyAsInt(at)
-				&& ON_WORLD.matcher(TAGS.matcher(t).replaceAll("").trim()).matches())
-			{
-				return true;
-			}
-		}
-		return false;
-	}
 
 	/**
 	 * A player's right-click target ("<col=ffffff>Name<col=40ff00>  (level-71)") with their name in their

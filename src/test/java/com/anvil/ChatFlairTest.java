@@ -520,30 +520,6 @@ public class ChatFlairTest
 
 	// ---- Group ironman side panel members
 
-	@Test
-	public void gimMemberNamesArePaintedKeepingIconsAndTheGroupStar()
-	{
-		ChatFlair f = drenvox();
-		assertEquals("<img=48><col=00ff00>GIM\u00A0Drenvox</col><img=60>", f.paintListName("<img=48>GIM\u00A0Drenvox<img=60>"));
-		assertEquals("no Patron star in a list", "<col=ffd35c>Bob</col>", f.paintListName("Bob"));
-		assertNull(f.paintListName(f.paintListName("Bob")));
-		assertNull("not a supporter", f.paintListName("GIM Minj"));
-		assertNull("Bobby is not Bob", f.paintListName("Bobby"));
-	}
-
-	@Test
-	public void gimMemberIsPaintedOnlyWhenTheRowShowsAWorld()
-	{
-		// Row 0: name, world "W308"; row 20: name, "---"; the world widgets have nothing to their right.
-		int[] x = {20, 140, 20, 140};
-		int[] y = {0, 1, 20, 20};
-		String[] t = {"GIM Drenvox", "<col=ffff00>W308</col>", "Bob", "---"};
-		assertEquals(true, ChatFlair.onWorldBeside(0, 4, j -> x[j], j -> y[j], j -> t[j]));
-		assertEquals("offline", false, ChatFlair.onWorldBeside(2, 4, j -> x[j], j -> y[j], j -> t[j]));
-		assertEquals("the world column is not a name", false, ChatFlair.onWorldBeside(1, 4, j -> x[j], j -> y[j], j -> t[j]));
-		assertEquals(true, ChatFlair.onWorldBeside(0, 2, j -> x[j], j -> y[j], j -> new String[]{"Bob", "World 302"}[j]));
-	}
-
 	// ---- Right-click names after Player Indicators
 
 	@Test
