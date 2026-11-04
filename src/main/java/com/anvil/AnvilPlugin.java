@@ -4395,18 +4395,45 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Exact-name lookup against the GE item list (tradeables only); null when not found. */
+	/**
+	 * Exact-name lookup against the GE item list (tradeables only); null when not found. The search
+	 * walks the whole item list, so a found id is remembered: a name maps to the same item for the
+	 * whole session. A miss isn't, since the price list may simply not have loaded yet.
+	 */
 	private Integer findTradeableItemId(String name) {
+		String key = name.toLowerCase(Locale.ROOT);
+		synchronized (itemIdByName) {
+			Integer known = itemIdByName.get(key);
+			if (known != null) {
+				return known;
+			}
+		}
+		Integer found = null;
 		try {
 			for (net.runelite.http.api.item.ItemPrice p : itemManager.search(name)) {
 				if (p != null && name.equalsIgnoreCase(p.getName())) {
-					return p.getId();
+					found = p.getId();
+					break;
 				}
 			}
 		} catch (Exception ignored) {
+			return null;
 		}
-		return null;
+		if (found != null) {
+			synchronized (itemIdByName) {
+				itemIdByName.put(key, found);
+			}
+		}
+		return found;
 	}
+
+	/** findTradeableItemId's answers, oldest dropped past 512 names. */
+	private final Map<String, Integer> itemIdByName = new java.util.LinkedHashMap<String, Integer>(64, 0.75f, true) {
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<String, Integer> e) {
+			return size() > 512;
+		}
+	};
 
 	// ---- Duplicates the game doesn't name (DuplicateInference) ----------------------------------
 	// Set only around the synthetic processLoot call below, on the client thread: queueDropForFlush
