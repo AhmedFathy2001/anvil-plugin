@@ -29,6 +29,13 @@ final class OptimisticProgress
 	 * gains hadn't reached the site yet), never overcount.
 	 */
 	private final Map<Integer, Long> seenSite = new ConcurrentHashMap<>();
+	/** Told when the site's count for a tile went DOWN (a deleted submission): views showing the old one redraw. */
+	private volatile Runnable onDrop;
+
+	void onDrop(Runnable r)
+	{
+		onDrop = r;
+	}
 
 	/** This client now has the tile at {@code current} (an absolute team count it just bumped to). */
 	void raise(int tileId, long current, long now)
@@ -89,6 +96,11 @@ final class OptimisticProgress
 		{
 			seenSite.put(tileId, siteCurrent);
 			floors.remove(tileId);
+			Runnable r = onDrop;
+			if (r != null)
+			{
+				r.run();
+			}
 			return;
 		}
 		if (siteCurrent > 0)
