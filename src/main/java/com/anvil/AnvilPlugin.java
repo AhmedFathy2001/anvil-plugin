@@ -7803,7 +7803,11 @@ public class AnvilPlugin extends Plugin {
 	 * areas. A menu is a handful of entries, and an entry already in our colours is a string compare.
 	 */
 	private void flairMenuTargets() {
-		if (!config.menuNameFlair() || chatFlair.isEmpty() || inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) {
+		// Cheap checks first, and nothing that reads varbits before login: those aren't loaded yet and
+		// getVarbitValue threw every frame on the login screen.
+		if (!config.menuNameFlair() || chatFlair.isEmpty() || !client.isMenuOpen()
+				|| client.getGameState() != GameState.LOGGED_IN
+				|| inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) {
 			return;
 		}
 		boolean override = config.menuFlairOverride();
@@ -9714,7 +9718,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private boolean inDangerousPvp() {
-		return client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
+		// Varbits aren't loaded before login; reading one there throws.
+		return client.getGameState() == GameState.LOGGED_IN && client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
 				|| client.getWorldType().contains(WorldType.PVP);
 	}
 
