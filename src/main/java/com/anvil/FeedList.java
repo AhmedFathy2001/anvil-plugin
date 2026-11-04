@@ -133,6 +133,8 @@ final class FeedList extends JPanel
 	private boolean following = true;
 	/** Whose lines are the viewer's own, re-read at each flush. */
 	private String me;
+	/** Chat: every name the viewer's own lines carry (the site's `mine`: their characters and host name), per person. */
+	private final java.util.Set<String> mineNames = new java.util.HashSet<>();
 	/** Arrived since the last flush, oldest first. */
 	private final List<JsonObject> pending = new ArrayList<>();
 	private final Set<String> pendingDel = new HashSet<>();
@@ -155,6 +157,16 @@ final class FeedList extends JPanel
 		setOpaque(false);
 		chat = n.has("send") && n.get("send").isJsonObject();
 		me = host == null ? null : host.myName();
+		if (n.has("mine") && n.get("mine").isJsonArray())
+		{
+			for (JsonElement e : n.getAsJsonArray("mine"))
+			{
+				if (e.isJsonPrimitive())
+				{
+					mineNames.add(ChatFlair.normalize(e.getAsString()));
+				}
+			}
+		}
 
 		List<JsonObject> first = new ArrayList<>();
 		if (n.has("rows") && n.get("rows").isJsonArray())
@@ -1159,7 +1171,8 @@ final class FeedList extends JPanel
 
 		private boolean mine(JsonObject r)
 		{
-			return (r.has("mine") && r.get("mine").getAsBoolean()) || (me != null && !me.isEmpty() && Rsn.same(me, UiView.str(r, "who")));
+			return (r.has("mine") && r.get("mine").getAsBoolean()) || (me != null && !me.isEmpty() && Rsn.same(me, UiView.str(r, "who")))
+					|| (!mineNames.isEmpty() && mineNames.contains(ChatFlair.normalize(UiView.str(r, "who"))));
 		}
 
 		@Override
