@@ -7340,6 +7340,11 @@ public class AnvilPlugin extends Plugin {
 		}
 		chatFlairFetchedAt = at;
 		chatFlair.adopt(apiClient.fetchChatFlair());
+		// The chat input ("Name: *") was drawn at login, before the list arrived, and is only redrawn on
+		// the next keystroke: paint it now instead.
+		if (!chatFlair.isEmpty()) {
+			clientThread.invokeLater(this::flairChatInput);
+		}
 	}
 
 	/** Client thread (onChatMessage): paint a Supporter's name before the line is drawn. */
