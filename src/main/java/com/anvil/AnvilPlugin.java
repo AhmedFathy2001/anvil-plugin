@@ -7370,6 +7370,10 @@ public class AnvilPlugin extends Plugin {
 			feedLine(m);
 			return;
 		}
+		if ("look".equals(m.get("t").getAsString())) {
+			refreshLook();
+			return;
+		}
 		if (m.get("t").getAsString().startsWith("rows")) {
 			// Panel rows (the Feed tab's lists): never the chatbox, never capped — the list batches them.
 			AnvilSidebarPanel panel = sidebarPanel;
@@ -10807,6 +10811,17 @@ public class AnvilPlugin extends Plugin {
 		return index >= 0 ? "<img=" + index + ">" : "";
 	}
 
+	/**
+	 * Re-read the chat colours alone (no lines): the player changed them on the site (a {"t":"look"}
+	 * push), or pressed Refresh. Without this they only took effect at the next login.
+	 */
+	void refreshLook() {
+		BingoApiClient.Brief b = apiClient.fetchBrief();
+		if (b != null && b.look != null) {
+			chatPalette = ChatPalette.from(b.look.palette, b.look.colors);
+		}
+	}
+
 	/** The login brief (site lib/chatBrief): where this character stands, in a line or two. */
 	private void sendBrief() {
 		BingoApiClient.Brief b = apiClient.fetchBrief();
@@ -10907,8 +10922,9 @@ public class AnvilPlugin extends Plugin {
 			if (opaque && unset("chatPrefixColor")) {
 				prefix = "7a5600";
 			}
-			String line = "<col=" + prefix + ">[" + clean(tag) + "]</col> "
-					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>";
+			// Every colour in the line, whoever chose it, readable on this chatbox (ChatPalette.readable).
+			String line = ChatPalette.readable("<col=" + prefix + ">[" + clean(tag) + "]</col> "
+					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>", opaque);
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
 			// of third-party subscribers assume both exist. Never inject an Anvil line into that

@@ -161,6 +161,70 @@ final class ChatPalette
 		return out.append("</col>").toString();
 	}
 
+	// What the chatbox's text sits on: the opaque box's parchment, and a dark game scene behind the
+	// transparent one (the worst case: night, a cave, the Wilderness). Approximations, not exact pixels.
+	private static final int OPAQUE_BG = 0xC4B48C;
+	private static final int TRANSPARENT_BG = 0x262626;
+	/** WCAG's floor for large or bold text; chat text is small but heavy and shadowed on the dark box. */
+	static final double MIN_CONTRAST = 3.0;
+	private static final Pattern COL = Pattern.compile("<col=([0-9a-fA-F]{6})>");
+
+	/**
+	 * Every {@code <col=…>} in a chat line made readable on this chatbox: a colour that already
+	 * clears {@link #MIN_CONTRAST} is left exactly as it is; a fainter one is mixed towards black (on
+	 * the parchment) or white (on the dark box) just until it does. Covers the tag, the tones, team
+	 * and Supporter names and every letter of a gradient, whoever chose the colour.
+	 */
+	static String readable(String line, boolean opaque)
+	{
+		java.util.regex.Matcher m = COL.matcher(line);
+		StringBuffer out = new StringBuffer();
+		while (m.find())
+		{
+			m.appendReplacement(out, "<col=" + readableHex(m.group(1), opaque) + ">");
+		}
+		m.appendTail(out);
+		return out.toString();
+	}
+
+	static String readableHex(String hex, boolean opaque)
+	{
+		int c = Integer.parseInt(hex, 16);
+		int bg = opaque ? OPAQUE_BG : TRANSPARENT_BG;
+		int toward = opaque ? 0x000000 : 0xFFFFFF;
+		for (int step = 0; step <= 10 && contrast(c, bg) < MIN_CONTRAST; step++)
+		{
+			c = mix(Integer.parseInt(hex, 16), toward, step / 10.0);
+		}
+		return String.format("%06x", c);
+	}
+
+	static double contrast(int a, int b)
+	{
+		double la = luminance(a);
+		double lb = luminance(b);
+		return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+	}
+
+	private static double luminance(int rgb)
+	{
+		return 0.2126 * channel(rgb >> 16) + 0.7152 * channel(rgb >> 8) + 0.0722 * channel(rgb);
+	}
+
+	private static double channel(int v)
+	{
+		double c = (v & 0xff) / 255.0;
+		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+	}
+
+	private static int mix(int a, int b, double t)
+	{
+		int r = (int) Math.round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
+		int g = (int) Math.round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
+		int bl = (int) Math.round((a & 0xff) * (1 - t) + (b & 0xff) * t);
+		return (r << 16) | (g << 8) | bl;
+	}
+
 	/** A name colour from the site ("#rrggbb"), or null. */
 	static String nameColor(String s)
 	{
