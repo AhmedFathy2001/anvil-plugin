@@ -1125,7 +1125,7 @@ public class BingoApiClient
 					// request() is false once the whole body is buffered: it fit under the cap.
 					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L))
 					{
-						img = fit(javax.imageio.ImageIO.read(body.source().buffer().inputStream()), w, h);
+						img = fit(decodeSmall(body.source().buffer().readByteArray(), w, h), w, h);
 					}
 				}
 				catch (IOException | RuntimeException e)
@@ -1145,6 +1145,50 @@ public class BingoApiClient
 	}
 
 	/** {@code src} scaled to fit inside w x h (never up). */
+	/** Larger than this many pixels is refused unread: a few compressed KB can claim gigabytes decoded. */
+	static final long THUMB_MAX_PIXELS = 4096L * 4096L;
+
+	/**
+	 * Decode an image no bigger than it needs to be: its size is read from the header first (refused
+	 * past {@link #THUMB_MAX_PIXELS}), and a large one is decoded subsampled to about {@code w}×{@code h},
+	 * so neither a decompression bomb nor an honest full-screen shot costs more than a thumbnail's
+	 * memory. Null when unreadable or refused.
+	 */
+	static BufferedImage decodeSmall(byte[] bytes, int w, int h)
+	{
+		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes)))
+		{
+			java.util.Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
+			if (readers == null || !readers.hasNext())
+			{
+				return null;
+			}
+			javax.imageio.ImageReader reader = readers.next();
+			try
+			{
+				reader.setInput(in, true, true);
+				int sw = reader.getWidth(0);
+				int sh = reader.getHeight(0);
+				if (sw <= 0 || sh <= 0 || (long) sw * sh > THUMB_MAX_PIXELS)
+				{
+					return null;
+				}
+				javax.imageio.ImageReadParam param = reader.getDefaultReadParam();
+				int step = Math.max(1, Math.min(sw / Math.max(1, w), sh / Math.max(1, h)));
+				param.setSourceSubsampling(step, step, 0, 0);
+				return reader.read(0, param);
+			}
+			finally
+			{
+				reader.dispose();
+			}
+		}
+		catch (IOException | RuntimeException | OutOfMemoryError e)
+		{
+			return null;
+		}
+	}
+
 	static BufferedImage fit(BufferedImage src, int w, int h)
 	{
 		if (src == null)

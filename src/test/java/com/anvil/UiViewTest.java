@@ -628,4 +628,20 @@ public class UiViewTest
 		}
 		return null;
 	}
+
+	@Test
+	public void aThumbnailDecodesSmallAndRefusesAHugeClaimedSize() throws Exception
+	{
+		java.awt.image.BufferedImage big = new java.awt.image.BufferedImage(1280, 800, java.awt.image.BufferedImage.TYPE_INT_RGB);
+		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+		javax.imageio.ImageIO.write(big, "png", out);
+		java.awt.image.BufferedImage small = BingoApiClient.decodeSmall(out.toByteArray(), 64, 40);
+		assertNotNull(small);
+		assertTrue("decoded near thumbnail size, not full size", small.getWidth() <= 128 && small.getHeight() <= 80);
+		// A PNG header claiming 60000x60000: refused before any pixel is decoded.
+		byte[] bomb = out.toByteArray().clone();
+		java.nio.ByteBuffer.wrap(bomb, 16, 8).putInt(60000).putInt(60000);
+		assertNull(BingoApiClient.decodeSmall(bomb, 64, 40));
+		assertNull(BingoApiClient.decodeSmall(new byte[]{1, 2, 3}, 64, 40));
+	}
 }
