@@ -460,7 +460,7 @@ final class UiView extends JPanel
 				JsonObject on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
 				JPanel button = AnvilSidebarPanel.fullWidthButton(Ui.plainText(str(n, "label")), tip(n), () -> act(on));
 				button.getComponent(0).setEnabled(!bool(n, "off"));
-				return button;
+				return left(button);
 			case "gap":
 				c = (JComponent) gap(num(n, "h", 0));
 				break;
@@ -469,10 +469,12 @@ final class UiView extends JPanel
 				break;
 			case "warm":
 				warm(n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null);
-				return new JPanel();
+				return left(new JPanel());
 			case "native":
 				JComponent part = host.nativePart(str(n, "name"));
-				return part == null ? new JPanel() : part;
+				// Left-aligned like every other node: one centred child in a BoxLayout column shifts all
+				// of its siblings sideways (an absent start-proof card indented a whole board page).
+				return left(part == null ? new JPanel() : part);
 			case "feed":
 			{
 				FeedList f = new FeedList(n, host, items, this::act);
@@ -480,7 +482,7 @@ final class UiView extends JPanel
 				return left(f);
 			}
 			default:
-				return new JPanel(); // a block this version doesn't know is left out
+				return left(new JPanel()); // a block this version doesn't know is left out
 		}
 		String tip = tip(n);
 		if (tip != null)
