@@ -68,6 +68,11 @@ final class UiView extends JPanel
 		{
 			return -1;
 		}
+
+		/** A picture by site path (node {@code img}), fitted to w x h; {@code done} gets it, or null, on the EDT. */
+		default void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+		{
+		}
 	}
 
 	/** Toggle faces and section choices outlive a redraw (and the card), like the old virtual-levels switch. */
@@ -435,6 +440,9 @@ final class UiView extends JPanel
 			case "icon":
 				c = icon(n);
 				break;
+			case "img":
+				c = img(n);
+				break;
 			case "bar":
 				c = bar(n);
 				break;
@@ -655,6 +663,29 @@ final class UiView extends JPanel
 		{
 			draw(l, n.getAsJsonObject("or"));
 		}
+		return l;
+	}
+
+	/** A site picture (a proof's thumbnail): a dark box until it arrives. */
+	private JComponent img(JsonObject n)
+	{
+		int w = Math.max(1, Math.min(240, num(n, "w", 64)));
+		int h = Math.max(1, Math.min(240, num(n, "h", 40)));
+		JLabel l = new JLabel();
+		l.setHorizontalAlignment(SwingConstants.CENTER);
+		l.setOpaque(true);
+		l.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		Dimension d = new Dimension(w, h);
+		l.setPreferredSize(d);
+		l.setMinimumSize(d);
+		l.setMaximumSize(d);
+		host.image(str(n, "src"), w, h, image ->
+		{
+			if (image != null)
+			{
+				l.setIcon(new ImageIcon(image));
+			}
+		});
 		return l;
 	}
 
@@ -1011,6 +1042,7 @@ final class UiView extends JPanel
 		if (n.has("load") && n.get("load").isJsonObject())
 		{
 			JsonObject load = n.getAsJsonObject("load");
+			drawn.remove(id); // a new slot shows its placeholder: whatever answer comes must replace it
 			fetch(id, str(load, "v"), strings(load.get("args")));
 		}
 		return holder;

@@ -5,6 +5,7 @@ import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -1082,10 +1083,140 @@ public class BingoApiClient
 		return url == null ? CANONICAL_SITE : url.toString();
 	}
 
+	private static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
+	/** Decoded panel pictures by path and size, least recently used first. */
+	private final Map<String, BufferedImage> thumbs = new LinkedHashMap<String, BufferedImage>(16, 0.75f, true)
+	{
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> e)
+		{
+			return size() > 50;
+		}
+	};
+
+	/**
+	 * A view's picture (node {@code img}): a PATH on this site, fetched off the EDT, scaled once to fit
+	 * {@code w}x{@code h} and kept. {@code done} gets it (null on any failure) on an OkHttp thread, or at
+	 * once from the cache. Anything bigger than {@link #THUMB_MAX_BYTES} is dropped unread.
+	 */
+	void thumb(String path, int w, int h, java.util.function.Consumer<BufferedImage> done)
+	{
+		String key = w + "x" + h + path;
+		BufferedImage hit;
+		synchronized (thumbs)
+		{
+			hit = thumbs.get(key);
+		}
+		HttpUrl url = path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0 ? HttpUrl.parse(siteLink(path)) : null;
+		HttpUrl base = HttpUrl.parse(siteLink("/"));
+		if (hit != null || url == null || base == null || !url.host().equals(base.host()) || w <= 0 || h <= 0)
+		{
+			done.accept(hit);
+			return;
+		}
+		readClient.newCall(plainRequest(url.toString()).get().build()).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				done.accept(null);
+			}
+
+			@Override
+			public void onResponse(Call call, Response r)
+			{
+				BufferedImage img = null;
+				try (Response res = r)
+				{
+					ResponseBody body = res.body();
+					// request() is false once the whole body is buffered: it fit under the cap.
+					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L))
+					{
+						img = fit(decodeSmall(body.source().buffer().readByteArray(), w, h), w, h);
+					}
+				}
+				catch (IOException | RuntimeException e)
+				{
+					log.debug("panel image failed: {}", e.getMessage());
+				}
+				if (img != null)
+				{
+					synchronized (thumbs)
+					{
+						thumbs.put(key, img);
+					}
+				}
+				done.accept(img);
+			}
+		});
+	}
+
+	/** {@code src} scaled to fit inside w x h (never up). */
+	/** Larger than this many pixels is refused unread: a few compressed KB can claim gigabytes decoded. */
+	static final long THUMB_MAX_PIXELS = 4096L * 4096L;
+
+	/**
+	 * Decode an image no bigger than it needs to be: its size is read from the header first (refused
+	 * past {@link #THUMB_MAX_PIXELS}), and a large one is decoded subsampled to about {@code w}×{@code h},
+	 * so neither a decompression bomb nor an honest full-screen shot costs more than a thumbnail's
+	 * memory. Null when unreadable or refused.
+	 */
+	static BufferedImage decodeSmall(byte[] bytes, int w, int h)
+	{
+		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes)))
+		{
+			java.util.Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
+			if (readers == null || !readers.hasNext())
+			{
+				return null;
+			}
+			javax.imageio.ImageReader reader = readers.next();
+			try
+			{
+				reader.setInput(in, true, true);
+				int sw = reader.getWidth(0);
+				int sh = reader.getHeight(0);
+				if (sw <= 0 || sh <= 0 || (long) sw * sh > THUMB_MAX_PIXELS)
+				{
+					return null;
+				}
+				javax.imageio.ImageReadParam param = reader.getDefaultReadParam();
+				int step = Math.max(1, Math.min(sw / Math.max(1, w), sh / Math.max(1, h)));
+				param.setSourceSubsampling(step, step, 0, 0);
+				return reader.read(0, param);
+			}
+			finally
+			{
+				reader.dispose();
+			}
+		}
+		catch (IOException | RuntimeException | OutOfMemoryError e)
+		{
+			return null;
+		}
+	}
+
+	static BufferedImage fit(BufferedImage src, int w, int h)
+	{
+		if (src == null)
+		{
+			return null;
+		}
+		double k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
+		int tw = Math.max(1, (int) Math.round(src.getWidth() * k));
+		int th = Math.max(1, (int) Math.round(src.getHeight() * k));
+		BufferedImage out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
+		java.awt.Graphics2D g = out.createGraphics();
+		g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.drawImage(src, 0, 0, tw, th, null);
+		g.dispose();
+		return out;
+	}
+
 	private Request.Builder uiRequest(String url)
 	{
 		// The panel draws the Feed tab: the site's clan card can keep its drop log short.
-		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1");
+		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1").header("X-Anvil-Panel-Images", "1");
 	}
 
 	/**
