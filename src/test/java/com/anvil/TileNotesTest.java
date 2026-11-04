@@ -137,6 +137,24 @@ public class TileNotesTest
 	}
 
 	@Test
+	public void anotherBoardsTileCarriesItsBoardAndSaysSo()
+	{
+		PluginConfigResponse cfg = GSON.fromJson("{\"trackedDrops\":[{\"tileId\":1,\"label\":\"Zulrah\"},"
+			+ "{\"tileId\":2,\"label\":\"Zulrah\",\"board\":{\"eventId\":9,\"teamId\":3,\"playerId\":4,"
+			+ "\"clan\":\"rivals\",\"name\":\"Winter Bingo\"}}]}", PluginConfigResponse.class);
+		Map<Integer, PluginConfigResponse.Board> boards = cfg.tagBoards();
+		cfg.tagBoards(); // idempotent
+		assertEquals(1, boards.size());
+		PluginConfigResponse.Board b = boards.get(2);
+		assertEquals(9, b.eventId);
+		assertEquals(3, b.teamId);
+		assertEquals(4, b.playerId);
+		assertEquals("rivals", b.clan);
+		assertEquals("Zulrah", cfg.trackedDrops.get(0).label);
+		assertEquals("Zulrah · Winter Bingo", cfg.trackedDrops.get(1).label);
+	}
+
+	@Test
 	public void plurals()
 	{
 		assertEquals("searches", TileNotes.plural("search"));

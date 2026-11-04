@@ -65,6 +65,8 @@ public class PendingSubmissionStore
 		public boolean manual;
 		// What the site draws the proof's banner from (lib/proofStamp); null on an older capture.
 		public com.google.gson.JsonObject proof;
+		// Another board's clan slug (TrackedTile.board), null for the active board: where a retry posts.
+		public String clan;
 	}
 
 	public void setRoot(Filepath dir)

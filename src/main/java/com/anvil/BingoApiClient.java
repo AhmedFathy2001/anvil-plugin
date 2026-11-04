@@ -545,7 +545,8 @@ public class BingoApiClient
 	 */
 	private Request.Builder authedRequest(String url, String rsn, String hint, String hash)
 	{
-		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken);
+		// X-Anvil-Boards: this client credits tiles tagged with another board (TrackedTile.board).
+		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken).header("X-Anvil-Boards", "1");
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
 		else if (hint != null) b.header("X-RSN-Hint", hint);
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
@@ -1610,7 +1611,9 @@ public class BingoApiClient
 
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException
 	{
-		return execute(httpClient, authedRequest(clanUrl(path)).post(json(payload)), (response, body) ->
+		// A full URL (another board's submissions) is already addressed.
+		String url = path.startsWith("/") ? clanUrl(path) : path;
+		return execute(httpClient, authedRequest(url).post(json(payload)), (response, body) ->
 		{
 			int code = response.code();
 			if (response.isSuccessful())
@@ -1733,7 +1736,7 @@ public class BingoApiClient
 	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
 	 */
 	public boolean submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
-		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof) throws IOException
+		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof, String clan) throws IOException
 	{
 		JsonObject payload = submission(tileId, teamId, amount, imageUrl, note, creditPlayerId, proof);
 		if (inferred != null)
@@ -1755,7 +1758,7 @@ public class BingoApiClient
 				payload.addProperty("coopPartySize", coop.partySize);
 			}
 		}
-		boolean completed = completedIn(postJson("/api/events/" + eventId + "/submissions", payload, "Submission failed", true));
+		boolean completed = completedIn(postJson(submissionsUrl(clan, eventId), payload, "Submission failed", true));
 		log.info("Drop submitted successfully for tile {}", tileId);
 		return completed;
 	}
@@ -1766,13 +1769,21 @@ public class BingoApiClient
 	 * completes the tile when durationSeconds ≤ the tile's threshold.
 	 */
 	public boolean submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
-		JsonObject proof) throws IOException
+		JsonObject proof, String clan) throws IOException
 	{
 		JsonObject payload = submission(tileId, teamId, 1, imageUrl, note, creditPlayerId, proof);
 		payload.addProperty("durationSeconds", durationSeconds);
-		boolean completed = completedIn(postJson("/api/events/" + eventId + "/submissions", payload, "Timed submission failed", true));
+		boolean completed = completedIn(postJson(submissionsUrl(clan, eventId), payload, "Timed submission failed", true));
 		log.info("Timed clear submitted successfully for tile {}", tileId);
 		return completed;
+	}
+
+	/** The active board's submissions URL as ever; another board's ({@code clan} non-null) under its own clan. */
+	String submissionsUrl(String clan, int eventId)
+	{
+		String path = "/api/events/" + eventId + "/submissions";
+		String slug = cleanSlug(clan);
+		return slug.isEmpty() ? clanUrl(path) : apiUrl + "/c/" + slug + path;
 	}
 
 	private static JsonObject submission(int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId,

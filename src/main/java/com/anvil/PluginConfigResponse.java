@@ -421,6 +421,41 @@ public class PluginConfigResponse
 		public int min;       // inclusive lower bound on points
 	}
 
+	/** Where an other-board tile's credit goes (X-Anvil-Boards). */
+	public static class Board
+	{
+		public int eventId;
+		public int teamId;
+		public int playerId;
+		public String clan;
+		public String name;
+	}
+
+	/** Other-board tiles by id; their labels gain " · board" so chat tells two boards apart. */
+	public Map<Integer, Board> tagBoards()
+	{
+		Map<Integer, Board> out = new HashMap<>();
+		for (List<? extends TrackedTile> l : Arrays.asList(trackedDrops, trackedKills, trackedPvp, trackedTimed,
+			trackedLms, trackedValues, trackedGains, trackedDeathless, trackedDiaries, trackedCombatTasks, trackedClog,
+			trackedCombos))
+		{
+			for (TrackedTile t : l == null ? Collections.<TrackedTile>emptyList() : l)
+			{
+				if (t == null || t.board == null)
+				{
+					continue;
+				}
+				out.put(t.tileId, t.board);
+				String tag = " · " + t.board.name;
+				if (t.board.name != null && t.label != null && !t.label.endsWith(tag))
+				{
+					t.label += tag;
+				}
+			}
+		}
+		return out;
+	}
+
 	/** What every tile on the wire shares (tracked tiles and the board's). */
 	public abstract static class TrackedTile
 	{
@@ -433,6 +468,8 @@ public class PluginConfigResponse
 		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
 		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
 		public Integer partOf;
+		// Another board the player is on (null = the active board, {@code event}): credit goes there.
+		public Board board;
 
 		public boolean isPart()
 		{
