@@ -1205,6 +1205,7 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
+		GradientLabel.animate = config.animatedNames();
 		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, () -> config.supporterChatFlair());
 		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
@@ -1880,6 +1881,10 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The plugin's own bookkeeping (recap counters, sync state, nudges) is persisted from the
 		// client thread, often several keys at once — none of it changes what the site sends back.
+		if ("animatedNames".equals(event.getKey())) {
+			GradientLabel.animate = config.animatedNames();
+			return;
+		}
 		if (isInternalStateKey(event.getKey())) {
 			return;
 		}

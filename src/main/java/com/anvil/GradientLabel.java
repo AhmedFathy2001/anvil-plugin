@@ -23,7 +23,9 @@ final class GradientLabel extends JLabel
 	/** One full reflect cycle (there and back) across the name. */
 	private static final long CYCLE_MS = 6000;
 	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
-	private static final Timer TICK = new Timer(40, e -> MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }));
+	private static final Timer TICK = new Timer(40, e -> { if (animate) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
+	/** The player's "Animated names" setting: off, a moving gradient holds still. */
+	static volatile boolean animate = true;
 
 	private final Color[] stops;
 	private final float[] fractions;
@@ -120,7 +122,7 @@ final class GradientLabel extends JLabel
 				fg.setComposite(AlphaComposite.SrcIn);
 				// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
 				float period = 2f * fillR.width;
-				float shift = moving ? (System.currentTimeMillis() % CYCLE_MS) / (float) CYCLE_MS * period : 0;
+				float shift = moving && animate ? (System.currentTimeMillis() % CYCLE_MS) / (float) CYCLE_MS * period : 0;
 				fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
 					MultipleGradientPaint.CycleMethod.REFLECT));
 				fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);

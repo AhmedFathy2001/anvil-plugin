@@ -110,6 +110,18 @@ public interface AnvilConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "animatedNames",
+		name = "Animated names",
+		description = "Let a Patron's name gradient slide along in the side panel and the event chat. Off keeps it still.",
+		position = 5,
+		section = "chatSection"
+	)
+	default boolean animatedNames()
+	{
+		return true;
+	}
+
 	// ---- Setup ----
 
 	// No Site URL: the plugin only talks to https://anvilosrs.com (BingoApiClient.CANONICAL_SITE).

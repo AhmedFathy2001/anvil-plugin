@@ -126,6 +126,8 @@ final class FeedList extends JPanel
 	private final List<JsonObject> pending = new ArrayList<>();
 	private final Set<String> pendingDel = new HashSet<>();
 	private final Timer flush = new Timer(FLUSH_MS, e -> flush());
+	/** Repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
+	private final Timer slide = new Timer(40, e -> slideVisible());
 	private int unseen;
 	private final Map<Integer, Icon> icons = new HashMap<>();
 
@@ -312,6 +314,45 @@ final class FeedList extends JPanel
 	void stop()
 	{
 		flush.stop();
+		slide.stop();
+	}
+
+	@Override
+	public void addNotify()
+	{
+		super.addNotify();
+		if (chat)
+		{
+			slide.start();
+		}
+	}
+
+	@Override
+	public void removeNotify()
+	{
+		super.removeNotify();
+		slide.stop();
+	}
+
+	private void slideVisible()
+	{
+		if (!list.isShowing() || !GradientLabel.animate)
+		{
+			return;
+		}
+		int first = list.getFirstVisibleIndex();
+		int last = list.getLastVisibleIndex();
+		for (int i = Math.max(0, first); i >= 0 && i <= last && i < model.getSize(); i++)
+		{
+			if (moves(model.getElementAt(i)))
+			{
+				Rectangle b = list.getCellBounds(i, i);
+				if (b != null)
+				{
+					list.repaint(b);
+				}
+			}
+		}
 	}
 
 	// For tests: what the list holds, newest first, and its box.
@@ -914,7 +955,11 @@ final class FeedList extends JPanel
 					{
 						at[i] = (float) i / (grad.length - 1);
 					}
-					g.setPaint(new java.awt.LinearGradientPaint(x, 0, x + Math.max(1, nameW), 0, at, grad));
+					// A Patron's gradient slides along (reflecting back), like everywhere else, unless the
+					// player turned "Animated names" off.
+					float shift = moves(r) ? (System.currentTimeMillis() % 6000) / 6000f * 2 * Math.max(1, nameW) : 0;
+					g.setPaint(new java.awt.LinearGradientPaint(x - shift, 0, x - shift + Math.max(1, nameW), 0, at, grad,
+						java.awt.MultipleGradientPaint.CycleMethod.REFLECT));
 				}
 				else
 				{
@@ -961,6 +1006,12 @@ final class FeedList extends JPanel
 			out.add(new Color(Integer.parseInt(hex, 16)));
 		}
 		return out.toArray(new Color[0]);
+	}
+
+	/** A row whose name gradient should be sliding right now. */
+	static boolean moves(JsonObject r)
+	{
+		return GradientLabel.animate && r.has("move") && r.get("move").getAsBoolean() && stops(r) != null;
 	}
 
 	/** HOST / MOD / TEAM: a role worth spelling out. Anything else in a row's tag is its team's name. */
