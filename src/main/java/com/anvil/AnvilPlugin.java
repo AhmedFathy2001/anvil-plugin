@@ -3627,10 +3627,13 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onHitsplatApplied(HitsplatApplied event) {
 		Hitsplat ourHit = event.getHitsplat();
-		// Damage TAKEN — the clock a death is attributed against. Anything not ours landing on us
-		// counts, including a mechanic with nobody behind it: the point is when we were last hurt,
-		// and whether anything had us targeted at the time is decided at death.
-		if (ourHit != null && ourHit.isOthers() && ourHit.getAmount() > 0
+		// Damage TAKEN — the clock a death is attributed against. ANY hit landing on us counts: the
+		// game draws damage we take with the "me" hitsplats and poison / venom / disease with their
+		// own, so testing isOthers() (damage by another player) missed nearly every hit and every
+		// poison tick, and deaths went out with no killer ("Died" to a Hydra that poisoned us). A
+		// mechanic with nobody behind it counts too: the point is when we were last hurt, and whether
+		// anything had us targeted at the time is decided at death. Heals aren't damage.
+		if (ourHit != null && ourHit.getAmount() > 0 && ourHit.getHitsplatType() != HitsplatID.HEAL
 				&& event.getActor() == client.getLocalPlayer()) {
 			deathAttribution.tookDamage(now());
 		}
@@ -8708,7 +8711,7 @@ public class AnvilPlugin extends Plugin {
 		String killer = deathAttribution.killer(fighting, now);
 		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
 		// and which one we picked, next to what we were hitting.
-		log.debug("Death: killer='{}' (attackers={}, we were fighting '{}')",
+		log.info("Death: killer='{}' (attackers={}, we were fighting '{}')",
 				killer, deathAttribution.attackerCount(), fighting);
 		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
 		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
