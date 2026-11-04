@@ -859,13 +859,14 @@ final class FeedList extends JPanel
 			JsonObject prev = index > 0 ? model.getElementAt(index - 1) : null;
 			grouped = prev != null && UiView.str(row, "who").equals(UiView.str(prev, "who"))
 				&& UiView.str(row, "tag").equals(UiView.str(prev, "tag"));
-			int w = Math.max(80, width - PAD_X * 2);
+			// A few px spare: lines are measured off-screen and painted on it, and the two can round apart.
+			int w = Math.max(80, width - PAD_X * 2 - 6);
 			if (w != wrapWidth)
 			{
 				wraps.clear();
 				wrapWidth = w;
 			}
-			lines = wraps.computeIfAbsent(UiView.str(row, "id"), k -> wrap(Ui.fontSafe(UiView.str(row, "text")), getFontMetrics(REGULAR), w));
+			lines = wraps.computeIfAbsent(UiView.str(row, "id"), k -> wrap(Ui.fontSafe(UiView.str(row, "text")), list.getFontMetrics(REGULAR), w));
 			java.awt.FontMetrics fm = getFontMetrics(REGULAR);
 			height = (grouped ? 0 : 6 + fm.getHeight()) + lines.size() * fm.getHeight() + 2;
 			return this;
@@ -889,14 +890,16 @@ final class FeedList extends JPanel
 			{
 				y = 6;
 				int x = PAD_X;
+				// The name in its team's colour; only a role (HOST / MOD / TEAM-only) is spelled out beside it.
+				String tag = Ui.fontSafe(UiView.str(r, "tag"));
+				boolean role = isRole(tag);
 				g.setFont(BOLD);
-				g.setColor(mine ? ColorScheme.BRAND_ORANGE : UiView.color(UiView.str(r, "whoColor"), Color.WHITE));
+				g.setColor(role || tag.isEmpty() ? UiView.color(UiView.str(r, "whoColor"), Color.WHITE) : UiView.color(UiView.str(r, "tagColor"), Color.WHITE));
 				String who = Ui.fontSafe(UiView.str(r, "who"));
 				g.drawString(who, x, y + fm.getAscent());
 				x += g.getFontMetrics().stringWidth(who) + 6;
-				String tag = Ui.fontSafe(UiView.str(r, "tag"));
 				g.setFont(SMALL);
-				if (!tag.isEmpty())
+				if (role)
 				{
 					g.setColor(UiView.color(UiView.str(r, "tagColor"), MUTED));
 					g.drawString(tag, x, y + fm.getAscent());
@@ -914,6 +917,12 @@ final class FeedList extends JPanel
 				y += fm.getHeight();
 			}
 		}
+	}
+
+	/** HOST / MOD / TEAM: a role worth spelling out. Anything else in a row's tag is its team's name. */
+	static boolean isRole(String tag)
+	{
+		return "HOST".equals(tag) || "MOD".equals(tag) || "TEAM".equals(tag);
 	}
 
 	/** Words into lines no wider than {@code width}; a word longer than a line is broken where it must be. */
@@ -1031,7 +1040,8 @@ final class FeedList extends JPanel
 				// A moment: the item on top, who got it (and their team) under it.
 				line1.setText(plainText(title));
 				line1.setForeground(UiView.color(UiView.str(r, "textColor"), Color.WHITE));
-				line2.setText(plainText(tag.isEmpty() ? who : who + " · " + tag));
+				// Who got it, in their team's colour (the team's name is in the tooltip).
+				line2.setText(plainText(who));
 				line2.setForeground(tag.isEmpty() ? whoInk : tagInk);
 				line2.setVisible(true);
 			}
