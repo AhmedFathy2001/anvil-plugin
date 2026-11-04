@@ -501,6 +501,8 @@ public class AnvilPlugin extends Plugin {
 			ChatMessageType.MODAUTOTYPER,
 			ChatMessageType.PRIVATECHAT,
 			ChatMessageType.MODPRIVATECHAT,
+			// "To Drenvox: …" — your own private message; the name is who it went to.
+			ChatMessageType.PRIVATECHATOUT,
 			ChatMessageType.PRIVATECHATOUT,
 			ChatMessageType.FRIENDSCHAT,
 			ChatMessageType.CLAN_CHAT,
