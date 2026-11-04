@@ -1209,6 +1209,14 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
 		GradientLabel.animate = config.animatedNames();
+		// A count the site lowered (a deleted submission): the panel asks for its views again now,
+		// not at the 15s catch-up, so the old number doesn't sit on screen.
+		optimistic.onDrop(() -> {
+			AnvilSidebarPanel panel = sidebarPanel;
+			if (panel != null) {
+				panel.boardChanged();
+			}
+		});
 		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, () -> config.supporterChatFlair());
 		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));

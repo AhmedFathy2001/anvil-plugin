@@ -110,4 +110,19 @@ public class OptimisticProgressTest
 		// Cleared all the way to zero counts too.
 		org.junit.Assert.assertEquals(0, p.apply(7, 0, 5));
 	}
+
+	@Test
+	public void aDroppedCountAsksForARedrawOnceAndARiseDoesNot()
+	{
+		OptimisticProgress p = new OptimisticProgress();
+		int[] redraws = {0};
+		p.onDrop(() -> redraws[0]++);
+		p.seen(4, 3);
+		p.seen(4, 5);
+		org.junit.Assert.assertEquals("rises are quiet", 0, redraws[0]);
+		p.seen(4, 1);
+		org.junit.Assert.assertEquals(1, redraws[0]);
+		p.seen(4, 1);
+		org.junit.Assert.assertEquals("the same low number again is quiet", 1, redraws[0]);
+	}
 }

@@ -1288,6 +1288,8 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** The live push says the board moved: ask now. */
 	void boardChanged()
 	{
+		// Every remembered view may hold the old numbers: never redraw one of those first.
+		SwingUtilities.invokeLater(uiCache::clear);
 		clanAskedAt = 0;
 		SwingUtilities.invokeLater(this::poll);
 	}
@@ -1315,6 +1317,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	{
 		SwingUtilities.invokeLater(() ->
 		{
+			uiCache.clear(); // see boardChanged
 			if (!countsCatchUp.isRunning())
 			{
 				countsCatchUp.setRepeats(false);
