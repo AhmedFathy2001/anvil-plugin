@@ -286,4 +286,13 @@ public class OutageResilienceTest
 		assertEquals(2, m.moments.size());
 		assertEquals("k2", m.moments.get(1).toMoment().key);
 	}
+
+	@org.junit.Test
+	public void stashMergeWithNothingNewKeepsTheOlder()
+	{
+		PushStash.Data older = new PushStash.Data();
+		older.savedAt = 5;
+		org.junit.Assert.assertSame(older, PushStash.merge(older, null));
+		org.junit.Assert.assertNull(PushStash.merge(null, null));
+	}
 }
