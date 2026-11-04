@@ -7,21 +7,20 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.awt.Color;
 import java.awt.LinearGradientPaint;
-import net.runelite.client.ui.ColorScheme;
 import org.junit.Test;
 
 public class FeedListNameTest
 {
 	@Test
-	public void aSupporterNameKeepsItsColoursOnYourOwnLine()
+	public void aSupporterNameKeepsItsColoursOverTheTeams()
 	{
+		Color jade = new Color(0x2ecc71);
 		JsonObject plain = new JsonObject();
-		assertEquals("your line, no flair: orange", ColorScheme.BRAND_ORANGE, FeedList.namePaint(plain, true, 0, 50));
-		assertEquals(Color.WHITE, FeedList.namePaint(plain, false, 0, 50));
+		assertEquals("no flair: the team's colour", jade, FeedList.namePaint(plain, jade, 0, 50));
 
 		JsonObject gold = new JsonObject();
 		gold.addProperty("whoColor", "#ffd35c");
-		assertEquals("your line, a Supporter: their colour", new Color(0xffd35c), FeedList.namePaint(gold, true, 0, 50));
+		assertEquals("a Supporter: their colour over the team's", new Color(0xffd35c), FeedList.namePaint(gold, jade, 0, 50));
 
 		JsonObject patron = new JsonObject();
 		patron.addProperty("whoColor", "#ff7ab8");
@@ -30,7 +29,7 @@ public class FeedListNameTest
 		grad.add("#ff7ab8");
 		grad.add("#7ae0ff");
 		patron.add("grad", grad);
-		assertTrue(FeedList.namePaint(patron, true, 0, 50) instanceof LinearGradientPaint);
-		assertEquals(3, ((LinearGradientPaint) FeedList.namePaint(patron, true, 0, 50)).getColors().length);
+		assertTrue(FeedList.namePaint(patron, jade, 0, 50) instanceof LinearGradientPaint);
+		assertEquals(3, ((LinearGradientPaint) FeedList.namePaint(patron, jade, 0, 50)).getColors().length);
 	}
 }
