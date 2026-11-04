@@ -526,4 +526,19 @@ public class UiViewTest
 		assertEquals("9,999 / 1.5M", UiView.liveText("of", 9_999, 1_500_000));
 		assertEquals("12K / 1.5M", UiView.liveText("of", 12_345, 1_500_000));
 	}
+
+	@Test
+	public void everyNodeIsLeftAlignedSoNoneShiftsItsSiblings()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		// An absent native part, a warm-up, an unknown kind and a button beside ordinary text.
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Board\"},{\"t\":\"native\",\"name\":\"nothing\"},"
+			+ "{\"t\":\"warm\",\"on\":{\"a\":\"load\",\"v\":\"x\"}},{\"t\":\"what-is-this\"},{\"t\":\"button\",\"label\":\"Teams\"}]}"));
+		Container col = (Container) ((Container) v.getComponent(0));
+		for (Component c : col.getComponents())
+		{
+			assertEquals(c.getClass().getSimpleName(), Component.LEFT_ALIGNMENT, c.getAlignmentX(), 0.0001);
+		}
+	}
 }
