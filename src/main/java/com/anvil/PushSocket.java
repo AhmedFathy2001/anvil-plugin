@@ -104,7 +104,9 @@ final class PushSocket extends WebSocketListener
 		{
 			pending = null;
 			feed = scope != null && scope.matches(".*:f(:r)?$");
-			rows = scope != null && scope.endsWith(":r");
+			// Always: this plugin reads panel rows, and the site only sends them to one that says so
+			// (an older plugin would log each). ":r" only decides whether to connect with no board.
+			rows = true;
 		}
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
