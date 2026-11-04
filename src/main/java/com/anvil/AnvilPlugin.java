@@ -8710,7 +8710,16 @@ public class AnvilPlugin extends Plugin {
 		// and which one we picked, next to what we were hitting.
 		log.debug("Death: killer='{}' (attackers={}, we were fighting '{}')",
 				killer, deathAttribution.attackerCount(), fighting);
-		moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, "npc",
+		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
+		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
+		// a guess; the site keeps it only when it's a boss, so "died to Jug" can't come back.
+		String sourceKind = "npc";
+		PluginConfigResponse cfg = pluginConfig;
+		if (killer == null && fighting != null && cfg != null && cfg.serverSupports("death-fought")) {
+			killer = fighting;
+			sourceKind = "fought";
+		}
+		moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, sourceKind,
 				killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
 		scheduleMomentPush();
 		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
