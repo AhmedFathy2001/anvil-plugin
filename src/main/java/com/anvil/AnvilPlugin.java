@@ -7440,6 +7440,7 @@ public class AnvilPlugin extends Plugin {
 		// on the game's next rebuild: paint them now. The panel's "Tracking" name too.
 		clientThread.invokeLater(() -> {
 			splitPmSeen.clear();
+			pmPainted.clear();
 			Arrays.fill(chatboxSeen, null);
 			flairChatInput();
 			flairNameLists();
@@ -7574,6 +7575,23 @@ public class AnvilPlugin extends Plugin {
 	 * view) is redrawn by its own scripts; its few lines are checked against the texts already seen, so a
 	 * frame with nothing new costs a handful of set lookups. Widget text only, like flairChatbox.
 	 */
+	// Client thread: the split-PM widgets of this frame and their layout, reused (no allocation per frame).
+	private final List<Widget> pmLine = new ArrayList<>();
+	private int[] pmAx = new int[16], pmAy = new int[16], pmX = new int[16], pmW = new int[16], pmRecX = new int[16], pmRecW = new int[16];
+	private boolean[] pmShown = new boolean[16];
+	/** Client thread: per split-PM widget, the {x, width} last set making room for a star. */
+	private final Map<Widget, int[]> pmRoom = new WeakHashMap<>();
+	/** Client thread: a painted split-PM sender's text, and the room its star needs. */
+	private final Map<String, Integer> pmPainted = new HashMap<>();
+
+	/**
+	 * The split private chat lays each line out as separate widgets — the sender ("From <icons>Name:",
+	 * "To Name:") and the message beside it, placed for the plain name — so a Patron's star ran the name
+	 * into the message and hid the colon. Like the chatbox: the sender column is widened and the message
+	 * moved over, re-done whenever the game lays the line out again. Layout, not text, says which widget
+	 * is which: a sender column has its message to the right; a whole "From Name: …" line in one widget
+	 * must have nothing to its left (a typed "From Bob: hi" is someone's message widget).
+	 */
 	private void flairSplitPm() {
 		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
 			return;
@@ -7582,11 +7600,73 @@ public class AnvilPlugin extends Plugin {
 		if (box == null || box.isHidden()) {
 			return;
 		}
-		flairSplitPm(box.getStaticChildren());
-		flairSplitPm(box.getDynamicChildren());
+		pmLine.clear();
+		collectPm(box.getStaticChildren(), 0, 0);
+		collectPm(box.getDynamicChildren(), 0, 0);
+		int n = pmLine.size();
+		if (n == 0) {
+			return;
+		}
+		if (pmX.length < pmAx.length) {
+			// collectPm grew the place arrays; the rest are refilled below.
+			int c = pmAx.length;
+			pmX = new int[c]; pmW = new int[c]; pmRecX = new int[c]; pmRecW = new int[c];
+			pmShown = new boolean[c];
+		}
+		for (int i = 0; i < n; i++) {
+			Widget w = pmLine.get(i);
+			String t = w.getText();
+			pmShown[i] = !w.isHidden() && t != null && !t.isEmpty();
+			pmX[i] = w.getOriginalX();
+			pmW[i] = w.getOriginalWidth();
+			int[] rec = pmRoom.get(w);
+			pmRecX[i] = rec == null ? Integer.MIN_VALUE : rec[0];
+			pmRecW[i] = rec == null ? Integer.MIN_VALUE : rec[1];
+		}
+		boolean moved = false;
+		for (int i = 0; i < n; i++) {
+			if (!pmShown[i]) {
+				continue;
+			}
+			Widget w = pmLine.get(i);
+			String text = w.getText();
+			Integer d = pmPainted.get(text);
+			if (d == null && !splitPmSeen.contains(text)) {
+				if (splitPmSeen.size() > 256 || pmPainted.size() > 256) {
+					splitPmSeen.clear();
+					pmPainted.clear();
+				}
+				boolean column = ChatFlair.column(text);
+				boolean sender = column ? ChatFlair.beside(i, n, pmAx, pmAy, pmShown, false) : !ChatFlair.beside(i, n, pmAx, pmAy, pmShown, true);
+				String painted = sender ? chatFlair.paintPmLine(text, chatStar(), false) : null;
+				if (painted != null) {
+					w.setText(painted);
+					d = column ? starRoom(text, painted) : 0;
+					pmPainted.put(painted, d);
+				} else {
+					splitPmSeen.add(text);
+				}
+			}
+			if (d != null && d > 0) {
+				moved |= ChatFlair.makeRoom(i, d, n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
+			}
+		}
+		if (!moved) {
+			return;
+		}
+		for (int i = 0; i < n; i++) {
+			Widget w = pmLine.get(i);
+			if (pmX[i] != w.getOriginalX() || pmW[i] != w.getOriginalWidth()) {
+				w.setOriginalX(pmX[i]);
+				w.setOriginalWidth(pmW[i]);
+				w.revalidate();
+				pmRoom.put(w, new int[]{pmRecX[i], pmRecW[i]});
+			}
+		}
 	}
 
-	private void flairSplitPm(Widget[] ws) {
+	/** Each widget under the split-PM container with its on-screen place (parent offsets added). */
+	private void collectPm(Widget[] ws, int px, int py) {
 		if (ws == null) {
 			return;
 		}
@@ -7594,24 +7674,24 @@ public class AnvilPlugin extends Plugin {
 			if (w == null) {
 				continue;
 			}
-			String text = w.getText();
-			if (text != null && !text.isEmpty() && !splitPmSeen.contains(text)) {
-				if (splitPmSeen.size() > 256) {
-					splitPmSeen.clear();
-				}
-				String painted = chatFlair.paintPmLine(text, chatStar(), false);
-				if (painted != null) {
-					w.setText(painted);
-					splitPmSeen.add(painted);
-				} else {
-					splitPmSeen.add(text);
-				}
+			int at = pmLine.size();
+			pmLine.add(w);
+			if (pmAx.length <= at) {
+				pmAx = Arrays.copyOf(pmAx, at * 2 + 2);
+				pmAy = Arrays.copyOf(pmAy, at * 2 + 2);
 			}
-			Widget[] kids = w.getDynamicChildren();
-			if (kids != null && kids.length > 0) {
-				flairSplitPm(kids);
-			}
+			pmAx[at] = px + w.getRelativeX();
+			pmAy[at] = py + w.getRelativeY();
+			collectPm(w.getDynamicChildren(), pmAx[at], pmAy[at]);
 		}
+	}
+
+	/** The width the Patron star adds to a sender (gradient and colour tags take none). */
+	private int starRoom(String plain, String painted) {
+		java.util.function.ToIntFunction<String> text = t -> 0;
+		ChatFlairTooltip tip = chatFlairTooltip;
+		java.util.function.IntUnaryOperator icon = tip != null ? tip::iconWidth : k -> 13;
+		return ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
 	}
 
 	/** Client thread: the opaque chatbox (fixed mode, or resizable with transparency off) is light parchment. */

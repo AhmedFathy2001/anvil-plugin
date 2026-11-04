@@ -466,4 +466,55 @@ public class ChatFlairTest
 		assertNull("over the star", f.tierInLine(line, nameAt - 2, w));
 		assertNull("after the name", f.tierInLine(line, nameAt + 11 * 6 + 1, w));
 	}
+
+	// ---- Split private chat: sender and message are separate widgets laid out for the plain name
+
+	@Test
+	public void theStarGetsRoomOnTheSplitPmLineOnce()
+	{
+		final int min = Integer.MIN_VALUE;
+		// Row y=0: "From <helm>GIM Drenvox:" at x 0, w 100; "Test" at x 100. Row y=14: another line.
+		int[] ax = {0, 100, 0, 60};
+		int[] ay = {0, 0, 14, 14};
+		int[] x = {0, 100, 0, 60};
+		int[] w = {100, 300, 60, 340};
+		boolean[] shown = {true, true, true, true};
+		int[] recX = {min, min, min, min};
+		int[] recW = {min, min, min, min};
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(111, w[0]);
+		assertEquals("the message moves over by the star", 111, x[1]);
+		assertEquals(289, w[1]);
+		assertEquals("the next line is left alone", 60, x[3]);
+		// Next frame, nothing laid out again: not moved twice.
+		assertEquals(false, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(111, x[1]);
+		// The game lays the line out afresh (plain positions back): room made again.
+		x[1] = 100;
+		w[0] = 100;
+		w[1] = 300;
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(111, x[1]);
+		assertEquals(111, w[0]);
+		// No star (gradient / colour only): nothing to make room for.
+		assertEquals(false, ChatFlair.makeRoom(2, 0, 4, ax, ay, x, w, shown, recX, recW));
+	}
+
+	@Test
+	public void splitPmSenderIsFoundByLayout()
+	{
+		int[] ax = {0, 100, 0};
+		int[] ay = {0, 0, 14};
+		boolean[] shown = {true, true, true};
+		assertEquals("a sender column has its message to the right", true, ChatFlair.beside(0, 3, ax, ay, shown, false));
+		assertEquals("a typed \"From Bob:\" is the message: nothing to its right", false, ChatFlair.beside(1, 3, ax, ay, shown, false));
+		assertEquals("…and a sender to its left", true, ChatFlair.beside(1, 3, ax, ay, shown, true));
+		assertEquals("a whole line alone on its row", false, ChatFlair.beside(2, 3, ax, ay, shown, true));
+		assertEquals(false, ChatFlair.beside(0, 3, ax, ay, new boolean[]{true, false, true}, false));
+		// The star's room, from the widths of the icons only.
+		ChatFlair f = drenvox();
+		java.util.function.IntUnaryOperator icons = k -> k == 99 ? 11 : 13;
+		String plain = "From <img=10>GIM Drenvox:";
+		assertEquals(11, ChatFlair.measure(f.paintPmLine(plain, "<img=99>", false), t -> 0, icons) - ChatFlair.measure(plain, t -> 0, icons));
+	}
 }

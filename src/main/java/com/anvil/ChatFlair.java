@@ -499,6 +499,53 @@ final class ChatFlair
 		return false;
 	}
 
+	/**
+	 * Room in one row of chat widgets for a sender column that grew by {@code d} px (the Patron star):
+	 * widen it, and move each shown widget on its row that starts right of it over by d. {@code ax/ay}
+	 * place the widgets on screen (for "same row", "right of"); {@code x/w} are the values to change.
+	 * {@code recX/recW} hold what was last set (MIN_VALUE: nothing), updated here: a widget still where
+	 * it was put is not moved again, one the game laid out afresh is. True when anything changed.
+	 */
+	static boolean makeRoom(int at, int d, int n, int[] ax, int[] ay, int[] x, int[] w, boolean[] shown, int[] recX, int[] recW)
+	{
+		if (d <= 0)
+		{
+			return false;
+		}
+		boolean moved = false;
+		if (w[at] != recW[at])
+		{
+			w[at] += d;
+			recW[at] = w[at];
+			moved = true;
+		}
+		for (int j = 0; j < n; j++)
+		{
+			if (j == at || !shown[j] || ay[j] != ay[at] || ax[j] <= ax[at] || x[j] == recX[j])
+			{
+				continue;
+			}
+			x[j] += d;
+			w[j] = Math.max(1, w[j] - d);
+			recX[j] = x[j];
+			moved = true;
+		}
+		return moved;
+	}
+
+	/** Another shown widget on row {@code at}'s line, to its left (left = true) or right. */
+	static boolean beside(int at, int n, int[] ax, int[] ay, boolean[] shown, boolean left)
+	{
+		for (int j = 0; j < n; j++)
+		{
+			if (j != at && shown[j] && ay[j] == ay[at] && (left ? ax[j] < ax[at] : ax[j] > ax[at]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
 	static boolean column(String raw)
 	{
