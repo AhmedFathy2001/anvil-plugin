@@ -88,7 +88,75 @@ final class ChatFlair
 		{
 			return null;
 		}
+		return tierLabel(e);
+	}
+
+	private static String tierLabel(Entry e)
+	{
 		return Boolean.TRUE.equals(e.s) ? "Anvil Patron" : e.g != null && e.g.size() >= 2 ? "Anvil Champion" : "Anvil Supporter";
+	}
+
+	/**
+	 * Hover inside a line's text (an Anvil line naming someone: "Tile complete: … — by ★Drenvox!"):
+	 * the tier when {@code x} (pixels from the text's left edge) falls on a Supporter's name that is
+	 * painted in their colours, else null. {@code width} measures raw chat text the way the chat font
+	 * draws it (tags and icons included), so only the name itself answers, not the whole line.
+	 */
+	String tierInLine(String raw, int x, java.util.function.ToIntFunction<String> width)
+	{
+		if (raw == null || raw.isEmpty() || byName.isEmpty() || x < 0)
+		{
+			return null;
+		}
+		// The visible characters, and where each one sits in the raw text.
+		StringBuilder plain = new StringBuilder();
+		List<Integer> at = new java.util.ArrayList<>();
+		for (int i = 0; i < raw.length(); i++)
+		{
+			char ch = raw.charAt(i);
+			if (ch == '<')
+			{
+				int close = raw.indexOf('>', i);
+				if (close < 0)
+				{
+					break;
+				}
+				i = close;
+				continue;
+			}
+			plain.append(ch == '\u00A0' ? ' ' : Character.toLowerCase(ch));
+			at.add(i);
+		}
+		String text = plain.toString();
+		for (Map.Entry<String, Entry> kv : byName.entrySet())
+		{
+			Entry e = kv.getValue();
+			String name = kv.getKey();
+			if (name == null || name.isEmpty())
+			{
+				continue;
+			}
+			for (int from = text.indexOf(name); from >= 0; from = text.indexOf(name, from + 1))
+			{
+				int to = from + name.length();
+				boolean whole = (from == 0 || !Character.isLetterOrDigit(text.charAt(from - 1)))
+					&& (to == text.length() || !Character.isLetterOrDigit(text.charAt(to)));
+				int rawFrom = at.get(from);
+				// Painted: a colour tag opens right before it (a plain mention in someone's message isn't flair).
+				String before = raw.substring(0, rawFrom);
+				if (!whole || !paintedJustBefore(before))
+				{
+					continue;
+				}
+				int x0 = width.applyAsInt(before);
+				int x1 = width.applyAsInt(raw.substring(0, at.get(to - 1) + 1));
+				if (x >= x0 && x < x1)
+				{
+					return tierLabel(e);
+				}
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -120,5 +188,25 @@ final class ChatFlair
 		}
 		boolean starred = Boolean.TRUE.equals(e.s) && star != null;
 		return m.group(1) + (starred ? star : "") + painted;
+	}
+
+	/** The tags right before a point include a colour: what was there is painted, not plain text. */
+	static boolean paintedJustBefore(String raw)
+	{
+		int end = raw.length();
+		while (end > 0 && raw.charAt(end - 1) == '>')
+		{
+			int open = raw.lastIndexOf('<', end - 1);
+			if (open < 0)
+			{
+				return false;
+			}
+			if (raw.startsWith("<col=", open))
+			{
+				return true;
+			}
+			end = open;
+		}
+		return false;
 	}
 }
