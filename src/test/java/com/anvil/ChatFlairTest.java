@@ -257,4 +257,82 @@ public class ChatFlairTest
 		assertEquals(100_000, hits);
 		assertNull(f.entry(names[5]));
 	}
+
+	// ---- Display-time widget painting (sender columns, PM lines, broadcasts)
+
+	@Test
+	public void senderColumnsArePaintedOnTheWidgetText()
+	{
+		ChatFlair f = with(entry("gim nisbro", "#ffd35c", null), entry("drenvox", "#00ff00", true));
+		assertEquals("<img=3><col=ffd35c>GIM\u00A0Nisbro</col>:", f.paintSender("<img=3>GIM\u00A0Nisbro:", "<img=99>", false));
+		assertEquals("<col=0000ff>[The AFK Spot]</col> <img=99><col=00ff00>Drenvox</col>:",
+			f.paintSender("<col=0000ff>[The AFK Spot]</col> Drenvox:", "<img=99>", false));
+		assertEquals("[12:34] <col=00ff00>Drenvox</col>:", f.paintSender("[12:34] Drenvox:", null, false));
+	}
+
+	@Test
+	public void privateMessagesInAndOutArePainted()
+	{
+		ChatFlair f = with(entry("drenvox", "#00ff00", null));
+		assertEquals("From <col=00ff00>Drenvox</col>:", f.paintSender("From Drenvox:", null, false));
+		assertEquals("To <col=00ff00>Drenvox</col>:", f.paintSender("To Drenvox:", null, false));
+		// Split private chat: the whole line is one widget, coloured by the game.
+		assertEquals("<col=00ffff>To <col=00ff00>Drenvox</col><col=00ffff>: hey there</col>",
+			f.paintSender("<col=00ffff>To Drenvox: hey there</col>", null, false));
+		// A typed message that merely starts "Name:" is not a sender.
+		assertNull(f.paintSender("Drenvox: hey", null, false));
+	}
+
+	@Test
+	public void paintingIsIdempotent()
+	{
+		ChatFlair f = with(entry("drenvox", "#00ff00", true), entry("ab", "#ffd35c", null, "#ff0000", "#00ff00"));
+		String once = f.paintSender("<img=2>Drenvox:", "<img=99>", false);
+		assertNull(f.paintSender(once, "<img=99>", false));
+		String grad = f.paintSender("From Ab: hi", null, false);
+		assertNull(f.paintSender(grad, null, false));
+		String b = f.paintLead("<col=ef1020>Ab received a drop: Bones</col>", null, false);
+		assertNull(f.paintLead(b, null, false));
+	}
+
+	@Test
+	public void nonSupportersAndPartialNamesAreUntouched()
+	{
+		ChatFlair f = with(entry("bob", "#00ff00", null));
+		assertNull(f.paintSender("Bobby:", null, false));
+		assertNull(f.paintSender("From Bobby: hi", null, false));
+		assertNull(f.paintLead("Bobby has completed a quest: Gertrude's Cat", null, false));
+		assertNull(f.leadKey("Bobby has completed a quest: Gertrude's Cat"));
+		assertNull(f.paintLead("Someone received a drop: Bob's hat", null, false));
+		assertNull(f.paintLead("Bob_2 has reached a total level of 100.", null, false));
+		assertNull(f.paintLead("Bob-x has reached a total level of 100.", null, false));
+	}
+
+	@Test
+	public void broadcastLeadingNameIsPaintedAfterIconsKeepingTheColour()
+	{
+		ChatFlair f = with(entry("nisbro hcm", "#ffd35c", null), entry("nisbro", "#00ff00", null), entry("bob", "#00ff00", true));
+		// Longest name wins, nbsp counts as a space, the icon stays, and the line's colour re-opens after.
+		String line = "<img=10><col=ef1020>Nisbro\u00A0HCM has completed a quest: <col=0c5f00>Gertrude's Cat</col></col>";
+		assertEquals("<img=10><col=ef1020><col=ffd35c>Nisbro\u00A0HCM</col><col=ef1020> has completed a quest: <col=0c5f00>Gertrude's Cat</col></col>",
+			f.paintLead(line, null, false));
+		assertEquals("Nisbro HCM has completed a quest: Gertrude's Cat", f.leadKey(line));
+		assertEquals(f.leadKey(line), ChatFlair.key(line));
+		// Shorter names still match on a word boundary; the Patron's star goes before the name.
+		assertEquals("<col=00ff00>Nisbro</col> received a drop: Bones", f.paintLead("Nisbro received a drop: Bones", "<img=99>", false));
+		assertEquals("<img=99><col=00ff00>Bob</col> has reached a total level of 100.",
+			f.paintLead("Bob has reached a total level of 100.", "<img=99>", false));
+		// A "[channel]" lead in the same widget is skipped, and the key ignores it.
+		assertEquals("[The AFK Spot] <col=00ff00>Bob</col> has reached a total level of 100.",
+			f.paintLead("[The AFK Spot] Bob has reached a total level of 100.", null, false));
+		assertEquals("Bob has reached a total level of 100.", ChatFlair.key("<col=0000ff>[The AFK Spot]</col> <img=1>Bob has reached a total level of 100."));
+	}
+
+	@Test
+	public void hoverStillFindsAPaintedPrivateMessageSender()
+	{
+		ChatFlair f = with(entry("drenvox", "#00ff00", true));
+		assertEquals("Anvil Patron", f.tierOfSender(f.paintSender("From Drenvox:", "<img=99>", false)));
+		assertEquals("Anvil Patron", f.tierOfSender(f.paintSender("To Drenvox:", "<img=99>", false)));
+	}
 }

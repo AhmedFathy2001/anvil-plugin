@@ -240,7 +240,7 @@ final class ChatFlair
 	private static final Pattern TAGS = Pattern.compile("<[^>]*>");
 
 	/** A sender column's text ("[02:25] <img=1>Name:" with any colouring): the name inside, or null. */
-	private static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)?(.+?):$");
+	private static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)*(?:(?:From|To)\\s+)?(.+?):$");
 
 	/**
 	 * What to say on hover over a chat line's SENDER: "Anvil Patron" / "Anvil Champion" / "Anvil
@@ -364,6 +364,190 @@ final class ChatFlair
 		}
 		boolean starred = Boolean.TRUE.equals(e.s) && star != null;
 		return m.group(1) + (starred ? star : "") + painted;
+	}
+
+	// ---- Display-time painting of chat widgets. The game's message data (MessageNode name / value) is
+	// never touched: the chatbox builds its right-click options ("Message", "Add friend", "Remove
+	// friend", reply, report) from that data, and a tagged name breaks the friend check and the action.
+
+	/** Raw chat text's visible characters (tags out, nbsp as a space), and where each sits in the raw. */
+	static final class Shown
+	{
+		final String text;
+		final int[] at;
+
+		Shown(String text, int[] at)
+		{
+			this.text = text;
+			this.at = at;
+		}
+	}
+
+	static Shown shown(String raw)
+	{
+		StringBuilder plain = new StringBuilder(raw.length());
+		int[] at = new int[raw.length()];
+		for (int i = 0; i < raw.length(); i++)
+		{
+			char ch = raw.charAt(i);
+			if (ch == '<')
+			{
+				int close = raw.indexOf('>', i);
+				if (close < 0)
+				{
+					break;
+				}
+				i = close;
+				continue;
+			}
+			at[plain.length()] = i;
+			plain.append(ch == '\u00A0' ? ' ' : ch);
+		}
+		return new Shown(plain.toString(), at);
+	}
+
+	/**
+	 * A sender as the chatbox shows it: optional "[channel]" / "[timestamp]" groups, then "From " / "To "
+	 * on a private message, then the name and a colon. Group 2 is From/To, group 3 the name, group 4
+	 * whatever follows the colon (empty in the chatbox's sender column; the message on a split-PM line).
+	 */
+	private static final Pattern SENDER_SHOWN = Pattern.compile("^((?:\\[[^\\]]*\\]\\s*)*(?:(From|To)\\s+)?)([^:\\[\\]]{1,12}):(.*)$", Pattern.DOTALL);
+	/** Leading "[channel]" / "[timestamp]" groups and spaces before a broadcast's text. */
+	private static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
+
+	/**
+	 * A chat widget whose text is a sender ("Name:", "[Clan] Name:", "From Name:", "To Name:", or a
+	 * split-PM line "From Name: hi"), with the name painted; null when it isn't one, the name has no
+	 * flair, or it is already painted. A plain-text line "Bob: hi" (no From/To) is left alone.
+	 */
+	String paintSender(String raw, String star, boolean opaque)
+	{
+		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0)
+		{
+			return null;
+		}
+		Shown s = shown(raw);
+		Matcher m = SENDER_SHOWN.matcher(s.text);
+		if (!m.matches() || (!m.group(4).isEmpty() && m.group(2) == null))
+		{
+			return null;
+		}
+		int from = m.start(3);
+		int to = m.end(3);
+		while (from < to && s.text.charAt(from) == ' ')
+		{
+			from++;
+		}
+		while (to > from && s.text.charAt(to - 1) == ' ')
+		{
+			to--;
+		}
+		return from < to ? paintAt(raw, s, from, to, star, opaque) : null;
+	}
+
+	/**
+	 * A broadcast's key ("Nisbro HCM has completed a quest: …" with tags and leading "[channel]" out) when
+	 * it starts with a Supporter's name, else null. Kept at onChatMessage so the chatbox walk knows which
+	 * widgets are those broadcasts without a name lookup per widget.
+	 */
+	String leadKey(String raw)
+	{
+		if (raw == null || raw.isEmpty() || isEmpty())
+		{
+			return null;
+		}
+		Shown s = shown(raw);
+		return leadName(s) < 0 ? null : key(s);
+	}
+
+	/** The same key for any text (no lookup): what the chatbox walk compares against the kept ones. */
+	static String key(String raw)
+	{
+		return raw == null ? null : key(shown(raw));
+	}
+
+	private static String key(Shown s)
+	{
+		Matcher m = LEAD.matcher(s.text);
+		return m.lookingAt() ? s.text.substring(m.end()) : s.text;
+	}
+
+	/** A broadcast widget with the leading name painted (icons and colours kept); null when none / already. */
+	String paintLead(String raw, String star, boolean opaque)
+	{
+		if (raw == null || raw.isEmpty() || isEmpty())
+		{
+			return null;
+		}
+		Shown s = shown(raw);
+		int end = leadName(s);
+		if (end < 0)
+		{
+			return null;
+		}
+		Matcher m = LEAD.matcher(s.text);
+		int from = m.lookingAt() ? m.end() : 0;
+		return paintAt(raw, s, from, end, star, opaque);
+	}
+
+	/**
+	 * Where the Supporter's name the text starts with ends (exclusive), or -1: the longest prefix of at
+	 * most 12 characters that ends on a word ("Bob" is not the start of "Bobby has…") and is on the list.
+	 */
+	private int leadName(Shown s)
+	{
+		String t = s.text;
+		Matcher m = LEAD.matcher(t);
+		int from = m.lookingAt() ? m.end() : 0;
+		for (int to = Math.min(t.length(), from + 12); to > from; to--)
+		{
+			if (!Character.isLetterOrDigit(t.charAt(to - 1)) || to < t.length() && nameChar(t.charAt(to)))
+			{
+				continue;
+			}
+			if (entry(t.substring(from, to)) != null)
+			{
+				return to;
+			}
+		}
+		return -1;
+	}
+
+	private static boolean nameChar(char c)
+	{
+		return Character.isLetterOrDigit(c) || c == '_' || c == '-';
+	}
+
+	/**
+	 * Replace the visible characters [from, to) — a plain name in the raw text — with the painted name,
+	 * re-opening the colour the text had there so the rest of the line keeps it. Null when the name
+	 * carries tags inside (gradient-painted already) or our paint is right before it (painted already).
+	 */
+	private String paintAt(String raw, Shown s, int from, int to, String star, boolean opaque)
+	{
+		int rs = s.at[from];
+		int re = s.at[to - 1] + 1;
+		String name = raw.substring(rs, re);
+		if (name.indexOf('<') >= 0)
+		{
+			return null;
+		}
+		String d = decorate(name, star);
+		if (d == null)
+		{
+			return null;
+		}
+		d = ChatPalette.readable(d, opaque);
+		int k = shown(d).at[0];
+		if (rs >= k && raw.startsWith(d.substring(0, k), rs - k))
+		{
+			return null;
+		}
+		String before = raw.substring(0, rs);
+		int open = before.lastIndexOf("<col=");
+		String reopen = open >= 0 && open > before.lastIndexOf("</col>") && before.indexOf('>', open) > 0
+			? before.substring(open, before.indexOf('>', open) + 1) : "";
+		return before + d + reopen + raw.substring(re);
 	}
 
 	/** The tags right before a point include a colour: what was there is painted, not plain text. */
