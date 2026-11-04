@@ -1129,6 +1129,9 @@ public class AnvilPlugin extends Plugin {
 		// Every chat parser reads its line shape from here — before anything can see a chat line.
 		ChatPatterns.loadDefaults(gson);
 		OffThread.bindClientThread(client::isClientThread);
+		// The Patron star's chat icon loads asynchronously; asked for now, it's ready by the first line
+		// that needs it instead of that line going out without it.
+		chatStar();
 		// Built before the directory is known: without one they still work, in memory, for the session.
 		NotifyOutbox outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
 		outbox.setSender(apiClient::sendQueuedNotification);
