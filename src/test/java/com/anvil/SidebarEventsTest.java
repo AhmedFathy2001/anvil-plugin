@@ -93,4 +93,30 @@ public class SidebarEventsTest
 		assertEquals(2, choices.size());
 		assertEquals("real", choices.get(1).slug);
 	}
+
+	@Test
+	public void someoneInClansAndSpacesSeesWhichRowIsASpace()
+	{
+		PluginConfigResponse.ClanRef space = clanRef("ahmed", "Ahmed", "guest", "Viewer Bingo");
+		space.space = true;
+		PluginConfigResponse.ClanRef quiet = clanRef("deno", "Deno", "guest", null);
+		quiet.space = true;
+		List<AnvilSidebarPanel.ClanChoice> choices = AnvilSidebarPanel.ClanChoice.of(Arrays.asList(
+			clanRef("theafkspot", "The AFK Spot", "member", null), space, quiet));
+
+		assertEquals("All clans & spaces", choices.get(0).label);
+		assertEquals("Nothing live", choices.get(1).detail);
+		assertEquals("Space \u00b7 Viewer Bingo  3/9", choices.get(2).detail);
+		assertEquals("Space \u00b7 nothing live", choices.get(3).detail);
+	}
+
+	@Test
+	public void onlySpacesSaysAllSpaces()
+	{
+		PluginConfigResponse.ClanRef a = clanRef("a", "A", "guest", null);
+		a.space = true;
+		PluginConfigResponse.ClanRef b = clanRef("b", "B", "guest", null);
+		b.space = true;
+		assertEquals("All spaces", AnvilSidebarPanel.ClanChoice.of(Arrays.asList(a, b)).get(0).label);
+	}
 }

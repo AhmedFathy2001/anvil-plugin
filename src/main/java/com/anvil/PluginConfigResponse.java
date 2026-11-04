@@ -74,6 +74,11 @@ public class PluginConfigResponse
 		 * from "nothing running" — and on such a site there is no count to show anyway.
 		 */
 		public int liveCount;
+		/**
+		 * A creator space, not a clan. One person can be in several of each, so every dropdown row
+		 * says which it is. False on an older site.
+		 */
+		public boolean space;
 	}
 
 	/**

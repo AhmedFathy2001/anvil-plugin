@@ -49,6 +49,11 @@ final class UiView extends JPanel
 		/** Point the plugin at another of the member's clans. */
 		void switchClan(String slug);
 
+		/** Open one of the panel's own tabs by name ("feed"). Unknown names do nothing. */
+		default void openTab(String name)
+		{
+		}
+
 		/** A part only the plugin can draw (it reads the game), or null for none. */
 		JComponent nativePart(String name);
 
@@ -395,6 +400,9 @@ final class UiView extends JPanel
 				break;
 			case "switch":
 				host.switchClan(str(a, "slug"));
+				break;
+			case "tab":
+				host.openTab(str(a, "tab"));
 				break;
 			case "pin":
 				host.pin(num(a, "event", 0), num(a, "tile", 0), bool(a, "on"));

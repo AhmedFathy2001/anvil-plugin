@@ -635,6 +635,17 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			@Override
+			public void openTab(String name)
+			{
+				// Only a tab this panel is showing: the Feed tab hides on a site too old to feed it.
+				JLabel feed = tabLabels.get(Tab.FEED);
+				if ("feed".equals(name) && feed != null && feed.isShowing())
+				{
+					selectTab(Tab.FEED);
+				}
+			}
+
+			@Override
 			public long count(int tile)
 			{
 				return dataSource.tileCount(tile);
@@ -1480,7 +1491,19 @@ public class AnvilSidebarPanel extends PluginPanel
 			{
 				return out;
 			}
-			out.add(new ClanChoice("", "All clans", "Everything you're playing"));
+			boolean anySpace = false;
+			boolean anyClan = false;
+			for (PluginConfigResponse.ClanRef c : clans)
+			{
+				if (c != null)
+				{
+					anySpace |= c.space;
+					anyClan |= !c.space;
+				}
+			}
+			// The Auto row names what it covers: clans, spaces, or both.
+			String all = anySpace && anyClan ? "All clans & spaces" : anySpace ? "All spaces" : "All clans";
+			out.add(new ClanChoice("", all, "Everything you're playing"));
 			for (PluginConfigResponse.ClanRef c : clans)
 			{
 				if (c == null || c.slug == null || c.slug.isEmpty())
@@ -1495,9 +1518,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		/** What is happening in this clan, in one short line — the reason to pick it or not. */
 		private static String detailOf(PluginConfigResponse.ClanRef c)
 		{
+			// A space says so up front: in a list of clans and spaces, the name alone doesn't tell them apart.
+			String tag = c.space ? "Space \u00b7 " : "guest".equals(c.kind) ? "Guest \u00b7 " : "";
 			if (c.live == null || c.live.eventName == null || c.live.eventName.isEmpty())
 			{
-				return "guest".equals(c.kind) ? "Guest \u00b7 nothing live" : "Nothing live";
+				return tag + (tag.isEmpty() ? "Nothing live" : "nothing live");
 			}
 			// A competition has a leaderboard rather than a board to fill, so "0/0" would be a lie
 			// dressed as progress. The name is the whole answer there.
@@ -1507,7 +1532,7 @@ public class AnvilSidebarPanel extends PluginPanel
 			// One line names ONE of them. Say how many were not named rather than letting an arbitrary
 			// pick stand in for the whole clan — the number is why you would open the clan at all.
 			int more = c.liveCount - 1;
-			return more > 0 ? head + "  +" + more + " more" : head;
+			return (c.space ? "Space \u00b7 " : "") + (more > 0 ? head + "  +" + more + " more" : head);
 		}
 
 		@Override
