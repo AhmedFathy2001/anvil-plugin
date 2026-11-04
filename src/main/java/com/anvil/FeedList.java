@@ -66,8 +66,9 @@ import net.runelite.client.util.ImageUtil;
  * "↑ N new" line offers the way back up.
  *
  * With a {@code send} block it is the event chat: a box under the list posts the text and the line
- * comes back through the push like everybody else's. Clicks never redraw the view: a GZ flips at
- * once and is posted, a mod's menu action is posted, and only an error line comes back.
+ * comes back through the push like everybody else's. Clicks never redraw the view: a GZ (or one of a
+ * row's {@code reacts} chips, a death's Sad / Sit) flips at once and is posted, a mod's menu action is
+ * posted, and only an error line comes back.
  */
 final class FeedList extends JPanel
 {
@@ -674,17 +675,27 @@ final class FeedList extends JPanel
 			}
 			JsonObject r = model.getElementAt(i);
 			Rectangle b = list.getCellBounds(i, i);
-			if (r.has("gz") && r.get("gz").isJsonObject() && e.getX() > b.x + b.width - 44)
+			JsonObject chip = null;
+			if (r.has("reacts") && r.get("reacts").isJsonArray())
 			{
-				JsonObject gz = r.getAsJsonObject("gz");
-				boolean mine = gz.has("mine") && gz.get("mine").getAsBoolean();
-				int count = gz.has("n") ? gz.get("n").getAsInt() : 0;
-				gz.addProperty("mine", !mine);
-				gz.addProperty("n", Math.max(0, count + (mine ? -1 : 1)));
+				JsonArray reacts = r.getAsJsonArray("reacts");
+				int at = reactAt(reacts, list.getFontMetrics(SMALL), b.x + b.width - 6 - e.getX());
+				chip = at < 0 ? null : reacts.get(at).getAsJsonObject();
+			}
+			else if (r.has("gz") && r.get("gz").isJsonObject() && e.getX() > b.x + b.width - 44)
+			{
+				chip = r.getAsJsonObject("gz");
+			}
+			if (chip != null)
+			{
+				boolean mine = chip.has("mine") && chip.get("mine").getAsBoolean();
+				int count = chip.has("n") ? chip.get("n").getAsInt() : 0;
+				chip.addProperty("mine", !mine);
+				chip.addProperty("n", Math.max(0, count + (mine ? -1 : 1)));
 				model.changed(i);
-				if (gz.has("on") && gz.get("on").isJsonObject())
+				if (chip.has("on") && chip.get("on").isJsonObject())
 				{
-					quietly(gz.getAsJsonObject("on"));
+					quietly(chip.getAsJsonObject("on"));
 				}
 				return;
 			}
@@ -1148,7 +1159,13 @@ final class FeedList extends JPanel
 			}
 			value.setText(plainText(r.has("value") ? UiView.str(r, "value") : when));
 			value.setForeground(r.has("value") ? GOLD : MUTED);
-			if (r.has("gz") && r.get("gz").isJsonObject())
+			if (r.has("reacts") && r.get("reacts").isJsonArray())
+			{
+				gz.setText(reactsHtml(r.getAsJsonArray("reacts")));
+				gz.setToolTipText(null);
+				gz.setVisible(true);
+			}
+			else if (r.has("gz") && r.get("gz").isJsonObject())
 			{
 				JsonObject g = r.getAsJsonObject("gz");
 				int n = g.has("n") ? g.get("n").getAsInt() : 0;
@@ -1166,6 +1183,51 @@ final class FeedList extends JPanel
 			}
 			return this;
 		}
+	}
+
+	/** Between a row's reaction chips. */
+	private static final String CHIP_GAP = "   ";
+
+	/** "Sit 3", or just "Sit" before anyone has. */
+	static String chipText(JsonObject c)
+	{
+		int n = c.has("n") ? c.get("n").getAsInt() : 0;
+		String label = UiView.str(c, "label");
+		return n > 0 ? label + " " + n : label;
+	}
+
+	/** A row's chips on one right-aligned line, the viewer's own lit. */
+	static String reactsHtml(JsonArray reacts)
+	{
+		StringBuilder sb = new StringBuilder("<html>");
+		for (int k = 0; k < reacts.size(); k++)
+		{
+			JsonObject c = reacts.get(k).getAsJsonObject();
+			boolean mine = c.has("mine") && c.get("mine").getAsBoolean();
+			Color ink = mine ? ColorScheme.BRAND_ORANGE : MUTED;
+			sb.append(k > 0 ? CHIP_GAP.replace(" ", "&nbsp;") : "")
+				.append(String.format("<font color='#%06x'>", ink.getRGB() & 0xFFFFFF))
+				.append(esc(plainText(chipText(c))))
+				.append("</font>");
+		}
+		return sb.append("</html>").toString();
+	}
+
+	/** Which chip a click {@code fromRight} px left of the row's right edge lands on, or -1. */
+	static int reactAt(JsonArray reacts, java.awt.FontMetrics fm, int fromRight)
+	{
+		int gap = fm.stringWidth(CHIP_GAP);
+		int edge = 0;
+		for (int k = reacts.size() - 1; k >= 0 && fromRight >= -6; k--)
+		{
+			edge += fm.stringWidth(chipText(reacts.get(k).getAsJsonObject()));
+			if (fromRight <= edge + gap / 2)
+			{
+				return k;
+			}
+			edge += gap;
+		}
+		return -1;
 	}
 
 	/** A line joins the one before it (no name or time of its own) only from the same person within this. */
