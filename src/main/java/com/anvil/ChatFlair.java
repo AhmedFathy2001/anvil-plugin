@@ -596,7 +596,9 @@ final class ChatFlair
 			}
 			start = open;
 		}
-		if (!override && col != null && !col.equalsIgnoreCase("ffffff"))
+		boolean theirs = !override && col != null && !col.equalsIgnoreCase("ffffff");
+		String plain = s.text.substring(from, from + name.length());
+		if (theirs && target.substring(rs, re).equals(plain))
 		{
 			return null;
 		}
@@ -605,7 +607,11 @@ final class ChatFlair
 		{
 			re += 6;
 		}
-		return target.substring(0, start) + d + target.substring(re);
+		// Override off and their colour in front: they took only our first tag, so the rest of our gradient
+		// is still inside the name. Strip it, and the whole name is in their colour.
+		return theirs
+			? target.substring(0, rs) + plain + target.substring(re)
+			: target.substring(0, start) + d + target.substring(re);
 	}
 
 	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
