@@ -101,7 +101,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "supporterChatFlair",
 		name = "Supporter names in chat",
-		description = "Show Anvil Supporters' name colours (and a Patron's star) in public, clan, friends and private chat. The list of names is downloaded from Anvil; nothing about who you see is sent.",
+		description = "Show Anvil Supporters' name colours (and a Patron's star) in public, clan, friends and private chat, and on your friends list and channel member lists while they are online. The list of names is downloaded from Anvil; nothing about who you see is sent.",
 		position = 4,
 		section = "chatSection"
 	)
