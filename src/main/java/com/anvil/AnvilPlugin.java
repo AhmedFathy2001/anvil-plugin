@@ -10429,6 +10429,10 @@ public class AnvilPlugin extends Plugin {
 				return; // widget re-loaded for a quest already posted this session
 			}
 			postQuestCompletion(quest);
+			// The clan's achievements (the panel's Feed) and the chat feed, whatever the Discord setting:
+			// the site keys it by quest name, so a re-read scroll never lands twice.
+			recordFeedMoment(new AnvilMoments.Moment("quest", null, quest, 1, null, null, null, null, now(),
+					("quest|" + quest).toLowerCase(Locale.ROOT)));
 		});
 	}
 
