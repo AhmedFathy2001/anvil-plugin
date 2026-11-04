@@ -106,6 +106,12 @@ public class AnvilSidebarDataSource
 		return fromPlugin(AnvilPlugin::accountRow, null);
 	}
 
+	/** A character's Supporter look from the plugin's own list (ChatFlair), or null. */
+	public ChatFlair.Entry flairOf(String rsn)
+	{
+		return fromPlugin(p -> p.flairOf(rsn), null);
+	}
+
 	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
 	public void accountAction(AccountRow.Action action, Consumer<String> done)
 	{

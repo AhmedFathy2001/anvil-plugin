@@ -27,6 +27,8 @@ final class ResponseDiskCache
 {
 	static final String CONFIG = "config";
 	static final String CHAT_PATTERNS = "chat-patterns";
+	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file. */
+	static final String CHAT_FLAIR = "chat-flair";
 	/** A board bigger than this isn't worth the disk; the next launch just downloads it. */
 	private static final int MAX_BODY_CHARS = 2_000_000;
 
@@ -119,6 +121,31 @@ final class ResponseDiskCache
 		{
 			DiskFiles.writeAtomic(f, gson.toJson(e));
 			written.put(kind, marker);
+		}
+		catch (IOException | RuntimeException ex)
+		{
+			log.debug("Couldn't save {}: {}", kind, ex.getMessage());
+		}
+	}
+
+	/** A saved copy of public data the same for everyone ({@code <kind>.json}), or null. Blocking. */
+	<T> T loadShared(String kind, Class<T> type)
+	{
+		Filepath d = DiskFiles.ensureDir(dir);
+		return d == null ? null : DiskFiles.readJson(gson, d.joinSegment(kind + ".json"), type);
+	}
+
+	/** Save {@link #loadShared}'s copy. Blocking; never the client thread. */
+	void storeShared(String kind, Object value)
+	{
+		Filepath d = DiskFiles.ensureDir(dir);
+		if (d == null)
+		{
+			return;
+		}
+		try
+		{
+			DiskFiles.writeAtomic(d.joinSegment(kind + ".json"), gson.toJson(value));
 		}
 		catch (IOException | RuntimeException ex)
 		{

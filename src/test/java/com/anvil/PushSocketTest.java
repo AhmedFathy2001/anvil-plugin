@@ -108,11 +108,13 @@ public class PushSocketTest
 
 		push.onMessage(api.opened.get(0), "{\"t\":\"hello\"}");
 		assertTrue(push.live());
-		assertTrue("hello is the socket's own business", heard.isEmpty());
+		// Passed on too: on (re)connecting the plugin checks its Supporter list version (ChatFlairSync).
+		assertEquals(1, heard.size());
+		assertEquals("hello", heard.get(0).get("t").getAsString());
 		push.onMessage(api.opened.get(0), "{\"t\":\"tile\",\"eventId\":5,\"tileId\":9}");
 		push.onMessage(api.opened.get(0), "not json");
-		assertEquals(1, heard.size());
-		assertEquals(9, heard.get(0).get("tileId").getAsInt());
+		assertEquals(2, heard.size());
+		assertEquals(9, heard.get(1).get("tileId").getAsInt());
 	}
 
 	@Test

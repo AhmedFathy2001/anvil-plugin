@@ -404,7 +404,8 @@ public class BingoApiClient
 	 */
 	PushTicket fetchPushTicket(boolean feed, boolean rows)
 	{
-		String path = "/api/plugin/push/ticket" + (feed ? "?feed=1" + (rows ? "&rows=1" : "") : rows ? "?rows=1" : "");
+		// ?flair=1 always: this plugin applies Supporter-list deltas (ChatFlairSync).
+		String path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "");
 		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class, "push ticket") : null;
 		HttpUrl socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
 		HttpUrl site = HttpUrl.parse(getApiUrl());
@@ -882,10 +883,16 @@ public class BingoApiClient
 			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
 	}
 
-	/** GET /api/plugin/chat-flair — Supporters' names and colours (ChatFlair). Global; null on any failure. */
-	ChatFlair.Response fetchChatFlair()
+	/** GET chat-flair/v?since= — the Supporter list's version and the deltas to it (ChatFlairSync). Public; null on failure. */
+	ChatFlair.Since fetchChatFlairSince(int v)
 	{
-		return etagGetOrNull(rootUrl("/api/plugin/chat-flair"), ChatFlair.Response.class, polls, "Chat flair");
+		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v?since=" + v)).get(), ChatFlair.Since.class, "Chat flair version");
+	}
+
+	/** GET chat-flair/v/&lt;v&gt; — the whole list at a version (CDN-cached, gzipped). Public; null on failure. */
+	ChatFlair.Wire fetchChatFlairList(int v)
+	{
+		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v/" + v)).get(), ChatFlair.Wire.class, "Chat flair");
 	}
 
 	/** A non-2xx answer, from any call: every refusal this client throws is one, so callers can go by {@link #code}. */

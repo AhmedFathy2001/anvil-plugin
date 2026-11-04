@@ -7359,6 +7359,25 @@ public class AnvilPlugin extends Plugin {
 	private final ChatFlair chatFlair = new ChatFlair();
 	private long chatFlairFetchedAt;
 	private static final long CHAT_FLAIR_EVERY_MS = 10 * 60_000L;
+	/** Socket deltas and jittered catch-ups (ChatFlairSync); HTTP on OkHttp's pool, never the client thread. */
+	private final ChatFlairSync chatFlairSync = new ChatFlairSync(chatFlair, new ChatFlairSync.Source() {
+		@Override
+		public ChatFlair.Since since(int v) {
+			return apiClient.fetchChatFlairSince(v);
+		}
+
+		@Override
+		public ChatFlair.Wire full(int v) {
+			return apiClient.fetchChatFlairList(v);
+		}
+	}, (r, ms) -> {
+		ScheduledExecutorService ex = executor;
+		if (ex != null) {
+			ex.schedule(() -> apiClient.interactiveExecutor().execute(() -> safely("chat flair", r)), ms, TimeUnit.MILLISECONDS);
+		}
+	}, () -> ThreadLocalRandom.current().nextLong(ChatFlairSync.JITTER_MS), this::chatFlairChanged);
+	private volatile boolean chatFlairSeeded;
+	private ScheduledFuture<?> chatFlairSave;
 	// Where a sender's name is a player who typed: Supporter flair goes on these (ChatFlair).
 	private static final Set<ChatMessageType> FLAIR_CHAT = EnumSet.of(
 			ChatMessageType.PUBLICCHAT,
@@ -7370,23 +7389,62 @@ public class AnvilPlugin extends Plugin {
 			ChatMessageType.CLAN_GUEST_CHAT,
 			ChatMessageType.CLAN_GIM_CHAT);
 
-	/** Config-poll thread only: the Supporter names list, every 10 minutes (an ETag makes most a 304). */
-	private void maybeRefreshChatFlair(PluginConfigResponse cfg) {
-		if (!config.supporterChatFlair()
-				|| !((cfg != null && cfg.serverSupports("chat-flair")) || apiClient.siteAdvertises("chat-flair"))) {
+	/**
+	 * Config-poll thread, after every config attempt — answered or not: the list is public and in no
+	 * clan, so a login whose config is a 404 still gets it. The saved copy first, then the site's
+	 * version every 10 minutes (deltas between come over the socket).
+	 */
+	private void maybeRefreshChatFlair() {
+		if (!ChatFlairSync.wanted(config.supporterChatFlair(), apiClient.isConfigured(), pluginConfig, apiClient::siteAdvertises)) {
 			return;
+		}
+		ResponseDiskCache rc = responseCache;
+		if (!chatFlairSeeded && rc != null) {
+			chatFlairSeeded = true;
+			if (chatFlair.adopt(rc.loadShared(ResponseDiskCache.CHAT_FLAIR, ChatFlair.Wire.class))) {
+				repaintFlair();
+			}
 		}
 		long at = now();
 		if (at - chatFlairFetchedAt < CHAT_FLAIR_EVERY_MS) {
 			return;
 		}
 		chatFlairFetchedAt = at;
-		chatFlair.adopt(apiClient.fetchChatFlair());
-		// The chat input ("Name: *") was drawn at login, before the list arrived, and is only redrawn on
-		// the next keystroke: paint it now instead.
-		if (!chatFlair.isEmpty()) {
-			clientThread.invokeLater(this::flairChatInput);
+		chatFlairSync.sync();
+	}
+
+	/** The list moved: repaint now, save a moment later (a burst is one write), off the client thread. */
+	private void chatFlairChanged() {
+		repaintFlair();
+		ScheduledExecutorService ex = executor;
+		ResponseDiskCache rc = responseCache;
+		if (ex == null || rc == null) {
+			return;
 		}
+		synchronized (chatFlairSync) {
+			if (chatFlairSave == null || chatFlairSave.isDone()) {
+				chatFlairSave = ex.schedule(() -> apiClient.interactiveExecutor().execute(
+						() -> rc.storeShared(ResponseDiskCache.CHAT_FLAIR, chatFlair.toWire())), 5, TimeUnit.SECONDS);
+			}
+		}
+	}
+
+	private void repaintFlair() {
+		// The chat input and the side lists were drawn before the list changed and are only redrawn
+		// on the game's next rebuild: paint them now. The panel's "Tracking" name too.
+		clientThread.invokeLater(() -> {
+			flairChatInput();
+			flairNameLists();
+		});
+		AnvilSidebarPanel panel = sidebarPanel;
+		if (panel != null) {
+			panel.flairChanged();
+		}
+	}
+
+	/** The panel's tracked name: its Supporter look, or null. */
+	ChatFlair.Entry flairOf(String rsn) {
+		return chatFlair.entry(rsn);
 	}
 
 	/** Client thread (onChatMessage): paint a Supporter's name before the line is drawn. */
@@ -7616,6 +7674,17 @@ public class AnvilPlugin extends Plugin {
 			refreshLook();
 			return;
 		}
+		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
+		if ("flair".equals(m.get("t").getAsString()) || "hello".equals(m.get("t").getAsString())) {
+			if (ChatFlairSync.wanted(config.supporterChatFlair(), apiClient.isConfigured(), pluginConfig, apiClient::siteAdvertises)) {
+				if ("hello".equals(m.get("t").getAsString())) {
+					chatFlairSync.soon();
+				} else {
+					chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));
+				}
+			}
+			return;
+		}
 		if (m.get("t").getAsString().startsWith("rows")) {
 			// Panel rows (the Feed tab's lists): never the chatbox, never capped — the list batches them.
 			AnvilSidebarPanel panel = sidebarPanel;
@@ -7731,6 +7800,7 @@ public class AnvilPlugin extends Plugin {
 		try {
 			refreshConfigLocked();
 			syncPush();
+			safely("chat flair", this::maybeRefreshChatFlair);
 		} finally {
 			lastConfigAttemptAt = now();
 			configFetchLock.unlock();
@@ -7755,7 +7825,6 @@ public class AnvilPlugin extends Plugin {
 			noteConnectionOk();
 			adoptResolvedClan(fresh);
 			maybeRefreshChatPatterns(fresh);
-			maybeRefreshChatFlair(fresh);
 
 			// Token validated but the caller has no active event right now (server
 			// returns event: null + noActiveEvent: true). Clear local state so tracking

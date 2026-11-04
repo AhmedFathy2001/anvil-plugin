@@ -142,6 +142,9 @@ public class AnvilSidebarPanel extends PluginPanel
 	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
 	// tracking line for that character for good.
 	private final JLabel accountLabel = small("", MUTED);
+	/** "Tracking" + the tracked name in its Supporter colours (ChatFlair), swapped as the look changes. */
+	private final JPanel accountLine = new JPanel();
+	private JLabel accountName;
 	private final JLabel accountLink = small("", ColorScheme.BRAND_ORANGE);
 	private final JLabel accountStatus = small("", MUTED);
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
@@ -254,7 +257,10 @@ public class AnvilSidebarPanel extends PluginPanel
 		accountActions.add(accountMenuLink, BorderLayout.EAST);
 		accountRowPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-		accountRowPanel.add(accountLabel, BorderLayout.CENTER);
+		accountLine.setLayout(new BoxLayout(accountLine, BoxLayout.X_AXIS));
+		accountLine.setOpaque(false);
+		accountLine.add(accountLabel);
+		accountRowPanel.add(accountLine, BorderLayout.CENTER);
 		accountRowPanel.add(accountActions, BorderLayout.EAST);
 		accountRowPanel.add(accountStatus, BorderLayout.SOUTH);
 		left(accountRowPanel).setVisible(false);
@@ -1072,7 +1078,8 @@ public class AnvilSidebarPanel extends PluginPanel
 				accountLink.setVisible(true);
 				break;
 			default:
-				setAccountLabel("Tracking <font color='#ffffff'><b>" + name + "</b></font>", "Tracking " + row.rsn + " for your Anvil account.", false);
+				setAccountLabel("Tracking&nbsp;", "Tracking " + row.rsn + " for your Anvil account.", false);
+				showAccountName(row.rsn);
 				// Everyday state: nothing to decide, so the action lives in the Account menu.
 				accountLink.setVisible(false);
 				break;
@@ -1127,6 +1134,47 @@ public class AnvilSidebarPanel extends PluginPanel
 		}));
 	}
 
+	/** The Supporter list moved: the tracked name's colours may have. Any thread. */
+	void flairChanged()
+	{
+		SwingUtilities.invokeLater(this::refreshAccountRow);
+	}
+
+	/**
+	 * The tracked name after "Tracking": bold, in its Supporter look when it has one (a gradient, moving
+	 * for a Patron, with the star), else plain white.
+	 */
+	private void showAccountName(String rsn)
+	{
+		ChatFlair.Entry e = dataSource.flairOf(rsn);
+		java.util.List<Color> stops = new java.util.ArrayList<>();
+		for (String g : e == null || e.g == null ? java.util.Collections.<String>emptyList() : e.g)
+		{
+			if (stops.size() < 4)
+			{
+				stops.add(Ui.teamColor(g, Color.WHITE));
+			}
+		}
+		boolean star = e != null && Boolean.TRUE.equals(e.s);
+		JLabel l = stops.size() >= 2 ? new GradientLabel(stops.toArray(new Color[0]), star) : new JLabel();
+		l.setText(rsn);
+		l.setFont(accountLabel.getFont().deriveFont(Font.BOLD));
+		l.setForeground(e == null ? Color.WHITE : Ui.teamColor(e.c, Color.WHITE));
+		l.setToolTipText(accountLabel.getToolTipText());
+		if (star)
+		{
+			l.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 10));
+			l.setIconTextGap(2);
+			if (l instanceof GradientLabel)
+			{
+				((GradientLabel) l).setTintIcon(true);
+			}
+		}
+		accountName = l;
+		accountLine.add(l);
+		accountLine.revalidate();
+	}
+
 	/** Room the label leaves for the link (and ⋯) to its right. */
 	private static final int ACCOUNT_LINK_ROOM_PX = 72;
 
@@ -1136,6 +1184,11 @@ public class AnvilSidebarPanel extends PluginPanel
 	 */
 	private void setAccountLabel(String html, String tooltip, boolean wrap)
 	{
+		if (accountName != null)
+		{
+			accountLine.remove(accountName);
+			accountName = null;
+		}
 		accountLabel.setText(wrap
 			? wrapHtml(html, STATUS_WRAP_PX - ACCOUNT_LINK_ROOM_PX)
 			: "<html><nobr>" + html + "</nobr></html>");
