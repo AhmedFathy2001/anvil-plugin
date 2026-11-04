@@ -1588,6 +1588,7 @@ public class AnvilPlugin extends Plugin {
 
 	@Override
 	protected void shutDown() {
+		clientThread.invokeLater(this::unflairChat);
 		overlayManager.remove(overlay);
 		overlayManager.remove(clogBanner);
 		if (chatFlairTooltip != null) {
@@ -1896,6 +1897,13 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The plugin's own bookkeeping (recap counters, sync state, nudges) is persisted from the
 		// client thread, often several keys at once — none of it changes what the site sends back.
+		// Colours off (or the plugin about to stop): show the game's own plain text at once, rather
+		// than whenever the game next redraws the chat (the next Enter or private message).
+		if (("supporterChatFlair".equals(event.getKey()) && !config.supporterChatFlair())
+				|| ("menuNameFlair".equals(event.getKey()) && !config.menuNameFlair())) {
+			clientThread.invokeLater(this::unflairChat);
+			return;
+		}
 		if ("animatedNames".equals(event.getKey())) {
 			GradientLabel.animate = config.animatedNames();
 			return;
@@ -7809,6 +7817,29 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/** The chat input as the game wrote it, and as we painted it (unflairChat puts the first back). */
+	private String inputPlain;
+	private String inputPainted;
+
+	/**
+	 * Client thread: undo every name paint now. The chat input goes back to the game's text; the
+	 * chatbox and split private chat are rebuilt by the game (refreshChat), which writes them plain.
+	 */
+	private void unflairChat() {
+		Widget input = client.getWidget(InterfaceID.Chatbox.INPUT);
+		if (input != null && inputPlain != null && inputPainted != null && inputPainted.equals(input.getText())) {
+			input.setText(inputPlain);
+		}
+		inputPlain = null;
+		inputPainted = null;
+		try {
+			// The same call RuneLite's own chat filter uses to redraw the chatbox and split private chat.
+			client.refreshChat();
+		} catch (RuntimeException ignored) {
+			// Not logged in / no chat yet: nothing painted to undo.
+		}
+	}
+
 	private void flairChatInput() {
 		if (!config.supporterChatFlair() || chatFlair.isEmpty() || client.getLocalPlayer() == null) {
 			return;
@@ -7833,7 +7864,9 @@ public class AnvilPlugin extends Plugin {
 		}
 		String painted = chatFlair.decorate(m.group(1) + me, chatStar());
 		if (painted != null) {
-			input.setText(ChatPalette.readable(painted, opaqueChatbox()) + ":" + text.substring(m.end()));
+			inputPlain = text;
+			inputPainted = ChatPalette.readable(painted, opaqueChatbox()) + ":" + text.substring(m.end());
+			input.setText(inputPainted);
 		}
 	}
 
