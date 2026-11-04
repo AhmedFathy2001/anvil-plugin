@@ -9235,7 +9235,7 @@ public class AnvilPlugin extends Plugin {
 	 * sent. Never in PvP areas: there a colour must not single anyone out.
 	 */
 	@Subscribe(priority = -1)
-	public void onMenuEntryAddedFlair(MenuEntryAdded event) {
+	public void onMenuEntryAdded(MenuEntryAdded event) {
 		if (!config.menuNameFlair() || chatFlair.isEmpty()) {
 			return;
 		}
