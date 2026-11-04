@@ -588,6 +588,8 @@ public class BingoApiClient
 		public String error;
 		public String reason;
 		public boolean alreadyOpen;
+		/** What to tell the player (e.g. the XP check that starts an ownership claim). Null on older sites. */
+		public String message;
 	}
 
 	/**

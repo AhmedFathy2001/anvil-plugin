@@ -321,6 +321,16 @@ public class AnvilSidebarDataSource
 		});
 	}
 
+	/**
+	 * Is the place the site answered for a creator space (a streamer's events, no in-game clan)? The
+	 * site sends {@code activeClan.kind = "creator"} for one; older sites send nothing, which reads as a clan.
+	 */
+	public boolean activeIsSpace()
+	{
+		PluginConfigResponse cfg = configSupplier.get();
+		return cfg != null && cfg.activeClan != null && "creator".equals(cfg.activeClan.kind);
+	}
+
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	public List<PluginConfigResponse.ClanRef> clans()
 	{

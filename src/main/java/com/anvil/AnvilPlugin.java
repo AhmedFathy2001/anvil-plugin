@@ -3100,6 +3100,11 @@ public class AnvilPlugin extends Plugin {
 			case DISPUTE: {
 				AccountActionResult r = apiClient.postAccountAction("dispute");
 				if (r.ok) {
+					// The site says what happens next (an XP check to prove it's yours, or that staff have
+					// it); an older site sends nothing, so keep the old lines for that.
+					if (r.message != null && !r.message.trim().isEmpty()) {
+						return r.message.trim();
+					}
 					return r.alreadyOpen
 							? "Already with Anvil staff — they'll sort it out."
 							: "Sent to Anvil staff. They'll check and move it to you if it's yours.";

@@ -342,6 +342,23 @@ public class AnvilSidebarPanel extends PluginPanel
 		return tabStrip;
 	}
 
+	/** A creator space is not a clan: its tab says "Space". Follows the config on every refresh. EDT. */
+	private void relabelClanTab()
+	{
+		JLabel label = tabLabels.get(Tab.CLAN);
+		if (label == null)
+		{
+			return;
+		}
+		boolean space = dataSource.activeIsSpace();
+		String text = space ? "Space" : "Clan";
+		if (!text.equals(label.getText()))
+		{
+			label.setText(text);
+			label.setToolTipText(space ? "This creator's space and events" : null);
+		}
+	}
+
 	/** Selected: white with an orange underline. The rest: grey over a hairline, like WOM's tabs. */
 	private void styleTabs()
 	{
@@ -447,6 +464,7 @@ public class AnvilSidebarPanel extends PluginPanel
 	/** Re-checked on every render: the capability arrives with the config, and sign-out takes it away. */
 	private void updateTabStrip()
 	{
+		relabelClanTab();
 		styleLookupModes();
 		boolean on = playerCardsOn();
 		if (on != tabsOn)
