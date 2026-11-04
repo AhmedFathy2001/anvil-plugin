@@ -890,14 +890,38 @@ final class FeedList extends JPanel
 			{
 				y = 6;
 				int x = PAD_X;
-				// The name in its team's colour; only a role (HOST / MOD / TEAM-only) is spelled out beside it.
+				// A name in its team's colour; a Supporter keeps their own colour or gradient (their perk) with
+				// a dot of their team's colour in front. Only a role (HOST / MOD / TEAM-only) is spelled out.
 				String tag = Ui.fontSafe(UiView.str(r, "tag"));
 				boolean role = isRole(tag);
+				boolean team = !role && !tag.isEmpty();
+				Color[] grad = stops(r);
+				String whoColor = UiView.str(r, "whoColor");
+				boolean supporter = grad != null || (!whoColor.isEmpty() && !"white".equals(whoColor));
+				if (supporter && team)
+				{
+					g.setColor(UiView.color(UiView.str(r, "tagColor"), MUTED));
+					g.fillOval(x, y + fm.getAscent() - 7, 6, 6);
+					x += 10;
+				}
 				g.setFont(BOLD);
-				g.setColor(role || tag.isEmpty() ? UiView.color(UiView.str(r, "whoColor"), Color.WHITE) : UiView.color(UiView.str(r, "tagColor"), Color.WHITE));
 				String who = Ui.fontSafe(UiView.str(r, "who"));
+				int nameW = g.getFontMetrics().stringWidth(who);
+				if (grad != null)
+				{
+					float[] at = new float[grad.length];
+					for (int i = 0; i < grad.length; i++)
+					{
+						at[i] = (float) i / (grad.length - 1);
+					}
+					g.setPaint(new java.awt.LinearGradientPaint(x, 0, x + Math.max(1, nameW), 0, at, grad));
+				}
+				else
+				{
+					g.setColor(supporter || !team ? UiView.color(whoColor, Color.WHITE) : UiView.color(UiView.str(r, "tagColor"), Color.WHITE));
+				}
 				g.drawString(who, x, y + fm.getAscent());
-				x += g.getFontMetrics().stringWidth(who) + 6;
+				x += nameW + 6;
 				g.setFont(SMALL);
 				if (role)
 				{
@@ -917,6 +941,26 @@ final class FeedList extends JPanel
 				y += fm.getHeight();
 			}
 		}
+	}
+
+	/** A Supporter's name gradient ({@code grad}: 2+ "#rrggbb"), or null. */
+	static Color[] stops(JsonObject r)
+	{
+		if (!r.has("grad") || !r.get("grad").isJsonArray() || r.getAsJsonArray("grad").size() < 2)
+		{
+			return null;
+		}
+		List<Color> out = new ArrayList<>();
+		for (JsonElement e : r.getAsJsonArray("grad"))
+		{
+			String hex = ChatPalette.nameColor(e.isJsonPrimitive() ? e.getAsString() : null);
+			if (hex == null)
+			{
+				return null;
+			}
+			out.add(new Color(Integer.parseInt(hex, 16)));
+		}
+		return out.toArray(new Color[0]);
 	}
 
 	/** HOST / MOD / TEAM: a role worth spelling out. Anything else in a row's tag is its team's name. */

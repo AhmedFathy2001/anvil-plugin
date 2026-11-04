@@ -269,4 +269,16 @@ public class FeedListTest
 		assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaa", String.join("", broken));
 		assertEquals(java.util.Collections.singletonList(""), FeedList.wrap("", fm, w));
 	}
+
+	@Test
+	public void aSupportersGradientIsReadAndBadStopsAreRefused()
+	{
+		JsonObject ok = json("{\"grad\":[\"#ff9a5a\",\"#e05ad0\",\"#7a8cff\"]}");
+		assertEquals(3, FeedList.stops(ok).length);
+		assertNull(FeedList.stops(json("{\"grad\":[\"#ff9a5a\"]}")));
+		assertNull(FeedList.stops(json("{\"grad\":[\"#ff9a5a\",\"red\"]}")));
+		assertNull(FeedList.stops(json("{}")));
+		assertTrue(FeedList.isRole("HOST"));
+		assertFalse(FeedList.isRole("Ruby"));
+	}
 }
