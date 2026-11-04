@@ -243,6 +243,8 @@ public class AnvilPlugin extends Plugin {
 
 	// Item ID → tracked drops lookup for O(1) loot matching
 	private volatile Map<Integer, List<TrackedDrop>> itemDropIndex = Collections.emptyMap();
+	// Tiles of the player's OTHER boards (TrackedTile.board): their credit goes to that board.
+	private volatile Map<Integer, Board> tileBoards = Collections.emptyMap();
 
 	// Item IDs whose drop ALWAYS posts to the rare-drop channel regardless of value/rarity. The server
 	// resolves pluginConfig.alwaysNotifyItems (names) to ids so matching is by ID — not a fragile name
@@ -5153,14 +5155,18 @@ public class AnvilPlugin extends Plugin {
 				|| pluginConfig.player == null) {
 			return;
 		}
-		final int eventId = pluginConfig.event.id;
-		final int teamId = pluginConfig.team.id;
-		final int playerId = pluginConfig.player.id;
+		final Board board = tileBoards.get(tileId);
+		final int eventId = board != null ? board.eventId : pluginConfig.event.id;
+		final int teamId = board != null ? board.teamId : pluginConfig.team.id;
+		final int playerId = board != null ? board.playerId : pluginConfig.player.id;
 		submit(() -> {
 			try {
-				warnStartProofBeforeCredit();
+				if (board == null) {
+					warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
+				}
 				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, inferred, null);
+						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, inferred, null,
+						board != null ? board.clan : null);
 				log.debug("{} ping sent: '{}' ×{}", noun, label, amount);
 				refreshConfig();
 			} catch (IOException e) {
@@ -5548,9 +5554,10 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		noteLocalProgress(tileId); // "Active now": this account credited this tile (drop/kill/timed/diary/CA/...)
-		final int eventId = pluginConfig.event.id;
-		final int teamId = pluginConfig.team.id;
-		final int playerId = pluginConfig.player.id;
+		final Board board = tileBoards.get(tileId);
+		final int eventId = board != null ? board.eventId : pluginConfig.event.id;
+		final int teamId = board != null ? board.teamId : pluginConfig.team.id;
+		final int playerId = board != null ? board.playerId : pluginConfig.player.id;
 		final String capturedRsn = getLocalPlayerName();
 		// The site draws the banner from these (lib/proofStamp), so the upload stays a clean frame.
 		final JsonObject proof = new JsonObject();
@@ -5574,6 +5581,7 @@ public class AnvilPlugin extends Plugin {
 				byte[] png = jpeg(buffered);
 				PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
 				pending.proof = proof;
+				pending.clan = board != null ? board.clan : null;
 				pending.itemId = itemId;
 				pending.durationSeconds = durationSeconds;
 				pending.inferred = inferred;
@@ -6186,18 +6194,20 @@ public class AnvilPlugin extends Plugin {
 		try {
 			String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + (BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png");
 
-			warnStartProofBeforeCredit();
+			if (pending.clan == null) {
+				warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
+			}
 			log.info("Uploading screenshot for tile '{}'...", pending.label);
 			String imageUrl = apiClient.uploadImage(pngBytes, filename);
 
 			if (pending.durationSeconds != null) {
 				log.info("Submitting timed clear for tile '{}'...", pending.label);
 				pending.completedNow = apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
-						imageUrl, pending.note, pending.playerId, pending.proof);
+						imageUrl, pending.note, pending.playerId, pending.proof, pending.clan);
 			} else {
 				log.info("Submitting drop for tile '{}'...", pending.label);
 				pending.completedNow = apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
-						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof);
+						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof, pending.clan);
 			}
 
 			log.info("Submission '{}' sent successfully!", pending.label);
@@ -7822,6 +7832,7 @@ public class AnvilPlugin extends Plugin {
 	private void rebuildItemDropIndex() {
 		PluginConfigResponse cfg = pluginConfig;
 		boolean has = cfg != null;
+		tileBoards = has ? cfg.tagBoards() : Collections.emptyMap();
 		itemDropIndex = indexBy(has ? cfg.trackedDrops : null, d -> d.itemIds, id -> id);
 		Set<Integer> notable = has && cfg.alwaysNotifyItemIds != null ? new HashSet<>(cfg.alwaysNotifyItemIds) : new HashSet<>();
 		notable.remove(null);
