@@ -890,10 +890,12 @@ final class FeedList extends JPanel
 				y = 6;
 				int x = PAD_X;
 				g.setFont(BOLD);
-				g.setColor(mine ? ColorScheme.BRAND_ORANGE : UiView.color(UiView.str(r, "whoColor"), Color.WHITE));
 				String who = Ui.fontSafe(UiView.str(r, "who"));
+				int whoW = g.getFontMetrics().stringWidth(who);
+				// Your lines are marked by the background; the name keeps your Supporter colours.
+				g.setPaint(namePaint(r, mine, x, whoW));
 				g.drawString(who, x, y + fm.getAscent());
-				x += g.getFontMetrics().stringWidth(who) + 6;
+				x += whoW + 6;
 				String tag = Ui.fontSafe(UiView.str(r, "tag"));
 				g.setFont(SMALL);
 				if (!tag.isEmpty())
@@ -1021,6 +1023,7 @@ final class FeedList extends JPanel
 			icon.setVisible(ic != null);
 
 			String who = UiView.str(r, "who");
+			Color whoInk = UiView.color(UiView.str(r, "whoColor"), Color.WHITE);
 			String tag = UiView.str(r, "tag");
 			Color tagInk = UiView.color(UiView.str(r, "tagColor"), MUTED);
 			String when = Ui.ago(UiView.str(r, "at")).replace(" ago", "");
@@ -1063,36 +1066,35 @@ final class FeedList extends JPanel
 		}
 	}
 
-	/** Each letter of {@code text} in its own colour along 2–4 hex stops; null with fewer than two. */
-	static String gradientHtml(String text, com.google.gson.JsonArray grad)
+	/**
+	 * How a chat name is painted: a Supporter's gradient across it (2–4 stops from the site), else
+	 * their colour, else orange for your own line and white for anyone else's.
+	 */
+	static java.awt.Paint namePaint(JsonObject r, boolean mine, float x, float width)
 	{
-		java.util.List<int[]> rgb = new java.util.ArrayList<>();
-		for (com.google.gson.JsonElement e : grad)
+		if (r.has("grad") && r.get("grad").isJsonArray() && width > 0)
 		{
-			String hex = e.isJsonPrimitive() ? ChatPalette.nameColor(e.getAsString()) : null;
-			if (hex != null && rgb.size() < 4)
+			List<Color> stops = new java.util.ArrayList<>();
+			for (com.google.gson.JsonElement e : r.getAsJsonArray("grad"))
 			{
-				int v = Integer.parseInt(hex, 16);
-				rgb.add(new int[]{v >> 16 & 0xff, v >> 8 & 0xff, v & 0xff});
+				String hex = e.isJsonPrimitive() ? ChatPalette.nameColor(e.getAsString()) : null;
+				if (hex != null && stops.size() < 4)
+				{
+					stops.add(new Color(Integer.parseInt(hex, 16)));
+				}
+			}
+			if (stops.size() >= 2)
+			{
+				float[] at = new float[stops.size()];
+				for (int i = 0; i < at.length; i++)
+				{
+					at[i] = (float) i / (at.length - 1);
+				}
+				return new java.awt.LinearGradientPaint(x, 0, x + width, 0, at, stops.toArray(new Color[0]));
 			}
 		}
-		if (rgb.size() < 2 || text == null || text.isEmpty())
-		{
-			return null;
-		}
-		StringBuilder out = new StringBuilder();
-		int n = text.length();
-		for (int i = 0; i < n; i++)
-		{
-			double t = n == 1 ? 0 : (double) i / (n - 1) * (rgb.size() - 1);
-			int seg = Math.min(rgb.size() - 2, (int) t);
-			double f = t - seg;
-			int[] a = rgb.get(seg);
-			int[] b = rgb.get(seg + 1);
-			out.append(String.format("<span style='color:#%02x%02x%02x'>", (int) Math.round(a[0] + (b[0] - a[0]) * f),
-				(int) Math.round(a[1] + (b[1] - a[1]) * f), (int) Math.round(a[2] + (b[2] - a[2]) * f)))
-				.append(esc(String.valueOf(text.charAt(i)))).append("</span>");
-		}
-		return out.toString();
+		String c = UiView.str(r, "whoColor");
+		Color fallback = mine ? ColorScheme.BRAND_ORANGE : Color.WHITE;
+		return c.isEmpty() ? fallback : UiView.color(c, fallback);
 	}
 }

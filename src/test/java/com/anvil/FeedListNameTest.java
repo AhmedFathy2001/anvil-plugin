@@ -1,31 +1,36 @@
 package com.anvil;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import java.awt.Color;
+import java.awt.LinearGradientPaint;
+import net.runelite.client.ui.ColorScheme;
 import org.junit.Test;
 
 public class FeedListNameTest
 {
-	private static JsonArray stops(String... s)
-	{
-		JsonArray a = new JsonArray();
-		for (String x : s)
-		{
-			a.add(x);
-		}
-		return a;
-	}
-
 	@Test
-	public void aSupporterNameIsDrawnLetterByLetter()
+	public void aSupporterNameKeepsItsColoursOnYourOwnLine()
 	{
-		assertEquals("<span style='color:#ff0000'>A</span><span style='color:#800080'>b</span><span style='color:#0000ff'>c</span>",
-			FeedList.gradientHtml("Abc", stops("#ff0000", "#0000ff")));
-		assertEquals("letters are escaped", "<span style='color:#ff0000'>&lt;</span><span style='color:#0000ff'>b</span>",
-			FeedList.gradientHtml("<b", stops("#ff0000", "#0000ff")));
-		assertNull(FeedList.gradientHtml("Abc", stops("#ff0000")));
-		assertNull(FeedList.gradientHtml("Abc", stops("#ff0000", "nope")));
+		JsonObject plain = new JsonObject();
+		assertEquals("your line, no flair: orange", ColorScheme.BRAND_ORANGE, FeedList.namePaint(plain, true, 0, 50));
+		assertEquals(Color.WHITE, FeedList.namePaint(plain, false, 0, 50));
+
+		JsonObject gold = new JsonObject();
+		gold.addProperty("whoColor", "#ffd35c");
+		assertEquals("your line, a Supporter: their colour", new Color(0xffd35c), FeedList.namePaint(gold, true, 0, 50));
+
+		JsonObject patron = new JsonObject();
+		patron.addProperty("whoColor", "#ff7ab8");
+		JsonArray grad = new JsonArray();
+		grad.add("#ffd27a");
+		grad.add("#ff7ab8");
+		grad.add("#7ae0ff");
+		patron.add("grad", grad);
+		assertTrue(FeedList.namePaint(patron, true, 0, 50) instanceof LinearGradientPaint);
+		assertEquals(3, ((LinearGradientPaint) FeedList.namePaint(patron, true, 0, 50)).getColors().length);
 	}
 }
