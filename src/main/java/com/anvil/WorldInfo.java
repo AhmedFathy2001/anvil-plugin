@@ -31,7 +31,11 @@ final class WorldInfo
 		WorldType.SEASONAL, WorldType.DEADMAN, WorldType.HARDCORE_MAIN, WorldType.TOURNAMENT_WORLD,
 		WorldType.BETA_WORLD, WorldType.FRESH_START_WORLD));
 
-	/** Longest activity line sent. World-list activities are short; this only bounds a surprise. */
+	/** Minigame worlds with a preset loadout or no save: their levels never post. */
+	static final Set<WorldType> PRESET = Collections.unmodifiableSet(EnumSet.of(
+		WorldType.PVP_ARENA, WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING, WorldType.NOSAVE_MODE));
+
+		/** Longest activity line sent. World-list activities are short; this only bounds a surprise. */
 	static final int MAX_ACTIVITY = 64;
 
 	/** The world's flags as a stable, comma-separated list of names ("DEADMAN,MEMBERS"); null for none. */
@@ -84,5 +88,17 @@ final class WorldInfo
 	static boolean separateSave(Collection<WorldType> types)
 	{
 		return types != null && !Collections.disjoint(types, SEPARATE_SAVE);
+	}
+
+	/** May a level-up post here? The main game, or a separate save the site sent level rules for. */
+	static boolean levelsPost(Collection<WorldType> types, boolean modeRules)
+	{
+		return (types == null || Collections.disjoint(types, PRESET)) && (!separateSave(types) || modeRules);
+	}
+
+	/** A drop gate with a mode's own threshold folded in: off stays off, else the looser of the two. */
+	static long modeGate(long main, long mode)
+	{
+		return main <= 0 || mode <= 0 ? main : Math.min(main, mode);
 	}
 }

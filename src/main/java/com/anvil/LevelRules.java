@@ -50,10 +50,15 @@ public class LevelRules
 
 	/**
 	 * The sets this site asks for, with the clan's dropped when it has no channel for level posts
-	 * (the player's own webhooks can still want one — the site routes it).
+	 * (the player's own webhooks can still want one — the site routes it). On a game-mode world
+	 * ({@code mode} non-null) only the mode's own rules: its stats are a separate character.
 	 */
-	static Sets resolve(PluginConfigResponse cfg, boolean clanChannel)
+	static Sets resolve(PluginConfigResponse cfg, boolean clanChannel, PluginConfigResponse.ModeThresholds mode)
 	{
+		if (mode != null)
+		{
+			return new Sets(clanChannel ? mode.levelRules : null, null);
+		}
 		Sets s = cfg != null && cfg.levelRules != null && cfg.serverSupports("level-rules")
 			? cfg.levelRules : new Sets(LEGACY_CLAN, null);
 		return new Sets(clanChannel ? s.clan : null, s.personal);
