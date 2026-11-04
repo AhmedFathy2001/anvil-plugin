@@ -6956,9 +6956,13 @@ public class AnvilPlugin extends Plugin {
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
 		for (CompletedTile t : newlyDone) {
-			String by = (t.completedBy != null && !t.completedBy.trim().isEmpty())
-					? " — by " + t.completedBy.trim() : "";
-			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + by + "!");
+			String who = t.completedBy != null ? t.completedBy.trim() : "";
+			if (who.isEmpty()) {
+				sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + t.label + "!");
+			} else {
+				// The finisher leads the line, so a Supporter's name can wear their colours and star.
+				sendChatLine("Anvil \u00B7 Tile complete", "finished " + t.label + "!", ChatPalette.Tone.DONE, flairedName(who));
+			}
 		}
 	}
 
@@ -10781,6 +10785,19 @@ public class AnvilPlugin extends Plugin {
 
 	private void sendChatMessage(String message) {
 		sendChatLine("Anvil", message, ChatPalette.Tone.INFO, null);
+	}
+
+	/**
+	 * A player's name for the start of an Anvil line: their Supporter colours, gradient and star from
+	 * the site's list (ChatFlair) when they have them and the flair setting is on, else plain.
+	 */
+	private String flairedName(String name) {
+		String safe = clean(name);
+		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
+			return safe;
+		}
+		String painted = chatFlair.decorate(safe, chatStar());
+		return painted != null ? painted : safe;
 	}
 
 	private void sendChatMessage(ChatPalette.Tone tone, String message) {
