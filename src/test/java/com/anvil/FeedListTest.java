@@ -254,4 +254,19 @@ public class FeedListTest
 		assertEquals("the oldest went from the top", "c11", f.rowId(0));
 		assertEquals("c30", f.rowId(19));
 	}
+
+	@Test
+	public void wrapsWordsToTheWidthAndBreaksAWordTooLongForALine()
+	{
+		java.awt.FontMetrics fm = new javax.swing.JLabel().getFontMetrics(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
+		int w = fm.stringWidth("abcdefghij");
+		assertEquals(java.util.Arrays.asList("gz on the", "fang"), FeedList.wrap("gz on the fang", fm, fm.stringWidth("gz on the")));
+		java.util.List<String> broken = FeedList.wrap("aaaaaaaaaaaaaaaaaaaaaaaaa", fm, w);
+		for (String line : broken)
+		{
+			assertTrue(fm.stringWidth(line) <= w);
+		}
+		assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaa", String.join("", broken));
+		assertEquals(java.util.Collections.singletonList(""), FeedList.wrap("", fm, w));
+	}
 }
