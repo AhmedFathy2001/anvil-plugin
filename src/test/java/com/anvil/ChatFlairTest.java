@@ -52,4 +52,31 @@ public class ChatFlairTest
 		assertNull(f.decorate("<col=ff0000>Ab</col>", null));
 		assertNull(f.decorate("Cd", null));
 	}
+
+	/** Six pixels a visible character, an icon twelve; tags take no room. */
+	private static int width(String raw)
+	{
+		String icons = raw.replaceAll("<img=\\d+>", "\u0001");
+		int w = 0;
+		for (char ch : icons.replaceAll("<[^>]*>", "").toCharArray())
+		{
+			w += ch == '\u0001' ? 12 : 6;
+		}
+		return w;
+	}
+
+	@Test
+	public void hoverOnAPaintedNameInsideALineGivesTheTier()
+	{
+		ChatFlair f = with(entry("drenvox", "#ff7ab8", true, "#ffd27a", "#ff7ab8"));
+		String line = "<col=7a5600>[Anvil]</col> <col=006a00>Tile complete: 1 lap of seers — by </col><img=5>"
+			+ f.decorate("Drenvox", "") + "<col=006a00>!</col>";
+		int nameStart = width(line.substring(0, line.indexOf("<img=5>"))) + 12;
+		assertEquals("Anvil Patron", f.tierInLine(line, nameStart + 3, ChatFlairTest::width));
+		assertEquals("Anvil Patron", f.tierInLine(line, nameStart + 7 * 6 - 1, ChatFlairTest::width));
+		assertNull("before the name: the rest of the line", f.tierInLine(line, nameStart - 20, ChatFlairTest::width));
+		assertNull("after it", f.tierInLine(line, nameStart + 7 * 6 + 1, ChatFlairTest::width));
+		// Someone typing the name is not flair.
+		assertNull(f.tierInLine("<col=0000ff>drenvox is so lucky</col>".replace("<col=0000ff>", ""), 3, ChatFlairTest::width));
+	}
 }

@@ -23,6 +23,8 @@ final class ChatFlairTooltip extends Overlay
 	private final TooltipManager tooltips;
 	private final ChatFlair flair;
 	private final BooleanSupplier on;
+	/** One chat line's height. */
+	private static final int LINE_H = 14;
 
 	ChatFlairTooltip(Client client, TooltipManager tooltips, ChatFlair flair, BooleanSupplier on)
 	{
@@ -57,6 +59,14 @@ final class ChatFlairTooltip extends Overlay
 			if (w != null && !w.isHidden() && w.getBounds().contains(mouse.getX(), mouse.getY()))
 			{
 				String label = flair.tierOfSender(w.getText());
+				if (label == null && w.getFont() != null && w.getCanvasLocation() != null
+					&& mouse.getY() - w.getCanvasLocation().getY() < LINE_H)
+				{
+					// A name inside the line (an Anvil line naming its player): only over the name itself, and
+					// only on the first line of a wrapped one, where the measured position holds.
+					net.runelite.api.FontTypeFace font = w.getFont();
+					label = flair.tierInLine(w.getText(), mouse.getX() - w.getCanvasLocation().getX(), font::getTextWidth);
+				}
 				if (label != null)
 				{
 					tooltips.add(new Tooltip(label));
