@@ -898,8 +898,7 @@ final class FeedList extends JPanel
 			this.r = row;
 			this.mine = mine;
 			JsonObject prev = index > 0 ? model.getElementAt(index - 1) : null;
-			grouped = prev != null && UiView.str(row, "who").equals(UiView.str(prev, "who"))
-				&& UiView.str(row, "tag").equals(UiView.str(prev, "tag"));
+			grouped = prev != null && sameRun(prev, row);
 			// A few px spare: lines are measured off-screen and painted on it, and the two can round apart.
 			int w = Math.max(80, width - PAD_X * 2 - 6);
 			if (w != wrapWidth)
@@ -1166,6 +1165,42 @@ final class FeedList extends JPanel
 				gz.setVisible(r.has("value"));
 			}
 			return this;
+		}
+	}
+
+	/** A line joins the one before it (no name or time of its own) only from the same person within this. */
+	static final long RUN_GAP_MS = 5 * 60_000L;
+
+	/** Same person, same team tag, and close in time: a run shows its name and time once. */
+	static boolean sameRun(JsonObject prev, JsonObject row)
+	{
+		if (!UiView.str(row, "who").equals(UiView.str(prev, "who")) || !UiView.str(row, "tag").equals(UiView.str(prev, "tag")))
+		{
+			return false;
+		}
+		long a = millis(UiView.str(prev, "at"));
+		long b = millis(UiView.str(row, "at"));
+		return a > 0 && b > 0 && Math.abs(a - b) <= RUN_GAP_MS;
+	}
+
+	private static long millis(String at)
+	{
+		if (at == null || at.isEmpty())
+		{
+			return 0;
+		}
+		String iso = at.trim().replace(' ', 'T');
+		if (!iso.endsWith("Z") && !iso.matches(".*[+-]\\d\\d:\\d\\d$"))
+		{
+			iso = iso + "Z";
+		}
+		try
+		{
+			return java.time.Instant.parse(iso).toEpochMilli();
+		}
+		catch (RuntimeException e)
+		{
+			return 0;
 		}
 	}
 }
