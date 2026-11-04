@@ -281,4 +281,21 @@ public class FeedListTest
 		assertTrue(FeedList.isRole("HOST"));
 		assertFalse(FeedList.isRole("Ruby"));
 	}
+
+	@Test
+	public void aDeathRowsChipsReadAndClickRightToLeft()
+	{
+		java.awt.FontMetrics fm = new javax.swing.JLabel().getFontMetrics(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
+		com.google.gson.JsonArray reacts = json("{\"r\":[{\"kind\":\"sad\",\"label\":\"Sad\",\"n\":0},{\"kind\":\"sit\",\"label\":\"Sit\",\"n\":3,\"mine\":true}]}").getAsJsonArray("r");
+		assertEquals("Sad", FeedList.chipText(reacts.get(0).getAsJsonObject()));
+		assertEquals("Sit 3", FeedList.chipText(reacts.get(1).getAsJsonObject()));
+		String html = FeedList.reactsHtml(reacts);
+		assertTrue(html.contains(">Sad</font>") && html.contains(">Sit 3</font>"));
+		assertTrue("the viewer's own is lit", html.indexOf("Sit 3") > html.lastIndexOf(String.format("#%06x", net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getRGB() & 0xFFFFFF)));
+		int sit = fm.stringWidth("Sit 3");
+		assertEquals(1, FeedList.reactAt(reacts, fm, 2));
+		assertEquals(1, FeedList.reactAt(reacts, fm, sit - 1));
+		assertEquals(0, FeedList.reactAt(reacts, fm, sit + fm.stringWidth("   ") + 2));
+		assertEquals("left of every chip is the row itself", -1, FeedList.reactAt(reacts, fm, 400));
+	}
 }
