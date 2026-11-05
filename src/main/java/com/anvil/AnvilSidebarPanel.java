@@ -227,6 +227,10 @@ public class AnvilSidebarPanel extends PluginPanel
 
 		styleFlatButton(refreshButton, Color.WHITE);
 		refreshButton.addActionListener(e -> refresh(true));
+		// As wide as "Refreshing…" from the start, so the header doesn't shift while it works.
+		refreshButton.setText("Refreshing…");
+		refreshButton.setPreferredSize(refreshButton.getPreferredSize());
+		refreshButton.setText("Refresh");
 
 		JPanel titleRow = left(new JPanel(new BorderLayout()));
 		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1301,9 +1305,11 @@ public class AnvilSidebarPanel extends PluginPanel
 				{
 					renderSettings(); // admin rights and the sound list can change under it
 				}
-				else if (tab == Tab.FEED && manual)
+				else if (tab == Tab.FEED && manual && !feedView.refresh())
 				{
-					renderFeed(); // the Feed asks the site again; its live rows carry on from there
+					// The Feed asks the site again in place (its scope, pane and filter kept): blanking it to
+					// "Loading the feed…" first collapsed the tab, then it sprang back.
+					renderFeed();
 				}
 				showClan(manual);
 			});

@@ -165,8 +165,9 @@ final class UiView extends JPanel
 	/**
 	 * Ask again for what's on screen — the board moved. Each slot that was loaded since the view was
 	 * drawn asks for its latest; with none, the whole view does (nothing typed into it can be lost).
+	 * What's drawn stays until the answer lands, then swaps once. False when nothing was loaded yet.
 	 */
-	void refresh()
+	boolean refresh()
 	{
 		Map<String, Object[]> loads = new LinkedHashMap<>(lastLoads);
 		Object[] root = loads.remove("null");
@@ -175,6 +176,7 @@ final class UiView extends JPanel
 			fetch(null, (String) root[0], (Map<String, String>) root[1], true);
 		}
 		loads.forEach((place, l) -> fetch(place, (String) l[0], (Map<String, String>) l[1], true));
+		return root != null || !loads.isEmpty();
 	}
 
 	/** Show a line of text in place of everything, dropping any answer still on its way. */
