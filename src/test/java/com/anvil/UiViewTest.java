@@ -463,6 +463,21 @@ public class UiViewTest
 	}
 
 	@Test
+	public void aRefreshKeepsWhatsDrawnUntilTheAnswerLands()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		assertFalse("nothing loaded yet: the caller shows it instead", v.refresh());
+		v.show("feed", Collections.singletonMap("s", "clan:x"), "Loading the feed…");
+		host.pending.get(0).accept(view("{\"t\":\"text\",\"s\":\"Row 1\"}"));
+		assertTrue(v.refresh());
+		assertEquals("the same scope, asked again", "feed{s=clan:x}", host.loads.get(1));
+		assertEquals("no placeholder meanwhile", Collections.singletonList("Row 1"), texts(v));
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"Row 2\"}"));
+		assertEquals(Collections.singletonList("Row 2"), texts(v));
+	}
+
+	@Test
 	public void anOpenPaneSurvivesARefreshButNotGoingSomewhere() throws Exception
 	{
 		FakeHost host = new FakeHost();
