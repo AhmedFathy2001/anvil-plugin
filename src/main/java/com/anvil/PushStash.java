@@ -174,11 +174,9 @@ final class PushStash
 		try
 		{
 			DiskFiles.writeAtomic(f, gson.toJson(merged));
-			log.debug("Saved unsent pushes for later");
 		}
 		catch (IOException | RuntimeException e)
 		{
-			log.debug("Couldn't save unsent pushes: {}", e.getMessage());
 		}
 	}
 

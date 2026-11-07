@@ -205,7 +205,6 @@ final class NotifyOutbox
 			}
 			catch (IOException | RuntimeException e)
 			{
-				log.debug("Couldn't save notification for retry: {}", e.getMessage());
 				item.png = png; // keep it for this session at least
 			}
 		}
@@ -404,7 +403,6 @@ final class NotifyOutbox
 		}
 		catch (IOException | RuntimeException e)
 		{
-			log.debug("Couldn't update queued notification: {}", e.getMessage());
 		}
 	}
 

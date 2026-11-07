@@ -1401,7 +1401,6 @@ public class AnvilPlugin extends Plugin {
 						lastSentCaPoints = caNow;
 					}
 				} catch (IOException e) {
-					log.debug("Account progress push failed, retrying later: {}", e.getMessage());
 				}
 			});
 		});
@@ -1469,7 +1468,6 @@ public class AnvilPlugin extends Plugin {
 					lastSentGameClan = fingerprint;
 				} catch (IOException e) {
 					gameClanRetryAt = System.currentTimeMillis() + 5 * 60_000L;
-					log.debug("Game clan push failed, retrying in 5 minutes: {}", e.getMessage());
 				}
 			});
 		});
@@ -2152,7 +2150,6 @@ public class AnvilPlugin extends Plugin {
 			clogFullSync.onItem((int) args[1], (int) args[2], now());
 		} catch (ClassCastException e) {
 			// A game update changed the script's shape — stop rather than file nonsense as a log.
-			log.debug("Collection transmit args weren't (id, quantity); ignoring");
 			clogFullSync.reset();
 		}
 	}
@@ -2418,7 +2415,6 @@ public class AnvilPlugin extends Plugin {
 			try {
 				apiClient.submitCofferLine(line, clanName);
 			} catch (IOException e) {
-				log.debug("Coffer line not sent: {}", e.getMessage());
 			}
 		});
 	}
@@ -2436,7 +2432,6 @@ public class AnvilPlugin extends Plugin {
 				try {
 					apiClient.submitModeLines(batch, png, "anvil-mode.png");
 				} catch (IOException e) {
-					log.debug("Mode lines not sent: {}", e.getMessage());
 				}
 			});
 			return;
@@ -2445,7 +2440,6 @@ public class AnvilPlugin extends Plugin {
 			try {
 				apiClient.submitModeLines(batch);
 			} catch (IOException e) {
-				log.debug("Mode lines not sent: {}", e.getMessage());
 			}
 		});
 	}
@@ -2739,7 +2733,6 @@ public class AnvilPlugin extends Plugin {
 			if (placement > cap) {
 				continue;
 			}
-			log.debug("Tracked LMS placement: {} ({} kills) for '{}' (cap top {})", place, kills, tile.label, cap);
 			tile.currentAmount += 1;
 			raiseLocal(tile.tileId, tile.currentAmount, now());
 			sendChatMessage(ChatPalette.Tone.NEAR, "Tracked LMS placement: " + place + " — " + tile.label);
@@ -4049,7 +4042,6 @@ public class AnvilPlugin extends Plugin {
 			if (caTier != null) {
 				String caTask = CA_TASK_POINTS.matcher(caMatcher.group("task").trim()).replaceAll("").trim();
 				// Breadcrumb so client.log shows the parse even when no tile matches.
-				log.debug("Combat task line: {} '{}'", caTier.getDisplayName(), caTask);
 				creditCombatTaskTiles(caTier, caTask);
 				// Stashed unconditionally: the next tick reads the points varbit, which is what
 				// tells a genuine first completion from a "Repeat completion" echo — and the
@@ -4073,7 +4065,6 @@ public class AnvilPlugin extends Plugin {
 					DIARY_DEDUP_MS)) {
 				// Rare (once per account per tier) — a breadcrumb so client.log shows the parse
 				// even when no tile matches.
-				log.debug("Diary line: {} {}", area, tier);
 				maybeNotifyDiaryCompletion(area, tier);
 				recordFeedMoment(new AnvilMoments.Moment("diary", null, area, 1, null, null, null, null, null, tier,
 						now(), ("diary|" + area + "|" + tier).toLowerCase(Locale.ROOT)));
@@ -4396,10 +4387,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		// Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
 		// breadcrumb so a "why didn't my fang post?" is answerable with debug logging on.
-		log.debug("Drop line: item='{}' x{} source='{}' resolvedId={} value={} valueFloor={} notifyOn={} channelOn={}",
-				itemName, qty, source, notifyId,
-				notifyId != null ? itemUnitValue(notifyId) : -1,
-				config.rareDropMinValue(), config.notifyRareDrops(), notifyEnabled("rareDrops"));
 		if (notifyId != null) {
 			maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
 		}
@@ -4615,7 +4602,6 @@ public class AnvilPlugin extends Plugin {
 			try {
 				adoptFacts(apiClient.postFacts(facts, null, null, coop));
 			} catch (IOException e) {
-				log.debug("Facts post failed, requeueing: {}", e.getMessage());
 				synchronized (factQueue) {
 					factQueue.addAll(facts);
 					factQueueCoop = richer(factQueueCoop, coop);
@@ -4950,7 +4936,6 @@ public class AnvilPlugin extends Plugin {
 				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
 						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, inferred, null,
 						board != null ? board.clan : null);
-				log.debug("{} ping sent: '{}' ×{}", noun, label, amount);
 				refreshConfig();
 			} catch (IOException e) {
 				log.warn("{} ping failed for '{}' ×{} — requeueing: {}", noun, label, amount, e.getMessage());
@@ -5073,7 +5058,6 @@ public class AnvilPlugin extends Plugin {
 				unseen.add(st);
 			}
 			if (!unseen.isEmpty()) {
-				log.debug("{}: {} named in chat but seen by no loot event — crediting it to the chest", c.source, c.line.name);
 				processLoot(c.source, unseen, "event");
 			}
 		}
@@ -5096,7 +5080,6 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if (lootingBagNow == null) {
-			log.debug("{} opened, looting bag contents unknown — bag loot not counted", source);
 			return;
 		}
 		lootingBagWatchSource = source;
@@ -5158,20 +5141,6 @@ public class AnvilPlugin extends Plugin {
 				: (client.getTickCount() - lastStorageMoveTick <= 2) ? "emptied from storage"
 				: null;
 
-		// Diagnostic (debug-level so it doesn't spam a normal log): every item whose held count ROSE
-		// this tick, whether a gain tile tracks it, and any suppression — so "my catch didn't count"
-		// is answerable by flipping on debug logging for com.anvil.
-		if (previous != null && log.isDebugEnabled()) {
-			for (Map.Entry<Integer, Integer> e : counts.entrySet()) {
-				int d = e.getValue() - previous.getOrDefault(e.getKey(), 0);
-				if (d > 0) {
-					log.debug("Held +{}: item {} (tracked={}{})", d, e.getKey(),
-							gainItemIndex.containsKey(e.getKey()),
-							suppress != null ? ", SUPPRESSED: " + suppress : "");
-				}
-			}
-		}
-
 		// Baseline snapshot (login/config load) or a non-gather context → record only.
 		if (suppress != null) {
 			return;
@@ -5191,8 +5160,6 @@ public class AnvilPlugin extends Plugin {
 				int amount = Math.min(delta, Math.max(1, gain.requiredAmount - gain.currentAmount));
 				gain.currentAmount += amount;
 				raiseLocal(gain.tileId, gain.currentAmount, now());
-				log.debug("Tracked gain: item {} ×{}, tile '{}' ({}/{})", itemId, amount, gain.label,
-						gain.currentAmount, gain.requiredAmount);
 				queueGainForFlush(gain, amount);
 			}
 		}
@@ -5603,8 +5570,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		tile.currentAmount++;
 		raiseLocal(tile.tileId, tile.currentAmount, now());
-		log.debug("Tracked deathless run: {} party={} → tile '{}' ({}/{})",
-				tile.activity, partySeen, tile.label, tile.currentAmount, goal);
 		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
 		String detail = tile.activity + "  deathless"
 				+ (tile.partySize > 0 ? "  party " + partySeen : "")
@@ -5654,7 +5619,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		List<IntConsumer> held = new ArrayList<>(heldToaRuns);
 		heldToaRuns.clear();
-		log.debug("Judging {} held ToA run(s) at raid level {}", held.size(), level);
 		for (IntConsumer judge : held) {
 			judge.accept(level);
 		}
@@ -5713,8 +5677,6 @@ public class AnvilPlugin extends Plugin {
 		if (tile.completed) {
 			return;
 		}
-		log.debug("Tracked timed clear: {} in {} (cap {})", tile.label,
-				TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
 		// A tile needing several qualifying runs (Barracuda Trials ranks) counts this one now, as a
 		// counted tile does, so the tracker and chat don't wait for the next poll; undone if the
 		// proof can't be captured.
@@ -5968,7 +5930,6 @@ public class AnvilPlugin extends Plugin {
 		if (pending.capturedRsn != null && !pending.capturedRsn.isEmpty()) {
 			String current = apiClient.getCurrentRsn();
 			if (!Rsn.same(pending.capturedRsn, current)) {
-				log.debug("Holding pending '{}' — captured on '{}', currently '{}'", pending.label, pending.capturedRsn, current);
 				return false;
 			}
 		}
@@ -6424,7 +6385,6 @@ public class AnvilPlugin extends Plugin {
 			return; // the site beat the disk to it
 		}
 		savedConfig = cfg;
-		log.debug("Showing last session's config until the site answers");
 		repaintSidebar();
 	}
 
@@ -6697,7 +6657,6 @@ public class AnvilPlugin extends Plugin {
 				} catch (RateLimitedException e) {
 					// The site said when. Hold exactly that long rather than guessing at it.
 					rosterPushAllowedAt = now() + Math.max(e.retryAfterMs, 1_000L);
-					log.debug("Clan sync rate-limited for {}ms", e.retryAfterMs);
 					syncFailed(cb, !automatic, "The site is limiting roster syncs — try again in "
 							+ secs(e.retryAfterMs) + "s.", "Rate limited by the site.");
 				} catch (IOException e) {
@@ -9442,7 +9401,6 @@ public class AnvilPlugin extends Plugin {
 				wait = RetryPolicy.backoffMs(momentFailures, MOMENT_PUSH_COALESCE_MS, CoalescedPush.RETRY_CAP_MS, Math.random());
 				momentPushTask = reschedule(momentPushTask, this::flushMomentPush, wait);
 			}
-			log.debug("Moment push failed ({} queued) — retrying in {}s: {}", moments.size(), wait / 1000, e.getMessage());
 			return;
 		}
 		synchronized (moments) {
@@ -9926,8 +9884,6 @@ public class AnvilPlugin extends Plugin {
 	private void creditOnePvpTile(TrackedPvp tile, String victimName) {
 		tile.currentAmount += 1;
 		raiseLocal(tile.tileId, tile.currentAmount, now());
-		log.debug("Tracked PvP kill: {} → tile '{}' ({}/{})",
-				victimName, tile.label, tile.currentAmount, tile.requiredAmount);
 		String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
 		captureAndSubmitProof(tile.tileId, tile.label, 1, null,
 				"BINGO PVP KILL", detail,
@@ -10411,7 +10367,6 @@ public class AnvilPlugin extends Plugin {
 			configManager.setConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, CURRENT_DEFAULTS_VERSION);
 		} catch (Exception e) {
 			// A migration hiccup must never stop the plugin loading.
-			log.debug("Config-defaults migration skipped: {}", e.getMessage());
 		}
 	}
 
@@ -10664,7 +10619,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		NPC follower = client.getFollower();
 		if (follower != null && follower.getIndex() != petFollowerBefore && follower.getName() != null) {
-			log.debug("Pet named off its new follower: {}", follower.getName());
 			claimPetName(follower.getName());
 			return;
 		}
@@ -10679,7 +10633,6 @@ public class AnvilPlugin extends Plugin {
 			String name = itemManager.getItemComposition(it.getId()).getName();
 			// The pack takes all sorts mid-fight; only a name the pet catalogue knows is the pet.
 			if (name != null && DropSource.petEntry(dropFacts(), name) != null) {
-				log.debug("Pet named off its new pack item: {}", name);
 				claimPetName(name);
 				return;
 			}
@@ -10973,8 +10926,6 @@ public class AnvilPlugin extends Plugin {
 			}
 			d.currentAmount += 1;
 			raiseLocal(d.tileId, d.currentAmount, now());
-			log.debug("Tracked diary completion: {} {} → tile '{}' ({}/{})",
-					area, tier, d.label, d.currentAmount, d.requiredAmount);
 			captureAndSubmitProof(d.tileId, d.label, 1, null,
 					"DIARY COMPLETE", area + " " + tier + " Diary",
 					"[Auto] " + area + " " + tier + " diary completed — detected by RuneLite plugin",
@@ -11006,13 +10957,10 @@ public class AnvilPlugin extends Plugin {
 				continue;
 			}
 			if (!creditedCaTaskTiles.add(dedupKey)) {
-				log.debug("Combat task '{}' already credited '{}' this session", task, t.label);
 				continue;
 			}
 			t.currentAmount += 1;
 			raiseLocal(t.tileId, t.currentAmount, now());
-			log.debug("Tracked combat task: {} '{}' → tile '{}' ({}/{})",
-					tier.getDisplayName(), task, t.label, t.currentAmount, t.requiredAmount);
 			captureAndSubmitProof(t.tileId, t.label, 1, null,
 					"COMBAT TASK", tier.getDisplayName() + ": " + task,
 					"[Auto] " + tier.getDisplayName() + " combat task \"" + task + "\" completed — detected by RuneLite plugin",
@@ -11552,7 +11500,6 @@ public class AnvilPlugin extends Plugin {
 			try {
 				png = png(image);
 			} catch (Exception e) {
-				log.debug("Frame capture failed: {}", e.getMessage());
 			}
 			if (delivered.compareAndSet(false, true)) {
 				consumer.accept(png);
@@ -11588,7 +11535,6 @@ public class AnvilPlugin extends Plugin {
 				try {
 					executor.submit(() -> work.accept((BufferedImage) image));
 				} catch (RejectedExecutionException e) {
-					log.debug("Proof frame dropped: plugin stopping");
 				}
 			});
 		});
@@ -11860,7 +11806,6 @@ public class AnvilPlugin extends Plugin {
 			// half-initialised state: doing so can cascade into unrelated plugin exceptions and an
 			// injected-client crash.
 			if (!loggedIn() || client.getLocalPlayer() == null) {
-				log.debug("Chat message skipped — client not ready");
 				return;
 			}
 			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null);
@@ -11982,7 +11927,6 @@ public class AnvilPlugin extends Plugin {
 				apiClient.submitClogUnlock(item, kcName, kc);
 			} catch (Exception e) {
 				// Not retried: the next log sync still records the slot, just without the live KC.
-				log.debug("Collection log unlock push failed: {}", e.getMessage());
 			}
 		});
 	}
@@ -12136,14 +12080,12 @@ public class AnvilPlugin extends Plugin {
 			backoff.onSuccess();
 			return result;
 		} catch (RateLimitedException e) {
-			log.debug("{} rate-limited for {}ms", what, e.retryAfterMs);
 			limited.accept(e.retryAfterMs);
 		} catch (PermanentSubmissionException e) {
 			log.info("{} refused, dropping it: {}", what, e.getMessage());
 			refused.accept(e.getMessage());
 		} catch (Exception e) {
 			backoff.onFailure(now);
-			log.debug("{} push failed, retrying in {}s: {}", what, backoff.secondsUntilReady(now), e.getMessage());
 			failed.accept(e.getMessage());
 		}
 		return null;
@@ -12201,7 +12143,6 @@ public class AnvilPlugin extends Plugin {
 		// thing. A deliberate press still goes, so "sync now" always means something happened.
 		long fingerprint = clogFullSync.fingerprint();
 		if (!manual && fingerprint == lastClogFingerprint) {
-			log.debug("Collection log unchanged — nothing to push");
 			clogFullSync.onSent();
 			// Nothing to send. Said once a login — proof the sync ran and agreed with the site —
 			// and then not again: the log is re-transmitted on every open, and a line each time
@@ -12333,7 +12274,6 @@ public class AnvilPlugin extends Plugin {
 				apiClient.submitGuestChannel(name);
 			} catch (IOException e) {
 				lastGuestChannelAt = 0; // the next tick tries again
-				log.debug("Guest channel push failed: {}", e.getMessage());
 			}
 		});
 	}
@@ -12372,12 +12312,8 @@ public class AnvilPlugin extends Plugin {
 		autoRosterAnnounce = true;
 		syncClanRoster((ok, msg) -> {
 			autoRosterSyncRunning = false;
-			if (ok) {
-				log.debug("Clan roster auto-synced: {}", msg);
-			} else {
-				// Most likely "roster not loaded yet" — let the next channel change try again.
-				lastAutoRosterSyncAt = 0;
-				log.debug("Clan roster auto-sync skipped: {}", msg);
+			if (!ok) {
+				lastAutoRosterSyncAt = 0; // most likely "roster not loaded yet": the next channel change tries again
 			}
 		});
 	}

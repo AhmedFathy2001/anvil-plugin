@@ -39,7 +39,6 @@ final class Clipboards
 		catch (Exception e)
 		{
 			// A headless or locked-down desktop has no clipboard; the path still gets said out loud.
-			log.debug("Anvil: clipboard copy skipped: {}", e.getMessage());
 			return false;
 		}
 	}

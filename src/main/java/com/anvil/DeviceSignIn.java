@@ -193,7 +193,6 @@ public final class DeviceSignIn
 			}
 			catch (RuntimeException e)
 			{
-				log.debug("sign-in flow failed", e);
 				fail(status, done, "Sign-in failed — try again.", Outcome.UNAVAILABLE);
 			}
 		}, delayMs);

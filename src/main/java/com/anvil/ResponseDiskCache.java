@@ -124,7 +124,6 @@ final class ResponseDiskCache
 		}
 		catch (IOException | RuntimeException ex)
 		{
-			log.debug("Couldn't save {}: {}", kind, ex.getMessage());
 		}
 	}
 
@@ -149,7 +148,6 @@ final class ResponseDiskCache
 		}
 		catch (IOException | RuntimeException ex)
 		{
-			log.debug("Couldn't save {}: {}", kind, ex.getMessage());
 		}
 	}
 

@@ -492,7 +492,6 @@ public class BingoApiClient
 		}
 		catch (IOException | JsonParseException e)
 		{
-			log.debug("{} failed: {}", label, e.getMessage());
 			return null;
 		}
 	}
@@ -799,7 +798,6 @@ public class BingoApiClient
 		}
 		catch (IOException | RuntimeException e)
 		{
-			log.debug("Queued '{}' notification still failing: {}", it.channel, e.getMessage());
 			return NotifyOutbox.Result.RETRY;
 		}
 	}
@@ -1005,7 +1003,6 @@ public class BingoApiClient
 		}
 		catch (JsonParseException | IllegalStateException e)
 		{
-			log.debug("Saved answer unreadable: {}", e.getMessage());
 			return null;
 		}
 	}
@@ -1066,7 +1063,6 @@ public class BingoApiClient
 		}
 		catch (IOException | JsonParseException e)
 		{
-			log.debug("{} failed: {}", label, e.getMessage());
 			return null;
 		}
 	}
@@ -1187,7 +1183,6 @@ public class BingoApiClient
 				}
 				catch (IOException | RuntimeException e)
 				{
-					log.debug("panel image failed: {}", e.getMessage());
 				}
 				if (img != null)
 				{
@@ -1690,7 +1685,6 @@ public class BingoApiClient
 				{
 					throw new RateLimitedException(friendlyError(429, body), retryAfterFrom(body));
 				}
-				log.debug("Collection log push refused: HTTP {} — {}", code, body);
 				throw friendlyFailure(code, body);
 			}
 			String shown = body.isEmpty() ? "no body" : body;
@@ -1906,7 +1900,6 @@ public class BingoApiClient
 		// Classified: a permanent refusal (PermanentSubmissionException) stops CoalescedPush resending
 		// the batch; a 401 (fired before X-RSN was stamped), 429 or 5xx stays a plain, retryable failure.
 		postJson("/api/plugin/stats", payload, what, true);
-		log.debug(logged, values.size());
 	}
 
 	/** Boss KC: {@code {"stats":[{"name":"<in-game boss name>","kc":<absolute count>}]}}. */
@@ -2029,8 +2022,6 @@ public class BingoApiClient
 		payload.addProperty("minutesPlayed", minutesPlayed);
 		payload.addProperty("caTasks", caTasks);
 		postJson("/api/plugin/counters", payload, "Counter push failed", false);
-		log.debug("Recap counters pushed (deaths={}, lootGp={}, pvpKills={}, biggestHit={}, minutes={}, caTasks={})",
-			deaths, lootGp, pvpKills, biggestHit, minutesPlayed, caTasks);
 	}
 
 	/**
@@ -2110,7 +2101,6 @@ public class BingoApiClient
 		// the bits reconciled against the point total and how many tasks it couldn't name. Logged
 		// at INFO because when this feature is quiet the only alternative is guessing which half
 		// went wrong, which has cost a day already.
-		log.debug("Anvil progress pushed ({} key(s), {} varps): {}", rows.size(), hasVarps ? caVarps.size() : 0, reply);
 	}
 
 	/**
@@ -2232,7 +2222,6 @@ public class BingoApiClient
 		// How much of the log this account has opened at all — drives the site's "68% synced" note.
 		payload.addProperty("syncedPages", syncedPages);
 		postJson("/api/plugin/clog", payload, "Collection log push failed", true);
-		log.debug("Collection log pushed: {} page(s), {} synced", out.size(), syncedPages);
 	}
 
 	/**
@@ -2263,7 +2252,6 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		payload.add("bests", pairs(valid, "activity", "centis"));
 		postJson("/api/plugin/pb", payload, "Personal best push failed", true);
-		log.debug("Personal bests pushed: {}", valid.size());
 	}
 
 	/**
@@ -2326,7 +2314,6 @@ public class BingoApiClient
 		JsonObject payload = new JsonObject();
 		payload.add("moments", out);
 		postJson("/api/plugin/moments", payload, "Moment push failed", true);
-		log.debug("Moments pushed: {}", out.size());
 	}
 
 	/** Adds {@code value} when it is non-blank. */

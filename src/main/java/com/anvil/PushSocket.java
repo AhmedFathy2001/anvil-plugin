@@ -161,7 +161,6 @@ final class PushSocket extends WebSocketListener
 				failures = 0;
 			}
 			live = true;
-			log.debug("Live push connected");
 		}
 		onMessage.accept(m);
 	}
@@ -176,7 +175,6 @@ final class PushSocket extends WebSocketListener
 	@Override
 	public void onFailure(WebSocket ws, Throwable t, Response response)
 	{
-		log.debug("Live push dropped: {}", t.getMessage());
 		dropped(ws, false);
 	}
 

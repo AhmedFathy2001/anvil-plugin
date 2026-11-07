@@ -127,10 +127,8 @@ public class BannerSoundService
 			}
 			catch (Exception e)
 			{
-				log.debug("Could not move {} into banner/: {}", f.getFileName(), e.getMessage());
 			}
 		}
-		log.debug("Anvil: moved {} clip(s) into banner/", loose.size());
 	}
 
 	/** Every .wav in one kind's folder. Depth 1 — a clip is a file in it, never deeper. */
@@ -148,7 +146,6 @@ public class BannerSoundService
 		}
 		catch (IOException e)
 		{
-			log.debug("Could not list sounds in {}: {}", dir.getFileName(), e.getMessage());
 			return new ArrayList<>();
 		}
 	}
@@ -308,7 +305,6 @@ public class BannerSoundService
 		}
 		catch (RejectedExecutionException e)
 		{
-			log.debug("Banner sound skipped", e);
 		}
 	}
 
@@ -358,7 +354,6 @@ public class BannerSoundService
 		}
 		catch (Exception e)
 		{
-			log.debug("Banner sound skipped: {}", e.getMessage());
 		}
 	}
 
@@ -409,7 +404,6 @@ public class BannerSoundService
 			}
 			catch (RejectedExecutionException e)
 			{
-				log.debug("Sound import skipped, plugin shutting down");
 			}
 		});
 	}
@@ -457,7 +451,6 @@ public class BannerSoundService
 		}
 		catch (IOException e)
 		{
-			log.debug("Could not create the sounds folder: {}", e.getMessage());
 			return;
 		}
 		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
