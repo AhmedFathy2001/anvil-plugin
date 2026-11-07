@@ -883,6 +883,26 @@ public class BingoApiClient
 			"Chat patterns", ResponseDiskCache.CHAT_PATTERNS);
 	}
 
+	/** GET /api/plugin/rules ({@link RuleEngine}), addressed like the config it is built from. Null on failure. */
+	RuleEngine.Table fetchRules()
+	{
+		return etagGetOrNull(configUrl("/api/plugin/rules"), RuleEngine.Table.class, polls, "Rules");
+	}
+
+	/** POST /api/plugin/facts: what happened, for the site to credit; answered with the tiles' real counts. */
+	JsonObject postFacts(JsonArray facts, String imageUrl, JsonObject proof, CoopFingerprint coop) throws IOException
+	{
+		JsonObject body = new JsonObject();
+		body.add("facts", facts);
+		body.addProperty("img", imageUrl);
+		body.add("proof", proof);
+		if (coop != null && !coop.isEmpty())
+		{
+			body.add("coop", gson.toJsonTree(coop));
+		}
+		return gson.fromJson(postJson(configUrl("/api/plugin/facts"), body, "Facts", true), JsonObject.class);
+	}
+
 	/** GET chat-flair/v?since= — the Supporter list's version and the deltas to it (ChatFlairSync). Public; null on failure. */
 	ChatFlair.Since fetchChatFlairSince(int v)
 	{

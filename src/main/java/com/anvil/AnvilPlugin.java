@@ -244,7 +244,17 @@ public class AnvilPlugin extends Plugin {
 	private volatile boolean freshLoginPending;
 
 	// Item ID → tracked drops lookup for O(1) loot matching
-	private volatile Map<Integer, List<TrackedDrop>> itemDropIndex = Collections.emptyMap();
+	/** Capability `rules`: the site's rule table, run locally (RuleEngine); the site matches the facts. */
+	private final RuleEngine rules = new RuleEngine();
+	/** Facts that need no screenshot, posted together a moment after the first. */
+	private final JsonArray factQueue = new JsonArray();
+	private CoopFingerprint factQueueCoop;
+	private ScheduledFuture<?> factQueueFlush;
+	/** Facts a screenshot is being taken for (one dual-frame proof per burst). */
+	private final JsonArray factBurst = new JsonArray();
+	private CoopFingerprint factBurstCoop;
+	private volatile BufferedImage factBurstFrame;
+	private ScheduledFuture<?> factBurstFlush;
 	// Tiles of the player's OTHER boards (TrackedTile.board): their credit goes to that board.
 	private volatile Map<Integer, Board> tileBoards = Collections.emptyMap();
 
@@ -684,32 +694,20 @@ public class AnvilPlugin extends Plugin {
 
 		final T tile;
 		int total;
-		/** Kills: the credits that make up {@link #total}, one per real action, for splitting into pings. */
-		final List<Integer> parts = new ArrayList<>();
 		int snapshotCurrent;
 		int snapshotRequired;
 		ScheduledFuture<?> flushTask;
 		final long firstQueuedAt = now();
-		/** Drops: the item a per-item tile is tracking, or null. */
-		Integer trackingItemId;
-		// Drops: frame grabbed the moment the first drop of the burst landed. The flush shot fires
-		// COALESCE_FLUSH_MS later (loot settled on the floor); the proof bakes both. RuneLite
-		// hands listeners a copy of the graphics buffer, so holding it is safe.
-		volatile BufferedImage triggerFrame;
-		/** Drops: set when any drop in the burst was inferred (DuplicateInference) — the submission is flagged. */
 		volatile String inferred;
-		// Kills: who was with us, captured when the kill happened — by the time the coalesced flush
-		// runs the party has scattered and the scene says nothing.
+		/** Who was with us when it happened; by the flush the party has scattered. */
 		CoopFingerprint coop;
 
 	}
 
 	// Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
-	private final Map<String, Aggregate<TrackedDrop>> pendingAggregates = new HashMap<>();
 
 	// ---- Kill-count tiles ----------------------------------------------------------------
 	// Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
-	private volatile Map<String, List<TrackedKill>> killNpcIndex = Collections.emptyMap();
 	// Counters read off varbits/varps (site lib/gameCounters); client thread only.
 	private final GameValueCounters gameValueCounters = new GameValueCounters();
 
@@ -720,7 +718,6 @@ public class AnvilPlugin extends Plugin {
 
 
 	// Keyed on tileId — coalesces a kill spree into one screenshot + one submission.
-	private final Map<Integer, Aggregate<TrackedKill>> pendingKillAggregates = new HashMap<>();
 
 
 	// itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
@@ -1549,8 +1546,6 @@ public class AnvilPlugin extends Plugin {
 			cancel(momentPushTask);
 			momentPushTask = null;
 		}
-		cancelAggregates(pendingAggregates);
-		cancelAggregates(pendingKillAggregates);
 		cancelAggregates(pendingGainAggregates);
 	}
 
@@ -1646,8 +1641,7 @@ public class AnvilPlugin extends Plugin {
 		pluginConfig = null;
 		forgetSavedResponses();
 		apiClient.setDiskCache(null);
-		itemDropIndex = Collections.emptyMap();
-		killNpcIndex = Collections.emptyMap();
+		rules.set(null);
 		gainItemIndex = Collections.emptyMap();
 		forgetHeldItems();
 		trackedKcNames = Collections.emptySet();
@@ -1796,6 +1790,9 @@ public class AnvilPlugin extends Plugin {
 			lastXpAt = now();
 		}
 		maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
+		if (realGain) {
+			say(rules.xp(skill.getName(), event.getXp() - prevXp, now()));
+		}
 
 		checkLevelUp(skill, event.getLevel());
 	}
@@ -1824,18 +1821,18 @@ public class AnvilPlugin extends Plugin {
 		handleTotalMilestone();
 	}
 
-	private void showBingoToast(TrackedDrop drop, int current, int required) {
+	private void showBingoToast(int tileId, String label, long current, long required) {
 		// Opted out of popups for their own drops: the drop still counts, only the banner and its
 		// sound are skipped.
 		if (config.selfTileBanner()) {
-			clogBanner.show(drop.label, current, required);
+			clogBanner.show(label, (int) current, (int) required);
 			playBannerSound();
 		}
 		if (current >= required) {
 			// Marked even when the popup is off — otherwise the TEAM banner would announce the same
 			// tile a poll later, which is the popup they just turned off arriving by another door.
 			// This drop completed the tile locally — suppress the duplicate team-completion banner.
-			locallyShownTiles.add(drop.tileId);
+			locallyShownTiles.add(tileId);
 		}
 	}
 
@@ -3591,54 +3588,8 @@ public class AnvilPlugin extends Plugin {
 	 * an opened loot key, otherwise an NPC/chest name; empty = any.
 	 */
 	private void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
-		if (trackingGateReason() != null
-				|| pluginConfig.trackedValues == null || pluginConfig.trackedValues.isEmpty()
-				|| items == null || items.isEmpty()) {
-			return;
-		}
-		long haulGp = haulValue(items);
-		if (haulGp <= 0) {
-			return;
-		}
-		for (TrackedValue v : pluginConfig.trackedValues) {
-			if (v == null || v.completed) {
-				continue;
-			}
-			boolean total = "total".equalsIgnoreCase(v.mode);
-			// Single haul: THIS haul must meet the threshold. Total: every qualifying haul counts
-			// toward the target (server sums the submitted amounts), so there's no per-haul threshold.
-			if (!total && haulGp < v.thresholdGp) {
-				continue;
-			}
-			if (!valueSourceMatches(v.sources, source, sourceKind)) {
-				continue;
-			}
-			// Dedup: the same loot can fire NpcLootReceived + LootReceived back-to-back.
-			if (!claim(lastSubmittedAt, "value:" + v.tileId, now(), DEDUP_WINDOW_MS)) {
-				continue;
-			}
-			final int amount = (int) Math.min(haulGp, Integer.MAX_VALUE);
-			final String gp = formatGp(haulGp);
-			if (total) {
-				// Accumulate toward the target: capture a proof screenshot per qualifying haul (same
-				// pipeline as single-haul value tiles) so every contribution to the aggregate is
-				// verifiable — and removable — on the site. The server sums the submitted amounts and
-				// completes at the target, so we don't optimistically mark the tile done (and need no
-				// rollback).
-				log.debug("Value tile credited (total): '{}' +{} gp", v.label, haulGp);
-				v.currentGp += haulGp;
-				raiseLocal(v.tileId, Math.min(ClogTaskModel.clampGp(v.currentGp), ClogTaskModel.clampGp(v.thresholdGp)), now());
-				captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
-						"[Auto] loot worth " + gp + " (" + v.label + ") counted by RuneLite plugin", null);
-			} else {
-				// Single-haul completion: optimistically mark done so a follow-up haul in the same
-				// stint doesn't double-submit; capture a proof screenshot (rollback reverts on failure).
-				v.completed = true;
-				log.debug("Value tile credited (single): '{}' haul {} gp (threshold {})", v.label, haulGp, v.thresholdGp);
-				captureAndSubmitProof(v.tileId, v.label, amount, null, "BINGO VALUE", v.label + "  " + gp,
-						"[Auto] loot worth " + gp + " (" + v.label + ") detected by RuneLite plugin",
-						() -> v.completed = false);
-			}
+		if (trackingGateReason() == null && items != null && !items.isEmpty()) {
+			emit(rules.value(source, sourceKind, haulValue(items)));
 		}
 	}
 
@@ -3653,37 +3604,7 @@ public class AnvilPlugin extends Plugin {
 		return haulGp;
 	}
 
-	/** Does a value tile's source filter accept this loot? "PvP" matches a player kill; other entries
-	 *  match the loot source name (case-insensitive). Empty/null = any source. */
-	private boolean valueSourceMatches(List<String> sources, String source, String sourceKind) {
-		if (sources == null || sources.isEmpty()) {
-			return true;
-		}
-		for (String s : sources) {
-			if (s == null) {
-				continue;
-			}
-			if (s.equalsIgnoreCase("PvP")) {
-				if ("pvp".equals(sourceKind)) {
-					return true;
-				}
-			} else if (source != null && s.equalsIgnoreCase(source)) {
-				return true;
-			}
-		}
-		return false;
-	}
 
-	/** Short human gp label for proof banners / logs (5.0M gp, 500k gp, 999 gp). */
-	private static String formatGp(long gp) {
-		if (gp >= 1_000_000) {
-			return String.format(Locale.ROOT, "%.1fM gp", gp / 1_000_000.0);
-		}
-		if (gp >= 1_000) {
-			return String.format(Locale.ROOT, "%.0fk gp", gp / 1_000.0);
-		}
-		return gp + " gp";
-	}
 
 	/**
 	 * Something acquired or dropped us as its target.
@@ -4032,11 +3953,12 @@ public class AnvilPlugin extends Plugin {
 				}
 				boolean firstSeen = !killCounts.containsKey(kcKey);
 				int kc = Integer.parseInt(kcMatcher.group("count").replace(",", ""));
-				killCounts.put(kcKey, kc);
+				Integer kcBefore = killCounts.put(kcKey, kc);
 				lastKcName = kcName;
 				lastKcValue = kc;
 				lastKcAtMs = now();
 				creditBossKillFromChat(kcName, firstSeen);
+				say(rules.kc(kcName, kcBefore == null ? 1 : kc - kcBefore));
 				// Real-time boss-KC tiles: push the absolute count so the tile updates now instead
 				// of waiting ~1h for the hiscores cron (debounced; only for tracked bosses).
 				maybeQueueKcPush(kcName, kc);
@@ -4099,7 +4021,9 @@ public class AnvilPlugin extends Plugin {
 			amounts.put(GOTR_ELEMENTAL, elemental);
 			amounts.put(GOTR_CATALYTIC, catalytic);
 			amounts.put(GOTR_ENERGY_TOTAL, elemental + catalytic);
-			creditOncePerTile(amounts, Collections.emptySet());
+			if (!trackingOff()) {
+				emit(rules.kill(amounts, null, null));
+			}
 		}
 		// (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
 		// so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
@@ -4366,7 +4290,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		List<ItemStack> synthetic = new ArrayList<>(1);
 		final long now = now();
-		for (Integer id : idsNamed(itemDropIndex.keySet(), itemName)) {
+		for (Integer id : idsNamed(rules.dropItemIds(), itemName)) {
 			// Skip an item a real loot event just credited — the clog-unlock line is the same
 			// acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
 			// double-count it (e.g. a CoX Twisted buckler counting twice: once at the chest, once
@@ -4421,7 +4345,7 @@ public class AnvilPlugin extends Plugin {
 	/** A stack of {@code qty} for every tracked drop-tile item called {@code name} — names are unique per family, ids aren't. */
 	private List<ItemStack> trackedStacks(String name, int qty) {
 		List<ItemStack> out = new ArrayList<>(1);
-		for (Integer id : idsNamed(itemDropIndex.keySet(), name)) {
+		for (Integer id : idsNamed(rules.dropItemIds(), name)) {
 			out.add(new ItemStack(id, qty));
 		}
 		return out;
@@ -4586,7 +4510,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private boolean creditInferredById(int itemId, String source, String flag) {
-		if (trackingGateReason() != null || pluginConfig.trackedDrops == null || !itemDropIndex.containsKey(itemId)) {
+		if (trackingGateReason() != null || !rules.dropItemIds().contains(itemId)) {
 			return false;
 		}
 		return creditInferred(Collections.singletonList(new ItemStack(itemId, 1)), source, flag);
@@ -4628,241 +4552,158 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
-		if (trackingOff() || pluginConfig.trackedDrops == null) {
+	/* ----------------------------- Rules (site-matched facts) ----------------------------- */
+
+	/** One event's outcome: print now, move the panel rows, and hand the fact on (with a screenshot or not). */
+	private void emit(RuleEngine.Out o) {
+		if (o.fact == null) {
 			return;
 		}
-		if (isBlackout()) {
-			logTrackingSuppressed("blackout: every drop tile already complete");
-			return;
-		}
-		if (items == null || items.isEmpty()) {
-			return;
-		}
-
-		Map<Integer, List<TrackedDrop>> index = itemDropIndex;
-
-		// Credits handed to each tile by THIS kill, for tiles that cap it (perKillCap). A kill is
-		// one loot event, so the counter lives for one call: a boss that drops a vestige and an
-		// ingot rolled its unique table once, and a "count rolls" tile must see that as one.
-		Map<Integer, Integer> creditedThisKill = new HashMap<>();
-
-		for (ItemStack item : items) {
-			int itemId = item.getId();
-			// Remember items that arrived via a REAL loot event so a later clog-unlock line for the
-			// same acquisition can't re-credit the tile (see recentLootItemIds / creditClogUnlock).
-			if (!"clog".equals(sourceKind)) {
-				synchronized (recentLootItemIds) {
-					recentLootItemIds.put(itemId, now());
-				}
-			}
-			List<TrackedDrop> matchingDrops = index.get(itemId);
-			if (matchingDrops == null) {
-				continue;
-			}
-
-			for (TrackedDrop drop : matchingDrops) {
-				// Per-item (collection/set) tiles can't use the aggregate short-circuit: requiredAmount
-				// is the SHORTEST path to completion (the smallest set on an any-one-set tile), so
-				// scattered pieces across sets pass it long before the tile is actually done — and the
-				// piece that finally finishes a set would never submit. Gate those on the team-completion
-				// flag instead; the per-item caps below already stop duplicate pieces.
-				boolean perItem = drop.itemRequirements != null && !drop.itemRequirements.isEmpty();
-				if (perItem ? isTileCompleted(drop.tileId) : drop.currentAmount >= drop.requiredAmount) {
-					continue;
-				}
-
-				// Per-tile source filter.
-				//   - Filter set explicitly → must match strictly (e.g. ["pvp"] = PK only)
-				//   - Filter unset → default to "anything except PvP" — most tiles want
-				//     boss/raid/clue/skill drops, not PK keys, and forcing every admin
-				//     to remember a flag would be tedious. PK tiles opt in by setting
-				//     acceptedSources=["pvp"].
-				if (drop.acceptedSources != null && !drop.acceptedSources.isEmpty()) {
-					if (!drop.acceptedSources.contains(sourceKind)) {
-						log.debug("Skipping {} for tile '{}' — source '{}' not in {}",
-								itemId, drop.label, sourceKind, drop.acceptedSources);
-						continue;
-					}
-				} else {
-					if ("pvp".equals(sourceKind)) {
-						log.debug("Skipping {} for tile '{}' — PvP loot rejected by default",
-								itemId, drop.label);
-						continue;
-					}
-				}
-
-				// Per-tile specific-source filter (e.g. "onyx, but only from Tekton"). When
-				// sourceNpcs is set, the loot source name must match one of them
-				// (case-insensitive, wiki "(location)" qualifiers ignored). Empty/null = any source.
-				if (drop.sourceNpcs != null && !drop.sourceNpcs.isEmpty()
-						&& !DropSource.sourceMatches(drop.sourceNpcs, source)) {
-					log.debug("Skipping {} for tile '{}' — source '{}' not in required NPCs {}",
-							itemId, drop.label, source, drop.sourceNpcs);
-					continue;
-				}
-
-				// Party-size gate (raid kit tiles, e.g. "solo Cursed phalanx"): raid chests are
-				// looted inside the instance, so the deathless party tracker knows the team
-				// size. Only counts when it matches exactly; 0 = any.
-				if (drop.partySize > 0) {
-					int partySeen = partySize();
-					if (!wasInInstance || partySeen != drop.partySize) {
-						sendChatMessage(ChatPalette.Tone.WARN, "Drop not counted for " + drop.label + ": party of "
-								+ partySeen + ", tile requires " + drop.partySize + ".");
-						continue;
-					}
-				}
-
-				// Dedup: same loot fires NpcLootReceived + LootReceived back-to-back for NPC kills.
-				// Keyed per (tile, item) so a dedup hit only skips THIS tile — other tiles
-				// tracking the same item still get evaluated below.
-				String dedupKey = drop.tileId + ":" + itemId;
-				long now = now();
-				Long lastAt;
-				synchronized (lastSubmittedAt) {
-					lastAt = lastSubmittedAt.get(dedupKey);
-				}
-				if (lastAt != null && (now - lastAt) < DEDUP_WINDOW_MS) {
-					log.debug("Duplicate drop event skipped: {} ({}ms)", drop.label, now - lastAt);
-					continue;
-				}
-
-				// Use the actual stack size from the loot event so a single kill that
-				// drops e.g. 5 feathers credits 5 (not 1). Capped to whatever the tile
-				// still needs so an overflow doesn't double-count past the requirement.
-				int stackQty = Math.max(1, item.getQuantity());
-
-				// Per-kill cap: what this tile has left from THIS kill. Applies to the stack and
-				// across items, so neither a double drop nor a stack of two can spend more than the
-				// tile allows per kill.
-				int killRoom = Integer.MAX_VALUE;
-				if (drop.perKillCap > 0) {
-					killRoom = drop.perKillCap - creditedThisKill.getOrDefault(drop.tileId, 0);
-					if (killRoom <= 0) {
-						log.debug("Per-kill cap reached for tile '{}' ({}), skipping {}", drop.label, drop.perKillCap, itemId);
-						continue;
-					}
-					stackQty = Math.min(stackQty, killRoom);
-				}
-
-				// Per-item tracking: check if this specific item is already complete
-				Integer trackingItemId = null;
-				int amount;
-				if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-					ItemRequirement req = drop.itemRequirements.stream()
-							.filter(r -> r.itemId == itemId).findFirst().orElse(null);
-					// A tile needing N sets can use a set's piece N times (Ahrim's twice).
-					int cap = req == null ? 0 : ClogTaskModel.itemCap(req, drop.groupMode, drop.setsRequired);
-					if (req == null || req.currentAmount >= cap) {
-						continue;
-					}
-					trackingItemId = itemId;
-					int perItemRoom = Math.max(1, cap - req.currentAmount);
-					int tileRoom = Math.max(1, drop.requiredAmount - drop.currentAmount);
-					amount = Math.min(stackQty, Math.min(perItemRoom, tileRoom));
-					req.currentAmount += amount;
-				} else if ("distinct".equals(drop.countMode)) {
-					// "Different items only": an item already counted adds nothing (the site would
-					// refuse it), and a new one is worth exactly 1 however big the stack. The item
-					// id rides along so the site can tell items apart.
-					if (drop.countedItemIds == null) {
-						drop.countedItemIds = new ArrayList<>();
-					}
-					if (drop.countedItemIds.contains(itemId)) {
-						log.debug("Skipping {} for tile '{}' — already counted (different items only)", itemId, drop.label);
-						continue;
-					}
-					drop.countedItemIds.add(itemId);
-					trackingItemId = itemId;
-					amount = 1;
-				} else {
-					amount = Math.min(stackQty, Math.max(1, drop.requiredAmount - drop.currentAmount));
-				}
-
-				if (drop.perKillCap > 0) {
-					amount = Math.min(amount, killRoom);
-					creditedThisKill.merge(drop.tileId, amount, Integer::sum);
-				}
-
-				log.debug("Tracked drop detected: {} (item {} ×{}), tile '{}'", source, itemId, amount, drop.label);
-
-				drop.currentAmount += amount;
-				// A collection's row counts what its SETS have (ClogTaskModel), not the summed drops —
-				// hold the count in the unit the row shows.
-				raiseLocal(drop.tileId, drop.itemRequirements != null && !drop.itemRequirements.isEmpty()
-						? ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode, drop.setsRequired)[0]
-						: drop.currentAmount, now());
-
-				int snapshotCurrent = drop.currentAmount;
-				int snapshotRequired = drop.requiredAmount;
-				// Collection tiles (a set of items): report the LEADING set's progress — e.g. 4/4 for the
-				// 4 DK rings, or the closest set on a grouped/barrows tile — instead of the raw item count
-				// over the smallest-set total (which read as "4/1"). Set-aware maths;
-				// it reflects the highest set collected, and a stray item toward a different set won't shrink it.
-				if (drop.itemRequirements != null && !drop.itemRequirements.isEmpty()) {
-					int[] pg = ClogTaskModel.collectionProgress(drop.itemRequirements, drop.groupMode, drop.setsRequired);
-					snapshotCurrent = pg[0];
-					snapshotRequired = pg[1];
-				}
-
-				synchronized (lastSubmittedAt) {
-					lastSubmittedAt.put(dedupKey, now);
-				}
-
-				// Coalesce: queue the increment into a per-tile aggregate and schedule a
-				// delayed flush. A second drop landing within COALESCE_FLUSH_MS extends
-				// the flush so we end up with one screenshot + one submission for the
-				// whole burst (e.g. 5 feathers from a chicken). Queued BEFORE the toast:
-				// a cosmetic failure must never cost the submission.
-				queueDropForFlush(drop, amount, snapshotCurrent, snapshotRequired, trackingItemId);
-
-				showBingoToast(drop, snapshotCurrent, snapshotRequired);
-				sendChatMessage(ChatPalette.Tone.NEAR, "Tracked drop detected: " + drop.label + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
-				// No break: one drop credits EVERY tile tracking this item (e.g. a sunfire
-				// piece counting toward both "any Colosseum unique" and "sunfire piece"
-				// tiles). Each tile has its own aggregate, so each gets its own proof —
-				// mirrors creditKillTiles, which already credits all matching kill tiles.
-			}
-		}
-	}
-
-	/**
-	 * Adds an in-flight drop event to the per-(tile,item) aggregate and
-	 * (re)schedules its flush. Keeps the count + snapshots up-to-date, so when
-	 * the flush fires we have the latest totals, single screenshot, single
-	 * submission.
-	 */
-	private void queueDropForFlush(TrackedDrop drop, int amount,
-			int snapshotCurrent, int snapshotRequired, Integer trackingItemId) {
+		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
+		say(o.say);
+		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
+		CoopFingerprint coop = o.coop ? coopFingerprint() : null;
 		if (!execLive()) {
 			return;
 		}
-		final String key = drop.tileId + ":" + (trackingItemId == null ? "-" : trackingItemId);
-		synchronized (pendingAggregates) {
-			Aggregate<TrackedDrop> agg =
-					pendingAggregates.computeIfAbsent(key, k -> new Aggregate<>(drop));
-			if (agg.total == 0) {
-				// First drop of the burst: grab the at-drop frame now. The flush shot lands
-				// COALESCE_FLUSH_MS later, when slow floor loot (corpse piles, big stacks) is
-				// visible — the proof shows both moments.
-				agg.trackingItemId = trackingItemId;
-				capturing = true;
-				drawManager.requestNextFrameListener(img -> {
-					capturing = false;
-					agg.triggerFrame = (BufferedImage) img;
-				});
+		if (o.shot) {
+			synchronized (factBurst) {
+				if (factBurst.size() == 0) {
+					// The at-moment frame; the flush shot lands once floor loot has settled.
+					factBurstFrame = null;
+					drawManager.requestNextFrameListener(img -> factBurstFrame = (BufferedImage) img);
+				}
+				factBurst.add(o.fact);
+				factBurstCoop = richer(factBurstCoop, coop);
+				factBurstFlush = reschedule(factBurstFlush, this::flushFactBurst, COALESCE_FLUSH_MS);
 			}
-			agg.total += amount;
-			if (inferringFlag != null) {
-				agg.inferred = inferringFlag;
+		} else {
+			synchronized (factQueue) {
+				factQueue.add(o.fact);
+				factQueueCoop = richer(factQueueCoop, coop);
+				factQueueFlush = reschedule(factQueueFlush, this::flushFactQueue, FACT_QUEUE_MS);
 			}
-			// Each new event resets the settle timer — drop bursts that span >COALESCE_FLUSH_MS
-			// would otherwise produce multiple uploads.
-			settle(agg, snapshotCurrent, snapshotRequired,
-					() -> flushAggregate(pendingAggregates, key, this::submitDropBurst), COALESCE_FLUSH_MS);
 		}
 	}
+
+	private static final long FACT_QUEUE_MS = 400;
+
+	private static CoopFingerprint richer(CoopFingerprint had, CoopFingerprint fp) {
+		return fp != null && (had == null || fp.teammates.size() > had.teammates.size()) ? fp : had;
+	}
+
+	private void say(List<String> lines) {
+		lines.forEach(s -> sendChatMessage(ChatPalette.Tone.NEAR, s));
+	}
+
+	/** Image-less facts: one POST; on failure they go back in the queue for the next one. */
+	private void flushFactQueue() {
+		JsonArray facts;
+		CoopFingerprint coop;
+		synchronized (factQueue) {
+			facts = factQueue.deepCopy();
+			coop = factQueueCoop;
+			while (factQueue.size() > 0) {
+				factQueue.remove(0);
+			}
+			factQueueCoop = null;
+		}
+		if (facts.size() == 0) {
+			return;
+		}
+		submit(() -> {
+			try {
+				adoptFacts(apiClient.postFacts(facts, null, null, coop));
+			} catch (IOException e) {
+				log.debug("Facts post failed, requeueing: {}", e.getMessage());
+				synchronized (factQueue) {
+					factQueue.addAll(facts);
+					factQueueCoop = richer(factQueueCoop, coop);
+				}
+			}
+		});
+	}
+
+	/** A settled burst of screenshot-worthy facts: one dual-frame proof, persisted, then posted with it. */
+	private void flushFactBurst() {
+		JsonArray facts;
+		CoopFingerprint coop;
+		BufferedImage trigger = factBurstFrame;
+		synchronized (factBurst) {
+			facts = factBurst.deepCopy();
+			coop = factBurstCoop;
+			while (factBurst.size() > 0) {
+				factBurst.remove(0);
+			}
+			factBurstCoop = null;
+		}
+		if (facts.size() == 0 || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) {
+			return;
+		}
+		final String rsn = getLocalPlayerName();
+		final JsonObject proof = proofMeta();
+		onCleanFrame(image -> {
+			try {
+				BufferedImage buffered = composeDualProof(trigger, image);
+				if (trigger != null) {
+					proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
+				}
+				PendingSubmission p = pending(pluginConfig.event.id, 0, pluginConfig.team.id, pluginConfig.player.id, 1, "loot", null, rsn);
+				p.facts = facts;
+				p.proof = proof;
+				if (coop != null) {
+					p.coopGroup = coop.teammates;
+					p.coopPartySize = coop.partySize;
+				}
+				if (pendingSubmissionStore.save(p, jpeg(buffered)) == null) {
+					log.error("Failed to persist a facts proof to disk");
+					return;
+				}
+				if (processPendingSubmission(p)) {
+					proofBackoff.onSuccess();
+				} else {
+					notifyUploadFailed("your drop");
+				}
+			} catch (IOException e) {
+				sendChatMessage(ChatPalette.Tone.WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
+			}
+		});
+	}
+
+	/** The site's answer: real counts over the local guesses, its notes, and any tile this just completed. */
+	private void adoptFacts(JsonObject reply) {
+		if (reply == null) {
+			return;
+		}
+		say(rules.adopt(reply));
+		if (reply.has("credits")) {
+			for (JsonElement el : reply.getAsJsonArray("credits")) {
+				JsonObject c = el.getAsJsonObject();
+				if (c.has("completed") && c.get("completed").getAsBoolean()) {
+					announceCompletedNow(c.get("t").getAsInt(), c.get("label").getAsString());
+				}
+			}
+		}
+		refreshConfig();
+	}
+
+	private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
+		if (trackingOff() || items == null || items.isEmpty()) {
+			return;
+		}
+		List<int[]> pairs = new ArrayList<>();
+		for (ItemStack item : items) {
+			// A later clog-unlock line for an item a real loot event brought must not re-credit it.
+			if (!"clog".equals(sourceKind)) {
+				synchronized (recentLootItemIds) {
+					recentLootItemIds.put(item.getId(), now());
+				}
+			}
+			pairs.add(new int[]{item.getId(), Math.max(1, item.getQuantity())});
+		}
+		emit(rules.loot(source, sourceKind, pairs, wasInInstance ? partySize() : null, inferringFlag, now()));
+	}
+
 
 	/** Update a burst's snapshot and restart its settle timer (call under the map's lock). */
 	private void settle(Aggregate<?> agg, int current, int required, Runnable flush, long ms) {
@@ -4896,15 +4737,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	private void submitDropBurst(Aggregate<TrackedDrop> agg) {
-		TrackedDrop drop = agg.tile;
-		int amount = agg.total;
-		String progress = " (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		submitProof(drop.tileId, drop.label, amount, null, agg.trackingItemId, agg.inferred, agg.triggerFrame, null,
-				"BINGO DROP", drop.label + "  ×" + amount + " " + progress,
-				"[Auto] " + drop.label + " detected by RuneLite plugin", "Drop submitted: " + drop.label + progress,
-				() -> drop.currentAmount = Math.max(0, drop.currentAmount - amount));
-	}
 
 	/* ----------------------------- Kill-count tiles ----------------------------- */
 	/**
@@ -4924,8 +4756,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		String key = npcName.toLowerCase();
-		List<TrackedKill> matches = killNpcIndex.get(key);
-		if (matches == null || matches.isEmpty()) {
+		if (!rules.tracksKill(key)) {
 			return;
 		}
 		lastLootKillAt.put(key, now());
@@ -4934,7 +4765,7 @@ public class AnvilPlugin extends Plugin {
 		if (killCounts.containsKey(key)) {
 			return;
 		}
-		creditKillTiles(npcName, matches, 1); // one NpcLootReceived == one kill
+		creditKill(npcName, 1); // one NpcLootReceived == one kill
 	}
 
 	/**
@@ -4950,8 +4781,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		String key = npcName.toLowerCase();
-		List<TrackedKill> matches = killNpcIndex.get(key);
-		if (matches == null || matches.isEmpty()) {
+		if (!rules.tracksKill(key)) {
 			return;
 		}
 		// First KC line of the session for this boss: the loot path may have already credited this
@@ -4962,7 +4792,7 @@ public class AnvilPlugin extends Plugin {
 				return;
 			}
 		}
-		creditKillTiles(npcName, matches, 1); // one KC line == one kill
+		creditKill(npcName, 1); // one KC line == one kill
 	}
 
 	/**
@@ -4991,24 +4821,16 @@ public class AnvilPlugin extends Plugin {
 		if (amount <= 0 || trackingOff()) {
 			return;
 		}
-		// Identity set: two DIFFERENT tiles with the same name must both credit, but the SAME tile
-		// reached via two of its own names must not.
-		Set<TrackedKill> seen =
-				Collections.newSetFromMap(new IdentityHashMap<>());
-		List<TrackedKill> unique = new ArrayList<>();
+		Map<String, Integer> moved = new LinkedHashMap<>();
 		for (String name : names) {
-			List<TrackedKill> matches = killNpcIndex.get(name.toLowerCase());
-			if (matches == null) {
-				continue;
-			}
-			for (TrackedKill kill : matches) {
-				if (seen.add(kill)) {
-					unique.add(kill);
-				}
-			}
+			moved.put(name, amount);
 		}
-		if (!unique.isEmpty()) {
-			creditKillTiles(names[0], unique, amount, inferred);
+		emit(rules.kill(moved, null, inferred));
+	}
+
+	private void creditKill(String name, int amount) {
+		if (!trackingOff()) {
+			emit(rules.kill(Collections.singletonMap(name, amount), null, null));
 		}
 	}
 
@@ -5046,10 +4868,9 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		gameValueCounters.onLoggedIn();
-		Map<String, List<TrackedKill>> index = killNpcIndex;
 		List<GameValueCounters.Credit> credits = gameValueCounters.tick(
 				(varp, id) -> varp ? client.getVarpValue(id) : client.getVarbitValue(id),
-				e -> index.containsKey(e.name.toLowerCase(Locale.ROOT)));
+				e -> rules.tracksKill(e.name));
 		if (credits.isEmpty()) {
 			return;
 		}
@@ -5061,132 +4882,22 @@ public class AnvilPlugin extends Plugin {
 				unverified.add(c.entry.name);
 			}
 		}
-		creditOncePerTile(amounts, unverified);
-	}
-
-	/**
-	 * Credit several counter names that moved for ONE event (a slayer task: "any master" AND
-	 * "Mortimer"; a delve: the total AND its level; a GOTR game: elemental, catalytic AND total). A
-	 * tile listing more than one of them takes the largest amount among its matches, once — never the
-	 * sum — and is flagged when any of its matching names is unverified.
-	 */
-	private void creditOncePerTile(Map<String, Integer> amountByName, Set<String> unverified) {
-		if (trackingOff()) {
-			return;
-		}
-		Map<String, List<TrackedKill>> index = killNpcIndex;
-		Map<TrackedKill, Integer> amountByTile = new IdentityHashMap<>();
-		Map<TrackedKill, String> nameByTile = new IdentityHashMap<>();
-		Set<TrackedKill> flagged = Collections.newSetFromMap(new IdentityHashMap<>());
-		for (Map.Entry<String, Integer> n : amountByName.entrySet()) {
-			if (n.getValue() <= 0) {
-				continue;
-			}
-			for (TrackedKill kill : index.getOrDefault(n.getKey().toLowerCase(Locale.ROOT), Collections.emptyList())) {
-				Integer had = amountByTile.get(kill);
-				if (had == null || n.getValue() > had) {
-					amountByTile.put(kill, n.getValue());
-					nameByTile.put(kill, n.getKey());
-				}
-				if (unverified.contains(n.getKey())) {
-					flagged.add(kill);
-				}
-			}
-		}
-		for (Map.Entry<TrackedKill, Integer> e : amountByTile.entrySet()) {
-			TrackedKill kill = e.getKey();
-			creditKillTiles(nameByTile.get(kill), Collections.singletonList(kill), e.getValue(),
-					flagged.contains(kill) ? UNVERIFIED_COUNTER : null);
+		if (!trackingOff()) {
+			emit(rules.kill(amounts, unverified, null));
 		}
 	}
 
-	/**
-	 * Counts a kill toward any kill tile that targets this NPC. Mirrors the
-	 * drop flow: increment the local count (capped at the requirement),
-	 * coalesce a kill spree into one screenshot, and queue a submission. Runs
-	 * on the client thread (called from loot event).
-	 */
-	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount) {
-		creditKillTiles(npcName, matches, amount, null);
-	}
 
-	private void creditKillTiles(String npcName, List<TrackedKill> matches, int amount, String inferred) {
-		for (TrackedKill kill : matches) {
-			if (kill.currentAmount >= kill.requiredAmount) {
-				continue;
-			}
-			// A cap counter is moot once the tile it caps is done.
-			if (kill.isCap() && isTileCompleted(kill.capOf)) {
-				continue;
-			}
-			kill.currentAmount += amount;
-			raiseLocal(kill.tileId, kill.currentAmount, now());
-			int snapshotCurrent = kill.currentAmount;
-			int snapshotRequired = kill.requiredAmount;
 
-			// "kill" for a normal kill tile, "lap" for an agility-lap tile — same counting path,
-			// and the noun is the only thing that differs (see TrackedKill.unit).
-			String noun = kill.unitNoun();
-			log.debug("Tracked {} detected: {} (tile '{}', {}/{})", noun, npcName, kill.label, snapshotCurrent, snapshotRequired);
-			if (!kill.isCap()) {
-				sendChatMessage(ChatPalette.Tone.NEAR, "Tracked " + noun + ": " + killDisplayLabel(kill) + " (" + snapshotCurrent + "/" + snapshotRequired + ")");
-			} // a cap counter is counted and submitted silently
 
-			queueKillForFlush(kill, amount, snapshotCurrent, snapshotRequired, inferred);
-		}
-	}
 
-	private void queueKillForFlush(TrackedKill kill, int amount,
-			int snapshotCurrent, int snapshotRequired, String inferred) {
-		if (!execLive()) {
-			return;
-		}
-		synchronized (pendingKillAggregates) {
-			Aggregate<TrackedKill> agg =
-					pendingKillAggregates.computeIfAbsent(kill.tileId, k -> new Aggregate<>(kill));
-			agg.total += amount;
-			agg.parts.add(amount);
-			if (inferred != null) {
-				agg.inferred = inferred; // one unverified credit in the burst flags the whole submission
-			}
-			if (kill.needsCoopFingerprint()) {
-				CoopFingerprint fp = coopFingerprint();
-				// Keep the richest view across a coalesced burst: one kill in the window may have
-				// rendered a teammate another didn't.
-				if (fp != null && (agg.coop == null || fp.teammates.size() > agg.coop.teammates.size())) {
-					agg.coop = fp;
-				}
-			}
-			settle(agg, snapshotCurrent, snapshotRequired, () -> flushKills(kill.tileId), COALESCE_FLUSH_MS);
-		}
-	}
-
-	private void flushKills(int tileId) {
-		flushAggregate(pendingKillAggregates, tileId, this::submitKillBurst);
-	}
 
 	// Milestone proof for grindy kill tiles — mirror of the site's Discord throttle. A 4000-kill
 	// task would otherwise upload one proof PNG per spree-flush for days, swamping the media store.
 	// Above PROOF_LARGE_TILE_MIN we bake a proof screenshot only when the running count crosses a
 	// 25% step of the goal (and on completion); flushes in between are lightweight count-only pings.
-	private static final int PROOF_LARGE_TILE_MIN = 25;
-	private static final double PROOF_MILESTONE_FRACTION = 0.25;
 
-	// True when this flush's running count crosses a milestone step of the goal (or the tile is
-	// small enough that we always screenshot). Stateless before/after check, matching the site.
-	private boolean crossesProofMilestone(int addedThisWindow, int current, int required) {
-		if (required < PROOF_LARGE_TILE_MIN) {
-			return true;
-		}
-		double step = Math.max(1.0, required * PROOF_MILESTONE_FRACTION);
-		return (long) Math.floor(current / step) > (long) Math.floor((current - addedThisWindow) / step);
-	}
 
-	// A kill submission credits the caller's team/tile on the clan this plugin is addressing.
-	// The count-only ping carries no image; the milestone/complete proof re-uses its PNG (below).
-	private void submitKillBurst(Aggregate<TrackedKill> agg) {
-		submitCountedBurst(agg, pendingKillAggregates, "kill", true, () -> flushKills(agg.tile.tileId), COALESCE_FLUSH_MS);
-	}
 
 	/**
 	 * A settled kill or gain burst. Intermediate flushes are count-only pings, no screenshot: a long
@@ -5196,74 +4907,25 @@ public class AnvilPlugin extends Plugin {
 	 * count-once tile counted each teammate's report of one raid separately.
 	 */
 	private <T extends CountedTile> void submitCountedBurst(Aggregate<T> agg, Map<Integer, Aggregate<T>> pending,
-			String noun, boolean milestones, Runnable flush, long coalesceMs) {
+			String noun, Runnable flush, long coalesceMs) {
 		T tile = agg.tile;
 		int amount = agg.total;
 		final String inferred = agg.inferred;
-		// A combo's part speaks with its combo's name; a cap counter says nothing in chat.
+		// A combo's part speaks with its combo's name. Gains are not capped on the site, so they always ping.
 		final String label = tileDisplayLabel(tile);
-		final boolean quiet = tile instanceof TrackedKill && ((TrackedKill) tile).isCap();
-		// Gains are not capped on the site, so they always ping. A kill burst pings when the site takes it
-		// without a screenshot (planPings: up to 10, or the tile's pingMax split into whole actions) —
-		// otherwise it goes as a proof rather than a ping the site would clamp to 10.
-		if (agg.snapshotCurrent < agg.snapshotRequired
-				&& !(milestones && crossesProofMilestone(amount, agg.snapshotCurrent, agg.snapshotRequired))) {
-			List<Integer> pings = milestones ? planPings(agg.parts, amount, tile.pingMax)
-					: Collections.singletonList(amount);
-			if (pings != null) {
-				for (int chunk : pings) {
-					pingTile(tile.tileId, label, noun, chunk, agg.coop, inferred, () -> requeue(pending, tile.tileId,
-							tile, chunk, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
-				}
-				return;
-			}
+		if (agg.snapshotCurrent < agg.snapshotRequired) {
+			pingTile(tile.tileId, label, noun, amount, agg.coop, inferred, () -> requeue(pending, tile.tileId,
+					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
+			return;
 		}
 		String detail = label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
 		submitProof(tile.tileId, label, amount, null, null, inferred, null, agg.coop,
 				"BINGO " + noun.toUpperCase(Locale.ROOT), detail,
-				"[Auto] " + label + " " + noun + "(s) detected by RuneLite plugin", quiet ? null : "Submitted: " + label,
+				"[Auto] " + label + " " + noun + "(s) detected by RuneLite plugin", "Submitted: " + label,
 				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
 	}
 
-	/** The most one image-less ping may credit on a tile the site sent no pingMax for (site lib/pingMax). */
-	static final int MAX_PING_AMOUNT = 10;
 
-	/**
-	 * The image-less pings a settled kill burst (not a milestone, not the completion) goes out as, or
-	 * null when it must be a screenshot proof.
-	 *
-	 * <p>No {@code pingMax} from the site (0): today's rule — one ping up to {@link #MAX_PING_AMOUNT},
-	 * a proof above it. With one, the burst is never a proof: a debounced burst can hold several real
-	 * actions (two quick Vale searches, a run of reputation swords if the window keeps resetting), so
-	 * its credits are packed in order into pings of at most pingMax each — every ping is whole actions,
-	 * none trips the site's "bigger than one action" flag. A SINGLE credit above pingMax still goes
-	 * alone, so the site flags it: that one is genuinely odd.
-	 */
-	static List<Integer> planPings(List<Integer> parts, int total, int pingMax) {
-		if (pingMax <= 0) {
-			return total <= MAX_PING_AMOUNT ? Collections.singletonList(total) : null;
-		}
-		int sum = 0;
-		for (int p : parts) {
-			sum += p;
-		}
-		if (sum != total || total <= pingMax) {
-			return Collections.singletonList(total);
-		}
-		List<Integer> out = new ArrayList<>();
-		int chunk = 0;
-		for (int p : parts) {
-			if (chunk > 0 && chunk + p > pingMax) {
-				out.add(chunk);
-				chunk = 0;
-			}
-			chunk += p;
-		}
-		if (chunk > 0) {
-			out.add(chunk);
-		}
-		return out;
-	}
 
 	/**
 	 * Count-only ping for an intermediate flush — no screenshot. Ids are captured now: the config can
@@ -5303,7 +4965,6 @@ public class AnvilPlugin extends Plugin {
 		synchronized (pending) {
 			Aggregate<T> retry = pending.computeIfAbsent(tileId, k -> new Aggregate<>(tile));
 			retry.total += amount;
-			retry.parts.add(amount);
 			if (inferred != null) {
 				retry.inferred = inferred;
 			}
@@ -5638,7 +5299,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private void submitGainBurst(Aggregate<TrackedGain> agg) {
-		submitCountedBurst(agg, pendingGainAggregates, "gain", false, () -> flushGains(agg.tile.tileId), GAIN_COALESCE_MS);
+		submitCountedBurst(agg, pendingGainAggregates, "gain", () -> flushGains(agg.tile.tileId), GAIN_COALESCE_MS);
 	}
 
 	/**
@@ -5681,15 +5342,9 @@ public class AnvilPlugin extends Plugin {
 		final int playerId = board != null ? board.playerId : pluginConfig.player.id;
 		final String capturedRsn = getLocalPlayerName();
 		// The site draws the banner from these (lib/proofStamp), so the upload stays a clean frame.
-		final JsonObject proof = new JsonObject();
+		final JsonObject proof = proofMeta();
 		proof.addProperty("title", bannerTitle);
 		proof.addProperty("detail", bannerDetail);
-		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
-		proof.addProperty("capturedAt", now());
-		proof.addProperty("tick", client.getTickCount());
-		synchronized (recentChat) {
-			proof.add("chat", gson.toJsonTree(recentChat));
-		}
 
 		onCleanFrame(image -> {
 			try {
@@ -5741,6 +5396,18 @@ public class AnvilPlugin extends Plugin {
 				}
 			}
 		});
+	}
+
+	/** What the site stamps a proof's banner from, less the title/detail (lib/proofStamp). */
+	private JsonObject proofMeta() {
+		JsonObject proof = new JsonObject();
+		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
+		proof.addProperty("capturedAt", now());
+		proof.addProperty("tick", client.getTickCount());
+		synchronized (recentChat) {
+			proof.add("chat", gson.toJsonTree(recentChat));
+		}
+		return proof;
 	}
 
 	private static PendingSubmission pending(int eventId, int tileId, int teamId, int playerId,
@@ -6321,7 +5988,9 @@ public class AnvilPlugin extends Plugin {
 			log.info("Uploading screenshot for tile '{}'...", pending.label);
 			String imageUrl = apiClient.uploadImage(pngBytes, filename);
 
-			if (pending.durationSeconds != null) {
+			if (pending.facts != null) {
+				adoptFacts(apiClient.postFacts(pending.facts, imageUrl, pending.proof, pendingCoop(pending)));
+			} else if (pending.durationSeconds != null) {
 				log.info("Submitting timed clear for tile '{}'...", pending.label);
 				pending.completedNow = apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
 						imageUrl, pending.note, pending.playerId, pending.proof, pending.clan);
@@ -8620,6 +8289,7 @@ public class AnvilPlugin extends Plugin {
 			noteConnectionOk();
 			adoptResolvedClan(fresh);
 			maybeRefreshChatPatterns(fresh);
+			rules.set(fresh != null && fresh.event != null && fresh.serverSupports("rules") ? apiClient.fetchRules() : null);
 
 			// Token validated but the caller has no active event right now (server
 			// returns event: null + noActiveEvent: true). Clear local state so tracking
@@ -8812,13 +8482,11 @@ public class AnvilPlugin extends Plugin {
 		PluginConfigResponse cfg = pluginConfig;
 		boolean has = cfg != null;
 		tileBoards = has ? cfg.tagBoards() : Collections.emptyMap();
-		itemDropIndex = indexBy(has ? cfg.trackedDrops : null, d -> d.itemIds, id -> id);
 		Set<Integer> notable = has && cfg.alwaysNotifyItemIds != null ? new HashSet<>(cfg.alwaysNotifyItemIds) : new HashSet<>();
 		notable.remove(null);
 		notableItemIds = notable;
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
 		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
-		killNpcIndex = indexBy(has ? cfg.trackedKills : null, k -> k.targetNpcs, DropSource::killTargetKey);
 		gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
 		rebuildPvpRosterIndex();
 		// The in-game KC-line boss names and the skill names to push real-time counts for.
@@ -9031,9 +8699,6 @@ public class AnvilPlugin extends Plugin {
 		return TileNotes.partLabel(combo == null ? null : combo.label, tile.label);
 	}
 
-	private String killDisplayLabel(TrackedKill kill) {
-		return tileDisplayLabel(kill);
-	}
 
 	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */
 	private volatile Map<Integer, Long> tileCounts = Collections.emptyMap();
@@ -9531,7 +9196,7 @@ public class AnvilPlugin extends Plugin {
 		if (items == null || items.isEmpty() || !momentsEnabled()) {
 			return;
 		}
-		Map<Integer, List<TrackedDrop>> boardItems = itemDropIndex;
+		Set<Integer> boardItems = rules.dropItemIds();
 		PluginConfigResponse cfg = pluginConfig;
 		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null && cfg.serverSupports("luck-drops")
 				? new HashSet<>(cfg.luckItemIds) : Collections.emptySet();
@@ -9551,7 +9216,7 @@ public class AnvilPlugin extends Plugin {
 			long price = itemManager.getItemPrice(itemId);
 			long value = (long) Math.max(0, price) * quantity;
 			// A luck item goes up whatever it sells for: an untradeable vestige is worth 0 here.
-			boolean wanted = (boardItems != null && boardItems.containsKey(itemId)) || luckItems.contains(itemId);
+			boolean wanted = boardItems.contains(itemId) || luckItems.contains(itemId);
 			if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) {
 				continue;
 			}
