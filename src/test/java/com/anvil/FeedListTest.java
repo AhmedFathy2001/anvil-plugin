@@ -382,13 +382,12 @@ public class FeedListTest
 		com.google.gson.JsonArray reacts = json("{\"r\":[{\"kind\":\"sad\",\"label\":\"Sad\",\"n\":0},{\"kind\":\"sit\",\"label\":\"Sit\",\"n\":3,\"mine\":true}]}").getAsJsonArray("r");
 		assertEquals("Sad", FeedList.chipText(reacts.get(0).getAsJsonObject()));
 		assertEquals("Sit 3", FeedList.chipText(reacts.get(1).getAsJsonObject()));
-		String html = FeedList.reactsHtml(reacts);
-		assertTrue(html.contains(">Sad</font>") && html.contains(">Sit 3</font>"));
-		assertTrue("the viewer's own is lit", html.indexOf("Sit 3") > html.lastIndexOf(String.format("#%06x", net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getRGB() & 0xFFFFFF)));
-		int sit = fm.stringWidth("Sit 3");
+		// Pills: the text plus its padding, then a gap. The click zone is exactly the drawn pill.
+		int sit = FeedList.chipWidth(fm, reacts.get(1).getAsJsonObject());
+		assertEquals(fm.stringWidth("Sit 3") + 2 * FeedList.CHIP_PAD, sit);
 		assertEquals(1, FeedList.reactAt(reacts, fm, 2));
 		assertEquals(1, FeedList.reactAt(reacts, fm, sit - 1));
-		assertEquals(0, FeedList.reactAt(reacts, fm, sit + fm.stringWidth("   ") + 2));
+		assertEquals(0, FeedList.reactAt(reacts, fm, sit + FeedList.CHIP_SPACE + 3));
 		assertEquals("left of every chip is the row itself", -1, FeedList.reactAt(reacts, fm, 400));
 	}
 
@@ -406,7 +405,8 @@ public class FeedListTest
 		JsonObject drop = json("{\"gz\":{\"n\":2,\"who\":\"GZ \u00b7 Mossy and Rikkert\"}}");
 		assertEquals("GZ \u00b7 Mossy and Rikkert", UiView.str(FeedList.chipAt(drop, fm, 10), "who"));
 		assertEquals("the inset still counts", "GZ \u00b7 Mossy and Rikkert", UiView.str(FeedList.chipAt(drop, fm, -4), "who"));
-		assertNull("past the GZ's 44px is the row", FeedList.chipAt(drop, fm, 38));
+		int gz = FeedList.chipWidth(fm, FeedList.chipsOf(drop).get(0).getAsJsonObject());
+		assertNull("past the GZ pill is the row", FeedList.chipAt(drop, fm, gz + 3));
 		assertNull(FeedList.chipAt(json("{\"title\":\"Pet\"}"), fm, 2));
 		// A site from before the who line: the chip is there, with nothing to say.
 		assertEquals("", UiView.str(FeedList.chipAt(json("{\"gz\":{\"n\":2}}"), fm, 2), "who"));

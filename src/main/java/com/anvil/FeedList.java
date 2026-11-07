@@ -16,8 +16,11 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
@@ -219,6 +222,35 @@ final class FeedList extends JPanel
 		list.setFocusable(false);
 		javax.swing.ToolTipManager.sharedInstance().registerComponent(list);
 		list.addMouseListener(new Clicks());
+		// Over a pill you can press: a hand cursor and the pill lights, so reactions read as buttons.
+		MouseAdapter hover = new MouseAdapter()
+		{
+			@Override
+			public void mouseMoved(MouseEvent e)
+			{
+				int i = list.locationToIndex(e.getPoint());
+				Rectangle b = i < 0 ? null : list.getCellBounds(i, i);
+				int chip = -1;
+				if (b != null && b.contains(e.getPoint()))
+				{
+					JsonArray c = chipsOf(model.getElementAt(i));
+					int at = c == null ? -1 : reactAt(c, list.getFontMetrics(SMALL), b.x + b.width - 6 - e.getX());
+					if (at >= 0 && c.get(at).getAsJsonObject().has("on"))
+					{
+						chip = at;
+					}
+				}
+				setHover(chip >= 0 ? i : -1, chip);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e)
+			{
+				setHover(-1, -1);
+			}
+		};
+		list.addMouseMotionListener(hover);
+		list.addMouseListener(hover);
 		// Chat rows wrap to the width: a new width means new heights, so drop JList's cached ones.
 		list.addComponentListener(new ComponentAdapter()
 		{
@@ -1454,6 +1486,7 @@ final class FeedList extends JPanel
 		private final JLabel line2 = new ClipLabel();
 		private final JLabel value = new ClipLabel();
 		private final JLabel gz = new ClipLabel();
+		private final Chips chips = new Chips();
 
 		RowRenderer()
 		{
@@ -1478,7 +1511,12 @@ final class FeedList extends JPanel
 			JPanel right = new JPanel(new BorderLayout());
 			right.setOpaque(false);
 			right.add(value, BorderLayout.NORTH);
-			right.add(gz, BorderLayout.SOUTH);
+			// The second line: reaction pills when the row has them, else the plain gz/time text.
+			JPanel bottom = new JPanel(new BorderLayout());
+			bottom.setOpaque(false);
+			bottom.add(gz, BorderLayout.CENTER);
+			bottom.add(chips, BorderLayout.EAST);
+			right.add(bottom, BorderLayout.SOUTH);
 			add(icon, BorderLayout.WEST);
 			add(middle, BorderLayout.CENTER);
 			add(right, BorderLayout.EAST);
@@ -1536,24 +1574,19 @@ final class FeedList extends JPanel
 			}
 			value.setText(plainText(r.has("value") ? UiView.str(r, "value") : when));
 			value.setForeground(r.has("value") ? GOLD : MUTED);
-			if (r.has("reacts") && r.get("reacts").isJsonArray())
+			JsonArray rowChips = chipsOf(r);
+			if (rowChips != null)
 			{
-				gz.setText(reactsHtml(r.getAsJsonArray("reacts")));
-				gz.setToolTipText(null);
-				gz.setVisible(true);
-			}
-			else if (r.has("gz") && r.get("gz").isJsonObject())
-			{
-				JsonObject g = r.getAsJsonObject("gz");
-				int n = g.has("n") ? g.get("n").getAsInt() : 0;
-				boolean mine = g.has("mine") && g.get("mine").getAsBoolean();
-				gz.setText(n > 0 ? "GZ " + n : "GZ");
-				gz.setForeground(mine ? ColorScheme.BRAND_ORANGE : MUTED);
-				gz.setToolTipText(null);
-				gz.setVisible(true);
+				// Reactions as pills (GZ / Sad / Sit), so they read as buttons rather than labels.
+				chips.chips = rowChips;
+				chips.hover = index == hoverRow ? hoverChip : -1;
+				chips.setVisible(true);
+				gz.setVisible(false);
 			}
 			else
 			{
+				chips.chips = null;
+				chips.setVisible(false);
 				gz.setText(r.has("value") ? plainText(when) : "");
 				gz.setForeground(MUTED);
 				gz.setVisible(r.has("value"));
@@ -1562,8 +1595,35 @@ final class FeedList extends JPanel
 		}
 	}
 
-	/** Between a row's reaction chips. */
-	private static final String CHIP_GAP = "   ";
+	/** The row and pill under the mouse, lit by the renderer (-1: none). EDT. */
+	private int hoverRow = -1;
+	private int hoverChip = -1;
+
+	private void setHover(int row, int chip)
+	{
+		if (row == hoverRow && chip == hoverChip)
+		{
+			return;
+		}
+		int was = hoverRow;
+		hoverRow = row;
+		hoverChip = chip;
+		list.setCursor(Cursor.getPredefinedCursor(row >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+		for (int i : new int[]{was, row})
+		{
+			Rectangle b = i < 0 || i >= model.getSize() ? null : list.getCellBounds(i, i);
+			if (b != null)
+			{
+				list.repaint(b);
+			}
+		}
+	}
+
+	/** Inside a reaction pill: the text's side padding; and the space between two pills. */
+	static final int CHIP_PAD = 5;
+	static final int CHIP_SPACE = 4;
+	private static final Color CHIP_EDGE = new Color(0x5a5a5a);
+	private static final Color CHIP_INK_ON = new Color(0x1e1e1e);
 
 	/** "Sit 3", or just "Sit" before anyone has. */
 	static String chipText(JsonObject c)
@@ -1573,58 +1633,128 @@ final class FeedList extends JPanel
 		return n > 0 ? label + " " + n : label;
 	}
 
-	/** A row's chips on one right-aligned line, the viewer's own lit. */
-	static String reactsHtml(JsonArray reacts)
-	{
-		StringBuilder sb = new StringBuilder("<html>");
-		for (int k = 0; k < reacts.size(); k++)
-		{
-			JsonObject c = reacts.get(k).getAsJsonObject();
-			boolean mine = c.has("mine") && c.get("mine").getAsBoolean();
-			Color ink = mine ? ColorScheme.BRAND_ORANGE : MUTED;
-			sb.append(k > 0 ? CHIP_GAP.replace(" ", "&nbsp;") : "")
-				.append(String.format("<font color='#%06x'>", ink.getRGB() & 0xFFFFFF))
-				.append(esc(plainText(chipText(c))))
-				.append("</font>");
-		}
-		return sb.append("</html>").toString();
-	}
-
-	/**
-	 * The reaction chip {@code fromRight} px left of the row's right edge (inside its 6px inset), or
-	 * null: one of a death's {@code reacts}, else the {@code gz} in the row's right-hand 44px. The same
-	 * zones serve a click (toggle it) and a hover (its {@code who} tooltip).
-	 */
-	static JsonObject chipAt(JsonObject r, java.awt.FontMetrics fm, int fromRight)
+	/** A row's reaction chips in drawing order: a death's {@code reacts}, else its one {@code gz}. */
+	static JsonArray chipsOf(JsonObject r)
 	{
 		if (r.has("reacts") && r.get("reacts").isJsonArray())
 		{
-			JsonArray reacts = r.getAsJsonArray("reacts");
-			int at = reactAt(reacts, fm, fromRight);
-			return at < 0 ? null : reacts.get(at).getAsJsonObject();
+			return r.getAsJsonArray("reacts");
 		}
-		if (r.has("gz") && r.get("gz").isJsonObject() && fromRight < 38)
+		if (r.has("gz") && r.get("gz").isJsonObject())
 		{
-			return r.getAsJsonObject("gz");
+			JsonObject g = r.getAsJsonObject("gz");
+			if (!g.has("label"))
+			{
+				g.addProperty("label", "GZ");
+			}
+			JsonArray one = new JsonArray();
+			one.add(g);
+			return one;
 		}
 		return null;
 	}
 
-	/** Which chip a click {@code fromRight} px left of the row's right edge lands on, or -1. */
+	static int chipWidth(java.awt.FontMetrics fm, JsonObject c)
+	{
+		return fm.stringWidth(chipText(c)) + 2 * CHIP_PAD;
+	}
+
+	/**
+	 * The reaction chip {@code fromRight} px left of the row's right edge (inside its 6px inset), or
+	 * null. The pills' own geometry ({@link Chips}), so a click or hover lands on exactly what is drawn.
+	 */
+	static JsonObject chipAt(JsonObject r, java.awt.FontMetrics fm, int fromRight)
+	{
+		JsonArray c = chipsOf(r);
+		int at = c == null ? -1 : reactAt(c, fm, fromRight);
+		return at < 0 ? null : c.get(at).getAsJsonObject();
+	}
+
+	/** Which pill {@code fromRight} px left of the row's right edge falls on (2px of slack), or -1. */
 	static int reactAt(JsonArray reacts, java.awt.FontMetrics fm, int fromRight)
 	{
-		int gap = fm.stringWidth(CHIP_GAP);
 		int edge = 0;
-		for (int k = reacts.size() - 1; k >= 0 && fromRight >= -6; k--)
+		for (int k = reacts.size() - 1; k >= 0; k--)
 		{
-			edge += fm.stringWidth(chipText(reacts.get(k).getAsJsonObject()));
-			if (fromRight <= edge + gap / 2)
+			int w = chipWidth(fm, reacts.get(k).getAsJsonObject());
+			// The rightmost pill also takes the row's 6px inset beside it, as the plain chips did.
+			if (fromRight >= (edge == 0 ? -6 : edge - 2) && fromRight <= edge + w + 2)
 			{
 				return k;
 			}
-			edge += gap;
+			edge += w + CHIP_SPACE;
 		}
 		return -1;
+	}
+
+	/** A row's reactions as small rounded buttons: outlined, filled when they're yours, lit on hover. */
+	static final class Chips extends javax.swing.JComponent
+	{
+		JsonArray chips;
+		int hover = -1;
+
+		Chips()
+		{
+			setFont(SMALL);
+			setOpaque(false);
+		}
+
+		@Override
+		public Dimension getPreferredSize()
+		{
+			java.awt.FontMetrics fm = getFontMetrics(getFont());
+			int w = 0;
+			for (int k = 0; chips != null && k < chips.size(); k++)
+			{
+				w += (k > 0 ? CHIP_SPACE : 0) + chipWidth(fm, chips.get(k).getAsJsonObject());
+			}
+			// No taller than the text line it replaces: rows have a fixed height measured without pills.
+			return new Dimension(w, fm.getHeight());
+		}
+
+		@Override
+		protected void paintComponent(Graphics g)
+		{
+			if (chips == null)
+			{
+				return;
+			}
+			Graphics2D g2 = (Graphics2D) g.create();
+			try
+			{
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setFont(getFont());
+				java.awt.FontMetrics fm = g2.getFontMetrics();
+				int h = getHeight() - 1;
+				int x = getWidth();
+				for (int k = chips.size() - 1; k >= 0; k--)
+				{
+					JsonObject c = chips.get(k).getAsJsonObject();
+					int w = chipWidth(fm, c);
+					x -= w;
+					boolean mine = c.has("mine") && c.get("mine").getAsBoolean();
+					boolean live = c.has("on") && c.get("on").isJsonObject();
+					boolean lit = live && k == hover;
+					if (mine)
+					{
+						g2.setColor(lit ? ColorScheme.BRAND_ORANGE.brighter() : ColorScheme.BRAND_ORANGE);
+						g2.fillRoundRect(x, 0, w - 1, h, h, h);
+					}
+					else
+					{
+						g2.setColor(lit ? ColorScheme.BRAND_ORANGE : CHIP_EDGE);
+						g2.drawRoundRect(x, 0, w - 1, h, h, h);
+					}
+					g2.setColor(mine ? CHIP_INK_ON : lit ? Color.WHITE : MUTED);
+					g2.drawString(chipText(c), x + CHIP_PAD, (h - fm.getHeight()) / 2 + fm.getAscent() + 1);
+					x -= CHIP_SPACE;
+				}
+			}
+			finally
+			{
+				g2.dispose();
+			}
+		}
 	}
 
 	/** A line joins the one before it (no name or time of its own) only from the same person within this. */
