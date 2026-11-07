@@ -75,9 +75,7 @@ final class TileNotes {
 					out.add(label + "  done");
 				} else if (c != null && c[1] > 1) {
 					out.add(label + "  " + fmt(Math.max(0, Math.min(c[0], c[1]))) + "/" + fmt(c[1]));
-				} else {
-					out.add(label);
-				}
+				} else out.add(label);
 			}
 		}
 		return out;

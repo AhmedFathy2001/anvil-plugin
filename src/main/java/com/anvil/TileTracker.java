@@ -296,9 +296,7 @@ public class TileTracker {
 			unpinAll();
 		} else if (overlay instanceof Widget && pins.get(((Widget) overlay).tileId) == overlay) {
 			hide(removePin(((Widget) overlay).tileId));
-		} else {
-			return false;
-		}
+		} else return false;
 		save();
 		return true;
 	}
@@ -329,9 +327,7 @@ public class TileTracker {
 		if (onePanel) {
 			overlayManager.remove(combined); // re-added, so it is never in twice
 			overlayManager.add(combined);
-		} else {
-			overlayManager.add(w);
-		}
+		} else overlayManager.add(w);
 		return w;
 	}
 

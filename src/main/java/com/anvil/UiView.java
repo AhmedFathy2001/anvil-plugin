@@ -14,6 +14,8 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
 import static com.anvil.Ui.*;
+import java.awt.image.BufferedImage;
+import javax.swing.Timer;
 
 /**
  * A panel view the site built ({@code GET /api/plugin/ui}, capability {@code plugin-ui}): the site
@@ -26,6 +28,7 @@ import static com.anvil.Ui.*;
  * can be refilled on its own (a log page, the CA filters, the goals form) without redrawing the rest.
  * Answers that arrive after a newer request for the same place are dropped.</p>
  */
+
 final class UiView extends JPanel {
 	/** Where this view's fetches and outward clicks go: the panel. Calls arrive on the EDT. */
 	interface Host {
@@ -110,7 +113,7 @@ final class UiView extends JPanel {
 	private final List<Runnable> tickers = new ArrayList<>();
 	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
 	private final List<Runnable> lives = new ArrayList<>();
-	private final javax.swing.Timer ticker = new javax.swing.Timer(1000, e -> tickers.forEach(Runnable::run));
+	private final Timer ticker = new Timer(1000, e -> tickers.forEach(Runnable::run));
 	/** Live lists on screen (node {@code feed}): push rows find them by id, see {@link #feedPush}. */
 	private final List<FeedList> feeds = new ArrayList<>();
 	/**
@@ -191,9 +194,7 @@ final class UiView extends JPanel {
 		replace(this, view == null || !view.has("ui") ? message("Couldn't reach Anvil — try again in a moment.") : node(view.getAsJsonObject("ui")));
 		if (tickers.isEmpty()) {
 			ticker.stop();
-		} else {
-			ticker.start();
-		}
+		} else ticker.start();
 	}
 
 	/**
@@ -255,7 +256,7 @@ final class UiView extends JPanel {
 		long sincePress = System.currentTimeMillis() - pressedAt;
 		if (background && ((pressing && sincePress < PRESS_STALE_MS) || sincePress < CLICK_SETTLE_MS)) {
 			// Redrawing now would swap the row out from under the press, and the click would be lost.
-			javax.swing.Timer later = new javax.swing.Timer((int) CLICK_SETTLE_MS, e -> land(into, n, view, true));
+			Timer later = new Timer((int) CLICK_SETTLE_MS, e -> land(into, n, view, true));
 			later.setRepeats(false);
 			later.start();
 			return;
@@ -268,9 +269,7 @@ final class UiView extends JPanel {
 		Slot slot = into == null ? null : slots.get(into);
 		if (into == null || slot == null) {
 			render(view);
-		} else {
-			replace(slot.holder, view == null || !view.has("ui") ? small("Couldn't reach Anvil — try again in a moment.", MUTED) : node(view.getAsJsonObject("ui")));
-		}
+		} else replace(slot.holder, view == null || !view.has("ui") ? small("Couldn't reach Anvil — try again in a moment.", MUTED) : node(view.getAsJsonObject("ui")));
 	}
 
 	private static void replace(JPanel holder, Component c) {
@@ -616,7 +615,7 @@ final class UiView extends JPanel {
 			public void paintIcon(Component c, Graphics g, int x, int y) {
 				// Clipping a GIF directly leaves a visibly jagged Swing edge. Paint the current frame into a
 				// tiny ARGB buffer, then apply an antialiased alpha mask; ImageIcon still advances normally.
-				java.awt.image.BufferedImage frame = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+				BufferedImage frame = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 				Graphics2D copy = frame.createGraphics();
 				try {
 					// A GifIcon registers c and repaints it per frame itself.
@@ -851,7 +850,7 @@ final class UiView extends JPanel {
 		inputs.put(name, () -> field.getText().trim());
 		JsonObject on = n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null;
 		if (on != null) {
-			javax.swing.Timer pause = new javax.swing.Timer(350, e -> fire(on));
+			Timer pause = new Timer(350, e -> fire(on));
 			pause.setRepeats(false);
 			onEdit(field, pause::restart);
 			field.addActionListener(e -> {
@@ -1036,9 +1035,7 @@ final class UiView extends JPanel {
 					if (item.has("on") && item.get("on").isJsonObject()) {
 						JsonObject on = item.getAsJsonObject("on");
 						mi.addActionListener(ev -> act(on));
-					} else {
-						mi.setEnabled(false);
-					}
+					} else mi.setEnabled(false);
 					menu.add(mi);
 				}
 				menu.show(e.getComponent(), e.getX(), e.getY());

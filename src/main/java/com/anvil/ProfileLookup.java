@@ -156,9 +156,7 @@ final class ProfileLookup {
 		if (want == playerItemShown) return;
 		if (want) {
 			menuManager.addPlayerMenuItem(OPTION);
-		} else {
-			menuManager.removePlayerMenuItem(OPTION);
-		}
+		} else menuManager.removePlayerMenuItem(OPTION);
 		playerItemShown = want;
 	}
 

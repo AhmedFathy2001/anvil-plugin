@@ -377,9 +377,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		lookupSearch.addActionListener(e -> {
 			if (lookupClans) {
 				lookupView.show("clans", Collections.singletonMap("q", lookupSearch.getText().trim()), "Searching…");
-			} else {
-				showLookup(lookupSearch.getText());
-			}
+			} else showLookup(lookupSearch.getText());
 		});
 		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
 		// Players only: clan names aren't in any list the game keeps.
@@ -555,9 +553,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 				uiCache.clear();
 				if (tile <= 0) {
 					dataSource.unpinAll(event);
-				} else {
-					dataSource.setTileTracked(event, tile, on);
-				}
+				} else dataSource.setTileTracked(event, tile, on);
 			}
 
 			@Override
@@ -823,9 +819,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 						log.warn("Anvil: signed in but the token did not persist to the RuneLite config");
 						setSignInStatus("Signed in, but RuneLite didn't save the token — copy it "
 							+ "from Profile > RuneLite plugin on the site and use Paste a token below.");
-					} else {
-						setSignInStatus("");
-					}
+					} else setSignInStatus("");
 				}
 				refreshSignInRow();
 				refresh();
@@ -861,9 +855,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			profile.addActionListener(e -> {
 				if (tabsOn) {
 					showYou();
-				} else {
-					ProfileLookup.open(row.rsn);
-				}
+				} else ProfileLookup.open(row.rsn);
 			});
 			menu.add(profile);
 		}
@@ -991,8 +983,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		ChatFlair.Entry e = dataSource.flairOf(rsn);
 		// The panel is a dark surface: the owner's own dark look as-is, else the adapted main one.
 		ChatFlair.Surface own = e == null || e.d == null || ChatPalette.nameColor(e.d.c) == null ? null : e.d;
-		java.util.List<String> source = own != null ? own.g : e == null ? null : e.g;
-		java.util.List<Color> stops = new java.util.ArrayList<>();
+		List<String> source = own != null ? own.g : e == null ? null : e.g;
+		List<Color> stops = new java.util.ArrayList<>();
 		for (String g : source == null ? java.util.Collections.<String>emptyList() : source) {
 			if (stops.size() < 4) stops.add(own != null ? Ui.teamColor("#" + ChatPalette.nameColor(g), Color.WHITE) : ChatPalette.readableColor(g, false, Color.WHITE));
 		}
@@ -1156,9 +1148,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			clanShown = false;
 			if (dataSource.awaitingFirstConfig()) {
 				renderLoading();
-			} else {
-				renderEmpty();
-			}
+			} else renderEmpty();
 			return;
 		}
 		long now = System.currentTimeMillis();
@@ -1607,9 +1597,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			startProofTick = () -> {
 				if (checks.isDisplayable()) {
 					renderStartProofChecks(checks, proof);
-				} else {
-					startProofTick = null;
-				}
+				} else startProofTick = null;
 			};
 		}
 

@@ -59,6 +59,10 @@ import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.util.AsyncBufferedImage;
 import net.runelite.client.util.ImageUtil;
+import java.awt.FontMetrics;
+import javax.swing.SwingUtilities;
+import net.runelite.api.Skill;
+import net.runelite.api.SpriteID;
 
 /**
  * The server-driven UI's live list (node {@code feed}, capability 'panel-rows'): drawn once from the
@@ -75,6 +79,7 @@ import net.runelite.client.util.ImageUtil;
  * row's {@code reacts} chips, a death's Sad / Sit) flips at once and is posted, a mod's menu action is
  * posted, and only an error line comes back.
  */
+
 final class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
@@ -135,7 +140,7 @@ final class FeedList extends JPanel {
 	/** Whose lines are the viewer's own, re-read at each flush. */
 	private String me;
 	/** Chat: every name the viewer's own lines carry (the site's `mine`: their characters and host name), per person. */
-	private final java.util.Set<String> mineNames = new java.util.HashSet<>();
+	private final Set<String> mineNames = new HashSet<>();
 	/** Arrived since the last flush, oldest first. */
 	private final List<JsonObject> pending = new ArrayList<>();
 	private final Set<String> pendingDel = new HashSet<>();
@@ -289,7 +294,7 @@ final class FeedList extends JPanel {
 			bottom.add(sendBox(), BorderLayout.CENTER);
 			add(bottom, BorderLayout.SOUTH);
 			lock(n.has("locked") && !n.get("locked").isJsonNull() ? UiView.str(n, "locked") : null);
-			javax.swing.SwingUtilities.invokeLater(this::toLatest);
+			SwingUtilities.invokeLater(this::toLatest);
 		}
 		syncEmpty();
 		setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
@@ -530,7 +535,7 @@ final class FeedList extends JPanel {
 			Collections.reverse(fresh);
 			model.append(fresh, cap);
 			if (stick) {
-				javax.swing.SwingUtilities.invokeLater(this::toLatest);
+				SwingUtilities.invokeLater(this::toLatest);
 			} else {
 				unseen += fresh.size();
 				newPill.setText("↓ " + unseen + " new");
@@ -570,9 +575,7 @@ final class FeedList extends JPanel {
 				Rectangle b = list.getCellBounds(last, last);
 				if (b != null) list.scrollRectToVisible(b);
 			}
-		} else {
-			scroll.getViewport().setViewPosition(new Point(0, 0));
-		}
+		} else scroll.getViewport().setViewPosition(new Point(0, 0));
 	}
 
 	private void syncEmpty() {
@@ -689,7 +692,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		public void mouseReleased(MouseEvent e) {
-			if (!popup(e) && javax.swing.SwingUtilities.isLeftMouseButton(e)) click(e);
+			if (!popup(e) && SwingUtilities.isLeftMouseButton(e)) click(e);
 		}
 
 		private int rowAt(MouseEvent e) {
@@ -710,9 +713,7 @@ final class FeedList extends JPanel {
 				JsonObject on = item.has("on") && item.get("on").isJsonObject() ? item.getAsJsonObject("on") : null;
 				if (on == null) {
 					mi.setEnabled(false);
-				} else {
-					mi.addActionListener(ev -> quietly(on));
-				}
+				} else mi.addActionListener(ev -> quietly(on));
 				menu.add(mi);
 			}
 			menu.show(list, e.getX(), e.getY());
@@ -860,7 +861,7 @@ final class FeedList extends JPanel {
 			if (cached != null) return cached;
 			icons.put(item, new BlankIcon());
 			AsyncBufferedImage img = items.getImage(item);
-			img.onLoaded(() -> javax.swing.SwingUtilities.invokeLater(() -> {
+			img.onLoaded(() -> SwingUtilities.invokeLater(() -> {
 				icons.put(item, new ImageIcon(ImageUtil.resizeImage(img, ICON_W, ICON_H, true)));
 				list.repaint();
 			}));
@@ -872,7 +873,7 @@ final class FeedList extends JPanel {
 			Icon cached = spriteIcons.get(sprite);
 			if (cached != null) return cached;
 			spriteIcons.put(sprite, new BlankIcon());
-			sprites.getSpriteAsync(sprite, 0, img -> javax.swing.SwingUtilities.invokeLater(() -> {
+			sprites.getSpriteAsync(sprite, 0, img -> SwingUtilities.invokeLater(() -> {
 				if (img != null) {
 					spriteIcons.put(sprite, new ImageIcon(ImageUtil.resizeImage(img, ICON_W, ICON_H, true)));
 					list.repaint();
@@ -885,7 +886,7 @@ final class FeedList extends JPanel {
 			Icon cached = skillIcons.get(name);
 			if (cached != null) return cached;
 			try {
-				net.runelite.api.Skill skill = net.runelite.api.Skill.valueOf(name);
+				Skill skill = Skill.valueOf(name);
 				Icon icon = new ImageIcon(ImageUtil.resizeImage(skills.getSkillImage(skill, true), ICON_W, ICON_H, true));
 				skillIcons.put(name, icon);
 				return icon;
@@ -904,15 +905,15 @@ final class FeedList extends JPanel {
 	private static int spriteId(String name) {
 		switch (name) {
 			case "quest":
-				return net.runelite.api.SpriteID.QUESTS_PAGE_ICON_BLUE_QUESTS;
+				return SpriteID.QUESTS_PAGE_ICON_BLUE_QUESTS;
 			case "diary":
-				return net.runelite.api.SpriteID.QUESTS_PAGE_ICON_GREEN_ACHIEVEMENT_DIARIES;
+				return SpriteID.QUESTS_PAGE_ICON_GREEN_ACHIEVEMENT_DIARIES;
 			case "combat":
-				return net.runelite.api.SpriteID.TAB_COMBAT;
+				return SpriteID.TAB_COMBAT;
 			case "collection-log":
-				return net.runelite.api.SpriteID.HISCORE_COLLECTIONS_LOGGED;
+				return SpriteID.HISCORE_COLLECTIONS_LOGGED;
 			case "total":
-				return net.runelite.api.SpriteID.SKILL_TOTAL;
+				return SpriteID.SKILL_TOTAL;
 			default:
 				return -1;
 		}
@@ -920,7 +921,7 @@ final class FeedList extends JPanel {
 
 	private static final class BlankIcon implements Icon {
 		@Override
-		public void paintIcon(Component c, java.awt.Graphics g, int x, int y) {
+		public void paintIcon(Component c, Graphics g, int x, int y) {
 		}
 
 		@Override
@@ -972,7 +973,7 @@ final class FeedList extends JPanel {
 				wrapWidth = w;
 			}
 			lines = wraps.computeIfAbsent(UiView.str(row, "id"), k -> wrap(Ui.fontSafe(UiView.str(row, "text")), list.getFontMetrics(REGULAR), w));
-			java.awt.FontMetrics fm = getFontMetrics(REGULAR);
+			FontMetrics fm = getFontMetrics(REGULAR);
 			height = (grouped ? 0 : 6 + fm.getHeight()) + lines.size() * fm.getHeight() + 2;
 			return this;
 		}
@@ -983,11 +984,11 @@ final class FeedList extends JPanel {
 		}
 
 		@Override
-		protected void paintComponent(java.awt.Graphics g0) {
-			java.awt.Graphics2D g = (java.awt.Graphics2D) g0;
+		protected void paintComponent(Graphics g0) {
+			Graphics2D g = (Graphics2D) g0;
 			g.setColor(mine ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
 			g.fillRect(0, 0, getWidth(), getHeight());
-			java.awt.FontMetrics fm = g.getFontMetrics(REGULAR);
+			FontMetrics fm = g.getFontMetrics(REGULAR);
 			int y = 0;
 			if (!grouped) {
 				y = 6;
@@ -1016,9 +1017,7 @@ final class FeedList extends JPanel {
 					float shift = moves(r) ? (System.currentTimeMillis() % 6000) / 6000f * 2 * Math.max(1, nameW) : 0;
 					g.setPaint(new java.awt.LinearGradientPaint(x - shift, 0, x - shift + Math.max(1, nameW), 0, at, grad,
 						java.awt.MultipleGradientPaint.CycleMethod.REFLECT));
-				} else {
-					g.setColor(supporter || !team ? UiView.color(whoColor, Color.WHITE) : UiView.color(UiView.str(r, "tagColor"), Color.WHITE));
-				}
+				} else g.setColor(supporter || !team ? UiView.color(whoColor, Color.WHITE) : UiView.color(UiView.str(r, "tagColor"), Color.WHITE));
 				g.drawString(who, x, y + fm.getAscent());
 				x += nameW + 6;
 				g.setFont(SMALL);
@@ -1059,9 +1058,7 @@ final class FeedList extends JPanel {
 				int k = Math.min((int) t, grad.length - 2);
 				sb.append(font(mix(grad[k], grad[k + 1], t - k), String.valueOf(name.charAt(i))));
 			}
-		} else {
-			sb.append(font(nameInk, name));
-		}
+		} else sb.append(font(nameInk, name));
 		if (!tag.isEmpty()) sb.append(font(tagInk, " \u00b7 " + Ui.fontSafe(tag)));
 		return sb.toString();
 	}
@@ -1105,7 +1102,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** Words into lines no wider than {@code width}; a word longer than a line is broken where it must be. */
-	static List<String> wrap(String text, java.awt.FontMetrics fm, int width) {
+	static List<String> wrap(String text, FontMetrics fm, int width) {
 		List<String> out = new ArrayList<>();
 		StringBuilder line = new StringBuilder();
 		for (String word : text.split(" ")) {
@@ -1281,7 +1278,7 @@ final class FeedList extends JPanel {
 		return null;
 	}
 
-	static int chipWidth(java.awt.FontMetrics fm, JsonObject c) {
+	static int chipWidth(FontMetrics fm, JsonObject c) {
 		return fm.stringWidth(chipText(c)) + 2 * CHIP_PAD;
 	}
 
@@ -1289,14 +1286,14 @@ final class FeedList extends JPanel {
 	 * The reaction chip {@code fromRight} px left of the row's right edge (inside its 6px inset), or
 	 * null. The pills' own geometry ({@link Chips}), so a click or hover lands on exactly what is drawn.
 	 */
-	static JsonObject chipAt(JsonObject r, java.awt.FontMetrics fm, int fromRight) {
+	static JsonObject chipAt(JsonObject r, FontMetrics fm, int fromRight) {
 		JsonArray c = chipsOf(r);
 		int at = c == null ? -1 : reactAt(c, fm, fromRight);
 		return at < 0 ? null : c.get(at).getAsJsonObject();
 	}
 
 	/** Which pill {@code fromRight} px left of the row's right edge falls on (2px of slack), or -1. */
-	static int reactAt(JsonArray reacts, java.awt.FontMetrics fm, int fromRight) {
+	static int reactAt(JsonArray reacts, FontMetrics fm, int fromRight) {
 		int edge = 0;
 		for (int k = reacts.size() - 1; k >= 0; k--) {
 			int w = chipWidth(fm, reacts.get(k).getAsJsonObject());
@@ -1319,7 +1316,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		public Dimension getPreferredSize() {
-			java.awt.FontMetrics fm = getFontMetrics(getFont());
+			FontMetrics fm = getFontMetrics(getFont());
 			int w = 0;
 			for (int k = 0; chips != null && k < chips.size(); k++) w += (k > 0 ? CHIP_SPACE : 0) + chipWidth(fm, chips.get(k).getAsJsonObject());
 			return new Dimension(w, fm.getHeight() + 2);
@@ -1332,7 +1329,7 @@ final class FeedList extends JPanel {
 			try {
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setFont(getFont());
-				java.awt.FontMetrics fm = g2.getFontMetrics();
+				FontMetrics fm = g2.getFontMetrics();
 				int h = getHeight() - 1;
 				int x = getWidth();
 				for (int k = chips.size() - 1; k >= 0; k--) {

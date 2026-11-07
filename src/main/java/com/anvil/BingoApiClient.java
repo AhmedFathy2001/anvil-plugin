@@ -11,9 +11,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Pattern;
+import java.util.List;
+import javax.swing.Icon;
 
 @Slf4j
 @Singleton
+
 public class BingoApiClient {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final MediaType PNG = MediaType.parse("image/png");
@@ -331,7 +334,7 @@ public class BingoApiClient {
 
 	/** GET /api/plugin/brief: the lines printed at login and the palette Anvil chat lines use. */
 	public static class Brief {
-		public java.util.List<BriefLine> lines;
+		public List<BriefLine> lines;
 		public Look look;
 	}
 
@@ -918,9 +921,9 @@ public class BingoApiClient {
 
 	private static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
 	/** Decoded panel pictures by path and size, least recently used first. */
-	private final Map<String, javax.swing.Icon> thumbs = new LinkedHashMap<String, javax.swing.Icon>(16, 0.75f, true) {
+	private final Map<String, Icon> thumbs = new LinkedHashMap<String, Icon>(16, 0.75f, true) {
 		@Override
-		protected boolean removeEldestEntry(Map.Entry<String, javax.swing.Icon> e) {
+		protected boolean removeEldestEntry(Map.Entry<String, Icon> e) {
 			return size() > 50;
 		}
 	};
@@ -930,9 +933,9 @@ public class BingoApiClient {
 	 * {@code w}x{@code h} and kept. {@code done} gets it (null on any failure) on an OkHttp thread, or at
 	 * once from the cache. Anything bigger than {@link #THUMB_MAX_BYTES} is dropped unread.
 	 */
-	void thumb(String path, int w, int h, boolean motion, java.util.function.Consumer<javax.swing.Icon> done) {
+	void thumb(String path, int w, int h, boolean motion, java.util.function.Consumer<Icon> done) {
 		String key = w + "x" + h + ":" + motion + path;
-		javax.swing.Icon hit;
+		Icon hit;
 		synchronized (thumbs) {
 			hit = thumbs.get(key);
 		}
@@ -956,7 +959,7 @@ public class BingoApiClient {
 
 			@Override
 			public void onResponse(Call call, Response r) {
-				javax.swing.Icon img = null;
+				Icon img = null;
 				try (Response res = r) {
 					ResponseBody body = res.body();
 					// request() is false once the whole body is buffered: it fit under the cap.
@@ -990,7 +993,7 @@ public class BingoApiClient {
 	}
 
 	/** A bounded GIF already sized by the site, played by {@link GifIcon}; null when not a safe GIF. */
-	static javax.swing.Icon animatedIcon(byte[] bytes, int w, int h) {
+	static Icon animatedIcon(byte[] bytes, int w, int h) {
 		return GifIcon.decode(bytes, w, h);
 	}
 
@@ -1554,12 +1557,12 @@ public class BingoApiClient {
 	 * it and books it once a coffer reading shows the money.
 	 */
 	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
-	public void submitModeLines(java.util.List<String> lines) throws IOException {
+	public void submitModeLines(List<String> lines) throws IOException {
 		submitModeLines(lines, null, null);
 	}
 
 	/** The same mode-line batch with the frame that was visible when it was sent. */
-	public void submitModeLines(java.util.List<String> lines, byte[] png, String filename) throws IOException {
+	public void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
 		JsonObject payload = new JsonObject();
 		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
 		lines.forEach(arr::add);

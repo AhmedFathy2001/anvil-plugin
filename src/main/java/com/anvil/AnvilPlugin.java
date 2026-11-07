@@ -45,6 +45,9 @@ import java.util.function.*;
 import java.util.regex.*;
 import java.time.LocalDate;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.IntUnaryOperator;
+import java.util.regex.Pattern;
+import net.runelite.api.clan.ClanMember;
 
 @Slf4j
 @PluginDescriptor(
@@ -69,6 +72,7 @@ import java.util.concurrent.locks.ReentrantLock;
 		// output that was already dragged into Discord.
 		legacyDataDirectory = "osrs-bingo-pending"
 )
+
 public class AnvilPlugin extends Plugin {
 
 	@Inject
@@ -1412,7 +1416,7 @@ public class AnvilPlugin extends Plugin {
 				if (++gameClanMissingChecks < 2) return;
 			} else {
 				gameClanMissingChecks = 0;
-				net.runelite.api.clan.ClanMember self = settings.findMember(myName);
+				ClanMember self = settings.findMember(myName);
 				if (self == null) {
 					// Settings that don't list us yet are still loading.
 					return;
@@ -1852,9 +1856,7 @@ public class AnvilPlugin extends Plugin {
 		// now and poke the panel when it lands.
 		if ("playerToken".equals(event.getKey())) {
 			refreshNowAndRepaint();
-		} else {
-			scheduleRefresh();
-		}
+		} else scheduleRefresh();
 
 		String key = event.getKey();
 		if ("syncClanCoffer".equals(key)) {
@@ -2122,9 +2124,7 @@ public class AnvilPlugin extends Plugin {
 		// A push in flight or already sent clears the batch, so anything still here never landed.
 		if (clogFullSync.size() == 0) {
 			sendChatMessage(ChatPalette.Tone.WARN, "The game didn't send your collection log. Close and reopen it, then try again.");
-		} else {
-			sendChatMessage(ChatPalette.Tone.WARN, "Only part of your collection log arrived — reopen it and sync again.");
-		}
+		} else sendChatMessage(ChatPalette.Tone.WARN, "Only part of your collection log arrived — reopen it and sync again.");
 		clogFullSync.reset();
 	}
 
@@ -3373,9 +3373,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (event.getTarget() == client.getLocalPlayer()) {
 			deathAttribution.targetedUs(name, now());
-		} else {
-			deathAttribution.stoppedTargetingUs(name);
-		}
+		} else deathAttribution.stoppedTargetingUs(name);
 	}
 
 	@Subscribe
@@ -3483,9 +3481,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (match != null) {
 			sel.remove(match);
-		} else {
-			sel.add(name);
-		}
+		} else sel.add(name);
 
 		// If every clip ends up selected, store blank ("all") to keep the value tidy and future-proof
 		// against newly-added files (which should default to on).
@@ -3797,9 +3793,7 @@ public class AnvilPlugin extends Plugin {
 			if (duplicatePet && pluginConfig != null && pluginConfig.event != null) {
 				if (inferredPet == null) {
 					askForManualSubmission("Duplicate pet");
-				} else {
-					creditInferredByName(inferredPet, petSource(inferredPet), "inferred_duplicate_pet");
-				}
+				} else creditInferredByName(inferredPet, petSource(inferredPet), "inferred_duplicate_pet");
 			}
 		}
 		// Champion's scroll — when a challenge is already complete the game shows only "…funny feeling
@@ -3976,9 +3970,7 @@ public class AnvilPlugin extends Plugin {
 		String petFrom = DropSource.petEntry(dropFacts(), itemName) != null ? petSource(itemName) : null;
 		if (petFrom != null) {
 			processLoot(petFrom, synthetic, "npc");
-		} else {
-			processLoot(itemName, synthetic, "clog");
-		}
+		} else processLoot(itemName, synthetic, "clog");
 		chatCredits.note(synthetic, now);
 	}
 
@@ -4135,9 +4127,7 @@ public class AnvilPlugin extends Plugin {
 		if (pluginConfig == null || pluginConfig.event == null) return;
 		if (scroll == null) {
 			askForManualSubmission("Duplicate Champion's scroll");
-		} else {
-			creditInferredById(scroll, source, "inferred_duplicate_scroll");
-		}
+		} else creditInferredById(scroll, source, "inferred_duplicate_scroll");
 	}
 
 	private boolean creditInferredByName(String itemName, String source, String flag) {
@@ -4276,9 +4266,7 @@ public class AnvilPlugin extends Plugin {
 				}
 				if (processPendingSubmission(p)) {
 					proofBackoff.onSuccess();
-				} else {
-					notifyUploadFailed("your drop");
-				}
+				} else notifyUploadFailed("your drop");
 			} catch (IOException e) {
 				sendChatMessage(ChatPalette.Tone.WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
 			}
@@ -4339,9 +4327,7 @@ public class AnvilPlugin extends Plugin {
 		long sinceLast = now() - lastUploadAt;
 		if (sinceLast < UPLOAD_THROTTLE_MS) {
 			later(go, UPLOAD_THROTTLE_MS - sinceLast);
-		} else {
-			go.run();
-		}
+		} else go.run();
 	}
 
 
@@ -4880,9 +4866,7 @@ public class AnvilPlugin extends Plugin {
 						// Said at once, from the submit's own answer — not after the config refresh.
 						announceCompletedNow(tileId, label);
 					}
-				} else {
-					notifyUploadFailed(label);
-				}
+				} else notifyUploadFailed(label);
 				// Refresh config from server to sync all counts.
 				refreshConfig();
 			} catch (IOException e) {
@@ -5107,9 +5091,7 @@ public class AnvilPlugin extends Plugin {
 			String why = RaidGates.raidLevel(activity, minRaidLevel, level);
 			if (why != null) {
 				sendChatMessage(ChatPalette.Tone.WARN, what + " not counted for " + label + ": " + why + ".");
-			} else {
-				credit.accept(level);
-			}
+			} else credit.accept(level);
 		});
 		sendChatMessage(label + ": checking the raid level at the chest.");
 	}
@@ -5483,9 +5465,7 @@ public class AnvilPlugin extends Plugin {
 		if (anyFailed) {
 			proofBackoff.onFailure(now());
 			log.info("Pending retries failed; next attempt in {}s", proofBackoff.secondsUntilReady(now()));
-		} else {
-			proofBackoff.onSuccess();
-		}
+		} else proofBackoff.onSuccess();
 
 		// Refresh config to get updated counts from server
 		refreshConfig();
@@ -5941,7 +5921,7 @@ public class AnvilPlugin extends Plugin {
 			ClanSettings settings = client.getClanSettings();
 			String clanName = settings.getName();
 			List<BingoApiClient.ClanMember> members = new ArrayList<>();
-			for (net.runelite.api.clan.ClanMember m : settings.getMembers()) {
+			for (ClanMember m : settings.getMembers()) {
 				BingoApiClient.ClanMember out = new BingoApiClient.ClanMember();
 				out.rsn = m.getName();
 				ClanRank rank = m.getRank();
@@ -5970,9 +5950,7 @@ public class AnvilPlugin extends Plugin {
 					if (automatic) {
 						autoRosterReportedThisLogin = true;
 						(say.auto.isEmpty() && firstThisLogin ? Collections.singletonList("Clan roster checked — nothing changed.") : say.auto).forEach(this::sendChatMessage);
-					} else {
-						say.manual.forEach(this::sendChatMessage);
-					}
+					} else say.manual.forEach(this::sendChatMessage);
 					say.warn.forEach(w -> sendChatMessage(ChatPalette.Tone.WARN, w));
 					if (r.capNotice != null && !r.capNotice.isEmpty()) sendChatMessage(r.capNotice);
 					cb.onResult(true, lastSyncSummary);
@@ -6070,9 +6048,7 @@ public class AnvilPlugin extends Plugin {
 		String painted = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.decorate(clean(who), chatStar());
 		if (painted != null) {
 			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
-		} else {
-			sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
-		}
+		} else sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
 	}
 
 	private void checkTileCompletions(PluginConfigResponse cfg) {
@@ -6316,9 +6292,7 @@ public class AnvilPlugin extends Plugin {
 		configFetchLock.lock();
 		if (lastConfigAttemptAt < asked) {
 			fetchConfigAndUnlock();
-		} else {
-			configFetchLock.unlock();
-		}
+		} else configFetchLock.unlock();
 	}
 
 	/**
@@ -6532,8 +6506,8 @@ public class AnvilPlugin extends Plugin {
 		String star = null;
 		boolean opaque = false;
 		// Shared by every changed row in this pass; do not allocate three closures per animated name.
-		java.util.function.IntUnaryOperator x = j -> lines[j].getOriginalX();
-		java.util.function.IntUnaryOperator y = j -> lines[j].getOriginalY();
+		IntUnaryOperator x = j -> lines[j].getOriginalX();
+		IntUnaryOperator y = j -> lines[j].getOriginalY();
 		java.util.function.IntFunction<String> shown = j -> lines[j] == null || lines[j].isHidden() ? null : lines[j].getText();
 		Rectangle viewport = null;
 		for (int i = 0; i < lines.length; i++) {
@@ -6594,7 +6568,7 @@ public class AnvilPlugin extends Plugin {
 	private void makeRoom(Widget[] lines, int at, String plain, String painted) {
 		java.util.function.ToIntFunction<String> text = t -> 0;
 		ChatFlairTooltip tip = chatFlairTooltip;
-		java.util.function.IntUnaryOperator icon = tip != null ? tip::iconWidth : n -> 13;
+		IntUnaryOperator icon = tip != null ? tip::iconWidth : n -> 13;
 		int d = ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
 		Widget s = lines[at];
 		if (d <= 0) return;
@@ -6702,12 +6676,8 @@ public class AnvilPlugin extends Plugin {
 					pmPainted.put(painted, d);
 					if (repaint || chatFlair.movingSender(text)) {
 						pmMoving.put(w, new String[]{text, painted});
-					} else {
-						pmMoving.remove(w);
-					}
-				} else {
-					splitPmSeen.add(text);
-				}
+					} else pmMoving.remove(w);
+				} else splitPmSeen.add(text);
 			}
 			if (d != null && d > 0) moved |= ChatFlair.makeRoom(i, d, n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
 		}
@@ -6744,7 +6714,7 @@ public class AnvilPlugin extends Plugin {
 	private int starRoom(String plain, String painted) {
 		java.util.function.ToIntFunction<String> text = t -> 0;
 		ChatFlairTooltip tip = chatFlairTooltip;
-		java.util.function.IntUnaryOperator icon = tip != null ? tip::iconWidth : k -> 13;
+		IntUnaryOperator icon = tip != null ? tip::iconWidth : k -> 13;
 		return ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
 	}
 
@@ -6763,7 +6733,7 @@ public class AnvilPlugin extends Plugin {
 	 * name there in our Supporter colours. Display only — the typed text is never read or changed.
 	 */
 	private String inputFlairName;
-	private java.util.regex.Pattern inputFlairPattern;
+	private Pattern inputFlairPattern;
 
 	/**
 	 * Client thread, right before each frame is drawn: the game redraws the chat input ("Name: *")
@@ -7081,7 +7051,7 @@ public class AnvilPlugin extends Plugin {
 		if (text == null || text.isEmpty()) return;
 		if (!me.equals(inputFlairName)) {
 			inputFlairName = me;
-			inputFlairPattern = java.util.regex.Pattern.compile("^((?:<img=\\d+>)*)" + java.util.regex.Pattern.quote(me) + ":");
+			inputFlairPattern = Pattern.compile("^((?:<img=\\d+>)*)" + Pattern.quote(me) + ":");
 		}
 		long frame = chatFlair.movingName(me) ? currentChatNameFrame() : -1;
 		boolean move = frame != inputNameFrame;
@@ -7288,9 +7258,7 @@ public class AnvilPlugin extends Plugin {
 			if (ChatFlairSync.wanted(config.supporterChatFlair(), apiClient.isConfigured(), pluginConfig, apiClient::siteAdvertises)) {
 				if ("hello".equals(m.get("t").getAsString())) {
 					chatFlairSync.soon();
-				} else {
-					chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));
-				}
+				} else chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));
 			}
 			return;
 		}
@@ -7448,9 +7416,7 @@ public class AnvilPlugin extends Plugin {
 					// tracking is silently OFF. Distinct from a genuine "not enrolled anywhere" below.
 					log.warn("RSN '{}' plays in '{}' but isn't linked to this token — tracking is OFF",
 							getLocalPlayerName(), fresh.unlinkedActiveEvent);
-				} else {
-					log.info("Token valid, no active event");
-				}
+				} else log.info("Token valid, no active event");
 				warnUnlinkedRsn(fresh.unlinkedActiveEvent);
 				return;
 			}
@@ -8777,13 +8743,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private String menuFlairName;
-	private java.util.regex.Pattern menuFlairPattern;
+	private Pattern menuFlairPattern;
 
 	/** "<col=ffffff>Name" in a menu target (spaces may be the game's nbsp); cached for the last name. */
-	private java.util.regex.Pattern menuNamePattern(String name) {
+	private Pattern menuNamePattern(String name) {
 		if (!name.equals(menuFlairName)) {
-			String body = java.util.regex.Pattern.quote(name.replace('\u00a0', ' ')).replace(" ", "\\E[ \u00a0]\\Q");
-			menuFlairPattern = java.util.regex.Pattern.compile("(?:<col=([0-9a-fA-F]{6})>)?" + body);
+			String body = Pattern.quote(name.replace('\u00a0', ' ')).replace(" ", "\\E[ \u00a0]\\Q");
+			menuFlairPattern = Pattern.compile("(?:<col=([0-9a-fA-F]{6})>)?" + body);
 			menuFlairName = name;
 		}
 		return menuFlairPattern;
@@ -10539,7 +10505,7 @@ public class AnvilPlugin extends Plugin {
 		// Champion/Patron: the name letter by letter across their gradient; else the solid colour.
 		String grad = null;
 		if (!who.isEmpty() && m.has("whoGrad") && m.get("whoGrad").isJsonArray()) {
-			java.util.List<String> stops = new java.util.ArrayList<>();
+			List<String> stops = new java.util.ArrayList<>();
 			for (com.google.gson.JsonElement e : m.getAsJsonArray("whoGrad")) {
 				if (e.isJsonPrimitive()) stops.add(e.getAsString());
 			}

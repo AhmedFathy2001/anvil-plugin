@@ -135,9 +135,7 @@ final class NotifyOutbox {
 			Item it = DiskFiles.readJson(gson, f, Item.class);
 			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json")) {
 				found.add(it);
-			} else {
-				DiskFiles.deleteQuietly(f);
-			}
+			} else DiskFiles.deleteQuietly(f);
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
 		for (Filepath png : pngs) {
@@ -167,9 +165,7 @@ final class NotifyOutbox {
 			} catch (IOException | RuntimeException e) {
 				item.png = png; // keep it for this session at least
 			}
-		} else {
-			item.png = png;
-		}
+		} else item.png = png;
 		synchronized (this) {
 			items.add(item);
 			prune(System.currentTimeMillis());

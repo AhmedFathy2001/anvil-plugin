@@ -98,9 +98,7 @@ public final class DeviceSignIn {
 		// nowhere to type it — while the cost of saying both is one extra clause.
 		if (!browserOpener.open(url)) {
 			status.accept("Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
-		} else {
-			status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
-		}
+		} else status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
 		long intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
 		long deadline = System.currentTimeMillis()
@@ -124,9 +122,7 @@ public final class DeviceSignIn {
 						if (poll.token != null && !poll.token.isEmpty()) {
 							status.accept("Signed in.");
 							done.accept(new Result(Outcome.SIGNED_IN, poll.token));
-						} else {
-							done.accept(new Result(Outcome.UNAVAILABLE, null));
-						}
+						} else done.accept(new Result(Outcome.UNAVAILABLE, null));
 						return;
 					case "denied":
 						fail(status, done, "Sign-in denied on the site.", Outcome.DENIED);

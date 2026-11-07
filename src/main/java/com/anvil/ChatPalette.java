@@ -6,12 +6,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.awt.Color;
 
 /**
  * What colour an Anvil chat line is (site lib/chatLook). Every line has a {@link Tone}; the site hands
  * the palette over with the login brief. Until then, and against a site without one, the Anvil
  * colours apply. "Plain" means the plugin's own text colour for everything (its existing setting).
  */
+
 final class ChatPalette {
 	enum Tone {
 		DONE, NEAR, DROP, FEED, WARN, INFO;
@@ -186,9 +188,9 @@ final class ChatPalette {
 	 * when it isn't a colour. readableHex answers bare "rrggbb", which Ui.teamColor refuses, so every
 	 * panel stop used to silently become its fallback (a white Tracking name, a one-colour Lookup name).
 	 */
-	static java.awt.Color readableColor(String hex, boolean opaque, java.awt.Color fallback) {
+	static Color readableColor(String hex, boolean opaque, Color fallback) {
 		String v = nameColor(hex);
-		return v == null ? fallback : new java.awt.Color(Integer.parseInt(readableHex(v, opaque), 16));
+		return v == null ? fallback : new Color(Integer.parseInt(readableHex(v, opaque), 16));
 	}
 
 	static String readableHex(String hex, boolean opaque) {
@@ -208,9 +210,7 @@ final class ChatPalette {
 			if (contrast(candidate, bg) >= MIN_CONTRAST) {
 				hi = mid;
 				readable = candidate;
-			} else {
-				lo = mid;
-			}
+			} else lo = mid;
 		}
 		char[] out = new char[6];
 		for (int at = 5; at >= 0; at--) {

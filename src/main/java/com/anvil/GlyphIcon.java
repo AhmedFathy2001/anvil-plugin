@@ -101,9 +101,7 @@ final class GlyphIcon implements Icon {
 						double py = s * 0.53 + Math.sin(ang) * rad;
 						if (i == 0) {
 							p.moveTo(px, py);
-						} else {
-							p.lineTo(px, py);
-						}
+						} else p.lineTo(px, py);
 					}
 					p.closePath();
 					g.fill(p);

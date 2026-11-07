@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.function.IntUnaryOperator;
 
 /**
  * Anvil Supporters' colours on their names in normal game chat (site capability "chat-flair-v"). The
@@ -20,6 +21,7 @@ import java.util.regex.Pattern;
  * small palette of looks, looked up by binary search. Replaced whole on every change (copy-on-write),
  * so readers on any thread see one consistent list.
  */
+
 final class ChatFlair {
 	/** A look: solid colour, optional gradient stops, Patron star. */
 	/** A per-surface look the owner picked themselves: a colour, plus gradient stops when 2+. */
@@ -126,7 +128,7 @@ final class ChatFlair {
 
 	private static Held build(int v, TreeMap<String, Entry> all) {
 		Map<String, Integer> palette = new HashMap<>();
-		List<Entry> styles = new java.util.ArrayList<>();
+		List<Entry> styles = new ArrayList<>();
 		String[] names = new String[all.size()];
 		char[] ix = new char[all.size()];
 		int n = 0;
@@ -139,7 +141,7 @@ final class ChatFlair {
 
 	private static Held merge(int v, Held h, TreeMap<String, Entry> set, Map<String, Boolean> gone) {
 		Map<String, Integer> palette = new HashMap<>();
-		List<Entry> styles = new java.util.ArrayList<>();
+		List<Entry> styles = new ArrayList<>();
 		for (Entry e : h.styles) intern(palette, styles, e);
 		String[] names = new String[h.names.length + set.size()];
 		char[] ix = new char[names.length];
@@ -247,7 +249,7 @@ final class ChatFlair {
 		if (raw == null || raw.isEmpty() || isEmpty() || x < 0) return null;
 		// The visible characters, and where each one sits in the raw text.
 		StringBuilder plain = new StringBuilder();
-		List<Integer> at = new java.util.ArrayList<>();
+		List<Integer> at = new ArrayList<>();
 		for (int i = 0; i < raw.length(); i++) {
 			char ch = raw.charAt(i);
 			if (ch == '<') {
@@ -332,9 +334,7 @@ final class ChatFlair {
 		String derived = picked != null ? picked : source == null ? null : ChatPalette.readableHex(source, opaque);
 		if (opaque) {
 			e.opaqueColor = derived;
-		} else {
-			e.darkColor = derived;
-		}
+		} else e.darkColor = derived;
 		return derived;
 	}
 
@@ -352,9 +352,7 @@ final class ChatFlair {
 		}
 		if (opaque) {
 			e.opaqueGradient = derived;
-		} else {
-			e.darkGradient = derived;
-		}
+		} else e.darkGradient = derived;
 		return derived;
 	}
 
@@ -467,7 +465,7 @@ final class ChatFlair {
 	 * (same row, to its right, within the line's few widgets). A typed "[Clan] Bob:" is the message
 	 * widget, the last on its row. {@code text(j)} is null for a hidden or missing widget.
 	 */
-	static boolean senderColumn(int i, int n, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+	static boolean senderColumn(int i, int n, IntUnaryOperator x, IntUnaryOperator y,
 		java.util.function.IntFunction<String> text) {
 		for (int j = i + 1; j < n && j <= i + 3; j++) {
 			String t = text.apply(j);
@@ -480,7 +478,7 @@ final class ChatFlair {
 	 * A line text with a player's sender column to its left ("Name:" — someone typed it): never a
 	 * broadcast, whatever it says. A broadcast's row has only the channel ("[The AFK Spot]") or nothing.
 	 */
-	static boolean typedBySomeone(int i, java.util.function.IntUnaryOperator x, java.util.function.IntUnaryOperator y,
+	static boolean typedBySomeone(int i, IntUnaryOperator x, IntUnaryOperator y,
 		java.util.function.IntFunction<String> text) {
 		for (int j = i - 1; j >= 0 && j >= i - 3; j--) {
 			String t = text.apply(j);
@@ -600,7 +598,7 @@ final class ChatFlair {
 	 * no tags), plus each {@code <img=n>} at {@code iconWidth(n)}. Colour tags take no room. The hover maths
 	 * and the room a star needs both go through this, so an icon or the star never shifts them.
 	 */
-	static int measure(String raw, java.util.function.ToIntFunction<String> textWidth, java.util.function.IntUnaryOperator iconWidth) {
+	static int measure(String raw, java.util.function.ToIntFunction<String> textWidth, IntUnaryOperator iconWidth) {
 		StringBuilder text = new StringBuilder(raw.length());
 		int icons = 0;
 		for (int i = 0; i < raw.length(); i++) {
