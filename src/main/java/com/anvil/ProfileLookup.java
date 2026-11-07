@@ -78,12 +78,6 @@ final class ProfileLookup
 		return name == null ? null : BingoApiClient.site() + "/p/" + name;
 	}
 
-	/** {@code /api/players/<rsn>} plus {@code tail} ("/card", "/cas", …), or null when there is no name. */
-	static String apiPlayerUrl(String rsn, String tail)
-	{
-		String name = pathName(rsn);
-		return name == null ? null : BingoApiClient.site() + "/api/players/" + name + tail;
-	}
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
 	static boolean open(String rsn)

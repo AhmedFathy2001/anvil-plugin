@@ -28,16 +28,7 @@ final class TileNotes
 	{
 	}
 
-	static int virtualId(int tileId, int slot)
-	{
-		return -(tileId * CAP_SLOTS + slot);
-	}
 
-	/** The real tile a (possibly virtual) id belongs to; a real id is its own. */
-	static int parentOf(int tileId)
-	{
-		return tileId < 0 ? -tileId / CAP_SLOTS : tileId;
-	}
 
 	/** Only real tiles can be pinned (the site serves no progress for a virtual id). */
 	static boolean pinnable(int tileId)
@@ -55,22 +46,6 @@ final class TileNotes
 		return fmt(Math.max(0, Math.min(done, required))) + "/" + fmt(required) + " runs";
 	}
 
-	/** The kill entries that are tiles of their own — cap counters excluded. */
-	static List<TrackedKill> ownTiles(List<TrackedKill> kills)
-	{
-		List<TrackedKill> out = new ArrayList<>();
-		if (kills != null)
-		{
-			for (TrackedKill k : kills)
-			{
-				if (k != null && !k.isCap())
-				{
-					out.add(k);
-				}
-			}
-		}
-		return out;
-	}
 
 	/** Part tileId → its combo's tileId. */
 	static Map<Integer, Integer> partCombos(List<TrackedCombo> combos)

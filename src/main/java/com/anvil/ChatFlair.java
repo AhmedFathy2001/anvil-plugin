@@ -701,7 +701,6 @@ final class ChatFlair
 		return false;
 	}
 
-	private static final Pattern ON_WORLD = Pattern.compile("^(?:W|World\\s*)\\d+$");
 
 	/**
 	 * A player's right-click target ("<col=ffffff>Name<col=40ff00>  (level-71)") with their name in their

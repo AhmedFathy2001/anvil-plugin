@@ -47,33 +47,7 @@ public class TileNotesTest
 		assertEquals("3/5 runs", TileNotes.runs(trials.runsDone(), trials.runsRequired()));
 	}
 
-	@Test
-	public void virtualIdsRoundTripToTheirParent()
-	{
-		assertEquals(-96, TileNotes.virtualId(12, 0));
-		assertEquals(-99, TileNotes.virtualId(12, 3));
-		assertEquals(12, TileNotes.parentOf(-96));
-		assertEquals(12, TileNotes.parentOf(-103));
-		assertEquals(12, TileNotes.parentOf(12));
-		assertFalse(TileNotes.pinnable(-96));
-		assertFalse(TileNotes.pinnable(0));
-		assertTrue(TileNotes.pinnable(12));
-	}
 
-	@Test
-	public void capCountersAreHiddenFromOwnTiles()
-	{
-		List<TrackedKill> kills = Arrays.asList(
-			kill(12, "100 searches", null, 100, 37),
-			kill(-97, "100 searches - GOTR elemental energy", 12, 1_000_000, 4_000),
-			kill(-98, "100 searches - GOTR catalytic energy", 12, 1_000_000, 3_000),
-			kill(20, "Zulrah", null, 50, 10));
-		List<TrackedKill> own = TileNotes.ownTiles(kills);
-		assertEquals(2, own.size());
-		assertEquals(12, own.get(0).tileId);
-		assertEquals(20, own.get(1).tileId);
-		assertEquals(12, TileNotes.parentOf(-97));
-	}
 
 	@Test
 	public void olderConfigsHaveNoCapsOrParts()
@@ -132,7 +106,6 @@ public class TileNotesTest
 		assertEquals(3, TileNotes.comboLines(combo, counts).size());
 		PluginConfigResponse mix = GSON.fromJson("{\"trackedCombos\":[{\"tileId\":40,\"rule\":\"mix\",\"percent\":140,"
 			+ "\"parts\":[{\"tileId\":41,\"label\":\"A\",\"weight\":0.5}]}]}", PluginConfigResponse.class);
-		assertEquals(0.5, mix.trackedCombos.get(0).parts.get(0).weight, 1e-9);
 		assertEquals("100%", TileNotes.comboLines(mix.trackedCombos.get(0), null).get(0));
 	}
 

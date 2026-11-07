@@ -415,7 +415,6 @@ public class AnvilPlugin extends Plugin {
 
 	// Flag on a credit from a signal nobody has checked in game yet (site INFERRED_FLAGS): it counts,
 	// and staff see a "check" badge. Every unconfirmed game-value counter carries it.
-	static final String UNVERIFIED_COUNTER = "unverified_counter";
 
 	// Slayer tasks, Doom delves, Tithe/Foundry points, Wintertodt rewards: read off varbits/varps
 	// (GameValueCounters, catalog on the site — lib/gameCounters). The names below are the chat-line
@@ -6402,10 +6401,6 @@ public class AnvilPlugin extends Plugin {
 		return live != null || liveConfigAnswered ? live : savedConfig;
 	}
 
-	/** The panel is drawing last session's copy, not a live answer. */
-	boolean showingSavedConfig() {
-		return pluginConfig == null && !liveConfigAnswered && savedConfig != null;
-	}
 
 	// ─── Admin clan-roster sync (triggered from the in-game collection-log "Bingo" tab) ───
 	// Authenticated solely by the player's per-user account token (config.playerToken()) plus

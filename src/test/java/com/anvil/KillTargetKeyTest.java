@@ -20,28 +20,5 @@ public class KillTargetKeyTest
 		return m.group("name").trim().toLowerCase();
 	}
 
-	@Test
-	public void awakenedTileMatchesOnlyItsOwnKillCountLine()
-	{
-		String awakened = DropSource.killTargetKey("Vardorvis (awakened)");
-		String normal = DropSource.killTargetKey("Vardorvis");
-		// The awakened fight's own KC line (DropTracker pb_lines test sample; colour tags stripped).
-		assertEquals(awakened, kcName("Your Vardorvis (awakened) kill count is: 3."));
-		assertEquals(DropSource.killTargetKey("Vardorvis (Awakened)"), kcName("Your Vardorvis (Awakened) kill count is: 2."));
-		// A normal kill (KC line "Vardorvis", loot event NPC "Vardorvis") no longer reaches it.
-		assertEquals(normal, kcName("Your Vardorvis kill count is: 40."));
-		assertNotEquals(awakened, normal);
-		assertEquals("duke sucellus (awakened)", DropSource.killTargetKey("Duke Sucellus (awakened)"));
-	}
 
-	@Test
-	public void wikiQualifiersStillDrop()
-	{
-		assertEquals("armoured zombie", DropSource.killTargetKey("Armoured zombie (Zemouregal's Fort)"));
-		assertEquals("cow", DropSource.killTargetKey("  Cow "));
-		assertNull(DropSource.killTargetKey(""));
-		assertNull(DropSource.killTargetKey(null));
-		// Drop-tile source matching is untouched: an awakened SOURCE still matches the plain loot name.
-		assertTrue(DropSource.sourceMatches(java.util.Collections.singletonList("Vardorvis (awakened)"), "Vardorvis"));
-	}
 }

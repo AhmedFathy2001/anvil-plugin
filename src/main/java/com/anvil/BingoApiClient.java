@@ -1391,13 +1391,6 @@ public class BingoApiClient
 		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
 	}
 
-	/** A weekly competition with its id and dates. */
-	public static class DatedWeekly extends WeeklyInfo
-	{
-		public int id;
-		public String startDate;
-		public String endDate;
-	}
 
 	public static class BingoInfo
 	{

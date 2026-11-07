@@ -69,7 +69,6 @@ public class PluginConfigResponse
 		public List<String> boostNameStops;
 		/** The clan's own look for dark / light surfaces (null: adapt boostNameStops). Drawn as-is. */
 		public List<String> boostNameDarkStops;
-		public List<String> boostNameLightStops;
 		/** 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan. */
 		public String kind;
 		/** The most relevant thing running here, or null. */
@@ -181,7 +180,6 @@ public class PluginConfigResponse
 	{
 		public int tilesComplete;
 		public int tilesTotal;
-		public boolean pointsScored;
 	}
 
 	/**
@@ -395,7 +393,6 @@ public class PluginConfigResponse
 		//   format="tilerace" -> race track; format="bingo" + scoringMode="points" -> accordion;
 		//   format="bingo" + scoringMode="tiles" -> square grid. May be null on older servers.
 		public String format;         // "tilerace" | "bingo" | "ladder" | null
-		public String scoringMode;
 		// Reveal-policy events (showdown / lucky draw / bounty / ladder rotation) only — null/0 on
 		// classic events and older servers. The tracked* lists already contain ONLY revealed, still-open
 		// tiles.
@@ -414,7 +411,6 @@ public class PluginConfigResponse
 		public String label;
 		public int points;        // face value before the decay ramp
 		public String category;
-		public String expiresAt;  // ISO time an unclaimed mission auto-closes; null when it doesn't
 	}
 
 	public static class Claim
@@ -438,14 +434,6 @@ public class PluginConfigResponse
 		public int id;
 	}
 
-	// One difficulty band: tiles with points >= min (and below the next band's min) fall in this
-	// tier. Admin-configured server-side and served here so the Tier filter needs no plugin update.
-	public static class TierBand
-	{
-		public String key;    // stable slug used in filter state
-		public String label;  // shown on the Tier chip
-		public int min;       // inclusive lower bound on points
-	}
 
 	/** Where an other-board tile's credit goes (X-Anvil-Boards). */
 	public static class Board
@@ -508,18 +496,12 @@ public class PluginConfigResponse
 	{
 		public int requiredAmount;
 		public int currentAmount;     // the team's submitted progress so far
-		// Kill entries only: the most one image-less ping may credit, sent by the site for a counter
-		// whose ONE real action steps by more than 10 (a Foundry sword's reputation, a game's energy).
-		// 0/absent = 10 and a bigger burst goes as a screenshot proof — today's behaviour.
-		public int pingMax;
 	}
 
 	public static class TrackedDrop extends CountedTile
 	{
 		public List<Integer> itemIds;
 		public List<ItemRequirement> itemRequirements;
-		// null = accept any source. Otherwise must match one of: "npc", "event", "pvp".
-		public List<String> acceptedSources;
 		// null/empty = any source NPC. Otherwise the drop only counts when the loot source
 		// name matches one of these (case-insensitive), e.g. ["Tekton"] for "onyx, Tekton only".
 		public List<String> sourceNpcs;
@@ -530,19 +512,10 @@ public class PluginConfigResponse
 		// How this collection's sets combine: "any" (default, and what an older server sends nothing
 		// for) = the sets are alternatives, satisfy ONE; "all" = every set must be satisfied.
 		public String groupMode;
-		// The most this tile can be credited from a SINGLE kill, whatever that kill dropped.
-		// 0/absent = uncapped (every tracked item, and every item in a stack, counts). 1 makes the
-		// tile count ROLLS: a DT2 kill handing you a vestige and an ingot rolled its unique table
-		// once, so it credits once.
-		public int perKillCap;
 		// How many sets the tile needs when groupMode is "any" (0/absent on older servers = 1). Sets
 		// are COUNTED — 2 is two different sets or the same one twice — so a set's piece is useful up
 		// to this many times over.
 		public int setsRequired;
-		// Plain pools only: "distinct" = only DIFFERENT items count; null = every drop counts.
-		public String countMode;
-		// "distinct" pools: the items the team already has counted. A repeat of one adds nothing.
-		public List<Integer> countedItemIds;
 	}
 
 	public static class ItemRequirement
@@ -606,14 +579,12 @@ public class PluginConfigResponse
 		public int tileId;
 		public String label;
 		public boolean completed;
-		public Double weight; // rule "mix" only: this part's share (0..1, absent = 1)
 	}
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
 	// need NOT be on the hiscores) toward requiredAmount. Same submission flow as a simple drop.
 	public static class TrackedKill extends CountedTile
 	{
-		public List<String> targetNpcs;   // any of these NPC names counts a kill
 		// Shared kills. "per-kill" = a kill several members were in credits ONCE (the server
 		// correlates their reports); coopMinMembers = the kill only counts with at least that many
 		// of the team in it. Either one makes this client attach what it could see of its company.
@@ -636,11 +607,6 @@ public class PluginConfigResponse
 			return capOf != null && capOf > 0;
 		}
 
-		/** Singular noun for one credit on this tile — "kill" unless the server says otherwise. */
-		public String unitNoun()
-		{
-			return unit == null || unit.trim().isEmpty() ? "kill" : unit.trim();
-		}
 
 		public boolean needsCoopFingerprint()
 		{
@@ -796,9 +762,7 @@ public class PluginConfigResponse
 
 	public static class TrackedValue extends TrackedTile
 	{
-		public long thresholdGp;           // single: a haul must be worth ≥ this; total: the gp target to reach
 		public String mode;                // "single" (one haul ≥ threshold) | "total" (hauls sum to threshold)
-		public long currentGp;             // total mode: gp banked so far (the server's sum of submissions); 0 on single
 
 		public List<String> sources;       // optional source filter: NPC/chest names, or "PvP"; empty = any
 		public boolean completed;          // team already completed this tile
