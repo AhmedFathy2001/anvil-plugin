@@ -1348,6 +1348,16 @@ public class AnvilSidebarPanel extends PluginPanel
 				if (tab == Tab.YOU)
 				{
 					renderYou(false); // a refresh can change what You shows: the character, the card
+					if (manual)
+					{
+						// Same character: ask the site again in place, or a new banner/avatar only showed
+						// after leaving the tab and coming back.
+						youView.refresh();
+					}
+				}
+				else if (tab == Tab.LOOKUP && manual)
+				{
+					lookupView.refresh();
 				}
 				else if (tab == Tab.SETTINGS)
 				{

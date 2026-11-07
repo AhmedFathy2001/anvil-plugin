@@ -7589,19 +7589,10 @@ public class AnvilPlugin extends Plugin {
 	private static final long CHAT_NAME_FRAME_MS = 40;
 	private long chatNameFrame = Long.MIN_VALUE;
 	private long currentChatNameFrame() {
-		if (!config.animatedNames()) {
-			return -1;
-		}
-		// Unfocused: hold the last frame so moving names stop repainting. The per-frame paint pass
-		// keeps running (painting only on change made names flash plain, 05ebd28 / 8bda760).
-		if (!GradientLabel.clientActive() && heldChatNameFrame >= 0) {
-			return heldChatNameFrame;
-		}
-		return heldChatNameFrame = GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS;
+		// Unfocused, the shared clock stands still, so the frame holds and moving names stop repainting;
+		// the per-frame paint pass keeps running (painting only on change made names flash plain).
+		return config.animatedNames() ? GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS : -1;
 	}
-
-	/** Client thread: the last game-name animation frame, held while the client is unfocused. */
-	private long heldChatNameFrame = -1;
 	private static double chatNameShift(long frame) {
 		return nameShift(frame, GradientLabel.GAME_CYCLE_MS);
 	}

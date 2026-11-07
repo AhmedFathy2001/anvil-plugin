@@ -161,20 +161,97 @@ public class FeedListTest
 		assertEquals(0, f.rowCount());
 	}
 
+	private static final String REACT_ROWS = "{\"t\":\"feed\",\"id\":\"moments:clan:3\",\"rows\":["
+		+ "{\"id\":\"m7\",\"title\":\"Pet\",\"who\":\"Rikkert\",\"at\":\"2026-11-04 10:00:00\","
+		+ "\"gz\":{\"n\":1,\"mine\":true,\"on\":{\"a\":\"post\",\"act\":\"react-row\",\"args\":{\"slug\":\"afk\",\"id\":\"7\",\"kind\":\"gz\"}}}},"
+		+ "{\"id\":\"m6\",\"title\":\"Death\",\"who\":\"Mossy\",\"at\":\"2026-11-04 09:00:00\",\"reacts\":["
+		+ "{\"kind\":\"sad\",\"label\":\"Sad\",\"n\":0,\"mine\":false},{\"kind\":\"sit\",\"label\":\"Sit\",\"n\":2,\"mine\":true}]}]}";
+
 	@Test
-	public void reactionPushUpdatesEveryoneCountButPreservesThisViewersSelection()
+	public void reactionPushUpdatesCountsInPlaceButKeepsThisViewersSelection()
 	{
-		Host host = new Host();
-		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"moments:clan:3\",\"rows\":["
-			+ "{\"id\":\"m7\",\"title\":\"Pet\",\"who\":\"Rikkert\",\"at\":\"2026-11-04 10:00:00\","
-			+ "\"gz\":{\"n\":1,\"mine\":true}}]}");
+		UiView v = drawn(new Host(), REACT_ROWS);
 		FeedList f = find(v);
-		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"kind\":\"gz\",\"n\":4,\"who\":\"GZ · Rikkert and 3 others\"}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":4,\"gold\":0,\"sad\":0,\"sit\":0,"
+			+ "\"who\":{\"gz\":\"GZ · Rikkert and 3 others\"}}"));
 
 		JsonObject chip = f.reactionChip(0, "gz");
 		assertEquals(4, chip.get("n").getAsInt());
-		assertTrue("an absolute count from another client must not clear mine", chip.get("mine").getAsBoolean());
+		assertTrue("counts alone must not clear mine", chip.get("mine").getAsBoolean());
 		assertEquals("GZ · Rikkert and 3 others", chip.get("who").getAsString());
+		assertEquals("not reordered", "m7", f.rowId(0));
+		assertEquals(2, f.rowCount());
+	}
+
+	@Test
+	public void reactionPushWithMineFlagsMovesTheHighlight()
+	{
+		UiView v = drawn(new Host(), REACT_ROWS);
+		FeedList f = find(v);
+		// The same person took their GZ and their Sit back on another client.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":0,\"gold\":0,\"sad\":0,\"sit\":0,"
+			+ "\"mineGz\":false,\"mineGold\":false,\"mineSad\":false,\"mineSit\":false}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m6\",\"gz\":0,\"gold\":0,\"sad\":1,\"sit\":1,"
+			+ "\"mineGz\":false,\"mineGold\":false,\"mineSad\":true,\"mineSit\":false,\"who\":{\"sad\":\"Sad · Drenvox\",\"sit\":\"\"}}"));
+
+		assertEquals(0, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertFalse(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		JsonObject sad = f.reactionChip(1, "sad");
+		JsonObject sit = f.reactionChip(1, "sit");
+		assertEquals(1, sad.get("n").getAsInt());
+		assertTrue(sad.get("mine").getAsBoolean());
+		assertEquals("Sad · Drenvox", sad.get("who").getAsString());
+		assertEquals(1, sit.get("n").getAsInt());
+		assertFalse(sit.get("mine").getAsBoolean());
+		assertFalse("an empty who line takes the tooltip off", sit.has("who"));
+	}
+
+	@Test
+	public void reactionPushIgnoresUnknownRowsAndOtherLists()
+	{
+		UiView v = drawn(new Host(), REACT_ROWS);
+		FeedList f = find(v);
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m99\",\"gz\":9,\"mineGz\":false}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:4\"],\"id\":\"m7\",\"gz\":9,\"mineGz\":false}"));
+		f.flush();
+
+		assertEquals(2, f.rowCount());
+		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+	}
+
+	@Test
+	public void ourOwnPressIsNotUndoneByPushesWhileItSettles()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, REACT_ROWS);
+		FeedList f = find(v);
+		// Off, then on again quickly: the screen says on (n 1).
+		f.pressChip(0, "gz");
+		f.pressChip(0, "gz");
+		assertEquals(2, host.posts.size());
+		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+
+		// The first press's confirmation (off) arrives: held, nothing flickers.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":0,\"mineGz\":false}"));
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
+		f.settleNow();
+		assertTrue("still one post out: still held", f.reactionChip(0, "gz").get("mine").getAsBoolean());
+
+		// The second press's (on) and a clanmate's GZ land; once settled they replay in order.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":1,\"mineGz\":true}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":2}"));
+		host.pending.get(1).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
+		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
+		f.settleNow();
+		assertEquals(2, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+
+		// Settled: the next push applies at once.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":3}"));
+		assertEquals(3, f.reactionChip(0, "gz").get("n").getAsInt());
 	}
 
 	@Test

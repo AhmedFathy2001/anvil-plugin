@@ -1132,7 +1132,7 @@ public class BingoApiClient
 		HttpUrl base = HttpUrl.parse(siteLink("/"));
 		if (hit != null || url == null || base == null || !url.host().equals(base.host()) || w <= 0 || h <= 0)
 		{
-			done.accept(hit instanceof MotionIcon ? ((MotionIcon) hit).copy() : hit);
+			done.accept(hit instanceof GifIcon ? ((GifIcon) hit).copy() : hit);
 			return;
 		}
 		Request.Builder imageRequest = accountPaused ? publicRequest(url.toString()) : authedRequest(url.toString());
@@ -1155,11 +1155,10 @@ public class BingoApiClient
 					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L))
 					{
 						byte[] bytes = body.source().buffer().readByteArray();
-						if (motion)
-						{
-							img = animatedIcon(bytes, w, h);
-						}
-						else
+						// Motion asked for, but the site may answer with a still (over its size cap, or the
+						// clan/tier isn't entitled to motion): show that still rather than nothing.
+						img = motion ? animatedIcon(bytes, w, h) : null;
+						if (img == null)
 						{
 							BufferedImage still = fit(decodeSmall(bytes, w, h), w, h);
 							img = still == null ? null : new javax.swing.ImageIcon(still);
@@ -1191,95 +1190,10 @@ public class BingoApiClient
 		}
 	}
 
-	/** A bounded animated GIF already resized by the site; null for an unsafe or wrong-sized file. */
+	/** A bounded GIF already sized by the site, played by {@link GifIcon}; null when not a safe GIF. */
 	static javax.swing.Icon animatedIcon(byte[] bytes, int w, int h)
 	{
-		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes)))
-		{
-			java.util.Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
-			if (readers == null || !readers.hasNext()) return null;
-			javax.imageio.ImageReader reader = readers.next();
-			try
-			{
-				// Counting frames needs a searchable stream: seekForwardOnly=true made getNumImages(true)
-				// throw for every GIF, so each animated picture was refused and never shown.
-				reader.setInput(in, false, false);
-				int frames = reader.getNumImages(true);
-				if (frames <= 0 || frames > 300) return null;
-				// AWT's decoder sizes its canvas from the header's logical screen (bytes 6-9, little-endian),
-				// not from any frame, so bound that too: a tiny frame can sit on a huge declared canvas.
-				if (bytes.length < 10 || bytes[0] != 'G' || bytes[1] != 'I' || bytes[2] != 'F') return null;
-				int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8, lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
-				if (lw <= 0 || lh <= 0 || lw > w || lh > h || (long) lw * lh * frames > 20_000_000L) return null;
-				// Every frame, not just the first: a later GIF frame can claim a far larger size.
-				long pixels = 0;
-				for (int i = 0; i < frames; i++)
-				{
-					int sw = reader.getWidth(i), sh = reader.getHeight(i);
-					if (sw <= 0 || sh <= 0 || sw > w || sh > h) return null;
-					// And inside the canvas: a frame offset past the logical screen is refused too.
-					int[] at = gifFrameOffset(reader.getImageMetadata(i));
-					if (at == null || at[0] < 0 || at[1] < 0 || at[0] + sw > lw || at[1] + sh > lh) return null;
-					pixels += (long) sw * sh;
-					if (pixels > 20_000_000L) return null;
-				}
-			}
-			finally
-			{
-				reader.dispose();
-			}
-		}
-		catch (IOException | RuntimeException e)
-		{
-			return null;
-		}
-		MotionIcon icon = new MotionIcon(bytes);
-		return icon.getIconWidth() > 0 && icon.getIconHeight() > 0 ? icon : null;
-	}
-
-	/** A GIF frame's {x, y} on the logical screen from its ImageDescriptor; null when unreadable. */
-	static int[] gifFrameOffset(javax.imageio.metadata.IIOMetadata meta)
-	{
-		try
-		{
-			org.w3c.dom.Node root = meta == null ? null : meta.getAsTree("javax_imageio_gif_image_1.0");
-			for (org.w3c.dom.Node n = root == null ? null : root.getFirstChild(); n != null; n = n.getNextSibling())
-			{
-				if ("ImageDescriptor".equals(n.getNodeName()))
-				{
-					org.w3c.dom.NamedNodeMap a = n.getAttributes();
-					return new int[]{
-						Integer.parseInt(a.getNamedItem("imageLeftPosition").getNodeValue()),
-						Integer.parseInt(a.getNamedItem("imageTopPosition").getNodeValue())};
-				}
-			}
-		}
-		catch (RuntimeException e)
-		{
-			return null;
-		}
-		return null;
-	}
-
-	/**
-	 * An animated GIF that hands each consumer its own AWT image. One shared animated Toolkit image
-	 * restarts production with an empty frame buffer when a re-rendered panel swaps labels, which made
-	 * banners and avatars show their first frame and then go blank.
-	 */
-	static final class MotionIcon extends javax.swing.ImageIcon
-	{
-		private final byte[] bytes;
-
-		MotionIcon(byte[] bytes)
-		{
-			super(bytes);
-			this.bytes = bytes;
-		}
-
-		MotionIcon copy()
-		{
-			return new MotionIcon(bytes);
-		}
+		return GifIcon.decode(bytes, w, h);
 	}
 
 	/** {@code src} scaled to fit inside w x h (never up). */

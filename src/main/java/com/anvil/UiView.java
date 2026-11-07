@@ -744,24 +744,7 @@ final class UiView extends JPanel
 		}
 	}
 
-	/** Repaints {@code c} as GIF frames arrive; detaches once the label is no longer on screen. */
-	static java.awt.image.ImageObserver frameRepainter(Component c)
-	{
-		return (img, flags, x, y, width, height) ->
-		{
-			if (!c.isShowing())
-			{
-				return false;
-			}
-			if ((flags & (java.awt.image.ImageObserver.FRAMEBITS | java.awt.image.ImageObserver.ALLBITS)) != 0)
-			{
-				c.repaint();
-			}
-			return (flags & (java.awt.image.ImageObserver.ALLBITS | java.awt.image.ImageObserver.ABORT | java.awt.image.ImageObserver.ERROR)) == 0;
-		};
-	}
-
-	/** Keep animated ImageIcons animated while masking avatars and clan marks to a smooth circle. */
+	/** Mask avatars and clan marks to a smooth circle; an animated GifIcon keeps playing through it. */
 	private static Icon roundIcon(Icon image, int w, int h)
 	{
 		return new Icon()
@@ -778,16 +761,8 @@ final class UiView extends JPanel
 				Graphics2D copy = frame.createGraphics();
 				try
 				{
-					if (image instanceof ImageIcon)
-					{
-						// JLabel only follows frames for an ImageIcon it holds directly; this wrapper would
-						// otherwise stop a GIF after its first frame. Repaint the label on each new frame.
-						copy.drawImage(((ImageIcon) image).getImage(), 0, 0, frameRepainter(c));
-					}
-					else
-					{
-						image.paintIcon(c, copy, 0, 0);
-					}
+					// A GifIcon registers c and repaints it per frame itself.
+					image.paintIcon(c, copy, 0, 0);
 					copy.setComposite(AlphaComposite.DstIn);
 					copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 					copy.setColor(Color.WHITE);

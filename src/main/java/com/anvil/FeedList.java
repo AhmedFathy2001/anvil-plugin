@@ -78,6 +78,10 @@ final class FeedList extends JPanel
 	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
 	static final int FLUSH_MS = 400;
+	/** How long after our own press's post answers before held reaction pushes are laid over it. */
+	static final int SETTLE_MS = 1500;
+	/** Reaction pushes held per pressed row, at most (the newest kept). */
+	private static final int HELD_CAP = 16;
 	private static final int ICON_W = 24;
 	private static final int ICON_H = 21;
 	private static final Color GOLD = new Color(0xFF_D3_5C);
@@ -142,6 +146,8 @@ final class FeedList extends JPanel
 	/** Arrived since the last flush, oldest first. */
 	private final List<JsonObject> pending = new ArrayList<>();
 	private final Set<String> pendingDel = new HashSet<>();
+	/** Rows whose reaction chip this viewer just pressed: their pushes wait (see {@link #reaction}). */
+	private final Map<String, Held> held = new HashMap<>();
 	private final Timer flush = new Timer(FLUSH_MS, e -> flush());
 	/** Repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
 	private final Timer slide = new Timer(40, e -> slideVisible());
@@ -323,63 +329,184 @@ final class FeedList extends JPanel
 		schedule();
 	}
 
-	/** Apply an absolute reaction count pushed after somebody toggles it, preserving this viewer's mine state. */
+	/**
+	 * A row's reactions as they now stand, pushed after anyone toggles one (site lib/panelRows
+	 * emitReactionRows): {@code {t:"rowsreact", feeds, id:"m<moment>", gz, gold, sad, sit}}, and
+	 * {@code who:{kind:line}} when the site says who gave them. Counts are absolute; this viewer's
+	 * highlight only moves when the message carries it ({@code mineGz}, {@code mineSad}, ...: the copy
+	 * sent to the reactor's own clients, so their other client follows). In place, never reordered.
+	 *
+	 * A chip this viewer just pressed is already showing where it's going: pushes for that row wait
+	 * until the press settles (its post answered, plus {@link #SETTLE_MS}) and are then replayed in
+	 * order, so the confirmation of our own toggle changes nothing and a quick on-off never flickers.
+	 */
 	void reaction(JsonObject update)
 	{
 		String rowId = UiView.str(update, "id");
-		String kind = UiView.str(update, "kind");
-		if (rowId.isEmpty() || kind.isEmpty() || !update.has("n"))
+		if (rowId.isEmpty())
 		{
 			return;
 		}
+		Held h = held.get(rowId);
+		if (h != null)
+		{
+			if (h.queued.size() >= HELD_CAP)
+			{
+				h.queued.remove(0);
+			}
+			h.queued.add(update);
+			return;
+		}
+		applyReactionToList(rowId, update);
+	}
+
+	private void applyReactionToList(String rowId, JsonObject update)
+	{
 		for (JsonObject row : pending)
 		{
 			if (rowId.equals(UiView.str(row, "id")))
 			{
-				applyReaction(row, kind, update);
+				applyReaction(row, update);
 			}
 		}
 		int i = model.indexOf(rowId);
-		if (i >= 0 && applyReaction(model.getElementAt(i), kind, update))
+		if (i >= 0 && applyReaction(model.getElementAt(i), update))
 		{
 			model.changed(i);
 		}
 	}
 
-	private static boolean applyReaction(JsonObject row, String kind, JsonObject update)
+	/** Lays one push over a row's chips; true when any chip changed. Kinds the row has no chip for are ignored. */
+	static boolean applyReaction(JsonObject row, JsonObject update)
 	{
-		JsonObject chip = null;
+		List<JsonObject> chips = new ArrayList<>();
 		if (row.has("reacts") && row.get("reacts").isJsonArray())
 		{
 			for (JsonElement e : row.getAsJsonArray("reacts"))
 			{
-				JsonObject candidate = e.getAsJsonObject();
-				if (kind.equals(UiView.str(candidate, "kind")))
+				if (e.isJsonObject())
 				{
-					chip = candidate;
-					break;
+					chips.add(e.getAsJsonObject());
 				}
 			}
 		}
-		else if ("gz".equals(kind) && row.has("gz") && row.get("gz").isJsonObject())
+		else if (row.has("gz") && row.get("gz").isJsonObject())
 		{
-			chip = row.getAsJsonObject("gz");
+			// The plain GZ chip carries no kind of its own.
+			return applyChip(row.getAsJsonObject("gz"), "gz", update);
 		}
-		if (chip == null)
+		boolean changed = false;
+		for (JsonObject chip : chips)
+		{
+			changed |= applyChip(chip, UiView.str(chip, "kind"), update);
+		}
+		return changed;
+	}
+
+	private static boolean applyChip(JsonObject chip, String kind, JsonObject update)
+	{
+		if (kind.isEmpty())
 		{
 			return false;
 		}
-		chip.addProperty("n", Math.max(0, update.get("n").getAsInt()));
-		String who = UiView.str(update, "who");
-		if (who.isEmpty())
+		boolean changed = false;
+		if (update.has(kind) && update.get(kind).isJsonPrimitive())
 		{
-			chip.remove("who");
+			int n = Math.max(0, update.get(kind).getAsInt());
+			if (!chip.has("n") || chip.get("n").getAsInt() != n)
+			{
+				chip.addProperty("n", n);
+				changed = true;
+			}
 		}
-		else
+		String mineKey = "mine" + Character.toUpperCase(kind.charAt(0)) + kind.substring(1);
+		if (update.has(mineKey) && update.get(mineKey).isJsonPrimitive())
 		{
-			chip.addProperty("who", who);
+			boolean mine = update.get(mineKey).getAsBoolean();
+			if (!chip.has("mine") || chip.get("mine").getAsBoolean() != mine)
+			{
+				chip.addProperty("mine", mine);
+				changed = true;
+			}
 		}
-		return true;
+		if (update.has("who") && update.get("who").isJsonObject())
+		{
+			JsonObject who = update.getAsJsonObject("who");
+			if (who.has(kind))
+			{
+				String line = UiView.str(who, kind);
+				if (line.isEmpty())
+				{
+					changed |= chip.remove("who") != null;
+				}
+				else if (!line.equals(UiView.str(chip, "who")))
+				{
+					chip.addProperty("who", line);
+					changed = true;
+				}
+			}
+		}
+		return changed;
+	}
+
+	/** A press on this row's chip just went out: hold its pushes until it settles. */
+	private void hold(String rowId)
+	{
+		held.computeIfAbsent(rowId, k -> new Held()).posts++;
+	}
+
+	/** One of the row's posts answered: once none are out, wait {@link #SETTLE_MS} and replay what was held. */
+	private void unhold(String rowId)
+	{
+		Held h = held.get(rowId);
+		if (h == null)
+		{
+			return;
+		}
+		h.posts = Math.max(0, h.posts - 1);
+		if (h.posts > 0)
+		{
+			return;
+		}
+		int gen = ++h.gen;
+		Timer t = new Timer(SETTLE_MS, e -> settle(rowId, gen));
+		t.setRepeats(false);
+		t.start();
+	}
+
+	private void settle(String rowId, int gen)
+	{
+		Held h = held.get(rowId);
+		if (h == null || h.posts > 0 || h.gen != gen)
+		{
+			return;
+		}
+		held.remove(rowId);
+		for (JsonObject update : h.queued)
+		{
+			applyReactionToList(rowId, update);
+		}
+	}
+
+	/** For tests: every press whose post has answered settles now, without waiting out the timer. */
+	void settleNow()
+	{
+		for (String rowId : new ArrayList<>(held.keySet()))
+		{
+			Held h = held.get(rowId);
+			if (h.posts == 0)
+			{
+				settle(rowId, h.gen);
+			}
+		}
+	}
+
+	/** Pushes for a row whose chip this viewer just pressed. */
+	private static final class Held
+	{
+		int posts;
+		int gen;
+		final List<JsonObject> queued = new ArrayList<>();
 	}
 
 	/** Grey the message box out with this line, or reopen it (null). Only a list with a box has one. */
@@ -782,21 +909,49 @@ final class FeedList extends JPanel
 			JsonObject chip = chipAt(r, list.getFontMetrics(SMALL), b.x + b.width - 6 - e.getX());
 			if (chip != null)
 			{
-				boolean mine = chip.has("mine") && chip.get("mine").getAsBoolean();
-				int count = chip.has("n") ? chip.get("n").getAsInt() : 0;
-				chip.addProperty("mine", !mine);
-				chip.addProperty("n", Math.max(0, count + (mine ? -1 : 1)));
-				model.changed(i);
-				if (chip.has("on") && chip.get("on").isJsonObject())
-				{
-					quietly(chip.getAsJsonObject("on"));
-				}
+				press(i, chip);
 				return;
 			}
 			if (r.has("on") && r.get("on").isJsonObject())
 			{
 				act.accept(r.getAsJsonObject("on"));
 			}
+		}
+	}
+
+	/** A reaction chip pressed: flipped at once, posted, and the row's pushes held until the post settles. */
+	private void press(int i, JsonObject chip)
+	{
+		boolean mine = chip.has("mine") && chip.get("mine").getAsBoolean();
+		int count = chip.has("n") ? chip.get("n").getAsInt() : 0;
+		chip.addProperty("mine", !mine);
+		chip.addProperty("n", Math.max(0, count + (mine ? -1 : 1)));
+		model.changed(i);
+		if (!chip.has("on") || !chip.get("on").isJsonObject())
+		{
+			return;
+		}
+		JsonObject on = chip.getAsJsonObject("on");
+		String rowId = UiView.str(model.getElementAt(i), "id");
+		if (rowId.isEmpty() || !"post".equals(UiView.str(on, "a")))
+		{
+			quietly(on);
+			return;
+		}
+		hold(rowId);
+		host.post(UiView.str(on, "act"), UiView.strings(on.get("args")), Collections.emptyMap(), v -> {
+			unhold(rowId);
+			showError(errorOf(v));
+		});
+	}
+
+	/** For tests: press row {@code i}'s chip of this kind, as a click on it would. */
+	void pressChip(int i, String kind)
+	{
+		JsonObject chip = reactionChip(i, kind);
+		if (chip != null)
+		{
+			press(i, chip);
 		}
 	}
 

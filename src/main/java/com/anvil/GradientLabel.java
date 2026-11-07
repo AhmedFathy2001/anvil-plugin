@@ -46,14 +46,30 @@ final class GradientLabel extends JLabel
 		animate = enabled;
 	}
 
+	/** Played animation time: starts at the wall clock (clients begin in step) and runs only while in front. */
+	private static long playedMs = System.currentTimeMillis();
+	private static long lastWallMs = playedMs;
+
 	/**
-	 * Shared phase clock for Swing labels and game widgets. It is anchored to the wall clock, not to
-	 * plugin start, so a panel rebuild never jumps the phase and two clients with synced clocks show
-	 * the same point in the cycle.
+	 * Shared phase clock for Swing labels and game widgets (EDT and client thread). It never resets on
+	 * a panel rebuild, and it stands still while the client window is in the background, so names
+	 * carry on from where they stopped instead of jumping to a new spot in the cycle.
 	 */
-	static long animationTimeMillis()
+	static synchronized long animationTimeMillis()
 	{
-		return animate ? System.currentTimeMillis() : 0;
+		if (!animate)
+		{
+			return 0;
+		}
+		long now = System.currentTimeMillis();
+		long dt = now - lastWallMs;
+		lastWallMs = now;
+		if (dt > 0 && clientActive())
+		{
+			// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
+			playedMs += Math.min(dt, 250);
+		}
+		return playedMs;
 	}
 
 	private final Color[] stops;
