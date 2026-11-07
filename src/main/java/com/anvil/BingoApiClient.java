@@ -1499,23 +1499,18 @@ public class BingoApiClient
 		public int markedLeft;
 		public int renamed;
 		public int returned;
-		public List<ClanChange> changes;
-		// Plan-limit state, added later. A site that predates it sends neither field and GSON leaves
-		// them null/empty, so an older instance simply produces no cap line.
-		//   capNotice         — one ready-to-show sentence, or null when there's nothing to say.
-		//   refusedNewMembers — RSNs the plan limit kept off the roster on this sweep.
 		public String capNotice;
-		public List<String> refusedNewMembers;
+		/** The chat lines, written by the site: background line, button report, warnings. */
+		public Say say;
 	}
 
-	public static class ClanChange
+	public static class Say
 	{
-		public String type;     // "joined" | "left" | "returned" | "renamed" | "rank_changed"
-		public String rsn;
-		public String oldRsn;   // populated only on rename
-		public String oldRank;  // populated only on rank_changed
-		public String newRank;  // populated only on rank_changed
+		public List<String> auto = Collections.emptyList();
+		public List<String> manual = Collections.emptyList();
+		public List<String> warn = Collections.emptyList();
 	}
+
 
 	public static class ClanMismatchException extends Exception
 	{

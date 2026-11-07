@@ -6561,83 +6561,15 @@ public class AnvilPlugin extends Plugin {
 					// Silence on the login where nothing changed; one line when somebody joined or
 					// left, because that's news whether or not you pressed anything.
 					autoRosterAnnounce = false;
+					BingoApiClient.Say say = r.say != null ? r.say : new BingoApiClient.Say();
+					boolean firstThisLogin = !autoRosterReportedThisLogin;
 					if (automatic) {
-						List<String> parts = new ArrayList<>();
-						if (r.added > 0) {
-							parts.add(r.added + " joined");
-						}
-						if (r.returned > 0) {
-							parts.add(r.returned + " returned");
-						}
-						if (r.markedLeft > 0) {
-							parts.add(r.markedLeft + " left");
-						}
-						if (r.renamed > 0) {
-							parts.add(r.renamed + " renamed");
-						}
-						// News always gets said. "Nothing changed" gets said once a login — enough to
-						// prove the sync ran, not so often that it becomes something to scroll past.
-						boolean moved = !parts.isEmpty();
-						boolean firstThisLogin = !autoRosterReportedThisLogin;
 						autoRosterReportedThisLogin = true;
-						if (moved) {
-							sendChatMessage("Clan roster updated: " + String.join(", ", parts) + ".");
-						} else if (firstThisLogin) {
-							sendChatMessage("Clan roster checked — nothing changed.");
-						}
+						(say.auto.isEmpty() && firstThisLogin ? Collections.singletonList("Clan roster checked — nothing changed.") : say.auto).forEach(this::sendChatMessage);
 					} else {
-						sendChatMessage("Clan roster synced: " + lastSyncSummary);
+						say.manual.forEach(this::sendChatMessage);
 					}
-					// Per-member changes — one chat line each, capped so a busy sync doesn't flood
-					// chat. Only for a sync somebody asked for: the automatic one has said its piece.
-					if (!automatic && r.changes != null && !r.changes.isEmpty()) {
-						int cap = 12;
-						int shown = 0;
-						for (ClanChange ch : r.changes) {
-							if (shown >= cap) {
-								break;
-							}
-							String line;
-							switch (ch.type == null ? "" : ch.type) {
-								case "joined":
-									line = ch.rsn + " joined the clan.";
-									break;
-								case "left":
-									line = ch.rsn + " left the clan.";
-									break;
-								case "returned":
-									line = ch.rsn + " returned to the clan.";
-									break;
-								case "renamed":
-									line = (ch.oldRsn == null ? "?" : ch.oldRsn) + " is now known as " + ch.rsn + ".";
-									break;
-								case "rank_changed":
-									line = ch.rsn + " is now " + (ch.newRank == null ? "ranked" : ch.newRank)
-											+ (ch.oldRank != null ? " (was " + ch.oldRank + ")" : "") + ".";
-									break;
-								default:
-									continue;
-							}
-							sendChatMessage(line);
-							shown++;
-						}
-						if (r.changes.size() > cap) {
-							sendChatMessage("...and " + (r.changes.size() - cap) + " more changes (see Discord audit feed).");
-						}
-					}
-					// Plan limit. The admin running the sync is the one person who can act on this,
-					// and they're right here — so say it in-game rather than leaving it to a banner
-					// they'd have to open the site to see. Names come first because "6 members were
-					// not added" is only useful if you know WHICH six.
-					if (r.refusedNewMembers != null && !r.refusedNewMembers.isEmpty()) {
-						int refusedCap = 6;
-						String names = String.join(", ",
-								r.refusedNewMembers.subList(0, Math.min(refusedCap, r.refusedNewMembers.size())));
-						String more = r.refusedNewMembers.size() > refusedCap
-								? " and " + (r.refusedNewMembers.size() - refusedCap) + " more"
-								: "";
-						sendChatMessage(ChatPalette.Tone.WARN, "Not added (plan limit): " + names + more + ".");
-					}
+					say.warn.forEach(w -> sendChatMessage(ChatPalette.Tone.WARN, w));
 					if (r.capNotice != null && !r.capNotice.isEmpty()) {
 						sendChatMessage(r.capNotice);
 					}
