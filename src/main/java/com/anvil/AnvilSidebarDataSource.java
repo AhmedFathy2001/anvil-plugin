@@ -38,6 +38,28 @@ public class AnvilSidebarDataSource
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	private volatile AnvilPlugin plugin;
 
+	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
+	public boolean seasonalSharingOffered()
+	{
+		AnvilPlugin p = plugin;
+		return p != null && p.seasonalSharingOffered();
+	}
+
+	public boolean shareSeasonal()
+	{
+		AnvilPlugin p = plugin;
+		return p != null && p.shareSeasonal();
+	}
+
+	public void setShareSeasonal(boolean on)
+	{
+		AnvilPlugin p = plugin;
+		if (p != null)
+		{
+			p.setShareSeasonal(on);
+		}
+	}
+
 	/** Hand the keyboard back to the game canvas. */
 	public void gameFocus()
 	{

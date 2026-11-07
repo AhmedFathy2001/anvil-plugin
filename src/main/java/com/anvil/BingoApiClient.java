@@ -1204,8 +1204,17 @@ public class BingoApiClient
 				// Counting frames needs a searchable stream: seekForwardOnly=true made getNumImages(true)
 				// throw for every GIF, so each animated picture was refused and never shown.
 				reader.setInput(in, false, false);
-				int sw = reader.getWidth(0), sh = reader.getHeight(0), frames = reader.getNumImages(true);
-				if (sw <= 0 || sh <= 0 || sw > w || sh > h || frames <= 0 || frames > 300 || (long) sw * sh * frames > 20_000_000L) return null;
+				int frames = reader.getNumImages(true);
+				if (frames <= 0 || frames > 300) return null;
+				// Every frame, not just the first: a later GIF frame can claim a far larger size.
+				long pixels = 0;
+				for (int i = 0; i < frames; i++)
+				{
+					int sw = reader.getWidth(i), sh = reader.getHeight(i);
+					if (sw <= 0 || sh <= 0 || sw > w || sh > h) return null;
+					pixels += (long) sw * sh;
+					if (pixels > 20_000_000L) return null;
+				}
 			}
 			finally
 			{

@@ -358,6 +358,18 @@ public interface AnvilConfig extends Config
 	}
 
 
+	@ConfigItem(
+		keyName = "shareSeasonal",
+		name = "Share seasonal activity",
+		description = "On Leagues, Deadman and other seasonal worlds, share your progress (relics, areas, tasks, with a screenshot) to your clan. What gets posted is set by your clan on the Anvil website.",
+		position = 0,
+		section = "deathsSection"
+	)
+	default boolean shareSeasonal()
+	{
+		return true;
+	}
+
 	// ---- Notifications: Deaths & kills ----
 
 	@ConfigItem(

@@ -1912,6 +1912,9 @@ public class AnvilPlugin extends Plugin {
 			clientThread.invokeLater(this::unflairAll);
 			return;
 		}
+		if ("shareSeasonal".equals(event.getKey()) && sidebarPanel != null) {
+			SwingUtilities.invokeLater(sidebarPanel::seasonalChanged);
+		}
 		if ("animatedNames".equals(event.getKey())) {
 			GradientLabel.setAnimate(config.animatedNames());
 			clientThread.invokeLater(this::refreshClanTitleWidgets);
@@ -2027,6 +2030,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onWorldChanged(WorldChanged event) {
 		stampWorld();
+		markSeasonalWorld();
 		// Hopping between the main game and a separate save swaps the whole stat table: baseline
 		// again, or one character's levels would read as the other's level-ups.
 		EnumSet<WorldType> realm = EnumSet.noneOf(WorldType.class);
@@ -2427,7 +2431,7 @@ public class AnvilPlugin extends Plugin {
 		PluginConfigResponse cfg = pluginConfig;
 		ScheduledExecutorService ex = executor;
 		if (batch == null || cfg == null || !cfg.serverSupports("mode-lines") || !apiClient.isConfigured()
-				|| ex == null || ex.isShutdown()) {
+				|| !config.shareSeasonal() || ex == null || ex.isShutdown()) {
 			return;
 		}
 		if (cfg.serverSupports("mode-line-screenshots")) {
@@ -2784,6 +2788,9 @@ public class AnvilPlugin extends Plugin {
 		// Game-value counters: a loading zone pauses reads (same account, values persist); leaving the
 		// session forgets the baselines — the next account's balances are not this one's.
 		GameState gs = event.getGameState();
+		if (gs == GameState.LOGGED_IN || gs == GameState.LOGIN_SCREEN) {
+			markSeasonalWorld();
+		}
 		if (gs == GameState.LOADING) {
 			gameValueCounters.onLoading();
 		} else if (gs == GameState.LOGIN_SCREEN || gs == GameState.HOPPING || gs == GameState.CONNECTION_LOST) {
@@ -3909,7 +3916,7 @@ public class AnvilPlugin extends Plugin {
 			maybeReportCofferLine(msg);
 		}
 		// On a game-mode world the site turns the game's announcements into relic/area/task posts.
-		if (event.getType() == ChatMessageType.GAMEMESSAGE && WorldInfo.separateSave(client.getWorldType())) {
+		if (event.getType() == ChatMessageType.GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) {
 			modeLines.offer(msg, now());
 		}
 
@@ -12257,6 +12264,31 @@ public class AnvilPlugin extends Plugin {
 	private volatile boolean clogOpen;
 
 	/** "Sync profile" in the side panel: supported, and the log is open to read from. */
+	/** Client thread: logged in on a separate-save (seasonal) world, cached for the side panel. */
+	private void markSeasonalWorld() {
+		boolean on = client.getGameState() == GameState.LOGGED_IN && WorldInfo.separateSave(client.getWorldType());
+		if (on != seasonalWorld) {
+			seasonalWorld = on;
+			if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::seasonalChanged);
+		}
+	}
+
+	private volatile boolean seasonalWorld;
+
+	/** Any thread: whether the side panel should offer the seasonal-sharing switch. */
+	public boolean seasonalSharingOffered() {
+		PluginConfigResponse cfg = pluginConfig;
+		return seasonalWorld && cfg != null && cfg.serverSupports("mode-lines");
+	}
+
+	public boolean shareSeasonal() {
+		return config.shareSeasonal();
+	}
+
+	public void setShareSeasonal(boolean on) {
+		configManager.setConfiguration("osrsbingo", "shareSeasonal", on);
+	}
+
 	public boolean canSyncProfileFromPanel() {
 		return clogOpen && supportsProfileSync();
 	}

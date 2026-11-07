@@ -148,6 +148,10 @@ public class AnvilSidebarPanel extends PluginPanel
 	private final JLabel accountLink = small("", ColorScheme.BRAND_ORANGE);
 	private final JLabel accountStatus = small("", MUTED);
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
+	/** On a seasonal world: whether its progress is shared with the clan, and a switch for it. */
+	private final JPanel seasonRow = new JPanel(new BorderLayout(6, 0));
+	private final JLabel seasonLabel = small("Sharing season progress", MUTED);
+	private final JLabel seasonLink = new JLabel("Turn off");
 	private AnvilSidebarDataSource.AccountRow shownAccountRow;
 	private boolean accountActionInFlight;
 
@@ -269,11 +273,20 @@ public class AnvilSidebarPanel extends PluginPanel
 		accountRowPanel.add(accountStatus, BorderLayout.SOUTH);
 		left(accountRowPanel).setVisible(false);
 
+		styleLink(seasonLink, "Your seasonal progress (relics, areas, tasks, with a screenshot) goes to your clan."
+			+ " Your clan chooses what gets posted on the Anvil website.", () -> dataSource.setShareSeasonal(!dataSource.shareSeasonal()));
+		seasonRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		seasonRow.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+		seasonRow.add(seasonLabel, BorderLayout.CENTER);
+		seasonRow.add(seasonLink, BorderLayout.EAST);
+		left(capH(seasonRow)).setVisible(false);
+
 		JPanel top = column();
 		top.add(titleRow);
 		top.add(gap(6));
 		top.add(signInRow);
 		top.add(accountRowPanel);
+		top.add(seasonRow);
 		header.add(top, BorderLayout.NORTH);
 
 		// Clan filter — selecting a clan re-renders from the held snapshot (no refetch).
@@ -1061,6 +1074,7 @@ public class AnvilSidebarPanel extends PluginPanel
 
 	private void refreshAccountRow()
 	{
+		seasonalChanged();
 		AnvilSidebarDataSource.AccountRow row = dataSource.accountRow();
 		boolean changed = shownAccountRow == null || row == null
 			|| shownAccountRow.state != row.state || !shownAccountRow.rsn.equals(row.rsn);
@@ -1261,6 +1275,23 @@ public class AnvilSidebarPanel extends PluginPanel
 	public void refresh()
 	{
 		refresh(false);
+	}
+
+	/** EDT: show or update the seasonal-sharing switch (seasonal world, setting changed, config polled). */
+	public void seasonalChanged()
+	{
+		boolean show = dataSource.seasonalSharingOffered();
+		if (show)
+		{
+			boolean on = dataSource.shareSeasonal();
+			seasonLabel.setText(on ? "Sharing season progress" : "Season progress not shared");
+			seasonLink.setText(on ? "Turn off" : "Turn on");
+		}
+		if (seasonRow.isVisible() != show)
+		{
+			seasonRow.setVisible(show);
+		}
+		seasonRow.revalidate();
 	}
 
 	/** Rebuild the visible site view so animated image nodes swap to their still/animated rendition. */
