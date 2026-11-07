@@ -44,6 +44,15 @@ public class MotionIconTest
 	}
 
 	@Test
+	public void aHugeDeclaredCanvasIsRefusedEvenWithASmallFrame() throws Exception
+	{
+		byte[] bytes = gif(48, 48);
+		// Logical screen 4096x4096 behind a 48x48 frame.
+		bytes[6] = 0; bytes[7] = 0x10; bytes[8] = 0; bytes[9] = 0x10;
+		assertNull(BingoApiClient.animatedIcon(bytes, 48, 48));
+	}
+
+	@Test
 	public void frameRepainterDetachesFromHiddenLabels()
 	{
 		ImageObserver observer = UiView.frameRepainter(new JLabel());

@@ -1206,6 +1206,11 @@ public class BingoApiClient
 				reader.setInput(in, false, false);
 				int frames = reader.getNumImages(true);
 				if (frames <= 0 || frames > 300) return null;
+				// AWT's decoder sizes its canvas from the header's logical screen (bytes 6-9, little-endian),
+				// not from any frame, so bound that too: a tiny frame can sit on a huge declared canvas.
+				if (bytes.length < 10 || bytes[0] != 'G' || bytes[1] != 'I' || bytes[2] != 'F') return null;
+				int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8, lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
+				if (lw <= 0 || lh <= 0 || lw > w || lh > h || (long) lw * lh * frames > 20_000_000L) return null;
 				// Every frame, not just the first: a later GIF frame can claim a far larger size.
 				long pixels = 0;
 				for (int i = 0; i < frames; i++)
