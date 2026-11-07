@@ -1217,6 +1217,9 @@ public class BingoApiClient
 				{
 					int sw = reader.getWidth(i), sh = reader.getHeight(i);
 					if (sw <= 0 || sh <= 0 || sw > w || sh > h) return null;
+					// And inside the canvas: a frame offset past the logical screen is refused too.
+					int[] at = gifFrameOffset(reader.getImageMetadata(i));
+					if (at == null || at[0] < 0 || at[1] < 0 || at[0] + sw > lw || at[1] + sh > lh) return null;
 					pixels += (long) sw * sh;
 					if (pixels > 20_000_000L) return null;
 				}
@@ -1232,6 +1235,30 @@ public class BingoApiClient
 		}
 		MotionIcon icon = new MotionIcon(bytes);
 		return icon.getIconWidth() > 0 && icon.getIconHeight() > 0 ? icon : null;
+	}
+
+	/** A GIF frame's {x, y} on the logical screen from its ImageDescriptor; null when unreadable. */
+	static int[] gifFrameOffset(javax.imageio.metadata.IIOMetadata meta)
+	{
+		try
+		{
+			org.w3c.dom.Node root = meta == null ? null : meta.getAsTree("javax_imageio_gif_image_1.0");
+			for (org.w3c.dom.Node n = root == null ? null : root.getFirstChild(); n != null; n = n.getNextSibling())
+			{
+				if ("ImageDescriptor".equals(n.getNodeName()))
+				{
+					org.w3c.dom.NamedNodeMap a = n.getAttributes();
+					return new int[]{
+						Integer.parseInt(a.getNamedItem("imageLeftPosition").getNodeValue()),
+						Integer.parseInt(a.getNamedItem("imageTopPosition").getNodeValue())};
+				}
+			}
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
+		return null;
 	}
 
 	/**
