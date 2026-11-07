@@ -297,6 +297,18 @@ final class RuleEngine {
 		return lines;
 	}
 
+	/** A live push's counts (tile id → the team's count): every rule on that tile, stats too, rises to it. */
+	synchronized void raise(Map<Integer, Long> have) {
+		Table t = table;
+		if (t == null) return;
+		List<Rule> rules = all(t);
+		rules.addAll(t.stats);
+		for (Rule r : rules) {
+			Long n = have.get(r.t);
+			if (n != null) r.have = Math.max(r.have, n);
+		}
+	}
+
 	/** The rule as it stands now, for the popup: read outside the lock, it must not see the next answer land. */
 	private static Rule snap(Rule r) {
 		Rule s = new Rule();

@@ -486,4 +486,23 @@ public class RuleEngineTest
 		t.values.add(value(1, 0, 0, 100, null));
 		assertTrue(engine(t).dropLines());
 	}
+
+	@Test
+	public void aPushRaisesEveryRuleOnItsTileStatsIncludedNeverLowers()
+	{
+		RuleEngine.Table t = table();
+		t.stats.add(stat(50, "kc", Collections.singletonList("vorkath"), 4, 10, 0, null));
+		t.values.add(value(51, 0, 300, 1000, null));
+		RuleEngine e = engine(t);
+		Map<Integer, Long> have = new HashMap<>();
+		have.put(50, 9L);
+		have.put(51, 100L);
+		e.raise(have);
+		assertEquals(300, t.values.get(0).have); // never lowered
+		// The teammate's 9 plus our kill finishes the tile here and now.
+		RuleEngine.Out o = e.kc("Vorkath", 1);
+		assertTrue(o.done);
+		assertEquals(Long.valueOf(10), o.raised.get(50));
+		new RuleEngine().raise(have); // no table yet: nothing to do
+	}
 }

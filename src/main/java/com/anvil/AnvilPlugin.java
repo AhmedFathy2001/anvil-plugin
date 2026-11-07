@@ -7249,6 +7249,10 @@ public class AnvilPlugin extends Plugin {
 			// A fetch that landed meanwhile is at least as new: keep it.
 			if (pluginConfig == held) {
 				adoptTracking(fresh);
+				// A teammate's progress reaches the rule table too, so completion is spotted off it.
+				Map<Integer, Long> have = new HashMap<>();
+				if (fresh.tiles != null) fresh.tiles.forEach(r -> have.put(r.t, r.have));
+				rules.raise(have);
 				if (apiClient.getCurrentRsn() != null) {
 					checkTileCompletions(fresh);
 					checkMissionAlerts(fresh);
