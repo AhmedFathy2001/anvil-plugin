@@ -119,6 +119,16 @@ final class DeathAttribution {
 		return newest;
 	}
 
+	/** How many players had us targeted when we died (the site's "ganged by N players"); 0 once the last hit is stale. */
+	synchronized int players(long nowMs) {
+		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS) return 0;
+		int n = 0;
+		for (String name : attackers.keySet()) {
+			if (players.contains(name)) n++;
+		}
+		return n;
+	}
+
 	/** How many things currently have us targeted — for the log line that explains an attribution. */
 	synchronized int attackerCount() {
 		return attackers.size();

@@ -8116,10 +8116,13 @@ public class AnvilPlugin extends Plugin {
 	private static final class AttributedDeath {
 		final String source;
 		final String sourceKind;
+		/** Players that had us targeted (the death post's pile-on). */
+		final int pile;
 
-		AttributedDeath(String source, String sourceKind) {
+		AttributedDeath(String source, String sourceKind, int pile) {
 			this.source = source;
 			this.sourceKind = sourceKind;
+			this.pile = pile;
 		}
 	}
 
@@ -8141,11 +8144,12 @@ public class AnvilPlugin extends Plugin {
 			killer = fighting;
 			sourceKind = "fought";
 		}
+		int pile = deathAttribution.players(now);
 		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
 		// rather than waiting for each attacker to drop us, which an instance tear-down never
 		// reports — a stale attacker would otherwise be the prime suspect for the next death.
 		deathAttribution.clear();
-		return new AttributedDeath(killer, sourceKind);
+		return new AttributedDeath(killer, sourceKind, pile);
 	}
 
 	private void recordDeathMoment(AttributedDeath death) {
@@ -8458,6 +8462,7 @@ public class AnvilPlugin extends Plugin {
 			// The site words the post (the person's death message, or now and then a fun one).
 			NotifyFacts facts = new NotifyFacts("death", getLocalPlayerName())
 					.put("source", death.source).put("sourceKind", death.sourceKind);
+			if (death.pile > 0) facts.put("pile", death.pile);
 			captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
 			return;
 		}

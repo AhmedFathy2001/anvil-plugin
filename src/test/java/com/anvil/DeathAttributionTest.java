@@ -149,4 +149,22 @@ public class DeathAttributionTest
 		assertFalse(d.isPlayer("Zezima"));
 		assertFalse(d.isPlayer(null));
 	}
+
+	@Test
+	public void countsThePlayersOnUsWhileTheLastHitIsFresh()
+	{
+		DeathAttribution d = new DeathAttribution();
+		assertEquals(0, d.players(T));
+		d.targetedUs("Pker1", true, T);
+		d.targetedUs("Pker2", true, T + 10);
+		d.targetedUs("Pker3", true, T + 20);
+		d.targetedUs("Revenant dragon", false, T + 30);
+		d.tookDamage(T + 100);
+		assertEquals("NPCs are not players", 3, d.players(T + 200));
+		d.stoppedTargetingUs("Pker2");
+		assertEquals(2, d.players(T + 200));
+		assertEquals("a stale last hit counts nobody", 0, d.players(T + 100 + 15_001));
+		d.clear();
+		assertEquals(0, d.players(T + 200));
+	}
 }
