@@ -361,7 +361,7 @@ public class AnvilPlugin extends Plugin {
 	// The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
 	// Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
 	// "Total Ticket" for the Brimhaven Agility Arena) and Wintertodt prefixes "subdued" — all must
-	// be kept OUT of the captured boss name or it never matches the trackedKcNames watch-list.
+	// be kept OUT of the captured boss name or it never matches a stat rule.
 	// Package-private for KillCountLineTest.
 	// → chat-patterns.json "kc.count" (ChatPatterns).
 	// The Doom of Mokhaiotl has no "Your <X> kill count is" line either. Its hiscores count is deep
@@ -546,7 +546,6 @@ public class AnvilPlugin extends Plugin {
 	// Compiled once: these run per chat line, per XP drop and per LMS tick.
 	static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>");
 	private static final Pattern NON_DIGIT = Pattern.compile("[^0-9]");
-	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
 	/** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
 	static String stripChatTags(String msg) {
@@ -718,17 +717,11 @@ public class AnvilPlugin extends Plugin {
 	// itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
 	private volatile Map<Integer, List<TrackedGain>> gainItemIndex = Collections.emptyMap();
 
-	// ---- Real-time boss-KC push (hiscores tiles) -------------------------------------------
-	// Lowercased in-game KC-line boss names the server tracks as boss-KC tiles. Rebuilt with the
-	// drop index each config refresh; empty unless the event has such tiles.
-	private volatile Set<String> trackedKcNames = Collections.emptySet();
 	// Counts this client has seen move but the site hasn't confirmed yet, so the sidebar and pinned
 	// tiles move on the kill rather than on the poll after the push lands (see OptimisticProgress).
 	private final OptimisticProgress optimistic = new OptimisticProgress();
-	// The last absolute KC / XP seen this session per boss / skill — what a KC line or XP drop is a
-	// delta against. Unknown until the first one, so the first kill of a session waits on the push.
+	// The last absolute KC seen this session per boss — what a KC line is a delta against.
 	private final Map<String, Integer> lastSeenKc = new ConcurrentHashMap<>();
-	private final Map<String, Integer> lastSeenXp = new ConcurrentHashMap<>();
 	// Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
 	// counts are idempotent, so a kill streak collapses to a single push of the newest value.
 	private final CoalescedPush kcPush = new CoalescedPush("KC", KC_PUSH_COALESCE_MS, false,
@@ -913,13 +906,7 @@ public class AnvilPlugin extends Plugin {
 	private final PersonalBests personalBests = new PersonalBests();
 	/** The account the two above belong to, so a character switch reloads rather than merges. */
 	private String profileSyncRsn;
-	// Lowercased skill names the server tracks as skill-XP tiles (e.g. "mining"). Rebuilt each
-	// config refresh; empty unless the event has skill tiles.
-	private volatile Set<String> trackedSkillNames = Collections.emptySet();
-	// Also rebuilt with the drop index, so the XP/KC and loot paths only look up: stat tiles by
-	// kind + compactStat key, the first stat tile per lowercased name, and the server allowlist lowercased.
-	private volatile Map<String, List<TrackedStat>> statTileIndex = Collections.emptyMap();
-	private volatile Map<String, Integer> statTileByName = Collections.emptyMap();
+	// The server allowlist lowercased, rebuilt with the drop index.
 	private volatile Set<String> alwaysNotifyLower = Collections.emptySet();
 	// Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
 	// collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
@@ -1584,17 +1571,14 @@ public class AnvilPlugin extends Plugin {
 		rules.set(null);
 		gainItemIndex = Collections.emptyMap();
 		forgetHeldItems();
-		trackedKcNames = Collections.emptySet();
 		kcPush.reset();
 		optimistic.reset();
 		lastSeenKc.clear();
-		lastSeenXp.clear();
 		// Anything still queued was saved per character above (stashPushes); a day-old one is dropped
 		// on restore rather than filed against whatever happens to be running then.
 		synchronized (moments) {
 			moments.reset();
 		}
-		trackedSkillNames = Collections.emptySet();
 		skillXpPush.reset();
 		trackedActivityKeys = Collections.emptySet();
 		activityPush.reset();
@@ -1715,8 +1699,7 @@ public class AnvilPlugin extends Plugin {
 			lastXpSkill = skill.getName();
 			lastXpAt = now();
 		}
-		maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain);
-		if (realGain) say(rules.xp(skill.getName(), event.getXp() - prevXp, now()));
+		maybeQueueSkillXpPush(skill.getName(), event.getXp(), realGain && statMoved(rules.xp(skill.getName(), event.getXp() - prevXp, now())));
 
 		checkLevelUp(skill, event.getLevel());
 	}
@@ -3590,14 +3573,13 @@ public class AnvilPlugin extends Plugin {
 				if (config.syncPersonalBests()) personalBests.onActivitySeen(kcName, now());
 				boolean firstSeen = !killCounts.containsKey(kcKey);
 				int kc = Integer.parseInt(kcMatcher.group("count").replace(",", ""));
-				Integer kcBefore = killCounts.put(kcKey, kc);
+				killCounts.put(kcKey, kc);
 				lastKcName = kcName;
 				lastKcValue = kc;
 				lastKcAtMs = now();
 				creditBossKillFromChat(kcName, firstSeen);
-				say(rules.kc(kcName, kcBefore == null ? 1 : kc - kcBefore));
 				// Real-time boss-KC tiles: push the absolute count so the tile updates now instead
-				// of waiting ~1h for the hiscores cron (debounced; only for tracked bosses).
+				// of waiting ~1h for the hiscores cron (debounced).
 				maybeQueueKcPush(kcName, kc);
 				// Guaranteed completion awards (Infernal cape, Fire cape) credit off the KC
 				// line — the only signal that fires on repeat completions.
@@ -7518,30 +7500,8 @@ public class AnvilPlugin extends Plugin {
 		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
 		gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
 		rebuildPvpRosterIndex();
-		// The in-game KC-line boss names and the skill names to push real-time counts for.
-		trackedKcNames = names(has ? cfg.trackedKcNames : null, n -> n.isEmpty() ? null : normalizeBossName(n));
-		trackedSkillNames = names(has ? cfg.trackedSkillNames : null, n -> n.isEmpty() ? null : n.toLowerCase(Locale.ROOT).trim());
-		Map<String, List<TrackedStat>> stats = new HashMap<>();
-		Map<String, Integer> byName = new HashMap<>();
-		for (TrackedStat t : has && cfg.trackedStats != null ? cfg.trackedStats : Collections.<TrackedStat>emptyList()) {
-			if (t != null && t.statName != null) {
-				byName.putIfAbsent(t.statName.toLowerCase(Locale.ROOT).trim(), t.tileId);
-				// A composite tile listing one name twice is still bumped once.
-				for (String key : t.statType == null ? new String[0] : t.statName.split(",")) {
-					List<TrackedStat> l = stats.computeIfAbsent(statKey(t.statType, key), x -> new ArrayList<>());
-					if (!l.contains(t)) l.add(t);
-				}
-			}
-		}
-		statTileIndex = stats;
-		statTileByName = byName;
 		alwaysNotifyLower = names(has ? cfg.alwaysNotifyItems : null, n -> n.isEmpty() ? null : n.toLowerCase());
 		rebuildTrackedActivityKeys();
-	}
-
-	/** Skill tiles and boss/KC tiles keyed apart, each by {@link #compactStat}. */
-	private static String statKey(String kind, String name) {
-		return ("skill".equals(kind) ? "s:" : "b:") + compactStat(name);
 	}
 
 	/**
@@ -7586,29 +7546,18 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
-	/** A stat name reduced to letters and digits, so "Kree'Arra", "kreeArra" and "kree arra" meet. */
-	static String compactStat(String s) {
-		return s == null ? "" : NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll("");
-	}
-
 	/**
-	 * Move every KC / XP tile watching {@code name} up by {@code delta} locally, ahead of the push, and
-	 * say whether that took one to its goal — the push then goes now, not after the streak settles, so
-	 * the site can complete the tile while the member is still looking at it. A
-	 * composite tile ("CoX + CoX: CM") matches on any of its keys; a name that matches no key the way
-	 * the site spells it simply isn't bumped, and the tile moves when the push lands, as before.
+	 * A KC / XP gain the rule table counted: print its lines, move its tiles here and on a pinned
+	 * tracker, and say whether one reached its goal (the stat push then goes now, not after the streak
+	 * settles, so the site completes the tile while the member is still looking at it).
 	 */
-	private boolean bumpStatTiles(String kind, String name, int delta) {
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || cfg.trackedStats == null) return false;
-		boolean finishes = false;
-		for (TrackedStat s : statTileIndex.getOrDefault(statKey(kind, name), Collections.emptyList())) {
-			optimistic.add(s.tileId, s.currentAmount, delta, now());
-			liveCountsMoved();
-			finishes |= s.goalAmount > 0 && s.currentAmount < s.goalAmount
-					&& optimistic.floor(s.tileId, now()) >= s.goalAmount;
-		}
-		return finishes;
+	private boolean statMoved(RuleEngine.Out o) {
+		say(o.say);
+		o.raised.forEach((t, have) -> {
+			raiseLocal(t, have, now());
+			noteLocalProgress(t);
+		});
+		return o.done;
 	}
 
 	/** This client just bumped a tile to {@code current}: hold that count and show it now. */
@@ -7760,18 +7709,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * The local player just gained on the tracked stat tile whose {@code statName} matches {@code name}
-	 * (skill name or boss KC name, case-insensitive); a name that maps to no stat tile is ignored.
-	 * Called from the XP/KC push path, so it only fires on the local account's own gains.
-	 */
-	private void noteLocalStatProgress(String name) {
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || cfg.trackedStats == null || name == null) return;
-		Integer tileId = statTileByName.get(name.toLowerCase(Locale.ROOT).trim());
-		if (tileId != null) noteLocalProgress(tileId);
-	}
-
-	/**
 	 * THIS account just progressed {@code tileId} — any tile kind. A pinned tile then shows it a few
 	 * seconds later rather than on the next 30s poll — long enough for the push that carries it to land
 	 * on the site first.
@@ -7783,21 +7720,9 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * Whether the real-time stat push paths (skill XP + boss KC) may send right now.
 	 *
-	 * THE TRACKED-NAME SETS ARE THE FILTER. The server tells the plugin exactly which bosses and
-	 * skills anything is watching — a bingo tile, a live SOTW, a live BOTW — and with nothing
-	 * watching they are empty and nothing queues. That is the whole gate, and it is the server's to
-	 * decide because only the server knows what is running.
-	 *
-	 * IT USED TO ALSO DEMAND AN ACTIVE BINGO, and that quietly turned the weekly off. Being drafted
-	 * into a board that starts in six weeks is enough to make cfg.event non-null and not active, so
-	 * a member grinding Kalphite Queen for the Boss of the Week pushed nothing at all: the server
-	 * was asking for `kalphite queen` in trackedKcNames and the plugin refused to send it, because
-	 * of a bingo neither of them was playing yet. The competition then moved only on the hiscores
-	 * sweep, which lags by design — seven kills, +0 kc, and nothing wrong anywhere to point at.
-	 *
-	 * Sending during an inactive event is safe on the other side: lib/completionGate refuses any
-	 * completion before a board starts, and stat baselines re-anchor at the start, so a pre-event
-	 * push cannot score. Withholding it was the only thing that could go wrong, and did.
+	 * Every gain is sent, whatever is watching, and with no active bingo too (a drafted-but-not-started
+	 * board once silenced the Boss of the Week): lib/completionGate refuses any completion before a
+	 * board starts, so a pre-event push cannot score.
 	 *
 	 * NO SETTING SITS IN FRONT OF THIS. It briefly had its own, and before that it rode on "Auto
 	 * Submit Drops" — a switch about screenshotting a drop, which said nothing about stats and yet
@@ -7828,7 +7753,7 @@ public class AnvilPlugin extends Plugin {
 	 * value overwrites and a training burst becomes one push. Runs on the client thread
 	 * (onStatChanged); the network send happens on the executor.
 	 *
-	 * EVERYTHING, NOT JUST WHAT IS BEING WATCHED. This asked trackedSkillNames first, which made the
+	 * EVERYTHING, NOT JUST WHAT IS BEING WATCHED. This once asked for tracked skills first, which made the
 	 * client's report a function of what happened to be running: a skill nobody had a tile for went
 	 * unreported, and the number only appeared when the hiscores sweep caught up — hours later, and
 	 * only if the account had logged out. The plugin is the one thing that sees a gain the moment it
@@ -7836,13 +7761,8 @@ public class AnvilPlugin extends Plugin {
 	 * The server already keeps max(hiscores, pushed) per key, so an extra key costs one map entry
 	 * and can never lower anything.
 	 */
-	private void maybeQueueSkillXpPush(String skillName, int xp, boolean realGain) {
+	private void maybeQueueSkillXpPush(String skillName, int xp, boolean finishes) {
 		if (skillName == null || !statPushAllowed()) return;
-		// "Active now" stays about TILES — it means "this account is grinding the thing your board
-		// is watching", and saying it for every skill would make the signal meaningless.
-		if (realGain && trackedSkillNames.contains(skillName.toLowerCase(Locale.ROOT).trim())) noteLocalStatProgress(skillName);
-		Integer prevXp = lastSeenXp.put(compactStat(skillName), xp);
-		boolean finishes = realGain && prevXp != null && xp > prevXp && bumpStatTiles("skill", skillName, xp - prevXp);
 		skillXpPush.queue(skillName, xp);
 		if (finishes) skillXpPush.sendNow();
 	}
@@ -7881,15 +7801,11 @@ public class AnvilPlugin extends Plugin {
 	 * volume is nothing, and the value is absolute, so a repeat is a no-op server-side.
 	 */
 	private void maybeQueueKcPush(String bossName, int kc) {
-		if (!statPushAllowed()) return;
-		if (trackedKcNames.contains(normalizeBossName(bossName))) {
-			noteLocalStatProgress(bossName); // "Active now": grinding the thing a board is watching
-		}
 		// A KC line is one kill (one clear, one chest), so the first one after login still moves the
 		// tile by one; after that the absolute count says how many, in case a line was missed.
-		Integer prevKc = lastSeenKc.put(compactStat(bossName), kc);
-		boolean finishes = (prevKc == null || kc > prevKc)
-				&& bumpStatTiles("boss", bossName, prevKc == null ? 1 : kc - prevKc);
+		Integer prevKc = lastSeenKc.put(RuleEngine.key(bossName), kc);
+		boolean finishes = statMoved(rules.kc(bossName, prevKc == null ? 1 : kc - prevKc));
+		if (!statPushAllowed()) return;
 		kcPush.queue(bossName, kc);
 		if (finishes) kcPush.sendNow();
 	}

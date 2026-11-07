@@ -68,6 +68,8 @@ final class RuleEngine {
 		JsonObject fact;
 		boolean shot;
 		boolean coop;
+		/** A stat tile reached its goal: the stat push goes now. */
+		boolean done;
 		/** Tile id → its local count after this event, for the panel's optimistic rows. */
 		final Map<Integer, Long> raised = new HashMap<>();
 		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
@@ -215,8 +217,8 @@ final class RuleEngine {
 	}
 
 	/** Skill XP gained: a line per clean step crossed, only while the skill is actually being trained. */
-	synchronized List<String> xp(String skill, long gained, long now) {
-		TreeSet<Long> minutes = xpMinutes.computeIfAbsent(skill.toLowerCase(Locale.ROOT), k -> new TreeSet<>());
+	synchronized Out xp(String skill, long gained, long now) {
+		TreeSet<Long> minutes = xpMinutes.computeIfAbsent(key(skill), k -> new TreeSet<>());
 		long minute = now / 60_000;
 		minutes.add(minute);
 		minutes.headSet(minute - 60).clear();
@@ -224,26 +226,33 @@ final class RuleEngine {
 	}
 
 	/** A boss / activity count moved (a KC line). */
-	synchronized List<String> kc(String name, long gained) {
+	synchronized Out kc(String name, long gained) {
 		return stat("kc", name, gained, null, 0);
 	}
 
-	private List<String> stat(String on, String name, long gained, TreeSet<Long> minutes, long minute) {
-		List<String> lines = new ArrayList<>();
+	/** A stat name as the site spells rule names: letters and digits, so "Kree'Arra" and "kree arra" meet. */
+	static String key(String s) {
+		return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+	}
+
+	private Out stat(String on, String name, long gained, TreeSet<Long> minutes, long minute) {
+		Out out = new Out();
 		Table t = table;
-		if (t == null || gained <= 0 || name == null) return lines;
-		String key = name.toLowerCase(Locale.ROOT);
+		if (t == null || gained <= 0 || name == null) return out;
+		String key = key(name);
 		for (StatRule r : t.stats) {
 			if (!on.equals(r.on) || r.names == null || !r.names.contains(key) || r.have >= r.of) continue;
 			long before = r.have;
 			r.have = Math.min(r.of, r.have + gained);
+			out.raised.put(r.t, r.have);
 			if (r.have >= r.of) {
-				lines.add(fill(t, "done", r));
+				out.done = true;
+				out.say.add(fill(t, "done", r));
 			} else if (r.step > 0 && r.have / r.step > before / r.step && busy(r.active, minutes, minute)) {
-				lines.add(fill(t, on, r));
+				out.say.add(fill(t, on, r));
 			}
 		}
-		return lines;
+		return out;
 	}
 
 	/** Gains in at least active[0] distinct minutes of the last active[1]; no gate when none is set. */

@@ -364,7 +364,7 @@ public class RuleEngineTest
 		RuleEngine e = engine(t);
 
 		// One active minute only: crosses 100k but no line.
-		assertTrue(e.xp("Agility", 150_000, 0).isEmpty());
+		assertTrue(e.xp("Agility", 150_000, 0).say.isEmpty());
 
 		// Build activity over five more distinct minutes.
 		for (int k = 1; k <= 5; k++)
@@ -372,7 +372,7 @@ public class RuleEngineTest
 			e.xp("Agility", 1, k * 60_000L);
 		}
 		// Crosses 200k while active in 5+ of the last 10 minutes.
-		List<String> lines = e.xp("Agility", 50_000, 5 * 60_000L + 1_000);
+		List<String> lines = e.xp("Agility", 50_000, 5 * 60_000L + 1_000).say;
 		assertEquals(1, lines.size());
 	}
 
@@ -381,7 +381,7 @@ public class RuleEngineTest
 	{
 		RuleEngine.Table t = table();
 		t.stats.add(stat(41, "xp", Collections.singletonList("agility"), 0, 1_000_000, 100_000, new int[]{5, 10}));
-		List<String> lines = engine(t).xp("Agility", 1_000_000, 0);
+		List<String> lines = engine(t).xp("Agility", 1_000_000, 0).say;
 		assertEquals(1, lines.size());
 	}
 
@@ -391,8 +391,36 @@ public class RuleEngineTest
 		RuleEngine.Table t = table();
 		t.stats.add(stat(42, "kc", Collections.singletonList("vorkath"), 4, 50, 5, null));
 		RuleEngine e = engine(t);
-		assertEquals(1, e.kc("Vorkath", 1).size());
-		assertTrue(e.kc("Vorkath", 1).isEmpty());
+		assertEquals(1, e.kc("Vorkath", 1).say.size());
+		assertTrue(e.kc("Vorkath", 1).say.isEmpty());
+	}
+
+	@Test
+	public void statRaisesItsTilesAndSaysWhenOneFinishes()
+	{
+		RuleEngine.Table t = table();
+		t.stats.add(stat(43, "kc", Collections.singletonList("vorkath"), 4, 6, 0, null));
+		RuleEngine e = engine(t);
+		RuleEngine.Out o = e.kc("Vorkath", 1);
+		assertEquals(Long.valueOf(5), o.raised.get(43));
+		assertFalse(o.done);
+		o = e.kc("Vorkath", 3);
+		assertEquals(Long.valueOf(6), o.raised.get(43));
+		assertTrue(o.done);
+		assertTrue("a finished tile no longer moves", e.kc("Vorkath", 1).raised.isEmpty());
+	}
+
+	@Test
+	public void statNamesMatchWhateverThePunctuation()
+	{
+		RuleEngine.Table t = table();
+		t.stats.add(stat(44, "kc", Arrays.asList("kreearra", "chambersofxeric", "chambersofxericchallengemode"), 0, 100, 0, null));
+		RuleEngine e = engine(t);
+		assertEquals(Long.valueOf(1), e.kc("Kree'Arra", 1).raised.get(44));
+		assertEquals(Long.valueOf(2), e.kc("kree arra", 1).raised.get(44));
+		// A composite tile ("CoX + CoX: CM") moves once per KC line, whichever mode it named.
+		assertEquals(Long.valueOf(3), e.kc("Chambers of Xeric: Challenge Mode", 1).raised.get(44));
+		assertTrue("xp never feeds a kc rule", e.xp("Kree'Arra", 5, 0).raised.isEmpty());
 	}
 
 	// ---- adopt() ----------------------------------------------------------------------------

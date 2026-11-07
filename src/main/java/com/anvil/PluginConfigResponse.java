@@ -232,15 +232,6 @@ public class PluginConfigResponse {
 	public String accountStanding;
 	public List<TrackedDrop> trackedDrops;
 	public List<TrackedStat> trackedStats;
-	// Lowercased in-game KC-line boss names ("zulrah", "chambers of xeric challenge mode") for the
-	// event's boss-KC hiscores tiles. When the plugin sees "Your <boss> kill count is: N" for one of
-	// these, it pushes the absolute KC to /api/plugin/stats so the tile updates in real time instead
-	// of waiting ~1h for the hiscores cron. Empty/absent = push nothing (older servers, or no KC tiles).
-	public List<String> trackedKcNames;
-	// Skill names (lowercase, e.g. "mining") the event's skill-XP tiles track — the plugin pushes
-	// real-time absolute XP for these off StatChanged, like trackedKcNames for boss KC. Empty/absent
-	// = push nothing (older servers, or no skill tiles).
-	public List<String> trackedSkillNames;
 	// Site stat keys ("cluesElite", "collectionsLogged") for the hiscores counters that are neither a
 	// boss nor a skill. Pushed by KEY rather than in-game name — the plugin reads each from a named
 	// varbit, so there's nothing to map — and only for the ones the client can actually answer
