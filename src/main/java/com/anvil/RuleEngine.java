@@ -19,6 +19,8 @@ final class RuleEngine {
 		List<StatRule> stats = new ArrayList<>();
 		Proof proof = new Proof();
 		Map<String, String> say = new HashMap<>();
+		/** Source key ("pp:" for pickpocketing) -> item ids rare enough to maybe post: screenshot and let the site judge. */
+		Map<String, Set<Integer>> rare = new HashMap<>();
 	}
 
 	static class Rule {
@@ -76,6 +78,14 @@ final class RuleEngine {
 
 	void set(Table t) {
 		table = t;
+	}
+
+	/** Could this item be rare enough to post? An npc or pickpocket drop on the site's rare table. */
+	boolean rare(String kind, String source, int itemId) {
+		Table t = table;
+		String p = "npc".equals(kind) ? "" : "pickpocket".equals(kind) ? "pp:" : null;
+		Set<Integer> ids = t == null || p == null || source == null ? null : t.rare.get(p + source.toLowerCase());
+		return ids != null && ids.contains(itemId);
 	}
 
 	boolean active() {

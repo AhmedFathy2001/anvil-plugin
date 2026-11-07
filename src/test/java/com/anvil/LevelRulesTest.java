@@ -125,9 +125,6 @@ public class LevelRulesTest
 			+ "\"modeThresholds\":{\"key\":\"hardcore\",\"dropRarityFloor\":128,\"dropMinValue\":10000,"
 			+ "\"levelRules\":{\"ninetyNines\":true,\"skillStep\":10,\"skillFrom\":10,\"totalStep\":0,"
 			+ "\"totalFrom\":0,\"maxTotal\":false}}}", PluginConfigResponse.class);
-		assertEquals(128, cfg.modeThresholds.dropRarityFloor);
-		assertEquals(10_000L, cfg.modeThresholds.dropMinValue);
-
 		LevelRules.Sets s = LevelRules.resolve(cfg, true, cfg.modeThresholds);
 		assertEquals(30, LevelRules.skillMilestone(29, 31, s));
 		assertEquals(0, LevelRules.skillMilestone(31, 35, s)); // the personal every-level set is not used

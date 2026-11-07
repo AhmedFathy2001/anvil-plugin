@@ -279,7 +279,7 @@ public class PluginConfigResponse {
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
-	public NotifyChannels notify;                      // which clan notification channels are enabled server-side
+	public Me me;
 	public List<String> funDeathMessages;              // server-managed 1/100 fun-death pool
 	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
@@ -288,7 +288,6 @@ public class PluginConfigResponse {
 	// Clan-wide rare-drop rarity floor (1-in-N). A member may post only drops at least this rare;
 	// their own setting can be stricter but not looser. 0 / absent = no clan floor. Lets an admin
 	// quiet a noisy channel for everyone from the site instead of asking each member to edit config.
-	public int dropRarityFloor;
 	// What the SERVER knows about a drop and the client cannot (site capability "drop-facts"):
 	// which monster a pet actually comes from, and which items a source hands over every kill.
 	// Null against an older site, and every read of it degrades to the old guess-from-context
@@ -310,8 +309,6 @@ public class PluginConfigResponse {
 	public ModeThresholds modeThresholds;
 
 	public static class ModeThresholds {
-		public int dropRarityFloor;
-		public long dropMinValue;
 		public LevelRules levelRules;
 	}
 	/**
@@ -322,11 +319,6 @@ public class PluginConfigResponse {
 	public static class DropFacts {
 		/** Pet name -> where it really comes from. */
 		public Map<String, Pet> pets;
-		/**
-		 * Item name -> the sources that drop it EVERY time, lowercased. A single {@code "*"} entry
-		 * means "guaranteed wherever it drops" (a clan override that didn't name sources).
-		 */
-		public Map<String, List<String>> guaranteed;
 
 		public static class Pet {
 			/** Every source that drops this pet. Empty for a skilling pet — there is no monster. */
@@ -338,28 +330,16 @@ public class PluginConfigResponse {
 		}
 	}
 
-	public static class NotifyChannels {
-		// True when the site has a Discord webhook configured for this notification type. The plugin
-		// posts notifications to its OWN server (POST /api/plugin/config's sibling /api/plugin/notify),
-		// which forwards them to Discord server-side — the plugin never receives or calls the webhook
-		// URL itself. (RuneLite plugin-hub rule: a plugin may not take a URL from a response and call
-		// it.)
-		public boolean rareDrops;
-		public boolean deaths;
-		public boolean combatAchievements;
-		public boolean pvpKills;
-
-		// Channels that used to ride along with one of the above, split so a clan can give each its own
-		// Discord channel. Boxed on purpose: `false` and "this site is older than the split" are
-		// different answers, and only a null can say the second. An absent flag inherits the channel it
-		// used to share (AnvilPlugin.notifyEnabled), so a new plugin against an old site behaves exactly
-		// as it did before rather than going quiet.
-		public Boolean pets;
-		public Boolean levels;
-		public Boolean quests;
-		public Boolean diaries;
-		public Boolean collectionLog;
+	/** What this person's posts do, resolved by the site (lib/notifyPrefs): their /settings choices AND the clan's channels. */
+	public static class Me {
+		public boolean drops, pets, deaths, pvp, clog, levels, levelsClan, diaries;
+		/** Screenshot gates: the site judges the post itself. */
+		public long dropMin, keyMin;
+		public String deathMsg;
+		/** CombatAchievementTier names that post; quest difficulties that post ("*" = all). */
+		public List<String> ca = new ArrayList<>(), quests = new ArrayList<>();
 	}
+
 
 	public static class EventInfo {
 		public int id;

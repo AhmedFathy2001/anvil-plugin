@@ -19,7 +19,6 @@ public class DropSourceTest
 	{
 		PluginConfigResponse.DropFacts f = new PluginConfigResponse.DropFacts();
 		f.pets = new HashMap<>();
-		f.guaranteed = new HashMap<>();
 		return f;
 	}
 
@@ -29,37 +28,6 @@ public class DropSourceTest
 		p.kind = kind;
 		p.sources = Arrays.asList(sources);
 		return p;
-	}
-
-	// ---- guaranteed drops -------------------------------------------------------------------
-
-	@Test
-	public void aGuaranteedDropIsRecognisedFromTheSourceThatOwesIt()
-	{
-		PluginConfigResponse.DropFacts f = facts();
-		f.guaranteed.put("ancient blood ornament kit", Arrays.asList("duke sucellus", "vardorvis"));
-		assertTrue(DropSource.isGuaranteed(f, "Ancient blood ornament kit", "Duke Sucellus"));
-		assertTrue(DropSource.isGuaranteed(f, "ANCIENT BLOOD ORNAMENT KIT", "vardorvis"));
-		// Same item, a source that does not owe it: still a real roll.
-		assertFalse(DropSource.isGuaranteed(f, "Ancient blood ornament kit", "The Whisperer"));
-	}
-
-	@Test
-	public void aStarSourceMeansWhereverItDrops()
-	{
-		// What a clan override that named no sources stores.
-		PluginConfigResponse.DropFacts f = facts();
-		f.guaranteed.put("some kit", Collections.singletonList("*"));
-		assertTrue(DropSource.isGuaranteed(f, "Some kit", "Anything"));
-		assertTrue(DropSource.isGuaranteed(f, "Some kit", null));
-	}
-
-	@Test
-	public void anOlderSiteKnowsNothingAndChangesNothing()
-	{
-		assertFalse(DropSource.isGuaranteed(null, "Ancient blood ornament kit", "Duke Sucellus"));
-		assertFalse(DropSource.isGuaranteed(facts(), "Ancient blood ornament kit", "Duke Sucellus"));
-		assertFalse(DropSource.isGuaranteed(facts(), null, "Duke Sucellus"));
 	}
 
 	// ---- pets -------------------------------------------------------------------------------

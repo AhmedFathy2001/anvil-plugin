@@ -77,9 +77,4 @@ final class WorldInfo {
 	static boolean levelsPost(Collection<WorldType> types, boolean modeRules) {
 		return (types == null || Collections.disjoint(types, PRESET)) && (!separateSave(types) || modeRules);
 	}
-
-	/** A drop gate with a mode's own threshold folded in: off stays off, else the looser of the two. */
-	static long modeGate(long main, long mode) {
-		return main <= 0 || mode <= 0 ? main : Math.min(main, mode);
-	}
 }

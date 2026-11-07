@@ -420,4 +420,23 @@ public class RuleEngineTest
 		assertEquals("5k gp", RuleEngine.gp(5_000));
 		assertEquals("999 gp", RuleEngine.gp(999));
 	}
+
+	@Test
+	public void rareTableGatesNpcAndPickpocketDropsBySource()
+	{
+		RuleEngine.Table t = new RuleEngine.Table();
+		t.rare.put("zulrah", new HashSet<>(Arrays.asList(12921)));
+		t.rare.put("pp:master farmer", new HashSet<>(Arrays.asList(5295)));
+		RuleEngine e = engine(t);
+		assertTrue(e.rare("npc", "Zulrah", 12921));
+		assertFalse(e.rare("npc", "Zulrah", 1));
+		assertFalse(e.rare("event", "Zulrah", 12921)); // no table for that kind
+		assertTrue(e.rare("pickpocket", "Master Farmer", 5295));
+		assertFalse(e.rare("npc", "Master Farmer", 5295));
+		assertFalse(e.rare("npc", null, 12921));
+		assertFalse(new RuleEngine().rare("npc", "Zulrah", 12921)); // no table yet
+		// The site's JSON shape.
+		RuleEngine.Table parsed = new com.google.gson.Gson().fromJson("{\"rare\":{\"zulrah\":[12921,12922]}}", RuleEngine.Table.class);
+		assertTrue(engine(parsed).rare("npc", "zulrah", 12922));
+	}
 }

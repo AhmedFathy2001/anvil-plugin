@@ -143,12 +143,6 @@ public class AnvilPlugin extends Plugin {
 	private WorldService worldService;
 
 	@Inject
-	private RarityService rarityService;
-
-	@Inject
-	private ThievingService thievingService;
-
-	@Inject
 	private PendingSubmissionStore pendingSubmissionStore;
 
 	@Inject
@@ -250,6 +244,8 @@ public class AnvilPlugin extends Plugin {
 	// Item ID → tracked drops lookup for O(1) loot matching
 	/** Capability `rules`: the site's rule table, run locally (RuleEngine); the site matches the facts. */
 	private final RuleEngine rules = new RuleEngine();
+	/** moveNotifyPrefs ran (or is running) this session. */
+	private volatile boolean notifyPrefsMoved;
 	/** Facts that need no screenshot, posted together a moment after the first. */
 	private final JsonArray factQueue = new JsonArray();
 	private CoopFingerprint factQueueCoop;
@@ -321,7 +317,6 @@ public class AnvilPlugin extends Plugin {
 	private ShippedText text = new ShippedText();
 
 	// A drop this rare (or this valuable) earns a spoon reaction line.
-	private static final long SPOON_VALUE = 50_000_000L;
 
 
 	// Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
@@ -799,9 +794,8 @@ public class AnvilPlugin extends Plugin {
 	// persists every setting the moment a plugin first runs, so a new default alone reaches nobody
 	// who has already used the plugin — the migration below is what actually moves them.
 	private static final String CFG_DEFAULTS_VERSION = "configDefaultsVersion";
-	private static final int CURRENT_DEFAULTS_VERSION = 1;
-	// The stored value a v0 install carries if the member never touched the rarity setting.
-	private static final int LEGACY_RARITY_DEFAULT = 5000;
+	// 2: the notify settings moved to the site (moveNotifyPrefs).
+	private static final int CURRENT_DEFAULTS_VERSION = 2;
 
 	// Vestige-rotation counts, per RSN ("boss=rolls:exact;…"). Per-account because the cycle is
 	// account state; a shared config key would smear an alt's rolls into the main's.
@@ -1207,7 +1201,6 @@ public class AnvilPlugin extends Plugin {
 		// — every reload during development, every enable from the sidebar — has no other chance to
 		// learn it, and what it doesn't know it mistakes for a level-up that already happened.
 		seedSkillLevels();
-		migrateConfigDefaults();
 		// Restore the clan the member last picked, BEFORE the first fetch — otherwise the opening poll
 		// goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
 		// then jumps to theirs a few seconds later.
@@ -1739,7 +1732,8 @@ public class AnvilPlugin extends Plugin {
 			statsSettleTicks = 0; // the table is still arriving — restart the quiet count
 			return;
 		}
-		if (!config.notifyLevelUps()) return;
+		PluginConfigResponse.Me me = me();
+		if (me == null || !me.levels) return;
 		Integer prev = lastSkillLevel.put(skill, level);
 		if (prev == null) {
 			// First sighting this session = baseline; levels already held never announce.
@@ -3410,7 +3404,8 @@ public class AnvilPlugin extends Plugin {
 		// reference checks on the client thread. (Loot-key kills produce no reliable chat/loot
 		// signal — the kill message is a random taunt pool and PlayerLootReceived never fires since
 		// the loot goes into a key, not onto the ground — so damage→death is the signal we use.)
-		if (!config.notifyPvpKills() && !hasPvpTiles() && !pvpCounterActive()) return;
+		PluginConfigResponse.Me me = me();
+		if ((me == null || !me.pvp) && !hasPvpTiles() && !pvpCounterActive()) return;
 		Hitsplat hitsplat = ourHit;
 		if (hitsplat == null || !hitsplat.isMine()) return;
 		Actor actor = event.getActor();
@@ -3760,7 +3755,8 @@ public class AnvilPlugin extends Plugin {
 		}
 		// Level milestones. The level-up message fires once when the level is reached, so no
 		// varbit/baseline dance needed.
-		if (config.notifyLevelUps() && !statsUnsettled && !statsAreArtificial()) {
+		PluginConfigResponse.Me me = me();
+		if (me != null && me.levels && !statsUnsettled && !statsAreArtificial()) {
 			Matcher lvl = ChatPatterns.find("level.up", plain);
 			if (lvl != null) {
 				try {
@@ -7401,7 +7397,9 @@ public class AnvilPlugin extends Plugin {
 			noteConnectionOk();
 			adoptResolvedClan(fresh);
 			maybeRefreshChatPatterns(fresh);
-			rules.set(fresh != null && fresh.event != null && fresh.serverSupports("rules") ? apiClient.fetchRules() : null);
+			// Also without a board: the rule table carries the rare-drop screenshot gate.
+			rules.set(fresh != null && fresh.serverSupports("rules") ? apiClient.fetchRules() : null);
+			moveNotifyPrefs(fresh);
 
 			// Token validated but the caller has no active event right now (server
 			// returns event: null + noActiveEvent: true). Clear local state so tracking
@@ -8657,8 +8655,8 @@ public class AnvilPlugin extends Plugin {
 			// erase it.
 			AttributedDeath death = resolveDeathSource();
 			recordDeathMoment(death);
-			if (!config.notifyDeaths()) return;
-			if (!notifyEnabled("deaths")) return;
+			PluginConfigResponse.Me me = me();
+			if (me == null || !me.deaths) return;
 			String rsn = getLocalPlayerName();
 			String message = buildDeathMessage(rsn);
 			PluginConfigResponse cfg = pluginConfig;
@@ -8695,7 +8693,8 @@ public class AnvilPlugin extends Plugin {
 					// pvp tiles on the board or not. Tile credit + notify keep their own gates.
 					if (inDangerousPvp()) recordEventPvpKill();
 					creditPvpKillTiles(vname);
-					if (config.notifyPvpKills()) notifyPvpKill(vname);
+					PluginConfigResponse.Me me = me();
+					if (me != null && me.pvp) notifyPvpKill(vname);
 				}
 			}
 		}
@@ -8767,7 +8766,6 @@ public class AnvilPlugin extends Plugin {
 	 * posts. Runs on the client thread; screenshot + network send are deferred.
 	 */
 	private void notifyPvpKill(String name) {
-		if (!notifyEnabled("pvpKills")) return;
 		String message = buildKillMessage(getLocalPlayerName(), name);
 		captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
 	}
@@ -8886,111 +8884,55 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Reports loot to the rare-drops channel. Loot keys and regular drops are
-	 * kept separate: - A loot key (the "Loot Chest" open) is reported as ONE
-	 * unit, gated only by "Loot key value" (the contents' combined total).
-	 * Per-item value / rarity don't apply. - Any other drop (NPC / raid chest /
-	 * clue / pickpocket / PvP floor loot) posts its standout items — worth at
-	 * least "Min drop value", OR rarer than the rarity threshold (NPC /
-	 * pickpocket only, e.g. a cheap-but-rare unique) — bundled into a single
-	 * post. The loot key item itself is skipped everywhere (its contents fire
-	 * their own LootReceived on open). Runs on the client thread (loot fires
-	 * there), so item-value and rarity lookups are safe; screenshots + network
-	 * sends are deferred off-thread.
+	 * Reports loot that might post to the rare-drops channel; the site judges it (lib/notifyDrops) against
+	 * the person's floors, which live there now. Here only the screenshot gate: worth the value floor, or
+	 * on the site's rare table for this source. A loot key (the "Loot Chest" open) is ONE unit, gated by
+	 * its contents' total; the key item itself is skipped everywhere (its contents fire their own
+	 * LootReceived on open). Client thread (loot fires there), so item lookups are safe; screenshots and
+	 * network sends are deferred off-thread.
 	 */
 	private void maybeNotifyRareDrop(String source, Collection<ItemStack> items, String sourceKind) {
-		if (!config.notifyRareDrops() || items == null || items.isEmpty()) return;
-		if (!notifyEnabled("rareDrops")) return;
+		PluginConfigResponse.Me me = me();
+		if (me == null || !me.drops || items == null || items.isEmpty()) return;
 		long now = now();
-
-		// ---- Loot keys: one post for the whole key, gated only by its total value. ----
-		if (isLootKeyEvent(source)) {
-			long total = 0;
-			List<RareItem> contents = new ArrayList<>();
-			for (ItemStack item : items) {
-				int itemId = item.getId();
-				if (isLootKey(itemName(itemId))) continue;
-				int qty = Math.max(1, item.getQuantity());
-				long itemValue = itemUnitValue(itemId) * qty;
-				total += itemValue;
-				contents.add(new RareItem(itemId, qty, itemValue, null));
-			}
-			int keyThreshold = Math.max(0, config.lootKeyMinValue());
-			if (contents.isEmpty() || keyThreshold <= 0 || total < keyThreshold) return;
-			if (!claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS)) return;
-			postRare(source, sourceKind, contents, false);
-			return;
-		}
-
-		// ---- Regular drops: per-item value + rarity trigger. ----
-		// Enforced floors so a member can't spam the clan channel: drops must be worth at least
-		// 1m, and rarity posts must be rarer than 1/1000. 0 still means "disabled". A game mode's
-		// own thresholds (site-set) may loosen them there; a drop that needed that says modeOnly.
-		int rawValue = config.rareDropMinValue();
-		long mainValue = rawValue <= 0 ? 0 : Math.max(1_000_000, rawValue);
-		int mainRarity = effectiveRarityFloor();
-		PluginConfigResponse.ModeThresholds mode = modeThresholds();
-		long valueThreshold = mode == null ? mainValue : WorldInfo.modeGate(mainValue, mode.dropMinValue);
-		int rarityThreshold = mode == null ? mainRarity : (int) WorldInfo.modeGate(mainRarity, mode.dropRarityFloor);
-		boolean modeOnly = true;
-		AbstractRarityService rarity = raritySource(sourceKind);
-
-		// Standout items get bundled into one post so a single kill never produces a surge.
-		List<RareItem> qualifying = new ArrayList<>();
-
+		boolean key = isLootKeyEvent(source);
+		NotifyFacts f = dropPost(source, sourceKind, killCountFor(source)).flag("judge", true).flag("key", key);
+		long total = 0;
+		int n = 0;
 		for (ItemStack item : items) {
 			int itemId = item.getId();
 			String iname = itemName(itemId);
 			if (isLootKey(iname)) continue;
 			int qty = Math.max(1, item.getQuantity());
-			long itemValue = itemUnitValue(itemId) * qty;
-
-			// Prestige items always post, bypassing the value/rarity gates. Posted on their own so
-			// an untradeable like an Infernal cape never shows a misleading "0 gp" alongside others.
-			// An allowlist item NEVER also fires the value/rarity path — always continue, even when
-			// its own dedup suppresses this fire. Otherwise a second loot event for the same kill
-			// (NpcLootReceived + LootReceived) finds the allowlist already claimed, falls through,
-			// and posts a duplicate "Rare drop" for a high-value allowlist item (e.g. a Blood shard).
-			// Match by item ID (server-resolved) first — reliable for untradeables like a ToA Cursed phalanx
-			// that have no value to gate on — then fall back to the name allowlist for back-compat.
-			if (notableItemIds.contains(itemId) || isAlwaysNotifyItem(iname)) {
-				if (claimAllowlistNotify(iname, now)) postSpecialDrop(source, sourceKind, itemId, iname, qty, itemValue);
-				continue;
-			}
-
-			boolean valueQualifies = valueThreshold > 0 && itemValue >= valueThreshold;
-
-			Double dropRate = null; // probability (1/N) when rare enough to report
-			if (rarityThreshold > 0 && rarity != null && source != null && !source.isEmpty()) {
-				OptionalDouble r = rarity.getRarity(source, itemId, qty);
-				if (r.isPresent()) {
-					double p = r.getAsDouble();
-					if (p > 0 && MathUtils.lessThanOrEqual(p, 1.0 / rarityThreshold)) dropRate = p;
+			long value = itemUnitValue(itemId) * qty;
+			total += value;
+			if (!key) {
+				// Prestige items always post, on their own, so an untradeable like an Infernal cape never
+				// shows a misleading "0 gp" alongside others. An allowlist item NEVER also takes the regular
+				// path — even when its own dedup suppresses this fire — or a second loot event for the same
+				// kill (NpcLootReceived + LootReceived) would post a duplicate "Rare drop" for it. By item id
+				// first (reliable for untradeables), then the name allowlist.
+				if (notableItemIds.contains(itemId) || isAlwaysNotifyItem(iname)) {
+					if (claimAllowlistNotify(iname, now)) postNotable(iname, "loot", source, sourceKind, itemId, qty, value, killCountFor(source));
+					continue;
 				}
+				// Per-item dedup also drops the duplicate fire of a kill and a follow-up loot event.
+				if (!(me.dropMin > 0 && value >= me.dropMin || rules.rare(sourceKind, source, itemManager.canonicalize(itemId)))
+					|| !claim(lastRareNotifyAt, itemId, now, RARE_DEDUP_WINDOW_MS)) continue;
 			}
-
-			if (!valueQualifies && dropRate == null) continue;
-
-			// Per-item dedup also suppresses the duplicate fire when a kill and a follow-up loot
-			// event both report the same item within the window.
-			if (claim(lastRareNotifyAt, itemId, now, RARE_DEDUP_WINDOW_MS)) {
-				qualifying.add(new RareItem(itemId, qty, itemValue, dropRate));
-				modeOnly &= !((mainValue > 0 && itemValue >= mainValue)
-						|| (dropRate != null && mainRarity > 0 && MathUtils.lessThanOrEqual(dropRate, 1.0 / mainRarity)));
-			}
+			f.item(itemId, iname, qty, value);
+			n++;
 		}
-
-		postRare(source, sourceKind, qualifying, mode != null && modeOnly);
-	}
-
-	/** One item posts on its own; several are bundled into one post, so a single kill never produces a surge. */
-	private void postRare(String source, String sourceKind, List<RareItem> items, boolean modeOnly) {
-		if (items.size() == 1) {
-			RareItem it = items.get(0);
-			postRareDrop(source, sourceKind, it.itemId, it.qty, it.value, it.dropRate, modeOnly);
-		} else if (items.size() > 1) {
-			postCombinedRareDrop(source, sourceKind, items, items.stream().mapToLong(it -> it.value).sum(), modeOnly);
+		if (n == 0 || key && (me.keyMin <= 0 || total < me.keyMin
+			|| !claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS))) return;
+		// Where this leaves their vestige rotation, when the drop was a roll of one (set moments ago by
+		// trackVestigeRolls off the same loot event). The site keeps it on a single-item post.
+		String rollLine = lastVestigeLine;
+		if (rollLine != null && now - lastVestigeLineAt < VESTIGE_LINE_WINDOW_MS) {
+			f.put("note", rollLine);
+			lastVestigeLine = null;
 		}
+		postDrop(f);
 	}
 
 	/**
@@ -9034,23 +8976,15 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Posts a notable collection-log unlock (a prestige item) when it lands via
-	 * a loot event.
-	 */
-	private void postSpecialDrop(String source, String sourceKind, int itemId, String name, int qty, long value) {
-		// value can be 0 for untradeables — the post then shows no value.
-		postNotable(name, "loot", source, sourceKind, itemId, qty, value, killCountFor(source));
-	}
-
-	/**
 	 * Posts a prestige item unlocked via the collection log — the reliable
 	 * signal for awarded items (Infernal cape, Dizana's quiver, …) that don't
 	 * fire a loot event. Only allowlisted items post; shared name-dedup with
 	 * the loot path stops a double post.
 	 */
 	private void maybeNotifyCollectionUnlock(String itemName) {
-		if (!config.notifyRareDrops() || itemName == null || itemName.isEmpty() || !isAlwaysNotifyItem(itemName)
-				|| !notifyEnabled("rareDrops") || !claimAllowlistNotify(itemName, now())) {
+		PluginConfigResponse.Me me = me();
+		if (me == null || !me.drops || itemName == null || itemName.isEmpty() || !isAlwaysNotifyItem(itemName)
+				|| !claimAllowlistNotify(itemName, now())) {
 			return;
 		}
 		// No source came with this line — the collection log says what, never from where — so only a
@@ -9059,22 +8993,10 @@ public class AnvilPlugin extends Plugin {
 		postNotable(itemName, "unlock", null, null, -1, 1, 0, null);
 	}
 
-	/**
-	 * A notable item's drop post.
-	 *
-	 * <p>Two kinds of drop the lucky-drop line insults rather than celebrates. An EARNED award
-	 * (Infernal cape, Dizana's quiver…) is the reward for finishing the content, so calling a
-	 * hard-won clear "spooned" reads as a jab. A GUARANTEED drop was never rolled for at all —
-	 * the boss owed it — so "someone drier deserved that" reads as not knowing the game. Notable
-	 * items reach this path with no drop rate at all, which is why the line used to be
-	 * unconditional: nothing here could tell the difference until the server started saying.
-	 */
+	/** A notable item's drop post; the site sets its earned / guaranteed / lucky-drop flags (lib/notifyDrops). */
 	private void postNotable(String name, String via, String source, String sourceKind, int itemId, int qty,
 			long value, Integer kc) {
-		boolean earned = DropLuck.isEarnedAward(name);
-		boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
-		postDrop(dropPost(source, sourceKind, kc).item(itemId, name, qty, value).put("notable", via)
-				.flag("earned", earned).flag("guaranteed", guaranteed).flag("spoon", !earned && !guaranteed));
+		postDrop(dropPost(source, sourceKind, kc).item(itemId, name, qty, value).put("notable", via).flag("judge", true));
 	}
 
 	/**
@@ -9091,10 +9013,11 @@ public class AnvilPlugin extends Plugin {
 	 * case rather than guessed at.
 	 */
 	private void maybeNotifyClogSlot(String itemName) {
-		if (!config.notifyClogSlots() || itemName == null || itemName.isEmpty()) return;
+		PluginConfigResponse.Me me = me();
+		if (me == null || !me.clog || itemName == null || itemName.isEmpty()) return;
 		// The prestige path already posted this one to the drops channel. And the unlock line can echo
 		// on more than one chat channel; the shared name dedup keeps this to one post per item.
-		if (!notifyEnabled("collectionLog") || isAlwaysNotifyItem(itemName)
+		if (isAlwaysNotifyItem(itemName)
 				|| !claimAllowlistNotify(itemName, now())) {
 			return;
 		}
@@ -9216,16 +9139,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Rarity dataset for a loot source kind, or null when rarity doesn't apply
-	 * (pvp / events).
-	 */
-	private AbstractRarityService raritySource(String sourceKind) {
-		if ("npc".equals(sourceKind)) return rarityService;
-		if ("pickpocket".equals(sourceKind)) return thievingService;
-		return null;
-	}
-
-	/**
 	 * True when the item (by name) is a loot key — its contents fire a separate
 	 * LootReceived when opened.
 	 */
@@ -9244,47 +9157,6 @@ public class AnvilPlugin extends Plugin {
 		} catch (Exception ignored) {
 		}
 		return "Item " + itemId;
-	}
-
-	/**
-	 * Move stale shipped defaults forward, once per install.
-	 *
-	 * v1: the rare-drop rarity floor went 1/5000 → 1/10000, because 1/5000 posts herb and seed
-	 * rolls off an ordinary slayer task. Only rewrites a value still sitting on the OLD default —
-	 * anyone who deliberately picked a number keeps it. A clan that wants a floor for everyone sets
-	 * it on the site instead (see effectiveRarityFloor).
-	 */
-	private void migrateConfigDefaults() {
-		try {
-			Integer stored = configManager.getConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, int.class);
-			int version = stored == null ? 0 : stored;
-			if (version >= CURRENT_DEFAULTS_VERSION) return;
-			if (version < 1 && config.rareDropMinRarity() == LEGACY_RARITY_DEFAULT) {
-				configManager.setConfiguration("osrsbingo", "rareDropMinRarity", 10_000);
-				log.info("Raised rare-drop rarity floor to 1/10000 (was the old 1/5000 default)");
-			}
-			configManager.setConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, CURRENT_DEFAULTS_VERSION);
-		} catch (Exception e) {
-			// A migration hiccup must never stop the plugin loading.
-		}
-	}
-
-	/**
-	 * The rarity gate actually in force: rarer than 1-in-N, or 0 when rarity posts are off.
-	 *
-	 * Two inputs. The member's own setting is a preference; the clan's {@code dropRarityFloor} (from
-	 * /api/plugin/config) is a floor the member can tighten but not loosen. That's what stops one
-	 * person's 1/2000 setting from filling a shared channel with herb rolls, and it lets an admin
-	 * fix the whole clan from the site instead of asking everyone to edit their config.
-	 */
-	private int effectiveRarityFloor() {
-		int raw = config.rareDropMinRarity();
-		if (raw <= 0) {
-			return 0; // member disabled rarity posts entirely — the clan floor doesn't re-enable them
-		}
-		PluginConfigResponse cfg = pluginConfig;
-		int clanFloor = cfg != null && cfg.dropRarityFloor > 0 ? cfg.dropRarityFloor : 0;
-		return Math.max(Math.max(1000, raw), clanFloor);
 	}
 
 	/**
@@ -9354,52 +9226,6 @@ public class AnvilPlugin extends Plugin {
 		return killCounts.get(source.toLowerCase());
 	}
 
-	private void postRareDrop(String source, String sourceKind, int itemId, int qty, long value, Double dropRate, boolean modeOnly) {
-		String name = itemName(itemId);
-		Integer kc = killCountFor(source);
-		boolean guaranteed = DropSource.isGuaranteed(dropFacts(), name, source);
-		// A rare roll on something worthless is a punchline, not a prize — say so instead of
-		// dressing a Dragon spear up as treasure. A guaranteed drop is neither.
-		boolean troll = !guaranteed && DropLuck.isTrollDrop(dropRate, value, effectiveRarityFloor());
-		NotifyFacts f = dropPost(source, sourceKind, kc).item(itemId, name, qty, value).put("dropRate", dropRate)
-				.flag("guaranteed", guaranteed).flag("troll", troll).flag("modeOnly", modeOnly)
-				// The reaction line is about beating the odds. There were none to beat.
-				.flag("spoon", !guaranteed && DropLuck.deservesSpoonLine(name, value, dropRate, kc, SPOON_VALUE));
-		// Where this leaves their vestige rotation, when the drop was a roll of one (set moments
-		// ago by trackVestigeRolls off the same loot event).
-		String rollLine = lastVestigeLine;
-		if (rollLine != null && now() - lastVestigeLineAt < VESTIGE_LINE_WINDOW_MS) {
-			f.put("note", rollLine);
-			lastVestigeLine = null;
-		}
-		postDrop(f);
-	}
-
-	/**
-	 * One post for a whole drop / loot key that contained multiple items:
-	 * highlights the single most valuable item, plus the combined total and
-	 * item count — instead of a post per item or a huge per-item list.
-	 */
-	private void postCombinedRareDrop(String source, String sourceKind, List<RareItem> items, long total, boolean modeOnly) {
-		NotifyFacts f = dropPost(source, sourceKind, killCountFor(source)).flag("modeOnly", modeOnly);
-		for (RareItem it : items) f.item(it.itemId, itemName(it.itemId), it.qty, it.value);
-		// No single rate to judge a mixed haul by, so the combined value decides.
-		postDrop(f.flag("spoon", total >= SPOON_VALUE));
-	}
-
-	/**
-	 * A standout item collected for a combined rare-drop post.
-	 */
-	@RequiredArgsConstructor
-	private static final class RareItem {
-
-		final int itemId;
-		final int qty;
-		final long value;
-		final Double dropRate;
-
-	}
-
 	/**
 	 * A pet drop waiting on its name before it posts.
 	 *
@@ -9439,7 +9265,6 @@ public class AnvilPlugin extends Plugin {
 		Integer resolvedKc;
 		/** Resolved on the client thread with the collection-log name. */
 		Integer itemId;
-		Double dropRate;
 
 		PendingPet(boolean duplicate, String rsn, String source, String sourceKind, Integer killCount,
 				   boolean announce, String momentKey) {
@@ -9550,10 +9375,9 @@ public class AnvilPlugin extends Plugin {
 			pet.resolvedSource = resolved;
 			pet.resolvedKc = resolved == null ? null
 					: (resolved.equalsIgnoreCase(pet.source) ? pet.killCount : killCountFor(resolved));
-			// ItemManager and the rarity services ultimately read game/cache state. Resolve those
-			// here, on the chat-event client thread, rather than two seconds later on our executor.
+			// ItemManager reads game/cache state: resolve it here, on the chat-event client thread,
+			// rather than two seconds later on our executor.
 			pet.itemId = resolveItemIdByName(itemName);
-			pet.dropRate = petRarity(pet.itemId, resolved, pet.sourceKind);
 		}
 		namePetMoment(pet.momentKey, itemName, resolved, pet.resolvedKc);
 		return pet;
@@ -9582,7 +9406,8 @@ public class AnvilPlugin extends Plugin {
 		// notify flag can be stale (or only describe clan hooks while the player has a personal
 		// hook), and a pet is far too rare to discard because that snapshot said "none". Keep the
 		// player's own switch, then let /api/plugin/notify make the live routing decision.
-		boolean announce = petAnnouncementEnabled(config.notifyPets(), apiClient.isConfigured(), pluginConfig);
+		PluginConfigResponse.Me me = me();
+		boolean announce = me != null && me.pets && apiClient.isConfigured();
 
 		// Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
 		// park a pet nothing will ever collect: the next collection-log line would claim it.
@@ -9595,15 +9420,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		Runnable flush = () -> safely("petNotification", () -> flushPetNotification(pet));
 		if (later(flush, PET_NAME_WINDOW_MS) == null) flush.run();
-	}
-
-	/**
-	 * Whether to attempt the rare pet post. The site, not its last config snapshot, owns the live
-	 * destination decision; this gate only answers whether the player asked and the endpoint exists.
-	 */
-	static boolean petAnnouncementEnabled(boolean playerEnabled, boolean apiConfigured,
-										  PluginConfigResponse cfg) {
-		return playerEnabled && apiConfigured && cfg != null && cfg.serverSupports("notify");
 	}
 
 	/**
@@ -9630,25 +9446,13 @@ public class AnvilPlugin extends Plugin {
 					.put("kc", petName == null ? pet.killCount : pet.resolvedKc);
 		}
 		if (petName != null) {
-			// Real rarity or none: asked of the same service the rare-drop posts price against.
-			f.put("itemId", pet.itemId).put("dropRate", pet.dropRate);
+			// The site prices its rarity off the same tables the rare-drop posts use (lib/notifyDrops).
+			f.put("itemId", pet.itemId).put("sourceKind", pet.sourceKind);
 			// A skilling pet has no monster; its skill is the only true thing to say about where from.
 			DropFacts.Pet entry = DropSource.petEntry(dropFacts(), petName);
 			if (entry != null) f.put("skill", entry.skill);
 		}
 		postWithScreenshot("pets", f, "anvil-pet.png");
-	}
-
-	/** This pet's drop rate from the rarity table its source uses, or null when nothing can price it. */
-	private Double petRarity(Integer itemId, String source, String sourceKind) {
-		if (itemId == null || itemId <= 0 || source == null || source.isEmpty()) return null;
-		// The resolved source may be a monster the client never saw loot from, in which case there
-		// is no observed KIND either — but a pet the server files under a killable monster is by
-		// definition an npc drop, so the npc table is the right one to ask.
-		AbstractRarityService service = raritySource(sourceKind == null ? "npc" : sourceKind);
-		if (service == null) return null;
-		OptionalDouble r = service.getRarity(source, itemId, 1);
-		return r.isPresent() && r.getAsDouble() > 0 ? r.getAsDouble() : null;
 	}
 
 	/**
@@ -9659,8 +9463,9 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void handleCombatAchievements(List<PendingCaTask> batch) {
 		// Off in the dropdown silences every CA post, tier clears too; tile credit happened upstream.
-		CaAnnounceTier floor = config.caMinTaskTier();
-		boolean announce = floor != CaAnnounceTier.OFF && notifyEnabled("combatAchievements");
+		PluginConfigResponse.Me me = me();
+		List<String> tiers = me == null ? Collections.emptyList() : me.ca;
+		boolean announce = !tiers.isEmpty();
 
 		int total = client.getVarbitValue(VarbitID.CA_POINTS);
 		// Points before this batch — only used to detect a tier-threshold crossing. With no baseline
@@ -9698,7 +9503,7 @@ public class AnvilPlugin extends Plugin {
 			// are worth showing — a tier floor belongs where the clan can change it without a
 			// plugin release. The chat announcement keeps its own local floor.
 			noteCombatTaskMoment(pending.tier, pending.task);
-			if (announce && floor.posts(pending.tier)) postCombatTask(pending.tier, pending.task, total);
+			if (tiers.contains(pending.tier.name())) postCombatTask(pending.tier, pending.task, total);
 		}
 
 		lastCaPoints = total;
@@ -9733,7 +9538,8 @@ public class AnvilPlugin extends Plugin {
 	 * channel with a screenshot of the moment, like a combat task.
 	 */
 	private void maybeNotifyDiaryCompletion(String area, String tier) {
-		if (!config.notifyDiaries() || !notifyEnabled("diaries")) return;
+		PluginConfigResponse.Me me = me();
+		if (me == null || !me.diaries) return;
 		postWithScreenshot("diaries", new NotifyFacts("diary", getLocalPlayerName()).put("area", area)
 				.put("tier", tier), "anvil-diary.png");
 	}
@@ -9871,7 +9677,8 @@ public class AnvilPlugin extends Plugin {
 	 * that teaches people to ignore the next one.</p>
 	 */
 	private void maybeNudgeClogNotifications() {
-		if (clogNotifyNudgeSent || !config.notifyClogSlots() || !notifyEnabled("collectionLog")) return;
+		PluginConfigResponse.Me me = me();
+		if (clogNotifyNudgeSent || me == null || !me.clog) return;
 		whenLoggedIn(() -> {
 			if (client.getVarbitValue(VarbitID.OPTION_COLLECTION_NEW_ITEM) != 0) return;
 			clogNotifyNudgeSent = true;
@@ -9897,14 +9704,15 @@ public class AnvilPlugin extends Plugin {
 		// the reminder on the clan-post toggle meant a member who had turned posts off — or whose
 		// clan doesn't run them — played a bingo whose spill-loot tiles could not fire, and was
 		// never told why.
-		boolean forPosts = config.notifyRareDrops() && notifyEnabled("rareDrops");
+		PluginConfigResponse.Me me = me();
+		boolean forPosts = me != null && me.drops;
 		boolean forTiles = eventNeedsDropLines(pluginConfig);
 		if (!forPosts && !forTiles) return;
 		whenLoggedIn(() -> {
 			boolean settingOn = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_ON) == 1;
 			// The plugin's own posting floor (enforced minimum 1m) — an in-game threshold above
 			// it would swallow lines for drops the clan channel wants to see.
-			long plugFloor = Math.max(1_000_000, Math.max(0, config.rareDropMinValue()));
+			long plugFloor = forPosts ? me.dropMin : 0;
 			long gameThreshold = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_VALUE);
 			// The threshold half is a CLAN-POST concern only: it is measured against the posting
 			// floor, and there is no equivalent number for a tile — a tile wants whatever the drop
@@ -9991,9 +9799,9 @@ public class AnvilPlugin extends Plugin {
 	 * anvil_text.json) clears the setting; an unlisted quest only posts on "All". Message-only.
 	 */
 	private void postQuestCompletion(String questName) {
-		QuestAnnounceTier setting = config.questAnnounce();
+		PluginConfigResponse.Me me = me();
 		String difficulty = text.questTiers.get(questName.toLowerCase());
-		if (!setting.posts(difficulty) || !notifyEnabled("quests")) return;
+		if (me == null || !me.quests.contains("*") && !me.quests.contains(difficulty)) return;
 		// Message-only, like a tier clear. Difficulty goes as its display form ("Experienced").
 		apiClient.postNotification("quests", null, new NotifyFacts("quest", getLocalPlayerName())
 				.put("quest", questName).put("difficulty", difficulty == null ? null
@@ -10022,7 +9830,8 @@ public class AnvilPlugin extends Plugin {
 
 	/** Which level-ups the clan and the player's own webhooks want; the clan's dropped without a channel. */
 	private LevelRules.Sets levelRules() {
-		return LevelRules.resolve(pluginConfig, notifyEnabled("levels"), modeThresholds());
+		PluginConfigResponse.Me me = me();
+		return LevelRules.resolve(pluginConfig, me != null && me.levelsClan, modeThresholds());
 	}
 
 	/** The site's thresholds for this game-mode world, or null on the main game / an older site. */
@@ -10190,7 +9999,8 @@ public class AnvilPlugin extends Plugin {
 			if (cfg != null && cfg.funDeathMessages != null && !cfg.funDeathMessages.isEmpty()) pool = cfg.funDeathMessages;
 			base = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
 		} else {
-			base = config.deathMessage();
+			PluginConfigResponse.Me me = me();
+			base = me == null ? null : me.deathMsg;
 			if (base == null || base.isEmpty()) {
 				base = "{name} just died!";
 			}
@@ -10217,47 +10027,33 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
-	/**
-	 * Whether the clan has somewhere to put this kind of post.
-	 *
-	 * <p>Five kinds -- pets, levels, quests, diaries, collection-log slots -- used to be announced
-	 * under the name of the channel they shared. Each has its own name now, and a site that predates
-	 * that split sends no flag for it; a boxed null there means "ask the channel it came from"
-	 * rather than "off", so an older site keeps posting 99s exactly where it always did.</p>
-	 *
-	 * <p>Unknown names return false. The old default arm answered {@code rareDrops} for anything it
-	 * didn't recognise, which would have quietly routed every new channel through the drop flag.</p>
-	 */
-	private boolean notifyEnabled(String channel) {
+	/** What this person's posts do (lib/notifyPrefs, resolved by the site), or null before a config: nothing posts. */
+	private PluginConfigResponse.Me me() {
 		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || cfg.notify == null) return false;
-		return channelEnabled(cfg.notify, channel);
+		return cfg == null ? null : cfg.me;
 	}
 
-	/** The resolution itself, free of plugin state so the inheritance can be tested directly. */
-	static boolean channelEnabled(NotifyChannels n, String channel) {
-		if (n == null) return false;
-		switch (channel) {
-			case "rareDrops":
-				return n.rareDrops;
-			case "deaths":
-				return n.deaths;
-			case "combatAchievements":
-				return n.combatAchievements;
-			case "pvpKills":
-				return n.pvpKills;
-			case "pets":
-				return n.pets != null ? n.pets : n.rareDrops;
-			case "levels":
-				return n.levels != null ? n.levels : n.combatAchievements;
-			case "quests":
-				return n.quests != null ? n.quests : n.combatAchievements;
-			case "diaries":
-				return n.diaries != null ? n.diaries : n.combatAchievements;
-			case "collectionLog":
-				return n.collectionLog != null ? n.collectionLog : n.combatAchievements;
-			default:
-				return false;
+	/**
+	 * Once per install: hand the notify settings RuneLite still holds to the site, which keeps them now
+	 * (capability notify-prefs). The site only fills a person who never saved any.
+	 */
+	private void moveNotifyPrefs(PluginConfigResponse cfg) {
+		if (notifyPrefsMoved || cfg == null || !cfg.serverSupports("notify-prefs")) return;
+		notifyPrefsMoved = true;
+		String v = configManager.getConfiguration("osrsbingo", CFG_DEFAULTS_VERSION);
+		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(v)) return;
+		JsonObject o = new JsonObject();
+		for (String k : new String[]{"notifyRareDrops", "rareDropMinValue", "rareDropMinRarity", "lootKeyMinValue", "notifyPets",
+			"notifyDeaths", "deathMessage", "notifyPvpKills", "notifyClogSlots", "notifyLevelUps", "notifyDiaries", "caMinTaskTier",
+			"questAnnounce", CFG_DEFAULTS_VERSION}) {
+			String val = configManager.getConfiguration("osrsbingo", k);
+			if (val != null) o.addProperty(k, val);
+		}
+		try {
+			apiClient.postNotifyPrefs(o);
+			configManager.setConfiguration("osrsbingo", CFG_DEFAULTS_VERSION, CURRENT_DEFAULTS_VERSION);
+		} catch (IOException e) {
+			notifyPrefsMoved = false; // the next config refresh tries again
 		}
 	}
 

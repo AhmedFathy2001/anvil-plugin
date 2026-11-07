@@ -17,26 +17,11 @@ public interface AnvilConfig extends Config {
 	String bingoSection = "bingoSection";
 
 	@ConfigSection(
-		name = "Notifications: Deaths & kills",
-		description = "Clan Discord posts for your deaths and PvP kills.",
+		name = "Notifications",
+		description = "What you post to your clan's Discord (drops, pets, deaths, levels, achievements) is set on the Anvil website: Settings > Announcements.",
 		position = 3
 	)
 	String deathsSection = "deathsSection";
-
-	@ConfigSection(
-		name = "Notifications: Drops & pets",
-		description = "Clan Discord posts for valuable or rare drops and pets.",
-		position = 4
-	)
-	String dropsSection = "dropsSection";
-
-	@ConfigSection(
-		name = "Notifications: Combat achievements",
-		description = "Clan Discord posts for achievements, levels, quests and log slots.",
-		position = 5,
-		closedByDefault = true
-	)
-	String caSection = "caSection";
 
 	@ConfigSection(
 		name = "Player lookup",
@@ -225,8 +210,6 @@ public interface AnvilConfig extends Config {
 
 	// ---- Bingo ----
 
-
-
 	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show Overlay",
@@ -285,7 +268,6 @@ public interface AnvilConfig extends Config {
 		return 70;
 	}
 
-
 	@ConfigItem(
 		keyName = "bannerSoundClip",
 		name = "Banner sound clip",
@@ -333,7 +315,6 @@ public interface AnvilConfig extends Config {
 		return true;
 	}
 
-
 	@ConfigItem(
 		keyName = "shareSeasonal",
 		name = "Share seasonal activity",
@@ -343,163 +324,6 @@ public interface AnvilConfig extends Config {
 	)
 	default boolean shareSeasonal() {
 		return true;
-	}
-
-	// ---- Notifications: Deaths & kills ----
-
-	@ConfigItem(
-		keyName = "notifyDeaths",
-		name = "Notify on death",
-		description = "Post a screenshot to the clan deaths channel when you die.",
-		position = 1,
-		section = "deathsSection"
-	)
-	default boolean notifyDeaths() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "deathMessage",
-		name = "Death message",
-		description = "Your death message. Use {name} for your RSN.",
-		position = 2,
-		section = "deathsSection"
-	)
-	default String deathMessage() {
-		return "{name} just died!";
-	}
-
-	@ConfigItem(
-		keyName = "notifyPvpKills",
-		name = "Notify on PvP kill",
-		description = "Post a screenshot to the clan PvP channel when you kill a player.",
-		position = 3,
-		section = "deathsSection"
-	)
-	default boolean notifyPvpKills() {
-		return false;
-	}
-
-	// ---- Notifications: Drops & pets ----
-
-
-	@ConfigItem(
-		keyName = "notifyRareDrops",
-		name = "Notify on rare drops",
-		description = "Post valuable or very rare drops to the clan drops channel.",
-		position = 1,
-		section = "dropsSection"
-	)
-	default boolean notifyRareDrops() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "rareDropMinValue",
-		name = "Min drop value",
-		description = "Post drops worth at least this (min 1,000,000; 0 = off).",
-		position = 2,
-		section = "dropsSection"
-	)
-	default int rareDropMinValue() {
-		return 5_000_000;
-	}
-
-	@ConfigItem(
-		keyName = "rareDropMinRarity",
-		name = "Min drop rarity (1 in N)",
-		description = "Also post drops rarer than 1 in N whatever their value (min 1000; 0 = off).",
-		position = 3,
-		section = "dropsSection"
-	)
-	default int rareDropMinRarity() {
-		// 1/10,000. Anything looser turns the channel into herb and seed rolls — at 1/2000 a normal
-		// slayer task posts several times. Raised from 1/5000; see AnvilPlugin.migrateConfigDefaults.
-		return 10_000;
-	}
-
-
-	@ConfigItem(
-		keyName = "lootKeyMinValue",
-		name = "Loot key value",
-		description = "Post a loot key whose contents total at least this (0 = off).",
-		position = 5,
-		section = "dropsSection"
-	)
-	default int lootKeyMinValue() {
-		return 1_000_000;
-	}
-
-	@ConfigItem(
-		keyName = "notifyPets",
-		name = "Notify on pets",
-		description = "Post to the clan drops channel when you get a pet.",
-		position = 6,
-		section = "dropsSection"
-	)
-	default boolean notifyPets() {
-		return true;
-	}
-
-
-	// ---- Notifications: Combat achievements ----
-
-	@ConfigItem(
-		keyName = "caMinTaskTier",
-		name = "CA post tier",
-		description = "Post combat tasks at or above this tier, plus tier clears; Off posts none. Bingo tiles still count.",
-		position = 2,
-		section = "caSection"
-	)
-	default CaAnnounceTier caMinTaskTier() {
-		return CaAnnounceTier.MASTER;
-	}
-
-
-	@ConfigItem(
-		keyName = "notifyClogSlots",
-		name = "Notify on collection log slots",
-		description = "Post every new collection-log slot to the clan achievements channel.",
-		position = 4,
-		section = "caSection"
-	)
-	default boolean notifyClogSlots() {
-		return true;
-	}
-
-
-	@ConfigItem(
-		keyName = "notifyLevelUps",
-		name = "Notify on level milestones",
-		description = "Post level milestones (your clan's rules; 99s and high totals by default) to the clan and your own webhooks.",
-		position = 6,
-		section = "caSection"
-	)
-	default boolean notifyLevelUps() {
-		return true;
-	}
-
-
-	@ConfigItem(
-		keyName = "notifyDiaries",
-		name = "Notify on diary completions",
-		description = "Post achievement-diary tier completions to the clan, with a screenshot.",
-		position = 8,
-		section = "caSection"
-	)
-	default boolean notifyDiaries() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "questAnnounce",
-		name = "Quest post tier",
-		description = "Post quest completions at or above this difficulty to the clan; Off posts none. Bingo tiles still count.",
-		position = 9,
-		section = "caSection"
-	)
-	default QuestAnnounceTier questAnnounce() {
-		return QuestAnnounceTier.MASTER;
 	}
 
 	// ---- Profile sync ----

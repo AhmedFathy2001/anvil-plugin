@@ -756,6 +756,13 @@ public class BingoApiClient {
 		return gson.fromJson(postJson(configUrl("/api/plugin/facts"), body, "Facts", true), JsonObject.class);
 	}
 
+	/** POST /api/plugin/notify-prefs: the notify settings RuneLite used to hold, once (capability notify-prefs). */
+	void postNotifyPrefs(JsonObject prefs) throws IOException {
+		JsonObject body = new JsonObject();
+		body.add("prefs", prefs);
+		postJson(configUrl("/api/plugin/notify-prefs"), body, "Notify prefs", true);
+	}
+
 	/** GET chat-flair/v?since= — the Supporter list's version and the deltas to it (ChatFlairSync). Public; null on failure. */
 	ChatFlair.Since fetchChatFlairSince(int v) {
 		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v?since=" + v)).get(), ChatFlair.Since.class, "Chat flair version");

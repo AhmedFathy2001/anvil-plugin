@@ -37,27 +37,6 @@ final class DropSource {
 		return false;
 	}
 
-	/**
-	 * True when {@code source} hands {@code itemName} over on every kill, per the server's facts.
-	 *
-	 * <p>Guaranteed drops are the one case where a reaction line actively misfires: an ornament kit
-	 * the boss owes you is nobody's spoon, and saying someone drier deserved it reads as a bot that
-	 * doesn't know the game. Unknown facts (an older site, an item nothing has an opinion about)
-	 * answer false, which is exactly today's behaviour.
-	 *
-	 * <p>A {@code "*"} source in the list means "wherever it drops" — what a clan override without
-	 * named sources stores, and the only sane reading of one.
-	 */
-	static boolean isGuaranteed(PluginConfigResponse.DropFacts facts, String itemName, String source) {
-		if (facts == null || facts.guaranteed == null || itemName == null) return false;
-		List<String> sources = facts.guaranteed.get(itemName.toLowerCase(Locale.ROOT).trim());
-		if (sources == null || sources.isEmpty()) return false;
-		if (sources.contains("*")) return true;
-		if (source == null) return false;
-		String key = source.toLowerCase(Locale.ROOT).trim();
-		return sources.contains(key);
-	}
-
 	/** The server's entry for a pet, or null when it has nothing to say about it. */
 	static PluginConfigResponse.DropFacts.Pet petEntry(PluginConfigResponse.DropFacts facts, String petName) {
 		if (facts == null || facts.pets == null || petName == null) return null;

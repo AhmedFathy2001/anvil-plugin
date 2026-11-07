@@ -64,13 +64,4 @@ public class WorldInfoTest
 		}
 	}
 
-	@Test
-	public void modeGateTakesTheLooserButNeverReEnables()
-	{
-		assertEquals(128, WorldInfo.modeGate(10_000, 128));
-		assertEquals(10_000, WorldInfo.modeGate(10_000, 50_000)); // stricter: the site filters it
-		assertEquals(10_000, WorldInfo.modeGate(10_000, 0)); // no mode threshold
-		assertEquals(0, WorldInfo.modeGate(0, 128)); // the member turned it off
-		assertEquals(10_000L, WorldInfo.modeGate(1_000_000L, 10_000L));
-	}
 }
