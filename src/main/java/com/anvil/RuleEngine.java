@@ -10,6 +10,10 @@ import java.util.*;
  * what can't wait for the site: whether a moment deserves a screenshot, and the chat line to print
  * right away. The site matches the reported facts to tiles (POST /api/plugin/facts) and its answer
  * corrects each rule's count. Pure and RuneLite-free (RuleEngineTest).
+ *
+ * Counts are touched from two threads: the client thread raises them per event, the executor overwrites
+ * them with the site's answer. Every method that reads or writes a count holds the engine's lock; each
+ * runs in microseconds, so the client thread never waits on anything slow.
  */
 final class RuleEngine {
 	static final class Table {
@@ -66,7 +70,7 @@ final class RuleEngine {
 		boolean coop;
 		/** Tile id → its local count after this event, for the panel's optimistic rows. */
 		final Map<Integer, Long> raised = new HashMap<>();
-		/** Drop tiles this event moved, for the in-game "tile progress" popup. */
+		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
 		final List<Rule> toasts = new ArrayList<>();
 	}
 
@@ -76,7 +80,7 @@ final class RuleEngine {
 	private final Map<Integer, Long> seenItems = new HashMap<>();
 	private final Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
 
-	void set(Table t) {
+	synchronized void set(Table t) {
 		table = t;
 	}
 
@@ -106,7 +110,7 @@ final class RuleEngine {
 	}
 
 	/** One kill/open/counter event: each moved name and its amount; a tile reached by several takes the largest, once. */
-	Out kill(Map<String, Integer> moved, Collection<String> unverified, String inferred) {
+	synchronized Out kill(Map<String, Integer> moved, Collection<String> unverified, String inferred) {
 		Out out = new Out();
 		Table t = table;
 		if (t == null) return out;
@@ -144,7 +148,7 @@ final class RuleEngine {
 	}
 
 	/** One loot event ({@code items} as [id, qty]); a repeat of an item within the dedup window is the same loot fired twice. */
-	Out loot(String source, String kind, List<int[]> items, Integer party, String inferred, long now) {
+	synchronized Out loot(String source, String kind, List<int[]> items, Integer party, String inferred, long now) {
 		Out out = new Out();
 		Table t = table;
 		if (t == null || items == null) return out;
@@ -163,10 +167,10 @@ final class RuleEngine {
 					r.have = Math.min(r.of, r.have + Math.max(1, it[1]));
 					out.raised.put(r.t, r.have);
 					out.say.add(fill(t, "drop", r));
-					out.toasts.add(r);
+					out.toasts.add(snap(r));
 				} else if (said.add(r)) {
 					out.say.add(fill(t, "dropPlain", r));
-					out.toasts.add(r);
+					out.toasts.add(snap(r));
 				}
 			}
 			if (any) {
@@ -189,7 +193,7 @@ final class RuleEngine {
 	}
 
 	/** A priced haul, for loot-value tiles. */
-	Out value(String source, String kind, long gp) {
+	synchronized Out value(String source, String kind, long gp) {
 		Out out = new Out();
 		Table t = table;
 		if (t == null || gp <= 0) return out;
@@ -211,7 +215,7 @@ final class RuleEngine {
 	}
 
 	/** Skill XP gained: a line per clean step crossed, only while the skill is actually being trained. */
-	List<String> xp(String skill, long gained, long now) {
+	synchronized List<String> xp(String skill, long gained, long now) {
 		TreeSet<Long> minutes = xpMinutes.computeIfAbsent(skill.toLowerCase(Locale.ROOT), k -> new TreeSet<>());
 		long minute = now / 60_000;
 		minutes.add(minute);
@@ -220,7 +224,7 @@ final class RuleEngine {
 	}
 
 	/** A boss / activity count moved (a KC line). */
-	List<String> kc(String name, long gained) {
+	synchronized List<String> kc(String name, long gained) {
 		return stat("kc", name, gained, null, 0);
 	}
 
@@ -249,7 +253,7 @@ final class RuleEngine {
 	}
 
 	/** The site's answer: every touched tile's real count replaces the local guess. Returns lines to print. */
-	List<String> adopt(JsonObject reply) {
+	synchronized List<String> adopt(JsonObject reply) {
 		List<String> lines = new ArrayList<>();
 		Table t = table;
 		if (t == null || reply == null) return lines;
@@ -269,6 +273,16 @@ final class RuleEngine {
 		}
 		if (reply.has("notes")) reply.getAsJsonArray("notes").forEach(n -> lines.add(n.getAsString()));
 		return lines;
+	}
+
+	/** The rule as it stands now, for the popup: read outside the lock, it must not see the next answer land. */
+	private static Rule snap(Rule r) {
+		Rule s = new Rule();
+		s.t = r.t;
+		s.label = r.label;
+		s.have = r.have;
+		s.of = r.of;
+		return s;
 	}
 
 	private static List<Rule> all(Table t) {
