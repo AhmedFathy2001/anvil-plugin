@@ -7284,7 +7284,6 @@ public class AnvilPlugin extends Plugin {
 		// Multi-run timed tiles (Barracuda Trials ranks) count runs locally the same way.
 		keepLocalFloor(prior == null ? null : prior.trackedTimed, fresh.trackedTimed, t -> t.tileId,
 				TrackedTimed::runsDone, TrackedTimed::runsRequired, (t, v) -> t.currentAmount = v);
-		tileCountsFor = null; // the floors above changed it in place
 		liveCountsMoved();
 	}
 
@@ -7484,7 +7483,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Rebuild the itemId → TrackedDrop index for O(1) loot lookups.
+	 * Rebuild the per-config lookups (boards, gain items, allowlists) for O(1) matching.
 	 */
 	private void rebuildItemDropIndex() {
 		PluginConfigResponse cfg = pluginConfig;
@@ -7563,21 +7562,19 @@ public class AnvilPlugin extends Plugin {
 		liveCountsMoved();
 	}
 
-	/** Per-config lookups for the tracker's extra lines and part/cap labels (see TileNotes). */
+	/** Per-config lookups for counts, the tracker's extra lines and part labels (see TileNotes). */
 	private volatile PluginConfigResponse notesFor;
 	private volatile Map<Integer, TrackedCombo> combos = Collections.emptyMap();
 	private volatile Map<Integer, Integer> partCombo = Collections.emptyMap();
 	private volatile Map<Integer, TrackedTimed> multiRunTimed = Collections.emptyMap();
-	private volatile Map<Integer, String> tileLabels = Collections.emptyMap();
-	/** tileId → {current, required} off the config, for a combo's part lines. */
-	private volatile Map<Integer, long[]> tileGoals = Collections.emptyMap();
+	/** tileId → its count off the config ({@code tiles}). */
+	private volatile Map<Integer, TileCount> tileRows = Collections.emptyMap();
 
 	private void indexNotes(PluginConfigResponse cfg) {
 		if (cfg == notesFor) return;
 		Map<Integer, TrackedTimed> runs = new HashMap<>();
-		Map<Integer, String> labels = new HashMap<>();
-		Map<Integer, long[]> goals = new HashMap<>();
 		Map<Integer, TrackedCombo> comboById = new HashMap<>();
+		Map<Integer, TileCount> rows = new HashMap<>();
 		if (cfg != null) {
 			if (cfg.trackedTimed != null) {
 				for (TrackedTimed t : cfg.trackedTimed) {
@@ -7589,25 +7586,16 @@ public class AnvilPlugin extends Plugin {
 					if (c != null) comboById.put(c.tileId, c);
 				}
 			}
-			for (Map.Entry<String, JsonElement> e : gson.toJsonTree(cfg).getAsJsonObject().entrySet()) {
-				if (!e.getKey().startsWith("tracked") || !e.getValue().isJsonArray()) continue;
-				for (JsonElement row : e.getValue().getAsJsonArray()) {
-					JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
-					if (r == null || !r.has("tileId")) continue;
-					int id = r.get("tileId").getAsInt();
-					if (r.has("label") && r.get("label").isJsonPrimitive()) labels.putIfAbsent(id, r.get("label").getAsString());
-					String goalKey = r.has("requiredAmount") ? "requiredAmount" : r.has("goalAmount") ? "goalAmount" : null;
-					if (goalKey != null && r.has("currentAmount")) {
-						goals.putIfAbsent(id, new long[]{r.get("currentAmount").getAsLong(), r.get(goalKey).getAsLong()});
-					}
+			if (cfg.tiles != null) {
+				for (TileCount r : cfg.tiles) {
+					if (r != null) rows.put(r.t, r);
 				}
 			}
 		}
 		combos = comboById;
 		partCombo = TileNotes.partCombos(cfg == null ? null : cfg.trackedCombos);
 		multiRunTimed = runs;
-		tileLabels = labels;
-		tileGoals = goals;
+		tileRows = rows;
 		notesFor = cfg;
 	}
 
@@ -7627,10 +7615,8 @@ public class AnvilPlugin extends Plugin {
 			Map<Integer, long[]> counts = new HashMap<>();
 			if (combo.parts != null) {
 				for (ComboPart p : combo.parts) {
-					long[] g = p == null ? null : tileGoals.get(p.tileId);
-					if (g != null) {
-						counts.put(p.tileId, new long[]{shownProgress(p.tileId, g[0]), g[1]});
-					}
+					TileCount g = p == null ? null : tileRows.get(p.tileId);
+					if (g != null) counts.put(p.tileId, new long[]{shownProgress(p.tileId, g.have), g.of});
 				}
 			}
 			return TileNotes.comboLines(combo, counts);
@@ -7646,47 +7632,19 @@ public class AnvilPlugin extends Plugin {
 		return TileNotes.partLabel(combo == null ? null : combo.label, tile.label);
 	}
 
-
-	/** tileId → the held config's count (fetched or pushed), rebuilt when the config is replaced. */
-	private volatile Map<Integer, Long> tileCounts = Collections.emptyMap();
-	private volatile PluginConfigResponse tileCountsFor;
-
 	/**
 	 * The newest count this client has for a tile: the held config's, or its own unconfirmed one when
 	 * higher; -1 when it tracks no such tile. What the panel's live counts move to (UiView.tickLive).
 	 */
 	long tileCount(int tileId) {
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg != tileCountsFor) {
-			Map<Integer, Long> counts = new HashMap<>();
-			if (cfg != null) {
-				for (Map.Entry<String, JsonElement> e : gson.toJsonTree(cfg).getAsJsonObject().entrySet()) {
-					if (!e.getKey().startsWith("tracked") || !e.getValue().isJsonArray()) continue;
-					for (JsonElement row : e.getValue().getAsJsonArray()) {
-						JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
-						if (r == null || !r.has("tileId") || !r.has("currentAmount")) continue;
-						int tile = r.get("tileId").getAsInt();
-						// A set or collection tile counts pieces here, but the panel shows the best
-						// set (10 pieces vs "2 / 4"): not the same number, so it doesn't move live.
-						JsonElement reqs = r.get("itemRequirements");
-						if (reqs != null && reqs.isJsonArray() && reqs.getAsJsonArray().size() > 0) {
-							counts.put(tile, -1L);
-						} else if (counts.getOrDefault(tile, 0L) >= 0) {
-							counts.merge(tile, r.get("currentAmount").getAsLong(), Math::max);
-						}
-					}
-				}
-			}
-			tileCounts = counts;
-			tileCountsFor = cfg;
-		}
-		Long site = tileCounts.get(tileId);
-		if (site != null && site < 0) {
-			return -1; // a set tile: see above
-		}
-		if (site != null) optimistic.seen(tileId, site);
+		indexNotes(pluginConfig);
+		TileCount r = tileRows.get(tileId);
+		// A set or collection tile counts pieces, but the panel shows the best set (10 pieces vs
+		// "2 / 4"): not the same number, so it doesn't move live.
+		if (r != null && r.set) return -1;
+		if (r != null) optimistic.seen(tileId, r.have);
 		long floor = optimistic.floor(tileId, now());
-		return site == null ? (floor > 0 ? floor : -1) : Math.max(site, floor);
+		return r == null ? (floor > 0 ? floor : -1) : Math.max(r.have, floor);
 	}
 
 	/** Counts moved here (own progress, a pushed or fetched config): the panel redraws its live ones. */

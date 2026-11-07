@@ -2,7 +2,6 @@ package com.anvil;
 
 import com.anvil.PluginConfigResponse.ComboPart;
 import com.anvil.PluginConfigResponse.TrackedCombo;
-import com.anvil.PluginConfigResponse.TrackedKill;
 import java.util.*;
 
 /**
@@ -10,9 +9,8 @@ import java.util.*;
  * (Barracuda Trials ranks), and a COMBO's parts ("1 of 2 done", then one line per part) — plus the
  * virtual-id rule behind capped counters.
  *
- * <p>A capped counter tile's cap counters reach the plugin as extra {@code trackedKills} entries with
- * {@code capOf} set and a VIRTUAL negative tileId, {@code -(capOf * 8 + slot)}. They credit like any
- * kill entry; they are never rows, pins or chat subjects of their own.
+ * <p>A capped counter tile's cap counters carry a VIRTUAL negative tileId, {@code -(capOf * 8 + slot)};
+ * they are never rows, pins or chat subjects of their own.
  *
  * <p>A combo's parts ride the ordinary tracked lists with {@code partOf} set; they credit as usual and
  * fold under their combo, which is what pins.

@@ -230,19 +230,17 @@ public class PluginConfigResponse {
 	 * {@code unclaimed}. {@code null} at the login screen and on older sites.
 	 */
 	public String accountStanding;
-	public List<TrackedDrop> trackedDrops;
-	public List<TrackedStat> trackedStats;
+	/** Every tracked tile's count, for the panel's live counts and a combo's part lines. */
+	public List<TileCount> tiles;
 	// Site stat keys ("cluesElite", "collectionsLogged") for the hiscores counters that are neither a
 	// boss nor a skill. Pushed by KEY rather than in-game name — the plugin reads each from a named
 	// varbit, so there's nothing to map — and only for the ones the client can actually answer
 	// (see ActivityStats).
 	public List<String> trackedActivityKeys;
-	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedPvp> trackedPvp;           // PvP-kill tiles (rival-team / bounty kills in dangerous PvP)
 	public List<RosterEntry> pvpRoster;           // event roster (RSN -> teamId) for 'team:other' matching; empty unless a pvp tile exists
 	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
 	public List<TrackedLms> trackedLms;           // LMS placement tiles (finish top-N, M times)
-	public List<TrackedValue> trackedValues;      // loot-value tiles (one haul worth >= thresholdGp)
 	public List<TrackedGain> trackedGains;        // item-gain tiles (catch/cook/gather N, from inventory gains)
 	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
 	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
@@ -373,8 +371,8 @@ public class PluginConfigResponse {
 	/** Other-board tiles by id; their labels gain " · board" so chat tells two boards apart. */
 	public Map<Integer, Board> tagBoards() {
 		Map<Integer, Board> out = new HashMap<>();
-		for (List<? extends TrackedTile> l : Arrays.asList(trackedDrops, trackedKills, trackedPvp, trackedTimed,
-			trackedLms, trackedValues, trackedGains, trackedDeathless, trackedDiaries, trackedCombatTasks, trackedClog,
+		for (List<? extends TrackedTile> l : Arrays.asList(trackedPvp, trackedTimed,
+			trackedLms, trackedGains, trackedDeathless, trackedDiaries, trackedCombatTasks, trackedClog,
 			trackedCombos)) {
 			for (TrackedTile t : l == null ? Collections.<TrackedTile>emptyList() : l) {
 				if (t == null || t.board == null) continue;
@@ -409,40 +407,6 @@ public class PluginConfigResponse {
 	public abstract static class CountedTile extends TrackedTile {
 		public int requiredAmount;
 		public int currentAmount;     // the team's submitted progress so far
-	}
-
-	public static class TrackedDrop extends CountedTile {
-		public List<Integer> itemIds;
-		public List<ItemRequirement> itemRequirements;
-		// null/empty = any source NPC. Otherwise the drop only counts when the loot source
-		// name matches one of these (case-insensitive), e.g. ["Tekton"] for "onyx, Tekton only".
-		public List<String> sourceNpcs;
-		// Exact raid party size required for the drop to count ("solo Cursed phalanx");
-		// 0/absent = any. Raid chests are looted inside the instance, so the deathless
-		// party tracker doubles as the size source.
-		public int partySize;
-		// How this collection's sets combine: "any" (default, and what an older server sends nothing
-		// for) = the sets are alternatives, satisfy ONE; "all" = every set must be satisfied.
-		public String groupMode;
-		// How many sets the tile needs when groupMode is "any" (0/absent on older servers = 1). Sets
-		// are COUNTED — 2 is two different sets or the same one twice — so a set's piece is useful up
-		// to this many times over.
-		public int setsRequired;
-	}
-
-	public static class ItemRequirement {
-		public int itemId;
-		public String name;
-		public int requiredAmount;
-		public int currentAmount;
-		// Set name: ungrouped (null/blank) items are ALWAYS required; items sharing a group form one
-		// set. How the sets combine is the tile's groupMode. Null/absent on a plain "collect all of
-		// these" collection.
-		public String group;
-		// How many DISTINCT items in this set satisfy it. 0/absent = all of them (a full set), which
-		// is what every collection authored before set modes existed means. 1 is "any one item from
-		// this source" — with groupMode "all" that's a unique from each DT2 boss.
-		public int groupRequire;
 	}
 
 	/**
@@ -486,36 +450,6 @@ public class PluginConfigResponse {
 		public int tileId;
 		public String label;
 		public boolean completed;
-	}
-
-	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
-	// need NOT be on the hiscores) toward requiredAmount. Same submission flow as a simple drop.
-	public static class TrackedKill extends CountedTile {
-		// Shared kills. "per-kill" = a kill several members were in credits ONCE (the server
-		// correlates their reports); coopMinMembers = the kill only counts with at least that many
-		// of the team in it. Either one makes this client attach what it could see of its company.
-		// Absent/"per-member" + 0 on older servers, which is the historical every-member counting.
-		public String coopCredit;
-		public int coopMinMembers;
-		// What one credit IS, for player-facing wording only ("kill", "lap", …). Agility-lap tiles
-		// ride this list because the game's lap counter is the same chat line boss KC uses, so the
-		// matching is identical and only the noun differs. Null on older servers → "kill".
-		public String unit;
-		// A CAP counter of a capped tile ("100 searches paid for with event energy"): not a tile of its
-		// own. It carries a VIRTUAL tileId, -(capOf * 8 + slot), and credits exactly like any kill entry
-		// (submitted to that negative id) — the site only needs it counted. Never a row, pin or chat
-		// line. Absent on older servers.
-		public Integer capOf;
-
-		/** A capped tile's cap counter (counted and submitted silently). */
-		public boolean isCap() {
-			return capOf != null && capOf > 0;
-		}
-
-
-		public boolean needsCoopFingerprint() {
-			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
-		}
 	}
 
 	// PvP-kill tile: the plugin credits a kill off the "You have defeated <name>!" line, which
@@ -639,20 +573,10 @@ public class PluginConfigResponse {
 		}
 	}
 
-	public static class TrackedValue extends TrackedTile {
-		public String mode;                // "single" (one haul ≥ threshold) | "total" (hauls sum to threshold)
-
-		public List<String> sources;       // optional source filter: NPC/chest names, or "PvP"; empty = any
-		public boolean completed;          // team already completed this tile
-	}
-
-	public static class TrackedStat extends TrackedTile {
-		public String statName;     // e.g. "mining", "zulrah"
-		public String statType;     // "skill" | "boss" | "kc"
-		public int itemId = -1;     // boss KC tiles: the boss's representative clog item (icon); -1 for skills
-		public int currentAmount;   // gained XP / KC since baseline
-		public int goalAmount;
-		// The caller's own event gain on this tile (KC / XP). 0 on older servers.
-		public long yourGained;
+	public static class TileCount {
+		public int t;
+		public long have;
+		public long of;
+		public boolean set; // a set / collection tile: counts pieces, not what the panel shows
 	}
 }

@@ -5,7 +5,6 @@ import static org.junit.Assert.*;
 import com.anvil.PluginConfigResponse.CompletedTile;
 import com.anvil.PluginConfigResponse.TrackedClog;
 import com.anvil.PluginConfigResponse.TrackedCombo;
-import com.anvil.PluginConfigResponse.TrackedKill;
 import com.anvil.PluginConfigResponse.TrackedTimed;
 import com.google.gson.Gson;
 import java.util.*;
@@ -52,8 +51,7 @@ public class TileNotesTest
 	@Test
 	public void olderConfigsHaveNoCapsOrParts()
 	{
-		TrackedKill k = GSON.fromJson("{\"tileId\":20,\"label\":\"Zulrah\",\"requiredAmount\":50}", TrackedKill.class);
-		assertFalse(k.isCap());
+		TrackedClog k = GSON.fromJson("{\"tileId\":20,\"label\":\"Zulrah\",\"requiredAmount\":50}", TrackedClog.class);
 		assertFalse(k.isPart());
 		assertTrue(TileNotes.partCombos(null).isEmpty());
 	}
@@ -61,12 +59,6 @@ public class TileNotesTest
 	@Test
 	public void capAndPartEntriesParseFromTheSiteContract()
 	{
-		TrackedKill cap = GSON.fromJson("{\"tileId\":-97,\"capOf\":12,\"requiredAmount\":1000000,\"unit\":\"energy\"}", TrackedKill.class);
-		assertTrue(cap.isCap());
-		assertEquals(12, (int) cap.capOf);
-		TrackedKill part = GSON.fromJson("{\"tileId\":31,\"label\":\"100 searches\",\"partOf\":30,\"requiredAmount\":100}", TrackedKill.class);
-		assertTrue(part.isPart());
-		assertFalse(part.isCap());
 		CompletedTile done = GSON.fromJson("{\"tileId\":31,\"label\":\"GOTR - 100 searches\",\"points\":0,\"partOf\":30}", CompletedTile.class);
 		assertEquals(30, (int) done.partOf);
 		// A collection-log tile can be a combo's part too; it folds the same way.
@@ -112,7 +104,7 @@ public class TileNotesTest
 	@Test
 	public void anotherBoardsTileCarriesItsBoardAndSaysSo()
 	{
-		PluginConfigResponse cfg = GSON.fromJson("{\"trackedDrops\":[{\"tileId\":1,\"label\":\"Zulrah\"},"
+		PluginConfigResponse cfg = GSON.fromJson("{\"trackedGains\":[{\"tileId\":1,\"label\":\"Zulrah\"},"
 			+ "{\"tileId\":2,\"label\":\"Zulrah\",\"board\":{\"eventId\":9,\"teamId\":3,\"playerId\":4,"
 			+ "\"clan\":\"rivals\",\"name\":\"Winter Bingo\"}}]}", PluginConfigResponse.class);
 		Map<Integer, PluginConfigResponse.Board> boards = cfg.tagBoards();
@@ -123,8 +115,8 @@ public class TileNotesTest
 		assertEquals(3, b.teamId);
 		assertEquals(4, b.playerId);
 		assertEquals("rivals", b.clan);
-		assertEquals("Zulrah", cfg.trackedDrops.get(0).label);
-		assertEquals("Zulrah · Winter Bingo", cfg.trackedDrops.get(1).label);
+		assertEquals("Zulrah", cfg.trackedGains.get(0).label);
+		assertEquals("Zulrah · Winter Bingo", cfg.trackedGains.get(1).label);
 	}
 
 	@Test
@@ -135,16 +127,5 @@ public class TileNotesTest
 		assertEquals("bodies", TileNotes.plural("body"));
 		assertEquals("days", TileNotes.plural("day"));
 		assertEquals("boxes", TileNotes.plural("box"));
-	}
-
-	private static TrackedKill kill(int tileId, String label, Integer capOf, int required, int current)
-	{
-		TrackedKill k = new TrackedKill();
-		k.tileId = tileId;
-		k.label = label;
-		k.capOf = capOf;
-		k.requiredAmount = required;
-		k.currentAmount = current;
-		return k;
 	}
 }
