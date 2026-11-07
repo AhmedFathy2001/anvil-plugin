@@ -25,6 +25,8 @@ final class RuleEngine {
 		Map<String, String> say = new HashMap<>();
 		/** Source key ("pp:" for pickpocketing) -> item ids rare enough to maybe post: screenshot and let the site judge. */
 		Map<String, Set<Integer>> rare = new HashMap<>();
+		/** Every drop tile is done: item gains stop counting (the site's rule). */
+		boolean blackout;
 	}
 
 	static class Rule {
@@ -96,6 +98,17 @@ final class RuleEngine {
 
 	boolean active() {
 		return table != null;
+	}
+
+	boolean blackout() {
+		Table t = table;
+		return t != null && t.blackout;
+	}
+
+	/** Drop or value tiles to credit: those also credit off the game's drop line. */
+	boolean dropLines() {
+		Table t = table;
+		return t != null && !(t.drops.isEmpty() && t.values.isEmpty());
 	}
 
 	boolean tracksKill(String name) {

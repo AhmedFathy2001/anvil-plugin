@@ -467,4 +467,23 @@ public class RuleEngineTest
 		RuleEngine.Table parsed = new com.google.gson.Gson().fromJson("{\"rare\":{\"zulrah\":[12921,12922]}}", RuleEngine.Table.class);
 		assertTrue(engine(parsed).rare("npc", "zulrah", 12922));
 	}
+
+	@Test
+	public void blackoutIsTheSitesWord()
+	{
+		assertFalse(new RuleEngine().blackout()); // no table yet
+		assertFalse(engine(table()).blackout());
+		RuleEngine.Table parsed = new com.google.gson.Gson().fromJson("{\"blackout\":true}", RuleEngine.Table.class);
+		assertTrue(engine(parsed).blackout());
+	}
+
+	@Test
+	public void dropLinesWhileADropOrValueTileIsLeft()
+	{
+		assertFalse(new RuleEngine().dropLines());
+		RuleEngine.Table t = table();
+		assertFalse(engine(t).dropLines());
+		t.values.add(value(1, 0, 0, 100, null));
+		assertTrue(engine(t).dropLines());
+	}
 }

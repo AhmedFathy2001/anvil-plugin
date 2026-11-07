@@ -3859,7 +3859,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void creditClogUnlock(String itemName) {
 		if (itemName == null || itemName.isEmpty()) return;
-		if (trackingOff() || pluginConfig.trackedDrops == null) return;
+		if (trackingOff() || !rules.active()) return;
 		// Notable clog unlocks (a ToA Cursed phalanx, a raid ornament kit) that fire ONLY the clog line and
 		// no loot event still deserve a rare-drop post. Route through maybeNotifyRareDrop — its per-item +
 		// name-keyed dedup absorbs the duplicate if a loot event fired for the same item — and do it
@@ -4051,7 +4051,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private boolean creditInferredByName(String itemName, String source, String flag) {
-		if (itemName == null || trackingGateReason() != null || pluginConfig.trackedDrops == null) return false;
+		if (itemName == null || trackingGateReason() != null) return false;
 		return creditInferred(trackedStacks(itemName, 1), source, flag);
 	}
 
@@ -4085,7 +4085,7 @@ public class AnvilPlugin extends Plugin {
 	 * dedup counts the pair exactly once.
 	 */
 	private void creditGuaranteedAward(String bossName, String itemName) {
-		if (trackingOff() || pluginConfig.trackedDrops == null) return;
+		if (trackingOff()) return;
 		List<ItemStack> synthetic = trackedStacks(itemName, 1);
 		if (!synthetic.isEmpty()) { // else no tile tracks this award item
 			processLoot(bossName, synthetic, "npc");
@@ -4599,7 +4599,7 @@ public class AnvilPlugin extends Plugin {
 				previous == null ? "baseline snapshot"
 				: gainItemIndex.isEmpty() ? "no gain tiles configured"
 				: (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) ? "no active event"
-				: isBlackout() ? "blackout"
+				: rules.blackout() ? "blackout"
 				: gainSuppressingInterfaceOpen() ? "bank/GE/trade/seed-vault open"
 				: (client.getTickCount() - lastGroundTakeTick <= 2) ? "recent ground Take"
 				: (client.getTickCount() - lastTelegrabTick <= TELEGRAB_GUARD_TICKS) ? "recent telegrab"
@@ -7265,7 +7265,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * A newer config takes over tracking, fetched or pushed. Locally-counted gain and kill progress is
+	 * A newer config takes over tracking, fetched or pushed. Locally-counted gain progress is
 	 * kept: the server's copy lags while gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so
 	 * wholesale-replacing would snap an in-progress tile's live count backward (the reported
 	 * karambwan/impling flakiness). Each fresh count is floored at what we've already counted.
@@ -7281,8 +7281,6 @@ public class AnvilPlugin extends Plugin {
 		rebuildItemDropIndex();
 		keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
 				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
-		keepLocalFloor(prior == null ? null : prior.trackedKills, fresh.trackedKills, k -> k.tileId,
-				k -> k.currentAmount, k -> k.requiredAmount, (k, v) -> k.currentAmount = v);
 		// Multi-run timed tiles (Barracuda Trials ranks) count runs locally the same way.
 		keepLocalFloor(prior == null ? null : prior.trackedTimed, fresh.trackedTimed, t -> t.tileId,
 				TrackedTimed::runsDone, TrackedTimed::runsRequired, (t, v) -> t.currentAmount = v);
@@ -7353,14 +7351,13 @@ public class AnvilPlugin extends Plugin {
 			// ~30s) — the first thing to read in a client.log when "nothing tracked": it says
 			// what the plugin believed it was tracking, and when that belief changed.
 			String summary = String.format(Locale.ROOT,
-					"event='%s' team='%s' drops=%d kills=%d pvp=%d gains=%d timed=%d"
-							+ " deathless=%d lms=%d values=%d diaries=%d combatTasks=%d completed=%d",
+					"event='%s' team='%s' pvp=%d gains=%d timed=%d"
+							+ " deathless=%d lms=%d diaries=%d combatTasks=%d completed=%d",
 					pluginConfig.event.name, pluginConfig.team.name,
-					sizeOf(pluginConfig.trackedDrops), sizeOf(pluginConfig.trackedKills),
 					sizeOf(pluginConfig.trackedPvp),
 					sizeOf(pluginConfig.trackedGains), sizeOf(pluginConfig.trackedTimed),
 					sizeOf(pluginConfig.trackedDeathless), sizeOf(pluginConfig.trackedLms),
-					sizeOf(pluginConfig.trackedValues), sizeOf(pluginConfig.trackedDiaries),
+					sizeOf(pluginConfig.trackedDiaries),
 					sizeOf(pluginConfig.trackedCombatTasks), sizeOf(pluginConfig.completedTiles));
 			if (!summary.equals(lastTrackingFingerprint)) {
 				lastTrackingFingerprint = summary;
@@ -8458,14 +8455,6 @@ public class AnvilPlugin extends Plugin {
 		return null;
 	}
 
-	private boolean isBlackout() {
-		if (pluginConfig == null || pluginConfig.trackedDrops == null || pluginConfig.trackedDrops.isEmpty()) return false;
-		for (TrackedDrop drop : pluginConfig.trackedDrops) {
-			if (drop.currentAmount < drop.requiredAmount) return false;
-		}
-		return true;
-	}
-
 	/* -------------------------------------------------------------- */
  /* Clan notifications — deaths, rare drops, pets (posted to Discord */
  /* via the site, independent of bingo state).                     */
@@ -9464,10 +9453,8 @@ public class AnvilPlugin extends Plugin {
 	 * but the plugin cannot tell in advance which boss a tile's drop will come from, and the cost of
 	 * asking is one chat line against a silent 50m fang.</p>
 	 */
-	static boolean eventNeedsDropLines(PluginConfigResponse cfg) {
-		if (cfg == null || !AnvilOverlay.isEventActive(cfg.event)) return false;
-		return (cfg.trackedDrops != null && !cfg.trackedDrops.isEmpty())
-				|| (cfg.trackedValues != null && !cfg.trackedValues.isEmpty());
+	static boolean eventNeedsDropLines(PluginConfigResponse cfg, RuleEngine rules) {
+		return cfg != null && AnvilOverlay.isEventActive(cfg.event) && rules.dropLines();
 	}
 
 	/** On the client thread, and only while logged in — the nudges read settings varbits. */
@@ -9549,7 +9536,7 @@ public class AnvilPlugin extends Plugin {
 		// never told why.
 		PluginConfigResponse.Me me = me();
 		boolean forPosts = me != null && me.drops;
-		boolean forTiles = eventNeedsDropLines(pluginConfig);
+		boolean forTiles = eventNeedsDropLines(pluginConfig, rules);
 		if (!forPosts && !forTiles) return;
 		whenLoggedIn(() -> {
 			boolean settingOn = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_ON) == 1;

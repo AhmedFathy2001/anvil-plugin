@@ -40,31 +40,35 @@ public class EventNudgeTest
 		return cfg;
 	}
 
+	private static RuleEngine rules(boolean drop, boolean value)
+	{
+		RuleEngine.Table t = new RuleEngine.Table();
+		if (drop) t.drops.put("4151", Collections.singletonList(new RuleEngine.DropRule()));
+		if (value) t.values.add(new RuleEngine.ValueRule());
+		RuleEngine e = new RuleEngine();
+		e.set(t);
+		return e;
+	}
+
 	@Test
 	public void aBoardWithDropTilesNeedsTheInGameDropLine()
 	{
-		PluginConfigResponse cfg = live();
-		cfg.trackedDrops = Collections.singletonList(new PluginConfigResponse.TrackedDrop());
-		assertTrue(AnvilPlugin.eventNeedsDropLines(cfg));
+		assertTrue(AnvilPlugin.eventNeedsDropLines(live(), rules(true, false)));
 	}
 
 	@Test
 	public void soDoesOneWithValueTiles()
 	{
 		// Same signal, same reason: a haul from a corpse boss reaches neither tile kind without it.
-		PluginConfigResponse cfg = live();
-		cfg.trackedValues = Collections.singletonList(new PluginConfigResponse.TrackedValue());
-		assertTrue(AnvilPlugin.eventNeedsDropLines(cfg));
+		assertTrue(AnvilPlugin.eventNeedsDropLines(live(), rules(false, true)));
 	}
 
 	@Test
 	public void aBoardWithNeitherIsLeftAlone()
 	{
-		assertFalse("a KC-only board never reads that line", AnvilPlugin.eventNeedsDropLines(live()));
-		assertFalse(AnvilPlugin.eventNeedsDropLines(null));
-
-		PluginConfigResponse upcoming = notStarted();
-		upcoming.trackedDrops = Collections.singletonList(new PluginConfigResponse.TrackedDrop());
-		assertFalse("not until it starts", AnvilPlugin.eventNeedsDropLines(upcoming));
+		assertFalse("a KC-only board never reads that line", AnvilPlugin.eventNeedsDropLines(live(), rules(false, false)));
+		assertFalse(AnvilPlugin.eventNeedsDropLines(null, rules(true, true)));
+		assertFalse("no table yet", AnvilPlugin.eventNeedsDropLines(live(), new RuleEngine()));
+		assertFalse("not until it starts", AnvilPlugin.eventNeedsDropLines(notStarted(), rules(true, false)));
 	}
 }
