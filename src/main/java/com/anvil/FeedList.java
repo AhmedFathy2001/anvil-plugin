@@ -215,6 +215,10 @@ final class FeedList extends JPanel
 			probe.addProperty("who", "Probe");
 			probe.addProperty("value", "1m");
 			probe.addProperty("glyph", "check");
+			// With a reaction pill, so the fixed height has room for one.
+			JsonObject probeGz = new JsonObject();
+			probeGz.addProperty("n", 1);
+			probe.add("gz", probeGz);
 			list.setFixedCellHeight(renderer.getListCellRendererComponent(list, probe, 0, false, false).getPreferredSize().height);
 		}
 		list.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -1620,10 +1624,14 @@ final class FeedList extends JPanel
 	}
 
 	/** Inside a reaction pill: the text's side padding; and the space between two pills. */
-	static final int CHIP_PAD = 5;
-	static final int CHIP_SPACE = 4;
-	private static final Color CHIP_EDGE = new Color(0x5a5a5a);
-	private static final Color CHIP_INK_ON = new Color(0x1e1e1e);
+	static final int CHIP_PAD = 6;
+	static final int CHIP_SPACE = 3;
+	/** Soft fills, no outline: quiet when idle, a little lighter under the mouse, tinted when yours. */
+	private static final Color CHIP_FILL = new Color(0x303030);
+	private static final Color CHIP_FILL_HOVER = new Color(0x404040);
+	private static final Color CHIP_MINE = new Color(255, 152, 31, 52);
+	private static final Color CHIP_MINE_HOVER = new Color(255, 152, 31, 84);
+	private static final Color CHIP_INK = new Color(0xb4b4b4);
 
 	/** "Sit 3", or just "Sit" before anyone has. */
 	static String chipText(JsonObject c)
@@ -1708,8 +1716,7 @@ final class FeedList extends JPanel
 			{
 				w += (k > 0 ? CHIP_SPACE : 0) + chipWidth(fm, chips.get(k).getAsJsonObject());
 			}
-			// No taller than the text line it replaces: rows have a fixed height measured without pills.
-			return new Dimension(w, fm.getHeight());
+			return new Dimension(w, fm.getHeight() + 2);
 		}
 
 		@Override
@@ -1735,17 +1742,9 @@ final class FeedList extends JPanel
 					boolean mine = c.has("mine") && c.get("mine").getAsBoolean();
 					boolean live = c.has("on") && c.get("on").isJsonObject();
 					boolean lit = live && k == hover;
-					if (mine)
-					{
-						g2.setColor(lit ? ColorScheme.BRAND_ORANGE.brighter() : ColorScheme.BRAND_ORANGE);
-						g2.fillRoundRect(x, 0, w - 1, h, h, h);
-					}
-					else
-					{
-						g2.setColor(lit ? ColorScheme.BRAND_ORANGE : CHIP_EDGE);
-						g2.drawRoundRect(x, 0, w - 1, h, h, h);
-					}
-					g2.setColor(mine ? CHIP_INK_ON : lit ? Color.WHITE : MUTED);
+					g2.setColor(mine ? (lit ? CHIP_MINE_HOVER : CHIP_MINE) : live ? (lit ? CHIP_FILL_HOVER : CHIP_FILL) : CHIP_FILL);
+					g2.fillRoundRect(x, 0, w, h + 1, 7, 7);
+					g2.setColor(mine ? ColorScheme.BRAND_ORANGE : lit ? Color.WHITE : live ? CHIP_INK : MUTED);
 					g2.drawString(chipText(c), x + CHIP_PAD, (h - fm.getHeight()) / 2 + fm.getAscent() + 1);
 					x -= CHIP_SPACE;
 				}
