@@ -567,6 +567,25 @@ public class UiViewTest
 	}
 
 	@Test
+	public void aCardsTooltipCoversItsPictureAndText()
+	{
+		javax.swing.JPanel card = new javax.swing.JPanel();
+		JLabel picture = new JLabel();
+		JLabel own = new JLabel();
+		own.setToolTipText("its own");
+		javax.swing.JPanel inner = new javax.swing.JPanel();
+		JLabel text = new JLabel("Tumeken's shadow");
+		inner.add(text);
+		card.add(picture);
+		card.add(own);
+		card.add(inner);
+		UiView.inheritTip(card, "Tumeken's shadow · 682m");
+		assertEquals("Tumeken's shadow · 682m", picture.getToolTipText());
+		assertEquals("Tumeken's shadow · 682m", text.getToolTipText());
+		assertEquals("a child's own tip wins", "its own", own.getToolTipText());
+	}
+
+	@Test
 	public void aRoundClanMarkInARowIsNotCroppedToTheTextHeightOnceItLoads()
 	{
 		FakeHost host = new FakeHost();

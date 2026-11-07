@@ -516,6 +516,10 @@ final class UiView extends JPanel
 		if (tip != null)
 		{
 			c.setToolTipText(tip);
+			// Swing shows the tooltip of the component under the mouse: a card's picture and text are
+			// their own components, so the card's tip only showed in the gaps. They share it now (a
+			// child with a tip of its own keeps it).
+			inheritTip(c, tip);
 		}
 		// An input's action fires on a change, not on a click of the box.
 		if (n.has("on") && n.get("on").isJsonObject() && !"input".equals(str(n, "t")))
@@ -528,6 +532,22 @@ final class UiView extends JPanel
 			menu(c, n.getAsJsonArray("menu"));
 		}
 		return left(c);
+	}
+
+	static void inheritTip(Container parent, String tip)
+	{
+		for (Component child : parent.getComponents())
+		{
+			if (child instanceof JComponent)
+			{
+				JComponent j = (JComponent) child;
+				if (j.getToolTipText() == null)
+				{
+					j.setToolTipText(tip);
+					inheritTip(j, tip);
+				}
+			}
+		}
 	}
 
 	private List<JComponent> children(JsonObject n, String key)
