@@ -37,8 +37,29 @@ final class GradientLabel extends JLabel
 	 */
 	static boolean clientActive()
 	{
-		return KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow() != null;
+		// A field read, never the focus manager itself: its getters lock KeyboardFocusManager.class,
+		// which the EDT holds while it handles focus/window events, and this is asked several times a
+		// frame from the client thread — that wait showed up as a 2-3 frame hitch every few seconds.
+		return ACTIVE.active;
 	}
+
+	/** The active-window state, kept by a focus-manager listener on the EDT. */
+	private static final class ActiveWindow
+	{
+		volatile boolean active = true;
+
+		ActiveWindow()
+		{
+			SwingUtilities.invokeLater(() ->
+			{
+				KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+				active = kfm.getActiveWindow() != null || GraphicsEnvironment.isHeadless();
+				kfm.addPropertyChangeListener("activeWindow", e -> active = e.getNewValue() != null);
+			});
+		}
+	}
+
+	private static final ActiveWindow ACTIVE = new ActiveWindow();
 
 	/** Off resets to the base gradient; on resumes the shared wall-clock phase. */
 	static void setAnimate(boolean enabled)
