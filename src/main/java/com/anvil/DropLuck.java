@@ -16,10 +16,8 @@ import java.util.*;
  *
  * Pure static logic with no RuneLite dependencies, so it's unit-tested directly (DropLuckTest).
  */
-public final class DropLuck
-{
-	private DropLuck()
-	{
+public final class DropLuck {
+	private DropLuck() {
 	}
 
 	/** Beat ~90% of players to it. */
@@ -51,8 +49,7 @@ public final class DropLuck
 		"achievement diary cape",
 		"max cape");
 
-	public enum Verdict
-	{
+	public enum Verdict {
 		/** Well ahead of the drop rate. */
 		SPOONED,
 		/** Ahead of the drop rate. */
@@ -66,19 +63,11 @@ public final class DropLuck
 	}
 
 	/** True when this item is handed out for completing content rather than rolled for. */
-	public static boolean isEarnedAward(String itemName)
-	{
-		if (itemName == null || itemName.isEmpty())
-		{
-			return false;
-		}
+	public static boolean isEarnedAward(String itemName) {
+		if (itemName == null || itemName.isEmpty()) return false;
 		String n = itemName.toLowerCase(Locale.ROOT);
-		for (String award : EARNED_AWARDS)
-		{
-			if (n.contains(award))
-			{
-				return true;
-			}
+		for (String award : EARNED_AWARDS) {
+			if (n.contains(award)) return true;
 		}
 		return false;
 	}
@@ -87,40 +76,20 @@ public final class DropLuck
 	 * Share of players (0..1) who would already hold a drop of probability {@code p} after
 	 * {@code kc} kills. Computed as 1-(1-p)^kc, via expm1/log1p so tiny rates don't lose precision.
 	 */
-	public static double obtainedShare(double p, int kc)
-	{
-		if (p <= 0 || kc <= 0)
-		{
-			return 0;
-		}
-		if (p >= 1)
-		{
-			return 1;
-		}
+	public static double obtainedShare(double p, int kc) {
+		if (p <= 0 || kc <= 0) return 0;
+		if (p >= 1) return 1;
 		// 1 - exp(kc * ln(1-p)); log1p/expm1 keep this accurate for p in the 1e-5 range.
 		return -Math.expm1(kc * Math.log1p(-p));
 	}
 
 	/** Where this drop sits against the grind. UNKNOWN when either input is missing. */
-	public static Verdict classify(Double dropRate, Integer killCount)
-	{
-		if (dropRate == null || dropRate <= 0 || killCount == null || killCount <= 0)
-		{
-			return Verdict.UNKNOWN;
-		}
+	public static Verdict classify(Double dropRate, Integer killCount) {
+		if (dropRate == null || dropRate <= 0 || killCount == null || killCount <= 0) return Verdict.UNKNOWN;
 		double share = obtainedShare(dropRate, killCount);
-		if (share < SPOONED_SHARE)
-		{
-			return Verdict.SPOONED;
-		}
-		if (share < LUCKY_SHARE)
-		{
-			return Verdict.LUCKY;
-		}
-		if (share >= DRY_SHARE)
-		{
-			return Verdict.DRY;
-		}
+		if (share < SPOONED_SHARE) return Verdict.SPOONED;
+		if (share < LUCKY_SHARE) return Verdict.LUCKY;
+		if (share >= DRY_SHARE) return Verdict.DRY;
 		return Verdict.TYPICAL;
 	}
 
@@ -132,16 +101,9 @@ public final class DropLuck
 	 * @param value        the drop's gp value
 	 * @param rarityFloor  1-in-N the drop must beat to count as troll-rare (the clan's rarity floor)
 	 */
-	public static boolean isTrollDrop(Double dropRate, long value, int rarityFloor)
-	{
-		if (dropRate == null || dropRate <= 0 || rarityFloor <= 0)
-		{
-			return false;
-		}
-		if (value >= TROLL_VALUE_CEILING)
-		{
-			return false;
-		}
+	public static boolean isTrollDrop(Double dropRate, long value, int rarityFloor) {
+		if (dropRate == null || dropRate <= 0 || rarityFloor <= 0) return false;
+		if (value >= TROLL_VALUE_CEILING) return false;
 		return MathUtils.lessThanOrEqual(dropRate, 1.0 / rarityFloor);
 	}
 
@@ -150,16 +112,9 @@ public final class DropLuck
 	 * {@link #EARNED_AWARDS}); otherwise it's a genuine spoon against the kill count, or a drop
 	 * valuable enough to be a moment regardless of how long it took.
 	 */
-	public static boolean deservesSpoonLine(String itemName, long value, Double dropRate, Integer killCount, long bigValue)
-	{
-		if (isEarnedAward(itemName))
-		{
-			return false;
-		}
-		if (classify(dropRate, killCount) == Verdict.SPOONED)
-		{
-			return true;
-		}
+	public static boolean deservesSpoonLine(String itemName, long value, Double dropRate, Integer killCount, long bigValue) {
+		if (isEarnedAward(itemName)) return false;
+		if (classify(dropRate, killCount) == Verdict.SPOONED) return true;
 		// No kill count to judge against (untracked NPC, or the clan hides KC): fall back to value.
 		return value >= bigValue;
 	}

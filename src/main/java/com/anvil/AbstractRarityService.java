@@ -63,9 +63,7 @@ public abstract class AbstractRarityService {
 				.filter(drop -> drop.getMinQuantity() <= quantity && quantity <= drop.getMaxQuantity())
 				.filter(drop -> {
 					int id = drop.getItemId();
-					if (id == itemId) {
-						return true;
-					}
+					if (id == itemId) return true;
 					return variants.contains(id) && itemName.equals(itemManager.getItemComposition(id).getMembersName());
 				})
 				.mapToDouble(RareDrop::getProbability)
@@ -104,9 +102,7 @@ public abstract class AbstractRarityService {
 			int max = quantMax != null ? quantMax : quantity;
 			double prob = 1 / denominator;
 
-			if (rounds == 1) {
-				return List.of(new RareDrop(itemId, min, max, prob));
-			}
+			if (rounds == 1) return List.of(new RareDrop(itemId, min, max, prob));
 			List<RareDrop> drops = new ArrayList<>(rounds);
 			for (int successCount = 1; successCount <= rounds; successCount++) {
 				double density = MathUtils.binomialProbability(prob, rounds, successCount);

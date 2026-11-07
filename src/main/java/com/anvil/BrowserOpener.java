@@ -12,8 +12,7 @@ package com.anvil;
  * plugin's live login path — the one thing in that file that was never about federation at all.</p>
  */
 @FunctionalInterface
-public interface BrowserOpener
-{
+public interface BrowserOpener {
 	/** @return true when a browser was actually opened. */
 	boolean open(String url);
 }

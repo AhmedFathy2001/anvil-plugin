@@ -2,8 +2,7 @@ package com.anvil;
 
 import java.util.*;
 
-public class PluginConfigResponse
-{
+public class PluginConfigResponse {
 	/**
 	 * Version/capability handshake, sent by sites ≥ v1.0.0 on every /config shape. Null on
 	 * older sites — {@link #serverSupports(String)} treats that as the v1.0.0 baseline set,
@@ -11,8 +10,7 @@ public class PluginConfigResponse
 	 */
 	public ServerInfo server;
 
-	public static class ServerInfo
-	{
+	public static class ServerInfo {
 		public List<String> capabilities;
 	}
 
@@ -29,12 +27,8 @@ public class PluginConfigResponse
 	 * different version. Capabilities newer than the baseline return false until the site
 	 * explicitly advertises them — the surface should hide, not error.
 	 */
-	public boolean serverSupports(String capability)
-	{
-		if (server == null || server.capabilities == null)
-		{
-			return BASELINE_CAPABILITIES.contains(capability);
-		}
+	public boolean serverSupports(String capability) {
+		if (server == null || server.capabilities == null) return BASELINE_CAPABILITIES.contains(capability);
 		return server.capabilities.contains(capability);
 	}
 
@@ -57,8 +51,7 @@ public class PluginConfigResponse
 	/** Every clan the token's owner holds a seat in. Empty/null on an older site. */
 	public List<ClanRef> clans;
 
-	public static class ClanRef
-	{
+	public static class ClanRef {
 		public String slug;
 		public String name;
 		/** Verified in-game clan-channel name; may differ from the site's display name. */
@@ -96,8 +89,7 @@ public class PluginConfigResponse
 	 * every host, so the same board arrives listed under each of them and the id is the only thing
 	 * that says so.
 	 */
-	public static class ClanBoard extends HomeBoard
-	{
+	public static class ClanBoard extends HomeBoard {
 		/**
 		 * "bingo" or "weekly" — and half of this thing's identity.
 		 *
@@ -109,14 +101,12 @@ public class PluginConfigResponse
 		// tilesComplete is zero on a weekly: a competition has a leaderboard, not a board to fill.
 
 		/** True for a SOTW/BOTW — no board to fill, so no progress bar and no tile tally. */
-		public boolean isWeekly()
-		{
+		public boolean isWeekly() {
 			return "weekly".equals(kind);
 		}
 
 		/** Identity across clans: the id alone is ambiguous between the two tables it can come from. */
-		public String identity()
-		{
+		public String identity() {
 			return kind == null || "bingo".equals(kind) ? boardIdentity(eventId) : kind + ":" + eventId;
 		}
 	}
@@ -127,14 +117,12 @@ public class PluginConfigResponse
 	 * A single clan is not a choice, so it is not a dropdown — the panel hides the control entirely
 	 * rather than showing one option that does nothing.
 	 */
-	public List<ClanRef> switchableClans()
-	{
+	public List<ClanRef> switchableClans() {
 		return clans == null ? Collections.emptyList() : clans;
 	}
 
 	/** The slug this response was resolved for, or null on a site that does not say. */
-	public String activeClanSlug()
-	{
+	public String activeClanSlug() {
 		return activeClan == null || activeClan.slug == null || activeClan.slug.isEmpty()
 			? null
 			: activeClan.slug;
@@ -152,8 +140,7 @@ public class PluginConfigResponse
 	 */
 	public HomeBoard homeBoard;
 
-	public static class HomeBoard extends BoardTally
-	{
+	public static class HomeBoard extends BoardTally {
 		/**
 		 * WHICH board this is. Zero on a site that predates the field.
 		 *
@@ -176,8 +163,7 @@ public class PluginConfigResponse
 	public BoardTally board;
 
 	/** Earned/total for the board as a whole — points on a points board, tiles otherwise. */
-	public static class BoardTally
-	{
+	public static class BoardTally {
 		public int tilesComplete;
 		public int tilesTotal;
 	}
@@ -188,8 +174,7 @@ public class PluginConfigResponse
 	 * A board id and a competition id come out of different tables and collide freely, which is why
 	 * the kind is half of it — see {@link ClanBoard#identity()}.
 	 */
-	public static String boardIdentity(int eventId)
-	{
+	public static String boardIdentity(int eventId) {
 		return "bingo:" + eventId;
 	}
 
@@ -216,8 +201,7 @@ public class PluginConfigResponse
 	// capability, so the button simply never appears there.
 	public StartProof startProof;
 
-	public static class StartProof
-	{
+	public static class StartProof {
 		/** Does this event ask for a starting shot at all? */
 		public boolean required;
 		/** Has the location been drawn (i.e. has the event gone live)? Nothing exists before this. */
@@ -246,8 +230,7 @@ public class PluginConfigResponse
 		public String status;
 
 		/** The drawn spot on the world map: where, and how many squares from it still counts. */
-		public static class Spot
-		{
+		public static class Spot {
 			public int x;
 			public int y;
 			public int radius;
@@ -326,8 +309,7 @@ public class PluginConfigResponse
 	 */
 	public ModeThresholds modeThresholds;
 
-	public static class ModeThresholds
-	{
+	public static class ModeThresholds {
 		public int dropRarityFloor;
 		public long dropMinValue;
 		public LevelRules levelRules;
@@ -337,8 +319,7 @@ public class PluginConfigResponse
 	 * {@code guaranteed}, the pet's for {@code pets} — because that is what the client has in hand
 	 * when a post is being written, and it survives an item-id variant swap.
 	 */
-	public static class DropFacts
-	{
+	public static class DropFacts {
 		/** Pet name -> where it really comes from. */
 		public Map<String, Pet> pets;
 		/**
@@ -347,8 +328,7 @@ public class PluginConfigResponse
 		 */
 		public Map<String, List<String>> guaranteed;
 
-		public static class Pet
-		{
+		public static class Pet {
 			/** Every source that drops this pet. Empty for a skilling pet — there is no monster. */
 			public List<String> sources;
 			/** "npc" (killable, so a rate and a KC exist), "event" (raid/minigame), or "skill". */
@@ -358,8 +338,7 @@ public class PluginConfigResponse
 		}
 	}
 
-	public static class NotifyChannels
-	{
+	public static class NotifyChannels {
 		// True when the site has a Discord webhook configured for this notification type. The plugin
 		// posts notifications to its OWN server (POST /api/plugin/config's sibling /api/plugin/notify),
 		// which forwards them to Discord server-side — the plugin never receives or calls the webhook
@@ -382,8 +361,7 @@ public class PluginConfigResponse
 		public Boolean collectionLog;
 	}
 
-	public static class EventInfo
-	{
+	public static class EventInfo {
 		public int id;
 		public String name;
 		public String startDate;
@@ -405,16 +383,14 @@ public class PluginConfigResponse
 		public List<Claim> recentClaims;
 	}
 
-	public static class Mission
-	{
+	public static class Mission {
 		public int tileId;
 		public String label;
 		public int points;        // face value before the decay ramp
 		public String category;
 	}
 
-	public static class Claim
-	{
+	public static class Claim {
 		public int tileId;
 		public String label;
 		public int points;
@@ -422,22 +398,19 @@ public class PluginConfigResponse
 		public String at;         // ISO completion time
 	}
 
-	public static class TeamInfo
-	{
+	public static class TeamInfo {
 		public int id;
 		public String name;
 		public String color;
 	}
 
-	public static class PlayerInfo
-	{
+	public static class PlayerInfo {
 		public int id;
 	}
 
 
 	/** Where an other-board tile's credit goes (X-Anvil-Boards). */
-	public static class Board
-	{
+	public static class Board {
 		public int eventId;
 		public int teamId;
 		public int playerId;
@@ -446,33 +419,23 @@ public class PluginConfigResponse
 	}
 
 	/** Other-board tiles by id; their labels gain " · board" so chat tells two boards apart. */
-	public Map<Integer, Board> tagBoards()
-	{
+	public Map<Integer, Board> tagBoards() {
 		Map<Integer, Board> out = new HashMap<>();
 		for (List<? extends TrackedTile> l : Arrays.asList(trackedDrops, trackedKills, trackedPvp, trackedTimed,
 			trackedLms, trackedValues, trackedGains, trackedDeathless, trackedDiaries, trackedCombatTasks, trackedClog,
-			trackedCombos))
-		{
-			for (TrackedTile t : l == null ? Collections.<TrackedTile>emptyList() : l)
-			{
-				if (t == null || t.board == null)
-				{
-					continue;
-				}
+			trackedCombos)) {
+			for (TrackedTile t : l == null ? Collections.<TrackedTile>emptyList() : l) {
+				if (t == null || t.board == null) continue;
 				out.put(t.tileId, t.board);
 				String tag = " · " + t.board.name;
-				if (t.board.name != null && t.label != null && !t.label.endsWith(tag))
-				{
-					t.label += tag;
-				}
+				if (t.board.name != null && t.label != null && !t.label.endsWith(tag)) t.label += tag;
 			}
 		}
 		return out;
 	}
 
 	/** What every tile on the wire shares (tracked tiles and the board's). */
-	public abstract static class TrackedTile
-	{
+	public abstract static class TrackedTile {
 		public int tileId;
 		public int position;   // board position — the list mirrors the site's tile order (0 on old servers)
 		public String label;
@@ -485,21 +448,18 @@ public class PluginConfigResponse
 		// Another board the player is on (null = the active board, {@code event}): credit goes there.
 		public Board board;
 
-		public boolean isPart()
-		{
+		public boolean isPart() {
 			return partOf != null && partOf > 0;
 		}
 	}
 
 	/** A tracked tile that completes at a count. */
-	public abstract static class CountedTile extends TrackedTile
-	{
+	public abstract static class CountedTile extends TrackedTile {
 		public int requiredAmount;
 		public int currentAmount;     // the team's submitted progress so far
 	}
 
-	public static class TrackedDrop extends CountedTile
-	{
+	public static class TrackedDrop extends CountedTile {
 		public List<Integer> itemIds;
 		public List<ItemRequirement> itemRequirements;
 		// null/empty = any source NPC. Otherwise the drop only counts when the loot source
@@ -518,8 +478,7 @@ public class PluginConfigResponse
 		public int setsRequired;
 	}
 
-	public static class ItemRequirement
-	{
+	public static class ItemRequirement {
 		public int itemId;
 		public String name;
 		public int requiredAmount;
@@ -541,8 +500,7 @@ public class PluginConfigResponse
 	 * corrected item list needs no plugin release. Empty/absent on older servers — the tracker
 	 * then simply says nothing.
 	 */
-	public static class RollTable
-	{
+	public static class RollTable {
 		public String boss;                 // NPC name as the loot event reports it
 		public List<Integer> rollItemIds;   // every item that counts as one roll
 		public int vestigeItemId;
@@ -550,8 +508,7 @@ public class PluginConfigResponse
 		public int rollsPerVestige;         // counting the vestige itself: 1, 2, vestige
 	}
 
-	public static class CompletedTile
-	{
+	public static class CompletedTile {
 		public int tileId;
 		public String label;
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
@@ -564,8 +521,7 @@ public class PluginConfigResponse
 	 * of them — "nOf"). The parts ride the ordinary tracked lists tagged {@code partOf}; this says how
 	 * they fold together. The site counts {@code done} and decides completion.
 	 */
-	public static class TrackedCombo extends TrackedTile
-	{
+	public static class TrackedCombo extends TrackedTile {
 		public String rule;
 		public int needed;
 		public int done;
@@ -574,8 +530,7 @@ public class PluginConfigResponse
 		public boolean completed;
 	}
 
-	public static class ComboPart
-	{
+	public static class ComboPart {
 		public int tileId;
 		public String label;
 		public boolean completed;
@@ -583,8 +538,7 @@ public class PluginConfigResponse
 
 	// Kill-count tile: the plugin counts kills of any NPC named in targetNpcs (case-insensitive,
 	// need NOT be on the hiscores) toward requiredAmount. Same submission flow as a simple drop.
-	public static class TrackedKill extends CountedTile
-	{
+	public static class TrackedKill extends CountedTile {
 		// Shared kills. "per-kill" = a kill several members were in credits ONCE (the server
 		// correlates their reports); coopMinMembers = the kill only counts with at least that many
 		// of the team in it. Either one makes this client attach what it could see of its company.
@@ -602,14 +556,12 @@ public class PluginConfigResponse
 		public Integer capOf;
 
 		/** A capped tile's cap counter (counted and submitted silently). */
-		public boolean isCap()
-		{
+		public boolean isCap() {
 			return capOf != null && capOf > 0;
 		}
 
 
-		public boolean needsCoopFingerprint()
-		{
+		public boolean needsCoopFingerprint() {
 			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
 		}
 	}
@@ -620,8 +572,7 @@ public class PluginConfigResponse
 	// minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM never do. The victim must match
 	// a selector: "any" = any player at all, "team:other" = any member of a rival team (resolved against pvpRoster),
 	// "rsn:<name>" = a named bounty (need not be in the event). Same submission flow as kill.
-	public static class TrackedPvp extends CountedTile
-	{
+	public static class TrackedPvp extends CountedTile {
 		public List<String> targets;      // selectors — "any", "team:other" or "rsn:<name>" entries
 		// Minimum loot value (gp) a kill must yield to count. 0 = no minimum (credit off the death,
 		// including loot-key kills). > 0 defers the credit to PlayerLootReceived and only counts a
@@ -630,8 +581,7 @@ public class PluginConfigResponse
 	}
 
 	// One event participant, for 'team:other' matching. Only players with a team are included.
-	public static class RosterEntry
-	{
+	public static class RosterEntry {
 		public String name;    // RSN as enrolled on the site
 		public int teamId;
 	}
@@ -639,8 +589,7 @@ public class PluginConfigResponse
 	// Achievement-diary tile: the plugin credits a completion when the in-game diary completion
 	// line matches one of the selectors — "<Area> <Tier>" strings with "Any" as a wildcard on
 	// either side ("Ardougne Elite", "Any Elite", "Wilderness Any"). Same submission flow as kill.
-	public static class TrackedDiary extends CountedTile
-	{
+	public static class TrackedDiary extends CountedTile {
 		public List<String> diaries;      // selectors — any matching one counts a completion
 	}
 
@@ -648,62 +597,46 @@ public class PluginConfigResponse
 	// a <tier> combat task" line matches one of the selectors — exact task names ("Whack-a-Mole")
 	// or "Any <Tier>" wildcards ("Any Master"). Players who already own a task re-fire the line by
 	// enabling the in-game "Repeat completion" setting. Same submission flow as diary.
-	public static class TrackedCombatTask extends CountedTile
-	{
+	public static class TrackedCombatTask extends CountedTile {
 		public List<String> tasks;        // selectors — any matching one counts a completion
 	}
 
 	// Collection-log tile. Credited off "New item added to your collection log: X" when X is in
 	// `items` (null = any item); the site decides whether it is really a new slot for this player.
-	public static class TrackedClog extends CountedTile
-	{
+	public static class TrackedClog extends CountedTile {
 		public String mode;                        // "slots" | "complete" (finish pages)
 		public List<String> items;                 // names that count, normalised by key(); null = any
 		public Map<String, List<Integer>> groups;  // "complete": page -> its chosen item ids
 		public boolean completed;
 
 		/** Lowercase, punctuation as single spaces — the way the site writes {@code items}. */
-		static String key(String name)
-		{
+		static String key(String name) {
 			return name == null ? "" : name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
 		}
 
-		boolean complete()
-		{
+		boolean complete() {
 			return "complete".equals(mode);
 		}
 
 		/** Does this unlock count toward the tile? */
-		boolean counts(String itemName)
-		{
-			if (completed || itemName == null || (!complete() && currentAmount >= requiredAmount))
-			{
-				return false;
-			}
+		boolean counts(String itemName) {
+			if (completed || itemName == null || (!complete() && currentAmount >= requiredAmount)) return false;
 			return items == null || items.contains(key(itemName));
 		}
 
 		/** "complete": is this open log page, with these obtained ids, one of the tile's finished pages? */
-		boolean pageFull(String page, int[] obtained)
-		{
+		boolean pageFull(String page, int[] obtained) {
 			List<Integer> want = completed || groups == null || page == null ? null : groups.get(page);
-			if (want == null || want.isEmpty() || obtained == null)
-			{
-				return false;
-			}
+			if (want == null || want.isEmpty() || obtained == null) return false;
 			Set<Integer> have = new HashSet<>();
-			for (int id : obtained)
-			{
-				have.add(id);
-			}
+			for (int id : obtained) have.add(id);
 			return have.containsAll(want);
 		}
 	}
 
 	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
 	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
-	public static class TrackedTimed extends TrackedTile
-	{
+	public static class TrackedTimed extends TrackedTile {
 		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
 		public int thresholdSeconds;       // complete if a clear is at or under this
 		public int partySize;              // raids — exact party size required; 0/absent = any size
@@ -717,31 +650,26 @@ public class PluginConfigResponse
 		public Integer currentAmount;
 
 		/** Qualifying runs the tile needs — 1 for a plain timed tile and on older servers. */
-		public int runsRequired()
-		{
+		public int runsRequired() {
 			return requiredAmount == null || requiredAmount < 1 ? 1 : requiredAmount;
 		}
 
-		public int runsDone()
-		{
+		public int runsDone() {
 			return currentAmount == null ? 0 : Math.max(0, currentAmount);
 		}
 	}
 
-	public static class TrackedLms extends CountedTile
-	{
+	public static class TrackedLms extends CountedTile {
 		public int placementCap;           // finish at or under this placement (1 = win)
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedGain extends CountedTile
-	{
+	public static class TrackedGain extends CountedTile {
 		public List<Integer> itemIds;      // pool — any of these appearing in the inventory counts
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedDeathless extends CountedTile
-	{
+	public static class TrackedDeathless extends CountedTile {
 		public String activity;            // the raid, e.g. "Theatre of Blood"
 		public int partySize;              // exact party size required; 0/absent = any size
 		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
@@ -754,22 +682,19 @@ public class PluginConfigResponse
 		public int itemId = -1;            // activity's signature reward (icon), -1 = book sprite
 		public boolean completed;          // team already completed this tile
 
-		public boolean needsCoopFingerprint()
-		{
+		public boolean needsCoopFingerprint() {
 			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
 		}
 	}
 
-	public static class TrackedValue extends TrackedTile
-	{
+	public static class TrackedValue extends TrackedTile {
 		public String mode;                // "single" (one haul ≥ threshold) | "total" (hauls sum to threshold)
 
 		public List<String> sources;       // optional source filter: NPC/chest names, or "PvP"; empty = any
 		public boolean completed;          // team already completed this tile
 	}
 
-	public static class TrackedStat extends TrackedTile
-	{
+	public static class TrackedStat extends TrackedTile {
 		public String statName;     // e.g. "mining", "zulrah"
 		public String statType;     // "skill" | "boss" | "kc"
 		public int itemId = -1;     // boss KC tiles: the boss's representative clog item (icon); -1 for skills

@@ -26,8 +26,7 @@ import java.util.*;
  * that drops the pet you just got to keep a 200k loot pile would be worse than useless. Touched
  * from the client thread (game events) and drained on the executor, so every method is synchronized.
  */
-class AnvilMoments
-{
+class AnvilMoments {
 	/**
 	 * A session's backlog, not a history. The site takes 25 per push and the pushes are debounced to
 	 * seconds, so this only fills at all when the site is unreachable.
@@ -40,8 +39,7 @@ class AnvilMoments
 	/** Below this a drop isn't worth reporting on price alone. The site's floors are stricter. */
 	static final long MIN_REPORTABLE_GP = 100_000L;
 
-	static final class Moment
-	{
+	static final class Moment {
 		/** 'pet' | 'drop' | 'death' | 'ca' | 'level', and the chat feed's own 'clog' | 'diary'. */
 		final String kind;
 		final Integer itemId;
@@ -58,14 +56,12 @@ class AnvilMoments
 		final String key;
 
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
-			   String source, String sourceKind, Integer kc, long at, String key)
-		{
+			   String source, String sourceKind, Integer kc, long at, String key) {
 			this(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc, null, null, at, key);
 		}
 
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
-			   String source, String sourceKind, Integer kc, String taskName, String tier, long at, String key)
-		{
+			   String source, String sourceKind, Integer kc, String taskName, String tier, long at, String key) {
 			this.kind = kind;
 			this.itemId = itemId;
 			this.itemName = itemName;
@@ -81,8 +77,7 @@ class AnvilMoments
 		}
 
 		/** A completed combat task. The site decides which boss it belongs to and whether it's news. */
-		static Moment combatTask(String taskName, String tier, long at)
-		{
+		static Moment combatTask(String taskName, String tier, long at) {
 			return new Moment("ca", null, null, 1, null, null, null, null, taskName, tier, at,
 				keyFor("ca", taskName, null, at));
 		}
@@ -97,8 +92,7 @@ class AnvilMoments
 		 * <p>Keyed on the skill and the number, NOT on the clock: a 99 happens once, and if a retry or
 		 * a second sighting arrives ten seconds later it is still the same 99.</p>
 		 */
-		static Moment level(String skill, int level, String scope, long at)
-		{
+		static Moment level(String skill, int level, String scope, long at) {
 			return new Moment("level", null, skill, level, null, null, scope, null, at,
 				"level|" + (skill == null ? "total" : skill.toLowerCase(Locale.ROOT)) + "|" + level);
 		}
@@ -111,18 +105,11 @@ class AnvilMoments
 	 * Queue one. A repeat of a key already waiting REPLACES it — the second sighting of the same pet
 	 * is the one that knows its name.
 	 */
-	synchronized void record(Moment moment)
-	{
-		if (moment == null || moment.key == null || moment.key.isEmpty())
-		{
-			return;
-		}
+	synchronized void record(Moment moment) {
+		if (moment == null || moment.key == null || moment.key.isEmpty()) return;
 		pending.remove(moment.key);
 		pending.put(moment.key, moment);
-		while (pending.size() > MAX_QUEUED)
-		{
-			pending.remove(pending.keySet().iterator().next());
-		}
+		while (pending.size() > MAX_QUEUED) pending.remove(pending.keySet().iterator().next());
 	}
 
 	/**
@@ -131,8 +118,7 @@ class AnvilMoments
 	 *
 	 * @return true when there was something to name
 	 */
-	synchronized boolean nameQueued(String key, String itemName, Integer itemId)
-	{
+	synchronized boolean nameQueued(String key, String itemName, Integer itemId) {
 		return nameQueued(key, itemName, itemId, null, null);
 	}
 
@@ -144,60 +130,41 @@ class AnvilMoments
 	 * The name is what makes the real source knowable, so the two corrections arrive together. A null
 	 * {@code source} leaves the queued one alone: the caller learned nothing better.
 	 */
-	synchronized boolean nameQueued(String key, String itemName, Integer itemId, String source, Integer kc)
-	{
+	synchronized boolean nameQueued(String key, String itemName, Integer itemId, String source, Integer kc) {
 		Moment existing = pending.get(key);
-		if (existing == null || itemName == null || itemName.isEmpty())
-		{
-			return false;
-		}
+		if (existing == null || itemName == null || itemName.isEmpty()) return false;
 		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
 			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
 			source != null ? kc : existing.kc, existing.at, existing.key));
 		return true;
 	}
 
-	synchronized boolean isEmpty()
-	{
+	synchronized boolean isEmpty() {
 		return pending.isEmpty();
 	}
 
-	synchronized int size()
-	{
+	synchronized int size() {
 		return pending.size();
 	}
 
 	/** The next batch to send. Stays queued until {@link #onSent} confirms it — a failed push retries. */
-	synchronized List<Moment> nextBatch()
-	{
+	synchronized List<Moment> nextBatch() {
 		List<Moment> batch = new ArrayList<>();
-		for (Moment m : pending.values())
-		{
+		for (Moment m : pending.values()) {
 			batch.add(m);
-			if (batch.size() >= BATCH)
-			{
-				break;
-			}
+			if (batch.size() >= BATCH) break;
 		}
 		return batch;
 	}
 
 	/** Drop what the site has taken. */
-	synchronized void onSent(List<Moment> batch)
-	{
-		if (batch == null)
-		{
-			return;
-		}
-		for (Moment m : batch)
-		{
-			pending.remove(m.key);
-		}
+	synchronized void onSent(List<Moment> batch) {
+		if (batch == null) return;
+		for (Moment m : batch) pending.remove(m.key);
 	}
 
 	/** Everything waiting, oldest first — for saving across a logout or restart. */
-	synchronized List<Moment> snapshot()
-	{
+	synchronized List<Moment> snapshot() {
 		return new ArrayList<>(pending.values());
 	}
 
@@ -206,32 +173,20 @@ class AnvilMoments
 	 * when it happened, and one from long ago is old news rather than a highlight. Entries already
 	 * queued under the same key win: they're the newer sighting.
 	 */
-	synchronized void restore(List<Moment> saved, long now, long maxAgeMs)
-	{
-		if (saved == null)
-		{
-			return;
-		}
+	synchronized void restore(List<Moment> saved, long now, long maxAgeMs) {
+		if (saved == null) return;
 		Map<String, Moment> merged = new LinkedHashMap<>();
-		for (Moment m : saved)
-		{
-			if (m != null && m.key != null && !m.key.isEmpty() && m.kind != null && now - m.at <= maxAgeMs)
-			{
-				merged.put(m.key, m);
-			}
+		for (Moment m : saved) {
+			if (m != null && m.key != null && !m.key.isEmpty() && m.kind != null && now - m.at <= maxAgeMs) merged.put(m.key, m);
 		}
 		merged.putAll(pending);
 		pending.clear();
 		pending.putAll(merged);
-		while (pending.size() > MAX_QUEUED)
-		{
-			pending.remove(pending.keySet().iterator().next());
-		}
+		while (pending.size() > MAX_QUEUED) pending.remove(pending.keySet().iterator().next());
 	}
 
 	/** Forget everything — a different account logging in doesn't inherit this one's moments. */
-	synchronized void reset()
-	{
+	synchronized void reset() {
 		pending.clear();
 	}
 
@@ -243,8 +198,7 @@ class AnvilMoments
 	 * ten seconds so the copies — which arrive within a tick or two of each other — agree, while a
 	 * second genuine drop of the same item minutes later does not.
 	 */
-	static String keyFor(String kind, String source, Integer itemId, long at)
-	{
+	static String keyFor(String kind, String source, Integer itemId, long at) {
 		long bucket = at / 10_000L;
 		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
 			+ (itemId == null ? "" : itemId) + "|" + bucket;

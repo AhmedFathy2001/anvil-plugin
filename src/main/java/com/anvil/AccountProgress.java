@@ -17,8 +17,7 @@ import net.runelite.api.gameval.*;
  * value; the caller diffs it against what it last sent and pushes only the difference, which is
  * usually nothing.
  */
-final class AccountProgress
-{
+final class AccountProgress {
 	/**
 	 * Diary completion varbits, region by region, in tier order: easy, medium, hard, elite.
 	 *
@@ -55,8 +54,7 @@ final class AccountProgress
 		"diaryWilderness", "diaryKaramja",
 	};
 
-	private AccountProgress()
-	{
+	private AccountProgress() {
 	}
 
 	/**
@@ -67,13 +65,9 @@ final class AccountProgress
 	 * quest cape. The server max-merges as a second line of defence, but not sending nonsense is the
 	 * first one.
 	 */
-	static Map<String, Integer> sample(Client client)
-	{
+	static Map<String, Integer> sample(Client client) {
 		Map<String, Integer> out = new LinkedHashMap<>();
-		if (client == null)
-		{
-			return out;
-		}
+		if (client == null) return out;
 
 		int questPoints = client.getVarpValue(VarPlayerID.QP);
 		int caPoints = client.getVarbitValue(VarbitID.CA_POINTS);
@@ -85,22 +79,16 @@ final class AccountProgress
 		int[] masks = new int[DIARY_VARBITS.length];
 		int[] diaries = new int[DIARY_KEYS.length];
 		int diaryTotal = 0;
-		for (int region = 0; region < masks.length; region++)
-		{
+		for (int region = 0; region < masks.length; region++) {
 			masks[region] = regionMask(client, DIARY_VARBITS[region]);
-			for (int tier = 0; tier < diaries.length; tier++)
-			{
-				if ((masks[region] & 1 << tier) != 0)
-				{
+			for (int tier = 0; tier < diaries.length; tier++) {
+				if ((masks[region] & 1 << tier) != 0) {
 					diaries[tier]++;
 					diaryTotal++;
 				}
 			}
 		}
-		if (questPoints <= 0 && caPoints <= 0 && diaryTotal <= 0)
-		{
-			return out;
-		}
+		if (questPoints <= 0 && caPoints <= 0 && diaryTotal <= 0) return out;
 
 		out.put("questPoints", questPoints);
 		out.put("questsCompleted", countQuests(client));
@@ -110,15 +98,9 @@ final class AccountProgress
 		int caTiers = tierMask(client, caPoints);
 		out.put("caTier", 32 - Integer.numberOfLeadingZeros(caTiers));
 		out.put("caTiers", caTiers);
-		for (int tier = 0; tier < DIARY_KEYS.length; tier++)
-		{
-			out.put(DIARY_KEYS[tier], diaries[tier]);
-		}
+		for (int tier = 0; tier < DIARY_KEYS.length; tier++) out.put(DIARY_KEYS[tier], diaries[tier]);
 		// Per region as well as per tier: the counts say how many, these say which.
-		for (int region = 0; region < masks.length; region++)
-		{
-			out.put(DIARY_REGION_KEYS[region], masks[region]);
-		}
+		for (int region = 0; region < masks.length; region++) out.put(DIARY_REGION_KEYS[region], masks[region]);
 		// Says the mask above includes the lower three tiers. Its own key: an older site drops it and
 		// keeps treating them as unknown, a current one trusts them (site memberProgress).
 		out.put("diaryKaramjaFull", 1);
@@ -135,15 +117,10 @@ final class AccountProgress
 	static final String ACCOUNT_TYPE_KEY = "accountType";
 
 	/** One region's four tiers, as a mask: easy 1, medium 2, hard 4, elite 8 — the site's numbering. */
-	private static int regionMask(Client client, int[] region)
-	{
+	private static int regionMask(Client client, int[] region) {
 		int mask = 0;
-		for (int tier = 0; tier < region.length; tier++)
-		{
-			if (client.getVarbitValue(region[tier]) > 0)
-			{
-				mask |= 1 << tier;
-			}
+		for (int tier = 0; tier < region.length; tier++) {
+			if (client.getVarbitValue(region[tier]) > 0) mask |= 1 << tier;
 		}
 		return mask;
 	}
@@ -155,15 +132,10 @@ final class AccountProgress
 	 * calls it, and the only way to the number: the game keeps no "quests completed" counter, only
 	 * quest points, and those weight quests differently.
 	 */
-	private static int countQuests(Client client)
-	{
+	private static int countQuests(Client client) {
 		int done = 0;
-		for (Quest quest : Quest.values())
-		{
-			if (quest.getState(client) == QuestState.FINISHED)
-			{
-				done++;
-			}
+		for (Quest quest : Quest.values()) {
+			if (quest.getState(client) == QuestState.FINISHED) done++;
 		}
 		return done;
 	}
@@ -178,19 +150,11 @@ final class AccountProgress
 	 *
 	 * <p>Client thread.
 	 */
-	static Map<Integer, Integer> combatVarps(Client client, List<Integer> varps)
-	{
+	static Map<Integer, Integer> combatVarps(Client client, List<Integer> varps) {
 		Map<Integer, Integer> out = new LinkedHashMap<>();
-		if (client == null || varps == null)
-		{
-			return out;
-		}
-		for (Integer varpId : varps)
-		{
-			if (varpId == null || varpId <= 0)
-			{
-				continue;
-			}
+		if (client == null || varps == null) return out;
+		for (Integer varpId : varps) {
+			if (varpId == null || varpId <= 0) continue;
 			out.put(varpId, client.getVarpValue(varpId));
 		}
 		return out;
@@ -198,8 +162,7 @@ final class AccountProgress
 
 	/** One quest, as the site lists it: the game's own id and name, and which of the three states. */
 	@RequiredArgsConstructor
-	static final class Item
-	{
+	static final class Item {
 		final int id;
 		final String name;
 		final int state;
@@ -215,15 +178,10 @@ final class AccountProgress
 	 *
 	 * <p>Client thread, like everything else here.
 	 */
-	static List<Item> quests(Client client)
-	{
+	static List<Item> quests(Client client) {
 		List<Item> out = new ArrayList<>();
-		if (client == null)
-		{
-			return out;
-		}
-		for (Quest quest : Quest.values())
-		{
+		if (client == null) return out;
+		for (Quest quest : Quest.values()) {
 			QuestState state = quest.getState(client);
 			int code = state == QuestState.FINISHED ? 2 : state == QuestState.IN_PROGRESS ? 1 : 0;
 			out.add(new Item(quest.getId(), quest.getName(), code));
@@ -239,17 +197,12 @@ final class AccountProgress
 	 * completion post already uses, and a tier the player cleared but never claimed the reward for
 	 * still counts as cleared.
 	 */
-	private static int tierMask(Client client, int caPoints)
-	{
+	private static int tierMask(Client client, int caPoints) {
 		int mask = 0;
 		int index = 0;
-		for (CombatAchievementTier t : CombatAchievementTier.values())
-		{
+		for (CombatAchievementTier t : CombatAchievementTier.values()) {
 			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-			if (threshold > 0 && caPoints >= threshold)
-			{
-				mask |= 1 << index;
-			}
+			if (threshold > 0 && caPoints >= threshold) mask |= 1 << index;
 			index++;
 		}
 		return mask;

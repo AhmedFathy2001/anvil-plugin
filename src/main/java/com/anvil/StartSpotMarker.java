@@ -17,8 +17,7 @@ import net.runelite.client.util.ImageUtil;
  * whole route; without it the message simply goes unheard.
  */
 @Singleton
-class StartSpotMarker
-{
+class StartSpotMarker {
 	private static final BufferedImage PIN = ImageUtil.resizeImage(
 		ImageUtil.loadImageResource(StartSpotMarker.class, "/com/anvil/sidebar_icon.png"), 20, 20);
 
@@ -30,16 +29,14 @@ class StartSpotMarker
 	private WorldMapPoint mapPoint;
 
 	@Inject
-	StartSpotMarker(Client client, WorldMapPointManager mapPoints, EventBus eventBus)
-	{
+	StartSpotMarker(Client client, WorldMapPointManager mapPoints, EventBus eventBus) {
 		this.client = client;
 		this.mapPoints = mapPoints;
 		this.eventBus = eventBus;
 	}
 
 	/** The spot to mark, or null for none. Spots are drawn on the surface, so the plane is 0. */
-	static WorldPoint target(PluginConfigResponse.StartProof proof)
-	{
+	static WorldPoint target(PluginConfigResponse.StartProof proof) {
 		return proof == null || proof.spot == null ? null : new WorldPoint(proof.spot.x, proof.spot.y, 0);
 	}
 
@@ -47,17 +44,10 @@ class StartSpotMarker
 	 * Client thread, every tick. Sets the arrow and pin once when the target appears or moves and takes
 	 * them down when it goes, so a quest's own hint arrow is only ever replaced while a shot is owed.
 	 */
-	void update(WorldPoint target, String label)
-	{
-		if (Objects.equals(target, shown))
-		{
-			return;
-		}
+	void update(WorldPoint target, String label) {
+		if (Objects.equals(target, shown)) return;
 		clear();
-		if (target == null)
-		{
-			return;
-		}
+		if (target == null) return;
 		client.setHintArrow(target);
 		mapPoint = WorldMapPoint.builder()
 			.worldPoint(target)
@@ -72,14 +62,9 @@ class StartSpotMarker
 	}
 
 	/** Client thread. Takes down our arrow (never someone else's) and our pin. */
-	void clear()
-	{
-		if (shown != null && client.hasHintArrow() && shown.equals(client.getHintArrowPoint()))
-		{
-			client.clearHintArrow();
-		}
-		if (mapPoint != null)
-		{
+	void clear() {
+		if (shown != null && client.hasHintArrow() && shown.equals(client.getHintArrowPoint())) client.clearHintArrow();
+		if (mapPoint != null) {
 			mapPoints.remove(mapPoint);
 			mapPoint = null;
 		}
@@ -87,11 +72,7 @@ class StartSpotMarker
 	}
 
 	/** Ask Shortest Path for a route to {@code target}. Client thread. */
-	void route(WorldPoint target)
-	{
-		if (target != null)
-		{
-			eventBus.post(new PluginMessage("shortestpath", "path", Collections.singletonMap("target", target)));
-		}
+	void route(WorldPoint target) {
+		if (target != null) eventBus.post(new PluginMessage("shortestpath", "path", Collections.singletonMap("target", target)));
 	}
 }

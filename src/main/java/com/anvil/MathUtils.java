@@ -16,9 +16,7 @@ final class MathUtils {
 		int n = 10;
 		int[] facts = new int[n];
 		facts[0] = 1;
-		for (int i = 1; i < n; i++) {
-			facts[i] = i * facts[i - 1];
-		}
+		for (int i = 1; i < n; i++) facts[i] = i * facts[i - 1];
 		FACTORIALS = facts;
 	}
 

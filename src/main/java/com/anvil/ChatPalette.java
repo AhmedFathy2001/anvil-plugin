@@ -12,22 +12,14 @@ import java.util.regex.Pattern;
  * the palette over with the login brief. Until then, and against a site without one, the Anvil
  * colours apply. "Plain" means the plugin's own text colour for everything (its existing setting).
  */
-final class ChatPalette
-{
-	enum Tone
-	{
+final class ChatPalette {
+	enum Tone {
 		DONE, NEAR, DROP, FEED, WARN, INFO;
 
-		static Tone of(String s)
-		{
-			if (s != null)
-			{
-				for (Tone t : values())
-				{
-					if (t.name().equalsIgnoreCase(s))
-					{
-						return t;
-					}
+		static Tone of(String s) {
+			if (s != null) {
+				for (Tone t : values()) {
+					if (t.name().equalsIgnoreCase(s)) return t;
 				}
 			}
 			return INFO;
@@ -45,8 +37,7 @@ final class ChatPalette
 	 */
 	private static final Map<Tone, String> OPAQUE = new EnumMap<>(Tone.class);
 
-	static
-	{
+	static {
 		OPAQUE.put(Tone.DONE, "006a00");
 		OPAQUE.put(Tone.NEAR, "7a4a00");
 		OPAQUE.put(Tone.DROP, "a03c00");
@@ -60,14 +51,12 @@ final class ChatPalette
 	/** Custom palettes colour INFO too; the Anvil one leaves it to the player's own text colour. */
 	private final boolean custom;
 
-	private ChatPalette(Map<Tone, String> colors, boolean custom)
-	{
+	private ChatPalette(Map<Tone, String> colors, boolean custom) {
 		this.colors = colors;
 		this.custom = custom;
 	}
 
-	private static ChatPalette anvil()
-	{
+	private static ChatPalette anvil() {
 		Map<Tone, String> m = new EnumMap<>(Tone.class);
 		m.put(Tone.DONE, "16c60c");
 		m.put(Tone.NEAR, "ffb000");
@@ -79,34 +68,21 @@ final class ChatPalette
 	}
 
 	/** The site's look ({palette, colors}); anything unreadable keeps the Anvil colour for that tone. */
-	static ChatPalette from(String palette, Map<String, String> colors)
-	{
-		if ("plain".equals(palette))
-		{
-			return new ChatPalette(null, false);
-		}
+	static ChatPalette from(String palette, Map<String, String> colors) {
+		if ("plain".equals(palette)) return new ChatPalette(null, false);
 		Map<Tone, String> m = new EnumMap<>(ANVIL.colors);
-		if (colors != null)
-		{
-			for (Map.Entry<String, String> e : colors.entrySet())
-			{
+		if (colors != null) {
+			for (Map.Entry<String, String> e : colors.entrySet()) {
 				String v = e.getValue() == null ? "" : e.getValue().replace("#", "");
-				if (HEX.matcher(v).matches())
-				{
-					m.put(Tone.of(e.getKey()), v.toLowerCase(Locale.ROOT));
-				}
+				if (HEX.matcher(v).matches()) m.put(Tone.of(e.getKey()), v.toLowerCase(Locale.ROOT));
 			}
 		}
 		return new ChatPalette(m, "custom".equals(palette));
 	}
 
 	/** The text colour for {@code tone}, {@code ownText} being the player's configured text colour. */
-	String text(Tone tone, String ownText, boolean opaque)
-	{
-		if (colors == null || (tone == Tone.INFO && !custom))
-		{
-			return ownText;
-		}
+	String text(Tone tone, String ownText, boolean opaque) {
+		if (colors == null || (tone == Tone.INFO && !custom)) return ownText;
 		String c = opaque && !custom ? OPAQUE.get(tone) : colors.get(tone);
 		return c != null ? c : ownText;
 	}
@@ -115,8 +91,7 @@ final class ChatPalette
 	 * A name drawn letter by letter across 2–4 gradient stops ("#rrggbb"), or null when fewer than two
 	 * stops are valid. {@code safeName} must already be free of chat tags; spaces carry no colour.
 	 */
-	static String gradientName(String safeName, List<String> stops)
-	{
+	static String gradientName(String safeName, List<String> stops) {
 		return gradientName(safeName, stops, 0);
 	}
 
@@ -124,8 +99,7 @@ final class ChatPalette
 	 * The one chat-name renderer: callers choose the source or surface-derived palette, then this
 	 * handles static versus gradient markup and animation sampling.
 	 */
-	static String paintName(String safeName, String color, List<String> stops, double shift)
-	{
+	static String paintName(String safeName, String color, List<String> stops, double shift) {
 		String gradient = stops != null && stops.size() >= 2 ? gradientName(safeName, stops, shift) : null;
 		String solid = nameColor(color);
 		return gradient != null ? gradient
@@ -136,38 +110,27 @@ final class ChatPalette
 	 * A gradient name sampled {@code shift} name-widths farther along a reflecting gradient. A shift
 	 * from 0 to 2 is one seamless there-and-back animation cycle; zero is the ordinary static look.
 	 */
-	static String gradientName(String safeName, List<String> stops, double shift)
-	{
+	static String gradientName(String safeName, List<String> stops, double shift) {
 		List<int[]> rgb = new ArrayList<>();
-		for (String s : stops == null ? new ArrayList<String>() : stops)
-		{
+		for (String s : stops == null ? new ArrayList<String>() : stops) {
 			String hex = nameColor(s);
-			if (hex != null && rgb.size() < 4)
-			{
+			if (hex != null && rgb.size() < 4) {
 				int v = Integer.parseInt(hex, 16);
 				rgb.add(new int[]{(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff});
 			}
 		}
-		if (rgb.size() < 2 || safeName == null || safeName.isEmpty())
-		{
-			return null;
-		}
+		if (rgb.size() < 2 || safeName == null || safeName.isEmpty()) return null;
 		int n = safeName.codePointCount(0, safeName.length());
 		StringBuilder out = new StringBuilder(safeName.length() * 20);
 		int last = -1;
 		int i = 0;
-		for (int off = 0; off < safeName.length(); )
-		{
+		for (int off = 0; off < safeName.length(); ) {
 			int cp = safeName.codePointAt(off);
 			off += Character.charCount(cp);
-			if (!Character.isWhitespace(cp) && !Character.isSpaceChar(cp))
-			{
+			if (!Character.isWhitespace(cp) && !Character.isSpaceChar(cp)) {
 				double p = n == 1 ? shift : (double) i / (n - 1) + shift;
 				p %= 2;
-				if (p < 0)
-				{
-					p += 2;
-				}
+				if (p < 0) p += 2;
 				p = p > 1 ? 2 - p : p;
 				double t = p * (rgb.size() - 1);
 				int seg = Math.min((int) t, rgb.size() - 2);
@@ -177,12 +140,8 @@ final class ChatPalette
 				int c = (int) Math.round(a[0] + (b[0] - a[0]) * f) << 16
 					| (int) Math.round(a[1] + (b[1] - a[1]) * f) << 8
 					| (int) Math.round(a[2] + (b[2] - a[2]) * f);
-				if (c != last)
-				{
-					if (last >= 0)
-					{
-						out.append("</col>");
-					}
+				if (c != last) {
+					if (last >= 0) out.append("</col>");
 					out.append("<col=");
 					appendHex(out, c);
 					out.append('>');
@@ -196,12 +155,8 @@ final class ChatPalette
 	}
 
 	/** Six lower-case hex digits without the allocation-heavy Formatter used by the static path. */
-	private static void appendHex(StringBuilder out, int rgb)
-	{
-		for (int shift = 20; shift >= 0; shift -= 4)
-		{
-			out.append(HEX_DIGITS.charAt(rgb >> shift & 0xf));
-		}
+	private static void appendHex(StringBuilder out, int rgb) {
+		for (int shift = 20; shift >= 0; shift -= 4) out.append(HEX_DIGITS.charAt(rgb >> shift & 0xf));
 	}
 
 	// What the chatbox's text sits on: the opaque box's parchment, and a dark game scene behind the
@@ -218,14 +173,10 @@ final class ChatPalette
 	 * the parchment) or white (on the dark box) just until it does. Covers the tag, the tones, team
 	 * and Supporter names and every letter of a gradient, whoever chose the colour.
 	 */
-	static String readable(String line, boolean opaque)
-	{
+	static String readable(String line, boolean opaque) {
 		java.util.regex.Matcher m = COL.matcher(line);
 		StringBuffer out = new StringBuffer();
-		while (m.find())
-		{
-			m.appendReplacement(out, "<col=" + readableHex(m.group(1), opaque) + ">");
-		}
+		while (m.find()) m.appendReplacement(out, "<col=" + readableHex(m.group(1), opaque) + ">");
 		m.appendTail(out);
 		return out.toString();
 	}
@@ -235,70 +186,56 @@ final class ChatPalette
 	 * when it isn't a colour. readableHex answers bare "rrggbb", which Ui.teamColor refuses, so every
 	 * panel stop used to silently become its fallback (a white Tracking name, a one-colour Lookup name).
 	 */
-	static java.awt.Color readableColor(String hex, boolean opaque, java.awt.Color fallback)
-	{
+	static java.awt.Color readableColor(String hex, boolean opaque, java.awt.Color fallback) {
 		String v = nameColor(hex);
 		return v == null ? fallback : new java.awt.Color(Integer.parseInt(readableHex(v, opaque), 16));
 	}
 
-	static String readableHex(String hex, boolean opaque)
-	{
+	static String readableHex(String hex, boolean opaque) {
 		int source = Integer.parseInt(hex, 16);
 		int bg = opaque ? OPAQUE_BG : TRANSPARENT_BG;
 		int toward = opaque ? 0x000000 : 0xFFFFFF;
-		if (contrast(source, bg) >= MIN_CONTRAST)
-		{
-			return hex.toLowerCase(Locale.ROOT);
-		}
+		if (contrast(source, bg) >= MIN_CONTRAST) return hex.toLowerCase(Locale.ROOT);
 		// The old 10% staircase made a moving gradient visibly snap whenever a glyph crossed into the
 		// next darker/lighter band. Find the exact boundary instead; contrast is monotonic toward black
 		// on parchment and toward white on the transparent dark box.
 		double lo = 0;
 		double hi = 1;
 		int readable = toward;
-		for (int i = 0; i < 12; i++)
-		{
+		for (int i = 0; i < 12; i++) {
 			double mid = (lo + hi) / 2;
 			int candidate = mix(source, toward, mid);
-			if (contrast(candidate, bg) >= MIN_CONTRAST)
-			{
+			if (contrast(candidate, bg) >= MIN_CONTRAST) {
 				hi = mid;
 				readable = candidate;
-			}
-			else
-			{
+			} else {
 				lo = mid;
 			}
 		}
 		char[] out = new char[6];
-		for (int at = 5; at >= 0; at--)
-		{
+		for (int at = 5; at >= 0; at--) {
 			out[at] = HEX_DIGITS.charAt(readable & 0xf);
 			readable >>>= 4;
 		}
 		return new String(out);
 	}
 
-	static double contrast(int a, int b)
-	{
+	static double contrast(int a, int b) {
 		double la = luminance(a);
 		double lb = luminance(b);
 		return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 	}
 
-	private static double luminance(int rgb)
-	{
+	private static double luminance(int rgb) {
 		return 0.2126 * channel(rgb >> 16) + 0.7152 * channel(rgb >> 8) + 0.0722 * channel(rgb);
 	}
 
-	private static double channel(int v)
-	{
+	private static double channel(int v) {
 		double c = (v & 0xff) / 255.0;
 		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 	}
 
-	private static int mix(int a, int b, double t)
-	{
+	private static int mix(int a, int b, double t) {
 		int r = (int) Math.round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
 		int g = (int) Math.round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
 		int bl = (int) Math.round((a & 0xff) * (1 - t) + (b & 0xff) * t);
@@ -306,8 +243,7 @@ final class ChatPalette
 	}
 
 	/** A name colour from the site ("#rrggbb"), or null. */
-	static String nameColor(String s)
-	{
+	static String nameColor(String s) {
 		String v = s == null ? "" : s.replace("#", "");
 		return HEX.matcher(v).matches() ? v.toLowerCase(Locale.ROOT) : null;
 	}

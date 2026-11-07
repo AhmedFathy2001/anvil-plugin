@@ -24,8 +24,7 @@ import java.util.*;
  *
  * <p>RuneLite-free, so the correlation and flush rules are unit-testable without a client.
  */
-final class PersonalBests
-{
+final class PersonalBests {
 	/** How long a kill-count line and a duration line can be apart and still be the same kill. */
 	static final long CORRELATION_MS = 6_000;
 	/** Settle time before a push — a raid prints several lines at once. */
@@ -48,17 +47,12 @@ final class PersonalBests
 	private long lastChangeAt;
 
 	/** The activity a kill-count line just named. Cheap: two field writes, no parsing. */
-	void onActivitySeen(String activity, long now)
-	{
-		if (activity == null || activity.isEmpty())
-		{
-			return;
-		}
+	void onActivitySeen(String activity, long now) {
+		if (activity == null || activity.isEmpty()) return;
 		recentActivity = activity.toLowerCase(Locale.ROOT);
 		recentActivityAt = now;
 		// A duration that arrived first now has its name.
-		if (orphanCentis > 0 && now - orphanAt <= CORRELATION_MS)
-		{
+		if (orphanCentis > 0 && now - orphanAt <= CORRELATION_MS) {
 			record(recentActivity, orphanCentis, now);
 			orphanCentis = 0;
 		}
@@ -70,17 +64,10 @@ final class PersonalBests
 	 * <p>Lines with no personal best in them cost one {@code indexOf} — this runs on every line of
 	 * chat, so the negative path is the one that has to be free.
 	 */
-	boolean onChatLine(String message, long now)
-	{
+	boolean onChatLine(String message, long now) {
 		Integer centis = PersonalBestParser.parseCentis(message);
-		if (centis == null)
-		{
-			return false;
-		}
-		if (recentActivity != null && now - recentActivityAt <= CORRELATION_MS)
-		{
-			return record(recentActivity, centis, now);
-		}
+		if (centis == null) return false;
+		if (recentActivity != null && now - recentActivityAt <= CORRELATION_MS) return record(recentActivity, centis, now);
 		// No name yet — hold it for the kill-count line that's about to arrive.
 		orphanCentis = centis;
 		orphanAt = now;
@@ -92,61 +79,37 @@ final class PersonalBests
 	 *
 	 * @return how many were adopted as new bests
 	 */
-	int seed(Map<String, Integer> centisByActivity, long now)
-	{
-		if (centisByActivity == null || centisByActivity.isEmpty())
-		{
-			return 0;
-		}
+	int seed(Map<String, Integer> centisByActivity, long now) {
+		if (centisByActivity == null || centisByActivity.isEmpty()) return 0;
 		int adopted = 0;
-		for (Map.Entry<String, Integer> e : centisByActivity.entrySet())
-		{
-			if (e.getKey() == null || e.getValue() == null)
-			{
-				continue;
-			}
-			if (record(e.getKey().toLowerCase(Locale.ROOT), e.getValue(), now))
-			{
-				adopted++;
-			}
+		for (Map.Entry<String, Integer> e : centisByActivity.entrySet()) {
+			if (e.getKey() == null || e.getValue() == null) continue;
+			if (record(e.getKey().toLowerCase(Locale.ROOT), e.getValue(), now)) adopted++;
 		}
 		return adopted;
 	}
 
 	/** Keep the fastest. A PB only ever goes down, so a slower number is noise, not an update. */
-	private boolean record(String activity, int centis, long now)
-	{
-		if (activity == null || activity.isEmpty() || centis <= 0)
-		{
-			return false;
-		}
+	private boolean record(String activity, int centis, long now) {
+		if (activity == null || activity.isEmpty() || centis <= 0) return false;
 		Integer current = best.get(activity);
-		if (current != null && current <= centis)
-		{
-			return false;
-		}
+		if (current != null && current <= centis) return false;
 		best.put(activity, centis);
 		dirty.add(activity);
 		lastChangeAt = now;
 		return true;
 	}
 
-	boolean isDue(long now)
-	{
+	boolean isDue(long now) {
 		return !dirty.isEmpty() && now - lastChangeAt >= QUIET_MS;
 	}
 
 	/** The pending bests, activity → centiseconds. */
-	Map<String, Integer> nextBatch()
-	{
+	Map<String, Integer> nextBatch() {
 		Map<String, Integer> batch = new LinkedHashMap<>(dirty.size());
-		for (String activity : dirty)
-		{
+		for (String activity : dirty) {
 			Integer centis = best.get(activity);
-			if (centis != null)
-			{
-				batch.put(activity, centis);
-			}
+			if (centis != null) batch.put(activity, centis);
 		}
 		return batch;
 	}
@@ -155,27 +118,20 @@ final class PersonalBests
 	 * Mark a batch delivered. Anything that improved again mid-flight stays dirty, so the better
 	 * time is sent next round rather than being silently dropped.
 	 */
-	void onSent(Map<String, Integer> batch)
-	{
-		for (Map.Entry<String, Integer> e : batch.entrySet())
-		{
+	void onSent(Map<String, Integer> batch) {
+		for (Map.Entry<String, Integer> e : batch.entrySet()) {
 			sent.put(e.getKey(), e.getValue());
 			Integer current = best.get(e.getKey());
-			if (current != null && current.equals(e.getValue()))
-			{
-				dirty.remove(e.getKey());
-			}
+			if (current != null && current.equals(e.getValue())) dirty.remove(e.getKey());
 		}
 	}
 
-	int pendingCount()
-	{
+	int pendingCount() {
 		return dirty.size();
 	}
 
 	/** Forget everything — the next account's bests are not this one's. */
-	void reset()
-	{
+	void reset() {
 		best.clear();
 		sent.clear();
 		dirty.clear();
@@ -190,8 +146,7 @@ final class PersonalBests
 	 * <p>Value first for the same reason as the collection log's state: activity names contain
 	 * colons and spaces, an integer can't contain a pipe, so the parse needs no escaping.
 	 */
-	String serializeState()
-	{
+	String serializeState() {
 		return ClogSync.writeLines(sent, String::valueOf);
 	}
 
@@ -199,14 +154,11 @@ final class PersonalBests
 	 * Restore delivered state. These count as known bests too — otherwise every login would re-push
 	 * the whole set to tell the server what it already stored.
 	 */
-	void restoreState(String raw)
-	{
+	void restoreState(String raw) {
 		// A truncated or hand-edited line is dropped; the next kill re-establishes it.
-		ClogSync.readLines(raw, (value, activity) ->
-		{
+		ClogSync.readLines(raw, (value, activity) -> {
 			int centis = Integer.parseInt(value);
-			if (centis > 0)
-			{
+			if (centis > 0) {
 				sent.put(activity, centis);
 				best.merge(activity, centis, Math::min);
 			}

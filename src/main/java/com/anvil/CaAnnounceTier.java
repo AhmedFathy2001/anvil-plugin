@@ -6,8 +6,7 @@ package com.anvil;
  * so a value saved under the old tier-typed setting still loads.
  * Bingo tile credit never looks at this.
  */
-public enum CaAnnounceTier
-{
+public enum CaAnnounceTier {
 	EASY,
 	MEDIUM,
 	HARD,
@@ -17,14 +16,12 @@ public enum CaAnnounceTier
 	OFF;
 
 	/** Whether a task of {@code tier} is posted; always false when OFF. */
-	boolean posts(CombatAchievementTier tier)
-	{
+	boolean posts(CombatAchievementTier tier) {
 		return this != OFF && tier.compareTo(CombatAchievementTier.valueOf(name())) >= 0;
 	}
 
 	@Override
-	public String toString()
-	{
+	public String toString() {
 		return this == OFF ? "Off" : CombatAchievementTier.valueOf(name()).getDisplayName();
 	}
 }

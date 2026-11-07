@@ -9,8 +9,7 @@ import lombok.RequiredArgsConstructor;
  * so a saved "All quests" setting still loads; MASTER and GRANDMASTER likewise.
  */
 @RequiredArgsConstructor
-public enum QuestAnnounceTier
-{
+public enum QuestAnnounceTier {
 	ALL("All"),
 	INTERMEDIATE("Intermediate"),
 	EXPERIENCED("Experienced"),
@@ -25,17 +24,11 @@ public enum QuestAnnounceTier
 	 * Whether a quest of {@code difficulty} ("NOVICE" … "GRANDMASTER", or null when unknown) is
 	 * posted. Unknown counts as the lowest tier.
 	 */
-	boolean posts(String difficulty)
-	{
-		if (this == OFF)
-		{
-			return false;
-		}
+	boolean posts(String difficulty) {
+		if (this == OFF) return false;
 		int rank = 0;
-		if (difficulty != null)
-		{
-			switch (difficulty)
-			{
+		if (difficulty != null) {
+			switch (difficulty) {
 				case "INTERMEDIATE": rank = 1; break;
 				case "EXPERIENCED": rank = 2; break;
 				case "MASTER": rank = 3; break;
@@ -47,8 +40,7 @@ public enum QuestAnnounceTier
 	}
 
 	@Override
-	public String toString()
-	{
+	public String toString() {
 		return label;
 	}
 }

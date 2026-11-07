@@ -24,8 +24,7 @@ import java.util.*;
  * <p>Pure and RuneLite-free so it is unit-tested directly (DeathAttributionTest). The plugin feeds
  * it names; it never holds an Actor, which would keep a dead NPC alive for as long as we did.
  */
-final class DeathAttribution
-{
+final class DeathAttribution {
 	/**
 	 * How long an attacker stays a candidate after we last took a hit. Long enough to cover the
 	 * gap between a killing blow and the death animation, short enough that the thing that killed
@@ -49,38 +48,25 @@ final class DeathAttribution
 	 * candidate than one that has been plinking at us since the start of the fight, because the
 	 * thing that just turned to face you is the thing that just started hitting you.
 	 */
-	synchronized void targetedUs(String name, long nowMs)
-	{
-		if (name == null || name.isEmpty())
-		{
-			return;
-		}
+	synchronized void targetedUs(String name, long nowMs) {
+		if (name == null || name.isEmpty()) return;
 		attackers.remove(name); // re-insert so iteration order stays "oldest first"
 		attackers.put(name, nowMs);
-		while (attackers.size() > MAX_ATTACKERS)
-		{
-			attackers.remove(attackers.keySet().iterator().next());
-		}
+		while (attackers.size() > MAX_ATTACKERS) attackers.remove(attackers.keySet().iterator().next());
 	}
 
 	/** Something stopped targeting us — it is no longer a candidate for killing us. */
-	synchronized void stoppedTargetingUs(String name)
-	{
-		if (name != null)
-		{
-			attackers.remove(name);
-		}
+	synchronized void stoppedTargetingUs(String name) {
+		if (name != null) attackers.remove(name);
 	}
 
 	/** We took a hit from something other than ourselves. Only the timing matters; see the class doc. */
-	synchronized void tookDamage(long nowMs)
-	{
+	synchronized void tookDamage(long nowMs) {
 		lastDamageAt = nowMs;
 	}
 
 	/** Forget everything. A new login, a new region, a fresh death — none of it carries over. */
-	synchronized void clear()
-	{
+	synchronized void clear() {
 		attackers.clear();
 		lastDamageAt = 0;
 	}
@@ -102,28 +88,17 @@ final class DeathAttribution
 	 *
 	 * @param weWereFighting the last thing we landed a hit on, used only to break a tie
 	 */
-	synchronized String killer(String weWereFighting, long nowMs)
-	{
-		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS || attackers.isEmpty())
-		{
-			return null;
-		}
-		if (weWereFighting != null && !weWereFighting.isEmpty())
-		{
-			for (String name : attackers.keySet())
-			{
-				if (Rsn.same(name, weWereFighting))
-				{
-					return name;
-				}
+	synchronized String killer(String weWereFighting, long nowMs) {
+		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS || attackers.isEmpty()) return null;
+		if (weWereFighting != null && !weWereFighting.isEmpty()) {
+			for (String name : attackers.keySet()) {
+				if (Rsn.same(name, weWereFighting)) return name;
 			}
 		}
 		String newest = null;
 		long newestAt = Long.MIN_VALUE;
-		for (Map.Entry<String, Long> entry : attackers.entrySet())
-		{
-			if (entry.getValue() >= newestAt)
-			{
+		for (Map.Entry<String, Long> entry : attackers.entrySet()) {
+			if (entry.getValue() >= newestAt) {
 				newestAt = entry.getValue();
 				newest = entry.getKey();
 			}
@@ -132,8 +107,7 @@ final class DeathAttribution
 	}
 
 	/** How many things currently have us targeted — for the log line that explains an attribution. */
-	synchronized int attackerCount()
-	{
+	synchronized int attackerCount() {
 		return attackers.size();
 	}
 }

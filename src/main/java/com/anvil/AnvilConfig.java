@@ -4,8 +4,7 @@ import java.awt.Color;
 import net.runelite.client.config.*;
 
 @ConfigGroup("osrsbingo")
-public interface AnvilConfig extends Config
-{
+public interface AnvilConfig extends Config {
 	// ---- Sections (collapsible groups, top to bottom) ----
 	// Split by purpose: Setup + Bingo are event-participation; the "Notifications:" sections are
 	// clan-wide Discord posts that fire with or without an active bingo.
@@ -69,8 +68,7 @@ public interface AnvilConfig extends Config
 		position = 1,
 		section = "chatSection"
 	)
-	default Color chatPrefixColor()
-	{
+	default Color chatPrefixColor() {
 		return new Color(0xFFD700);
 	}
 
@@ -81,8 +79,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "chatSection"
 	)
-	default Color chatTextColor()
-	{
+	default Color chatTextColor() {
 		return Color.WHITE;
 	}
 
@@ -93,8 +90,7 @@ public interface AnvilConfig extends Config
 		position = 3,
 		section = "chatSection"
 	)
-	default boolean chatFeed()
-	{
+	default boolean chatFeed() {
 		return true;
 	}
 
@@ -105,8 +101,7 @@ public interface AnvilConfig extends Config
 		position = 4,
 		section = "chatSection"
 	)
-	default boolean supporterChatFlair()
-	{
+	default boolean supporterChatFlair() {
 		return true;
 	}
 
@@ -117,8 +112,7 @@ public interface AnvilConfig extends Config
 		position = 5,
 		section = "chatSection"
 	)
-	default boolean animatedNames()
-	{
+	default boolean animatedNames() {
 		return true;
 	}
 
@@ -129,8 +123,7 @@ public interface AnvilConfig extends Config
 		position = 6,
 		section = "chatSection"
 	)
-	default boolean menuNameFlair()
-	{
+	default boolean menuNameFlair() {
 		return true;
 	}
 
@@ -141,8 +134,7 @@ public interface AnvilConfig extends Config
 		position = 7,
 		section = "chatSection"
 	)
-	default boolean menuFlairOverride()
-	{
+	default boolean menuFlairOverride() {
 		return true;
 	}
 
@@ -161,8 +153,7 @@ public interface AnvilConfig extends Config
 		// empty value back and sign the member out. The side panel owns signing in and out instead.
 		hidden = true
 	)
-	default String playerToken()
-	{
+	default String playerToken() {
 		return "";
 	}
 
@@ -173,8 +164,7 @@ public interface AnvilConfig extends Config
 		position = 0,
 		section = "lookupSection"
 	)
-	default boolean profileLookupMenu()
-	{
+	default boolean profileLookupMenu() {
 		return true;
 	}
 
@@ -185,8 +175,7 @@ public interface AnvilConfig extends Config
 		position = 1,
 		section = "lookupSection"
 	)
-	default boolean lookupPlayers()
-	{
+	default boolean lookupPlayers() {
 		return true;
 	}
 
@@ -197,8 +186,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "lookupSection"
 	)
-	default boolean lookupChat()
-	{
+	default boolean lookupChat() {
 		return true;
 	}
 
@@ -209,8 +197,7 @@ public interface AnvilConfig extends Config
 		position = 3,
 		section = "lookupSection"
 	)
-	default boolean lookupClan()
-	{
+	default boolean lookupClan() {
 		return true;
 	}
 
@@ -221,8 +208,7 @@ public interface AnvilConfig extends Config
 		position = 4,
 		section = "lookupSection"
 	)
-	default boolean lookupFriendsChat()
-	{
+	default boolean lookupFriendsChat() {
 		return true;
 	}
 
@@ -233,8 +219,7 @@ public interface AnvilConfig extends Config
 		position = 5,
 		section = "lookupSection"
 	)
-	default boolean lookupLists()
-	{
+	default boolean lookupLists() {
 		return true;
 	}
 
@@ -249,8 +234,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "bingoSection"
 	)
-	default boolean showOverlay()
-	{
+	default boolean showOverlay() {
 		return true;
 	}
 
@@ -261,8 +245,7 @@ public interface AnvilConfig extends Config
 		position = 3,
 		section = "bingoSection"
 	)
-	default boolean teamCompletionBanner()
-	{
+	default boolean teamCompletionBanner() {
 		return true;
 	}
 
@@ -273,8 +256,7 @@ public interface AnvilConfig extends Config
 		position = 4,
 		section = "bingoSection"
 	)
-	default boolean selfTileBanner()
-	{
+	default boolean selfTileBanner() {
 		return true;
 	}
 
@@ -288,8 +270,7 @@ public interface AnvilConfig extends Config
 		position = 5,
 		section = "bingoSection"
 	)
-	default boolean bannerSound()
-	{
+	default boolean bannerSound() {
 		return true;
 	}
 
@@ -300,8 +281,7 @@ public interface AnvilConfig extends Config
 		position = 6,
 		section = "bingoSection"
 	)
-	default int bannerSoundVolume()
-	{
+	default int bannerSoundVolume() {
 		return 70;
 	}
 
@@ -316,8 +296,7 @@ public interface AnvilConfig extends Config
 		section = "bingoSection",
 		hidden = true
 	)
-	default String bannerSoundClip()
-	{
+	default String bannerSoundClip() {
 		return "";
 	}
 
@@ -328,8 +307,7 @@ public interface AnvilConfig extends Config
 		position = 8,
 		section = "bingoSection"
 	)
-	default boolean autoStartShot()
-	{
+	default boolean autoStartShot() {
 		return true;
 	}
 
@@ -340,8 +318,7 @@ public interface AnvilConfig extends Config
 		position = 9,
 		section = "bingoSection"
 	)
-	default boolean startSpotGuide()
-	{
+	default boolean startSpotGuide() {
 		return true;
 	}
 
@@ -352,8 +329,7 @@ public interface AnvilConfig extends Config
 		position = 10,
 		section = "bingoSection"
 	)
-	default boolean trackerOnePanel()
-	{
+	default boolean trackerOnePanel() {
 		return true;
 	}
 
@@ -365,8 +341,7 @@ public interface AnvilConfig extends Config
 		position = 0,
 		section = "deathsSection"
 	)
-	default boolean shareSeasonal()
-	{
+	default boolean shareSeasonal() {
 		return true;
 	}
 
@@ -379,8 +354,7 @@ public interface AnvilConfig extends Config
 		position = 1,
 		section = "deathsSection"
 	)
-	default boolean notifyDeaths()
-	{
+	default boolean notifyDeaths() {
 		return true;
 	}
 
@@ -391,8 +365,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "deathsSection"
 	)
-	default String deathMessage()
-	{
+	default String deathMessage() {
 		return "{name} just died!";
 	}
 
@@ -403,8 +376,7 @@ public interface AnvilConfig extends Config
 		position = 3,
 		section = "deathsSection"
 	)
-	default boolean notifyPvpKills()
-	{
+	default boolean notifyPvpKills() {
 		return false;
 	}
 
@@ -418,8 +390,7 @@ public interface AnvilConfig extends Config
 		position = 1,
 		section = "dropsSection"
 	)
-	default boolean notifyRareDrops()
-	{
+	default boolean notifyRareDrops() {
 		return true;
 	}
 
@@ -430,8 +401,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "dropsSection"
 	)
-	default int rareDropMinValue()
-	{
+	default int rareDropMinValue() {
 		return 5_000_000;
 	}
 
@@ -442,8 +412,7 @@ public interface AnvilConfig extends Config
 		position = 3,
 		section = "dropsSection"
 	)
-	default int rareDropMinRarity()
-	{
+	default int rareDropMinRarity() {
 		// 1/10,000. Anything looser turns the channel into herb and seed rolls — at 1/2000 a normal
 		// slayer task posts several times. Raised from 1/5000; see AnvilPlugin.migrateConfigDefaults.
 		return 10_000;
@@ -457,8 +426,7 @@ public interface AnvilConfig extends Config
 		position = 5,
 		section = "dropsSection"
 	)
-	default int lootKeyMinValue()
-	{
+	default int lootKeyMinValue() {
 		return 1_000_000;
 	}
 
@@ -469,8 +437,7 @@ public interface AnvilConfig extends Config
 		position = 6,
 		section = "dropsSection"
 	)
-	default boolean notifyPets()
-	{
+	default boolean notifyPets() {
 		return true;
 	}
 
@@ -484,8 +451,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "caSection"
 	)
-	default CaAnnounceTier caMinTaskTier()
-	{
+	default CaAnnounceTier caMinTaskTier() {
 		return CaAnnounceTier.MASTER;
 	}
 
@@ -497,8 +463,7 @@ public interface AnvilConfig extends Config
 		position = 4,
 		section = "caSection"
 	)
-	default boolean notifyClogSlots()
-	{
+	default boolean notifyClogSlots() {
 		return true;
 	}
 
@@ -510,8 +475,7 @@ public interface AnvilConfig extends Config
 		position = 6,
 		section = "caSection"
 	)
-	default boolean notifyLevelUps()
-	{
+	default boolean notifyLevelUps() {
 		return true;
 	}
 
@@ -523,8 +487,7 @@ public interface AnvilConfig extends Config
 		position = 8,
 		section = "caSection"
 	)
-	default boolean notifyDiaries()
-	{
+	default boolean notifyDiaries() {
 		return true;
 	}
 
@@ -535,8 +498,7 @@ public interface AnvilConfig extends Config
 		position = 9,
 		section = "caSection"
 	)
-	default QuestAnnounceTier questAnnounce()
-	{
+	default QuestAnnounceTier questAnnounce() {
 		return QuestAnnounceTier.MASTER;
 	}
 
@@ -549,8 +511,7 @@ public interface AnvilConfig extends Config
 		position = 0,
 		section = "profileSection"
 	)
-	default boolean autoSyncClanRoster()
-	{
+	default boolean autoSyncClanRoster() {
 		return true;
 	}
 
@@ -561,8 +522,7 @@ public interface AnvilConfig extends Config
 		position = 1,
 		section = "profileSection"
 	)
-	default boolean syncClanCoffer()
-	{
+	default boolean syncClanCoffer() {
 		return true;
 	}
 
@@ -573,8 +533,7 @@ public interface AnvilConfig extends Config
 		position = 2,
 		section = "profileSection"
 	)
-	default boolean syncClog()
-	{
+	default boolean syncClog() {
 		return true;
 	}
 
@@ -585,8 +544,7 @@ public interface AnvilConfig extends Config
 		position = 4,
 		section = "profileSection"
 	)
-	default boolean autoFullClogSync()
-	{
+	default boolean autoFullClogSync() {
 		return true;
 	}
 
@@ -597,8 +555,7 @@ public interface AnvilConfig extends Config
 		position = 3,
 		section = "profileSection"
 	)
-	default boolean syncPersonalBests()
-	{
+	default boolean syncPersonalBests() {
 		return true;
 	}
 
@@ -609,8 +566,7 @@ public interface AnvilConfig extends Config
 		position = 5,
 		section = "profileSection"
 	)
-	default boolean importRuneLitePbs()
-	{
+	default boolean importRuneLitePbs() {
 		return true;
 	}
 
@@ -621,8 +577,7 @@ public interface AnvilConfig extends Config
 		position = 6,
 		section = "profileSection"
 	)
-	default boolean shareMoments()
-	{
+	default boolean shareMoments() {
 		return true;
 	}
 }

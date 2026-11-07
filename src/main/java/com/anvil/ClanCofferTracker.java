@@ -10,13 +10,11 @@ import java.util.Locale;
  * the local player, but it is used only for attribution: the balance delta remains the source of
  * truth and an unconfirmed movement is still reported anonymously.</p>
  */
-final class ClanCofferTracker
-{
+final class ClanCofferTracker {
 	private static final long ACTOR_WINDOW_MS = 15_000L;
 
 	@RequiredArgsConstructor
-	enum Kind
-	{
+	enum Kind {
 		SNAPSHOT("snapshot"),
 		DEPOSIT("deposit"),
 		WITHDRAWAL("withdrawal");
@@ -26,8 +24,7 @@ final class ClanCofferTracker
 	}
 
 	@RequiredArgsConstructor
-	static final class Observation
-	{
+	static final class Observation {
 		final Kind kind;
 		final int beforeBalance;
 		final int afterBalance;
@@ -40,8 +37,7 @@ final class ClanCofferTracker
 	private Kind recentSelfAction;
 	private long recentSelfActionAt;
 
-	void reset()
-	{
+	void reset() {
 		lastBalance = null;
 		candidate = null;
 		recentSelfAction = null;
@@ -49,39 +45,28 @@ final class ClanCofferTracker
 	}
 
 	/** Remember a server-authored coffer line only when it names this account (or says “you”). */
-	void onChatLine(String line, String localRsn, long now)
-	{
+	void onChatLine(String line, String localRsn, long now) {
 		Kind action = selfAction(line, localRsn);
-		if (action != null)
-		{
+		if (action != null) {
 			recentSelfAction = action;
 			recentSelfActionAt = now;
 		}
 	}
 
-	Observation observe(int balance, long now)
-	{
-		if (balance < 0)
-		{
-			return null;
-		}
+	Observation observe(int balance, long now) {
+		if (balance < 0) return null;
 		// The coin stack can read empty for a tick while the container refreshes; a balance counts
 		// only once two polls in a row agree on it.
-		if (candidate == null || candidate != balance)
-		{
+		if (candidate == null || candidate != balance) {
 			candidate = balance;
 			return null;
 		}
-		if (lastBalance == null)
-		{
+		if (lastBalance == null) {
 			lastBalance = balance;
 			return new Observation(Kind.SNAPSHOT, balance, balance, false);
 		}
 		int before = lastBalance;
-		if (before == balance)
-		{
-			return null;
-		}
+		if (before == balance) return null;
 
 		Kind kind = balance > before ? Kind.DEPOSIT : Kind.WITHDRAWAL;
 		boolean confirmed = recentSelfAction == kind
@@ -94,38 +79,21 @@ final class ClanCofferTracker
 		return new Observation(kind, before, balance, confirmed);
 	}
 
-	static Kind selfAction(String line, String localRsn)
-	{
-		if (line == null)
-		{
-			return null;
-		}
+	static Kind selfAction(String line, String localRsn) {
+		if (line == null) return null;
 		String plain = AnvilPlugin.MARKUP_TAG.matcher(line).replaceAll("").trim();
 		String lower = plain.toLowerCase(Locale.ROOT);
-		if (!lower.contains("coffer"))
-		{
-			return null;
-		}
+		if (!lower.contains("coffer")) return null;
 		boolean namesSelf = lower.startsWith("you ") || lower.startsWith("you've ");
 		String self = Rsn.normalize(localRsn);
-		if (!namesSelf && !self.isEmpty())
-		{
+		if (!namesSelf && !self.isEmpty()) {
 			String normalizedLine = Rsn.normalize(plain);
 			namesSelf = normalizedLine.equals(self) || normalizedLine.startsWith(self + " ");
 		}
-		if (!namesSelf)
-		{
-			return null;
-		}
+		if (!namesSelf) return null;
 		// "has/have deposited", "donated", "withdrew", "has/have withdrawn"…
-		if (lower.contains("deposited") || lower.contains("donated"))
-		{
-			return Kind.DEPOSIT;
-		}
-		if (lower.contains("withdrew") || lower.contains("withdrawn"))
-		{
-			return Kind.WITHDRAWAL;
-		}
+		if (lower.contains("deposited") || lower.contains("donated")) return Kind.DEPOSIT;
+		if (lower.contains("withdrew") || lower.contains("withdrawn")) return Kind.WITHDRAWAL;
 		return null;
 	}
 }

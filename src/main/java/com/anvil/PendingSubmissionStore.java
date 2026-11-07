@@ -10,8 +10,7 @@ import java.util.*;
 
 @Slf4j
 @Singleton
-public class PendingSubmissionStore
-{
+public class PendingSubmissionStore {
 	// Garbage-collect pending submissions older than this. Prevents unbounded disk growth
 	// when retries keep failing (e.g. site URL permanently wrong) and the user never clears.
 	private static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
@@ -33,13 +32,11 @@ public class PendingSubmissionStore
 	private final Gson gson;
 
 	@Inject
-	public PendingSubmissionStore(Gson gson)
-	{
+	public PendingSubmissionStore(Gson gson) {
 		this.gson = gson.newBuilder().setPrettyPrinting().create();
 	}
 
-	public static class PendingSubmission
-	{
+	public static class PendingSubmission {
 		public int eventId;
 		public int tileId;
 		public int teamId;
@@ -72,46 +69,34 @@ public class PendingSubmissionStore
 		public com.google.gson.JsonArray facts;
 	}
 
-	public void setRoot(Filepath dir)
-	{
+	public void setRoot(Filepath dir) {
 		this.root = dir;
 	}
 
 	/** The directory, created on demand, or null when there is nowhere to write. */
-	private Filepath dir()
-	{
+	private Filepath dir() {
 		return DiskFiles.ensureDir(root);
 	}
 
-	public String save(PendingSubmission sub, byte[] pngBytes)
-	{
+	public String save(PendingSubmission sub, byte[] pngBytes) {
 		Filepath dir = dir();
-		if (dir == null)
-		{
-			return null;
-		}
+		if (dir == null) return null;
 		String id = sub.tileId + "-" + sub.timestamp;
 
 		// Both atomic: a client killed mid-write leaves no half file for the retry loop to choke on.
 		String ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
 		Filepath png = dir.joinSegment(id + ext);
-		try
-		{
+		try {
 			DiskFiles.writeAtomic(png, pngBytes);
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			log.error("Failed to save pending screenshot: {}", e.getMessage());
 			return null;
 		}
 
 		sub.screenshotFile = id + ext;
-		try
-		{
+		try {
 			DiskFiles.writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			log.error("Failed to save pending submission metadata: {}", e.getMessage());
 			// The PNG without its metadata is an orphan nothing will ever read.
 			DiskFiles.deleteQuietly(png);
@@ -127,20 +112,16 @@ public class PendingSubmissionStore
 	 * of the plugin directory alongside `sounds/`, and descending would read a banner clip's
 	 * neighbours looking for JSON. An empty or truncated file reads as nothing and is skipped.
 	 */
-	public List<PendingSubmission> loadAll()
-	{
+	public List<PendingSubmission> loadAll() {
 		List<PendingSubmission> result = new ArrayList<>();
 		long now = System.currentTimeMillis();
-		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json")))
-		{
+		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json"))) {
 			PendingSubmission sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
-			if (sub == null)
-			{
+			if (sub == null) {
 				log.warn("Failed to read pending submission {}", f.getFileName());
 				continue;
 			}
-			if (sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS)
-			{
+			if (sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS) {
 				log.info("Pruning expired pending submission '{}' ({} days old)",
 					sub.label, (now - sub.timestamp) / (24 * 60 * 60 * 1000));
 				remove(sub);
@@ -151,42 +132,28 @@ public class PendingSubmissionStore
 		return result;
 	}
 
-	public byte[] readScreenshot(PendingSubmission sub)
-	{
+	public byte[] readScreenshot(PendingSubmission sub) {
 		Filepath dir = dir();
-		if (dir == null || sub.screenshotFile == null)
-		{
-			return null;
-		}
+		if (dir == null || sub.screenshotFile == null) return null;
 		// joinSegment, not join: it refuses a separator, so a screenshotFile read back out of a JSON
 		// file cannot walk anywhere with "../" in it.
-		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream())
-		{
+		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
 			return in.readAllBytes();
-		}
-		catch (IOException | RuntimeException e)
-		{
+		} catch (IOException | RuntimeException e) {
 			log.error("Failed to read pending screenshot {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
 	}
 
-	public void remove(PendingSubmission sub)
-	{
+	public void remove(PendingSubmission sub) {
 		Filepath dir = dir();
-		if (dir == null || sub.screenshotFile == null)
-		{
-			return;
-		}
+		if (dir == null || sub.screenshotFile == null) return;
 		String baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");
-		try
-		{
+		try {
 			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();
 			log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
-		}
-		catch (IOException | RuntimeException e)
-		{
+		} catch (IOException | RuntimeException e) {
 			log.warn("Failed to remove pending submission {}: {}", baseName, e.getMessage());
 		}
 	}

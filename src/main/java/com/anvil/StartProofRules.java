@@ -20,25 +20,19 @@ import lombok.RequiredArgsConstructor;
  *
  * <p>Pure and static so it unit-tests without a client: the plugin supplies the numbers.
  */
-final class StartProofRules
-{
+final class StartProofRules {
 	/** {@code sessionLoginAtMs} when we never saw the login — a plugin enabled mid-session. */
 	static final long UNKNOWN_LOGIN = 0L;
 
-	private StartProofRules()
-	{
+	private StartProofRules() {
 	}
 
 	/**
 	 * Squares from the drawn spot, the way OSRS measures "within N squares" — the longer axis, not
 	 * the diagonal. -1 when there is nothing to measure (no pin, or no position to compare).
 	 */
-	static int distance(PluginConfigResponse.StartProof proof, Integer x, Integer y)
-	{
-		if (proof == null || proof.spot == null || x == null || y == null)
-		{
-			return -1;
-		}
+	static int distance(PluginConfigResponse.StartProof proof, Integer x, Integer y) {
+		if (proof == null || proof.spot == null || x == null || y == null) return -1;
 		return Math.max(Math.abs(x - proof.spot.x), Math.abs(y - proof.spot.y));
 	}
 
@@ -54,25 +48,18 @@ final class StartProofRules
 		long sessionLoginAtMs,
 		long nowMs,
 		Integer x,
-		Integer y)
-	{
-		if (proof == null)
-		{
-			return null;
-		}
+		Integer y) {
+		if (proof == null) return null;
 
-		if (proof.maxSessionMinutes > 0)
-		{
-			if (sessionLoginAtMs == UNKNOWN_LOGIN)
-			{
+		if (proof.maxSessionMinutes > 0) {
+			if (sessionLoginAtMs == UNKNOWN_LOGIN) {
 				// The plugin was switched on (or the client reconnected) mid-session, so we can't
 				// vouch for the logout that flushed the hiscores. One relog settles it.
 				return "Log out and back in before your starting shot — that's what saves your hiscores"
 					+ " so your starting totals are right.";
 			}
 			long minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
-			if (minutes > proof.maxSessionMinutes)
-			{
+			if (minutes > proof.maxSessionMinutes) {
 				return "You've been logged in for " + describeMinutes(minutes) + " — log out and back in,"
 					+ " then take your starting shot within " + proof.maxSessionMinutes + " min."
 					+ " Hiscores only save on logout, so this is what sets your starting totals.";
@@ -80,8 +67,7 @@ final class StartProofRules
 		}
 
 		int away = distance(proof, x, y);
-		if (away >= 0 && away > proof.spot.radius)
-		{
+		if (away >= 0 && away > proof.spot.radius) {
 			return "You're " + away + " squares from " + (proof.location != null ? proof.location : "the start spot")
 				+ " — go there, then take your starting shot.";
 		}
@@ -97,12 +83,8 @@ final class StartProofRules
 	 * square; a moment's pause keeps the frame from catching them mid-run or mid-teleport.
 	 */
 	static boolean autoReady(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs,
-		Integer x, Integer y, int stillTicks)
-	{
-		if (proof == null || proof.spot == null || x == null || y == null || stillTicks < AUTO_STILL_TICKS)
-		{
-			return false;
-		}
+		Integer x, Integer y, int stillTicks) {
+		if (proof == null || proof.spot == null || x == null || y == null || stillTicks < AUTO_STILL_TICKS) return false;
 		return blockReason(proof, sessionLoginAtMs, nowMs, x, y) == null;
 	}
 
@@ -111,10 +93,8 @@ final class StartProofRules
 
 	/** One live requirement on the starting-shot card: met, not met, or not knowable yet. */
 	@RequiredArgsConstructor
-	static final class Check
-	{
-		enum State
-		{
+	static final class Check {
+		enum State {
 			OK, BAD, UNKNOWN
 		}
 
@@ -127,19 +107,11 @@ final class StartProofRules
 	 * The session-age requirement as the card shows it, or null when the host isn't asking. Same
 	 * thresholds as {@link #blockReason}, so the card going green means the button won't refuse.
 	 */
-	static Check sessionCheck(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs)
-	{
-		if (proof == null || proof.maxSessionMinutes <= 0)
-		{
-			return null;
-		}
-		if (sessionLoginAtMs == UNKNOWN_LOGIN)
-		{
-			return new Check(Check.State.BAD, "Log out and back in (then under " + proof.maxSessionMinutes + " min)");
-		}
+	static Check sessionCheck(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs) {
+		if (proof == null || proof.maxSessionMinutes <= 0) return null;
+		if (sessionLoginAtMs == UNKNOWN_LOGIN) return new Check(Check.State.BAD, "Log out and back in (then under " + proof.maxSessionMinutes + " min)");
 		long minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
-		if (minutes > proof.maxSessionMinutes)
-		{
+		if (minutes > proof.maxSessionMinutes) {
 			return new Check(Check.State.BAD, "Session " + describeMinutes(minutes) + ": relog (under "
 				+ proof.maxSessionMinutes + " min)");
 		}
@@ -147,21 +119,11 @@ final class StartProofRules
 	}
 
 	/** The position requirement as the card shows it, or null when the spot has no pin to measure from. */
-	static Check positionCheck(PluginConfigResponse.StartProof proof, Integer x, Integer y)
-	{
-		if (proof == null || proof.spot == null)
-		{
-			return null;
-		}
+	static Check positionCheck(PluginConfigResponse.StartProof proof, Integer x, Integer y) {
+		if (proof == null || proof.spot == null) return null;
 		int away = distance(proof, x, y);
-		if (away < 0)
-		{
-			return new Check(Check.State.UNKNOWN, "Position unknown until you're logged in");
-		}
-		if (away > proof.spot.radius)
-		{
-			return new Check(Check.State.BAD, away + " squares away (within " + proof.spot.radius + ")");
-		}
+		if (away < 0) return new Check(Check.State.UNKNOWN, "Position unknown until you're logged in");
+		if (away > proof.spot.radius) return new Check(Check.State.BAD, away + " squares away (within " + proof.spot.radius + ")");
 		return new Check(Check.State.OK, "At the spot");
 	}
 
@@ -171,19 +133,12 @@ final class StartProofRules
 	 * stamp). The window closing is not a failure state: the ask simply expires, so this reads as a
 	 * countdown rather than a threat.
 	 */
-	static String describeWindow(PluginConfigResponse.StartProof proof, long nowMs)
-	{
-		if (proof == null || proof.windowEndsAt == null || proof.windowEndsAt.isEmpty())
-		{
-			return null;
-		}
+	static String describeWindow(PluginConfigResponse.StartProof proof, long nowMs) {
+		if (proof == null || proof.windowEndsAt == null || proof.windowEndsAt.isEmpty()) return null;
 		long endsMs;
-		try
-		{
+		try {
 			endsMs = java.time.Instant.parse(proof.windowEndsAt).toEpochMilli();
-		}
-		catch (java.time.format.DateTimeParseException e)
-		{
+		} catch (java.time.format.DateTimeParseException e) {
 			return null;
 		}
 		long minutes = (endsMs - nowMs) / 60_000L;
@@ -191,12 +146,8 @@ final class StartProofRules
 	}
 
 	/** "12 min" / "2h 05m" — a session age a player reads at a glance. */
-	static String describeMinutes(long minutes)
-	{
-		if (minutes < 60)
-		{
-			return minutes + " min";
-		}
+	static String describeMinutes(long minutes) {
+		if (minutes < 60) return minutes + " min";
 		return (minutes / 60) + "h " + String.format("%02dm", minutes % 60);
 	}
 }

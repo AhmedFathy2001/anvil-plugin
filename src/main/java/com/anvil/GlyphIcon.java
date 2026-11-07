@@ -18,10 +18,8 @@ import javax.swing.Icon;
  * unless one is fixed at construction.
  */
 @RequiredArgsConstructor
-final class GlyphIcon implements Icon
-{
-	enum Shape
-	{
+final class GlyphIcon implements Icon {
+	enum Shape {
 		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR
 	}
 
@@ -29,44 +27,35 @@ final class GlyphIcon implements Icon
 	private final int size;
 	private final Color color;
 
-	GlyphIcon(Shape shape, int size)
-	{
+	GlyphIcon(Shape shape, int size) {
 		this(shape, size, null);
 	}
 
 
 	@Override
-	public int getIconWidth()
-	{
+	public int getIconWidth() {
 		return size;
 	}
 
 	@Override
-	public int getIconHeight()
-	{
+	public int getIconHeight() {
 		return size;
 	}
 
 	@Override
-	public void paintIcon(Component c, Graphics graphics, int x, int y)
-	{
+	public void paintIcon(Component c, Graphics graphics, int x, int y) {
 		Graphics2D g = (Graphics2D) graphics.create();
-		try
-		{
+		try {
 			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 			Color ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
-			if (c != null && !c.isEnabled())
-			{
-				ink = ink.darker();
-			}
+			if (c != null && !c.isEnabled()) ink = ink.darker();
 			g.setColor(ink);
 			float s = size;
 			g.setStroke(new BasicStroke(Math.max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 			g.translate(x, y);
 			Path2D p = new Path2D.Float();
-			switch (shape)
-			{
+			switch (shape) {
 				case CHEVRON_LEFT:
 					g.draw(stroke(p, s, 0.62, 0.22, 0.34, 0.5, 0.62, 0.78));
 					break;
@@ -86,8 +75,7 @@ final class GlyphIcon implements Icon
 					break;
 				case ELLIPSIS:
 					float d = Math.max(2f, s / 6f);
-					for (int i = 0; i < 3; i++)
-					{
+					for (int i = 0; i < 3; i++) {
 						float cx = s * (0.25f + 0.25f * i);
 						g.fill(new java.awt.geom.Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
 					}
@@ -97,8 +85,7 @@ final class GlyphIcon implements Icon
 					float cx = s / 2f;
 					float r = s * 0.24f;
 					g.draw(new java.awt.geom.Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
-					for (int i = 0; i < 8; i++)
-					{
+					for (int i = 0; i < 8; i++) {
 						double a = Math.PI / 4 * i;
 						p.moveTo(cx + Math.cos(a) * s * 0.33, cx + Math.sin(a) * s * 0.33);
 						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
@@ -107,18 +94,14 @@ final class GlyphIcon implements Icon
 					break;
 				case STAR:
 					// Filled five points: an Anvil Supporter, beside their name.
-					for (int i = 0; i < 10; i++)
-					{
+					for (int i = 0; i < 10; i++) {
 						double ang = -Math.PI / 2 + Math.PI / 5 * i;
 						double rad = s * (i % 2 == 0 ? 0.5 : 0.21);
 						double px = s / 2.0 + Math.cos(ang) * rad;
 						double py = s * 0.53 + Math.sin(ang) * rad;
-						if (i == 0)
-						{
+						if (i == 0) {
 							p.moveTo(px, py);
-						}
-						else
-						{
+						} else {
 							p.lineTo(px, py);
 						}
 					}
@@ -128,21 +111,15 @@ final class GlyphIcon implements Icon
 				default:
 					break;
 			}
-		}
-		finally
-		{
+		} finally {
 			g.dispose();
 		}
 	}
 
 	/** Adds one polyline to {@code p}: x,y pairs as fractions of the icon's size {@code s}. */
-	private static Path2D stroke(Path2D p, float s, double... xy)
-	{
+	private static Path2D stroke(Path2D p, float s, double... xy) {
 		p.moveTo(s * xy[0], s * xy[1]);
-		for (int i = 2; i < xy.length; i += 2)
-		{
-			p.lineTo(s * xy[i], s * xy[i + 1]);
-		}
+		for (int i = 2; i < xy.length; i += 2) p.lineTo(s * xy[i], s * xy[i + 1]);
 		return p;
 	}
 }

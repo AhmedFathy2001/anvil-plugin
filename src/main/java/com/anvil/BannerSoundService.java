@@ -26,8 +26,7 @@ import java.util.stream.*;
  */
 @Slf4j
 @Singleton
-public class BannerSoundService
-{
+public class BannerSoundService {
 	/**
 	 * The plugin's own `sounds/` folder, handed over by AnvilPlugin at startUp.
 	 *
@@ -45,20 +44,15 @@ public class BannerSoundService
 	private ExecutorService audioExecutor;
 
 	@Inject
-	public BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer)
-	{
+	public BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer) {
 		this.config = config;
 		this.audioPlayer = audioPlayer;
 	}
 
-	public void setRoot(Filepath dir)
-	{
+	public void setRoot(Filepath dir) {
 		this.root = dir;
 		migrateLooseClips();
-		for (Kind kind : Kind.values())
-		{
-			relist(kind);
-		}
+		for (Kind kind : Kind.values()) relist(kind);
 	}
 
 	/**
@@ -71,8 +65,7 @@ public class BannerSoundService
 	 * empty and they keep the built-in chime.</p>
 	 */
 	@RequiredArgsConstructor
-	public enum Kind
-	{
+	public enum Kind {
 		BANNER("banner"),
 		MISSION("mission");
 
@@ -81,24 +74,14 @@ public class BannerSoundService
 	}
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
-	private Filepath dir(Kind kind)
-	{
+	private Filepath dir(Kind kind) {
 		Filepath d = root;
-		if (d == null)
-		{
-			return null;
-		}
-		try
-		{
+		if (d == null) return null;
+		try {
 			Filepath sub = d.joinSegment(kind.folder);
-			if (!sub.exists())
-			{
-				sub.createDirectories();
-			}
+			if (!sub.exists()) sub.createDirectories();
 			return sub;
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			log.warn("Anvil: cannot create the {} sounds directory: {}", kind.folder, e.getMessage());
 			return null;
 		}
@@ -110,49 +93,35 @@ public class BannerSoundService
 	 * here rather than asking means nobody's sounds stop working because the layout changed under
 	 * them.
 	 */
-	private void migrateLooseClips()
-	{
+	private void migrateLooseClips() {
 		Filepath d = root;
 		List<Filepath> loose = d == null || !d.isDirectory() ? new ArrayList<>() : wavsIn(d);
 		Filepath banner = loose.isEmpty() ? null : dir(Kind.BANNER);
-		if (banner == null)
-		{
-			return;
-		}
-		for (Filepath f : loose)
-		{
-			try
-			{
+		if (banner == null) return;
+		for (Filepath f : loose) {
+			try {
 				f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
-			}
-			catch (Exception e)
-			{
+			} catch (Exception e) {
 			}
 		}
 	}
 
 	/** Every .wav in one kind's folder. Depth 1 — a clip is a file in it, never deeper. */
-	private List<Filepath> wavFiles(Kind kind)
-	{
+	private List<Filepath> wavFiles(Kind kind) {
 		Filepath dir = dir(kind);
 		return dir == null ? new ArrayList<>() : wavsIn(dir);
 	}
 
-	private static List<Filepath> wavsIn(Filepath dir)
-	{
-		try (Stream<Filepath> walk = dir.walk(1))
-		{
+	private static List<Filepath> wavsIn(Filepath dir) {
+		try (Stream<Filepath> walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav")).collect(Collectors.toList());
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			return new ArrayList<>();
 		}
 	}
 
 	/** True if this kind has at least one .wav (i.e. it could play something of its own). */
-	public boolean hasClips(Kind kind)
-	{
+	public boolean hasClips(Kind kind) {
 		return !wavFiles(kind).isEmpty();
 	}
 
@@ -168,8 +137,7 @@ public class BannerSoundService
 	/** Told (on the audio thread) when a re-read finds the clips changed, so the panel can redraw. */
 	private volatile Runnable onClipsChanged = () -> { };
 
-	public void setOnClipsChanged(Runnable onChange)
-	{
+	public void setOnClipsChanged(Runnable onChange) {
 		onClipsChanged = onChange == null ? () -> { } : onChange;
 	}
 
@@ -178,62 +146,43 @@ public class BannerSoundService
 	 * touches disk: it answers from the last listing (empty before the first) and, if that's stale,
 	 * re-reads the folder in the background.
 	 */
-	public List<String> listClips(Kind kind)
-	{
+	public List<String> listClips(Kind kind) {
 		List<String> cached;
 		boolean stale;
-		synchronized (this)
-		{
+		synchronized (this) {
 			cached = listed.getOrDefault(kind, Collections.emptyList());
 			Long at = listedAt.get(kind);
 			stale = at == null || System.currentTimeMillis() - at >= LISTING_TTL_MS;
 		}
-		if (stale)
-		{
-			relist(kind);
-		}
+		if (stale) relist(kind);
 		return cached;
 	}
 
 	/** Re-read one kind's folder on the audio thread; a no-op while a re-read is already queued. */
-	private void relist(Kind kind)
-	{
-		synchronized (this)
-		{
-			if (!relisting.add(kind))
-			{
-				return;
-			}
+	private void relist(Kind kind) {
+		synchronized (this) {
+			if (!relisting.add(kind)) return;
 		}
-		try
-		{
+		try {
 			executor().execute(() -> relistNow(kind));
-		}
-		catch (RejectedExecutionException e)
-		{
-			synchronized (this)
-			{
+		} catch (RejectedExecutionException e) {
+			synchronized (this) {
 				relisting.remove(kind);
 			}
 		}
 	}
 
 	/** Blocking (disk) — the audio thread only. */
-	private void relistNow(Kind kind)
-	{
+	private void relistNow(Kind kind) {
 		List<String> names = Collections.unmodifiableList(wavFiles(kind).stream()
 			.map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList()));
 		List<String> before;
-		synchronized (this)
-		{
+		synchronized (this) {
 			relisting.remove(kind);
 			before = listed.put(kind, names);
 			listedAt.put(kind, System.currentTimeMillis());
 		}
-		if (!names.equals(before == null ? Collections.emptyList() : before))
-		{
-			onClipsChanged.run();
-		}
+		if (!names.equals(before == null ? Collections.emptyList() : before)) onClipsChanged.run();
 	}
 
 	/**
@@ -243,19 +192,12 @@ public class BannerSoundService
 	 * the in-game list and the side panel look like a directory listing that had leaked into the
 	 * interface. Lives here rather than in either panel because both of them show the same files.
 	 */
-	public static String displayName(String file)
-	{
+	public static String displayName(String file) {
 		String s = file == null ? "" : file.trim();
 		int dot = s.lastIndexOf('.');
-		if (dot > 0)
-		{
-			s = s.substring(0, dot);
-		}
+		if (dot > 0) s = s.substring(0, dot);
 		s = s.replace('_', ' ').replace('-', ' ').replaceAll("\\s+", " ").trim();
-		if (s.isEmpty())
-		{
-			return file == null ? "" : file;
-		}
+		if (s.isEmpty()) return file == null ? "" : file;
 		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
 	}
 
@@ -263,57 +205,35 @@ public class BannerSoundService
 	 * True if {@code name} is in the play cycle. The cycle is the comma-separated allowlist in
 	 * {@link AnvilConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
 	 */
-	public boolean isSelected(String name)
-	{
+	public boolean isSelected(String name) {
 		Set<String> sel = parseSelected(config.bannerSoundClip());
 		return sel.isEmpty() || sel.contains(name.toLowerCase());
 	}
 
 	/** Parse the comma-separated clip allowlist into lowercased ".wav" filenames. Empty = play all. */
-	static Set<String> parseSelected(String csv)
-	{
+	static Set<String> parseSelected(String csv) {
 		Set<String> out = new LinkedHashSet<>();
-		if (csv == null)
-		{
-			return out;
-		}
-		for (String part : csv.split(","))
-		{
+		if (csv == null) return out;
+		for (String part : csv.split(",")) {
 			String s = part.trim().toLowerCase();
-			if (s.isEmpty())
-			{
-				continue;
-			}
-			if (!s.endsWith(".wav"))
-			{
-				s += ".wav";
-			}
+			if (s.isEmpty()) continue;
+			if (!s.endsWith(".wav")) s += ".wav";
 			out.add(s);
 		}
 		return out;
 	}
 
-	public void play(Kind kind)
-	{
-		if (!config.bannerSound())
-		{
-			return;
-		}
-		try
-		{
+	public void play(Kind kind) {
+		if (!config.bannerSound()) return;
+		try {
 			executor().submit(() -> playBlocking(kind));
-		}
-		catch (RejectedExecutionException e)
-		{
+		} catch (RejectedExecutionException e) {
 		}
 	}
 
-	private synchronized ExecutorService executor()
-	{
-		if (audioExecutor == null || audioExecutor.isShutdown())
-		{
-			audioExecutor = Executors.newSingleThreadExecutor(r ->
-			{
+	private synchronized ExecutorService executor() {
+		if (audioExecutor == null || audioExecutor.isShutdown()) {
+			audioExecutor = Executors.newSingleThreadExecutor(r -> {
 				Thread t = new Thread(r, "anvil-banner-sound");
 				t.setDaemon(true);
 				return t;
@@ -322,38 +242,24 @@ public class BannerSoundService
 		return audioExecutor;
 	}
 
-	private void playBlocking(Kind kind)
-	{
-		try
-		{
+	private void playBlocking(Kind kind) {
+		try {
 			List<Filepath> files = wavFiles(kind);
-			if (files.isEmpty())
-			{
-				return;
-			}
+			if (files.isEmpty()) return;
 
 			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
 			// Each banner plays one at random from the eligible set, so a multi-clip cycle varies.
 			// Mission clips have no allowlist: the folder is already the choice of what plays.
 			Set<String> selected = kind == Kind.BANNER ? parseSelected(config.bannerSoundClip()) : Collections.emptySet();
 			List<Filepath> candidates = new ArrayList<>();
-			for (Filepath f : files)
-			{
-				if (selected.isEmpty() || selected.contains(f.getFileName().toLowerCase()))
-				{
-					candidates.add(f);
-				}
+			for (Filepath f : files) {
+				if (selected.isEmpty() || selected.contains(f.getFileName().toLowerCase())) candidates.add(f);
 			}
-			if (candidates.isEmpty())
-			{
-				return;
-			}
+			if (candidates.isEmpty()) return;
 
 			// AudioPlayer takes a Filepath directly as of 1.12.39, so the clip never leaves the sandbox.
 			audioPlayer.play(candidates.get(ThreadLocalRandom.current().nextInt(candidates.size())), gainDb());
-		}
-		catch (Exception e)
-		{
+		} catch (Exception e) {
 		}
 	}
 
@@ -362,8 +268,7 @@ public class BannerSoundService
 	 * (unattenuated); lower volumes attenuate logarithmically; 0 → effectively silent. AudioPlayer
 	 * clamps to the line's supported range.
 	 */
-	private float gainDb()
-	{
+	private float gainDb() {
 		int vol = Math.max(0, Math.min(100, config.bannerSoundVolume()));
 		return vol <= 0 ? -80f : (float) (20.0 * Math.log10(vol / 100.0));
 	}
@@ -373,10 +278,8 @@ public class BannerSoundService
 	 * (may be null) is invoked with the successfully-copied filenames so the caller can confirm in chat;
 	 * it's skipped when the user cancels or nothing copied.
 	 */
-	public void importSounds(Kind kind, Consumer<List<String>> onImported)
-	{
-		SwingUtilities.invokeLater(() ->
-		{
+	public void importSounds(Kind kind, Consumer<List<String>> onImported) {
+		SwingUtilities.invokeLater(() -> {
 			// Filepath.Chooser rather than a bare JFileChooser: the user picking a file is how a
 			// plugin is granted anything outside its own directory, and it is the same dialog they
 			// were already looking at. Nothing else about this flow changes — the clips are copied
@@ -388,69 +291,42 @@ public class BannerSoundService
 				.setDialogTitle(kind == Kind.MISSION ? "Add mission sounds" : "Add banner sounds")
 				.addExtensionFilter("WAV audio", "wav")
 				.showDialog((java.awt.Component) null);
-			if (chosen == null || chosen.isEmpty())
-			{
-				return;
-			}
+			if (chosen == null || chosen.isEmpty()) return;
 			Filepath dir = dir(kind);
-			if (dir == null)
-			{
-				return;
-			}
+			if (dir == null) return;
 			// The picker needs the EDT; the copies don't, and a big .wav is a long copy.
-			try
-			{
+			try {
 				executor().execute(() -> copyIn(kind, dir, chosen, onImported));
-			}
-			catch (RejectedExecutionException e)
-			{
+			} catch (RejectedExecutionException e) {
 			}
 		});
 	}
 
 	/** Blocking (disk) — the audio thread only. */
-	private void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported)
-	{
+	private void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported) {
 		List<String> imported = new ArrayList<>();
-		for (Filepath src : chosen)
-		{
+		for (Filepath src : chosen) {
 			String name = src.getFileName();
-			try
-			{
+			try {
 				src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);
 				imported.add(name);
-			}
-			catch (Exception e)
-			{
+			} catch (Exception e) {
 				log.warn("Could not import sound {}: {}", name, e.getMessage());
 			}
 		}
 		relistNow(kind);
-		if (onImported != null && !imported.isEmpty())
-		{
-			onImported.accept(imported);
-		}
+		if (onImported != null && !imported.isEmpty()) onImported.accept(imported);
 	}
 
 	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */
-	public void copyFolderPath()
-	{
+	public void copyFolderPath() {
 		Filepath dir = root;
-		if (dir == null)
-		{
-			return;
-		}
+		if (dir == null) return;
 		// The PARENT, not one kind's folder: both `banner/` and `mission/` are inside it, so one
 		// paste lands somewhere the player can see the whole arrangement and drag files between them.
-		try
-		{
-			if (!dir.exists())
-			{
-				dir.createDirectories();
-			}
-		}
-		catch (IOException e)
-		{
+		try {
+			if (!dir.exists()) dir.createDirectories();
+		} catch (IOException e) {
 			return;
 		}
 		// LinkBrowser::open is restricted for hub releases, so the path goes on the clipboard and the
@@ -458,10 +334,8 @@ public class BannerSoundService
 		Clipboards.copy(dir.toString());
 	}
 
-	public synchronized void shutdown()
-	{
-		if (audioExecutor != null)
-		{
+	public synchronized void shutdown() {
+		if (audioExecutor != null) {
 			audioExecutor.shutdownNow();
 			audioExecutor = null;
 		}

@@ -24,50 +24,34 @@ import com.google.gson.*;
  * </ul>
  * Every kind also carries {@code rsn} when known.
  */
-final class NotifyFacts
-{
+final class NotifyFacts {
 	final String kind;
 	final JsonObject facts = new JsonObject();
 
-	NotifyFacts(String kind, String rsn)
-	{
+	NotifyFacts(String kind, String rsn) {
 		this.kind = kind;
 		put("rsn", rsn);
 	}
 
-	NotifyFacts put(String key, String value)
-	{
-		if (value != null && !value.isEmpty())
-		{
-			facts.addProperty(key, value);
-		}
+	NotifyFacts put(String key, String value) {
+		if (value != null && !value.isEmpty()) facts.addProperty(key, value);
 		return this;
 	}
 
-	NotifyFacts put(String key, Number value)
-	{
-		if (value != null)
-		{
-			facts.addProperty(key, value);
-		}
+	NotifyFacts put(String key, Number value) {
+		if (value != null) facts.addProperty(key, value);
 		return this;
 	}
 
-	NotifyFacts flag(String key, boolean value)
-	{
-		if (value)
-		{
-			facts.addProperty(key, true);
-		}
+	NotifyFacts flag(String key, boolean value) {
+		if (value) facts.addProperty(key, true);
 		return this;
 	}
 
 	/** Adds one entry to the drop's {@code items}. */
-	NotifyFacts item(int id, String name, int qty, long value)
-	{
+	NotifyFacts item(int id, String name, int qty, long value) {
 		JsonArray items = facts.getAsJsonArray("items");
-		if (items == null)
-		{
+		if (items == null) {
 			items = new JsonArray();
 			facts.add("items", items);
 		}

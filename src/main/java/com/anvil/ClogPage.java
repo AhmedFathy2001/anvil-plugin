@@ -13,8 +13,7 @@ import java.util.*;
  * (src/data/clog.json), so the missing half is derivable — sending it would double every payload to
  * say "still nothing here".
  */
-final class ClogPage
-{
+final class ClogPage {
 	/** Entry title as the log prints it — "Abyssal Sire". The site maps it to its own page id. */
 	final String name;
 	/** Obtained item ids, in the order the log lists them. Parallel to {@link #quantities}. */
@@ -28,8 +27,7 @@ final class ClogPage
 	/** 64-bit content hash — what makes "has this page changed?" a comparison, not a diff. */
 	final long hash;
 
-	ClogPage(String name, int[] itemIds, int[] quantities, int obtained, int total, Map<String, Integer> counts)
-	{
+	ClogPage(String name, int[] itemIds, int[] quantities, int obtained, int total, Map<String, Integer> counts) {
 		this.name = name;
 		this.itemIds = itemIds;
 		this.quantities = quantities;
@@ -49,27 +47,23 @@ final class ClogPage
 	 * log. No boxing, no allocation, no string building; a page is folded in a few hundred nanoseconds
 	 * and the result is what stops us re-sending 125 identical pages.
 	 */
-	private long computeHash()
-	{
+	private long computeHash() {
 		long h = 0xcbf29ce484222325L;
 		h = fold(h, name == null ? 0 : name.hashCode());
 		h = fold(h, obtained);
 		h = fold(h, total);
-		for (int i = 0; i < itemIds.length; i++)
-		{
+		for (int i = 0; i < itemIds.length; i++) {
 			h = fold(h, itemIds[i]);
 			h = fold(h, quantities[i]);
 		}
-		for (Map.Entry<String, Integer> e : counts.entrySet())
-		{
+		for (Map.Entry<String, Integer> e : counts.entrySet()) {
 			h = fold(h, e.getKey().hashCode());
 			h = fold(h, e.getValue());
 		}
 		return h;
 	}
 
-	private static long fold(long h, int value)
-	{
+	private static long fold(long h, int value) {
 		h ^= value;
 		return h * 0x100000001b3L;
 	}
