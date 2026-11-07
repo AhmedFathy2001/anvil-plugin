@@ -870,6 +870,11 @@ public class AnvilSidebarPanel extends PluginPanel
 			settingsPanel.add(gap(12));
 		}
 		settingsPanel.add(buildBannerSounds());
+		settingsPanel.add(gap(12));
+		JLabel support = styleLink(new ClipLabel(isSupporter() ? "Your Supporter perks" : "Become a Supporter"),
+			"Name colours, profile banners, clan boosts — and it keeps Anvil running", this::openSupporter);
+		support.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 11));
+		settingsPanel.add(left(support));
 		settingsPanel.revalidate();
 		settingsPanel.repaint();
 	}
@@ -1012,6 +1017,19 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh();
 	}
 
+	/** The tracked character wears Supporter flair (any tier), so the link offers perks, not a pitch. */
+	private boolean isSupporter()
+	{
+		String me = dataSource.myRsn();
+		ChatFlair.Entry e = me == null ? null : dataSource.flairOf(me);
+		return e != null && Boolean.TRUE.equals(e.s);
+	}
+
+	private void openSupporter()
+	{
+		LinkBrowser.browse(apiClient.siteLink(isSupporter() ? "/settings/supporter" : "/supporter"));
+	}
+
 	private void showAccountMenu(Component anchor)
 	{
 		JPopupMenu menu = new JPopupMenu();
@@ -1033,6 +1051,10 @@ public class AnvilSidebarPanel extends PluginPanel
 			});
 			menu.add(profile);
 		}
+		JMenuItem support = new JMenuItem(isSupporter() ? "Your Supporter perks" : "Become a Supporter");
+		support.setToolTipText("Name colours, profile banners, clan boosts — and it keeps Anvil running");
+		support.addActionListener(e -> openSupporter());
+		menu.add(support);
 		if (row != null && row.state == AnvilSidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight)
 		{
 			JMenuItem notMine = new JMenuItem("Not my account…");
