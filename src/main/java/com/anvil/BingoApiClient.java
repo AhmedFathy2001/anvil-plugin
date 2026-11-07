@@ -1095,10 +1095,10 @@ public class BingoApiClient
 
 	private static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
 	/** Decoded panel pictures by path and size, least recently used first. */
-	private final Map<String, BufferedImage> thumbs = new LinkedHashMap<String, BufferedImage>(16, 0.75f, true)
+	private final Map<String, javax.swing.Icon> thumbs = new LinkedHashMap<String, javax.swing.Icon>(16, 0.75f, true)
 	{
 		@Override
-		protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> e)
+		protected boolean removeEldestEntry(Map.Entry<String, javax.swing.Icon> e)
 		{
 			return size() > 50;
 		}
@@ -1109,22 +1109,34 @@ public class BingoApiClient
 	 * {@code w}x{@code h} and kept. {@code done} gets it (null on any failure) on an OkHttp thread, or at
 	 * once from the cache. Anything bigger than {@link #THUMB_MAX_BYTES} is dropped unread.
 	 */
-	void thumb(String path, int w, int h, java.util.function.Consumer<BufferedImage> done)
+	void thumb(String path, int w, int h, boolean motion, java.util.function.Consumer<javax.swing.Icon> done)
 	{
-		String key = w + "x" + h + path;
-		BufferedImage hit;
+		String key = w + "x" + h + ":" + motion + path;
+		javax.swing.Icon hit;
 		synchronized (thumbs)
 		{
 			hit = thumbs.get(key);
 		}
 		HttpUrl url = path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0 ? HttpUrl.parse(siteLink(path)) : null;
+		if (url != null && motion)
+		{
+			url = url.newBuilder().setQueryParameter("motion", "1").build();
+		}
+		// Panel-media routes render animated GIFs at the exact widget size. Swing can scale a still
+		// safely, but scaling ImageIcon's GIF frames destroys their animation (and a 36px clan logo in
+		// an 18px row used to be rejected as unsafe), so ask the site for the final dimensions once.
+		if (url != null && path.startsWith("/api/plugin/media/"))
+		{
+			url = url.newBuilder().setQueryParameter("w", Integer.toString(w)).setQueryParameter("h", Integer.toString(h)).build();
+		}
 		HttpUrl base = HttpUrl.parse(siteLink("/"));
 		if (hit != null || url == null || base == null || !url.host().equals(base.host()) || w <= 0 || h <= 0)
 		{
-			done.accept(hit);
+			done.accept(hit instanceof MotionIcon ? ((MotionIcon) hit).copy() : hit);
 			return;
 		}
-		readClient.newCall(plainRequest(url.toString()).get().build()).enqueue(new Callback()
+		Request.Builder imageRequest = accountPaused ? publicRequest(url.toString()) : authedRequest(url.toString());
+		readClient.newCall(imageRequest.get().build()).enqueue(new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException e)
@@ -1135,14 +1147,23 @@ public class BingoApiClient
 			@Override
 			public void onResponse(Call call, Response r)
 			{
-				BufferedImage img = null;
+				javax.swing.Icon img = null;
 				try (Response res = r)
 				{
 					ResponseBody body = res.body();
 					// request() is false once the whole body is buffered: it fit under the cap.
 					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L))
 					{
-						img = fit(decodeSmall(body.source().buffer().readByteArray(), w, h), w, h);
+						byte[] bytes = body.source().buffer().readByteArray();
+						if (motion)
+						{
+							img = animatedIcon(bytes, w, h);
+						}
+						else
+						{
+							BufferedImage still = fit(decodeSmall(bytes, w, h), w, h);
+							img = still == null ? null : new javax.swing.ImageIcon(still);
+						}
 					}
 				}
 				catch (IOException | RuntimeException e)
@@ -1159,6 +1180,65 @@ public class BingoApiClient
 				done.accept(img);
 			}
 		});
+	}
+
+	/** Manual Refresh must be able to see a replaced upload at the same media route immediately. */
+	void clearThumbs()
+	{
+		synchronized (thumbs)
+		{
+			thumbs.clear();
+		}
+	}
+
+	/** A bounded animated GIF already resized by the site; null for an unsafe or wrong-sized file. */
+	static javax.swing.Icon animatedIcon(byte[] bytes, int w, int h)
+	{
+		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes)))
+		{
+			java.util.Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
+			if (readers == null || !readers.hasNext()) return null;
+			javax.imageio.ImageReader reader = readers.next();
+			try
+			{
+				// Counting frames needs a searchable stream: seekForwardOnly=true made getNumImages(true)
+				// throw for every GIF, so each animated picture was refused and never shown.
+				reader.setInput(in, false, false);
+				int sw = reader.getWidth(0), sh = reader.getHeight(0), frames = reader.getNumImages(true);
+				if (sw <= 0 || sh <= 0 || sw > w || sh > h || frames <= 0 || frames > 300 || (long) sw * sh * frames > 20_000_000L) return null;
+			}
+			finally
+			{
+				reader.dispose();
+			}
+		}
+		catch (IOException | RuntimeException e)
+		{
+			return null;
+		}
+		MotionIcon icon = new MotionIcon(bytes);
+		return icon.getIconWidth() > 0 && icon.getIconHeight() > 0 ? icon : null;
+	}
+
+	/**
+	 * An animated GIF that hands each consumer its own AWT image. One shared animated Toolkit image
+	 * restarts production with an empty frame buffer when a re-rendered panel swaps labels, which made
+	 * banners and avatars show their first frame and then go blank.
+	 */
+	static final class MotionIcon extends javax.swing.ImageIcon
+	{
+		private final byte[] bytes;
+
+		MotionIcon(byte[] bytes)
+		{
+			super(bytes);
+			this.bytes = bytes;
+		}
+
+		MotionIcon copy()
+		{
+			return new MotionIcon(bytes);
+		}
 	}
 
 	/** {@code src} scaled to fit inside w x h (never up). */
@@ -1886,11 +1966,42 @@ public class BingoApiClient
 	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
 	public void submitModeLines(java.util.List<String> lines) throws IOException
 	{
+		submitModeLines(lines, null, null);
+	}
+
+	/** The same mode-line batch with the frame that was visible when it was sent. */
+	public void submitModeLines(java.util.List<String> lines, byte[] png, String filename) throws IOException
+	{
 		JsonObject payload = new JsonObject();
 		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
 		lines.forEach(arr::add);
 		payload.add("lines", arr);
-		postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
+		// Freeze the world into the body as notifications do: a hop while the request is in flight must
+		// not relabel a Hardcore/League event as main-game activity.
+		String types = worldTypes;
+		String activity = worldActivity;
+		if (types != null || activity != null)
+		{
+			JsonObject world = new JsonObject();
+			if (types != null) world.addProperty("types", types);
+			if (activity != null) world.addProperty("activity", activity);
+			payload.add("world", world);
+		}
+		if (png == null || png.length == 0)
+		{
+			postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
+			return;
+		}
+		String url = clanUrl("/api/plugin/mode-lines");
+		execute(httpClient, authedRequest(url).post(notifyBody(payload.toString(), png, filename)), (response, body) ->
+		{
+			if (!response.isSuccessful())
+			{
+				throw new HttpStatusException("Mode lines failed: HTTP " + response.code() + " — "
+					+ (body.isEmpty() ? "no body" : body), response.code()).withPlayerMessage(friendlyError(response.code(), body));
+			}
+			return body;
+		});
 	}
 
 	public void submitCofferLine(String line, String clanName) throws IOException

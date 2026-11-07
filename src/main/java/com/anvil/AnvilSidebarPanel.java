@@ -688,9 +688,9 @@ public class AnvilSidebarPanel extends PluginPanel
 			}
 
 			@Override
-			public void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+			public void image(String path, int w, int h, boolean motion, Consumer<javax.swing.Icon> done)
 			{
-				apiClient.thumb(path, w, h, img -> SwingUtilities.invokeLater(() -> done.accept(img)));
+				apiClient.thumb(path, w, h, motion && GradientLabel.animate, img -> SwingUtilities.invokeLater(() -> done.accept(img)));
 			}
 
 			@Override
@@ -1162,19 +1162,23 @@ public class AnvilSidebarPanel extends PluginPanel
 	private void showAccountName(String rsn)
 	{
 		ChatFlair.Entry e = dataSource.flairOf(rsn);
+		// The panel is a dark surface: the owner's own dark look as-is, else the adapted main one.
+		ChatFlair.Surface own = e == null || e.d == null || ChatPalette.nameColor(e.d.c) == null ? null : e.d;
+		java.util.List<String> source = own != null ? own.g : e == null ? null : e.g;
 		java.util.List<Color> stops = new java.util.ArrayList<>();
-		for (String g : e == null || e.g == null ? java.util.Collections.<String>emptyList() : e.g)
+		for (String g : source == null ? java.util.Collections.<String>emptyList() : source)
 		{
 			if (stops.size() < 4)
 			{
-				stops.add(Ui.teamColor(g, Color.WHITE));
+				stops.add(own != null ? Ui.teamColor("#" + ChatPalette.nameColor(g), Color.WHITE) : ChatPalette.readableColor(g, false, Color.WHITE));
 			}
 		}
 		boolean star = e != null && Boolean.TRUE.equals(e.s);
 		JLabel l = stops.size() >= 2 ? new GradientLabel(stops.toArray(new Color[0]), star) : new JLabel();
 		l.setText(rsn);
 		l.setFont(accountLabel.getFont().deriveFont(Font.BOLD));
-		l.setForeground(e == null ? Color.WHITE : Ui.teamColor(e.c, Color.WHITE));
+		l.setForeground(own != null ? Ui.teamColor("#" + ChatPalette.nameColor(own.c), Color.WHITE)
+			: ChatPalette.readableColor(e == null ? null : e.c, false, Color.WHITE));
 		l.setToolTipText(accountLabel.getToolTipText());
 		if (star)
 		{
@@ -1259,6 +1263,14 @@ public class AnvilSidebarPanel extends PluginPanel
 		refresh(false);
 	}
 
+	/** Rebuild the visible site view so animated image nodes swap to their still/animated rendition. */
+	public void motionChanged()
+	{
+		if (!onScreen) return;
+		UiView view = tab == Tab.YOU ? youView : tab == Tab.LOOKUP ? lookupView : tab == Tab.FEED ? feedView : clanView;
+		view.refresh();
+	}
+
 	/** A background refresh (the timer): the same, and the view redraws only if the site's answer changed. */
 	public void poll()
 	{
@@ -1279,6 +1291,11 @@ public class AnvilSidebarPanel extends PluginPanel
 		refreshAccountRow();
 		if (manual)
 		{
+			apiClient.clearThumbs();
+			clanView.invalidateDrawn();
+			youView.invalidateDrawn();
+			lookupView.invalidateDrawn();
+			feedView.invalidateDrawn();
 			// A refresh with nothing new changes nothing on screen: the button says it's working.
 			refreshButton.setEnabled(false);
 			refreshButton.setText("Refreshing…");

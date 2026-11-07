@@ -110,6 +110,22 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void modeLinesCanCarryTheirWorldAndScreenshot() throws Exception
+	{
+		BingoApiClient c = client();
+		c.setWorld("DEADMAN,MEMBERS", "Deadman");
+		c.submitModeLines(Collections.singletonList("A hard task"), new byte[]{1, 2, 3}, "anvil-mode.png");
+		Request request = seen.get(0);
+		assertTrue(request.url().encodedPath().endsWith("/api/plugin/mode-lines"));
+		assertTrue(request.body().contentType().toString(), request.body().contentType().toString().startsWith("multipart/form-data"));
+		String body = bodies.get(0);
+		assertTrue(body, body.contains("name=\"payload_json\""));
+		assertTrue(body, body.contains("\"lines\":[\"A hard task\"]"));
+		assertTrue(body, body.contains("\"world\":{\"types\":\"DEADMAN,MEMBERS\",\"activity\":\"Deadman\"}"));
+		assertTrue(body, body.contains("filename=\"anvil-mode.png\""));
+	}
+
+	@Test
 	public void configFetch404IsTheNoClanState()
 	{
 		BingoApiClient c = client();

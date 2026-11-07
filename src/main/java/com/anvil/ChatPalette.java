@@ -35,6 +35,7 @@ final class ChatPalette
 	}
 
 	private static final Pattern HEX = Pattern.compile("[0-9a-fA-F]{6}");
+	private static final String HEX_DIGITS = "0123456789abcdef";
 
 	static final ChatPalette ANVIL = anvil();
 
@@ -116,6 +117,27 @@ final class ChatPalette
 	 */
 	static String gradientName(String safeName, List<String> stops)
 	{
+		return gradientName(safeName, stops, 0);
+	}
+
+	/**
+	 * The one chat-name renderer: callers choose the source or surface-derived palette, then this
+	 * handles static versus gradient markup and animation sampling.
+	 */
+	static String paintName(String safeName, String color, List<String> stops, double shift)
+	{
+		String gradient = stops != null && stops.size() >= 2 ? gradientName(safeName, stops, shift) : null;
+		String solid = nameColor(color);
+		return gradient != null ? gradient
+			: solid != null && safeName != null && !safeName.isEmpty() ? "<col=" + solid + ">" + safeName + "</col>" : null;
+	}
+
+	/**
+	 * A gradient name sampled {@code shift} name-widths farther along a reflecting gradient. A shift
+	 * from 0 to 2 is one seamless there-and-back animation cycle; zero is the ordinary static look.
+	 */
+	static String gradientName(String safeName, List<String> stops, double shift)
+	{
 		List<int[]> rgb = new ArrayList<>();
 		for (String s : stops == null ? new ArrayList<String>() : stops)
 		{
@@ -131,8 +153,8 @@ final class ChatPalette
 			return null;
 		}
 		int n = safeName.codePointCount(0, safeName.length());
-		StringBuilder out = new StringBuilder();
-		String last = null;
+		StringBuilder out = new StringBuilder(safeName.length() * 20);
+		int last = -1;
 		int i = 0;
 		for (int off = 0; off < safeName.length(); )
 		{
@@ -140,18 +162,30 @@ final class ChatPalette
 			off += Character.charCount(cp);
 			if (!Character.isWhitespace(cp) && !Character.isSpaceChar(cp))
 			{
-				double t = n == 1 ? 0 : (double) i / (n - 1) * (rgb.size() - 1);
+				double p = n == 1 ? shift : (double) i / (n - 1) + shift;
+				p %= 2;
+				if (p < 0)
+				{
+					p += 2;
+				}
+				p = p > 1 ? 2 - p : p;
+				double t = p * (rgb.size() - 1);
 				int seg = Math.min((int) t, rgb.size() - 2);
 				double f = t - seg;
 				int[] a = rgb.get(seg);
 				int[] b = rgb.get(seg + 1);
-				String c = String.format(Locale.ROOT, "%02x%02x%02x",
-					(int) Math.round(a[0] + (b[0] - a[0]) * f),
-					(int) Math.round(a[1] + (b[1] - a[1]) * f),
-					(int) Math.round(a[2] + (b[2] - a[2]) * f));
-				if (!c.equals(last))
+				int c = (int) Math.round(a[0] + (b[0] - a[0]) * f) << 16
+					| (int) Math.round(a[1] + (b[1] - a[1]) * f) << 8
+					| (int) Math.round(a[2] + (b[2] - a[2]) * f);
+				if (c != last)
 				{
-					out.append(last == null ? "" : "</col>").append("<col=").append(c).append('>');
+					if (last >= 0)
+					{
+						out.append("</col>");
+					}
+					out.append("<col=");
+					appendHex(out, c);
+					out.append('>');
 					last = c;
 				}
 			}
@@ -159,6 +193,15 @@ final class ChatPalette
 			i++;
 		}
 		return out.append("</col>").toString();
+	}
+
+	/** Six lower-case hex digits without the allocation-heavy Formatter used by the static path. */
+	private static void appendHex(StringBuilder out, int rgb)
+	{
+		for (int shift = 20; shift >= 0; shift -= 4)
+		{
+			out.append(HEX_DIGITS.charAt(rgb >> shift & 0xf));
+		}
 	}
 
 	// What the chatbox's text sits on: the opaque box's parchment, and a dark game scene behind the
@@ -187,16 +230,53 @@ final class ChatPalette
 		return out.toString();
 	}
 
+	/**
+	 * {@code hex} (with or without "#") as a Swing colour adapted like {@link #readableHex}; {@code fallback}
+	 * when it isn't a colour. readableHex answers bare "rrggbb", which Ui.teamColor refuses, so every
+	 * panel stop used to silently become its fallback (a white Tracking name, a one-colour Lookup name).
+	 */
+	static java.awt.Color readableColor(String hex, boolean opaque, java.awt.Color fallback)
+	{
+		String v = nameColor(hex);
+		return v == null ? fallback : new java.awt.Color(Integer.parseInt(readableHex(v, opaque), 16));
+	}
+
 	static String readableHex(String hex, boolean opaque)
 	{
-		int c = Integer.parseInt(hex, 16);
+		int source = Integer.parseInt(hex, 16);
 		int bg = opaque ? OPAQUE_BG : TRANSPARENT_BG;
 		int toward = opaque ? 0x000000 : 0xFFFFFF;
-		for (int step = 0; step <= 10 && contrast(c, bg) < MIN_CONTRAST; step++)
+		if (contrast(source, bg) >= MIN_CONTRAST)
 		{
-			c = mix(Integer.parseInt(hex, 16), toward, step / 10.0);
+			return hex.toLowerCase(Locale.ROOT);
 		}
-		return String.format("%06x", c);
+		// The old 10% staircase made a moving gradient visibly snap whenever a glyph crossed into the
+		// next darker/lighter band. Find the exact boundary instead; contrast is monotonic toward black
+		// on parchment and toward white on the transparent dark box.
+		double lo = 0;
+		double hi = 1;
+		int readable = toward;
+		for (int i = 0; i < 12; i++)
+		{
+			double mid = (lo + hi) / 2;
+			int candidate = mix(source, toward, mid);
+			if (contrast(candidate, bg) >= MIN_CONTRAST)
+			{
+				hi = mid;
+				readable = candidate;
+			}
+			else
+			{
+				lo = mid;
+			}
+		}
+		char[] out = new char[6];
+		for (int at = 5; at >= 0; at--)
+		{
+			out[at] = HEX_DIGITS.charAt(readable & 0xf);
+			readable >>>= 4;
+		}
+		return new String(out);
 	}
 
 	static double contrast(int a, int b)

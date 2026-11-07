@@ -113,7 +113,7 @@ public interface AnvilConfig extends Config
 	@ConfigItem(
 		keyName = "animatedNames",
 		name = "Animated names",
-		description = "Let a Patron's name gradient slide along in the side panel and the event chat. Off keeps it still.",
+		description = "Let Patron and boosted-clan gradients slide, and animated panel banners play. Off resets names and uses still images.",
 		position = 5,
 		section = "chatSection"
 	)

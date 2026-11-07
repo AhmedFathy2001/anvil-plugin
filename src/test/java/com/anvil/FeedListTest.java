@@ -162,6 +162,22 @@ public class FeedListTest
 	}
 
 	@Test
+	public void reactionPushUpdatesEveryoneCountButPreservesThisViewersSelection()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"moments:clan:3\",\"rows\":["
+			+ "{\"id\":\"m7\",\"title\":\"Pet\",\"who\":\"Rikkert\",\"at\":\"2026-11-04 10:00:00\","
+			+ "\"gz\":{\"n\":1,\"mine\":true}}]}");
+		FeedList f = find(v);
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"kind\":\"gz\",\"n\":4,\"who\":\"GZ · Rikkert and 3 others\"}"));
+
+		JsonObject chip = f.reactionChip(0, "gz");
+		assertEquals(4, chip.get("n").getAsInt());
+		assertTrue("an absolute count from another client must not clear mine", chip.get("mine").getAsBoolean());
+		assertEquals("GZ · Rikkert and 3 others", chip.get("who").getAsString());
+	}
+
+	@Test
 	public void theBoxSendsWithoutRedrawingAndShowsAnErrorLine()
 	{
 		Host host = new Host();

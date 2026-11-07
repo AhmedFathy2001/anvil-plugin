@@ -1214,7 +1214,7 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
-		GradientLabel.animate = config.animatedNames();
+		GradientLabel.setAnimate(config.animatedNames());
 		// A count the site lowered (a deleted submission): the panel asks for its views again now,
 		// not at the 15s catch-up, so the old number doesn't sit on screen.
 		optimistic.onDrop(() -> {
@@ -1590,7 +1590,7 @@ public class AnvilPlugin extends Plugin {
 
 	@Override
 	protected void shutDown() {
-		clientThread.invokeLater(this::unflairChat);
+		clientThread.invokeLater(this::unflairAll);
 		overlayManager.remove(overlay);
 		overlayManager.remove(clogBanner);
 		if (chatFlairTooltip != null) {
@@ -1909,11 +1909,13 @@ public class AnvilPlugin extends Plugin {
 		// than whenever the game next redraws the chat (the next Enter or private message).
 		if (("supporterChatFlair".equals(event.getKey()) && !config.supporterChatFlair())
 				|| ("menuNameFlair".equals(event.getKey()) && !config.menuNameFlair())) {
-			clientThread.invokeLater(this::unflairChat);
+			clientThread.invokeLater(this::unflairAll);
 			return;
 		}
 		if ("animatedNames".equals(event.getKey())) {
-			GradientLabel.animate = config.animatedNames();
+			GradientLabel.setAnimate(config.animatedNames());
+			clientThread.invokeLater(this::refreshClanTitleWidgets);
+			if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::motionChanged);
 			return;
 		}
 		if (isInternalStateKey(event.getKey())) {
@@ -1962,6 +1964,11 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event) {
+		int flairRoot = flairInterfaceRoot(event.getGroupId());
+		if (flairRoot != -1 && config.supporterChatFlair()) {
+			// Names and dynamic rows are populated just after the group itself appears.
+			clientThread.invokeLater(() -> flairInterface(flairRoot));
+		}
 		// The clan window. Its header is where Wise Old Man puts "Sync WOM Group", and ours goes
 		// beside it — placed against whatever is already there rather than at a fixed offset.
 		//
@@ -1969,6 +1976,9 @@ public class AnvilPlugin extends Plugin {
 		// buttons, which is the whole thing we measure against) are not necessarily built yet.
 		if (event.getGroupId() == InterfaceID.CLANS_INFO && clanSyncButton != null) {
 			clientThread.invokeLater(() -> clanSyncButton.render());
+		}
+		if (event.getGroupId() == InterfaceID.CLANS_SIDEPANEL || event.getGroupId() == InterfaceID.CLANS_GUEST_SIDEPANEL) {
+			clientThread.invokeLater(() -> flairClanTitleGroup(event.getGroupId()));
 		}
 		if (event.getGroupId() == InterfaceID.QUESTSCROLL) {
 			// The scroll's text child isn't populated yet on the load event — read it next tick,
@@ -2085,6 +2095,10 @@ public class AnvilPlugin extends Plugin {
 		if (event.getScriptId() == ScriptID.FRIENDS_UPDATE || event.getScriptId() == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD
 				|| event.getScriptId() == ScriptID.CLAN_SIDEPANEL_DRAW) {
 			flairNameLists();
+			if (event.getScriptId() == ScriptID.CLAN_SIDEPANEL_DRAW) {
+				flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
+				flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
+			}
 			return;
 		}
 		if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
@@ -2414,6 +2428,16 @@ public class AnvilPlugin extends Plugin {
 		ScheduledExecutorService ex = executor;
 		if (batch == null || cfg == null || !cfg.serverSupports("mode-lines") || !apiClient.isConfigured()
 				|| ex == null || ex.isShutdown()) {
+			return;
+		}
+		if (cfg.serverSupports("mode-line-screenshots")) {
+			captureFrameAsync(png -> {
+				try {
+					apiClient.submitModeLines(batch, png, "anvil-mode.png");
+				} catch (IOException e) {
+					log.debug("Mode lines not sent: {}", e.getMessage());
+				}
+			});
 			return;
 		}
 		ex.submit(() -> {
@@ -2774,9 +2798,10 @@ public class AnvilPlugin extends Plugin {
 			sessionLoginAtMs = now();
 			SwingUtilities.invokeLater(sidebarPanel::refresh); // "Track on screen" is in-game only
 		}
-		if (event.getGameState() == GameState.LOGGED_IN) {
+		if (event.getGameState() == GameState.LOGGED_IN && !statsUnsettled) {
 			// Re-read on every login: the levels belong to the account that just logged in, and the
 			// previous one's are worse than nothing (a 99 on the alt reads as a 99 already announced).
+			// A hop waits for maybeSettleStats: LOGGED_IN can still expose the old world's table.
 			seedSkillLevels();
 		}
 		if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
@@ -2800,6 +2825,11 @@ public class AnvilPlugin extends Plugin {
 			lootingBagWatchBase = null;
 			recentDropLines.clear();
 			chestLineCredits.clear();
+			if (event.getGameState() == GameState.HOPPING) {
+				// The destination sends a fresh table. Until its burst settles, restoring the real
+				// account after PvP Arena must not look like dozens of level-ups.
+				unsettleStats();
+			}
 		}
 		if (event.getGameState() == GameState.LOGIN_SCREEN) {
 			// The next account may be on another team: its gains don't build on this one's counts.
@@ -2927,7 +2957,15 @@ public class AnvilPlugin extends Plugin {
 	/** Both values are needed for the first-play claim: an RSN finds the synced row and the stable
 	 * account hash is the continuity anchor that lets the site merge it without a manual step. */
 	static boolean identityReady(String rsn, long accountHash) {
-		return rsn != null && !rsn.isEmpty() && accountHash != -1L;
+		return !placeholderName(rsn) && accountHash != -1L;
+	}
+
+	/**
+	 * For a tick or two after LOGGED_IN the client names the local player "#Player1281". A real RSN
+	 * never has a '#'; saying hello with the placeholder created statless "#PlayerNNN" join requests.
+	 */
+	static boolean placeholderName(String rsn) {
+		return rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0;
 	}
 
 	/**
@@ -3293,8 +3331,8 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		String rsn = getLocalPlayerName();
-		if (rsn == null || rsn.isEmpty()) {
-			return;
+		if (placeholderName(rsn)) {
+			return; // not sent yet: the real name gets this session's hello
 		}
 		if (apiClient.getApiUrl().isEmpty()) {
 			return; // signed out: the plugin contacts nothing (BingoApiClient.configure)
@@ -3655,6 +3693,12 @@ public class AnvilPlugin extends Plugin {
 		}
 		String name = source.getName();
 		if (name == null || name.isEmpty()) {
+			return;
+		}
+		// A follower targets its owner to follow them. That is not an attack, but without this
+		// distinction the pet can become the newest candidate and be named after unrelated damage.
+		if (source == client.getFollower()) {
+			deathAttribution.stoppedTargetingUs(name);
 			return;
 		}
 		if (event.getTarget() == client.getLocalPlayer()) {
@@ -4107,7 +4151,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// Level milestones. The level-up message fires once when the level is reached, so no
 		// varbit/baseline dance needed.
-		if (config.notifyLevelUps()) {
+		if (config.notifyLevelUps() && !statsUnsettled && !statsAreArtificial()) {
 			Matcher lvl = ChatPatterns.find("level.up", plain);
 			if (lvl != null) {
 				try {
@@ -7408,10 +7452,18 @@ public class AnvilPlugin extends Plugin {
 	private ScheduledFuture<?> chatFlairSave;
 	// Broadcasts whose text starts with a player's name ("Nisbro HCM has completed a quest: …").
 	private static final Set<ChatMessageType> FLAIR_BROADCASTS = EnumSet.of(
+			ChatMessageType.CLAN_CHAT,
 			ChatMessageType.CLAN_MESSAGE,
+			ChatMessageType.CLAN_GIM_CHAT,
 			ChatMessageType.CLAN_GIM_MESSAGE,
+			ChatMessageType.CLAN_GUEST_CHAT,
 			ChatMessageType.CLAN_GUEST_MESSAGE,
+			ChatMessageType.BROADCAST,
 			ChatMessageType.FRIENDSCHATNOTIFICATION,
+			ChatMessageType.FRIENDNOTIFICATION,
+			ChatMessageType.TRADEREQ,
+			ChatMessageType.TRADE_SENT,
+			ChatMessageType.TRADE,
 			// "Drenvox has logged in." — a friend coming on or going off.
 			ChatMessageType.LOGINLOGOUTNOTIFICATION);
 	/** Client thread: keys (ChatFlair.key) of recent broadcasts that start with a Supporter's name. */
@@ -7469,12 +7521,28 @@ public class AnvilPlugin extends Plugin {
 		// The chat input and the side lists were drawn before the list changed and are only redrawn
 		// on the game's next rebuild: paint them now. The panel's "Tracking" name too.
 		clientThread.invokeLater(() -> {
-			splitPmSeen.clear();
-			pmPainted.clear();
-			Arrays.fill(chatboxSeen, null);
-			flairChatInput();
-			flairNameLists();
-			flairChatbox();
+			// Visible widgets may still contain our old tags/star. Ask the game for clean source rows
+			// first; painting the new style on top caused the transient double-star and bad widths.
+			unflairAll();
+			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
+			// scripts have restored both the plain text and its original sender/message geometry.
+			clientThread.invokeLater(() -> {
+				flairChatInput();
+				flairNameLists();
+				flairChatbox();
+				refreshClanTitleWidgets();
+				for (int group : new int[]{InterfaceID.CHAT_LEFT, InterfaceID.CHAT_RIGHT, InterfaceID.CHAT_BOTH,
+						InterfaceID.MESSAGEBOX_TITLED, InterfaceID.TRADEMAIN, InterfaceID.TRADECONFIRM,
+						InterfaceID.BOARDGAMES_CHALLENGE, InterfaceID.PVP_ARENA_UNRANKEDDUEL,
+						InterfaceID.RAIDS_CHALLENGE, InterfaceID.RAIDS_LOBBY_PARTYLIST,
+						InterfaceID.RAIDS_LOBBY_PARTYDETAILS, InterfaceID.TOB_PARTYLIST,
+						InterfaceID.TOB_PARTYDETAILS, InterfaceID.TOB_SCOREBOARD, InterfaceID.TOB_INFOBOARD,
+						InterfaceID.TOA_PARTYLIST, InterfaceID.TOA_PARTYDETAILS, InterfaceID.TOA_SCOREBOARD,
+						InterfaceID.TFA_PARTYLIST, InterfaceID.TFA_PARTYDETAILS}) {
+					int root = flairInterfaceRoot(group);
+					if (root != -1) flairInterface(root);
+				}
+			});
 		});
 		AnvilSidebarPanel panel = sidebarPanel;
 		if (panel != null) {
@@ -7506,8 +7574,40 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: per chatbox line widget (by index), the text it had when last looked at. */
 	private String[] chatboxSeen = new String[0];
+	/** Plain source for a visible Patron sender; null for every static/non-sender widget. */
+	private String[] chatboxMoving = new String[0];
+	/** A changed offscreen row waits here until it intersects the scroll area's viewport. */
+	private boolean[] chatboxDeferred = new boolean[0];
+	/** Smooth game-widget motion without rebuilding strings on every render frame. */
+	private static final long CHAT_NAME_FRAME_MS = 40;
+	private long chatNameFrame = Long.MIN_VALUE;
+	private long currentChatNameFrame() {
+		if (!config.animatedNames()) {
+			return -1;
+		}
+		// Unfocused: hold the last frame so moving names stop repainting. The per-frame paint pass
+		// keeps running (painting only on change made names flash plain, 05ebd28 / 8bda760).
+		if (!GradientLabel.clientActive() && heldChatNameFrame >= 0) {
+			return heldChatNameFrame;
+		}
+		return heldChatNameFrame = GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS;
+	}
+
+	/** Client thread: the last game-name animation frame, held while the client is unfocused. */
+	private long heldChatNameFrame = -1;
+	private static double chatNameShift(long frame) {
+		return nameShift(frame, GradientLabel.GAME_CYCLE_MS);
+	}
+	private static double interfaceNameShift(long frame) {
+		return nameShift(frame, GradientLabel.PANEL_CYCLE_MS);
+	}
+	private static double nameShift(long frame, long cycleMs) {
+		return frame < 0 ? 0 : (frame * CHAT_NAME_FRAME_MS % cycleMs) / (double) cycleMs * 2;
+	}
 	/** Client thread: per widget, the x (or, for a sender, the width) we last set making room for a star. */
 	private int[] chatboxRoom = new int[0];
+	/** Client thread: per chatbox slot, the plain sender line {@link #chatboxRoom} was set for. */
+	private String[] chatboxRoomFor = new String[0];
 
 	/**
 	 * Client thread, right before each frame: each sender column ("Name:", "[Clan] <icons>Name:", "From
@@ -7530,16 +7630,51 @@ public class AnvilPlugin extends Plugin {
 		if (chatboxSeen.length < lines.length) {
 			int was = chatboxRoom.length;
 			chatboxSeen = Arrays.copyOf(chatboxSeen, lines.length);
+			chatboxMoving = Arrays.copyOf(chatboxMoving, lines.length);
+			chatboxDeferred = Arrays.copyOf(chatboxDeferred, lines.length);
 			chatboxRoom = Arrays.copyOf(chatboxRoom, lines.length);
+			chatboxRoomFor = Arrays.copyOf(chatboxRoomFor, lines.length);
 			Arrays.fill(chatboxRoom, was, lines.length, Integer.MIN_VALUE);
 		}
+		long frame = currentChatNameFrame();
+		boolean move = frame != chatNameFrame;
+		chatNameFrame = frame;
+		double shift = chatNameShift(frame);
 		String star = null;
 		boolean opaque = false;
+		// Shared by every changed row in this pass; do not allocate three closures per animated name.
+		java.util.function.IntUnaryOperator x = j -> lines[j].getOriginalX();
+		java.util.function.IntUnaryOperator y = j -> lines[j].getOriginalY();
+		java.util.function.IntFunction<String> shown = j -> lines[j] == null || lines[j].isHidden() ? null : lines[j].getText();
+		Rectangle viewport = null;
 		for (int i = 0; i < lines.length; i++) {
 			Widget w = lines[i];
 			String text = w == null ? null : w.getText();
-			if (text == null || text == chatboxSeen[i] || text.isEmpty()) {
+			boolean moving = text != null && text == chatboxSeen[i] && chatboxMoving[i] != null;
+			boolean deferred = text != null && text == chatboxSeen[i] && chatboxDeferred[i];
+			if (w == null || w.isHidden() || text == null || text.isEmpty()
+					|| text == chatboxSeen[i] && !(move && (moving || deferred))) {
 				continue;
+			}
+			if (text != chatboxSeen[i]) {
+				// The game replaced this slot while it was offscreen; its previous owner no longer applies.
+				chatboxMoving[i] = null;
+				moving = false;
+			}
+			if (viewport == null) {
+				viewport = area.getBounds();
+			}
+			Rectangle runway = new Rectangle(viewport);
+			runway.grow(0, 80);
+			if (!runway.intersects(w.getBounds())) {
+				chatboxSeen[i] = text;
+				chatboxDeferred[i] = true;
+				continue;
+			}
+			chatboxDeferred[i] = false;
+			if (moving) {
+				// Repaint from the tag-free source, never by stripping or stacking our previous tags.
+				text = chatboxMoving[i];
 			}
 			if (star == null) {
 				star = chatStar();
@@ -7547,17 +7682,17 @@ public class AnvilPlugin extends Plugin {
 			}
 			// Which widget is which comes from the layout, never from what the text says: a typed
 			// "[Clan] Bob:" or "Bob has completed a quest: …" is someone's message widget.
-			java.util.function.IntUnaryOperator x = j -> lines[j].getOriginalX();
-			java.util.function.IntUnaryOperator y = j -> lines[j].getOriginalY();
-			java.util.function.IntFunction<String> shown = j -> lines[j] == null || lines[j].isHidden() ? null : lines[j].getText();
 			boolean sender = text.indexOf(':') >= 0 && ChatFlair.senderColumn(i, lines.length, x, y, shown);
-			String painted = sender ? chatFlair.paintSender(text, star, opaque) : null;
+			String painted = sender ? chatFlair.paintSender(text, star, opaque, shift) : null;
 			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
 					&& !ChatFlair.typedBySomeone(i, x, y, shown)) {
-				painted = chatFlair.paintLead(text, star, opaque);
+				painted = chatFlair.paintLead(text, star, opaque, shift);
 			}
 			if (painted != null) {
 				w.setText(painted);
+				if (moving || (sender ? chatFlair.movingSender(text) : chatFlair.movingLead(text))) {
+					chatboxMoving[i] = text;
+				}
 				if (sender) {
 					makeRoom(lines, i, text, painted);
 				}
@@ -7582,20 +7717,24 @@ public class AnvilPlugin extends Plugin {
 		if (d <= 0) {
 			return;
 		}
-		if (s.getOriginalWidth() != chatboxRoom[at]) {
+		// A position alone can't say "already moved": a longer name's plain layout can land exactly on the
+		// spot an earlier, shorter starred name in this slot was moved to, leaving its message overlapping.
+		if (!ChatFlair.alreadyRoomed(s.getOriginalWidth(), chatboxRoom[at], plain, chatboxRoomFor[at])) {
 			s.setOriginalWidth(s.getOriginalWidth() + d);
 			chatboxRoom[at] = s.getOriginalWidth();
+			chatboxRoomFor[at] = plain;
 			s.revalidate();
 		}
 		for (int j = 0; j < lines.length; j++) {
 			Widget o = lines[j];
 			if (j == at || o == null || o.isHidden() || o.getOriginalY() != s.getOriginalY()
-					|| o.getOriginalX() <= s.getOriginalX() || o.getOriginalX() == chatboxRoom[j]) {
+					|| o.getOriginalX() <= s.getOriginalX() || ChatFlair.alreadyRoomed(o.getOriginalX(), chatboxRoom[j], plain, chatboxRoomFor[j])) {
 				continue;
 			}
 			o.setOriginalX(o.getOriginalX() + d);
 			o.setOriginalWidth(Math.max(1, o.getOriginalWidth() - d));
 			chatboxRoom[j] = o.getOriginalX();
+			chatboxRoomFor[j] = plain;
 			o.revalidate();
 		}
 	}
@@ -7613,6 +7752,9 @@ public class AnvilPlugin extends Plugin {
 	private final Map<Widget, int[]> pmRoom = new WeakHashMap<>();
 	/** Client thread: a painted split-PM sender's text, and the room its star needs. */
 	private final Map<String, Integer> pmPainted = new HashMap<>();
+	/** Per moving PM widget: its tag-free source and the animated text currently installed. */
+	private final Map<Widget, String[]> pmMoving = new WeakHashMap<>();
+	private long pmNameFrame = Long.MIN_VALUE;
 
 	/**
 	 * The split private chat lays each line out as separate widgets — the sender ("From <icons>Name:",
@@ -7630,6 +7772,10 @@ public class AnvilPlugin extends Plugin {
 		if (box == null || box.isHidden()) {
 			return;
 		}
+		long frame = currentChatNameFrame();
+		boolean animate = frame != pmNameFrame;
+		pmNameFrame = frame;
+		double shift = chatNameShift(frame);
 		pmLine.clear();
 		collectPm(box.getStaticChildren(), 0, 0);
 		collectPm(box.getDynamicChildren(), 0, 0);
@@ -7660,7 +7806,17 @@ public class AnvilPlugin extends Plugin {
 			}
 			Widget w = pmLine.get(i);
 			String text = w.getText();
-			Integer d = pmPainted.get(text);
+			String[] movingState = pmMoving.get(w);
+			boolean ours = movingState != null && text.equals(movingState[1]);
+			if (movingState != null && !ours) {
+				pmMoving.remove(w);
+				movingState = null;
+			}
+			boolean repaint = ours && animate;
+			if (repaint) {
+				text = movingState[0];
+			}
+			Integer d = repaint ? null : pmPainted.get(text);
 			if (d == null && !splitPmSeen.contains(text)) {
 				if (splitPmSeen.size() > 256 || pmPainted.size() > 256) {
 					splitPmSeen.clear();
@@ -7668,11 +7824,16 @@ public class AnvilPlugin extends Plugin {
 				}
 				boolean column = ChatFlair.column(text);
 				boolean sender = column ? ChatFlair.beside(i, n, pmAx, pmAy, pmShown, false) : !ChatFlair.beside(i, n, pmAx, pmAy, pmShown, true);
-				String painted = sender ? chatFlair.paintPmLine(text, chatStar(), false) : null;
+				String painted = sender ? chatFlair.paintPmLine(text, chatStar(), false, shift) : null;
 				if (painted != null) {
 					w.setText(painted);
 					d = column ? starRoom(text, painted) : 0;
 					pmPainted.put(painted, d);
+					if (repaint || chatFlair.movingSender(text)) {
+						pmMoving.put(w, new String[]{text, painted});
+					} else {
+						pmMoving.remove(w);
+					}
 				} else {
 					splitPmSeen.add(text);
 				}
@@ -7726,8 +7887,13 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: the opaque chatbox (fixed mode, or resizable with transparency off) is light parchment. */
 	private boolean opaqueChatbox() {
-		return !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+		boolean opaque = !client.isResized() || client.getVarbitValue(VarbitID.CHATBOX_TRANSPARENCY) == 0;
+		lastChatboxOpaque = opaque;
+		return opaque;
 	}
+
+	/** The chat surface as last read on the client thread, for code running off it (push feed lines). */
+	private volatile boolean lastChatboxOpaque;
 
 	/**
 	 * Client thread, after the game redraws the chat input line ("Name: *" — every keystroke): our own
@@ -7749,7 +7915,231 @@ public class AnvilPlugin extends Plugin {
 		flairChatInput();
 		flairChatbox();
 		flairSplitPm();
+		animateFlairNameLists();
+		animateFlairInterfaces();
+		animateClanTitles();
 		flairMenuTargets();
+	}
+
+	private static final List<String> CLAN_BOOST_STILL = Collections.unmodifiableList(Arrays.asList("ff9a5a", "e05ad0", "7a8cff"));
+	private static final List<String> CLAN_BOOST_MOVING = Collections.unmodifiableList(Arrays.asList("ffd27a", "ff7ab8", "7ae0ff"));
+
+	private static final class ClanTitleFlair {
+		String plain;
+		String painted;
+		final String name;
+		/** What follows the name (the live member count): re-read whenever the game rewrites the title. */
+		String suffix;
+		final int level;
+
+		ClanTitleFlair(String plain, String painted, String name, String suffix, int level) {
+			this.plain = plain;
+			this.painted = painted;
+			this.name = name;
+			this.suffix = suffix;
+			this.level = level;
+		}
+	}
+
+	private final Map<Widget, ClanTitleFlair> clanTitleFlair = new WeakHashMap<>();
+	private long clanTitleFrame = Long.MIN_VALUE;
+
+	/** Paint only the verified clan name in the channel header; its member count stays game-coloured. */
+	private void flairClanTitleGroup(int group) {
+		PluginConfigResponse.ClanRef clan = pluginConfig == null ? null : pluginConfig.activeClan;
+		if (clan == null || clan.boostLevel < 1) return;
+		String name = clan.gameName == null || clan.gameName.trim().isEmpty() ? clan.name : clan.gameName;
+		if (name == null || name.trim().isEmpty()) return;
+		Widget root = client.getWidget(group, 0);
+		if (root == null) return;
+		flairClanTitleTree(root, name.trim(), clan.boostLevel, Collections.newSetFromMap(new IdentityHashMap<>()));
+	}
+
+	private void flairClanTitleTree(Widget widget, String name, int level, Set<Widget> seen) {
+		if (widget == null || !seen.add(widget)) return;
+		String plain = MARKUP_TAG.matcher(widget.getText() == null ? "" : widget.getText()).replaceAll("");
+		String suffix = ChatFlair.clanTitleSuffix(widget.getText(), name);
+		if (suffix != null) {
+			String painted = paintClanTitle(name, suffix, level, interfaceNameShift(currentChatNameFrame()));
+			widget.setText(painted);
+			clanTitleFlair.put(widget, new ClanTitleFlair(plain, painted, name, suffix, level));
+		}
+		Widget[][] sets = {widget.getChildren(), widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()};
+		for (Widget[] children : sets) if (children != null) for (Widget child : children) flairClanTitleTree(child, name, level, seen);
+	}
+
+	private String paintClanTitle(String name, String suffix, int level, double shift) {
+		PluginConfigResponse.ClanRef clan = pluginConfig == null ? null : pluginConfig.activeClan;
+		// The clan tab is dark stone: the clan's own dark look as-is when it set one.
+		boolean own = clan != null && clan.boostNameDarkStops != null && !clan.boostNameDarkStops.isEmpty();
+		List<String> source = own ? clan.boostNameDarkStops
+			: clan != null && clan.boostNameStops != null && !clan.boostNameStops.isEmpty()
+			? clan.boostNameStops : level >= 2 ? CLAN_BOOST_MOVING : CLAN_BOOST_STILL;
+		List<String> stops = new ArrayList<>();
+		for (String color : source) {
+			String hex = ChatPalette.nameColor(color);
+			if (own) { if (hex != null && stops.size() < 4) stops.add(hex); continue; }
+			// The clan tab's title sits on dark stone in both chatbox modes: lighten, never darken toward
+			// the parchment path (that turned the default gradient muddy).
+			if (hex != null && stops.size() < 4) stops.add(ChatPalette.readableHex(hex, false));
+		}
+		if (stops.isEmpty()) stops = level >= 2 ? CLAN_BOOST_MOVING : CLAN_BOOST_STILL;
+		String painted = ChatPalette.paintName(clean(name), stops.get(0), stops, level >= 2 && config.animatedNames() ? shift : 0);
+		return (painted == null ? name : painted) + suffix;
+	}
+
+	private void animateClanTitles() {
+		if (clanTitleFlair.isEmpty()) return;
+		long frame = currentChatNameFrame();
+		if (frame == clanTitleFrame) return;
+		clanTitleFrame = frame;
+		double shift = interfaceNameShift(frame);
+		Iterator<Map.Entry<Widget, ClanTitleFlair>> it = clanTitleFlair.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<Widget, ClanTitleFlair> row = it.next();
+			Widget widget = row.getKey();
+			ClanTitleFlair state = row.getValue();
+			if (widget == null) { it.remove(); continue; }
+			String text = widget.getText();
+			if (!state.painted.equals(text)) {
+				// The game rewrote the title (a member joined/left: the count changed). Take its new
+				// suffix rather than painting the stale one over the live number.
+				String suffix = ChatFlair.clanTitleSuffix(text, state.name);
+				if (suffix == null) { it.remove(); continue; }
+				state.plain = MARKUP_TAG.matcher(text == null ? "" : text).replaceAll("");
+				state.suffix = suffix;
+			} else if (state.level < 2) {
+				continue;
+			}
+			state.painted = paintClanTitle(state.name, state.suffix, state.level, shift);
+			widget.setText(state.painted);
+		}
+	}
+
+	private void refreshClanTitleWidgets() {
+		unflairClanTitleWidgets();
+		flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
+		flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
+	}
+
+	private void unflairClanTitleWidgets() {
+		for (Map.Entry<Widget, ClanTitleFlair> row : new ArrayList<>(clanTitleFlair.entrySet())) {
+			Widget widget = row.getKey();
+			ClanTitleFlair state = row.getValue();
+			if (widget != null && state.painted.equals(widget.getText())) widget.setText(state.plain);
+		}
+		clanTitleFlair.clear();
+		clanTitleFrame = Long.MIN_VALUE;
+	}
+
+	/** The player-name interfaces Anvil may decorate; every root is a gameval component constant. */
+	private static int flairInterfaceRoot(int group) {
+		// Dialogue: only the game-designated name/title component, never the body text. This covers
+		// quest conversations and ordinary player dialogue without recolouring an RSN mentioned in prose.
+		if (group == InterfaceID.CHAT_LEFT) return InterfaceID.ChatLeft.NAME;
+		if (group == InterfaceID.CHAT_RIGHT) return InterfaceID.ChatRight.NAME;
+		if (group == InterfaceID.CHAT_BOTH) return InterfaceID.ChatBoth.NAMES;
+		if (group == InterfaceID.MESSAGEBOX_TITLED) return InterfaceID.MessageboxTitled.TITLE;
+		if (group == InterfaceID.TRADEMAIN) return InterfaceID.Trademain.WHOLESCREEN;
+		if (group == InterfaceID.TRADECONFIRM) return InterfaceID.Tradeconfirm.ROOT_RECT0;
+		if (group == InterfaceID.BOARDGAMES_CHALLENGE) return InterfaceID.BoardgamesChallenge.UNIVERSE;
+		if (group == InterfaceID.PVP_ARENA_UNRANKEDDUEL) return InterfaceID.PvpArenaUnrankedduel.UNIVERSE;
+		if (group == InterfaceID.RAIDS_CHALLENGE) return InterfaceID.RaidsChallenge.UNIVERSE;
+		if (group == InterfaceID.RAIDS_LOBBY_PARTYLIST) return InterfaceID.RaidsLobbyPartylist.UNIVERSE;
+		if (group == InterfaceID.RAIDS_LOBBY_PARTYDETAILS) return InterfaceID.RaidsLobbyPartydetails.UNIVERSE;
+		if (group == InterfaceID.TOB_PARTYLIST) return InterfaceID.TobPartylist.UNIVERSE;
+		if (group == InterfaceID.TOB_PARTYDETAILS) return InterfaceID.TobPartydetails.UNIVERSE;
+		if (group == InterfaceID.TOB_SCOREBOARD) return InterfaceID.TobScoreboard.UNIVERSE;
+		if (group == InterfaceID.TOB_INFOBOARD) return InterfaceID.TobInfoboard.UNIVERSE;
+		if (group == InterfaceID.TOA_PARTYLIST) return InterfaceID.ToaPartylist.UNIVERSE;
+		if (group == InterfaceID.TOA_PARTYDETAILS) return InterfaceID.ToaPartydetails.UNIVERSE;
+		if (group == InterfaceID.TOA_SCOREBOARD) return InterfaceID.ToaScoreboard.UNIVERSE;
+		if (group == InterfaceID.TFA_PARTYLIST) return InterfaceID.TfaPartylist.UNIVERSE;
+		if (group == InterfaceID.TFA_PARTYDETAILS) return InterfaceID.TfaPartydetails.UNIVERSE;
+		return -1;
+	}
+
+	private static final class InterfaceNameFlair {
+		String plain;
+		String painted;
+		boolean moving;
+
+		InterfaceNameFlair(String plain, String painted, boolean moving) {
+			this.plain = plain;
+			this.painted = painted;
+			this.moving = moving;
+		}
+	}
+
+	/** Only widgets in the explicitly allowed interfaces above; weak keys disappear with the UI. */
+	private final Map<Widget, InterfaceNameFlair> interfaceNameFlair = new WeakHashMap<>();
+	private long interfaceNameFrame = Long.MIN_VALUE;
+
+	private void flairInterface(int rootId) {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty()) return;
+		Widget root = client.getWidget(rootId);
+		if (root == null) return;
+		long frame = currentChatNameFrame();
+		interfaceNameFrame = frame;
+		double shift = interfaceNameShift(frame);
+		flairInterfaceTree(root, shift, Collections.newSetFromMap(new IdentityHashMap<>()));
+	}
+
+	private void flairInterfaceTree(Widget widget, double shift, Set<Widget> visited) {
+		if (widget == null || !visited.add(widget)) return;
+		String text = widget.getText();
+		String painted = chatFlair.paintNames(text, false, shift);
+		if (painted != null) {
+			widget.setText(painted);
+			interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text)));
+		}
+		Widget[][] childSets = {widget.getChildren(), widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()};
+		for (Widget[] children : childSets) {
+			if (children == null) continue;
+			for (Widget child : children) flairInterfaceTree(child, shift, visited);
+		}
+	}
+
+	/** Repaint remembered interface names only; never walk the whole client widget tree per frame. */
+	private void animateFlairInterfaces() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty() || interfaceNameFlair.isEmpty()) return;
+		long frame = currentChatNameFrame();
+		if (frame == interfaceNameFrame) return;
+		interfaceNameFrame = frame;
+		double shift = interfaceNameShift(frame);
+		java.util.Iterator<Map.Entry<Widget, InterfaceNameFlair>> it = interfaceNameFlair.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<Widget, InterfaceNameFlair> row = it.next();
+			Widget widget = row.getKey();
+			InterfaceNameFlair state = row.getValue();
+			if (widget == null) {
+				it.remove();
+				continue;
+			}
+			String current = widget.getText();
+			String plain = state.painted.equals(current) ? state.plain : current;
+			if (!state.moving && state.painted.equals(current)) continue;
+			String painted = chatFlair.paintNames(plain, false, shift);
+			if (painted == null) {
+				it.remove();
+				continue;
+			}
+			state.plain = plain;
+			state.painted = painted;
+			state.moving = chatFlair.movingNames(plain);
+			widget.setText(painted);
+		}
+	}
+
+	/** Put every open whitelisted interface back exactly as the game supplied it. */
+	private void unflairInterfaces() {
+		for (Map.Entry<Widget, InterfaceNameFlair> row : new ArrayList<>(interfaceNameFlair.entrySet())) {
+			Widget widget = row.getKey();
+			InterfaceNameFlair state = row.getValue();
+			if (widget != null && state.painted.equals(widget.getText())) widget.setText(state.plain);
+		}
+		interfaceNameFlair.clear();
+		interfaceNameFrame = Long.MIN_VALUE;
 	}
 
 	/**
@@ -7769,10 +8159,12 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		boolean override = config.menuFlairOverride();
+		long frame = currentChatNameFrame();
+		double shift = interfaceNameShift(frame);
 		for (MenuEntry e : client.getMenuEntries()) {
 			Player p = e.getPlayer();
 			String name = p == null ? null : p.getName();
-			String t = name == null ? null : chatFlair.paintMenuTarget(e.getTarget(), name, override);
+			String t = name == null ? null : chatFlair.paintMenuTarget(e.getTarget(), name, override, shift);
 			if (t != null) {
 				e.setTarget(t);
 			}
@@ -7782,6 +8174,7 @@ public class AnvilPlugin extends Plugin {
 	/** The chat input as the game wrote it, and as we painted it (unflairChat puts the first back). */
 	private String inputPlain;
 	private String inputPainted;
+	private long inputNameFrame = Long.MIN_VALUE;
 
 	/**
 	 * Client thread: undo every name paint now. The chat input goes back to the game's text; the
@@ -7794,12 +8187,30 @@ public class AnvilPlugin extends Plugin {
 		}
 		inputPlain = null;
 		inputPainted = null;
+		inputNameFrame = Long.MIN_VALUE;
+		Arrays.fill(chatboxSeen, null);
+		Arrays.fill(chatboxMoving, null);
+		Arrays.fill(chatboxDeferred, false);
+		Arrays.fill(chatboxRoom, Integer.MIN_VALUE);
+		Arrays.fill(chatboxRoomFor, null);
+		chatNameFrame = Long.MIN_VALUE;
+		splitPmSeen.clear();
+		pmPainted.clear();
+		pmRoom.clear();
+		pmMoving.clear();
 		try {
 			// The same call RuneLite's own chat filter uses to redraw the chatbox and split private chat.
 			client.refreshChat();
 		} catch (RuntimeException ignored) {
 			// Not logged in / no chat yet: nothing painted to undo.
 		}
+	}
+
+	/** Client thread: remove all Anvil-owned name markup, including currently open game interfaces. */
+	private void unflairAll() {
+		unflairChat();
+		unflairInterfaces();
+		unflairClanTitleWidgets();
 	}
 
 	private void flairChatInput() {
@@ -7819,15 +8230,26 @@ public class AnvilPlugin extends Plugin {
 			inputFlairName = me;
 			inputFlairPattern = java.util.regex.Pattern.compile("^((?:<img=\\d+>)*)" + java.util.regex.Pattern.quote(me) + ":");
 		}
-		// Already painted (a colour tag before the name): nothing to do — the cheap common case every frame.
+		long frame = chatFlair.movingName(me) ? currentChatNameFrame() : -1;
+		boolean move = frame != inputNameFrame;
+		inputNameFrame = frame;
+		if (text.equals(inputPainted)) {
+			if (!move) {
+				return;
+			}
+			// The widget still has our last frame. Rebuild from the game's tag-free input, not our tags.
+			text = inputPlain;
+		}
 		java.util.regex.Matcher m = inputFlairPattern.matcher(text);
 		if (!m.find()) {
 			return;
 		}
-		String painted = chatFlair.decorate(m.group(1) + me, chatStar());
+		double shift = chatNameShift(frame);
+		boolean opaque = opaqueChatbox();
+		String painted = chatFlair.decorateReadable(m.group(1) + me, chatStar(), shift, opaque);
 		if (painted != null) {
 			inputPlain = text;
-			inputPainted = ChatPalette.readable(painted, opaqueChatbox()) + ":" + text.substring(m.end());
+			inputPainted = painted + ":" + text.substring(m.end());
 			input.setText(inputPainted);
 		}
 	}
@@ -7835,6 +8257,9 @@ public class AnvilPlugin extends Plugin {
 	/** The side-panel lists whose names wear Supporter colours: friends chat, clan, guest clan, friends. */
 	private static final int[] FLAIR_LISTS = {InterfaceID.ChatchannelCurrent.LIST, InterfaceID.ClansSidepanel.PLAYERLIST,
 			InterfaceID.ClansGuestSidepanel.PLAYERLIST, InterfaceID.Friends.LIST};
+	/** Per visible moving list row: its tag-free source and the animated text currently installed. */
+	private final Map<Widget, String[]> nameListMoving = new WeakHashMap<>();
+	private long nameListFrame = Long.MIN_VALUE;
 
 	/**
 	 * Client thread, after the game redraws a member or friends list: Supporters' names in their
@@ -7847,6 +8272,9 @@ public class AnvilPlugin extends Plugin {
 		if (!config.supporterChatFlair() || chatFlair.isEmpty()) {
 			return;
 		}
+		long frame = currentChatNameFrame();
+		nameListFrame = frame;
+		double shift = interfaceNameShift(frame);
 		for (int id : FLAIR_LISTS) {
 			Widget list = client.getWidget(id);
 			Widget[] rows = list == null ? null : list.getDynamicChildren();
@@ -7859,11 +8287,47 @@ public class AnvilPlugin extends Plugin {
 				if (text == null || text.isEmpty() || (friends && !friendOnline(text))) {
 					continue;
 				}
-				String painted = chatFlair.decorate(text, null);
+				String painted = chatFlair.decorateReadable(text, null, shift, false);
 				if (painted != null) {
-					w.setText(ChatPalette.readable(painted, false));
+					w.setText(painted);
+					if (chatFlair.movingDecoratedName(text)) {
+						nameListMoving.put(w, new String[]{text, painted});
+					}
 				}
 			}
+		}
+	}
+
+	/** Repaint only the Patron rows already discovered by a list rebuild; no full list scan per frame. */
+	private void animateFlairNameLists() {
+		if (!config.supporterChatFlair() || chatFlair.isEmpty() || nameListMoving.isEmpty()) {
+			return;
+		}
+		long frame = currentChatNameFrame();
+		if (frame == nameListFrame) {
+			return;
+		}
+		nameListFrame = frame;
+		double shift = interfaceNameShift(frame);
+		java.util.Iterator<Map.Entry<Widget, String[]>> it = nameListMoving.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<Widget, String[]> row = it.next();
+			Widget w = row.getKey();
+			String[] state = row.getValue();
+			if (w == null || !state[1].equals(w.getText())) {
+				it.remove();
+				continue;
+			}
+			if (w.isHidden()) {
+				continue;
+			}
+			String painted = chatFlair.decorateReadable(state[0], null, shift, false);
+			if (painted == null) {
+				it.remove();
+				continue;
+			}
+			state[1] = painted;
+			w.setText(state[1]);
 		}
 	}
 
@@ -8115,6 +8579,7 @@ public class AnvilPlugin extends Plugin {
 			optimistic.reset();
 		}
 		pluginConfig = fresh;
+		clientThread.invokeLater(this::refreshClanTitleWidgets);
 		rebuildItemDropIndex();
 		keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
 				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
@@ -8163,6 +8628,7 @@ public class AnvilPlugin extends Plugin {
 			// reflects no active event rather than a stale one.
 			if (fresh != null && fresh.event == null) {
 				pluginConfig = fresh;
+				clientThread.invokeLater(this::refreshClanTitleWidgets);
 				rebuildItemDropIndex();
 				if (fresh.unlinkedActiveEvent != null && !fresh.unlinkedActiveEvent.isEmpty()) {
 					// The diagnostic "money line" for debug exports: the token is valid AND this RSN
@@ -9184,10 +9650,18 @@ public class AnvilPlugin extends Plugin {
 	 * <p>Null when nothing had us targeted, which is a mechanic or a fall, and the feed then says
 	 * only that someone died. A death with no killer is a smaller story than one with the wrong.
 	 */
-	private void recordDeathMoment() {
-		if (!momentsEnabled()) {
-			return;
+	private static final class AttributedDeath {
+		final String source;
+		final String sourceKind;
+
+		AttributedDeath(String source, String sourceKind) {
+			this.source = source;
+			this.sourceKind = sourceKind;
 		}
+	}
+
+	/** Resolve one death once, so the Feed and Discord cannot disagree about what killed us. */
+	private AttributedDeath resolveDeathSource() {
 		long now = now();
 		String fighting = (lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS)
 				? lastCombatTarget : null;
@@ -9205,13 +9679,21 @@ public class AnvilPlugin extends Plugin {
 			killer = fighting;
 			sourceKind = "fought";
 		}
-		moments.record(new AnvilMoments.Moment("death", null, null, 1, null, killer, sourceKind,
-				killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now)));
-		scheduleMomentPush(DEATH_PUSH_DELAY_MS);
 		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
 		// rather than waiting for each attacker to drop us, which an instance tear-down never
 		// reports — a stale attacker would otherwise be the prime suspect for the next death.
 		deathAttribution.clear();
+		return new AttributedDeath(killer, sourceKind);
+	}
+
+	private void recordDeathMoment(AttributedDeath death) {
+		if (!momentsEnabled()) {
+			return;
+		}
+		long now = now();
+		moments.record(new AnvilMoments.Moment("death", null, null, 1, null, death.source, death.sourceKind,
+				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now)));
+		scheduleMomentPush(DEATH_PUSH_DELAY_MS);
 	}
 
 	/**
@@ -9567,15 +10049,25 @@ public class AnvilPlugin extends Plugin {
 			// the boss everyone is racing that week is the story; dying in general is a number.
 			// Recorded here rather than beside the post below, so the drops channel being off can't
 			// erase it.
-			recordDeathMoment();
+			AttributedDeath death = resolveDeathSource();
+			recordDeathMoment(death);
 			if (!config.notifyDeaths()) {
 				return;
 			}
 			if (!notifyEnabled("deaths")) {
 				return;
 			}
-			String message = buildDeathMessage(getLocalPlayerName());
-			captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
+			String rsn = getLocalPlayerName();
+			String message = buildDeathMessage(rsn);
+			PluginConfigResponse cfg = pluginConfig;
+			if (cfg != null && cfg.serverSupports("death-source-notify")) {
+				NotifyFacts facts = new NotifyFacts("death", rsn).put("message", message)
+						.put("source", death.source).put("sourceKind", death.sourceKind);
+				captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
+			} else {
+				// An older site does not know the death facts shape; preserve its existing notification.
+				captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
+			}
 			return;
 		}
 
@@ -9656,9 +10148,9 @@ public class AnvilPlugin extends Plugin {
 		if (col != null && !col.equalsIgnoreCase("ffffff") && !config.menuFlairOverride()) {
 			return;
 		}
-		String painted = chatFlair.decorate(name, null);
+		String painted = chatFlair.decorateReadable(name, null, 0, false);
 		if (painted != null) {
-			entry.setTarget(target.substring(0, m.start()) + ChatPalette.readable(painted, false) + target.substring(m.end()));
+			entry.setTarget(target.substring(0, m.start()) + painted + target.substring(m.end()));
 		}
 	}
 
@@ -11581,6 +12073,12 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
+	/** Manual panel Refresh: bypass the ten-minute cadence so changed public name styles appear now. */
+	void refreshChatFlairNow() {
+		chatFlairFetchedAt = now();
+		chatFlairSync.sync();
+	}
+
 	/** The login brief (site lib/chatBrief): where this character stands, in a line or two. */
 	private void sendBrief() {
 		BingoApiClient.Brief b = apiClient.fetchBrief();
@@ -11643,7 +12141,10 @@ public class AnvilPlugin extends Plugin {
 			}
 			grad = ChatPalette.gradientName(clean(who), stops);
 		}
-		String name = grad != null ? grad
+		// The dataset's look for this surface (own dark/light look, else adapted) wins over the push's
+		// raw colours, so a feed line's name matches the same name in chat.
+		String own = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.paintNameFor(clean(who), lastChatboxOpaque);
+		String name = own != null ? own : grad != null ? grad
 				: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who);
 		String lead = who.isEmpty() ? null : (star ? chatStar() : "") + name;
 		ChatPalette.Tone tone = ChatPalette.Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);

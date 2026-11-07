@@ -53,6 +53,24 @@ public class ChatPaletteTest
 	}
 
 	@Test
+	public void gradientNameCanMoveAlongAReflectingCycle()
+	{
+		java.util.List<String> two = java.util.Arrays.asList("#ff0000", "#0000ff");
+		assertEquals("<col=800080>A</col><col=0000ff>b</col><col=800080>c</col>",
+			ChatPalette.gradientName("Abc", two, 0.5));
+		assertEquals("one full reflecting period loops exactly",
+			ChatPalette.gradientName("Abc", two), ChatPalette.gradientName("Abc", two, 2));
+	}
+
+	@Test
+	public void oneNameRendererHandlesStaticAndMovingPalettes()
+	{
+		assertEquals("<col=123456>Static</col>", ChatPalette.paintName("Static", "#123456", null, 1));
+		assertEquals(ChatPalette.gradientName("Moving", java.util.Arrays.asList("#ff0000", "#0000ff"), 0.5),
+			ChatPalette.paintName("Moving", "#123456", java.util.Arrays.asList("#ff0000", "#0000ff"), 0.5));
+	}
+
+	@Test
 	public void theOpaqueChatboxGetsDarkInksButACustomPaletteStaysTheirs()
 	{
 		assertEquals("006a00", ChatPalette.ANVIL.text(ChatPalette.Tone.DONE, "000000", true));
@@ -86,6 +104,43 @@ public class ChatPaletteTest
 	}
 
 	@Test
+	public void opaqueContrastAdjustmentChangesContinuouslyAcrossAGradient()
+	{
+		int[] stops = {0xffd27a, 0xff7ab8, 0x7ae0ff};
+		for (int segment = 0; segment < stops.length - 1; segment++)
+		{
+			int previous = -1;
+			for (int step = 0; step <= 512; step++)
+			{
+				double t = step / 512.0;
+				int source = mixForTest(stops[segment], stops[segment + 1], t);
+				int adjusted = Integer.parseInt(ChatPalette.readableHex(String.format("%06x", source), true), 16);
+				assertTrue(ChatPalette.contrast(adjusted, 0xC4B48C) >= ChatPalette.MIN_CONTRAST);
+				if (previous >= 0)
+				{
+					assertTrue("adjacent gradient samples must not jump: " + Integer.toHexString(previous)
+						+ " -> " + Integer.toHexString(adjusted), maxChannelDelta(previous, adjusted) <= 3);
+				}
+				previous = adjusted;
+			}
+		}
+	}
+
+	private static int mixForTest(int a, int b, double t)
+	{
+		int r = (int) Math.round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
+		int g = (int) Math.round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
+		int bl = (int) Math.round((a & 0xff) * (1 - t) + (b & 0xff) * t);
+		return r << 16 | g << 8 | bl;
+	}
+
+	private static int maxChannelDelta(int a, int b)
+	{
+		return Math.max(Math.abs((a >> 16 & 0xff) - (b >> 16 & 0xff)),
+			Math.max(Math.abs((a >> 8 & 0xff) - (b >> 8 & 0xff)), Math.abs((a & 0xff) - (b & 0xff))));
+	}
+
+	@Test
 	public void aSupportersSenderColumnNamesTheirTier()
 	{
 		ChatFlair.Entry patron = new ChatFlair.Entry();
@@ -105,5 +160,20 @@ public class ChatPaletteTest
 		assertEquals("Anvil Supporter", f.tierOfSender("Rikkert:"));
 		assertNull("a message, not a sender", f.tierOfSender("Drenvox is great"));
 		assertNull(f.tierOfSender("Somebody:"));
+	}
+
+	@Test
+	public void readableColorKeepsTheSupporterColourInsteadOfTheFallback()
+	{
+		java.awt.Color white = java.awt.Color.WHITE;
+		// Light stops are already readable on the dark panel: unchanged, with or without "#".
+		assertEquals(new java.awt.Color(0xffd27a), ChatPalette.readableColor("#ffd27a", false, white));
+		assertEquals(new java.awt.Color(0xff7ab8), ChatPalette.readableColor("ff7ab8", false, white));
+		// A near-black stop is lightened, never replaced by the fallback.
+		java.awt.Color dark = ChatPalette.readableColor("#940548", false, white);
+		assertFalse(white.equals(dark));
+		assertTrue(dark.getRed() > dark.getGreen());
+		assertEquals(white, ChatPalette.readableColor("nope", false, white));
+		assertEquals(white, ChatPalette.readableColor(null, false, white));
 	}
 }

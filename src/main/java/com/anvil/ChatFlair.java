@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -22,11 +23,33 @@ import java.util.regex.Pattern;
 final class ChatFlair
 {
 	/** A look: solid colour, optional gradient stops, Patron star. */
+	/** A per-surface look the owner picked themselves: a colour, plus gradient stops when 2+. */
+	static final class Surface
+	{
+		String c;
+		List<String> g;
+
+		@Override
+		public String toString()
+		{
+			return c + "/" + g;
+		}
+	}
+
 	static final class Entry
 	{
 		String c;
 		List<String> g;
 		Boolean s;
+		/** The owner's own look for dark surfaces / light (parchment) ones: drawn as-is, never adapted. */
+		Surface d;
+		Surface l;
+		// Derived once per wire style. Entries are immutable after adoption and shared by every name
+		// wearing the same look; transient keeps these client-only caches off Gson's wire format.
+		transient String darkColor;
+		transient String opaqueColor;
+		transient List<String> darkGradient;
+		transient List<String> opaqueGradient;
 	}
 
 	/**
@@ -48,6 +71,7 @@ final class ChatFlair
 	static final class Since
 	{
 		int v;
+		Integer n;
 		List<Wire> deltas;
 	}
 
@@ -186,7 +210,7 @@ final class ChatFlair
 
 	private static int intern(Map<String, Integer> palette, List<Entry> styles, Entry e)
 	{
-		String key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s);
+		String key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s) + "|" + e.d + "|" + e.l;
 		Integer i = palette.get(key);
 		if (i == null)
 		{
@@ -229,6 +253,11 @@ final class ChatFlair
 		return held.names.length == 0;
 	}
 
+	int size()
+	{
+		return held.names.length;
+	}
+
 	/** The site's normalizeRsn: lower case, any run of spaces / underscores (and the game's nbsp) as one space. */
 	static String normalize(String name)
 	{
@@ -238,6 +267,7 @@ final class ChatFlair
 	// Compiled once: normalize runs for every chat sender and every friends / channel list row.
 	private static final Pattern SPACES = Pattern.compile("[\\s_]+");
 	private static final Pattern TAGS = Pattern.compile("<[^>]*>");
+	private static final int MAX_NAME_LENGTH = 24;
 
 	/** A sender column's text ("[02:25] <img=1>Name:" with any colouring): the name inside, or null. */
 	private static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)*(?:(?:From|To)\\s+)?(.+?):$");
@@ -299,7 +329,7 @@ final class ChatFlair
 			at.add(i);
 		}
 		String text = plain.toString();
-		// Every place a painted word starts, and the names (12 letters at most) that could start there:
+		// Every place a painted word starts, and the bounded names that could start there:
 		// a handful of lookups per line, however long the list.
 		for (int from = 0; from < text.length(); from++)
 		{
@@ -312,7 +342,7 @@ final class ChatFlair
 			{
 				continue;
 			}
-			for (int to = Math.min(text.length(), from + 12); to > from; to--)
+			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--)
 			{
 				if (to < text.length() && Character.isLetterOrDigit(text.charAt(to)))
 				{
@@ -342,6 +372,34 @@ final class ChatFlair
 	 */
 	String decorate(String sender, String star)
 	{
+		return decorate(sender, star, 0);
+	}
+
+	/** The sender's look at one point in the Patron gradient's reflecting animation cycle. */
+	String decorate(String sender, String star, double shift)
+	{
+		return decorate(sender, star, shift, null);
+	}
+
+	/** A sender using the palette derived once for the chat surface behind it. */
+	String decorateReadable(String sender, String star, double shift, boolean opaque)
+	{
+		return decorate(sender, star, shift, opaque);
+	}
+
+	/**
+	 * {@code safeName} (already markup-safe) in its owner's look for this chat surface: their own
+	 * dark/light look as-is, else the adapted main one. Null when they wear none. Clan feed lines use
+	 * this so a pushed name matches the same name in chat.
+	 */
+	String paintNameFor(String safeName, boolean opaque)
+	{
+		Entry e = safeName == null || safeName.isEmpty() ? null : entry(safeName);
+		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
+	}
+
+	private String decorate(String sender, String star, double shift, Boolean opaque)
+	{
 		if (sender == null || isEmpty())
 		{
 			return null;
@@ -357,13 +415,68 @@ final class ChatFlair
 		{
 			return null;
 		}
-		String painted = e.g != null && e.g.size() >= 2 ? ChatPalette.gradientName(name, e.g) : null;
+		List<String> stops = opaque == null ? e.g : readableGradient(e, opaque);
+		String color = opaque == null ? ChatPalette.nameColor(e.c) : readableColor(e, opaque);
+		String painted = ChatPalette.paintName(name, color, stops, Boolean.TRUE.equals(e.s) ? shift : 0);
 		if (painted == null)
 		{
-			painted = "<col=" + ChatPalette.nameColor(e.c) + ">" + name + "</col>";
+			return null;
 		}
 		boolean starred = Boolean.TRUE.equals(e.s) && star != null;
 		return m.group(1) + (starred ? star : "") + painted;
+	}
+
+	private static String readableColor(Entry e, boolean opaque)
+	{
+		String cached = opaque ? e.opaqueColor : e.darkColor;
+		if (cached != null)
+		{
+			return cached;
+		}
+		Surface own = opaque ? e.l : e.d;
+		String picked = own == null ? null : ChatPalette.nameColor(own.c);
+		String source = ChatPalette.nameColor(e.c);
+		String derived = picked != null ? picked : source == null ? null : ChatPalette.readableHex(source, opaque);
+		if (opaque)
+		{
+			e.opaqueColor = derived;
+		}
+		else
+		{
+			e.darkColor = derived;
+		}
+		return derived;
+	}
+
+	private static List<String> readableGradient(Entry e, boolean opaque)
+	{
+		List<String> cached = opaque ? e.opaqueGradient : e.darkGradient;
+		Surface own = opaque ? e.l : e.d;
+		boolean picked = own != null && ChatPalette.nameColor(own.c) != null;
+		if (cached != null || (e.g == null && !picked))
+		{
+			return cached;
+		}
+		// The owner's own surface look is exactly what they chose: a solid one also drops the gradient here.
+		List<String> source = picked ? (own.g == null ? new ArrayList<>() : own.g) : e.g;
+		List<String> derived = new ArrayList<>(source.size());
+		for (String stop : source)
+		{
+			String hex = ChatPalette.nameColor(stop);
+			if (hex != null)
+			{
+				derived.add("#" + (picked ? hex : ChatPalette.readableHex(hex, opaque)));
+			}
+		}
+		if (opaque)
+		{
+			e.opaqueGradient = derived;
+		}
+		else
+		{
+			e.darkGradient = derived;
+		}
+		return derived;
 	}
 
 	// ---- Display-time painting of chat widgets. The game's message data (MessageNode name / value) is
@@ -423,7 +536,13 @@ final class ChatFlair
 	 */
 	String paintSender(String raw, String star, boolean opaque)
 	{
-		return paintSender(raw, star, opaque, false);
+		return paintSender(raw, star, opaque, false, 0);
+	}
+
+	/** Paint a chatbox sender at one point in the Patron gradient's animation cycle. */
+	String paintSender(String raw, String star, boolean opaque, double shift)
+	{
+		return paintSender(raw, star, opaque, false, shift);
 	}
 
 	/**
@@ -432,10 +551,16 @@ final class ChatFlair
 	 */
 	String paintPmLine(String raw, String star, boolean opaque)
 	{
-		return paintSender(raw, star, opaque, true);
+		return paintSender(raw, star, opaque, true, 0);
 	}
 
-	private String paintSender(String raw, String star, boolean opaque, boolean pmLine)
+	/** Paint a split-private-chat sender at one point in the Patron animation cycle. */
+	String paintPmLine(String raw, String star, boolean opaque, double shift)
+	{
+		return paintSender(raw, star, opaque, true, shift);
+	}
+
+	private String paintSender(String raw, String star, boolean opaque, boolean pmLine, double shift)
 	{
 		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0)
 		{
@@ -445,7 +570,7 @@ final class ChatFlair
 		Matcher m = SENDER_SHOWN.matcher(s.text);
 		// A sender column ends at the colon; a split-PM line is "From/To Name: …". A typed "[Clan] Bob: hi"
 		// in a message widget is neither.
-		if (!m.matches() || (pmLine ? m.group(2) == null || !m.group(1).isEmpty() : !m.group(4).trim().isEmpty()))
+		if (!m.matches() || (pmLine ? m.group(2) == null : !m.group(4).trim().isEmpty()))
 		{
 			return null;
 		}
@@ -459,7 +584,37 @@ final class ChatFlair
 		{
 			to--;
 		}
-		return from < to && to - from <= 12 ? paintAt(raw, s, from, to, star, opaque) : null;
+		return from < to && to - from <= MAX_NAME_LENGTH ? paintAt(raw, s, from, to, star, opaque, shift) : null;
+	}
+
+	/** Whether a validated sender column belongs to a Patron with a movable gradient. */
+	boolean movingSender(String raw)
+	{
+		if (raw == null || raw.isEmpty())
+		{
+			return false;
+		}
+		Matcher m = SENDER_SHOWN.matcher(shown(raw).text);
+		if (!m.matches())
+		{
+			return false;
+		}
+		String name = m.group(3).trim();
+		return name.length() <= MAX_NAME_LENGTH && movingName(name);
+	}
+
+	/** Whether this name belongs to a Patron with a movable gradient. */
+	boolean movingName(String name)
+	{
+		Entry e = entry(name);
+		return e != null && Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2;
+	}
+
+	/** Whether an icon-prefixed plain sender/name belongs to a Patron with a movable gradient. */
+	boolean movingDecoratedName(String sender)
+	{
+		Matcher m = sender == null ? null : SENDER.matcher(sender);
+		return m != null && m.matches() && movingName(m.group(2));
 	}
 
 	/**
@@ -557,16 +712,21 @@ final class ChatFlair
 	 */
 	String paintMenuTarget(String target, String name, boolean override)
 	{
+		return paintMenuTarget(target, name, override, 0);
+	}
+
+	/** A player-menu target at one point in the Patron animation cycle. */
+	String paintMenuTarget(String target, String name, boolean override, double shift)
+	{
 		if (target == null || name == null || isEmpty())
 		{
 			return null;
 		}
-		String d = decorate(name, null);
+		String d = decorateReadable(name, null, shift, false);
 		if (d == null)
 		{
 			return null;
 		}
-		d = ChatPalette.readable(d, false);
 		Shown s = shown(target);
 		int from = s.text.indexOf(name.replace('\u00A0', ' '));
 		if (from < 0)
@@ -619,6 +779,30 @@ final class ChatFlair
 	{
 		String t = shown(raw).text.trim();
 		return t.endsWith(":");
+	}
+
+	/**
+	 * The part of a clan title after the clan's name (" (18)", the live member count), or null when the
+	 * text isn't that clan's title. Markup is ignored so a game-coloured count still matches.
+	 */
+	static String clanTitleSuffix(String text, String name)
+	{
+		if (text == null || name == null || name.isEmpty()) return null;
+		String plain = AnvilPlugin.MARKUP_TAG.matcher(text).replaceAll("");
+		if (!plain.regionMatches(true, 0, name, 0, name.length())) return null;
+		if (plain.length() == name.length()) return "";
+		char next = plain.charAt(name.length());
+		return Character.isWhitespace(next) || next == '(' ? plain.substring(name.length()) : null;
+	}
+
+	/**
+	 * Whether a chatbox widget still holds the room made for its star: its value is the one we set AND it
+	 * was set for this same sender line. A matching value from a different sender is the game's plain
+	 * layout that happens to coincide, and still needs moving.
+	 */
+	static boolean alreadyRoomed(int value, int roomed, String plain, String roomedFor)
+	{
+		return value == roomed && plain != null && plain.equals(roomedFor);
 	}
 
 	/**
@@ -689,6 +873,12 @@ final class ChatFlair
 	/** A broadcast widget with the leading name painted (icons and colours kept); null when none / already. */
 	String paintLead(String raw, String star, boolean opaque)
 	{
+		return paintLead(raw, star, opaque, 0);
+	}
+
+	/** A broadcast's leading name at one point in the Patron animation cycle. */
+	String paintLead(String raw, String star, boolean opaque, double shift)
+	{
 		if (raw == null || raw.isEmpty() || isEmpty())
 		{
 			return null;
@@ -701,19 +891,101 @@ final class ChatFlair
 		}
 		Matcher m = LEAD.matcher(s.text);
 		int from = m.lookingAt() ? m.end() : 0;
-		return paintAt(raw, s, from, end, star, opaque);
+		return paintAt(raw, s, from, end, star, opaque, shift);
+	}
+
+	/** Whether a broadcast begins with a Patron name whose gradient should move. */
+	boolean movingLead(String raw)
+	{
+		if (raw == null || raw.isEmpty())
+		{
+			return false;
+		}
+		Shown s = shown(raw);
+		int end = leadName(s);
+		if (end < 0)
+		{
+			return false;
+		}
+		Matcher m = LEAD.matcher(s.text);
+		int from = m.lookingAt() ? m.end() : 0;
+		return movingName(s.text.substring(from, end));
+	}
+
+	/**
+	 * Paint every exact Supporter name in a trusted player-name interface (trade, challenge, raid
+	 * boards). Callers scope this to those interfaces; arbitrary game text is never scanned.
+	 */
+	String paintNames(String raw, boolean opaque, double shift)
+	{
+		if (raw == null || raw.isEmpty() || isEmpty())
+		{
+			return null;
+		}
+		Shown shown = shown(raw);
+		String out = raw;
+		boolean changed = false;
+		for (int from = shown.text.length() - 1; from >= 0; from--)
+		{
+			if (from > 0 && nameChar(shown.text.charAt(from - 1)))
+			{
+				continue;
+			}
+			int limit = Math.min(shown.text.length(), from + MAX_NAME_LENGTH);
+			for (int to = limit; to > from; to--)
+			{
+				if (to < shown.text.length() && nameChar(shown.text.charAt(to)) || entry(shown.text.substring(from, to)) == null)
+				{
+					continue;
+				}
+				String painted = paintAt(out, shown, from, to, null, opaque, shift);
+				if (painted != null)
+				{
+					out = painted;
+					changed = true;
+				}
+				break;
+			}
+		}
+		return changed ? out : null;
+	}
+
+	/** Whether a trusted interface text contains at least one moving Patron name. */
+	boolean movingNames(String raw)
+	{
+		if (raw == null || raw.isEmpty())
+		{
+			return false;
+		}
+		String text = shown(raw).text;
+		for (int from = 0; from < text.length(); from++)
+		{
+			if (from > 0 && nameChar(text.charAt(from - 1)))
+			{
+				continue;
+			}
+			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--)
+			{
+				if ((to == text.length() || !nameChar(text.charAt(to))) && movingName(text.substring(from, to)))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**
 	 * Where the Supporter's name the text starts with ends (exclusive), or -1: the longest prefix of at
-	 * most 12 characters that ends on a word ("Bob" is not the start of "Bobby has…") and is on the list.
+	 * most {@link #MAX_NAME_LENGTH} characters that ends on a word ("Bob" is not the start of "Bobby has…")
+	 * and is on the list.
 	 */
 	private int leadName(Shown s)
 	{
 		String t = s.text;
 		Matcher m = LEAD.matcher(t);
 		int from = m.lookingAt() ? m.end() : 0;
-		for (int to = Math.min(t.length(), from + 12); to > from; to--)
+		for (int to = Math.min(t.length(), from + MAX_NAME_LENGTH); to > from; to--)
 		{
 			if (!Character.isLetterOrDigit(t.charAt(to - 1)) || to < t.length() && nameChar(t.charAt(to)))
 			{
@@ -737,7 +1009,7 @@ final class ChatFlair
 	 * re-opening the colour the text had there so the rest of the line keeps it. Null when the name
 	 * carries tags inside (gradient-painted already) or our paint is right before it (painted already).
 	 */
-	private String paintAt(String raw, Shown s, int from, int to, String star, boolean opaque)
+	private String paintAt(String raw, Shown s, int from, int to, String star, boolean opaque, double shift)
 	{
 		int rs = s.at[from];
 		int re = s.at[to - 1] + 1;
@@ -746,12 +1018,11 @@ final class ChatFlair
 		{
 			return null;
 		}
-		String d = decorate(name, star);
+		String d = decorateReadable(name, star, shift, opaque);
 		if (d == null)
 		{
 			return null;
 		}
-		d = ChatPalette.readable(d, opaque);
 		int k = shown(d).at[0];
 		if (rs >= k && raw.startsWith(d.substring(0, k), rs - k))
 		{

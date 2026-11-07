@@ -323,6 +323,7 @@ public class AnvilSidebarDataSource
 			{
 				p.reprobeAdminNow();
 				p.refreshLook();
+				p.refreshChatFlairNow();
 			}
 		});
 	}

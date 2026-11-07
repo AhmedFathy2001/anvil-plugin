@@ -74,8 +74,8 @@ final class UiView extends JPanel
 			return -1;
 		}
 
-		/** A picture by site path (node {@code img}), fitted to w x h; {@code done} gets it, or null, on the EDT. */
-		default void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+		/** A picture by site path (node {@code img}); motion may be frozen by client preference. */
+		default void image(String path, int w, int h, boolean motion, Consumer<javax.swing.Icon> done)
 		{
 		}
 	}
@@ -179,6 +179,12 @@ final class UiView extends JPanel
 		return root != null || !loads.isEmpty();
 	}
 
+	/** Force the next answers to rebuild their nodes, even when their JSON is structurally unchanged. */
+	void invalidateDrawn()
+	{
+		drawn.clear();
+	}
+
 	/** Show a line of text in place of everything, dropping any answer still on its way. */
 	void say(String text)
 	{
@@ -213,7 +219,7 @@ final class UiView extends JPanel
 	}
 
 	/**
-	 * Push rows for the live lists ({@code {t:'rows'|'rowsdel'|'rowslock', feeds:[…]}}): each list
+	 * Push rows for the live lists ({@code {t:'rows'|'rowsdel'|'rowslock'|'rowsreact', feeds:[…]}}): each list
 	 * named takes them; nothing is redrawn. A lock names id prefixes (a board's every chat list).
 	 */
 	void feedPush(JsonObject m)
@@ -248,6 +254,10 @@ final class UiView extends JPanel
 				else if ("rowsdel".equals(t) && m.has("ids") && m.get("ids").isJsonArray())
 				{
 					f.remove(m.getAsJsonArray("ids"));
+				}
+				else if ("rowsreact".equals(t))
+				{
+					f.reaction(m);
 				}
 			}
 		}
@@ -495,7 +505,7 @@ final class UiView extends JPanel
 				return left(part == null ? new JPanel() : part);
 			case "feed":
 			{
-				FeedList f = new FeedList(n, host, items, this::act);
+				FeedList f = new FeedList(n, host, items, sprites, skills, this::act);
 				feeds.add(f);
 				return left(f);
 			}
@@ -638,7 +648,7 @@ final class UiView extends JPanel
 		{
 			if (stops.size() < 4 && e.isJsonPrimitive())
 			{
-				stops.add(teamColor(e.getAsString(), fallback));
+				stops.add(ChatPalette.readableColor(e.getAsString(), false, fallback));
 			}
 		}
 		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
@@ -676,27 +686,120 @@ final class UiView extends JPanel
 		return l;
 	}
 
-	/** A site picture (a proof's thumbnail): a dark box until it arrives. */
+	/** A site picture: it takes no room until a valid image has decoded. */
 	private JComponent img(JsonObject n)
 	{
 		int w = Math.max(1, Math.min(240, num(n, "w", 64)));
 		int h = Math.max(1, Math.min(240, num(n, "h", 40)));
 		JLabel l = new JLabel();
 		l.setHorizontalAlignment(SwingConstants.CENTER);
-		l.setOpaque(true);
+		l.setOpaque(false);
 		l.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		Dimension d = new Dimension(w, h);
-		l.setPreferredSize(d);
-		l.setMinimumSize(d);
-		l.setMaximumSize(d);
-		host.image(str(n, "src"), w, h, image ->
+		Dimension empty = new Dimension(0, 0);
+		l.setPreferredSize(empty);
+		l.setMinimumSize(empty);
+		l.setMaximumSize(empty);
+		l.setVisible(false);
+		host.image(str(n, "src"), w, h, bool(n, "motion"), image ->
 		{
 			if (image != null)
 			{
-				l.setIcon(new ImageIcon(image));
+				l.setIcon(bool(n, "round") ? roundIcon(image, w, h) : image);
+				l.setPreferredSize(d);
+				l.setMinimumSize(d);
+				l.setMaximumSize(d);
+				l.setVisible(true);
+				growCappedAncestors(l);
+				l.revalidate();
+			}
+			else
+			{
+				// A missing/invalid banner never flashes or leaves a permanent black hole above a card.
+				l.setPreferredSize(empty);
+				l.setMinimumSize(empty);
+				l.setMaximumSize(empty);
+				l.setVisible(false);
+				l.revalidate();
 			}
 		});
 		return l;
+	}
+
+	/**
+	 * A row is height-capped ({@link Ui#capH}) when built, while its picture is still hidden at 0x0; once
+	 * the picture decodes, lift each capped ancestor to its new preferred height or the icon is cropped
+	 * into a squashed sliver.
+	 */
+	static void growCappedAncestors(Component c)
+	{
+		for (Container p = c.getParent(); p instanceof JComponent && !(p instanceof JViewport); p = p.getParent())
+		{
+			Dimension max = p.getMaximumSize();
+			int want = p.getPreferredSize().height;
+			if (max.width == Integer.MAX_VALUE && max.height < want)
+			{
+				((JComponent) p).setMaximumSize(new Dimension(Integer.MAX_VALUE, want));
+			}
+		}
+	}
+
+	/** Repaints {@code c} as GIF frames arrive; detaches once the label is no longer on screen. */
+	static java.awt.image.ImageObserver frameRepainter(Component c)
+	{
+		return (img, flags, x, y, width, height) ->
+		{
+			if (!c.isShowing())
+			{
+				return false;
+			}
+			if ((flags & (java.awt.image.ImageObserver.FRAMEBITS | java.awt.image.ImageObserver.ALLBITS)) != 0)
+			{
+				c.repaint();
+			}
+			return (flags & (java.awt.image.ImageObserver.ALLBITS | java.awt.image.ImageObserver.ABORT | java.awt.image.ImageObserver.ERROR)) == 0;
+		};
+	}
+
+	/** Keep animated ImageIcons animated while masking avatars and clan marks to a smooth circle. */
+	private static Icon roundIcon(Icon image, int w, int h)
+	{
+		return new Icon()
+		{
+			@Override public int getIconWidth() { return w; }
+			@Override public int getIconHeight() { return h; }
+
+			@Override
+			public void paintIcon(Component c, Graphics g, int x, int y)
+			{
+				// Clipping a GIF directly leaves a visibly jagged Swing edge. Paint the current frame into a
+				// tiny ARGB buffer, then apply an antialiased alpha mask; ImageIcon still advances normally.
+				java.awt.image.BufferedImage frame = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+				Graphics2D copy = frame.createGraphics();
+				try
+				{
+					if (image instanceof ImageIcon)
+					{
+						// JLabel only follows frames for an ImageIcon it holds directly; this wrapper would
+						// otherwise stop a GIF after its first frame. Repaint the label on each new frame.
+						copy.drawImage(((ImageIcon) image).getImage(), 0, 0, frameRepainter(c));
+					}
+					else
+					{
+						image.paintIcon(c, copy, 0, 0);
+					}
+					copy.setComposite(AlphaComposite.DstIn);
+					copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					copy.setColor(Color.WHITE);
+					copy.fill(new java.awt.geom.Ellipse2D.Float(0.5f, 0.5f, w - 1f, h - 1f));
+				}
+				finally
+				{
+					copy.dispose();
+				}
+				g.drawImage(frame, x, y, null);
+			}
+		};
 	}
 
 	/** Puts {@code spec}'s picture on {@code l}; false when there is none to draw. */

@@ -1,7 +1,11 @@
 package com.anvil;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -60,6 +64,22 @@ public class ChatFlairTest
 		assertEquals("<img=99><col=ff0000>A</col><col=0000ff>b</col>", f.decorate("Ab", "<img=99>"));
 		// No star icon registered yet: the name still gets its colours.
 		assertEquals("<col=ff0000>A</col><col=0000ff>b</col>", f.decorate("Ab", null));
+	}
+
+	@Test
+	public void onlyPatronSenderGradientsMove()
+	{
+		ChatFlair f = with(
+			entry("patron", "#ff7ab8", true, "#ff0000", "#0000ff"),
+			entry("champion", "#ff7ab8", false, "#ff0000", "#0000ff"));
+		assertEquals(true, f.movingSender("[Clan] Patron:"));
+		assertEquals(false, f.movingSender("Champion:"));
+		assertEquals(true, f.movingName("Patron"));
+		assertEquals(false, f.movingName("Champion"));
+		assertNotEquals(f.paintSender("Patron:", null, false),
+			f.paintSender("Patron:", null, false, 0.5));
+		assertEquals(f.paintSender("Champion:", null, false),
+			f.paintSender("Champion:", null, false, 0.5));
 	}
 
 	@Test
@@ -206,6 +226,29 @@ public class ChatFlairTest
 	}
 
 	@Test
+	public void anIncompleteCurrentVersionRepairsItselfFromTheFullList()
+	{
+		ChatFlair f = new ChatFlair();
+		assertEquals(true, f.adopt(wire(7, null, entry("old name", "#ffffff", null))));
+		Site site = new Site();
+		ChatFlair.Since since = new ChatFlair.Since();
+		since.v = 7;
+		since.n = 2;
+		site.since = since;
+		site.full = wire(7, null,
+			entry("angerfist172", "#12ab67", true), entry("nisbro", "#ffd35c", true));
+		int[] changed = {0};
+
+		new ChatFlairSync(f, site, new Later(), () -> 0, () -> changed[0]++).sync();
+
+		assertEquals(Arrays.asList("since 7", "full 7"), site.asked);
+		assertEquals("#12ab67", f.entry("Angerfist172").c);
+		assertEquals("#ffd35c", f.entry("Nisbro").c);
+		assertNull(f.entry("old name"));
+		assertEquals(1, changed[0]);
+	}
+
+	@Test
 	public void twoHundredThousandNamesStayCompactAndFast()
 	{
 		String[] names = new String[200_000];
@@ -288,6 +331,17 @@ public class ChatFlairTest
 	}
 
 	@Test
+	public void timestampedSplitPrivateChatIsPaintedAndCanMove()
+	{
+		ChatFlair f = with(entry("denoverse", "#ff7ab8", true, "#00ffff", "#ff00ff"));
+		String plain = "[06:35] From Denoverse: Test";
+		String painted = f.paintPmLine(plain, "<img=99>", false, 0.5);
+		assertNotNull(painted);
+		assertEquals(plain, ChatFlair.shown(painted).text);
+		assertNotEquals(f.paintPmLine(plain, "<img=99>", false), painted);
+	}
+
+	@Test
 	public void paintingIsIdempotent()
 	{
 		ChatFlair f = with(entry("drenvox", "#00ff00", true), entry("ab", "#ffd35c", null, "#ff0000", "#00ff00"));
@@ -330,6 +384,30 @@ public class ChatFlairTest
 		assertEquals("[The AFK Spot] <col=00ff00>Bob</col> has reached a total level of 100.",
 			f.paintLead("[The AFK Spot] Bob has reached a total level of 100.", null, false));
 		assertEquals("Bob has reached a total level of 100.", ChatFlair.key("<col=0000ff>[The AFK Spot]</col> <img=1>Bob has reached a total level of 100."));
+	}
+
+	@Test
+	public void longerClanBroadcastNamesArePainted()
+	{
+		ChatFlair f = with(entry("robn da hood", "#ff7ab8", true, "#ff0000", "#0000ff"));
+		String line = "[The AFK Spot] <img=4>Robn Da Hood has left.";
+		assertNotNull(f.leadKey(line));
+		assertNotNull(f.paintLead(line, "<img=99>", true, 0.5));
+		assertEquals(true, f.movingLead(line));
+	}
+
+	@Test
+	public void trustedTradeAndRaidWidgetTextPaintsExactNames()
+	{
+		ChatFlair f = with(
+			entry("denoverse", "#ff7ab8", true, "#ff0000", "#0000ff"),
+			entry("robn da hood", "#ffd35c", null));
+		String plain = "Trading with: Denoverse / Robn Da Hood";
+		String painted = f.paintNames(plain, false, 0.5);
+		assertNotNull(painted);
+		assertEquals(plain, ChatFlair.shown(painted).text);
+		assertEquals(true, f.movingNames(plain));
+		assertNull("partial names are not interface flair", f.paintNames("Trading with: Denoverse2", false, 0));
 	}
 
 	@Test
@@ -531,6 +609,9 @@ public class ChatFlairTest
 		String painted = f.paintMenuTarget(game, "Denoverse", false);
 		assertEquals(ours + "<col=ff00ff>  (level-71)", painted);
 		assertNull("ours already: nothing to do", f.paintMenuTarget(painted, "Denoverse", true));
+		String moved = f.paintMenuTarget(painted, "Denoverse", true, 0.5);
+		assertNotNull("a new animation phase replaces our previous colours", moved);
+		assertNotEquals(painted, moved);
 		// Player Indicators: drop the first tag, put friend green (and a rank icon) in front.
 		String pi = "<img=5><col=00ff00>" + painted.substring(painted.indexOf('>') + 1);
 		assertEquals("<img=5>" + ours + "<col=ff00ff>  (level-71)", f.paintMenuTarget(pi, "Denoverse", true));
@@ -549,5 +630,73 @@ public class ChatFlairTest
 			assertEquals(again, next);
 		}
 		assertNull("not a supporter", f.paintMenuTarget("<col=ffffff>Someone<col=ff00ff>  (level-3)", "Someone", true));
+	}
+
+	@Test
+	public void roomIsOnlyAlreadyMadeForTheSameSender()
+	{
+		// Moving repaint of the same starred line: never moved twice.
+		assertTrue(ChatFlair.alreadyRoomed(53, 53, "MaxAcc:", "MaxAcc:"));
+		// A longer name whose plain layout lands exactly where a shorter starred name was moved to.
+		assertFalse(ChatFlair.alreadyRoomed(53, 53, "Sam Says:", "MaxAcc:"));
+		// The game laid the line out again: plain position, move it.
+		assertFalse(ChatFlair.alreadyRoomed(40, 53, "MaxAcc:", "MaxAcc:"));
+		assertFalse(ChatFlair.alreadyRoomed(53, 53, "MaxAcc:", null));
+	}
+
+	@Test
+	public void clanTitleKeepsTheLiveMemberCount()
+	{
+		assertEquals(" (18)", ChatFlair.clanTitleSuffix("The AFK Spot (18)", "The AFK Spot"));
+		// Our own painted title, rewritten by the game with a new count.
+		assertEquals(" (19)", ChatFlair.clanTitleSuffix("<col=ffd27a>The AFK Spot</col> (19)", "The AFK Spot"));
+		assertEquals("", ChatFlair.clanTitleSuffix("The AFK Spot", "The AFK Spot"));
+		assertNull("another clan's title", ChatFlair.clanTitleSuffix("The AFK Spotters", "The AFK Spot"));
+		assertNull(ChatFlair.clanTitleSuffix("Clan Chat", "The AFK Spot"));
+	}
+
+	private static ChatFlair.Surface surface(String c, String... grad)
+	{
+		ChatFlair.Surface o = new ChatFlair.Surface();
+		o.c = c;
+		o.g = grad.length == 0 ? null : Arrays.asList(grad);
+		return o;
+	}
+
+	@Test
+	public void anOwnSurfaceLookIsDrawnAsIsWhileTheOtherSurfaceStillAdapts()
+	{
+		ChatFlair.Entry dark = entry("Drenvox", "#272626", true, "#272626", "#940548");
+		// Their own dark-background look: a solid near-black would normally be lightened.
+		dark.d = surface("#3a1020");
+		ChatFlair f = with(dark);
+		assertEquals("solid override wins on the dark chatbox, untouched, no gradient",
+			"<col=3a1020>Drenvox</col>:", f.paintSender("Drenvox:", null, false));
+		// No light override: the parchment chatbox keeps the adapted main gradient.
+		String parchment = f.paintSender("Drenvox:", null, true);
+		assertNotNull(parchment);
+		assertFalse(parchment.contains("3a1020"));
+	}
+
+	@Test
+	public void anOwnLightGradientIsUsedOnParchment()
+	{
+		ChatFlair.Entry e = entry("Nisbro", "#ff7ab8", true, "#ffd27a", "#ff7ab8", "#7ae0ff");
+		e.l = surface("#8a2050", "#8a2050", "#20508a");
+		ChatFlair f = with(e);
+		String parchment = f.paintSender("Nisbro:", null, true);
+		assertTrue(parchment, parchment.contains("8a2050"));
+		assertFalse("the light look is never applied to the dark chatbox",
+			f.paintSender("Nisbro:", null, false).contains("8a2050"));
+	}
+
+	@Test
+	public void aFeedLineNameUsesTheSameSurfaceLookAsChat()
+	{
+		ChatFlair.Entry e = entry("Drenvox", "#272626", true);
+		e.d = surface("#3a1020");
+		ChatFlair f = with(e);
+		assertEquals("<col=3a1020>Drenvox</col>", f.paintNameFor("Drenvox", false));
+		assertNull(f.paintNameFor("Nobody", false));
 	}
 }

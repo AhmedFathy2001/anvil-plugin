@@ -12,6 +12,7 @@ import com.google.gson.*;
  * ships — there is no local fallback. Unset values are left out. Kinds and their facts:
  *
  * <ul>
+ * <li>death: message, source, sourceKind (the site validates a {@code fought} source as a boss)</li>
  * <li>drop: items[{id,name,qty,value}] (several = one combined haul), source, sourceKind, kc,
  *     dropRate, guaranteed, troll, notable ("loot"|"unlock"), earned, spoon, note</li>
  * <li>pet: name, itemId, duplicate, source, skill, kc, dropRate</li>

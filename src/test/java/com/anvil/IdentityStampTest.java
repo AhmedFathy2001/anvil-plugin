@@ -14,6 +14,8 @@ public class IdentityStampTest
 		assertFalse(AnvilPlugin.identityReady(null, 42L));
 		assertFalse(AnvilPlugin.identityReady("", 42L));
 		assertFalse(AnvilPlugin.identityReady("Hells Taco", -1L));
+		// The client's placeholder before the real name arrives.
+		assertFalse(AnvilPlugin.identityReady("#Player1281", 42L));
 		assertTrue(AnvilPlugin.identityReady("Hells Taco", 42L));
 	}
 

@@ -20,12 +20,41 @@ import javax.swing.Timer;
  */
 final class GradientLabel extends JLabel
 {
-	/** One full reflect cycle (there and back) across the name. */
-	private static final long CYCLE_MS = 6000;
+	/** Side-panel labels look faster at the same rate because they are compact; keep them at five seconds. */
+	static final long PANEL_CYCLE_MS = 5000;
+	/** RuneScape chat and widget names use the same calm five-second cycle as the side panel. */
+	static final long GAME_CYCLE_MS = 5000;
 	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
 	static volatile boolean animate = true;
-	private static final Timer TICK = new Timer(40, e -> { if (animate) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
+	private static final Timer TICK = new Timer(40, e -> { if (animate && clientActive()) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
+
+	/**
+	 * Whether the client window is in front. WINDOW focus on purpose: RuneLite's FocusChanged follows
+	 * the game canvas, so clicking the side panel would pause the panel's own gradients. Behind
+	 * another app or minimised, moving names hold still to spare weak PCs; the phase stays on the
+	 * wall clock, so on refocus they pick up where they'd be with no reset.
+	 */
+	static boolean clientActive()
+	{
+		return KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow() != null;
+	}
+
+	/** Off resets to the base gradient; on resumes the shared wall-clock phase. */
+	static void setAnimate(boolean enabled)
+	{
+		animate = enabled;
+	}
+
+	/**
+	 * Shared phase clock for Swing labels and game widgets. It is anchored to the wall clock, not to
+	 * plugin start, so a panel rebuild never jumps the phase and two clients with synced clocks show
+	 * the same point in the cycle.
+	 */
+	static long animationTimeMillis()
+	{
+		return animate ? System.currentTimeMillis() : 0;
+	}
 
 	private final Color[] stops;
 	private final float[] fractions;
@@ -122,7 +151,7 @@ final class GradientLabel extends JLabel
 				fg.setComposite(AlphaComposite.SrcIn);
 				// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
 				float period = 2f * fillR.width;
-				float shift = moving && animate ? (System.currentTimeMillis() % CYCLE_MS) / (float) CYCLE_MS * period : 0;
+				float shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
 				fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
 					MultipleGradientPaint.CycleMethod.REFLECT));
 				fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);

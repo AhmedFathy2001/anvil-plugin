@@ -51,6 +51,8 @@ import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.util.AsyncBufferedImage;
 import net.runelite.client.util.ImageUtil;
@@ -84,6 +86,8 @@ final class FeedList extends JPanel
 	final String id;
 	private final UiView.Host host;
 	private final ItemManager items;
+	private final SpriteManager sprites;
+	private final SkillIconManager skills;
 	private final Consumer<JsonObject> act;
 	private final int cap;
 	private final RowModel model = new RowModel();
@@ -143,13 +147,17 @@ final class FeedList extends JPanel
 	private final Timer slide = new Timer(40, e -> slideVisible());
 	private int unseen;
 	private final Map<Integer, Icon> icons = new HashMap<>();
+	private final Map<Integer, Icon> spriteIcons = new HashMap<>();
+	private final Map<String, Icon> skillIcons = new HashMap<>();
 
-	FeedList(JsonObject n, UiView.Host host, ItemManager items, Consumer<JsonObject> act)
+	FeedList(JsonObject n, UiView.Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills, Consumer<JsonObject> act)
 	{
 		super(new BorderLayout(0, 4));
 		this.id = UiView.str(n, "id");
 		this.host = host;
 		this.items = items;
+		this.sprites = sprites;
+		this.skills = skills;
 		this.act = act;
 		this.cap = n.has("cap") ? Math.max(20, n.get("cap").getAsInt()) : 200;
 		int h = n.has("h") ? Math.max(120, n.get("h").getAsInt()) : 420;
@@ -315,6 +323,65 @@ final class FeedList extends JPanel
 		schedule();
 	}
 
+	/** Apply an absolute reaction count pushed after somebody toggles it, preserving this viewer's mine state. */
+	void reaction(JsonObject update)
+	{
+		String rowId = UiView.str(update, "id");
+		String kind = UiView.str(update, "kind");
+		if (rowId.isEmpty() || kind.isEmpty() || !update.has("n"))
+		{
+			return;
+		}
+		for (JsonObject row : pending)
+		{
+			if (rowId.equals(UiView.str(row, "id")))
+			{
+				applyReaction(row, kind, update);
+			}
+		}
+		int i = model.indexOf(rowId);
+		if (i >= 0 && applyReaction(model.getElementAt(i), kind, update))
+		{
+			model.changed(i);
+		}
+	}
+
+	private static boolean applyReaction(JsonObject row, String kind, JsonObject update)
+	{
+		JsonObject chip = null;
+		if (row.has("reacts") && row.get("reacts").isJsonArray())
+		{
+			for (JsonElement e : row.getAsJsonArray("reacts"))
+			{
+				JsonObject candidate = e.getAsJsonObject();
+				if (kind.equals(UiView.str(candidate, "kind")))
+				{
+					chip = candidate;
+					break;
+				}
+			}
+		}
+		else if ("gz".equals(kind) && row.has("gz") && row.get("gz").isJsonObject())
+		{
+			chip = row.getAsJsonObject("gz");
+		}
+		if (chip == null)
+		{
+			return false;
+		}
+		chip.addProperty("n", Math.max(0, update.get("n").getAsInt()));
+		String who = UiView.str(update, "who");
+		if (who.isEmpty())
+		{
+			chip.remove("who");
+		}
+		else
+		{
+			chip.addProperty("who", who);
+		}
+		return true;
+	}
+
 	/** Grey the message box out with this line, or reopen it (null). Only a list with a box has one. */
 	void lock(String why)
 	{
@@ -358,7 +425,7 @@ final class FeedList extends JPanel
 
 	private void slideVisible()
 	{
-		if (!list.isShowing() || !GradientLabel.animate)
+		if (!list.isShowing() || !GradientLabel.animate || !GradientLabel.clientActive())
 		{
 			return;
 		}
@@ -386,6 +453,22 @@ final class FeedList extends JPanel
 	String rowId(int i)
 	{
 		return UiView.str(model.getElementAt(i), "id");
+	}
+
+	JsonObject reactionChip(int i, String kind)
+	{
+		JsonObject row = model.getElementAt(i);
+		if (row.has("reacts") && row.get("reacts").isJsonArray())
+		{
+			for (JsonElement e : row.getAsJsonArray("reacts"))
+			{
+				if (kind.equals(UiView.str(e.getAsJsonObject(), "kind")))
+				{
+					return e.getAsJsonObject();
+				}
+			}
+		}
+		return "gz".equals(kind) && row.has("gz") ? row.getAsJsonObject("gz") : null;
 	}
 
 	JTextField box()
@@ -832,6 +915,18 @@ final class FeedList extends JPanel
 			}
 		}
 
+		int indexOf(String id)
+		{
+			for (int i = 0; i < rows.size(); i++)
+			{
+				if (id.equals(UiView.str(rows.get(i), "id")))
+				{
+					return i;
+				}
+			}
+			return -1;
+		}
+
 		void changed(int i)
 		{
 			fireContentsChanged(this, i, i);
@@ -858,6 +953,48 @@ final class FeedList extends JPanel
 			}));
 			return icons.get(item);
 		}
+		if (r.has("sprite") && sprites != null)
+		{
+			int sprite = spriteId(UiView.str(r, "sprite"));
+			if (sprite < 0)
+			{
+				return null;
+			}
+			Icon cached = spriteIcons.get(sprite);
+			if (cached != null)
+			{
+				return cached;
+			}
+			spriteIcons.put(sprite, new BlankIcon());
+			sprites.getSpriteAsync(sprite, 0, img -> javax.swing.SwingUtilities.invokeLater(() -> {
+				if (img != null)
+				{
+					spriteIcons.put(sprite, new ImageIcon(ImageUtil.resizeImage(img, ICON_W, ICON_H, true)));
+					list.repaint();
+				}
+			}));
+			return spriteIcons.get(sprite);
+		}
+		if (r.has("skill") && skills != null)
+		{
+			String name = UiView.str(r, "skill").toUpperCase(java.util.Locale.ROOT);
+			Icon cached = skillIcons.get(name);
+			if (cached != null)
+			{
+				return cached;
+			}
+			try
+			{
+				net.runelite.api.Skill skill = net.runelite.api.Skill.valueOf(name);
+				Icon icon = new ImageIcon(ImageUtil.resizeImage(skills.getSkillImage(skill, true), ICON_W, ICON_H, true));
+				skillIcons.put(name, icon);
+				return icon;
+			}
+			catch (IllegalArgumentException ignored)
+			{
+				return null;
+			}
+		}
 		if (r.has("glyph"))
 		{
 			String g = UiView.str(r, "glyph");
@@ -865,6 +1002,25 @@ final class FeedList extends JPanel
 			return new GlyphIcon(shape, 12, UiView.color(UiView.str(r, "glyphColor"), MUTED));
 		}
 		return null;
+	}
+
+	private static int spriteId(String name)
+	{
+		switch (name)
+		{
+			case "quest":
+				return net.runelite.api.SpriteID.QUESTS_PAGE_ICON_BLUE_QUESTS;
+			case "diary":
+				return net.runelite.api.SpriteID.QUESTS_PAGE_ICON_GREEN_ACHIEVEMENT_DIARIES;
+			case "combat":
+				return net.runelite.api.SpriteID.TAB_COMBAT;
+			case "collection-log":
+				return net.runelite.api.SpriteID.HISCORE_COLLECTIONS_LOGGED;
+			case "total":
+				return net.runelite.api.SpriteID.SKILL_TOTAL;
+			default:
+				return -1;
+		}
 	}
 
 	private static final class BlankIcon implements Icon

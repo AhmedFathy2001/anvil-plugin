@@ -25,12 +25,12 @@ public class UiViewTest
 		String switched;
 		final Map<Integer, Long> counts = new HashMap<>();
 		String imagePath;
-		Consumer<java.awt.image.BufferedImage> imageDone;
+		Consumer<Icon> imageDone;
 
 		@Override
-		public void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+		public void image(String path, int w, int h, boolean motion, Consumer<Icon> done)
 		{
-			imagePath = path + " " + w + "x" + h;
+			imagePath = path + " " + w + "x" + h + (motion ? " motion" : "");
 			imageDone = done;
 		}
 
@@ -567,7 +567,24 @@ public class UiViewTest
 	}
 
 	@Test
-	public void aPictureIsABoxUntilItArrivesAndOpensTheFullOneOnClick()
+	public void aRoundClanMarkInARowIsNotCroppedToTheTextHeightOnceItLoads()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"row\",\"l\":{\"t\":\"img\",\"src\":\"/api/plugin/media/clan/x?kind=logo\",\"w\":28,\"h\":28,\"round\":true},"
+			+ "\"c\":{\"t\":\"text\",\"s\":\"The AFK Spot\",\"font\":\"bold\"}}]}"));
+		JLabel box = findIcon(v);
+		assertNotNull(box);
+		host.imageDone.accept(new ImageIcon(new java.awt.image.BufferedImage(28, 28, java.awt.image.BufferedImage.TYPE_INT_ARGB)));
+		for (Container p = box.getParent(); p != null && p != v; p = p.getParent())
+		{
+			assertTrue(p.getClass().getSimpleName() + " caps the mark at " + p.getMaximumSize().height,
+				p.getMaximumSize().height >= 28);
+		}
+	}
+
+	@Test
+	public void aPictureStaysCollapsedUntilItArrivesAndOpensTheFullOneOnClick()
 	{
 		FakeHost host = new FakeHost();
 		UiView v = new UiView(host, null, null, null);
@@ -576,10 +593,13 @@ public class UiViewTest
 		assertEquals("/api/plugin/proof-image/4?t=1&s=x 64x40", host.imagePath);
 		JLabel box = findIcon(v);
 		assertNotNull(box);
-		assertNull("a placeholder until it loads", box.getIcon());
-		assertEquals(new Dimension(64, 40), box.getPreferredSize());
-		host.imageDone.accept(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB));
+		assertNull("hidden until it loads", box.getIcon());
+		assertFalse(box.isVisible());
+		assertEquals(new Dimension(0, 0), box.getPreferredSize());
+		host.imageDone.accept(new ImageIcon(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB)));
 		assertNotNull(box.getIcon());
+		assertTrue(box.isVisible());
+		assertEquals(new Dimension(64, 40), box.getPreferredSize());
 		Component target = box;
 		while (target.getMouseListeners().length == 0)
 		{
@@ -595,6 +615,21 @@ public class UiViewTest
 			m.mouseClicked(release);
 		}
 		assertEquals("/api/plugin/proof-image/4?s=x", host.site);
+	}
+
+	@Test
+	public void aMissingPanelPictureCollapsesInsteadOfLeavingABlackHole()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"img\",\"src\":\"/api/plugin/media/player/x?kind=banner\",\"w\":220,\"h\":73}"));
+		JLabel box = findIcon(v);
+		assertNotNull(box);
+		assertFalse(box.isVisible());
+		assertEquals(new Dimension(0, 0), box.getPreferredSize());
+		host.imageDone.accept(null);
+		assertFalse(box.isVisible());
+		assertEquals(new Dimension(0, 0), box.getPreferredSize());
 	}
 
 	@Test
@@ -626,7 +661,7 @@ public class UiViewTest
 
 	private static JLabel findIcon(Component c)
 	{
-		if (c instanceof JLabel && ((JLabel) c).getText() == null || c instanceof JLabel && ((JLabel) c).getText().isEmpty() && ((JLabel) c).isOpaque())
+		if (c instanceof JLabel && (((JLabel) c).getText() == null || ((JLabel) c).getText().isEmpty()))
 		{
 			return (JLabel) c;
 		}

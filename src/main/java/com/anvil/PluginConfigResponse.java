@@ -61,6 +61,15 @@ public class PluginConfigResponse
 	{
 		public String slug;
 		public String name;
+		/** Verified in-game clan-channel name; may differ from the site's display name. */
+		public String gameName;
+		/** Clan boost level in force; zero on older sites. */
+		public int boostLevel;
+		/** Clan-admin chosen boosted-name palette; null on older sites or the default look. */
+		public List<String> boostNameStops;
+		/** The clan's own look for dark / light surfaces (null: adapt boostNameStops). Drawn as-is. */
+		public List<String> boostNameDarkStops;
+		public List<String> boostNameLightStops;
 		/** 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan. */
 		public String kind;
 		/** The most relevant thing running here, or null. */
