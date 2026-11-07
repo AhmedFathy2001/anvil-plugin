@@ -242,7 +242,7 @@ public class AnvilPlugin extends Plugin {
 	private volatile boolean freshLoginPending;
 
 	// Item ID → tracked drops lookup for O(1) loot matching
-	/** Capability `rules`: the site's rule table, run locally (RuleEngine); the site matches the facts. */
+	/** The site's rule table, run locally (RuleEngine); the site matches the facts. */
 	private final RuleEngine rules = new RuleEngine();
 	/** moveNotifyPrefs ran (or is running) this session. */
 	private volatile boolean notifyPrefsMoved;
@@ -303,14 +303,11 @@ public class AnvilPlugin extends Plugin {
 	private static final String DROP_SHOT = "anvil-drop.png";
 
 	/**
-	 * Fixed text the plugin ships with — the prestige allowlist, the fallback reaction pools and the
-	 * quest tiers — loaded from anvil_text.json at startUp, which says what each list is for.
+	 * Fixed text the plugin ships with — the prestige allowlist and the quest tiers — loaded from anvil_text.json at startUp, which says what each list is for.
 	 */
 	static final class ShippedText {
 
 		List<String> alwaysNotify = Collections.emptyList();
-		List<String> funDeaths = Collections.emptyList();
-		List<String> deathTaunts = Collections.emptyList();
 		Map<String, String> questTiers = Collections.emptyMap();
 	}
 
@@ -930,7 +927,7 @@ public class AnvilPlugin extends Plugin {
 			() -> executor, () -> statPushAllowed(), b -> apiClient.submitStatXp(b), () -> refreshConfig());
 	// ---- Real-time activity push (clue tiers, Colosseum glory, collection-log slots) ------------
 	// The site stat keys the event tracks that ActivityStats can actually read; rebuilt each config
-	// refresh, empty unless the event has such tiles AND the site advertises 'activity-stats'.
+	// refresh, empty unless the event has such tiles.
 	private volatile Set<String> trackedActivityKeys = Collections.emptySet();
 	// Debounced like KC; only a RISE over what was last sent goes out, so a varbit firing repeatedly
 	// with the same number doesn't re-send.
@@ -1328,10 +1325,8 @@ public class AnvilPlugin extends Plugin {
 	 * its progress is not this one's.
 	 */
 	private void pushAccountProgress() {
-		if (!apiClient.isConfigured() || !loggedIn()) return;
-		// A site that predates the endpoint would answer 404 on a loop; hide rather than error.
 		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || !cfg.serverSupports("progress")) return;
+		if (!apiClient.isConfigured() || !loggedIn() || cfg == null) return;
 		clientThread.invoke(() -> {
 			Map<String, Integer> sampled = AccountProgress.sample(client);
 			if (sampled.isEmpty()) return;
@@ -1394,8 +1389,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void pushGameClan() {
 		if (!apiClient.isConfigured() || !loggedIn()) return;
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || !cfg.serverSupports("game-clan") || System.currentTimeMillis() < gameClanRetryAt) return;
+		if (pluginConfig == null || System.currentTimeMillis() < gameClanRetryAt) return;
 		clientThread.invoke(() -> {
 			Player me = client.getLocalPlayer();
 			String myName = me != null ? me.getName() : null;
@@ -1942,8 +1936,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Tell the API client which world this is: the seasonal flag older sites read, plus the world's
-	 * flags and world-list activity the site maps to a game mode (lib/worldModes). The activity comes
+	 * Tell the API client which world this is: the world's flags and world-list activity the site
+	 * maps to a game mode (lib/worldModes). The activity comes
 	 * from RuneLite's cached world list, so it costs nothing here and is null until that list has
 	 * loaded once — the flags alone still identify every mode RuneLite knows.
 	 */
@@ -1955,7 +1949,7 @@ public class AnvilPlugin extends Plugin {
 			net.runelite.http.api.worlds.World w = worlds.findWorld(client.getWorld());
 			activity = w == null ? null : w.getActivity();
 		}
-		apiClient.setSeasonal(onSeasonalWorld());
+
 		apiClient.setWorld(WorldInfo.types(types), WorldInfo.activity(activity));
 	}
 
@@ -2151,10 +2145,6 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage("Sign in first — open the Anvil panel (the anvil icon on the right) and press \"Sign in with Discord\".");
 			return;
 		}
-		if (!serverSupportsCap("profile-sync")) {
-			sendChatMessage("This clan's site doesn't support profile sync yet.");
-			return;
-		}
 		long wait = clogPushAllowedAt - now();
 		if (wait > 0) {
 			sendChatMessage("Your log was synced less than a minute ago — try again in "
@@ -2267,7 +2257,7 @@ public class AnvilPlugin extends Plugin {
 		PluginConfigResponse cfg = pluginConfig;
 		ClanChannel channel = client.getClanChannel();
 		ScheduledExecutorService ex = executor;
-		if (cfg == null || !cfg.serverSupports("coffer-chat") || channel == null || channel.getName() == null
+		if (cfg == null || channel == null || channel.getName() == null
 				|| ex == null || ex.isShutdown()) {
 			return;
 		}
@@ -2284,22 +2274,13 @@ public class AnvilPlugin extends Plugin {
 		List<String> batch = modeLines.drain(now());
 		PluginConfigResponse cfg = pluginConfig;
 		ScheduledExecutorService ex = executor;
-		if (batch == null || cfg == null || !cfg.serverSupports("mode-lines") || !apiClient.isConfigured()
+		if (batch == null || cfg == null || !apiClient.isConfigured()
 				|| !config.shareSeasonal() || ex == null || ex.isShutdown()) {
 			return;
 		}
-		if (cfg.serverSupports("mode-line-screenshots")) {
-			captureFrameAsync(png -> {
-				try {
-					apiClient.submitModeLines(batch, png, "anvil-mode.png");
-				} catch (IOException e) {
-				}
-			});
-			return;
-		}
-		ex.submit(() -> {
+		captureFrameAsync(png -> {
 			try {
-				apiClient.submitModeLines(batch);
+				apiClient.submitModeLines(batch, png, "anvil-mode.png");
 			} catch (IOException e) {
 			}
 		});
@@ -2311,9 +2292,7 @@ public class AnvilPlugin extends Plugin {
 				|| !loggedIn() || !apiClient.isConfigured()) {
 			return;
 		}
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || !cfg.serverSupports("coffer-sync")) return;
-		if (++clanCofferOpenTicks < 3) return;
+		if (pluginConfig == null || ++clanCofferOpenTicks < 3) return;
 		Integer balance = readClanCofferBalance();
 		if (balance == null) return;
 		ClanCofferTracker.Observation observation = clanCofferTracker.observe(balance, now());
@@ -2960,37 +2939,14 @@ public class AnvilPlugin extends Plugin {
 			case DISPUTE: {
 				AccountActionResult r = apiClient.postAccountAction("dispute");
 				if (r.ok) {
-					// The site says what happens next (an XP check to prove it's yours, or that staff have
-					// it); an older site sends nothing, so keep the old lines for that.
-					if (r.message != null && !r.message.trim().isEmpty()) return r.message.trim();
-					return r.alreadyOpen
-							? "Already with Anvil staff — they'll sort it out."
-							: "Sent to Anvil staff. They'll check and move it to you if it's yours.";
+					// The site says what happens next (an XP check to prove it's yours, or that staff have it).
+					return r.message == null ? "Sent." : r.message.trim();
 				}
 				return r.error == null ? "Couldn't send that — try again." : r.error;
 			}
 			default:
 				return "";
 		}
-	}
-
-	/**
-	 * Is this a seasonal (Leagues) world?
-	 *
-	 * League drops are absurd next to main-game ones and their kill counts mean nothing beside them,
-	 * so a clan can route seasonal posts to their own channel — the server decides where, this only
-	 * reports where the player is. Read from the world's own flags rather than a toggle someone has
-	 * to remember, so hopping onto a league world mid-session is picked up without them doing
-	 * anything (and, more importantly, hopping OFF one is too).
-	 *
-	 * <p>WHETHER that routing happens is the CLAN's setting, not the member's: the site sends
-	 * seasonal posts to the leagues channel when one is configured and to the normal channels when
-	 * it isn't. A per-member switch here could only disagree with the clan that owns the channels,
-	 * and a member who turned it off silently mixed their league drops back into the main feed.</p>
-	 */
-	private boolean onSeasonalWorld() {
-		EnumSet<WorldType> types = client.getWorldType();
-		return types != null && types.contains(WorldType.SEASONAL);
 	}
 
 	// One-shot per login: say something about the plugin's own setup when there is something to say.
@@ -3122,7 +3078,7 @@ public class AnvilPlugin extends Plugin {
 		// believed. One line, at INFO, naming both.
 		log.info("Hello as '{}' -> clan '{}' seat={} knownMember={}",
 				rsn,
-				resp.clanName != null ? resp.clanName : "(site predates clan in hello)",
+				resp.clanName,
 				resp.seatKind != null ? resp.seatKind : "none",
 				resp.knownMember);
 		if (!resp.knownMember) {
@@ -3135,21 +3091,7 @@ public class AnvilPlugin extends Plugin {
 					+ " — a clan admin can promote you to member on the site.");
 		}
 
-		// The brief says where you stand, not only what's on; a site without it gets the old greeting.
-		if (serverSupportsCap("login-brief")) {
-			sendBrief();
-			return;
-		}
-		// Greet with whatever's running right now so members know to jump in.
-		if (resp.activeWeekly != null) {
-			for (WeeklyInfo w : resp.activeWeekly) {
-				String kind = "skill".equalsIgnoreCase(w.type) ? "Skill of the Week" : "efficiency".equalsIgnoreCase(w.type) ? "Efficiency of the Week" : "Boss of the Week";
-				sendChatMessage(kind + " is live: " + w.title + "!");
-			}
-		}
-		if (resp.activeBingos != null) {
-			for (BingoInfo b : resp.activeBingos) sendChatMessage("Bingo running: " + b.name + ".");
-		}
+		sendBrief();
 	}
 
 	/**
@@ -3366,7 +3308,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if (event.getTarget() == client.getLocalPlayer()) {
-			deathAttribution.targetedUs(name, now());
+			deathAttribution.targetedUs(name, source instanceof Player, now());
 		} else deathAttribution.stoppedTargetingUs(name);
 	}
 
@@ -4425,8 +4367,7 @@ public class AnvilPlugin extends Plugin {
 	private void tickGameCounters() {
 		if (!loggedIn()) return;
 		PluginConfigResponse cfg = pluginConfig;
-		boolean on = cfg != null && cfg.serverSupports("game-counters");
-		gameValueCounters.configure(on ? cfg.gameCounters : null);
+		gameValueCounters.configure(cfg != null ? cfg.gameCounters : null);
 		if (gameValueCounters.entries().isEmpty()) return;
 		gameValueCounters.onLoggedIn();
 		List<GameValueCounters.Credit> credits = gameValueCounters.tick(
@@ -5631,10 +5572,9 @@ public class AnvilPlugin extends Plugin {
 		return client != null && loggedIn();
 	}
 
-	/** Whether the site serves per-tile progress for the pinned in-game tracker. */
+	/** Whether there is a config to serve per-tile progress for the pinned in-game tracker. */
 	boolean supportsTileTracker() {
-		PluginConfigResponse cfg = pluginConfig;
-		return cfg != null && cfg.serverSupports("tile-tracker");
+		return pluginConfig != null;
 	}
 
 	TileTracker tileTracker() {
@@ -6115,7 +6055,7 @@ public class AnvilPlugin extends Plugin {
 		if (cfg == null || cfg.event == null) return;
 		boolean revealBoard = cfg.event.revealPolicy != null && !cfg.event.revealPolicy.isEmpty();
 		boolean surface = "ladder".equalsIgnoreCase(cfg.event.format)
-			|| (!revealBoard && cfg.serverSupports("bingo-missions"));
+			|| !revealBoard;
 		if (!surface) return;
 		String tag = "ladder".equalsIgnoreCase(cfg.event.format) ? "Anvil Ladder" : "Anvil";
 		boolean seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
@@ -6309,8 +6249,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	// Site-served re-wordings of chat lines (see ChatPatterns). The last good answer is saved with the
-	// config, so a fix survives a restart before the site answers — applied only while the site still
-	// advertises the capability.
+	// config, so a fix survives a restart before the site answers.
 	private boolean chatPatternsSeeded;
 	private long chatPatternsFetchedAt;
 	private ChatPatterns.OverridesResponse chatPatternsApplied;
@@ -6369,7 +6308,7 @@ public class AnvilPlugin extends Plugin {
 	 * version every 10 minutes (deltas between come over the socket).
 	 */
 	private void maybeRefreshChatFlair() {
-		if (!ChatFlairSync.wanted(config.supporterChatFlair(), apiClient.isConfigured(), pluginConfig, apiClient::siteAdvertises)) return;
+		if (!config.supporterChatFlair() || !apiClient.isConfigured()) return;
 		ResponseDiskCache rc = responseCache;
 		if (!chatFlairSeeded && rc != null) {
 			chatFlairSeeded = true;
@@ -7142,7 +7081,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */
 	private void maybeRefreshChatPatterns(PluginConfigResponse cfg) {
-		if (cfg == null || !cfg.serverSupports("chat-patterns")) return;
+		if (cfg == null) return;
 		ResponseDiskCache rc = responseCache;
 		if (!chatPatternsSeeded && rc != null) {
 			chatPatternsSeeded = true;
@@ -7217,15 +7156,15 @@ public class AnvilPlugin extends Plugin {
 		PluginConfigResponse cfg = pluginConfig;
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
 		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
-		boolean feed = config.chatFeed() && serverSupportsCap("chat-feed");
+		boolean feed = config.chatFeed();
 		// One socket carries everything, rows included — but the site only sends panel rows (Feed and
 		// chat lines) to a socket whose ticket ASKED for them (?rows=1), so a socket held for a board or
 		// the chat feed must ask too: without it, a board player's chat and Feed only filled in when
 		// something else redrew the panel. A player with neither a board nor the chat feed opens a
 		// socket just for the Feed, and only while it's on screen.
-		boolean rows = serverSupportsCap("panel-rows") && (eventId > 0 || feed || feedWatching);
+		boolean rows = eventId > 0 || feed || feedWatching;
 		if (p != null) {
-			p.scope((eventId > 0 || feed || rows) && apiClient.isConfigured() && serverSupportsCap("push-ws")
+			p.scope(rows && apiClient.isConfigured() && pushEnabled()
 					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") : null);
 		}
 	}
@@ -7251,7 +7190,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 		if ("flair".equals(m.get("t").getAsString()) || "hello".equals(m.get("t").getAsString())) {
-			if (ChatFlairSync.wanted(config.supporterChatFlair(), apiClient.isConfigured(), pluginConfig, apiClient::siteAdvertises)) {
+			if (config.supporterChatFlair() && apiClient.isConfigured()) {
 				if ("hello".equals(m.get("t").getAsString())) {
 					chatFlairSync.soon();
 				} else chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));
@@ -7398,7 +7337,7 @@ public class AnvilPlugin extends Plugin {
 			adoptResolvedClan(fresh);
 			maybeRefreshChatPatterns(fresh);
 			// Also without a board: the rule table carries the rare-drop screenshot gate.
-			rules.set(fresh != null && fresh.serverSupports("rules") ? apiClient.fetchRules() : null);
+			rules.set(fresh != null ? apiClient.fetchRules() : null);
 			moveNotifyPrefs(fresh);
 
 			// Token validated but the caller has no active event right now (server
@@ -7614,7 +7553,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void rebuildTrackedActivityKeys() {
 		PluginConfigResponse cfg = pluginConfig;
-		trackedActivityKeys = names(cfg != null && cfg.serverSupports("activity-stats") ? cfg.trackedActivityKeys : null,
+		trackedActivityKeys = names(cfg != null ? cfg.trackedActivityKeys : null,
 				k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
 		if (trackedActivityKeys.isEmpty()) activityPush.reset();
 	}
@@ -8168,9 +8107,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** True when this member wants a feed and the site has one to put it on. */
 	private boolean momentsEnabled() {
-		PluginConfigResponse cfg = pluginConfig;
-		return config.shareMoments() && apiClient.isConfigured()
-				&& cfg != null && cfg.serverSupports("moments");
+		return config.shareMoments() && apiClient.isConfigured() && pluginConfig != null;
 	}
 
 	/**
@@ -8204,7 +8141,7 @@ public class AnvilPlugin extends Plugin {
 		if (items == null || items.isEmpty() || !momentsEnabled()) return;
 		Set<Integer> boardItems = rules.dropItemIds();
 		PluginConfigResponse cfg = pluginConfig;
-		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null && cfg.serverSupports("luck-drops")
+		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null
 				? new HashSet<>(cfg.luckItemIds) : Collections.emptySet();
 		// Merge stacks first — a kill that drops coins twice is one line, not two.
 		Map<Integer, Integer> merged = new LinkedHashMap<>();
@@ -8328,9 +8265,8 @@ public class AnvilPlugin extends Plugin {
 		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
 		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
 		// a guess; the site keeps it only when it's a boss, so "died to Jug" can't come back.
-		String sourceKind = "npc";
-		PluginConfigResponse cfg = pluginConfig;
-		if (killer == null && fighting != null && cfg != null && cfg.serverSupports("death-fought")) {
+		String sourceKind = deathAttribution.isPlayer(killer) ? "player" : "npc";
+		if (killer == null && fighting != null) {
 			killer = fighting;
 			sourceKind = "fought";
 		}
@@ -8367,12 +8303,11 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * A moment only the chat feed reads (capability {@code chat-feed}): a new collection-log slot or a
-	 * diary tier. Same queue and push as the rest; an older site would only discard it.
+	 * A moment only the chat feed reads: a new collection-log slot or a diary tier. Same queue and
+	 * push as the rest.
 	 */
 	private void recordFeedMoment(AnvilMoments.Moment m) {
-		PluginConfigResponse cfg = pluginConfig;
-		if (!momentsEnabled() || cfg == null || !cfg.serverSupports("chat-feed") || statsAreArtificial()) return;
+		if (!momentsEnabled() || statsAreArtificial()) return;
 		moments.record(m);
 		scheduleMomentPush();
 	}
@@ -8657,17 +8592,10 @@ public class AnvilPlugin extends Plugin {
 			recordDeathMoment(death);
 			PluginConfigResponse.Me me = me();
 			if (me == null || !me.deaths) return;
-			String rsn = getLocalPlayerName();
-			String message = buildDeathMessage(rsn);
-			PluginConfigResponse cfg = pluginConfig;
-			if (cfg != null && cfg.serverSupports("death-source-notify")) {
-				NotifyFacts facts = new NotifyFacts("death", rsn).put("message", message)
-						.put("source", death.source).put("sourceKind", death.sourceKind);
-				captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
-			} else {
-				// An older site does not know the death facts shape; preserve its existing notification.
-				captureFrameAsync(png -> apiClient.postNotification("deaths", message, null, png, "anvil-death.png"));
-			}
+			// The site words the post (the person's death message, or now and then a fun one).
+			NotifyFacts facts = new NotifyFacts("death", getLocalPlayerName())
+					.put("source", death.source).put("sourceKind", death.sourceKind);
+			captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
 			return;
 		}
 
@@ -9191,13 +9119,12 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * The server's drop knowledge, or null against a site that doesn't serve it. Read through a
-	 * method rather than the field so every caller sees the same null-safety and the capability
-	 * gate lives in one place.
+	 * The server's drop knowledge, or null before a config. Read through a method rather than the
+	 * field so every caller sees the same null-safety.
 	 */
 	private DropFacts dropFacts() {
 		PluginConfigResponse cfg = pluginConfig;
-		return cfg != null && cfg.serverSupports("drop-facts") ? cfg.dropFacts : null;
+		return cfg != null ? cfg.dropFacts : null;
 	}
 
 	/**
@@ -9877,10 +9804,8 @@ public class AnvilPlugin extends Plugin {
 		int at99 = 0;
 		int of = Skill.values().length;
 		for (Skill sk : Skill.values()) at99 += client.getRealSkillLevel(sk) >= 99 ? 1 : 0;
-		// An older site knows only 99s (all its fixed rules can match) under the old kind.
-		boolean rules = pluginConfig != null && pluginConfig.serverSupports("level-rules");
-		postAchievement(new NotifyFacts(rules ? "level" : "level99", getLocalPlayerName()).put("skill", skill)
-				.put("level", rules ? (Integer) at : null).put("at99", at99).put("skills", of));
+		postAchievement(new NotifyFacts("level", getLocalPlayerName()).put("skill", skill)
+				.put("level", at).put("at99", at99).put("skills", of));
 	}
 
 	/**
@@ -9984,49 +9909,6 @@ public class AnvilPlugin extends Plugin {
 		return Math.max(ge, ha);
 	}
 
-	/**
-	 * Builds the death message: a 1/100 chance of a random fun line
-	 * (server-served pool, with a baked-in fallback), otherwise the player's
-	 * own configured message. {name} → RSN.
-	 */
-	private String buildDeathMessage(String rsn) {
-		String name = (rsn == null || rsn.isEmpty()) ? "Someone" : rsn;
-		String base;
-		boolean fun = ThreadLocalRandom.current().nextInt(100) == 0;
-		if (fun) {
-			List<String> pool = text.funDeaths;
-			PluginConfigResponse cfg = pluginConfig;
-			if (cfg != null && cfg.funDeathMessages != null && !cfg.funDeathMessages.isEmpty()) pool = cfg.funDeathMessages;
-			base = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-		} else {
-			PluginConfigResponse.Me me = me();
-			base = me == null ? null : me.deathMsg;
-			if (base == null || base.isEmpty()) {
-				base = "{name} just died!";
-			}
-		}
-		base = base.replace("{name}", name);
-		// Funny lines are always on — a cheeky reaction line on every death.
-		base += "\n" + randomDeathTaunt();
-		return base;
-	}
-
-	private static String randomLine(List<String> pool) {
-		return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-	}
-
-	/**
-	 * A death reaction line — the server pool when the clan has set one, else
-	 * the baked-in list.
-	 */
-	private String randomDeathTaunt() {
-		PluginConfigResponse cfg = pluginConfig;
-		List<String> pool = (cfg != null && cfg.deathTaunts != null && !cfg.deathTaunts.isEmpty())
-				? cfg.deathTaunts : text.deathTaunts;
-		return randomLine(pool);
-	}
-
-
 	/** What this person's posts do (lib/notifyPrefs, resolved by the site), or null before a config: nothing posts. */
 	private PluginConfigResponse.Me me() {
 		PluginConfigResponse cfg = pluginConfig;
@@ -10035,10 +9917,10 @@ public class AnvilPlugin extends Plugin {
 
 	/**
 	 * Once per install: hand the notify settings RuneLite still holds to the site, which keeps them now
-	 * (capability notify-prefs). The site only fills a person who never saved any.
+	 * The site only fills a person who never saved any.
 	 */
 	private void moveNotifyPrefs(PluginConfigResponse cfg) {
-		if (notifyPrefsMoved || cfg == null || !cfg.serverSupports("notify-prefs")) return;
+		if (notifyPrefsMoved || cfg == null) return;
 		notifyPrefsMoved = true;
 		String v = configManager.getConfiguration("osrsbingo", CFG_DEFAULTS_VERSION);
 		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(v)) return;
@@ -10397,15 +10279,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Whether the clan site can store profile data at all — drives the in-tab "Sync profile" row.
-	 *
-	 * <p>Gated on the capability rather than discovered by 404ing: a site that predates these
-	 * endpoints would otherwise be asked every 30 seconds, forever, by every member of the clan.
-	 * Sites advertise it once they have somewhere to put it; until then the plugin does no reading,
-	 * no batching and no requests.
+	 * Whether profile data can be synced now — drives the in-tab "Sync profile" row.
 	 */
 	public boolean supportsProfileSync() {
-		return config.syncClog() && apiClient.isConfigured() && serverSupportsCap("profile-sync");
+		return config.syncClog() && apiClient.isConfigured() && siteKnown();
 	}
 
 	// Whether the collection log is on screen, as last seen on a tick. The panel's "Sync profile" can
@@ -10428,7 +10305,7 @@ public class AnvilPlugin extends Plugin {
 	/** Any thread: whether the side panel should offer the seasonal-sharing switch. */
 	public boolean seasonalSharingOffered() {
 		PluginConfigResponse cfg = pluginConfig;
-		return seasonalWorld && cfg != null && cfg.serverSupports("mode-lines");
+		return seasonalWorld && cfg != null;
 	}
 
 	public boolean shareSeasonal() {
@@ -10460,7 +10337,7 @@ public class AnvilPlugin extends Plugin {
 	 * the item's page. One request per unlock, which is once per slot per account, ever.
 	 */
 	private void sendClogUnlock(String item) {
-		if (!supportsProfileSync() || !serverSupportsCap("clog-live-unlock")) return;
+		if (!supportsProfileSync()) return;
 		// Read on the client thread, where the kill line was recorded.
 		boolean recentKill = lastKcName != null && now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS;
 		String kcName = recentKill ? lastKcName : null;
@@ -10477,13 +10354,21 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * In no clan the config is a 404 and carries no capabilities; /api/version answers instead — the
-	 * log and bests are the person's, so a solo player syncs them like anyone else.
+	 * A config answered, or the site said this person is in no clan — the log and bests are the
+	 * person's, so a solo player syncs them like anyone else.
 	 */
-	private boolean serverSupportsCap(String capability) {
+	private boolean siteKnown() {
+		return pluginConfig != null || apiClient.signedInWithoutClan();
+	}
+
+	/**
+	 * Live push is a runtime switch on the site, advertised only while it is on. In no clan the config
+	 * is a 404 and carries no capabilities; /api/version answers instead.
+	 */
+	private boolean pushEnabled() {
 		PluginConfigResponse cfg = pluginConfig;
-		return cfg != null ? cfg.serverSupports(capability)
-				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
+		return cfg != null ? cfg.serverSupports("push-ws")
+				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises("push-ws");
 	}
 
 
@@ -10669,8 +10554,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		// Rate-limited: it said when. Wait exactly that long instead of doubling blindly, and keep the
-		// batch. Refused: the site will keep saying no — most often because it predates whole-log pushes
-		// and wants pages instead — so retrying forever is just noise on their server. Failed: kept for
+		// batch. Refused: the site will keep saying no, so retrying forever is just noise. Failed: kept for
 		// the next attempt; a site that's down mustn't cost them the transmit.
 		ClogPushResult result = pushBatch("Whole-log", clogFullBackoff, now,
 				() -> apiClient.submitClogItems(clogFullSync.snapshot()), ms -> {
@@ -10714,7 +10598,7 @@ public class AnvilPlugin extends Plugin {
 	/** Same contract for best times. */
 	private void flushPersonalBests() {
 		if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null
-				|| !serverSupportsCap("profile-sync")) {
+				|| !siteKnown()) {
 			return;
 		}
 		long now = now();
@@ -10753,8 +10637,7 @@ public class AnvilPlugin extends Plugin {
 	 * Only while the feed is on; again every few minutes while it stays, and null once it's left.
 	 */
 	private void pushGuestChannel() {
-		PluginConfigResponse cfg = pluginConfig;
-		if (!apiClient.isConfigured() || cfg == null || !cfg.serverSupports("chat-feed")) return;
+		if (!apiClient.isConfigured() || pluginConfig == null) return;
 		if (!config.chatFeed() || !loggedIn()) {
 			if (lastGuestChannel != null) sendGuestChannel(null);
 			return;

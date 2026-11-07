@@ -45,8 +45,7 @@ public class BingoApiClient {
 	// characters a read is about, so the panel shows the right board before Play; it never claims,
 	// links or verifies anything — that stays with X-RSN after the real login. Null off the launcher.
 	private volatile String rsnHint;
-	/** True while the logged-in world is a seasonal (Leagues) world. Set from the plugin on login/hop. */
-	private volatile boolean seasonal;
+
 	// The world the player is on, as the site reads it (WorldInfo): its type flags and its world-list
 	// activity line. Sent as X-World-Types / X-World-Activity on every request so the site can tell
 	// a Deadman or Leagues drop from a main-game one wherever it lands, and copied into each
@@ -260,10 +259,6 @@ public class BingoApiClient {
 		return rsnHint;
 	}
 
-	/** Called when the world changes: seasonal posts route to the clan's Leagues channel server-side. */
-	public void setSeasonal(boolean seasonal) {
-		this.seasonal = seasonal;
-	}
 
 	/** Called on login and every hop: the world's flags and activity, already cleaned (WorldInfo). */
 	public void setWorld(String types, String activity) {
@@ -513,8 +508,7 @@ public class BingoApiClient {
 		public boolean ok;
 		public String error;
 		public String reason;
-		public boolean alreadyOpen;
-		/** What to tell the player (e.g. the XP check that starts an ownership claim). Null on older sites. */
+		/** What to tell the player (e.g. the XP check that starts an ownership claim). */
 		public String message;
 	}
 
@@ -557,13 +551,8 @@ public class BingoApiClient {
 		if (!isConfigured() || channel == null || channel.isEmpty()) return;
 		JsonObject payload = new JsonObject();
 		payload.addProperty("channel", channel);
-		// The player is on a Leagues world. The plugin reports only that fact — whether the clan has a
-		// separate Leagues channel, and what a seasonal post looks like, is the server's decision, so
-		// either can change without waiting for a plugin release. Carried as ambient state like the RSN
-		// and account hash, so every notification path gets it without threading a flag through each.
-		if (seasonal) payload.addProperty("seasonal", true);
 		// Where it happened, frozen into the post itself: the site routes Deadman, Leagues, hardcore
-		// and any mode it learns later off this (`seasonal` above stays for sites that predate it).
+		// and any mode it learns later off this — the plugin reports only the world, the server decides.
 		String types = worldTypes;
 		String activity = worldActivity;
 		if (types != null || activity != null) {
@@ -756,7 +745,7 @@ public class BingoApiClient {
 		return gson.fromJson(postJson(configUrl("/api/plugin/facts"), body, "Facts", true), JsonObject.class);
 	}
 
-	/** POST /api/plugin/notify-prefs: the notify settings RuneLite used to hold, once (capability notify-prefs). */
+	/** POST /api/plugin/notify-prefs: the notify settings RuneLite used to hold, once. */
 	void postNotifyPrefs(JsonObject prefs) throws IOException {
 		JsonObject body = new JsonObject();
 		body.add("prefs", prefs);
@@ -1089,7 +1078,7 @@ public class BingoApiClient {
 
 	/**
 	 * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress} — every team's progress on one pinned
-	 * tile (site capability "tile-tracker"). Null on any failure. Blocking.
+	 * tile. Null on any failure. Blocking.
 	 */
 	public TileTracker.Progress fetchTileProgress(int eventId, int tileId) {
 		return !isConfigured() || eventId <= 0 || tileId <= 0 ? null
@@ -1129,27 +1118,11 @@ public class BingoApiClient {
 		public boolean isGuest;
 		// WHICH CLAN ANSWERED, and about whom. "Tracked as a guest" is a claim about one person in one
 		// clan and the message named neither, so somebody in two clans could not tell a wrong answer
-		// from a surprising one. Null on a site that predates this — the log line says so rather than
-		// printing "null".
+		// from a surprising one.
 		public String clanName;
 		public String rsn;
 		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
 		public String seatKind;
-		// What's running right now, for an in-game greeting on login.
-		public List<WeeklyInfo> activeWeekly;
-		public List<BingoInfo> activeBingos;
-	}
-
-	/** A weekly competition as every route names it. */
-	public static class WeeklyInfo {
-		public String type;   // "skill" | "boss" | "efficiency" (EHP/EHB)
-		public String title;
-		public String metric; // skill/boss key, or "ehp" | "ehb" on an efficiency comp
-	}
-
-
-	public static class BingoInfo {
-		public String name;
 	}
 
 	/**
@@ -1564,9 +1537,6 @@ public class BingoApiClient {
 	 * it and books it once a coffer reading shows the money.
 	 */
 	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
-	public void submitModeLines(List<String> lines) throws IOException {
-		submitModeLines(lines, null, null);
-	}
 
 	/** The same mode-line batch with the frame that was visible when it was sent. */
 	public void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
@@ -1713,7 +1683,7 @@ public class BingoApiClient {
 	 * POST /api/plugin/game-clan — the logged-in character's OWN row from the in-game clan settings:
 	 * which clan, its rank number and the clan's title for it, and the join date. Never the member
 	 * list. A null name says "in no clan". The site shows it on the profile and gathers Anvil players
-	 * of a clan that isn't on Anvil onto one page (capability {@code game-clan}).
+	 * of a clan that isn't on Anvil onto one page.
 	 */
 	public void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException {
 		JsonObject payload = new JsonObject();
@@ -1732,7 +1702,7 @@ public class BingoApiClient {
 
 	/**
 	 * POST /api/plugin/presence — the clan whose GUEST channel this character sits in now (null: none),
-	 * for the chat feed's guest bridge (capability {@code chat-feed}). Only the channel's name.
+	 * for the chat feed's guest bridge. Only the channel's name.
 	 */
 	public void submitGuestChannel(String guestChannel) throws IOException {
 		JsonObject payload = new JsonObject();

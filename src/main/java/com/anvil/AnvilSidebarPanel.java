@@ -63,9 +63,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	// ---- Tabs: Clan · You · Lookup ----------------------------------------------------------------
 	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are views
-	// the site builds (UiView), and only exist while it does (the `plugin-ui` capability): without it
-	// the strip hides and the Clan tab says the site is too old, with Sync profile and the sound lists
-	// under it (renderEmpty).
+	// the site builds (UiView), and only exist once the site has answered: until then the strip hides
+	// and the Clan tab says it can't reach the site, with the sound lists under it (renderEmpty).
 	enum Tab { CLAN, FEED, YOU, LOOKUP, SETTINGS }
 	private Tab tab = Tab.CLAN;
 	/** Whether the strip is showing, i.e. signed in to a site that serves player cards. */
@@ -442,7 +441,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		return !apiClient.needsSignIn() && dataSource.supportsPluginUi();
 	}
 
-	/** Re-checked on every render: the capability arrives with the config, and sign-out takes it away. */
+	/** Re-checked on every render: the config's answer brings the tabs, and sign-out takes them away. */
 	private void updateTabStrip() {
 		relabelClanTab();
 		styleLookupModes();
@@ -563,7 +562,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			@Override
 			public void openTab(String name) {
-				// Only a tab this panel is showing: the Feed tab hides on a site too old to feed it.
+				// Only a tab this panel is showing.
 				JLabel feed = tabLabels.get(Tab.FEED);
 				if ("feed".equals(name) && feed != null && feed.isShowing()) selectTab(Tab.FEED);
 			}
@@ -674,7 +673,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 */
 	private void renderFeed() {
 		if (!dataSource.feedTabAvailable()) {
-			feedView.say("Your Anvil site doesn't serve the live feed yet.");
+			feedView.say("Sign in to see the live feed.");
 			return;
 		}
 		feedView.show("feed", Collections.emptyMap(), "Loading the feed…");
@@ -1347,12 +1346,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 			setContent(firstRunCard());
 			return;
 		}
-		// Signed in, but the site doesn't draw the panel (no `plugin-ui`): an older or self-hosted Anvil,
-		// or none reachable yet. Say that rather than "no clans", and keep what still works without it —
-		// Sync profile, the roster button and the sound lists — since the tab strip is hidden here.
+		// Signed in, but no config answered: the site can't be reached yet. Say that rather than
+		// "no clans", and keep the roster button and the sound lists, since the tab strip is hidden here.
 		PluginErrorPanel empty = new PluginErrorPanel();
-		empty.setContent("Can't show your clan here",
-			"Your Anvil site is older than this plugin, or can't be reached right now. If it stays like this, ask whoever runs it to update.");
+		empty.setContent("Can't show your clan here", "Anvil can't be reached right now. It'll keep trying.");
 		renderSettings();
 		JPanel stack = new JPanel();
 		stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));

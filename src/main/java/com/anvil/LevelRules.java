@@ -1,11 +1,10 @@
 package com.anvil;
 
 /**
- * Which level-ups a destination wants posted (site capability {@code level-rules}): 99s, every
- * {@code skillStep} levels from {@code skillFrom}, every {@code totalStep} total from {@code totalFrom},
- * and maxing. The site sends one set for the clan's channel and one for the player's own webhooks; a
- * null set wants nothing. A site without the capability gets {@link #LEGACY_CLAN} for the clan — exactly the old
- * 99s-and-high-totals behaviour.
+ * Which level-ups a destination wants posted: 99s, every {@code skillStep} levels from
+ * {@code skillFrom}, every {@code totalStep} total from {@code totalFrom}, and maxing. The site sends
+ * one set for the clan's channel and one for the player's own webhooks; a null set wants nothing.
+ * {@link #LEGACY_CLAN} is the fixed 99s-and-high-totals set the highlight feed keeps.
  */
 public class LevelRules {
 	public boolean ninetyNines;
@@ -49,8 +48,7 @@ public class LevelRules {
 	 */
 	static Sets resolve(PluginConfigResponse cfg, boolean clanChannel, PluginConfigResponse.ModeThresholds mode) {
 		if (mode != null) return new Sets(clanChannel ? mode.levelRules : null, null);
-		Sets s = cfg != null && cfg.levelRules != null && cfg.serverSupports("level-rules")
-			? cfg.levelRules : new Sets(LEGACY_CLAN, null);
+		Sets s = cfg != null && cfg.levelRules != null ? cfg.levelRules : new Sets();
 		return new Sets(clanChannel ? s.clan : null, s.personal);
 	}
 

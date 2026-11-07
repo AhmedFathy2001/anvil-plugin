@@ -14,7 +14,7 @@ import java.time.*;
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable
  * overlay per tile showing every team's progress and each team's top contributors, read from
- * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress} (site capability "tile-tracker").
+ * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress}.
  *
  * <p>Fetched only while something is pinned: on the plugin's 30s config tick, and a few seconds after
  * this account progresses a pinned tile, so your own kill shows without waiting a full poll. Pins

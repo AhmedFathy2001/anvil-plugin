@@ -215,15 +215,6 @@ public class ChatFlairTest
 		assertEquals("#123456", f.entry("zulu").c);
 	}
 
-	@Test
-	public void theListIsWantedForALoginInNoClanWhoseConfigIsA404()
-	{
-		// No config at all (404): the site's /api/version capabilities decide.
-		assertEquals(true, ChatFlairSync.wanted(true, true, null, "chat-flair-v"::equals));
-		assertEquals(false, ChatFlairSync.wanted(true, true, null, c -> false));
-		assertEquals(false, ChatFlairSync.wanted(true, false, null, "chat-flair-v"::equals));
-		assertEquals(false, ChatFlairSync.wanted(false, true, null, "chat-flair-v"::equals));
-	}
 
 	@Test
 	public void anIncompleteCurrentVersionRepairsItselfFromTheFullList()

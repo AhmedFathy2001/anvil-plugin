@@ -11,7 +11,7 @@ import java.util.function.Predicate;
 /**
  * Counters read off game values (varbits/varps) rather than a chat line: Tithe Farm points, Giants'
  * Foundry reputation, Doom delve completions, slayer task streaks. WHICH values, and the target name
- * each credits, come from the site (lib/gameCounters, capability 'game-counters'), so adding one is a
+ * each credits, come from the site (lib/gameCounters), so adding one is a
  * catalog line there and never a release here.
  *
  * <p>Generic delta rule: per source, a change in the entry's direction (default: increase) after the

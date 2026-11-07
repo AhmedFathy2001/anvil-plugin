@@ -1,10 +1,10 @@
 package com.anvil;
 
 import java.util.function.LongSupplier;
-import java.util.function.Predicate;
+
 
 /**
- * Keeps {@link ChatFlair} at the site's version (capability "chat-flair-v"). A socket delta for the
+ * Keeps {@link ChatFlair} at the site's version. A socket delta for the
  * version we hold is applied in place, no request; anything else — a missed message, a reconnect, a
  * "full" marker, nothing held yet — asks {@code chat-flair/v?since=} after a random 0–20 s (a change
  * reaches every plugin at once; this spreads their requests), which answers with the deltas when few,
@@ -42,13 +42,6 @@ final class ChatFlairSync {
 		this.changed = changed;
 	}
 
-	/**
-	 * Is the list wanted? Signed in, the setting on, and the site has it — from the config, or for a
-	 * login in no clan (whose config is a 404) from /api/version. Never tied to the config answering.
-	 */
-	static boolean wanted(boolean on, boolean signedIn, PluginConfigResponse cfg, Predicate<String> siteAdvertises) {
-		return on && signedIn && ((cfg != null && cfg.serverSupports("chat-flair-v")) || siteAdvertises.test("chat-flair-v"));
-	}
 
 	/** A {"t":"flair"} push: applied if it follows our version, else a jittered catch-up. */
 	void pushed(ChatFlair.Wire d) {

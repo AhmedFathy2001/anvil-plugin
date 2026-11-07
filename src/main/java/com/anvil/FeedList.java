@@ -65,7 +65,7 @@ import net.runelite.api.Skill;
 import net.runelite.api.SpriteID;
 
 /**
- * The server-driven UI's live list (node {@code feed}, capability 'panel-rows'): drawn once from the
+ * The server-driven UI's live list (node {@code feed}): drawn once from the
  * view, then grown by push rows that name its {@link #id} — never redrawn per row.
  *
  * Built to stay smooth under a thousand-player board: ONE {@link JList} with ONE reused row renderer

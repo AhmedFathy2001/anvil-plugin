@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
 /**
- * The site's live channel (capability {@code push-ws}): a socket that sends the team's progress, the
+ * The site's live channel: a socket that sends the team's progress, the
  * board and pinned-tile numbers as they change (docs/PLUGIN_WIRE.md), so the polls can slow right
  * down while it's up. Down or refused, nothing breaks: the plugin polls as it always did.
  *

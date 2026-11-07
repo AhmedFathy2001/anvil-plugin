@@ -37,6 +37,8 @@ final class DeathAttribution {
 
 	/** Who has us targeted, and when they acquired us. Insertion-ordered so "most recent" is cheap. */
 	private final Map<String, Long> attackers = new LinkedHashMap<>();
+	/** Which of {@link #attackers} are players rather than NPCs. */
+	private final Set<String> players = new HashSet<>();
 
 	/** When we last took damage from something other than ourselves. */
 	private long lastDamageAt;
@@ -48,16 +50,26 @@ final class DeathAttribution {
 	 * candidate than one that has been plinking at us since the start of the fight, because the
 	 * thing that just turned to face you is the thing that just started hitting you.
 	 */
-	synchronized void targetedUs(String name, long nowMs) {
+	synchronized void targetedUs(String name, boolean player, long nowMs) {
 		if (name == null || name.isEmpty()) return;
 		attackers.remove(name); // re-insert so iteration order stays "oldest first"
 		attackers.put(name, nowMs);
-		while (attackers.size() > MAX_ATTACKERS) attackers.remove(attackers.keySet().iterator().next());
+		if (player) {
+			players.add(name);
+		} else players.remove(name);
+		while (attackers.size() > MAX_ATTACKERS) stoppedTargetingUs(attackers.keySet().iterator().next());
 	}
 
 	/** Something stopped targeting us — it is no longer a candidate for killing us. */
 	synchronized void stoppedTargetingUs(String name) {
-		if (name != null) attackers.remove(name);
+		if (name == null) return;
+		attackers.remove(name);
+		players.remove(name);
+	}
+
+	/** Whether {@code name}, as {@link #killer} returned it, is a player that had us targeted. */
+	synchronized boolean isPlayer(String name) {
+		return name != null && players.contains(name);
 	}
 
 	/** We took a hit from something other than ourselves. Only the timing matters; see the class doc. */
@@ -68,6 +80,7 @@ final class DeathAttribution {
 	/** Forget everything. A new login, a new region, a fresh death — none of it carries over. */
 	synchronized void clear() {
 		attackers.clear();
+		players.clear();
 		lastDamageAt = 0;
 	}
 

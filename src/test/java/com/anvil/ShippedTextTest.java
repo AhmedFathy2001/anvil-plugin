@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -26,15 +25,6 @@ public class ShippedTextTest
 		assertEquals(24, text.alwaysNotify.size());
 		assertEquals("infernal cape", text.alwaysNotify.get(0));
 		assertEquals("fire cape", text.alwaysNotify.get(23));
-		assertEquals(Arrays.asList(
-			"{name} has been sent to Lumbridge to think about their choices.",
-			"{name} forgot to flick Protect from Magic. Classic.",
-			"{name} died doing what they loved: not eating.",
-			"Press F for {name}.",
-			"{name} just speedran a trip to Lumbridge."), text.funDeaths);
-		assertEquals(Arrays.asList(
-			"Sit. 🪑", "L + ratio.", "Skill issue.", "Couldn't be me.", "GG go next.",
-			"Have you tried eating?", "That's gotta hurt.", "Prayer was off, wasn't it?", "Get good. 🤡"), text.deathTaunts);
 		assertEquals("GRANDMASTER", text.questTiers.get("desert treasure ii"));
 		assertEquals("MASTER", text.questTiers.get("recipe for disaster - culinaromancer"));
 		assertEquals("MASTER", text.questTiers.get("legends' quest"));

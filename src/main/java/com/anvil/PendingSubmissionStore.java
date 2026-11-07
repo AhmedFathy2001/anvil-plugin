@@ -64,7 +64,7 @@ public class PendingSubmissionStore {
 		public com.google.gson.JsonObject proof;
 		// Another board's clan slug (TrackedTile.board), null for the active board: where a retry posts.
 		public String clan;
-		// Capability `rules`: the facts this screenshot proves, posted to /api/plugin/facts (the site
+		// The facts this screenshot proves, posted to /api/plugin/facts (the site
 		// picks the tiles) instead of a submission for one tile.
 		public com.google.gson.JsonArray facts;
 	}

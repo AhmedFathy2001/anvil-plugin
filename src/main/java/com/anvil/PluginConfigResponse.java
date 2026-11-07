@@ -4,9 +4,8 @@ import java.util.*;
 
 public class PluginConfigResponse {
 	/**
-	 * Version/capability handshake, sent by sites ≥ v1.0.0 on every /config shape. Null on
-	 * older sites — {@link #serverSupports(String)} treats that as the v1.0.0 baseline set,
-	 * never as "supports nothing". Contract: docs/PLUGIN_WIRE.md in the anvil site repo.
+	 * The site's capability list. The plugin never gates on site versions (the site deploys first);
+	 * the only one read is {@code push-ws}, a runtime switch. Contract: docs/PLUGIN_WIRE.md in the site repo.
 	 */
 	public ServerInfo server;
 
@@ -14,22 +13,8 @@ public class PluginConfigResponse {
 		public List<String> capabilities;
 	}
 
-	/** Everything the plugin-facing API already supported when the handshake first shipped (site v1.0.0). */
-	private static final Set<String> BASELINE_CAPABILITIES = new HashSet<>(Arrays.asList(
-		"stats-live", "drop-tiles", "kill-tiles", "timed-tiles", "lms-tiles", "value-tiles",
-		"gain-tiles", "deathless-tiles", "pvp-tiles", "diary-tiles", "ca-tiles", "clog-tiles",
-		"weekly", "schedule", "notify", "counters", "activity-feed", "ladder",
-		"reveal-modes", "config-etag"));
-
-	/**
-	 * Gate new plugin surfaces on this instead of calling an endpoint and 404ing: self-hosted
-	 * sites can lag the hub plugin by months, and each federated connection may be on a
-	 * different version. Capabilities newer than the baseline return false until the site
-	 * explicitly advertises them — the surface should hide, not error.
-	 */
 	public boolean serverSupports(String capability) {
-		if (server == null || server.capabilities == null) return BASELINE_CAPABILITIES.contains(capability);
-		return server.capabilities.contains(capability);
+		return server != null && server.capabilities != null && server.capabilities.contains(capability);
 	}
 
 	// ── WHICH CLAN, AND WHICH OTHERS ──────────────────────────────────────────────────────────
@@ -190,15 +175,14 @@ public class PluginConfigResponse {
 	 */
 	public List<Integer> caVarps;
 	/**
-	 * Counters read off a varbit/varp (site lib/gameCounters, capability 'game-counters'): each
+	 * Counters read off a varbit/varp (site lib/gameCounters): each
 	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on
 	 * sites that predate it — then nothing is read.
 	 */
 	public List<GameValueCounters.Entry> gameCounters;
 
 	// STARTING SHOT — the anti-stack proof (site: lib/startProof). Non-null only on an event that
-	// requires one; null everywhere else, including on sites that predate the 'start-proof'
-	// capability, so the button simply never appears there.
+	// requires one; null everywhere else, so the button simply never appears there.
 	public StartProof startProof;
 
 	public static class StartProof {
@@ -260,7 +244,7 @@ public class PluginConfigResponse {
 	// Site stat keys ("cluesElite", "collectionsLogged") for the hiscores counters that are neither a
 	// boss nor a skill. Pushed by KEY rather than in-game name — the plugin reads each from a named
 	// varbit, so there's nothing to map — and only for the ones the client can actually answer
-	// (see ActivityStats). Requires the 'activity-stats' capability; empty/absent on older servers.
+	// (see ActivityStats).
 	public List<String> trackedActivityKeys;
 	public List<TrackedKill> trackedKills;        // NPC kill-count tiles (non-hiscores mobs)
 	public List<TrackedPvp> trackedPvp;           // PvP-kill tiles (rival-team / bounty kills in dangerous PvP)
@@ -280,27 +264,25 @@ public class PluginConfigResponse {
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
 	public Me me;
-	public List<String> funDeathMessages;              // server-managed 1/100 fun-death pool
-	public List<String> deathTaunts;                   // server-managed death reaction lines (override baked-in)
 	public List<String> alwaysNotifyItems;             // server-managed always-post item names (prestige drops)
 	public List<Integer> alwaysNotifyItemIds;          // ^ resolved to item ids server-side, for reliable id-match
 	public boolean showKillCount = true;               // server toggle: include boss/raid KC on rare-drop posts
 	// Clan-wide rare-drop rarity floor (1-in-N). A member may post only drops at least this rare;
 	// their own setting can be stricter but not looser. 0 / absent = no clan floor. Lets an admin
 	// quiet a noisy channel for everyone from the site instead of asking each member to edit config.
-	// What the SERVER knows about a drop and the client cannot (site capability "drop-facts"):
+	// What the SERVER knows about a drop and the client cannot:
 	// which monster a pet actually comes from, and which items a source hands over every kill.
 	// Null against an older site, and every read of it degrades to the old guess-from-context
 	// behaviour rather than to nothing.
 	public DropFacts dropFacts;
 
 	/**
-	 * Items that count toward luck on this site (capability 'luck-drops'): reported as moments
+	 * Items that count toward luck on this site: reported as moments
 	 * whatever they sell for, so an untradeable unique reaches the event's luck boards and not only
 	 * its first collection-log unlock. Null on older sites.
 	 */
 	public List<Integer> luckItemIds;
-	/** Which level-ups the clan and the player's own webhooks want (capability 'level-rules'); null on older sites. */
+	/** Which level-ups the clan and the player's own webhooks want; null on older sites. */
 	public LevelRules.Sets levelRules;
 	/**
 	 * On a game-mode world, that mode's own thresholds: the loosest of the player's clans', each clan
@@ -335,7 +317,6 @@ public class PluginConfigResponse {
 		public boolean drops, pets, deaths, pvp, clog, levels, levelsClan, diaries;
 		/** Screenshot gates: the site judges the post itself. */
 		public long dropMin, keyMin;
-		public String deathMsg;
 		/** CombatAchievementTier names that post; quest difficulties that post ("*" = all). */
 		public List<String> ca = new ArrayList<>(), quests = new ArrayList<>();
 	}

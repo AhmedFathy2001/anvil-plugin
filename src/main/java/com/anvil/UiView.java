@@ -18,7 +18,7 @@ import java.awt.image.BufferedImage;
 import javax.swing.Timer;
 
 /**
- * A panel view the site built ({@code GET /api/plugin/ui}, capability {@code plugin-ui}): the site
+ * A panel view the site built ({@code GET /api/plugin/ui}): the site
  * decides every line, colour and click, and this draws it from a dozen building blocks (site
  * lib/pluginUi/nodes has the shape). Pictures arrive as game ids drawn with RuneLite's own managers —
  * never a URL — and a click is one of the fixed actions in {@link #act}; the ones that reach the site

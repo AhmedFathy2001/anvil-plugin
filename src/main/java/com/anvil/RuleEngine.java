@@ -6,7 +6,7 @@ import com.google.gson.JsonObject;
 import java.util.*;
 
 /**
- * The site's rule table (capability {@code rules}, GET /api/plugin/rules), run locally. It decides only
+ * The site's rule table (GET /api/plugin/rules), run locally. It decides only
  * what can't wait for the site: whether a moment deserves a screenshot, and the chat line to print
  * right away. The site matches the reported facts to tiles (POST /api/plugin/facts) and its answer
  * corrects each rule's count. Pure and RuneLite-free (RuleEngineTest).

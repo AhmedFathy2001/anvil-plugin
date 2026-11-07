@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 import java.util.function.IntUnaryOperator;
 
 /**
- * Anvil Supporters' colours on their names in normal game chat (site capability "chat-flair-v"). The
+ * Anvil Supporters' colours on their names in normal game chat. The
  * site hands the whole list over and names are matched here, locally: the plugin never tells the site
  * whose messages it saw. The list is versioned: socket deltas (ChatFlairSync) move it one version at a
  * time, and a whole download is only for a version it can't reach that way.

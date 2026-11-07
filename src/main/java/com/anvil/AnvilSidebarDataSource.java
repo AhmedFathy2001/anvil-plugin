@@ -177,8 +177,8 @@ public class AnvilSidebarDataSource {
 	}
 
 	/**
-	 * Whether this event's tiles can be pinned as in-game widgets: the site serves them (capability
-	 * "tile-tracker") and it is the event you're playing, or one still waiting to start (pinned early,
+	 * Whether this event's tiles can be pinned as in-game widgets: there is a config and it is the
+	 * event you're playing, or one still waiting to start (pinned early,
 	 * it counts down and goes live at the whistle).
 	 */
 	public boolean canTrackTiles(int eventId, boolean preStart) {
@@ -225,25 +225,18 @@ public class AnvilSidebarDataSource {
 		if (capture != null) capture.run();
 	}
 
-	/** Whether the site builds the Lookup and You tabs ({@link UiView}). False ⇒ no tabs, and a lookup opens the browser. */
-	public boolean supportsPluginUi() {
-		return siteSupports("plugin-ui");
-	}
-
 	/**
-	 * The config's capability list when there is a config; /api/version's when the person is in no
-	 * clan (a 404 config carries none). The You and Lookup tabs are exactly what someone without a
-	 * clan should still get.
+	 * Whether the site's tabs ({@link UiView}) can be built: a config answered, or the person is in no
+	 * clan (a 404 config) — the You and Lookup tabs are exactly what someone without a clan should
+	 * still get. False ⇒ no tabs, and a lookup opens the browser.
 	 */
-	/** The site serves the Feed tab's live lists (capability 'panel-rows'). */
-	public boolean feedTabAvailable() {
-		return siteSupports("panel-rows");
+	public boolean supportsPluginUi() {
+		return configSupplier.get() != null || apiClient.signedInWithoutClan();
 	}
 
-	private boolean siteSupports(String capability) {
-		PluginConfigResponse cfg = configSupplier.get();
-		if (cfg != null) return cfg.serverSupports(capability);
-		return apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
+	/** The Feed tab's live lists can be asked for (same condition as the tabs). */
+	public boolean feedTabAvailable() {
+		return supportsPluginUi();
 	}
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
