@@ -23,7 +23,7 @@ import static org.junit.Assert.*;
 public class PanelClickTest {
 	private static final int WIDTH = 225;
 	private static final String[] FIXTURES = {"race-start", "race-mid", "race-detail", "clan-list", "clan-bingo", "clan-home",
-		"clan-event", "clan-event-registered", "clan-event-going", "clan-weekly", "feed", "you", "lookup-player", "lookup-clog", "lookup-clan", "lookup-player-img", "you-img", "lookup-clan-img", "lookup-clan-plain"};
+		"clan-event", "clan-event-registered", "clan-event-going", "clan-weekly", "feed", "you", "lookup-player", "lookup-clog", "lookup-clan", "lookup-player-img", "you-img", "lookup-clan-img", "lookup-clan-plain", "feed-clan", "lookup-clan-long"};
 
 	private static final class Host implements UiView.Host {
 		int calls;
@@ -329,6 +329,26 @@ public class PanelClickTest {
 			assertTrue(click(page.view, page.host, no));
 			size(page.view);
 			assertNull("back to the goal", find(page.view, "No"));
+		});
+	}
+
+	/** A filter click that is a site round trip shows "Loading…" in its slot at once, then the answer. */
+	@Test
+	public void aSlotLoadShowsLoadingAtOnce() throws Exception {
+		SwingUtilities.invokeAndWait(() -> {
+			Page page = new Page("lookup-clog");
+			JsonObject view = new JsonParser().parse("{\"ui\":{\"t\":\"slot\",\"id\":\"cas\",\"c\":{\"t\":\"text\",\"s\":\"Old list\"}}}").getAsJsonObject();
+			page.view.render(view);
+			size(page.view);
+			assertNotNull(find(page.view, "Old list"));
+			Host held = new Host();
+			UiView v = new UiView(held, null, null, null);
+			v.render(view);
+			size(v);
+			v.act(new JsonParser().parse("{\"a\":\"load\",\"v\":\"cas\",\"into\":\"cas\"}").getAsJsonObject());
+			size(v);
+			assertNotNull("loading shows at once", find(v, "Loading..."));
+			assertNull(find(v, "Old list"));
 		});
 	}
 }

@@ -310,7 +310,7 @@ final class UiView extends JPanel {
 
 	// ---- Actions -----------------------------------------------------------------------------------
 
-	private void act(JsonObject a) {
+	void act(JsonObject a) {
 		String into = str(a, "into");
 		switch (str(a, "a")) {
 			case "site":
@@ -333,6 +333,12 @@ final class UiView extends JPanel {
 				if (a.has("open") && a.get("open").isJsonObject()) {
 					JsonObject open = a.getAsJsonObject("open");
 					openPanes.put(str(open, "into"), str(open, "pane"));
+				}
+				Slot busy = into.isEmpty() ? null : slots.get(into);
+				if (busy != null && busy.first == null) {
+					// The click registers at once: the slot says it is loading until the answer lands.
+					drawn.remove(into);
+					replace(busy.holder, small("Loading…", MUTED));
 				}
 				fetch(into.isEmpty() ? null : into, str(a, "v"), strings(a.get("args")));
 				break;

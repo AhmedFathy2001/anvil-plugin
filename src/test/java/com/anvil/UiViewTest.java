@@ -362,11 +362,12 @@ public class UiViewTest
 			+ "{\"t\":\"slot\",\"id\":\"tiles\",\"c\":{\"t\":\"text\",\"s\":\"Pin\",\"on\":{\"a\":\"pin\",\"event\":7,\"tile\":5,\"on\":true,"
 			+ "\"then\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"tile\":\"5\"},\"into\":\"tiles\"}}}}]}"));
 		JComboBox<?> combo = findCombo(v);
-		combo.setSelectedIndex(1);
-		assertEquals("board{part=rows, q=zul, status=done}", host.loads.get(0));
 		click(v, "Pin");
 		assertEquals("7:5:true", host.pinned);
-		assertEquals("board{tile=5}", host.loads.get(1));
+		assertEquals("board{tile=5}", host.loads.get(0));
+		// (a slot load says "Loading..." at once, so the pin row is gone until the answer lands)
+		combo.setSelectedIndex(1);
+		assertEquals("board{part=rows, q=zul, status=done}", host.loads.get(1));
 	}
 
 	@Test

@@ -204,7 +204,39 @@ public class RacePanelRenderTest {
 		Supplier<JComponent> clans = () -> UiView.segments(Arrays.asList("Players", "Clans"), "Clans", m -> { });
 		render("lookup-clan-img", "LookupClan", clans);
 		render("lookup-clan-plain", "LookupClan", clans);
+		render("feed-clan", "Feed");
 		assertTrue(out("lookup-clog.png").exists());
+	}
+
+	/** Every column sizes to its content: no child of a vertical box overlaps its neighbour or hangs past its bottom. */
+	@Test
+	public void theClanCardWithLongLinesSizesToItsContent() throws Exception {
+		render("lookup-clan-long", "LookupClan");
+		UiView view = new UiView(new Host(), null, null, null);
+		List<String> bad = new ArrayList<>();
+		SwingUtilities.invokeAndWait(() -> {
+			view.render(fixtureOrThrow("lookup-clan-long"));
+			layOut(panel(view));
+			overlaps(view, bad);
+		});
+		assertTrue("overlapping children: " + bad, bad.isEmpty());
+	}
+
+	private static void overlaps(Component c, List<String> bad) {
+		if (!(c instanceof Container)) return;
+		Container k = (Container) c;
+		if (k.getLayout() instanceof BoxLayout) {
+			Component[] kids = k.getComponents();
+			for (int i = 0; i < kids.length; i++) {
+				if (!kids[i].isVisible() || kids[i].getHeight() == 0) continue;
+				if (kids[i].getY() + kids[i].getHeight() > k.getHeight() + 1) bad.add("past bottom: " + kids[i].getClass().getSimpleName());
+				for (int j = i + 1; j < kids.length; j++) {
+					if (!kids[j].isVisible() || kids[j].getHeight() == 0) continue;
+					if (kids[i].getBounds().intersection(kids[j].getBounds()).height > 1) bad.add(kids[i].getClass().getSimpleName() + "@" + kids[i].getY() + " x " + kids[j].getClass().getSimpleName() + "@" + kids[j].getY());
+				}
+			}
+		}
+		for (Component kid : k.getComponents()) overlaps(kid, bad);
 	}
 
 	/** Settings is drawn by the panel itself: its cards, offscreen, from a stand-in data source. */
