@@ -9157,10 +9157,13 @@ public class AnvilPlugin extends Plugin {
 		return Math.max(ge, ha);
 	}
 
-	/** What this person's posts do (lib/notifyPrefs, resolved by the site), or null before a config: nothing posts. */
+	/**
+	 * What this person's posts do (lib/notifyPrefs, resolved by the site), or null before a config: nothing
+	 * posts. "Share clan posts" off silences the main game; seasonal worlds keep their own switch.
+	 */
 	private PluginConfigResponse.Me me() {
 		PluginConfigResponse cfg = pluginConfig;
-		return cfg == null ? null : cfg.me;
+		return cfg == null || (!seasonalWorld && !config.shareActivity()) ? null : cfg.me;
 	}
 
 	/**

@@ -212,7 +212,7 @@ shape of it.
 | --- | --- |
 | **Player lookup** | The **Anvil** entry on player names, and where it shows: players in the world, the chatbox and private messages, clan panels, friends chat, and your friends, ignore and party lists. In chat it's never the left-click option. |
 | **Bingo** | The verification overlay, team and personal tile popups, banner sounds, the automatic starting shot and its on-screen guide. |
-| **Notifications** | Sharing your seasonal-world progress. Everything else you post is set on the Anvil website (below). |
+| **Notifications** | Two switches: **Share clan posts** (your drops, pets, deaths, levels and achievements, on the main game) and **Share seasonal activity** (Leagues, Deadman and other seasonal worlds). Which posts go out is set on the Anvil website (below). |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 
 <p align="center">
@@ -227,12 +227,14 @@ A few worth knowing about:
 | --- | --- | --- |
 | Anvil lookup on players | on | Turn it off to keep **Anvil** out of every menu, or untick just the places you don't want it under **Player lookup**. |
 | Show Overlay | on | Turn it off if you don't want the codeword panel on screen — proofs are still stamped. |
+| Share clan posts | on | Turn it off to stop posting to your clan's Discord from the main game, without touching your choices on the website. Bingo tiles still count. |
 
 ### What you post
 
 What goes to your clan's Discord lives on the Anvil website, under **Settings > Announcements**, so it
 follows you to every clan and every computer. The first time the plugin connects it carries across
-whatever you had set in RuneLite. Posts still go out the moment they happen, with the screenshot.
+whatever you had set in RuneLite. Posts still go out the moment they happen, with the screenshot. To pause
+everything at once, untick **Share clan posts** in the plugin settings; your website choices stay as they are.
 
 | Setting | Default | Why you'd change it |
 | --- | --- | --- |

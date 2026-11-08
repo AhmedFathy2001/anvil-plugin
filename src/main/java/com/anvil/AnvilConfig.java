@@ -316,10 +316,21 @@ public interface AnvilConfig extends Config {
 	}
 
 	@ConfigItem(
+		keyName = "shareActivity",
+		name = "Share clan posts",
+		description = "Post your drops, pets, deaths, levels and achievements to your clan's Discord. Which ones post, and from when, is set on the Anvil website: Settings > Announcements.",
+		position = 0,
+		section = "deathsSection"
+	)
+	default boolean shareActivity() {
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "shareSeasonal",
 		name = "Share seasonal activity",
 		description = "On Leagues, Deadman and other seasonal worlds, share your progress (relics, areas, tasks, with a screenshot) to your clan. What gets posted is set by your clan on the Anvil website.",
-		position = 0,
+		position = 1,
 		section = "deathsSection"
 	)
 	default boolean shareSeasonal() {
