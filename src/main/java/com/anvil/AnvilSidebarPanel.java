@@ -747,6 +747,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 			() -> LinkBrowser.browse(apiClient.siteLink("/settings/announcements")))));
 		settingsPanel.add(left(styleLink(new ClipLabel("All your Anvil settings"),
 			"Your profile, characters, name colours and more", () -> LinkBrowser.browse(apiClient.siteLink("/settings")))));
+		settingsPanel.add(left(styleLink(new ClipLabel("Guides"),
+			"How Anvil works: the side panel, events, proofs, Supporter perks", () -> LinkBrowser.browse(apiClient.siteLink("/guide")))));
 		settingsPanel.add(gap(12));
 		JLabel support = styleLink(new ClipLabel(isSupporter() ? "Your Supporter perks" : "Become a Supporter"),
 			"Name colours, profile banners, clan boosts — and it keeps Anvil running", this::openSupporter);
