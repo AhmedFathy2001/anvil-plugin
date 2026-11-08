@@ -93,6 +93,9 @@ final class FeedList extends JPanel {
 	private static final int ICON_H = 21;
 	private static final Color GOLD = new Color(0xFF_D3_5C);
 	private static final Color MINE_BG = new Color(0x2E_2A_22);
+	private static final Color CORAL = new Color(0xFF_7A_6B);
+	private static final Color SEG_BG = new Color(0x1E_1E_1E);
+	private static final Color SEG_ON = new Color(0x3A_3A_3A);
 
 	final String id;
 	private final UiView.Host host;
@@ -131,6 +134,12 @@ final class FeedList extends JPanel {
 	private final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
 	private final JLabel error = new ClipLabel();
 	private final JLabel lockLine = new ClipLabel();
+	private final JLabel lockSub = new ClipLabel();
+	/** In place of the message box while locked: the reason, coral when it's the viewer's own timeout. */
+	private final JPanel lockBox = new JPanel(new BorderLayout(0, 2));
+	private JPanel boxPanel;
+	/** Chat: the channel switch over the list (My team | All teams | Announcements). */
+	private final List<Seg> segs = new ArrayList<>();
 	private JTextField input;
 	private JsonObject send;
 	/** A chat (it has a message box): oldest at the top, newest at the bottom, pinned to the latest. */
@@ -279,9 +288,10 @@ final class FeedList extends JPanel {
 		empty.setFont(SMALL);
 		empty.setForeground(MUTED);
 
-		JPanel top = new JPanel(new BorderLayout());
+		JPanel top = new JPanel(new BorderLayout(0, 4));
 		top.setOpaque(false);
 		if (!chat) top.add(newPill, BorderLayout.NORTH);
+		else if (n.has("chans") && n.get("chans").isJsonArray()) top.add(switchOf(n.getAsJsonArray("chans")), BorderLayout.NORTH);
 		top.add(empty, BorderLayout.SOUTH);
 		add(top, BorderLayout.NORTH);
 		add(scroll, BorderLayout.CENTER);
@@ -291,9 +301,10 @@ final class FeedList extends JPanel {
 			JPanel bottom = new JPanel(new BorderLayout(0, 4));
 			bottom.setOpaque(false);
 			bottom.add(newPill, BorderLayout.NORTH);
-			bottom.add(sendBox(), BorderLayout.CENTER);
+			bottom.add(boxPanel = sendBox(), BorderLayout.CENTER);
+			bottom.add(lockBox, BorderLayout.SOUTH);
 			add(bottom, BorderLayout.SOUTH);
-			lock(n.has("locked") && !n.get("locked").isJsonNull() ? UiView.str(n, "locked") : null);
+			lock(UiView.str(n, "locked"), UiView.str(n, "lockSub"), n.has("lockWarn"));
 			SwingUtilities.invokeLater(this::toLatest);
 		}
 		syncEmpty();
@@ -434,14 +445,109 @@ final class FeedList extends JPanel {
 		final List<JsonObject> queued = new ArrayList<>();
 	}
 
-	/** Grey the message box out with this line, or reopen it (null). Only a list with a box has one. */
-	void lock(String why) {
+	/**
+	 * A box with this line (and a muted second one) in place of the message box, or the box back
+	 * (empty {@code why}). {@code warn}: the viewer's own timeout or ban, drawn coral.
+	 */
+	void lock(String why, String sub, boolean warn) {
 		if (input == null) return;
 		boolean locked = why != null && !why.isEmpty();
 		input.setEnabled(!locked);
+		boxPanel.setVisible(!locked);
+		lockBox.setVisible(locked);
 		lockLine.setText(locked ? plainText(why) : "");
-		lockLine.setVisible(locked);
+		lockLine.setForeground(warn ? CORAL : Color.WHITE);
+		lockSub.setText(sub == null ? "" : plainText(sub));
+		lockSub.setVisible(sub != null && !sub.isEmpty());
+		lockBox.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(warn ? new Color(0x6A_3A_34) : new Color(0x4A_4A_4A)),
+			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
 		revalidate();
+	}
+
+	boolean locked() {
+		return lockBox.isVisible();
+	}
+
+	/** Lines arrived for these lists: a channel segment that names one, and isn't open, counts them. */
+	void bump(Set<String> feeds, int count) {
+		for (Seg g : segs) {
+			if (!g.on && feeds.contains(g.feed)) {
+				g.n += count;
+				g.repaint();
+			}
+		}
+	}
+
+	int unread(String feed) {
+		for (Seg g : segs) if (g.feed.equals(feed)) return g.n;
+		return -1;
+	}
+
+	private JPanel switchOf(JsonArray chans) {
+		JPanel bar = new JPanel(new java.awt.GridLayout(1, 0, 2, 0));
+		bar.setBackground(SEG_BG);
+		bar.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+		for (JsonElement e : chans) {
+			if (!e.isJsonObject()) continue;
+			JsonObject c = e.getAsJsonObject();
+			Seg g = new Seg(c);
+			segs.add(g);
+			if (!g.on && c.has("act") && c.get("act").isJsonObject()) Ui.onClick(g, () -> act.accept(c.getAsJsonObject("act")));
+			bar.add(g);
+		}
+		return bar;
+	}
+
+	/** One channel on the switch: its name, lit when open, and an unread pill when not. */
+	private static final class Seg extends javax.swing.JComponent {
+		final String label;
+		final String feed;
+		final boolean on;
+		final boolean blue;
+		int n;
+
+		Seg(JsonObject c) {
+			label = UiView.str(c, "label");
+			feed = UiView.str(c, "feed");
+			on = c.has("on") && c.get("on").getAsBoolean();
+			blue = c.has("blue");
+			n = c.has("n") ? c.get("n").getAsInt() : 0;
+			setFont(SMALL);
+			setPreferredSize(new Dimension(10, 22));
+		}
+
+		@Override
+		protected void paintComponent(Graphics g0) {
+			Graphics2D g = (Graphics2D) g0.create();
+			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			int w = getWidth(), h = getHeight();
+			if (on) {
+				g.setColor(SEG_ON);
+				g.fillRoundRect(0, 0, w, h, 6, 6);
+				g.setColor(ColorScheme.BRAND_ORANGE);
+				g.fillRect(2, h - 2, w - 4, 2);
+			}
+			java.awt.FontMetrics fm = g.getFontMetrics(getFont());
+			g.setFont(getFont());
+			String pill = !on && n > 0 ? (n > 99 ? "99+" : String.valueOf(n)) : null;
+			int pw = pill == null ? 0 : Math.max(14, fm.stringWidth(pill) + 8);
+			String text = label;
+			while (text.length() > 1 && fm.stringWidth(text) + pw + (pw > 0 ? 3 : 0) > w - 4) text = text.substring(0, text.length() - 1);
+			if (!text.equals(label)) text = text.substring(0, Math.max(1, text.length() - 1)) + "\u2026";
+			int tw = fm.stringWidth(text) + (pw > 0 ? pw + 3 : 0);
+			int x = (w - tw) / 2, base = (h + fm.getAscent() - fm.getDescent()) / 2;
+			g.setColor(on ? Color.WHITE : MUTED);
+			g.drawString(text, x, base);
+			if (pill != null) {
+				int px = x + fm.stringWidth(text) + 3, py = (h - 14) / 2;
+				g.setColor(blue ? new Color(0x1B_2A_3A) : ColorScheme.BRAND_ORANGE);
+				g.fillRoundRect(px, py, pw, 14, 14, 14);
+				g.setColor(blue ? new Color(0x8C_C8_FF) : new Color(0x1E_1E_1E));
+				g.drawString(pill, px + (pw - fm.stringWidth(pill)) / 2, base);
+			}
+			g.dispose();
+		}
 	}
 
 	boolean hasBox() {
@@ -611,14 +717,17 @@ final class FeedList extends JPanel {
 		error.setFont(SMALL);
 		error.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
 		error.setVisible(false);
-		lockLine.setFont(SMALL);
-		lockLine.setForeground(MUTED);
-		lockLine.setVisible(false);
+		lockLine.setFont(BOLD);
+		lockSub.setFont(SMALL);
+		lockSub.setForeground(MUTED);
+		lockBox.setOpaque(false);
+		lockBox.add(lockLine, BorderLayout.NORTH);
+		lockBox.add(lockSub, BorderLayout.SOUTH);
+		lockBox.setVisible(false);
 		JPanel lines = new JPanel(new BorderLayout());
 		lines.setOpaque(false);
 		lines.add(hint, BorderLayout.NORTH);
 		lines.add(error, BorderLayout.CENTER);
-		lines.add(lockLine, BorderLayout.SOUTH);
 		box.add(input, BorderLayout.NORTH);
 		box.add(lines, BorderLayout.SOUTH);
 		return box;
