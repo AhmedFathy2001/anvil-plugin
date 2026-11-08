@@ -508,7 +508,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** {@code fetch} on the interactive executor, then {@code then} with its answer on the EDT. */
 	/**
-	 * The last answer for each request (clan, character, view and args), drawn the moment it's asked
+	 * The last answer for each request (clan, character, live board, view and args), drawn the moment it's asked
 	 * for again while the fresh one is on its way — going back, or between tabs, is instant. Anything
 	 * sent to the site (a claim, a pin) may change every view, so it empties. EDT only.
 	 */
@@ -536,7 +536,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 			public void load(String view, Map<String, String> args, Consumer<JsonObject> done) {
 				String clan = dataSource.activeClan();
 				Map<String, String> sent = withPins(args);
-				String key = clan + '|' + apiClient.getCurrentRsn() + '|' + view + '|' + new TreeMap<>(sent);
+				// The live board's id too: "event 0" (the board page's tiles, teams) means whichever board is live,
+				// so an answer kept for one board must never be drawn once another one is.
+				String key = clan + '|' + apiClient.getCurrentRsn() + '|' + dataSource.activeEventId() + '|' + view + '|' + new TreeMap<>(sent);
 				JsonObject seen = uiCache.get(key);
 				if (seen != null) done.accept(seen);
 				async(() -> apiClient.fetchUi(view, sent, clan), v -> {

@@ -388,6 +388,34 @@ public class UiViewTest
 		assertEquals(Arrays.asList("board{page=2}", "board{page=2}"), host.loads);
 	}
 
+	@Test
+	public void boardToBoardThenBackKeepsTheBackRowThroughRefreshes() throws Exception
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		String board = "{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"‹ All events\",\"on\":{\"a\":\"load\",\"v\":\"home\",\"args\":{\"open\":\"events\"}}},{\"t\":\"text\",\"s\":\"%s\"}]}";
+		v.show("home", Collections.emptyMap(), null);
+		host.pending.get(0).accept(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Lab #5\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"5\",\"back\":\"events\"}}},"
+			+ "{\"t\":\"text\",\"s\":\"Lab #31\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"31\",\"back\":\"events\"}}}]}"));
+		click(v, "Lab #5");
+		host.pending.get(1).accept(view(String.format(board, "Board 5")));
+		click(v, "‹ All events");
+		// A poll (askAgainNow / boardChanged) before the list lands asks for the list, not the board left behind.
+		v.refresh();
+		assertEquals("home{open=events}", host.loads.get(3));
+		host.pending.get(3).accept(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Lab #31\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"31\",\"back\":\"events\"}}}]}"));
+		host.pending.get(2).accept(view(String.format(board, "stale")));
+		settle();
+		assertEquals(Collections.singletonList("Lab #31"), texts(v));
+		click(v, "Lab #31");
+		host.pending.get(4).accept(view(String.format(board, "Board 31")));
+		v.refresh();
+		assertEquals("a refresh asks for the same board, its way back included", "board{event=31, back=events}", host.loads.get(5));
+		host.pending.get(5).accept(view(String.format(board, "Board 31 moved")));
+		settle();
+		assertEquals(Arrays.asList("‹ All events", "Board 31 moved"), texts(v));
+	}
+
 	private static JComboBox<?> findCombo(Component c)
 	{
 		if (c instanceof JComboBox)
