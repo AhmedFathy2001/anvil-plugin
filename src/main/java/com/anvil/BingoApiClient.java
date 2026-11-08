@@ -1225,9 +1225,6 @@ public class BingoApiClient {
 	}
 
 	/**
-	 * POST /api/events/{eventId}/submissions — submits a drop with image proof.
-	 */
-	/**
 	 * A submission the server rejected for good — the tile's already complete, the event ended, the
 	 * data's invalid — so retrying it will never succeed. The retry loop drops these instead of
 	 * looping forever (the "Get 5M in PvP Loot already complete, keeps retrying" bug).
@@ -1330,14 +1327,8 @@ public class BingoApiClient {
 	 * sentence, not its JSON — a player reading chat should be told what to do, and
 	 * "{"error":...,"retryAfterMs":49445}" tells them to file a bug.
 	 */
-	/** The submit answer says this submission completed its tile (sites that say so: {"completed":true}). */
-	static boolean completedIn(String body) {
-		JsonObject o = body == null ? null : jsonObject(body);
-		return o != null && o.has("completed") && o.get("completed").isJsonPrimitive() && o.get("completed").getAsBoolean();
-	}
-
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException {
-		// A full URL (another board's submissions) is already addressed.
+		// A full URL (configUrl) is already addressed.
 		String url = path.startsWith("/") ? clanUrl(path) : path;
 		return execute(httpClient, authedRequest(url).post(json(payload)), (response, body) -> {
 			int code = response.code();
@@ -1418,62 +1409,6 @@ public class BingoApiClient {
 		if (loginAt != null) payload.addProperty("loginAt", loginAt);
 		postJson("/api/events/" + eventId + "/start-proof", payload, "Starting shot failed", true);
 		log.info("Starting shot filed for event {}", eventId);
-	}
-
-	/**
-	 * POST /api/events/{eventId}/submissions — submits a drop with image proof. {@code coop} is the
-	 * shared-kill fingerprint (what this client could see of its company; the server correlates
-	 * reports of the SAME kill, lib/coopRuns), null on everything else. {@code itemId} may be an item
-	 * the plugin worked out rather than saw — a duplicate pet or champion's scroll, which the game
-	 * never names. {@code inferred} is the reason the site stores so staff
-	 * check it ("inferred_duplicate_pet" / "inferred_duplicate_scroll"); the credit still counts.
-	 */
-	public boolean submitDrop(int eventId, int tileId, int teamId, int amount, String imageUrl, String note,
-		int creditPlayerId, Integer itemId, CoopFingerprint coop, String inferred, JsonObject proof, String clan) throws IOException {
-		JsonObject payload = submission(tileId, teamId, amount, imageUrl, note, creditPlayerId, proof);
-		if (inferred != null) payload.addProperty("inferred", inferred);
-		if (itemId != null) payload.addProperty("itemId", itemId);
-		if (coop != null) {
-			if (coop.teammates != null && !coop.teammates.isEmpty()) payload.add("coopGroup", gson.toJsonTree(coop.teammates));
-			if (coop.partySize > 1) payload.addProperty("coopPartySize", coop.partySize);
-		}
-		boolean completed = completedIn(postJson(submissionsUrl(clan, eventId), payload, "Submission failed", true));
-		log.info("Drop submitted successfully for tile {}", tileId);
-		return completed;
-	}
-
-	/**
-	 * POST /api/events/{eventId}/submissions — submits a timed-clear with image proof.
-	 * amount is fixed at 1; the clear time (seconds) rides in durationSeconds. The server
-	 * completes the tile when durationSeconds ≤ the tile's threshold.
-	 */
-	public boolean submitTimed(int eventId, int tileId, int teamId, int durationSeconds, String imageUrl, String note, int creditPlayerId,
-		JsonObject proof, String clan) throws IOException {
-		JsonObject payload = submission(tileId, teamId, 1, imageUrl, note, creditPlayerId, proof);
-		payload.addProperty("durationSeconds", durationSeconds);
-		boolean completed = completedIn(postJson(submissionsUrl(clan, eventId), payload, "Timed submission failed", true));
-		log.info("Timed clear submitted successfully for tile {}", tileId);
-		return completed;
-	}
-
-	/** The active board's submissions URL as ever; another board's ({@code clan} non-null) under its own clan. */
-	String submissionsUrl(String clan, int eventId) {
-		String path = "/api/events/" + eventId + "/submissions";
-		String slug = cleanSlug(clan);
-		return slug.isEmpty() ? clanUrl(path) : apiUrl + "/c/" + slug + path;
-	}
-
-	private static JsonObject submission(int tileId, int teamId, int amount, String imageUrl, String note, int creditPlayerId,
-		JsonObject proof) {
-		JsonObject payload = new JsonObject();
-		payload.addProperty("tileId", tileId);
-		payload.addProperty("teamId", teamId);
-		payload.addProperty("amount", amount);
-		payload.addProperty("imageUrl", imageUrl);
-		payload.addProperty("note", note);
-		payload.addProperty("creditPlayerId", creditPlayerId);
-		if (proof != null) payload.add("proof", proof);
-		return payload;
 	}
 
 	/** What a client could see of its company at kill time. Both halves are best-effort. */

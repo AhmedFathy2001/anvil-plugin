@@ -1,6 +1,8 @@
 package com.anvil;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
@@ -45,11 +47,10 @@ public class PendingSubmissionStore {
 		public String label;
 		public String note;
 		public String screenshotFile;
-		/** The site said this submission completed its tile (not saved: only the live submit uses it). */
-		transient boolean completedNow; // filename of PNG in pending dir
 		public long timestamp;
-		public Integer itemId; // specific item ID for per-item tracking (nullable)
-		public Integer durationSeconds; // timed-tile clear time in seconds (nullable; non-null routes to submitTimed)
+		// itemId / durationSeconds / inferred / note: read from proofs older builds saved (legacyFacts).
+		public Integer itemId;
+		public Integer durationSeconds;
 		public String capturedRsn; // character the drop was obtained on; only re-submitted while on it
 		public String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
 		// Shared kills/runs: teammates seen + party size at the time (lib/coopRuns on the site). Null
@@ -61,12 +62,30 @@ public class PendingSubmissionStore {
 		// screenshot to attach when they submit by hand on the site. The retry loop skips these.
 		public boolean manual;
 		// What the site draws the proof's banner from (lib/proofStamp); null on an older capture.
-		public com.google.gson.JsonObject proof;
+		public JsonObject proof;
 		// Another board's clan slug (TrackedTile.board), null for the active board: where a retry posts.
 		public String clan;
 		// The facts this screenshot proves, posted to /api/plugin/facts (the site
 		// picks the tiles) instead of a submission for one tile.
-		public com.google.gson.JsonArray facts;
+		public JsonArray facts;
+	}
+
+	/**
+	 * A proof an older build saved for one tile (no facts) as the same submission in a `tile` fact:
+	 * its note marks it as one, and the site keeps that note and the saved banner.
+	 */
+	static JsonArray legacyFacts(PendingSubmission p) {
+		JsonObject f = new JsonObject();
+		f.addProperty("k", "tile");
+		f.addProperty("t", p.tileId);
+		f.addProperty("n", Math.max(1, p.amount));
+		if (p.durationSeconds != null) f.addProperty("sec", p.durationSeconds);
+		if (p.itemId != null) f.addProperty("item", p.itemId);
+		if (p.inferred != null) f.addProperty("inf", p.inferred);
+		f.addProperty("note", p.note == null ? "" : p.note);
+		JsonArray a = new JsonArray();
+		a.add(f);
+		return a;
 	}
 
 	public void setRoot(Filepath dir) {
@@ -127,6 +146,7 @@ public class PendingSubmissionStore {
 				remove(sub);
 				continue;
 			}
+			if (sub.facts == null && !sub.manual) sub.facts = legacyFacts(sub);
 			result.add(sub);
 		}
 		return result;

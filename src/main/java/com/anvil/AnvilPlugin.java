@@ -255,8 +255,6 @@ public class AnvilPlugin extends Plugin {
 	private CoopFingerprint factBurstCoop;
 	private volatile BufferedImage factBurstFrame;
 	private ScheduledFuture<?> factBurstFlush;
-	// Tiles of the player's OTHER boards (TrackedTile.board): their credit goes to that board.
-	private volatile Map<Integer, Board> tileBoards = Collections.emptyMap();
 
 	// Item IDs whose drop ALWAYS posts to the rare-drop channel regardless of value/rarity. The server
 	// resolves pluginConfig.alwaysNotifyItems (names) to ids so matching is by ID — not a fragile name
@@ -672,33 +670,8 @@ public class AnvilPlugin extends Plugin {
 	// seed the alt's levels if the new burst landed a tick late.
 	private static final int STATS_SETTLE_TICKS = 3;
 
-	// Drop coalescing — batch rapid same-tile drops into one screenshot + one submission.
-	// Without this, killing 1 NPC that drops a stack of 2000 would fire 2000 captures and
-	// hammer the server. Aggregates by (tileId, itemId), scheduled-flushed after a brief
-	// settle delay so a kill spree still results in one well-annotated PNG.
+	// A settled burst of screenshot-worthy facts goes this long after its first, so floor loot lands in the shot.
 	private static final long COALESCE_FLUSH_MS = 2_500;
-
-	/**
-	 * One tile's coalesced burst — drops, kills or gains — waiting out its settle window, so a burst
-	 * is one screenshot + one submission. Keeps the count + snapshots up-to-date, so when the flush
-	 * fires it has the latest totals.
-	 */
-	@RequiredArgsConstructor
-	private static final class Aggregate<T> {
-
-		final T tile;
-		int total;
-		int snapshotCurrent;
-		int snapshotRequired;
-		ScheduledFuture<?> flushTask;
-		final long firstQueuedAt = now();
-		volatile String inferred;
-		/** Who was with us when it happened; by the flush the party has scattered. */
-		CoopFingerprint coop;
-
-	}
-
-	// Keyed on tileId:itemId (or tileId:- for non-per-item tiles).
 
 	// ---- Kill-count tiles ----------------------------------------------------------------
 	// Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
@@ -993,14 +966,12 @@ public class AnvilPlugin extends Plugin {
 	private String lootingBagWatchSource;
 	private Map<Integer, Integer> lootingBagWatchBase;
 	private int lootingBagWatchTicks;
-	private final Map<Integer, Aggregate<TrackedGain>> pendingGainAggregates = new HashMap<>();
-	// Gathering is a slow trickle (a catch every few seconds), so the settle window is much
-	// longer than drops' — one screenshot + submission per fishing stint, not per catch.
-	private static final long GAIN_COALESCE_MS = 30_000;
-	// Hard cap on how long a gain aggregate may keep deferring. The coalesce window resets on every
-	// catch, so a non-stop gather (karambwans, implings) would otherwise NEVER flush — the server
-	// stays empty and a logout mid-gather loses everything. This forces a flush ~every 30s regardless.
-	private static final long GAIN_MAX_HOLD_MS = 30_000;
+	// Gathering is a slow trickle (a catch every few seconds): catches are held per tile and sent
+	// together this long after the first, one POST per fishing stint rather than one per catch (the
+	// facts route allows 240 a minute). Not reset by later catches, so a non-stop gather still syncs.
+	static final long GAIN_COALESCE_MS = 30_000;
+	private final Map<Integer, Integer> gainsHeld = new HashMap<>();
+	private ScheduledFuture<?> gainsFlush;
 	// Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
 	// gains that land within a couple of ticks of a Take click.
 	private volatile int lastGroundTakeTick = -10;
@@ -1059,11 +1030,6 @@ public class AnvilPlugin extends Plugin {
 	// the activity name appearing in chat, plus the small optional alias set in TimedClearParser).
 	private volatile String lastNpcDeathName = null;
 	private volatile long lastNpcDeathAt = 0;
-
-	// Server-upload throttle. Submissions go through a tiny gap so we never burst the
-	// upload + submit endpoints if multiple aggregates flush close together.
-	private static final long UPLOAD_THROTTLE_MS = 600;
-	private volatile long lastUploadAt = 0;
 
 	// Exponential backoff for pending proof retries: 30s doubling to 5 minutes, reset by any success
 	// (and by the site coming back). The 30s loop asks every tick; this decides whether to try.
@@ -1485,15 +1451,9 @@ public class AnvilPlugin extends Plugin {
 			cancel(momentPushTask);
 			momentPushTask = null;
 		}
-		cancelAggregates(pendingGainAggregates);
-	}
-
-	private static <K> void cancelAggregates(Map<K, ? extends Aggregate<?>> pending) {
-		synchronized (pending) {
-			for (Aggregate<?> agg : pending.values()) {
-				cancel(agg.flushTask);
-				agg.flushTask = null;
-			}
+		synchronized (gainsHeld) {
+			cancel(gainsFlush);
+			gainsFlush = null;
 		}
 	}
 
@@ -2521,11 +2481,7 @@ public class AnvilPlugin extends Plugin {
 			tile.currentAmount += 1;
 			raiseLocal(tile.tileId, tile.currentAmount, now());
 			sendChatMessage(ChatPalette.Tone.NEAR, "Tracked LMS placement: " + place + " — " + tile.label);
-			String detail = "Placed " + place + " — " + kills + (kills == 1 ? " kill" : " kills")
-					+ "  (needs top " + cap + ")";
-			captureAndSubmitProof(tile.tileId, tile.label, 1, null, "BINGO LMS", detail,
-					"[Auto] LMS " + place + " place, " + kills + (kills == 1 ? " kill" : " kills")
-							+ " — detected by RuneLite plugin", null);
+			tileFact(tile.tileId, 1, true, null, "place", placement, "kills", kills);
 		}
 	}
 
@@ -2584,9 +2540,9 @@ public class AnvilPlugin extends Plugin {
 			identityStampPending = true;
 			identityWaitTicks = 0;
 		} else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
-			// Flush any gains still coalescing before we tear down — a logout/hop mid-gather would
-			// otherwise lose them (the aggregate lives only in memory). The executor is still alive here.
-			flushAllPendingGains();
+			// Send any catches still held before we tear down — a logout/hop mid-gather would
+			// otherwise lose them (they live only in memory). The executor is still alive here.
+			flushHeldGains();
 			// Gain tiles: drop the held-item baseline so the next snapshot after login/hop
 			// re-seeds instead of reading the whole inventory as a "gain". Deathless: leave
 			// the instance so re-entry re-arms the death counter.
@@ -3808,9 +3764,7 @@ public class AnvilPlugin extends Plugin {
 			String label = tileDisplayLabel(t);
 			sendChatMessage(ChatPalette.Tone.NEAR, "Collection log: +1 slot for " + label
 					+ (t.complete() ? "" : " (" + t.currentAmount + "/" + t.requiredAmount + ")"));
-			captureAndSubmitProof(t.tileId, label, 1, null, "COLLECTION LOG", item,
-					"[Auto] New collection log slot: " + item + " — detected by RuneLite plugin",
-					() -> t.currentAmount = Math.max(0, t.currentAmount - (t.complete() ? 0 : 1)));
+			tileFact(t.tileId, 1, true, null, "what", item);
 		}
 	}
 
@@ -3822,9 +3776,7 @@ public class AnvilPlugin extends Plugin {
 		if (trackingOff() || pluginConfig.trackedClog == null) return;
 		for (TrackedClog t : pluginConfig.trackedClog) {
 			if (t != null && t.pageFull(page.name, page.itemIds) && provedClogPages.add(t.tileId)) {
-				captureAndSubmitProof(t.tileId, tileDisplayLabel(t), 1, null, "COLLECTION LOG PAGE", page.name,
-						"[Auto] Finished collection log page: " + page.name,
-						() -> provedClogPages.remove(t.tileId));
+				tileFact(t.tileId, 1, true, null, "what", page.name, "pg", true);
 			}
 		}
 	}
@@ -4002,8 +3954,7 @@ public class AnvilPlugin extends Plugin {
 	};
 
 	// ---- Duplicates the game doesn't name (DuplicateInference) ----------------------------------
-	// Set only around the synthetic processLoot call below, on the client thread: queueDropForFlush
-	// copies it onto the aggregate, and from there it rides the pending submission to the site.
+	// Set only around the synthetic processLoot call below, on the client thread: it rides the loot fact to the site.
 	private String inferringFlag;
 	private String lastXpSkill;
 	private long lastXpAt;
@@ -4100,22 +4051,49 @@ public class AnvilPlugin extends Plugin {
 		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
 		say(o.say);
 		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
-		CoopFingerprint coop = o.coop ? coopFingerprint() : null;
+		queueFact(o.fact, o.shot, o.coop ? coopFingerprint() : null);
+	}
+
+	/**
+	 * A tile the plugin judged itself (its gates and chat line already done here): the site checks it
+	 * is ours, files it on its board and writes the banner. {@code kv} adds the fact's extras in pairs
+	 * (a null value is left out). {@code coop}: who was there, read when it happened.
+	 */
+	private void tileFact(int tileId, int n, boolean shot, CoopFingerprint coop, Object... kv) {
+		if (shot) noteLocalProgress(tileId); // "Active now": this account credited this tile
+		queueFact(tileFactJson(tileId, n, kv), shot, coop);
+	}
+
+	static JsonObject tileFactJson(int tileId, int n, Object... kv) {
+		JsonObject f = new JsonObject();
+		f.addProperty("k", "tile");
+		f.addProperty("t", tileId);
+		f.addProperty("n", n);
+		for (int i = 0; i + 1 < kv.length; i += 2) {
+			Object v = kv[i + 1];
+			if (v instanceof Number) f.addProperty((String) kv[i], (Number) v);
+			else if (v instanceof Boolean) f.addProperty((String) kv[i], (Boolean) v);
+			else if (v != null) f.addProperty((String) kv[i], v.toString());
+		}
+		return f;
+	}
+
+	private void queueFact(JsonObject fact, boolean shot, CoopFingerprint coop) {
 		if (!execLive()) return;
-		if (o.shot) {
+		if (shot) {
 			synchronized (factBurst) {
 				if (factBurst.size() == 0) {
 					// The at-moment frame; the flush shot lands once floor loot has settled.
 					factBurstFrame = null;
 					drawManager.requestNextFrameListener(img -> factBurstFrame = (BufferedImage) img);
 				}
-				factBurst.add(o.fact);
+				factBurst.add(fact);
 				factBurstCoop = richer(factBurstCoop, coop);
 				factBurstFlush = reschedule(factBurstFlush, this::flushFactBurst, COALESCE_FLUSH_MS);
 			}
 		} else {
 			synchronized (factQueue) {
-				factQueue.add(o.fact);
+				factQueue.add(fact);
 				factQueueCoop = richer(factQueueCoop, coop);
 				factQueueFlush = reschedule(factQueueFlush, this::flushFactQueue, FACT_QUEUE_MS);
 			}
@@ -4132,7 +4110,7 @@ public class AnvilPlugin extends Plugin {
 		lines.forEach(s -> sendChatMessage(ChatPalette.Tone.NEAR, s));
 	}
 
-	/** Image-less facts: one POST; on failure they go back in the queue for the next one. */
+	/** Image-less facts: one POST; on failure they go back in the queue, tried again with the next or in 30s. */
 	private void flushFactQueue() {
 		JsonArray facts;
 		CoopFingerprint coop;
@@ -4145,11 +4123,15 @@ public class AnvilPlugin extends Plugin {
 		if (facts.size() == 0) return;
 		submit(() -> {
 			try {
+				warnStartProofBeforeCredit();
 				adoptFacts(apiClient.postFacts(facts, null, null, coop));
+			} catch (PermanentSubmissionException e) {
+				log.info("Facts refused for good: {}", e.getMessage());
 			} catch (IOException e) {
 				synchronized (factQueue) {
 					factQueue.addAll(facts);
 					factQueueCoop = richer(factQueueCoop, coop);
+					factQueueFlush = reschedule(factQueueFlush, this::flushFactQueue, GAIN_COALESCE_MS);
 				}
 			}
 		});
@@ -4173,7 +4155,10 @@ public class AnvilPlugin extends Plugin {
 			try {
 				BufferedImage buffered = composeDualProof(trigger, image);
 				if (trigger != null) proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
-				PendingSubmission p = pending(pluginConfig.event.id, 0, pluginConfig.team.id, pluginConfig.player.id, 1, "loot", null, rsn);
+				PendingSubmission p = new PendingSubmission();
+				p.label = "your proof";
+				p.timestamp = now();
+				p.capturedRsn = rsn;
 				p.facts = facts;
 				p.proof = proof;
 				if (coop != null) {
@@ -4186,7 +4171,7 @@ public class AnvilPlugin extends Plugin {
 				}
 				if (processPendingSubmission(p)) {
 					proofBackoff.onSuccess();
-				} else notifyUploadFailed("your drop");
+				} else notifyUploadFailed(p.label);
 			} catch (IOException e) {
 				sendChatMessage(ChatPalette.Tone.WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
 			}
@@ -4219,35 +4204,6 @@ public class AnvilPlugin extends Plugin {
 			pairs.add(new int[]{item.getId(), Math.max(1, item.getQuantity())});
 		}
 		emit(rules.loot(source, sourceKind, pairs, wasInInstance ? partySize() : null, inferringFlag, now()));
-	}
-
-
-	/** Update a burst's snapshot and restart its settle timer (call under the map's lock). */
-	private void settle(Aggregate<?> agg, int current, int required, Runnable flush, long ms) {
-		agg.snapshotCurrent = current;
-		agg.snapshotRequired = required;
-		agg.flushTask = reschedule(agg.flushTask, flush, ms);
-	}
-
-	/**
-	 * Take a settled burst out and submit it. Throttled: if we just uploaded, push this one a bit
-	 * further out so we don't burst the server — aggregates flushing in quick succession get
-	 * serialized.
-	 */
-	private <K, T> void flushAggregate(Map<K, Aggregate<T>> pending, K key, Consumer<Aggregate<T>> submit) {
-		Aggregate<T> agg;
-		synchronized (pending) {
-			agg = pending.remove(key);
-		}
-		if (agg == null || agg.total <= 0) return;
-		Runnable go = () -> {
-			lastUploadAt = now();
-			submit.accept(agg);
-		};
-		long sinceLast = now() - lastUploadAt;
-		if (sinceLast < UPLOAD_THROTTLE_MS) {
-			later(go, UPLOAD_THROTTLE_MS - sinceLast);
-		} else go.run();
 	}
 
 
@@ -4363,88 +4319,6 @@ public class AnvilPlugin extends Plugin {
 			if (!c.entry.confirmed) unverified.add(c.entry.name);
 		}
 		if (!trackingOff()) emit(rules.kill(amounts, unverified, null));
-	}
-
-
-
-
-
-
-	// Milestone proof for grindy kill tiles — mirror of the site's Discord throttle. A 4000-kill
-	// task would otherwise upload one proof PNG per spree-flush for days, swamping the media store.
-	// Above PROOF_LARGE_TILE_MIN we bake a proof screenshot only when the running count crosses a
-	// 25% step of the goal (and on completion); flushes in between are lightweight count-only pings.
-
-
-
-	/**
-	 * A settled kill or gain burst. Intermediate flushes are count-only pings, no screenshot: a long
-	 * grind (or AFK gathering, flushing every full inventory) would otherwise upload a PNG per burst.
-	 * The proof screenshot lands on the flush that completes the tile — and for kills, on each proof
-	 * milestone. A kill proof carries who was there: a small tile proves EVERY credit, so without it a
-	 * count-once tile counted each teammate's report of one raid separately.
-	 */
-	private <T extends CountedTile> void submitCountedBurst(Aggregate<T> agg, Map<Integer, Aggregate<T>> pending,
-			String noun, Runnable flush, long coalesceMs) {
-		T tile = agg.tile;
-		int amount = agg.total;
-		final String inferred = agg.inferred;
-		// A combo's part speaks with its combo's name. Gains are not capped on the site, so they always ping.
-		final String label = tileDisplayLabel(tile);
-		if (agg.snapshotCurrent < agg.snapshotRequired) {
-			pingTile(tile.tileId, label, noun, amount, agg.coop, inferred, () -> requeue(pending, tile.tileId,
-					tile, amount, tile.currentAmount, tile.requiredAmount, flush, coalesceMs, inferred));
-			return;
-		}
-		String detail = label + "  ×" + amount + "  (" + agg.snapshotCurrent + "/" + agg.snapshotRequired + ")";
-		submitProof(tile.tileId, label, amount, null, null, inferred, null, agg.coop,
-				"BINGO " + noun.toUpperCase(Locale.ROOT), detail,
-				"[Auto] " + label + " " + noun + "(s) detected by RuneLite plugin", "Submitted: " + label,
-				() -> tile.currentAmount = Math.max(0, tile.currentAmount - amount));
-	}
-
-
-
-	/**
-	 * Count-only ping for an intermediate flush — no screenshot. Ids are captured now: the config can
-	 * clear (logout) before the task runs. On failure {@code requeue} folds the amount back into the
-	 * tile's burst so a later flush retries it.
-	 */
-	private void pingTile(int tileId, String label, String noun, int amount, CoopFingerprint coop,
-			String inferred, Runnable requeue) {
-		if (!execLive() || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null
-				|| pluginConfig.player == null) {
-			return;
-		}
-		final Board board = tileBoards.get(tileId);
-		final int eventId = board != null ? board.eventId : pluginConfig.event.id;
-		final int teamId = board != null ? board.teamId : pluginConfig.team.id;
-		final int playerId = board != null ? board.playerId : pluginConfig.player.id;
-		submit(() -> {
-			try {
-				if (board == null) {
-					warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
-				}
-				apiClient.submitDrop(eventId, tileId, teamId, amount, null,
-						"[Auto] " + label + " " + noun + "(s) counted by RuneLite plugin", playerId, null, coop, inferred, null,
-						board != null ? board.clan : null);
-				refreshConfig();
-			} catch (IOException e) {
-				log.warn("{} ping failed for '{}' ×{} — requeueing: {}", noun, label, amount, e.getMessage());
-				requeue.run();
-			}
-		});
-	}
-
-	/** Fold a failed ping's amount back into its tile's burst and restart the burst's settle timer. */
-	private <T> void requeue(Map<Integer, Aggregate<T>> pending, int tileId, T tile, int amount, int current,
-			int required, Runnable flush, long ms, String inferred) {
-		synchronized (pending) {
-			Aggregate<T> retry = pending.computeIfAbsent(tileId, k -> new Aggregate<>(tile));
-			retry.total += amount;
-			if (inferred != null) retry.inferred = inferred;
-			settle(retry, current, required, flush, ms);
-		}
 	}
 
 	/* ----------------------------- Item-gain tiles ----------------------------- */
@@ -4616,11 +4490,13 @@ public class AnvilPlugin extends Plugin {
 			if (delta <= 0) continue;
 			// Every tile tracking this item credits, mirroring drops/kills.
 			for (TrackedGain gain : entry.getValue()) {
-				if (gain.completed || gain.currentAmount >= gain.requiredAmount) continue;
-				int amount = Math.min(delta, Math.max(1, gain.requiredAmount - gain.currentAmount));
-				gain.currentAmount += amount;
+				// Builds on our own unconfirmed count: a config refresh mid-stint carries the site's older one.
+				int have = Math.max(gain.currentAmount, (int) optimisticFloor(gain.tileId));
+				if (gain.completed || have >= gain.requiredAmount) continue;
+				int amount = Math.min(delta, gain.requiredAmount - have);
+				gain.currentAmount = have + amount;
 				raiseLocal(gain.tileId, gain.currentAmount, now());
-				queueGainForFlush(gain, amount);
+				holdGain(gain, amount);
 			}
 		}
 	}
@@ -4682,119 +4558,40 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Adds a gain to the per-tile aggregate and (re)schedules its flush. Gathering trickles
-	 * (a catch every few seconds), so the settle window is long — one screenshot + one
-	 * submission per stint, with the running total baked on.
+	 * Holds a catch for its tile's batch (see {@link #GAIN_COALESCE_MS}); the catch that completes the
+	 * tile goes at once with everything held, as a screenshot proof.
 	 */
-	private void queueGainForFlush(TrackedGain gain, int amount) {
-		if (!execLive()) return;
-		synchronized (pendingGainAggregates) {
-			Aggregate<TrackedGain> agg =
-					pendingGainAggregates.computeIfAbsent(gain.tileId, k -> new Aggregate<>(gain));
-			if (agg.total == 0) sendChatMessage(ChatPalette.Tone.NEAR, "Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
-			agg.total += amount;
-			// Flush immediately once the tile is done — the completing proof shouldn't wait out the
-			// settle window. Otherwise coalesce trickle catches, but cap the total hold so a non-stop
-			// gather still flushes (and syncs the server) ~every GAIN_MAX_HOLD_MS instead of deferring
-			// forever while each catch pushes the flush further out.
-			long heldFor = now() - agg.firstQueuedAt;
-			long delay = gain.currentAmount >= gain.requiredAmount
-					? 1_500
-					: Math.max(1_500, Math.min(GAIN_COALESCE_MS, GAIN_MAX_HOLD_MS - heldFor));
-			settle(agg, gain.currentAmount, gain.requiredAmount, () -> flushGains(gain.tileId), delay);
+	private void holdGain(TrackedGain gain, int amount) {
+		int n;
+		synchronized (gainsHeld) {
+			if (!gainsHeld.containsKey(gain.tileId)) sendChatMessage(ChatPalette.Tone.NEAR, "Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
+			n = hold(gainsHeld, gain.tileId, amount, gain.currentAmount >= gain.requiredAmount);
+			if (n == 0 && gainsFlush == null) gainsFlush = later(this::flushHeldGains, GAIN_COALESCE_MS);
 		}
+		if (n > 0) tileFact(gain.tileId, n, true, null);
 	}
 
-	private void flushGains(int tileId) {
-		flushAggregate(pendingGainAggregates, tileId, this::submitGainBurst);
+	/** A catch into its tile's batch: the whole batch when this one completes the tile (and it's let go), else 0 (held). */
+	static int hold(Map<Integer, Integer> held, int tileId, int amount, boolean done) {
+		int n = held.getOrDefault(tileId, 0) + amount;
+		if (done) {
+			held.remove(tileId);
+			return n;
+		}
+		held.put(tileId, n);
+		return 0;
 	}
 
-	private void submitGainBurst(Aggregate<TrackedGain> agg) {
-		submitCountedBurst(agg, pendingGainAggregates, "gain", () -> flushGains(agg.tile.tileId), GAIN_COALESCE_MS);
-	}
-
-	/**
-	 * Shared capture → bake → persist → upload → submit path for kill, timed and the other
-	 * non-drop tiles; a rollback runs if the screenshot capture fails.
-	 */
-	private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
-			String bannerTitle, String bannerDetail, String note, Runnable rollback) {
-		captureAndSubmitProof(tileId, label, amount, durationSeconds, null, bannerTitle, bannerDetail, note, rollback);
-	}
-
-	/** As above, carrying who was there for a tile that counts shared kills/runs (lib/coopRuns). */
-	private void captureAndSubmitProof(int tileId, String label, int amount, Integer durationSeconds,
-			CoopFingerprint coop, String bannerTitle, String bannerDetail, String note, Runnable rollback) {
-		submitProof(tileId, label, amount, durationSeconds, null, null, null, coop, bannerTitle, bannerDetail, note,
-				"Submitted: " + label, rollback);
-	}
-
-	/**
-	 * The one capture → bake → persist → upload → submit path every auto-credited tile ends in.
-	 *
-	 * <p>Two-frame proof for drops: the at-drop frame (stashed when the burst started) stacked above
-	 * this flush frame, taken COALESCE_FLUSH_MS later once floor loot has settled; everything else
-	 * (and a drop whose trigger frame never arrived) gets the single frame. The banner is drawn on
-	 * the image itself, so the drop is unambiguous even when the in-game loot popup has already
-	 * faded, and it ends up in the saved PNG regardless of overlay timing. Persisted to disk first so
-	 * it survives a crash/close; the character it was obtained on rides along, so a drop caught on a
-	 * non-enrolled alt can't be credited to the enrolled account later.
-	 */
-	private void submitProof(int tileId, String label, int amount, Integer durationSeconds, Integer itemId,
-			String inferred, BufferedImage triggerFrame, CoopFingerprint coop, String bannerTitle, String bannerDetail,
-			String note, String submitted, Runnable rollback) {
-		if (pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) return;
-		noteLocalProgress(tileId); // "Active now": this account credited this tile (drop/kill/timed/diary/CA/...)
-		final Board board = tileBoards.get(tileId);
-		final int eventId = board != null ? board.eventId : pluginConfig.event.id;
-		final int teamId = board != null ? board.teamId : pluginConfig.team.id;
-		final int playerId = board != null ? board.playerId : pluginConfig.player.id;
-		final String capturedRsn = getLocalPlayerName();
-		// The site draws the banner from these (lib/proofStamp), so the upload stays a clean frame.
-		final JsonObject proof = proofMeta();
-		proof.addProperty("title", bannerTitle);
-		proof.addProperty("detail", bannerDetail);
-
-		onCleanFrame(image -> {
-			try {
-				BufferedImage buffered = composeDualProof(triggerFrame, image);
-				if (triggerFrame != null) proof.addProperty("split", (double) triggerFrame.getHeight() / buffered.getHeight());
-				// JPEG, not PNG: a full-screen proof is 5-10x smaller, so encoding and uploading it is that
-				// much quicker — and the site re-compresses every upload anyway.
-				byte[] png = jpeg(buffered);
-				PendingSubmission pending = pending(eventId, tileId, teamId, playerId, amount, label, note, capturedRsn);
-				pending.proof = proof;
-				pending.clan = board != null ? board.clan : null;
-				pending.itemId = itemId;
-				pending.durationSeconds = durationSeconds;
-				pending.inferred = inferred;
-				if (coop != null) {
-					pending.coopGroup = coop.teammates;
-					pending.coopPartySize = coop.partySize;
-				}
-				if (pendingSubmissionStore.save(pending, png) == null) {
-					log.error("Failed to persist submission '{}' to disk", label);
-					return;
-				}
-				// submitted == null: a quiet credit (a capped tile's cap counter) — no progress chatter.
-				if (submitted != null) sendChatMessage("Uploading proof: " + label + "...");
-				if (processPendingSubmission(pending)) {
-					if (submitted != null) sendChatMessage(ChatPalette.Tone.DONE, submitted);
-					proofBackoff.onSuccess();
-					if (pending.completedNow) {
-						// Said at once, from the submit's own answer — not after the config refresh.
-						announceCompletedNow(tileId, label);
-					}
-				} else notifyUploadFailed(label);
-				// Refresh config from server to sync all counts.
-				refreshConfig();
-			} catch (IOException e) {
-				log.error("Failed to capture screenshot for '{}': {}", label, e.getMessage());
-				sendChatMessage(ChatPalette.Tone.WARN, "Screenshot failed for " + label + ": " + BingoApiClient.forPlayer(e));
-				optimistic.clear(tileId);
-				if (rollback != null) rollback.run();
-			}
-		});
+	/** Every held catch, as count-only facts (the batch timer, and logout / hop). */
+	void flushHeldGains() {
+		Map<Integer, Integer> held;
+		synchronized (gainsHeld) {
+			held = new HashMap<>(gainsHeld);
+			gainsHeld.clear();
+			cancel(gainsFlush);
+			gainsFlush = null;
+		}
+		held.forEach((t, n) -> tileFact(t, n, false, null));
 	}
 
 	/** What the site stamps a proof's banner from, less the title/detail (lib/proofStamp). */
@@ -4807,21 +4604,6 @@ public class AnvilPlugin extends Plugin {
 			proof.add("chat", gson.toJsonTree(recentChat));
 		}
 		return proof;
-	}
-
-	private static PendingSubmission pending(int eventId, int tileId, int teamId, int playerId,
-			int amount, String label, String note, String rsn) {
-		PendingSubmission p = new PendingSubmission();
-		p.eventId = eventId;
-		p.tileId = tileId;
-		p.teamId = teamId;
-		p.playerId = playerId;
-		p.amount = amount;
-		p.label = label;
-		p.note = note;
-		p.timestamp = now();
-		p.capturedRsn = rsn;
-		return p;
 	}
 
 	/* ----------------------------- Timed-clear tiles ----------------------------- */
@@ -4977,13 +4759,7 @@ public class AnvilPlugin extends Plugin {
 		tile.currentAmount++;
 		raiseLocal(tile.tileId, tile.currentAmount, now());
 		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
-		String detail = tile.activity + "  deathless"
-				+ (tile.partySize > 0 ? "  party " + partySeen : "")
-				+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "")
-				+ "  (" + tile.currentAmount + "/" + goal + ")";
-		captureAndSubmitProof(tile.tileId, tile.label, 1, null, coop, "BINGO DEATHLESS", detail,
-				"[Auto] " + tile.activity + " deathless run detected by RuneLite plugin",
-				() -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
+		tileFact(tile.tileId, 1, true, coop, "party", partySeen, "lvl", RaidGates.isToa(tile.activity) && raidLevel > 0 ? raidLevel : null);
 	}
 
 	// ---- ToA runs held for the raid level they END at ---------------------------------------
@@ -5069,24 +4845,17 @@ public class AnvilPlugin extends Plugin {
 		// counted tile does, so the tracker and chat don't wait for the next poll; undone if the
 		// proof can't be captured.
 		int required = tile.runsRequired();
-		Runnable rollback = null;
 		String runs = null;
 		if (required > 1) {
 			int done = Math.min(required, Math.max(tile.runsDone(), (int) optimisticFloor(tile.tileId)) + 1);
 			tile.currentAmount = done;
 			raiseLocal(tile.tileId, done, now());
 			runs = TileNotes.runs(done, required);
-			rollback = () -> tile.currentAmount = Math.max(0, tile.runsDone() - 1);
 		}
 		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds)
 				+ (runs != null ? " (" + runs + ")" : ""));
-		String detail = trialTarget != null
-				? tile.activity + "  " + TimedClearParser.formatClock(seconds)
-				: tile.activity + "  " + TimedClearParser.formatClock(seconds)
-						+ "  (cap " + TimedClearParser.formatClock(tile.thresholdSeconds) + ")"
-						+ (RaidGates.isToa(tile.activity) && raidLevel > 0 ? "  level " + raidLevel : "");
-		captureAndSubmitProof(tile.tileId, tile.label, 1, seconds, "BINGO TIMED", detail,
-				"[Auto] " + tile.activity + " cleared in " + TimedClearParser.formatClock(seconds) + " by RuneLite plugin", rollback);
+		tileFact(tile.tileId, 1, true, null, "sec", seconds, "tr", trialTarget != null ? true : null,
+				"lvl", trialTarget == null && RaidGates.isToa(tile.activity) && raidLevel > 0 ? raidLevel : null);
 	}
 
 	/**
@@ -5319,17 +5088,7 @@ public class AnvilPlugin extends Plugin {
 			log.info("Uploading screenshot for tile '{}'...", pending.label);
 			String imageUrl = apiClient.uploadImage(pngBytes, filename);
 
-			if (pending.facts != null) {
-				adoptFacts(apiClient.postFacts(pending.facts, imageUrl, pending.proof, pendingCoop(pending)));
-			} else if (pending.durationSeconds != null) {
-				log.info("Submitting timed clear for tile '{}'...", pending.label);
-				pending.completedNow = apiClient.submitTimed(pending.eventId, pending.tileId, pending.teamId, pending.durationSeconds,
-						imageUrl, pending.note, pending.playerId, pending.proof, pending.clan);
-			} else {
-				log.info("Submitting drop for tile '{}'...", pending.label);
-				pending.completedNow = apiClient.submitDrop(pending.eventId, pending.tileId, pending.teamId, pending.amount, imageUrl,
-						pending.note, pending.playerId, pending.itemId, pendingCoop(pending), pending.inferred, pending.proof, pending.clan);
-			}
+			adoptFacts(apiClient.postFacts(pending.facts, imageUrl, pending.proof, pendingCoop(pending)));
 
 			log.info("Submission '{}' sent successfully!", pending.label);
 			pendingSubmissionStore.remove(pending);
@@ -7269,25 +7028,16 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * A newer config takes over tracking, fetched or pushed. Locally-counted gain progress is
-	 * kept: the server's copy lags while gathering (flushes coalesce up to GAIN_MAX_HOLD_MS), so
-	 * wholesale-replacing would snap an in-progress tile's live count backward (the reported
-	 * karambwan/impling flakiness). Each fresh count is floored at what we've already counted.
+	 * A newer config takes over tracking, fetched or pushed. Counts we've seen move but the site
+	 * hasn't yet live on as optimistic floors (gains and multi-run timed tiles build on them).
 	 */
 	private void adoptTracking(PluginConfigResponse fresh) {
-		PluginConfigResponse held = pluginConfig;
 		// Another team's (or event's) counts are no floor for this one: a team move, or an alt on the
 		// other side, would otherwise build on the old team's numbers.
-		PluginConfigResponse prior = sameTeam(held, fresh) ? held : null;
-		if (prior == null) optimistic.reset();
+		if (!sameTeam(pluginConfig, fresh)) optimistic.reset();
 		pluginConfig = fresh;
 		clientThread.invokeLater(this::refreshClanTitleWidgets);
 		rebuildItemDropIndex();
-		keepLocalFloor(prior == null ? null : prior.trackedGains, fresh.trackedGains, g -> g.tileId,
-				g -> g.currentAmount, g -> g.requiredAmount, (g, v) -> g.currentAmount = v);
-		// Multi-run timed tiles (Barracuda Trials ranks) count runs locally the same way.
-		keepLocalFloor(prior == null ? null : prior.trackedTimed, fresh.trackedTimed, t -> t.tileId,
-				TrackedTimed::runsDone, TrackedTimed::runsRequired, (t, v) -> t.currentAmount = v);
 		liveCountsMoved();
 	}
 
@@ -7492,7 +7242,6 @@ public class AnvilPlugin extends Plugin {
 	private void rebuildItemDropIndex() {
 		PluginConfigResponse cfg = pluginConfig;
 		boolean has = cfg != null;
-		tileBoards = has ? cfg.tagBoards() : Collections.emptyMap();
 		Set<Integer> notable = has && cfg.alwaysNotifyItemIds != null ? new HashSet<>(cfg.alwaysNotifyItemIds) : new HashSet<>();
 		notable.remove(null);
 		notableItemIds = notable;
@@ -8340,41 +8089,6 @@ public class AnvilPlugin extends Plugin {
 		pvpRosterIndex = index;
 	}
 
-	/**
-	 * Keep locally-counted progress across a config refresh: raise each fresh tile's count to at
-	 * least what we'd already tallied (and not yet flushed), capped at the requirement.
-	 *
-	 * <p>Gain and kill tiles both count locally and flush on a debounce, so between the count and the
-	 * flush the server's copy is behind. Replacing the tracked tiles wholesale snapped an in-progress
-	 * tile back to the server's stale number: ten chickens read 1,2,3,4,5 and then 1,2,3 again as
-	 * the refresh landed mid-streak, before jumping to 6,7,10 once the earlier flushes were counted
-	 * (and the karambwan/impling flakiness on gathers, whose flushes coalesce up to GAIN_MAX_HOLD_MS).
-	 * Nothing was lost — the server's total was right the whole time — but the player is watching
-	 * the wrong number and cannot tell those apart. Trade-off: an admin who deletes a submission
-	 * won't see the count drop until the player re-logs, the much better of the two surprises.
-	 */
-	private static <T> void keepLocalFloor(List<T> old, List<T> fresh, ToIntFunction<T> tileId,
-			ToIntFunction<T> current, ToIntFunction<T> required, ObjIntConsumer<T> setCurrent) {
-		if (old == null || fresh == null) return;
-		Map<Integer, Integer> local = new HashMap<>();
-		for (T t : old) {
-			if (t != null) local.put(tileId.applyAsInt(t), current.applyAsInt(t));
-		}
-		for (T t : fresh) {
-			Integer prior = t == null ? null : local.get(tileId.applyAsInt(t));
-			if (prior != null && prior > current.applyAsInt(t)) setCurrent.accept(t, Math.min(prior, required.applyAsInt(t)));
-		}
-	}
-
-	/** Flush every pending gain aggregate now (e.g. on logout/hop) so trickle catches still
-	 *  coalescing aren't lost — they only live in memory until submitted. */
-	private void flushAllPendingGains() {
-		List<Integer> tileIds;
-		synchronized (pendingGainAggregates) {
-			tileIds = new ArrayList<>(pendingGainAggregates.keySet());
-		}
-		for (int tileId : tileIds) flushGains(tileId);
-	}
 
 
 
@@ -8633,15 +8347,11 @@ public class AnvilPlugin extends Plugin {
 		return false;
 	}
 
-	/** Optimistically bump a PvP tile and submit a baked kill screenshot (rollback reverts on failure). */
+	/** Optimistically bump a PvP tile and send the kill with a screenshot. */
 	private void creditOnePvpTile(TrackedPvp tile, String victimName) {
 		tile.currentAmount += 1;
 		raiseLocal(tile.tileId, tile.currentAmount, now());
-		String detail = "Killed " + victimName + "  (" + tile.currentAmount + "/" + tile.requiredAmount + ")";
-		captureAndSubmitProof(tile.tileId, tile.label, 1, null,
-				"BINGO PVP KILL", detail,
-				"[Auto] PvP kill on " + victimName + " — detected by RuneLite plugin",
-				() -> tile.currentAmount = Math.max(0, tile.currentAmount - 1));
+		tileFact(tile.tileId, 1, true, null, "what", victimName);
 	}
 
 	/**
@@ -9372,10 +9082,7 @@ public class AnvilPlugin extends Plugin {
 			if (d.diaries.stream().noneMatch(sel -> diarySelectorMatches(sel, areaLower, tierLower))) continue;
 			d.currentAmount += 1;
 			raiseLocal(d.tileId, d.currentAmount, now());
-			captureAndSubmitProof(d.tileId, d.label, 1, null,
-					"DIARY COMPLETE", area + " " + tier + " Diary",
-					"[Auto] " + area + " " + tier + " diary completed — detected by RuneLite plugin",
-					() -> d.currentAmount = Math.max(0, d.currentAmount - 1));
+			tileFact(d.tileId, 1, true, null, "what", area + " " + tier);
 		}
 	}
 
@@ -9401,14 +9108,7 @@ public class AnvilPlugin extends Plugin {
 			if (!creditedCaTaskTiles.add(dedupKey)) continue;
 			t.currentAmount += 1;
 			raiseLocal(t.tileId, t.currentAmount, now());
-			captureAndSubmitProof(t.tileId, t.label, 1, null,
-					"COMBAT TASK", tier.getDisplayName() + ": " + task,
-					"[Auto] " + tier.getDisplayName() + " combat task \"" + task + "\" completed — detected by RuneLite plugin",
-					() -> {
-						t.currentAmount = Math.max(0, t.currentAmount - 1);
-						// Un-remember the pair so a failed capture can credit on a later re-fire.
-						creditedCaTaskTiles.remove(dedupKey);
-					});
+			tileFact(t.tileId, 1, true, null, "what", task, "tier", tier.getDisplayName());
 		}
 	}
 
