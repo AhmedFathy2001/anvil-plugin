@@ -244,6 +244,9 @@ public class AnvilPlugin extends Plugin {
 	// Item ID → tracked drops lookup for O(1) loot matching
 	/** The site's rule table, run locally (RuleEngine); the site matches the facts. */
 	private final RuleEngine rules = new RuleEngine();
+	{
+		rules.floor = this::optimisticFloor; // event rules build on our own unconfirmed counts
+	}
 	/** moveNotifyPrefs ran (or is running) this session. */
 	private volatile boolean notifyPrefsMoved;
 	/** Facts that need no screenshot, posted together a moment after the first. */
@@ -678,17 +681,11 @@ public class AnvilPlugin extends Plugin {
 	// Counters read off varbits/varps (site lib/gameCounters); client thread only.
 	private final GameValueCounters gameValueCounters = new GameValueCounters();
 
-	// ---- PvP-kill tiles --------------------------------------------------------------------
-	// Normalised RSN -> teamId for every enrolled event player, so 'team:other' selectors can
-	// classify a victim. Rebuilt on each config refresh; empty unless the event has a pvp tile.
-	private volatile Map<String, Integer> pvpRosterIndex = Collections.emptyMap();
 
 
 	// Keyed on tileId — coalesces a kill spree into one screenshot + one submission.
 
 
-	// itemId → gain tiles tracking it, rebuilt with the drop index on every config refresh.
-	private volatile Map<Integer, List<TrackedGain>> gainItemIndex = Collections.emptyMap();
 
 	// Counts this client has seen move but the site hasn't confirmed yet, so the sidebar and pinned
 	// tiles move on the kill rather than on the poll after the push lands (see OptimisticProgress).
@@ -970,7 +967,6 @@ public class AnvilPlugin extends Plugin {
 	// together this long after the first, one POST per fishing stint rather than one per catch (the
 	// facts route allows 240 a minute). Not reset by later catches, so a non-stop gather still syncs.
 	static final long GAIN_COALESCE_MS = 30_000;
-	private final Map<Integer, Integer> gainsHeld = new HashMap<>();
 	private ScheduledFuture<?> gainsFlush;
 	// Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
 	// gains that land within a couple of ticks of a Take click.
@@ -1451,7 +1447,7 @@ public class AnvilPlugin extends Plugin {
 			cancel(momentPushTask);
 			momentPushTask = null;
 		}
-		synchronized (gainsHeld) {
+		synchronized (rules) {
 			cancel(gainsFlush);
 			gainsFlush = null;
 		}
@@ -1529,7 +1525,6 @@ public class AnvilPlugin extends Plugin {
 		forgetSavedResponses();
 		apiClient.setDiskCache(null);
 		rules.set(null);
-		gainItemIndex = Collections.emptyMap();
 		forgetHeldItems();
 		kcPush.reset();
 		optimistic.reset();
@@ -2135,7 +2130,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void captureClogPage() {
 		boolean sync = supportsProfileSync();
-		if (!sync && (pluginConfig == null || pluginConfig.trackedClog == null || pluginConfig.trackedClog.isEmpty())) return;
+		if (!sync && !rules.has("page")) return;
 		ClogPage page = ClogPageReader.read(client);
 		if (page != null) {
 			if (sync) clogSync.offer(page, now());
@@ -2467,22 +2462,8 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void recordLmsPlacement(int placement) {
 		lmsPlacementRecorded = true;
-		if (pluginConfig == null || pluginConfig.trackedLms == null
-				|| pluginConfig.trackedLms.isEmpty()) {
-			return;
-		}
-		if (!AnvilOverlay.isEventActive(pluginConfig.event)) return;
-		final int kills = lmsKills;
-		final String place = ordinal(placement);
-		for (TrackedLms tile : pluginConfig.trackedLms) {
-			if (tile.completed) continue;
-			int cap = Math.max(1, tile.placementCap);
-			if (placement > cap) continue;
-			tile.currentAmount += 1;
-			raiseLocal(tile.tileId, tile.currentAmount, now());
-			sendChatMessage(ChatPalette.Tone.NEAR, "Tracked LMS placement: " + place + " — " + tile.label);
-			tileFact(tile.tileId, 1, true, null, "place", placement, "kills", kills);
-		}
+		if (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) return;
+		emit(rules.event("lms", RuleEngine.named(), placement, ordinal(placement), null, "place", placement, "kills", lmsKills));
 	}
 
 	private static String ordinal(int n) {
@@ -3744,28 +3725,8 @@ public class AnvilPlugin extends Plugin {
 		// minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
 		// other collection-log-only unlock. Loot-fired items are deduped by processLoot.
 		creditClogUnlock(item);
-		creditClogTiles(item);
-	}
-
-	/**
-	 * Collection-log tiles: the unlock line is a new slot (the game only prints it once per account
-	 * per item). One screenshot per slot with the line in it; the site checks the item, the pages and
-	 * whether it was really new, and counts it once.
-	 */
-	private void creditClogTiles(String item) {
-		if (trackingOff() || pluginConfig.trackedClog == null) return;
-		for (TrackedClog t : pluginConfig.trackedClog) {
-			if (t == null || !t.counts(item)) continue;
-			if (!t.complete()) {
-				t.currentAmount += 1;
-				raiseLocal(t.tileId, t.currentAmount, now());
-			}
-			// A combo's part reads as "Combo — Part" (its combo is the board tile).
-			String label = tileDisplayLabel(t);
-			sendChatMessage(ChatPalette.Tone.NEAR, "Collection log: +1 slot for " + label
-					+ (t.complete() ? "" : " (" + t.currentAmount + "/" + t.requiredAmount + ")"));
-			tileFact(t.tileId, 1, true, null, "what", item);
-		}
+		// Collection-log tiles: the line is a new slot (once per account per item); the site checks it.
+		if (!trackingOff()) emit(rules.event("clog", RuleEngine.named(RuleEngine.key(item)), 0, null, null, "what", item));
 	}
 
 	/**
@@ -3773,12 +3734,10 @@ public class AnvilPlugin extends Plugin {
 	 * opens one, once per tile per session.
 	 */
 	private void proveClogPage(ClogPage page) {
-		if (trackingOff() || pluginConfig.trackedClog == null) return;
-		for (TrackedClog t : pluginConfig.trackedClog) {
-			if (t != null && t.pageFull(page.name, page.itemIds) && provedClogPages.add(t.tileId)) {
-				tileFact(t.tileId, 1, true, null, "what", page.name, "pg", true);
-			}
-		}
+		if (trackingOff() || page.itemIds == null) return;
+		Set<Integer> got = new HashSet<>();
+		for (int id : page.itemIds) got.add(id);
+		emit(rules.event("page", r -> r.keys.contains(page.name) && got.containsAll(r.need), 0, null, provedClogPages::add, "what", page.name, "pg", true));
 	}
 
 	/**
@@ -4047,35 +4006,18 @@ public class AnvilPlugin extends Plugin {
 
 	/** One event's outcome: print now, move the panel rows, and hand the fact on (with a screenshot or not). */
 	private void emit(RuleEngine.Out o) {
-		if (o.fact == null) return;
+		emit(o, o.coop ? coopFingerprint() : null);
+	}
+
+	/** ...with who was there, read when it happened ({@code coop}). */
+	private void emit(RuleEngine.Out o, CoopFingerprint coop) {
 		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
 		say(o.say);
 		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
-		queueFact(o.fact, o.shot, o.coop ? coopFingerprint() : null);
-	}
-
-	/**
-	 * A tile the plugin judged itself (its gates and chat line already done here): the site checks it
-	 * is ours, files it on its board and writes the banner. {@code kv} adds the fact's extras in pairs
-	 * (a null value is left out). {@code coop}: who was there, read when it happened.
-	 */
-	private void tileFact(int tileId, int n, boolean shot, CoopFingerprint coop, Object... kv) {
-		if (shot) noteLocalProgress(tileId); // "Active now": this account credited this tile
-		queueFact(tileFactJson(tileId, n, kv), shot, coop);
-	}
-
-	static JsonObject tileFactJson(int tileId, int n, Object... kv) {
-		JsonObject f = new JsonObject();
-		f.addProperty("k", "tile");
-		f.addProperty("t", tileId);
-		f.addProperty("n", n);
-		for (int i = 0; i + 1 < kv.length; i += 2) {
-			Object v = kv[i + 1];
-			if (v instanceof Number) f.addProperty((String) kv[i], (Number) v);
-			else if (v instanceof Boolean) f.addProperty((String) kv[i], (Boolean) v);
-			else if (v != null) f.addProperty((String) kv[i], v.toString());
+		for (JsonObject f : o.facts) {
+			if (o.shot && f.has("t")) noteLocalProgress(f.get("t").getAsInt()); // "Active now": this account credited this tile
+			queueFact(f, o.shot, coop);
 		}
-		return f;
 	}
 
 	private void queueFact(JsonObject fact, boolean shot, CoopFingerprint coop) {
@@ -4476,7 +4418,7 @@ public class AnvilPlugin extends Plugin {
 		// report it. null = nothing suppressing → we credit.
 		String suppress =
 				previous == null ? "baseline snapshot"
-				: gainItemIndex.isEmpty() ? "no gain tiles configured"
+				: !rules.has("gain") ? "no gain tiles configured"
 				: (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) ? "no active event"
 				: rules.blackout() ? "blackout"
 				: gainSuppressingInterfaceOpen() ? "bank/GE/trade/seed-vault open"
@@ -4489,19 +4431,16 @@ public class AnvilPlugin extends Plugin {
 		// Baseline snapshot (login/config load) or a non-gather context → record only.
 		if (suppress != null) return;
 
-		for (Map.Entry<Integer, List<TrackedGain>> entry : gainItemIndex.entrySet()) {
-			int itemId = entry.getKey();
-			int delta = counts.getOrDefault(itemId, 0) - previous.getOrDefault(itemId, 0);
+		for (Map.Entry<Integer, Integer> e : counts.entrySet()) {
+			int delta = e.getValue() - previous.getOrDefault(e.getKey(), 0);
+			// Every tile tracking this item credits, mirroring drops/kills; held for its tile's batch.
 			if (delta <= 0) continue;
-			// Every tile tracking this item credits, mirroring drops/kills.
-			for (TrackedGain gain : entry.getValue()) {
-				// Builds on our own unconfirmed count: a config refresh mid-stint carries the site's older one.
-				int have = Math.max(gain.currentAmount, (int) optimisticFloor(gain.tileId));
-				if (gain.completed || have >= gain.requiredAmount) continue;
-				int amount = Math.min(delta, gain.requiredAmount - have);
-				gain.currentAmount = have + amount;
-				raiseLocal(gain.tileId, gain.currentAmount, now());
-				holdGain(gain, amount);
+			RuleEngine.Out o = rules.event("gain", RuleEngine.named(String.valueOf(e.getKey())), delta, null, null);
+			emit(o);
+			if (o.held) {
+				synchronized (rules) {
+					if (gainsFlush == null) gainsFlush = later(this::flushHeldGains, GAIN_COALESCE_MS);
+				}
 			}
 		}
 	}
@@ -4562,41 +4501,13 @@ public class AnvilPlugin extends Plugin {
 		return client.getWidget(InterfaceID.SHOPMAIN, 0) != null;
 	}
 
-	/**
-	 * Holds a catch for its tile's batch (see {@link #GAIN_COALESCE_MS}); the catch that completes the
-	 * tile goes at once with everything held, as a screenshot proof.
-	 */
-	private void holdGain(TrackedGain gain, int amount) {
-		int n;
-		synchronized (gainsHeld) {
-			if (!gainsHeld.containsKey(gain.tileId)) sendChatMessage(ChatPalette.Tone.NEAR, "Tracking gains: " + gain.label + " (" + gain.currentAmount + "/" + gain.requiredAmount + ")");
-			n = hold(gainsHeld, gain.tileId, amount, gain.currentAmount >= gain.requiredAmount);
-			if (n == 0 && gainsFlush == null) gainsFlush = later(this::flushHeldGains, GAIN_COALESCE_MS);
-		}
-		if (n > 0) tileFact(gain.tileId, n, true, null);
-	}
-
-	/** A catch into its tile's batch: the whole batch when this one completes the tile (and it's let go), else 0 (held). */
-	static int hold(Map<Integer, Integer> held, int tileId, int amount, boolean done) {
-		int n = held.getOrDefault(tileId, 0) + amount;
-		if (done) {
-			held.remove(tileId);
-			return n;
-		}
-		held.put(tileId, n);
-		return 0;
-	}
-
 	/** Every held catch, as count-only facts (the batch timer, and logout / hop). */
 	void flushHeldGains() {
-		Map<Integer, Integer> held;
-		synchronized (gainsHeld) {
-			held = new HashMap<>(gainsHeld);
-			gainsHeld.clear();
+		synchronized (rules) {
 			cancel(gainsFlush);
 			gainsFlush = null;
 		}
-		held.forEach((t, n) -> tileFact(t, n, false, null));
+		emit(rules.flushGains());
 	}
 
 	/** What the site stamps a proof's banner from, less the title/detail (lib/proofStamp). */
@@ -4665,13 +4576,9 @@ public class AnvilPlugin extends Plugin {
 	 * onChatMessage).
 	 */
 	private void handleTimedChat(String plain) {
-		if (pluginConfig == null) return;
 		// Deathless tiles piggyback on the same correlation: a raid's completion is announced
 		// by the very duration + identity lines the timed machinery already pairs up.
-		boolean hasTimed = pluginConfig.trackedTimed != null && !pluginConfig.trackedTimed.isEmpty();
-		boolean hasDeathless = pluginConfig.trackedDeathless != null && !pluginConfig.trackedDeathless.isEmpty();
-		if (!hasTimed && !hasDeathless) return;
-		if (!AnvilOverlay.isEventActive(pluginConfig.event)) return;
+		if (pluginConfig == null || !rules.has("timed") && !rules.has("deathless") || !AnvilOverlay.isEventActive(pluginConfig.event)) return;
 		final long now = now();
 		final String lower = plain.toLowerCase();
 
@@ -4717,54 +4624,35 @@ public class AnvilPlugin extends Plugin {
 	 * when exactly that many distinct players were seen inside.
 	 */
 	private boolean submitDeathlessForMessage(String lowerMessage, long now) {
-		if (pluginConfig == null || pluginConfig.trackedDeathless == null) return false;
-		boolean any = false;
-		for (TrackedDeathless tile : pluginConfig.trackedDeathless) {
-			if (tile == null || tile.completed || tile.activity == null
-					|| tile.currentAmount >= Math.max(1, tile.requiredAmount)) {
-				continue;
-			}
-			// Attempts are marked too — several nearby identity lines would otherwise repeat the
-			// verdict (or double-submit) for the same run.
-			if (!namesActivity(lowerMessage, tile.activity)
-					|| !claim(lastTimedSubmittedAt, tile.tileId, now, TIMED_DEDUP_WINDOW_MS)) {
-				continue;
-			}
-			if (instancePlayerDeaths > 0) {
-				sendChatMessage(ChatPalette.Tone.WARN, "Not deathless: " + tile.label + " — " + instancePlayerDeaths
-						+ (instancePlayerDeaths == 1 ? " death" : " deaths") + " this run.");
-				continue;
-			}
-			int partySeen = partySize();
-			if (tile.partySize > 0 && partySeen != tile.partySize) {
-				sendChatMessage(ChatPalette.Tone.WARN, "Deathless run not counted for " + tile.label + ": party of "
-						+ partySeen + ", tile requires " + tile.partySize + ".");
-				continue;
-			}
-			if (tile.partyTeamOnly) {
-				String why = RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), partySeen);
-				if (why != null) {
-					sendChatMessage(ChatPalette.Tone.WARN, "Deathless run not counted for " + tile.label + ": " + why + ".");
-					continue;
-				}
-			}
+		int deaths = instancePlayerDeaths;
+		int party = partySize();
+		List<String> no = new ArrayList<>();
+		// Attempts are claimed too — several nearby identity lines would otherwise repeat the verdict.
+		List<RuleEngine.EventRule> hit = rules.match("deathless", r -> timedHit(lowerMessage, r.key()), deaths,
+				deaths + (deaths == 1 ? " death" : " deaths"), party,
+				RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), party),
+				t -> claim(lastTimedSubmittedAt, t, now, TIMED_DEDUP_WINDOW_MS), no);
+		no.forEach(m -> sendChatMessage(ChatPalette.Tone.WARN, m));
+		for (RuleEngine.EventRule r : hit) {
 			// Who was there is read NOW, while the party is still together in the Warden's room.
-			CoopFingerprint coop = tile.needsCoopFingerprint() ? coopFingerprint() : null;
-			creditAtRaidLevel(tile.activity, tile.minRaidLevel, "Deathless run", tile.label,
-					level -> creditDeathless(tile, partySeen, level, coop));
-			any = true;
+			CoopFingerprint coop = r.coop ? coopFingerprint() : null;
+			creditAtRaidLevel(r.key(), r.lvl, "Deathless run", r.label,
+					level -> emit(rules.credit(new RuleEngine.Out(), r, 1, null, "party", party, "lvl", toaLevel(r, level)), coop));
 		}
-		return any;
+		return !hit.isEmpty();
 	}
 
-	private void creditDeathless(TrackedDeathless tile, int partySeen, int raidLevel,
-			CoopFingerprint coop) {
-		int goal = Math.max(1, tile.requiredAmount);
-		if (tile.completed || tile.currentAmount >= goal) return;
-		tile.currentAmount++;
-		raiseLocal(tile.tileId, tile.currentAmount, now());
-		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked deathless run: " + tile.label + " (" + tile.currentAmount + "/" + goal + ")");
-		tileFact(tile.tileId, 1, true, coop, "party", partySeen, "lvl", RaidGates.isToa(tile.activity) && raidLevel > 0 ? raidLevel : null);
+	/** The ToA raid level for a fact, only on a ToA tile. */
+	private static Integer toaLevel(RuleEngine.EventRule r, int level) {
+		return RaidGates.isToa(r.key()) && level > 0 ? level : null;
+	}
+
+	/** Does this line name the activity: a Barracuda Trials rank tile wants the exact course and rank. */
+	private boolean timedHit(String lowerMessage, String activity) {
+		String[] want = TimedClearParser.trialTileTarget(activity);
+		if (want == null) return namesActivity(lowerMessage, activity);
+		String[] got = TimedClearParser.parseTrialCompletion(lowerMessage);
+		return got != null && got[0].equals(want[0]) && got[1].equals(want[1]);
 	}
 
 	// ---- ToA runs held for the raid level they END at ---------------------------------------
@@ -4803,64 +4691,16 @@ public class AnvilPlugin extends Plugin {
 		for (IntConsumer judge : held) judge.accept(level);
 	}
 
-	/**
-	 * Submits {@code seconds} to every timed tile this line identifies, gated
-	 * by the tile's cap, completion state, and a per-tile dedup window. Returns
-	 * true if at least one tile submitted.
-	 */
+	/** Credits every timed tile this line identifies whose cap and party the clear meets, once per dedup window. */
 	private boolean submitTimedForMessage(String lowerMessage, int seconds, long now) {
-		boolean any = false;
-		for (TrackedTimed tile : pluginConfig.trackedTimed) {
-			if (tile.completed || tile.activity == null) continue;
-			// Barracuda Trials rank tiles ("Gwenith Glide — Marlin") gate on the EXACT course + rank
-			// the game reports, NOT a time cap or party size — each rank is a separate PB, so a Shark
-			// run must never credit a Marlin tile. Match those and skip the cap/party/entry-mode gates.
-			String[] trialTarget = TimedClearParser.trialTileTarget(tile.activity);
-			if (trialTarget != null) {
-				String[] got = TimedClearParser.parseTrialCompletion(lowerMessage);
-				if (got == null || !got[0].equals(trialTarget[0]) || !got[1].equals(trialTarget[1])) continue;
-			} else {
-				if (!namesActivity(lowerMessage, tile.activity)) continue;
-				// Optional exact-party gate (raid tiles) — same signal as the deathless path.
-				if (tile.partySize > 0) {
-					int partySeen = partySize();
-					if (partySeen != tile.partySize) {
-						log.info("Timed '{}': party of {}, tile requires {} — not submitted",
-								tile.label, partySeen, tile.partySize);
-						continue;
-					}
-				}
-				if (seconds > tile.thresholdSeconds) {
-					log.info("Timed '{}': {} over cap {} — not submitted", tile.label,
-							TimedClearParser.formatClock(seconds), TimedClearParser.formatClock(tile.thresholdSeconds));
-					continue;
-				}
-			}
-			if (!claim(lastTimedSubmittedAt, tile.tileId, now, TIMED_DEDUP_WINDOW_MS)) continue;
-			creditAtRaidLevel(tile.activity, tile.minRaidLevel, "Timed clear", tile.label,
-					level -> creditTimed(tile, seconds, trialTarget, level));
-			any = true;
+		String clock = TimedClearParser.formatClock(seconds);
+		List<RuleEngine.EventRule> hit = rules.match("timed", r -> timedHit(lowerMessage, r.key()), seconds, clock, partySize(), null,
+				t -> claim(lastTimedSubmittedAt, t, now, TIMED_DEDUP_WINDOW_MS), new ArrayList<>());
+		for (RuleEngine.EventRule r : hit) {
+			creditAtRaidLevel(r.key(), r.lvl, "Timed clear", r.label,
+					level -> emit(rules.credit(new RuleEngine.Out(), r, 1, clock, "sec", seconds, "lvl", toaLevel(r, level))));
 		}
-		return any;
-	}
-
-	private void creditTimed(TrackedTimed tile, int seconds, String[] trialTarget, int raidLevel) {
-		if (tile.completed) return;
-		// A tile needing several qualifying runs (Barracuda Trials ranks) counts this one now, as a
-		// counted tile does, so the tracker and chat don't wait for the next poll; undone if the
-		// proof can't be captured.
-		int required = tile.runsRequired();
-		String runs = null;
-		if (required > 1) {
-			int done = Math.min(required, Math.max(tile.runsDone(), (int) optimisticFloor(tile.tileId)) + 1);
-			tile.currentAmount = done;
-			raiseLocal(tile.tileId, done, now());
-			runs = TileNotes.runs(done, required);
-		}
-		sendChatMessage(ChatPalette.Tone.NEAR, "Tracked timed clear: " + tile.label + " in " + TimedClearParser.formatClock(seconds)
-				+ (runs != null ? " (" + runs + ")" : ""));
-		tileFact(tile.tileId, 1, true, null, "sec", seconds, "tr", trialTarget != null ? true : null,
-				"lvl", trialTarget == null && RaidGates.isToa(tile.activity) && raidLevel > 0 ? raidLevel : null);
+		return !hit.isEmpty();
 	}
 
 	/**
@@ -7111,15 +6951,8 @@ public class AnvilPlugin extends Plugin {
 			// One tracking-state summary, logged only when it CHANGES (the refresh runs every
 			// ~30s) — the first thing to read in a client.log when "nothing tracked": it says
 			// what the plugin believed it was tracking, and when that belief changed.
-			String summary = String.format(Locale.ROOT,
-					"event='%s' team='%s' pvp=%d gains=%d timed=%d"
-							+ " deathless=%d lms=%d diaries=%d combatTasks=%d completed=%d",
-					pluginConfig.event.name, pluginConfig.team.name,
-					sizeOf(pluginConfig.trackedPvp),
-					sizeOf(pluginConfig.trackedGains), sizeOf(pluginConfig.trackedTimed),
-					sizeOf(pluginConfig.trackedDeathless), sizeOf(pluginConfig.trackedLms),
-					sizeOf(pluginConfig.trackedDiaries),
-					sizeOf(pluginConfig.trackedCombatTasks), sizeOf(pluginConfig.completedTiles));
+			String summary = String.format(Locale.ROOT, "event='%s' team='%s' completed=%d",
+					pluginConfig.event.name, pluginConfig.team.name, sizeOf(pluginConfig.completedTiles));
 			if (!summary.equals(lastTrackingFingerprint)) {
 				lastTrackingFingerprint = summary;
 				log.info("Tracking: {}", summary);
@@ -7255,8 +7088,6 @@ public class AnvilPlugin extends Plugin {
 		notableItemIds = notable;
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
 		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
-		gainItemIndex = indexBy(has ? cfg.trackedGains : null, g -> g.itemIds, id -> id);
-		rebuildPvpRosterIndex();
 		alwaysNotifyLower = names(has ? cfg.alwaysNotifyItems : null, n -> n.isEmpty() ? null : n.toLowerCase());
 		rebuildTrackedActivityKeys();
 	}
@@ -7287,20 +7118,6 @@ public class AnvilPlugin extends Plugin {
 		return out;
 	}
 
-	/** {@code key → tiles} over the keys each tile lists, as {@code norm} spells them; null keys are skipped. */
-	private static <T, R, K> Map<K, List<T>> indexBy(List<T> tiles, Function<T, List<R>> keys, Function<R, K> norm) {
-		Map<K, List<T>> index = new HashMap<>();
-		if (tiles != null) {
-			for (T t : tiles) {
-				List<R> raw = keys.apply(t);
-				for (R r : raw == null ? Collections.<R>emptyList() : raw) {
-					K k = r == null ? null : norm.apply(r);
-					if (k != null) index.computeIfAbsent(k, x -> new ArrayList<>()).add(t);
-				}
-			}
-		}
-		return index;
-	}
 
 
 	/**
@@ -7327,21 +7144,14 @@ public class AnvilPlugin extends Plugin {
 	private volatile PluginConfigResponse notesFor;
 	private volatile Map<Integer, TrackedCombo> combos = Collections.emptyMap();
 	private volatile Map<Integer, Integer> partCombo = Collections.emptyMap();
-	private volatile Map<Integer, TrackedTimed> multiRunTimed = Collections.emptyMap();
 	/** tileId → its count off the config ({@code tiles}). */
 	private volatile Map<Integer, TileCount> tileRows = Collections.emptyMap();
 
 	private void indexNotes(PluginConfigResponse cfg) {
 		if (cfg == notesFor) return;
-		Map<Integer, TrackedTimed> runs = new HashMap<>();
 		Map<Integer, TrackedCombo> comboById = new HashMap<>();
 		Map<Integer, TileCount> rows = new HashMap<>();
 		if (cfg != null) {
-			if (cfg.trackedTimed != null) {
-				for (TrackedTimed t : cfg.trackedTimed) {
-					if (t != null && t.runsRequired() > 1) runs.put(t.tileId, t);
-				}
-			}
 			if (cfg.trackedCombos != null) {
 				for (TrackedCombo c : cfg.trackedCombos) {
 					if (c != null) comboById.put(c.tileId, c);
@@ -7355,7 +7165,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		combos = comboById;
 		partCombo = TileNotes.partCombos(cfg == null ? null : cfg.trackedCombos);
-		multiRunTimed = runs;
 		tileRows = rows;
 		notesFor = cfg;
 	}
@@ -7369,8 +7178,8 @@ public class AnvilPlugin extends Plugin {
 		PluginConfigResponse cfg = pluginConfig;
 		if (cfg == null) return Collections.emptyList();
 		indexNotes(cfg);
-		TrackedTimed timed = multiRunTimed.get(tileId);
-		if (timed != null && !timed.completed) return Collections.singletonList(TileNotes.runs(shownProgress(tileId, timed.runsDone()), timed.runsRequired()));
+		long[] runs = rules.runs(tileId);
+		if (runs != null) return Collections.singletonList(TileNotes.runs(shownProgress(tileId, runs[0]), (int) runs[1]));
 		TrackedCombo combo = combos.get(tileId);
 		if (combo != null && !combo.completed) {
 			Map<Integer, long[]> counts = new HashMap<>();
@@ -7383,14 +7192,6 @@ public class AnvilPlugin extends Plugin {
 			return TileNotes.comboLines(combo, counts);
 		}
 		return Collections.emptyList();
-	}
-
-	/** What a tile is called in chat and on its proof: a combo's part carries its combo's name. */
-	private String tileDisplayLabel(TrackedTile tile) {
-		if (tile == null || !tile.isPart()) return tile == null ? null : tile.label;
-		indexNotes(pluginConfig);
-		TrackedCombo combo = combos.get(tile.partOf);
-		return TileNotes.partLabel(combo == null ? null : combo.label, tile.label);
 	}
 
 	/**
@@ -8082,33 +7883,10 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/**
-	 * Rebuild the normalised-RSN → teamId roster index used by PvP-kill tiles'
-	 * "team:other" selectors; refreshed together with the drop index. Empty
-	 * unless the event has a pvp tile (the server only ships the roster then).
-	 */
-	private void rebuildPvpRosterIndex() {
-		Map<String, Integer> index = new HashMap<>();
-		if (pluginConfig != null && pluginConfig.pvpRoster != null) {
-			for (RosterEntry entry : pluginConfig.pvpRoster) {
-				if (entry != null && entry.name != null && !entry.name.isEmpty()) index.put(Rsn.normalize(entry.name), entry.teamId);
-			}
-		}
-		pvpRosterIndex = index;
-	}
 
 
 
 
-	/** True when the team has already completed this tile (per the last config refresh). */
-	private boolean isTileCompleted(int tileId) {
-		PluginConfigResponse cfg = pluginConfig;
-		if (cfg == null || cfg.completedTiles == null) return false;
-		for (CompletedTile c : cfg.completedTiles) {
-			if (c != null && c.tileId == tileId) return true;
-		}
-		return false;
-	}
 
 	/**
 	 * Logs a tracking-suppression reason once per session at INFO. The gates this guards run
@@ -8224,8 +8002,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** True when the current event config carries any PvP-kill tiles. */
 	private boolean hasPvpTiles() {
-		PluginConfigResponse cfg = pluginConfig;
-		return cfg != null && cfg.trackedPvp != null && !cfg.trackedPvp.isEmpty();
+		return rules.has("pvp") || rules.has("pvpLoot");
 	}
 
 	/**
@@ -8304,29 +8081,16 @@ public class AnvilPlugin extends Plugin {
 	 * death fires on the kill tick — the frame still shows the fight).
 	 */
 	private void creditPvpKillTiles(String victimName) {
-		if (trackingOff() || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()) return;
+		if (trackingOff() || !hasPvpTiles()) return;
 		if (!inDangerousPvp()) {
 			logTrackingSuppressed("PvP kill outside dangerous PvP (Wilderness / PvP world) — not counted");
 			return;
 		}
 		String victim = Rsn.normalize(victimName);
-		Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
-		boolean anyDeferred = false;
-		for (TrackedPvp tile : pluginConfig.trackedPvp) {
-			if (tile == null || tile.targets == null || tile.currentAmount >= tile.requiredAmount
-					|| isTileCompleted(tile.tileId) || !pvpVictimMatchesTile(tile, victim, myTeam)) {
-				continue;
-			}
-			// A min-loot floor is checked against the kill's LOOT, which only arrives in a later
-			// PlayerLootReceived — park the kill and let that event credit it. Every other PvP tile
-			// credits off the death now (still works for loot-key kills, which drop no ground loot).
-			if (tile.minLootValue > 0) {
-				anyDeferred = true;
-				continue;
-			}
-			creditOnePvpTile(tile, victimName);
-		}
-		if (anyDeferred) {
+		emit(rules.event("pvp", RuleEngine.named(victim), 0, null, null, "what", victimName));
+		// A min-loot floor is checked against the kill's LOOT, which only arrives in a later
+		// PlayerLootReceived — park the kill and let that event credit it.
+		if (rules.has("pvpLoot")) {
 			long now = now();
 			synchronized (pendingMinLootKillAt) {
 				pendingMinLootKillAt.values().removeIf(t -> (now - t) > PVP_MINLOOT_LOOT_WINDOW_MS);
@@ -8335,44 +8099,13 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Selector match for a PvP tile against a normalised victim RSN ('any' / 'team:other' / 'rsn:&lt;name&gt;'). */
-	private boolean pvpVictimMatchesTile(TrackedPvp tile, String victimNorm, Integer myTeam) {
-		if (tile.targets == null) return false;
-		Integer victimTeam = pvpRosterIndex.get(victimNorm);
-		for (String sel : tile.targets) {
-			if (sel == null) continue;
-			String s = sel.trim();
-			if (s.equalsIgnoreCase("any")) {
-				// Any player kill counts — no team/bounty restriction (the caller already gated on
-				// dangerous-PvP, so safe minigames don't reach here).
-				return true;
-			} else if (s.equalsIgnoreCase("team:other")) {
-				if (victimTeam != null && myTeam != null && !victimTeam.equals(myTeam)) return true;
-			} else if (s.regionMatches(true, 0, "rsn:", 0, 4)) {
-				if (Rsn.normalize(s.substring(4)).equals(victimNorm)) return true;
-			}
-		}
-		return false;
-	}
-
-	/** Optimistically bump a PvP tile and send the kill with a screenshot. */
-	private void creditOnePvpTile(TrackedPvp tile, String victimName) {
-		tile.currentAmount += 1;
-		raiseLocal(tile.tileId, tile.currentAmount, now());
-		tileFact(tile.tileId, 1, true, null, "what", victimName);
-	}
-
 	/**
 	 * Credits PvP min-loot tiles from a kill's loot — called from onPlayerLootReceived. If we parked a
-	 * matching kill on this victim at death (pendingMinLootKillAt) and the loot prices at/above a
-	 * tile's floor, credit it. The loot is priced once and every qualifying min-loot tile for this
-	 * victim is credited; the parked entry is consumed so one kill credits at most once per tile.
+	 * kill on this victim at death (pendingMinLootKillAt), the loot is priced once and every tile whose
+	 * floor it reaches is credited; the parked entry is consumed so one kill credits at most once per tile.
 	 */
 	private void creditPvpMinLootKillTiles(String victimName, Collection<ItemStack> items) {
-		if (pluginConfig == null || pluginConfig.trackedPvp == null || pluginConfig.trackedPvp.isEmpty()
-				|| items == null || items.isEmpty() || victimName == null) {
-			return;
-		}
+		if (!rules.has("pvpLoot") || items == null || items.isEmpty() || victimName == null) return;
 		String victim = Rsn.normalize(victimName);
 		long now = now();
 		synchronized (pendingMinLootKillAt) {
@@ -8380,20 +8113,7 @@ public class AnvilPlugin extends Plugin {
 			if (parkedAt == null || (now - parkedAt) > PVP_MINLOOT_LOOT_WINDOW_MS) return;
 		}
 		if (trackingGateReason() != null) return;
-		long haulGp = haulValue(items);
-		Integer myTeam = pluginConfig.team != null ? pluginConfig.team.id : null;
-		for (TrackedPvp tile : pluginConfig.trackedPvp) {
-			if (tile == null || tile.minLootValue <= 0 || tile.currentAmount >= tile.requiredAmount
-					|| isTileCompleted(tile.tileId) || !pvpVictimMatchesTile(tile, victim, myTeam)) {
-				continue;
-			}
-			if (haulGp < tile.minLootValue) {
-				log.info("PvP kill on {} worth {} gp is below tile '{}' floor {} gp — not counted",
-						victimName, haulGp, tile.label, tile.minLootValue);
-				continue;
-			}
-			creditOnePvpTile(tile, victimName);
-		}
+		emit(rules.event("pvpLoot", RuleEngine.named(victim), haulValue(items), null, null, "what", victimName));
 	}
 
 	private String buildKillMessage(String killer, String victim) {
@@ -9061,63 +8781,22 @@ public class AnvilPlugin extends Plugin {
 				.put("tier", tier), "anvil-diary.png");
 	}
 
-	/** One "&lt;Area&gt; &lt;Tier&gt;" selector against a completion; "Any" is a wildcard on either side. */
-	private static boolean diarySelectorMatches(String sel, String areaLower, String tierLower) {
-		if (sel == null) return false;
-		String s = sel.trim();
-		int cut = s.lastIndexOf(' ');
-		if (cut <= 0) return false;
-		String selArea = s.substring(0, cut).trim().toLowerCase();
-		String selTier = s.substring(cut + 1).trim().toLowerCase();
-		return (selArea.equals("any") || areaLower.equals(selArea) || areaLower.contains(selArea))
-				&& (selTier.equals("any") || tierLower.equals(selTier));
-	}
-
-	/**
-	 * Credits diary bingo tiles whose selector list matches this completion.
-	 * Selectors are "&lt;Area&gt; &lt;Tier&gt;" with "Any" as a wildcard on
-	 * either side ("Any Elite", "Wilderness Any"); area matching is
-	 * contains-based so "Lumbridge Any" matches the "Lumbridge &amp; Draynor"
-	 * area. One completion == amount 1 through the shared proof pipeline
-	 * (banner + screenshot + retry store).
-	 */
+	/** Diary tiles: the site sent each tile's selectors as "area tier" keys, "*" for Any on either side. */
 	private void creditDiaryTiles(String area, String tier) {
-		if (trackingOff() || pluginConfig.trackedDiaries == null) return;
-		String areaLower = area.toLowerCase();
-		String tierLower = tier.toLowerCase();
-		for (TrackedDiary d : pluginConfig.trackedDiaries) {
-			if (d == null || d.diaries == null || d.currentAmount >= d.requiredAmount) continue;
-			if (d.diaries.stream().noneMatch(sel -> diarySelectorMatches(sel, areaLower, tierLower))) continue;
-			d.currentAmount += 1;
-			raiseLocal(d.tileId, d.currentAmount, now());
-			tileFact(d.tileId, 1, true, null, "what", area + " " + tier);
-		}
+		if (trackingOff()) return;
+		String a = RuleEngine.key(area), t = RuleEngine.key(tier);
+		emit(rules.event("diary", RuleEngine.named(a + " " + t, "* " + t, a + " *", "* *"), 0, null, null, "what", area + " " + tier));
 	}
 
 	/**
-	 * Credits Combat Achievement bingo tiles whose selector list matches this completion.
-	 * Selectors are exact task names ("Whack-a-Mole") or "Any &lt;Tier&gt;" wildcards
-	 * ("Any Master"), matched case-insensitively. One completion == amount 1 through the
-	 * shared proof pipeline (banner + screenshot + retry store). A given task credits a
-	 * given tile at most once per session (creditedCaTaskTiles), so re-meeting the same
-	 * task's conditions repeatedly can't farm a multi-count wildcard tile.
+	 * Combat Achievement tiles: the task's name or "any &lt;tier&gt;". A given task credits a given tile at
+	 * most once per session (creditedCaTaskTiles), so re-meeting its conditions can't farm a wildcard tile.
 	 */
 	private void creditCombatTaskTiles(CombatAchievementTier tier, String task) {
-		if (trackingOff() || pluginConfig.trackedCombatTasks == null) return;
-		String taskLower = task.toLowerCase();
-		String anyTier = "any " + tier.getDisplayName().toLowerCase();
-		for (TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
-			if (t == null || t.tasks == null || t.currentAmount >= t.requiredAmount) continue;
-			final String dedupKey = t.tileId + "|" + taskLower;
-			if (t.tasks.stream().noneMatch(sel -> sel != null
-					&& (sel.trim().toLowerCase().equals(taskLower) || sel.trim().toLowerCase().equals(anyTier)))) {
-				continue;
-			}
-			if (!creditedCaTaskTiles.add(dedupKey)) continue;
-			t.currentAmount += 1;
-			raiseLocal(t.tileId, t.currentAmount, now());
-			tileFact(t.tileId, 1, true, null, "what", task, "tier", tier.getDisplayName());
-		}
+		if (trackingOff()) return;
+		String k = RuleEngine.key(task);
+		emit(rules.event("ca", RuleEngine.named(k, "any" + RuleEngine.key(tier.getDisplayName())), 0, null,
+				t -> creditedCaTaskTiles.add(t + "|" + k), "what", task, "tier", tier.getDisplayName()));
 	}
 
 	/**
@@ -9146,18 +8825,7 @@ public class AnvilPlugin extends Plugin {
 	 * track for them. Reads the setting's varbit, so the check runs on the client thread.
 	 */
 	private void maybeNudgeCaRepeatSetting() {
-		if (caRepeatNudgeSent || pluginConfig == null || pluginConfig.trackedCombatTasks == null
-				|| pluginConfig.trackedCombatTasks.isEmpty() || !AnvilOverlay.isEventActive(pluginConfig.event)) {
-			return;
-		}
-		boolean anyIncomplete = false;
-		for (TrackedCombatTask t : pluginConfig.trackedCombatTasks) {
-			if (t != null && t.currentAmount < t.requiredAmount) {
-				anyIncomplete = true;
-				break;
-			}
-		}
-		if (!anyIncomplete) return;
+		if (caRepeatNudgeSent || pluginConfig == null || !rules.has("ca") || !AnvilOverlay.isEventActive(pluginConfig.event)) return;
 		whenLoggedIn(() -> {
 			if (client.getVarbitValue(VarbitID.CA_TASK_RECOMPLETION_NOTIFICATIONS) == 1) {
 				return; // setting already on — nothing to remind about

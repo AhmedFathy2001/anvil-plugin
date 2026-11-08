@@ -108,8 +108,8 @@ public class RuleEngineTest
 		RuleEngine.Out out = engine(t).kill(Collections.singletonMap("Vorkath", 1), null, null);
 		assertEquals(1, out.say.size());
 		assertTrue(out.say.get(0), out.say.get(0).contains("(3/10)"));
-		assertNotNull(out.fact);
-		assertEquals("kill", out.fact.get("k").getAsString());
+		assertFalse(out.facts.isEmpty());
+		assertEquals("kill", out.facts.get(0).get("k").getAsString());
 		assertEquals(Long.valueOf(3), out.raised.get(3));
 		assertEquals(1, out.raised.size());
 	}
@@ -121,7 +121,7 @@ public class RuleEngineTest
 		addKill(t, kill(3, 10, 10, "Vorkath"), "vorkath");
 		RuleEngine.Out out = engine(t).kill(Collections.singletonMap("vorkath", 1), null, null);
 		assertTrue(out.say.isEmpty());
-		assertNull(out.fact);
+		assertTrue(out.facts.isEmpty());
 		assertFalse(out.shot);
 	}
 
@@ -161,8 +161,8 @@ public class RuleEngineTest
 		addKill(t, r, "boss");
 		RuleEngine.Out out = engine(t).kill(Collections.singletonMap("boss", 1), null, null);
 		assertTrue(out.say.isEmpty());
-		assertNotNull(out.fact);
-		assertEquals("kill", out.fact.get("k").getAsString());
+		assertFalse(out.facts.isEmpty());
+		assertEquals("kill", out.facts.get(0).get("k").getAsString());
 	}
 
 	@Test
@@ -213,23 +213,23 @@ public class RuleEngineTest
 		assertEquals(2, t.drops.get("100").get(0).have);
 		assertEquals(1, out.say.size());
 		assertEquals(1, out.toasts.size());
-		assertNotNull(out.fact);
-		assertEquals("loot", out.fact.get("k").getAsString());
+		assertFalse(out.facts.isEmpty());
+		assertEquals("loot", out.facts.get(0).get("k").getAsString());
 		assertEquals(Arrays.asList(100, 2), factItems(out));
 
 		RuleEngine.Out dup = e.loot("Zulrah", "npc", Collections.singletonList(new int[]{100, 2}), null, null, 1000);
-		assertNull(dup.fact);
+		assertTrue(dup.facts.isEmpty());
 		assertFalse(dup.shot);
 
 		RuleEngine.Out later = e.loot("Zulrah", "npc", Collections.singletonList(new int[]{100, 2}), null, null, 5000);
-		assertNotNull(later.fact);
+		assertFalse(later.facts.isEmpty());
 		assertEquals(Arrays.asList(100, 2), factItems(later));
 	}
 
 	/** The first [id, qty] pair the fact reports. */
 	private static List<Integer> factItems(RuleEngine.Out out)
 	{
-		JsonArray pair = out.fact.getAsJsonArray("items").get(0).getAsJsonArray();
+		JsonArray pair = out.facts.get(0).getAsJsonArray("items").get(0).getAsJsonArray();
 		return Arrays.asList(pair.get(0).getAsInt(), pair.get(1).getAsInt());
 	}
 
@@ -239,7 +239,7 @@ public class RuleEngineTest
 		RuleEngine.Table t = table();
 		addDrop(t, 100, drop(20, 0, 3, true, "Item"));
 		RuleEngine.Out out = engine(t).loot("Zulrah", "pvp", Collections.singletonList(new int[]{100, 2}), null, null, 0);
-		assertNull(out.fact);
+		assertTrue(out.facts.isEmpty());
 		assertTrue(out.say.isEmpty());
 		assertFalse(out.shot);
 	}
@@ -252,7 +252,7 @@ public class RuleEngineTest
 		r.src = Collections.singletonList("pvp");
 		addDrop(t, 100, r);
 		RuleEngine.Out out = engine(t).loot("Zulrah", "pvp", Collections.singletonList(new int[]{100, 2}), null, null, 0);
-		assertNotNull(out.fact);
+		assertFalse(out.facts.isEmpty());
 		assertTrue(out.shot);
 	}
 
@@ -264,7 +264,7 @@ public class RuleEngineTest
 		r.npcs = Collections.singletonList("Tekton");
 		addDrop(t, 100, r);
 		RuleEngine.Out out = engine(t).loot("Vasa", "npc", Collections.singletonList(new int[]{100, 2}), null, null, 0);
-		assertNull(out.fact);
+		assertTrue(out.facts.isEmpty());
 		assertTrue(out.say.isEmpty());
 		assertEquals(0, r.have);
 	}
@@ -280,7 +280,7 @@ public class RuleEngineTest
 		assertEquals(1, out.say.size());
 		assertEquals("PLAIN Rare", out.say.get(0));
 		assertEquals(0, r.have);
-		assertNotNull(out.fact);
+		assertFalse(out.facts.isEmpty());
 	}
 
 	@Test
@@ -288,8 +288,8 @@ public class RuleEngineTest
 	{
 		RuleEngine.Table t = simpleZulrahDrop();
 		RuleEngine.Out out = engine(t).loot("Zulrah", "npc", Collections.singletonList(new int[]{100, 2}), 3, "x", 0);
-		assertEquals(3, out.fact.get("party").getAsInt());
-		assertEquals("x", out.fact.get("inf").getAsString());
+		assertEquals(3, out.facts.get(0).get("party").getAsInt());
+		assertEquals("x", out.facts.get(0).get("inf").getAsString());
 	}
 
 	@Test
@@ -310,7 +310,7 @@ public class RuleEngineTest
 		RuleEngine.Table t = table();
 		t.values.add(value(30, 1_000_000, 0, 5_000_000, null));
 		RuleEngine.Out out = engine(t).value("Zulrah", "npc", 999_999);
-		assertNull(out.fact);
+		assertTrue(out.facts.isEmpty());
 		assertTrue(out.say.isEmpty());
 	}
 
@@ -321,8 +321,8 @@ public class RuleEngineTest
 		RuleEngine.ValueRule r = value(30, 1_000_000, 0, 5_000_000, null);
 		t.values.add(r);
 		RuleEngine.Out out = engine(t).value("Zulrah", "npc", 2_000_000);
-		assertNotNull(out.fact);
-		assertEquals(2_000_000L, out.fact.get("gp").getAsLong());
+		assertFalse(out.facts.isEmpty());
+		assertEquals(2_000_000L, out.facts.get(0).get("gp").getAsLong());
 		assertTrue(out.shot);
 		assertEquals(r.of, r.have);
 	}
@@ -504,5 +504,164 @@ public class RuleEngineTest
 		assertTrue(o.done);
 		assertEquals(Long.valueOf(10), o.raised.get(50));
 		new RuleEngine().raise(have); // no table yet: nothing to do
+	}
+
+	// ---- event rules (the tiles the plugin judges on the spot) ---------------------------------
+
+	private static final String SAY = "\"say\":{\"timed\":\"Tracked timed clear: {label} in {x}\","
+		+ "\"timedRuns\":\"Tracked timed clear: {label} in {x} ({have}/{of} runs)\","
+		+ "\"deathless\":\"Tracked deathless run: {label} ({have}/{of})\","
+		+ "\"deathless.max\":\"Not deathless: {label} — {x} this run.\","
+		+ "\"deathless.party\":\"Deathless run not counted for {label}: party of {seen}, tile requires {party}.\","
+		+ "\"deathless.team\":\"Deathless run not counted for {label}: {why}.\","
+		+ "\"lms\":\"Tracked LMS placement: {x} — {label}\",\"clog\":\"Collection log: +1 slot for {label} ({have}/{of})\","
+		+ "\"clog0\":\"Collection log: +1 slot for {label}\",\"gain\":\"Tracking gains: {label} ({have}/{of})\"}";
+
+	private static RuleEngine events(String rules)
+	{
+		return engine(new com.google.gson.Gson().fromJson("{" + SAY + ",\"events\":[" + rules + "]}", RuleEngine.Table.class));
+	}
+
+	@Test
+	public void aTimedClearMeetsItsCapAndPartyAndAMultiRunTileCountsIt()
+	{
+		RuleEngine e = events("{\"t\":1,\"label\":\"Inferno\",\"have\":0,\"of\":0,\"on\":\"timed\",\"keys\":[\"Inferno\"],\"max\":3600,\"party\":0},"
+			+ "{\"t\":2,\"label\":\"Marlin\",\"have\":3,\"of\":5,\"on\":\"timed\",\"keys\":[\"Gwenith Glide\"],\"say\":\"timedRuns\"},"
+			+ "{\"t\":3,\"label\":\"CoX trio\",\"have\":0,\"of\":0,\"on\":\"timed\",\"keys\":[\"Chambers\"],\"max\":1800,\"party\":3}");
+		List<String> no = new ArrayList<>();
+		// Over the cap, or the wrong party: silent (no template), nothing matched.
+		assertTrue(e.match("timed", RuleEngine.named("Inferno"), 3601, "60:01", 1, null, null, no).isEmpty());
+		assertTrue(e.match("timed", RuleEngine.named("Chambers"), 1000, "16:40", 2, null, null, no).isEmpty());
+		assertTrue(no.isEmpty());
+		List<RuleEngine.EventRule> hit = e.match("timed", RuleEngine.named("Inferno"), 3540, "59:00", 1, null, null, no);
+		assertEquals(1, hit.size());
+		RuleEngine.Out o = e.credit(new RuleEngine.Out(), hit.get(0), 1, "59:00", "sec", 3540, "lvl", null);
+		assertEquals(Collections.singletonList("Tracked timed clear: Inferno in 59:00"), o.say);
+		assertEquals("{\"k\":\"tile\",\"t\":1,\"n\":1,\"sec\":3540}", o.facts.get(0).toString());
+		assertTrue(o.shot);
+		assertTrue(o.raised.isEmpty()); // a one-clear tile is never counted here
+		// Uncounted, so a second clear still goes (the site judges it).
+		assertEquals(1, e.match("timed", RuleEngine.named("Inferno"), 3000, "50:00", 1, null, null, no).size());
+		// A multi-run tile (no cap) counts the run.
+		RuleEngine.EventRule runs = e.match("timed", RuleEngine.named("Gwenith Glide"), 99_999, "x", 4, null, null, no).get(0);
+		o = e.credit(new RuleEngine.Out(), runs, 1, "1:40");
+		assertEquals("Tracked timed clear: Marlin in 1:40 (4/5 runs)", o.say.get(0));
+		assertEquals(Long.valueOf(4), o.raised.get(2));
+		assertEquals(4, e.runs(2)[0]);
+		assertEquals(5, e.runs(2)[1]);
+		assertNull(e.runs(1));
+		// The claim gates it too.
+		assertTrue(e.match("timed", RuleEngine.named("Inferno"), 3000, "x", 1, null, t -> false, no).isEmpty());
+	}
+
+	@Test
+	public void aDeathlessRunSaysWhyItWasNotCountedAndCountsWhenClean()
+	{
+		RuleEngine e = events("{\"t\":4,\"label\":\"ToB\",\"have\":1,\"of\":3,\"on\":\"deathless\",\"keys\":[\"Theatre of Blood\"],"
+			+ "\"max\":0,\"party\":4,\"team\":true,\"coop\":true}");
+		List<String> no = new ArrayList<>();
+		assertTrue(e.match("deathless", RuleEngine.named("Theatre of Blood"), 2, "2 deaths", 4, null, null, no).isEmpty());
+		assertTrue(e.match("deathless", RuleEngine.named("Theatre of Blood"), 0, "0 deaths", 3, null, null, no).isEmpty());
+		assertTrue(e.match("deathless", RuleEngine.named("Theatre of Blood"), 0, "0 deaths", 4, "Zezima isn't on your team", null, no).isEmpty());
+		assertEquals(Arrays.asList("Not deathless: ToB — 2 deaths this run.",
+			"Deathless run not counted for ToB: party of 3, tile requires 4.",
+			"Deathless run not counted for ToB: Zezima isn't on your team."), no);
+		RuleEngine.EventRule r = e.match("deathless", RuleEngine.named("Theatre of Blood"), 0, "0 deaths", 4, null, null, no).get(0);
+		RuleEngine.Out o = e.credit(new RuleEngine.Out(), r, 1, null, "party", 4, "lvl", null);
+		assertEquals("Tracked deathless run: ToB (2/3)", o.say.get(0));
+		assertTrue(o.coop);
+		assertEquals("{\"k\":\"tile\",\"t\":4,\"n\":1,\"party\":4}", o.facts.get(0).toString());
+		assertTrue(e.match("deathless", RuleEngine.named("Inferno"), 0, "", 4, null, null, no).isEmpty());
+	}
+
+	@Test
+	public void plainEventsMatchTheSitesKeysByEquality()
+	{
+		RuleEngine e = events("{\"t\":5,\"label\":\"Elite\",\"have\":0,\"of\":2,\"on\":\"diary\",\"keys\":[\"* elite\"]},"
+			+ "{\"t\":6,\"label\":\"CA\",\"have\":0,\"of\":5,\"on\":\"ca\",\"keys\":[\"whackamole\",\"anymaster\"]},"
+			+ "{\"t\":7,\"label\":\"Win\",\"have\":0,\"of\":3,\"on\":\"lms\",\"max\":1},"
+			+ "{\"t\":8,\"label\":\"PK\",\"have\":0,\"of\":2,\"on\":\"pvp\",\"keys\":[\"foe one\"]},"
+			+ "{\"t\":9,\"label\":\"Rich PK\",\"have\":0,\"of\":1,\"on\":\"pvpLoot\",\"keys\":[\"*\"],\"min\":100000},"
+			+ "{\"t\":10,\"label\":\"Combo — Slots\",\"have\":1,\"of\":2,\"on\":\"clog\",\"keys\":[\"*\"]},"
+			+ "{\"t\":11,\"label\":\"Pages\",\"have\":0,\"of\":0,\"on\":\"clog\",\"keys\":[\"ahrimshood\"],\"say\":\"clog0\"},"
+			+ "{\"t\":11,\"label\":\"Pages\",\"have\":0,\"of\":0,\"on\":\"page\",\"keys\":[\"Barrows\"],\"need\":[1,2]}");
+		RuleEngine.Out o = e.event("diary", RuleEngine.named("ardougne elite", "* elite", "ardougne *", "* *"), 0, null, null, "what", "Ardougne Elite");
+		assertEquals("{\"k\":\"tile\",\"t\":5,\"n\":1,\"what\":\"Ardougne Elite\"}", o.facts.get(0).toString());
+		assertTrue(o.say.isEmpty()); // no line for a diary, as before
+		assertTrue(e.event("diary", RuleEngine.named("ardougne hard"), 0, null, null).facts.isEmpty());
+
+		Set<String> seen = new HashSet<>();
+		assertEquals(1, e.event("ca", RuleEngine.named("whackamole", "anyelite"), 0, null, t -> seen.add(t + "|whackamole")).facts.size());
+		assertTrue(e.event("ca", RuleEngine.named("whackamole", "anyelite"), 0, null, t -> seen.add(t + "|whackamole")).facts.isEmpty());
+		assertEquals(1, e.event("ca", RuleEngine.named("other", "anymaster"), 0, null, t -> seen.add(t + "|other")).facts.size());
+
+		assertTrue(e.event("lms", RuleEngine.named(), 2, "2nd", null).facts.isEmpty());
+		o = e.event("lms", RuleEngine.named(), 1, "1st", null, "place", 1, "kills", 4);
+		assertEquals("Tracked LMS placement: 1st — Win", o.say.get(0));
+		assertEquals(Long.valueOf(1), o.raised.get(7));
+
+		assertTrue(e.event("pvp", RuleEngine.named("someone"), 0, null, null).facts.isEmpty());
+		assertEquals(1, e.event("pvp", RuleEngine.named("foe one"), 0, null, null, "what", "Foe One").facts.size());
+		assertTrue(e.event("pvpLoot", RuleEngine.named("x"), 99_999, null, null).facts.isEmpty());
+		assertEquals(1, e.event("pvpLoot", RuleEngine.named("x"), 100_000, null, null).facts.size());
+
+		o = e.event("clog", RuleEngine.named("ahrimshood"), 0, null, null, "what", "Ahrim's hood");
+		assertEquals(Arrays.asList("Collection log: +1 slot for Combo — Slots (2/2)", "Collection log: +1 slot for Pages"), o.say);
+		assertEquals(2, o.facts.size());
+		// The slots tile is full now; the whole-page tile keeps taking slots uncounted.
+		assertTrue(e.event("clog", RuleEngine.named("phoenix"), 0, null, null).facts.isEmpty());
+		assertEquals(1, e.event("clog", RuleEngine.named("ahrimshood"), 0, null, null).facts.size());
+
+		Set<Integer> proved = new HashSet<>();
+		Set<Integer> got = new HashSet<>(Arrays.asList(1, 2, 9));
+		assertTrue(e.event("page", r -> r.keys.contains("Barrows") && Collections.singleton(1).containsAll(r.need), 0, null, proved::add).facts.isEmpty());
+		o = e.event("page", r -> r.keys.contains("Barrows") && got.containsAll(r.need), 0, null, proved::add, "what", "Barrows", "pg", true);
+		assertEquals("{\"k\":\"tile\",\"t\":11,\"n\":1,\"what\":\"Barrows\",\"pg\":true}", o.facts.get(0).toString());
+		assertTrue(o.say.isEmpty());
+		assertTrue(e.event("page", r -> r.keys.contains("Barrows") && got.containsAll(r.need), 0, null, proved::add).facts.isEmpty()); // once a session
+	}
+
+	@Test
+	public void gainsAreHeldPerTileUntilTheBatchGoesOrTheTileCompletes()
+	{
+		RuleEngine e = events("{\"t\":12,\"label\":\"Sharks\",\"have\":0,\"of\":5,\"on\":\"gain\",\"keys\":[\"383\"]},"
+			+ "{\"t\":13,\"label\":\"Fish\",\"have\":0,\"of\":100,\"on\":\"gain\",\"keys\":[\"383\",\"377\"]}");
+		RuleEngine.Out o = e.event("gain", RuleEngine.named("383"), 2, null, null);
+		assertTrue(o.held);
+		assertTrue(o.facts.isEmpty());
+		assertEquals(Arrays.asList("Tracking gains: Sharks (2/5)", "Tracking gains: Fish (2/100)"), o.say);
+		o = e.event("gain", RuleEngine.named("383"), 1, null, null);
+		assertTrue(o.say.isEmpty()); // one line per batch
+		assertEquals(Long.valueOf(3), o.raised.get(12));
+		// The catch that completes Sharks takes its whole batch with it, as a screenshot proof; it never overshoots.
+		o = e.event("gain", RuleEngine.named("383"), 4, null, null);
+		assertTrue(o.shot);
+		assertEquals("{\"k\":\"tile\",\"t\":12,\"n\":5}", o.facts.get(0).toString());
+		assertEquals(1, o.facts.size());
+		RuleEngine.Out flush = e.flushGains();
+		assertFalse(flush.shot);
+		assertEquals("{\"k\":\"tile\",\"t\":13,\"n\":7}", flush.facts.get(0).toString());
+		assertTrue(e.flushGains().facts.isEmpty());
+		assertTrue(e.event("gain", RuleEngine.named("999"), 1, null, null).raised.isEmpty());
+	}
+
+	@Test
+	public void eventRulesBuildOnLocalCountsTakeTheSitesAnswerAndAPushButNeverWhenUncounted()
+	{
+		RuleEngine e = events("{\"t\":14,\"label\":\"Gains\",\"have\":2,\"of\":10,\"on\":\"gain\",\"keys\":[\"1\"]},"
+			+ "{\"t\":15,\"label\":\"Inferno\",\"have\":0,\"of\":0,\"on\":\"timed\",\"keys\":[\"Inferno\"],\"max\":4000}");
+		e.floor = t -> t == 14 ? 6 : 0; // a refresh brought the site's older 2
+		assertEquals(Long.valueOf(7), e.event("gain", RuleEngine.named("1"), 1, null, null).raised.get(14));
+		JsonObject reply = new JsonParser().parse("{\"credits\":[{\"t\":14,\"have\":9,\"of\":10},{\"t\":15,\"have\":1,\"of\":1}]}").getAsJsonObject();
+		e.adopt(reply);
+		Map<Integer, Long> push = new HashMap<>();
+		push.put(15, 1L);
+		e.raise(push);
+		// The one-clear tile stays uncounted, so its next clear still matches.
+		assertEquals(1, e.match("timed", RuleEngine.named("Inferno"), 100, "", 1, null, null, new ArrayList<>()).size());
+		e.floor = t -> 0;
+		assertEquals(Long.valueOf(10), e.event("gain", RuleEngine.named("1"), 5, null, null).raised.get(14));
+		assertTrue(e.has("timed"));
+		assertFalse(e.has("lms"));
 	}
 }

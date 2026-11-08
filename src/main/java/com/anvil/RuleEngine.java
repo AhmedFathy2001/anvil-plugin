@@ -4,6 +4,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.*;
+import java.util.function.IntPredicate;
+import java.util.function.IntToLongFunction;
+import java.util.function.Predicate;
 
 /**
  * The site's rule table (GET /api/plugin/rules), run locally. It decides only
@@ -21,6 +24,7 @@ final class RuleEngine {
 		Map<String, List<KillRule>> kills = new HashMap<>();
 		List<ValueRule> values = new ArrayList<>();
 		List<StatRule> stats = new ArrayList<>();
+		List<EventRule> events = new ArrayList<>();
 		Proof proof = new Proof();
 		Map<String, String> say = new HashMap<>();
 		/** Source key ("pp:" for pickpocketing) -> item ids rare enough to maybe post: screenshot and let the site judge. */
@@ -59,6 +63,29 @@ final class RuleEngine {
 		int[] active;
 	}
 
+	/**
+	 * A tile judged on the spot (timed, deathless, lms, pvp, pvpLoot, diary, ca, clog, page, gain): the
+	 * event must name one of {@code keys} ("*" or none = any), as the site expanded them; for timed and
+	 * deathless the key is the activity the clear parser matches. {@code of} 0 = never counted.
+	 */
+	static final class EventRule extends Rule {
+		String on;
+		Set<String> keys;
+		/** The event's value must be at most this (null = no cap) and at least {@code min}. */
+		Long max;
+		long min;
+		int party;
+		int lvl;
+		boolean team;
+		boolean coop;
+		Set<Integer> need;
+		String say;
+
+		String key() {
+			return keys == null || keys.isEmpty() ? "" : keys.iterator().next();
+		}
+	}
+
 	static final class Proof {
 		int min = 25;
 		double frac = 0.25;
@@ -67,9 +94,11 @@ final class RuleEngine {
 	/** What one event comes to: lines to print now, the fact for the site, and whether to screenshot it. */
 	static final class Out {
 		final List<String> say = new ArrayList<>();
-		JsonObject fact;
+		final List<JsonObject> facts = new ArrayList<>();
 		boolean shot;
 		boolean coop;
+		/** A gain was held for its tile's batch: flushGains sends it. */
+		boolean held;
 		/** A stat tile reached its goal: the stat push goes now. */
 		boolean done;
 		/** Tile id → its local count after this event, for the panel's optimistic rows. */
@@ -83,6 +112,10 @@ final class RuleEngine {
 	private volatile Table table;
 	private final Map<Integer, Long> seenItems = new HashMap<>();
 	private final Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
+	/** Gains held per tile until the batch goes or the tile completes. */
+	private final Map<Integer, Long> held = new HashMap<>();
+	/** This client's unconfirmed count for a tile: event rules build on it when the table is older. */
+	volatile IntToLongFunction floor = t -> 0;
 
 	synchronized void set(Table t) {
 		table = t;
@@ -158,7 +191,7 @@ final class RuleEngine {
 			f.add("unv", u);
 		}
 		if (inferred != null) f.addProperty("inf", inferred);
-		out.fact = f;
+		out.facts.add(f);
 		return out;
 	}
 
@@ -203,7 +236,7 @@ final class RuleEngine {
 		f.add("items", sent);
 		if (party != null) f.addProperty("party", party);
 		if (inferred != null) f.addProperty("inf", inferred);
-		out.fact = f;
+		out.facts.add(f);
 		return out;
 	}
 
@@ -225,8 +258,108 @@ final class RuleEngine {
 		f.addProperty("src", source);
 		f.addProperty("kind", kind);
 		f.addProperty("gp", gp);
-		out.fact = f;
+		out.facts.add(f);
 		return out;
+	}
+
+	/** Is any event rule of this kind open? */
+	boolean has(String on) {
+		Table t = table;
+		return t != null && t.events.stream().anyMatch(r -> on.equals(r.on));
+	}
+
+	/** Hits a rule taking any of these keys, or any key ("*", or none listed). */
+	static Predicate<EventRule> named(String... ks) {
+		return r -> r.keys == null || r.keys.contains("*") || Arrays.stream(ks).anyMatch(r.keys::contains);
+	}
+
+	/**
+	 * Open rules of kind {@code on} that {@code hit} names, {@code claim}ed, whose gates pass: the value
+	 * against max/min, the exact party, the whole party from the team ({@code teamWhy} says why not).
+	 * A refusal with a template ({@code on.max}, {@code on.party}, ...) is said into {@code no}. Counts nothing.
+	 */
+	synchronized List<EventRule> match(String on, Predicate<EventRule> hit, long value, String x, int party, String teamWhy, IntPredicate claim, List<String> no) {
+		List<EventRule> out = new ArrayList<>();
+		Table t = table;
+		if (t == null) return out;
+		for (EventRule r : t.events) {
+			if (!on.equals(r.on) || r.of > 0 && Math.max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
+			String why = r.max != null && value > r.max ? "max" : value < r.min ? "min" : r.party > 0 && party != r.party ? "party" : r.team && teamWhy != null ? "team" : null;
+			if (why == null) out.add(r);
+			else if (t.say.containsKey(on + "." + why)) no.add(fill(t, on + "." + why, r, "{x}", x, "{seen}", String.valueOf(party), "{party}", String.valueOf(r.party), "{why}", teamWhy));
+		}
+		return out;
+	}
+
+	/**
+	 * Count a matched rule by {@code n} (no more than it still needs), say its line ({x} filled) and add
+	 * its tile fact with the extras {@code kv}. A gain is held for its tile's batch until it completes the tile.
+	 */
+	synchronized Out credit(Out o, EventRule r, long n, String x, Object... kv) {
+		Table t = table;
+		if (t == null) return o;
+		if (r.of > 0) {
+			r.have = Math.max(r.have, floor.applyAsLong(r.t));
+			if (r.have >= r.of) return o;
+			n = Math.min(n, r.of - r.have);
+			r.have += n;
+			o.raised.put(r.t, r.have);
+		}
+		boolean gain = "gain".equals(r.on);
+		String key = r.say != null ? r.say : r.on;
+		if (t.say.containsKey(key) && !(gain && held.containsKey(r.t))) o.say.add(fill(t, key, r, "{x}", x));
+		if (gain) {
+			n = held.merge(r.t, n, Long::sum);
+			if (r.have < r.of) {
+				o.held = true;
+				return o;
+			}
+			held.remove(r.t);
+		}
+		o.shot = true;
+		o.coop |= r.coop;
+		o.facts.add(tile(r.t, n, kv));
+		return o;
+	}
+
+	/** One event against the rules of kind {@code on}: each one it names and passes, credited (a gain by {@code value}, else 1). */
+	synchronized Out event(String on, Predicate<EventRule> hit, long value, String x, IntPredicate claim, Object... kv) {
+		Out o = new Out();
+		for (EventRule r : match(on, hit, value, x, 0, null, claim, o.say)) credit(o, r, "gain".equals(on) ? value : 1, x, kv);
+		return o;
+	}
+
+	/** Every held gain, as count-only facts (the batch timer, logout, hop). */
+	synchronized Out flushGains() {
+		Out o = new Out();
+		held.forEach((t, n) -> o.facts.add(tile(t, n)));
+		held.clear();
+		return o;
+	}
+
+	/** A multi-run timed tile's {have, of}; null for anything else. */
+	synchronized long[] runs(int id) {
+		Table t = table;
+		if (t != null) {
+			for (EventRule r : t.events) {
+				if (r.t == id && "timed".equals(r.on) && r.of > 1) return new long[]{r.have, r.of};
+			}
+		}
+		return null;
+	}
+
+	/** A `tile` fact: the tile, the amount, and extras in pairs (a null value is left out). */
+	static JsonObject tile(int id, long n, Object... kv) {
+		JsonObject f = fact("tile");
+		f.addProperty("t", id);
+		f.addProperty("n", n);
+		for (int i = 0; i + 1 < kv.length; i += 2) {
+			Object v = kv[i + 1];
+			if (v instanceof Number) f.addProperty((String) kv[i], (Number) v);
+			else if (v instanceof Boolean) f.addProperty((String) kv[i], (Boolean) v);
+			else if (v != null) f.addProperty((String) kv[i], v.toString());
+		}
+		return f;
 	}
 
 	/** Skill XP gained: a line per clean step crossed, only while the skill is actually being trained. */
@@ -286,7 +419,7 @@ final class RuleEngine {
 				long have = c.get("have").getAsLong();
 				long of = c.get("of").getAsLong();
 				for (Rule r : all(t)) {
-					if (r.t == id && !(r instanceof StatRule)) {
+					if (r.t == id && r.of > 0) {
 						r.have = have;
 						r.of = of;
 					}
@@ -305,7 +438,7 @@ final class RuleEngine {
 		rules.addAll(t.stats);
 		for (Rule r : rules) {
 			Long n = have.get(r.t);
-			if (n != null) r.have = Math.max(r.have, n);
+			if (n != null && r.of > 0) r.have = Math.max(r.have, n);
 		}
 	}
 
@@ -323,6 +456,7 @@ final class RuleEngine {
 		List<Rule> out = new ArrayList<>(t.values);
 		t.drops.values().forEach(out::addAll);
 		t.kills.values().forEach(out::addAll);
+		out.addAll(t.events);
 		return out;
 	}
 
@@ -359,7 +493,7 @@ final class RuleEngine {
 			.replace("{have}", big ? String.format(Locale.ROOT, "%,d", r.have) : String.valueOf(r.have))
 			.replace("{of}", big ? String.format(Locale.ROOT, "%,d", r.of) : String.valueOf(r.of))
 			.replace("{pct}", String.valueOf(r.of > 0 ? r.have * 100 / r.of : 0));
-		for (int i = 0; i + 1 < extra.length; i += 2) s = s.replace(extra[i], extra[i + 1]);
+		for (int i = 0; i + 1 < extra.length; i += 2) s = s.replace(extra[i], extra[i + 1] == null ? "" : extra[i + 1]);
 		return s;
 	}
 

@@ -190,7 +190,7 @@ public class ApiClientHttpTest
 		c.setChosenClan("home");
 		reply = "{\"credits\":[]}";
 		com.google.gson.JsonArray facts = new com.google.gson.JsonArray();
-		facts.add(AnvilPlugin.tileFactJson(2, 1, "sec", 60));
+		facts.add(RuleEngine.tile(2, 1, "sec", 60));
 		assertEquals("{\"credits\":[]}", c.postFacts(facts, "u", null, null).toString());
 		assertEquals("/c/home/api/plugin/facts", seen.get(0).url().encodedPath());
 		assertEquals("1", seen.get(0).header("X-Anvil-Boards"));
