@@ -3192,7 +3192,10 @@ public class AnvilPlugin extends Plugin {
 	 * an opened loot key, otherwise an NPC/chest name; empty = any.
 	 */
 	private void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
-		if (trackingGateReason() == null && items != null && !items.isEmpty()) emit(rules.value(source, sourceKind, haulValue(items)));
+		if (trackingGateReason() != null || items == null || items.isEmpty()) return;
+		long gp = haulValue(items);
+		// One kill reaches us twice (ServerNpcLoot / NpcLootReceived, then LootReceived): one haul.
+		if (claim(lastSubmittedAt, "value:" + source + ":" + gp, now(), DEDUP_WINDOW_MS)) emit(rules.value(source, sourceKind, gp));
 	}
 
 	/** GE value of a whole haul. Client thread only (itemManager.getItemPrice). */
@@ -4014,6 +4017,9 @@ public class AnvilPlugin extends Plugin {
 		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
 		say(o.say);
 		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
+		rules.finish(o);
+		// Off the client thread: the completion memory shares configFetchLock with a fetch in flight.
+		o.finished.forEach(r -> submit(() -> safely("tile complete", () -> announceCompletedNow(r.t, r.label))));
 		for (JsonObject f : o.facts) {
 			if (o.shot && f.has("t")) noteLocalProgress(f.get("t").getAsInt()); // "Active now": this account credited this tile
 			queueFact(f, o.shot, coop);
@@ -4136,6 +4142,9 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		refreshConfig();
+		// Our proof is on the site now: the open view (its proofs, who's on it) shows it at once.
+		AnvilSidebarPanel panel = sidebarPanel;
+		if (panel != null) panel.boardChanged();
 	}
 
 	private void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
@@ -5529,6 +5538,10 @@ public class AnvilPlugin extends Plugin {
 	// Tiles this client already showed a banner for via the player's own drop. Their completion is
 	// skipped here so the contributor doesn't see it twice; teammates still get the team banner.
 	private final Set<Integer> locallyShownTiles = new HashSet<>();
+	// When each tile was last confirmed done. A config built before that (a push merged onto the held
+	// config, a fetch already in flight) still lists it open; only a later absence means a removal.
+	private final Map<Integer, Long> confirmedDoneAt = new HashMap<>();
+	private static final long DONE_GRACE_MS = 120_000;
 
 	// Ladder missions board: mission tiles we've already alerted "new mission" for, and claim tiles
 	// we've already announced. Seeded on the first poll of an event (no backlog dump), cleared on change.
@@ -5540,6 +5553,7 @@ public class AnvilPlugin extends Plugin {
 	private void resetCompletionBaseline() {
 		notifiedCompletedTiles.clear();
 		locallyShownTiles.clear();
+		confirmedDoneAt.clear();
 		completionBaselineEventId = null;
 	}
 
@@ -5556,6 +5570,7 @@ public class AnvilPlugin extends Plugin {
 					|| completionBaselineEventId != cfg.event.id || !notifiedCompletedTiles.add(tileId)) {
 				return;
 			}
+			confirmedDoneAt.put(tileId, now());
 		} finally {
 			configFetchLock.unlock();
 		}
@@ -5591,15 +5606,20 @@ public class AnvilPlugin extends Plugin {
 		// announces it again instead of staying silent until the client restarts.
 		Set<Integer> doneNow = new HashSet<>();
 		for (CompletedTile t : cfg.completedTiles) doneNow.add(t.tileId);
+		long now = now();
 		for (Iterator<Integer> it = notifiedCompletedTiles.iterator(); it.hasNext(); ) {
 			Integer was = it.next();
-			if (!doneNow.contains(was)) {
+			Long at = confirmedDoneAt.get(was);
+			if (!doneNow.contains(was) && (at == null || now - at > DONE_GRACE_MS)) {
 				it.remove();
 				locallyShownTiles.remove(was);
+				confirmedDoneAt.remove(was);
 			}
 		}
 		for (CompletedTile t : cfg.completedTiles) {
-			if (notifiedCompletedTiles.add(t.tileId) && !seeding) {
+			if (notifiedCompletedTiles.add(t.tileId)) confirmedDoneAt.put(t.tileId, now);
+			else continue;
+			if (!seeding) {
 				anyDone = true;
 				onTileConfirmedDone(t.tileId);
 				if (t.partOf != null) {

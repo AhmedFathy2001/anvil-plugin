@@ -115,6 +115,23 @@ public class RuleEngineTest
 	}
 
 	@Test
+	public void theKillThatReachesTheGoalFinishesTheTileOnce()
+	{
+		RuleEngine.Table t = table();
+		addKill(t, kill(3, 8, 10, "Vorkath"), "vorkath");
+		RuleEngine e = engine(t);
+		RuleEngine.Out first = e.kill(Collections.singletonMap("vorkath", 1), null, null);
+		e.finish(first);
+		assertTrue(first.finished.isEmpty());
+		RuleEngine.Out second = e.kill(Collections.singletonMap("vorkath", 1), null, null);
+		e.finish(second);
+		assertEquals(1, second.finished.size());
+		assertEquals(3, second.finished.get(0).t);
+		e.finish(second);
+		assertEquals(1, second.finished.size());
+	}
+
+	@Test
 	public void killAtCompletionSendsNoFact()
 	{
 		RuleEngine.Table t = table();
