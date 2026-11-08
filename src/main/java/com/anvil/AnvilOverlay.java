@@ -39,28 +39,18 @@ public class AnvilOverlay extends OverlayPanel {
 
 	@Override
 	public Dimension render(Graphics2D graphics) {
-		if (!config.showOverlay() || AnvilPlugin.capturing) {
-			return null;
-		}
+		if (!config.showOverlay() || AnvilPlugin.capturing) return null;
 
 		PluginConfigResponse pluginConfig = plugin.getPluginConfig();
-		if (pluginConfig == null || pluginConfig.event == null) {
-			return null;
-		}
-		if (pluginConfig != builtFor) {
-			build(pluginConfig);
-		}
+		if (pluginConfig == null || pluginConfig.event == null) return null;
+		if (pluginConfig != builtFor) build(pluginConfig);
 
 		// Don't show overlay if event isn't active
 		long now = System.currentTimeMillis();
-		if (!within(window, Instant.ofEpochMilli(now))) {
-			return null;
-		}
+		if (!within(window, Instant.ofEpochMilli(now))) return null;
 
 		panelComponent.getChildren().add(TITLE);
-		if (team != null) {
-			panelComponent.getChildren().add(team);
-		}
+		if (team != null) panelComponent.getChildren().add(team);
 		// Date — UTC for unambiguous time-of-drop on the proof image; it only reads to the minute.
 		if (now / 60_000 != dateMinute) {
 			dateMinute = now / 60_000;
@@ -96,9 +86,7 @@ public class AnvilOverlay extends OverlayPanel {
 	 * force-ended by admin, or a date that won't parse (treated as inactive).
 	 */
 	private static Instant[] window(PluginConfigResponse.EventInfo event) {
-		if (event == null || event.forceEndedAt != null) {
-			return null;
-		}
+		if (event == null || event.forceEndedAt != null) return null;
 		try {
 			return new Instant[] {
 				event.startDate == null ? Instant.MIN : Instant.parse(event.startDate),

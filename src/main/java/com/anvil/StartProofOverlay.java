@@ -10,8 +10,7 @@ import net.runelite.client.ui.overlay.components.*;
  * checks the sidebar card shows, then a short "you're tracked" before it gets out of the way. Shares
  * its toggle with the arrow to the spot (config startSpotGuide).
  */
-class StartProofOverlay extends OverlayPanel
-{
+class StartProofOverlay extends OverlayPanel {
 	/** How long "you're tracked" stays up once the shot is filed. */
 	private static final long DONE_SHOWN_MS = 10_000;
 	private static final Color ORANGE = new Color(255, 152, 31);
@@ -20,8 +19,7 @@ class StartProofOverlay extends OverlayPanel
 	private final AnvilConfig config;
 
 	@Inject
-	StartProofOverlay(AnvilPlugin plugin, AnvilConfig config)
-	{
+	StartProofOverlay(AnvilPlugin plugin, AnvilConfig config) {
 		super(plugin);
 		this.plugin = plugin;
 		this.config = config;
@@ -29,45 +27,29 @@ class StartProofOverlay extends OverlayPanel
 	}
 
 	@Override
-	public Dimension render(Graphics2D graphics)
-	{
-		if (!config.startSpotGuide())
-		{
-			return null;
-		}
-		if (plugin.needsStartProof())
-		{
+	public Dimension render(Graphics2D graphics) {
+		if (!config.startSpotGuide()) return null;
+		if (plugin.needsStartProof()) {
 			PluginConfigResponse cfg = plugin.getPluginConfig();
 			PluginConfigResponse.StartProof proof = cfg == null ? null : cfg.startProof;
-			if (proof == null)
-			{
-				return null;
-			}
+			if (proof == null) return null;
 			title("Starting shot needed", ORANGE);
-			if (proof.location != null)
-			{
-				line("Go to", proof.location, Color.WHITE);
-			}
-			for (StartProofRules.Check c : plugin.startProofChecks(proof))
-			{
+			if (proof.location != null) line("Go to", proof.location, Color.WHITE);
+			for (StartProofRules.Check c : plugin.startProofChecks(proof)) {
 				panelComponent.getChildren().add(LineComponent.builder().left(c.text).leftColor(
 					c.state == StartProofRules.Check.State.OK ? Color.GREEN
 						: c.state == StartProofRules.Check.State.BAD ? Color.RED : Color.LIGHT_GRAY).build());
 			}
-			if (plugin.startProofSending())
-			{
+			if (plugin.startProofSending()) {
 				line("Checking tracking", "sending…", Color.YELLOW);
-			}
-			else
-			{
+			} else {
 				line(plugin.autoStartShotEnabled() ? "Taken automatically once all green" : "Press Take starting shot in the Anvil panel",
 					"", Color.LIGHT_GRAY);
 			}
 			return super.render(graphics);
 		}
 		long filedAt = plugin.startProofFiledAt();
-		if (filedAt > 0 && System.currentTimeMillis() - filedAt < DONE_SHOWN_MS)
-		{
+		if (filedAt > 0 && System.currentTimeMillis() - filedAt < DONE_SHOWN_MS) {
 			title("You're tracked", Color.GREEN);
 			line("Starting shot filed — drops and tiles count now", "", Color.WHITE);
 			return super.render(graphics);
@@ -75,13 +57,11 @@ class StartProofOverlay extends OverlayPanel
 		return null;
 	}
 
-	private void title(String text, Color color)
-	{
+	private void title(String text, Color color) {
 		panelComponent.getChildren().add(TitleComponent.builder().text(text).color(color).build());
 	}
 
-	private void line(String left, String right, Color rightColor)
-	{
+	private void line(String left, String right, Color rightColor) {
 		panelComponent.getChildren().add(LineComponent.builder().left(left).right(right).rightColor(rightColor).build());
 	}
 }

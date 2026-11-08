@@ -3,10 +3,7 @@ package com.anvil;
 import static org.junit.Assert.*;
 
 import com.anvil.PluginConfigResponse.CompletedTile;
-import com.anvil.PluginConfigResponse.TrackedClog;
 import com.anvil.PluginConfigResponse.TrackedCombo;
-import com.anvil.PluginConfigResponse.TrackedKill;
-import com.anvil.PluginConfigResponse.TrackedTimed;
 import com.google.gson.Gson;
 import java.util.*;
 import org.junit.Test;
@@ -32,74 +29,17 @@ public class TileNotesTest
 	}
 
 	@Test
-	public void timedTileWithoutTheNewFieldsIsAOneClearTile()
-	{
-		TrackedTimed old = GSON.fromJson("{\"tileId\":4,\"label\":\"Inferno\",\"activity\":\"Inferno\",\"thresholdSeconds\":3600}",
-			TrackedTimed.class);
-		assertEquals(1, old.runsRequired());
-		assertEquals(0, old.runsDone());
-		assertNull(TileNotes.runs(old.runsDone(), old.runsRequired()));
-		// And an old config still serializes without a count, so the panel's live counts ignore it.
-		assertFalse(GSON.toJsonTree(old).getAsJsonObject().has("currentAmount"));
-
-		TrackedTimed trials = GSON.fromJson("{\"tileId\":5,\"label\":\"Marlin\",\"activity\":\"Gwenith Glide — Marlin\","
-			+ "\"requiredAmount\":5,\"currentAmount\":3}", TrackedTimed.class);
-		assertEquals("3/5 runs", TileNotes.runs(trials.runsDone(), trials.runsRequired()));
-	}
-
-	@Test
-	public void virtualIdsRoundTripToTheirParent()
-	{
-		assertEquals(-96, TileNotes.virtualId(12, 0));
-		assertEquals(-99, TileNotes.virtualId(12, 3));
-		assertEquals(12, TileNotes.parentOf(-96));
-		assertEquals(12, TileNotes.parentOf(-103));
-		assertEquals(12, TileNotes.parentOf(12));
-		assertFalse(TileNotes.pinnable(-96));
-		assertFalse(TileNotes.pinnable(0));
-		assertTrue(TileNotes.pinnable(12));
-	}
-
-	@Test
-	public void capCountersAreHiddenFromOwnTiles()
-	{
-		List<TrackedKill> kills = Arrays.asList(
-			kill(12, "100 searches", null, 100, 37),
-			kill(-97, "100 searches - GOTR elemental energy", 12, 1_000_000, 4_000),
-			kill(-98, "100 searches - GOTR catalytic energy", 12, 1_000_000, 3_000),
-			kill(20, "Zulrah", null, 50, 10));
-		List<TrackedKill> own = TileNotes.ownTiles(kills);
-		assertEquals(2, own.size());
-		assertEquals(12, own.get(0).tileId);
-		assertEquals(20, own.get(1).tileId);
-		assertEquals(12, TileNotes.parentOf(-97));
-	}
-
-	@Test
 	public void olderConfigsHaveNoCapsOrParts()
 	{
-		TrackedKill k = GSON.fromJson("{\"tileId\":20,\"label\":\"Zulrah\",\"requiredAmount\":50}", TrackedKill.class);
-		assertFalse(k.isCap());
-		assertFalse(k.isPart());
 		assertTrue(TileNotes.partCombos(null).isEmpty());
 	}
 
 	@Test
 	public void capAndPartEntriesParseFromTheSiteContract()
 	{
-		TrackedKill cap = GSON.fromJson("{\"tileId\":-97,\"capOf\":12,\"requiredAmount\":1000000,\"unit\":\"energy\"}", TrackedKill.class);
-		assertTrue(cap.isCap());
-		assertEquals(12, (int) cap.capOf);
-		TrackedKill part = GSON.fromJson("{\"tileId\":31,\"label\":\"100 searches\",\"partOf\":30,\"requiredAmount\":100}", TrackedKill.class);
-		assertTrue(part.isPart());
-		assertFalse(part.isCap());
 		CompletedTile done = GSON.fromJson("{\"tileId\":31,\"label\":\"GOTR - 100 searches\",\"points\":0,\"partOf\":30}", CompletedTile.class);
 		assertEquals(30, (int) done.partOf);
-		// A collection-log tile can be a combo's part too; it folds the same way.
-		TrackedClog clog = GSON.fromJson("{\"tileId\":32,\"label\":\"2 new clog slots\",\"partOf\":30,\"mode\":\"slots\",\"requiredAmount\":2,\"currentAmount\":1}", TrackedClog.class);
-		assertTrue(clog.isPart());
-		assertEquals(30, (int) clog.partOf);
-		assertEquals("GOTR — 2 new clog slots", TileNotes.partLabel("GOTR", clog.label));
+		assertEquals("GOTR — 2 new clog slots", TileNotes.partLabel("GOTR", "2 new clog slots"));
 	}
 
 	@Test
@@ -132,26 +72,7 @@ public class TileNotesTest
 		assertEquals(3, TileNotes.comboLines(combo, counts).size());
 		PluginConfigResponse mix = GSON.fromJson("{\"trackedCombos\":[{\"tileId\":40,\"rule\":\"mix\",\"percent\":140,"
 			+ "\"parts\":[{\"tileId\":41,\"label\":\"A\",\"weight\":0.5}]}]}", PluginConfigResponse.class);
-		assertEquals(0.5, mix.trackedCombos.get(0).parts.get(0).weight, 1e-9);
 		assertEquals("100%", TileNotes.comboLines(mix.trackedCombos.get(0), null).get(0));
-	}
-
-	@Test
-	public void anotherBoardsTileCarriesItsBoardAndSaysSo()
-	{
-		PluginConfigResponse cfg = GSON.fromJson("{\"trackedDrops\":[{\"tileId\":1,\"label\":\"Zulrah\"},"
-			+ "{\"tileId\":2,\"label\":\"Zulrah\",\"board\":{\"eventId\":9,\"teamId\":3,\"playerId\":4,"
-			+ "\"clan\":\"rivals\",\"name\":\"Winter Bingo\"}}]}", PluginConfigResponse.class);
-		Map<Integer, PluginConfigResponse.Board> boards = cfg.tagBoards();
-		cfg.tagBoards(); // idempotent
-		assertEquals(1, boards.size());
-		PluginConfigResponse.Board b = boards.get(2);
-		assertEquals(9, b.eventId);
-		assertEquals(3, b.teamId);
-		assertEquals(4, b.playerId);
-		assertEquals("rivals", b.clan);
-		assertEquals("Zulrah", cfg.trackedDrops.get(0).label);
-		assertEquals("Zulrah · Winter Bingo", cfg.trackedDrops.get(1).label);
 	}
 
 	@Test
@@ -162,16 +83,5 @@ public class TileNotesTest
 		assertEquals("bodies", TileNotes.plural("body"));
 		assertEquals("days", TileNotes.plural("day"));
 		assertEquals("boxes", TileNotes.plural("box"));
-	}
-
-	private static TrackedKill kill(int tileId, String label, Integer capOf, int required, int current)
-	{
-		TrackedKill k = new TrackedKill();
-		k.tileId = tileId;
-		k.label = label;
-		k.capOf = capOf;
-		k.requiredAmount = required;
-		k.currentAmount = current;
-		return k;
 	}
 }

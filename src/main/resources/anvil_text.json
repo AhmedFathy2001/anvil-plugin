@@ -2,8 +2,6 @@
  "_about": [
   "Fixed text the Anvil plugin ships with, loaded once at startUp (AnvilPlugin.ShippedText).",
   "alwaysNotify: prestige items always posted to the rare-drops channel regardless of value/rarity — usually untradeable or cheap but a big deal. Matched as case-insensitive substrings, so 'Blessed dizana's quiver' still matches 'dizana's quiver'. pluginConfig.alwaysNotifyItems extends it without a plugin update. Prestige capes/quivers (awarded, untradeable); raid ornament/colour kits + dusts (untradeable — ToB/CoX/ToA); ToA reward-chest cosmetics (Menaphite ornament kit, Cursed phalanx, Masori crafting kit); DT2 untradeable uniques (the ring vestiges, all caught by 'vestige', the chromium-ingot quartz, the four Soulreaper axe pieces); boss collection-log jars + Champions' Challenge scroll/cape; enhanced crystal seeds (Gauntlet weapon seed and Elf-pickpocket teleport seed); Vyrewatch blood shard (tradeable, but its GE price dips below the value floor) + the Fight Caves fire cape.",
-  "funDeaths: fallback fun-death lines, used only when the server pool (pluginConfig.funDeathMessages) is empty. {name} is replaced with the RSN.",
-  "deathTaunts: short reaction lines appended to every death post (pluginConfig.deathTaunts overrides).",
   "questTiers: every quest's official difficulty (NOVICE..GRANDMASTER) for completion announcements, from the OSRS Wiki quest Bucket (official_difficulty), 2026-10-13. Lowercase, matched against the parsed scroll name; names ending in ' I' are also listed without the numeral, which is how some scrolls name them. The wiki tiers RFD and a few others as 'Special'; those are absent and post only on the lowest setting — except defeating the Culinaromancer, the de-facto final completion (Barrows gloves), announced with the Masters. Update when Jagex ships new quests."
  ],
  "alwaysNotify": [
@@ -31,24 +29,6 @@
   "enhanced crystal",
   "blood shard",
   "fire cape"
- ],
- "funDeaths": [
-  "{name} has been sent to Lumbridge to think about their choices.",
-  "{name} forgot to flick Protect from Magic. Classic.",
-  "{name} died doing what they loved: not eating.",
-  "Press F for {name}.",
-  "{name} just speedran a trip to Lumbridge."
- ],
- "deathTaunts": [
-  "Sit. 🪑",
-  "L + ratio.",
-  "Skill issue.",
-  "Couldn't be me.",
-  "GG go next.",
-  "Have you tried eating?",
-  "That's gotta hurt.",
-  "Prayer was off, wasn't it?",
-  "Get good. 🤡"
  ],
  "questTiers": {
   "a kingdom divided": "EXPERIENCED",

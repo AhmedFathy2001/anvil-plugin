@@ -212,9 +212,7 @@ shape of it.
 | --- | --- |
 | **Player lookup** | The **Anvil** entry on player names, and where it shows: players in the world, the chatbox and private messages, clan panels, friends chat, and your friends, ignore and party lists. In chat it's never the left-click option. |
 | **Bingo** | The verification overlay, team and personal tile popups, banner sounds, the automatic starting shot and its on-screen guide. |
-| **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
-| **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
-| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, level milestones (your clan's rules), diaries (with a screenshot), quests by difficulty. |
+| **Notifications** | Sharing your seasonal-world progress. Everything else you post is set on the Anvil website (below). |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 
 <p align="center">
@@ -229,13 +227,22 @@ A few worth knowing about:
 | --- | --- | --- |
 | Anvil lookup on players | on | Turn it off to keep **Anvil** out of every menu, or untick just the places you don't want it under **Player lookup**. |
 | Show Overlay | on | Turn it off if you don't want the codeword panel on screen — proofs are still stamped. |
+
+### What you post
+
+What goes to your clan's Discord lives on the Anvil website, under **Settings > Announcements**, so it
+follows you to every clan and every computer. The first time the plugin connects it carries across
+whatever you had set in RuneLite. Posts still go out the moment they happen, with the screenshot.
+
+| Setting | Default | Why you'd change it |
+| --- | --- | --- |
 | Min drop value | 5,000,000 | The gp floor for a drop post. `0` switches value posts off. |
 | Min drop rarity (1 in N) | 10,000 | Catches cheap-but-rare uniques. Looser than this and the channel fills with herb rolls. Your clan can set a floor; yours applies when it's stricter. |
 | Loot key value | 1,000,000 | A loot key posts once, for its whole contents. |
-| CA post tier | Master | The lowest task tier that posts, tier clears included. Grandmaster for only the rarest, **Off** for none. Bingo CA tiles count either way. |
-| Quest post tier | Master | Quests at or above this difficulty, from **All** to Grandmaster, or **Off**. |
-| Notify on level milestones | on | Which levels post is your clan's call (99s and high totals by default). Post less, or set your own rules for your personal webhooks, under Announcements on your Anvil profile. |
-| Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
+| Combat task tier | Master | The lowest task tier that posts, tier clears included. Grandmaster for only the rarest, **Off** for none. Bingo CA tiles count either way. |
+| Quest tier | Master | Quests at or above this difficulty, from **All** to Grandmaster, or **Off**. |
+| Level milestones | on | Which levels post is your clan's call (99s and high totals by default). |
+| PvP kills | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
 
 ### Profile sync
 
@@ -334,5 +341,4 @@ Requires JDK 11+.
 
 ## License
 
-BSD-2-Clause — see [LICENSE](LICENSE). Third-party code is credited in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+BSD-2-Clause — see [LICENSE](LICENSE).

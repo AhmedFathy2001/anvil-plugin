@@ -33,8 +33,7 @@ import java.util.regex.*;
  *                — no signature entry needed: both flanking lines name the trial, so the
  *                activity-name fallback matches tiles like "gwenith glide" / "tempor tantrum".
  */
-final class TimedClearParser
-{
+final class TimedClearParser {
 	private TimedClearParser() {}
 
 	private static final Pattern SPACES = Pattern.compile("\\s+");
@@ -120,56 +119,34 @@ final class TimedClearParser
 		{"hallowed sepulchre|sepulchre", "overall time"}
 	};
 
-	static
-	{
-		for (String[] row : SIGNATURE_TABLE)
-		{
-			for (String activity : row[0].split("\\|"))
-			{
-				SIGNATURES.put(activity, Arrays.asList(row).subList(1, row.length));
-			}
+	static {
+		for (String[] row : SIGNATURE_TABLE) {
+			for (String activity : row[0].split("\\|")) SIGNATURES.put(activity, Arrays.asList(row).subList(1, row.length));
 		}
 	}
 
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */
-	static Integer parseDurationSeconds(String message)
-	{
-		if (message == null)
-		{
-			return null;
-		}
+	static Integer parseDurationSeconds(String message) {
+		if (message == null) return null;
 		String lower = message.toLowerCase();
 		// A ToA per-room / per-challenge sub-time — never the raid clear time. Ignore it so a
 		// slow raid can't pass a timed tile off a fast final room (see RAID_SUBTIME).
-		if (ChatPatterns.find("timed.raid_subtime", lower) != null)
-		{
-			return null;
-		}
+		if (ChatPatterns.find("timed.raid_subtime", lower) != null) return null;
 		Matcher m = ChatPatterns.find("timed.duration", lower);
-		if (m == null)
-		{
-			return null;
-		}
+		if (m == null) return null;
 		String[] p = m.group("time").split(":");
-		try
-		{
+		try {
 			int s = clockSeconds(p[0], p[1], p.length == 3 ? p[2] : null);
 			return s > 0 ? s : null;
-		}
-		catch (NumberFormatException e)
-		{
+		} catch (NumberFormatException e) {
 			return null;
 		}
 	}
 
-	static List<String> signaturesFor(String activity)
-	{
+	static List<String> signaturesFor(String activity) {
 		String a = norm(activity);
 		List<String> s = SIGNATURES.get(a);
-		if (s != null)
-		{
-			return s;
-		}
+		if (s != null) return s;
 		return a.isEmpty() ? Collections.emptyList() : Collections.singletonList(a);
 	}
 
@@ -179,12 +156,8 @@ final class TimedClearParser
 	 * "Chambers of Xeric: Challenge Mode" is the natural way to type it, and ToB/ToA modes DO carry a
 	 * colon — dropping it on BOTH sides of the compare makes colons irrelevant either way.
 	 */
-	static String norm(String s)
-	{
-		if (s == null)
-		{
-			return "";
-		}
+	static String norm(String s) {
+		if (s == null) return "";
 		return SPACES.matcher(s.toLowerCase(Locale.ROOT).replace(':', ' ')).replaceAll(" ").trim();
 	}
 
@@ -196,43 +169,26 @@ final class TimedClearParser
 	 * True when the lines around a duration show it belongs to a different activity than
 	 * {@code activity} — currently a TzHaar-Ket-Rak challenge, for any non-Ket-Rak tile.
 	 */
-	static boolean clearBelongsElsewhere(Iterable<String> nearbyLines, String activity)
-	{
-		if (norm(activity).contains("tzhaar-ket-rak"))
-		{
-			return false;
-		}
-		for (String line : nearbyLines)
-		{
-			if (line != null && line.toLowerCase(Locale.ROOT).contains(KET_RAK_CLEAR))
-			{
-				return true;
-			}
+	static boolean clearBelongsElsewhere(Iterable<String> nearbyLines, String activity) {
+		if (norm(activity).contains("tzhaar-ket-rak")) return false;
+		for (String line : nearbyLines) {
+			if (line != null && line.toLowerCase(Locale.ROOT).contains(KET_RAK_CLEAR)) return true;
 		}
 		return false;
 	}
 
 	/** True when {@code message} contains any of the activity's identifying signatures. */
-	static boolean messageMatchesActivity(String message, String activity)
-	{
-		if (message == null)
-		{
-			return false;
-		}
+	static boolean messageMatchesActivity(String message, String activity) {
+		if (message == null) return false;
 		String nmsg = norm(message);
 		// Every signature is already in norm() form: the table is written that way, the fallback is norm()ed.
-		for (String sig : signaturesFor(activity))
-		{
-			if (nmsg.contains(sig))
-			{
-				return true;
-			}
+		for (String sig : signaturesFor(activity)) {
+			if (nmsg.contains(sig)) return true;
 		}
 		return false;
 	}
 
-	static String formatClock(int totalSeconds)
-	{
+	static String formatClock(int totalSeconds) {
 		int mm = totalSeconds / 60;
 		int ss = totalSeconds % 60;
 		return mm + ":" + (ss < 10 ? "0" + ss : String.valueOf(ss));
@@ -248,27 +204,16 @@ final class TimedClearParser
 	// → chat-patterns.json "timed.trial_completion" (ChatPatterns).
 
 	/** {course, rank} from a Barracuda Trials completion line, or null if this line isn't one. */
-	static String[] parseTrialCompletion(String message)
-	{
-		if (message == null)
-		{
-			return null;
-		}
+	static String[] parseTrialCompletion(String message) {
+		if (message == null) return null;
 		Matcher m = ChatPatterns.find("timed.trial_completion", message.toLowerCase());
-		if (m == null)
-		{
-			return null;
-		}
+		if (m == null) return null;
 		String course = norm(m.group("course"));
 		String rank = m.group("rank");
-		for (String c : TRIAL_COURSES)
-		{
-			if (course.endsWith(c))
-			{
-				for (String r : TRIAL_RANKS)
-				{
-					if (rank.equals(r))
-					{
+		for (String c : TRIAL_COURSES) {
+			if (course.endsWith(c)) {
+				for (String r : TRIAL_RANKS) {
+					if (rank.equals(r)) {
 						return new String[]{ c, r };
 					}
 				}
@@ -278,22 +223,14 @@ final class TimedClearParser
 	}
 
 	/** {course, rank} a tile's activity targets (e.g. "Gwenith Glide — Marlin"), or null if it's not a rank tile. */
-	static String[] trialTileTarget(String activity)
-	{
+	static String[] trialTileTarget(String activity) {
 		String a = norm(activity);
-		if (a.isEmpty())
-		{
-			return null;
-		}
-		for (String r : TRIAL_RANKS)
-		{
-			if (a.endsWith(" " + r))
-			{
+		if (a.isEmpty()) return null;
+		for (String r : TRIAL_RANKS) {
+			if (a.endsWith(" " + r)) {
 				String course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
-				for (String c : TRIAL_COURSES)
-				{
-					if (course.equals(c) || course.endsWith(c))
-					{
+				for (String c : TRIAL_COURSES) {
+					if (course.equals(c) || course.endsWith(c)) {
 						return new String[]{ c, r };
 					}
 				}
@@ -303,8 +240,7 @@ final class TimedClearParser
 	}
 
 	/** {@code a:b:c} as h:mm:ss, or {@code a:b} as mm:ss when {@code c} is null. Throws on a non-number. */
-	static int clockSeconds(String a, String b, String c)
-	{
+	static int clockSeconds(String a, String b, String c) {
 		return c != null
 			? Integer.parseInt(a) * 3600 + Integer.parseInt(b) * 60 + Integer.parseInt(c)
 			: Integer.parseInt(a) * 60 + Integer.parseInt(b);

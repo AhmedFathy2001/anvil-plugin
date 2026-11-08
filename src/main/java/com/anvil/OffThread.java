@@ -14,44 +14,32 @@ import lombok.extern.slf4j.Slf4j;
  * once per kind of call, with the stack that got it there — rather than felt as a hitch.
  */
 @Slf4j
-final class OffThread
-{
+final class OffThread {
 	private static volatile BooleanSupplier onClientThread = () -> false;
 	private static final Set<String> reported = ConcurrentHashMap.newKeySet();
 
-	private OffThread()
-	{
+	private OffThread() {
 	}
 
 	/** Bound by the plugin at startUp ({@code client::isClientThread}); unbound reads as "not". */
-	static void bindClientThread(BooleanSupplier check)
-	{
+	static void bindClientThread(BooleanSupplier check) {
 		onClientThread = check == null ? () -> false : check;
 	}
 
 	/** {@code what} is about to block. Warns if that's on the client thread or the EDT. */
-	static void check(String what)
-	{
+	static void check(String what) {
 		String thread = where();
-		if (thread != null && reported.add(what + "@" + thread))
-		{
+		if (thread != null && reported.add(what + "@" + thread)) {
 			log.warn("Anvil: {} blocked the {} — a freeze; please report this log", what, thread, new Throwable("called from"));
 		}
 	}
 
 	/** The thread that must not block, if this is one; null otherwise. */
-	static String where()
-	{
-		if (SwingUtilities.isEventDispatchThread())
-		{
-			return "Swing thread (side panel)";
-		}
-		try
-		{
+	static String where() {
+		if (SwingUtilities.isEventDispatchThread()) return "Swing thread (side panel)";
+		try {
 			return onClientThread.getAsBoolean() ? "client thread (game)" : null;
-		}
-		catch (RuntimeException e)
-		{
+		} catch (RuntimeException e) {
 			return null;
 		}
 	}

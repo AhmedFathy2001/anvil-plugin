@@ -17,8 +17,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * text-tops y=10/40/64, all 16px with a 1px black shadow and no font smoothing. Open animation:
  * a 1px line draws out horizontally, the background unsquishes to full height, holds, then reverses.
  */
-public class BingoClogBannerOverlay extends Overlay
-{
+public class BingoClogBannerOverlay extends Overlay {
 	// Design space (matches Skeldoor's .collection-log-panel). 1.0 = original asset size.
 	private static final int BASE_W = 178;
 	private static final int BASE_H = 100;
@@ -65,8 +64,7 @@ public class BingoClogBannerOverlay extends Overlay
 	private long startedAt;
 
 	@Inject
-	public BingoClogBannerOverlay(AnvilPlugin plugin)
-	{
+	public BingoClogBannerOverlay(AnvilPlugin plugin) {
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
@@ -78,21 +76,16 @@ public class BingoClogBannerOverlay extends Overlay
 		this.bodyFont = FontManager.getRunescapeSmallFont();
 	}
 
-	private static BufferedImage loadBackground()
-	{
-		try (InputStream in = BingoClogBannerOverlay.class.getResourceAsStream("/com/anvil/clog_banner.png"))
-		{
+	private static BufferedImage loadBackground() {
+		try (InputStream in = BingoClogBannerOverlay.class.getResourceAsStream("/com/anvil/clog_banner.png")) {
 			return in == null ? null : ImageIO.read(in);
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			return null;
 		}
 	}
 
 	/** Backwards-compatible entry point used by the existing drop call site. */
-	public void show(String label, int current, int required)
-	{
+	public void show(String label, int current, int required) {
 		boolean complete = current >= required;
 		String middle = complete ? "Tile complete!" : "Progress:";
 		String bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
@@ -100,18 +93,13 @@ public class BingoClogBannerOverlay extends Overlay
 	}
 
 	/** Full three-line control. */
-	public void show(String top, String middle, String bottom)
-	{
+	public void show(String top, String middle, String bottom) {
 		queue.add(new String[]{top, middle, bottom});
 	}
 
 	@Override
-	public Dimension render(Graphics2D g)
-	{
-		if (background == null || AnvilPlugin.capturing)
-		{
-			return null;
-		}
+	public Dimension render(Graphics2D g) {
+		if (background == null || AnvilPlugin.capturing) return null;
 
 		long now = System.currentTimeMillis();
 		long hEnd = H_EXPAND_MS;
@@ -120,13 +108,9 @@ public class BingoClogBannerOverlay extends Overlay
 		long vCollapseEnd = holdEnd + V_COLLAPSE_MS;
 		long total = vCollapseEnd + H_COLLAPSE_MS;
 
-		if (active == null || now - startedAt >= total)
-		{
+		if (active == null || now - startedAt >= total) {
 			active = queue.poll();
-			if (active == null)
-			{
-				return null;
-			}
+			if (active == null) return null;
 			startedAt = now;
 			wrapped = null;
 			now = System.currentTimeMillis();
@@ -138,23 +122,16 @@ public class BingoClogBannerOverlay extends Overlay
 		boolean line = e < hEnd || e >= vCollapseEnd;
 		float w = BASE_W;
 		float h = line ? LINE_H : BASE_H;
-		if (e < hEnd)
-		{
+		if (e < hEnd) {
 			// P1: thin line grows to full width.
 			w = BASE_W * (e / (float) H_EXPAND_MS);
-		}
-		else if (e < vEnd)
-		{
+		} else if (e < vEnd) {
 			// P2: whole background unsquishes from the line up to full height.
 			h = LINE_H + (BASE_H - LINE_H) * ((e - hEnd) / (float) V_EXPAND_MS);
-		}
-		else if (e >= holdEnd && e < vCollapseEnd)
-		{
+		} else if (e >= holdEnd && e < vCollapseEnd) {
 			// P4: squish back down to the line.
 			h = BASE_H - (BASE_H - LINE_H) * ((e - holdEnd) / (float) V_COLLAPSE_MS);
-		}
-		else if (line)
-		{
+		} else if (line) {
 			// P5: line shrinks horizontally to nothing.
 			w = BASE_W * (1f - (e - vCollapseEnd) / (float) H_COLLAPSE_MS);
 		}
@@ -169,25 +146,20 @@ public class BingoClogBannerOverlay extends Overlay
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
 
-		if (line)
-		{
+		if (line) {
 			// Opening/closing line: a plain strip in the banner's interior tone (not the bg, no text).
 			g2.setColor(LINE_COLOR);
 			g2.fillRect(x, y, iw, ih);
-		}
-		else
-		{
+		} else {
 			// Squish the WHOLE background into the current height (full width); it unsquishes to full.
 			g2.drawImage(background, x, y, iw, ih, null);
 
 			// Text only while opening/holding (e < holdEnd). On close it's dropped immediately so the
 			// panel collapses cleanly instead of a centre sliver of text lingering. Full-size, fixed
 			// in place, clipped to the opened region so it's revealed centre-out as the bg unsquishes.
-			if (e < holdEnd)
-			{
+			if (e < holdEnd) {
 				g2.clipRect(x, y, iw, ih);
-				if (wrapped == null)
-				{
+				if (wrapped == null) {
 					int maxTextW = BASE_W - 2 * TEXT_MARGIN_X;
 					wrapped = Arrays.asList(
 						wrap(active[0], g2.getFontMetrics(headerFont), maxTextW, 1),
@@ -207,12 +179,10 @@ public class BingoClogBannerOverlay extends Overlay
 
 	/** Draws {@link #wrap wrapped} lines centred horizontally, {@code topY} being the CSS-style top of the
 	 *  first (line-height 1); extra lines advance downward by {@link #WRAP_LINE_H}. */
-	private static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY)
-	{
+	private static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY) {
 		g.setFont(font);
 		FontMetrics fm = g.getFontMetrics();
-		for (int i = 0; i < lines.size(); i++)
-		{
+		for (int i = 0; i < lines.size(); i++) {
 			String shown = lines.get(i);
 			int x = (BASE_W - fm.stringWidth(shown)) / 2;
 			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
@@ -227,74 +197,48 @@ public class BingoClogBannerOverlay extends Overlay
 	 *  size (the RS bitmap font pixelates when scaled, so we wrap rather than shrink); any overflow past
 	 *  the last line is folded into it, and every kept line is ellipsised if it still overflows (covers a
 	 *  lone over-long word too). No text, no lines. */
-	private static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines)
-	{
+	private static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines) {
 		List<String> lines = new ArrayList<>();
-		if (text == null || text.isEmpty())
-		{
-			return lines;
-		}
-		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth)
-		{
+		if (text == null || text.isEmpty()) return lines;
+		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) {
 			lines.add(text);
 			return lines;
 		}
 		StringBuilder line = new StringBuilder();
-		for (String word : text.split("\\s+"))
-		{
+		for (String word : text.split("\\s+")) {
 			String trial = line.length() == 0 ? word : line + " " + word;
-			if (fm.stringWidth(trial) <= maxWidth)
-			{
+			if (fm.stringWidth(trial) <= maxWidth) {
 				line.setLength(0);
 				line.append(trial);
 				continue;
 			}
-			if (line.length() > 0)
-			{
+			if (line.length() > 0) {
 				lines.add(line.toString());
 				line.setLength(0);
 			}
 			line.append(word);
 		}
-		if (line.length() > 0)
-		{
-			lines.add(line.toString());
-		}
-		if (lines.size() > maxLines)
-		{
+		if (line.length() > 0) lines.add(line.toString());
+		if (lines.size() > maxLines) {
 			// Fold every line past the cap into the last kept line (it gets ellipsised below).
 			StringBuilder tail = new StringBuilder(lines.get(maxLines - 1));
-			for (int i = maxLines; i < lines.size(); i++)
-			{
-				tail.append(' ').append(lines.get(i));
-			}
+			for (int i = maxLines; i < lines.size(); i++) tail.append(' ').append(lines.get(i));
 			lines = new ArrayList<>(lines.subList(0, maxLines - 1));
 			lines.add(tail.toString());
 		}
-		for (int i = 0; i < lines.size(); i++)
-		{
-			if (fm.stringWidth(lines.get(i)) > maxWidth)
-			{
-				lines.set(i, truncate(lines.get(i), fm, maxWidth));
-			}
+		for (int i = 0; i < lines.size(); i++) {
+			if (fm.stringWidth(lines.get(i)) > maxWidth) lines.set(i, truncate(lines.get(i), fm, maxWidth));
 		}
 		return lines;
 	}
 
 	/** Trims {@code text} with a trailing ellipsis so it fits within {@code maxWidth} px. */
-	private static String truncate(String text, FontMetrics fm, int maxWidth)
-	{
-		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth)
-		{
-			return text;
-		}
+	private static String truncate(String text, FontMetrics fm, int maxWidth) {
+		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) return text;
 		final String ellipsis = "...";
 		int ellipsisW = fm.stringWidth(ellipsis);
 		int end = text.length();
-		while (end > 0 && fm.stringWidth(text.substring(0, end)) + ellipsisW > maxWidth)
-		{
-			end--;
-		}
+		while (end > 0 && fm.stringWidth(text.substring(0, end)) + ellipsisW > maxWidth) end--;
 		return end <= 0 ? ellipsis : text.substring(0, end).trim() + ellipsis;
 	}
 }

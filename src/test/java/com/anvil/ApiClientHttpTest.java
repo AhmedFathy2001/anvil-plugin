@@ -182,42 +182,30 @@ public class ApiClientHttpTest
 		}
 	}
 
+	/** Every credit goes as facts to the addressed clan, saying it reads other boards' tiles; a 4xx is for good. */
 	@Test
-	public void submissionsAreClassified()
+	public void factsGoToTheClanAndAreClassified() throws IOException
 	{
 		BingoApiClient c = client();
+		c.setChosenClan("home");
+		reply = "{\"credits\":[]}";
+		com.google.gson.JsonArray facts = new com.google.gson.JsonArray();
+		facts.add(RuleEngine.tile(2, 1, "sec", 60));
+		assertEquals("{\"credits\":[]}", c.postFacts(facts, "u", null, null).toString());
+		assertEquals("/c/home/api/plugin/facts", seen.get(0).url().encodedPath());
+		assertEquals("1", seen.get(0).header("X-Anvil-Boards"));
+		assertTrue(bodies.get(0).contains("\"facts\":[{\"k\":\"tile\",\"t\":2,\"n\":1,\"sec\":60}]"));
 		code = 409;
 		reply = "{\"error\":\"done\"}";
 		try
 		{
-			com.google.gson.JsonObject proof = new com.google.gson.JsonObject();
-			proof.addProperty("tz", "Africa/Cairo");
-			c.submitTimed(1, 2, 3, 60, "u", "n", 4, proof, null);
+			c.postFacts(facts, null, null, null);
 			fail();
 		}
 		catch (BingoApiClient.PermanentSubmissionException e)
 		{
-			assertEquals("Timed submission failed: HTTP 409 — {\"error\":\"done\"}", e.getMessage());
+			assertEquals("Facts: HTTP 409 — {\"error\":\"done\"}", e.getMessage());
 		}
-		catch (IOException e)
-		{
-			fail("4xx is permanent");
-		}
-		assertTrue(bodies.get(0).contains("\"durationSeconds\":60"));
-		assertTrue(bodies.get(0).contains("\"amount\":1"));
-		assertTrue(bodies.get(0).contains("\"proof\":{\"tz\":\"Africa/Cairo\"}"));
-	}
-
-	@Test
-	public void anotherBoardsSubmissionGoesToItsClan() throws IOException
-	{
-		BingoApiClient c = client();
-		c.setChosenClan("home");
-		c.submitDrop(5, 2, 3, 1, "u", "n", 4, null, null, null, null, null);
-		c.submitDrop(9, 2, 3, 1, "u", "n", 4, null, null, null, null, "rivals");
-		assertEquals("/c/home/api/events/5/submissions", seen.get(0).url().encodedPath());
-		assertEquals("/c/rivals/api/events/9/submissions", seen.get(1).url().encodedPath());
-		assertEquals("1", seen.get(1).header("X-Anvil-Boards"));
 	}
 
 	@Test

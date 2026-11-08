@@ -26,18 +26,15 @@ import net.runelite.api.gameval.*;
  *
  * <p>RuneLite-free apart from the id constants, so the mapping is unit-testable without a client.
  */
-final class ActivityStats
-{
+final class ActivityStats {
 	/** Where a counter lives — the two id spaces are separate, so the kind picks the reader. */
-	private enum Kind
-	{
+	private enum Kind {
 		VARBIT,
 		VARP
 	}
 
 	@RequiredArgsConstructor
-	private static final class Source
-	{
+	private static final class Source {
 		final Kind kind;
 		final int id;
 
@@ -49,8 +46,7 @@ final class ActivityStats
 	/** The site's key for the summed clue total, which has no single counter of its own. */
 	static final String CLUES_ALL = "cluesAll";
 
-	static
-	{
+	static {
 		Map<String, Source> m = new LinkedHashMap<>();
 		m.put("cluesBeginner", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_BEGINNER_COMPLETED));
 		m.put("cluesEasy", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_EASY_COMPLETED));
@@ -64,15 +60,13 @@ final class ActivityStats
 	}
 
 	/** Every key this can report, for callers that want to filter the site's list down to the real ones. */
-	static Set<String> readableKeys()
-	{
+	static Set<String> readableKeys() {
 		Set<String> keys = new HashSet<>(SOURCES.keySet());
 		keys.add(CLUES_ALL);
 		return keys;
 	}
 
-	static boolean isReadable(String key)
-	{
+	static boolean isReadable(String key) {
 		return key != null && (SOURCES.containsKey(key) || CLUES_ALL.equals(key));
 	}
 
@@ -84,14 +78,9 @@ final class ActivityStats
 	 * edge here loses nothing but latency, because the periodic re-read is the actual guarantee.
 	 * Passing -1 (RuneLite's "not a varbit"/"not a varp") never matches.
 	 */
-	static boolean isTrigger(int varbitId, int varpId)
-	{
-		for (Source s : SOURCES.values())
-		{
-			if (s.kind == Kind.VARBIT ? s.id == varbitId : s.id == varpId)
-			{
-				return true;
-			}
+	static boolean isTrigger(int varbitId, int varpId) {
+		for (Source s : SOURCES.values()) {
+			if (s.kind == Kind.VARBIT ? s.id == varbitId : s.id == varpId) return true;
 		}
 		return false;
 	}
@@ -105,46 +94,27 @@ final class ActivityStats
 	 * @param varbit reads a varbit by id (normally {@code client::getVarbitValue})
 	 * @param varp   reads a varplayer by id (normally {@code client::getVarpValue})
 	 */
-	static Map<String, Integer> read(Collection<String> wanted, IntUnaryOperator varbit, IntUnaryOperator varp)
-	{
+	static Map<String, Integer> read(Collection<String> wanted, IntUnaryOperator varbit, IntUnaryOperator varp) {
 		Map<String, Integer> out = new LinkedHashMap<>();
-		if (wanted == null || wanted.isEmpty())
-		{
-			return out;
-		}
-		for (String key : wanted)
-		{
-			if (key == null)
-			{
-				continue;
-			}
+		if (wanted == null || wanted.isEmpty()) return out;
+		for (String key : wanted) {
+			if (key == null) continue;
 			String k = key.trim();
 			int value;
-			if (CLUES_ALL.equals(k))
-			{
+			if (CLUES_ALL.equals(k)) {
 				// The clue tiers (the "clues…" sources, in hiscores order) summed.
 				value = 0;
-				for (Map.Entry<String, Source> e : SOURCES.entrySet())
-				{
-					if (e.getKey().startsWith("clues"))
-					{
-						value += Math.max(0, varbit.applyAsInt(e.getValue().id));
-					}
+				for (Map.Entry<String, Source> e : SOURCES.entrySet()) {
+					if (e.getKey().startsWith("clues")) value += Math.max(0, varbit.applyAsInt(e.getValue().id));
 				}
-			}
-			else
-			{
+			} else {
 				Source s = SOURCES.get(k);
-				if (s == null)
-				{
+				if (s == null) {
 					continue; // a rank-based or unreadable key — the hiscores sweep still covers it
 				}
 				value = s.kind == Kind.VARBIT ? varbit.applyAsInt(s.id) : varp.applyAsInt(s.id);
 			}
-			if (value > 0)
-			{
-				out.put(k, value);
-			}
+			if (value > 0) out.put(k, value);
 		}
 		return out;
 	}
@@ -154,8 +124,7 @@ final class ActivityStats
 	 * this session, or the count exceeds its own maximum and is therefore not what we think it is).
 	 * 0 when the log is unread or the count exceeds its own maximum.
 	 */
-	static int clogSlots(IntUnaryOperator varp)
-	{
+	static int clogSlots(IntUnaryOperator varp) {
 		int obtained = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT);
 		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
 		return obtained > 0 && total > 0 && obtained <= total ? obtained : 0;
@@ -165,13 +134,11 @@ final class ActivityStats
 	 * Total collection-log slots in the game, or 0 when unreadable. Needed to place the Gilded rank,
 	 * which is a proportion of the total rather than a fixed number (see {@link ClogRank}).
 	 */
-	static int clogSlotsMax(IntUnaryOperator varp)
-	{
+	static int clogSlotsMax(IntUnaryOperator varp) {
 		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
 		return Math.max(0, total);
 	}
 
-	private ActivityStats()
-	{
+	private ActivityStats() {
 	}
 }

@@ -19,8 +19,7 @@ import java.util.regex.*;
  * "Your X kill count is: N" line for kill crediting, so PB capture reuses that instead of running a
  * second regex over every line of chat. RuneLite-free, so the fragile part is unit-tested.
  */
-final class PersonalBestParser
-{
+final class PersonalBestParser {
 	private PersonalBestParser() {}
 
 	/** An [h:]mm:ss[.cc] token. The game never prints a bare seconds count for a PB. */
@@ -31,57 +30,38 @@ final class PersonalBestParser
 	/**
 	 * The personal best this line reports, in centiseconds, or null when it reports none.
 	 */
-	static Integer parseCentis(String message)
-	{
-		if (message == null)
-		{
-			return null;
-		}
+	static Integer parseCentis(String message) {
+		if (message == null) return null;
 		String lower = message.toLowerCase();
 		int marker = lower.indexOf("personal best");
-		if (marker < 0)
-		{
-			return null;
-		}
+		if (marker < 0) return null;
 
 		// "Personal best: <time>" — read the time AFTER the label, and only that one.
 		Matcher explicit = EXPLICIT.matcher(lower);
-		if (explicit.find(marker))
-		{
+		if (explicit.find(marker)) {
 			Matcher time = TIME.matcher(lower);
-			if (time.find(explicit.end()))
-			{
-				return toCentis(time);
-			}
+			if (time.find(explicit.end())) return toCentis(time);
 			return null;
 		}
 
 		// "(new personal best)" — this run IS the best, so the line's own duration is the number.
 		Matcher time = TIME.matcher(lower);
-		if (time.find())
-		{
-			return toCentis(time);
-		}
+		if (time.find()) return toCentis(time);
 		return null;
 	}
 
-	private static Integer toCentis(Matcher m)
-	{
-		try
-		{
+	private static Integer toCentis(Matcher m) {
+		try {
 			int centis = TimedClearParser.clockSeconds(m.group(1), m.group(2), m.group(3)) * 100;
 			String fraction = m.group(4);
-			if (fraction != null)
-			{
+			if (fraction != null) {
 				// ".3" is three tenths — pad to hundredths rather than reading it as three.
 				centis += fraction.length() == 1
 					? Integer.parseInt(fraction) * 10
 					: Integer.parseInt(fraction);
 			}
 			return centis > 0 ? centis : null;
-		}
-		catch (NumberFormatException e)
-		{
+		} catch (NumberFormatException e) {
 			return null;
 		}
 	}

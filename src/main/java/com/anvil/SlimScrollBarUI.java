@@ -10,31 +10,21 @@ import net.runelite.client.ui.ColorScheme;
  * the mouse, and a track the colour of the panel. The default bar is 17px of a 225px-wide panel,
  * which on a small client is a lot of width spent on chrome.
  */
-final class SlimScrollBarUI extends BasicScrollBarUI
-{
+final class SlimScrollBarUI extends BasicScrollBarUI {
 	static final int WIDTH = 7;
 
 	private static final Color THUMB = ColorScheme.MEDIUM_GRAY_COLOR;
 	private static final Color THUMB_HOVER = ColorScheme.LIGHT_GRAY_COLOR;
 
 	/** Restyle every scroll pane directly under {@code root} (the PluginPanel's wrapper). */
-	static void applyTo(Container root)
-	{
-		if (root == null)
-		{
-			return;
-		}
-		for (Component c : root.getComponents())
-		{
-			if (c instanceof JScrollPane)
-			{
-				style(((JScrollPane) c).getVerticalScrollBar());
-			}
+	static void applyTo(Container root) {
+		if (root == null) return;
+		for (Component c : root.getComponents()) {
+			if (c instanceof JScrollPane) style(((JScrollPane) c).getVerticalScrollBar());
 		}
 	}
 
-	static void style(JScrollBar bar)
-	{
+	static void style(JScrollBar bar) {
 		bar.setUI(new SlimScrollBarUI());
 		bar.setPreferredSize(new Dimension(WIDTH, 0));
 		bar.setOpaque(true);
@@ -44,19 +34,16 @@ final class SlimScrollBarUI extends BasicScrollBarUI
 	}
 
 	@Override
-	protected JButton createDecreaseButton(int orientation)
-	{
+	protected JButton createDecreaseButton(int orientation) {
 		return zeroButton();
 	}
 
 	@Override
-	protected JButton createIncreaseButton(int orientation)
-	{
+	protected JButton createIncreaseButton(int orientation) {
 		return zeroButton();
 	}
 
-	private static JButton zeroButton()
-	{
+	private static JButton zeroButton() {
 		JButton b = new JButton();
 		Dimension none = new Dimension(0, 0);
 		b.setPreferredSize(none);
@@ -66,19 +53,14 @@ final class SlimScrollBarUI extends BasicScrollBarUI
 	}
 
 	@Override
-	protected void paintTrack(Graphics g, JComponent c, Rectangle r)
-	{
+	protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
 		g.setColor(ColorScheme.DARK_GRAY_COLOR);
 		g.fillRect(r.x, r.y, r.width, r.height);
 	}
 
 	@Override
-	protected void paintThumb(Graphics g, JComponent c, Rectangle r)
-	{
-		if (r.isEmpty() || !scrollbar.isEnabled())
-		{
-			return;
-		}
+	protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
+		if (r.isEmpty() || !scrollbar.isEnabled()) return;
 		Graphics2D g2 = (Graphics2D) g.create();
 		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g2.setColor(isThumbRollover() || isDragging ? THUMB_HOVER : THUMB);
@@ -88,8 +70,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI
 	}
 
 	@Override
-	protected Dimension getMinimumThumbSize()
-	{
+	protected Dimension getMinimumThumbSize() {
 		return new Dimension(WIDTH, 24);
 	}
 }

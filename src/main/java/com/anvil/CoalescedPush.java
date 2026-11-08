@@ -18,10 +18,8 @@ import lombok.extern.slf4j.Slf4j;
  * send runs on the plugin's executor; nothing here touches the client thread.
  */
 @Slf4j
-final class CoalescedPush
-{
-	interface Sender
-	{
+final class CoalescedPush {
+	interface Sender {
 		void send(Map<String, Integer> batch) throws IOException;
 	}
 
@@ -49,8 +47,7 @@ final class CoalescedPush
 	static final long RETRY_CAP_MS = 300_000L;
 
 	CoalescedPush(String what, long delayMs, boolean onlyRises, Supplier<ScheduledExecutorService> executor,
-		BooleanSupplier allowed, Sender sender, Runnable afterSend)
-	{
+		BooleanSupplier allowed, Sender sender, Runnable afterSend) {
 		this.what = what;
 		this.delayMs = delayMs;
 		this.sent = onlyRises ? new HashMap<>() : null;
@@ -60,44 +57,30 @@ final class CoalescedPush
 		this.afterSend = afterSend;
 	}
 
-	void queue(String key, int value)
-	{
+	void queue(String key, int value) {
 		queue(Collections.singletonMap(key, value));
 	}
 
 	/** Buffer {@code values} and restart the settle timer — unless nothing in them is new. */
-	synchronized void queue(Map<String, Integer> values)
-	{
+	synchronized void queue(Map<String, Integer> values) {
 		ScheduledExecutorService ex = executor.get();
-		if (ex == null || ex.isShutdown())
-		{
-			return;
-		}
+		if (ex == null || ex.isShutdown()) return;
 		boolean queued = false;
-		for (Map.Entry<String, Integer> e : values.entrySet())
-		{
+		for (Map.Entry<String, Integer> e : values.entrySet()) {
 			Integer last = sent == null ? null : sent.get(e.getKey());
-			if (last == null || last < e.getValue())
-			{
+			if (last == null || last < e.getValue()) {
 				pending.put(e.getKey(), e.getValue());
 				queued = true;
 			}
 		}
 		// While backing off, new values ride the retry that's already waiting rather than pulling it
 		// forward to the settle delay — a training session would otherwise retry every 15s regardless.
-		if (queued && holdingSince == 0)
-		{
-			holdingSince = System.currentTimeMillis();
-		}
-		if (queued && !(failures > 0 && task != null && !task.isDone()))
-		{
-			schedule(ex, settleWait(System.currentTimeMillis(), holdingSince, delayMs));
-		}
+		if (queued && holdingSince == 0) holdingSince = System.currentTimeMillis();
+		if (queued && !(failures > 0 && task != null && !task.isDone())) schedule(ex, settleWait(System.currentTimeMillis(), holdingSince, delayMs));
 	}
 
 	/** What's waiting to go — for saving across a logout or restart. */
-	synchronized Map<String, Integer> snapshot()
-	{
+	synchronized Map<String, Integer> snapshot() {
 		return new HashMap<>(pending);
 	}
 
@@ -105,146 +88,93 @@ final class CoalescedPush
 	 * Fold saved values back in. They're absolute, so the larger of saved and queued wins per key —
 	 * the same merge a failed send uses.
 	 */
-	synchronized void restore(Map<String, Integer> values)
-	{
-		if (values == null || values.isEmpty())
-		{
-			return;
-		}
-		values.forEach((k, v) ->
-		{
-			if (k != null && v != null)
-			{
-				pending.merge(k, v, Integer::max);
-			}
+	synchronized void restore(Map<String, Integer> values) {
+		if (values == null || values.isEmpty()) return;
+		values.forEach((k, v) -> {
+			if (k != null && v != null) pending.merge(k, v, Integer::max);
 		});
 		ScheduledExecutorService ex = executor.get();
-		if (ex != null && !ex.isShutdown())
-		{
-			schedule(ex, delayMs);
-		}
+		if (ex != null && !ex.isShutdown()) schedule(ex, delayMs);
 	}
 
 	/** Send what's waiting now (a value that completes a tile) — unless backing off a failing site. */
-	synchronized void sendNow()
-	{
+	synchronized void sendNow() {
 		ScheduledExecutorService ex = executor.get();
-		if (pending.isEmpty() || failures > 0 || ex == null || ex.isShutdown())
-		{
-			return;
-		}
+		if (pending.isEmpty() || failures > 0 || ex == null || ex.isShutdown()) return;
 		schedule(ex, 0);
 	}
 
 	/** The site is reachable again: send what's waiting now instead of sitting out the backoff. */
-	synchronized void kick()
-	{
-		if (failures == 0 || pending.isEmpty())
-		{
-			return;
-		}
+	synchronized void kick() {
+		if (failures == 0 || pending.isEmpty()) return;
 		failures = 0;
 		ScheduledExecutorService ex = executor.get();
-		if (ex != null && !ex.isShutdown())
-		{
-			schedule(ex, 0);
-		}
+		if (ex != null && !ex.isShutdown()) schedule(ex, 0);
 	}
 
 	/** Forget everything queued (and sent) — a new account, or the plugin stopping. */
-	synchronized void reset()
-	{
+	synchronized void reset() {
 		pending.clear();
 		holdingSince = 0;
 		failures = 0;
-		if (sent != null)
-		{
-			sent.clear();
-		}
-		if (task != null)
-		{
+		if (sent != null) sent.clear();
+		if (task != null) {
 			task.cancel(false);
 			task = null;
 		}
 	}
 
-	private void schedule(ScheduledExecutorService ex, long waitMs)
-	{
-		if (task != null)
-		{
-			task.cancel(false);
-		}
+	private void schedule(ScheduledExecutorService ex, long waitMs) {
+		if (task != null) task.cancel(false);
 		task = ex.schedule(this::flush, waitMs, TimeUnit.MILLISECONDS);
 	}
 
 	/** The settle delay, cut short so nothing waits past {@link #MAX_HOLD_MS} from {@code holdingSince}. */
-	static long settleWait(long now, long holdingSince, long delayMs)
-	{
+	static long settleWait(long now, long holdingSince, long delayMs) {
 		return Math.max(0, Math.min(delayMs, holdingSince + MAX_HOLD_MS - now));
 	}
 
 	/** The wait before the next retry after {@code failures} straight failures. First retry = the settle delay. */
-	static long retryDelayMs(int failures, long settleMs, double jitter)
-	{
+	static long retryDelayMs(int failures, long settleMs, double jitter) {
 		return RetryPolicy.backoffMs(failures, settleMs, Math.max(settleMs, RETRY_CAP_MS), jitter);
 	}
 
 	/** Send the buffer (no screenshot). Requeues on failure. */
-	void flush()
-	{
+	void flush() {
 		Map<String, Integer> batch;
-		synchronized (this)
-		{
-			if (pending.isEmpty())
-			{
-				return;
-			}
+		synchronized (this) {
+			if (pending.isEmpty()) return;
 			batch = new HashMap<>(pending);
 			pending.clear();
 			holdingSince = 0;
 		}
-		if (!allowed.getAsBoolean())
-		{
+		if (!allowed.getAsBoolean()) {
 			return; // stopped being allowed between queue and flush — the hiscores side still has it
 		}
-		try
-		{
+		try {
 			sender.send(batch);
-		}
-		catch (BingoApiClient.PermanentSubmissionException e)
-		{
+		} catch (BingoApiClient.PermanentSubmissionException e) {
 			// The site will never take this batch (a 4xx that isn't 401/408/429). Drop it rather than
 			// resend it forever; newer values queued meanwhile still go on their own.
 			log.warn("{} push refused ({} key(s)) — dropping: {}", what, batch.size(), e.getMessage());
-			synchronized (this)
-			{
+			synchronized (this) {
 				failures = 0;
 			}
 			return;
-		}
-		catch (IOException e)
-		{
-			synchronized (this)
-			{
+		} catch (IOException e) {
+			synchronized (this) {
 				failures++;
 				batch.forEach((k, v) -> pending.merge(k, v, Integer::max));
 				long wait = retryDelayMs(failures, delayMs, Math.random());
 				log.warn("{} push failed ({} key(s)) — retrying in {}s: {}", what, batch.size(), wait / 1000, e.getMessage());
 				ScheduledExecutorService ex = executor.get();
-				if (ex != null && !ex.isShutdown())
-				{
-					schedule(ex, wait);
-				}
+				if (ex != null && !ex.isShutdown()) schedule(ex, wait);
 			}
 			return;
 		}
-		synchronized (this)
-		{
+		synchronized (this) {
 			failures = 0;
-			if (sent != null)
-			{
-				batch.forEach((k, v) -> sent.merge(k, v, Integer::max));
-			}
+			if (sent != null) batch.forEach((k, v) -> sent.merge(k, v, Integer::max));
 		}
 		afterSend.run(); // pull back the updated progress / any completion the push triggered
 	}

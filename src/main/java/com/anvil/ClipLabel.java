@@ -9,38 +9,27 @@ import javax.swing.ToolTipManager;
  * its tooltip. A tooltip set on purpose still wins. Every label the panel draws is one of these, so
  * nothing truncated is ever unreadable.
  */
-class ClipLabel extends JLabel
-{
-	ClipLabel()
-	{
+class ClipLabel extends JLabel {
+	ClipLabel() {
 		this("");
 	}
 
-	ClipLabel(String text)
-	{
+	ClipLabel(String text) {
 		super(text);
 		ToolTipManager.sharedInstance().registerComponent(this);
 	}
 
-	ClipLabel(String text, int align)
-	{
+	ClipLabel(String text, int align) {
 		super(text, align);
 		ToolTipManager.sharedInstance().registerComponent(this);
 	}
 
 	@Override
-	public String getToolTipText(MouseEvent e)
-	{
+	public String getToolTipText(MouseEvent e) {
 		String own = super.getToolTipText(e);
-		if (own != null)
-		{
-			return own;
-		}
+		if (own != null) return own;
 		String text = getText();
-		if (text == null || text.isEmpty() || getWidth() <= 0 || getPreferredSize().width <= getWidth())
-		{
-			return null;
-		}
+		if (text == null || text.isEmpty() || getWidth() <= 0 || getPreferredSize().width <= getWidth()) return null;
 		// Shown as plain text: HTML labels wrap rather than clip, so a clipped one is plain already.
 		return text.regionMatches(true, 0, "<html", 0, 5) ? null : Ui.wrapHtml(Ui.esc(text), 200);
 	}

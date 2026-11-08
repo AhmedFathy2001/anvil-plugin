@@ -93,6 +93,25 @@ public class DiskFilesTest
 		assertEquals(3, store.readScreenshot(all.get(0)).length);
 	}
 
+	/** A proof an older build saved for one tile is replayed as a `tile` fact; facts and manual proofs load as they are. */
+	@Test
+	public void pendingStoreTurnsAnOlderBuildsProofIntoATileFact() throws Exception
+	{
+		PendingSubmissionStore store = new PendingSubmissionStore(new Gson());
+		store.setRoot(root.joinSegment("pending"));
+		Filepath dir = root.joinSegment("pending");
+		dir.createDirectories();
+		dir.joinSegment("9-1.json").write("{\"tileId\":9,\"amount\":1,\"label\":\"Inferno\",\"note\":\"[Auto] Inferno cleared\","
+			+ "\"durationSeconds\":3000,\"timestamp\":" + System.currentTimeMillis() + ",\"screenshotFile\":\"9-1.jpg\"}");
+		dir.joinSegment("8-1.json").write("{\"tileId\":8,\"facts\":[{\"k\":\"loot\"}],\"timestamp\":" + System.currentTimeMillis() + "}");
+		dir.joinSegment("7-1.json").write("{\"tileId\":7,\"manual\":true,\"timestamp\":" + System.currentTimeMillis() + "}");
+		java.util.Map<Integer, PendingSubmissionStore.PendingSubmission> byTile = new java.util.HashMap<>();
+		for (PendingSubmissionStore.PendingSubmission p : store.loadAll()) byTile.put(p.tileId, p);
+		assertEquals("[{\"k\":\"tile\",\"t\":9,\"n\":1,\"sec\":3000,\"note\":\"[Auto] Inferno cleared\"}]", byTile.get(9).facts.toString());
+		assertEquals("[{\"k\":\"loot\"}]", byTile.get(8).facts.toString());
+		assertNull(byTile.get(7).facts);
+	}
+
 	@Test
 	public void stashAndCacheTreatCorruptFilesAsNothingSaved() throws Exception
 	{
@@ -110,5 +129,29 @@ public class DiskFilesTest
 		assertNull(cache.load(ResponseDiskCache.CONFIG));
 		cache.store(ResponseDiskCache.CONFIG, "u", "e", "{}", null);
 		assertEquals("{}", cache.load(ResponseDiskCache.CONFIG).body);
+	}
+
+	/** The site couldn't file some facts: the proof stays on disk with only those, and the same screenshot. */
+	@Test
+	public void aProofKeepsOnlyTheFactsTheSiteSaysToRetry() throws Exception
+	{
+		PendingSubmissionStore store = new PendingSubmissionStore(new Gson());
+		store.setRoot(root.joinSegment("pending"));
+		PendingSubmissionStore.PendingSubmission p = new PendingSubmissionStore.PendingSubmission();
+		p.timestamp = System.currentTimeMillis();
+		p.facts = new Gson().fromJson("[{\"k\":\"loot\",\"items\":[[10,1]]},{\"k\":\"kill\",\"n\":{\"zulrah\":1}}]", com.google.gson.JsonArray.class);
+		assertNotNull(store.save(p, new byte[]{1, 2, 3}));
+
+		com.google.gson.JsonObject ok = new Gson().fromJson("{\"credits\":[],\"notes\":[]}", com.google.gson.JsonObject.class);
+		assertTrue(!store.keepRetries(p, ok));
+		com.google.gson.JsonObject reply = new Gson().fromJson("{\"credits\":[],\"retry\":[{\"k\":\"loot\",\"items\":[[10,1]],\"done\":[1]}]}",
+			com.google.gson.JsonObject.class);
+		assertTrue(store.keepRetries(p, reply));
+
+		List<PendingSubmissionStore.PendingSubmission> all = store.loadAll();
+		assertEquals(1, all.size());
+		assertEquals("[{\"k\":\"loot\",\"items\":[[10,1]],\"done\":[1]}]", all.get(0).facts.toString());
+		assertEquals(3, store.readScreenshot(all.get(0)).length);
+		assertNull(PendingSubmissionStore.retries(new Gson().fromJson("{\"retry\":[]}", com.google.gson.JsonObject.class)));
 	}
 }

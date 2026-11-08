@@ -19,8 +19,7 @@ import java.util.*;
  * pages on the way in, so a game update that shuffles pages is a dataset rebuild rather than a
  * plugin release.
  */
-final class ClogFullSync
-{
+final class ClogFullSync {
 	/**
 	 * Items land over several ticks; wait this long after the last one before calling it complete.
 	 * Two ticks and change — long enough that a transmit arriving in bursts isn't cut in half, short
@@ -45,8 +44,7 @@ final class ClogFullSync
 	private boolean manual;
 
 	/** A transmit is starting (the log was opened / the button was pressed). Clears anything stale. */
-	void begin(boolean manualRequest)
-	{
+	void begin(boolean manualRequest) {
 		items.clear();
 		receiving = true;
 		manual = manual || manualRequest;
@@ -54,12 +52,8 @@ final class ClogFullSync
 	}
 
 	/** One item, straight off the transmit script. Ignored unless a transmit is actually in flight. */
-	void onItem(int itemId, int quantity, long now)
-	{
-		if (!receiving || itemId <= 0)
-		{
-			return;
-		}
+	void onItem(int itemId, int quantity, long now) {
+		if (!receiving || itemId <= 0) return;
 		items.put(itemId, Math.max(1, quantity));
 		lastItemAt = now;
 	}
@@ -68,8 +62,7 @@ final class ClogFullSync
 	 * Has a complete-looking transmit settled? True once nothing has arrived for {@link #QUIET_MS}
 	 * and enough items landed to be a log rather than a fragment.
 	 */
-	boolean isDue(long now)
-	{
+	boolean isDue(long now) {
 		return receiving
 			&& lastItemAt > 0
 			&& items.size() >= MIN_ITEMS
@@ -77,19 +70,16 @@ final class ClogFullSync
 	}
 
 	/** True when the player pressed the button, so the caller can report the result in chat. */
-	boolean isManual()
-	{
+	boolean isManual() {
 		return manual;
 	}
 
 	/** Everything received, as an unmodifiable snapshot. Does not clear — see {@link #onSent}. */
-	Map<Integer, Integer> snapshot()
-	{
+	Map<Integer, Integer> snapshot() {
 		return Collections.unmodifiableMap(new LinkedHashMap<>(items));
 	}
 
-	int size()
-	{
+	int size() {
 		return items.size();
 	}
 
@@ -100,11 +90,9 @@ final class ClogFullSync
 	 * nothing. Order-independent (the game's transmit order is not ours to rely on) and includes
 	 * quantities, so a second of the same item still counts as a change.
 	 */
-	synchronized long fingerprint()
-	{
+	synchronized long fingerprint() {
 		long hash = items.size();
-		for (Map.Entry<Integer, Integer> e : items.entrySet())
-		{
+		for (Map.Entry<Integer, Integer> e : items.entrySet()) {
 			// Mixed per entry then XORed in: adding an item changes it, and reordering doesn't.
 			long h = e.getKey() * 0x9E3779B97F4A7C15L + e.getValue();
 			hash ^= h ^ (h >>> 29);
@@ -113,8 +101,7 @@ final class ClogFullSync
 	}
 
 	/** The push landed: drop the batch and stand down until the next transmit. */
-	void onSent()
-	{
+	void onSent() {
 		reset();
 	}
 
@@ -122,14 +109,12 @@ final class ClogFullSync
 	 * The push failed. Keeps the items so the next tick can retry, but stops the clock restarting —
 	 * a site that is down must not cost the player their transmit.
 	 */
-	void onSendFailed(long now)
-	{
+	void onSendFailed(long now) {
 		lastItemAt = now;
 	}
 
 	/** Account switch / logout: a half-received log belongs to nobody. */
-	void reset()
-	{
+	void reset() {
 		items.clear();
 		receiving = false;
 		manual = false;

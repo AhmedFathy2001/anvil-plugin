@@ -11,8 +11,7 @@ import net.runelite.client.game.ItemStack;
  * when the player opens it, minutes later — far outside the 3s per-tile window — and used to credit
  * the same item a second time. Each chat credit now cancels exactly one later loot copy of the item.
  */
-final class ChatCredits
-{
+final class ChatCredits {
 	/** Long enough to sit in the raid lobby before opening the chest. */
 	static final long WINDOW_MS = 30 * 60_000;
 
@@ -22,10 +21,8 @@ final class ChatCredits
 	/** Lines naming the same item this close together (drop line + clog line) are one acquisition. */
 	static final long SAME_DROP_MS = 10_000;
 
-	synchronized void note(Collection<ItemStack> credited, long now)
-	{
-		for (ItemStack s : credited)
-		{
+	synchronized void note(Collection<ItemStack> credited, long now) {
+		for (ItemStack s : credited) {
 			long[] o = owed.get(s.getId());
 			long qty = o == null || now - o[1] > WINDOW_MS ? s.getQuantity()
 				: now - o[1] <= SAME_DROP_MS ? Math.max(o[0], s.getQuantity())
@@ -35,28 +32,19 @@ final class ChatCredits
 	}
 
 	/** {@code items} less whatever a chat line already credited; consumes those claims. */
-	synchronized List<ItemStack> unclaimed(Collection<ItemStack> items, long now)
-	{
+	synchronized List<ItemStack> unclaimed(Collection<ItemStack> items, long now) {
 		owed.values().removeIf(o -> now - o[1] > WINDOW_MS);
 		List<ItemStack> out = new ArrayList<>(items.size());
-		for (ItemStack s : items)
-		{
+		for (ItemStack s : items) {
 			long[] o = owed.get(s.getId());
 			int left = s.getQuantity();
-			if (o != null)
-			{
+			if (o != null) {
 				int take = (int) Math.min(o[0], left);
 				left -= take;
 				o[0] -= take;
-				if (o[0] <= 0)
-				{
-					owed.remove(s.getId());
-				}
+				if (o[0] <= 0) owed.remove(s.getId());
 			}
-			if (left > 0)
-			{
-				out.add(left == s.getQuantity() ? s : new ItemStack(s.getId(), left));
-			}
+			if (left > 0) out.add(left == s.getQuantity() ? s : new ItemStack(s.getId(), left));
 		}
 		return out;
 	}
