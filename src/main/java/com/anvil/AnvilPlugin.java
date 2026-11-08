@@ -4937,15 +4937,12 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		try {
-			String filename = "anvil-sub-" + pending.tileId + "-" + pending.timestamp + (BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png");
-
 			if (pending.clan == null) {
 				warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
 			}
-			log.info("Uploading screenshot for tile '{}'...", pending.label);
-			String imageUrl = apiClient.uploadImage(pngBytes, filename);
-
-			JsonObject reply = apiClient.postFacts(pending.facts, imageUrl, pending.proof, pendingCoop(pending));
+			log.info("Sending proof for '{}'...", pending.label);
+			// One request: the facts and the screenshot together (the site stores it only if something credits).
+			JsonObject reply = apiClient.postFacts(pending.facts, pngBytes, pending.proof, pendingCoop(pending));
 			adoptFacts(reply);
 			// Some facts didn't file (the site failed for a passing reason): only those stay, with the screenshot.
 			if (pendingSubmissionStore.keepRetries(pending, reply)) return false;
@@ -9289,14 +9286,20 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/** A proof frame as a high-quality JPEG (no alpha: JPEG has none). */
+	/** Wider than this (a big or HiDPI window), a proof is scaled down: the stamp and the detail read the same. */
+	private static final int PROOF_MAX_WIDTH = 1920;
+
+	/** A proof frame as a JPEG (no alpha: JPEG has none), at most {@link #PROOF_MAX_WIDTH} wide. */
 	private static byte[] jpeg(BufferedImage img) throws IOException {
 		BufferedImage rgb = img;
-		if (img.getType() != BufferedImage.TYPE_INT_RGB) {
-			rgb = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
+		int w = Math.min(img.getWidth(), PROOF_MAX_WIDTH);
+		int h = (int) Math.round(img.getHeight() * (w / (double) img.getWidth()));
+		if (img.getType() != BufferedImage.TYPE_INT_RGB || w != img.getWidth()) {
+			rgb = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 			Graphics2D g = rgb.createGraphics();
 			try {
-				g.drawImage(img, 0, 0, null);
+				g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+				g.drawImage(img, 0, 0, w, h, null);
 			} finally {
 				g.dispose();
 			}
@@ -9304,7 +9307,7 @@ public class AnvilPlugin extends Plugin {
 		javax.imageio.ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
 		javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
 		param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
-		param.setCompressionQuality(0.9f);
+		param.setCompressionQuality(0.8f);
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
 		try (javax.imageio.stream.ImageOutputStream out = ImageIO.createImageOutputStream(baos)) {
 			writer.setOutput(out);

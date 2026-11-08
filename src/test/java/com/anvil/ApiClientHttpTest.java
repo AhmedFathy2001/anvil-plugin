@@ -191,10 +191,16 @@ public class ApiClientHttpTest
 		reply = "{\"credits\":[]}";
 		com.google.gson.JsonArray facts = new com.google.gson.JsonArray();
 		facts.add(RuleEngine.tile(2, 1, "sec", 60));
-		assertEquals("{\"credits\":[]}", c.postFacts(facts, "u", null, null).toString());
+		assertEquals("{\"credits\":[]}", c.postFacts(facts, null, null, null).toString());
 		assertEquals("/c/home/api/plugin/facts", seen.get(0).url().encodedPath());
 		assertEquals("1", seen.get(0).header("X-Anvil-Boards"));
 		assertTrue(bodies.get(0).contains("\"facts\":[{\"k\":\"tile\",\"t\":2,\"n\":1,\"sec\":60}]"));
+		// With a screenshot: one multipart request, the JSON in "body" and the image in "file".
+		byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2};
+		c.postFacts(facts, jpeg, null, null);
+		assertEquals("multipart", seen.get(1).body().contentType().type());
+		assertTrue(bodies.get(1).contains("name=\"body\""));
+		assertTrue(bodies.get(1).contains("name=\"file\"; filename=\"proof.jpg\""));
 		code = 409;
 		reply = "{\"error\":\"done\"}";
 		try

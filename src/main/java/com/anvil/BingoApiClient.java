@@ -735,14 +735,20 @@ public class BingoApiClient {
 		return etagGetOrNull(configUrl("/api/plugin/rules"), RuleEngine.Table.class, polls, "Rules");
 	}
 
-	/** POST /api/plugin/facts: what happened, for the site to credit; answered with the tiles' real counts. */
-	JsonObject postFacts(JsonArray facts, String imageUrl, JsonObject proof, CoopFingerprint coop) throws IOException {
+	/**
+	 * POST /api/plugin/facts: what happened, for the site to credit; answered with the tiles' real counts.
+	 * {@code image}, when there is one, rides in the same request (multipart) — the site stores it.
+	 */
+	JsonObject postFacts(JsonArray facts, byte[] image, JsonObject proof, CoopFingerprint coop) throws IOException {
 		JsonObject body = new JsonObject();
 		body.add("facts", facts);
-		body.addProperty("img", imageUrl);
 		body.add("proof", proof);
 		if (coop != null && !coop.isEmpty()) body.add("coop", gson.toJsonTree(coop));
-		return gson.fromJson(postJson(configUrl("/api/plugin/facts"), body, "Facts", true), JsonObject.class);
+		RequestBody req = image == null ? json(body) : new MultipartBody.Builder().setType(MultipartBody.FORM)
+			.addFormDataPart("body", gson.toJson(body))
+			.addFormDataPart("file", isJpeg(image) ? "proof.jpg" : "proof.png", RequestBody.create(isJpeg(image) ? JPEG : PNG, image))
+			.build();
+		return gson.fromJson(post(configUrl("/api/plugin/facts"), req, "Facts", true), JsonObject.class);
 	}
 
 	/** POST /api/plugin/notify-prefs: the notify settings RuneLite used to hold, once. */
@@ -1328,9 +1334,13 @@ public class BingoApiClient {
 	 * "{"error":...,"retryAfterMs":49445}" tells them to file a bug.
 	 */
 	private String postJson(String path, JsonObject payload, String what, boolean classify) throws IOException {
+		return post(path, json(payload), what, classify);
+	}
+
+	private String post(String path, RequestBody payload, String what, boolean classify) throws IOException {
 		// A full URL (configUrl) is already addressed.
 		String url = path.startsWith("/") ? clanUrl(path) : path;
-		return execute(httpClient, authedRequest(url).post(json(payload)), (response, body) -> {
+		return execute(httpClient, authedRequest(url).post(payload), (response, body) -> {
 			int code = response.code();
 			if (response.isSuccessful()) return body;
 			if (what == null) {
