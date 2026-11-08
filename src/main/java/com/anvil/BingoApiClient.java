@@ -732,7 +732,10 @@ public class BingoApiClient {
 
 	/** GET /api/plugin/rules ({@link RuleEngine}), addressed like the config it is built from. Null on failure. */
 	RuleEngine.Table fetchRules() {
-		return etagGetOrNull(configUrl("/api/plugin/rules"), RuleEngine.Table.class, polls, "Rules");
+		RuleEngine.Table t = etagGetOrNull(configUrl("/api/plugin/rules"), RuleEngine.Table.class, polls, "Rules");
+		// A fresh copy each time: the engine counts on the table it holds, and a 304 hands back the cached
+		// object — so a guess the site never took (a refused credit) would outlive every refresh.
+		return t == null ? null : gson.fromJson(gson.toJson(t), RuleEngine.Table.class);
 	}
 
 	/**

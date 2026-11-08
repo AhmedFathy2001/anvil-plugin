@@ -115,6 +115,19 @@ public class RuleEngineTest
 	}
 
 	@Test
+	public void aRefusedCreditsCountIsNotAdopted()
+	{
+		RuleEngine.Table t = table();
+		RuleEngine.KillRule r = kill(3, 1, 2, "Vorkath");
+		addKill(t, r, "vorkath");
+		RuleEngine e = engine(t);
+		com.google.gson.JsonObject reply = new com.google.gson.JsonParser().parse(
+			"{\"credits\":[{\"t\":3,\"have\":2,\"of\":2,\"ok\":false,\"error\":\"no\"}]}").getAsJsonObject();
+		e.adopt(reply);
+		assertEquals(1, r.have);
+	}
+
+	@Test
 	public void killAtCompletionSendsNoFact()
 	{
 		RuleEngine.Table t = table();

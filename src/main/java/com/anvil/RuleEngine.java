@@ -415,6 +415,8 @@ final class RuleEngine {
 		if (reply.has("credits")) {
 			for (JsonElement el : reply.getAsJsonArray("credits")) {
 				JsonObject c = el.getAsJsonObject();
+				// A refused credit's count isn't the tile's: the next config's table says what is.
+				if (c.has("ok") && !c.get("ok").getAsBoolean()) continue;
 				int id = c.get("t").getAsInt();
 				long have = c.get("have").getAsLong();
 				long of = c.get("of").getAsLong();
