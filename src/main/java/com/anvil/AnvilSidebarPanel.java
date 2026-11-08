@@ -1208,8 +1208,19 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** The site confirmed a tile done: ask now, so a tile's detail doesn't say "Open" after the chat said done. */
 	public void tileCompleted() {
-		clanAskedAt = 0;
+		askAgainNow();
 		refresh();
+	}
+
+	/**
+	 * EDT: the open Clan view asks the site again right away, past the 5s gap and the search-box guard:
+	 * a reload keeps what's typed, and after a completion or our own proof a detail left saying "Open"
+	 * reads as broken. Remembered answers are dropped first so none is redrawn on the way.
+	 */
+	private void askAgainNow() {
+		uiCache.clear();
+		clanAskedAt = System.currentTimeMillis();
+		if (onScreen && clanShown) clanView.refresh();
 	}
 
 	private BooleanSupplier pushLive = () -> false;
@@ -1222,9 +1233,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** The live push says the board moved: ask now. */
 	void boardChanged() {
 		// Every remembered view may hold the old numbers: never redraw one of those first.
-		SwingUtilities.invokeLater(uiCache::clear);
-		clanAskedAt = 0;
-		SwingUtilities.invokeLater(this::poll);
+		SwingUtilities.invokeLater(() -> {
+			askAgainNow();
+			poll();
+		});
 	}
 
 	private final AtomicBoolean liveQueued = new AtomicBoolean();
