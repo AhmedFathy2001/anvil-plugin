@@ -139,6 +139,19 @@ public class PluginConfigResponse {
 		public String eventName;
 	}
 
+	/** Every live board this character is on, the addressed one first: the plugin tracks them all. */
+	public List<HomeBoard> boards;
+
+	/** Is any board live? Its tiles ride the tracked lists and the rule table, tagged by board. */
+	public boolean live() {
+		return boards != null && !boards.isEmpty();
+	}
+
+	/** Is this board one of them? */
+	public boolean live(int eventId) {
+		return boards != null && boards.stream().anyMatch(b -> b.eventId == eventId);
+	}
+
 	/**
 	 * THE WHOLE BOARD'S FRACTION, from the server — not from what this plugin can see.
 	 *
@@ -242,7 +255,6 @@ public class PluginConfigResponse {
 	public List<RosterEntry> pvpRoster;           // event roster (RSN -> teamId) for 'team:other' matching; empty unless a pvp tile exists
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TrackedCombo> trackedCombos;     // combo tiles: their parts ride the lists above (partOf)
-	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
 	public List<RollTable> rollTables;           // bosses whose vestige is on a fixed roll rotation
 
 	// Merged read-bootstrap (GET /api/plugin/config now returns these so login is one call):
@@ -378,6 +390,8 @@ public class PluginConfigResponse {
 		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
 		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
 		public Integer partOf;
+		/** Another board's tile (its eventId); null on the addressed board. */
+		public HomeBoard board;
 	}
 
 	/**
@@ -401,6 +415,7 @@ public class PluginConfigResponse {
 		public int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
 		public String completedBy; // crediting player of the finishing submission; null for stat/manual tiles
 		public Integer partOf; // a combo's part finishing: progress on the combo, not a tile complete
+		public HomeBoard board; // as TrackedTile.board
 	}
 
 	/**

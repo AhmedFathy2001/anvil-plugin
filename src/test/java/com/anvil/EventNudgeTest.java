@@ -30,13 +30,16 @@ public class EventNudgeTest
 		cfg.event = new PluginConfigResponse.EventInfo();
 		cfg.event.name = "July Bingo";
 		cfg.event.startDate = "2020-01-01T00:00:00.000Z";
+		cfg.boards = Collections.singletonList(new PluginConfigResponse.HomeBoard());
 		return cfg;
 	}
 
+	/** The site lists only started boards, so one still to start is no board at all. */
 	private static PluginConfigResponse notStarted()
 	{
 		PluginConfigResponse cfg = live();
 		cfg.event.startDate = "2099-01-01T00:00:00.000Z";
+		cfg.boards = Collections.emptyList();
 		return cfg;
 	}
 

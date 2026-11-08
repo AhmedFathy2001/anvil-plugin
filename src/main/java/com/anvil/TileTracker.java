@@ -17,9 +17,10 @@ import java.time.*;
  * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress}.
  *
  * <p>Fetched only while something is pinned: on the plugin's 30s config tick, and a few seconds after
- * this account progresses a pinned tile, so your own kill shows without waiting a full poll. Pins
- * belong to one event. They can go up before it starts (the widget counts down, then goes live on the
- * first poll after the whistle) and are forgotten once the site says it's over.
+ * this account progresses a pinned tile, so your own kill shows without waiting a full poll. Each pin
+ * keeps its board: pins from several live boards sit side by side (tile ids are unique across boards).
+ * They can go up before it starts (the widget counts down, then goes live on the first poll after the
+ * whistle) and a board's pins are forgotten once the site says it's over.
  *
  * <p>A pin your team finishes shows "Done" for a moment and then takes itself down. A done tile can't be
  * pinned — the sidebar offers no button for it.
@@ -41,7 +42,6 @@ public class TileTracker {
 
 	/** tileId → its widget, in pin order. Guarded by {@code this}. */
 	private final Map<Integer, Widget> pins = new LinkedHashMap<>();
-	private int eventId;
 	/** The logged-in account's hash, or -1 at the login screen: pins are saved per account. */
 	private long account = -1;
 	/**
@@ -134,13 +134,12 @@ public class TileTracker {
 
 	/**
 	 * The account now logged in ({@code -1} at the login screen): take the last one's pins down and
-	 * restore this one's ("eventId:tileId,tileId"). One client plays several accounts, and an alt
-	 * that isn't on the event has no board to unpin them from.
+	 * restore this one's ("eventId:tileId,tileId;eventId:tileId"). One client plays several accounts,
+	 * and an alt that isn't on the event has no board to unpin them from.
 	 */
 	synchronized void forAccount(long hash) {
 		if (hash == account) return;
 		shutDown();
-		eventId = 0;
 		account = hash;
 		String saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
 		if (saved == null && hash != -1 && legacyPins != null) {
@@ -150,13 +149,11 @@ public class TileTracker {
 		if (hash != -1) legacyPins = null;
 		if (saved == null || !saved.contains(":")) return;
 		try {
-			String[] parts = saved.split(":", 2);
-			eventId = Integer.parseInt(parts[0]);
-			for (String id : parts[1].split(",")) {
-				if (!id.isEmpty() && pins.size() < MAX_PINS) add(Integer.parseInt(id));
-			}
-		} catch (NumberFormatException e) {
-			unpinAll();
+			parse(saved).forEach((tile, event) -> {
+				if (pins.size() < MAX_PINS) add(event, tile);
+			});
+		} catch (RuntimeException e) {
+			shutDown();
 			save();
 		}
 	}
@@ -168,7 +165,8 @@ public class TileTracker {
 	}
 
 	synchronized boolean isPinned(int eventId, int tileId) {
-		return this.eventId == eventId && pins.containsKey(tileId);
+		Widget w = pins.get(tileId);
+		return w != null && w.event == eventId;
 	}
 
 	/**
@@ -179,7 +177,7 @@ public class TileTracker {
 		if (isPinned(eventId, tileId) != on) toggle(eventId, tileId);
 	}
 
-	/** Pin or unpin; pinning a tile from another event drops the old event's pins. */
+	/** Pin or unpin. */
 	synchronized void toggle(int eventId, int tileId) {
 		if (!TileNotes.pinnable(tileId)) {
 			return; // a cap counter's virtual entry is never pinned
@@ -187,14 +185,10 @@ public class TileTracker {
 		if (isPinned(eventId, tileId)) {
 			hide(removePin(tileId));
 		} else {
-			if (this.eventId != eventId) {
-				unpinAll();
-				this.eventId = eventId;
-			}
 			if (pins.size() >= MAX_PINS) return;
 			// A done tile can't be pinned (the sidebar offers no button), so a pin that turns out done
 			// on its first fetch was finished in between — it comes down like any other.
-			add(tileId).keepWhenDone = false;
+			add(eventId, tileId).keepWhenDone = false;
 		}
 		save();
 	}
@@ -211,20 +205,14 @@ public class TileTracker {
 	/** Refetch one pinned tile (no-op when it isn't pinned). Blocking. */
 	void refresh(int tileId) {
 		Widget w;
-		int event;
 		synchronized (this) {
 			w = pins.get(tileId);
-			event = eventId;
 		}
 		if (w == null) return;
+		int event = w.event;
 		Progress p = apiClient.fetchTileProgress(event, tileId);
 		if (p != null && p.phase != null && p.phase.contains("ended")) {
-			synchronized (this) {
-				if (eventId == event) {
-					unpinAll();
-					save();
-				}
-			}
+			clear(event);
 		} else if (p != null) {
 			show(event, tileId, w, p);
 		}
@@ -237,9 +225,9 @@ public class TileTracker {
 	void pushed(int event, int tileId, Progress p, int myTeam, int myPlayer) {
 		Widget w;
 		synchronized (this) {
-			w = event == eventId ? pins.get(tileId) : null;
+			w = pins.get(tileId);
 		}
-		if (w == null || p == null || p.teams == null || p.phase == null || p.phase.contains("ended")) return;
+		if (w == null || w.event != event || p == null || p.teams == null || p.phase == null || p.phase.contains("ended")) return;
 		for (Team t : p.teams) {
 			t.mine = t.teamId == myTeam;
 			if (t.members != null) t.members.forEach(m -> m.mine = m.id > 0 && m.id == myPlayer);
@@ -278,7 +266,7 @@ public class TileTracker {
 	}
 
 	private synchronized void unpinDone(int event, int tileId, Widget w) {
-		if (eventId == event && pins.get(tileId) == w) {
+		if (pins.get(tileId) == w) {
 			hide(removePin(tileId));
 			save();
 		}
@@ -286,14 +274,18 @@ public class TileTracker {
 
 	/** The tiles pinned for this event, in pin order. */
 	synchronized List<Integer> pinned(int eventId) {
-		return this.eventId == eventId ? new ArrayList<>(pins.keySet()) : new ArrayList<>();
+		List<Integer> out = new ArrayList<>();
+		pins.values().forEach(w -> {
+			if (w.event == eventId) out.add(w.tileId);
+		});
+		return out;
 	}
 
 	/** The widget's right-click "Unpin": one pin, or every pin from the shared panel. */
 	synchronized boolean unpinFrom(Overlay overlay, String option) {
 		if (option == null || !option.startsWith("Unpin")) return false;
 		if (overlay == combined) {
-			unpinAll();
+			shutDown();
 		} else if (overlay instanceof Widget && pins.get(((Widget) overlay).tileId) == overlay) {
 			hide(removePin(((Widget) overlay).tileId));
 		} else return false;
@@ -303,10 +295,8 @@ public class TileTracker {
 
 	/** Take every pin for this event down. */
 	synchronized void clear(int eventId) {
-		if (this.eventId == eventId && !pins.isEmpty()) {
-			unpinAll();
-			save();
-		}
+		for (int id : pinned(eventId)) hide(removePin(id));
+		save();
 	}
 
 	/** Asked from the client thread on every credited kill, so read off the snapshot, lock-free. */
@@ -317,10 +307,11 @@ public class TileTracker {
 		return false;
 	}
 
-	private Widget add(int tileId) {
+	private Widget add(int eventId, int tileId) {
 		int slot = 0;
 		while (slotTaken(slot)) slot++;
 		Widget w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
+		w.event = eventId;
 		w.notes = id -> notes.apply(id);
 		pins.put(tileId, w);
 		drawn = new ArrayList<>(pins.values());
@@ -335,11 +326,6 @@ public class TileTracker {
 		return pins.values().stream().anyMatch(w -> w.slot == slot);
 	}
 
-	private void unpinAll() {
-		shutDown();
-		eventId = 0;
-	}
-
 	private String key() {
 		return CFG_PINS + "." + account;
 	}
@@ -350,9 +336,23 @@ public class TileTracker {
 			configManager.unsetConfiguration("osrsbingo", key());
 			return;
 		}
-		StringBuilder sb = new StringBuilder().append(eventId).append(':');
-		for (int id : pins.keySet()) sb.append(id).append(',');
-		configManager.setConfiguration("osrsbingo", key(), sb.substring(0, sb.length() - 1));
+		configManager.setConfiguration("osrsbingo", key(), format(pins.values()));
+	}
+
+	/** Saved pins, tile → its board: "event:tile,tile;event:tile" (one board's "event:tile,tile" too). */
+	static Map<Integer, Integer> parse(String saved) {
+		Map<Integer, Integer> out = new LinkedHashMap<>();
+		for (String board : saved.split(";")) {
+			String[] parts = board.split(":", 2);
+			for (String id : parts[1].split(",")) if (!id.isEmpty()) out.put(Integer.valueOf(id), Integer.valueOf(parts[0]));
+		}
+		return out;
+	}
+
+	static String format(Collection<Widget> pins) {
+		StringJoiner sj = new StringJoiner(";");
+		pins.forEach(w -> sj.add(w.event + ":" + w.tileId));
+		return sj.toString();
 	}
 
 	/** Every pin in one movable panel, in pin order, a blank line between them — name and bar each. */
@@ -423,6 +423,8 @@ public class TileTracker {
 	static class Widget extends OverlayPanel {
 		final int slot;
 		final int tileId;
+		/** The board it's on. */
+		int event;
 		private final ToLongBiFunction<Integer, Long> shown;
 		/** This tile's extra lines (TileTracker.notes); none by default. */
 		volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
