@@ -39,7 +39,6 @@ final class RuleEngine {
 		long have;
 		long of;
 		List<String> src;
-		transient boolean told;
 	}
 
 	static final class DropRule extends Rule {
@@ -106,8 +105,6 @@ final class RuleEngine {
 		final Map<Integer, Long> raised = new HashMap<>();
 		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
 		final List<Rule> toasts = new ArrayList<>();
-		/** Tiles (not stats, which say their own line) this event finished locally, for "Tile complete" now. */
-		final List<Rule> finished = new ArrayList<>();
 	}
 
 	private static final long DEDUP_MS = 3_000;
@@ -309,7 +306,6 @@ final class RuleEngine {
 			o.raised.put(r.t, r.have);
 		}
 		boolean gain = "gain".equals(r.on);
-		boolean single = r.of <= 0; // a one-clear timed tile: the clear is the completion
 		String key = r.say != null ? r.say : r.on;
 		if (t.say.containsKey(key) && !(gain && held.containsKey(r.t))) o.say.add(fill(t, key, r, "{x}", x));
 		if (gain) {
@@ -323,20 +319,7 @@ final class RuleEngine {
 		o.shot = true;
 		o.coop |= r.coop;
 		o.facts.add(tile(r.t, n, kv));
-		if (single) o.finished.add(snap(r));
 		return o;
-	}
-
-	/** Fills {@code o.finished} with the tiles its raised counts just took to their goal (once each). */
-	synchronized void finish(Out o) {
-		Table t = table;
-		if (t == null || o.raised.isEmpty()) return;
-		for (Rule r : all(t)) {
-			Long now = o.raised.get(r.t);
-			if (now == null || r.of <= 0 || now < r.of || r.told) continue;
-			r.told = true;
-			if (o.finished.stream().noneMatch(f -> f.t == r.t)) o.finished.add(snap(r));
-		}
 	}
 
 	/** One event against the rules of kind {@code on}: each one it names and passes, credited (a gain by {@code value}, else 1). */

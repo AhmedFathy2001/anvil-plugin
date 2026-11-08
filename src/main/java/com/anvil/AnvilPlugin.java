@@ -4017,9 +4017,6 @@ public class AnvilPlugin extends Plugin {
 		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
 		say(o.say);
 		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
-		rules.finish(o);
-		// Off the client thread: the completion memory shares configFetchLock with a fetch in flight.
-		o.finished.forEach(r -> submit(() -> safely("tile complete", () -> announceCompletedNow(r.t, r.label))));
 		for (JsonObject f : o.facts) {
 			if (o.shot && f.has("t")) noteLocalProgress(f.get("t").getAsInt()); // "Active now": this account credited this tile
 			queueFact(f, o.shot, coop);
@@ -4139,6 +4136,12 @@ public class AnvilPlugin extends Plugin {
 			for (JsonElement el : reply.getAsJsonArray("credits")) {
 				JsonObject c = el.getAsJsonObject();
 				if (c.has("completed") && c.get("completed").getAsBoolean()) announceCompletedNow(c.get("t").getAsInt(), c.get("label").getAsString());
+				// The site turned it down (its reason in "error"): say so, and drop the count this client guessed.
+				if (c.has("ok") && !c.get("ok").getAsBoolean() && c.has("error") && !c.get("error").isJsonNull()
+						&& !"Will retry".equals(c.get("error").getAsString())) {
+					optimistic.clear(c.get("t").getAsInt());
+					sendChatMessage(ChatPalette.Tone.WARN, "Not counted: " + c.get("label").getAsString() + " — " + c.get("error").getAsString());
+				}
 			}
 		}
 		refreshConfig();
@@ -5588,7 +5591,10 @@ public class AnvilPlugin extends Plugin {
 	/** "Tile complete: <label> — by <name>!", the name in its Supporter colours where it has them. */
 	private void announceTileComplete(String label, String completedBy) {
 		String who = completedBy == null ? "" : completedBy.trim();
-		String painted = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.decorate(clean(who), chatStar());
+		// The look for the chatbox behind it (parchment or transparent), as names in chat get: the main
+		// look alone reads wrong on the light chatbox.
+		String painted = who.isEmpty() || !config.supporterChatFlair() ? null
+			: chatFlair.decorateReadable(clean(who), chatStar(), 0, lastChatboxOpaque);
 		if (painted != null) {
 			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
 		} else sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
