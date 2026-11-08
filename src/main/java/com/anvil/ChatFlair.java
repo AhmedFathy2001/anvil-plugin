@@ -394,6 +394,13 @@ final class ChatFlair {
 	 * whatever follows the colon (empty in the chatbox's sender column; the message on a split-PM line).
 	 */
 	private static final Pattern SENDER_SHOWN = Pattern.compile("^\\s*((?:\\[[^\\]]*\\]\\s*)*)(?:(From|To)\\s+)?([^:\\[\\]]{1,24}):(.*)$", Pattern.DOTALL);
+	/** A chatbox sender column of a private message ("From Name:" / "To Name:", nothing after the colon). */
+	static boolean pmSender(String raw) {
+		if (raw == null || raw.indexOf(':') < 0) return false;
+		Matcher m = SENDER_SHOWN.matcher(shown(raw).text);
+		return m.matches() && m.group(2) != null && m.group(4).trim().isEmpty();
+	}
+
 	/** Leading "[channel]" / "[timestamp]" groups and spaces before a broadcast's text. */
 	private static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
 

@@ -50,6 +50,18 @@ public class ChatFlairTest
 	}
 
 	@Test
+	public void privateMessageSenderColumnsAreRecognisedForProofHiding()
+	{
+		assertTrue(ChatFlair.pmSender("From Bob:"));
+		assertTrue(ChatFlair.pmSender("To <col=ff0000>Bob</col>:"));
+		assertTrue(ChatFlair.pmSender("[12:00] From Bob:"));
+		assertFalse(ChatFlair.pmSender("Bob:"));
+		assertFalse(ChatFlair.pmSender("[Clan] Bob:"));
+		assertFalse(ChatFlair.pmSender("From Bob: hi there"));
+		assertFalse(ChatFlair.pmSender("Your Zulrah kill count is: 500."));
+	}
+
+	@Test
 	public void solidColourKeepsTheIconsAndMatchesSpacesAndCase()
 	{
 		ChatFlair f = with(entry("gim nisbro", "#ffd35c", null));

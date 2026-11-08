@@ -4039,7 +4039,11 @@ public class AnvilPlugin extends Plugin {
 					// The at-moment frame; the flush shot lands once floor loot has settled.
 					burst = new PendingSubmission();
 					factBurstFrame = null;
-					drawManager.requestNextFrameListener(img -> factBurstFrame = (BufferedImage) img);
+					Runnable show = hidePmsForShot();
+					drawManager.requestNextFrameListener(img -> {
+						factBurstFrame = (BufferedImage) img;
+						if (show != null) clientThread.invokeLater(show);
+					});
 				}
 				factBurst.add(fact);
 				factBurstCoop = richer(factBurstCoop, coop);
@@ -9334,8 +9338,10 @@ public class AnvilPlugin extends Plugin {
 	private void onCleanFrame(Consumer<BufferedImage> work) {
 		clientThread.invokeLater(() -> {
 			capturing = true;
+			Runnable show = hidePmsForShot();
 			drawManager.requestNextFrameListener(image -> {
 				capturing = false;
+				if (show != null) clientThread.invokeLater(show);
 				if (!execLive()) return;
 				try {
 					executor.submit(() -> work.accept((BufferedImage) image));
@@ -9343,6 +9349,27 @@ public class AnvilPlugin extends Plugin {
 				}
 			});
 		});
+	}
+
+	/**
+	 * Client thread: private messages out of the next frame (the split-PM box, and each chatbox row whose
+	 * sender column reads "From …:" / "To …:"), for a proof. Returns how to show them again, or null.
+	 */
+	private Runnable hidePmsForShot() {
+		if (!config.hidePmsInProofs() || !client.isClientThread()) return null;
+		List<Widget> hid = new ArrayList<>();
+		Widget split = client.getWidget(InterfaceID.PmChat.CONTAINER);
+		if (split != null && !split.isHidden()) hid.add(split);
+		Widget area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
+		Widget[] lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
+		if (lines != null) {
+			Set<Integer> rows = new HashSet<>();
+			for (Widget w : lines) if (w != null && !w.isHidden() && ChatFlair.pmSender(w.getText())) rows.add(w.getOriginalY());
+			for (Widget w : lines) if (w != null && !w.isHidden() && rows.contains(w.getOriginalY())) hid.add(w);
+		}
+		if (hid.isEmpty()) return null;
+		hid.forEach(w -> w.setHidden(true));
+		return () -> hid.forEach(w -> w.setHidden(false));
 	}
 
 	private void onNextFrame(Consumer<BufferedImage> work, Runnable dead) {
