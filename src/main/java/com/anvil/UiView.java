@@ -144,7 +144,7 @@ final class UiView extends JPanel {
 	private JComponent lastClicked;
 	/** Where each nav pane was scrolled to ("slot:pane"), kept across redraws. */
 	private final Map<String, Integer> scrolls = new HashMap<>();
-	private static final Color RAISED = new Color(0x3a3a3a);
+	static final Color RAISED = new Color(0x3a3a3a);
 	private static final Color RAISED_HOVER = new Color(0x474747);
 
 	UiView(Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills) {
@@ -925,47 +925,71 @@ final class UiView extends JPanel {
 		String key = str(n, "key");
 		JsonArray list = n.has("tabs") ? n.getAsJsonArray("tabs") : new JsonArray();
 		if (list.size() == 0) return new JPanel();
+		// A tab with {@code on} and no body is a link (Feed | Chat): picking it runs the action, and the
+		// one marked {@code sel} is lit.
 		Map<String, JsonObject> bodies = new LinkedHashMap<>();
-		for (JsonElement e : list) bodies.put(str(e.getAsJsonObject(), "label"), e.getAsJsonObject().getAsJsonObject("c"));
+		Map<String, JsonObject> links = new HashMap<>();
 		String wanted = TABS.getOrDefault(key, str(n, "open"));
+		for (JsonElement e : list) {
+			JsonObject t = e.getAsJsonObject();
+			String label = str(t, "label");
+			bodies.put(label, t.has("c") ? t.getAsJsonObject("c") : null);
+			if (t.has("on") && !t.has("c")) links.put(label, t.getAsJsonObject("on"));
+			if (bool(t, "sel")) wanted = label;
+		}
 		String first = bodies.containsKey(wanted) ? wanted : bodies.keySet().iterator().next();
-
-		// A segmented switch: a dark rounded track, the picked segment raised with an orange underline.
 		JPanel wrap = column();
-		Round strip = new Round(new GridLayout(1, bodies.size(), 2, 0), 4, ColorScheme.DARKER_GRAY_COLOR, null, null);
-		strip.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-		left(strip);
 		JPanel body = Ui.row(0);
 		Map<String, JComponent> built = new HashMap<>();
-		Map<String, Round> segs = new LinkedHashMap<>();
-		Consumer<String> pick = name -> {
-			TABS.put(key, name);
-			segs.forEach((k, seg) -> {
-				boolean on = k.equals(name);
-				seg.setOpaque(on);
-				JLabel l = (JLabel) seg.getComponent(0);
-				l.setForeground(on ? Color.WHITE : MUTED);
-				l.setBorder(BorderFactory.createCompoundBorder(
-					BorderFactory.createMatteBorder(0, 0, 2, 0, on ? ColorScheme.BRAND_ORANGE : new Color(0, 0, 0, 0)),
-					BorderFactory.createEmptyBorder(3, 2, 2, 2)));
-				seg.repaint();
-			});
-			replace(body, built.computeIfAbsent(name, k -> node(bodies.get(k))));
+		Consumer<String> open = name -> {
+			if (bodies.get(name) != null) replace(body, built.computeIfAbsent(name, k -> node(bodies.get(k))));
 		};
-		for (String name : bodies.keySet()) {
+		wrap.add(segments(new ArrayList<>(bodies.keySet()), first, name -> {
+			if (links.containsKey(name)) {
+				act(links.get(name));
+				return;
+			}
+			TABS.put(key, name);
+			open.accept(name);
+		}));
+		open.accept(first);
+		if (links.size() < bodies.size()) {
+			wrap.add(gap(4));
+			wrap.add(body);
+		}
+		return wrap;
+	}
+
+	/** A segmented switch: a dark rounded track, the picked segment raised with an orange underline. */
+	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
+		Round strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, ColorScheme.DARKER_GRAY_COLOR, null, null);
+		strip.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+		left(strip);
+		Map<String, Round> segs = new LinkedHashMap<>();
+		Consumer<String> paint = name -> segs.forEach((k, seg) -> {
+			boolean on = k.equals(name);
+			seg.setOpaque(on);
+			JLabel l = (JLabel) seg.getComponent(0);
+			l.setForeground(on ? Color.WHITE : MUTED);
+			l.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createMatteBorder(0, 0, 2, 0, on ? ColorScheme.BRAND_ORANGE : new Color(0, 0, 0, 0)),
+				BorderFactory.createEmptyBorder(3, 2, 2, 2)));
+			seg.repaint();
+		});
+		for (String name : labels) {
 			Round seg = new Round(new BorderLayout(), 3, RAISED, null, null);
 			JLabel l = new ClipLabel(plainText(name), SwingConstants.CENTER);
 			l.setFont(SMALL);
 			seg.add(l, BorderLayout.CENTER);
-			onClick(seg, () -> pick.accept(name));
+			onClick(seg, () -> {
+				paint.accept(name);
+				picked.accept(name);
+			});
 			segs.put(name, seg);
 			strip.add(seg);
 		}
-		pick.accept(first);
-		wrap.add(capH(strip));
-		wrap.add(gap(4));
-		wrap.add(body);
-		return wrap;
+		paint.accept(first);
+		return capH(strip);
 	}
 
 	private JComponent fold(JsonObject n) {

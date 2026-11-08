@@ -1028,7 +1028,38 @@ final class FeedList extends JPanel {
 		}
 	}
 
-	private static final class BlankIcon implements Icon {
+	/** A row's picture on a rounded tile of its kind's colour (purple rare, green done, coral death). */
+	private static final class Tinted implements Icon {
+		private final Icon in;
+		private final Color tint;
+
+		Tinted(Icon in, Color tint) {
+			this.in = in;
+			this.tint = tint;
+		}
+
+		@Override
+		public void paintIcon(Component c, Graphics g, int x, int y) {
+			Graphics2D g2 = (Graphics2D) g.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setColor(tint);
+			g2.fillRoundRect(x, y, ICON_W, ICON_W - 2, 6, 6);
+			g2.dispose();
+			in.paintIcon(c, g, x + (ICON_W - in.getIconWidth()) / 2, y + (ICON_W - 2 - in.getIconHeight()) / 2);
+		}
+
+		@Override
+		public int getIconWidth() {
+			return ICON_W;
+		}
+
+		@Override
+		public int getIconHeight() {
+			return ICON_W - 2;
+		}
+	}
+
+		private static final class BlankIcon implements Icon {
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
 		}
@@ -1348,7 +1379,9 @@ final class FeedList extends JPanel {
 			line2.setFont(SMALL);
 			value.setVisible(true);
 			setBackground(mine(r) ? MINE_BG : ColorScheme.DARKER_GRAY_COLOR);
+			Color tint = UiView.color(UiView.str(r, "tint"), null);
 			Icon ic = iconFor(r);
+			if (tint != null) ic = new Tinted(ic != null ? ic : new BlankIcon(), tint);
 			icon.setIcon(ic);
 			icon.setVisible(ic != null);
 
