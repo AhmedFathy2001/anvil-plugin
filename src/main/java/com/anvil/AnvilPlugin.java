@@ -6377,6 +6377,9 @@ public class AnvilPlugin extends Plugin {
 		animateFlairInterfaces();
 		animateClanTitles();
 		flairMenuTargets();
+		// A shot waiting for this frame: hide again. A chat line added the same tick (our own "counted" line)
+		// rebuilds the chatbox and shows every row, undoing the hide made when the shot was asked for.
+		if (shotsPending > 0) hideShotRows();
 	}
 
 	private static final List<String> CLAN_BOOST_STILL = Collections.unmodifiableList(Arrays.asList("ff9a5a", "e05ad0", "7a8cff"));
@@ -9353,6 +9356,22 @@ public class AnvilPlugin extends Plugin {
 		PluginConfigResponse cfg = pluginConfig;
 		int mask = ChatFlair.hideMask(cfg == null || cfg.me == null ? null : cfg.me.hide);
 		if (mask == 0 || !client.isClientThread()) return null;
+		shotMask = mask;
+		hideShotRows();
+		// Shared across overlapping shots: rows come back only when the last pending shot has its frame, so
+		// one shot's restore can't un-hide a row another shot still needs hidden.
+		shotsPending++;
+		return () -> {
+			if (--shotsPending > 0) return;
+			shotsPending = 0;
+			shotHidden.forEach(w -> w.setHidden(false));
+			shotHidden.clear();
+		};
+	}
+
+	/** Client thread: hide the rows (and split-PM box) the current shot mask covers; remembered for the restore. */
+	private void hideShotRows() {
+		int mask = shotMask;
 		List<Widget> hid = new ArrayList<>();
 		Widget split = (mask & ChatFlair.PM) == 0 ? null : client.getWidget(InterfaceID.PmChat.CONTAINER);
 		if (split != null && !split.isHidden()) hid.add(split);
@@ -9374,18 +9393,11 @@ public class AnvilPlugin extends Plugin {
 			}
 			if (!rows.isEmpty()) for (Widget w : lines) if (w != null && !w.isHidden() && rows.contains(w.getOriginalY())) hid.add(w);
 		}
-		// Shared across overlapping shots: rows come back only when the last pending shot has its frame, so
-		// one shot's restore can't un-hide a row another shot still needs hidden.
 		hid.forEach(w -> w.setHidden(true));
 		shotHidden.addAll(hid);
-		shotsPending++;
-		return () -> {
-			if (--shotsPending > 0) return;
-			shotsPending = 0;
-			shotHidden.forEach(w -> w.setHidden(false));
-			shotHidden.clear();
-		};
 	}
+
+	private int shotMask;
 
 	/** Client thread: the chat rows hidden for screenshots still waiting for their frame, and how many wait. */
 	private final Set<Widget> shotHidden = new HashSet<>();
