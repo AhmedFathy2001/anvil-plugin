@@ -740,6 +740,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 		settingsPanel.add(buildBannerSounds());
 		settingsPanel.add(gap(12));
+		// Most of what you'd look for here lives on the site now: say where, one click away.
+		heading(settingsPanel, "On the Anvil website");
+		settingsPanel.add(left(styleLink(new ClipLabel("Discord posts & screenshot privacy"),
+			"What you post to your clan's Discord, and which chat is left out of your screenshots",
+			() -> LinkBrowser.browse(apiClient.siteLink("/settings/announcements")))));
+		settingsPanel.add(left(styleLink(new ClipLabel("All your Anvil settings"),
+			"Your profile, characters, name colours and more", () -> LinkBrowser.browse(apiClient.siteLink("/settings")))));
+		settingsPanel.add(gap(12));
 		JLabel support = styleLink(new ClipLabel(isSupporter() ? "Your Supporter perks" : "Become a Supporter"),
 			"Name colours, profile banners, clan boosts — and it keeps Anvil running", this::openSupporter);
 		support.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 11));

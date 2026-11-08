@@ -18,7 +18,7 @@ public interface AnvilConfig extends Config {
 
 	@ConfigSection(
 		name = "Notifications",
-		description = "What you post to your clan's Discord (drops, pets, deaths, levels, achievements) is set on the Anvil website: Settings > Announcements.",
+		description = "What you post to your clan's Discord (drops, pets, deaths, levels, achievements) and which chat is hidden in your screenshots are set on the Anvil website: Settings > Announcements (a link is in the Anvil panel's settings tab).",
 		position = 3
 	)
 	String deathsSection = "deathsSection";

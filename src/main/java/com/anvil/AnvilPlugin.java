@@ -1741,7 +1741,7 @@ public class AnvilPlugin extends Plugin {
 	private static final Set<String> INTERNAL_STATE_KEYS = new HashSet<>(Arrays.asList(
 			CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS,
 			CFG_COUNTER_EVENT, CFG_COUNTER_DEATHS, CFG_COUNTER_LOOTGP, CFG_COUNTER_PVP,
-			CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS));
+			CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS, "settingsMovedNoted"));
 	// Per-RSN state keys are stored as "<prefix>:<rsn>".
 	private static final List<String> INTERNAL_STATE_PREFIXES = Arrays.asList(
 			CFG_VESTIGE_ROLLS + ":", CFG_CLOG_STATE + ":", CFG_PB_STATE + ":",
@@ -9281,6 +9281,11 @@ public class AnvilPlugin extends Plugin {
 	private void moveNotifyPrefs(PluginConfigResponse cfg) {
 		if (notifyPrefsMoved || cfg == null) return;
 		notifyPrefsMoved = true;
+		// Once per install: say where the settings went, or nobody finds them.
+		if (!"1".equals(configManager.getConfiguration("osrsbingo", "settingsMovedNoted"))) {
+			configManager.setConfiguration("osrsbingo", "settingsMovedNoted", "1");
+			whenLoggedIn(() -> sendChatMessage(ChatPalette.Tone.INFO, "Your Discord post and screenshot privacy settings are on the Anvil website now: Settings > Announcements. There's a link in the Anvil panel's settings tab."));
+		}
 		String v = configManager.getConfiguration("osrsbingo", CFG_DEFAULTS_VERSION);
 		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(v)) return;
 		JsonObject o = new JsonObject();
