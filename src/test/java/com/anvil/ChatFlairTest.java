@@ -49,16 +49,46 @@ public class ChatFlairTest
 		return w;
 	}
 
-	@Test
-	public void privateMessageSenderColumnsAreRecognisedForProofHiding()
+	private static int kind(String raw)
 	{
-		assertTrue(ChatFlair.pmSender("From Bob:"));
-		assertTrue(ChatFlair.pmSender("To <col=ff0000>Bob</col>:"));
-		assertTrue(ChatFlair.pmSender("[12:00] From Bob:"));
-		assertFalse(ChatFlair.pmSender("Bob:"));
-		assertFalse(ChatFlair.pmSender("[Clan] Bob:"));
-		assertFalse(ChatFlair.pmSender("From Bob: hi there"));
-		assertFalse(ChatFlair.pmSender("Your Zulrah kill count is: 500."));
+		return ChatFlair.chatKind(raw, "The AFK Spot", "Iron Pals", "Fc Name", "Me Myself");
+	}
+
+	@Test
+	public void screenshotPrivacyMaskDefaultsToPrivateMessages()
+	{
+		assertEquals(ChatFlair.PM, ChatFlair.hideMask(null));
+		java.util.Map<String, Boolean> hide = new java.util.HashMap<>();
+		assertEquals(0, ChatFlair.hideMask(hide));
+		hide.put("public", true);
+		hide.put("clanSelf", true);
+		hide.put("group", true);
+		hide.put("pm", false);
+		assertEquals(ChatFlair.PUBLIC | ChatFlair.CLAN_SELF | ChatFlair.GROUP, ChatFlair.hideMask(hide));
+	}
+
+	@Test
+	public void senderColumnsAreClassifiedForScreenshotPrivacy()
+	{
+		assertEquals(ChatFlair.PM, kind("From Bob:"));
+		assertEquals(ChatFlair.PM, kind("To <col=ff0000>Bob</col>:"));
+		assertEquals(ChatFlair.PM, kind("[12:00] From Bob:"));
+		assertEquals(ChatFlair.PUBLIC, kind("Bob:"));
+		assertEquals(ChatFlair.PUBLIC, kind("[12:00] <img=2>Bob:"));
+		assertEquals(ChatFlair.CLAN_OTHERS, kind("[<col=0000ff>The AFK Spot</col>] <img=5>Bob:"));
+		assertEquals(ChatFlair.CLAN_SELF, kind("[12:00] [The AFK Spot] <img=5>Me\u00A0Myself:"));
+		assertEquals(ChatFlair.CLAN_SELF, kind("[the afk spot] me_myself:"));
+		assertEquals(ChatFlair.GROUP, kind("[Iron Pals] Bob:"));
+		assertEquals(ChatFlair.CHANNEL, kind("[Fc Name] Bob:"));
+		// Not a sender (something after the colon), or a channel we can't place: kept.
+		assertEquals(0, kind("From Bob: hi there"));
+		assertEquals(0, kind("Your Zulrah kill count is: 500."));
+		assertEquals(0, kind("[Someone Else's Clan] Bob:"));
+		assertEquals(0, kind("[The AFK Spot]"));
+		assertEquals(0, kind(null));
+		// Not in a clan: an unknown "[Clan]" stays, and nobody is "me" without a local name.
+		assertEquals(0, ChatFlair.chatKind("[Clan] Bob:", null, null, null, null));
+		assertEquals(ChatFlair.CLAN_OTHERS, ChatFlair.chatKind("[Clan] Bob:", "Clan", null, null, null));
 	}
 
 	@Test

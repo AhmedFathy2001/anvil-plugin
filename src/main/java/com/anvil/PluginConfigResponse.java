@@ -300,6 +300,8 @@ public class PluginConfigResponse {
 		public long dropMin, keyMin;
 		/** CombatAchievementTier names that post; quest difficulties that post ("*" = all). */
 		public List<String> ca = new ArrayList<>(), quests = new ArrayList<>();
+		/** Screenshot privacy: {pm, public, clanOthers, clanSelf, channel, group} (ChatFlair.hideMask). */
+		public Map<String, Boolean> hide;
 	}
 
 

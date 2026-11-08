@@ -394,11 +394,41 @@ final class ChatFlair {
 	 * whatever follows the colon (empty in the chatbox's sender column; the message on a split-PM line).
 	 */
 	private static final Pattern SENDER_SHOWN = Pattern.compile("^\\s*((?:\\[[^\\]]*\\]\\s*)*)(?:(From|To)\\s+)?([^:\\[\\]]{1,24}):(.*)$", Pattern.DOTALL);
-	/** A chatbox sender column of a private message ("From Name:" / "To Name:", nothing after the colon). */
-	static boolean pmSender(String raw) {
-		if (raw == null || raw.indexOf(':') < 0) return false;
+	/** Chat kinds a screenshot can leave out (PluginConfigResponse.Me.Hide), as bits; 0 = keep. */
+	static final int PM = 1, PUBLIC = 2, CLAN_OTHERS = 4, CLAN_SELF = 8, CHANNEL = 16, GROUP = 32;
+	private static final String[] HIDE_KEYS = {"pm", "public", "clanOthers", "clanSelf", "channel", "group"};
+
+	/** The site's screenshot privacy as kind bits; PMs alone when it hasn't said. */
+	static int hideMask(Map<String, Boolean> hide) {
+		if (hide == null) return PM;
+		int mask = 0;
+		for (int i = 0; i < HIDE_KEYS.length; i++) if (Boolean.TRUE.equals(hide.get(HIDE_KEYS[i]))) mask |= 1 << i;
+		return mask;
+	}
+
+	private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
+
+	/**
+	 * Which kind of chat a chatbox SENDER COLUMN's text is ("From Bob:", "[Clan] Bob:", "Bob:"), given
+	 * the clan, group ironman and chat channel names (null when not in one) and the local player's
+	 * name; 0 when it isn't a sender or its "[channel]" is none of those. A "[12:00]" timestamp group is
+	 * not a channel. The caller passes only widgets the layout says are sender columns.
+	 */
+	static int chatKind(String raw, String clan, String group, String channel, String me) {
+		if (raw == null || raw.indexOf(':') < 0) return 0;
 		Matcher m = SENDER_SHOWN.matcher(shown(raw).text);
-		return m.matches() && m.group(2) != null && m.group(4).trim().isEmpty();
+		if (!m.matches() || !m.group(4).trim().isEmpty()) return 0;
+		if (m.group(2) != null) return PM;
+		Matcher b = BRACKET.matcher(m.group(1));
+		boolean bracket = false;
+		while (b.find()) {
+			String g = b.group(1).trim();
+			if (Rsn.same(g, clan)) return Rsn.same(m.group(3), me) ? CLAN_SELF : CLAN_OTHERS;
+			if (Rsn.same(g, group)) return GROUP;
+			if (Rsn.same(g, channel)) return CHANNEL;
+			if (g.isEmpty() || !Character.isDigit(g.charAt(0))) bracket = true;
+		}
+		return bracket ? 0 : PUBLIC;
 	}
 
 	/** Leading "[channel]" / "[timestamp]" groups and spaces before a broadcast's text. */

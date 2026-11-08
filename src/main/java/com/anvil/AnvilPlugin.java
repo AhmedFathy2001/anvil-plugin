@@ -4039,7 +4039,7 @@ public class AnvilPlugin extends Plugin {
 					// The at-moment frame; the flush shot lands once floor loot has settled.
 					burst = new PendingSubmission();
 					factBurstFrame = null;
-					Runnable show = hidePmsForShot();
+					Runnable show = hideChatForShot();
 					drawManager.requestNextFrameListener(img -> {
 						factBurstFrame = (BufferedImage) img;
 						if (show != null) clientThread.invokeLater(show);
@@ -9325,11 +9325,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * The next rendered frame, handed to {@code work} on the executor. The frame listener fires on
-	 * the client/AWT thread, so encoding and sending never hold up the game loop. {@code dead} runs
-	 * instead when the executor has gone away in the meantime.
-	 */
-	/**
 	 * The next frame drawn with our overlays hidden (they skip drawing while {@link #capturing}). Asked
 	 * for from the client thread, between frames: from the executor the request could land mid-draw and
 	 * return a frame our overlays were already painted into. The flag is cleared however the request
@@ -9338,47 +9333,65 @@ public class AnvilPlugin extends Plugin {
 	private void onCleanFrame(Consumer<BufferedImage> work) {
 		clientThread.invokeLater(() -> {
 			capturing = true;
-			Runnable show = hidePmsForShot();
-			drawManager.requestNextFrameListener(image -> {
-				capturing = false;
-				if (show != null) clientThread.invokeLater(show);
-				if (!execLive()) return;
-				try {
-					executor.submit(() -> work.accept((BufferedImage) image));
-				} catch (RejectedExecutionException e) {
-				}
-			});
+			onNextFrame(work, null);
 		});
 	}
 
 	/**
-	 * Client thread: private messages out of the next frame (the split-PM box, and each chatbox row whose
-	 * sender column reads "From …:" / "To …:"), for a proof. Returns how to show them again, or null.
+	 * Client thread: the chat this person's screenshot privacy leaves out (site, me.hide; PMs alone
+	 * until it answers) hidden for the next frame: the split-PM box, and each chatbox row whose sender
+	 * column is of a hidden kind. Game messages and broadcasts have no sender column, so they stay.
+	 * Returns how to show them again, or null.
 	 */
-	private Runnable hidePmsForShot() {
-		if (!config.hidePmsInProofs() || !client.isClientThread()) return null;
+	private Runnable hideChatForShot() {
+		PluginConfigResponse cfg = pluginConfig;
+		int mask = ChatFlair.hideMask(cfg == null || cfg.me == null ? null : cfg.me.hide);
+		if (mask == 0 || !client.isClientThread()) return null;
 		List<Widget> hid = new ArrayList<>();
-		Widget split = client.getWidget(InterfaceID.PmChat.CONTAINER);
+		Widget split = (mask & ChatFlair.PM) == 0 ? null : client.getWidget(InterfaceID.PmChat.CONTAINER);
 		if (split != null && !split.isHidden()) hid.add(split);
 		Widget area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		Widget[] lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines != null) {
+			ClanChannel c = client.getClanChannel(), g = client.getClanChannel(ClanID.GROUP_IRONMAN);
+			FriendsChatManager fc = client.getFriendsChatManager();
+			String clan = c == null ? null : c.getName(), group = g == null ? null : g.getName();
+			String channel = fc == null ? null : fc.getName(), me = getLocalPlayerName();
+			IntUnaryOperator x = j -> lines[j].getOriginalX();
+			IntUnaryOperator y = j -> lines[j].getOriginalY();
+			java.util.function.IntFunction<String> shown = j -> lines[j] == null || lines[j].isHidden() ? null : lines[j].getText();
 			Set<Integer> rows = new HashSet<>();
-			for (Widget w : lines) if (w != null && !w.isHidden() && ChatFlair.pmSender(w.getText())) rows.add(w.getOriginalY());
-			for (Widget w : lines) if (w != null && !w.isHidden() && rows.contains(w.getOriginalY())) hid.add(w);
+			for (int i = 0; i < lines.length; i++) {
+				String t = shown.apply(i);
+				if (t != null && t.indexOf(':') >= 0 && (ChatFlair.chatKind(t, clan, group, channel, me) & mask) != 0
+						&& ChatFlair.senderColumn(i, lines.length, x, y, shown)) rows.add(lines[i].getOriginalY());
+			}
+			if (!rows.isEmpty()) for (Widget w : lines) if (w != null && !w.isHidden() && rows.contains(w.getOriginalY())) hid.add(w);
 		}
 		if (hid.isEmpty()) return null;
 		hid.forEach(w -> w.setHidden(true));
 		return () -> hid.forEach(w -> w.setHidden(false));
 	}
 
+	/**
+	 * The next frame, with this person's hidden chat left out (hideChatForShot), handed to {@code work}
+	 * on the executor. Asked for on the client thread, so the hide and the request land between frames.
+	 */
 	private void onNextFrame(Consumer<BufferedImage> work, Runnable dead) {
-		drawManager.requestNextFrameListener(image -> {
-			if (!execLive()) {
-				if (dead != null) dead.run();
-				return;
-			}
-			executor.submit(() -> work.accept((BufferedImage) image));
+		clientThread.invoke(() -> {
+			Runnable show = hideChatForShot();
+			drawManager.requestNextFrameListener(image -> {
+				capturing = false;
+				if (show != null) clientThread.invokeLater(show);
+				if (!execLive()) {
+					if (dead != null) dead.run();
+					return;
+				}
+				try {
+					executor.submit(() -> work.accept((BufferedImage) image));
+				} catch (RejectedExecutionException e) {
+				}
+			});
 		});
 	}
 

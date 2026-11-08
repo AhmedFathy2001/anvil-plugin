@@ -305,17 +305,6 @@ public interface AnvilConfig extends Config {
 	}
 
 	@ConfigItem(
-		keyName = "hidePmsInProofs",
-		name = "Hide private messages in proofs",
-		description = "Leave private messages (in the chatbox and split above it) out of proof screenshots. Game and clan messages stay. They're hidden for the one frame the screenshot takes.",
-		position = 11,
-		section = "bingoSection"
-	)
-	default boolean hidePmsInProofs() {
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "trackerOnePanel",
 		name = "Pinned tiles in one panel",
 		description = "Show every tile pinned with \"Track on screen\" in one compact movable panel: each tile's name and your team's progress. Off: a separate, detailed widget per tile (members and other teams).",
