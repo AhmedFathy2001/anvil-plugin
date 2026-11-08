@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import net.runelite.client.ui.ColorScheme;
@@ -43,7 +44,7 @@ public class RacePanelRenderTest {
 	}
 
 	/** The view inside a panel-sized scroll pane, the way the sidebar holds it. */
-	private static JScrollPane panel(UiView view) {
+	private static JScrollPane panel(JComponent view) {
 		JPanel body = new JPanel(new BorderLayout());
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		body.setBorder(BorderFactory.createEmptyBorder(BORDER, BORDER, BORDER, BORDER));
@@ -72,8 +73,32 @@ public class RacePanelRenderTest {
 		Graphics2D g = img.createGraphics();
 		g.scale(scale, scale);
 		body.paint(g);
+		paintLists(body, body, g);
 		g.dispose();
 		return img;
+	}
+
+	/**
+	 * A list's rows again, laid out by hand: offscreen there is no peer, so Swing never validates a
+	 * cell renderer and the rows paint as empty strips (the Feed's rows).
+	 */
+	@SuppressWarnings("unchecked")
+	private static void paintLists(Component c, Component body, Graphics2D g) {
+		if (c instanceof JList) {
+			JList<Object> list = (JList<Object>) c;
+			Point at = SwingUtilities.convertPoint(list, 0, 0, body);
+			for (int i = 0; i < list.getModel().getSize(); i++) {
+				Rectangle b = list.getCellBounds(i, i);
+				if (b == null) continue;
+				Component cell = list.getCellRenderer().getListCellRendererComponent(list, list.getModel().getElementAt(i), i, false, false);
+				cell.setBounds(0, 0, b.width, b.height);
+				layOut(cell);
+				Graphics2D cg = (Graphics2D) g.create(at.x + b.x, at.y + b.y, b.width, b.height);
+				cell.paint(cg);
+				cg.dispose();
+			}
+		}
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) paintLists(k, body, g);
 	}
 
 	private static File out(String name) {
@@ -103,10 +128,24 @@ public class RacePanelRenderTest {
 	}
 
 	private static void render(String fixture, String mock) throws Exception {
+		render(fixture, mock, null);
+	}
+
+	/** {@code above}: what the panel itself draws over the view (Lookup's Players | Clans switch). */
+	private static void render(String fixture, String mock, Supplier<JComponent> above) throws Exception {
 		UiView view = new UiView(new Host(), null, null, null);
 		SwingUtilities.invokeAndWait(() -> view.render(fixtureOrThrow(fixture)));
 		BufferedImage[] img = new BufferedImage[1];
-		SwingUtilities.invokeAndWait(() -> img[0] = paint(panel(view)));
+		SwingUtilities.invokeAndWait(() -> {
+			JComponent shown = view;
+			if (above != null) {
+				shown = Ui.column();
+				shown.add(above.get());
+				shown.add(Ui.gap(8));
+				shown.add(view);
+			}
+			img[0] = paint(panel(shown));
+		});
 		ImageIO.write(img[0], "png", out(fixture + ".png"));
 		compare(img[0], mock, fixture + "-vs-mockup.png");
 	}
@@ -138,6 +177,53 @@ public class RacePanelRenderTest {
 		render("clan-event-going", "ClanEvent");
 		render("clan-weekly", "Weekly");
 		assertTrue(out("clan-bingo.png").exists());
+	}
+
+	/** The Feed, You and Lookup tabs (site lib/pluginUi feedUi / playerCardUi / clanUi, fixtures written by plugin-ui.test). */
+	@Test
+	public void rendersTheOtherTabs() throws Exception {
+		render("feed", "Feed");
+		render("you", "You");
+		Supplier<JComponent> players = () -> UiView.segments(Arrays.asList("Players", "Clans"), "Players", m -> { });
+		render("lookup-player", "LookupPlayer", players);
+		render("lookup-clog", "LookupClog", players);
+		render("lookup-clan", "LookupClan", () -> UiView.segments(Arrays.asList("Players", "Clans"), "Clans", m -> { }));
+		assertTrue(out("lookup-clog.png").exists());
+	}
+
+	/** Settings is drawn by the panel itself: its cards, offscreen, from a stand-in data source. */
+	@Test
+	public void rendersTheSettingsTab() throws Exception {
+		AnvilSidebarDataSource ds = new AnvilSidebarDataSource(() -> null, null) {
+			@Override
+			public PanelActions actionsFor() {
+				return new PanelActions(true, true, null);
+			}
+
+			@Override
+			public List<String> sounds(BannerSoundService.Kind kind) {
+				return kind == BannerSoundService.Kind.MISSION ? Collections.singletonList("mission-drop.wav") : Collections.emptyList();
+			}
+
+			@Override
+			public String myRsn() {
+				return "Drenvox";
+			}
+
+			@Override
+			public ChatFlair.Entry flairOf(String rsn) {
+				return null;
+			}
+		};
+		BufferedImage[] img = new BufferedImage[1];
+		SwingUtilities.invokeAndWait(() -> {
+			AnvilSidebarPanel p = new AnvilSidebarPanel(ds, null, null, null, null, null, null);
+			p.renderSettings();
+			img[0] = paint(panel(p.settingsPanel));
+		});
+		ImageIO.write(img[0], "png", out("settings.png"));
+		compare(img[0], "Settings", "settings-vs-mockup.png");
+		assertTrue(out("settings.png").exists());
 	}
 
 	private static List<JLabel> labels(Component c, List<JLabel> out) {

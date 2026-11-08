@@ -86,8 +86,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	private boolean lookupClans;
-	private final JLabel lookupModePlayers = new ClipLabel("Players", SwingConstants.CENTER);
-	private final JLabel lookupModeClans = new ClipLabel("Clans", SwingConstants.CENTER);
+	/** Players | Clans, redrawn when the mode changes (styleLookupModes). */
+	private final JPanel lookupModes = column();
+	private Boolean lookupModesShown;
 	/** The site-built views: the Clan tab, the You tab, and what Lookup found. */
 	private final UiView clanView;
 	private final UiView youView;
@@ -101,7 +102,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** When the Clan tab last asked the site, so a burst of repaints asks once. */
 	private long clanAskedAt;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
-	private final JPanel settingsPanel = column();
+	final JPanel settingsPanel = column();
 	private final JPanel lookupRecentRow = column();
 	private final JTextField lookupSearch = new JTextField();
 	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
@@ -419,17 +420,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 		});
 
-		JPanel modes = left(new JPanel(new GridLayout(1, 2, 4, 0)));
-		modes.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		for (JLabel m : new JLabel[]{lookupModePlayers, lookupModeClans}) {
-			m.setFont(SMALL);
-			m.setOpaque(true);
-			m.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
-			modes.add(onClick(m, () -> setLookupMode(m == lookupModeClans)));
-		}
-		capH(modes);
 		styleLookupModes();
-		lookupPanel.add(modes);
+		lookupPanel.add(lookupModes);
 		lookupPanel.add(gap(6));
 		lookupPanel.add(lookupBox);
 		lookupPanel.add(gap(6));
@@ -667,14 +659,19 @@ public class AnvilSidebarPanel extends PluginPanel {
 		while (recentLookups.size() > 5) recentLookups.removeLast();
 		lookupRecentRow.removeAll();
 		if (recentLookups.size() > 1) {
-			JPanel wrap = left(new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)));
+			// Recent names as chips: a grey outline, one click looks them up again.
+			JPanel wrap = left(new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4)));
 			wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			wrap.add(small("Recent: ", MUTED));
-			boolean first = true;
 			for (String n : recentLookups.subList(1, recentLookups.size())) {
-				if (!first) wrap.add(small(" · ", MUTED));
-				first = false;
-				wrap.add(styleLink(new ClipLabel(plainText(n)), plainText("Look up " + n), () -> showLookup(n)));
+				Round chip = new Round(new BorderLayout(), 3, null, ColorScheme.MEDIUM_GRAY_COLOR, null);
+				chip.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+				chip.add(small(plainText(n), ColorScheme.LIGHT_GRAY_COLOR));
+				chip.setToolTipText(plainText("Look up " + n));
+				JPanel slot = new JPanel(new BorderLayout());
+				slot.setOpaque(false);
+				slot.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
+				slot.add(onClick(chip, () -> showLookup(n)));
+				wrap.add(slot);
 			}
 			wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrap.getPreferredSize().height * 2));
 			lookupRecentRow.add(wrap);
@@ -729,51 +726,77 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	private void styleLookupModes() {
-		for (JLabel m : new JLabel[]{lookupModePlayers, lookupModeClans}) {
-			boolean on = (m == lookupModeClans) == lookupClans;
-			m.setForeground(on ? Color.WHITE : MUTED);
-			m.setBackground(on ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
-		}
+		if (Boolean.valueOf(lookupClans).equals(lookupModesShown)) return;
+		lookupModesShown = lookupClans;
+		lookupModes.removeAll();
+		lookupModes.add(UiView.segments(Arrays.asList("Players", "Clans"), lookupClans ? "Clans" : "Players",
+			m -> setLookupMode("Clans".equals(m))));
+		lookupModes.revalidate();
+		lookupModes.repaint();
 	}
 
-	/** ⚙ — everything that's syncing or a setting rather than something to look at. */
-	private void renderSettings() {
+	/**
+	 * ⚙ — everything that's syncing or a setting rather than something to look at, as cards: Syncing,
+	 * Banner sounds, then the site's settings as rows with ↗ (they open the browser). No gold: nothing
+	 * here is urgent.
+	 */
+	void renderSettings() {
 		AnvilSidebarDataSource.PanelActions actions = dataSource.actionsFor();
 		// Asked on every refresh, but what it shows only moves with these: rebuild only when one does.
 		String key = settingsKey(actions);
 		if (key.equals(settingsShown)) return;
 		settingsShown = key;
 		settingsPanel.removeAll();
-		if (actions.canSyncProfile) {
-			heading(settingsPanel, "Your profile");
-			settingsPanel.add(fullWidthButton("Sync profile",
-				"Send your collection log and best times to Anvil", dataSource::syncProfile));
-			settingsPanel.add(gap(12));
-		}
-		// The roster button for an admin at home, or the reason it's absent (buildPanelActions).
-		JPanel roster = buildPanelActions(false);
-		if (roster.getComponentCount() > 0) {
-			settingsPanel.add(roster);
-			settingsPanel.add(gap(12));
-		}
-		settingsPanel.add(buildBannerSounds());
-		settingsPanel.add(gap(12));
-		// Most of what you'd look for here lives on the site now: say where, one click away.
-		heading(settingsPanel, "On the Anvil website");
-		settingsPanel.add(left(styleLink(new ClipLabel("Discord posts & screenshot privacy"),
-			"What you post to your clan's Discord, and which chat is left out of your screenshots",
-			() -> LinkBrowser.browse(apiClient.siteLink("/settings/announcements")))));
-		settingsPanel.add(left(styleLink(new ClipLabel("All your Anvil settings"),
-			"Your profile, characters, name colours and more", () -> LinkBrowser.browse(apiClient.siteLink("/settings")))));
-		settingsPanel.add(left(styleLink(new ClipLabel("Guides"),
-			"How Anvil works: the side panel, events, proofs, Supporter perks", () -> LinkBrowser.browse(apiClient.siteLink("/guide")))));
-		settingsPanel.add(gap(12));
-		JLabel support = styleLink(new ClipLabel(isSupporter() ? "Your Supporter perks" : "Become a Supporter"),
+		JPanel sync = buildPanelActions(actions);
+		if (sync.getComponentCount() > 0) addCard(sync);
+		addCard(buildBannerSounds());
+		JLabel web = small("On the Anvil website", Color.WHITE);
+		web.setFont(web.getFont().deriveFont(Font.BOLD));
+		settingsPanel.add(web);
+		settingsPanel.add(gap(6));
+		siteRow("Discord posts & screenshot privacy", "What you post to your clan's Discord", "/settings/announcements");
+		siteRow("All your Anvil settings", "Profile, characters, name colours and more", "/settings");
+		siteRow("Guides", "The side panel, events, proofs, Supporter perks", "/guide");
+		settingsPanel.add(gap(6));
+		Round support = linkRow(ColorScheme.DARKER_GRAY_COLOR, small((isSupporter() ? "★ Your Supporter perks" : "★ Become a Supporter"), new Color(0xFF_D3_5C)), null,
 			"Name colours, profile banners, clan boosts — and it keeps Anvil running", this::openSupporter);
-		support.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 11));
-		settingsPanel.add(left(support));
+		settingsPanel.add(support);
 		settingsPanel.revalidate();
 		settingsPanel.repaint();
+	}
+
+	/** A section as a card: the darker rounded surface, 10px in. */
+	private void addCard(JPanel inner) {
+		darken(inner);
+		Round card = left(new Round(new BorderLayout(), 6, ColorScheme.DARKER_GRAY_COLOR, null, null));
+		card.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+		card.add(inner);
+		settingsPanel.add(capH(card));
+		settingsPanel.add(gap(10));
+	}
+
+	/** Panel-grey grounds inside a card take the card's colour. */
+	private static void darken(Component c) {
+		if (c instanceof JPanel && !(c instanceof Round) && ColorScheme.DARK_GRAY_COLOR.equals(c.getBackground())) {
+			c.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		}
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) darken(k);
+	}
+
+	/** A page of the site as a raised row: its name, ↗, and what's there under it. */
+	private void siteRow(String name, String sub, String path) {
+		settingsPanel.add(linkRow(UiView.RAISED, small(name, Color.WHITE), note(sub, 160), sub, () -> LinkBrowser.browse(apiClient.siteLink(path))));
+		settingsPanel.add(gap(4));
+	}
+
+	private static Round linkRow(Color fill, JLabel name, JLabel sub, String tip, Runnable open) {
+		Round row = left(new Round(new BorderLayout(4, 2), 4, fill, null, new Color(0x47_47_47)));
+		row.setBorder(BorderFactory.createEmptyBorder(7, 8, 7, 8));
+		row.add(name, BorderLayout.CENTER);
+		row.add(small("↗", MUTED), BorderLayout.EAST);
+		if (sub != null) row.add(sub, BorderLayout.SOUTH);
+		row.setToolTipText(tip);
+		return capH(onClick(row, open));
 	}
 
 	/** What the settings tab last drew from (settingsKey), so an unchanged refresh skips the rebuild. */
@@ -1490,43 +1513,45 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * says why rather than vanishing without explanation. Both buttons carry the same limits as
 	 * their in-game counterparts, which live in the plugin, not here.
 	 */
-	private JPanel buildPanelActions(boolean withProfile) {
+	private JPanel buildPanelActions(AnvilSidebarDataSource.PanelActions actions) {
 		JPanel panel = column();
-		AnvilSidebarDataSource.PanelActions full = dataSource.actionsFor();
-		// Sync profile sends YOUR log and best times; with the You tab showing it lives there.
-		AnvilSidebarDataSource.PanelActions actions = withProfile ? full
-			: new AnvilSidebarDataSource.PanelActions(full.canSyncRoster, false, full.rosterNote);
 		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null) {
-			return panel; // nothing this account can do here; no empty heading either
+			return panel; // nothing this account can do here; no empty card either
 		}
-
-		heading(panel, "This clan");
-
-		// Two buttons that do the same KIND of thing belong on one line: stacked full-width they read
-		// as a list of unrelated commands, and they cost two rows of a panel that has none to spare.
-		// Side by side the labels have to be short, which is why the pair says "Sync roster" and the
-		// lone button (nothing to sit beside) keeps the longer "Sync clan roster".
-		boolean both = actions.canSyncProfile && actions.canSyncRoster;
-		if (both) {
-			panel.add(buttonRow(
-				flatButton("Sync profile", "Send your collection log and best times to this clan's site",
-					dataSource::syncProfile),
-				flatButton("Sync roster", "Push the in-game clan member list to the site",
-					dataSource::syncRoster)));
-		} else if (actions.canSyncProfile) {
-			panel.add(fullWidthButton("Sync profile",
-				"Send your collection log and best times to this clan's site", dataSource::syncProfile));
-		} else if (actions.canSyncRoster) {
-			panel.add(fullWidthButton("Sync clan roster",
-				"Push the in-game clan member list to the site", dataSource::syncRoster));
+		panel.add(cardTitle("Syncing"));
+		if (actions.canSyncProfile) {
+			panel.add(fullWidthButton("Sync profile", "Send your collection log and best times to Anvil", dataSource::syncProfile));
+			panel.add(gap(4));
+			panel.add(note("Send your collection log and best times to Anvil", 165));
 		}
-
-		if (!actions.canSyncRoster && actions.rosterNote != null) {
-			if (actions.canSyncProfile) panel.add(gap(4));
-			panel.add(small(actions.rosterNote, MUTED));
+		if (actions.canSyncRoster) {
+			if (actions.canSyncProfile) panel.add(gap(8));
+			panel.add(fullWidthButton("Sync clan roster", "Push the in-game clan member list to the site", dataSource::syncRoster));
+			panel.add(gap(4));
+			panel.add(note("Clan admins: push the in-game member list to the site", 165));
+		} else if (actions.rosterNote != null) {
+			if (actions.canSyncProfile) panel.add(gap(8));
+			panel.add(note(actions.rosterNote, 165));
 		}
-
 		return panel;
+	}
+
+	/** Muted small text that wraps at {@code widthPt} rather than clipping. */
+	private static JLabel note(String text, int widthPt) {
+		JLabel l = new JLabel(wrapHtml(esc(text), widthPt));
+		l.setFont(SMALL);
+		l.setForeground(MUTED);
+		return left(l);
+	}
+
+	/** A card's white bold title and the gap under it. */
+	private static JPanel cardTitle(String text) {
+		JLabel l = small(text, Color.WHITE);
+		l.setFont(l.getFont().deriveFont(Font.BOLD));
+		JPanel p = column();
+		p.add(left(l));
+		p.add(gap(6));
+		return capH(p);
 	}
 
 	/**
@@ -1538,10 +1563,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 */
 	private JPanel buildBannerSounds() {
 		List<String> clips = dataSource.sounds(BannerSoundService.Kind.BANNER);
-		JPanel panel = section("Banner sounds");
+		JPanel panel = column();
+		panel.add(cardTitle("Banner sounds"));
 
 		if (clips.isEmpty()) {
-			panel.add(small("None added — use Add clip, or the banner folder.", MUTED));
+			panel.add(note("None added — use Add clip, or the banner folder.", 165));
 			panel.add(gap(4));
 		} else {
 			for (String clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN))) {
@@ -1610,7 +1636,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		row.add(swatchBox, BorderLayout.WEST);
 		row.add(small(display.length() <= 26 ? display : display.substring(0, 25).trim() + "…", on ? ColorScheme.TEXT_COLOR : MUTED), BorderLayout.CENTER);
-		hoverable(capH(row), ColorScheme.DARK_GRAY_COLOR, () -> {
+		hoverable(capH(row), ColorScheme.DARKER_GRAY_COLOR, () -> {
 			dataSource.toggleBannerSound(clip);
 			renderSettings();
 		});
