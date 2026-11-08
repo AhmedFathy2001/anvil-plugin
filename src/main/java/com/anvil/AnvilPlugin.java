@@ -1086,6 +1086,10 @@ public class AnvilPlugin extends Plugin {
 		outbox.setSender(apiClient::sendQueuedNotification);
 		notifyOutbox = outbox;
 		apiClient.setNotifyOutbox(outbox);
+		apiClient.noShot = k -> {
+			PluginConfigResponse.Me m = me();
+			return m != null && m.noShot != null && m.noShot.contains(k);
+		};
 		pushStash = new PushStash(gson);
 		siteUnreachable = false;
 		// WHERE THIS PLUGIN IS ALLOWED TO TOUCH DISK, resolved once and handed out.
@@ -1826,6 +1830,7 @@ public class AnvilPlugin extends Plugin {
 			scheduleQuestScrollRead(3);
 		}
 		if (event.getGroupId() == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(true);
+		movesOpened(event.getGroupId());
 	}
 
 	@Subscribe
@@ -1834,6 +1839,7 @@ public class AnvilPlugin extends Plugin {
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
+		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
 		for (int id : MOVE_INTERFACES) {
 			if (g == id) lastSuppressCloseTick = client.getTickCount();
 		}
@@ -2276,6 +2282,7 @@ public class AnvilPlugin extends Plugin {
 		lastWornItemIds = wornItemIds();
 		maybeSettleStats();
 		tickGameCounters();
+		if (movedTick >= 0 && client.getTickCount() >= movedTick) movesSettled();
 		maybeStampIdentityOnTick();
 		WorldPoint here = needsStartProof() ? realWorldPosition() : null;
 		startProofStillTicks = here != null && here.equals(startProofPosition) ? startProofStillTicks + 1 : 0;
@@ -2501,6 +2508,8 @@ public class AnvilPlugin extends Plugin {
 			gameValueCounters.onLoading();
 		} else if (gs == GameState.LOGIN_SCREEN || gs == GameState.HOPPING || gs == GameState.CONNECTION_LOST) {
 			gameValueCounters.onSessionEnd();
+			movedFrom = null;
+			movedTick = -1;
 		}
 		// SESSION CLOCK for the starting shot (StartProofRules). Only the login screen starts a new
 		// session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
@@ -3418,6 +3427,8 @@ public class AnvilPlugin extends Plugin {
 		if (event.getType() == ChatMessageType.CLAN_MESSAGE) maybeReportCofferLine(msg);
 		// On a game-mode world the site turns the game's announcements into relic/area/task posts.
 		if (event.getType() == ChatMessageType.GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
+		ChatMessageType ct = event.getType();
+		if (ct == ChatMessageType.GAMEMESSAGE || ct == ChatMessageType.SPAM || ct == ChatMessageType.TRADE) watchLine(stripChatTags(msg));
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
@@ -4511,7 +4522,35 @@ public class AnvilPlugin extends Plugin {
 		return ids;
 	}
 
-	/** Adds a container's item quantities (itemId → total) into {@code counts}. No-op if absent. */
+	/** The inventory before a trade or a group storage visit, while the player has that kind on. */
+	private Map<Integer, Integer> movedFrom;
+	private String movedKind;
+	private int movedTick = -1;
+
+	private void movesOpened(int g) {
+		if (g == InterfaceID.TRADECONFIRM) movedTick = -1; // still trading
+		String kind = g == InterfaceID.TRADEMAIN ? "trade" : g == InterfaceID.SHARED_BANK ? "storage" : null;
+		PluginConfigResponse.Me me = me();
+		if (kind == null || movedFrom != null || me == null || me.on == null || !me.on.containsKey(kind)) return;
+		movedFrom = new HashMap<>();
+		addContainerCounts(movedFrom, InventoryID.INV);
+		movedKind = kind;
+	}
+
+	/** What the trade or storage visit changed in the inventory, once it settled: nothing (declined, unsaved) posts nothing. */
+	private void movesSettled() {
+		Map<Integer, Integer> now = new HashMap<>();
+		addContainerCounts(now, InventoryID.INV);
+		movedFrom.forEach((id, q) -> now.merge(id, -q, Integer::sum));
+		movedFrom = null;
+		movedTick = -1;
+		NotifyFacts f = new NotifyFacts(movedKind, getLocalPlayerName());
+		now.forEach((id, q) -> {
+			if (q != 0 && (!f.facts.has("items") || f.facts.getAsJsonArray("items").size() < 30)) f.item(id, itemManager.getItemComposition(id).getName(), q, (long) itemManager.getItemPrice(id) * q);
+		});
+		if (f.facts.has("items") && announceBudget()) announce(f, true);
+	}
+
 	private void addContainerCounts(Map<Integer, Integer> counts, int containerId) {
 		ItemContainer c = client.getItemContainer(containerId);
 		if (c == null) return;
@@ -9258,6 +9297,66 @@ public class AnvilPlugin extends Plugin {
 	 * What this person's posts do (lib/notifyPrefs, resolved by the site), or null before a config: nothing
 	 * posts. "Share clan posts" off silences the main game; seasonal worlds keep their own switch.
 	 */
+	/** Posts left this minute for watched lines, GE offers and other plugins' requests. */
+	private int announceLeft;
+	private long announceMinute;
+
+	private synchronized boolean announceBudget() {
+		long m = now() / 60_000;
+		if (m != announceMinute) {
+			announceMinute = m;
+			announceLeft = 6;
+		}
+		return announceLeft-- > 0;
+	}
+
+	/** A game line one of the site's watches matches: the site parses, words and routes it. */
+	private void watchLine(String line) {
+		PluginConfigResponse.Me me = me();
+		if (me == null || me.watch == null) return;
+		for (PluginConfigResponse.Watch w : me.watch) {
+			long n = NotifyFacts.glob(w.g, line);
+			if (n < 0 || n < w.min || w.every > 0 && n % w.every != 0) continue;
+			if (announceBudget()) announce(new NotifyFacts("line", getLocalPlayerName()).put("k", w.k).put("line", line), w.shot);
+			return;
+		}
+	}
+
+	private void announce(NotifyFacts f, boolean shot) {
+		if (shot) postWithScreenshot("milestones", f, "anvil-post.png");
+		else apiClient.postNotification("milestones", null, f, null, null);
+	}
+
+	private final GrandExchangeOfferState[] geSlots = new GrandExchangeOfferState[8];
+
+	/** A finished Grand Exchange offer, when the player turned these on. A slot's first sighting is its baseline. */
+	@Subscribe
+	public void onGrandExchangeOfferChanged(GrandExchangeOfferChanged e) {
+		GrandExchangeOffer o = e.getOffer();
+		int slot = e.getSlot();
+		if (o == null || slot < 0 || slot >= geSlots.length) return;
+		GrandExchangeOfferState was = geSlots[slot], s = o.getState();
+		geSlots[slot] = s;
+		PluginConfigResponse.Me me = me();
+		Long min = me == null || me.on == null ? null : me.on.get("ge");
+		if (min == null || was == null || was == s || s != GrandExchangeOfferState.BOUGHT && s != GrandExchangeOfferState.SOLD
+			|| o.getSpent() < min || !announceBudget()) return;
+		announce(new NotifyFacts("ge", getLocalPlayerName()).put("item", itemManager.getItemComposition(o.getItemId()).getName())
+			.put("itemId", o.getItemId()).put("qty", o.getQuantitySold()).put("value", o.getSpent())
+			.flag("sold", s == GrandExchangeOfferState.SOLD), true);
+	}
+
+	/** Another plugin asking for a post: namespace "anvil", name "announce", data {source, text}. The site keeps the player's allow-list. */
+	@Subscribe
+	public void onPluginMessage(PluginMessage m) {
+		PluginConfigResponse.Me me = me();
+		Object src = m.getData().get("source"), text = m.getData().get("text");
+		if (!"anvil".equals(m.getNamespace()) || !"announce".equals(m.getName()) || me == null || me.on == null
+			|| !me.on.containsKey("ext") || !(src instanceof String) || !(text instanceof String) || !announceBudget()) return;
+		apiClient.postNotification("milestones", null, new NotifyFacts("ext", getLocalPlayerName())
+			.put("source", (String) src).put("text", (String) text), null, null);
+	}
+
 	private PluginConfigResponse.Me me() {
 		PluginConfigResponse cfg = pluginConfig;
 		return cfg == null || (!seasonalWorld && !config.shareActivity()) ? null : cfg.me;

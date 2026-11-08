@@ -83,10 +83,62 @@ public class NotifyFactsTest
 		assertFalse(body.contains("\"embed\""));
 	}
 
+	@Test
+	public void globReadsTheSitesWatches()
+	{
+		assertEquals(50, NotifyFacts.glob("You've completed # tasks*",
+			"You've completed 50 tasks and received 15 points, giving you a total of 1,234; return to a Slayer master."));
+		assertEquals(1234, NotifyFacts.glob("Your * count is: #*", "Your Zulrah kill count is: 1,234."));
+		assertEquals(100, NotifyFacts.glob("You have completed # hard Treasure Trail*", "You have completed 100 HARD Treasure Trails."));
+		assertEquals(0, NotifyFacts.glob("*duration: *(new personal best)*", "Fight duration: 1:23.40 (new personal best)"));
+		assertEquals(-1, NotifyFacts.glob("*duration: *(new personal best)*", "Fight duration: 1:23.40. Personal best: 1:20.00"));
+		assertEquals(-1, NotifyFacts.glob("You have completed # elite Treasure Trail*", "You have completed 100 hard Treasure Trails."));
+		assertEquals(-1, NotifyFacts.glob("Your * count is: #*", "Your Zulrah kill count is: lots."));
+		// A hostile pattern costs at most pattern x line steps: this returns, it doesn't hang.
+		StringBuilder line = new StringBuilder();
+		for (int i = 0; i < 400; i++) line.append('a');
+		assertEquals(-1, NotifyFacts.glob("*a*a*a*a*a*a*a*a*a*a*a*a*a*b", line.toString()));
+	}
+
+	@Test
+	public void aKindSetToNoScreenshotPostsWithoutOne() throws Exception
+	{
+		String body = send(new NotifyFacts("level", "Zezima").put("skill", "Slayer").put("level", 90), new byte[]{1, 2, 3}, "level"::equals);
+		assertFalse(body.contains("filename="));
+		assertTrue(body.contains("\"kind\":\"level\""));
+		// Another kind keeps its screenshot.
+		assertTrue(send(new NotifyFacts("caTier", null).put("tier", "Elite"), new byte[]{1, 2, 3}, "level"::equals).contains("filename=\"anvil-shot.png\""));
+	}
+
+	@Test
+	public void aTileProofKeepsItsScreenshotWhateverTheAnnouncementSetting() throws Exception
+	{
+		// Proofs are evidence: they never pass the announcement's screenshot switch.
+		AtomicReference<String> body = new AtomicReference<>();
+		BingoApiClient c = client(body, new CountDownLatch(1));
+		c.noShot = k -> true;
+		c.postProof("k1", new byte[]{(byte) 0x89, 'P', 'N', 'G'}, new com.google.gson.JsonObject());
+		assertTrue(body.get().contains("filename=\"proof.png\""));
+	}
+
 	private static String send(NotifyFacts f, byte[] png) throws InterruptedException
+	{
+		return send(f, png, k -> false);
+	}
+
+	private static String send(NotifyFacts f, byte[] png, java.util.function.Predicate<String> noShot) throws InterruptedException
 	{
 		CountDownLatch done = new CountDownLatch(1);
 		AtomicReference<String> body = new AtomicReference<>();
+		BingoApiClient c = client(body, done);
+		c.noShot = noShot;
+		c.postNotification("levels", null, f, png, "anvil-shot.png");
+		assertTrue(done.await(5, TimeUnit.SECONDS));
+		return body.get();
+	}
+
+	private static BingoApiClient client(AtomicReference<String> body, CountDownLatch done)
+	{
 		OkHttpClient http = new OkHttpClient.Builder().addInterceptor(chain ->
 		{
 			Request r = chain.request();
@@ -99,8 +151,6 @@ public class NotifyFactsTest
 		}).build();
 		BingoApiClient c = new BingoApiClient(new Gson(), http);
 		c.configure("tok");
-		c.postNotification("levels", null, f, png, "anvil-shot.png");
-		assertTrue(done.await(5, TimeUnit.SECONDS));
-		return body.get();
+		return c;
 	}
 }

@@ -547,8 +547,12 @@ public class BingoApiClient {
 	 * {@code content} (deaths, PvP kills) or {@code facts} may be null; so may {@code png}. The plugin
 	 * never holds a webhook URL (plugin-hub rule). Never blocks: OkHttp's async dispatcher.
 	 */
-	public void postNotification(String channel, String content, NotifyFacts facts, byte[] png, String filename) {
+	/** Kinds (or channels) the player posts without a screenshot (Me.noShot). Proofs never come through here. */
+	volatile java.util.function.Predicate<String> noShot = k -> false;
+
+	public void postNotification(String channel, String content, NotifyFacts facts, byte[] image, String filename) {
 		if (!isConfigured() || channel == null || channel.isEmpty()) return;
+		byte[] png = noShot.test(facts != null ? facts.kind : channel) ? null : image;
 		JsonObject payload = new JsonObject();
 		payload.addProperty("channel", channel);
 		// Where it happened, frozen into the post itself: the site routes Deadman, Leagues, hardcore

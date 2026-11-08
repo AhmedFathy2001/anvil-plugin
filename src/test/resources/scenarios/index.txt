@@ -53,3 +53,8 @@ pvp-loot.json
 raid-party-death.json
 tithe-farm.json
 giants-foundry.json
+announce-slayer.json
+announce-clue.json
+announce-kc.json
+announce-pb.json
+announce-ba.json

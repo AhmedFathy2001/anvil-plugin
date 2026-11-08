@@ -1,0 +1,15 @@
+{
+	"name": "announce-kc",
+	"description": "A kill count line on a round number for the kill count announcement",
+	"params": {
+		"boss": "Zulrah",
+		"kc": "500"
+	},
+	"steps": [
+		{
+			"chat": {
+				"message": "Your ${boss} kill count is: <col=ff0000>${kc}</col>."
+			}
+		}
+	]
+}

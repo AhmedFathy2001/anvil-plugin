@@ -304,6 +304,18 @@ public class PluginConfigResponse {
 		public List<String> ca = new ArrayList<>(), quests = new ArrayList<>();
 		/** Screenshot privacy: {pm, public, clanOthers, clanSelf, channel, group} (ChatFlair.hideMask). */
 		public Map<String, Boolean> hide;
+		/** Game lines that post, as the site resolved them (NotifyFacts.glob). */
+		public List<Watch> watch = new ArrayList<>();
+		/** Post kinds (or channels) whose announcement goes without a screenshot. Never tile proofs. */
+		public List<String> noShot = new ArrayList<>();
+		/** Hook kinds that are on, with their floor: "ge" (gp), "ext". */
+		public Map<String, Long> on;
+	}
+
+	public static class Watch {
+		public String k, g;
+		public long every, min;
+		public boolean shot;
 	}
 
 

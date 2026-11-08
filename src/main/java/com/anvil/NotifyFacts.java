@@ -21,6 +21,8 @@ import com.google.gson.*;
  * <li>caTier: tier — diary: area, tier — quest: quest, difficulty ("Novice".."Grandmaster")</li>
  * <li>level: skill, level, at99, skills (level99 without level, to a site lacking level-rules) —
  *     totalLevel: total, milestone, maxed, current, max</li>
+ * <li>line: k (the site's watch kind), line — ge: item, itemId, qty, value, sold — trade / storage:
+ *     items (qty below 0 = gave or deposited) — ext: source, text</li>
  * </ul>
  * Every kind also carries {@code rsn} when known.
  */
@@ -62,5 +64,39 @@ final class NotifyFacts {
 		it.addProperty("value", value);
 		items.add(it);
 		return this;
+	}
+
+	/**
+	 * Matches {@code s} against a site watch, ignoring case: {@code *} is any text, {@code #} a number
+	 * (digits and commas). Returns the last number matched (0 if none), or -1. One backtrack point, so
+	 * the cost is at most pattern x line.
+	 */
+	static long glob(String p, String s) {
+		int i = 0, j = 0, si = -1, sj = 0;
+		long n = 0;
+		while (j < s.length()) {
+			char c = i < p.length() ? p.charAt(i) : 0;
+			if (c == '#' && Character.isDigit(s.charAt(j))) {
+				long v = 0;
+				for (; j < s.length() && (Character.isDigit(s.charAt(j)) || s.charAt(j) == ','); j++) {
+					if (s.charAt(j) != ',') v = Math.min(v * 10 + s.charAt(j) - '0', 1L << 40);
+				}
+				n = v;
+				i++;
+			} else if (c == '*') {
+				si = ++i;
+				sj = j;
+			} else if (c != 0 && c != '#' && Character.toLowerCase(c) == Character.toLowerCase(s.charAt(j))) {
+				i++;
+				j++;
+			} else if (si >= 0) {
+				i = si;
+				j = ++sj;
+			} else {
+				return -1;
+			}
+		}
+		while (i < p.length() && p.charAt(i) == '*') i++;
+		return i == p.length() ? n : -1;
 	}
 }

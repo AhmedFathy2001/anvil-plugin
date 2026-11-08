@@ -1,0 +1,14 @@
+{
+	"name": "announce-pb",
+	"description": "A new personal best time for the speedrun announcement",
+	"params": {
+		"time": "1:23.40"
+	},
+	"steps": [
+		{
+			"chat": {
+				"message": "Fight duration: <col=ff0000>${time}</col> (new personal best)"
+			}
+		}
+	]
+}

@@ -1,0 +1,14 @@
+{
+	"name": "announce-ba",
+	"description": "A Barbarian Assault gamble count line for the BA announcement",
+	"params": {
+		"n": "100"
+	},
+	"steps": [
+		{
+			"chat": {
+				"message": "High level gamble count: <col=ff0000>${n}</col>."
+			}
+		}
+	]
+}
