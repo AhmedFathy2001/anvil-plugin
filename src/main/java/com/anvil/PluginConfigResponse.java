@@ -3,6 +3,8 @@ package com.anvil;
 import java.util.*;
 
 public class PluginConfigResponse {
+	/** When this config was asked for (client clock): what it says about completions is as of then. Not on the wire. */
+	transient long asOf;
 	/**
 	 * The site's capability list. The plugin never gates on site versions (the site deploys first);
 	 * the only one read is {@code push-ws}, a runtime switch. Contract: docs/PLUGIN_WIRE.md in the site repo.

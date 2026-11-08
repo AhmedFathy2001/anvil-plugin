@@ -5598,7 +5598,6 @@ public class AnvilPlugin extends Plugin {
 	// When each tile was last confirmed done. A config built before that (a push merged onto the held
 	// config, a fetch already in flight) still lists it open; only a later absence means a removal.
 	private final Map<Integer, Long> confirmedDoneAt = new HashMap<>();
-	private static final long DONE_GRACE_MS = 120_000;
 
 	// Ladder missions board: mission tiles we've already alerted "new mission" for, and claim tiles
 	// we've already announced. Seeded on the first poll of an event (no backlog dump), cleared on change.
@@ -5681,7 +5680,10 @@ public class AnvilPlugin extends Plugin {
 		for (Iterator<Integer> it = notifiedCompletedTiles.iterator(); it.hasNext(); ) {
 			Integer was = it.next();
 			Long at = confirmedDoneAt.get(was);
-			if (!doneNow.contains(was) && (at == null || now - at > DONE_GRACE_MS)) {
+			// Gone from a config asked for AFTER we said it was done: really undone (deleted, rolled back),
+			// so finishing it again announces again. Gone from an older one (a push merged onto the held
+			// config, a fetch already in flight) means nothing.
+			if (!doneNow.contains(was) && (at == null || cfg.asOf > at)) {
 				it.remove();
 				locallyShownTiles.remove(was);
 				confirmedDoneAt.remove(was);
@@ -6950,6 +6952,8 @@ public class AnvilPlugin extends Plugin {
 	/** A config built from a push, taken up like a fetched one — unless a fetch landed meanwhile. */
 	private void adoptPushed(PluginConfigResponse held, JsonObject merged) {
 		PluginConfigResponse fresh = gson.fromJson(merged, PluginConfigResponse.class);
+		// Built on the held config: its completions are as old as that fetch, whatever the push changed.
+		fresh.asOf = held.asOf;
 		configFetchLock.lock();
 		try {
 			// A fetch that landed meanwhile is at least as new: keep it.
@@ -7003,7 +7007,9 @@ public class AnvilPlugin extends Plugin {
 	private void refreshConfigLocked() {
 		if (!apiClient.isConfigured()) return;
 		try {
+			long askedAt = now();
 			PluginConfigResponse fresh = apiClient.fetchConfig();
+			if (fresh != null) fresh.asOf = askedAt;
 			lastConfigRefreshAt = now();
 			liveConfigAnswered = true;
 			forgetSavedResponses();
