@@ -5576,9 +5576,12 @@ public class AnvilPlugin extends Plugin {
 		}
 		onTileConfirmedDone(tileId);
 		if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
-		if (locallyShownTiles.contains(tileId) || !config.teamCompletionBanner()) return;
-		clogBanner.show("Anvil Bingo", "Tile complete!", label);
-		playBannerSound();
+		if (!config.teamCompletionBanner()) return;
+		// A drop's own popup already showed it complete: no second popup, but the chat line still says so.
+		if (!locallyShownTiles.contains(tileId)) {
+			clogBanner.show("Anvil Bingo", "Tile complete!", label);
+			playBannerSound();
+		}
 		announceTileComplete(label, getLocalPlayerName());
 	}
 
