@@ -115,7 +115,9 @@ public class AnvilPlugin extends Plugin {
 	private TileTracker tileTracker;
 	/** The site's live channel; while it's up, the timed polls only back it up (PUSH_FALLBACK_MS). */
 	private PushSocket pushSocket;
-	private static final long PUSH_FALLBACK_MS = 120_000L;
+	// Every table a config reads (tiles, teams, events, seats, submissions, completions) pushes on
+	// change, and a (re)connect sends the team's view at once — so this is only a long safety net.
+	private static final long PUSH_FALLBACK_MS = 600_000L;
 	@Inject
 	private StartSpotMarker startSpotMarker;
 	@Inject

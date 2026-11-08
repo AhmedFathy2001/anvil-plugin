@@ -968,7 +968,9 @@ final class FeedList extends JPanel {
 			grouped = prev != null && sameRun(prev, row);
 			// A few px spare: lines are measured off-screen and painted on it, and the two can round apart.
 			int w = Math.max(80, width - PAD_X * 2 - 6);
-			if (w != wrapWidth) {
+			// Rows trimmed off the list leave their wrapping behind: start over once it holds well more
+			// than the list does (the rows on screen re-wrap as they paint).
+			if (w != wrapWidth || wraps.size() > 2 * Math.max(model.getSize(), 100)) {
 				wraps.clear();
 				wrapWidth = w;
 			}
@@ -1045,22 +1047,74 @@ final class FeedList extends JPanel {
 	 * sent the team (whoColor "muted") gets the name in the team's colour, as before.
 	 */
 	static String whoHtml(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
+		StringBuilder sb = new StringBuilder("<html>");
+		whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> sb.append(font(ink, text)));
+		return sb.toString();
+	}
+
+	/**
+	 * The name line as coloured runs, in order: one per letter for a gradient (sliding like the chat
+	 * lines: the same 6s cycle, reflecting back), else the whole name; then "· Team". Shared by
+	 * {@link #whoHtml} and {@link WhoLine}, which paints the runs straight onto the row.
+	 */
+	static void whoRuns(JsonObject r, String who, String tag, Color whoInk, Color tagInk, java.util.function.BiConsumer<String, Color> out) {
 		Color[] grad = stops(r);
 		String whoColor = UiView.str(r, "whoColor");
 		Color nameInk = !tag.isEmpty() && (whoColor.isEmpty() || "muted".equals(whoColor)) ? tagInk : whoInk;
 		String name = Ui.fontSafe(who);
-		StringBuilder sb = new StringBuilder("<html>");
 		if (grad != null && name.length() > 1) {
-			// Sliding like the chat lines: the same 6s cycle, reflecting back, letter by letter.
 			float phase = moves(r) ? (System.currentTimeMillis() % 6000) / 6000f * 2 : 0;
 			for (int i = 0; i < name.length(); i++) {
 				float t = reflect((float) i / (name.length() - 1) + phase) * (grad.length - 1);
 				int k = Math.min((int) t, grad.length - 2);
-				sb.append(font(mix(grad[k], grad[k + 1], t - k), String.valueOf(name.charAt(i))));
+				out.accept(String.valueOf(name.charAt(i)), mix(grad[k], grad[k + 1], t - k));
 			}
-		} else sb.append(font(nameInk, name));
-		if (!tag.isEmpty()) sb.append(font(tagInk, " \u00b7 " + Ui.fontSafe(tag)));
-		return sb.toString();
+		} else out.accept(name, nameInk);
+		if (!tag.isEmpty()) out.accept(" \u00b7 " + Ui.fontSafe(tag), tagInk);
+	}
+
+	/**
+	 * A moment's name line, painted directly. It was an HTML label, and a sliding gradient changes
+	 * its text every 40ms frame, so Swing re-parsed the markup 25 times a second for each visible
+	 * moving row; drawing the same letters in the same colours costs only the drawString calls.
+	 */
+	private static final class WhoLine extends javax.swing.JComponent {
+		private JsonObject r;
+		private String who = "";
+		private String tag = "";
+		private Color whoInk = Color.WHITE;
+		private Color tagInk = MUTED;
+
+		void show(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
+			this.r = r;
+			this.who = who;
+			this.tag = tag;
+			this.whoInk = whoInk;
+			this.tagInk = tagInk;
+		}
+
+		@Override
+		public Dimension getPreferredSize() {
+			FontMetrics fm = getFontMetrics(SMALL);
+			return new Dimension(0, fm.getHeight());
+		}
+
+		@Override
+		protected void paintComponent(Graphics g0) {
+			if (r == null) return;
+			Graphics2D g = (Graphics2D) g0;
+			g.setFont(SMALL);
+			FontMetrics fm = g.getFontMetrics();
+			int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
+			int[] x = {0};
+			int max = getWidth();
+			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {
+				if (x[0] >= max) return;
+				g.setColor(ink);
+				g.drawString(text, x[0], y);
+				x[0] += fm.stringWidth(text);
+			});
+		}
 	}
 
 	private static String font(Color c, String text) {
@@ -1132,7 +1186,7 @@ final class FeedList extends JPanel {
 	private final class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
 		private final JLabel icon = new ClipLabel();
 		private final JLabel line1 = new ClipLabel();
-		private final JLabel line2 = new ClipLabel();
+		private final WhoLine line2 = new WhoLine();
 		private final JLabel value = new ClipLabel();
 		private final JLabel gz = new ClipLabel();
 		private final Chips chips = new Chips();
@@ -1145,8 +1199,6 @@ final class FeedList extends JPanel {
 			icon.setVerticalAlignment(SwingConstants.TOP);
 			icon.setPreferredSize(new Dimension(ICON_W, ICON_H));
 			line1.setFont(REGULAR);
-			line2.setFont(SMALL);
-			line2.setForeground(MUTED);
 			value.setFont(SMALL);
 			value.setForeground(GOLD);
 			value.setHorizontalAlignment(SwingConstants.RIGHT);
@@ -1203,8 +1255,7 @@ final class FeedList extends JPanel {
 				line1.setForeground(UiView.color(UiView.str(r, "textColor"), Color.WHITE));
 				// Who got it, in the colours the site picked (a Supporter's own, else their team's), then
 				// "· Team" in the team's colour on a board.
-				line2.setText(whoHtml(r, who, tag, whoInk, tagInk));
-				line2.setForeground(whoInk);
+				line2.show(r, who, tag, whoInk, tagInk);
 				line2.setVisible(true);
 			} else {
 				// A roll-up line ("+214 smaller drops…"): one plain line.

@@ -37,6 +37,10 @@ import java.util.function.Consumer;
 public class AnvilSidebarPanel extends PluginPanel {
 	/** Auto-refresh cadence while the panel is open. Mirrors the plugin's other polls. */
 	private static final int POLL_INTERVAL_MS = 15_000;
+	/** While the live push is up, one poll per this many ticks (5 minutes). */
+	private static final int PUSH_SAFETY_TICKS = 20;
+	/** Client property on the start-proof checks panel: what it shows now (renderStartProofChecks). */
+	private static final String START_PROOF_SHOWN = "anvil.startProofShown";
 
 
 	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
@@ -204,9 +208,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 		add(tabBody, BorderLayout.CENTER);
 
 		autoRefresh = new Timer(POLL_INTERVAL_MS, e -> {
-			// With the live push up, a push asks for the board when it moves (boardChanged); the timer
-			// only keeps "2m ago" times moving and backs the push up.
-			if (!typingInSearch() && (!pushLive.getAsBoolean() || ++quietTicks % 4 == 0)) poll();
+			// With the live push up, a push asks for the board when it moves (boardChanged) and "2m ago"
+			// times tick locally (UiView), so the timer is only a safety net: every 5 minutes.
+			if (!typingInSearch() && (!pushLive.getAsBoolean() || ++quietTicks % PUSH_SAFETY_TICKS == 0)) poll();
 		});
 		autoRefresh.setCoalesce(true);
 
@@ -724,8 +728,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** ⚙ — everything that's syncing or a setting rather than something to look at. */
 	private void renderSettings() {
-		settingsPanel.removeAll();
 		AnvilSidebarDataSource.PanelActions actions = dataSource.actionsFor();
+		// Asked on every refresh, but what it shows only moves with these: rebuild only when one does.
+		String key = settingsKey(actions);
+		if (key.equals(settingsShown)) return;
+		settingsShown = key;
+		settingsPanel.removeAll();
 		if (actions.canSyncProfile) {
 			heading(settingsPanel, "Your profile");
 			settingsPanel.add(fullWidthButton("Sync profile",
@@ -756,6 +764,19 @@ public class AnvilSidebarPanel extends PluginPanel {
 		settingsPanel.add(left(support));
 		settingsPanel.revalidate();
 		settingsPanel.repaint();
+	}
+
+	/** What the settings tab last drew from (settingsKey), so an unchanged refresh skips the rebuild. */
+	private String settingsShown;
+
+	private String settingsKey(AnvilSidebarDataSource.PanelActions actions) {
+		StringBuilder k = new StringBuilder()
+			.append(actions.canSyncProfile).append('|').append(actions.canSyncRoster).append('|').append(actions.rosterNote)
+			.append('|').append(isSupporter());
+		for (String clip : dataSource.sounds(BannerSoundService.Kind.BANNER)) {
+			k.append('|').append(clip).append(dataSource.bannerSoundOn(clip) ? '+' : '-');
+		}
+		return k.append("|m").append(dataSource.sounds(BannerSoundService.Kind.MISSION).size()).toString();
 	}
 
 	// ---- Lifecycle (Activatable) — poll only while the panel is on screen -------------------------
@@ -1702,6 +1723,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	private void renderStartProofChecks(JPanel into, PluginConfigResponse.StartProof proof) {
 		List<StartProofRules.Check> list = dataSource.startProofChecks(proof);
+		// Ticked every second, but the checks only move when you log in or walk to the spot: rebuild
+		// only when what they say changes.
+		StringBuilder said = new StringBuilder();
+		for (StartProofRules.Check c : list) said.append(c.state).append('|').append(c.text).append('\n');
+		String key = said.toString();
+		if (key.equals(into.getClientProperty(START_PROOF_SHOWN))) return;
+		into.putClientProperty(START_PROOF_SHOWN, key);
 		into.removeAll();
 		for (StartProofRules.Check c : list) {
 			Color color = c.state == StartProofRules.Check.State.OK ? ColorScheme.PROGRESS_COMPLETE_COLOR

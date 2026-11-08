@@ -431,6 +431,24 @@ public class FeedListTest
 	}
 
 	@Test
+	public void thePaintedNameLineDrawsTheSameLettersInTheSameColours()
+	{
+		java.awt.Color team = new java.awt.Color(0xff8800);
+		JsonObject patron = new JsonParser().parse("{\"who\":\"Drenvox\",\"grad\":[\"#f5c542\",\"#c86bff\"],\"tag\":\"Lab\"}").getAsJsonObject();
+		StringBuilder text = new StringBuilder();
+		java.util.List<java.awt.Color> inks = new java.util.ArrayList<>();
+		FeedList.whoRuns(patron, "Drenvox", "Lab", java.awt.Color.WHITE, team, (t, ink) -> {
+			text.append(t);
+			inks.add(ink);
+		});
+		assertEquals("Drenvox \u00b7 Lab", text.toString());
+		assertEquals("a run per letter, then the team", 8, inks.size());
+		assertEquals(new java.awt.Color(0xf5c542), inks.get(0));
+		assertEquals(new java.awt.Color(0xc86bff), inks.get(6));
+		assertEquals(team, inks.get(7));
+	}
+
+	@Test
 	public void aMovingGradientReflectsLikeTheChatLines()
 	{
 		assertEquals(0f, FeedList.reflect(0f), 1e-6);
