@@ -285,6 +285,11 @@ final class UiView extends JPanel {
 		Slot slot = into == null ? null : slots.get(into);
 		if (into == null || slot == null) {
 			render(view);
+		} else if (slot.first != null && view != null && view.has("ui")) {
+			// A page fetched into a nav slot is a page of its own: the pane left is kept for Back.
+			JViewport vp = leave(slot, into, "~" + n);
+			replace(slot.holder, node(view.getAsJsonObject("ui")));
+			if (vp != null) vp.setViewPosition(new Point(0, 0));
 		} else replace(slot.holder, view == null || !view.has("ui") ? small("Couldn't reach Anvil — try again in a moment.", MUTED) : node(view.getAsJsonObject("ui")));
 	}
 
@@ -332,6 +337,7 @@ final class UiView extends JPanel {
 				fetch(into.isEmpty() ? null : into, str(a, "v"), strings(a.get("args")));
 				break;
 			case "pane":
+				lastLoads.remove(into); // the reader is on a pane now, not on the page last fetched: a refresh must not replay it
 				Slot slot = slots.get(into);
 				JsonElement pane = slot == null || slot.panes == null ? null : slot.panes.get(str(a, "pane"));
 				if (pane != null && pane.isJsonObject() && slot.first != null) {
@@ -381,13 +387,19 @@ final class UiView extends JPanel {
 	 * A nav slot's pane replaces the page. The pane left keeps its build, its scroll and the row that
 	 * was clicked to leave it, so going back lands where the reader was, that row outlined.
 	 */
-	private void go(Slot s, String into, String name, JsonObject pane) {
+	/** Keeps the pane being left (its build, scroll, clicked row) and names the one entered; returns the viewport. */
+	private JViewport leave(Slot s, String into, String name) {
 		String from = openPanes.getOrDefault(into, s.first);
 		JViewport vp = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, s.holder);
 		if (s.holder.getComponentCount() > 0) s.built.put(from, (JComponent) s.holder.getComponent(0));
 		if (lastClicked != null && SwingUtilities.isDescendingFrom(lastClicked, s.holder)) s.from.put(from, lastClicked);
 		if (vp != null) scrolls.put(into + ":" + from, vp.getViewPosition().y);
 		openPanes.put(into, name);
+		return vp;
+	}
+
+	private void go(Slot s, String into, String name, JsonObject pane) {
+		JViewport vp = leave(s, into, name);
 		drawn.remove(into);
 		boolean back = s.built.containsKey(name);
 		replace(s.holder, back ? s.built.get(name) : node(pane));
@@ -446,6 +458,9 @@ final class UiView extends JPanel {
 				break;
 			case "img":
 				c = img(n);
+				break;
+			case "hero":
+				c = hero(n);
 				break;
 			case "bar":
 				c = bar(n);
@@ -678,6 +693,75 @@ final class UiView extends JPanel {
 		return l;
 	}
 
+	/**
+	 * A header card: a 56px banner (picture cover-fitted, else the gradient) full-bleed under the card's
+	 * rounded top corners; the body starts 18px up over it, so its first row's badge overlaps the edge.
+	 */
+	private JComponent hero(JsonObject n) {
+		final int bannerH = 56, up = 18;
+		JsonObject b = new JsonObject();
+		b.add("c", n.get("c"));
+		b.addProperty("gap", 6);
+		JPanel body = (JPanel) col(b);
+		body.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+		Icon[] pic = new Icon[1];
+		JsonArray g = n.has("grad") && n.get("grad").isJsonArray() ? n.getAsJsonArray("grad") : null;
+		Color from = g != null && g.size() > 1 ? color(g.get(0).getAsString(), ColorScheme.DARK_GRAY_COLOR) : ColorScheme.DARK_GRAY_COLOR;
+		Color to = g != null && g.size() > 1 ? color(g.get(1).getAsString(), from) : from;
+		JComponent strip = new JComponent() {
+			@Override
+			protected void paintComponent(Graphics gr) {
+				Graphics2D g2 = (Graphics2D) gr.create();
+				g2.setPaint(new GradientPaint(0, 0, from, getWidth(), 0, to));
+				g2.fillRect(0, 0, getWidth(), getHeight());
+				if (pic[0] != null) {
+					g2.setClip(0, 0, getWidth(), getHeight());
+					pic[0].paintIcon(this, g2, (getWidth() - pic[0].getIconWidth()) / 2, (getHeight() - pic[0].getIconHeight()) / 2);
+				}
+				g2.dispose();
+			}
+		};
+		if (n.has("src")) {
+			host.image(str(n, "src"), 220, bannerH, bool(n, "motion"), image -> {
+				pic[0] = image;
+				strip.repaint();
+			});
+		}
+		JPanel card = new JPanel(null) {
+			@Override
+			protected void paintComponent(Graphics gr) {
+				Graphics2D g2 = (Graphics2D) gr.create();
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+				g2.dispose();
+			}
+
+			@Override
+			protected void paintChildren(Graphics gr) {
+				Graphics2D g2 = (Graphics2D) gr.create();
+				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 12, 12));
+				super.paintChildren(g2);
+				g2.dispose();
+			}
+		};
+		card.setOpaque(false);
+		card.setLayout(new LayoutManager() {
+			@Override public void addLayoutComponent(String name, Component comp) { }
+			@Override public void removeLayoutComponent(Component comp) { }
+			@Override public Dimension preferredLayoutSize(Container p) { return new Dimension(0, bannerH - up + body.getPreferredSize().height); }
+			@Override public Dimension minimumLayoutSize(Container p) { return preferredLayoutSize(p); }
+			@Override
+			public void layoutContainer(Container p) {
+				strip.setBounds(0, 0, p.getWidth(), bannerH);
+				body.setBounds(0, bannerH - up, p.getWidth(), p.getHeight() - bannerH + up);
+			}
+		});
+		card.add(body); // first = painted last, over the strip
+		card.add(strip);
+		return capH(left(card));
+	}
+
 	/** A site picture: it takes no room until a valid image has decoded. */
 	private JComponent img(JsonObject n) {
 		int w = Math.max(1, Math.min(240, num(n, "w", 64)));
@@ -694,7 +778,7 @@ final class UiView extends JPanel {
 		l.setVisible(false);
 		host.image(str(n, "src"), w, h, bool(n, "motion"), image -> {
 			if (image != null) {
-				l.setIcon(bool(n, "round") ? roundIcon(image, w, h) : image);
+				l.setIcon(bool(n, "round") || num(n, "rad", 0) > 0 ? roundIcon(image, w, h, num(n, "rad", 0)) : image);
 				l.setPreferredSize(d);
 				l.setMinimumSize(d);
 				l.setMaximumSize(d);
@@ -731,7 +815,7 @@ final class UiView extends JPanel {
 	 * The masked picture is kept and redone only when the GIF moves to another frame (or another
 	 * label paints it), so a repaint is one drawImage rather than a fresh buffer and mask each time.
 	 */
-	private static Icon roundIcon(Icon image, int w, int h) {
+	private static Icon roundIcon(Icon image, int w, int h, int rad) {
 		return new Icon() {
 			private BufferedImage masked;
 			private int maskedFrame = -1;
@@ -757,7 +841,7 @@ final class UiView extends JPanel {
 						copy.setComposite(AlphaComposite.DstIn);
 						copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 						copy.setColor(Color.WHITE);
-						copy.fill(new java.awt.geom.Ellipse2D.Float(0.5f, 0.5f, w - 1f, h - 1f));
+						copy.fill(rad > 0 ? new java.awt.geom.RoundRectangle2D.Float(0.5f, 0.5f, w - 1f, h - 1f, rad * 2f, rad * 2f) : new java.awt.geom.Ellipse2D.Float(0.5f, 0.5f, w - 1f, h - 1f));
 					} finally {
 						copy.dispose();
 					}
@@ -1173,6 +1257,7 @@ final class UiView extends JPanel {
 		slots.put(id, new Slot(holder, panes, first));
 		String want = openPanes.containsKey(id) ? openPanes.get(id) : first;
 		JsonElement open = panes == null || want == null ? null : panes.get(want);
+		if (open == null && first != null && panes != null) open = panes.get(first); // a pane that was a loaded page: back to the first
 		holder.add(node(open != null && open.isJsonObject() ? open.getAsJsonObject() : n.getAsJsonObject("c")), BorderLayout.CENTER);
 		if (n.has("load") && n.get("load").isJsonObject()) {
 			JsonObject load = n.getAsJsonObject("load");

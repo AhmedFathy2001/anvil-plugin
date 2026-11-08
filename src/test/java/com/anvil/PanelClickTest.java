@@ -23,14 +23,18 @@ import static org.junit.Assert.*;
 public class PanelClickTest {
 	private static final int WIDTH = 225;
 	private static final String[] FIXTURES = {"race-start", "race-mid", "race-detail", "clan-list", "clan-bingo", "clan-home",
-		"clan-event", "clan-event-registered", "clan-event-going", "clan-weekly", "feed", "you", "lookup-player", "lookup-clog", "lookup-clan"};
+		"clan-event", "clan-event-registered", "clan-event-going", "clan-weekly", "feed", "you", "lookup-player", "lookup-clog", "lookup-clan", "lookup-player-img", "you-img", "lookup-clan-img", "lookup-clan-plain"};
 
 	private static final class Host implements UiView.Host {
 		int calls;
+		String view;
+		Map<String, String> args;
 		JsonObject answer;
 
 		@Override public void load(String view, Map<String, String> args, Consumer<JsonObject> done) {
 			calls++;
+			this.view = view;
+			this.args = args;
 			if (answer != null) done.accept(answer);
 		}
 		@Override public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done) { calls++; }
@@ -219,13 +223,112 @@ public class PanelClickTest {
 			click(page.view, page.host, label(page.view, "7/12 · 58%"));
 			size(page.view);
 			page.host.answer = new JsonParser().parse("{\"ui\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Zulrah\",\"font\":\"bold\","
-				+ "\"icon\":{\"t\":\"icon\",\"glyph\":\"chevron-left\",\"w\":10,\"h\":10},\"tip\":\"Back\",\"on\":{\"a\":\"pane\",\"into\":\"log\",\"pane\":\"cat:Bosses\"}}]}}").getAsJsonObject();
+				+ "\"icon\":{\"t\":\"icon\",\"glyph\":\"chevron-left\",\"w\":10,\"h\":10},\"tip\":\"Back\",\"on\":{\"a\":\"pane\",\"into\":\"prof\",\"pane\":\"cat:Bosses\"}}]}}").getAsJsonObject();
 			click(page.view, page.host, label(page.view, "812 kc"));
 			size(page.view);
 			assertNull("the page replaced the category", label(page.view, "812 kc"));
 			assertTrue("Back clicked", click(page.view, page.host, label(page.view, "Zulrah")));
 			size(page.view);
 			assertNotNull("back on the category", label(page.view, "812 kc"));
+			int calls = page.host.calls;
+			page.view.refresh();
+			size(page.view);
+			assertEquals("a refresh after Back asks for nothing the reader left", calls, page.host.calls);
+			assertNotNull("still on the list after a refresh", label(page.view, "812 kc"));
+		});
+	}
+
+	private static Component find(Component c, String text) {
+		String t = c instanceof JLabel ? ((JLabel) c).getText() : c instanceof AbstractButton ? ((AbstractButton) c).getText() : null;
+		if (t != null && text.equals(t.replaceAll("<[^>]*>", "").trim()) && c.isVisible()) return c;
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) {
+			Component f = find(k, text);
+			if (f != null) return f;
+		}
+		return null;
+	}
+
+	private static Component tip(Component c, String text) {
+		if (c instanceof JComponent && ((JComponent) c).getToolTipText() != null && ((JComponent) c).getToolTipText().contains(text) && shown(c, (JComponent) c)) return c;
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) {
+			Component f = tip(k, text);
+			if (f != null) return f;
+		}
+		return null;
+	}
+
+	private static final String PAGE = "{\"ui\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"BossPage\",\"font\":\"bold\","
+		+ "\"icon\":{\"t\":\"icon\",\"glyph\":\"chevron-left\",\"w\":10,\"h\":10},\"tip\":\"Back\",\"on\":{\"a\":\"pane\",\"into\":\"prof\",\"pane\":\"main\"}}]}}";
+
+	/** A boss on the Bosses tab opens its log page as a page of its own; Back returns to Bosses. */
+	@Test
+	public void aBossClickOpensItsLogPageAndBackReturnsToBosses() throws Exception {
+		SwingUtilities.invokeAndWait(() -> {
+			boolean opened = false;
+			for (int i = 0; i < 60 && !opened; i++) {
+				Page page = new Page("lookup-player");
+				page.host.answer = new JsonParser().parse(PAGE).getAsJsonObject();
+				click(page.view, page.host, find(page.view, "Bosses"));
+				size(page.view);
+				List<Component> cs = page.clickables();
+				if (i >= cs.size()) break;
+				click(page.view, page.host, cs.get(i));
+				size(page.view);
+				if (!"clog-page".equals(page.host.view)) continue;
+				opened = true;
+				assertEquals("main", page.host.args.get("back"));
+				assertNotNull("the page replaced the card", find(page.view, "BossPage"));
+				assertNull("Bosses tab gone while the page is open", find(page.view, "Bosses"));
+				assertTrue(click(page.view, page.host, find(page.view, "BossPage")));
+				size(page.view);
+				assertNotNull("Back lands on the profile", find(page.view, "Bosses"));
+			}
+			assertTrue("some boss cell opens its page", opened);
+		});
+	}
+
+	/** Typing an item or page name in the Log tab lists its page; clicking it opens that page directly. */
+	@Test
+	public void theLogSearchListsPagesAndOpensOne() throws Exception {
+		SwingUtilities.invokeAndWait(() -> {
+			Page page = new Page("lookup-clog");
+			click(page.view, page.host, find(page.view, "Log"));
+			size(page.view);
+			assertNull("pages are listed only while searching", find(page.view, "Vorkath"));
+			List<javax.swing.text.JTextComponent> boxes = new ArrayList<>();
+			boxes(page.view, boxes);
+			javax.swing.text.JTextComponent box = boxes.get(boxes.size() - 1);
+			box.setText("head");
+			size(page.view);
+			Component row = find(page.view, "Vorkath");
+			assertNotNull("an item's name finds its page", row);
+			assertTrue(click(page.view, page.host, row));
+			assertEquals("clog-page", page.host.view);
+			assertEquals("Vorkath", page.host.args.get("page"));
+			assertEquals("main", page.host.args.get("back"));
+		});
+	}
+
+	private static void boxes(Component c, List<javax.swing.text.JTextComponent> out) {
+		if (c instanceof javax.swing.text.JTextComponent && c.isShowing() == c.isShowing()) out.add((javax.swing.text.JTextComponent) c);
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) boxes(k, out);
+	}
+
+	/** A goal's visible x asks inline first; No puts it back. */
+	@Test
+	public void aGoalsRemoveButtonAsksInline() throws Exception {
+		SwingUtilities.invokeAndWait(() -> {
+			Page page = new Page("you");
+			Component x = tip(page.view, "Remove goal");
+			assertNotNull("each goal has a visible remove x", x);
+			assertTrue(click(page.view, page.host, x));
+			size(page.view);
+			Component no = find(page.view, "No");
+			assertNotNull("asked inline", no);
+			assertNotNull(find(page.view, "Yes, remove"));
+			assertTrue(click(page.view, page.host, no));
+			size(page.view);
+			assertNull("back to the goal", find(page.view, "No"));
 		});
 	}
 }

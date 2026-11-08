@@ -35,6 +35,17 @@ public class RacePanelRenderTest {
 		@Override public void pin(int event, int tile, boolean on) { }
 		@Override public void switchClan(String slug) { }
 		@Override public JComponent nativePart(String name) { return null; }
+		/** A sample picture (a diagonal-striped teal field) at the size asked: banners and logos alike. */
+		@Override public void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
+			BufferedImage im = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+			Graphics2D g = im.createGraphics();
+			g.setPaint(new GradientPaint(0, 0, new Color(0x1d6f8c), w, h, new Color(0xe0a030)));
+			g.fillRect(0, 0, w, h);
+			g.setColor(new Color(255, 255, 255, 60));
+			for (int i = -h; i < w; i += 14) g.drawLine(i, 0, i + h, h);
+			g.dispose();
+			done.accept(new ImageIcon(im));
+		}
 	}
 
 	private static JsonObject fixture(String name) throws IOException {
@@ -188,6 +199,11 @@ public class RacePanelRenderTest {
 		render("lookup-player", "LookupPlayer", players);
 		render("lookup-clog", "LookupClog", players);
 		render("lookup-clan", "LookupClan", () -> UiView.segments(Arrays.asList("Players", "Clans"), "Clans", m -> { }));
+		render("lookup-player-img", "LookupPlayer", players);
+		render("you-img", "You");
+		Supplier<JComponent> clans = () -> UiView.segments(Arrays.asList("Players", "Clans"), "Clans", m -> { });
+		render("lookup-clan-img", "LookupClan", clans);
+		render("lookup-clan-plain", "LookupClan", clans);
 		assertTrue(out("lookup-clog.png").exists());
 	}
 
