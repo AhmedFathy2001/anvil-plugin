@@ -9,7 +9,7 @@ import java.util.*;
  * reader ({@link ClogPageReader}) can only ever report what someone has clicked through. But opening
  * the log and toggling its Search makes the server transmit EVERY entry, one script fire per item.
  * That's the whole log in one go, with no paging and nothing for the player to do but open the
- * interface. (The technique is WikiSync's; RuneProfile uses it too.)
+ * interface. (Other plugins use the same technique.)
  *
  * <p>This class is the accumulator and the "have they stopped arriving yet" policy. It is
  * RuneLite-free on purpose: the awkward parts are the quiet period and the guards against half a

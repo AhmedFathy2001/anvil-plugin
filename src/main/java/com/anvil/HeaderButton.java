@@ -7,8 +7,8 @@ import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.widgets.*;
 
 /**
- * An "Anvil" button in a game interface's title bar — the collection log's, beside WikiSync and
- * RuneProfile, and the clan window's, beside Wise Old Man's.
+ * An "Anvil" button in a game interface's title bar — the collection log's, beside other
+ * plugins' buttons, and the clan window's.
  *
  * <p>WHY BUTTONS AND NOT THE TAB WE DELETED. The in-game clog TAB went in 5d2e425 — four thousand
  * lines of hand-drawn widgets nobody read, sitting between the side panel (progress at a glance) and

@@ -340,7 +340,7 @@ public class AnvilPlugin extends Plugin {
 	private HeaderButton clogSyncButton;
 
 	/**
-	 * The "Anvil" button in the CLAN window's header, beside Wise Old Man's "Sync WOM Group".
+	 * The "Anvil" button in the CLAN window's header, beside other plugins' buttons.
 	 *
 	 * Gated on the same three things the sidebar's Sync-roster button is: a configured site, site
 	 * admin in the clan being addressed, and a readable clan channel. The admin answer is per clan
@@ -1124,14 +1124,14 @@ public class AnvilPlugin extends Plugin {
 
 		// The window's TITLE BAR, not the entry pane's header the log also calls a header — that one
 		// is the strip naming the boss you have selected, which is where this button spent its first
-		// release squeezed against the item count. The bar is where WikiSync and RuneProfile put
+		// release squeezed against the item count. The bar is where other plugins put
 		// theirs, and where somebody looking for a sync button looks.
 		//
 		// The action is the verb ALONE: the game renders a menu entry as "<action> <name>", and the
 		// name is "Anvil", so spelling it in both produced "Sync to Anvil Anvil".
 		// UNIVERSE, not the entry pane's HEADER the button spent its first release in — that is the
 		// strip naming the boss you have selected, halfway down the interface. UNIVERSE is the
-		// container WikiSync and RuneProfile draw into, which is what puts us in the title bar
+		// container other plugins draw into, which is what puts us in the title bar
 		// beside them and in the same stacking order rather than behind them.
 		//
 		// The offset walks left from the bar's right edge: the close button ends at 28, WikiSync
@@ -1813,7 +1813,7 @@ public class AnvilPlugin extends Plugin {
 			// Names and dynamic rows are populated just after the group itself appears.
 			clientThread.invokeLater(() -> flairInterface(flairRoot));
 		}
-		// The clan window. Its header is where Wise Old Man puts "Sync WOM Group", and ours goes
+		// The clan window. Its header is where other plugins put buttons, and ours goes
 		// beside it — placed against whatever is already there rather than at a fixed offset.
 		//
 		// Deferred a tick: the group has loaded, but the header's children (including other plugins'
@@ -1896,8 +1896,7 @@ public class AnvilPlugin extends Plugin {
 
 	// --- Whole-log collection sync ---------------------------------------------------------------
 	// Opening the collection log and toggling its Search makes the SERVER transmit every entry, one
-	// script fire per item — the whole log without the player clicking a single page. The technique
-	// is WikiSync's (BSD-2, weirdgloop/WikiSync); RuneProfile ships the same three calls.
+	// script fire per item — the whole log without the player clicking a single page.
 
 	/** Fires once the collection log interface has finished setting itself up. */
 	private static final int COLLECTION_LOG_SETUP = 7797;
