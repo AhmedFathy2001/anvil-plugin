@@ -673,8 +673,10 @@ public class AnvilPlugin extends Plugin {
 	// seed the alt's levels if the new burst landed a tick late.
 	private static final int STATS_SETTLE_TICKS = 3;
 
-	// A settled burst of screenshot-worthy facts goes this long after its first, so floor loot lands in the shot.
-	private static final long COALESCE_FLUSH_MS = 2_500;
+	// A settled burst of screenshot-worthy facts goes this long after its first: two game ticks, enough for
+	// the "moments later" frame to show the floor loot (already down when the loot event fires) and to
+	// fold the facts of one kill into one proof.
+	private static final long COALESCE_FLUSH_MS = 1_200;
 
 	// ---- Kill-count tiles ----------------------------------------------------------------
 	// Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
@@ -5585,17 +5587,25 @@ public class AnvilPlugin extends Plugin {
 		announceTileComplete(label, getLocalPlayerName());
 	}
 
-	/** "Tile complete: <label> — by <name>!", the name in its Supporter colours where it has them. */
+	/**
+	 * "Tile complete: <label> — by <name>!". A Supporter's name goes out plain, after their star: the
+	 * chatbox pass paints it in their colours for the chat surface and moves a Patron's (anvilLine).
+	 */
 	private void announceTileComplete(String label, String completedBy) {
-		String who = completedBy == null ? "" : completedBy.trim();
-		// The look for the chatbox behind it (parchment or transparent), as names in chat get: the main
-		// look alone reads wrong on the light chatbox.
-		String painted = who.isEmpty() || !config.supporterChatFlair() ? null
-			: chatFlair.decorateReadable(clean(who), chatStar(), 0, lastChatboxOpaque);
-		if (painted != null) {
-			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, painted + "!");
+		String who = completedBy == null ? "" : clean(completedBy.trim());
+		if (!who.isEmpty() && config.supporterChatFlair() && chatFlair.entry(who) != null) {
+			ChatFlair.Entry e = chatFlair.entry(who);
+			String star = Boolean.TRUE.equals(e.s) ? chatStar() : null;
+			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, (star != null ? star : "") + who + "!");
 		} else sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
 	}
+
+	/** A chat line Anvil wrote itself: "[Anvil] …", after any timestamp (no player can write a non-sender line). */
+	private static boolean anvilLine(String raw) {
+		return ANVIL_LINE.matcher(ChatFlair.shown(raw).text).lookingAt();
+	}
+
+	private static final Pattern ANVIL_LINE = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*?\\s*\\[Anvil\\] ");
 
 	private void checkTileCompletions(PluginConfigResponse cfg) {
 		if (cfg == null || cfg.event == null || cfg.completedTiles == null) return;
@@ -6095,13 +6105,19 @@ public class AnvilPlugin extends Plugin {
 			// "[Clan] Bob:" or "Bob has completed a quest: …" is someone's message widget.
 			boolean sender = text.indexOf(':') >= 0 && ChatFlair.senderColumn(i, lines.length, x, y, shown);
 			String painted = sender ? chatFlair.paintSender(text, star, opaque, shift) : null;
+			boolean lead = false;
 			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
 					&& !ChatFlair.typedBySomeone(i, x, y, shown)) {
 				painted = chatFlair.paintLead(text, star, opaque, shift);
+				lead = true;
 			}
+			// Our own lines naming someone ("Tile complete: … — by Bob!"): a player can't write a non-sender
+			// "[Anvil]" line, so its names are painted, and move, like a sender's.
+			boolean ours = painted == null && !sender && anvilLine(text);
+			if (ours) painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				w.setText(painted);
-				if (moving || (sender ? chatFlair.movingSender(text) : chatFlair.movingLead(text))) chatboxMoving[i] = text;
+				if (moving || (sender ? chatFlair.movingSender(text) : ours ? chatFlair.movingNames(text) : lead && chatFlair.movingLead(text))) chatboxMoving[i] = text;
 				if (sender) makeRoom(lines, i, text, painted);
 				text = w.getText();
 			}
