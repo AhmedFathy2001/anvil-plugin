@@ -80,6 +80,7 @@ final class UiView extends JPanel {
 	private static final Map<String, Boolean> FLIPS = new HashMap<>();
 	private static final Map<String, String> TABS = new HashMap<>();
 	private static final int WRAP_PT = 170;
+	private static final Color DONE_DOT = new Color(0x5fd35f);
 
 	private final Host host;
 	private final ItemManager items;
@@ -126,12 +127,25 @@ final class UiView extends JPanel {
 	private static final class Slot {
 		final JPanel holder;
 		final JsonObject panes;
+		/** {@code nav}: a pane replaces the page; the panes left keep their build and the row clicked to leave. */
+		final String first;
+		final Map<String, JComponent> built = new HashMap<>();
+		final Map<String, JComponent> from = new HashMap<>();
+		Round marked;
 
-		Slot(JPanel holder, JsonObject panes) {
+		Slot(JPanel holder, JsonObject panes, String first) {
 			this.holder = holder;
 			this.panes = panes;
+			this.first = first;
 		}
 	}
+
+	/** The last thing clicked, so a nav slot can mark it when the reader comes back. */
+	private JComponent lastClicked;
+	/** Where each nav pane was scrolled to ("slot:pane"), kept across redraws. */
+	private final Map<String, Integer> scrolls = new HashMap<>();
+	private static final Color RAISED = new Color(0x3a3a3a);
+	private static final Color RAISED_HOVER = new Color(0x474747);
 
 	UiView(Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills) {
 		super(new BorderLayout());
@@ -318,7 +332,9 @@ final class UiView extends JPanel {
 			case "pane":
 				Slot slot = slots.get(into);
 				JsonElement pane = slot == null || slot.panes == null ? null : slot.panes.get(str(a, "pane"));
-				if (pane != null && pane.isJsonObject()) {
+				if (pane != null && pane.isJsonObject() && slot.first != null) {
+					go(slot, into, str(a, "pane"), pane.getAsJsonObject());
+				} else if (pane != null && pane.isJsonObject()) {
 					openPanes.put(into, str(a, "pane"));
 					drawn.remove(into);
 					replace(slot.holder, node(pane.getAsJsonObject()));
@@ -356,6 +372,34 @@ final class UiView extends JPanel {
 				break;
 			default:
 				// An action this version doesn't know does nothing.
+		}
+	}
+
+	/**
+	 * A nav slot's pane replaces the page. The pane left keeps its build, its scroll and the row that
+	 * was clicked to leave it, so going back lands where the reader was, that row outlined.
+	 */
+	private void go(Slot s, String into, String name, JsonObject pane) {
+		String from = openPanes.getOrDefault(into, s.first);
+		JViewport vp = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, s.holder);
+		if (s.holder.getComponentCount() > 0) s.built.put(from, (JComponent) s.holder.getComponent(0));
+		if (lastClicked != null && SwingUtilities.isDescendingFrom(lastClicked, s.holder)) s.from.put(from, lastClicked);
+		if (vp != null) scrolls.put(into + ":" + from, vp.getViewPosition().y);
+		openPanes.put(into, name);
+		drawn.remove(into);
+		boolean back = s.built.containsKey(name);
+		replace(s.holder, back ? s.built.get(name) : node(pane));
+		if (s.marked != null) s.marked.edge = (Color) s.marked.getClientProperty("edge");
+		JComponent was = s.from.get(name);
+		s.marked = back && was instanceof Round ? (Round) was : null;
+		if (s.marked != null) {
+			s.marked.putClientProperty("edge", s.marked.edge);
+			s.marked.edge = ColorScheme.BRAND_ORANGE;
+		}
+		int y = back ? scrolls.getOrDefault(into + ":" + name, 0) : 0;
+		if (vp != null) {
+			vp.setViewPosition(new Point(0, y));
+			SwingUtilities.invokeLater(() -> vp.setViewPosition(new Point(0, y)));
 		}
 	}
 
@@ -423,6 +467,12 @@ final class UiView extends JPanel {
 			case "countdown":
 				c = countdown(n);
 				break;
+			case "segs":
+				c = segs(n);
+				break;
+			case "step":
+				c = step(n);
+				break;
 			case "warm":
 				warm(n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null);
 				return left(new JPanel());
@@ -475,13 +525,28 @@ final class UiView extends JPanel {
 		return out;
 	}
 
-	private JComponent col(JsonObject n) {
-		JPanel p = bool(n, "card") ? block() : column();
-		if (!bool(n, "card")) {
+	/**
+	 * A col's or row's ground: a rounded card, a raised row ({@code bg:'raised'}), a 1px outline
+	 * ({@code edge}), or none. Anything clickable is a {@link Round} so its hover is rounded too.
+	 */
+	private static JPanel surface(JsonObject n, LayoutManager layout, boolean card) {
+		String bg = str(n, "bg");
+		Color edge = color(str(n, "edge"), null);
+		Color fill = card || "card".equals(bg) ? ColorScheme.DARKER_GRAY_COLOR
+			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? ColorScheme.DARK_GRAY_COLOR : null;
+		if (fill == null && edge == null && !n.has("on")) {
+			JPanel p = new JPanel(layout);
 			p.setOpaque(false);
-			background(p, str(n, "bg"));
+			return left(p);
 		}
-		int inset = num(n, "inset", 0);
+		return left(new Round(layout, card ? 6 : 4, fill, edge, "raised".equals(bg) ? RAISED_HOVER : null));
+	}
+
+	private JComponent col(JsonObject n) {
+		boolean card = bool(n, "card");
+		JPanel p = surface(n, null, card);
+		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+		int inset = num(n, "inset", card ? 8 : 0);
 		if (inset > 0) p.setBorder(BorderFactory.createEmptyBorder(inset, inset, inset, inset));
 		int gap = num(n, "gap", 0);
 		for (JComponent c : children(n, "c")) {
@@ -492,8 +557,7 @@ final class UiView extends JPanel {
 	}
 
 	private JComponent row(JsonObject n) {
-		JPanel p = Ui.row(num(n, "gap", 6));
-		background(p, str(n, "bg"));
+		JPanel p = surface(n, new BorderLayout(num(n, "gap", 6), 0), false);
 		int pad = num(n, "pad", 0);
 		int inset = num(n, "inset", pad);
 		p.setBorder(BorderFactory.createEmptyBorder(pad, inset, pad, pad));
@@ -513,7 +577,20 @@ final class UiView extends JPanel {
 	private JComponent text(JsonObject n) {
 		String s = n.has("at") ? ago(str(n, "at")) : str(n, "s");
 		Color ink = color(str(n, "color"), Color.WHITE);
-		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move")) : new ClipLabel();
+		Color chip = color(str(n, "chip"), null);
+		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move"))
+			: chip != null ? new ClipLabel() {
+				@Override
+				protected void paintComponent(Graphics g) {
+					Graphics2D g2 = (Graphics2D) g.create();
+					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					g2.setColor(chip);
+					g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
+					g2.dispose();
+					super.paintComponent(g);
+				}
+			} : new ClipLabel();
+		if (chip != null) l.setBorder(BorderFactory.createEmptyBorder(1, 6, 1, 6));
 		l.setFont(font(str(n, "font")));
 		l.setForeground(ink);
 		String align = str(n, "align");
@@ -530,10 +607,26 @@ final class UiView extends JPanel {
 				((GradientLabel) l).setTintIcon(true);
 			}
 		}
-		l.setText(bool(n, "wrap") ? wrapHtml(esc(s), WRAP_PT) : plainText(s));
+		// wrap: true, or the width in pt where the text sits deeper in than a card.
+		boolean wrap = bool(n, "wrap") || num(n, "wrap", 0) > 0;
+		int width = num(n, "wrap", 0) > 0 ? num(n, "wrap", 0) : WRAP_PT;
+		if (n.has("runs") && n.get("runs").isJsonArray()) {
+			// Runs in their own colours (names in team colours), always wrapped.
+			StringBuilder h = new StringBuilder();
+			for (JsonElement e : n.getAsJsonArray("runs")) {
+				JsonObject r = e.getAsJsonObject();
+				h.append(String.format("<font color='#%06x'>", color(str(r, "color"), ink).getRGB() & 0xffffff)).append(esc(fontSafe(str(r, "s")))).append("</font>");
+			}
+			l.setText(wrapHtml(h.toString(), width));
+		} else l.setText(wrap ? wrapHtml(esc(s), width) : plainText(s));
 		live(n, (v, goal) -> l.setText(liveText(str(n.getAsJsonObject("live"), "fmt"), v, goal)));
 		int w = num(n, "w", 0);
-		if (w > 0) l.setPreferredSize(new Dimension(w, l.getPreferredSize().height));
+		if (w > 0 && chip != null) {
+			// A badge: a square that size, its letter centred.
+			l.setBorder(null);
+			l.setPreferredSize(new Dimension(w, w));
+			l.setMaximumSize(new Dimension(w, w));
+		} else if (w > 0) l.setPreferredSize(new Dimension(w, l.getPreferredSize().height));
 		if (bool(n, "cell")) {
 			l.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
 			l.setOpaque(true);
@@ -713,6 +806,85 @@ final class UiView extends JPanel {
 		});
 		bar.setPreferredSize(new Dimension(0, h));
 		return capH(bar);
+	}
+
+	/** A bar in segments, one colour each (a race's steps: done, here, still to come). */
+	private static JComponent segs(JsonObject n) {
+		List<Color> cs = new ArrayList<>();
+		if (n.has("c") && n.get("c").isJsonArray()) for (JsonElement e : n.getAsJsonArray("c")) cs.add(color(e.getAsString(), MUTED));
+		int h = num(n, "h", 6);
+		JPanel bar = new JPanel() {
+			@Override
+			protected void paintComponent(Graphics g) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				int k = cs.size();
+				float w = (getWidth() - 3f * (k - 1)) / Math.max(1, k);
+				for (int i = 0; i < k; i++) {
+					g2.setColor(cs.get(i));
+					g2.fillRoundRect(Math.round(i * (w + 3)), 0, Math.round(w), h, 4, 4);
+				}
+				g2.dispose();
+			}
+		};
+		bar.setOpaque(false);
+		bar.setPreferredSize(new Dimension(0, h));
+		return capH(bar);
+	}
+
+	/**
+	 * One stop on a vertical track: a dot ({@code done} ticked green, {@code now} gold with a glow,
+	 * {@code end} a gold ring, else a hollow ring), a {@code line} down to the next stop in that colour
+	 * (none on the last), and the stop's content beside it.
+	 */
+	private JComponent step(JsonObject n) {
+		String dot = str(n, "dot");
+		Color line = color(str(n, "line"), null);
+		JPanel gutter = new JPanel() {
+			@Override
+			protected void paintComponent(Graphics g) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				int x = 3, y = 3;
+				if (line != null) {
+					g2.setColor(line);
+					g2.fillRect(x + 5, y + 12, 2, getHeight() - y - 12);
+				}
+				g2.setStroke(new BasicStroke(2f));
+				Color gold = ColorScheme.BRAND_ORANGE;
+				if ("done".equals(dot)) {
+					g2.setColor(DONE_DOT);
+					g2.fillOval(x, y, 12, 12);
+					g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+					g2.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+					g2.drawPolyline(new int[]{x + 3, x + 5, x + 9}, new int[]{y + 6, y + 8, y + 4}, 3);
+				} else if ("now".equals(dot)) {
+					g2.setColor(new Color(gold.getRed(), gold.getGreen(), gold.getBlue(), 64));
+					g2.fillOval(x - 3, y - 3, 18, 18);
+					g2.setColor(gold);
+					g2.fillOval(x, y, 12, 12);
+				} else if ("end".equals(dot)) {
+					g2.setColor(RAISED);
+					g2.fillOval(x, y, 12, 12);
+					g2.setColor(gold);
+					g2.drawOval(x + 1, y + 1, 10, 10);
+				} else {
+					g2.setColor(new Color(0x666666));
+					g2.drawOval(x + 2, y + 2, 8, 8);
+				}
+				g2.dispose();
+			}
+		};
+		gutter.setOpaque(false);
+		gutter.setPreferredSize(new Dimension(18, 18));
+		JPanel body = new JPanel(new BorderLayout());
+		body.setOpaque(false);
+		body.setBorder(BorderFactory.createEmptyBorder(0, 0, line != null ? 8 : 0, 0));
+		if (n.has("c") && n.get("c").isJsonObject()) body.add(node(n.getAsJsonObject("c")), BorderLayout.CENTER);
+		Round p = new Round(new BorderLayout(6, 0), 4, null, null, null);
+		p.add(gutter, BorderLayout.WEST);
+		p.add(body, BorderLayout.CENTER);
+		return capH(left(p));
 	}
 
 	/**
@@ -936,8 +1108,11 @@ final class UiView extends JPanel {
 		JPanel holder = Ui.row(0);
 		String id = str(n, "id");
 		JsonObject panes = n.has("panes") && n.get("panes").isJsonObject() ? n.getAsJsonObject("panes") : null;
-		slots.put(id, new Slot(holder, panes));
-		JsonElement open = panes == null || !openPanes.containsKey(id) ? null : panes.get(openPanes.get(id));
+		// nav: the slot is a page of its own; `open` names the pane it shows first (no `c` needed).
+		String first = bool(n, "nav") ? str(n, "open") : null;
+		slots.put(id, new Slot(holder, panes, first));
+		String want = openPanes.containsKey(id) ? openPanes.get(id) : first;
+		JsonElement open = panes == null || want == null ? null : panes.get(want);
 		holder.add(node(open != null && open.isJsonObject() ? open.getAsJsonObject() : n.getAsJsonObject("c")), BorderLayout.CENTER);
 		if (n.has("load") && n.get("load").isJsonObject()) {
 			JsonObject load = n.getAsJsonObject("load");
@@ -1066,8 +1241,9 @@ final class UiView extends JPanel {
 	 * takes the mouse for itself and Swing doesn't hand the click up — except what has its own click.
 	 */
 	private void clickable(JComponent c, Runnable action) {
-		boolean opaque = c.isOpaque();
+		boolean opaque = c instanceof Round ? ((Round) c).filled() : c.isOpaque();
 		Color base = c.getBackground();
+		Color hover = c instanceof Round && ((Round) c).hover != null ? ((Round) c).hover : ColorScheme.DARK_GRAY_HOVER_COLOR;
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.putClientProperty(CLICKS, Boolean.TRUE);
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
@@ -1086,13 +1262,16 @@ final class UiView extends JPanel {
 				down = false;
 				pressing = false;
 				pressedAt = System.currentTimeMillis();
-				if (click) action.run();
+				if (click) {
+					lastClicked = c;
+					action.run();
+				}
 			}
 
 			@Override
 			public void mouseEntered(MouseEvent e) {
 				c.setOpaque(true);
-				c.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
+				c.setBackground(hover);
 				c.repaint();
 			}
 
@@ -1114,13 +1293,6 @@ final class UiView extends JPanel {
 			if (at instanceof JComponent && ((JComponent) at).getClientProperty(CLICKS) != null) return false;
 		}
 		return true;
-	}
-
-	private static void background(JPanel p, String bg) {
-		if (!bg.isEmpty()) {
-			p.setOpaque(true);
-			p.setBackground("card".equals(bg) ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
-		}
 	}
 
 	private static String tip(JsonObject n) {
