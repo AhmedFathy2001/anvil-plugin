@@ -77,8 +77,8 @@ final class UiView extends JPanel {
 	}
 
 	/** Toggle faces and section choices outlive a redraw (and the card), like the old virtual-levels switch. */
-	private static final Map<String, Boolean> FLIPS = new HashMap<>();
-	private static final Map<String, String> TABS = new HashMap<>();
+	static final Map<String, Boolean> FLIPS = new HashMap<>();
+	static final Map<String, String> TABS = new HashMap<>();
 	private static final int WRAP_PT = 170;
 	private static final Color DONE_DOT = new Color(0x5fd35f);
 
@@ -95,7 +95,6 @@ final class UiView extends JPanel {
 	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. */
 	private final Map<String, Long> warmed = new HashMap<>();
 	/** A clickable part's marker, so the row around it leaves its clicks to it. */
-	private static final String CLICKS = "anvil.clicks";
 	/** How long after a click a background refresh waits before redrawing. */
 	private static final long CLICK_SETTLE_MS = 400;
 	private boolean pressing;
@@ -1297,36 +1296,23 @@ final class UiView extends JPanel {
 	}
 
 	/**
-	 * Lights up under the mouse and runs {@code action} on a left click: a press and a release inside
-	 * it, so a mouse that moves a pixel still clicks. Its whole tree listens — a label with a tooltip
-	 * takes the mouse for itself and Swing doesn't hand the click up — except what has its own click.
+	 * Lights up under the mouse and runs {@code action} on a left click ({@link Ui#onClick}), noting the
+	 * press so a background refresh waits for it.
 	 */
 	private void clickable(JComponent c, Runnable action) {
 		boolean opaque = c instanceof Round ? ((Round) c).filled() : c.isOpaque();
 		Color base = c.getBackground();
 		Color hover = c instanceof Round && ((Round) c).hover != null ? ((Round) c).hover : ColorScheme.DARK_GRAY_HOVER_COLOR;
-		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		c.putClientProperty(CLICKS, Boolean.TRUE);
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
-			private boolean down;
-
 			@Override
 			public void mousePressed(MouseEvent e) {
-				down = SwingUtilities.isLeftMouseButton(e) && ownClick(c, e);
-				if (down) pressing = true;
+				if (SwingUtilities.isLeftMouseButton(e) && Ui.ownClick(c, e)) pressing = true;
 			}
 
 			@Override
 			public void mouseReleased(MouseEvent e) {
-				boolean click = down && SwingUtilities.isLeftMouseButton(e)
-					&& c.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), c));
-				down = false;
 				pressing = false;
 				pressedAt = System.currentTimeMillis();
-				if (click) {
-					lastClicked = c;
-					action.run();
-				}
 			}
 
 			@Override
@@ -1346,14 +1332,10 @@ final class UiView extends JPanel {
 				}
 			}
 		});
-	}
-
-	/** Whether the press is {@code c}'s: no clickable part inside it is nearer the pointer. */
-	private static boolean ownClick(JComponent c, MouseEvent e) {
-		for (Component at = e.getComponent(); at != null && at != c; at = at.getParent()) {
-			if (at instanceof JComponent && ((JComponent) at).getClientProperty(CLICKS) != null) return false;
-		}
-		return true;
+		Ui.onClick(c, () -> {
+			lastClicked = c;
+			action.run();
+		});
 	}
 
 	private static String tip(JsonObject n) {

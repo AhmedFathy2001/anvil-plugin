@@ -98,25 +98,39 @@ final class Ui {
 		return c;
 	}
 
-	/** A hand cursor and a click that runs {@code action}. */
+	static final String CLICKS = "anvil.clicks";
+
+	/**
+	 * A hand cursor and a left click (a press and a release inside: Swing's mouseClicked drops a click
+	 * whose mouse moved a pixel) that runs {@code action}. Its whole tree listens: a label with a tooltip
+	 * (every ClipLabel) takes the mouse for itself and Swing doesn't hand the click up. A part inside
+	 * with a click of its own keeps it.
+	 */
 	static <T extends JComponent> T onClick(T c, Runnable action) {
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		c.addMouseListener(new MouseAdapter() {
+		c.putClientProperty(CLICKS, Boolean.TRUE);
+		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
 			private boolean down;
 
-			// A left press and release inside: Swing's mouseClicked drops a click whose mouse moved a pixel.
 			@Override
 			public void mousePressed(MouseEvent e) {
-				down = SwingUtilities.isLeftMouseButton(e);
+				down = SwingUtilities.isLeftMouseButton(e) && ownClick(c, e);
 			}
 
 			@Override
 			public void mouseReleased(MouseEvent e) {
-				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(e.getPoint())) action.run();
+				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), c))) action.run();
 				down = false;
 			}
 		});
 		return c;
+	}
+
+	/** Whether the press is {@code c}'s: no clickable part inside it is nearer the pointer. */
+	static boolean ownClick(JComponent c, MouseEvent e) {
+		for (Component at = e.getComponent(); at != null && at != c; at = at.getParent())
+			if (at instanceof JComponent && ((JComponent) at).getClientProperty(CLICKS) != null) return false;
+		return true;
 	}
 
 	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
@@ -131,7 +145,7 @@ final class Ui {
 
 			@Override
 			public void mouseExited(MouseEvent e) {
-				c.setBackground(base);
+				if (c.getMousePosition(true) == null) c.setBackground(base); // into a child is still inside
 			}
 		});
 	}

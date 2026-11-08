@@ -1,0 +1,231 @@
+package com.anvil;
+
+import com.google.gson.*;
+import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.List;
+import java.util.function.Consumer;
+import javax.swing.*;
+import org.junit.Test;
+
+import static org.junit.Assert.*;
+
+/**
+ * Every clickable thing on every panel page, clicked the way AWT delivers a click: a press and a release
+ * on the deepest component under the pointer that takes mouse events (a label with a tooltip does).
+ * Each must do something — call the host, or change the page (a segment lit, a fold opened, a pane
+ * swapped in). Then everything new that click showed (a pane's Back, a drill-down) is clicked too.
+ */
+public class PanelClickTest {
+	private static final int WIDTH = 225;
+	private static final String[] FIXTURES = {"race-start", "race-mid", "race-detail", "clan-list", "clan-bingo", "clan-home",
+		"clan-event", "clan-event-registered", "clan-event-going", "clan-weekly", "feed", "you", "lookup-player", "lookup-clog", "lookup-clan"};
+
+	private static final class Host implements UiView.Host {
+		int calls;
+		JsonObject answer;
+
+		@Override public void load(String view, Map<String, String> args, Consumer<JsonObject> done) {
+			calls++;
+			if (answer != null) done.accept(answer);
+		}
+		@Override public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done) { calls++; }
+		@Override public void site(String path) { calls++; }
+		@Override public void lookup(String rsn) { calls++; }
+		@Override public void clan(String slug) { calls++; }
+		@Override public void pin(int event, int tile, boolean on) { calls++; }
+		@Override public void switchClan(String slug) { calls++; }
+		@Override public void openTab(String name, Map<String, String> args) { calls++; }
+		@Override public JComponent nativePart(String name) { return null; }
+	}
+
+	private static JsonObject fixture(String name) {
+		try (Reader r = new InputStreamReader(PanelClickTest.class.getResourceAsStream("race/" + name + ".json"), StandardCharsets.UTF_8)) {
+			return new JsonParser().parse(r).getAsJsonObject();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private static void layOut(Component c) {
+		if (c instanceof Container) {
+			((Container) c).doLayout();
+			for (Component k : ((Container) c).getComponents()) layOut(k);
+		}
+	}
+
+	/** The page sized to what it wants at panel width, laid out. */
+	private static void size(JComponent root) {
+		invalidate(root);
+		root.setSize(WIDTH, 4000);
+		layOut(root);
+		root.setSize(WIDTH, root.getPreferredSize().height);
+		layOut(root);
+	}
+
+	private static void invalidate(Component c) {
+		c.invalidate();
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) invalidate(k);
+	}
+
+	/** What AWT would hand a click at {@code p}: the deepest component there that takes mouse events. */
+	private static Component target(JComponent root, Point p) {
+		Component c = SwingUtilities.getDeepestComponentAt(root, p.x, p.y);
+		while (c != null && c.getMouseListeners().length == 0 && c.getMouseMotionListeners().length == 0 && c.getMouseWheelListeners().length == 0)
+			c = c.getParent();
+		return c;
+	}
+
+	private static boolean shown(Component c, JComponent root) {
+		for (Component at = c; at != null && at != root; at = at.getParent()) if (!at.isVisible() || at.getWidth() <= 0 || at.getHeight() <= 0) return false;
+		return true;
+	}
+
+	/** Everything with a click of its own (a hand cursor set on it), in tree order. */
+	private static List<Component> clickables(Component c, JComponent root, List<Component> out) {
+		if (c.isCursorSet() && c.getCursor().getType() == Cursor.HAND_CURSOR && shown(c, root)
+			&& !(c instanceof JList) && !(c instanceof Round && ((Round) c).filled() && c.getParent() instanceof Round))
+			out.add(c); // a lit segment of a switch is already picked: clicking it again rightly does nothing
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) clickables(k, root, out);
+		return out;
+	}
+
+	private static String describe(Component c) {
+		List<String> texts = new ArrayList<>();
+		texts(c, texts);
+		return c.getClass().getSimpleName() + texts;
+	}
+
+	private static void texts(Component c, List<String> out) {
+		if (c instanceof JLabel && ((JLabel) c).getText() != null && !((JLabel) c).getText().isEmpty() && out.size() < 3)
+			out.add(((JLabel) c).getText().replaceAll("<[^>]*>", "").trim());
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) texts(k, out);
+	}
+
+	/** What a click can change: which components are there and shown, and how labels and rounds paint. */
+	private static String state(Component c) {
+		StringBuilder b = new StringBuilder();
+		b.append(System.identityHashCode(c)).append(c.isVisible() ? 'v' : 'h');
+		if (c instanceof JLabel) b.append(((JLabel) c).getForeground().getRGB());
+		if (c instanceof Round) b.append(((Round) c).filled()).append(((Round) c).edge);
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) b.append('(').append(state(k)).append(')');
+		return b.toString();
+	}
+
+	/** A real left click at {@code c}'s centre; whether anything happened. */
+	private static boolean click(JComponent root, Host host, Component c) {
+		Point p = SwingUtilities.convertPoint(c, c.getWidth() / 2, c.getHeight() / 2, root);
+		Component t = target(root, p);
+		if (t == null) return false;
+		lastTarget = describe(t) + "@" + p;
+		Point at = SwingUtilities.convertPoint(root, p, t);
+		String before = state(root);
+		int calls = host.calls;
+		t.dispatchEvent(new MouseEvent(t, MouseEvent.MOUSE_PRESSED, 0, InputEvent.BUTTON1_DOWN_MASK, at.x, at.y, 1, false, MouseEvent.BUTTON1));
+		t.dispatchEvent(new MouseEvent(t, MouseEvent.MOUSE_RELEASED, 0, 0, at.x, at.y, 1, false, MouseEvent.BUTTON1));
+		t.dispatchEvent(new MouseEvent(t, MouseEvent.MOUSE_CLICKED, 0, 0, at.x, at.y, 1, false, MouseEvent.BUTTON1));
+		return host.calls != calls || !state(root).equals(before);
+	}
+
+	static String lastTarget;
+
+	private static final class Page {
+		final Host host = new Host();
+		final UiView view = new UiView(host, null, null, null);
+
+		Page(String fixture) {
+			UiView.TABS.clear();
+			UiView.FLIPS.clear();
+			view.render(fixture(fixture));
+			size(view);
+		}
+
+		List<Component> clickables() {
+			return PanelClickTest.clickables(view, view, new ArrayList<>());
+		}
+	}
+
+	private static List<String> clickAll(String fixture) {
+		List<String> broken = new ArrayList<>();
+		int n = new Page(fixture).clickables().size();
+		assertTrue(fixture + " has something to click", n > 0 || fixture.startsWith("clan-event"));
+		for (int i = 0; i < n; i++) {
+			Page page = new Page(fixture);
+			Component c = page.clickables().get(i);
+			String what = fixture + ": " + describe(c);
+			Set<Component> before = Collections.newSetFromMap(new IdentityHashMap<>());
+			before.addAll(page.clickables());
+			if (!click(page.view, page.host, c)) {
+				broken.add(what + " got " + lastTarget);
+				continue;
+			}
+			size(page.view);
+			// What that click showed (a pane's Back, a section's rows), each clicked once on a fresh copy.
+			List<Component> after = page.clickables();
+			for (int j = 0; j < after.size(); j++) {
+				if (before.contains(after.get(j))) continue;
+				Page again = new Page(fixture);
+				click(again.view, again.host, again.clickables().get(i));
+				size(again.view);
+				List<Component> shown = again.clickables();
+				if (j >= shown.size()) continue;
+				if (!click(again.view, again.host, shown.get(j))) broken.add(what + " > " + describe(shown.get(j)) + " got " + lastTarget);
+			}
+		}
+		return broken;
+	}
+
+	@Test
+	public void everyClickOnEveryPageDoesSomething() throws Exception {
+		List<String> broken = new ArrayList<>();
+		SwingUtilities.invokeAndWait(() -> {
+			for (String f : FIXTURES) broken.addAll(clickAll(f));
+		});
+		assertEquals("clicks that did nothing:\n" + String.join("\n", broken), 0, broken.size());
+	}
+
+	/** Lookup's Players | Clans (drawn by the panel over the view): each segment picks. */
+	@Test
+	public void everySegmentOfASwitchPicks() throws Exception {
+		List<String> picked = new ArrayList<>();
+		SwingUtilities.invokeAndWait(() -> {
+			JComponent strip = UiView.segments(Arrays.asList("Players", "Clans"), "Players", picked::add);
+			size(strip);
+			for (Component seg : strip.getComponents()) click(strip, new Host(), seg);
+		});
+		assertEquals(Arrays.asList("Players", "Clans"), picked);
+	}
+
+	private static JLabel label(Component c, String text) {
+		if (c instanceof JLabel && text.equals(((JLabel) c).getText())) return (JLabel) c;
+		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) {
+			JLabel l = label(k, text);
+			if (l != null && l.isVisible()) return l;
+		}
+		return null;
+	}
+
+	/** Log → a category → one of its pages (a site answer into the slot) → Back lands on the category. */
+	@Test
+	public void backFromALogPageLandsOnItsCategory() throws Exception {
+		SwingUtilities.invokeAndWait(() -> {
+			Page page = new Page("lookup-clog");
+			click(page.view, page.host, label(page.view, "Log"));
+			size(page.view);
+			click(page.view, page.host, label(page.view, "7/12 · 58%"));
+			size(page.view);
+			page.host.answer = new JsonParser().parse("{\"ui\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Zulrah\",\"font\":\"bold\","
+				+ "\"icon\":{\"t\":\"icon\",\"glyph\":\"chevron-left\",\"w\":10,\"h\":10},\"tip\":\"Back\",\"on\":{\"a\":\"pane\",\"into\":\"log\",\"pane\":\"cat:Bosses\"}}]}}").getAsJsonObject();
+			click(page.view, page.host, label(page.view, "812 kc"));
+			size(page.view);
+			assertNull("the page replaced the category", label(page.view, "812 kc"));
+			assertTrue("Back clicked", click(page.view, page.host, label(page.view, "Zulrah")));
+			size(page.view);
+			assertNotNull("back on the category", label(page.view, "812 kc"));
+		});
+	}
+}
