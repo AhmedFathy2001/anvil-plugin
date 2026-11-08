@@ -724,29 +724,45 @@ final class UiView extends JPanel {
 		}
 	}
 
-	/** Mask avatars and clan marks to a smooth circle; an animated GifIcon keeps playing through it. */
+	/**
+	 * Mask avatars and clan marks to a smooth circle; an animated GifIcon keeps playing through it.
+	 * The masked picture is kept and redone only when the GIF moves to another frame (or another
+	 * label paints it), so a repaint is one drawImage rather than a fresh buffer and mask each time.
+	 */
 	private static Icon roundIcon(Icon image, int w, int h) {
 		return new Icon() {
+			private BufferedImage masked;
+			private int maskedFrame = -1;
+			private Component maskedFor;
+
 			@Override public int getIconWidth() { return w; }
 			@Override public int getIconHeight() { return h; }
 
 			@Override
 			public void paintIcon(Component c, Graphics g, int x, int y) {
-				// Clipping a GIF directly leaves a visibly jagged Swing edge. Paint the current frame into a
-				// tiny ARGB buffer, then apply an antialiased alpha mask; ImageIcon still advances normally.
-				BufferedImage frame = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-				Graphics2D copy = frame.createGraphics();
-				try {
-					// A GifIcon registers c and repaints it per frame itself.
-					image.paintIcon(c, copy, 0, 0);
-					copy.setComposite(AlphaComposite.DstIn);
-					copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-					copy.setColor(Color.WHITE);
-					copy.fill(new java.awt.geom.Ellipse2D.Float(0.5f, 0.5f, w - 1f, h - 1f));
-				} finally {
-					copy.dispose();
+				int frame = image instanceof GifIcon ? ((GifIcon) image).shownFrame() : 0;
+				if (masked == null || frame != maskedFrame || c != maskedFor) {
+					if (masked == null) masked = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+					// Clipping a GIF directly leaves a visibly jagged Swing edge. Paint the current frame into
+					// a tiny ARGB buffer, then apply an antialiased alpha mask; ImageIcon still advances normally.
+					Graphics2D copy = masked.createGraphics();
+					try {
+						copy.setComposite(AlphaComposite.Clear);
+						copy.fillRect(0, 0, w, h);
+						copy.setComposite(AlphaComposite.SrcOver);
+						// A GifIcon registers c and repaints it per frame itself.
+						image.paintIcon(c, copy, 0, 0);
+						copy.setComposite(AlphaComposite.DstIn);
+						copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+						copy.setColor(Color.WHITE);
+						copy.fill(new java.awt.geom.Ellipse2D.Float(0.5f, 0.5f, w - 1f, h - 1f));
+					} finally {
+						copy.dispose();
+					}
+					maskedFrame = frame;
+					maskedFor = c;
 				}
-				g.drawImage(frame, x, y, null);
+				g.drawImage(masked, x, y, null);
 			}
 		};
 	}
