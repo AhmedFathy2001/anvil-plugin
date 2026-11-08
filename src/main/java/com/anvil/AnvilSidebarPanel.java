@@ -342,7 +342,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 				label.setFont(SMALL);
 				gc.weightx = 1;
 			}
-			tabLabels.put(t, onClick(label, () -> selectTab(t)));
+			tabLabels.put(t, onClick(label, () -> {
+				if (tabsOn) selectTab(t);
+			}));
 			gc.gridx = t.ordinal();
 			tabStrip.add(label, gc);
 		}
@@ -363,11 +365,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 	}
 
-	/** Selected: white with an orange underline. The rest: grey over a hairline, like WOM's tabs. */
+	/** Selected: white with an orange underline. The rest: grey over a hairline; all greyed while signed out. */
 	private void styleTabs() {
 		for (Map.Entry<Tab, JLabel> e : tabLabels.entrySet()) {
-			boolean on = e.getKey() == tab;
-			e.getValue().setForeground(on ? Color.WHITE : MUTED);
+			boolean on = tabsOn && e.getKey() == tab;
+			e.getValue().setForeground(on ? Color.WHITE : tabsOn ? MUTED : ColorScheme.MEDIUM_GRAY_COLOR);
 			e.getValue().setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 0, on ? 2 : 1, 0, on ? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR),
 				BorderFactory.createEmptyBorder(4, 0, on ? 3 : 4, 0)));
@@ -454,10 +456,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 		relabelClanTab();
 		styleLookupModes();
 		boolean on = playerCardsOn();
+		// Signed out the strip still shows, greyed: there is more here once you sign in.
+		tabStrip.setVisible(on || apiClient.needsSignIn());
 		if (on != tabsOn) {
 			tabsOn = on;
-			tabStrip.setVisible(on);
 			if (!on && tab != Tab.CLAN) selectTab(Tab.CLAN);
+			styleTabs();
 		}
 		applyPicker();
 	}

@@ -20,7 +20,7 @@ import javax.swing.Icon;
 @RequiredArgsConstructor
 final class GlyphIcon implements Icon {
 	enum Shape {
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN
 	}
 
 	private final Shape shape;
@@ -105,6 +105,12 @@ final class GlyphIcon implements Icon {
 					}
 					p.closePath();
 					g.fill(p);
+					break;
+				case UP:
+				case DOWN:
+					// A filled triangle: a rank moving up or down since the start of the day.
+					boolean up = shape == Shape.UP;
+					g.fill(stroke(p, s, 0.12, up ? 0.78 : 0.22, 0.5, up ? 0.22 : 0.78, 0.88, up ? 0.78 : 0.22));
 					break;
 				default:
 					break;

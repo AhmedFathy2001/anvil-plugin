@@ -927,28 +927,36 @@ final class UiView extends JPanel {
 		String wanted = TABS.getOrDefault(key, str(n, "open"));
 		String first = bodies.containsKey(wanted) ? wanted : bodies.keySet().iterator().next();
 
+		// A segmented switch: a dark rounded track, the picked segment raised with an orange underline.
 		JPanel wrap = column();
-		JPanel strip = left(new JPanel(new GridLayout(1, bodies.size())));
-		strip.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		Round strip = new Round(new GridLayout(1, bodies.size(), 2, 0), 4, ColorScheme.DARKER_GRAY_COLOR, null, null);
+		strip.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+		left(strip);
 		JPanel body = Ui.row(0);
 		Map<String, JComponent> built = new HashMap<>();
-		List<JLabel> labels = new ArrayList<>();
+		Map<String, Round> segs = new LinkedHashMap<>();
 		Consumer<String> pick = name -> {
 			TABS.put(key, name);
-			for (JLabel l : labels) {
-				boolean on = l.getText().equals(plainText(name));
+			segs.forEach((k, seg) -> {
+				boolean on = k.equals(name);
+				seg.setOpaque(on);
+				JLabel l = (JLabel) seg.getComponent(0);
 				l.setForeground(on ? Color.WHITE : MUTED);
-				l.setBackground(on ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR);
-			}
+				l.setBorder(BorderFactory.createCompoundBorder(
+					BorderFactory.createMatteBorder(0, 0, 2, 0, on ? ColorScheme.BRAND_ORANGE : new Color(0, 0, 0, 0)),
+					BorderFactory.createEmptyBorder(3, 2, 2, 2)));
+				seg.repaint();
+			});
 			replace(body, built.computeIfAbsent(name, k -> node(bodies.get(k))));
 		};
 		for (String name : bodies.keySet()) {
-			JLabel l = onClick(new ClipLabel(plainText(name), SwingConstants.CENTER), () -> pick.accept(name));
+			Round seg = new Round(new BorderLayout(), 3, RAISED, null, null);
+			JLabel l = new ClipLabel(plainText(name), SwingConstants.CENTER);
 			l.setFont(SMALL);
-			l.setOpaque(true);
-			l.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
-			labels.add(l);
-			strip.add(l);
+			seg.add(l, BorderLayout.CENTER);
+			onClick(seg, () -> pick.accept(name));
+			segs.put(name, seg);
+			strip.add(seg);
 		}
 		pick.accept(first);
 		wrap.add(capH(strip));
@@ -1388,6 +1396,10 @@ final class UiView extends JPanel {
 				return GlyphIcon.Shape.CLOSE;
 			case "star":
 				return GlyphIcon.Shape.STAR;
+			case "up":
+				return GlyphIcon.Shape.UP;
+			case "down":
+				return GlyphIcon.Shape.DOWN;
 			default:
 				return null;
 		}

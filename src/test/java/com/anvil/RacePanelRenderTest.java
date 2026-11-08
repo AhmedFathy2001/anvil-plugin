@@ -50,7 +50,7 @@ public class RacePanelRenderTest {
 		body.add(view, BorderLayout.NORTH);
 		JScrollPane sp = new JScrollPane(body, ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 		sp.setBorder(null);
-		sp.setSize(WIDTH, 1400);
+		sp.setSize(WIDTH, 2000);
 		layOut(sp);
 		return sp;
 	}
@@ -125,6 +125,19 @@ public class RacePanelRenderTest {
 		render("race-mid", "Mid");
 		render("race-detail", "Detail");
 		assertTrue(out("race-mid.png").exists());
+	}
+
+	/** The Clan tab's other pages (site lib/pluginUi/homeUi, fixtures written by its test), beside their mockups. */
+	@Test
+	public void rendersTheClanTabPages() throws Exception {
+		render("clan-list", "Home");
+		render("clan-bingo", "Bingo");
+		render("clan-home", "ClanHome");
+		render("clan-event", "ClanEvent");
+		render("clan-event-registered", "ClanEvent");
+		render("clan-event-going", "ClanEvent");
+		render("clan-weekly", "Weekly");
+		assertTrue(out("clan-bingo.png").exists());
 	}
 
 	private static List<JLabel> labels(Component c, List<JLabel> out) {
