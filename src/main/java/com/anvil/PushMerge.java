@@ -23,7 +23,13 @@ final class PushMerge {
 			JsonElement cur = out.get(e.getKey());
 			if (cur != null && cur.isJsonObject() && e.getValue().isJsonObject()) {
 				for (Map.Entry<String, JsonElement> f : e.getValue().getAsJsonObject().entrySet()) cur.getAsJsonObject().add(f.getKey(), f.getValue());
-			} else out.add(e.getKey(), e.getValue());
+			} else {
+				// The push is the addressed board's: another board's rows (tagged) stay as they were.
+				if (cur != null && cur.isJsonArray() && e.getValue().isJsonArray()) {
+					for (JsonElement r : cur.getAsJsonArray()) if (r.isJsonObject() && r.getAsJsonObject().has("board")) e.getValue().getAsJsonArray().add(r);
+				}
+				out.add(e.getKey(), e.getValue());
+			}
 		}
 		JsonObject c = mine != null && mine.has("c") ? mine.getAsJsonObject("c") : new JsonObject();
 		for (Map.Entry<String, JsonElement> e : out.entrySet()) {

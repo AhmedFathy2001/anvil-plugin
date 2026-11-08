@@ -177,13 +177,12 @@ public class AnvilSidebarDataSource {
 	}
 
 	/**
-	 * Whether this event's tiles can be pinned as in-game widgets: there is a config and it is the
-	 * event you're playing, or one still waiting to start (pinned early,
-	 * it counts down and goes live at the whistle).
+	 * Whether this event's tiles can be pinned as in-game widgets: it is one of the live boards you're
+	 * playing, or one still waiting to start (pinned early, it counts down and goes live at the whistle).
 	 */
 	public boolean canTrackTiles(int eventId, boolean preStart) {
 		PluginConfigResponse cfg = configSupplier.get();
-		return eventId > 0 && (preStart || cfg != null && cfg.event != null && cfg.event.id == eventId)
+		return eventId > 0 && (preStart || cfg != null && cfg.live(eventId))
 			&& fromPlugin(AnvilPlugin::supportsTileTracker, false)
 			&& fromPlugin(AnvilPlugin::inGame, false);
 	}

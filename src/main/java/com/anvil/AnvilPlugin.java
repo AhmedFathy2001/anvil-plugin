@@ -2471,7 +2471,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void recordLmsPlacement(int placement) {
 		lmsPlacementRecorded = true;
-		if (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) return;
+		if (!live()) return;
 		emit(rules.event("lms", RuleEngine.named(), placement, ordinal(placement), null, "place", placement, "kills", lmsKills));
 	}
 
@@ -4486,7 +4486,7 @@ public class AnvilPlugin extends Plugin {
 		String suppress =
 				previous == null ? "baseline snapshot"
 				: !rules.has("gain") ? "no gain tiles configured"
-				: (pluginConfig == null || !AnvilOverlay.isEventActive(pluginConfig.event)) ? "no active event"
+				: !live() ? "no live board"
 				: rules.blackout() ? "blackout"
 				: gainSuppressingInterfaceOpen() ? "bank/GE/trade/seed-vault open"
 				: (client.getTickCount() - lastGroundTakeTick <= 2) ? "recent ground Take"
@@ -4673,7 +4673,7 @@ public class AnvilPlugin extends Plugin {
 	private void handleTimedChat(String plain) {
 		// Deathless tiles piggyback on the same correlation: a raid's completion is announced
 		// by the very duration + identity lines the timed machinery already pairs up.
-		if (pluginConfig == null || !rules.has("timed") && !rules.has("deathless") || !AnvilOverlay.isEventActive(pluginConfig.event)) return;
+		if (!rules.has("timed") && !rules.has("deathless") || !live()) return;
 		final long now = now();
 		final String lower = plain.toLowerCase();
 
@@ -5616,11 +5616,13 @@ public class AnvilPlugin extends Plugin {
 		return Math.max(1, (ms + 999) / 1000);
 	}
 
-	// Team-level tile completions (drops, stats, manual — any tile type, completed by any member).
-	// Fire a banner once per newly-completed tile. Seeded silently on the first refresh per event so
-	// tiles completed before this session (or a relog) don't re-pop.
+	// Team-level tile completions (drops, stats, manual — any tile type, completed by any member) on
+	// every live board: tile ids are unique across boards, so one memory serves them all. Fire a banner
+	// once per newly-completed tile. Each board is seeded silently the first time it is seen, so tiles
+	// completed before this session (or on a board just joined) don't re-pop and no other board's do.
 	private final Set<Integer> notifiedCompletedTiles = new HashSet<>();
-	private Integer completionBaselineEventId;
+	/** The boards seeded so far. */
+	private final Set<Integer> seededBoards = new HashSet<>();
 	// Tiles this client already showed a banner for via the player's own drop. Their completion is
 	// skipped here so the contributor doesn't see it twice; teammates still get the team banner.
 	private final Set<Integer> locallyShownTiles = new HashSet<>();
@@ -5639,7 +5641,24 @@ public class AnvilPlugin extends Plugin {
 		notifiedCompletedTiles.clear();
 		locallyShownTiles.clear();
 		confirmedDoneAt.clear();
-		completionBaselineEventId = null;
+		seededBoards.clear();
+	}
+
+	/**
+	 * Note the live boards in {@code seeded}, forgetting ended ones (coming back seeds again), and return
+	 * those seen for the first time: their completions are absorbed silently.
+	 */
+	static Set<Integer> freshBoards(Set<Integer> seeded, PluginConfigResponse cfg) {
+		Set<Integer> live = new HashSet<>(), fresh = new HashSet<>();
+		cfg.boards.forEach(b -> live.add(b.eventId));
+		seeded.retainAll(live);
+		for (int b : live) if (seeded.add(b)) fresh.add(b);
+		return fresh;
+	}
+
+	/** The board a completion is on: its tag, else the addressed board's. */
+	static int boardOf(PluginConfigResponse cfg, CompletedTile t) {
+		return t.board != null ? t.board.eventId : cfg.event != null ? cfg.event.id : 0;
 	}
 
 	/**
@@ -5651,8 +5670,7 @@ public class AnvilPlugin extends Plugin {
 		configFetchLock.lock();
 		try {
 			PluginConfigResponse cfg = pluginConfig;
-			if (cfg == null || cfg.event == null || completionBaselineEventId == null
-					|| completionBaselineEventId != cfg.event.id || !notifiedCompletedTiles.add(tileId)) {
+			if (cfg == null || seededBoards.isEmpty() || !notifiedCompletedTiles.add(tileId)) {
 				return;
 			}
 			confirmedDoneAt.put(tileId, now());
@@ -5691,12 +5709,8 @@ public class AnvilPlugin extends Plugin {
 	private static final Pattern ANVIL_LINE = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*?\\s*\\[Anvil\\] ");
 
 	private void checkTileCompletions(PluginConfigResponse cfg) {
-		if (cfg == null || cfg.event == null || cfg.completedTiles == null) return;
-		boolean seeding = completionBaselineEventId == null || completionBaselineEventId != cfg.event.id;
-		if (seeding) {
-			resetCompletionBaseline();
-			completionBaselineEventId = cfg.event.id;
-		}
+		if (cfg == null || !cfg.live() || cfg.completedTiles == null) return;
+		Set<Integer> fresh = freshBoards(seededBoards, cfg);
 		// Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
 		// popup is toggled off, so flipping it on later won't dump a backlog.
 		List<CompletedTile> newlyDone = new ArrayList<>();
@@ -5722,7 +5736,7 @@ public class AnvilPlugin extends Plugin {
 			if (!notifiedCompletedTiles.add(t.tileId)) continue;
 			// The grace covers completions this client announced, not ones it found already done on
 			// its first look: a tile seen done at startup and then undone must announce again.
-			if (!seeding) {
+			if (!fresh.contains(boardOf(cfg, t))) {
 				confirmedDoneAt.put(t.tileId, now);
 				anyDone = true;
 				onTileConfirmedDone(t.tileId);
@@ -7060,13 +7074,13 @@ public class AnvilPlugin extends Plugin {
 			if (table != null || fresh == null) rules.set(table);
 			moveNotifyPrefs(fresh);
 
-			// Token validated but the caller has no active event right now (server
-			// returns event: null + noActiveEvent: true). Clear local state so tracking
-			// reflects no active event rather than a stale one.
+			// No board in the addressed clan (event: null). Boards elsewhere still ride the tracked lists
+			// and `boards`, and are tracked like any other; with none, tracking reflects that.
 			if (fresh != null && fresh.event == null) {
 				pluginConfig = fresh;
 				clientThread.invokeLater(this::refreshClanTitleWidgets);
 				rebuildItemDropIndex();
+				if (apiClient.getCurrentRsn() != null) checkTileCompletions(fresh);
 				if (fresh.unlinkedActiveEvent != null && !fresh.unlinkedActiveEvent.isEmpty()) {
 					// The diagnostic "money line" for debug exports: the token is valid AND this RSN
 					// IS a player in a live bingo — but the account/token isn't linked to it, so
@@ -8056,7 +8070,7 @@ public class AnvilPlugin extends Plugin {
 	/** The suppression reason for the shared config gates, or null when tracking is live. */
 	private String trackingGateReason() {
 		if (pluginConfig == null) return "no event config loaded (not enrolled, or token/RSN not resolved)";
-		if (!AnvilOverlay.isEventActive(pluginConfig.event)) return "event not currently active";
+		if (!pluginConfig.live()) return "no live board";
 		return null;
 	}
 
@@ -8152,6 +8166,12 @@ public class AnvilPlugin extends Plugin {
 	private boolean pvpCounterActive() {
 		PluginConfigResponse cfg = pluginConfig;
 		return cfg != null && cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
+	}
+
+	/** Is any board this character is on live? (Every one of them is tracked.) */
+	private boolean live() {
+		PluginConfigResponse cfg = pluginConfig;
+		return cfg != null && cfg.live();
 	}
 
 	/** Dangerous PvP only — the Wilderness or a PvP world. Safe minigames (LMS, Soul Wars,
@@ -8946,7 +8966,7 @@ public class AnvilPlugin extends Plugin {
 	 * asking is one chat line against a silent 50m fang.</p>
 	 */
 	static boolean eventNeedsDropLines(PluginConfigResponse cfg, RuleEngine rules) {
-		return cfg != null && AnvilOverlay.isEventActive(cfg.event) && rules.dropLines();
+		return cfg != null && cfg.live() && rules.dropLines();
 	}
 
 	/** On the client thread, and only while logged in — the nudges read settings varbits. */
@@ -8963,7 +8983,7 @@ public class AnvilPlugin extends Plugin {
 	 * track for them. Reads the setting's varbit, so the check runs on the client thread.
 	 */
 	private void maybeNudgeCaRepeatSetting() {
-		if (caRepeatNudgeSent || pluginConfig == null || !rules.has("ca") || !AnvilOverlay.isEventActive(pluginConfig.event)) return;
+		if (caRepeatNudgeSent || !rules.has("ca") || !live()) return;
 		whenLoggedIn(() -> {
 			if (client.getVarbitValue(VarbitID.CA_TASK_RECOMPLETION_NOTIFICATIONS) == 1) {
 				return; // setting already on — nothing to remind about
