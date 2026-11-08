@@ -530,8 +530,9 @@ final class ChatFlair {
 	 * place the widgets on screen (for "same row", "right of"); {@code x/w} are the values to change.
 	 * {@code recX/recW} hold what was last set (MIN_VALUE: nothing), updated here: a widget still where
 	 * it was put is not moved again, one the game laid out afresh is. True when anything changed.
+	 * {@code need} is the whole name segment's drawn width (see {@link #need}), 0 when unknown.
 	 */
-	static boolean makeRoom(int at, int d, int n, int[] ax, int[] ay, int[] x, int[] w, boolean[] shown, int[] recX, int[] recW) {
+	static boolean makeRoom(int at, int d, int need, int n, int[] ax, int[] ay, int[] x, int[] w, boolean[] shown, int[] recX, int[] recW) {
 		if (d <= 0) return false;
 		boolean moved = false;
 		if (w[at] != recW[at]) {
@@ -541,12 +542,27 @@ final class ChatFlair {
 		}
 		for (int j = 0; j < n; j++) {
 			if (j == at || !shown[j] || ay[j] != ay[at] || ax[j] <= ax[at] || x[j] == recX[j]) continue;
-			x[j] += d;
-			w[j] = Math.max(1, w[j] - d);
+			int by = shift(d, need, ax[j] - ax[at]);
+			x[j] += by;
+			w[j] = Math.max(1, w[j] - by);
 			recX[j] = x[j];
 			moved = true;
 		}
 		return moved;
+	}
+
+	/**
+	 * How far to move a message that starts {@code offset} px right of its sender: the star's own width
+	 * {@code d}, or more when the name (all its icons and text, {@code need}) overruns where the game put
+	 * the message, e.g. an icon another plugin added after the layout. 0 {@code need}: just {@code d}.
+	 */
+	static int shift(int d, int need, int offset) {
+		return Math.max(d, need - offset);
+	}
+
+	/** The drawn width of a whole painted sender (every icon, the star, the text) plus a one-space gap; 0 with no font. */
+	static int need(String painted, net.runelite.api.FontTypeFace font, IntUnaryOperator iconWidth) {
+		return font == null ? 0 : measure(painted, font::getTextWidth, iconWidth) + font.getTextWidth(" ");
 	}
 
 	/** Another shown widget on row {@code at}'s line, to its left (left = true) or right. */

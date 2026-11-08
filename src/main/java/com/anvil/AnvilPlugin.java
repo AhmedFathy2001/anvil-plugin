@@ -6225,6 +6225,7 @@ public class AnvilPlugin extends Plugin {
 		IntUnaryOperator icon = tip != null ? tip::iconWidth : n -> 13;
 		int d = ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
 		Widget s = lines[at];
+		int need = ChatFlair.need(painted, s.getFont(), icon);
 		if (d <= 0) return;
 		// A position alone can't say "already moved": a longer name's plain layout can land exactly on the
 		// spot an earlier, shorter starred name in this slot was moved to, leaving its message overlapping.
@@ -6240,8 +6241,9 @@ public class AnvilPlugin extends Plugin {
 					|| o.getOriginalX() <= s.getOriginalX() || ChatFlair.alreadyRoomed(o.getOriginalX(), chatboxRoom[j], plain, chatboxRoomFor[j])) {
 				continue;
 			}
-			o.setOriginalX(o.getOriginalX() + d);
-			o.setOriginalWidth(Math.max(1, o.getOriginalWidth() - d));
+			int by = ChatFlair.shift(d, need, o.getOriginalX() - s.getOriginalX());
+			o.setOriginalX(o.getOriginalX() + by);
+			o.setOriginalWidth(Math.max(1, o.getOriginalWidth() - by));
 			chatboxRoom[j] = o.getOriginalX();
 			chatboxRoomFor[j] = plain;
 			o.revalidate();
@@ -6260,7 +6262,7 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread: per split-PM widget, the {x, width} last set making room for a star. */
 	private final Map<Widget, int[]> pmRoom = new WeakHashMap<>();
 	/** Client thread: a painted split-PM sender's text, and the room its star needs. */
-	private final Map<String, Integer> pmPainted = new HashMap<>();
+	private final Map<String, int[]> pmPainted = new HashMap<>();
 	/** Per moving PM widget: its tag-free source and the animated text currently installed. */
 	private final Map<Widget, String[]> pmMoving = new WeakHashMap<>();
 	private long pmNameFrame = Long.MIN_VALUE;
@@ -6315,7 +6317,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			boolean repaint = ours && animate;
 			if (repaint) text = movingState[0];
-			Integer d = repaint ? null : pmPainted.get(text);
+			int[] d = repaint ? null : pmPainted.get(text);
 			if (d == null && !splitPmSeen.contains(text)) {
 				if (splitPmSeen.size() > 256 || pmPainted.size() > 256) {
 					splitPmSeen.clear();
@@ -6326,14 +6328,14 @@ public class AnvilPlugin extends Plugin {
 				String painted = sender ? chatFlair.paintPmLine(text, chatStar(), false, shift) : null;
 				if (painted != null) {
 					w.setText(painted);
-					d = column ? starRoom(text, painted) : 0;
+					d = column ? starRoom(text, painted, w.getFont()) : new int[2];
 					pmPainted.put(painted, d);
 					if (repaint || chatFlair.movingSender(text)) {
 						pmMoving.put(w, new String[]{text, painted});
 					} else pmMoving.remove(w);
 				} else splitPmSeen.add(text);
 			}
-			if (d != null && d > 0) moved |= ChatFlair.makeRoom(i, d, n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
+			if (d != null && d[0] > 0) moved |= ChatFlair.makeRoom(i, d[0], d[1], n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
 		}
 		if (!moved) return;
 		for (int i = 0; i < n; i++) {
@@ -6364,12 +6366,12 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** The width the Patron star adds to a sender (gradient and colour tags take none). */
-	private int starRoom(String plain, String painted) {
+	/** {star width, whole painted name's width}: the room a split-PM sender's star needs (colour tags take none). */
+	private int[] starRoom(String plain, String painted, net.runelite.api.FontTypeFace font) {
 		java.util.function.ToIntFunction<String> text = t -> 0;
 		ChatFlairTooltip tip = chatFlairTooltip;
 		IntUnaryOperator icon = tip != null ? tip::iconWidth : k -> 13;
-		return ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
+		return new int[]{ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon), ChatFlair.need(painted, font, icon)};
 	}
 
 	/** Client thread: the opaque chatbox (fixed mode, or resizable with transparency off) is light parchment. */

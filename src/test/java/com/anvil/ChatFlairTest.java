@@ -592,23 +592,53 @@ public class ChatFlairTest
 		boolean[] shown = {true, true, true, true};
 		int[] recX = {min, min, min, min};
 		int[] recW = {min, min, min, min};
-		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 0, 4, ax, ay, x, w, shown, recX, recW));
 		assertEquals(111, w[0]);
 		assertEquals("the message moves over by the star", 111, x[1]);
 		assertEquals(289, w[1]);
 		assertEquals("the next line is left alone", 60, x[3]);
 		// Next frame, nothing laid out again: not moved twice.
-		assertEquals(false, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(false, ChatFlair.makeRoom(0, 11, 0, 4, ax, ay, x, w, shown, recX, recW));
 		assertEquals(111, x[1]);
 		// The game lays the line out afresh (plain positions back): room made again.
 		x[1] = 100;
 		w[0] = 100;
 		w[1] = 300;
-		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 0, 4, ax, ay, x, w, shown, recX, recW));
 		assertEquals(111, x[1]);
 		assertEquals(111, w[0]);
 		// No star (gradient / colour only): nothing to make room for.
-		assertEquals(false, ChatFlair.makeRoom(2, 0, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(false, ChatFlair.makeRoom(2, 0, 0, 4, ax, ay, x, w, shown, recX, recW));
+	}
+
+	/** A font with 6 px per character (a space too), standing in for the chat font. */
+	private static net.runelite.api.FontTypeFace font6() {
+		return (net.runelite.api.FontTypeFace) java.lang.reflect.Proxy.newProxyInstance(getClass0(),
+			new Class<?>[]{net.runelite.api.FontTypeFace.class}, (p, m, a) -> a == null ? 0 : ((String) a[0]).length() * 6);
+	}
+
+	private static ClassLoader getClass0() {
+		return ChatFlairTest.class.getClassLoader();
+	}
+
+	@Test
+	public void roomCoversEveryIconInTheName()
+	{
+		java.util.function.IntUnaryOperator icons = k -> k == 99 ? 11 : k == 7 ? 15 : 13; // 99 = star
+		net.runelite.api.FontTypeFace f = font6();
+		// No icon: "Bob:" (4 chars = 24) + star 11 + gap 6.
+		assertEquals(41, ChatFlair.need("<col=ff0000>Bob:<img=99>", f, icons));
+		// One icon (clan rank 13).
+		assertEquals(54, ChatFlair.need("<img=3><col=ff0000>Bob:<img=99>", f, icons));
+		// Three: rank 13 + a 15 px plugin icon + a 13 px one, then the star.
+		assertEquals(82, ChatFlair.need("<img=3><img=7><img=5>Bob:<img=99>", f, icons));
+		assertEquals("no font: just the star", 0, ChatFlair.need("Bob:", null, icons));
+		// The game laid the message out for the plain "Bob:" + one icon (offset 43), a later icon (15)
+		// and the star (11) overrun it: moved to clear the whole name, not just the star.
+		assertEquals(82 - 43, ChatFlair.shift(11, 82, 43));
+		// Laid out right (offset = plain width + gap): the star's width, as before.
+		assertEquals(11, ChatFlair.shift(11, 82, 82 - 11));
+		assertEquals(11, ChatFlair.shift(11, 0, 100));
 	}
 
 	@Test
