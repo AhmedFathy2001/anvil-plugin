@@ -9368,10 +9368,22 @@ public class AnvilPlugin extends Plugin {
 			}
 			if (!rows.isEmpty()) for (Widget w : lines) if (w != null && !w.isHidden() && rows.contains(w.getOriginalY())) hid.add(w);
 		}
-		if (hid.isEmpty()) return null;
+		// Shared across overlapping shots: rows come back only when the last pending shot has its frame, so
+		// one shot's restore can't un-hide a row another shot still needs hidden.
 		hid.forEach(w -> w.setHidden(true));
-		return () -> hid.forEach(w -> w.setHidden(false));
+		shotHidden.addAll(hid);
+		shotsPending++;
+		return () -> {
+			if (--shotsPending > 0) return;
+			shotsPending = 0;
+			shotHidden.forEach(w -> w.setHidden(false));
+			shotHidden.clear();
+		};
 	}
+
+	/** Client thread: the chat rows hidden for screenshots still waiting for their frame, and how many wait. */
+	private final Set<Widget> shotHidden = new HashSet<>();
+	private int shotsPending;
 
 	/**
 	 * The next frame, with this person's hidden chat left out (hideChatForShot), handed to {@code work}
