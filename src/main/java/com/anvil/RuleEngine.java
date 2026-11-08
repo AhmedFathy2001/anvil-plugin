@@ -71,6 +71,8 @@ final class RuleEngine {
 	static final class EventRule extends Rule {
 		String on;
 		Set<String> keys;
+		/** Keys that never hit, even through a wildcard (a combat task the tile already counts). */
+		Set<String> no;
 		/** The event's value must be at most this (null = no cap) and at least {@code min}. */
 		Long max;
 		long min;
@@ -268,9 +270,10 @@ final class RuleEngine {
 		return t != null && t.events.stream().anyMatch(r -> on.equals(r.on));
 	}
 
-	/** Hits a rule taking any of these keys, or any key ("*", or none listed). */
+	/** Hits a rule taking any of these keys, or any key ("*", or none listed), unless it lists one as {@code no}. */
 	static Predicate<EventRule> named(String... ks) {
-		return r -> r.keys == null || r.keys.contains("*") || Arrays.stream(ks).anyMatch(r.keys::contains);
+		return r -> (r.no == null || Arrays.stream(ks).noneMatch(r.no::contains))
+				&& (r.keys == null || r.keys.contains("*") || Arrays.stream(ks).anyMatch(r.keys::contains));
 	}
 
 	/**

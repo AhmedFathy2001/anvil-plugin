@@ -591,7 +591,7 @@ public class RuleEngineTest
 	public void plainEventsMatchTheSitesKeysByEquality()
 	{
 		RuleEngine e = events("{\"t\":5,\"label\":\"Elite\",\"have\":0,\"of\":2,\"on\":\"diary\",\"keys\":[\"* elite\"]},"
-			+ "{\"t\":6,\"label\":\"CA\",\"have\":0,\"of\":5,\"on\":\"ca\",\"keys\":[\"whackamole\",\"anymaster\"]},"
+			+ "{\"t\":6,\"label\":\"CA\",\"have\":0,\"of\":5,\"on\":\"ca\",\"keys\":[\"whackamole\",\"anymaster\"],\"no\":[\"hardhitter\"]},"
 			+ "{\"t\":7,\"label\":\"Win\",\"have\":0,\"of\":3,\"on\":\"lms\",\"max\":1},"
 			+ "{\"t\":8,\"label\":\"PK\",\"have\":0,\"of\":2,\"on\":\"pvp\",\"keys\":[\"foe one\"]},"
 			+ "{\"t\":9,\"label\":\"Rich PK\",\"have\":0,\"of\":1,\"on\":\"pvpLoot\",\"keys\":[\"*\"],\"min\":100000},"
@@ -603,10 +603,10 @@ public class RuleEngineTest
 		assertTrue(o.say.isEmpty()); // no line for a diary, as before
 		assertTrue(e.event("diary", RuleEngine.named("ardougne hard"), 0, null, null).facts.isEmpty());
 
-		Set<String> seen = new HashSet<>();
-		assertEquals(1, e.event("ca", RuleEngine.named("whackamole", "anyelite"), 0, null, t -> seen.add(t + "|whackamole")).facts.size());
-		assertTrue(e.event("ca", RuleEngine.named("whackamole", "anyelite"), 0, null, t -> seen.add(t + "|whackamole")).facts.isEmpty());
-		assertEquals(1, e.event("ca", RuleEngine.named("other", "anymaster"), 0, null, t -> seen.add(t + "|other")).facts.size());
+		assertEquals(1, e.event("ca", RuleEngine.named("whackamole", "anyelite"), 0, null, null).facts.size());
+		assertEquals(1, e.event("ca", RuleEngine.named("other", "anymaster"), 0, null, null).facts.size());
+		// A task the site says already counts on the tile never hits it, wildcard or not.
+		assertTrue(e.event("ca", RuleEngine.named("hardhitter", "anymaster"), 0, null, null).facts.isEmpty());
 
 		assertTrue(e.event("lms", RuleEngine.named(), 2, "2nd", null).facts.isEmpty());
 		o = e.event("lms", RuleEngine.named(), 1, "1st", null, "place", 1, "kills", 4);
