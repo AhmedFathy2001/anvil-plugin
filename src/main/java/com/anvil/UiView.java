@@ -224,8 +224,11 @@ final class UiView extends JPanel {
 		String t = str(m, "t");
 		for (FeedList f : feeds) {
 			if ("rowslock".equals(t)) {
-				if (f.hasBox() && named.stream().anyMatch(p -> f.id.equals(p) || f.id.startsWith(p + ":"))) f.lock(m.has("locked") && !m.get("locked").isJsonNull() ? str(m, "locked") : null);
-			} else if (named.contains(f.id)) {
+				if (f.hasBox() && named.stream().anyMatch(p -> f.id.equals(p) || f.id.startsWith(p + ":"))) f.lock(str(m, "locked"), str(m, "sub"), m.has("warn"));
+			} else if (!named.contains(f.id)) {
+				// Another channel's line: its segment on the chat's switch counts it.
+				if ("rows".equals(t) && m.has("rows") && m.get("rows").isJsonArray()) f.bump(named, m.getAsJsonArray("rows").size());
+			} else {
 				if ("rows".equals(t) && m.has("rows") && m.get("rows").isJsonArray()) {
 					f.add(m.getAsJsonArray("rows"));
 				} else if ("rowsdel".equals(t) && m.has("ids") && m.get("ids").isJsonArray()) {

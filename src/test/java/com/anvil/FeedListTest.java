@@ -457,4 +457,48 @@ public class FeedListTest
 		assertEquals(0.75f, FeedList.reflect(1.25f), 1e-6);
 		assertEquals(0.25f, FeedList.reflect(2.25f), 1e-6);
 	}
+
+	private static final String CHANS = "\"chans\":["
+		+ "{\"label\":\"My team\",\"on\":true,\"feed\":\"chat:9:team:4\",\"act\":{\"a\":\"load\",\"v\":\"feed\"}},"
+		+ "{\"label\":\"All teams\",\"on\":false,\"feed\":\"chat:9:all\",\"n\":2,\"blue\":true,\"act\":{\"a\":\"load\",\"v\":\"feed\"}},"
+		+ "{\"label\":\"Announcements\",\"on\":false,\"feed\":\"chat:9:announce\",\"act\":{\"a\":\"load\",\"v\":\"feed\"}}]";
+
+	@Test
+	public void anotherChannelsLinesCountOnItsSegmentNotTheOpenOne()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:team:4\",\"rows\":[],\"send\":{\"act\":\"chat-send\"}," + CHANS + "}");
+		FeedList f = find(v);
+		assertEquals(2, f.unread("chat:9:all"));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9:all\"],\"rows\":[" + row("c1") + "," + row("c2") + "]}"));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9:announce\"],\"rows\":[" + row("c3") + "]}"));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9:team:4\"],\"rows\":[" + row("c4") + "]}"));
+		assertEquals(4, f.unread("chat:9:all"));
+		assertEquals(1, f.unread("chat:9:announce"));
+		assertEquals("the open channel takes its lines, it doesn't count them", 0, f.unread("chat:9:team:4"));
+		f.flush();
+		assertEquals(1, f.rowCount());
+	}
+
+	@Test
+	public void aLockStandsInPlaceOfTheBoxAndAPauseLeavesAnnouncementsAlone()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:announce\",\"rows\":[],\"send\":{\"act\":\"chat-send\"},"
+			+ "\"locked\":\"Only the host and mods post here\",\"lockSub\":\"Reply in My team or All teams.\"}");
+		FeedList f = find(v);
+		assertTrue("read-only for a player", f.locked());
+		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9:all\",\"chat:9:team\"],\"locked\":null}"));
+		assertTrue("a resume names only the talking channels", f.locked());
+		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"You\u2019re timed out \u00b7 9m left\",\"warn\":1}"));
+		assertTrue(f.locked());
+
+		UiView all = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:all\",\"rows\":[],\"send\":{\"act\":\"chat-send\"}}");
+		FeedList g = find(all);
+		assertFalse(g.locked());
+		all.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"You\u2019re timed out \u00b7 9m left\",\"warn\":1}"));
+		assertTrue("a timeout closes every channel", g.locked());
+		all.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9:all\",\"chat:9:team\"],\"locked\":null}"));
+		assertFalse(g.locked());
+	}
 }
