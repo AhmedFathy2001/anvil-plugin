@@ -395,6 +395,16 @@ final class UiView extends JPanel {
 		if (s.marked != null) {
 			s.marked.putClientProperty("edge", s.marked.edge);
 			s.marked.edge = ColorScheme.BRAND_ORANGE;
+			// A brief "you were here", not a stuck focus ring: the outline lets go after a moment.
+			Round m = s.marked;
+			javax.swing.Timer fade = new javax.swing.Timer(1500, e -> {
+				if (s.marked != m) return;
+				m.edge = (Color) m.getClientProperty("edge");
+				s.marked = null;
+				m.repaint();
+			});
+			fade.setRepeats(false);
+			fade.start();
 		}
 		int y = back ? scrolls.getOrDefault(into + ":" + name, 0) : 0;
 		if (vp != null) {

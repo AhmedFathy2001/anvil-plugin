@@ -44,6 +44,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private static final Color WIDGET_BG = ColorScheme.DARKER_GRAY_COLOR;
 	private static final Color WIDGET_BG_HOVER = ColorScheme.DARK_GRAY_HOVER_COLOR;
 	private static final Color WIDGET_BORDER = new Color(0x47_47_47);
+	// Buttons sit a step above the panel, not sunk below it, so they read as something to press.
+	private static final Color BUTTON_BG = new Color(0x3a_3a_3a);
+	private static final Color BUTTON_HOVER = new Color(0x4a_4a_4a);
+	private static final Color BUTTON_BORDER = new Color(0x5a_5a_5a);
 
 	/** Wrap width for the connect-status line so a long notice wraps instead of clipping (tooltip carries full text). */
 	private static final int STATUS_WRAP_PX = PluginPanel.PANEL_WIDTH - 40;
@@ -1791,21 +1795,21 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private static void styleFlatButton(JButton b, Color foreground) {
 		b.setFocusPainted(false);
 		b.setForeground(foreground);
-		b.setBackground(WIDGET_BG);
+		b.setBackground(BUTTON_BG);
 		b.setFont(SMALL);
 		b.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(WIDGET_BORDER),
+			BorderFactory.createLineBorder(BUTTON_BORDER),
 			BorderFactory.createEmptyBorder(4, 10, 4, 10)));
 		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		b.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseEntered(MouseEvent e) {
-				if (b.isEnabled()) b.setBackground(WIDGET_BG_HOVER);
+				if (b.isEnabled()) b.setBackground(BUTTON_HOVER);
 			}
 
 			@Override
 			public void mouseExited(MouseEvent e) {
-				b.setBackground(WIDGET_BG);
+				b.setBackground(BUTTON_BG);
 			}
 		});
 	}

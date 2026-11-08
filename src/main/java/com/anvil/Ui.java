@@ -23,7 +23,7 @@ final class Ui {
 	static final Font BOLD = FontManager.getRunescapeBoldFont();
 
 	/** Secondary text: counts, hints, the quieter half of a row. */
-	static final Color MUTED = new Color(0x98_98_98);
+	static final Color MUTED = new Color(0xa8_a8_a8);
 
 	private Ui() {
 	}
