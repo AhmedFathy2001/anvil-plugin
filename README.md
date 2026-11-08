@@ -155,7 +155,7 @@ bosses, clues and best times, and the goals you've set on the site with their de
 
 ### Look anyone up
 
-<img src="docs/images/lookup-menu.png" alt="A player's right-click menu with an Anvil entry under Lookup and RuneProfile" width="240" align="right">
+<img src="docs/images/lookup-menu.png" alt="A player's right-click menu with an Anvil entry under Lookup" width="240" align="right">
 
 Right-click a player — standing next to you, or by name in chat, your friends list or the clan
 panel — and pick **Anvil** to open their card in the side panel's **Lookup** tab. Your own is the
@@ -181,7 +181,7 @@ page. A clan's card shows its size, how active it is this week and who's gaining
 
 ### In-game, where you already are
 
-An **Anvil** button sits in the collection log's title bar next to WikiSync and RuneProfile — one
+An **Anvil** button sits in the collection log's title bar beside other plugins' buttons — one
 click syncs your log and your best times.
 
 <p align="center">

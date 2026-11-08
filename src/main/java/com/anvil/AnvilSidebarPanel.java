@@ -363,7 +363,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 	}
 
-	/** Selected: white with an orange underline. The rest: grey over a hairline, like WOM's tabs. */
+	/** Selected: white with an orange underline. The rest: grey over a hairline, like a tab bar. */
 	private void styleTabs() {
 		for (Map.Entry<Tab, JLabel> e : tabLabels.entrySet()) {
 			boolean on = e.getKey() == tab;
