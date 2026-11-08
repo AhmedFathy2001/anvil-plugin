@@ -152,6 +152,29 @@ public class PendingSubmissionStore {
 		return result;
 	}
 
+	/** The facts the site's answer says to send again (their filing failed for a passing reason), or null. */
+	static JsonArray retries(JsonObject reply) {
+		JsonArray a = reply != null && reply.has("retry") && reply.get("retry").isJsonArray() ? reply.getAsJsonArray("retry") : null;
+		return a == null || a.size() == 0 ? null : a;
+	}
+
+	/**
+	 * After a post: when the answer lists facts to send again, keep this proof on disk with only those
+	 * (same screenshot) for the retry loop and return true; else false, and the caller removes it.
+	 */
+	boolean keepRetries(PendingSubmission sub, JsonObject reply) {
+		JsonArray again = retries(reply);
+		Filepath dir = dir();
+		if (again == null || dir == null || sub.screenshotFile == null) return false;
+		sub.facts = again;
+		try {
+			DiskFiles.writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
+		} catch (IOException e) {
+			log.error("Failed to keep the facts to retry: {}", e.getMessage());
+		}
+		return true;
+	}
+
 	public byte[] readScreenshot(PendingSubmission sub) {
 		Filepath dir = dir();
 		if (dir == null || sub.screenshotFile == null) return null;

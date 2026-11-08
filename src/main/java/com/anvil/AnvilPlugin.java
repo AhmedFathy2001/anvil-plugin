@@ -4122,17 +4122,22 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (facts.size() == 0) return;
 		submit(() -> {
+			JsonArray again = facts;
 			try {
 				warnStartProofBeforeCredit();
-				adoptFacts(apiClient.postFacts(facts, null, null, coop));
+				JsonObject reply = apiClient.postFacts(facts, null, null, coop);
+				adoptFacts(reply);
+				again = PendingSubmissionStore.retries(reply); // only the facts whose filing failed
 			} catch (PermanentSubmissionException e) {
 				log.info("Facts refused for good: {}", e.getMessage());
-			} catch (IOException e) {
-				synchronized (factQueue) {
-					factQueue.addAll(facts);
-					factQueueCoop = richer(factQueueCoop, coop);
-					factQueueFlush = reschedule(factQueueFlush, this::flushFactQueue, GAIN_COALESCE_MS);
-				}
+				again = null;
+			} catch (IOException ignored) {
+			}
+			if (again == null) return;
+			synchronized (factQueue) {
+				factQueue.addAll(again);
+				factQueueCoop = richer(factQueueCoop, coop);
+				factQueueFlush = reschedule(factQueueFlush, this::flushFactQueue, GAIN_COALESCE_MS);
 			}
 		});
 	}
@@ -5088,7 +5093,10 @@ public class AnvilPlugin extends Plugin {
 			log.info("Uploading screenshot for tile '{}'...", pending.label);
 			String imageUrl = apiClient.uploadImage(pngBytes, filename);
 
-			adoptFacts(apiClient.postFacts(pending.facts, imageUrl, pending.proof, pendingCoop(pending)));
+			JsonObject reply = apiClient.postFacts(pending.facts, imageUrl, pending.proof, pendingCoop(pending));
+			adoptFacts(reply);
+			// Some facts didn't file (the site failed for a passing reason): only those stay, with the screenshot.
+			if (pendingSubmissionStore.keepRetries(pending, reply)) return false;
 
 			log.info("Submission '{}' sent successfully!", pending.label);
 			pendingSubmissionStore.remove(pending);
