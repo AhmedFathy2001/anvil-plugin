@@ -6917,8 +6917,10 @@ public class AnvilPlugin extends Plugin {
 			noteConnectionOk();
 			adoptResolvedClan(fresh);
 			maybeRefreshChatPatterns(fresh);
-			// Also without a board: the rule table carries the rare-drop screenshot gate.
-			rules.set(fresh != null ? apiClient.fetchRules() : null);
+			// Also without a board: the rule table carries the rare-drop screenshot gate. A failed fetch
+			// keeps the last table (a blip must not stop tracking); the site rejects any tile it no longer has.
+			RuleEngine.Table table = fresh != null ? apiClient.fetchRules() : null;
+			if (table != null || fresh == null) rules.set(table);
 			moveNotifyPrefs(fresh);
 
 			// Token validated but the caller has no active event right now (server
