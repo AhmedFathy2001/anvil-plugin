@@ -608,13 +608,6 @@ public class AnvilPlugin extends Plugin {
 	// completion" message) by NAME — which also lets multiple completions in one tick all post,
 	// unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
 	private final Set<String> notifiedCaTasks = new LinkedHashSet<>();
-	// CA tile-credit dedup — "<tileId>|<task name>" pairs already credited this session, so
-	// repeating the SAME task (repeat-completion fires on every re-meet) can't farm a
-	// multi-count wildcard tile ("any 5 Master tasks" needs 5 distinct tasks, not one task
-	// five times). Cleared on the login screen so account swaps start fresh.
-	private final Set<String> creditedCaTaskTiles = new LinkedHashSet<>();
-	// Whole-page clog tiles already proven this session (proveClogPage).
-	private final Set<Integer> provedClogPages = new HashSet<>();
 	// Slots announced this session, so the personal line and the clan broadcast — which can both
 	// arrive for the same unlock — post it once. Item names, lowercased; cleared per account.
 	private final Set<String> recentClogUnlocks = new LinkedHashSet<>();
@@ -2600,10 +2593,6 @@ public class AnvilPlugin extends Plugin {
 			// once per session, and only once.
 			autoRosterReportedThisLogin = false;
 			autoClogReportedThisLogin = false;
-			// CA per-session state: the next account may legitimately re-credit the same task
-			// (a teammate's alt), and deserves its own repeat-setting reminder.
-			creditedCaTaskTiles.clear();
-			provedClogPages.clear();
 			recentClogUnlocks.clear();
 			// Nothing is attacking a logged-out player, and whatever was is not attacking the next
 			// account either.
@@ -3742,13 +3731,13 @@ public class AnvilPlugin extends Plugin {
 
 	/**
 	 * A whole-page clog tile waits for a screenshot of the finished page: take it when the player
-	 * opens one, once per tile per session.
+	 * opens one. The site takes one per member while it is live; the window only stops one open's redraws.
 	 */
 	private void proveClogPage(ClogPage page) {
 		if (trackingOff() || page.itemIds == null) return;
 		Set<Integer> got = new HashSet<>();
 		for (int id : page.itemIds) got.add(id);
-		emit(rules.event("page", r -> r.keys.contains(page.name) && got.containsAll(r.need), 0, null, provedClogPages::add, "what", page.name, "pg", true));
+		emit(rules.event("page", r -> r.keys.contains(page.name) && got.containsAll(r.need), 0, null, t -> claim(lastSubmittedAt, "page:" + t, now(), DEDUP_WINDOW_MS), "what", page.name, "pg", true));
 	}
 
 	/**
@@ -8899,14 +8888,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Combat Achievement tiles: the task's name or "any &lt;tier&gt;". A given task credits a given tile at
-	 * most once per session (creditedCaTaskTiles), so re-meeting its conditions can't farm a wildcard tile.
+	 * Combat Achievement tiles: the task's name or "any &lt;tier&gt;". The site counts a task once per tile
+	 * off its live proofs, so a "Repeat completion" re-fire can't farm a wildcard tile.
 	 */
 	private void creditCombatTaskTiles(CombatAchievementTier tier, String task) {
 		if (trackingOff()) return;
-		String k = RuleEngine.key(task);
-		emit(rules.event("ca", RuleEngine.named(k, "any" + RuleEngine.key(tier.getDisplayName())), 0, null,
-				t -> creditedCaTaskTiles.add(t + "|" + k), "what", task, "tier", tier.getDisplayName()));
+		emit(rules.event("ca", RuleEngine.named(RuleEngine.key(task), "any" + RuleEngine.key(tier.getDisplayName())), 0, null, null,
+				"what", task, "tier", tier.getDisplayName()));
 	}
 
 	/**
