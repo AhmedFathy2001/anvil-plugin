@@ -3,9 +3,7 @@ package com.anvil;
 import static org.junit.Assert.*;
 
 import com.anvil.PluginConfigResponse.CompletedTile;
-import com.anvil.PluginConfigResponse.TrackedClog;
 import com.anvil.PluginConfigResponse.TrackedCombo;
-import com.anvil.PluginConfigResponse.TrackedTimed;
 import com.google.gson.Gson;
 import java.util.*;
 import org.junit.Test;
@@ -31,28 +29,8 @@ public class TileNotesTest
 	}
 
 	@Test
-	public void timedTileWithoutTheNewFieldsIsAOneClearTile()
-	{
-		TrackedTimed old = GSON.fromJson("{\"tileId\":4,\"label\":\"Inferno\",\"activity\":\"Inferno\",\"thresholdSeconds\":3600}",
-			TrackedTimed.class);
-		assertEquals(1, old.runsRequired());
-		assertEquals(0, old.runsDone());
-		assertNull(TileNotes.runs(old.runsDone(), old.runsRequired()));
-		// And an old config still serializes without a count, so the panel's live counts ignore it.
-		assertFalse(GSON.toJsonTree(old).getAsJsonObject().has("currentAmount"));
-
-		TrackedTimed trials = GSON.fromJson("{\"tileId\":5,\"label\":\"Marlin\",\"activity\":\"Gwenith Glide — Marlin\","
-			+ "\"requiredAmount\":5,\"currentAmount\":3}", TrackedTimed.class);
-		assertEquals("3/5 runs", TileNotes.runs(trials.runsDone(), trials.runsRequired()));
-	}
-
-
-
-	@Test
 	public void olderConfigsHaveNoCapsOrParts()
 	{
-		TrackedClog k = GSON.fromJson("{\"tileId\":20,\"label\":\"Zulrah\",\"requiredAmount\":50}", TrackedClog.class);
-		assertFalse(k.isPart());
 		assertTrue(TileNotes.partCombos(null).isEmpty());
 	}
 
@@ -61,11 +39,7 @@ public class TileNotesTest
 	{
 		CompletedTile done = GSON.fromJson("{\"tileId\":31,\"label\":\"GOTR - 100 searches\",\"points\":0,\"partOf\":30}", CompletedTile.class);
 		assertEquals(30, (int) done.partOf);
-		// A collection-log tile can be a combo's part too; it folds the same way.
-		TrackedClog clog = GSON.fromJson("{\"tileId\":32,\"label\":\"2 new clog slots\",\"partOf\":30,\"mode\":\"slots\",\"requiredAmount\":2,\"currentAmount\":1}", TrackedClog.class);
-		assertTrue(clog.isPart());
-		assertEquals(30, (int) clog.partOf);
-		assertEquals("GOTR — 2 new clog slots", TileNotes.partLabel("GOTR", clog.label));
+		assertEquals("GOTR — 2 new clog slots", TileNotes.partLabel("GOTR", "2 new clog slots"));
 	}
 
 	@Test

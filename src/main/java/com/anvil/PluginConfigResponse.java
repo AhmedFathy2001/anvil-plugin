@@ -237,15 +237,7 @@ public class PluginConfigResponse {
 	// varbit, so there's nothing to map — and only for the ones the client can actually answer
 	// (see ActivityStats).
 	public List<String> trackedActivityKeys;
-	public List<TrackedPvp> trackedPvp;           // PvP-kill tiles (rival-team / bounty kills in dangerous PvP)
 	public List<RosterEntry> pvpRoster;           // event roster (RSN -> teamId) for 'team:other' matching; empty unless a pvp tile exists
-	public List<TrackedTimed> trackedTimed;       // timed-clear tiles (activity under a time cap)
-	public List<TrackedLms> trackedLms;           // LMS placement tiles (finish top-N, M times)
-	public List<TrackedGain> trackedGains;        // item-gain tiles (catch/cook/gather N, from inventory gains)
-	public List<TrackedDeathless> trackedDeathless; // deathless-raid tiles (complete with zero party deaths)
-	public List<TrackedDiary> trackedDiaries;     // achievement-diary completion tiles
-	public List<TrackedCombatTask> trackedCombatTasks; // Combat Achievement task tiles
-	public List<TrackedClog> trackedClog; // collection-log tiles (new slots / whole pages)
 	public List<CompletedTile> completedTiles;   // team-level tile completions (all tile types)
 	public List<TrackedCombo> trackedCombos;     // combo tiles: their parts ride the lists above (partOf)
 	public List<Integer> optionalTileIds;        // tile IDs flagged optional (bonus) — excluded from score/points totals
@@ -370,16 +362,6 @@ public class PluginConfigResponse {
 		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
 		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
 		public Integer partOf;
-
-		public boolean isPart() {
-			return partOf != null && partOf > 0;
-		}
-	}
-
-	/** A tracked tile that completes at a count. */
-	public abstract static class CountedTile extends TrackedTile {
-		public int requiredAmount;
-		public int currentAmount;     // the team's submitted progress so far
 	}
 
 	/**
@@ -425,125 +407,10 @@ public class PluginConfigResponse {
 		public boolean completed;
 	}
 
-	// PvP-kill tile: the plugin credits a kill off the "You have defeated <name>!" line, which
-	// the game sends only to the player it awards the kill (and loot / loot key) to — exactly
-	// one credit per death. Only dangerous PvP counts (the Wilderness or a PvP world); safe
-	// minigames (LMS, Soul Wars, Castle Wars, PvP Arena) and DMM never do. The victim must match
-	// a selector: "any" = any player at all, "team:other" = any member of a rival team (resolved against pvpRoster),
-	// "rsn:<name>" = a named bounty (need not be in the event). Same submission flow as kill.
-	public static class TrackedPvp extends CountedTile {
-		public List<String> targets;      // selectors — "any", "team:other" or "rsn:<name>" entries
-		// Minimum loot value (gp) a kill must yield to count. 0 = no minimum (credit off the death,
-		// including loot-key kills). > 0 defers the credit to PlayerLootReceived and only counts a
-		// kill whose priced loot reaches this floor (so loot-key / no-loot kills never credit it).
-		public int minLootValue;
-	}
-
 	// One event participant, for 'team:other' matching. Only players with a team are included.
 	public static class RosterEntry {
 		public String name;    // RSN as enrolled on the site
 		public int teamId;
-	}
-
-	// Achievement-diary tile: the plugin credits a completion when the in-game diary completion
-	// line matches one of the selectors — "<Area> <Tier>" strings with "Any" as a wildcard on
-	// either side ("Ardougne Elite", "Any Elite", "Wilderness Any"). Same submission flow as kill.
-	public static class TrackedDiary extends CountedTile {
-		public List<String> diaries;      // selectors — any matching one counts a completion
-	}
-
-	// Combat Achievement tile: the plugin credits a completion when the in-game "you've completed
-	// a <tier> combat task" line matches one of the selectors — exact task names ("Whack-a-Mole")
-	// or "Any <Tier>" wildcards ("Any Master"). Players who already own a task re-fire the line by
-	// enabling the in-game "Repeat completion" setting. Same submission flow as diary.
-	public static class TrackedCombatTask extends CountedTile {
-		public List<String> tasks;        // selectors — any matching one counts a completion
-	}
-
-	// Collection-log tile. Credited off "New item added to your collection log: X" when X is in
-	// `items` (null = any item); the site decides whether it is really a new slot for this player.
-	public static class TrackedClog extends CountedTile {
-		public String mode;                        // "slots" | "complete" (finish pages)
-		public List<String> items;                 // names that count, normalised by key(); null = any
-		public Map<String, List<Integer>> groups;  // "complete": page -> its chosen item ids
-		public boolean completed;
-
-		/** Lowercase, punctuation as single spaces — the way the site writes {@code items}. */
-		static String key(String name) {
-			return name == null ? "" : name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
-		}
-
-		boolean complete() {
-			return "complete".equals(mode);
-		}
-
-		/** Does this unlock count toward the tile? */
-		boolean counts(String itemName) {
-			if (completed || itemName == null || (!complete() && currentAmount >= requiredAmount)) return false;
-			return items == null || items.contains(key(itemName));
-		}
-
-		/** "complete": is this open log page, with these obtained ids, one of the tile's finished pages? */
-		boolean pageFull(String page, int[] obtained) {
-			List<Integer> want = completed || groups == null || page == null ? null : groups.get(page);
-			if (want == null || want.isEmpty() || obtained == null) return false;
-			Set<Integer> have = new HashSet<>();
-			for (int id : obtained) have.add(id);
-			return have.containsAll(want);
-		}
-	}
-
-	// Timed-clear tile: the plugin times the named activity and submits a clear time. The tile
-	// completes server-side when a submitted durationSeconds is ≤ thresholdSeconds (pass/fail).
-	public static class TrackedTimed extends TrackedTile {
-		public String activity;            // e.g. "Inferno", "Chambers of Xeric"
-		public int thresholdSeconds;       // complete if a clear is at or under this
-		public int partySize;              // raids — exact party size required; 0/absent = any size
-		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
-		public int itemId = -1;            // activity's signature reward (Colosseum → quiver) for the icon
-		public boolean completed;          // team already completed this tile
-		// Runs needed to complete (Barracuda Trials rank tiles: N qualifying runs) and the team's count
-		// so far. Boxed so an older server, which sends neither, stays exactly as before (a plain
-		// one-clear tile) — the panel's live counts only pick up a timed row that carries a count.
-		public Integer requiredAmount;
-		public Integer currentAmount;
-
-		/** Qualifying runs the tile needs — 1 for a plain timed tile and on older servers. */
-		public int runsRequired() {
-			return requiredAmount == null || requiredAmount < 1 ? 1 : requiredAmount;
-		}
-
-		public int runsDone() {
-			return currentAmount == null ? 0 : Math.max(0, currentAmount);
-		}
-	}
-
-	public static class TrackedLms extends CountedTile {
-		public int placementCap;           // finish at or under this placement (1 = win)
-		public boolean completed;          // team already completed this tile
-	}
-
-	public static class TrackedGain extends CountedTile {
-		public List<Integer> itemIds;      // pool — any of these appearing in the inventory counts
-		public boolean completed;          // team already completed this tile
-	}
-
-	public static class TrackedDeathless extends CountedTile {
-		public String activity;            // the raid, e.g. "Theatre of Blood"
-		public int partySize;              // exact party size required; 0/absent = any size
-		public int minRaidLevel;           // ToA — raid level the run must END at; 0/absent = any
-		public boolean partyTeamOnly;      // every player in the raid must be on the team
-		// Shared runs, as on a kill tile: "per-kill" = teammates in the same run credit it once;
-		// coopMinMembers = at least that many of the team in it. The server judges both off the
-		// fingerprint this client attaches. Absent on older servers.
-		public String coopCredit;
-		public int coopMinMembers;
-		public int itemId = -1;            // activity's signature reward (icon), -1 = book sprite
-		public boolean completed;          // team already completed this tile
-
-		public boolean needsCoopFingerprint() {
-			return "per-kill".equalsIgnoreCase(coopCredit) || coopMinMembers > 0;
-		}
 	}
 
 	public static class TileCount {
