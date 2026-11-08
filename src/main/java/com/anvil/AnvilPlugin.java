@@ -5633,9 +5633,11 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		for (CompletedTile t : cfg.completedTiles) {
-			if (notifiedCompletedTiles.add(t.tileId)) confirmedDoneAt.put(t.tileId, now);
-			else continue;
+			if (!notifiedCompletedTiles.add(t.tileId)) continue;
+			// The grace covers completions this client announced, not ones it found already done on
+			// its first look: a tile seen done at startup and then undone must announce again.
 			if (!seeding) {
+				confirmedDoneAt.put(t.tileId, now);
 				anyDone = true;
 				onTileConfirmedDone(t.tileId);
 				if (t.partOf != null) {
