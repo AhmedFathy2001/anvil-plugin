@@ -1,0 +1,22 @@
+{
+  "name": "gauntlet-clear",
+  "description": "Gauntlet completion: duration line then completion count (label=Challenge gauntlet=Gauntlet for the normal one)",
+  "params": {
+    "gauntlet": "Corrupted Gauntlet",
+    "label": "Corrupted challenge",
+    "kc": "4",
+    "time": "6:12"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "${label} duration: ${time} (new personal best)."
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${gauntlet} completion count is: ${kc}."
+      }
+    }
+  ]
+}

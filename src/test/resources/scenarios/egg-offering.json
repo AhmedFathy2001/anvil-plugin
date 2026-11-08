@@ -1,0 +1,14 @@
+{
+  "name": "egg-offering",
+  "description": "Bird's egg offered at the Woodcutting Guild shrine (one line, one credit)",
+  "params": {
+    "count": "7"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "You have made ${count} offerings."
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "giants-foundry",
+  "description": "Giants' Foundry reputation earned (game counter, a varp): up by rep, then put back. Needs a non-zero balance first",
+  "params": {
+    "rep": "150"
+  },
+  "steps": [
+    {
+      "varp": {
+        "name": "GIANTS_FOUNDRY_REWARD_SHOP_POINTS",
+        "add": "${rep}"
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

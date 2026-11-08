@@ -1,0 +1,43 @@
+{
+  "name": "colosseum-clear",
+  "description": "Fortis Colosseum: Sol Heredit death, Colosseum duration + KC lines, then the reward chest loot",
+  "params": {
+    "kc": "100",
+    "time": "24:11",
+    "item": "28947"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "Sol Heredit"
+      }
+    },
+    {
+      "chat": {
+        "message": "Colosseum duration: ${time} (new personal best)."
+      }
+    },
+    {
+      "chat": {
+        "message": "Your Sol Heredit kill count is: ${kc}."
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Fortis Colosseum",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

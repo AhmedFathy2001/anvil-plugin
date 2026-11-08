@@ -1,0 +1,24 @@
+{
+  "name": "larran-chest",
+  "description": "Larran's chest with no loot event (looting-bag case): the plain drop line + the chest line; credited a few ticks later",
+  "params": {
+    "size": "big",
+    "count": "12",
+    "item": "Dagon'hai robe top"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "${me} received a drop: ${item}"
+      }
+    },
+    {
+      "chat": {
+        "message": "You have opened Larran's ${size} chest ${count} times."
+      }
+    },
+    {
+      "wait": 5
+    }
+  ]
+}

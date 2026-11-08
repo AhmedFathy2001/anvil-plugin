@@ -1,0 +1,12 @@
+{
+  "name": "vale-offerings",
+  "description": "Vale Totems offerings searched (one research point)",
+  "params": {},
+  "steps": [
+    {
+      "chat": {
+        "message": "You rummage through the offerings."
+      }
+    }
+  ]
+}

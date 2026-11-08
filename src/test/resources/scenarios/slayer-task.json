@@ -1,0 +1,21 @@
+{
+  "name": "slayer-task",
+  "description": "Slayer task done: +1 on the task-streak varbit (game counter), then put back (counter: SLAYER_TASKS_COMPLETED or SLAYER_WILDERNESS_TASKS_COMPLETED)",
+  "params": {
+    "counter": "SLAYER_TASKS_COMPLETED"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "${counter}",
+        "add": 1
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

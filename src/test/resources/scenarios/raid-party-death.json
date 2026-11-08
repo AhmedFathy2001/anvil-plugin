@@ -1,0 +1,57 @@
+{
+  "name": "raid-party-death",
+  "description": "A failed deathless CoX: a teammate dies, then the raid completes. Stand in an instance first (your POH), or the death isn't counted",
+  "params": {
+    "teammate": "Raid buddy",
+    "party": "2",
+    "kc": "126",
+    "time": "16:02"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "RAIDS_CLIENT_INDUNGEON",
+        "value": 1
+      }
+    },
+    {
+      "varbit": {
+        "name": "RAIDS_CLIENT_PARTYSIZE",
+        "value": "${party}"
+      }
+    },
+    {
+      "playerSpawn": {
+        "name": "${teammate}"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "death": {
+        "who": "player",
+        "name": "${teammate}"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "chat": {
+        "message": "Congratulations - your raid is complete! Duration: ${time}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your completed Chambers of Xeric count is: ${kc}."
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

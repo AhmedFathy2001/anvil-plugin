@@ -1,0 +1,35 @@
+{
+  "name": "lms-win",
+  "description": "Last Man Standing win: in-game + kills varbits, the victory line, then the game ends",
+  "params": {
+    "kills": "4"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "BR_INGAME",
+        "value": 1
+      }
+    },
+    {
+      "varbit": {
+        "name": "BR_KILLCOUNT",
+        "value": "${kills}"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "chat": {
+        "message": "You are victorious!"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

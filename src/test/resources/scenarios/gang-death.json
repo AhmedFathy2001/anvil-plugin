@@ -1,0 +1,35 @@
+{
+  "name": "gang-death",
+  "description": "Several players pile on you, then you die (death post names a killer and the pile size)",
+  "params": {
+    "p1": "Pker one",
+    "p2": "Pker two",
+    "p3": "Pker three"
+  },
+  "steps": [
+    {
+      "attacked": {
+        "by": "${p1}"
+      }
+    },
+    {
+      "attacked": {
+        "by": "${p2}"
+      }
+    },
+    {
+      "attacked": {
+        "by": "${p3}",
+        "damage": 30
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "death": {
+        "who": "self"
+      }
+    }
+  ]
+}

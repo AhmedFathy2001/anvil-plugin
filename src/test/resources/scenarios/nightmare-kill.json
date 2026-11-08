@@ -1,0 +1,57 @@
+{
+  "name": "nightmare-kill",
+  "description": "Nightmare kill: KC line, team-size + fight-duration line, then the drop (server + client loot events)",
+  "params": {
+    "boss": "Nightmare",
+    "npc": "The Nightmare",
+    "kc": "11",
+    "team": "5",
+    "time": "6:21",
+    "item": "24422"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${npc}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${boss} kill count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "message": "Team size: ${team} players Fight duration: ${time} (new personal best)."
+      }
+    },
+    {
+      "loot": {
+        "kind": "server",
+        "name": "${npc}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "loot": {
+        "kind": "npc",
+        "name": "${npc}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

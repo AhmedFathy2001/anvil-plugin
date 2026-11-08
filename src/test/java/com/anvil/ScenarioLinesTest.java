@@ -46,6 +46,8 @@ public class ScenarioLinesTest
 				}
 				String line = step.getAsJsonObject("chat").get("message").getAsString();
 				boolean read = catalogReads(line)
+					// The clan's pet broadcast is read by a pattern in AnvilPlugin, not the catalog.
+					|| AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(AnvilPlugin.stripChatTags(line)).matches()
 					|| TimedClearParser.parseDurationSeconds(AnvilPlugin.stripChatTags(line).toLowerCase()) != null;
 				assertTrue(s.name + ": no plugin parser reads \"" + line + "\"", read);
 			}

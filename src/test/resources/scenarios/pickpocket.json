@@ -1,0 +1,42 @@
+{
+  "name": "pickpocket",
+  "description": "A pickpocket: the pocket line and its loot in one tick (pickpocket loot, never a kill)",
+  "params": {
+    "target": "master farmer",
+    "npc": "Master Farmer",
+    "item": "5295",
+    "qty": "1"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "You pick the ${target}'s pocket."
+      }
+    },
+    {
+      "loot": {
+        "kind": "server",
+        "name": "${npc}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": "${qty}"
+          }
+        ]
+      }
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "PICKPOCKET",
+        "name": "${npc}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": "${qty}"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "barracuda-trial",
+  "description": "Sailing Barracuda Trial: completion count, course + rank line, and the Time: line (timed rank tiles)",
+  "params": {
+    "course": "Gwenith Glide",
+    "rank": "Marlin",
+    "kc": "49",
+    "time": "6:04.20"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Your ${course} completion count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "message": "You have completed the ${course} and achieved the ${rank} rank."
+      }
+    },
+    {
+      "chat": {
+        "message": "Time: ${time} (new personal best)."
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "level-up",
+  "description": "A non-99 level-up: the StatChanged plus the level-up line (only levels a skill really below the level)",
+  "params": {
+    "skill": "Agility",
+    "level": "70",
+    "xp": "737627"
+  },
+  "steps": [
+    {
+      "stat": {
+        "skill": "${skill}",
+        "xp": "${xp}",
+        "level": "${level}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Congratulations, you've just advanced your ${skill} level. You are now level ${level}."
+      }
+    }
+  ]
+}

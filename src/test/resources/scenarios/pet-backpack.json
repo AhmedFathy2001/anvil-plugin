@@ -1,0 +1,22 @@
+{
+  "name": "pet-backpack",
+  "description": "Pet that lands in your backpack (follower already out): the backpack line, then the clog line naming it",
+  "params": {
+    "pet": "Heron"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "You feel something weird sneaking into your backpack."
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "chat": {
+        "message": "New item added to your collection log: ${pet}"
+      }
+    }
+  ]
+}

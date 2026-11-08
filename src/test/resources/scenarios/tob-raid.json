@@ -1,12 +1,55 @@
 {
   "name": "tob-raid",
-  "description": "ToB completion: KC line, total-time line (on FRIENDSCHATNOTIFICATION, as the game sends it), chest loot",
+  "description": "ToB completion: party status + slot varbits, KC line, total-time line (on FRIENDSCHATNOTIFICATION, as the game sends it), chest loot",
   "params": {
     "kc": "5",
     "time": "1:02:30",
-    "item": "22477"
+    "item": "22477",
+    "p1": "1",
+    "p2": "1",
+    "p3": "0",
+    "p4": "0"
   },
   "steps": [
+    {
+      "varbit": {
+        "name": "TOB_CLIENT_PARTYSTATUS",
+        "value": 2
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOB_CLIENT_P0",
+        "value": 1
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOB_CLIENT_P1",
+        "value": "${p1}"
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOB_CLIENT_P2",
+        "value": "${p2}"
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOB_CLIENT_P3",
+        "value": "${p3}"
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOB_CLIENT_P4",
+        "value": "${p4}"
+      }
+    },
+    {
+      "wait": 2
+    },
     {
       "chat": {
         "message": "Your completed Theatre of Blood count is: ${kc}."
@@ -33,6 +76,12 @@
           }
         ]
       }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
     }
   ]
 }

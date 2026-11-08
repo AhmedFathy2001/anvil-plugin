@@ -1,0 +1,89 @@
+{
+  "name": "toa-raid",
+  "description": "ToA completion: raid level + party-slot varbits, challenge + total time lines, KC line, then the chest (where a level-floor tile is judged)",
+  "params": {
+    "raid": "Tombs of Amascut: Expert Mode",
+    "kc": "8",
+    "level": "300",
+    "p1": "1",
+    "p2": "0",
+    "p3": "0",
+    "challenge": "30:16",
+    "time": "34:50",
+    "item": "27277"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "TOA_CLIENT_RAID_LEVEL",
+        "value": "${level}"
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOA_CLIENT_P0",
+        "value": 1
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOA_CLIENT_P1",
+        "value": "${p1}"
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOA_CLIENT_P2",
+        "value": "${p2}"
+      }
+    },
+    {
+      "varbit": {
+        "name": "TOA_CLIENT_P3",
+        "value": "${p3}"
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "chat": {
+        "type": "FRIENDSCHATNOTIFICATION",
+        "message": "${raid} challenge completion time: ${challenge}. Personal best: ${challenge}"
+      }
+    },
+    {
+      "chat": {
+        "type": "FRIENDSCHATNOTIFICATION",
+        "message": "${raid} total completion time: ${time} (new personal best)"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your completed ${raid} count is: ${kc}."
+      }
+    },
+    {
+      "wait": 5
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Tombs of Amascut",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "tempoross-game",
+  "description": "Tempoross: KC line, then the reward pool loot",
+  "params": {
+    "kc": "52",
+    "item": "25580"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Your Tempoross kill count is: ${kc}."
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Reward pool (Tempoross)",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

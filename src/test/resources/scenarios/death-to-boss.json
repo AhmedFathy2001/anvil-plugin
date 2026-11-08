@@ -1,0 +1,24 @@
+{
+  "name": "death-to-boss",
+  "description": "A boss targets and hits you, then you die (the feed's 'died to X')",
+  "params": {
+    "boss": "Vorkath"
+  },
+  "steps": [
+    {
+      "attacked": {
+        "by": "${boss}",
+        "npc": true,
+        "damage": 40
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "death": {
+        "who": "self"
+      }
+    }
+  ]
+}

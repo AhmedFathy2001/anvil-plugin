@@ -149,7 +149,7 @@ public class AnvilScenarioPlugin extends Plugin
 				run(a);
 				break;
 			case "stop":
-				player.stop();
+				player.abort(); // puts back any var the run changed
 				bridge.scenarioEnded();
 				print("stopped");
 				break;

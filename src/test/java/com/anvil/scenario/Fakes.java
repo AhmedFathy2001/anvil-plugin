@@ -52,6 +52,14 @@ final class Fakes
 			"getAmount", amount));
 	}
 
+	/** Damage landing on the local player from someone else — never {@code isMine()}. */
+	static Hitsplat hitTaken(int amount)
+	{
+		return proxy(Hitsplat.class, Map.of(
+			"getHitsplatType", HitsplatID.DAMAGE_OTHER,
+			"getAmount", amount));
+	}
+
 	@SuppressWarnings("unchecked")
 	static <T> T proxy(Class<T> type, Map<String, Object> answers)
 	{

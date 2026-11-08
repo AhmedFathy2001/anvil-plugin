@@ -1,0 +1,16 @@
+{
+  "name": "xp-drop",
+  "description": "An XP gain on top of your real XP (skill-XP tiles); the level follows from the XP",
+  "params": {
+    "skill": "Fishing",
+    "xp": "5000"
+  },
+  "steps": [
+    {
+      "stat": {
+        "skill": "${skill}",
+        "addXp": "${xp}"
+      }
+    }
+  ]
+}

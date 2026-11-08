@@ -1,0 +1,27 @@
+{
+  "name": "doom-delve",
+  "description": "Doom of Mokhaiotl delve cleared: the delve duration line + that level's completion varp +1, then put back (level 1-8)",
+  "params": {
+    "level": "3",
+    "time": "1:12"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Delve level: ${level} duration: ${time} (new personal best)"
+      }
+    },
+    {
+      "varp": {
+        "name": "DOM_LEVEL_${level}_COMPLETIONS",
+        "add": 1
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}
