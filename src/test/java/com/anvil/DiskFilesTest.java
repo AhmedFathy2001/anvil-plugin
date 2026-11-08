@@ -131,26 +131,26 @@ public class DiskFilesTest
 		assertEquals("{}", cache.load(ResponseDiskCache.CONFIG).body);
 	}
 
-	/** The site couldn't file some facts: the proof stays on disk with only those, and the same screenshot. */
+	/** What a proof still owes (facts to credit, keys to upload to) is rewritten in place; the screenshot stays. */
 	@Test
-	public void aProofKeepsOnlyTheFactsTheSiteSaysToRetry() throws Exception
+	public void aProofKeepsWhatItStillOwes() throws Exception
 	{
 		PendingSubmissionStore store = new PendingSubmissionStore(new Gson());
 		store.setRoot(root.joinSegment("pending"));
 		PendingSubmissionStore.PendingSubmission p = new PendingSubmissionStore.PendingSubmission();
 		p.timestamp = System.currentTimeMillis();
-		p.facts = new Gson().fromJson("[{\"k\":\"loot\",\"items\":[[10,1]]},{\"k\":\"kill\",\"n\":{\"zulrah\":1}}]", com.google.gson.JsonArray.class);
+		p.facts = new Gson().fromJson("[{\"k\":\"loot\",\"items\":[[10,1]]}]", com.google.gson.JsonArray.class);
 		assertNotNull(store.save(p, new byte[]{1, 2, 3}));
-
-		com.google.gson.JsonObject ok = new Gson().fromJson("{\"credits\":[],\"notes\":[]}", com.google.gson.JsonObject.class);
-		assertTrue(!store.keepRetries(p, ok));
-		com.google.gson.JsonObject reply = new Gson().fromJson("{\"credits\":[],\"retry\":[{\"k\":\"loot\",\"items\":[[10,1]],\"done\":[1]}]}",
-			com.google.gson.JsonObject.class);
-		assertTrue(store.keepRetries(p, reply));
+		p.facts = new Gson().fromJson("[{\"k\":\"loot\",\"items\":[[10,1]],\"done\":[1]}]", com.google.gson.JsonArray.class);
+		p.keys.addProperty("key-1", "Whip, Fang");
+		p.keyAt = 42;
+		store.update(p);
 
 		List<PendingSubmissionStore.PendingSubmission> all = store.loadAll();
 		assertEquals(1, all.size());
 		assertEquals("[{\"k\":\"loot\",\"items\":[[10,1]],\"done\":[1]}]", all.get(0).facts.toString());
+		assertEquals("Whip, Fang", all.get(0).keys.get("key-1").getAsString());
+		assertEquals(42, all.get(0).keyAt);
 		assertEquals(3, store.readScreenshot(all.get(0)).length);
 		assertNull(PendingSubmissionStore.retries(new Gson().fromJson("{\"retry\":[]}", com.google.gson.JsonObject.class)));
 	}

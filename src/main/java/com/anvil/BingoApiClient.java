@@ -740,18 +740,29 @@ public class BingoApiClient {
 
 	/**
 	 * POST /api/plugin/facts: what happened, for the site to credit; answered with the tiles' real counts.
-	 * {@code image}, when there is one, rides in the same request (multipart) — the site stores it.
+	 * With {@code proof} (the meta a screenshot's banner is drawn from) the screenshot follows: the reply's
+	 * {@code proofKey} names the credits it is for ({@link #postProof}).
 	 */
-	JsonObject postFacts(JsonArray facts, byte[] image, JsonObject proof, CoopFingerprint coop) throws IOException {
+	JsonObject postFacts(JsonArray facts, JsonObject proof, CoopFingerprint coop) throws IOException {
 		JsonObject body = new JsonObject();
 		body.add("facts", facts);
-		body.add("proof", proof);
+		if (proof != null) {
+			body.add("proof", proof);
+			body.addProperty("proofPending", true);
+		}
 		if (coop != null && !coop.isEmpty()) body.add("coop", gson.toJsonTree(coop));
-		RequestBody req = image == null ? json(body) : new MultipartBody.Builder().setType(MultipartBody.FORM)
+		return gson.fromJson(post(configUrl("/api/plugin/facts"), json(body), "Facts", true), JsonObject.class);
+	}
+
+	/** POST /api/plugin/facts/proof: the screenshot for the credits {@code key} names. A 410: too late, they were reversed. */
+	void postProof(String key, byte[] image, JsonObject proof) throws IOException {
+		JsonObject body = new JsonObject();
+		body.add("proof", proof);
+		post(configUrl("/api/plugin/facts/proof"), new MultipartBody.Builder().setType(MultipartBody.FORM)
+			.addFormDataPart("key", key)
 			.addFormDataPart("body", gson.toJson(body))
 			.addFormDataPart("file", isJpeg(image) ? "proof.jpg" : "proof.png", RequestBody.create(isJpeg(image) ? JPEG : PNG, image))
-			.build();
-		return gson.fromJson(post(configUrl("/api/plugin/facts"), req, "Facts", true), JsonObject.class);
+			.build(), "Proof", true);
 	}
 
 	/** POST /api/plugin/notify-prefs: the notify settings RuneLite used to hold, once. */

@@ -65,9 +65,11 @@ public class PendingSubmissionStore {
 		public JsonObject proof;
 		// Another board's clan slug (TrackedTile.board), null for the active board: where a retry posts.
 		public String clan;
-		// The facts this screenshot proves, posted to /api/plugin/facts (the site
-		// picks the tiles) instead of a submission for one tile.
+		// The facts this screenshot proves still to credit (posted image-less to /api/plugin/facts; the
+		// site picks the tiles), and each credit's proof key → its tiles' labels, the screenshot still owed.
 		public JsonArray facts;
+		public JsonObject keys = new JsonObject();
+		public long keyAt; // when the last key came: the site reverses a credit a minute after it
 	}
 
 	/**
@@ -158,21 +160,15 @@ public class PendingSubmissionStore {
 		return a == null || a.size() == 0 ? null : a;
 	}
 
-	/**
-	 * After a post: when the answer lists facts to send again, keep this proof on disk with only those
-	 * (same screenshot) for the retry loop and return true; else false, and the caller removes it.
-	 */
-	boolean keepRetries(PendingSubmission sub, JsonObject reply) {
-		JsonArray again = retries(reply);
+	/** Rewrite a saved proof's metadata (what is still to credit and upload); its screenshot stays. */
+	void update(PendingSubmission sub) {
 		Filepath dir = dir();
-		if (again == null || dir == null || sub.screenshotFile == null) return false;
-		sub.facts = again;
+		if (dir == null || sub.screenshotFile == null) return;
 		try {
 			DiskFiles.writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
-			log.error("Failed to keep the facts to retry: {}", e.getMessage());
+			log.error("Failed to update a pending proof: {}", e.getMessage());
 		}
-		return true;
 	}
 
 	public byte[] readScreenshot(PendingSubmission sub) {

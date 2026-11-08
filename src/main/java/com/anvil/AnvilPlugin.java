@@ -253,11 +253,13 @@ public class AnvilPlugin extends Plugin {
 	private final JsonArray factQueue = new JsonArray();
 	private CoopFingerprint factQueueCoop;
 	private ScheduledFuture<?> factQueueFlush;
-	/** Facts a screenshot is being taken for (one dual-frame proof per burst). */
+	/** Facts a screenshot is being taken for, not yet credited (one dual-frame proof per burst). */
 	private final JsonArray factBurst = new JsonArray();
 	private CoopFingerprint factBurstCoop;
 	private volatile BufferedImage factBurstFrame;
-	private ScheduledFuture<?> factBurstFlush;
+	private ScheduledFuture<?> factBurstFlush, factBurstCredit;
+	/** The burst's proof: its credits' keys, the facts still to credit; on disk once the frames are in. */
+	private PendingSubmission burst;
 
 	// Item IDs whose drop ALWAYS posts to the rare-drop channel regardless of value/rarity. The server
 	// resolves pluginConfig.alwaysNotifyItems (names) to ids so matching is by ID — not a fragile name
@@ -677,6 +679,10 @@ public class AnvilPlugin extends Plugin {
 	// the "moments later" frame to show the floor loot (already down when the loot event fires) and to
 	// fold the facts of one kill into one proof.
 	private static final long COALESCE_FLUSH_MS = 1_200;
+	// The credit goes first, image-less, this soon (one event's facts together); the screenshot follows.
+	private static final long CREDIT_COALESCE_MS = 150;
+	// Past this since its credit, a screenshot that still can't go up is given up on: the site has reversed it.
+	private static final long PROOF_GIVE_UP_MS = 90_000;
 
 	// ---- Kill-count tiles ----------------------------------------------------------------
 	// Lowercased NPC name -> the kill tiles that count it. Rebuilt on each config refresh.
@@ -4029,13 +4035,15 @@ public class AnvilPlugin extends Plugin {
 		if (!execLive()) return;
 		if (shot) {
 			synchronized (factBurst) {
-				if (factBurst.size() == 0) {
+				if (burst == null) {
 					// The at-moment frame; the flush shot lands once floor loot has settled.
+					burst = new PendingSubmission();
 					factBurstFrame = null;
 					drawManager.requestNextFrameListener(img -> factBurstFrame = (BufferedImage) img);
 				}
 				factBurst.add(fact);
 				factBurstCoop = richer(factBurstCoop, coop);
+				factBurstCredit = reschedule(factBurstCredit, this::creditBurst, CREDIT_COALESCE_MS);
 				factBurstFlush = reschedule(factBurstFlush, this::flushFactBurst, COALESCE_FLUSH_MS);
 			}
 		} else {
@@ -4072,7 +4080,7 @@ public class AnvilPlugin extends Plugin {
 			JsonArray again = facts;
 			try {
 				warnStartProofBeforeCredit();
-				JsonObject reply = apiClient.postFacts(facts, null, null, coop);
+				JsonObject reply = apiClient.postFacts(facts, null, coop);
 				adoptFacts(reply);
 				again = PendingSubmissionStore.retries(reply); // only the facts whose filing failed
 			} catch (PermanentSubmissionException e) {
@@ -4089,45 +4097,85 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/** A settled burst of screenshot-worthy facts: one dual-frame proof, persisted, then posted with it. */
-	private void flushFactBurst() {
+	/** The burst's facts so far, credited now, image-less: the screenshot follows under the reply's key. */
+	private void creditBurst() {
 		JsonArray facts;
+		PendingSubmission b;
 		CoopFingerprint coop;
+		synchronized (factBurst) {
+			b = burst;
+			coop = factBurstCoop;
+			facts = factBurst.deepCopy();
+			while (factBurst.size() > 0) factBurst.remove(0);
+		}
+		if (b == null || facts.size() == 0 || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) return;
+		if (b.proof == null) {
+			b.label = "your proof";
+			b.timestamp = now();
+			b.capturedRsn = getLocalPlayerName();
+			b.proof = proofMeta();
+		}
+		if (coop != null) {
+			b.coopGroup = coop.teammates;
+			b.coopPartySize = coop.partySize;
+		}
+		JsonArray again = credit(b, facts);
+		if (b.facts == null) b.facts = again;
+		else b.facts.addAll(again);
+	}
+
+	/** A settled burst: its dual-frame proof, persisted, then uploaded under its credits' keys. Executor. */
+	private void flushFactBurst() {
+		creditBurst(); // anything not yet credited first, so its key is in hand
+		PendingSubmission b;
 		BufferedImage trigger = factBurstFrame;
 		synchronized (factBurst) {
-			facts = factBurst.deepCopy();
-			coop = factBurstCoop;
-			while (factBurst.size() > 0) factBurst.remove(0);
+			b = burst;
+			burst = null;
 			factBurstCoop = null;
 		}
-		if (facts.size() == 0 || pluginConfig == null || pluginConfig.event == null || pluginConfig.team == null || pluginConfig.player == null) return;
-		final String rsn = getLocalPlayerName();
-		final JsonObject proof = proofMeta();
+		// Nothing filed wants the picture (and nothing is left to file): no screenshot.
+		if (b == null || b.proof == null || (b.keys.size() == 0 && (b.facts == null || b.facts.size() == 0))) return;
 		onCleanFrame(image -> {
 			try {
 				BufferedImage buffered = composeDualProof(trigger, image);
-				if (trigger != null) proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
-				PendingSubmission p = new PendingSubmission();
-				p.label = "your proof";
-				p.timestamp = now();
-				p.capturedRsn = rsn;
-				p.facts = facts;
-				p.proof = proof;
-				if (coop != null) {
-					p.coopGroup = coop.teammates;
-					p.coopPartySize = coop.partySize;
-				}
-				if (pendingSubmissionStore.save(p, jpeg(buffered)) == null) {
+				if (trigger != null) b.proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
+				if (pendingSubmissionStore.save(b, jpeg(buffered)) == null) {
 					log.error("Failed to persist a facts proof to disk");
 					return;
 				}
-				if (processPendingSubmission(p)) {
+				if (processPendingSubmission(b)) {
 					proofBackoff.onSuccess();
-				} else notifyUploadFailed(p.label);
+				} else notifyUploadFailed(b.label);
 			} catch (IOException e) {
 				sendChatMessage(ChatPalette.Tone.WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
 			}
 		});
+	}
+
+	/**
+	 * One image-less credit request for a proof's facts, its answer shown at once; the key it names (the
+	 * credits the screenshot is owed to) joins {@code p.keys}. Returns the facts to send again.
+	 */
+	private JsonArray credit(PendingSubmission p, JsonArray facts) {
+		try {
+			if (p.clan == null) warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
+			JsonObject reply = apiClient.postFacts(facts, p.proof, pendingCoop(p));
+			adoptFacts(reply);
+			if (reply != null && reply.has("proofKey")) {
+				List<String> labels = new ArrayList<>();
+				if (reply.has("proofFor")) reply.getAsJsonArray("proofFor").forEach(l -> labels.add(l.getAsString()));
+				p.keys.addProperty(reply.get("proofKey").getAsString(), String.join(", ", labels));
+				p.keyAt = now();
+			}
+			JsonArray again = PendingSubmissionStore.retries(reply); // only the facts whose filing failed
+			return again == null ? new JsonArray() : again;
+		} catch (PermanentSubmissionException e) {
+			log.info("Facts refused for good: {}", e.getMessage());
+			return new JsonArray();
+		} catch (IOException e) {
+			return facts;
+		}
 	}
 
 	/** The site's answer: real counts over the local guesses, its notes, and any tile this just completed. */
@@ -4938,30 +4986,33 @@ public class AnvilPlugin extends Plugin {
 			return false;
 		}
 
-		try {
-			if (pending.clan == null) {
-				warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
+		if (pending.proof == null) pending.proof = new JsonObject(); // an old capture: its credit still waits for this picture
+		if (pending.facts != null && pending.facts.size() > 0) pending.facts = credit(pending, pending.facts);
+		for (String key : new ArrayList<>(pending.keys.keySet())) {
+			String labels = pending.keys.get(key).getAsString();
+			try {
+				apiClient.postProof(key, pngBytes, pending.proof);
+			} catch (PermanentSubmissionException e) {
+				proofLost(labels, e);
+			} catch (IOException e) {
+				log.error("Proof upload failed (will retry): {}", e.getMessage());
+				if (now() - pending.keyAt < PROOF_GIVE_UP_MS) continue;
+				proofLost(labels, e);
 			}
-			log.info("Sending proof for '{}'...", pending.label);
-			// One request: the facts and the screenshot together (the site stores it only if something credits).
-			JsonObject reply = apiClient.postFacts(pending.facts, pngBytes, pending.proof, pendingCoop(pending));
-			adoptFacts(reply);
-			// Some facts didn't file (the site failed for a passing reason): only those stay, with the screenshot.
-			if (pendingSubmissionStore.keepRetries(pending, reply)) return false;
-
-			log.info("Submission '{}' sent successfully!", pending.label);
-			pendingSubmissionStore.remove(pending);
-			return true;
-		} catch (PermanentSubmissionException e) {
-			// The server rejected this for good (tile already complete, event ended, invalid) — retrying
-			// will never work, so drop it instead of looping forever. Treat as handled, not a failure.
-			log.info("Dropping pending '{}' — server rejected permanently: {}", pending.label, e.getMessage());
-			pendingSubmissionStore.remove(pending);
-			return true;
-		} catch (IOException e) {
-			log.error("Failed to submit pending '{}' (will retry): {}", pending.label, e.getMessage());
-			return false;
+			pending.keys.remove(key);
 		}
+		if ((pending.facts == null || pending.facts.size() == 0) && pending.keys.size() == 0) {
+			pendingSubmissionStore.remove(pending);
+			return true;
+		}
+		pendingSubmissionStore.update(pending); // what is still owed stays, with the screenshot
+		return false;
+	}
+
+	/** A screenshot the site will never take now (too late, or refused): its credits were reversed. */
+	private void proofLost(String labels, IOException e) {
+		log.info("Proof given up: {}", e.getMessage());
+		sendChatMessage(ChatPalette.Tone.WARN, "Proof didn't upload in time — " + (labels.isEmpty() ? "that drop" : labels) + " wasn't counted.");
 	}
 
 	/**

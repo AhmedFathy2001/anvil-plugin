@@ -191,21 +191,43 @@ public class ApiClientHttpTest
 		reply = "{\"credits\":[]}";
 		com.google.gson.JsonArray facts = new com.google.gson.JsonArray();
 		facts.add(RuleEngine.tile(2, 1, "sec", 60));
-		assertEquals("{\"credits\":[]}", c.postFacts(facts, null, null, null).toString());
+		assertEquals("{\"credits\":[]}", c.postFacts(facts, null, null).toString());
 		assertEquals("/c/home/api/plugin/facts", seen.get(0).url().encodedPath());
 		assertEquals("1", seen.get(0).header("X-Anvil-Boards"));
 		assertTrue(bodies.get(0).contains("\"facts\":[{\"k\":\"tile\",\"t\":2,\"n\":1,\"sec\":60}]"));
-		// With a screenshot: one multipart request, the JSON in "body" and the image in "file".
+		assertFalse(bodies.get(0).contains("proofPending"));
+		// A screenshot-worthy batch: still JSON, the proof meta along, and the picture promised for later.
+		com.google.gson.JsonObject proof = new com.google.gson.JsonObject();
+		proof.addProperty("tz", "UTC");
+		c.postFacts(facts, proof, null);
+		assertEquals("json", seen.get(1).body().contentType().subtype());
+		assertTrue(bodies.get(1).contains("\"proof\":{\"tz\":\"UTC\"},\"proofPending\":true"));
+		// The screenshot: multipart to /facts/proof with the key, the meta and the image.
 		byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2};
-		c.postFacts(facts, jpeg, null, null);
-		assertEquals("multipart", seen.get(1).body().contentType().type());
-		assertTrue(bodies.get(1).contains("name=\"body\""));
-		assertTrue(bodies.get(1).contains("name=\"file\"; filename=\"proof.jpg\""));
+		reply = "{\"ok\":true,\"attached\":1}";
+		c.postProof("abcdefghijklmnopqrstuvwx", jpeg, proof);
+		assertEquals("/c/home/api/plugin/facts/proof", seen.get(2).url().encodedPath());
+		assertEquals("multipart", seen.get(2).body().contentType().type());
+		assertTrue(bodies.get(2).contains("name=\"key\""));
+		assertTrue(bodies.get(2).contains("abcdefghijklmnopqrstuvwx"));
+		assertTrue(bodies.get(2).contains("name=\"file\"; filename=\"proof.jpg\""));
+		// Too late: the site reversed those credits, and that is final.
+		code = 410;
+		reply = "{\"error\":\"Too late\"}";
+		try
+		{
+			c.postProof("abcdefghijklmnopqrstuvwx", jpeg, proof);
+			fail();
+		}
+		catch (BingoApiClient.PermanentSubmissionException e)
+		{
+			assertEquals(410, e.code);
+		}
 		code = 409;
 		reply = "{\"error\":\"done\"}";
 		try
 		{
-			c.postFacts(facts, null, null, null);
+			c.postFacts(facts, null, null);
 			fail();
 		}
 		catch (BingoApiClient.PermanentSubmissionException e)
