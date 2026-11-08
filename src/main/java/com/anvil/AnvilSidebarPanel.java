@@ -561,10 +561,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			@Override
-			public void openTab(String name) {
+			public void openTab(String name, Map<String, String> args) {
 				// Only a tab this panel is showing.
 				JLabel feed = tabLabels.get(Tab.FEED);
-				if ("feed".equals(name) && feed != null && feed.isShowing()) selectTab(Tab.FEED);
+				if (!"feed".equals(name) || feed == null || !feed.isShowing()) return;
+				feedArgs = args == null ? Collections.emptyMap() : args;
+				selectTab(Tab.FEED);
 			}
 
 			@Override
@@ -676,8 +678,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 			feedView.say("Sign in to see the live feed.");
 			return;
 		}
-		feedView.show("feed", Collections.emptyMap(), "Loading the feed…");
+		feedView.show("feed", feedArgs, "Loading the feed…");
+		feedArgs = Collections.emptyMap(); // a board's list once; the tab itself opens on its default after
 	}
+
+	/** The list the next Feed-tab open shows (a board's feed or chat from its buttons); empty = the default. */
+	private Map<String, String> feedArgs = Collections.emptyMap();
 
 	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
 	public void feedPush(com.google.gson.JsonObject m) {

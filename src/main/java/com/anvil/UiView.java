@@ -51,7 +51,7 @@ final class UiView extends JPanel {
 		void switchClan(String slug);
 
 		/** Open one of the panel's own tabs by name ("feed"). Unknown names do nothing. */
-		default void openTab(String name) {
+		default void openTab(String name, Map<String, String> args) {
 		}
 
 		/** A part only the plugin can draw (it reads the game), or null for none. */
@@ -347,7 +347,8 @@ final class UiView extends JPanel {
 				host.switchClan(str(a, "slug"));
 				break;
 			case "tab":
-				host.openTab(str(a, "tab"));
+				// With args: that list on the tab (a board's feed or chat), not the tab's own default.
+				host.openTab(str(a, "tab"), strings(a.get("args")));
 				break;
 			case "pin":
 				host.pin(num(a, "event", 0), num(a, "tile", 0), bool(a, "on"));
