@@ -1896,8 +1896,7 @@ public class AnvilPlugin extends Plugin {
 
 	// --- Whole-log collection sync ---------------------------------------------------------------
 	// Opening the collection log and toggling its Search makes the SERVER transmit every entry, one
-	// script fire per item — the whole log without the player clicking a single page. The technique
-	// is WikiSync's (BSD-2, weirdgloop/WikiSync).
+	// script fire per item — the whole log without the player clicking a single page.
 
 	/** Fires once the collection log interface has finished setting itself up. */
 	private static final int COLLECTION_LOG_SETUP = 7797;
