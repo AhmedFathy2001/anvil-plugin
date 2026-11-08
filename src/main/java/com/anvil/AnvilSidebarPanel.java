@@ -50,8 +50,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private static final Color WIDGET_BORDER = new Color(0x47_47_47);
 	// Buttons sit a step above the panel, not sunk below it, so they read as something to press.
 	private static final Color BUTTON_BG = new Color(0x3a_3a_3a);
-	private static final Color BUTTON_HOVER = new Color(0x4a_4a_4a);
-	private static final Color BUTTON_BORDER = new Color(0x5a_5a_5a);
+	private static final Color BUTTON_HOVER = new Color(0x47_47_47);
 
 	/** Wrap width for the connect-status line so a long notice wraps instead of clipping (tooltip carries full text). */
 	private static final int STATUS_WRAP_PX = PluginPanel.PANEL_WIDTH - 40;
@@ -1585,7 +1584,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		panel.add(buttonRow(
 			flatButton("Add clip", "Pick .wav files to copy into the banner sounds folder", Color.WHITE,
 				() -> dataSource.importSounds(BannerSoundService.Kind.BANNER)),
-			flatButton("Copy folder path", "Copy the sounds folder's path — paste it into your file manager to rename or delete clips",
+			flatButton("Copy folder", "Copy the sounds folder's path — paste it into your file manager to rename or delete clips",
 				Color.WHITE, dataSource::copyBannerSoundsPath)));
 
 		// MISSIONS, stated rather than configured. A mission dropping should not sound like a tile
@@ -1855,9 +1854,21 @@ public class AnvilSidebarPanel extends PluginPanel {
 		b.setForeground(foreground);
 		b.setBackground(BUTTON_BG);
 		b.setFont(SMALL);
-		b.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(BUTTON_BORDER),
-			BorderFactory.createEmptyBorder(4, 10, 4, 10)));
+		b.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+		// A raised row, like the site's: a rounded fill and no outline, painted once for every button.
+		b.setContentAreaFilled(false);
+		b.setOpaque(false);
+		b.setUI(new BasicButtonUI() {
+			@Override
+			public void paint(Graphics g, JComponent c) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setColor(c.getBackground());
+				g2.fillRoundRect(0, 0, c.getWidth(), c.getHeight(), 8, 8);
+				g2.dispose();
+				super.paint(g, c);
+			}
+		});
 		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		b.addMouseListener(new MouseAdapter() {
 			@Override
