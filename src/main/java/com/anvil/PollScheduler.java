@@ -11,7 +11,6 @@ package com.anvil;
  * device sign-in poll outlives federation.</p>
  */
 @FunctionalInterface
-public interface PollScheduler
-{
+public interface PollScheduler {
 	void schedule(Runnable step, long delayMs);
 }

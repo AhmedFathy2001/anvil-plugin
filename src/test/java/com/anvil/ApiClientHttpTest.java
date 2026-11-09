@@ -110,6 +110,22 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void modeLinesCanCarryTheirWorldAndScreenshot() throws Exception
+	{
+		BingoApiClient c = client();
+		c.setWorld("DEADMAN,MEMBERS", "Deadman");
+		c.submitModeLines(Collections.singletonList("A hard task"), new byte[]{1, 2, 3}, "anvil-mode.png");
+		Request request = seen.get(0);
+		assertTrue(request.url().encodedPath().endsWith("/api/plugin/mode-lines"));
+		assertTrue(request.body().contentType().toString(), request.body().contentType().toString().startsWith("multipart/form-data"));
+		String body = bodies.get(0);
+		assertTrue(body, body.contains("name=\"payload_json\""));
+		assertTrue(body, body.contains("\"lines\":[\"A hard task\"]"));
+		assertTrue(body, body.contains("\"world\":{\"types\":\"DEADMAN,MEMBERS\",\"activity\":\"Deadman\"}"));
+		assertTrue(body, body.contains("filename=\"anvil-mode.png\""));
+	}
+
+	@Test
 	public void configFetch404IsTheNoClanState()
 	{
 		BingoApiClient c = client();
@@ -166,42 +182,58 @@ public class ApiClientHttpTest
 		}
 	}
 
+	/** Every credit goes as facts to the addressed clan, saying it reads other boards' tiles; a 4xx is for good. */
 	@Test
-	public void submissionsAreClassified()
+	public void factsGoToTheClanAndAreClassified() throws IOException
 	{
 		BingoApiClient c = client();
-		code = 409;
-		reply = "{\"error\":\"done\"}";
+		c.setChosenClan("home");
+		reply = "{\"credits\":[]}";
+		com.google.gson.JsonArray facts = new com.google.gson.JsonArray();
+		facts.add(RuleEngine.tile(2, 1, "sec", 60));
+		assertEquals("{\"credits\":[]}", c.postFacts(facts, null, null).toString());
+		assertEquals("/c/home/api/plugin/facts", seen.get(0).url().encodedPath());
+		assertEquals("1", seen.get(0).header("X-Anvil-Boards"));
+		assertTrue(bodies.get(0).contains("\"facts\":[{\"k\":\"tile\",\"t\":2,\"n\":1,\"sec\":60}]"));
+		assertFalse(bodies.get(0).contains("proofPending"));
+		// A screenshot-worthy batch: still JSON, the proof meta along, and the picture promised for later.
+		com.google.gson.JsonObject proof = new com.google.gson.JsonObject();
+		proof.addProperty("tz", "UTC");
+		c.postFacts(facts, proof, null);
+		assertEquals("json", seen.get(1).body().contentType().subtype());
+		assertTrue(bodies.get(1).contains("\"proof\":{\"tz\":\"UTC\"},\"proofPending\":true"));
+		// The screenshot: multipart to /facts/proof with the key, the meta and the image.
+		byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2};
+		reply = "{\"ok\":true,\"attached\":1}";
+		c.postProof("abcdefghijklmnopqrstuvwx", jpeg, proof);
+		assertEquals("/c/home/api/plugin/facts/proof", seen.get(2).url().encodedPath());
+		assertEquals("multipart", seen.get(2).body().contentType().type());
+		assertTrue(bodies.get(2).contains("name=\"key\""));
+		assertTrue(bodies.get(2).contains("abcdefghijklmnopqrstuvwx"));
+		assertTrue(bodies.get(2).contains("name=\"file\"; filename=\"proof.jpg\""));
+		// Too late: the site reversed those credits, and that is final.
+		code = 410;
+		reply = "{\"error\":\"Too late\"}";
 		try
 		{
-			com.google.gson.JsonObject proof = new com.google.gson.JsonObject();
-			proof.addProperty("tz", "Africa/Cairo");
-			c.submitTimed(1, 2, 3, 60, "u", "n", 4, proof, null);
+			c.postProof("abcdefghijklmnopqrstuvwx", jpeg, proof);
 			fail();
 		}
 		catch (BingoApiClient.PermanentSubmissionException e)
 		{
-			assertEquals("Timed submission failed: HTTP 409 — {\"error\":\"done\"}", e.getMessage());
+			assertEquals(410, e.code);
 		}
-		catch (IOException e)
+		code = 409;
+		reply = "{\"error\":\"done\"}";
+		try
 		{
-			fail("4xx is permanent");
+			c.postFacts(facts, null, null);
+			fail();
 		}
-		assertTrue(bodies.get(0).contains("\"durationSeconds\":60"));
-		assertTrue(bodies.get(0).contains("\"amount\":1"));
-		assertTrue(bodies.get(0).contains("\"proof\":{\"tz\":\"Africa/Cairo\"}"));
-	}
-
-	@Test
-	public void anotherBoardsSubmissionGoesToItsClan() throws IOException
-	{
-		BingoApiClient c = client();
-		c.setChosenClan("home");
-		c.submitDrop(5, 2, 3, 1, "u", "n", 4, null, null, null, null, null);
-		c.submitDrop(9, 2, 3, 1, "u", "n", 4, null, null, null, null, "rivals");
-		assertEquals("/c/home/api/events/5/submissions", seen.get(0).url().encodedPath());
-		assertEquals("/c/rivals/api/events/9/submissions", seen.get(1).url().encodedPath());
-		assertEquals("1", seen.get(1).header("X-Anvil-Boards"));
+		catch (BingoApiClient.PermanentSubmissionException e)
+		{
+			assertEquals("Facts: HTTP 409 — {\"error\":\"done\"}", e.getMessage());
+		}
 	}
 
 	@Test

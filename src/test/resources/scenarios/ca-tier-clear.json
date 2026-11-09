@@ -1,0 +1,28 @@
+{
+  "name": "ca-tier-clear",
+  "description": "Combat task that clears a tier: the task line + CA_POINTS raised to that tier's threshold, then put back (pick a tier you haven't reached)",
+  "params": {
+    "tier": "Master",
+    "task": "Phantom Muspah Speed-Chaser"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Congratulations, you've completed a ${tier} combat task: ${task}."
+      }
+    },
+    {
+      "varbit": {
+        "name": "CA_POINTS",
+        "base": "CA_THRESHOLD_${tier}",
+        "add": 0
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

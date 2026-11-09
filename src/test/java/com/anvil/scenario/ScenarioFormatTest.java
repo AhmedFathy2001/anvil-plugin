@@ -91,10 +91,35 @@ public class ScenarioFormatTest
 							break;
 						case "varbit":
 							assertTrue(ScenarioPlayer.varbitId(body) > 0);
-							Scenario.integer(body, "value", 0);
+							if (body.has("base"))
+							{
+								assertTrue(ScenarioPlayer.ref(net.runelite.api.gameval.VarbitID.class, body, "base") > 0);
+							}
+							assertTrue(body.has("value") || body.has("add"));
+							ScenarioPlayer.newValue(body, 0);
+							break;
+						case "varp":
+							assertTrue(ScenarioPlayer.varpId(body) > 0);
+							assertTrue(body.has("value") || body.has("add"));
+							ScenarioPlayer.newValue(body, 0);
 							break;
 						case "stat":
 							assertNotNull(ScenarioPlayer.statEvent(body));
+							break;
+						case "death":
+						{
+							String who = body.get("who").getAsString();
+							assertTrue(who, "self".equals(who) || body.has("name"));
+							break;
+						}
+						case "attacked":
+							assertNotNull(body.get("by").getAsString());
+							break;
+						case "playerSpawn":
+							assertNotNull(body.get("name").getAsString());
+							break;
+						case "playerLoot":
+							assertNotNull(ScenarioPlayer.playerLootEvent(body));
 							break;
 						default:
 							break;
@@ -216,6 +241,86 @@ public class ScenarioFormatTest
 		assertTrue(hit.getActor() instanceof net.runelite.api.Player);
 		assertTrue(hit.getActor() == ((ActorDeath) seen.get(1)).getActor());
 		assertEquals("Some Pker", hit.getActor().getName());
+	}
+
+	/** A run's var writes are undone by a restore step, back to what they were before the run. */
+	@Test
+	public void restorePutsVarsBack()
+	{
+		Map<Integer, Integer> varbits = new java.util.HashMap<>(Map.of(4069, 200, 14812, 1200));
+		Map<Integer, Integer> varps = new java.util.HashMap<>();
+		Client client = (Client) java.lang.reflect.Proxy.newProxyInstance(Client.class.getClassLoader(), new Class<?>[]{Client.class},
+			(self, m, args) ->
+			{
+				switch (m.getName())
+				{
+					case "getVarbitValue":
+						return varbits.getOrDefault((Integer) args[0], 0);
+					case "setVarbit":
+						varbits.put((Integer) args[0], (Integer) args[1]);
+						return null;
+					case "getVarpValue":
+						return varps.getOrDefault((Integer) args[0], 0);
+					case "setVarpValue":
+						varps.put((Integer) args[0], (Integer) args[1]);
+						return null;
+					default:
+						return null;
+				}
+			});
+		List<Object> seen = new ArrayList<>();
+		EventBus bus = new EventBus();
+		bus.register(net.runelite.api.events.VarbitChanged.class, seen::add, 0);
+		ScenarioPlayer player = new ScenarioPlayer(client, bus, (t, n, m, s) -> false, msg -> fail(msg));
+		player.start("t", List.of(
+			Scenario.parse("{\"name\":\"t\",\"steps\":[{\"varbit\":{\"name\":\"SLAYER_TASKS_COMPLETED\",\"add\":1}}]}", Scenario.Origin.LOCAL).steps.get(0),
+			Scenario.parse("{\"name\":\"t\",\"steps\":[{\"varbit\":{\"name\":\"CA_POINTS\",\"base\":\"CA_THRESHOLD_ELITE\",\"add\":0}}]}", Scenario.Origin.LOCAL).steps.get(0),
+			Scenario.parse("{\"name\":\"t\",\"steps\":[{\"varp\":{\"name\":\"DOM_LEVEL_3_COMPLETIONS\",\"add\":\"2\"}}]}", Scenario.Origin.LOCAL).steps.get(0),
+			Scenario.parse("{\"name\":\"t\",\"steps\":[{\"wait\":1}]}", Scenario.Origin.LOCAL).steps.get(0),
+			Scenario.parse("{\"name\":\"t\",\"steps\":[{\"restore\":{}}]}", Scenario.Origin.LOCAL).steps.get(0)));
+		player.tick();
+		assertEquals(201, (int) varbits.get(4069));
+		assertEquals(1200, (int) varbits.get(14815));
+		assertEquals(2, (int) varps.get(4810));
+		assertEquals(3, seen.size());
+		assertEquals("t", player.tick());
+		assertEquals(200, (int) varbits.get(4069));
+		assertEquals(0, (int) varbits.get(14815));
+		assertEquals(0, (int) varps.get(4810));
+		net.runelite.api.events.VarbitChanged last = (net.runelite.api.events.VarbitChanged) seen.get(seen.size() - 1);
+		assertEquals(4810, last.getVarpId());
+	}
+
+	@Test
+	public void addXpStacksOnRealXpAndDerivesTheLevel()
+	{
+		JsonObject s = new JsonObject();
+		s.addProperty("skill", "fishing");
+		s.addProperty("addXp", "5,000");
+		StatChanged ev = ScenarioPlayer.statEvent(s, skill -> 1_000_000);
+		assertEquals(1_005_000, ev.getXp());
+		assertEquals(73, ev.getLevel());
+	}
+
+	@Test
+	public void playerLootNamesTheVictim()
+	{
+		JsonObject s = new JsonObject();
+		s.addProperty("victim", "Some Pker");
+		com.google.gson.JsonArray items = new com.google.gson.JsonArray();
+		JsonObject it = new JsonObject();
+		it.addProperty("id", 13652);
+		items.add(it);
+		s.add("items", items);
+		net.runelite.client.events.PlayerLootReceived ev = (net.runelite.client.events.PlayerLootReceived) ScenarioPlayer.playerLootEvent(s);
+		assertEquals("Some Pker", ev.getPlayer().getName());
+		assertEquals(13652, ev.getItems().iterator().next().getId());
+	}
+
+	@Test
+	public void fakeHitTakenIsNotOurs()
+	{
+		assertTrue(!Fakes.hitTaken(30).isMine());
 	}
 
 	@Test

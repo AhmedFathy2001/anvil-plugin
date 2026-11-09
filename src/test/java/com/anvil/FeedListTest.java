@@ -161,6 +161,99 @@ public class FeedListTest
 		assertEquals(0, f.rowCount());
 	}
 
+	private static final String REACT_ROWS = "{\"t\":\"feed\",\"id\":\"moments:clan:3\",\"rows\":["
+		+ "{\"id\":\"m7\",\"title\":\"Pet\",\"who\":\"Rikkert\",\"at\":\"2026-11-04 10:00:00\","
+		+ "\"gz\":{\"n\":1,\"mine\":true,\"on\":{\"a\":\"post\",\"act\":\"react-row\",\"args\":{\"slug\":\"afk\",\"id\":\"7\",\"kind\":\"gz\"}}}},"
+		+ "{\"id\":\"m6\",\"title\":\"Death\",\"who\":\"Mossy\",\"at\":\"2026-11-04 09:00:00\",\"reacts\":["
+		+ "{\"kind\":\"sad\",\"label\":\"Sad\",\"n\":0,\"mine\":false},{\"kind\":\"sit\",\"label\":\"Sit\",\"n\":2,\"mine\":true}]}]}";
+
+	@Test
+	public void reactionPushUpdatesCountsInPlaceButKeepsThisViewersSelection()
+	{
+		UiView v = drawn(new Host(), REACT_ROWS);
+		FeedList f = find(v);
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":4,\"gold\":0,\"sad\":0,\"sit\":0,"
+			+ "\"who\":{\"gz\":\"GZ · Rikkert and 3 others\"}}"));
+
+		JsonObject chip = f.reactionChip(0, "gz");
+		assertEquals(4, chip.get("n").getAsInt());
+		assertTrue("counts alone must not clear mine", chip.get("mine").getAsBoolean());
+		assertEquals("GZ · Rikkert and 3 others", chip.get("who").getAsString());
+		assertEquals("not reordered", "m7", f.rowId(0));
+		assertEquals(2, f.rowCount());
+	}
+
+	@Test
+	public void reactionPushWithMineFlagsMovesTheHighlight()
+	{
+		UiView v = drawn(new Host(), REACT_ROWS);
+		FeedList f = find(v);
+		// The same person took their GZ and their Sit back on another client.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":0,\"gold\":0,\"sad\":0,\"sit\":0,"
+			+ "\"mineGz\":false,\"mineGold\":false,\"mineSad\":false,\"mineSit\":false}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m6\",\"gz\":0,\"gold\":0,\"sad\":1,\"sit\":1,"
+			+ "\"mineGz\":false,\"mineGold\":false,\"mineSad\":true,\"mineSit\":false,\"who\":{\"sad\":\"Sad · Drenvox\",\"sit\":\"\"}}"));
+
+		assertEquals(0, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertFalse(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		JsonObject sad = f.reactionChip(1, "sad");
+		JsonObject sit = f.reactionChip(1, "sit");
+		assertEquals(1, sad.get("n").getAsInt());
+		assertTrue(sad.get("mine").getAsBoolean());
+		assertEquals("Sad · Drenvox", sad.get("who").getAsString());
+		assertEquals(1, sit.get("n").getAsInt());
+		assertFalse(sit.get("mine").getAsBoolean());
+		assertFalse("an empty who line takes the tooltip off", sit.has("who"));
+	}
+
+	@Test
+	public void reactionPushIgnoresUnknownRowsAndOtherLists()
+	{
+		UiView v = drawn(new Host(), REACT_ROWS);
+		FeedList f = find(v);
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m99\",\"gz\":9,\"mineGz\":false}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:4\"],\"id\":\"m7\",\"gz\":9,\"mineGz\":false}"));
+		f.flush();
+
+		assertEquals(2, f.rowCount());
+		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+	}
+
+	@Test
+	public void ourOwnPressIsNotUndoneByPushesWhileItSettles()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, REACT_ROWS);
+		FeedList f = find(v);
+		// Off, then on again quickly: the screen says on (n 1).
+		f.pressChip(0, "gz");
+		f.pressChip(0, "gz");
+		assertEquals(2, host.posts.size());
+		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+
+		// The first press's confirmation (off) arrives: held, nothing flickers.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":0,\"mineGz\":false}"));
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
+		f.settleNow();
+		assertTrue("still one post out: still held", f.reactionChip(0, "gz").get("mine").getAsBoolean());
+
+		// The second press's (on) and a clanmate's GZ land; once settled they replay in order.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":1,\"mineGz\":true}"));
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":2}"));
+		host.pending.get(1).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
+		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
+		f.settleNow();
+		assertEquals(2, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+
+		// Settled: the next push applies at once.
+		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":3}"));
+		assertEquals(3, f.reactionChip(0, "gz").get("n").getAsInt());
+	}
+
 	@Test
 	public void theBoxSendsWithoutRedrawingAndShowsAnErrorLine()
 	{
@@ -289,13 +382,12 @@ public class FeedListTest
 		com.google.gson.JsonArray reacts = json("{\"r\":[{\"kind\":\"sad\",\"label\":\"Sad\",\"n\":0},{\"kind\":\"sit\",\"label\":\"Sit\",\"n\":3,\"mine\":true}]}").getAsJsonArray("r");
 		assertEquals("Sad", FeedList.chipText(reacts.get(0).getAsJsonObject()));
 		assertEquals("Sit 3", FeedList.chipText(reacts.get(1).getAsJsonObject()));
-		String html = FeedList.reactsHtml(reacts);
-		assertTrue(html.contains(">Sad</font>") && html.contains(">Sit 3</font>"));
-		assertTrue("the viewer's own is lit", html.indexOf("Sit 3") > html.lastIndexOf(String.format("#%06x", net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getRGB() & 0xFFFFFF)));
-		int sit = fm.stringWidth("Sit 3");
+		// Pills: the text plus its padding, then a gap. The click zone is exactly the drawn pill.
+		int sit = FeedList.chipWidth(fm, reacts.get(1).getAsJsonObject());
+		assertEquals(fm.stringWidth("Sit 3") + 2 * FeedList.CHIP_PAD, sit);
 		assertEquals(1, FeedList.reactAt(reacts, fm, 2));
 		assertEquals(1, FeedList.reactAt(reacts, fm, sit - 1));
-		assertEquals(0, FeedList.reactAt(reacts, fm, sit + fm.stringWidth("   ") + 2));
+		assertEquals(0, FeedList.reactAt(reacts, fm, sit + FeedList.CHIP_SPACE + 3));
 		assertEquals("left of every chip is the row itself", -1, FeedList.reactAt(reacts, fm, 400));
 	}
 
@@ -313,7 +405,8 @@ public class FeedListTest
 		JsonObject drop = json("{\"gz\":{\"n\":2,\"who\":\"GZ \u00b7 Mossy and Rikkert\"}}");
 		assertEquals("GZ \u00b7 Mossy and Rikkert", UiView.str(FeedList.chipAt(drop, fm, 10), "who"));
 		assertEquals("the inset still counts", "GZ \u00b7 Mossy and Rikkert", UiView.str(FeedList.chipAt(drop, fm, -4), "who"));
-		assertNull("past the GZ's 44px is the row", FeedList.chipAt(drop, fm, 38));
+		int gz = FeedList.chipWidth(fm, FeedList.chipsOf(drop).get(0).getAsJsonObject());
+		assertNull("past the GZ pill is the row", FeedList.chipAt(drop, fm, gz + 3));
 		assertNull(FeedList.chipAt(json("{\"title\":\"Pet\"}"), fm, 2));
 		// A site from before the who line: the chip is there, with nothing to say.
 		assertEquals("", UiView.str(FeedList.chipAt(json("{\"gz\":{\"n\":2}}"), fm, 2), "who"));
@@ -338,6 +431,24 @@ public class FeedListTest
 	}
 
 	@Test
+	public void thePaintedNameLineDrawsTheSameLettersInTheSameColours()
+	{
+		java.awt.Color team = new java.awt.Color(0xff8800);
+		JsonObject patron = new JsonParser().parse("{\"who\":\"Drenvox\",\"grad\":[\"#f5c542\",\"#c86bff\"],\"tag\":\"Lab\"}").getAsJsonObject();
+		StringBuilder text = new StringBuilder();
+		java.util.List<java.awt.Color> inks = new java.util.ArrayList<>();
+		FeedList.whoRuns(patron, "Drenvox", "Lab", java.awt.Color.WHITE, team, (t, ink) -> {
+			text.append(t);
+			inks.add(ink);
+		});
+		assertEquals("Drenvox \u00b7 Lab", text.toString());
+		assertEquals("a run per letter, then the team", 8, inks.size());
+		assertEquals(new java.awt.Color(0xf5c542), inks.get(0));
+		assertEquals(new java.awt.Color(0xc86bff), inks.get(6));
+		assertEquals(team, inks.get(7));
+	}
+
+	@Test
 	public void aMovingGradientReflectsLikeTheChatLines()
 	{
 		assertEquals(0f, FeedList.reflect(0f), 1e-6);
@@ -345,5 +456,49 @@ public class FeedListTest
 		assertEquals(1f, FeedList.reflect(1f), 1e-6);
 		assertEquals(0.75f, FeedList.reflect(1.25f), 1e-6);
 		assertEquals(0.25f, FeedList.reflect(2.25f), 1e-6);
+	}
+
+	private static final String CHANS = "\"chans\":["
+		+ "{\"label\":\"My team\",\"on\":true,\"feed\":\"chat:9:team:4\",\"act\":{\"a\":\"load\",\"v\":\"feed\"}},"
+		+ "{\"label\":\"All teams\",\"on\":false,\"feed\":\"chat:9:all\",\"n\":2,\"blue\":true,\"act\":{\"a\":\"load\",\"v\":\"feed\"}},"
+		+ "{\"label\":\"Announcements\",\"on\":false,\"feed\":\"chat:9:announce\",\"act\":{\"a\":\"load\",\"v\":\"feed\"}}]";
+
+	@Test
+	public void anotherChannelsLinesCountOnItsSegmentNotTheOpenOne()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:team:4\",\"rows\":[],\"send\":{\"act\":\"chat-send\"}," + CHANS + "}");
+		FeedList f = find(v);
+		assertEquals(2, f.unread("chat:9:all"));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9:all\"],\"rows\":[" + row("c1") + "," + row("c2") + "]}"));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9:announce\"],\"rows\":[" + row("c3") + "]}"));
+		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9:team:4\"],\"rows\":[" + row("c4") + "]}"));
+		assertEquals(4, f.unread("chat:9:all"));
+		assertEquals(1, f.unread("chat:9:announce"));
+		assertEquals("the open channel takes its lines, it doesn't count them", 0, f.unread("chat:9:team:4"));
+		f.flush();
+		assertEquals(1, f.rowCount());
+	}
+
+	@Test
+	public void aLockStandsInPlaceOfTheBoxAndAPauseLeavesAnnouncementsAlone()
+	{
+		Host host = new Host();
+		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:announce\",\"rows\":[],\"send\":{\"act\":\"chat-send\"},"
+			+ "\"locked\":\"Only the host and mods post here\",\"lockSub\":\"Reply in My team or All teams.\"}");
+		FeedList f = find(v);
+		assertTrue("read-only for a player", f.locked());
+		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9:all\",\"chat:9:team\"],\"locked\":null}"));
+		assertTrue("a resume names only the talking channels", f.locked());
+		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"You\u2019re timed out \u00b7 9m left\",\"warn\":1}"));
+		assertTrue(f.locked());
+
+		UiView all = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:all\",\"rows\":[],\"send\":{\"act\":\"chat-send\"}}");
+		FeedList g = find(all);
+		assertFalse(g.locked());
+		all.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"You\u2019re timed out \u00b7 9m left\",\"warn\":1}"));
+		assertTrue("a timeout closes every channel", g.locked());
+		all.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9:all\",\"chat:9:team\"],\"locked\":null}"));
+		assertFalse(g.locked());
 	}
 }

@@ -1,0 +1,23 @@
+{
+  "name": "clue-casket",
+  "description": "Clue casket opened: the casket loot as 'Clue Scroll (<tier>)' (tier: beginner..master). The game's Treasure Trails count line isn't parsed, so it's left out",
+  "params": {
+    "tier": "hard",
+    "item": "2581"
+  },
+  "steps": [
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Clue Scroll (${tier})",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

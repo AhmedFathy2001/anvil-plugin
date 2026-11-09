@@ -7,8 +7,7 @@ import java.util.regex.Pattern;
  * Boss nicknames both ways, so a search finds a thing by whichever name the player knows it by:
  * "toa" finds Tombs of Amascut, and "tombs" finds a tile someone labelled "ToA uniques".
  */
-final class SearchAliases
-{
+final class SearchAliases {
 	/** {nickname, full name} as both read once lower-cased with punctuation turned to spaces. */
 	private static final String[][] PAIRS = {
 		{"toa", "tombs of amascut"}, {"tob", "theatre of blood"}, {"cox", "chambers of xeric"}, {"tfa", "fractured archive"},
@@ -29,33 +28,23 @@ final class SearchAliases
 
 	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
-	private SearchAliases()
-	{
+	private SearchAliases() {
 	}
 
 	/** Lower-cased with every run of punctuation and spaces turned into one space: "K'ril  Tsutsaroth" → "k ril tsutsaroth". */
-	static String fold(String s)
-	{
+	static String fold(String s) {
 		return NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
 	}
 
 	/** {@code text} plus the other name of every boss it mentions — search it like any other text. */
-	static String augment(String text)
-	{
-		if (text == null || text.isEmpty())
-		{
-			return "";
-		}
+	static String augment(String text) {
+		if (text == null || text.isEmpty()) return "";
 		String words = " " + fold(text) + " ";
 		StringBuilder out = new StringBuilder(text);
-		for (String[] p : PAIRS)
-		{
-			if (words.contains(" " + p[0] + " "))
-			{
+		for (String[] p : PAIRS) {
+			if (words.contains(" " + p[0] + " ")) {
 				out.append(' ').append(p[1]);
-			}
-			else if (words.contains(" " + p[1] + " "))
-			{
+			} else if (words.contains(" " + p[1] + " ")) {
 				out.append(' ').append(p[0]);
 			}
 		}

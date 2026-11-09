@@ -7,21 +7,29 @@ import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.Experience;
 import net.runelite.api.Skill;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.InteractingChanged;
+import net.runelite.api.events.PlayerSpawned;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.events.NpcLootReceived;
+import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.events.ServerNpcLoot;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.loottracker.LootReceived;
@@ -47,6 +55,8 @@ final class ScenarioPlayer
 	private final Consumer<String> note;
 
 	private Deque<JsonObject> pending = new ArrayDeque<>();
+	/** Each var this run wrote, with the value it had before the run touched it ("varbit:5314" → 0). */
+	private final Map<String, Integer> originals = new LinkedHashMap<>();
 	private int sleep;
 	private String running;
 
@@ -73,12 +83,62 @@ final class ScenarioPlayer
 		pending = new ArrayDeque<>(steps);
 		sleep = 0;
 		running = name;
+		originals.clear();
 	}
 
 	void stop()
 	{
 		pending.clear();
 		running = null;
+	}
+
+	/** {@code ::anvil stop}: abort, and put back any var the aborted run changed. Client thread. */
+	void abort()
+	{
+		stop();
+		restore();
+	}
+
+	/** Write every var this run changed back to its pre-run value (the {@code restore} step). */
+	private void restore()
+	{
+		for (Map.Entry<String, Integer> e : originals.entrySet())
+		{
+			String[] kv = e.getKey().split(":");
+			int id = Integer.parseInt(kv[1]);
+			if ("varp".equals(kv[0]))
+			{
+				writeVarp(id, e.getValue());
+			}
+			else
+			{
+				writeVarbit(id, e.getValue());
+			}
+		}
+		originals.clear();
+	}
+
+	private void writeVarbit(int id, int value)
+	{
+		// Same as DevTools' ::setvarb: write the client-side value (so getVarbitValue reads it)
+		// and post the event the game would have fired. The server overwrites it the next time
+		// it sends that varp, which for most gating varbits outside their content is never.
+		client.setVarbit(id, value);
+		VarbitChanged ev = new VarbitChanged();
+		ev.setVarbitId(id);
+		ev.setVarpId(-1);
+		ev.setValue(value);
+		eventBus.post(ev);
+	}
+
+	private void writeVarp(int id, int value)
+	{
+		client.setVarpValue(id, value);
+		VarbitChanged ev = new VarbitChanged();
+		ev.setVarbitId(-1);
+		ev.setVarpId(id);
+		ev.setValue(value);
+		eventBus.post(ev);
 	}
 
 	/** Advance one tick. Returns the name of a scenario that just finished, else null. */
@@ -139,20 +199,46 @@ final class ScenarioPlayer
 			case "varbit":
 			{
 				int id = varbitId(s);
-				int value = Scenario.integer(s, "value", 0);
-				// Same as DevTools' ::setvarb: write the client-side value (so getVarbitValue reads it)
-				// and post the event the game would have fired. The server overwrites it the next time
-				// it sends that varp, which for most gating varbits outside their content is never.
-				client.setVarbit(id, value);
-				VarbitChanged ev = new VarbitChanged();
-				ev.setVarbitId(id);
-				ev.setVarpId(-1);
-				ev.setValue(value);
-				eventBus.post(ev);
+				int before = client.getVarbitValue(id);
+				int base = s.has("base") ? client.getVarbitValue(ref(VarbitID.class, s, "base")) : before;
+				originals.putIfAbsent("varbit:" + id, before);
+				writeVarbit(id, newValue(s, base));
 				break;
 			}
+			case "varp":
+			{
+				int id = varpId(s);
+				int before = client.getVarpValue(id);
+				int base = s.has("base") ? client.getVarpValue(ref(VarPlayerID.class, s, "base")) : before;
+				originals.putIfAbsent("varp:" + id, before);
+				writeVarp(id, newValue(s, base));
+				break;
+			}
+			case "restore":
+				restore();
+				break;
 			case "stat":
-				eventBus.post(statEvent(s));
+				eventBus.post(statEvent(s, client::getSkillExperience));
+				break;
+			case "attacked":
+			{
+				// What DeathAttribution reads: something targeting us, then damage landing on us. Not
+				// our hitsplat type, so it never counts as a hit WE dealt.
+				net.runelite.api.Actor by = Boolean.TRUE.equals(bool(s, "npc"))
+					? Fakes.npc(Scenario.string(s, "by"), Scenario.integer(s, "npcId", -1), Scenario.integer(s, "combatLevel", 0))
+					: Fakes.player(Scenario.string(s, "by"));
+				eventBus.post(new InteractingChanged(by, client.getLocalPlayer()));
+				HitsplatApplied hit = new HitsplatApplied();
+				hit.setActor(client.getLocalPlayer());
+				hit.setHitsplat(Fakes.hitTaken(Scenario.integer(s, "damage", 5)));
+				eventBus.post(hit);
+				break;
+			}
+			case "playerSpawn":
+				eventBus.post(new PlayerSpawned(Fakes.player(Scenario.string(s, "name"))));
+				break;
+			case "playerLoot":
+				eventBus.post(playerLootEvent(s));
 				break;
 			case "death":
 			{
@@ -160,6 +246,12 @@ final class ScenarioPlayer
 				if ("self".equals(who))
 				{
 					eventBus.post(new ActorDeath(client.getLocalPlayer()));
+				}
+				else if ("player".equals(who))
+				{
+					// Someone else dying near us, NOT by our hand (no hitsplat of ours): a party member in a
+					// raid instance, which is what fails a deathless run.
+					eventBus.post(new ActorDeath(Fakes.player(Scenario.string(s, "name"))));
 				}
 				else
 				{
@@ -207,11 +299,51 @@ final class ScenarioPlayer
 		}
 	}
 
+	static Object playerLootEvent(JsonObject s)
+	{
+		return new PlayerLootReceived(Fakes.player(Scenario.string(s, "victim")), items(s.getAsJsonArray("items")));
+	}
+
 	static StatChanged statEvent(JsonObject s)
 	{
+		return statEvent(s, skill -> 0);
+	}
+
+	/**
+	 * {@code addXp} is relative to the skill's real XP ({@code currentXp}); the level then follows from
+	 * the XP unless the step names one. Otherwise {@code xp} and {@code level} are absolute.
+	 */
+	static StatChanged statEvent(JsonObject s, ToIntFunction<Skill> currentXp)
+	{
 		Skill skill = Skill.valueOf(Scenario.string(s, "skill").toUpperCase(Locale.ROOT));
-		int level = Scenario.integer(s, "level", 1);
-		return new StatChanged(skill, Scenario.integer(s, "xp", 0), level, Scenario.integer(s, "boostedLevel", level));
+		int xp = s.has("addXp")
+			? currentXp.applyAsInt(skill) + Scenario.integer(s, "addXp", 0)
+			: Scenario.integer(s, "xp", 0);
+		int level = s.has("level") || !s.has("addXp") ? Scenario.integer(s, "level", 1) : Experience.getLevelForXp(xp);
+		return new StatChanged(skill, xp, level, Scenario.integer(s, "boostedLevel", level));
+	}
+
+	/** {@code value} as written, or {@code add} on top of {@code base} (the var's own value, or the {@code base} var's). */
+	static int newValue(JsonObject s, int base)
+	{
+		return s.has("add") ? base + Scenario.integer(s, "add", 0) : Scenario.integer(s, "value", 0);
+	}
+
+	static int varpId(JsonObject s)
+	{
+		return s.has("id") ? Scenario.integer(s, "id", -1) : constant(VarPlayerID.class, Scenario.string(s, "name"));
+	}
+
+	/** A var named by {@code key}: a number (or digit string) is an id, anything else a gameval constant. */
+	static int ref(Class<?> holder, JsonObject s, String key)
+	{
+		String v = Scenario.string(s, key);
+		return v != null && v.matches("\\d+") ? Integer.parseInt(v) : constant(holder, v);
+	}
+
+	private static Boolean bool(JsonObject s, String key)
+	{
+		return s.has(key) && !s.get(key).isJsonNull() ? Boolean.valueOf(s.get(key).getAsString()) : null;
 	}
 
 	static List<ItemStack> items(JsonArray arr)

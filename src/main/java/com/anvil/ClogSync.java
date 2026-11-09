@@ -17,8 +17,7 @@ import java.util.function.*;
  * <p>RuneLite-free on purpose: the flush policy is the part with edge cases, and this way it's
  * unit-testable without a client. The plugin owns the widget hook, the scheduler and the HTTP.
  */
-final class ClogSync
-{
+final class ClogSync {
 	/** Wait this long after the last change before sending — a player paging through settles first. */
 	static final long QUIET_MS = 2_500;
 	/** Send at most this many pages per request; a full first sync becomes a handful of them. */
@@ -40,48 +39,29 @@ final class ClogSync
 	 *
 	 * @return true when the page was queued (i.e. it's new or changed)
 	 */
-	boolean offer(ClogPage page, long now)
-	{
-		if (page == null || page.name == null || page.name.isEmpty())
-		{
-			return false;
-		}
+	boolean offer(ClogPage page, long now) {
+		if (page == null || page.name == null || page.name.isEmpty()) return false;
 		Long alreadySent = sent.get(page.name);
-		if (alreadySent != null && alreadySent == page.hash)
-		{
-			return false;
-		}
+		if (alreadySent != null && alreadySent == page.hash) return false;
 		ClogPage queued = pending.get(page.name);
-		if (queued != null && queued.hash == page.hash)
-		{
-			return false;
-		}
+		if (queued != null && queued.hash == page.hash) return false;
 		pending.put(page.name, page);
 		lastChangeAt = now;
 		return true;
 	}
 
 	/** Whether a flush should run now: the queue has settled, or it's big enough to go early. */
-	boolean isDue(long now)
-	{
-		if (pending.isEmpty())
-		{
-			return false;
-		}
+	boolean isDue(long now) {
+		if (pending.isEmpty()) return false;
 		return pending.size() >= EAGER_AT || now - lastChangeAt >= QUIET_MS;
 	}
 
 	/** Pages to send in the next request, oldest first. Does NOT clear them — see {@link #onSent}. */
-	List<ClogPage> nextBatch()
-	{
+	List<ClogPage> nextBatch() {
 		List<ClogPage> batch = new ArrayList<>(Math.min(BATCH_PAGES, pending.size()));
-		for (ClogPage page : pending.values())
-		{
+		for (ClogPage page : pending.values()) {
 			batch.add(page);
-			if (batch.size() >= BATCH_PAGES)
-			{
-				break;
-			}
+			if (batch.size() >= BATCH_PAGES) break;
 		}
 		return batch;
 	}
@@ -90,34 +70,26 @@ final class ClogSync
 	 * Mark a batch delivered. Only called after the server has accepted it, so a failed push leaves
 	 * the pages queued and the next flush retries them — no bookkeeping, no lost pages.
 	 */
-	void onSent(Collection<ClogPage> batch)
-	{
-		for (ClogPage page : batch)
-		{
+	void onSent(Collection<ClogPage> batch) {
+		for (ClogPage page : batch) {
 			ClogPage queued = pending.get(page.name);
 			// Left queued if it changed again while the request was in flight.
-			if (queued != null && queued.hash == page.hash)
-			{
-				pending.remove(page.name);
-			}
+			if (queued != null && queued.hash == page.hash) pending.remove(page.name);
 			sent.put(page.name, page.hash);
 		}
 	}
 
-	int pendingCount()
-	{
+	int pendingCount() {
 		return pending.size();
 	}
 
 	/** How many distinct pages we've delivered — the numerator of the "68% synced" nudge. */
-	int syncedPages()
-	{
+	int syncedPages() {
 		return sent.size();
 	}
 
 	/** Forget everything. Called when the account changes — one player's log is not another's. */
-	void reset()
-	{
+	void reset() {
 		sent.clear();
 		pending.clear();
 		lastChangeAt = 0;
@@ -131,58 +103,37 @@ final class ClogSync
 	 * Challenge Mode") and spaces, so a name-first format would need escaping. A hex hash can't
 	 * contain a pipe, which makes the parse total.
 	 */
-	String serializeState()
-	{
+	String serializeState() {
 		return writeLines(sent, Long::toHexString);
 	}
 
 	/** {@code <value>|<name>} per line — the shape this and {@link PersonalBests} persist. */
-	static <V> String writeLines(Map<String, V> map, Function<V, String> value)
-	{
+	static <V> String writeLines(Map<String, V> map, Function<V, String> value) {
 		StringBuilder out = new StringBuilder(map.size() * 24);
-		for (Map.Entry<String, V> e : map.entrySet())
-		{
-			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0)
-			{
-				continue;
-			}
-			if (out.length() > 0)
-			{
-				out.append('\n');
-			}
+		for (Map.Entry<String, V> e : map.entrySet()) {
+			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0) continue;
+			if (out.length() > 0) out.append('\n');
 			out.append(value.apply(e.getValue())).append('|').append(e.getKey());
 		}
 		return out.toString();
 	}
 
 	/** Each well-formed {@link #writeLines} line as (value, name); a line whose value won't parse is skipped. */
-	static void readLines(String raw, BiConsumer<String, String> line)
-	{
-		if (raw == null || raw.isEmpty())
-		{
-			return;
-		}
-		for (String l : raw.split("\n"))
-		{
+	static void readLines(String raw, BiConsumer<String, String> line) {
+		if (raw == null || raw.isEmpty()) return;
+		for (String l : raw.split("\n")) {
 			int pipe = l.indexOf('|');
-			if (pipe <= 0 || pipe == l.length() - 1)
-			{
-				continue;
-			}
-			try
-			{
+			if (pipe <= 0 || pipe == l.length() - 1) continue;
+			try {
 				line.accept(l.substring(0, pipe), l.substring(pipe + 1));
-			}
-			catch (NumberFormatException e)
-			{
+			} catch (NumberFormatException e) {
 				// A truncated or hand-edited config line: drop it and let it re-sync.
 			}
 		}
 	}
 
 	/** Restore from {@link #serializeState}. Junk lines are skipped, never fatal. */
-	void restoreState(String raw)
-	{
+	void restoreState(String raw) {
 		sent.clear();
 		stateLoaded = true;
 		readLines(raw, (hash, page) -> sent.put(page, Long.parseUnsignedLong(hash, 16)));

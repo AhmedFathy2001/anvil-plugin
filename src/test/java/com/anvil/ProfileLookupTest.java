@@ -27,12 +27,6 @@ public class ProfileLookupTest
 		assertEquals("https://anvilosrs.com/p/a%2Bb%2F", ProfileLookup.profileUrl("a+b/"));
 	}
 
-	@Test
-	public void cardApiUrlUsesTheSameEncoding()
-	{
-		assertEquals("https://anvilosrs.com/api/players/Drenvox%20mdps/card", ProfileLookup.apiPlayerUrl("Drenvox\u00A0mdps", "/card"));
-		assertNull(ProfileLookup.apiPlayerUrl(" ", "/card"));
-	}
 
 	@Test
 	public void noNameNoUrl()

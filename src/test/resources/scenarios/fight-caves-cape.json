@@ -1,0 +1,26 @@
+{
+  "name": "fight-caves-cape",
+  "description": "Fight Caves completion: duration, then the Jad KC line (credits a repeat Fire cape via the KC line)",
+  "params": {
+    "kc": "5",
+    "time": "25:33"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "TzTok-Jad"
+      }
+    },
+    {
+      "chat": {
+        "message": "Duration: ${time} (new personal best)"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your TzTok-Jad kill count is: ${kc}."
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "name": "pvp-loot",
+  "description": "A PK with its loot pile (PvP min-loot / PvP value tiles): Wilderness on, hit + death, then the player-loot event",
+  "params": {
+    "victim": "Some Pker",
+    "item": "13652",
+    "coins": "100000"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "INSIDE_WILDERNESS",
+        "value": 1
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "pvpKill": {
+        "victim": "${victim}",
+        "damage": 25
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "playerLoot": {
+        "victim": "${victim}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          },
+          {
+            "id": 995,
+            "qty": "${coins}"
+          }
+        ]
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

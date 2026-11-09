@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
 /**
- * The site's live channel (capability {@code push-ws}): a socket that sends the team's progress, the
+ * The site's live channel: a socket that sends the team's progress, the
  * board and pinned-tile numbers as they change (docs/PLUGIN_WIRE.md), so the polls can slow right
  * down while it's up. Down or refused, nothing breaks: the plugin polls as it always did.
  *
@@ -16,8 +16,7 @@ import okhttp3.*;
  * ticket is what decides what this client hears; null closes it.</p>
  */
 @Slf4j
-final class PushSocket extends WebSocketListener
-{
+final class PushSocket extends WebSocketListener {
 	private static final long FIRST_RETRY_MS = 2_000;
 	private static final long MAX_RETRY_MS = 5 * 60_000;
 	/** Close code for "ticket expired": reconnect at once with a fresh one. */
@@ -34,8 +33,7 @@ final class PushSocket extends WebSocketListener
 	private int failures;
 	private volatile boolean live;
 
-	PushSocket(BingoApiClient api, ScheduledExecutorService executor, Gson gson, Consumer<JsonObject> onMessage)
-	{
+	PushSocket(BingoApiClient api, ScheduledExecutorService executor, Gson gson, Consumer<JsonObject> onMessage) {
 		this.api = api;
 		this.executor = executor;
 		this.gson = gson;
@@ -43,65 +41,45 @@ final class PushSocket extends WebSocketListener
 	}
 
 	/** Up and hearing changes, so polls may slow down. */
-	boolean live()
-	{
+	boolean live() {
 		return live;
 	}
 
 	/** Listen for this board-and-team, or stop listening (null). Same scope again is a no-op. */
-	synchronized void scope(String next)
-	{
-		if (Objects.equals(next, scope))
-		{
-			return;
-		}
+	synchronized void scope(String next) {
+		if (Objects.equals(next, scope)) return;
 		scope = next;
 		failures = 0;
 		close();
-		if (next != null)
-		{
-			retryIn(0);
-		}
+		if (next != null) retryIn(0);
 	}
 
-	private void close()
-	{
+	private void close() {
 		live = false;
-		if (pending != null)
-		{
+		if (pending != null) {
 			pending.cancel(false);
 			pending = null;
 		}
-		if (socket != null)
-		{
+		if (socket != null) {
 			socket.close(1000, null);
 			socket = null;
 		}
 	}
 
-	private synchronized void retryIn(long ms)
-	{
-		if (scope == null || pending != null)
-		{
-			return;
-		}
-		try
-		{
+	private synchronized void retryIn(long ms) {
+		if (scope == null || pending != null) return;
+		try {
 			pending = executor.schedule(this::connect, ms, TimeUnit.MILLISECONDS);
-		}
-		catch (RejectedExecutionException e)
-		{
+		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
 	}
 
-	private void connect()
-	{
+	private void connect() {
 		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows.
 		boolean feed;
 		boolean rows;
-		synchronized (this)
-		{
+		synchronized (this) {
 			pending = null;
 			feed = scope != null && scope.matches(".*:f(:r)?$");
 			// Always: this plugin reads panel rows, and the site only sends them to one that says so
@@ -110,26 +88,17 @@ final class PushSocket extends WebSocketListener
 		}
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
-		try
-		{
+		try {
 			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed, rows)));
-		}
-		catch (RejectedExecutionException e)
-		{
+		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
 	}
 
-	private void withTicket(BingoApiClient.PushTicket ticket)
-	{
-		synchronized (this)
-		{
-			if (scope == null || socket != null)
-			{
-				return;
-			}
-			if (ticket == null || ticket.url == null || ticket.ticket == null)
-			{
+	private void withTicket(BingoApiClient.PushTicket ticket) {
+		synchronized (this) {
+			if (scope == null || socket != null) return;
+			if (ticket == null || ticket.url == null || ticket.ticket == null) {
 				retryIn(RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random()));
 				return;
 			}
@@ -138,52 +107,37 @@ final class PushSocket extends WebSocketListener
 	}
 
 	@Override
-	public void onMessage(WebSocket ws, String text)
-	{
+	public void onMessage(WebSocket ws, String text) {
 		JsonObject m;
-		try
-		{
+		try {
 			m = gson.fromJson(text, JsonObject.class);
-		}
-		catch (RuntimeException e)
-		{
+		} catch (RuntimeException e) {
 			return;
 		}
-		if (m == null || ws != socket || !m.has("t"))
-		{
-			return;
-		}
-		if ("hello".equals(m.get("t").getAsString()))
-		{
+		if (m == null || ws != socket || !m.has("t")) return;
+		if ("hello".equals(m.get("t").getAsString())) {
 			// Connected; the site sends our team's view straight after.
-			synchronized (this)
-			{
+			synchronized (this) {
 				failures = 0;
 			}
 			live = true;
-			log.debug("Live push connected");
 		}
 		onMessage.accept(m);
 	}
 
 	@Override
-	public void onClosing(WebSocket ws, int code, String reason)
-	{
+	public void onClosing(WebSocket ws, int code, String reason) {
 		ws.close(1000, null);
 		dropped(ws, code == TICKET_EXPIRED);
 	}
 
 	@Override
-	public void onFailure(WebSocket ws, Throwable t, Response response)
-	{
-		log.debug("Live push dropped: {}", t.getMessage());
+	public void onFailure(WebSocket ws, Throwable t, Response response) {
 		dropped(ws, false);
 	}
 
-	private synchronized void dropped(WebSocket ws, boolean ticketExpired)
-	{
-		if (ws != socket)
-		{
+	private synchronized void dropped(WebSocket ws, boolean ticketExpired) {
+		if (ws != socket) {
 			return; // an old socket we already replaced or closed
 		}
 		socket = null;

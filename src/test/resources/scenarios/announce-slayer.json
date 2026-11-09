@@ -1,0 +1,14 @@
+{
+	"name": "announce-slayer",
+	"description": "Slayer task done: the streak line the Slayer announcement watches",
+	"params": {
+		"streak": "50"
+	},
+	"steps": [
+		{
+			"chat": {
+				"message": "You've completed ${streak} tasks and received 15 points, giving you a total of 1,234; return to a Slayer master."
+			}
+		}
+	]
+}

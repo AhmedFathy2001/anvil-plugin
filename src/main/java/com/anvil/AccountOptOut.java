@@ -18,109 +18,80 @@ import java.util.*;
  * be withheld too. RuneLite-free and immutable so it is unit-testable; the plugin persists
  * {@link #serialize()} in its own config.
  */
-final class AccountOptOut
-{
+final class AccountOptOut {
 	static final AccountOptOut EMPTY = new AccountOptOut(Collections.emptySet());
 
 	private final Set<String> digests;
 
-	private AccountOptOut(Set<String> digests)
-	{
+	private AccountOptOut(Set<String> digests) {
 		this.digests = Collections.unmodifiableSet(digests);
 	}
 
-	static AccountOptOut parse(String raw)
-	{
+	static AccountOptOut parse(String raw) {
 		Set<String> out = new LinkedHashSet<>();
-		if (raw != null)
-		{
-			for (String part : raw.split(","))
-			{
+		if (raw != null) {
+			for (String part : raw.split(",")) {
 				String p = part.trim();
-				if (!p.isEmpty())
-				{
-					out.add(p);
-				}
+				if (!p.isEmpty()) out.add(p);
 			}
 		}
 		return new AccountOptOut(out);
 	}
 
-	String serialize()
-	{
+	String serialize() {
 		return String.join(",", digests);
 	}
 
 	/** Is this character opted out? Either key matches: the hash is rename-proof, the name works pre-login. */
-	boolean contains(long accountHash, String rsn)
-	{
+	boolean contains(long accountHash, String rsn) {
 		String h = hashKey(accountHash);
 		String n = nameKey(rsn);
 		return (h != null && digests.contains(h)) || (n != null && digests.contains(n));
 	}
 
 	/** The launcher's pre-login name: withhold the hint for a character that's opted out. */
-	boolean containsName(String rsn)
-	{
+	boolean containsName(String rsn) {
 		String n = nameKey(rsn);
 		return n != null && digests.contains(n);
 	}
 
-	AccountOptOut with(long accountHash, String rsn)
-	{
+	AccountOptOut with(long accountHash, String rsn) {
 		Set<String> next = new LinkedHashSet<>(digests);
 		String h = hashKey(accountHash);
 		String n = nameKey(rsn);
-		if (h != null)
-		{
-			next.add(h);
-		}
-		if (n != null)
-		{
-			next.add(n);
-		}
+		if (h != null) next.add(h);
+		if (n != null) next.add(n);
 		return new AccountOptOut(next);
 	}
 
-	AccountOptOut without(long accountHash, String rsn)
-	{
+	AccountOptOut without(long accountHash, String rsn) {
 		Set<String> next = new LinkedHashSet<>(digests);
 		next.remove(hashKey(accountHash));
 		next.remove(nameKey(rsn));
 		return new AccountOptOut(next);
 	}
 
-	boolean isEmpty()
-	{
+	boolean isEmpty() {
 		return digests.isEmpty();
 	}
 
-	static String hashKey(long accountHash)
-	{
+	static String hashKey(long accountHash) {
 		return accountHash == -1L ? null : "h" + digest("hash:" + accountHash);
 	}
 
-	static String nameKey(String rsn)
-	{
+	static String nameKey(String rsn) {
 		String norm = Rsn.normalize(rsn);
 		return norm.isEmpty() ? null : "n" + digest("rsn:" + norm);
 	}
 
 	/** First 16 hex chars of SHA-256 — plenty to tell a handful of local characters apart. */
-	private static String digest(String s)
-	{
-		try
-		{
+	private static String digest(String s) {
+		try {
 			byte[] d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
 			StringBuilder sb = new StringBuilder(16);
-			for (int i = 0; i < 8; i++)
-			{
-				sb.append(String.format("%02x", d[i]));
-			}
+			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i]));
 			return sb.toString();
-		}
-		catch (NoSuchAlgorithmException e)
-		{
+		} catch (NoSuchAlgorithmException e) {
 			throw new IllegalStateException("SHA-256 is always available", e);
 		}
 	}

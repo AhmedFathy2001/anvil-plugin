@@ -25,12 +25,12 @@ public class UiViewTest
 		String switched;
 		final Map<Integer, Long> counts = new HashMap<>();
 		String imagePath;
-		Consumer<java.awt.image.BufferedImage> imageDone;
+		Consumer<Icon> imageDone;
 
 		@Override
-		public void image(String path, int w, int h, Consumer<java.awt.image.BufferedImage> done)
+		public void image(String path, int w, int h, boolean motion, Consumer<Icon> done)
 		{
-			imagePath = path + " " + w + "x" + h;
+			imagePath = path + " " + w + "x" + h + (motion ? " motion" : "");
 			imageDone = done;
 		}
 
@@ -228,6 +228,49 @@ public class UiViewTest
 		assertFalse(String.valueOf(option).startsWith("<html><u>"));
 	}
 
+	/** The board page: a header (back, search) over slot tiles, whose detail claims post into tiles. */
+	private static final String BOARD_PAGE = "{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"All tiles\"},"
+		+ "{\"t\":\"input\",\"name\":\"q\",\"kind\":\"search\",\"value\":\"\",\"label\":\"Search 200 tiles…\"},"
+		+ "{\"t\":\"slot\",\"id\":\"tiles\",\"c\":{\"t\":\"slot\",\"id\":\"tile\",\"c\":{\"t\":\"col\",\"c\":["
+		+ "{\"t\":\"text\",\"s\":\"Vorkath\"},"
+		+ "{\"t\":\"text\",\"s\":\"Claim tile\",\"on\":{\"a\":\"post\",\"act\":\"claim\",\"args\":{\"tile\":\"3\"},\"into\":\"tiles\"}}]}}},"
+		+ "{\"t\":\"text\",\"s\":\"Click for details\"}]}";
+
+	@Test
+	public void claimingTwiceIntoTheListSlotKeepsExactlyOneHeader()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view(BOARD_PAGE));
+		for (int i = 0; i < 2; i++)
+		{
+			click(v, "Claim tile");
+			// An older site answers the whole page into the slot: only the slot's own part may land.
+			host.pending.get(host.pending.size() - 1).accept(view(BOARD_PAGE));
+			List<String> t = texts(v);
+			assertEquals(t.toString(), 1, Collections.frequency(t, "All tiles"));
+			assertEquals(t.toString(), 1, Collections.frequency(t, "Click for details"));
+			assertEquals(t.toString(), 1, Collections.frequency(t, "Vorkath"));
+		}
+		// The slot's own answer (rows only) lands as is.
+		click(v, "Claim tile");
+		host.pending.get(host.pending.size() - 1).accept(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Planning: You\"},"
+			+ "{\"t\":\"text\",\"s\":\"Claim tile\"}]}"));
+		List<String> t = texts(v);
+		assertEquals(1, Collections.frequency(t, "All tiles"));
+		assertTrue(t.toString(), t.contains("Planning: You"));
+	}
+
+	@Test
+	public void aDropdownWithALongOptionDoesNotWidenThePanel()
+	{
+		UiView v = new UiView(new FakeHost(), null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"row\",\"l\":{\"t\":\"text\",\"s\":\"Show\"},\"c\":"
+			+ "{\"t\":\"input\",\"name\":\"status\",\"kind\":\"select\",\"value\":\"all\",\"options\":["
+			+ "{\"v\":\"all\",\"label\":\"All\"},{\"v\":\"closest\",\"label\":\"Closest first — furthest along tiles not done yet\"}]}}]}"));
+		assertTrue("preferred width " + v.getPreferredSize().width, v.getPreferredSize().width <= 225);
+	}
+
 	@Test
 	public void panesSwapInPlaceAndLoadsLandInTheirSlot()
 	{
@@ -362,11 +405,12 @@ public class UiViewTest
 			+ "{\"t\":\"slot\",\"id\":\"tiles\",\"c\":{\"t\":\"text\",\"s\":\"Pin\",\"on\":{\"a\":\"pin\",\"event\":7,\"tile\":5,\"on\":true,"
 			+ "\"then\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"tile\":\"5\"},\"into\":\"tiles\"}}}}]}"));
 		JComboBox<?> combo = findCombo(v);
-		combo.setSelectedIndex(1);
-		assertEquals("board{part=rows, q=zul, status=done}", host.loads.get(0));
 		click(v, "Pin");
 		assertEquals("7:5:true", host.pinned);
-		assertEquals("board{tile=5}", host.loads.get(1));
+		assertEquals("board{tile=5}", host.loads.get(0));
+		// (a slot load says "Loading..." at once, so the pin row is gone until the answer lands)
+		combo.setSelectedIndex(1);
+		assertEquals("board{part=rows, q=zul, status=done}", host.loads.get(1));
 	}
 
 	@Test
@@ -386,6 +430,78 @@ public class UiViewTest
 		click(v, "Page 2");
 		v.refresh();
 		assertEquals(Arrays.asList("board{page=2}", "board{page=2}"), host.loads);
+	}
+
+	/** The race page: a nav slot whose tile pane loads its proofs into a slot of its own. */
+	private static final String RACE = "{\"t\":\"slot\",\"id\":\"race\",\"nav\":true,\"open\":\"main\",\"c\":{\"t\":\"col\",\"c\":[]},\"panes\":{"
+		+ "\"main\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"%s\"},{\"t\":\"text\",\"s\":\"Wintertodt crate\",\"on\":{\"a\":\"pane\",\"into\":\"race\",\"pane\":\"t:1\"}}]},"
+		+ "\"t:1\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Back\",\"on\":{\"a\":\"pane\",\"into\":\"race\",\"pane\":\"main\"}},"
+		+ "{\"t\":\"slot\",\"id\":\"proofs\",\"c\":{\"t\":\"text\",\"s\":\"Loading proofs\"},\"load\":{\"a\":\"load\",\"v\":\"proofs\",\"args\":{\"tile\":\"1\"}}}]}}}";
+
+	@Test
+	public void refreshAfterBackFromATileAsksForTheRacePageNotItsProofs() throws Exception
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.show("home", Collections.singletonMap("open", "board"), null);
+		host.pending.get(0).accept(view(String.format(RACE, "Step 1 of 6")));
+		click(v, "Wintertodt crate");
+		assertEquals("proofs{tile=1}", host.loads.get(1));
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"No proofs\"}"));
+		click(v, "Back");
+		// The tile completed: the proofs slot left behind is off screen, so the page itself asks again.
+		v.refresh();
+		assertEquals("home{open=board}", host.loads.get(2));
+		host.pending.get(2).accept(view(String.format(RACE, "Step 2 of 6")));
+		settle();
+		assertTrue(texts(v).contains("Step 2 of 6"));
+	}
+
+	@Test
+	public void wholeRefreshAsksForThePageEvenWithASlotOnScreen() throws Exception
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.show("home", Collections.singletonMap("open", "board"), null);
+		host.pending.get(0).accept(view(String.format(RACE, "Step 1 of 6")));
+		click(v, "Wintertodt crate");
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"No proofs\"}"));
+		// On the tile's own pane when it completes: a plain refresh would ask only for the proofs.
+		v.refresh(true);
+		assertEquals("home{open=board}", host.loads.get(2));
+		host.pending.get(2).accept(view(String.format(RACE, "Step 2 of 6")));
+		settle();
+		assertTrue("the reader stays on the tile's pane", texts(v).contains("Back"));
+		click(v, "Back");
+		assertTrue(texts(v).contains("Step 2 of 6"));
+	}
+
+	@Test
+	public void boardToBoardThenBackKeepsTheBackRowThroughRefreshes() throws Exception
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		String board = "{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"‹ All events\",\"on\":{\"a\":\"load\",\"v\":\"home\",\"args\":{\"open\":\"events\"}}},{\"t\":\"text\",\"s\":\"%s\"}]}";
+		v.show("home", Collections.emptyMap(), null);
+		host.pending.get(0).accept(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Lab #5\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"5\",\"back\":\"events\"}}},"
+			+ "{\"t\":\"text\",\"s\":\"Lab #31\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"31\",\"back\":\"events\"}}}]}"));
+		click(v, "Lab #5");
+		host.pending.get(1).accept(view(String.format(board, "Board 5")));
+		click(v, "‹ All events");
+		// A poll (askAgainNow / boardChanged) before the list lands asks for the list, not the board left behind.
+		v.refresh();
+		assertEquals("home{open=events}", host.loads.get(3));
+		host.pending.get(3).accept(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Lab #31\",\"on\":{\"a\":\"load\",\"v\":\"board\",\"args\":{\"event\":\"31\",\"back\":\"events\"}}}]}"));
+		host.pending.get(2).accept(view(String.format(board, "stale")));
+		settle();
+		assertEquals(Collections.singletonList("Lab #31"), texts(v));
+		click(v, "Lab #31");
+		host.pending.get(4).accept(view(String.format(board, "Board 31")));
+		v.refresh();
+		assertEquals("a refresh asks for the same board, its way back included", "board{event=31, back=events}", host.loads.get(5));
+		host.pending.get(5).accept(view(String.format(board, "Board 31 moved")));
+		settle();
+		assertEquals(Arrays.asList("‹ All events", "Board 31 moved"), texts(v));
 	}
 
 	private static JComboBox<?> findCombo(Component c)
@@ -460,6 +576,21 @@ public class UiViewTest
 		v.refresh();
 		host.pending.get(2).accept(view("{\"t\":\"text\",\"s\":\"Board 2\"}"));
 		assertEquals(Collections.singletonList("Board 2"), texts(v));
+	}
+
+	@Test
+	public void aRefreshKeepsWhatsDrawnUntilTheAnswerLands()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		assertFalse("nothing loaded yet: the caller shows it instead", v.refresh());
+		v.show("feed", Collections.singletonMap("s", "clan:x"), "Loading the feed…");
+		host.pending.get(0).accept(view("{\"t\":\"text\",\"s\":\"Row 1\"}"));
+		assertTrue(v.refresh());
+		assertEquals("the same scope, asked again", "feed{s=clan:x}", host.loads.get(1));
+		assertEquals("no placeholder meanwhile", Collections.singletonList("Row 1"), texts(v));
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"Row 2\"}"));
+		assertEquals(Collections.singletonList("Row 2"), texts(v));
 	}
 
 	@Test
@@ -552,7 +683,43 @@ public class UiViewTest
 	}
 
 	@Test
-	public void aPictureIsABoxUntilItArrivesAndOpensTheFullOneOnClick()
+	public void aCardsTooltipCoversItsPictureAndText()
+	{
+		javax.swing.JPanel card = new javax.swing.JPanel();
+		JLabel picture = new JLabel();
+		JLabel own = new JLabel();
+		own.setToolTipText("its own");
+		javax.swing.JPanel inner = new javax.swing.JPanel();
+		JLabel text = new JLabel("Tumeken's shadow");
+		inner.add(text);
+		card.add(picture);
+		card.add(own);
+		card.add(inner);
+		UiView.inheritTip(card, "Tumeken's shadow · 682m");
+		assertEquals("Tumeken's shadow · 682m", picture.getToolTipText());
+		assertEquals("Tumeken's shadow · 682m", text.getToolTipText());
+		assertEquals("a child's own tip wins", "its own", own.getToolTipText());
+	}
+
+	@Test
+	public void aRoundClanMarkInARowIsNotCroppedToTheTextHeightOnceItLoads()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"row\",\"l\":{\"t\":\"img\",\"src\":\"/api/plugin/media/clan/x?kind=logo\",\"w\":28,\"h\":28,\"round\":true},"
+			+ "\"c\":{\"t\":\"text\",\"s\":\"The AFK Spot\",\"font\":\"bold\"}}]}"));
+		JLabel box = findIcon(v);
+		assertNotNull(box);
+		host.imageDone.accept(new ImageIcon(new java.awt.image.BufferedImage(28, 28, java.awt.image.BufferedImage.TYPE_INT_ARGB)));
+		for (Container p = box.getParent(); p != null && p != v; p = p.getParent())
+		{
+			assertTrue(p.getClass().getSimpleName() + " caps the mark at " + p.getMaximumSize().height,
+				p.getMaximumSize().height >= 28);
+		}
+	}
+
+	@Test
+	public void aPictureStaysCollapsedUntilItArrivesAndOpensTheFullOneOnClick()
 	{
 		FakeHost host = new FakeHost();
 		UiView v = new UiView(host, null, null, null);
@@ -561,10 +728,13 @@ public class UiViewTest
 		assertEquals("/api/plugin/proof-image/4?t=1&s=x 64x40", host.imagePath);
 		JLabel box = findIcon(v);
 		assertNotNull(box);
-		assertNull("a placeholder until it loads", box.getIcon());
-		assertEquals(new Dimension(64, 40), box.getPreferredSize());
-		host.imageDone.accept(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB));
+		assertNull("hidden until it loads", box.getIcon());
+		assertFalse(box.isVisible());
+		assertEquals(new Dimension(0, 0), box.getPreferredSize());
+		host.imageDone.accept(new ImageIcon(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB)));
 		assertNotNull(box.getIcon());
+		assertTrue(box.isVisible());
+		assertEquals(new Dimension(64, 40), box.getPreferredSize());
 		Component target = box;
 		while (target.getMouseListeners().length == 0)
 		{
@@ -580,6 +750,21 @@ public class UiViewTest
 			m.mouseClicked(release);
 		}
 		assertEquals("/api/plugin/proof-image/4?s=x", host.site);
+	}
+
+	@Test
+	public void aMissingPanelPictureCollapsesInsteadOfLeavingABlackHole()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"img\",\"src\":\"/api/plugin/media/player/x?kind=banner\",\"w\":220,\"h\":73}"));
+		JLabel box = findIcon(v);
+		assertNotNull(box);
+		assertFalse(box.isVisible());
+		assertEquals(new Dimension(0, 0), box.getPreferredSize());
+		host.imageDone.accept(null);
+		assertFalse(box.isVisible());
+		assertEquals(new Dimension(0, 0), box.getPreferredSize());
 	}
 
 	@Test
@@ -611,7 +796,7 @@ public class UiViewTest
 
 	private static JLabel findIcon(Component c)
 	{
-		if (c instanceof JLabel && ((JLabel) c).getText() == null || c instanceof JLabel && ((JLabel) c).getText().isEmpty() && ((JLabel) c).isOpaque())
+		if (c instanceof JLabel && (((JLabel) c).getText() == null || ((JLabel) c).getText().isEmpty()))
 		{
 			return (JLabel) c;
 		}

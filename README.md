@@ -8,7 +8,7 @@ you: your drops get screenshotted and filed against the right tile, your kill co
 board as you earn them, and the things worth shouting about land in your clan's Discord.
 
 <p align="center">
-  <img src="docs/images/panel-home.png" alt="The Anvil side panel's Clan tab: your events, your clan's week and its top accounts" width="237">
+  <img src="docs/images/panel-home.png" alt="The Anvil side panel's Clan tab: where you stand, your live board, what is running and what is coming up" width="237">
 </p>
 
 ## Get set up in one click
@@ -71,20 +71,20 @@ The top of the panel says which character is being tracked. Started from the Jag
 already knows who's about to log in, so your clan's events and board are there at the login screen —
 before you've pressed Play.
 
-Three tabs: **Clan** for your events and your clan, **You** for your own profile, and **Lookup** for
-anyone else's. The gear opens the panel's own controls — profile and roster sync, and your banner and
+Four tabs: **Clan** for your events and your clan, **Feed** for what's happening and the chat, **You**
+for your own profile, and **Lookup** for anyone else's. The gear opens the panel's own controls — profile and roster sync, and your banner and
 mission sounds.
 
 ### Clan
 
-<img src="docs/images/event-signed-up.png" alt="An upcoming bingo in the side panel: You're signed up, waiting for it to start" width="237" align="right">
+<img src="docs/images/event-signed-up.png" alt="Upcoming events in the side panel: Going, I'm going and Register buttons" width="237" align="right">
 
-**Your events.** Every live and upcoming bingo and weekly competition for the clan you're looking at,
-with where you stand: signed up, waiting on approval, or your placing in this week's SotW/BotW.
-Several clans? Switch between them from the dropdown, or leave it on **All clans**.
+**Where you stand.** The card at the top tells you in one line what's live: which team you're on,
+which board, and how many more are coming up. Every live board you're on is tracked at once, each
+with your placing and how it moved (a green or red arrow), so you never have to hunt for the right event.
 
-**The whole board, searchable.** Open an event and every revealed tile is listed — search it by name or
-by kind (`timed`, `kill`, `drop`…). Each tile shows who on your team is planning to go for it.
+**Running and coming up.** Weekly competitions show your rank and gains. Upcoming events have a
+one-tap **I'm going** or **Register**, and a countdown.
 
 <br clear="right">
 
@@ -95,11 +95,17 @@ your clan's card shows the week's top gains and its biggest accounts.
 
 <br clear="right">
 
+<img src="docs/images/panel-bingo-board.png" alt="A bingo board in the side panel: progress, Up next, compact standings and team activity" width="237" align="right">
+
+**A bingo board.** Open an event for your progress and your team's placing. **Up next** lists the
+tiles your team is closest to finishing. The standings are short, with you highlighted and rank
+movement shown; **View all** opens every team. Below are who's on a tile right now and what your
+team just did, then **View all tiles** for the whole board, searchable by name or kind (`timed`,
+`kill`, `drop`…). **Feed** and **Chat** sit right under the header.
+
+<br clear="right">
+
 <p align="center">
-  <img src="docs/images/panel-event-tiles.png" alt="An event's revealed tiles in the side panel, with who on your team is planning each" width="241">
-  &nbsp;
-  <img src="docs/images/tile-search.png" alt="Searching the tile list for timed tiles, with teammates' plans under each" width="238">
-  &nbsp;
   <img src="docs/images/tile-detail-sets.png" alt="A tile's detail: how it counts, and every item the plugin tracks for it" width="239">
   &nbsp;
   <img src="docs/images/tile-detail-manual.png" alt="A manual tile's detail: why the plugin can't see it, and how to submit it" width="236">
@@ -137,25 +143,55 @@ them up.
   <img src="docs/images/panel-team.png" alt="One team's roster, captain first, a page at a time" width="241">
 </p>
 
+### Tile races
+
+<img src="docs/images/panel-race.png" alt="A tile race: your step, Up next, your road and the standings" width="237" align="right">
+
+In a tile race you move along a road of tiles. The panel shows your step, how far you are from the
+leader and which road you're on. **Up next** is the one tile that counts right now. **Your road**
+shows what you've done, where you are and what's next, including where you can switch roads.
+Tap a tile to see what counts, where it leads, and who's done it.
+
+<br clear="right">
+
+<p align="center">
+  <img src="docs/images/panel-race-tile.png" alt="A race tile's detail: what counts, where it goes, who has done it" width="238">
+</p>
+
+### Feed and chat
+
+<img src="docs/images/panel-feed.png" alt="The Feed tab: drops, pets, tiles and deaths from every team, with filters" width="237" align="right">
+
+**Feed** shows drops, pets, finished tiles, achievements and deaths as they happen, filtered by kind
+or to **My team**. **Chat** has channels: **My team**, **All teams** and **Announcements**. Pick the
+event or clan from the dropdown at the top.
+
+<br clear="right">
+
 **Not your account?** If someone else plays a character on your RuneLite — a sibling, a friend — open
 the **⋯** menu and pick **Not my account**. Nothing is sent for that character on this computer
 until you press **Track again** in the same strip.
 
 ### You
 
-Your own profile, without leaving the game: total level, combat and account type, your collection log
-by category down to each page's items and how many of each you have, your latest unlocks, skills,
-bosses, clues and best times, and the goals you've set on the site with their deadlines.
+Your own profile, without leaving the game. It opens with a header showing your banner, clan, account
+type, total level and combat, and how much of your collection log you've filled. Below it:
+
+- **Display case** — the kills, times and drops you want to show off.
+- **Stats, Bosses and Log** tabs: your skills, boss kill counts, and a **collection log** you can
+  search page by page, with how many of each item you have.
+- Your latest unlocks, clues and best times.
+- **Goals** you've set, with progress and deadlines.
 
 <p align="center">
-  <img src="docs/images/panel-you.png" alt="The You tab: your collection log by category, latest unlocks, skills and goals" width="239">
+  <img src="docs/images/panel-you.png" alt="The You tab: profile header with banner, display case, stats and goals" width="239">
   &nbsp;
-  <img src="docs/images/panel-clog-page.png" alt="A collection log page in the You tab: every item, with how many you have" width="244">
+  <img src="docs/images/panel-clog-page.png" alt="A collection log page: every item, with how many you have" width="244">
 </p>
 
 ### Look anyone up
 
-<img src="docs/images/lookup-menu.png" alt="A player's right-click menu with an Anvil entry under Lookup and RuneProfile" width="240" align="right">
+<img src="docs/images/lookup-menu.png" alt="A player's right-click menu with an Anvil entry under Lookup" width="240" align="right">
 
 Right-click a player — standing next to you, or by name in chat, your friends list or the clan
 panel — and pick **Anvil** to open their card in the side panel's **Lookup** tab. Your own is the
@@ -167,9 +203,10 @@ Rather keep your menus short? Pick where it shows under **Player lookup** in the
 
 <br clear="right">
 
-Or search by name in the **Lookup** tab — players or clans. A player's card is the same profile the
-You tab shows you; **Compare with me** lines the two of you up skill by skill, boss by boss and page by
-page. A clan's card shows its size, how active it is this week and who's gaining most.
+Or search by name in the **Lookup** tab, with **Players** and **Clans** side by side. A player's card is
+the same profile the You tab shows: **Stats**, **Bosses** and **Log**. **Compare with me** lines the two
+of you up skill by skill, boss by boss and page by page. A clan's card shows its size, how active it
+is this week and who's gaining most.
 
 <p align="center">
   <img src="docs/images/panel-lookup-player.png" alt="A player's card in the Lookup tab" width="241">
@@ -181,17 +218,18 @@ page. A clan's card shows its size, how active it is this week and who's gaining
 
 ### In-game, where you already are
 
-An **Anvil** button sits in the collection log's title bar next to WikiSync and RuneProfile — one
+An **Anvil** button sits in the collection log's title bar beside other plugins' buttons — one
 click syncs your log and your best times.
 
 <p align="center">
   <img src="docs/images/collection-log-button.png" alt="The Anvil button in the collection log title bar" width="620">
 </p>
 
-<img src="docs/images/panel-gear.png" alt="The side panel's gear page: Sync profile, Sync clan roster, banner and mission sounds" width="243" align="right">
+<img src="docs/images/panel-gear.png" alt="The panel's gear page: syncing, banner sounds, and links to the website's settings and Guides" width="243" align="right">
 
 The same sync is on the panel's gear page, with your banner and mission sounds: **Add clip** for a
-.wav to play when a tile completes, and a separate one for missions.
+.wav to play when a tile completes, and a separate one for missions. Under **On the Anvil website** it
+also links to your full settings, the Discord post and screenshot privacy page, and these **Guides**.
 
 <br clear="right">
 
@@ -212,9 +250,7 @@ shape of it.
 | --- | --- |
 | **Player lookup** | The **Anvil** entry on player names, and where it shows: players in the world, the chatbox and private messages, clan panels, friends chat, and your friends, ignore and party lists. In chat it's never the left-click option. |
 | **Bingo** | The verification overlay, team and personal tile popups, banner sounds, the automatic starting shot and its on-screen guide. |
-| **Notifications: Deaths & kills** | Your death posts and your own death message; PvP kills (off by default). |
-| **Notifications: Drops & pets** | Rare drops by value or by rarity, loot keys, and pets. Each posts with a screenshot. |
-| **Notifications: Combat achievements** | CA tasks and tier clears, collection-log slots, level milestones (your clan's rules), diaries (with a screenshot), quests by difficulty. |
+| **Notifications** | Two switches: **Share clan posts** (your drops, pets, deaths, levels and achievements, on the main game) and **Share seasonal activity** (Leagues, Deadman and other seasonal worlds). Which posts go out is set on the Anvil website (below). |
 | **Profile sync** | Clan Coffer movements, collection log, personal bests, clan roster, and sharing highlights with the clan. |
 
 <p align="center">
@@ -229,13 +265,24 @@ A few worth knowing about:
 | --- | --- | --- |
 | Anvil lookup on players | on | Turn it off to keep **Anvil** out of every menu, or untick just the places you don't want it under **Player lookup**. |
 | Show Overlay | on | Turn it off if you don't want the codeword panel on screen — proofs are still stamped. |
+| Share clan posts | on | Turn it off to stop posting to your clan's Discord from the main game, without touching your choices on the website. Bingo tiles still count. |
+
+### What you post
+
+What goes to your clan's Discord lives on the Anvil website, under **Settings > Announcements**: a
+setting for each kind of post, your clan's defaults, and message templates. It follows you to every clan and every computer. The first time the plugin connects it carries across
+whatever you had set in RuneLite. Posts still go out the moment they happen, with the screenshot. To pause
+everything at once, untick **Share clan posts** in the plugin settings; your website choices stay as they are.
+
+| Setting | Default | Why you'd change it |
+| --- | --- | --- |
 | Min drop value | 5,000,000 | The gp floor for a drop post. `0` switches value posts off. |
 | Min drop rarity (1 in N) | 10,000 | Catches cheap-but-rare uniques. Looser than this and the channel fills with herb rolls. Your clan can set a floor; yours applies when it's stricter. |
 | Loot key value | 1,000,000 | A loot key posts once, for its whole contents. |
-| CA post tier | Master | The lowest task tier that posts, tier clears included. Grandmaster for only the rarest, **Off** for none. Bingo CA tiles count either way. |
-| Quest post tier | Master | Quests at or above this difficulty, from **All** to Grandmaster, or **Off**. |
-| Notify on level milestones | on | Which levels post is your clan's call (99s and high totals by default). Post less, or set your own rules for your personal webhooks, under Announcements on your Anvil profile. |
-| Notify on PvP kill | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
+| Combat task tier | Master | The lowest task tier that posts, tier clears included. Grandmaster for only the rarest, **Off** for none. Bingo CA tiles count either way. |
+| Quest tier | Master | Quests at or above this difficulty, from **All** to Grandmaster, or **Off**. |
+| Level milestones | on | Which levels post is your clan's call (99s and high totals by default). |
+| PvP kills | off | On, and your kills post with a screenshot of the tick they hit 0 HP. |
 
 ### Profile sync
 
@@ -334,5 +381,4 @@ Requires JDK 11+.
 
 ## License
 
-BSD-2-Clause — see [LICENSE](LICENSE). Third-party code is credited in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+BSD-2-Clause — see [LICENSE](LICENSE).

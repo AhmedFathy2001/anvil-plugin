@@ -2,7 +2,9 @@ package com.anvil;
 
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * What killed us, as opposed to what we were killing.
@@ -20,7 +22,7 @@ public class DeathAttributionTest
 	public void namesTheThingAttackingUsRatherThanTheThingWeAttacked()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("The Whisperer", T);
+		d.targetedUs("The Whisperer", false, T);
 		d.tookDamage(T + 100);
 		// We spent the fight hitting a mechanic. It did not kill us.
 		assertEquals("The Whisperer", d.killer("Volatile earth", T + 200));
@@ -30,8 +32,8 @@ public class DeathAttributionTest
 	public void aMutualFightWinsOverAnythingElseOnUs()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Tekton", T);
-		d.targetedUs("Abyssal portal", T + 50); // more recent, but not who we were fighting
+		d.targetedUs("Tekton", false, T);
+		d.targetedUs("Abyssal portal", false, T + 50); // more recent, but not who we were fighting
 		d.tookDamage(T + 100);
 		assertEquals("Tekton", d.killer("Tekton", T + 200));
 	}
@@ -40,8 +42,8 @@ public class DeathAttributionTest
 	public void otherwiseTheThingThatJustTurnedOnUs()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Guardian", T);
-		d.targetedUs("Vasa Nistirio", T + 500);
+		d.targetedUs("Guardian", false, T);
+		d.targetedUs("Vasa Nistirio", false, T + 500);
 		d.tookDamage(T + 600);
 		// We were hitting neither; the newest acquisition is the one that finished it.
 		assertEquals("Vasa Nistirio", d.killer("Muttadile", T + 700));
@@ -51,9 +53,9 @@ public class DeathAttributionTest
 	public void reAcquiringUsRefreshesTheClaim()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Nylocas Ischyros", T);
-		d.targetedUs("Nylocas Toxobolos", T + 100);
-		d.targetedUs("Nylocas Ischyros", T + 900); // switched back onto us
+		d.targetedUs("Nylocas Ischyros", false, T);
+		d.targetedUs("Nylocas Toxobolos", false, T + 100);
+		d.targetedUs("Nylocas Ischyros", false, T + 900); // switched back onto us
 		d.tookDamage(T + 950);
 		assertEquals("Nylocas Ischyros", d.killer(null, T + 1_000));
 	}
@@ -62,7 +64,7 @@ public class DeathAttributionTest
 	public void somethingThatStoppedAttackingUsIsNotASuspect()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Zulrah", T);
+		d.targetedUs("Zulrah", false, T);
 		d.tookDamage(T + 100);
 		d.stoppedTargetingUs("Zulrah");
 		assertNull(d.killer("Zulrah", T + 200));
@@ -81,7 +83,7 @@ public class DeathAttributionTest
 	public void damageTooOldToBeThisDeathNamesNobody()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Vorkath", T);
+		d.targetedUs("Vorkath", false, T);
 		d.tookDamage(T);
 		assertNull(d.killer("Vorkath", T + 60_000));
 	}
@@ -90,7 +92,7 @@ public class DeathAttributionTest
 	public void neverHavingTakenDamageNamesNobody()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Vorkath", T);
+		d.targetedUs("Vorkath", false, T);
 		assertNull(d.killer("Vorkath", T + 100));
 	}
 
@@ -98,7 +100,7 @@ public class DeathAttributionTest
 	public void clearingEndsEveryClaim()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs("Vorkath", T);
+		d.targetedUs("Vorkath", false, T);
 		d.tookDamage(T);
 		d.clear();
 		assertEquals(0, d.attackerCount());
@@ -111,7 +113,7 @@ public class DeathAttributionTest
 		DeathAttribution d = new DeathAttribution();
 		for (int i = 0; i < 200; i++)
 		{
-			d.targetedUs("Attacker " + i, T + i);
+			d.targetedUs("Attacker " + i, false, T + i);
 		}
 		// Capped, and it is the OLDEST that get dropped — the newest arrivals are the suspects.
 		assertEquals(24, d.attackerCount());
@@ -123,10 +125,46 @@ public class DeathAttributionTest
 	public void blankNamesAreIgnoredRatherThanStored()
 	{
 		DeathAttribution d = new DeathAttribution();
-		d.targetedUs(null, T);
-		d.targetedUs("", T);
+		d.targetedUs(null, false, T);
+		d.targetedUs("", false, T);
 		d.tookDamage(T);
 		assertEquals(0, d.attackerCount());
 		assertNull(d.killer(null, T + 100));
+	}
+
+	@Test
+	public void aPlayerKillerIsMarkedAsAPlayer()
+	{
+		DeathAttribution d = new DeathAttribution();
+		d.targetedUs("Zezima", true, T);
+		d.targetedUs("Revenant knight", false, T + 10);
+		d.tookDamage(T + 20);
+		assertEquals("Zezima", d.killer("Zezima", T + 30));
+		assertTrue(d.isPlayer("Zezima"));
+		assertFalse(d.isPlayer("Revenant knight"));
+		d.stoppedTargetingUs("Zezima");
+		assertFalse(d.isPlayer("Zezima"));
+		d.targetedUs("Zezima", true, T + 40);
+		d.clear();
+		assertFalse(d.isPlayer("Zezima"));
+		assertFalse(d.isPlayer(null));
+	}
+
+	@Test
+	public void countsThePlayersOnUsWhileTheLastHitIsFresh()
+	{
+		DeathAttribution d = new DeathAttribution();
+		assertEquals(0, d.players(T));
+		d.targetedUs("Pker1", true, T);
+		d.targetedUs("Pker2", true, T + 10);
+		d.targetedUs("Pker3", true, T + 20);
+		d.targetedUs("Revenant dragon", false, T + 30);
+		d.tookDamage(T + 100);
+		assertEquals("NPCs are not players", 3, d.players(T + 200));
+		d.stoppedTargetingUs("Pker2");
+		assertEquals(2, d.players(T + 200));
+		assertEquals("a stale last hit counts nobody", 0, d.players(T + 100 + 15_001));
+		d.clear();
+		assertEquals(0, d.players(T + 200));
 	}
 }

@@ -13,33 +13,22 @@ import lombok.extern.slf4j.Slf4j;
  * the plugin reaches outside its own directory.
  */
 @Slf4j
-final class Clipboards
-{
-	private Clipboards()
-	{
+final class Clipboards {
+	private Clipboards() {
 	}
 
 	/** True when the text made it onto the clipboard, so a caller can say so rather than assume. */
-	static boolean copy(String value)
-	{
-		if (value == null || value.isEmpty())
-		{
-			return false;
-		}
+	static boolean copy(String value) {
+		if (value == null || value.isEmpty()) return false;
 		return set(new StringSelection(value));
 	}
 
-	private static boolean set(Transferable contents)
-	{
-		try
-		{
+	private static boolean set(Transferable contents) {
+		try {
 			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(contents, null);
 			return true;
-		}
-		catch (Exception e)
-		{
+		} catch (Exception e) {
 			// A headless or locked-down desktop has no clipboard; the path still gets said out loud.
-			log.debug("Anvil: clipboard copy skipped: {}", e.getMessage());
 			return false;
 		}
 	}

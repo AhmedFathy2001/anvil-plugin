@@ -1,0 +1,14 @@
+{
+  "name": "sunstone-golem",
+  "description": "Sunstone golem completed on Wyrmscraig (one line, one golem)",
+  "params": {
+    "qty": "3"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "As you complete the golem it leaves a gift on the ground for you: ${qty} x Sunstone."
+      }
+    }
+  ]
+}

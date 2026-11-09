@@ -1,0 +1,21 @@
+{
+  "name": "tithe-farm",
+  "description": "Tithe Farm points earned (game counter): the points varbit up by points, then put back. Needs a non-zero balance first",
+  "params": {
+    "points": "30"
+  },
+  "steps": [
+    {
+      "varbit": {
+        "name": "HOSIDIUS_TITHE_REWARDPOINTS",
+        "add": "${points}"
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "restore": {}
+    }
+  ]
+}

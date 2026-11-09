@@ -32,8 +32,7 @@ import net.runelite.client.util.*;
  * — character pages are not clan-scoped, a character belongs to its player wherever they play.</p>
  */
 @Singleton
-final class ProfileLookup
-{
+final class ProfileLookup {
 	static final String OPTION = "Anvil";
 
 	/** List options our entry goes AFTER (below) / BEFORE (above), matching the hiscores plugin. */
@@ -50,8 +49,7 @@ final class ProfileLookup
 	private volatile Predicate<String> panelOpener;
 
 	@Inject
-	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus)
-	{
+	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus) {
 		this.client = client;
 		this.menuManager = menuManager;
 		this.config = config;
@@ -59,12 +57,8 @@ final class ProfileLookup
 	}
 
 	/** {@code rsn} as a path segment, or null when there is no name to look up. */
-	private static String pathName(String rsn)
-	{
-		if (rsn == null)
-		{
-			return null;
-		}
+	private static String pathName(String rsn) {
+		if (rsn == null) return null;
 		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
 		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
 		String name = rsn.replace(' ', ' ').trim();
@@ -72,27 +66,16 @@ final class ProfileLookup
 	}
 
 	/** The character page for {@code rsn}, or null when there is no name to look up. */
-	static String profileUrl(String rsn)
-	{
+	static String profileUrl(String rsn) {
 		String name = pathName(rsn);
 		return name == null ? null : BingoApiClient.site() + "/p/" + name;
 	}
 
-	/** {@code /api/players/<rsn>} plus {@code tail} ("/card", "/cas", …), or null when there is no name. */
-	static String apiPlayerUrl(String rsn, String tail)
-	{
-		String name = pathName(rsn);
-		return name == null ? null : BingoApiClient.site() + "/api/players/" + name + tail;
-	}
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
-	static boolean open(String rsn)
-	{
+	static boolean open(String rsn) {
 		String url = profileUrl(rsn);
-		if (url == null)
-		{
-			return false;
-		}
+		if (url == null) return false;
 		LinkBrowser.browse(url);
 		return true;
 	}
@@ -106,25 +89,16 @@ final class ProfileLookup
 	 * add to. The chatbox's "Kick" is a clan-chat moderation entry, not a name menu, so it is skipped
 	 * there — the same carve-out the hiscores plugin makes.
 	 */
-	static int listPlacement(int groupId, String option)
-	{
+	static int listPlacement(int groupId, String option) {
 		boolean nameList = NAME_LISTS.contains(groupId) || (groupId == InterfaceID.CHATBOX && !"Kick".equals(option));
-		if (!nameList || option == null)
-		{
-			return 0;
-		}
-		if (AFTER_OPTIONS.contains(option))
-		{
-			return 1;
-		}
+		if (!nameList || option == null) return 0;
+		if (AFTER_OPTIONS.contains(option)) return 1;
 		return BEFORE_OPTIONS.contains(option) ? -1 : 0;
 	}
 
 	/** Whether the per-surface setting lets the entry onto names in this interface. */
-	private boolean surfaceOn(int groupId)
-	{
-		switch (groupId)
-		{
+	private boolean surfaceOn(int groupId) {
+		switch (groupId) {
 			case InterfaceID.CHATBOX:
 			case InterfaceID.PM_CHAT:
 				return config.lookupChat();
@@ -143,89 +117,59 @@ final class ProfileLookup
 	 * chat makes it the top row — the left-click on a name. Chat names always take {@code -2}, under
 	 * that option, so a click on a name never opens a lookup.
 	 */
-	static int menuIndex(int groupId, int placement)
-	{
+	static int menuIndex(int groupId, int placement) {
 		boolean chat = groupId == InterfaceID.CHATBOX || groupId == InterfaceID.PM_CHAT;
 		return placement > 0 || chat ? -2 : -1;
 	}
 
-	static boolean sameTarget(String a, String b)
-	{
+	static boolean sameTarget(String a, String b) {
 		return Text.removeTags(a == null ? "" : a).equals(Text.removeTags(b == null ? "" : b));
 	}
 
-	void startUp()
-	{
+	void startUp() {
 		eventBus.register(this);
 		syncPlayerItem();
 	}
 
-	void shutDown()
-	{
+	void shutDown() {
 		eventBus.unregister(this);
-		if (playerItemShown)
-		{
+		if (playerItemShown) {
 			menuManager.removePlayerMenuItem(OPTION);
 			playerItemShown = false;
 		}
 	}
 
-	void setPanelOpener(Predicate<String> opener)
-	{
+	void setPanelOpener(Predicate<String> opener) {
 		this.panelOpener = opener;
 	}
 
 	/** The panel's Lookup tab when it can show cards, the browser when it can't. */
-	private void lookUp(String rsn)
-	{
+	private void lookUp(String rsn) {
 		Predicate<String> opener = panelOpener;
-		if (opener != null && rsn != null && opener.test(rsn))
-		{
-			return;
-		}
+		if (opener != null && rsn != null && opener.test(rsn)) return;
 		open(rsn);
 	}
 
 	/** Add or remove the in-world player item to match the settings. Called on start and config change. */
-	void syncPlayerItem()
-	{
+	void syncPlayerItem() {
 		boolean want = config.profileLookupMenu() && config.lookupPlayers();
-		if (want == playerItemShown)
-		{
-			return;
-		}
-		if (want)
-		{
+		if (want == playerItemShown) return;
+		if (want) {
 			menuManager.addPlayerMenuItem(OPTION);
-		}
-		else
-		{
-			menuManager.removePlayerMenuItem(OPTION);
-		}
+		} else menuManager.removePlayerMenuItem(OPTION);
 		playerItemShown = want;
 	}
 
 	@Subscribe
-	public void onMenuEntryAdded(MenuEntryAdded event)
-	{
-		if (!config.profileLookupMenu())
-		{
-			return;
-		}
+	public void onMenuEntryAdded(MenuEntryAdded event) {
+		if (!config.profileLookupMenu()) return;
 		int groupId = WidgetUtil.componentToInterface(event.getActionParam1());
 		int placement = listPlacement(groupId, event.getOption());
-		if (placement == 0 || !surfaceOn(groupId))
-		{
-			return;
-		}
+		if (placement == 0 || !surfaceOn(groupId)) return;
 		// One per name. A name's menu often carries two of the options we sit beside ("Add friend" and
 		// "Add ignore" on a stranger in chat), and each used to add its own "Anvil".
-		for (MenuEntry existing : client.getMenu().getMenuEntries())
-		{
-			if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget()))
-			{
-				return;
-			}
+		for (MenuEntry existing : client.getMenu().getMenuEntries()) {
+			if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget())) return;
 		}
 		client.getMenu().createMenuEntry(menuIndex(groupId, placement))
 			.setOption(OPTION)
@@ -236,16 +180,9 @@ final class ProfileLookup
 	}
 
 	@Subscribe
-	public void onMenuOptionClicked(MenuOptionClicked event)
-	{
-		if (event.getMenuAction() != MenuAction.RUNELITE_PLAYER || !OPTION.equals(event.getMenuOption()))
-		{
-			return;
-		}
+	public void onMenuOptionClicked(MenuOptionClicked event) {
+		if (event.getMenuAction() != MenuAction.RUNELITE_PLAYER || !OPTION.equals(event.getMenuOption())) return;
 		Player player = event.getMenuEntry().getPlayer();
-		if (player != null)
-		{
-			lookUp(player.getName());
-		}
+		if (player != null) lookUp(player.getName());
 	}
 }

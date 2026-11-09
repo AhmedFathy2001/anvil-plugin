@@ -28,7 +28,8 @@ public final class Scenario
 
 	static final Pattern NAME = Pattern.compile("[a-z0-9][a-z0-9-]{0,63}");
 	private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([A-Za-z0-9_]+)}");
-	static final List<String> STEP_KINDS = List.of("wait", "chat", "loot", "varbit", "stat", "death", "pvpKill");
+	static final List<String> STEP_KINDS = List.of("wait", "chat", "loot", "varbit", "varp", "restore", "stat", "death", "pvpKill",
+		"attacked", "playerSpawn", "playerLoot");
 
 	public final String name;
 	public final String description;

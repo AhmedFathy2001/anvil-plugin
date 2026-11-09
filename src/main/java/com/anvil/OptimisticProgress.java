@@ -13,10 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * floor goes away once the site reaches it, when the push failed ({@link #clear}), or after
  * {@link #TTL_MS} — a floor the site never reaches was wrong, and the site's number wins.
  */
-final class OptimisticProgress
-{
+final class OptimisticProgress {
 	// Tile ids may be negative: a capped tile's cap counters carry virtual ids (-(tileId * 8 + slot),
-	// PluginConfigResponse.TrackedKill.capOf). Only 0 means "no tile".
+	// TileNotes). Only 0 means "no tile".
 	static final long TTL_MS = 120_000;
 
 	/** tileId → {floor, expiresAt}. */
@@ -32,37 +31,27 @@ final class OptimisticProgress
 	/** Told when the site's count for a tile went DOWN (a deleted submission): views showing the old one redraw. */
 	private volatile Runnable onDrop;
 
-	void onDrop(Runnable r)
-	{
+	void onDrop(Runnable r) {
 		onDrop = r;
 	}
 
 	/** This client now has the tile at {@code current} (an absolute team count it just bumped to). */
-	void raise(int tileId, long current, long now)
-	{
-		if (tileId == 0 || current <= 0)
-		{
-			return;
-		}
+	void raise(int tileId, long current, long now) {
+		if (tileId == 0 || current <= 0) return;
 		floors.merge(tileId, new long[]{current, now + TTL_MS},
 			(old, add) -> new long[]{Math.max(old[0], add[0]), add[1]});
 	}
 
 	/** This client gained {@code delta} on a tile the site last put at {@code siteCurrent}. */
-	void add(int tileId, long siteCurrent, long delta, long now)
-	{
-		if (tileId == 0 || delta <= 0)
-		{
-			return;
-		}
+	void add(int tileId, long siteCurrent, long delta, long now) {
+		if (tileId == 0 || delta <= 0) return;
 		long[] f = live(tileId, siteCurrent, now);
 		long base = Math.max(Math.max(siteCurrent, seenSite.getOrDefault(tileId, 0L)), f == null ? 0 : f[0]);
 		raise(tileId, base + delta, now);
 	}
 
 	/** What to show for a tile the site puts at {@code siteCurrent}. */
-	long apply(int tileId, long siteCurrent, long now)
-	{
+	long apply(int tileId, long siteCurrent, long now) {
 		seen(tileId, siteCurrent);
 		long[] f = live(tileId, siteCurrent, now);
 		return f == null ? siteCurrent : Math.max(siteCurrent, f[0]);
@@ -73,8 +62,7 @@ final class OptimisticProgress
 	 * holds a count already including it — the panel's on-screen number — which must never be passed
 	 * to {@link #apply} as the site's: that would read as "caught up" and throw the floor away.
 	 */
-	long floor(int tileId, long now)
-	{
+	long floor(int tileId, long now) {
 		long[] f = floors.get(tileId);
 		return f == null || now > f[1] ? 0 : f[0];
 	}
@@ -85,53 +73,35 @@ final class OptimisticProgress
 	 * wins at once, and this client's floor for the tile goes with it — else the old high mark stayed
 	 * on screen, and every later gain built on it, until the client restarted.
 	 */
-	void seen(int tileId, long siteCurrent)
-	{
-		if (tileId == 0 || siteCurrent < 0)
-		{
-			return;
-		}
+	void seen(int tileId, long siteCurrent) {
+		if (tileId == 0 || siteCurrent < 0) return;
 		Long before = seenSite.get(tileId);
-		if (before != null && siteCurrent < before)
-		{
+		if (before != null && siteCurrent < before) {
 			seenSite.put(tileId, siteCurrent);
 			floors.remove(tileId);
 			Runnable r = onDrop;
-			if (r != null)
-			{
-				r.run();
-			}
+			if (r != null) r.run();
 			return;
 		}
-		if (siteCurrent > 0)
-		{
-			seenSite.merge(tileId, siteCurrent, Math::max);
-		}
+		if (siteCurrent > 0) seenSite.merge(tileId, siteCurrent, Math::max);
 	}
 
 	/** The push behind this tile's floor failed — back to what the site says. */
-	void clear(int tileId)
-	{
+	void clear(int tileId) {
 		floors.remove(tileId);
 		seenSite.remove(tileId);
 	}
 
-	void reset()
-	{
+	void reset() {
 		floors.clear();
 		seenSite.clear();
 	}
 
 	/** The tile's floor while it still means something; drops it once the site caught up or it expired. */
-	private long[] live(int tileId, long siteCurrent, long now)
-	{
+	private long[] live(int tileId, long siteCurrent, long now) {
 		long[] f = floors.get(tileId);
-		if (f == null)
-		{
-			return null;
-		}
-		if (siteCurrent >= f[0] || now > f[1])
-		{
+		if (f == null) return null;
+		if (siteCurrent >= f[0] || now > f[1]) {
 			floors.remove(tileId, f);
 			return null;
 		}

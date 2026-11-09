@@ -1,0 +1,14 @@
+{
+  "name": "hunter-rumour",
+  "description": "Hunter Guild rumour handed in (one line, one credit)",
+  "params": {
+    "count": "42"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "You have completed ${count} rumours for the Hunter Guild."
+      }
+    }
+  ]
+}

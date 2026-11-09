@@ -21,11 +21,9 @@ public class LevelRulesTest
 		return new LevelRules.Sets(clan, personal);
 	}
 
-	private static PluginConfigResponse site(LevelRules.Sets levelRules, String... caps)
+	private static PluginConfigResponse site(LevelRules.Sets levelRules)
 	{
 		PluginConfigResponse cfg = new PluginConfigResponse();
-		cfg.server = new PluginConfigResponse.ServerInfo();
-		cfg.server.capabilities = java.util.Arrays.asList(caps);
 		cfg.levelRules = levelRules;
 		return cfg;
 	}
@@ -83,35 +81,52 @@ public class LevelRulesTest
 	}
 
 	@Test
-	public void sitesWithoutLevelRulesGetTodaysBehaviour()
+	public void resolveRoutesTheSitesSets()
 	{
-		LevelRules.Sets s = LevelRules.resolve(site(null), true);
-		assertSame(LevelRules.LEGACY_CLAN, s.clan);
-		assertNull(s.personal);
-		assertSame(LevelRules.LEGACY_CLAN, LevelRules.resolve(null, true).clan);
-		// Rules sent without the capability are ignored like any other unadvertised surface.
-		assertSame(LevelRules.LEGACY_CLAN,
-			LevelRules.resolve(site(sets(null, null)), true).clan);
+		// No config (or no rules sent): nothing wants a post.
+		assertNull(LevelRules.resolve(null, true, null).clan);
+		assertNull(LevelRules.resolve(site(null), true, null).personal);
 		// No clan channel: the clan side wants nothing, the player's own webhooks still can.
 		LevelRules mine = rules(true, 0, 1, 0, 0, false);
-		s = LevelRules.resolve(site(sets(LevelRules.LEGACY_CLAN, mine), "level-rules"), false);
+		LevelRules.Sets s = LevelRules.resolve(site(sets(LevelRules.LEGACY_CLAN, mine)), false, null);
 		assertNull(s.clan);
 		assertSame(mine, s.personal);
-		// With the capability a null set means that destination wants nothing.
-		assertNull(LevelRules.resolve(site(sets(null, mine), "level-rules"), true).clan);
-		assertNull(LevelRules.resolve(null, false).clan);
+		// A null set means that destination wants nothing.
+		assertNull(LevelRules.resolve(site(sets(null, mine)), true, null).clan);
+		assertSame(LevelRules.LEGACY_CLAN, LevelRules.resolve(site(sets(LevelRules.LEGACY_CLAN, null)), true, null).clan);
 	}
 
 	@Test
 	public void theWireShapeParses()
 	{
-		PluginConfigResponse cfg = new Gson().fromJson("{\"server\":{\"capabilities\":[\"level-rules\"]},"
+		PluginConfigResponse cfg = new Gson().fromJson("{"
 			+ "\"levelRules\":{\"clan\":{\"ninetyNines\":true,\"skillStep\":10,\"skillFrom\":70,\"totalStep\":250,"
 			+ "\"totalFrom\":1500,\"maxTotal\":false},\"personal\":null}}", PluginConfigResponse.class);
-		LevelRules.Sets s = LevelRules.resolve(cfg, true);
+		LevelRules.Sets s = LevelRules.resolve(cfg, true, null);
 		assertEquals(90, LevelRules.skillMilestone(85, 92, s));
 		assertEquals(1750, LevelRules.totalMilestone(1700, 1760, s));
 		assertFalse(LevelRules.wantsMax(s));
 		assertNull(s.personal);
+	}
+
+	@Test
+	public void aGameModeUsesOnlyItsOwnRules()
+	{
+		PluginConfigResponse cfg = new Gson().fromJson("{"
+			+ "\"levelRules\":{\"clan\":{\"ninetyNines\":true,\"skillStep\":0,\"skillFrom\":1,\"totalStep\":100,"
+			+ "\"totalFrom\":1800,\"maxTotal\":true},\"personal\":{\"ninetyNines\":true,\"skillStep\":1,\"skillFrom\":1,"
+			+ "\"totalStep\":0,\"totalFrom\":0,\"maxTotal\":false}},"
+			+ "\"modeThresholds\":{\"key\":\"hardcore\",\"dropRarityFloor\":128,\"dropMinValue\":10000,"
+			+ "\"levelRules\":{\"ninetyNines\":true,\"skillStep\":10,\"skillFrom\":10,\"totalStep\":0,"
+			+ "\"totalFrom\":0,\"maxTotal\":false}}}", PluginConfigResponse.class);
+		LevelRules.Sets s = LevelRules.resolve(cfg, true, cfg.modeThresholds);
+		assertEquals(30, LevelRules.skillMilestone(29, 31, s));
+		assertEquals(0, LevelRules.skillMilestone(31, 35, s)); // the personal every-level set is not used
+		assertNull(s.personal);
+		assertEquals(0, LevelRules.totalMilestone(1790, 1810, s));
+		assertNull(LevelRules.resolve(cfg, false, cfg.modeThresholds).clan); // no levels channel
+
+		// The main game is untouched by the mode block.
+		assertEquals(1800, LevelRules.totalMilestone(1790, 1810, LevelRules.resolve(cfg, true, null)));
 	}
 }

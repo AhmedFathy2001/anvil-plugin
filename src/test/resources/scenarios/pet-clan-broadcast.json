@@ -1,0 +1,33 @@
+{
+  "name": "pet-clan-broadcast",
+  "description": "New pet named only by the clan broadcast (personal clog line off): KC, pet line, then the clan's line naming you",
+  "params": {
+    "boss": "Vorkath",
+    "kc": "1999",
+    "pet": "Vorki"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${boss}"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your ${boss} kill count is: ${kc}."
+      }
+    },
+    {
+      "chat": {
+        "message": "You have a funny feeling like you're being followed."
+      }
+    },
+    {
+      "chat": {
+        "type": "CLAN_MESSAGE",
+        "message": "${me} has a funny feeling like he's being followed: ${pet} at ${kc} killcount."
+      }
+    }
+  ]
+}

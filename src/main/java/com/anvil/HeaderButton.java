@@ -7,8 +7,8 @@ import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.widgets.*;
 
 /**
- * An "Anvil" button in a game interface's title bar — the collection log's, beside WikiSync and
- * RuneProfile, and the clan window's, beside Wise Old Man's.
+ * An "Anvil" button in a game interface's title bar — the collection log's, beside other
+ * plugins' buttons, and the clan window's.
  *
  * <p>WHY BUTTONS AND NOT THE TAB WE DELETED. The in-game clog TAB went in 5d2e425 — four thousand
  * lines of hand-drawn widgets nobody read, sitting between the side panel (progress at a glance) and
@@ -35,8 +35,7 @@ import net.runelite.api.widgets.*;
  * who ran last — which is plugin load order, and nobody's to rely on. The answer is not to fight it:
  * we keep hold of what we made, notice when it is no longer attached, and build it again.
  */
-final class HeaderButton
-{
+final class HeaderButton {
 	/** Matches the native header buttons: small, and tall enough to hit comfortably. */
 	private static final int WIDTH = 71;
 	private static final int FALLBACK_HEIGHT = 20;
@@ -106,14 +105,12 @@ final class HeaderButton
 	private int drawnAt = Integer.MIN_VALUE;
 
 	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, String label, String action,
-			BooleanSupplier enabled, Runnable onClick)
-	{
+			BooleanSupplier enabled, Runnable onClick) {
 		this(client, parentId, anchorId, rightOffset, rightOffset, label, action, enabled, onClick);
 	}
 
 	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, int nearOffset, String label, String action,
-				 BooleanSupplier enabled, Runnable onClick)
-	{
+				 BooleanSupplier enabled, Runnable onClick) {
 		this.client = client;
 		this.parentId = parentId;
 		this.anchorId = anchorId;
@@ -132,19 +129,13 @@ final class HeaderButton
 	 * the neighbour that clears this container, wants to run AFTER every other subscriber to the
 	 * script has had its turn.
 	 */
-	void render()
-	{
+	void render() {
 		Widget parent = client.getWidget(parentId);
 		Widget anchor = client.getWidget(anchorId);
-		if (parent == null || anchor == null || !enabled.getAsBoolean())
-		{
-			return;
-		}
+		if (parent == null || anchor == null || !enabled.getAsBoolean()) return;
 		final int x = slotFor(parent);
-		if (stillAttached(parent))
-		{
-			if (drawnAt == x)
-			{
+		if (stillAttached(parent)) {
+			if (drawnAt == x) {
 				return; // ours, intact, in the right slot — drawing again would only make a second one
 			}
 			// THE NEIGHBOURS MOVED. Enabling WikiSync mid-session fills the slot we took while it was
@@ -205,28 +196,17 @@ final class HeaderButton
 	 * floating a slot-width away from the close button with an empty gap between them — reserved for
 	 * a plugin that was not running.
 	 */
-	private int slotFor(Widget parent)
-	{
-		if (nearOffset >= rightOffset)
-		{
-			return rightOffset;
-		}
+	private int slotFor(Widget parent) {
+		if (nearOffset >= rightOffset) return rightOffset;
 		Widget[] children = parent.getDynamicChildren();
-		if (children != null)
-		{
-			for (Widget child : children)
-			{
-				if (child == null || NAME.equals(child.getName()))
-				{
+		if (children != null) {
+			for (Widget child : children) {
+				if (child == null || NAME.equals(child.getName())) {
 					continue; // ours, from a previous render we are about to replace
 				}
-				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT)
-				{
-					continue;
-				}
+				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
 				final int childX = child.getOriginalX();
-				if (childX >= nearOffset && childX < rightOffset)
-				{
+				if (childX >= nearOffset && childX < rightOffset) {
 					return rightOffset; // somebody is in the near slot; take the one beyond it
 				}
 			}
@@ -235,8 +215,7 @@ final class HeaderButton
 	}
 
 	/** One piece of the frame, by its index into the sprite sets. */
-	private Widget piece(Widget parent, int index, int x, int y, int w, int h, int yMode)
-	{
+	private Widget piece(Widget parent, int index, int x, int y, int w, int h, int yMode) {
 		Widget piece = child(parent, WidgetType.GRAPHIC, x, y, w, h, yMode);
 		piece.setSpriteId(SPRITES_IDLE[index]);
 		piece.revalidate();
@@ -244,8 +223,7 @@ final class HeaderButton
 	}
 
 	/** One of our widgets, named as ours and placed from the parent's right edge. */
-	private static Widget child(Widget parent, int type, int x, int y, int w, int h, int yMode)
-	{
+	private static Widget child(Widget parent, int type, int x, int y, int w, int h, int yMode) {
 		Widget c = parent.createChild(-1, type);
 		c.setName(NAME);
 		c.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
@@ -264,23 +242,17 @@ final class HeaderButton
 	 * should not be there it is hidden once and then there is nothing to hide; when it is already
 	 * right, render() returns on an identity scan.</p>
 	 */
-	void refresh()
-	{
+	void refresh() {
 		Widget parent = client.getWidget(parentId);
-		if (parent == null)
-		{
+		if (parent == null) {
 			// The window is closed. Our widgets went with it, so forget them rather than hiding
 			// objects that are no longer attached to anything.
 			parts = null;
 			drawnAt = Integer.MIN_VALUE;
 			return;
 		}
-		if (!enabled.getAsBoolean())
-		{
-			if (parts != null)
-			{
-				hideParts();
-			}
+		if (!enabled.getAsBoolean()) {
+			if (parts != null) hideParts();
 			return;
 		}
 		render();
@@ -293,16 +265,10 @@ final class HeaderButton
 	 * removal the API offers clears the whole container, which would take the neighbours with it.
 	 * A hidden widget does not render and is collected when the interface is next rebuilt.</p>
 	 */
-	void hideParts()
-	{
-		if (parts != null)
-		{
-			for (Widget w : parts)
-			{
-				if (w != null)
-				{
-					w.setHidden(true);
-				}
+	void hideParts() {
+		if (parts != null) {
+			for (Widget w : parts) {
+				if (w != null) w.setHidden(true);
 			}
 		}
 		parts = null;
@@ -310,19 +276,11 @@ final class HeaderButton
 	}
 
 	/** Swap the frame between its idle and hovered sprite sets. */
-	private static void paint(Widget[] made, int[] sprites, int textColour)
-	{
-		for (int i = 0; i < TEXT; i++)
-		{
-			if (made[i] != null)
-			{
-				made[i].setSpriteId(sprites[i]);
-			}
+	private static void paint(Widget[] made, int[] sprites, int textColour) {
+		for (int i = 0; i < TEXT; i++) {
+			if (made[i] != null) made[i].setSpriteId(sprites[i]);
 		}
-		if (made[TEXT] != null)
-		{
-			made[TEXT].setTextColor(textColour);
-		}
+		if (made[TEXT] != null) made[TEXT].setTextColor(textColour);
 	}
 
 	/**
@@ -333,23 +291,12 @@ final class HeaderButton
 	 * bar still holds the one we made, which answers both "were we wiped" and "did the interface
 	 * rebuild underneath us".
 	 */
-	private boolean stillAttached(Widget parent)
-	{
-		if (parts == null || parts[TEXT] == null)
-		{
-			return false;
-		}
+	private boolean stillAttached(Widget parent) {
+		if (parts == null || parts[TEXT] == null) return false;
 		Widget[] children = parent.getDynamicChildren();
-		if (children == null)
-		{
-			return false;
-		}
-		for (Widget w : children)
-		{
-			if (w == parts[TEXT])
-			{
-				return true;
-			}
+		if (children == null) return false;
+		for (Widget w : children) {
+			if (w == parts[TEXT]) return true;
 		}
 		return false;
 	}

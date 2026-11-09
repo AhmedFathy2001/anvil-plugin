@@ -1,0 +1,32 @@
+{
+  "name": "gotr-game",
+  "description": "Guardians of the Rift game end: the energy-attuned line (elemental / catalytic / total counters), then a rewards-guardian search",
+  "params": {
+    "elemental": "1204",
+    "catalytic": "987",
+    "item": "26798"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Elemental energy attuned: ${elemental}. Catalytic energy attuned: ${catalytic}."
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Guardians of the Rift",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

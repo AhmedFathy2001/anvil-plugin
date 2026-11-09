@@ -1,7 +1,11 @@
 package com.anvil;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,6 +49,48 @@ public class ChatFlairTest
 		return w;
 	}
 
+	private static int kind(String raw)
+	{
+		return ChatFlair.chatKind(raw, "The AFK Spot", "Iron Pals", "Fc Name", "Me Myself");
+	}
+
+	@Test
+	public void screenshotPrivacyMaskDefaultsToPrivateMessages()
+	{
+		assertEquals(ChatFlair.PM, ChatFlair.hideMask(null));
+		java.util.Map<String, Boolean> hide = new java.util.HashMap<>();
+		assertEquals(0, ChatFlair.hideMask(hide));
+		hide.put("public", true);
+		hide.put("clanSelf", true);
+		hide.put("group", true);
+		hide.put("pm", false);
+		assertEquals(ChatFlair.PUBLIC | ChatFlair.CLAN_SELF | ChatFlair.GROUP, ChatFlair.hideMask(hide));
+	}
+
+	@Test
+	public void senderColumnsAreClassifiedForScreenshotPrivacy()
+	{
+		assertEquals(ChatFlair.PM, kind("From Bob:"));
+		assertEquals(ChatFlair.PM, kind("To <col=ff0000>Bob</col>:"));
+		assertEquals(ChatFlair.PM, kind("[12:00] From Bob:"));
+		assertEquals(ChatFlair.PUBLIC, kind("Bob:"));
+		assertEquals(ChatFlair.PUBLIC, kind("[12:00] <img=2>Bob:"));
+		assertEquals(ChatFlair.CLAN_OTHERS, kind("[<col=0000ff>The AFK Spot</col>] <img=5>Bob:"));
+		assertEquals(ChatFlair.CLAN_SELF, kind("[12:00] [The AFK Spot] <img=5>Me\u00A0Myself:"));
+		assertEquals(ChatFlair.CLAN_SELF, kind("[the afk spot] me_myself:"));
+		assertEquals(ChatFlair.GROUP, kind("[Iron Pals] Bob:"));
+		assertEquals(ChatFlair.CHANNEL, kind("[Fc Name] Bob:"));
+		// Not a sender (something after the colon), or a channel we can't place: kept.
+		assertEquals(0, kind("From Bob: hi there"));
+		assertEquals(0, kind("Your Zulrah kill count is: 500."));
+		assertEquals(0, kind("[Someone Else's Clan] Bob:"));
+		assertEquals(0, kind("[The AFK Spot]"));
+		assertEquals(0, kind(null));
+		// Not in a clan: an unknown "[Clan]" stays, and nobody is "me" without a local name.
+		assertEquals(0, ChatFlair.chatKind("[Clan] Bob:", null, null, null, null));
+		assertEquals(ChatFlair.CLAN_OTHERS, ChatFlair.chatKind("[Clan] Bob:", "Clan", null, null, null));
+	}
+
 	@Test
 	public void solidColourKeepsTheIconsAndMatchesSpacesAndCase()
 	{
@@ -60,6 +106,22 @@ public class ChatFlairTest
 		assertEquals("<img=99><col=ff0000>A</col><col=0000ff>b</col>", f.decorate("Ab", "<img=99>"));
 		// No star icon registered yet: the name still gets its colours.
 		assertEquals("<col=ff0000>A</col><col=0000ff>b</col>", f.decorate("Ab", null));
+	}
+
+	@Test
+	public void onlyPatronSenderGradientsMove()
+	{
+		ChatFlair f = with(
+			entry("patron", "#ff7ab8", true, "#ff0000", "#0000ff"),
+			entry("champion", "#ff7ab8", false, "#ff0000", "#0000ff"));
+		assertEquals(true, f.movingSender("[Clan] Patron:"));
+		assertEquals(false, f.movingSender("Champion:"));
+		assertEquals(true, f.movingName("Patron"));
+		assertEquals(false, f.movingName("Champion"));
+		assertNotEquals(f.paintSender("Patron:", null, false),
+			f.paintSender("Patron:", null, false, 0.5));
+		assertEquals(f.paintSender("Champion:", null, false),
+			f.paintSender("Champion:", null, false, 0.5));
 	}
 
 	@Test
@@ -195,14 +257,28 @@ public class ChatFlairTest
 		assertEquals("#123456", f.entry("zulu").c);
 	}
 
+
 	@Test
-	public void theListIsWantedForALoginInNoClanWhoseConfigIsA404()
+	public void anIncompleteCurrentVersionRepairsItselfFromTheFullList()
 	{
-		// No config at all (404): the site's /api/version capabilities decide.
-		assertEquals(true, ChatFlairSync.wanted(true, true, null, "chat-flair-v"::equals));
-		assertEquals(false, ChatFlairSync.wanted(true, true, null, c -> false));
-		assertEquals(false, ChatFlairSync.wanted(true, false, null, "chat-flair-v"::equals));
-		assertEquals(false, ChatFlairSync.wanted(false, true, null, "chat-flair-v"::equals));
+		ChatFlair f = new ChatFlair();
+		assertEquals(true, f.adopt(wire(7, null, entry("old name", "#ffffff", null))));
+		Site site = new Site();
+		ChatFlair.Since since = new ChatFlair.Since();
+		since.v = 7;
+		since.n = 2;
+		site.since = since;
+		site.full = wire(7, null,
+			entry("angerfist172", "#12ab67", true), entry("nisbro", "#ffd35c", true));
+		int[] changed = {0};
+
+		new ChatFlairSync(f, site, new Later(), () -> 0, () -> changed[0]++).sync();
+
+		assertEquals(Arrays.asList("since 7", "full 7"), site.asked);
+		assertEquals("#12ab67", f.entry("Angerfist172").c);
+		assertEquals("#ffd35c", f.entry("Nisbro").c);
+		assertNull(f.entry("old name"));
+		assertEquals(1, changed[0]);
 	}
 
 	@Test
@@ -288,6 +364,17 @@ public class ChatFlairTest
 	}
 
 	@Test
+	public void timestampedSplitPrivateChatIsPaintedAndCanMove()
+	{
+		ChatFlair f = with(entry("denoverse", "#ff7ab8", true, "#00ffff", "#ff00ff"));
+		String plain = "[06:35] From Denoverse: Test";
+		String painted = f.paintPmLine(plain, "<img=99>", false, 0.5);
+		assertNotNull(painted);
+		assertEquals(plain, ChatFlair.shown(painted).text);
+		assertNotEquals(f.paintPmLine(plain, "<img=99>", false), painted);
+	}
+
+	@Test
 	public void paintingIsIdempotent()
 	{
 		ChatFlair f = with(entry("drenvox", "#00ff00", true), entry("ab", "#ffd35c", null, "#ff0000", "#00ff00"));
@@ -330,6 +417,30 @@ public class ChatFlairTest
 		assertEquals("[The AFK Spot] <col=00ff00>Bob</col> has reached a total level of 100.",
 			f.paintLead("[The AFK Spot] Bob has reached a total level of 100.", null, false));
 		assertEquals("Bob has reached a total level of 100.", ChatFlair.key("<col=0000ff>[The AFK Spot]</col> <img=1>Bob has reached a total level of 100."));
+	}
+
+	@Test
+	public void longerClanBroadcastNamesArePainted()
+	{
+		ChatFlair f = with(entry("robn da hood", "#ff7ab8", true, "#ff0000", "#0000ff"));
+		String line = "[The AFK Spot] <img=4>Robn Da Hood has left.";
+		assertNotNull(f.leadKey(line));
+		assertNotNull(f.paintLead(line, "<img=99>", true, 0.5));
+		assertEquals(true, f.movingLead(line));
+	}
+
+	@Test
+	public void trustedTradeAndRaidWidgetTextPaintsExactNames()
+	{
+		ChatFlair f = with(
+			entry("denoverse", "#ff7ab8", true, "#ff0000", "#0000ff"),
+			entry("robn da hood", "#ffd35c", null));
+		String plain = "Trading with: Denoverse / Robn Da Hood";
+		String painted = f.paintNames(plain, false, 0.5);
+		assertNotNull(painted);
+		assertEquals(plain, ChatFlair.shown(painted).text);
+		assertEquals(true, f.movingNames(plain));
+		assertNull("partial names are not interface flair", f.paintNames("Trading with: Denoverse2", false, 0));
 	}
 
 	@Test
@@ -481,23 +592,53 @@ public class ChatFlairTest
 		boolean[] shown = {true, true, true, true};
 		int[] recX = {min, min, min, min};
 		int[] recW = {min, min, min, min};
-		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 0, 4, ax, ay, x, w, shown, recX, recW));
 		assertEquals(111, w[0]);
 		assertEquals("the message moves over by the star", 111, x[1]);
 		assertEquals(289, w[1]);
 		assertEquals("the next line is left alone", 60, x[3]);
 		// Next frame, nothing laid out again: not moved twice.
-		assertEquals(false, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(false, ChatFlair.makeRoom(0, 11, 0, 4, ax, ay, x, w, shown, recX, recW));
 		assertEquals(111, x[1]);
 		// The game lays the line out afresh (plain positions back): room made again.
 		x[1] = 100;
 		w[0] = 100;
 		w[1] = 300;
-		assertEquals(true, ChatFlair.makeRoom(0, 11, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(true, ChatFlair.makeRoom(0, 11, 0, 4, ax, ay, x, w, shown, recX, recW));
 		assertEquals(111, x[1]);
 		assertEquals(111, w[0]);
 		// No star (gradient / colour only): nothing to make room for.
-		assertEquals(false, ChatFlair.makeRoom(2, 0, 4, ax, ay, x, w, shown, recX, recW));
+		assertEquals(false, ChatFlair.makeRoom(2, 0, 0, 4, ax, ay, x, w, shown, recX, recW));
+	}
+
+	/** A font with 6 px per character (a space too), standing in for the chat font. */
+	private static net.runelite.api.FontTypeFace font6() {
+		return (net.runelite.api.FontTypeFace) java.lang.reflect.Proxy.newProxyInstance(getClass0(),
+			new Class<?>[]{net.runelite.api.FontTypeFace.class}, (p, m, a) -> a == null ? 0 : ((String) a[0]).length() * 6);
+	}
+
+	private static ClassLoader getClass0() {
+		return ChatFlairTest.class.getClassLoader();
+	}
+
+	@Test
+	public void roomCoversEveryIconInTheName()
+	{
+		java.util.function.IntUnaryOperator icons = k -> k == 99 ? 11 : k == 7 ? 15 : 13; // 99 = star
+		net.runelite.api.FontTypeFace f = font6();
+		// No icon: "Bob:" (4 chars = 24) + star 11 + gap 6.
+		assertEquals(41, ChatFlair.need("<col=ff0000>Bob:<img=99>", f, icons));
+		// One icon (clan rank 13).
+		assertEquals(54, ChatFlair.need("<img=3><col=ff0000>Bob:<img=99>", f, icons));
+		// Three: rank 13 + a 15 px plugin icon + a 13 px one, then the star.
+		assertEquals(82, ChatFlair.need("<img=3><img=7><img=5>Bob:<img=99>", f, icons));
+		assertEquals("no font: just the star", 0, ChatFlair.need("Bob:", null, icons));
+		// The game laid the message out for the plain "Bob:" + one icon (offset 43), a later icon (15)
+		// and the star (11) overrun it: moved to clear the whole name, not just the star.
+		assertEquals(82 - 43, ChatFlair.shift(11, 82, 43));
+		// Laid out right (offset = plain width + gap): the star's width, as before.
+		assertEquals(11, ChatFlair.shift(11, 82, 82 - 11));
+		assertEquals(11, ChatFlair.shift(11, 0, 100));
 	}
 
 	@Test
@@ -531,6 +672,9 @@ public class ChatFlairTest
 		String painted = f.paintMenuTarget(game, "Denoverse", false);
 		assertEquals(ours + "<col=ff00ff>  (level-71)", painted);
 		assertNull("ours already: nothing to do", f.paintMenuTarget(painted, "Denoverse", true));
+		String moved = f.paintMenuTarget(painted, "Denoverse", true, 0.5);
+		assertNotNull("a new animation phase replaces our previous colours", moved);
+		assertNotEquals(painted, moved);
 		// Player Indicators: drop the first tag, put friend green (and a rank icon) in front.
 		String pi = "<img=5><col=00ff00>" + painted.substring(painted.indexOf('>') + 1);
 		assertEquals("<img=5>" + ours + "<col=ff00ff>  (level-71)", f.paintMenuTarget(pi, "Denoverse", true));
@@ -549,5 +693,73 @@ public class ChatFlairTest
 			assertEquals(again, next);
 		}
 		assertNull("not a supporter", f.paintMenuTarget("<col=ffffff>Someone<col=ff00ff>  (level-3)", "Someone", true));
+	}
+
+	@Test
+	public void roomIsOnlyAlreadyMadeForTheSameSender()
+	{
+		// Moving repaint of the same starred line: never moved twice.
+		assertTrue(ChatFlair.alreadyRoomed(53, 53, "MaxAcc:", "MaxAcc:"));
+		// A longer name whose plain layout lands exactly where a shorter starred name was moved to.
+		assertFalse(ChatFlair.alreadyRoomed(53, 53, "Sam Says:", "MaxAcc:"));
+		// The game laid the line out again: plain position, move it.
+		assertFalse(ChatFlair.alreadyRoomed(40, 53, "MaxAcc:", "MaxAcc:"));
+		assertFalse(ChatFlair.alreadyRoomed(53, 53, "MaxAcc:", null));
+	}
+
+	@Test
+	public void clanTitleKeepsTheLiveMemberCount()
+	{
+		assertEquals(" (18)", ChatFlair.clanTitleSuffix("The AFK Spot (18)", "The AFK Spot"));
+		// Our own painted title, rewritten by the game with a new count.
+		assertEquals(" (19)", ChatFlair.clanTitleSuffix("<col=ffd27a>The AFK Spot</col> (19)", "The AFK Spot"));
+		assertEquals("", ChatFlair.clanTitleSuffix("The AFK Spot", "The AFK Spot"));
+		assertNull("another clan's title", ChatFlair.clanTitleSuffix("The AFK Spotters", "The AFK Spot"));
+		assertNull(ChatFlair.clanTitleSuffix("Clan Chat", "The AFK Spot"));
+	}
+
+	private static ChatFlair.Surface surface(String c, String... grad)
+	{
+		ChatFlair.Surface o = new ChatFlair.Surface();
+		o.c = c;
+		o.g = grad.length == 0 ? null : Arrays.asList(grad);
+		return o;
+	}
+
+	@Test
+	public void anOwnSurfaceLookIsDrawnAsIsWhileTheOtherSurfaceStillAdapts()
+	{
+		ChatFlair.Entry dark = entry("Drenvox", "#272626", true, "#272626", "#940548");
+		// Their own dark-background look: a solid near-black would normally be lightened.
+		dark.d = surface("#3a1020");
+		ChatFlair f = with(dark);
+		assertEquals("solid override wins on the dark chatbox, untouched, no gradient",
+			"<col=3a1020>Drenvox</col>:", f.paintSender("Drenvox:", null, false));
+		// No light override: the parchment chatbox keeps the adapted main gradient.
+		String parchment = f.paintSender("Drenvox:", null, true);
+		assertNotNull(parchment);
+		assertFalse(parchment.contains("3a1020"));
+	}
+
+	@Test
+	public void anOwnLightGradientIsUsedOnParchment()
+	{
+		ChatFlair.Entry e = entry("Nisbro", "#ff7ab8", true, "#ffd27a", "#ff7ab8", "#7ae0ff");
+		e.l = surface("#8a2050", "#8a2050", "#20508a");
+		ChatFlair f = with(e);
+		String parchment = f.paintSender("Nisbro:", null, true);
+		assertTrue(parchment, parchment.contains("8a2050"));
+		assertFalse("the light look is never applied to the dark chatbox",
+			f.paintSender("Nisbro:", null, false).contains("8a2050"));
+	}
+
+	@Test
+	public void aFeedLineNameUsesTheSameSurfaceLookAsChat()
+	{
+		ChatFlair.Entry e = entry("Drenvox", "#272626", true);
+		e.d = surface("#3a1020");
+		ChatFlair f = with(e);
+		assertEquals("<col=3a1020>Drenvox</col>", f.paintNameFor("Drenvox", false));
+		assertNull(f.paintNameFor("Nobody", false));
 	}
 }

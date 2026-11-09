@@ -20,33 +20,28 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class PushStash
-{
+final class PushStash {
 	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
 
 	/** One character's waiting pushes. Plain fields only: it round-trips through Gson as-is. */
-	static final class Data
-	{
+	static final class Data {
 		long savedAt;
 		Map<String, Integer> kc = new HashMap<>();
 		Map<String, Integer> xp = new HashMap<>();
 		Map<String, Integer> activity = new HashMap<>();
 		List<SavedMoment> moments = new ArrayList<>();
 
-		boolean isEmpty()
-		{
+		boolean isEmpty() {
 			return empty(kc) && empty(xp) && empty(activity) && (moments == null || moments.isEmpty());
 		}
 
-		private static boolean empty(Map<?, ?> m)
-		{
+		private static boolean empty(Map<?, ?> m) {
 			return m == null || m.isEmpty();
 		}
 	}
 
 	/** {@link AnvilMoments.Moment} as stored — a plain DTO, so nothing final needs reconstructing. */
-	static final class SavedMoment
-	{
+	static final class SavedMoment {
 		String kind;
 		Integer itemId;
 		String itemName;
@@ -60,8 +55,7 @@ final class PushStash
 		long at;
 		String key;
 
-		static SavedMoment of(AnvilMoments.Moment m)
-		{
+		static SavedMoment of(AnvilMoments.Moment m) {
 			SavedMoment s = new SavedMoment();
 			s.kind = m.kind;
 			s.itemId = m.itemId;
@@ -78,8 +72,7 @@ final class PushStash
 			return s;
 		}
 
-		AnvilMoments.Moment toMoment()
-		{
+		AnvilMoments.Moment toMoment() {
 			return new AnvilMoments.Moment(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc,
 				taskName, tier, at, key);
 		}
@@ -89,30 +82,20 @@ final class PushStash
 	private volatile Filepath dir;
 
 
-	void setDir(Filepath dir)
-	{
+	void setDir(Filepath dir) {
 		this.dir = dir;
 	}
 
 	/** The file stem for a character: by account hash when known, else by name. Null when neither is. */
-	static String keyFor(String rsn, String accountHash)
-	{
-		if (accountHash != null && !accountHash.isEmpty())
-		{
-			return DiskFiles.fingerprint("h:" + accountHash);
-		}
-		if (rsn != null && !rsn.trim().isEmpty())
-		{
-			return DiskFiles.fingerprint("r:" + rsn.trim().toLowerCase(Locale.ROOT));
-		}
+	static String keyFor(String rsn, String accountHash) {
+		if (accountHash != null && !accountHash.isEmpty()) return DiskFiles.fingerprint("h:" + accountHash);
+		if (rsn != null && !rsn.trim().isEmpty()) return DiskFiles.fingerprint("r:" + rsn.trim().toLowerCase(Locale.ROOT));
 		return null;
 	}
 
 	/** Merge two stashes — counts are absolute, so the larger wins; moments by key, newer wins. */
-	static Data merge(Data older, Data newer)
-	{
-		if (older == null || newer == null)
-		{
+	static Data merge(Data older, Data newer) {
+		if (older == null || newer == null) {
 			// Either side can be missing: no stash on disk yet, or nothing left to take for this character.
 			return older == null ? newer : older;
 		}
@@ -122,16 +105,10 @@ final class PushStash
 		mergeMax(out.xp, older.xp, newer.xp);
 		mergeMax(out.activity, older.activity, newer.activity);
 		Map<String, SavedMoment> byKey = new LinkedHashMap<>();
-		for (List<SavedMoment> list : Arrays.asList(older.moments, newer.moments))
-		{
-			if (list != null)
-			{
-				for (SavedMoment m : list)
-				{
-					if (m != null && m.key != null)
-					{
-						byKey.put(m.key, m);
-					}
+		for (List<SavedMoment> list : Arrays.asList(older.moments, newer.moments)) {
+			if (list != null) {
+				for (SavedMoment m : list) {
+					if (m != null && m.key != null) byKey.put(m.key, m);
 				}
 			}
 		}
@@ -139,52 +116,34 @@ final class PushStash
 		return out;
 	}
 
-	private static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b)
-	{
-		for (Map<String, Integer> m : Arrays.asList(a, b))
-		{
-			if (m != null)
-			{
-				m.forEach((k, v) ->
-				{
-					if (k != null && v != null)
-					{
-						into.merge(k, v, Integer::max);
-					}
+	private static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
+		for (Map<String, Integer> m : Arrays.asList(a, b)) {
+			if (m != null) {
+				m.forEach((k, v) -> {
+					if (k != null && v != null) into.merge(k, v, Integer::max);
 				});
 			}
 		}
 	}
 
-	private Filepath file(String key)
-	{
+	private Filepath file(String key) {
 		Filepath d = DiskFiles.ensureDir(dir);
 		return d == null || key == null ? null : d.joinSegment("pushes-" + key + ".json");
 	}
 
 	/** Save {@code data} for the character {@code key}, folded into anything already saved. */
-	void save(String key, Data data)
-	{
+	void save(String key, Data data) {
 		Filepath f = file(key);
-		if (f == null || data == null || data.isEmpty())
-		{
-			return;
-		}
+		if (f == null || data == null || data.isEmpty()) return;
 		Data merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
-		try
-		{
+		try {
 			DiskFiles.writeAtomic(f, gson.toJson(merged));
-			log.debug("Saved unsent pushes for later");
-		}
-		catch (IOException | RuntimeException e)
-		{
-			log.debug("Couldn't save unsent pushes: {}", e.getMessage());
+		} catch (IOException | RuntimeException e) {
 		}
 	}
 
 	/** What was saved for {@code key} (deleting it), or null when nothing fresh was. */
-	Data take(String key, long now)
-	{
+	Data take(String key, long now) {
 		Filepath f = file(key);
 		Data d = DiskFiles.readJson(gson, f, Data.class);
 		DiskFiles.deleteQuietly(f);
@@ -192,8 +151,7 @@ final class PushStash
 	}
 
 	/** Signed out: drop every character's saved pushes. */
-	void clearAll()
-	{
+	void clearAll() {
 		DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.startsWith("pushes-")).forEach(DiskFiles::deleteQuietly);
 	}
 }

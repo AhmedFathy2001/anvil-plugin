@@ -17,8 +17,7 @@ import lombok.RequiredArgsConstructor;
  * The second is the caller's job — a permanent failure drops the batch instead of backing off.
  */
 @RequiredArgsConstructor
-final class SyncBackoff
-{
+final class SyncBackoff {
 	static final long FIRST_MS = 30_000L;
 	static final long MAX_MS = 600_000L;
 
@@ -29,44 +28,37 @@ final class SyncBackoff
 	private long nextAttemptAt;
 	private int failures;
 
-	SyncBackoff()
-	{
+	SyncBackoff() {
 		this(FIRST_MS, MAX_MS);
 	}
 
-	SyncBackoff(long firstMs, long maxMs)
-	{
+	SyncBackoff(long firstMs, long maxMs) {
 		this(firstMs, maxMs, () -> ThreadLocalRandom.current().nextDouble());
 	}
 
 	/** Is a push allowed right now? True until something fails. */
-	boolean ready(long now)
-	{
+	boolean ready(long now) {
 		return now >= nextAttemptAt;
 	}
 
 	/** A push worked — back to normal cadence. */
-	void onSuccess()
-	{
+	void onSuccess() {
 		nextAttemptAt = 0;
 		failures = 0;
 	}
 
 	/** A push failed for a reason that might clear on its own. Waits twice as long each time. */
-	void onFailure(long now)
-	{
+	void onFailure(long now) {
 		failures++;
 		nextAttemptAt = now + RetryPolicy.backoffMs(failures, firstMs, maxMs, jitter.getAsDouble());
 	}
 
 	/** Seconds until the next attempt, for a log line that explains the silence. */
-	long secondsUntilReady(long now)
-	{
+	long secondsUntilReady(long now) {
 		return Math.max(0, (nextAttemptAt - now + 999) / 1000);
 	}
 
-	void reset()
-	{
+	void reset() {
 		onSuccess();
 	}
 }

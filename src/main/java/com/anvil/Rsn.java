@@ -33,10 +33,8 @@ import java.util.Locale;
  * lower-cases 'I' to 'ı', so "IRON MIKE" would fold to something the server has never seen and that
  * player would silently stop matching their own roster row.</p>
  */
-public final class Rsn
-{
-	private Rsn()
-	{
+public final class Rsn {
+	private Rsn() {
 	}
 
 	/** Whitespace-or-underscore runs. U+00A0 is named explicitly — Java's {@code \s} omits it. */
@@ -51,20 +49,15 @@ public final class Rsn
 	 * {@code !me.isEmpty()} before comparing, so an unknown local name matches nobody rather than
 	 * everybody.</p>
 	 */
-	public static String normalize(String rsn)
-	{
-		if (rsn == null)
-		{
-			return "";
-		}
+	public static String normalize(String rsn) {
+		if (rsn == null) return "";
 		// U+00A0 → space BEFORE trimming, so a name padded with them trims like it does on the server.
 		String plain = rsn.replace('\u00A0', ' ').trim().toLowerCase(Locale.ROOT);
 		return FOLD.matcher(plain).replaceAll(" ").trim();
 	}
 
 	/** Do these two names denote the same account? Empty never matches, including empty itself. */
-	public static boolean same(String a, String b)
-	{
+	public static boolean same(String a, String b) {
 		String left = normalize(a);
 		return !left.isEmpty() && left.equals(normalize(b));
 	}

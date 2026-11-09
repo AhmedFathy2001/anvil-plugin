@@ -1,0 +1,33 @@
+{
+  "name": "barrows-chest",
+  "description": "Barrows chest: the chest count line plus the chest loot (source 'Barrows')",
+  "params": {
+    "kc": "310",
+    "item": "4718",
+    "coins": "5000"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Your Barrows chest count is: ${kc}."
+      }
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Barrows",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          },
+          {
+            "id": 995,
+            "qty": "${coins}"
+          }
+        ]
+      }
+    }
+  ]
+}

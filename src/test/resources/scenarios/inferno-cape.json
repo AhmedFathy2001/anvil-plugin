@@ -1,0 +1,26 @@
+{
+  "name": "inferno-cape",
+  "description": "Inferno completion: duration first, then the Zuk KC line (credits a repeat Infernal cape via the KC line)",
+  "params": {
+    "kc": "1",
+    "time": "59:00"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "TzKal-Zuk"
+      }
+    },
+    {
+      "chat": {
+        "message": "Duration: ${time} (new personal best)"
+      }
+    },
+    {
+      "chat": {
+        "message": "Your TzKal-Zuk kill count is: ${kc}."
+      }
+    }
+  ]
+}

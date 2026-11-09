@@ -13,8 +13,7 @@ import javax.swing.event.DocumentEvent;
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds
  * the same way, so the sidebar and the card views can't drift apart in how they look.
  */
-final class Ui
-{
+final class Ui {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
@@ -24,10 +23,9 @@ final class Ui
 	static final Font BOLD = FontManager.getRunescapeBoldFont();
 
 	/** Secondary text: counts, hints, the quieter half of a row. */
-	static final Color MUTED = new Color(0x98_98_98);
+	static final Color MUTED = new Color(0xa8_a8_a8);
 
-	private Ui()
-	{
+	private Ui() {
 	}
 
 	/**
@@ -40,18 +38,11 @@ final class Ui
 	 * <p>Use {@link #esc} instead when the string is being placed INSIDE markup we are building: there the
 	 * leading-{@code <html} test does not apply and every occurrence has to be escaped.</p>
 	 */
-	static String plainText(String s)
-	{
-		if (s == null)
-		{
-			return "";
-		}
+	static String plainText(String s) {
+		if (s == null) return "";
 		s = fontSafe(s);
 		int i = 0;
-		while (i < s.length() && Character.isWhitespace(s.charAt(i)))
-		{
-			i++;
-		}
+		while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++;
 		return s.regionMatches(true, i, "<html", 0, 5) ? esc(s) : s;
 	}
 
@@ -59,12 +50,8 @@ final class Ui
 	 * The RuneScape fonts have no curly quotes or long dashes: on macOS they drew as a box ("You?re").
 	 * The site writes proper typography, so it is folded to the plain ASCII the font does have.
 	 */
-	static String fontSafe(String s)
-	{
-		if (s == null)
-		{
-			return null;
-		}
+	static String fontSafe(String s) {
+		if (s == null) return null;
 		return s.replace('\u2019', '\'').replace('\u2018', '\'')
 			.replace('\u201C', '"').replace('\u201D', '"')
 			.replace('\u2013', '-').replace('\u2014', '-')
@@ -72,33 +59,28 @@ final class Ui
 	}
 
 	/** Escape markup characters for text placed inside HTML we build ourselves. */
-	static String esc(String s)
-	{
+	static String esc(String s) {
 		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 	}
 
 	/** {@code html} wrapped to {@code widthPt} so a long line breaks instead of clipping at the panel's edge. */
-	static String wrapHtml(String html, int widthPt)
-	{
+	static String wrapHtml(String html, int widthPt) {
 		return "<html><body style='width:" + widthPt + "pt'>" + html + "</body></html>";
 	}
 
 	/** A label in {@code font} and {@code color}, its text sanitized ({@link #plainText}). */
-	static JLabel label(String text, Font font, Color color)
-	{
+	static JLabel label(String text, Font font, Color color) {
 		JLabel l = new ClipLabel(plainText(text));
 		l.setFont(font);
 		l.setForeground(color);
 		return l;
 	}
 
-	static JLabel small(String text, Color color)
-	{
+	static JLabel small(String text, Color color) {
 		return label(text, SMALL, color);
 	}
 
-	static JLabel title(String text)
-	{
+	static JLabel title(String text) {
 		return label(text, BOLD, Color.WHITE);
 	}
 
@@ -106,70 +88,70 @@ final class Ui
 	 * Cap a component's height at what it wants right now, so a vertical BoxLayout stops stretching it.
 	 * Call once it's filled — the cap is the preferred height at the time of the call.
 	 */
-	static <T extends JComponent> T capH(T c)
-	{
+	static <T extends JComponent> T capH(T c) {
 		c.setMaximumSize(new Dimension(Integer.MAX_VALUE, c.getPreferredSize().height));
 		return c;
 	}
 
-	static <T extends JComponent> T left(T c)
-	{
+	static <T extends JComponent> T left(T c) {
 		c.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return c;
 	}
 
-	/** A hand cursor and a click that runs {@code action}. */
-	static <T extends JComponent> T onClick(T c, Runnable action)
-	{
+	static final String CLICKS = "anvil.clicks";
+
+	/**
+	 * A hand cursor and a left click (a press and a release inside: Swing's mouseClicked drops a click
+	 * whose mouse moved a pixel) that runs {@code action}. Its whole tree listens: a label with a tooltip
+	 * (every ClipLabel) takes the mouse for itself and Swing doesn't hand the click up. A part inside
+	 * with a click of its own keeps it.
+	 */
+	static <T extends JComponent> T onClick(T c, Runnable action) {
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		c.addMouseListener(new MouseAdapter()
-		{
+		c.putClientProperty(CLICKS, Boolean.TRUE);
+		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
 			private boolean down;
 
-			// A left press and release inside: Swing's mouseClicked drops a click whose mouse moved a pixel.
 			@Override
-			public void mousePressed(MouseEvent e)
-			{
-				down = SwingUtilities.isLeftMouseButton(e);
+			public void mousePressed(MouseEvent e) {
+				down = SwingUtilities.isLeftMouseButton(e) && ownClick(c, e);
 			}
 
 			@Override
-			public void mouseReleased(MouseEvent e)
-			{
-				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(e.getPoint()))
-				{
-					action.run();
-				}
+			public void mouseReleased(MouseEvent e) {
+				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), c))) action.run();
 				down = false;
 			}
 		});
 		return c;
 	}
 
+	/** Whether the press is {@code c}'s: no clickable part inside it is nearer the pointer. */
+	static boolean ownClick(JComponent c, MouseEvent e) {
+		for (Component at = e.getComponent(); at != null && at != c; at = at.getParent())
+			if (at instanceof JComponent && ((JComponent) at).getClientProperty(CLICKS) != null) return false;
+		return true;
+	}
+
 	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
-	static void hoverable(JComponent c, Color base, Runnable onClick)
-	{
+	static void hoverable(JComponent c, Color base, Runnable onClick) {
 		c.setOpaque(true);
 		c.setBackground(base);
-		onClick(c, onClick).addMouseListener(new MouseAdapter()
-		{
+		onClick(c, onClick).addMouseListener(new MouseAdapter() {
 			@Override
-			public void mouseEntered(MouseEvent e)
-			{
+			public void mouseEntered(MouseEvent e) {
 				c.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
 			}
 
 			@Override
-			public void mouseExited(MouseEvent e)
-			{
-				c.setBackground(base);
+			public void mouseExited(MouseEvent e) {
+				if (c.getMousePosition(true) == null) c.setBackground(base); // into a child is still inside
 			}
 		});
 	}
 
 	/** A left-aligned vertical stack on the panel background. */
-	static JPanel column()
-	{
+	static JPanel column() {
 		JPanel p = new JPanel();
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
 		p.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -177,8 +159,7 @@ final class Ui
 	}
 
 	/** A {@link #column} as a card: the darker surface with an 8px inset. */
-	static JPanel block()
-	{
+	static JPanel block() {
 		JPanel p = column();
 		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -186,30 +167,26 @@ final class Ui
 	}
 
 	/** A transparent, left-aligned BorderLayout row with {@code hgap} between its parts. */
-	static JPanel row(int hgap)
-	{
+	static JPanel row(int hgap) {
 		JPanel p = new JPanel(new BorderLayout(hgap, 0));
 		p.setOpaque(false);
 		return left(p);
 	}
 
 	/** {@link #row(int)} on an opaque {@code bg}. */
-	static JPanel row(int hgap, Color bg)
-	{
+	static JPanel row(int hgap, Color bg) {
 		JPanel p = row(hgap);
 		p.setOpaque(true);
 		p.setBackground(bg);
 		return p;
 	}
 
-	static Component gap(int h)
-	{
+	static Component gap(int h) {
 		return Box.createVerticalStrut(h);
 	}
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
-	static void styleSearch(JTextField f)
-	{
+	static void styleSearch(JTextField f) {
 		f.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		f.setForeground(Color.WHITE);
 		f.setCaretColor(Color.WHITE);
@@ -219,33 +196,27 @@ final class Ui
 	}
 
 	/** Runs {@code changed} on every edit of the field's text. */
-	static void onEdit(javax.swing.text.JTextComponent f, Runnable changed)
-	{
-		f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
-		{
+	static void onEdit(javax.swing.text.JTextComponent f, Runnable changed) {
+		f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
 			@Override
-			public void insertUpdate(DocumentEvent e)
-			{
+			public void insertUpdate(DocumentEvent e) {
 				changed.run();
 			}
 
 			@Override
-			public void removeUpdate(DocumentEvent e)
-			{
+			public void removeUpdate(DocumentEvent e) {
 				changed.run();
 			}
 
 			@Override
-			public void changedUpdate(DocumentEvent e)
-			{
+			public void changedUpdate(DocumentEvent e) {
 				changed.run();
 			}
 		});
 	}
 
 	/** The panel's flat 0–100 progress bar: no text, no border, {@code h} px tall. */
-	static JProgressBar bar(int percent, Color fg, Color bg, int h)
-	{
+	static JProgressBar bar(int percent, Color fg, Color bg, int h) {
 		JProgressBar bar = new JProgressBar(0, 100);
 		bar.setValue(percent);
 		bar.setStringPainted(false);
@@ -257,28 +228,22 @@ final class Ui
 	}
 
 	/** A transparent, left-aligned grid {@code cols} across. */
-	static JPanel grid(int cols, int hgap, int vgap)
-	{
+	static JPanel grid(int cols, int hgap, int vgap) {
 		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
 		grid.setOpaque(false);
 		return grid;
 	}
 
 	/** A section's orange name, with an optional white figure at the right. */
-	static JPanel header(String left, String right)
-	{
+	static JPanel header(String left, String right) {
 		JPanel row = row(0);
 		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
-		if (right != null)
-		{
-			row.add(small(right, Color.WHITE), BorderLayout.EAST);
-		}
+		if (right != null) row.add(small(right, Color.WHITE), BorderLayout.EAST);
 		return capH(row);
 	}
 
 	/** {@code part} of {@code whole} as 0..100, rounded down so a goal never reads as reached before it is. */
-	static int percent(long part, long whole)
-	{
+	static int percent(long part, long whole) {
 		return whole <= 0 ? 0 : (int) Math.max(0, Math.min(100, Math.floor(part * 100.0 / whole)));
 	}
 
@@ -286,112 +251,69 @@ final class Ui
 	 * The one way a count is shown, panel and overlays alike: "9,999", "12K", "4.1M", "4.6B" — the game's
 	 * own capital suffixes, rounded down so a goal never reads as reached before it is.
 	 */
-	static String count(long n)
-	{
-		if (n < 10_000)
-		{
-			return String.format(Locale.ROOT, "%,d", n);
-		}
-		if (n < 1_000_000)
-		{
-			return n / 1000 + "K";
-		}
+	static String count(long n) {
+		if (n < 10_000) return String.format(Locale.ROOT, "%,d", n);
+		if (n < 1_000_000) return n / 1000 + "K";
 		boolean b = n >= 1_000_000_000;
 		long tenths = n / (b ? 100_000_000 : 100_000);
 		return tenths / 10 + (tenths % 10 == 0 ? "" : "." + tenths % 10) + (b ? "B" : "M");
 	}
 
 	/** "1 player", "1,204 players". */
-	static String plural(long n, String one)
-	{
+	static String plural(long n, String one) {
 		return plural(n, one, one + "s");
 	}
 
-	static String plural(long n, String one, String many)
-	{
+	static String plural(long n, String one, String many) {
 		return String.format(Locale.ROOT, "%,d %s", n, n == 1 ? one : many);
 	}
 
 	/** A team's colour; the server stores "#rrggbb", and anything else reads as {@code fallback}. */
-	static Color teamColor(String hex, Color fallback)
-	{
+	static Color teamColor(String hex, Color fallback) {
 		return hex != null && hex.matches("#[0-9a-fA-F]{6}") ? new Color(Integer.parseInt(hex.substring(1), 16)) : fallback;
 	}
 
 	/** "3d ago" from either timestamp format the site sends ("2026-10-12 08:00:00" or ISO). */
-	static String ago(String at)
-	{
+	static String ago(String at) {
 		return ago(at, Instant.now());
 	}
 
-	static String ago(String at, Instant now)
-	{
-		if (at == null || at.isEmpty())
-		{
-			return "";
-		}
+	static String ago(String at, Instant now) {
+		if (at == null || at.isEmpty()) return "";
 		String iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches())
-		{
-			iso = iso + "Z";
-		}
-		try
-		{
+		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";
+		try {
 			long minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
-			if (minutes < 60)
-			{
-				return minutes <= 1 ? "just now" : minutes + "m ago";
-			}
+			if (minutes < 60) return minutes <= 1 ? "just now" : minutes + "m ago";
 			long hours = minutes / 60;
-			if (hours < 24)
-			{
-				return hours + "h ago";
-			}
+			if (hours < 24) return hours + "h ago";
 			long days = hours / 24;
-			if (days < 14)
-			{
-				return days + "d ago";
-			}
-			if (days < 60)
-			{
-				return (days / 7) + "w ago";
-			}
-			if (days < 730)
-			{
-				return (days / 30) + "mo ago";
-			}
+			if (days < 14) return days + "d ago";
+			if (days < 60) return (days / 7) + "w ago";
+			if (days < 730) return (days / 30) + "mo ago";
 			return (days / 365) + "y ago";
-		}
-		catch (DateTimeParseException e)
-		{
+		} catch (DateTimeParseException e) {
 			return "";
 		}
 	}
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	static final class SearchField extends JTextField
-	{
+	static final class SearchField extends JTextField {
 		private final String placeholder;
 
-		SearchField(String placeholder, String value)
-		{
+		SearchField(String placeholder, String value) {
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
-			addFocusListener(new FocusAdapter()
-			{
+			addFocusListener(new FocusAdapter() {
 				@Override public void focusGained(FocusEvent e) { repaint(); }
 				@Override public void focusLost(FocusEvent e) { repaint(); }
 			});
 		}
 
 		@Override
-		protected void paintComponent(Graphics graphics)
-		{
+		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
-			if (!getText().isEmpty() || isFocusOwner())
-			{
-				return;
-			}
+			if (!getText().isEmpty() || isFocusOwner()) return;
 			Graphics2D g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());
@@ -407,17 +329,13 @@ final class Ui
 	 * The server's UTC stamp — ISO ({@code 2026-07-29T12:00:00.000Z}), the space-separated SQLite
 	 * {@code yyyy-MM-dd HH:mm:ss} form, or a bare date (midnight UTC) — as epoch millis; -1 if unparseable.
 	 */
-	static long utcMillis(String ts)
-	{
+	static long utcMillis(String ts) {
 		String s = ts == null ? "" : ts.trim().replace(' ', 'T');
-		try
-		{
+		try {
 			return s.length() == 10
 				? java.time.LocalDate.parse(s).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
 				: java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
-		}
-		catch (RuntimeException e)
-		{
+		} catch (RuntimeException e) {
 			return -1;
 		}
 	}

@@ -46,10 +46,34 @@ public class ScenarioLinesTest
 				}
 				String line = step.getAsJsonObject("chat").get("message").getAsString();
 				boolean read = catalogReads(line)
-					|| TimedClearParser.parseDurationSeconds(AnvilPlugin.stripChatTags(line).toLowerCase()) != null;
+					// The clan's pet broadcast is read by a pattern in AnvilPlugin, not the catalog.
+					|| AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(AnvilPlugin.stripChatTags(line)).matches()
+					|| TimedClearParser.parseDurationSeconds(AnvilPlugin.stripChatTags(line).toLowerCase()) != null
+					|| siteWatchReads(AnvilPlugin.stripChatTags(line));
 				assertTrue(s.name + ": no plugin parser reads \"" + line + "\"", read);
 			}
 		}
+	}
+
+	/**
+	 * The site's announcement watches (Anvil.Site lib/notifyKinds kindGlobs) for the lines no catalog
+	 * parser reads: the plugin posts these through NotifyFacts.glob.
+	 */
+	private static final String[] SITE_WATCHES = {
+		"You've completed # tasks*", "You have completed # * Treasure Trail*", "Your * count is: #*",
+		"*duration: *(new personal best)*", "*gamble count: #*",
+	};
+
+	private static boolean siteWatchReads(String line)
+	{
+		for (String g : SITE_WATCHES)
+		{
+			if (NotifyFacts.glob(g, line) >= 0)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Whether any catalog key matches this line, prepared the way that key's parser prepares it. */

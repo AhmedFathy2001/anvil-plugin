@@ -1,0 +1,48 @@
+{
+  "name": "champion-scroll-duplicate",
+  "description": "Champion's scroll when the challenge is done: a kill of that champion's monster, then the 'would have received' line",
+  "params": {
+    "npc": "Imp",
+    "item": "592"
+  },
+  "steps": [
+    {
+      "death": {
+        "who": "npc",
+        "name": "${npc}"
+      }
+    },
+    {
+      "loot": {
+        "kind": "server",
+        "name": "${npc}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    },
+    {
+      "chat": {
+        "message": "You have a funny feeling that you would have received a Champion's scroll."
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "loot": {
+        "kind": "npc",
+        "name": "${npc}",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "loot-key",
+  "description": "Open a Wilderness loot key (Loot Chest): PvP loot for value / PvP tiles, never PvM drop tiles",
+  "params": {
+    "item": "11832",
+    "qty": "1",
+    "coins": "250000"
+  },
+  "steps": [
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Loot Chest",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": "${qty}"
+          },
+          {
+            "id": 995,
+            "qty": "${coins}"
+          }
+        ]
+      }
+    }
+  ]
+}

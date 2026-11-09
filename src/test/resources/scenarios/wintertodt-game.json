@@ -1,0 +1,47 @@
+{
+  "name": "wintertodt-game",
+  "description": "Wintertodt: subdued count line, rewards banked in the cart (WINT_REWARD_POOL up), then a cart search (loot + pool back down = claimed)",
+  "params": {
+    "kc": "200",
+    "rewards": "3",
+    "item": "20716"
+  },
+  "steps": [
+    {
+      "chat": {
+        "message": "Your subdued Wintertodt count is: ${kc}."
+      }
+    },
+    {
+      "varbit": {
+        "name": "WINT_REWARD_POOL",
+        "add": "${rewards}"
+      }
+    },
+    {
+      "wait": 3
+    },
+    {
+      "loot": {
+        "kind": "generic",
+        "lootType": "EVENT",
+        "name": "Reward cart (Wintertodt)",
+        "items": [
+          {
+            "id": "${item}",
+            "qty": 1
+          }
+        ]
+      }
+    },
+    {
+      "varbit": {
+        "name": "WINT_REWARD_POOL",
+        "add": "-${rewards}"
+      }
+    },
+    {
+      "wait": 2
+    }
+  ]
+}

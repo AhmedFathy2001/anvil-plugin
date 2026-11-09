@@ -10,12 +10,10 @@ import java.util.regex.Pattern;
  *
  * <p>Pure and RuneLite-free, so it is unit-tested directly (DropSourceTest).
  */
-final class DropSource
-{
+final class DropSource {
 	private static final Pattern WIKI_QUALIFIER = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
 
-	private DropSource()
-	{
+	private DropSource() {
 	}
 
 	/**
@@ -24,90 +22,24 @@ final class DropSource
 	 * "Armoured zombie", so a tile picked from the wiki list never matched. In-game NPC names carry
 	 * no parentheses, so dropping the qualifier loses nothing that could have matched.
 	 */
-	static String inGameNpcName(String wikiName)
-	{
+	static String inGameNpcName(String wikiName) {
 		return wikiName == null ? null : WIKI_QUALIFIER.matcher(wikiName).replaceFirst("").trim();
 	}
 
-	// A parenthetical that is NOT a wiki qualifier but part of the game's own counter name: the DT2
-	// awakened fights print "Your Vardorvis (awakened) kill count is: 3." as their own KC.
-	private static final Pattern MODE_QUALIFIER = Pattern.compile("\\(awakened\\)\\s*$", Pattern.CASE_INSENSITIVE);
 
-	/**
-	 * The kill-index key for a kill tile's target: lowercased, wiki qualifier dropped — except a
-	 * mode the game names itself ("Vardorvis (awakened)"). Stripping that folded the awakened tile
-	 * onto the base boss, so it counted every NORMAL kill (KC line "Vardorvis", and the loot event,
-	 * which names the NPC the same in both fights) and never its own awakened KC line.
-	 */
-	static String killTargetKey(String target)
-	{
-		if (target == null)
-		{
-			return null;
-		}
-		String trimmed = target.trim();
-		String name = MODE_QUALIFIER.matcher(trimmed).find() ? trimmed : inGameNpcName(trimmed);
-		return name.isEmpty() ? null : name.toLowerCase(java.util.Locale.ROOT);
-	}
 
 	/** True when the reported loot {@code source} is one of a tile's configured (wiki-named) NPCs. */
-	static boolean sourceMatches(List<String> sourceNpcs, String source)
-	{
-		if (source == null || sourceNpcs == null)
-		{
-			return false;
-		}
-		for (String npc : sourceNpcs)
-		{
-			if (npc != null && (source.equalsIgnoreCase(npc) || source.equalsIgnoreCase(inGameNpcName(npc))))
-			{
-				return true;
-			}
+	static boolean sourceMatches(List<String> sourceNpcs, String source) {
+		if (source == null || sourceNpcs == null) return false;
+		for (String npc : sourceNpcs) {
+			if (npc != null && (source.equalsIgnoreCase(npc) || source.equalsIgnoreCase(inGameNpcName(npc)))) return true;
 		}
 		return false;
 	}
 
-	/**
-	 * True when {@code source} hands {@code itemName} over on every kill, per the server's facts.
-	 *
-	 * <p>Guaranteed drops are the one case where a reaction line actively misfires: an ornament kit
-	 * the boss owes you is nobody's spoon, and saying someone drier deserved it reads as a bot that
-	 * doesn't know the game. Unknown facts (an older site, an item nothing has an opinion about)
-	 * answer false, which is exactly today's behaviour.
-	 *
-	 * <p>A {@code "*"} source in the list means "wherever it drops" — what a clan override without
-	 * named sources stores, and the only sane reading of one.
-	 */
-	static boolean isGuaranteed(PluginConfigResponse.DropFacts facts, String itemName, String source)
-	{
-		if (facts == null || facts.guaranteed == null || itemName == null)
-		{
-			return false;
-		}
-		List<String> sources = facts.guaranteed.get(itemName.toLowerCase(Locale.ROOT).trim());
-		if (sources == null || sources.isEmpty())
-		{
-			return false;
-		}
-		if (sources.contains("*"))
-		{
-			return true;
-		}
-		if (source == null)
-		{
-			return false;
-		}
-		String key = source.toLowerCase(Locale.ROOT).trim();
-		return sources.contains(key);
-	}
-
 	/** The server's entry for a pet, or null when it has nothing to say about it. */
-	static PluginConfigResponse.DropFacts.Pet petEntry(PluginConfigResponse.DropFacts facts, String petName)
-	{
-		if (facts == null || facts.pets == null || petName == null)
-		{
-			return null;
-		}
+	static PluginConfigResponse.DropFacts.Pet petEntry(PluginConfigResponse.DropFacts facts, String petName) {
+		if (facts == null || facts.pets == null || petName == null) return null;
 		return facts.pets.get(petName.toLowerCase(Locale.ROOT).trim());
 	}
 
@@ -131,39 +63,27 @@ final class DropSource
 	 * @param killCount source name -> the player's kill count there, for the tie-break; may be null
 	 */
 	static String resolvePetSource(PluginConfigResponse.DropFacts facts, String petName, String observed,
-								   Map<String, Integer> killCount)
-	{
+								   Map<String, Integer> killCount) {
 		PluginConfigResponse.DropFacts.Pet pet = petEntry(facts, petName);
-		if (pet == null || pet.sources == null || pet.sources.isEmpty())
-		{
+		if (pet == null || pet.sources == null || pet.sources.isEmpty()) {
 			// Nothing known about this pet: an older site, or a pet the catalogue has not placed.
 			// The observed source is then the best guess there is, which is where we started.
 			return pet == null ? observed : null;
 		}
 		List<String> sources = pet.sources;
-		if (observed != null && !observed.trim().isEmpty())
-		{
-			for (String candidate : sources)
-			{
-				if (candidate.equalsIgnoreCase(observed.trim()))
-				{
-					return candidate;
-				}
+		if (observed != null && !observed.trim().isEmpty()) {
+			for (String candidate : sources) {
+				if (candidate.equalsIgnoreCase(observed.trim())) return candidate;
 			}
 		}
-		if (sources.size() == 1)
-		{
-			return sources.get(0);
-		}
+		if (sources.size() == 1) return sources.get(0);
 		String best = null;
 		int bestKc = -1;
 		Map<String, Integer> counts = killCount == null ? Collections.emptyMap() : killCount;
-		for (String candidate : sources)
-		{
+		for (String candidate : sources) {
 			Integer kc = counts.get(candidate.toLowerCase(Locale.ROOT));
 			int value = kc == null ? -1 : kc;
-			if (value > bestKc)
-			{
+			if (value > bestKc) {
 				bestKc = value;
 				best = candidate;
 			}

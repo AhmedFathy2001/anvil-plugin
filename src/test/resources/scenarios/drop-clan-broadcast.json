@@ -1,0 +1,17 @@
+{
+  "name": "drop-clan-broadcast",
+  "description": "The clan's valuable-drop broadcast naming you (the fallback when your own loot line is off)",
+  "params": {
+    "item": "Elder venator fang",
+    "value": "50,000,000",
+    "boss": "Maggot King"
+  },
+  "steps": [
+    {
+      "chat": {
+        "type": "CLAN_MESSAGE",
+        "message": "${me} received a drop: ${item} (${value} coins) from ${boss}."
+      }
+    }
+  ]
+}
