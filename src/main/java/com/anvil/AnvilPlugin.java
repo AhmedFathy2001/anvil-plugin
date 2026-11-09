@@ -1704,8 +1704,7 @@ public class AnvilPlugin extends Plugin {
 		// Opted out of popups for their own drops: the drop still counts, only the banner and its
 		// sound are skipped.
 		if (config.selfTileBanner()) {
-			clogBanner.show(label, (int) current, (int) required);
-			playBannerSound();
+			if (clogBanner.show(label, (int) current, (int) required)) playBannerSound();
 		}
 		if (current >= required) {
 			// Marked even when the popup is off — otherwise the TEAM banner would announce the same
@@ -5698,8 +5697,7 @@ public class AnvilPlugin extends Plugin {
 		if (!config.teamCompletionBanner()) return false;
 		// A drop's own popup already showed it complete: no second popup, but the chat line still says so.
 		if (!locallyShownTiles.contains(tileId)) {
-			clogBanner.show("Anvil Bingo", "Tile complete!", label);
-			playBannerSound();
+			if (clogBanner.show("Anvil Bingo", "Tile complete!", label)) playBannerSound();
 		}
 		return true;
 	}
@@ -5769,8 +5767,7 @@ public class AnvilPlugin extends Plugin {
 		if (newlyDone.isEmpty() || !config.teamCompletionBanner()) return;
 		// Banner only the hardest (most points) tile this poll to avoid a burst of banners.
 		CompletedTile hardest = Collections.max(newlyDone, Comparator.comparingInt(t -> t.points));
-		clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label);
-		playBannerSound();
+		if (clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label)) playBannerSound();
 		// A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
@@ -5819,8 +5816,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (!fresh.isEmpty()) {
 			Mission top = Collections.max(fresh, Comparator.comparingInt(m -> m.points));
-			clogBanner.show(tag, "New mission!", top.label);
-			playMissionSound(false);
+			if (clogBanner.show(tag, "New mission!", top.label)) playMissionSound(false);
 			for (Mission m : fresh) sendChatMessage(ChatPalette.Tone.NEAR, "New mission: " + m.label + " - " + m.points + " pts!");
 		}
 
@@ -5837,8 +5833,7 @@ public class AnvilPlugin extends Plugin {
 		if (!claims.isEmpty()) {
 			Claim latest = claims.get(0);
 			String who = latest.rsn != null && !latest.rsn.trim().isEmpty() ? latest.rsn.trim() : "Someone";
-			clogBanner.show(tag, "Mission claimed", who + ": " + latest.label);
-			playMissionSound(true);
+			if (clogBanner.show(tag, "Mission claimed", who + ": " + latest.label)) playMissionSound(true);
 			for (Claim c : claims) {
 				String by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
 				sendChatMessage(ChatPalette.Tone.DONE, by + " claimed " + c.label + " - " + c.points + " pts!");

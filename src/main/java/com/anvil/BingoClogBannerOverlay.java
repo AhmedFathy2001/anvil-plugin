@@ -11,6 +11,7 @@ import java.io.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Collection-log "unlock" banner. 178x100 base panel (source PNG is 3x), three centred lines at
@@ -85,17 +86,25 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** Backwards-compatible entry point used by the existing drop call site. */
-	public void show(String label, int current, int required) {
+	public boolean show(String label, int current, int required) {
 		boolean complete = current >= required;
 		String middle = complete ? "Tile complete!" : "Progress:";
 		String bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
-		show("Anvil Bingo", middle, bottom);
+		return show("Anvil Bingo", middle, bottom);
 	}
 
-	/** Full three-line control. */
-	public void show(String top, String middle, String bottom) {
+	/** Full three-line control. False when it folded into the "+N more" banner (play no sound). */
+	public boolean show(String top, String middle, String bottom) {
+		if (queue.size() >= 3) {
+			folded.incrementAndGet();
+			return false;
+		}
 		queue.add(new String[]{top, middle, bottom});
+		return true;
 	}
+
+	/** Banners past the three waiting: one "+N more" closes the run, the rest is in chat and the panel. */
+	private final AtomicInteger folded = new AtomicInteger();
 
 	@Override
 	public Dimension render(Graphics2D g) {
@@ -110,6 +119,8 @@ public class BingoClogBannerOverlay extends Overlay {
 
 		if (active == null || now - startedAt >= total) {
 			active = queue.poll();
+			int n = active == null ? folded.getAndSet(0) : 0;
+			if (n > 0) active = new String[]{"Anvil Bingo", "+" + n + " more", "See chat and the panel"};
 			if (active == null) return null;
 			startedAt = now;
 			wrapped = null;
