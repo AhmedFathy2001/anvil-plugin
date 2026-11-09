@@ -251,9 +251,7 @@ final class ChatPatterns {
 			for (String s : e.flags) {
 				if ("CASE_INSENSITIVE".equals(s)) {
 					f |= Pattern.CASE_INSENSITIVE;
-				} else if ("DOTALL".equals(s)) {
-					f |= Pattern.DOTALL;
-				}
+				} else if ("DOTALL".equals(s)) f |= Pattern.DOTALL;
 			}
 		}
 		return f;

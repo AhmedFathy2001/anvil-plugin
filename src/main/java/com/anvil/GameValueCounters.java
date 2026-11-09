@@ -205,10 +205,8 @@ final class GameValueCounters {
 			}
 			var vetoed = false;
 			if (e.unless != null) {
-				for (Source s : e.unless) {
-					// Every veto source is read (not short-circuited) so each keeps its baseline current.
-					vetoed |= delta(reader, e, prefix + "!", s) > 0;
-				}
+				// Every veto source is read (not short-circuited) so each keeps its baseline current.
+				for (Source s : e.unless) vetoed |= delta(reader, e, prefix + "!", s) > 0;
 			}
 			if (!moved || vetoed) continue;
 			if (out == null) out = new ArrayList<>();

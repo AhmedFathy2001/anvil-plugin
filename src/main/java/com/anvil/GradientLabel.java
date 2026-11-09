@@ -71,10 +71,8 @@ final class GradientLabel extends JLabel {
 		var now = System.currentTimeMillis();
 		var dt = now - lastWallMs;
 		lastWallMs = now;
-		if (dt > 0 && clientActive()) {
-			// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
-			playedMs += Math.min(dt, 250);
-		}
+		// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
+		if (dt > 0 && clientActive()) playedMs += Math.min(dt, 250);
 		return playedMs;
 	}
 

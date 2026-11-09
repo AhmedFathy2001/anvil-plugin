@@ -92,10 +92,8 @@ final class PushStash {
 
 	/** Merge two stashes — counts are absolute, so the larger wins; moments by key, newer wins. */
 	static Data merge(Data older, Data newer) {
-		if (older == null || newer == null) {
-			// Either side can be missing: no stash on disk yet, or nothing left to take for this character.
-			return older == null ? newer : older;
-		}
+		// Either side can be missing: no stash on disk yet, or nothing left to take for this character.
+		if (older == null || newer == null) return older == null ? newer : older;
 		var out = new Data();
 		out.savedAt = Math.max(older.savedAt, newer.savedAt);
 		mergeMax(out.kc, older.kc, newer.kc);

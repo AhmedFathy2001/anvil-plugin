@@ -41,9 +41,7 @@ final class ChatFlairSync {
 	void pushed(ChatFlair.Wire d) {
 		if (flair.apply(d)) {
 			changed.run();
-		} else if (d == null || d.v != flair.version() || d.v == 0) {
-			soon();
-		}
+		} else if (d == null || d.v != flair.version() || d.v == 0) soon();
 	}
 
 	/** Catch up after the jitter; several asks before it runs are one. */

@@ -44,9 +44,7 @@ final class SearchAliases {
 		for (String[] p : PAIRS) {
 			if (words.contains(" " + p[0] + " ")) {
 				out.append(' ').append(p[1]);
-			} else if (words.contains(" " + p[1] + " ")) {
-				out.append(' ').append(p[0]);
-			}
+			} else if (words.contains(" " + p[1] + " ")) out.append(' ').append(p[0]);
 		}
 		return out.toString();
 	}

@@ -247,9 +247,7 @@ final class UiView extends JPanel {
 					f.add(m.getAsJsonArray("rows"));
 				} else if ("rowsdel".equals(t) && m.has("ids") && m.get("ids").isJsonArray()) {
 					f.remove(m.getAsJsonArray("ids"));
-				} else if ("rowsreact".equals(t)) {
-					f.reaction(m);
-				}
+				} else if ("rowsreact".equals(t)) f.reaction(m);
 			}
 		}
 	}

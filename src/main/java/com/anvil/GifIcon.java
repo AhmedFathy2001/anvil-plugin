@@ -175,9 +175,7 @@ final class GifIcon implements Icon {
 						clear.setComposite(AlphaComposite.Clear);
 						clear.fillRect(f.x, f.y, fw, fh);
 						clear.dispose();
-					} else if (before != null) {
-						canvas = before;
-					}
+					} else if (before != null) canvas = before;
 				}
 				return n == 1 ? new ImageIcon(frames[0]) : new GifIcon(frames, ends);
 			} finally {

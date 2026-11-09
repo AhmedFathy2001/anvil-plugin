@@ -29,9 +29,7 @@ final class OffThread {
 	/** {@code what} is about to block. Warns if that's on the client thread or the EDT. */
 	static void check(String what) {
 		var thread = where();
-		if (thread != null && reported.add(what + "@" + thread)) {
-			log.warn("{} blocked the {}", what, thread, new Throwable("called from"));
-		}
+		if (thread != null && reported.add(what + "@" + thread)) log.warn("{} blocked the {}", what, thread, new Throwable("called from"));
 	}
 
 	/** The thread that must not block, if this is one; null otherwise. */

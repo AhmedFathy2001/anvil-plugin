@@ -178,9 +178,7 @@ final class RuleEngine {
 			out.raised.put(r.t, r.have);
 			out.coop |= r.coop;
 			out.shot |= r.have >= r.of || milestone(n, r.have, r.of, t.proof);
-			if (!r.quiet) {
-				out.say.add(fill(t, "kill", r, "{unit}", r.unit == null ? "kill" : r.unit));
-			}
+			if (!r.quiet) out.say.add(fill(t, "kill", r, "{unit}", r.unit == null ? "kill" : r.unit));
 		}
 		if (!any) return out;
 		var f = fact("kill");
@@ -397,9 +395,7 @@ final class RuleEngine {
 			if (r.have >= r.of) {
 				out.done = true;
 				out.say.add(fill(t, "done", r));
-			} else if (r.step > 0 && r.have / r.step > before / r.step && busy(r.active, minutes, minute)) {
-				out.say.add(fill(t, on, r));
-			}
+			} else if (r.step > 0 && r.have / r.step > before / r.step && busy(r.active, minutes, minute)) out.say.add(fill(t, on, r));
 		}
 		return out;
 	}

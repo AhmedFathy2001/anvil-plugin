@@ -565,9 +565,7 @@ public class BingoApiClient {
 					}
 					// A successful older site may return no JSON contract. Success is still success.
 					var ok = r.body() == null ? null : jsonString(jsonObject(r.body().string()), "ok");
-					if (ok != null && !Boolean.parseBoolean(ok)) {
-						log.warn("{} notification: Discord refused all", channel);
-					}
+					if (ok != null && !Boolean.parseBoolean(ok)) log.warn("{} notification: Discord refused all", channel);
 				}
 			}
 		});
@@ -1135,12 +1133,10 @@ public class BingoApiClient {
 		if (getApiUrl().isEmpty() || accountToken == null || accountToken.isEmpty()) return false;
 		try {
 			return execute(readClient, tokenRequest("/api/plugin/me", accountToken).get(), (r, body) -> {
-				if (r.code() != 200) {
-					// 401 = this token's user isn't an admin (or the token is stale). Anything else is
-					// the site having a bad time. Logged either way: "the button vanished" is otherwise
-					// indistinguishable between the two, and one of them is worth retrying.
-					log.info("Admin probe: HTTP {}", r.code());
-				}
+				// 401 = this token's user isn't an admin (or the token is stale). Anything else is
+				// the site having a bad time. Logged either way: "the button vanished" is otherwise
+				// indistinguishable between the two, and one of them is worth retrying.
+				if (r.code() != 200) log.info("Admin probe: HTTP {}", r.code());
 				return r.code() == 200;
 			});
 		} catch (Exception e) {
@@ -1168,11 +1164,9 @@ public class BingoApiClient {
 		int code = status[0];
 		if (code == 401) throw new AdminUnauthorizedException("Account token is not an admin (or was revoked)");
 		if (code == 409) throw new ClanMismatchException(jsonString(jsonObject(responseBody), "serverClanName"));
-		if (code == 429) {
-			// The site has a limit and told us how long it is; the caller waits exactly that
-			// long rather than backing off blindly from a message it couldn't read.
-			throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
-		}
+		// The site has a limit and told us how long it is; the caller waits exactly that
+		// long rather than backing off blindly from a message it couldn't read.
+		if (code == 429) throw new RateLimitedException(friendlyError(429, responseBody), retryAfterFrom(responseBody));
 		if (code < 200 || code >= 300) throw new HttpStatusException("HTTP " + code + " — " + responseBody, code);
 		return gson.fromJson(responseBody, ClanSyncResponse.class);
 	}

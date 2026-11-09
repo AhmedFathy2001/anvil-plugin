@@ -241,9 +241,7 @@ final class NotifyOutbox {
 				}
 				var r = s.send(it, png);
 				if (r != Result.RETRY) {
-					if (r == Result.PERMANENT) {
-						log.warn("Queued {} notification refused", it.channel);
-					}
+					if (r == Result.PERMANENT) log.warn("Queued {} notification refused", it.channel);
 					remove(it);
 					continue;
 				}

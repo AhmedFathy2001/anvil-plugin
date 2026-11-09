@@ -195,10 +195,8 @@ final class FeedList extends JPanel {
 			}
 		}
 		List<JsonObject> kept = new ArrayList<>(first.size() > cap ? first.subList(0, cap) : first);
-		if (chat) {
-			// The site sends newest first; a chat reads top to bottom.
-			Collections.reverse(kept);
-		}
+		// The site sends newest first; a chat reads top to bottom.
+		if (chat) Collections.reverse(kept);
 		model.reset(kept);
 
 		var renderer = new RowRenderer();

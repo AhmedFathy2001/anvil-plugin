@@ -482,9 +482,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			renderYou(true);
 		} else if (next == Tab.FEED) {
 			renderFeed();
-		} else if (next == Tab.SETTINGS) {
-			renderSettings();
-		}
+		} else if (next == Tab.SETTINGS) renderSettings();
 		revalidate();
 		repaint();
 	}
@@ -780,9 +778,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Panel-grey grounds inside a card take the card's colour. */
 	static void darken(Component c) {
-		if (c instanceof JPanel && !(c instanceof Round) && DARK_GRAY_COLOR.equals(c.getBackground())) {
-			c.setBackground(DARKER_GRAY_COLOR);
-		}
+		if (c instanceof JPanel && !(c instanceof Round) && DARK_GRAY_COLOR.equals(c.getBackground())) c.setBackground(DARKER_GRAY_COLOR);
 		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) darken(k);
 	}
 
@@ -809,9 +805,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var k = new StringBuilder()
 			.append(actions.canSyncProfile).append('|').append(actions.canSyncRoster).append('|').append(actions.rosterNote)
 			.append('|').append(isSupporter());
-		for (String clip : dataSource.sounds(BannerSoundService.Kind.BANNER)) {
-			k.append('|').append(clip).append(dataSource.bannerSoundOn(clip) ? '+' : '-');
-		}
+		for (String clip : dataSource.sounds(BannerSoundService.Kind.BANNER)) k.append('|').append(clip).append(dataSource.bannerSoundOn(clip) ? '+' : '-');
 		return k.append("|m").append(dataSource.sounds(BannerSoundService.Kind.MISSION).size()).toString();
 	}
 
@@ -1215,11 +1209,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 				refreshAccountRow();
 				if (tab == Tab.YOU) {
 					renderYou(false); // a refresh can change what You shows: the character, the card
-					if (manual) {
-						// Same character: ask the site again in place, or a new banner/avatar only showed
-						// after leaving the tab and coming back.
-						youView.refresh();
-					}
+					// Same character: ask the site again in place, or a new banner/avatar only showed
+					// after leaving the tab and coming back.
+					if (manual) youView.refresh();
 				} else if (tab == Tab.LOOKUP && manual) {
 					lookupView.refresh();
 				} else if (tab == Tab.SETTINGS) {
