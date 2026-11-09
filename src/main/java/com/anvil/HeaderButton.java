@@ -122,7 +122,7 @@ final class HeaderButton {
 		Widget parent = client.getWidget(parentId);
 		Widget anchor = client.getWidget(anchorId);
 		if (parent == null || anchor == null || !enabled.getAsBoolean()) return;
-		final int x = slotFor(parent);
+		int x = slotFor(parent);
 		if (stillAttached(parent)) {
 			if (drawnAt == x) {
 				return; // ours, intact, in the right slot — drawing again would only make a second one
@@ -134,11 +134,11 @@ final class HeaderButton {
 			hideParts();
 		}
 
-		final int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
-		final int y = anchor.getOriginalY();
-		final int yMode = anchor.getYPositionMode();
-		final int span = WIDTH - (CORNER * 2);
-		final Widget[] made = new Widget[PARTS];
+		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
+		int y = anchor.getOriginalY();
+		int yMode = anchor.getYPositionMode();
+		int span = WIDTH - (CORNER * 2);
+		Widget[] made = new Widget[PARTS];
 
 		// Background first so every edge draws over it, then the corners, then the edges between.
 		made[0] = piece(parent, 0, x, y, WIDTH, h, yMode);
@@ -194,7 +194,7 @@ final class HeaderButton {
 					continue; // ours, from a previous render we are about to replace
 				}
 				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
-				final int childX = child.getOriginalX();
+				int childX = child.getOriginalX();
 				if (childX >= nearOffset && childX < rightOffset) {
 					return rightOffset; // somebody is in the near slot; take the one beyond it
 				}

@@ -246,7 +246,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	/** Trims {@code text} with a trailing ellipsis so it fits within {@code maxWidth} px. */
 	private static String truncate(String text, FontMetrics fm, int maxWidth) {
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) return text;
-		final String ellipsis = "...";
+		String ellipsis = "...";
 		int ellipsisW = fm.stringWidth(ellipsis);
 		int end = text.length();
 		while (end > 0 && fm.stringWidth(text.substring(0, end)) + ellipsisW > maxWidth) end--;

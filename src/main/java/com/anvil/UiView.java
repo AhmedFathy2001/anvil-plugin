@@ -12,7 +12,6 @@ import javax.swing.*;
 import net.runelite.api.Skill;
 import net.runelite.client.game.*;
 import net.runelite.client.hiscore.*;
-import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.components.ProgressBar;
 
 import static com.anvil.Ui.*;
@@ -751,7 +750,7 @@ final class UiView extends JPanel {
 	 * rounded top corners; the body starts 18px up over it, so its first row's badge overlaps the edge.
 	 */
 	private JComponent hero(JsonObject n) {
-		final int bannerH = 74, up = 18; // about 3:1 at panel width, the shape banners are uploaded in
+		int bannerH = 74, up = 18; // about 3:1 at panel width, the shape banners are uploaded in
 		JsonObject b = new JsonObject();
 		b.add("c", n.get("c"));
 		b.addProperty("gap", 6);

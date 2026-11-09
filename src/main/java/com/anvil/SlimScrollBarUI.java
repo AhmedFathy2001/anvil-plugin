@@ -4,7 +4,6 @@ import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.plaf.basic.BasicScrollBarUI;
-import net.runelite.client.ui.ColorScheme;
 
 /**
  * A thin, flat scrollbar for the side panel: no arrow buttons, a rounded thumb that lightens under

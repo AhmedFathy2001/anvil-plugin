@@ -48,8 +48,6 @@ import java.util.function.*;
 import java.util.regex.*;
 import java.time.LocalDate;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.IntUnaryOperator;
-import java.util.regex.Pattern;
 import net.runelite.api.clan.ClanMember;
 
 @Slf4j
@@ -1191,7 +1189,7 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.add(startProofOverlay);
 
 		// Mount the always-on progress sidebar in the RuneLite toolbar.
-		final BufferedImage sidebarIcon = ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png");
+		BufferedImage sidebarIcon = ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png");
 		sidebarNavButton = NavigationButton.builder()
 				.tooltip("Anvil progress")
 				.icon(sidebarIcon)
@@ -1312,7 +1310,7 @@ public class AnvilPlugin extends Plugin {
 			// to learn the same thing would be work for nothing.
 			Integer questsNow = sampled.get("questsCompleted");
 			boolean questsMoved = questsNow != null && !questsNow.equals(lastSentQuestCount);
-			final List<AccountProgress.Item> quests = questsMoved ? AccountProgress.quests(client) : null;
+			List<AccountProgress.Item> quests = questsMoved ? AccountProgress.quests(client) : null;
 
 			// Combat tasks, same rule: the points total is the only thing that can change which
 			// tasks are done, so the bits are re-read when it moves. We send the raw varps and the
@@ -1320,7 +1318,7 @@ public class AnvilPlugin extends Plugin {
 			// reconcile, so a layout change can't produce a wrong list here or there.
 			Integer caNow = sampled.get("caPoints");
 			boolean caMoved = caNow != null && caNow > 0 && !caNow.equals(lastSentCaPoints);
-			final Map<Integer, Integer> caVarps = caMoved && cfg.caVarps != null
+			Map<Integer, Integer> caVarps = caMoved && cfg.caVarps != null
 					? AccountProgress.combatVarps(client, cfg.caVarps)
 					: null;
 			// Say which half is quiet when nothing lands: a site that never asked for the varps and a
@@ -1330,7 +1328,7 @@ public class AnvilPlugin extends Plugin {
 			} else if (caVarps != null) {
 				log.info("CA varps: read {} at {} points", caVarps.size(), caNow);
 			}
-			final int caPointsNow = caNow == null ? 0 : caNow;
+			int caPointsNow = caNow == null ? 0 : caNow;
 
 			if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) return;
 			submit(() -> {
@@ -1391,10 +1389,10 @@ public class AnvilPlugin extends Plugin {
 
 			String fingerprint = clanName == null ? "" : clanName + "|" + rankValue + "|" + titleName + "|" + joined;
 			if (fingerprint.equals(lastSentGameClan)) return;
-			final String name = clanName;
-			final Integer rankOut = rankValue;
-			final String titleOut = titleName;
-			final LocalDate joinedOut = joined;
+			String name = clanName;
+			Integer rankOut = rankValue;
+			String titleOut = titleName;
+			LocalDate joinedOut = joined;
 			submit(() -> {
 				try {
 					apiClient.submitGameClan(name, rankOut, titleOut, joinedOut);
@@ -2213,7 +2211,7 @@ public class AnvilPlugin extends Plugin {
 				|| !msg.toLowerCase(Locale.ROOT).contains("coffer")) {
 			return;
 		}
-		final String line = stripChatTags(msg);
+		String line = stripChatTags(msg);
 		int has = line.indexOf(" has ");
 		if (has <= 0 || !Rsn.same(line.substring(0, has), getLocalPlayerName())) return;
 		PluginConfigResponse cfg = pluginConfig;
@@ -2223,7 +2221,7 @@ public class AnvilPlugin extends Plugin {
 				|| ex == null || ex.isShutdown()) {
 			return;
 		}
-		final String clanName = channel.getName();
+		String clanName = channel.getName();
 		ex.submit(() -> {
 			try {
 				apiClient.submitCofferLine(line, clanName);
@@ -2260,7 +2258,7 @@ public class AnvilPlugin extends Plugin {
 		ClanCofferTracker.Observation observation = clanCofferTracker.observe(balance, now());
 		ScheduledExecutorService ex = executor;
 		if (observation == null || ex == null || ex.isShutdown()) return;
-		final String eventKey = UUID.randomUUID().toString();
+		String eventKey = UUID.randomUUID().toString();
 		ex.submit(() -> {
 			try {
 				apiClient.submitClanCoffer(eventKey, observation);
@@ -3429,7 +3427,7 @@ public class AnvilPlugin extends Plugin {
 			bannerSound.play(BannerSoundService.Kind.MISSION);
 			return;
 		}
-		final int id = claimed ? SoundEffectID.GE_COLLECT_BLOOP : SoundEffectID.GE_ADD_OFFER_DINGALING;
+		int id = claimed ? SoundEffectID.GE_COLLECT_BLOOP : SoundEffectID.GE_ADD_OFFER_DINGALING;
 		clientThread.invoke(() -> client.playSoundEffect(id));
 	}
 
@@ -3808,7 +3806,7 @@ public class AnvilPlugin extends Plugin {
 		Integer notableId = notableIdForName(itemName);
 		if (notableId != null) maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
 		List<ItemStack> synthetic = new ArrayList<>(1);
-		final long now = now();
+		long now = now();
 		for (Integer id : idsNamed(rules.dropItemIds(), itemName)) {
 			// Skip an item a real loot event just credited — the clog-unlock line is the same
 			// acquisition (raid chest, NPC drop) firing later on pickup, so crediting here would
@@ -4695,8 +4693,8 @@ public class AnvilPlugin extends Plugin {
 		// Deathless tiles piggyback on the same correlation: a raid's completion is announced
 		// by the very duration + identity lines the timed machinery already pairs up.
 		if (!rules.has("timed") && !rules.has("deathless") || !live()) return;
-		final long now = now();
-		final String lower = plain.toLowerCase();
+		long now = now();
+		String lower = plain.toLowerCase();
 
 		// Maintain the recent-line buffer (prune by age, cap size).
 		recentTimedMessages.addLast(new TimedMsg(lower, now));
@@ -4976,9 +4974,9 @@ public class AnvilPlugin extends Plugin {
 
 		// Where this account is standing, for the drawn spot's position check. Read before anything
 		// async: by the time the frame arrives the player may have taken a step.
-		final Integer worldX = localWorldX();
-		final Integer worldY = localWorldY();
-		final long loginAtMs = sessionLoginAtMs;
+		Integer worldX = localWorldX();
+		Integer worldY = localWorldY();
+		long loginAtMs = sessionLoginAtMs;
 
 		// Refuse rather than file something staff will only have to chase: standing in the wrong
 		// place or on a session too old to have flushed the hiscores are both fixable in-game, in
@@ -4992,12 +4990,12 @@ public class AnvilPlugin extends Plugin {
 
 		startProofInFlight = true;
 
-		final int eventId = cfg.event.id;
-		final String location = cfg.startProof.location;
-		final String keyword = cfg.startProof.keyword;
-		final String capturedRsn = getLocalPlayerName();
-		final String capturedAt = Instant.now().toString();
-		final String loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN
+		int eventId = cfg.event.id;
+		String location = cfg.startProof.location;
+		String keyword = cfg.startProof.keyword;
+		String capturedRsn = getLocalPlayerName();
+		String capturedAt = Instant.now().toString();
+		String loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN
 				? null
 				: Instant.ofEpochMilli(loginAtMs).toString();
 
@@ -5293,7 +5291,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// A combo's part pins its combo, whose pin lists every part.
 		indexNotes(pluginConfig);
-		final int pin = partCombo.getOrDefault(tileId, tileId);
+		int pin = partCombo.getOrDefault(tileId, tileId);
 		tileTracker.set(eventId, pin, on);
 		submit(() -> safely("tileTracker", () -> tileTracker.refresh(pin)));
 	}
@@ -9115,9 +9113,9 @@ public class AnvilPlugin extends Plugin {
 		} else if (verb.contains("completely")) {
 			quest += " II";
 		}
-		final String questAndVerb = quest + verb;
+		String questAndVerb = quest + verb;
 		if (RFD_TAGS.stream().anyMatch(questAndVerb::contains)) quest = "Recipe for Disaster - " + quest;
-		final String questName = quest;
+		String questName = quest;
 		if (WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) quest += " Quest";
 		return quest;
 	}
