@@ -739,14 +739,14 @@ final class UiView extends JPanel {
 				Graphics2D g2 = (Graphics2D) gr.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
-				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
 				g2.dispose();
 			}
 
 			@Override
 			protected void paintChildren(Graphics gr) {
 				Graphics2D g2 = (Graphics2D) gr.create();
-				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 12, 12));
+				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 20, 20));
 				super.paintChildren(g2);
 				g2.dispose();
 			}
