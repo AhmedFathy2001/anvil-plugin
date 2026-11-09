@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.util.Collections.*;
 import lombok.Setter;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -368,7 +369,7 @@ public class BingoApiClient {
 	public DeviceAuthPoll authPoll(String deviceCode) {
 		if (deviceCode == null || deviceCode.isEmpty()) return null;
 		var body = RequestBody.create(MediaType.parse("application/json"),
-			gson.toJson(Collections.singletonMap("device_code", deviceCode)));
+			gson.toJson(singletonMap("device_code", deviceCode)));
 		return getOrNull(plainRequest(authUrl("/api/plugin/auth/poll")).post(body), DeviceAuthPoll.class);
 	}
 
@@ -644,7 +645,7 @@ public class BingoApiClient {
 	// and so no `server.capabilities`. /api/version is public and tiny; read at most every 10 minutes,
 	// only on that path, from the config poll (already off the EDT).
 	static final long VERSION_CAPS_TTL_MS = 10 * 60_000L;
-	volatile Set<String> versionCaps = Collections.emptySet();
+	volatile Set<String> versionCaps = emptySet();
 	volatile long versionCapsAt;
 
 	/** A capability /api/version advertised (the no-clan fallback for {@link PluginConfigResponse#serverSupports}). */
@@ -657,7 +658,7 @@ public class BingoApiClient {
 		if (now - versionCapsAt < VERSION_CAPS_TTL_MS) return;
 		versionCapsAt = now;
 		var info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class);
-		if (info != null) versionCaps = info.capabilities == null ? Collections.emptySet() : new HashSet<>(info.capabilities);
+		if (info != null) versionCaps = info.capabilities == null ? emptySet() : new HashSet<>(info.capabilities);
 	}
 
 	/** The part of /api/version the plugin reads. */
@@ -770,7 +771,7 @@ public class BingoApiClient {
 
 	/** A bounded URL → {etag, parsed body} cache, for If-None-Match. */
 	static Map<String, Object[]> etagCache(int max) {
-		return Collections.synchronizedMap(new LinkedHashMap<String, Object[]>(16, 0.75f, true) {
+		return synchronizedMap(new LinkedHashMap<String, Object[]>(16, 0.75f, true) {
 			@Override
 			protected boolean removeEldestEntry(Map.Entry<String, Object[]> eldest) {
 				return size() > max;
@@ -1197,9 +1198,9 @@ public class BingoApiClient {
 	}
 
 	public static class Say {
-		public List<String> auto = Collections.emptyList();
-		public List<String> manual = Collections.emptyList();
-		public List<String> warn = Collections.emptyList();
+		public List<String> auto = emptyList();
+		public List<String> manual = emptyList();
+		public List<String> warn = emptyList();
 	}
 
 
@@ -1549,7 +1550,7 @@ public class BingoApiClient {
 		var hasVarps = caVarps != null && !caVarps.isEmpty() && caPoints > 0;
 		// The game mode is not a progress row: rows are max-merged, and a mode goes down. It has
 		// its own top-level field, which a server that doesn't know it simply ignores.
-		Map<String, Integer> rest = new LinkedHashMap<>(progress == null ? Collections.emptyMap() : progress);
+		Map<String, Integer> rest = new LinkedHashMap<>(progress == null ? emptyMap() : progress);
 		var accountType = rest.remove(AccountProgress.ACCOUNT_TYPE_KEY);
 		var rows = pairs(rest, "key", "value");
 		if (rows.size() == 0 && !hasItems && !hasVarps && accountType == null) return;

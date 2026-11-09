@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.util.Collections.*;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
 import java.io.*;
@@ -71,16 +72,16 @@ final class ChatPatterns {
 	static final long LINE_BUDGET = 100_000L;
 	static final Pattern NEVER = Pattern.compile("(?!)");
 
-	static volatile Map<String, Entry> entries = Collections.emptyMap();
-	static volatile Map<String, Pattern> defaults = Collections.emptyMap();
+	static volatile Map<String, Entry> entries = emptyMap();
+	static volatile Map<String, Pattern> defaults = emptyMap();
 	/** The accepted overrides and their hints, swapped as ONE object so a reader never pairs mismatched halves. */
 	static final class Live {
 		final Map<String, Pattern> patterns;
 		final Map<String, String> hints;
 
 		Live(Map<String, Pattern> patterns, Map<String, String> hints) {
-			this.patterns = Collections.unmodifiableMap(patterns);
-			this.hints = Collections.unmodifiableMap(hints);
+			this.patterns = unmodifiableMap(patterns);
+			this.hints = unmodifiableMap(hints);
 		}
 	}
 
@@ -98,8 +99,8 @@ final class ChatPatterns {
 				e.put(p.key, p);
 				d.put(p.key, Pattern.compile(p.regex, flagsOf(p)));
 			}
-			entries = Collections.unmodifiableMap(e);
-			defaults = Collections.unmodifiableMap(d);
+			entries = unmodifiableMap(e);
+			defaults = unmodifiableMap(d);
 		} catch (Exception ex) {
 			log.warn("Chat patterns failed to load", ex);
 		}

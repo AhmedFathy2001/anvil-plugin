@@ -1,5 +1,7 @@
 package com.anvil;
 
+import static java.util.Collections.*;
+import static javax.swing.SwingUtilities.invokeLater;
 import static net.runelite.client.ui.ColorScheme.*;
 import com.anvil.AnvilSidebarDataSource.*;
 import lombok.Setter;
@@ -390,7 +392,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		lookupSearch.setToolTipText("A player's name — press Enter");
 		lookupSearch.addActionListener(e -> {
 			if (lookupClans) {
-				lookupView.show("clans", Collections.singletonMap("q", lookupSearch.getText().trim()), "Searching…");
+				lookupView.show("clans", singletonMap("q", lookupSearch.getText().trim()), "Searching…");
 			} else showLookup(lookupSearch.getText());
 		});
 		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
@@ -491,7 +493,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** The ⋯ menu's "View my profile": your own card. */
 	public void showYou() {
-		SwingUtilities.invokeLater(() -> selectTab(Tab.YOU));
+		invokeLater(() -> selectTab(Tab.YOU));
 	}
 
 	/** Whether a lookup can open in the panel; false ⇒ the caller opens the browser instead. */
@@ -501,14 +503,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Look a character up in the Lookup tab — the right-click "Anvil" entry lands here. */
 	public void showLookup(String rawName) {
-		SwingUtilities.invokeLater(() -> {
+		invokeLater(() -> {
 			var name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
 			if (tab != Tab.LOOKUP) selectTab(Tab.LOOKUP);
 			if (name.isEmpty()) return;
 			if (lookupClans) setLookupMode(false);
 			lookupSearch.setText(name);
 			remember(name);
-			lookupView.show("player", Collections.singletonMap("rsn", name), "Looking up " + name + "…");
+			lookupView.show("player", singletonMap("rsn", name), "Looking up " + name + "…");
 		});
 	}
 
@@ -528,7 +530,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	<T> void async(Supplier<T> fetch, Consumer<T> then) {
 		interactive().execute(() -> {
 			T result = fetch.get();
-			SwingUtilities.invokeLater(() -> then.accept(result));
+			invokeLater(() -> then.accept(result));
 		});
 	}
 
@@ -573,7 +575,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 				// Only a tab this panel is showing.
 				var feed = tabLabels.get(Tab.FEED);
 				if (!"feed".equals(name) || feed == null || !feed.isShowing()) return;
-				feedArgs = args == null ? Collections.emptyMap() : args;
+				feedArgs = args == null ? emptyMap() : args;
 				selectTab(Tab.FEED);
 			}
 
@@ -611,7 +613,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			@Override
 			public void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
-				apiClient.thumb(path, w, h, motion && GradientLabel.animate, img -> SwingUtilities.invokeLater(() -> done.accept(img)));
+				apiClient.thumb(path, w, h, motion && GradientLabel.animate, img -> invokeLater(() -> done.accept(img)));
 			}
 
 			@Override
@@ -623,7 +625,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			public void clan(String slug) {
 				if (tab != Tab.LOOKUP) selectTab(Tab.LOOKUP);
 				setLookupMode(true);
-				lookupView.show("clan", Collections.singletonMap("slug", slug), "Loading the clan…");
+				lookupView.show("clan", singletonMap("slug", slug), "Loading the clan…");
 			}
 		};
 	}
@@ -692,15 +694,15 @@ public class AnvilSidebarPanel extends PluginPanel {
 			return;
 		}
 		feedView.show("feed", feedArgs, "Loading the feed…");
-		feedArgs = Collections.emptyMap(); // a board's list once; the tab itself opens on its default after
+		feedArgs = emptyMap(); // a board's list once; the tab itself opens on its default after
 	}
 
 	/** The list the next Feed-tab open shows (a board's feed or chat from its buttons); empty = the default. */
-	Map<String, String> feedArgs = Collections.emptyMap();
+	Map<String, String> feedArgs = emptyMap();
 
 	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
 	public void feedPush(JsonObject m) {
-		SwingUtilities.invokeLater(() -> feedView.feedPush(m));
+		invokeLater(() -> feedView.feedPush(m));
 	}
 
 	/**
@@ -717,7 +719,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var same = Rsn.same(me, youRsn);
 		if (refetch || !same) {
 			youRsn = me;
-			youView.show("you", Collections.emptyMap(), same ? null : "Loading your card…");
+			youView.show("you", emptyMap(), same ? null : "Loading your card…");
 		}
 	}
 
@@ -866,8 +868,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		signIn = new DeviceSignIn(apiClient, executor);
 		signIn.run(
-			line -> SwingUtilities.invokeLater(() -> setSignInStatus(line)),
-			result -> SwingUtilities.invokeLater(() -> {
+			line -> invokeLater(() -> setSignInStatus(line)),
+			result -> invokeLater(() -> {
 				signInInFlight = false;
 				signInButton.setEnabled(true);
 				if (result.outcome == DeviceSignIn.Outcome.SIGNED_IN) {
@@ -1044,7 +1046,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		accountActionInFlight = true;
 		accountLink.setEnabled(false);
 		setAccountStatus("Working…");
-		dataSource.accountAction(action, outcome -> SwingUtilities.invokeLater(() -> {
+		dataSource.accountAction(action, outcome -> invokeLater(() -> {
 			accountActionInFlight = false;
 			refreshAccountRow();
 			setAccountStatus(outcome);
@@ -1054,7 +1056,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** The Supporter list moved: the tracked name's colours may have. Any thread. */
 	void flairChanged() {
-		SwingUtilities.invokeLater(this::refreshAccountRow);
+		invokeLater(this::refreshAccountRow);
 	}
 
 	/**
@@ -1191,7 +1193,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 		interactive().execute(() -> {
 			dataSource.refreshConfig(manual);
-			SwingUtilities.invokeLater(() -> {
+			invokeLater(() -> {
 				if (manual) {
 					refreshButton.setText("Refresh");
 					refreshButton.setEnabled(true);
@@ -1233,7 +1235,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			clanShown = true;
 			clanAskedAt = now;
 			setContent(clanView);
-			clanView.show("home", Collections.emptyMap(), "Loading progress…");
+			clanView.show("home", emptyMap(), "Loading progress…");
 		} else if (manual || now - clanAskedAt >= MIN_ASK_GAP_MS && !typingInSearch()) {
 			clanAskedAt = now;
 			clanView.refresh();
@@ -1276,7 +1278,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** The live push says the board moved: ask now. */
 	void boardChanged() {
 		// Every remembered view may hold the old numbers: never redraw one of those first.
-		SwingUtilities.invokeLater(() -> {
+		invokeLater(() -> {
 			askAgainNow();
 			poll();
 		});
@@ -1290,7 +1292,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** Counts moved here (own progress, the push): the Clan tab's live ones redraw, at most once per frame. Any thread. */
 	void liveCountsMoved() {
 		if (liveQueued.compareAndSet(false, true)) {
-			SwingUtilities.invokeLater(() -> {
+			invokeLater(() -> {
 				liveQueued.set(false);
 				clanView.tickLive();
 			});
@@ -1299,7 +1301,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** The push carried counts only: they're on screen already; the rest catches up once, a little later. */
 	void countsChanged() {
-		SwingUtilities.invokeLater(() -> {
+		invokeLater(() -> {
 			uiCache.clear(); // see boardChanged
 			if (!countsCatchUp.isRunning()) {
 				countsCatchUp.setRepeats(false);
@@ -1786,7 +1788,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Swap the single content component and repaint. */
 	void setContent(Component component) {
-		SwingUtilities.invokeLater(() -> {
+		invokeLater(() -> {
 			if (content.getComponentCount() == 1 && content.getComponent(0) == component) return;
 			content.removeAll();
 			if (component instanceof JComponent) ((JComponent) component).setAlignmentX(LEFT_ALIGNMENT);

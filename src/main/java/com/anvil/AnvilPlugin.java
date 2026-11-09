@@ -1,5 +1,7 @@
 package com.anvil;
 
+import static java.util.Collections.*;
+import static javax.swing.SwingUtilities.invokeLater;
 import com.anvil.AnvilMoments.Moment;
 import com.anvil.ChatPalette.Tone;
 import lombok.AllArgsConstructor;
@@ -267,7 +269,7 @@ public class AnvilPlugin extends Plugin {
 	// resolves pluginConfig.alwaysNotifyItems (names) to ids so matching is by ID — not a fragile name
 	// compare — the same way bingo drop tiles match. Matters most for untradeable prestige items (a ToA
 	// Cursed phalanx has no GE value to gate on). Rebuilt with the drop index; complements the name allowlist.
-	volatile Set<Integer> notableItemIds = Collections.emptySet();
+	volatile Set<Integer> notableItemIds = emptySet();
 
 	// Dedup window for NpcLootReceived + LootReceived firing on the same kill — track last
 	// event per (tileId, itemId) and ignore repeats within the window. Note this is
@@ -312,8 +314,8 @@ public class AnvilPlugin extends Plugin {
 	 */
 	static final class ShippedText {
 
-		List<String> alwaysNotify = Collections.emptyList();
-		Map<String, String> questTiers = Collections.emptyMap();
+		List<String> alwaysNotify = emptyList();
+		Map<String, String> questTiers = emptyMap();
 	}
 
 	ShippedText text = new ShippedText();
@@ -880,7 +882,7 @@ public class AnvilPlugin extends Plugin {
 	/** The account the two above belong to, so a character switch reloads rather than merges. */
 	String profileSyncRsn;
 	// The server allowlist lowercased, rebuilt with the drop index.
-	volatile Set<String> alwaysNotifyLower = Collections.emptySet();
+	volatile Set<String> alwaysNotifyLower = emptySet();
 	// Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
 	// collapses to one push of the newest value. Shares KC_PUSH_COALESCE_MS.
 	final CoalescedPush skillXpPush = new CoalescedPush("Skill XP", KC_PUSH_COALESCE_MS, false,
@@ -888,7 +890,7 @@ public class AnvilPlugin extends Plugin {
 	// ---- Real-time activity push (clue tiers, Colosseum glory, collection-log slots) ------------
 	// The site stat keys the event tracks that ActivityStats can actually read; rebuilt each config
 	// refresh, empty unless the event has such tiles.
-	volatile Set<String> trackedActivityKeys = Collections.emptySet();
+	volatile Set<String> trackedActivityKeys = emptySet();
 	// Debounced like KC; only a RISE over what was last sent goes out, so a varbit firing repeatedly
 	// with the same number doesn't re-send.
 	final CoalescedPush activityPush = new CoalescedPush("Activity", KC_PUSH_COALESCE_MS, true,
@@ -912,7 +914,7 @@ public class AnvilPlugin extends Plugin {
 	// unequip as a +1). The diff is coalesced to onGameTick so both containers have settled.
 	Map<Integer, Integer> lastHeldItemCounts = null;
 	// Item ids worn at the last game tick, so inventory-diff loot can tell an unequip from a reward.
-	Set<Integer> lastWornItemIds = Collections.emptySet();
+	Set<Integer> lastWornItemIds = emptySet();
 	// Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
 	// both containers in one tick) is evaluated once, after both have updated.
 	boolean heldItemsDirty = false;
@@ -1106,7 +1108,7 @@ public class AnvilPlugin extends Plugin {
 			bannerSound.setOnClipsChanged(() -> {
 				var panel = sidebarPanel;
 				if (panel != null) {
-					SwingUtilities.invokeLater(panel::refresh); // a poll wouldn't redraw for it
+					invokeLater(panel::refresh); // a poll wouldn't redraw for it
 				}
 			});
 			bannerSound.setRoot(pluginDir.join("sounds"));
@@ -1205,7 +1207,7 @@ public class AnvilPlugin extends Plugin {
 		profileLookup.setPanelOpener(name -> {
 			var nav = sidebarNavButton;
 			if (nav == null || !sidebarPanel.playerCardsAvailable()) return false;
-			SwingUtilities.invokeLater(() -> clientToolbar.openPanel(nav));
+			invokeLater(() -> clientToolbar.openPanel(nav));
 			sidebarPanel.showLookup(name);
 			return true;
 		});
@@ -1337,7 +1339,7 @@ public class AnvilPlugin extends Plugin {
 					lastSentProgress.putAll(changed);
 					if (quests != null) lastSentQuestCount = questsNow;
 					if (caVarps != null && !caVarps.isEmpty()) {
-						apiClient.submitProgress(Collections.emptyMap(), null, null, caVarps, caPointsNow);
+						apiClient.submitProgress(emptyMap(), null, null, caVarps, caPointsNow);
 						lastSentCaPoints = caNow;
 					}
 				} catch (IOException e) {
@@ -1515,7 +1517,7 @@ public class AnvilPlugin extends Plugin {
 			sidebarNavButton = null;
 		}
 		// Its timers (countdowns, auto-refresh) must not outlive the plugin; the panel is a singleton.
-		if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::onDeactivate);
+		if (sidebarPanel != null) invokeLater(sidebarPanel::onDeactivate);
 		bannerSound.shutdown();
 		resetCoffer(false);
 		capturing = false;
@@ -1548,7 +1550,7 @@ public class AnvilPlugin extends Plugin {
 			moments.reset();
 		}
 		skillXpPush.reset();
-		trackedActivityKeys = Collections.emptySet();
+		trackedActivityKeys = emptySet();
 		activityPush.reset();
 		// Flush the recap counters to the config store (captures loot gained since the last push) and
 		// stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
@@ -1632,7 +1634,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onOverlayMenuClicked(OverlayMenuClicked event) {
 		// Every plugin's overlay menu clicks arrive here; only our own Unpin entries are ours to act on.
-		if (tileTracker.unpinFrom(event.getOverlay(), event.getEntry().getOption())) SwingUtilities.invokeLater(sidebarPanel::refresh);
+		if (tileTracker.unpinFrom(event.getOverlay(), event.getEntry().getOption())) invokeLater(sidebarPanel::refresh);
 	}
 
 	/**
@@ -1769,11 +1771,11 @@ public class AnvilPlugin extends Plugin {
 			clientThread.invokeLater(this::unflairAll);
 			return;
 		}
-		if ("shareSeasonal".equals(key) && sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::seasonalChanged);
+		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
 		if ("animatedNames".equals(key)) {
 			GradientLabel.setAnimate(config.animatedNames());
 			clientThread.invokeLater(this::refreshClanTitleWidgets);
-			if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::motionChanged);
+			if (sidebarPanel != null) invokeLater(sidebarPanel::motionChanged);
 			return;
 		}
 		if (isInternalStateKey(key)) return;
@@ -2255,7 +2257,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Depth-first over every child set, each widget once. */
 	static void walk(Widget root, Consumer<Widget> visit) {
-		walk(root, visit, Collections.newSetFromMap(new IdentityHashMap<>()));
+		walk(root, visit, newSetFromMap(new IdentityHashMap<>()));
 	}
 
 	static void walk(Widget w, Consumer<Widget> visit, Set<Widget> seen) {
@@ -2505,7 +2507,7 @@ public class AnvilPlugin extends Plugin {
 		if (gs == GameState.LOGGED_IN && freshLoginPending) {
 			freshLoginPending = false;
 			sessionLoginAtMs = now();
-			SwingUtilities.invokeLater(sidebarPanel::refresh); // "Track on screen" is in-game only
+			invokeLater(sidebarPanel::refresh); // "Track on screen" is in-game only
 		}
 		// Re-read on every login: the levels belong to the account that just logged in, and the
 		// previous one's are worse than nothing (a 99 on the alt reads as a 99 already announced).
@@ -2551,7 +2553,7 @@ public class AnvilPlugin extends Plugin {
 			clanRosterReadable = false;
 			clanRosterMissingTicks = 0;
 			tileTracker.forAccount(-1);
-			SwingUtilities.invokeLater(sidebarPanel::refresh); // drop "Track on screen" with the session
+			invokeLater(sidebarPanel::refresh); // drop "Track on screen" with the session
 			// Back at the login screen: the next LOGGED_IN really is a new session, and until it
 			// arrives we don't have one at all.
 			freshLoginPending = true;
@@ -3761,7 +3763,7 @@ public class AnvilPlugin extends Plugin {
 		// name-keyed dedup absorbs the duplicate if a loot event fired for the same item — and do it
 		// independent of whether any TILE tracks the item (the webhook shouldn't need a tile).
 		var notableId = notableIdForName(itemName);
-		if (notableId != null) maybeNotifyRareDrop(itemName, Collections.singletonList(new ItemStack(notableId, 1)), "clog");
+		if (notableId != null) maybeNotifyRareDrop(itemName, singletonList(new ItemStack(notableId, 1)), "clog");
 		List<ItemStack> synthetic = new ArrayList<>(1);
 		var now = now();
 		for (Integer id : idsNamed(rules.dropItemIds(), itemName)) {
@@ -3856,7 +3858,7 @@ public class AnvilPlugin extends Plugin {
 		if (notifyId == null) notifyId = findTradeableItemId(itemName);
 		// Every gate below this line fails silently, and these drops can be worth 50m+ — leave a
 		// breadcrumb so a "why didn't my fang post?" is answerable with debug logging on.
-		if (notifyId != null) maybeNotifyRareDrop(source, Collections.singletonList(new ItemStack(notifyId, qty)), "npc");
+		if (notifyId != null) maybeNotifyRareDrop(source, singletonList(new ItemStack(notifyId, qty)), "npc");
 	}
 
 	/**
@@ -3952,7 +3954,7 @@ public class AnvilPlugin extends Plugin {
 
 	boolean creditInferredById(int itemId, String source, String flag) {
 		if (trackingGateReason() != null || !rules.dropItemIds().contains(itemId)) return false;
-		return creditInferred(Collections.singletonList(new ItemStack(itemId, 1)), source, flag);
+		return creditInferred(singletonList(new ItemStack(itemId, 1)), source, flag);
 	}
 
 	/** Credit through the ordinary drop path, marked so the site flags it. False when no tile tracks it. */
@@ -4268,7 +4270,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void creditKill(String name, int amount) {
-		if (!trackingOff()) emit(rules.kill(Collections.singletonMap(name, amount), null, null));
+		if (!trackingOff()) emit(rules.kill(singletonMap(name, amount), null, null));
 	}
 
 	static int parseCount(String digits) {
@@ -4481,7 +4483,7 @@ public class AnvilPlugin extends Plugin {
 
 	Set<Integer> wornItemIds() {
 		var c = client.getItemContainer(InventoryID.WORN);
-		if (c == null) return Collections.emptySet();
+		if (c == null) return emptySet();
 		Set<Integer> ids = new HashSet<>();
 		for (Item item : c.getItems()) {
 			if (item != null && item.getId() > 0) ids.add(item.getId());
@@ -5066,7 +5068,7 @@ public class AnvilPlugin extends Plugin {
 		// The panel is currently showing a clan reached with the OLD credentials. Drop it before
 		// anything else: on a wrong URL or a bad token nothing ever arrives to replace it, and a
 		// member who just changed their settings would sit looking at the clan they left.
-		SwingUtilities.invokeLater(sidebarPanel::clearForCredentialChange);
+		invokeLater(sidebarPanel::clearForCredentialChange);
 		if (!execLive()) return;
 		if (pendingRefresh != null && !pendingRefresh.isDone()) pendingRefresh.cancel(false);
 		if (!apiClient.isConfigured()) {
@@ -5093,12 +5095,12 @@ public class AnvilPlugin extends Plugin {
 			helloSent = false;
 			// Half-configured (URL but no token, or vice versa): nothing to fetch, but the panel
 			// still needs to re-evaluate its sign-in row against the new state.
-			SwingUtilities.invokeLater(sidebarPanel::refresh);
+			invokeLater(sidebarPanel::refresh);
 			return;
 		}
 		submit(() -> {
 			safely("refreshConfig", this::refreshConfig);
-			SwingUtilities.invokeLater(sidebarPanel::refresh);
+			invokeLater(sidebarPanel::refresh);
 		});
 	}
 
@@ -5533,7 +5535,7 @@ public class AnvilPlugin extends Plugin {
 					var firstThisLogin = !autoRosterReportedThisLogin;
 					if (automatic) {
 						autoRosterReportedThisLogin = true;
-						(say.auto.isEmpty() && firstThisLogin ? Collections.singletonList("Clan roster checked — nothing changed.") : say.auto).forEach(this::sendChatMessage);
+						(say.auto.isEmpty() && firstThisLogin ? singletonList("Clan roster checked — nothing changed.") : say.auto).forEach(this::sendChatMessage);
 					} else say.manual.forEach(this::sendChatMessage);
 					say.warn.forEach(w -> sendChatMessage(Tone.WARN, w));
 					if (r.capNotice != null && !r.capNotice.isEmpty()) sendChatMessage(r.capNotice);
@@ -5640,7 +5642,7 @@ public class AnvilPlugin extends Plugin {
 			configFetchLock.unlock();
 		}
 		onTileConfirmedDone(tileId);
-		if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
+		if (sidebarPanel != null) invokeLater(sidebarPanel::tileCompleted);
 		if (!config.teamCompletionBanner()) return false;
 		// A drop's own popup already showed it complete: no second popup, but the chat line still says so.
 		if (!locallyShownTiles.contains(tileId)) {
@@ -5708,10 +5710,10 @@ public class AnvilPlugin extends Plugin {
 				} else if (!locallyShownTiles.contains(t.tileId)) newlyDone.add(t);
 			}
 		}
-		if (anyDone && sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
+		if (anyDone && sidebarPanel != null) invokeLater(sidebarPanel::tileCompleted);
 		if (newlyDone.isEmpty() || !config.teamCompletionBanner()) return;
 		// Banner only the hardest (most points) tile this poll to avoid a burst of banners.
-		CompletedTile hardest = Collections.max(newlyDone, Comparator.comparingInt(t -> t.points));
+		CompletedTile hardest = max(newlyDone, Comparator.comparingInt(t -> t.points));
 		if (clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label)) playBannerSound();
 		// A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
@@ -5787,7 +5789,7 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		if (!fresh.isEmpty()) {
-			Mission top = Collections.max(fresh, Comparator.comparingInt(m -> m.points));
+			Mission top = max(fresh, Comparator.comparingInt(m -> m.points));
 			if (clogBanner.show(tag, "New mission!", top.label)) playMissionSound(false);
 			for (Mission m : fresh) sendChatMessage(Tone.NEAR, "New mission: " + m.label + " - " + m.points + " pts!");
 		}
@@ -5903,7 +5905,7 @@ public class AnvilPlugin extends Plugin {
 	/** Ask the sidebar to re-read, from the EDT — it is Swing, and callers here are on worker threads. */
 	void repaintSidebar() {
 		var panel = sidebarPanel;
-		if (panel != null) SwingUtilities.invokeLater(panel::refresh);
+		if (panel != null) invokeLater(panel::refresh);
 	}
 
 	/** The member's clan pick, or "" when they are on Auto. */
@@ -5999,7 +6001,7 @@ public class AnvilPlugin extends Plugin {
 			// "Drenvox has logged in." — a friend coming on or going off.
 			ChatMessageType.LOGINLOGOUTNOTIFICATION);
 	/** Client thread: keys (ChatFlair.key) of recent broadcasts that start with a Supporter's name. */
-	final Set<String> flairBroadcasts = Collections.newSetFromMap(
+	final Set<String> flairBroadcasts = newSetFromMap(
 			new LinkedHashMap<String, Boolean>(16, 0.75f, false) {
 				@Override
 				protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
@@ -6396,8 +6398,8 @@ public class AnvilPlugin extends Plugin {
 		if (shotsPending > 0) hideShotRows();
 	}
 
-	static final List<String> CLAN_BOOST_STILL = Collections.unmodifiableList(Arrays.asList("ff9a5a", "e05ad0", "7a8cff"));
-	static final List<String> CLAN_BOOST_MOVING = Collections.unmodifiableList(Arrays.asList("ffd27a", "ff7ab8", "7ae0ff"));
+	static final List<String> CLAN_BOOST_STILL = unmodifiableList(Arrays.asList("ff9a5a", "e05ad0", "7a8cff"));
+	static final List<String> CLAN_BOOST_MOVING = unmodifiableList(Arrays.asList("ffd27a", "ff7ab8", "7ae0ff"));
 
 	@AllArgsConstructor
 	static final class ClanTitleFlair {
@@ -7242,10 +7244,10 @@ public class AnvilPlugin extends Plugin {
 
 	/** Per-config lookups for counts, the tracker's extra lines and part labels (see TileNotes). */
 	volatile PluginConfigResponse notesFor;
-	volatile Map<Integer, TrackedCombo> combos = Collections.emptyMap();
-	volatile Map<Integer, Integer> partCombo = Collections.emptyMap();
+	volatile Map<Integer, TrackedCombo> combos = emptyMap();
+	volatile Map<Integer, Integer> partCombo = emptyMap();
 	/** tileId → its count off the config ({@code tiles}). */
-	volatile Map<Integer, TileCount> tileRows = Collections.emptyMap();
+	volatile Map<Integer, TileCount> tileRows = emptyMap();
 
 	void indexNotes(PluginConfigResponse cfg) {
 		if (cfg == notesFor) return;
@@ -7276,10 +7278,10 @@ public class AnvilPlugin extends Plugin {
 	 */
 	List<String> tileNotes(int tileId) {
 		var cfg = pluginConfig;
-		if (cfg == null) return Collections.emptyList();
+		if (cfg == null) return emptyList();
 		indexNotes(cfg);
 		var runs = rules.runs(tileId);
-		if (runs != null) return Collections.singletonList(TileNotes.runs(shownProgress(tileId, runs[0]), (int) runs[1]));
+		if (runs != null) return singletonList(TileNotes.runs(shownProgress(tileId, runs[0]), (int) runs[1]));
 		var combo = combos.get(tileId);
 		if (combo != null && !combo.completed) {
 			Map<Integer, long[]> counts = new HashMap<>();
@@ -7291,7 +7293,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			return TileNotes.comboLines(combo, counts);
 		}
-		return Collections.emptyList();
+		return emptyList();
 	}
 
 	/**
@@ -7675,7 +7677,7 @@ public class AnvilPlugin extends Plugin {
 		var boardItems = rules.dropItemIds();
 		var cfg = pluginConfig;
 		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null
-				? new HashSet<>(cfg.luckItemIds) : Collections.emptySet();
+				? new HashSet<>(cfg.luckItemIds) : emptySet();
 		// Merge stacks first — a kill that drops coins twice is one line, not two.
 		Map<Integer, Integer> merged = new LinkedHashMap<>();
 		for (ItemStack item : items) {
@@ -8499,7 +8501,7 @@ public class AnvilPlugin extends Plugin {
 	 * are four of these in the game and they never change without a raid release, so naming them is
 	 * both safer and more honest than a shape test.
 	 */
-	static final Set<String> RAID_MODE_SUFFIXES = Collections.unmodifiableSet(
+	static final Set<String> RAID_MODE_SUFFIXES = unmodifiableSet(
 			new HashSet<>(Arrays.asList(
 					"challenge mode", "entry mode", "expert mode", "hard mode")));
 
@@ -8619,7 +8621,7 @@ public class AnvilPlugin extends Plugin {
 	// a pet already out or already in the bag is never taken for the new one. With a pet out AND a full
 	// pack the new one goes to Probita instead — nothing appears, and the name has to come from a line.
 	int petFollowerBefore = -1;
-	Set<Integer> petPackBefore = Collections.emptySet();
+	Set<Integer> petPackBefore = emptySet();
 
 	/** Client thread, at the pet line. */
 	void notePetSurroundings() {
@@ -8783,7 +8785,7 @@ public class AnvilPlugin extends Plugin {
 	void handleCombatAchievements(List<PendingCaTask> batch) {
 		// Off in the dropdown silences every CA post, tier clears too; tile credit happened upstream.
 		Me me = me();
-		List<String> tiers = me == null ? Collections.emptyList() : me.ca;
+		List<String> tiers = me == null ? emptyList() : me.ca;
 		var announce = !tiers.isEmpty();
 
 		int total = client.getVarbitValue(VarbitID.CA_POINTS);
@@ -9069,7 +9071,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	boolean statsAreArtificial() {
 		Set<WorldType> w = client.getWorldType();
-		return w != null && !Collections.disjoint(w, ARTIFICIAL_WORLDS);
+		return w != null && !disjoint(w, ARTIFICIAL_WORLDS);
 	}
 
 	static final Set<WorldType> ARTIFICIAL_WORLDS;
@@ -9077,7 +9079,7 @@ public class AnvilPlugin extends Plugin {
 		// Every separate-save mode (WorldInfo) plus the preset-loadout minigame worlds.
 		EnumSet<WorldType> w = EnumSet.copyOf(WorldInfo.SEPARATE_SAVE);
 		w.addAll(WorldInfo.PRESET);
-		ARTIFICIAL_WORLDS = Collections.unmodifiableSet(w);
+		ARTIFICIAL_WORLDS = unmodifiableSet(w);
 	}
 
 	/** Which level-ups the clan and the player's own webhooks want; the clan's dropped without a channel. */
@@ -9751,7 +9753,7 @@ public class AnvilPlugin extends Plugin {
 		var on = client.getGameState() == GameState.LOGGED_IN && WorldInfo.separateSave(client.getWorldType());
 		if (on != seasonalWorld) {
 			seasonalWorld = on;
-			if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::seasonalChanged);
+			if (sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
 		}
 	}
 

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static javax.swing.SwingUtilities.invokeLater;
 import static net.runelite.client.ui.ColorScheme.*;
 import static com.anvil.UiView.strings;
 import static com.anvil.UiView.color;
@@ -307,7 +308,7 @@ final class FeedList extends JPanel {
 			bottom.add(lockBox, BorderLayout.SOUTH);
 			add(bottom, BorderLayout.SOUTH);
 			lock(str(n, "locked"), str(n, "lockSub"), n.has("lockWarn"));
-			SwingUtilities.invokeLater(this::toLatest);
+			invokeLater(this::toLatest);
 		}
 		syncEmpty();
 		setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
@@ -645,7 +646,7 @@ final class FeedList extends JPanel {
 			Collections.reverse(fresh);
 			model.append(fresh, cap);
 			if (stick) {
-				SwingUtilities.invokeLater(this::toLatest);
+				invokeLater(this::toLatest);
 			} else {
 				unseen += fresh.size();
 				newPill.setText("↓ " + unseen + " new");
@@ -971,7 +972,7 @@ final class FeedList extends JPanel {
 			if (cached != null) return cached;
 			icons.put(item, new BlankIcon());
 			var img = items.getImage(item);
-			img.onLoaded(() -> SwingUtilities.invokeLater(() -> {
+			img.onLoaded(() -> invokeLater(() -> {
 				icons.put(item, new ImageIcon(ImageUtil.resizeImage(img, ICON_W, ICON_H, true)));
 				list.repaint();
 			}));
@@ -983,7 +984,7 @@ final class FeedList extends JPanel {
 			var cached = spriteIcons.get(sprite);
 			if (cached != null) return cached;
 			spriteIcons.put(sprite, new BlankIcon());
-			sprites.getSpriteAsync(sprite, 0, img -> SwingUtilities.invokeLater(() -> {
+			sprites.getSpriteAsync(sprite, 0, img -> invokeLater(() -> {
 				if (img != null) {
 					spriteIcons.put(sprite, new ImageIcon(ImageUtil.resizeImage(img, ICON_W, ICON_H, true)));
 					list.repaint();
