@@ -502,6 +502,28 @@ final class RuleEngine {
 		return s;
 	}
 
+	/** One line per kind per board (label's " · board"), "+N more"; past 3 boards, "Tracked kill on 5 boards: …". */
+	static List<String> fold(List<String> lines) {
+		Map<String, Map<String, List<String>>> by = new LinkedHashMap<>();
+		for (String s : lines) {
+			int c = s.indexOf(": "), b = s.lastIndexOf(" \u00b7 ");
+			by.computeIfAbsent(c < 0 ? s : s.substring(0, c), k -> new LinkedHashMap<>())
+				.computeIfAbsent(b < 0 ? "" : s.substring(b).replaceAll(" \\([^(]*\\)!?$|!$", ""), k -> new ArrayList<>()).add(s);
+		}
+		List<String> out = new ArrayList<>();
+		by.forEach((head, boards) -> {
+			if (boards.size() > 3) {
+				String first = boards.values().iterator().next().get(0);
+				out.add(more(head + " on " + boards.size() + " boards" + first.substring(head.length()), boards.values().stream().mapToInt(List::size).sum()));
+			} else boards.values().forEach(l -> out.add(more(l.get(0), l.size())));
+		});
+		return out;
+	}
+
+	private static String more(String s, int n) {
+		return n > 1 ? s + " +" + (n - 1) + " more" : s;
+	}
+
 	static String gp(long gp) {
 		return gp >= 1_000_000 ? String.format(Locale.ROOT, "%.1fM gp", gp / 1_000_000.0)
 			: gp >= 1_000 ? String.format(Locale.ROOT, "%.0fk gp", gp / 1_000.0) : gp + " gp";

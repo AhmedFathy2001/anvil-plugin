@@ -4080,7 +4080,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private void say(List<String> lines) {
-		lines.forEach(s -> sendChatMessage(ChatPalette.Tone.NEAR, s));
+		RuleEngine.fold(lines).forEach(s -> sendChatMessage(ChatPalette.Tone.NEAR, s));
 	}
 
 	/** Image-less facts: one POST; on failure they go back in the queue, tried again with the next or in 30s. */
@@ -4200,18 +4200,21 @@ public class AnvilPlugin extends Plugin {
 	private void adoptFacts(JsonObject reply) {
 		if (reply == null) return;
 		say(rules.adopt(reply));
+		List<String> done = new ArrayList<>(), no = new ArrayList<>();
 		if (reply.has("credits")) {
 			for (JsonElement el : reply.getAsJsonArray("credits")) {
 				JsonObject c = el.getAsJsonObject();
-				if (c.has("completed") && c.get("completed").getAsBoolean()) announceCompletedNow(c.get("t").getAsInt(), c.get("label").getAsString());
+				if (c.has("completed") && c.get("completed").getAsBoolean() && announceCompletedNow(c.get("t").getAsInt(), c.get("label").getAsString())) done.add("Tile complete: " + c.get("label").getAsString());
 				// The site turned it down (its reason in "error"): say so, and drop the count this client guessed.
 				if (c.has("ok") && !c.get("ok").getAsBoolean() && c.has("error") && !c.get("error").isJsonNull()
 						&& !"Will retry".equals(c.get("error").getAsString())) {
 					optimistic.clear(c.get("t").getAsInt());
-					sendChatMessage(ChatPalette.Tone.WARN, "Not counted: " + c.get("label").getAsString() + " — " + c.get("error").getAsString());
+					no.add("Not counted: " + c.get("label").getAsString() + " — " + c.get("error").getAsString());
 				}
 			}
 		}
+		RuleEngine.fold(done).forEach(s -> announceTileComplete(s, getLocalPlayerName()));
+		RuleEngine.fold(no).forEach(s -> sendChatMessage(ChatPalette.Tone.WARN, s));
 		refreshConfig();
 		// Our proof is on the site now: the open view (its proofs, who's on it) shows it at once.
 		AnvilSidebarPanel panel = sidebarPanel;
@@ -5679,12 +5682,12 @@ public class AnvilPlugin extends Plugin {
 	 * now, under the same lock and memory as {@link #checkTileCompletions}, so the poll that follows
 	 * doesn't say it again.
 	 */
-	private void announceCompletedNow(int tileId, String label) {
+	private boolean announceCompletedNow(int tileId, String label) {
 		configFetchLock.lock();
 		try {
 			PluginConfigResponse cfg = pluginConfig;
 			if (cfg == null || seededBoards.isEmpty() || !notifiedCompletedTiles.add(tileId)) {
-				return;
+				return false;
 			}
 			confirmedDoneAt.put(tileId, now());
 		} finally {
@@ -5692,26 +5695,26 @@ public class AnvilPlugin extends Plugin {
 		}
 		onTileConfirmedDone(tileId);
 		if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::tileCompleted);
-		if (!config.teamCompletionBanner()) return;
+		if (!config.teamCompletionBanner()) return false;
 		// A drop's own popup already showed it complete: no second popup, but the chat line still says so.
 		if (!locallyShownTiles.contains(tileId)) {
 			clogBanner.show("Anvil Bingo", "Tile complete!", label);
 			playBannerSound();
 		}
-		announceTileComplete(label, getLocalPlayerName());
+		return true;
 	}
 
 	/**
-	 * "Tile complete: <label> — by <name>!". A Supporter's name goes out plain, after their star: the
+	 * "Tile complete: <label> — by <name>!" ({@code line} is up to the label). A Supporter's name goes out plain, after their star: the
 	 * chatbox pass paints it in their colours for the chat surface and moves a Patron's (anvilLine).
 	 */
-	private void announceTileComplete(String label, String completedBy) {
+	private void announceTileComplete(String line, String completedBy) {
 		String who = completedBy == null ? "" : clean(completedBy.trim());
 		if (!who.isEmpty() && config.supporterChatFlair() && chatFlair.entry(who) != null) {
 			ChatFlair.Entry e = chatFlair.entry(who);
 			String star = Boolean.TRUE.equals(e.s) ? chatStar() : null;
-			sendChatLine("Anvil", "Tile complete: " + label + " — by ", ChatPalette.Tone.DONE, null, (star != null ? star : "") + who + "!");
-		} else sendChatMessage(ChatPalette.Tone.DONE, "Tile complete: " + label + (who.isEmpty() ? "" : " — by " + who) + "!");
+			sendChatLine("Anvil", line + " — by ", ChatPalette.Tone.DONE, null, (star != null ? star : "") + who + "!");
+		} else sendChatMessage(ChatPalette.Tone.DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
 	}
 
 	/** A chat line Anvil wrote itself: "[Anvil] …", after any timestamp (no player can write a non-sender line). */
@@ -5771,7 +5774,9 @@ public class AnvilPlugin extends Plugin {
 		// A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
-		for (CompletedTile t : newlyDone) announceTileComplete(t.label, t.completedBy);
+		Map<String, List<String>> by = new LinkedHashMap<>();
+		for (CompletedTile t : newlyDone) by.computeIfAbsent(Objects.toString(t.completedBy, ""), k -> new ArrayList<>()).add("Tile complete: " + t.label);
+		by.forEach((who, l) -> RuleEngine.fold(l).forEach(s -> announceTileComplete(s, who)));
 	}
 
 	/**
@@ -9492,7 +9497,8 @@ public class AnvilPlugin extends Plugin {
 		return () -> {
 			if (--shotsPending > 0) return;
 			shotsPending = 0;
-			shotHidden.forEach(w -> w.setHidden(false));
+			// Only a widget still on its line: one the game re-laid out since would show a stale rank icon on another row.
+			shotHidden.forEach((w, t) -> w.setHidden(w.getText() != t && w.isHidden()));
 			shotHidden.clear();
 		};
 	}
@@ -9521,14 +9527,16 @@ public class AnvilPlugin extends Plugin {
 			}
 			if (!rows.isEmpty()) for (Widget w : lines) if (w != null && !w.isHidden() && rows.contains(w.getOriginalY())) hid.add(w);
 		}
-		hid.forEach(w -> w.setHidden(true));
-		shotHidden.addAll(hid);
+		for (Widget w : hid) {
+			w.setHidden(true);
+			shotHidden.put(w, w.getText());
+		}
 	}
 
 	private int shotMask;
 
 	/** Client thread: the chat rows hidden for screenshots still waiting for their frame, and how many wait. */
-	private final Set<Widget> shotHidden = new HashSet<>();
+	private final Map<Widget, String> shotHidden = new HashMap<>();
 	private int shotsPending;
 
 	/**
