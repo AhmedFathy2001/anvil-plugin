@@ -95,9 +95,9 @@ your clan's card shows the week's top gains and its biggest accounts.
 
 <br clear="right">
 
-<img src="docs/images/panel-bingo-board.png" alt="A bingo board in the side panel: progress, Do this next, compact standings and team activity" width="237" align="right">
+<img src="docs/images/panel-bingo-board.png" alt="A bingo board in the side panel: progress, Up next, compact standings and team activity" width="237" align="right">
 
-**A bingo board.** Open an event for your progress and your team's placing. **Do this next** lists the
+**A bingo board.** Open an event for your progress and your team's placing. **Up next** lists the
 tiles your team is closest to finishing. The standings are short, with you highlighted and rank
 movement shown; **View all** opens every team. Below are who's on a tile right now and what your
 team just did, then **View all tiles** for the whole board, searchable by name or kind (`timed`,
@@ -145,10 +145,10 @@ them up.
 
 ### Tile races
 
-<img src="docs/images/panel-race.png" alt="A tile race: your step, Do this next, your road and the standings" width="237" align="right">
+<img src="docs/images/panel-race.png" alt="A tile race: your step, Up next, your road and the standings" width="237" align="right">
 
 In a tile race you move along a road of tiles. The panel shows your step, how far you are from the
-leader and which road you're on. **Do this next** is the one tile that counts right now. **Your road**
+leader and which road you're on. **Up next** is the one tile that counts right now. **Your road**
 shows what you've done, where you are and what's next, including where you can switch roads.
 Tap a tile to see what counts, where it leads, and who's done it.
 
