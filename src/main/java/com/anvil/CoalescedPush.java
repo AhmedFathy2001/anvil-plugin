@@ -50,7 +50,7 @@ final class CoalescedPush {
 		BooleanSupplier allowed, Sender sender, Runnable afterSend) {
 		this.what = what;
 		this.delayMs = delayMs;
-		this.sent = onlyRises ? new HashMap<>() : null;
+		sent = onlyRises ? new HashMap<>() : null;
 		this.executor = executor;
 		this.allowed = allowed;
 		this.sender = sender;

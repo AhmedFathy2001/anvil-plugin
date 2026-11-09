@@ -69,12 +69,12 @@ public class BingoClogBannerOverlay extends Overlay {
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
-		this.background = loadBackground();
-		this.headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
+		background = loadBackground();
+		headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
 		// crisp size — the standard chat font read too large on the small panel. No deriveFont: scaling
 		// a bitmap font off its native grid pixelates (see the wrap-not-shrink note above).
-		this.bodyFont = FontManager.getRunescapeSmallFont();
+		bodyFont = FontManager.getRunescapeSmallFont();
 	}
 
 	private static BufferedImage loadBackground() {

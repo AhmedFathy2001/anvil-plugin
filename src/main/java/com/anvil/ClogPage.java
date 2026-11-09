@@ -36,7 +36,7 @@ final class ClogPage {
 		this.counts = counts == null || counts.isEmpty()
 			? Collections.emptyMap()
 			: Collections.unmodifiableMap(new LinkedHashMap<>(counts));
-		this.hash = computeHash();
+		hash = computeHash();
 	}
 
 	/**

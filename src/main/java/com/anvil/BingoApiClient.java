@@ -87,17 +87,17 @@ public class BingoApiClient {
 		this.gson = gson;
 		// Read timeout is generous because some server reads do several round-trips to Turso
 		// and can take a while; tighter timeouts here will trip even on healthy servers.
-		this.httpClient = client.newBuilder()
+		httpClient = client.newBuilder()
 			.addInterceptor(pauseGate())
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
 			.build();
-		this.pushClient = httpClient.newBuilder().pingInterval(30, TimeUnit.SECONDS).build();
+		pushClient = httpClient.newBuilder().pingInterval(30, TimeUnit.SECONDS).build();
 		// Reads the sidebar waits on (config, feed, board, cards) give up sooner: a panel stuck on
 		// "Loading…" for a minute and a half is worse than one that says the site is slow and keeps
 		// what it had. Uploads and submissions keep the long timeout above.
-		this.readClient = httpClient.newBuilder()
+		readClient = httpClient.newBuilder()
 			.readTimeout(20, TimeUnit.SECONDS)
 			.build();
 	}
@@ -112,7 +112,7 @@ public class BingoApiClient {
 	 */
 	public void configure(String playerToken) {
 		this.playerToken = playerToken;
-		this.apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : site();
+		apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : site();
 	}
 
 	/** The site base URL in use, or "" while signed out (see {@link #configure}). */
@@ -160,12 +160,12 @@ public class BingoApiClient {
 
 	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
 	public void setChosenClan(String slug) {
-		this.chosenClan = cleanSlug(slug);
+		chosenClan = cleanSlug(slug);
 	}
 
 	/** The site answered, and named the clan it answered for. */
 	public void setResolvedClan(String slug) {
-		this.resolvedClan = cleanSlug(slug);
+		resolvedClan = cleanSlug(slug);
 	}
 
 	/** The clan this client is actually addressing right now — a pick beats the server's guess. */
@@ -225,7 +225,7 @@ public class BingoApiClient {
 	public void setCurrentRsn(String rsn) {
 		// Mid-login the client names the player "#Player2014" for a tick or two. No real name has a
 		// '#', and stamping that one filed requests under a character that doesn't exist.
-		this.currentRsn = (rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0) ? null : rsn;
+		currentRsn = (rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0) ? null : rsn;
 	}
 
 	/**
@@ -235,19 +235,19 @@ public class BingoApiClient {
 	 * treated as cleared.
 	 */
 	public void setAccountHash(long hash) {
-		this.accountHash = hash == -1L ? null : Long.toString(hash);
+		accountHash = hash == -1L ? null : Long.toString(hash);
 	}
 
 	/** The Jagex Launcher's character name, or null when RuneLite wasn't started from the launcher. */
 	public void setRsnHint(String name) {
-		this.rsnHint = (name == null || name.trim().isEmpty()) ? null : name.trim();
+		rsnHint = (name == null || name.trim().isEmpty()) ? null : name.trim();
 	}
 
 
 	/** Called on login and every hop: the world's flags and activity, already cleaned (WorldInfo). */
 	public void setWorld(String types, String activity) {
-		this.worldTypes = types;
-		this.worldActivity = activity;
+		worldTypes = types;
+		worldActivity = activity;
 	}
 
 	/**

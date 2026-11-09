@@ -103,7 +103,7 @@ final class GradientLabel extends JLabel {
 	GradientLabel(Color[] stops, boolean moving) {
 		this.stops = stops;
 		this.moving = moving;
-		this.fractions = new float[stops.length];
+		fractions = new float[stops.length];
 		for (int i = 0; i < stops.length; i++) fractions[i] = stops.length == 1 ? 0f : (float) i / (stops.length - 1);
 	}
 

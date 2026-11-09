@@ -170,13 +170,13 @@ final class FeedList extends JPanel {
 
 	FeedList(JsonObject n, UiView.Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills, Consumer<JsonObject> act) {
 		super(new BorderLayout(0, 4));
-		this.id = str(n, "id");
+		id = str(n, "id");
 		this.host = host;
 		this.items = items;
 		this.sprites = sprites;
 		this.skills = skills;
 		this.act = act;
-		this.cap = n.has("cap") ? Math.max(20, n.get("cap").getAsInt()) : 200;
+		cap = n.has("cap") ? Math.max(20, n.get("cap").getAsInt()) : 200;
 		int h = n.has("h") ? Math.max(120, n.get("h").getAsInt()) : 420;
 		flush.setRepeats(false);
 		setOpaque(false);

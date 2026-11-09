@@ -52,7 +52,7 @@ final class GifIcon implements Icon {
 	private GifIcon(BufferedImage[] frames, int[] ends) {
 		this.frames = frames;
 		this.ends = ends;
-		this.total = ends[ends.length - 1];
+		total = ends[ends.length - 1];
 	}
 
 	/** Its own clock for another label; the decoded frames are shared. */

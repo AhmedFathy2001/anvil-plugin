@@ -50,7 +50,7 @@ public class BannerSoundService {
 	}
 
 	public void setRoot(Filepath dir) {
-		this.root = dir;
+		root = dir;
 		migrateLooseClips();
 		for (Kind kind : Kind.values()) relist(kind);
 	}
