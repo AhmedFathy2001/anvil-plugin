@@ -2,6 +2,7 @@ package com.anvil;
 
 import java.util.Arrays;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -55,5 +56,16 @@ public class TileTrackerDoneTest
 		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 60_000));
+	}
+
+	@Test
+	public void finishingAPinAsksAgainAfterTheLingerThenComesDown()
+	{
+		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site); // pinned with Track on screen
+		assertEquals(TileTracker.KEEP, TileTracker.afterFetch(w, progress(false), 0));
+		// Completed: "Done" goes up once, and that is when the plugin schedules the next look.
+		assertEquals(TileTracker.DONE_SHOWN, TileTracker.afterFetch(w, progress(true), 1_000));
+		assertEquals(TileTracker.KEEP, TileTracker.afterFetch(w, progress(true), 2_000));
+		assertEquals(TileTracker.UNPIN, TileTracker.afterFetch(w, progress(true), 1_000 + TileTracker.DONE_LINGER_MS + 1_000));
 	}
 }

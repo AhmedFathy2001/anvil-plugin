@@ -1263,7 +1263,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** The site confirmed a tile done: ask now, so a tile's detail doesn't say "Open" after the chat said done. */
 	public void tileCompleted() {
-		askAgainNow();
+		// The whole page: a race's road and "Up next" are on it, not in a slot a plain refresh would pick.
+		uiCache.clear();
+		clanAskedAt = System.currentTimeMillis();
+		if (onScreen && clanShown) clanView.refresh(true);
 		refresh();
 	}
 

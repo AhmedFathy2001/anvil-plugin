@@ -1177,6 +1177,13 @@ public class AnvilPlugin extends Plugin {
 			if (c != null && c.boards != null) c.boards.forEach(b -> ids.add(b.eventId));
 			return ids;
 		}, this::sendChatMessage);
+		// A finished pin shows "Done" for the linger, then comes down — and the panel's pin list follows.
+		tileTracker.setDoneHooks(
+			id -> later(() -> safely("tileTracker", () -> tileTracker.refresh(id)), TileTracker.DONE_LINGER_MS + 1_000),
+			() -> {
+				AnvilSidebarPanel panel = sidebarPanel;
+				if (panel != null) panel.boardChanged();
+			});
 		tileTracker.setOnePanel(config.trackerOnePanel());
 		tileTracker.startUp();
 		overlayManager.add(startProofOverlay);
@@ -5773,8 +5780,8 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void onTileConfirmedDone(int tileId) {
 		if (!tileTracker.tracks(tileId)) return;
+		// Its "Done" goes up now; the tracker's doneSeen hook asks again after the linger to take it down.
 		submit(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)));
-		later(() -> safely("tileTracker", () -> tileTracker.refresh(tileId)), TileTracker.DONE_LINGER_MS + 1_000);
 	}
 
 	/**
