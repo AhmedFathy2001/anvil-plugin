@@ -87,7 +87,6 @@ import javax.swing.JComponent;
 
 final class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
-	static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
 	static final int FLUSH_MS = 400;
 	/** How long after our own press's post answers before held reaction pushes are laid over it. */
@@ -1554,7 +1553,7 @@ final class FeedList extends JPanel {
 	static long millis(String at) {
 		if (at == null || at.isEmpty()) return 0;
 		var iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";
+		if (!iso.endsWith("Z") && !Ui.HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";
 		try {
 			return java.time.Instant.parse(iso).toEpochMilli();
 		} catch (RuntimeException e) {

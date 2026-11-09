@@ -1452,10 +1452,8 @@ public class AnvilPlugin extends Plugin {
 		for (ScheduledFuture<?> task : loopTasks) cancel(task);
 		loopTasks.clear();
 		synchronized (this) {
-			if (feedLinger != null) {
-				feedLinger.cancel(false);
-				feedLinger = null;
-			}
+			cancel(feedLinger);
+			feedLinger = null;
 			feedWatching = false;
 		}
 		cancel(pendingRefresh);
@@ -1529,7 +1527,7 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setNotifyOutbox(null);
 		// What hasn't gone out yet waits on disk for this character's next login. Snapshot here, write
 		// on RuneLite's scheduler (ours is about to stop); the resets below then clear memory.
-		var save = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
+		var save = stashPushes();
 		if (save != null) sharedExecutor.submit(save);
 		if (pushSocket != null) pushSocket.scope(null);
 		if (executor != null) {
@@ -1555,10 +1553,8 @@ public class AnvilPlugin extends Plugin {
 		// Flush the recap counters to the config store (captures loot gained since the last push) and
 		// stop the pending task — the in-memory totals survive so a same-event re-login keeps counting.
 		synchronized (counterLock) {
-			if (counterPushTask != null) {
-				counterPushTask.cancel(false);
-				counterPushTask = null;
-			}
+			cancel(counterPushTask);
+			counterPushTask = null;
 			if (countersLoaded) persistCounters();
 		}
 		recentTimedMessages.clear();
@@ -2506,7 +2502,7 @@ public class AnvilPlugin extends Plugin {
 		// session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
 		// logout that flushes the hiscores — treating either as a fresh login would hand out a clean
 		// bill of health to a client that has been up for hours.
-		if (event.getGameState() == GameState.LOGGED_IN && freshLoginPending) {
+		if (gs == GameState.LOGGED_IN && freshLoginPending) {
 			freshLoginPending = false;
 			sessionLoginAtMs = now();
 			SwingUtilities.invokeLater(sidebarPanel::refresh); // "Track on screen" is in-game only
@@ -2514,13 +2510,13 @@ public class AnvilPlugin extends Plugin {
 		// Re-read on every login: the levels belong to the account that just logged in, and the
 		// previous one's are worse than nothing (a 99 on the alt reads as a 99 already announced).
 		// A hop waits for maybeSettleStats: LOGGED_IN can still expose the old world's table.
-		if (event.getGameState() == GameState.LOGGED_IN && !statsUnsettled) seedSkillLevels();
-		if (event.getGameState() == GameState.LOGGED_IN && !helloSent) {
+		if (gs == GameState.LOGGED_IN && !statsUnsettled) seedSkillLevels();
+		if (gs == GameState.LOGGED_IN && !helloSent) {
 			// The name and account hash aren't populated at this transition. onGameTick stamps on the
 			// first tick that has both, usually the next one, instead of a blind three-second wait.
 			identityStampPending = true;
 			identityWaitTicks = 0;
-		} else if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.HOPPING) {
+		} else if (gs == GameState.LOGIN_SCREEN || gs == GameState.HOPPING) {
 			// Send any catches still held before we tear down — a logout/hop mid-gather would
 			// otherwise lose them (they live only in memory). The executor is still alive here.
 			flushHeldGains();
@@ -2538,9 +2534,9 @@ public class AnvilPlugin extends Plugin {
 			chestLineCredits.clear();
 			// The destination sends a fresh table. Until its burst settles, restoring the real
 			// account after PvP Arena must not look like dozens of level-ups.
-			if (event.getGameState() == GameState.HOPPING) unsettleStats();
+			if (gs == GameState.HOPPING) unsettleStats();
 		}
-		if (event.getGameState() == GameState.LOGIN_SCREEN) {
+		if (gs == GameState.LOGIN_SCREEN) {
 			// The next account may be on another team: its gains don't build on this one's counts.
 			optimistic.reset();
 			// The next account's stats haven't been sent yet; what the client holds until then is
@@ -2605,7 +2601,7 @@ public class AnvilPlugin extends Plugin {
 			lastTrackingFingerprint = null;
 			// Unsent counts and moments are this character's: save them for its next login rather
 			// than let them go out under nobody (or the next character) a few seconds from now.
-			var saveForLater = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
+			var saveForLater = stashPushes();
 			if (saveForLater != null) submit(saveForLater);
 			// Clear the RSN + account hash so we don't keep stamping the previous account
 			// onto requests that fire before the next login completes.
@@ -5038,7 +5034,6 @@ public class AnvilPlugin extends Plugin {
 		for (PendingSubmission sub : pending) {
 			// Manual proofs (older versions saved them for pets / duplicate Champion's scrolls) have no
 			// tile to auto-submit to. Never upload.
-			if (sub.manual) continue;
 			// Held for the character that caught it — waiting on a login, not a failure to back off from.
 			if (sub.capturedRsn != null && !sub.capturedRsn.isEmpty()
 					&& !Rsn.same(sub.capturedRsn, apiClient.getCurrentRsn())) {
@@ -5265,8 +5260,8 @@ public class AnvilPlugin extends Plugin {
 	 * clear them, and return the disk write that keeps them (null when there's nothing, or no way to
 	 * tell whose they are). Any thread: the snapshot is memory only; run the result off the client thread.
 	 */
-	Runnable stashPushes(String rsn, String accountHash) {
-		var key = PushStash.keyFor(rsn, accountHash);
+	Runnable stashPushes() {
+		var key = PushStash.keyFor(apiClient.getCurrentRsn(), apiClient.getAccountHash());
 		var stash = pushStash;
 		if (key == null || stash == null) return null;
 		var data = new PushStash.Data();
@@ -5313,7 +5308,7 @@ public class AnvilPlugin extends Plugin {
 	/** Client closing (not just the plugin stopping): save unsent pushes, and have the client wait for it. */
 	@Subscribe
 	public void onClientShutdown(ClientShutdown event) {
-		var save = stashPushes(apiClient.getCurrentRsn(), apiClient.getAccountHash());
+		var save = stashPushes();
 		if (save != null) event.waitFor(sharedExecutor.submit(save));
 	}
 
@@ -6068,6 +6063,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** The panel's tracked name: its Supporter look, or null. */
+	boolean flairOff() {
+		return !config.supporterChatFlair() || chatFlair.isEmpty();
+	}
+
 	ChatFlair.Entry flairOf(String rsn) {
 		return chatFlair.entry(rsn);
 	}
@@ -6123,7 +6122,7 @@ public class AnvilPlugin extends Plugin {
 	 * line's menu options come from the message data, not from this text.
 	 */
 	void flairChatbox() {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty()) return;
+		if (flairOff()) return;
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines == null) return;
@@ -6260,7 +6259,7 @@ public class AnvilPlugin extends Plugin {
 	 * must have nothing to its left (a typed "From Bob: hi" is someone's message widget).
 	 */
 	void flairSplitPm() {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty()) return;
+		if (flairOff()) return;
 		var box = client.getWidget(InterfaceID.PmChat.CONTAINER);
 		if (box == null || box.isHidden()) return;
 		var frame = currentChatNameFrame();
@@ -6541,7 +6540,7 @@ public class AnvilPlugin extends Plugin {
 	long interfaceNameFrame = Long.MIN_VALUE;
 
 	void flairInterface(int rootId) {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty()) return;
+		if (flairOff()) return;
 		var root = client.getWidget(rootId);
 		if (root == null) return;
 		var frame = currentChatNameFrame();
@@ -6559,7 +6558,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Repaint remembered interface names only; never walk the whole client widget tree per frame. */
 	void animateFlairInterfaces() {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty() || interfaceNameFlair.isEmpty()) return;
+		if (flairOff() || interfaceNameFlair.isEmpty()) return;
 		var frame = currentChatNameFrame();
 		if (frame == interfaceNameFrame) return;
 		interfaceNameFrame = frame;
@@ -6667,7 +6666,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void flairChatInput() {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty() || client.getLocalPlayer() == null) return;
+		if (flairOff() || client.getLocalPlayer() == null) return;
 		var input = client.getWidget(InterfaceID.Chatbox.INPUT);
 		var me = client.getLocalPlayer().getName();
 		if (input == null || me == null) return;
@@ -6712,7 +6711,7 @@ public class AnvilPlugin extends Plugin {
 	 * stays plain. A painted name no longer matches decorate()'s plain-name test, so a repaint is a no-op.
 	 */
 	void flairNameLists() {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty()) return;
+		if (flairOff()) return;
 		var frame = currentChatNameFrame();
 		nameListFrame = frame;
 		var shift = interfaceNameShift(frame);
@@ -6737,7 +6736,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Repaint only the Patron rows already discovered by a list rebuild; no full list scan per frame. */
 	void animateFlairNameLists() {
-		if (!config.supporterChatFlair() || chatFlair.isEmpty() || nameListMoving.isEmpty()) return;
+		if (flairOff() || nameListMoving.isEmpty()) return;
 		var frame = currentChatNameFrame();
 		if (frame == nameListFrame) return;
 		nameListFrame = frame;
@@ -6822,10 +6821,8 @@ public class AnvilPlugin extends Plugin {
 		var ex = executor;
 		if (ex == null) return;
 		synchronized (this) {
-			if (feedLinger != null) {
-				feedLinger.cancel(false);
-				feedLinger = null;
-			}
+			cancel(feedLinger);
+			feedLinger = null;
 			if (on) {
 				feedWatching = true;
 				ex.execute(() -> safely("push", this::syncPush));
@@ -8012,7 +8009,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** The suppression reason for the shared config gates, or null when tracking is live. */
 	String trackingGateReason() {
-		if (pluginConfig == null) return "no event config loaded (not enrolled, or token/RSN not resolved)";
+		if (pluginConfig == null) return "no event config";
 		if (!pluginConfig.live()) return "no live board";
 		return null;
 	}

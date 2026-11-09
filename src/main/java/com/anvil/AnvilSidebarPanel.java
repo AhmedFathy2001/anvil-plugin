@@ -97,6 +97,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	final UiView lookupView;
 	/** The Feed tab: the clan's and the board's live lists, and the board's chat (view 'feed'). */
 	final UiView feedView;
+	final UiView[] views;
 	/** Whose card You holds. */
 	String youRsn;
 	/** The Clan tab has asked for its view since it was last reset (sign-in, a clan switch). */
@@ -201,6 +202,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		youView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 		lookupView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
 		feedView = new UiView(uiHost(), itemManager, spriteManager, skillIconManager);
+		views = new UiView[]{clanView, youView, lookupView, feedView};
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
@@ -817,10 +819,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		dataSource.feedOnScreen(tab == Tab.FEED);
 		refresh();
 		autoRefresh.start();
-		clanView.resume();
-		youView.resume();
-		lookupView.resume();
-		feedView.resume();
+		for (var v : views) v.resume();
 		startProofTimer.start();
 	}
 
@@ -829,10 +828,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		onScreen = false;
 		dataSource.feedOnScreen(false);
 		autoRefresh.stop();
-		clanView.stop();
-		youView.stop();
-		lookupView.stop();
-		feedView.stop();
+		for (var v : views) v.stop();
 		startProofTimer.stop();
 	}
 
@@ -1188,10 +1184,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		refreshAccountRow();
 		if (manual) {
 			apiClient.clearThumbs();
-			clanView.invalidateDrawn();
-			youView.invalidateDrawn();
-			lookupView.invalidateDrawn();
-			feedView.invalidateDrawn();
+			for (var v : views) v.invalidateDrawn();
 			// A refresh with nothing new changes nothing on screen: the button says it's working.
 			refreshButton.setEnabled(false);
 			refreshButton.setText("Refreshing…");
