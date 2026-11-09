@@ -18,9 +18,6 @@ import java.util.*;
  * <p>No RuneLite dependencies, so it is unit-testable.
  */
 final class TileNotes {
-	/** Virtual ids leave this many slots per capped tile (site contract). */
-	static final int CAP_SLOTS = 8;
-
 	private TileNotes() {
 	}
 

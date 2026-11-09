@@ -91,11 +91,6 @@ public class PluginConfigResponse {
 		public boolean isWeekly() {
 			return "weekly".equals(kind);
 		}
-
-		/** Identity across clans: the id alone is ambiguous between the two tables it can come from. */
-		public String identity() {
-			return kind == null || "bingo".equals(kind) ? boardIdentity(eventId) : kind + ":" + eventId;
-		}
 	}
 
 	/**

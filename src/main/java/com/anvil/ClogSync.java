@@ -31,7 +31,6 @@ final class ClogSync {
 	private final Map<String, ClogPage> pending = new LinkedHashMap<>();
 
 	private long lastChangeAt;
-	private boolean stateLoaded;
 
 	/**
 	 * Offer the page currently on screen. Cheap and idempotent — the common case is a hash compare
@@ -93,7 +92,6 @@ final class ClogSync {
 		sent.clear();
 		pending.clear();
 		lastChangeAt = 0;
-		stateLoaded = false;
 	}
 
 	/**
@@ -135,7 +133,6 @@ final class ClogSync {
 	/** Restore from {@link #serializeState}. Junk lines are skipped, never fatal. */
 	void restoreState(String raw) {
 		sent.clear();
-		stateLoaded = true;
 		readLines(raw, (hash, page) -> sent.put(page, Long.parseUnsignedLong(hash, 16)));
 	}
 }

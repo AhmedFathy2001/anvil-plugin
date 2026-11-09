@@ -477,7 +477,6 @@ public class TileTracker {
 		String label;
 		int points;
 		int goal;
-		String statType;
 		List<Team> teams;
 		/** Fetch result for "the site says this tile is not on your boards". */
 		static final Progress GONE = new Progress();

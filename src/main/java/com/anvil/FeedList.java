@@ -1091,7 +1091,6 @@ final class FeedList extends JPanel {
 	 */
 	private final class ChatCell extends javax.swing.JComponent {
 		private static final int PAD_X = 8;
-		private static final int TIME_W = 34;
 		private final Map<String, List<String>> wraps = new HashMap<>();
 		private int wrapWidth = -1;
 		private JsonObject r;

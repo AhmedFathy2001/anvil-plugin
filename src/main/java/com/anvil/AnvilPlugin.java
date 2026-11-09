@@ -204,7 +204,6 @@ public class AnvilPlugin extends Plugin {
 	/** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
 	private volatile boolean liveConfigAnswered;
 	/** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
-	private volatile long lastConfigRefreshAt;
 
 	// STARTING SHOT (site lib/startProof). `startProofFiled` latches the moment one is accepted by
 	// the server so the button/nudge go away immediately instead of waiting on the next config poll;
@@ -2756,7 +2755,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		// The name is known now; say so before the config round trip rather than after it.
-		redrawSidebarLocal();
+		repaintSidebar();
 		loadProfileSyncState(rsn);
 		// Refresh config for the character we just logged into so tracking reflects THIS
 		// account's enrollment right away — when one person plays several accounts, only
@@ -5450,7 +5449,7 @@ public class AnvilPlugin extends Plugin {
 		lastAdminProbeAt = now();
 		boolean wasAdmin = isAdmin;
 		isAdmin = apiClient.fetchIsAdmin(token);
-		if (wasAdmin != isAdmin) redrawSidebarLocal();
+		if (wasAdmin != isAdmin) repaintSidebar();
 		// Repaint the side panel so the admin button appears/disappears.
 	}
 
@@ -5491,7 +5490,7 @@ public class AnvilPlugin extends Plugin {
 					clanRosterReadable ? "readable" : "not readable",
 					client.getClanChannel() != null, cs != null,
 					cs == null || cs.getMembers() == null ? 0 : cs.getMembers().size());
-			redrawSidebarLocal();
+			repaintSidebar();
 		}
 	}
 
@@ -5549,7 +5548,7 @@ public class AnvilPlugin extends Plugin {
 				// it and take the button away now rather than after the grace period.
 				clanRosterReadable = false;
 				clanRosterMissingTicks = CLAN_ROSTER_GRACE_TICKS;
-				redrawSidebarLocal();
+				repaintSidebar();
 				syncFailed(cb, !automatic, null, "Join your clan channel first — the roster is read from it.");
 				return;
 			}
@@ -5953,11 +5952,6 @@ public class AnvilPlugin extends Plugin {
 			// No executor means startUp hasn't run, so there is no panel waiting on a fetch either.
 			repaintSidebar();
 		}
-	}
-
-	/** Something only this client shows on the panel changed (a pin, the starting shot): redraw it. Any thread. */
-	private void redrawSidebarLocal() {
-		repaintSidebar();
 	}
 
 	/** Ask the sidebar to re-read, from the EDT — it is Swing, and callers here are on worker threads. */
@@ -7100,7 +7094,6 @@ public class AnvilPlugin extends Plugin {
 			long askedAt = now();
 			PluginConfigResponse fresh = apiClient.fetchConfig();
 			if (fresh != null) fresh.asOf = askedAt;
-			lastConfigRefreshAt = now();
 			liveConfigAnswered = true;
 			forgetSavedResponses();
 			if (siteUnreachable) {
@@ -9906,7 +9899,7 @@ public class AnvilPlugin extends Plugin {
 		boolean open = client.getWidget(InterfaceID.Collection.FRAME) != null;
 		if (open != clogOpen) {
 			clogOpen = open;
-			redrawSidebarLocal();
+			repaintSidebar();
 		}
 	}
 

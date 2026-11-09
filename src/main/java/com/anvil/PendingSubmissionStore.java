@@ -42,7 +42,6 @@ public class PendingSubmissionStore {
 		public int eventId;
 		public int tileId;
 		public int teamId;
-		public int playerId;
 		public int amount;
 		public String label;
 		public String note;
