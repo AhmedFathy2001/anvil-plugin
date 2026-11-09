@@ -4212,7 +4212,7 @@ public class AnvilPlugin extends Plugin {
 				}
 			}
 		}
-		RuleEngine.fold(done).forEach(s -> announceTileComplete(s, getLocalPlayerName()));
+		completeSoon(getLocalPlayerName(), done);
 		RuleEngine.fold(no).forEach(s -> sendChatMessage(ChatPalette.Tone.WARN, s));
 		refreshConfig();
 		// Our proof is on the site now: the open view (its proofs, who's on it) shows it at once.
@@ -5773,7 +5773,34 @@ public class AnvilPlugin extends Plugin {
 		// carry no crediting player, so those just say "Tile complete: <label>!".
 		Map<String, List<String>> by = new LinkedHashMap<>();
 		for (CompletedTile t : newlyDone) by.computeIfAbsent(Objects.toString(t.completedBy, ""), k -> new ArrayList<>()).add("Tile complete: " + t.label);
-		by.forEach((who, l) -> RuleEngine.fold(l).forEach(s -> announceTileComplete(s, who)));
+		by.forEach(this::completeSoon);
+	}
+
+	/**
+	 * "Tile complete" lines wait a moment: one kill's tiles come back from the facts reply and again
+	 * from the next poll, board by board. One line per player closes the run ("on N boards" past one).
+	 */
+	private final Map<String, List<String>> doneSoon = new LinkedHashMap<>();
+
+	private void completeSoon(String who, List<String> lines) {
+		if (lines.isEmpty()) return;
+		boolean first;
+		synchronized (doneSoon) {
+			first = doneSoon.isEmpty();
+			doneSoon.computeIfAbsent(who == null ? "" : who, k -> new ArrayList<>()).addAll(lines);
+		}
+		ScheduledExecutorService ex = executor;
+		if (ex == null || ex.isShutdown()) flushDone();
+		else if (first) ex.schedule(this::flushDone, 2, TimeUnit.SECONDS);
+	}
+
+	private void flushDone() {
+		Map<String, List<String>> by;
+		synchronized (doneSoon) {
+			by = new LinkedHashMap<>(doneSoon);
+			doneSoon.clear();
+		}
+		by.forEach((who, l) -> RuleEngine.fold(l, 1).forEach(s -> announceTileComplete(s, who.isEmpty() ? null : who)));
 	}
 
 	/**

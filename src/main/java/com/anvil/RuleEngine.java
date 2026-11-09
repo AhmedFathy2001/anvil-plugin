@@ -504,6 +504,11 @@ final class RuleEngine {
 
 	/** One line per kind per board (label's " · board"), "+N more"; past 3 boards, "Tracked kill on 5 boards: …". */
 	static List<String> fold(List<String> lines) {
+		return fold(lines, 3);
+	}
+
+	/** {@code maxBoards}: past this many boards one kind becomes a single "… on N boards" line. */
+	static List<String> fold(List<String> lines, int maxBoards) {
 		Map<String, Map<String, List<String>>> by = new LinkedHashMap<>();
 		for (String s : lines) {
 			int c = s.indexOf(": "), b = s.lastIndexOf(" \u00b7 ");
@@ -512,7 +517,7 @@ final class RuleEngine {
 		}
 		List<String> out = new ArrayList<>();
 		by.forEach((head, boards) -> {
-			if (boards.size() > 3) {
+			if (boards.size() > maxBoards) {
 				String first = boards.values().iterator().next().get(0);
 				out.add(more(head + " on " + boards.size() + " boards" + first.substring(head.length()), boards.values().stream().mapToInt(List::size).sum()));
 			} else boards.values().forEach(l -> out.add(more(l.get(0), l.size())));

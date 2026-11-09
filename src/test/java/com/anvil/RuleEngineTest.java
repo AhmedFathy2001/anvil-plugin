@@ -685,5 +685,9 @@ public class RuleEngineTest
 				"Tracked kill: Araxxor ×13 · Lab (1/26)", "Submitted: a", "Tracked kill: Araxxor · Lab (1/2)")));
 		assertEquals(Arrays.asList("Tile complete on 4 boards: X · A +4 more"),
 			RuleEngine.fold(Arrays.asList("Tile complete: X · A", "Tile complete: Y · B", "Tile complete: Y", "Tile complete: Z · C", "Tile complete: X2 · A")));
+		// Tile complete folds past one board: one line for the whole kill.
+		assertEquals(Arrays.asList("Tile complete: Y +1 more"), RuleEngine.fold(Arrays.asList("Tile complete: Y", "Tile complete: Y2"), 1));
+		assertEquals(Arrays.asList("Tile complete on 2 boards: Y +2 more"),
+			RuleEngine.fold(Arrays.asList("Tile complete: Y", "Tile complete: X · A", "Tile complete: X ×3 · A"), 1));
 	}
 }
