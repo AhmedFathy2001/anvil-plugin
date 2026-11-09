@@ -87,6 +87,19 @@ public class TileTracker {
 		notes = lines;
 	}
 
+	/**
+	 * {@code doneSeen}: a pin just started showing "Done" (tileId) — the plugin asks again after the
+	 * linger, so it comes down on time instead of on the next 30s poll. {@code unpinned}: a finished pin
+	 * came down, so whatever lists the pins (the panel's "Tracked on screen") asks again.
+	 */
+	void setDoneHooks(java.util.function.IntConsumer doneSeen, Runnable unpinned) {
+		this.doneSeen = doneSeen;
+		this.unpinned = unpinned;
+	}
+
+	private volatile java.util.function.IntConsumer doneSeen = id -> { };
+	private volatile Runnable unpinned = () -> { };
+
 	void setBoards(java.util.function.Supplier<List<Integer>> live, java.util.function.Consumer<String> tell) {
 		boards = live;
 		told = tell;
@@ -283,7 +296,18 @@ public class TileTracker {
 	private void show(int event, int tileId, Widget w, Progress p) {
 		w.progress = p;
 		w.label = p.label;
-		if (finishedAndShown(w, p, System.currentTimeMillis())) unpinDone(event, tileId, w);
+		int step = afterFetch(w, p, System.currentTimeMillis());
+		if (step == UNPIN) unpinDone(event, tileId, w);
+		else if (step == DONE_SHOWN) doneSeen.accept(tileId);
+	}
+
+	static final int KEEP = 0, DONE_SHOWN = 1, UNPIN = 2;
+
+	/** What a fetch means for the pin: nothing, "Done" just went up (ask again after the linger), or take it down. */
+	static int afterFetch(Widget w, Progress p, long now) {
+		long was = w.doneSinceMs;
+		if (finishedAndShown(w, p, now)) return UNPIN;
+		return was == 0 && w.doneSinceMs != 0 ? DONE_SHOWN : KEEP;
 	}
 
 	/**
@@ -314,6 +338,7 @@ public class TileTracker {
 		if (pins.get(tileId) == w) {
 			hide(removePin(tileId));
 			save();
+			unpinned.run();
 		}
 	}
 

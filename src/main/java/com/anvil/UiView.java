@@ -172,8 +172,27 @@ final class UiView extends JPanel {
 	 * What's drawn stays until the answer lands, then swaps once. False when nothing was loaded yet.
 	 */
 	boolean refresh() {
+		return refresh(false);
+	}
+
+	/**
+	 * {@code whole}: the page itself asks again (a tile just completed — the race road, "Up next" and
+	 * the standings all live on the page, not in a slot). A slot no longer on screen (a nav pane left
+	 * behind, Back from a tile's detail) is never what a refresh asks for: it has nowhere to land, and
+	 * it used to stand in for the page, so the page stayed stale until something else redrew it.
+	 */
+	boolean refresh(boolean whole) {
+		lastLoads.keySet().removeIf(k -> {
+			if ("null".equals(k)) return false;
+			Slot s = slots.get(k);
+			return s == null || !SwingUtilities.isDescendingFrom(s.holder, this);
+		});
 		Map<String, Object[]> loads = new LinkedHashMap<>(lastLoads);
 		Object[] root = loads.remove("null");
+		if (whole && root != null) {
+			fetch(null, (String) root[0], (Map<String, String>) root[1], true);
+			return true;
+		}
 		if (loads.isEmpty() && root != null) fetch(null, (String) root[0], (Map<String, String>) root[1], true);
 		loads.forEach((place, l) -> fetch(place, (String) l[0], (Map<String, String>) l[1], true));
 		return root != null || !loads.isEmpty();

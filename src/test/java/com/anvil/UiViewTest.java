@@ -389,6 +389,50 @@ public class UiViewTest
 		assertEquals(Arrays.asList("board{page=2}", "board{page=2}"), host.loads);
 	}
 
+	/** The race page: a nav slot whose tile pane loads its proofs into a slot of its own. */
+	private static final String RACE = "{\"t\":\"slot\",\"id\":\"race\",\"nav\":true,\"open\":\"main\",\"c\":{\"t\":\"col\",\"c\":[]},\"panes\":{"
+		+ "\"main\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"%s\"},{\"t\":\"text\",\"s\":\"Wintertodt crate\",\"on\":{\"a\":\"pane\",\"into\":\"race\",\"pane\":\"t:1\"}}]},"
+		+ "\"t:1\":{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Back\",\"on\":{\"a\":\"pane\",\"into\":\"race\",\"pane\":\"main\"}},"
+		+ "{\"t\":\"slot\",\"id\":\"proofs\",\"c\":{\"t\":\"text\",\"s\":\"Loading proofs\"},\"load\":{\"a\":\"load\",\"v\":\"proofs\",\"args\":{\"tile\":\"1\"}}}]}}}";
+
+	@Test
+	public void refreshAfterBackFromATileAsksForTheRacePageNotItsProofs() throws Exception
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.show("home", Collections.singletonMap("open", "board"), null);
+		host.pending.get(0).accept(view(String.format(RACE, "Step 1 of 6")));
+		click(v, "Wintertodt crate");
+		assertEquals("proofs{tile=1}", host.loads.get(1));
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"No proofs\"}"));
+		click(v, "Back");
+		// The tile completed: the proofs slot left behind is off screen, so the page itself asks again.
+		v.refresh();
+		assertEquals("home{open=board}", host.loads.get(2));
+		host.pending.get(2).accept(view(String.format(RACE, "Step 2 of 6")));
+		settle();
+		assertTrue(texts(v).contains("Step 2 of 6"));
+	}
+
+	@Test
+	public void wholeRefreshAsksForThePageEvenWithASlotOnScreen() throws Exception
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.show("home", Collections.singletonMap("open", "board"), null);
+		host.pending.get(0).accept(view(String.format(RACE, "Step 1 of 6")));
+		click(v, "Wintertodt crate");
+		host.pending.get(1).accept(view("{\"t\":\"text\",\"s\":\"No proofs\"}"));
+		// On the tile's own pane when it completes: a plain refresh would ask only for the proofs.
+		v.refresh(true);
+		assertEquals("home{open=board}", host.loads.get(2));
+		host.pending.get(2).accept(view(String.format(RACE, "Step 2 of 6")));
+		settle();
+		assertTrue("the reader stays on the tile's pane", texts(v).contains("Back"));
+		click(v, "Back");
+		assertTrue(texts(v).contains("Step 2 of 6"));
+	}
+
 	@Test
 	public void boardToBoardThenBackKeepsTheBackRowThroughRefreshes() throws Exception
 	{
