@@ -6933,6 +6933,8 @@ public class AnvilPlugin extends Plugin {
 	private void applyPush(JsonObject m) {
 		if ("feed".equals(m.get("t").getAsString())) {
 			feedLine(m);
+			// A tile opening or a mission dropping on one of our boards: the line, plus the mission chime.
+			if (config.chatFeed() && m.has("kind") && "reveal".equals(m.get("kind").getAsString())) playMissionSound(false);
 			return;
 		}
 		if ("look".equals(m.get("t").getAsString())) {
