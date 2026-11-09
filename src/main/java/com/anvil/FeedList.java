@@ -515,6 +515,9 @@ final class FeedList extends JPanel {
 			n = c.has("n") ? c.get("n").getAsInt() : 0;
 			setFont(SMALL);
 			setPreferredSize(new Dimension(10, 22));
+			// The label is often cut short at panel width ("Announceme…"): the full name on hover.
+			String tip = UiView.str(c, "tip");
+			setToolTipText(!tip.isEmpty() ? tip : label + (n > 0 ? " · " + n + " unread" : ""));
 		}
 
 		@Override
