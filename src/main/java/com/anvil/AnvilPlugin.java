@@ -1360,7 +1360,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void pushGameClan() {
 		if (!apiClient.isConfigured() || !loggedIn()) return;
-		if (pluginConfig == null || System.currentTimeMillis() < gameClanRetryAt) return;
+		if (pluginConfig == null || now() < gameClanRetryAt) return;
 		clientThread.invoke(() -> {
 			Player me = client.getLocalPlayer();
 			String myName = me != null ? me.getName() : null;
@@ -1400,7 +1400,7 @@ public class AnvilPlugin extends Plugin {
 					apiClient.submitGameClan(name, rankOut, titleOut, joinedOut);
 					lastSentGameClan = fingerprint;
 				} catch (IOException e) {
-					gameClanRetryAt = System.currentTimeMillis() + 5 * 60_000L;
+					gameClanRetryAt = now() + 5 * 60_000L;
 				}
 			});
 		});
@@ -1772,27 +1772,28 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event) {
 		if (!"osrsbingo".equals(event.getGroup())) return;
+		String key = event.getKey();
 		// The plugin's own bookkeeping (recap counters, sync state, nudges) is persisted from the
 		// client thread, often several keys at once — none of it changes what the site sends back.
 		// Colours off (or the plugin about to stop): show the game's own plain text at once, rather
 		// than whenever the game next redraws the chat (the next Enter or private message).
-		if (("supporterChatFlair".equals(event.getKey()) && !config.supporterChatFlair())
-				|| ("menuNameFlair".equals(event.getKey()) && !config.menuNameFlair())) {
+		if (("supporterChatFlair".equals(key) && !config.supporterChatFlair())
+				|| ("menuNameFlair".equals(key) && !config.menuNameFlair())) {
 			clientThread.invokeLater(this::unflairAll);
 			return;
 		}
-		if ("shareSeasonal".equals(event.getKey()) && sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::seasonalChanged);
-		if ("animatedNames".equals(event.getKey())) {
+		if ("shareSeasonal".equals(key) && sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::seasonalChanged);
+		if ("animatedNames".equals(key)) {
 			GradientLabel.setAnimate(config.animatedNames());
 			clientThread.invokeLater(this::refreshClanTitleWidgets);
 			if (sidebarPanel != null) SwingUtilities.invokeLater(sidebarPanel::motionChanged);
 			return;
 		}
-		if (isInternalStateKey(event.getKey())) return;
+		if (isInternalStateKey(key)) return;
 		configureApiClient();
-		if ("profileLookupMenu".equals(event.getKey()) || "lookupPlayers".equals(event.getKey())) profileLookup.syncPlayerItem();
-		if ("trackerOnePanel".equals(event.getKey())) tileTracker.setOnePanel(config.trackerOnePanel());
-		if ("chatFeed".equals(event.getKey())) {
+		if ("profileLookupMenu".equals(key) || "lookupPlayers".equals(key)) profileLookup.syncPlayerItem();
+		if ("trackerOnePanel".equals(key)) tileTracker.setOnePanel(config.trackerOnePanel());
+		if ("chatFeed".equals(key)) {
 			syncPush();
 			submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		}
@@ -1801,11 +1802,10 @@ public class AnvilPlugin extends Plugin {
 		// Waiting on it left the sidebar looking dead for up to POLL_INTERVAL_MS (15s): the token
 		// was live, the cache filled ~1s later, but the panel only repaints on its own timer. Fetch
 		// now and poke the panel when it lands.
-		if ("playerToken".equals(event.getKey())) {
+		if ("playerToken".equals(key)) {
 			refreshNowAndRepaint();
 		} else scheduleRefresh();
 
-		String key = event.getKey();
 		if ("syncClanCoffer".equals(key)) {
 			// Enabling starts with a fresh baseline; changes made while opted out must not be
 			// replayed as one large movement when the setting comes back on.
@@ -1826,7 +1826,8 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event) {
-		int flairRoot = flairInterfaceRoot(event.getGroupId());
+		int g = event.getGroupId();
+		int flairRoot = flairInterfaceRoot(g);
 		if (flairRoot != -1 && config.supporterChatFlair()) {
 			// Names and dynamic rows are populated just after the group itself appears.
 			clientThread.invokeLater(() -> flairInterface(flairRoot));
@@ -1836,15 +1837,15 @@ public class AnvilPlugin extends Plugin {
 		//
 		// Deferred a tick: the group has loaded, but the header's children (including other plugins'
 		// buttons, which is the whole thing we measure against) are not necessarily built yet.
-		if (event.getGroupId() == InterfaceID.CLANS_INFO && clanSyncButton != null) clientThread.invokeLater(() -> clanSyncButton.render());
-		if (event.getGroupId() == InterfaceID.CLANS_SIDEPANEL || event.getGroupId() == InterfaceID.CLANS_GUEST_SIDEPANEL) clientThread.invokeLater(() -> flairClanTitleGroup(event.getGroupId()));
-		if (event.getGroupId() == InterfaceID.QUESTSCROLL) {
+		if (g == InterfaceID.CLANS_INFO && clanSyncButton != null) clientThread.invokeLater(() -> clanSyncButton.render());
+		if (g == InterfaceID.CLANS_SIDEPANEL || g == InterfaceID.CLANS_GUEST_SIDEPANEL) clientThread.invokeLater(() -> flairClanTitleGroup(g));
+		if (g == InterfaceID.QUESTSCROLL) {
 			// The scroll's text child isn't populated yet on the load event — read it next tick,
 			// with a couple of retries in case the text lands late.
 			scheduleQuestScrollRead(3);
 		}
-		if (event.getGroupId() == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(true);
-		movesOpened(event.getGroupId());
+		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(true);
+		movesOpened(g);
 	}
 
 	@Subscribe
@@ -1942,20 +1943,21 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event) {
-		if (event.getScriptId() == ScriptID.CHAT_TEXT_INPUT_REBUILD) {
+		int id = event.getScriptId();
+		if (id == ScriptID.CHAT_TEXT_INPUT_REBUILD) {
 			flairChatInput();
 			return;
 		}
-		if (event.getScriptId() == ScriptID.FRIENDS_UPDATE || event.getScriptId() == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD
-				|| event.getScriptId() == ScriptID.CLAN_SIDEPANEL_DRAW) {
+		if (id == ScriptID.FRIENDS_UPDATE || id == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD
+				|| id == ScriptID.CLAN_SIDEPANEL_DRAW) {
 			flairNameLists();
-			if (event.getScriptId() == ScriptID.CLAN_SIDEPANEL_DRAW) {
+			if (id == ScriptID.CLAN_SIDEPANEL_DRAW) {
 				flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
 				flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
 			}
 			return;
 		}
-		if (event.getScriptId() == ScriptID.COLLECTION_DRAW_LIST) {
+		if (id == ScriptID.COLLECTION_DRAW_LIST) {
 			captureClogPage();
 			// A SECOND CHANCE AT THE BUTTON, and the reason it needs one: the setup script below is
 			// the only place we drew, and with WikiSync disabled nothing else touches this container
@@ -1967,7 +1969,7 @@ public class AnvilPlugin extends Plugin {
 			// Idempotent: render() returns immediately when ours is still attached, so the common
 			// case costs one identity scan of the container's children.
 			if (clogSyncButton != null) clientThread.invokeLater(() -> clogSyncButton.render());
-		} else if (event.getScriptId() == COLLECTION_LOG_SETUP) {
+		} else if (id == COLLECTION_LOG_SETUP) {
 			// The title-bar button, on the next client tick rather than right here. WikiSync clears
 			// every dynamic child of this container before adding its own, on this same script — so
 			// drawing inline means whether our button exists depends on which plugin the event bus
@@ -2274,21 +2276,22 @@ public class AnvilPlugin extends Plugin {
 	private Integer readClanCofferBalance() {
 		Widget root = client.getWidget(InterfaceID.ClansStorageMain.ITEMS);
 		if (root == null || root.isHidden()) return null;
-		long total = cofferCoins(root, Collections.newSetFromMap(new IdentityHashMap<>()));
-		return total > Integer.MAX_VALUE ? null : (int) total;
+		long[] total = {0};
+		walk(root, w -> total[0] += w.getItemId() == ItemID.COINS ? Math.max(0, w.getItemQuantity()) : 0);
+		return total[0] > Integer.MAX_VALUE ? null : (int) total[0];
 	}
 
-	private static long cofferCoins(Widget widget, Set<Widget> visited) {
-		if (widget == null || !visited.add(widget)) return 0L;
-		long total = widget.getItemId() == ItemID.COINS ? Math.max(0, widget.getItemQuantity()) : 0L;
-		Widget[][] childSets = {
-				widget.getChildren(), widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()
-		};
-		for (Widget[] children : childSets) {
-			if (children == null) continue;
-			for (Widget child : children) total += cofferCoins(child, visited);
+	/** Depth-first over every child set, each widget once. */
+	private static void walk(Widget root, Consumer<Widget> visit) {
+		walk(root, visit, Collections.newSetFromMap(new IdentityHashMap<>()));
+	}
+
+	private static void walk(Widget w, Consumer<Widget> visit, Set<Widget> seen) {
+		if (w == null || !seen.add(w)) return;
+		visit.accept(w);
+		for (Widget[] kids : new Widget[][]{w.getChildren(), w.getDynamicChildren(), w.getStaticChildren(), w.getNestedChildren()}) {
+			if (kids != null) for (Widget k : kids) walk(k, visit, seen);
 		}
-		return total;
 	}
 
 	@Subscribe
@@ -3196,13 +3199,14 @@ public class AnvilPlugin extends Plugin {
 		if (lmsInGame) {
 			return; // LMS PvP loot is minigame loot — not a real drop; skip tiles + the drops channel.
 		}
-		processLoot(event.getPlayer().getName(), event.getItems(), "pvp");
-		processValueTiles(event.getPlayer().getName(), event.getItems(), "pvp");
-		recordEventLoot(event.getPlayer().getName(), event.getItems(), "pvp");
+		String name = event.getPlayer().getName();
+		processLoot(name, event.getItems(), "pvp");
+		processValueTiles(name, event.getItems(), "pvp");
+		recordEventLoot(name, event.getItems(), "pvp");
 		// Credit any PvP kill tile with a min-loot floor that was parked at the death and whose loot
 		// (priced here) reaches the floor. No-op unless such a kill is pending for this victim.
-		creditPvpMinLootKillTiles(event.getPlayer().getName(), event.getItems());
-		maybeNotifyRareDrop(event.getPlayer().getName(), event.getItems(), "pvp");
+		creditPvpMinLootKillTiles(name, event.getItems());
+		maybeNotifyRareDrop(name, event.getItems(), "pvp");
 	}
 
 	/**
@@ -5005,7 +5009,7 @@ public class AnvilPlugin extends Plugin {
 				String imageUrl = apiClient.uploadImage(png, "start-proof-" + eventId + ".png");
 				apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
 				startProofFiled = true;
-				startProofFiledAt = System.currentTimeMillis();
+				startProofFiledAt = now();
 				sendChatMessage(Tone.DONE, "Starting shot sent. You're clear to play.");
 				refreshConfig();
 			} catch (IOException e) {
@@ -6112,17 +6116,7 @@ public class AnvilPlugin extends Plugin {
 				flairNameLists();
 				flairChatbox();
 				refreshClanTitleWidgets();
-				for (int group : new int[]{InterfaceID.CHAT_LEFT, InterfaceID.CHAT_RIGHT, InterfaceID.CHAT_BOTH,
-						InterfaceID.MESSAGEBOX_TITLED, InterfaceID.TRADEMAIN, InterfaceID.TRADECONFIRM,
-						InterfaceID.BOARDGAMES_CHALLENGE, InterfaceID.PVP_ARENA_UNRANKEDDUEL,
-						InterfaceID.RAIDS_CHALLENGE, InterfaceID.RAIDS_LOBBY_PARTYLIST,
-						InterfaceID.RAIDS_LOBBY_PARTYDETAILS, InterfaceID.TOB_PARTYLIST,
-						InterfaceID.TOB_PARTYDETAILS, InterfaceID.TOB_SCOREBOARD, InterfaceID.TOB_INFOBOARD,
-						InterfaceID.TOA_PARTYLIST, InterfaceID.TOA_PARTYDETAILS, InterfaceID.TOA_SCOREBOARD,
-						InterfaceID.TFA_PARTYLIST, InterfaceID.TFA_PARTYDETAILS}) {
-					int root = flairInterfaceRoot(group);
-					if (root != -1) flairInterface(root);
-				}
+				for (int[] r : FLAIR_ROOTS) flairInterface(r[1]);
 			});
 		});
 		AnvilSidebarPanel panel = sidebarPanel;
@@ -6488,11 +6482,10 @@ public class AnvilPlugin extends Plugin {
 		if (name == null || name.trim().isEmpty()) return;
 		Widget root = client.getWidget(group, 0);
 		if (root == null) return;
-		flairClanTitleTree(root, name.trim(), clan.boostLevel, Collections.newSetFromMap(new IdentityHashMap<>()));
+		walk(root, w -> flairClanTitle(w, name.trim(), clan.boostLevel));
 	}
 
-	private void flairClanTitleTree(Widget widget, String name, int level, Set<Widget> seen) {
-		if (widget == null || !seen.add(widget)) return;
+	private void flairClanTitle(Widget widget, String name, int level) {
 		String plain = MARKUP_TAG.matcher(widget.getText() == null ? "" : widget.getText()).replaceAll("");
 		String suffix = ChatFlair.clanTitleSuffix(widget.getText(), name);
 		if (suffix != null) {
@@ -6500,8 +6493,6 @@ public class AnvilPlugin extends Plugin {
 			widget.setText(painted);
 			clanTitleFlair.put(widget, new ClanTitleFlair(plain, painted, name, suffix, level));
 		}
-		Widget[][] sets = {widget.getChildren(), widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()};
-		for (Widget[] children : sets) if (children != null) for (Widget child : children) flairClanTitleTree(child, name, level, seen);
 	}
 
 	private String paintClanTitle(String name, String suffix, int level, double shift) {
@@ -6568,30 +6559,36 @@ public class AnvilPlugin extends Plugin {
 		clanTitleFrame = Long.MIN_VALUE;
 	}
 
-	/** The player-name interfaces Anvil may decorate; every root is a gameval component constant. */
+	/**
+	 * The player-name interfaces Anvil may decorate, as {group, root}; every root is a gameval component constant.
+	 * Dialogue: only the game-designated name/title component, never the body text. This covers
+	 * quest conversations and ordinary player dialogue without recolouring an RSN mentioned in prose.
+	 */
+	private static final int[][] FLAIR_ROOTS = {
+		{InterfaceID.CHAT_LEFT, InterfaceID.ChatLeft.NAME},
+		{InterfaceID.CHAT_RIGHT, InterfaceID.ChatRight.NAME},
+		{InterfaceID.CHAT_BOTH, InterfaceID.ChatBoth.NAMES},
+		{InterfaceID.MESSAGEBOX_TITLED, InterfaceID.MessageboxTitled.TITLE},
+		{InterfaceID.TRADEMAIN, InterfaceID.Trademain.WHOLESCREEN},
+		{InterfaceID.TRADECONFIRM, InterfaceID.Tradeconfirm.ROOT_RECT0},
+		{InterfaceID.BOARDGAMES_CHALLENGE, InterfaceID.BoardgamesChallenge.UNIVERSE},
+		{InterfaceID.PVP_ARENA_UNRANKEDDUEL, InterfaceID.PvpArenaUnrankedduel.UNIVERSE},
+		{InterfaceID.RAIDS_CHALLENGE, InterfaceID.RaidsChallenge.UNIVERSE},
+		{InterfaceID.RAIDS_LOBBY_PARTYLIST, InterfaceID.RaidsLobbyPartylist.UNIVERSE},
+		{InterfaceID.RAIDS_LOBBY_PARTYDETAILS, InterfaceID.RaidsLobbyPartydetails.UNIVERSE},
+		{InterfaceID.TOB_PARTYLIST, InterfaceID.TobPartylist.UNIVERSE},
+		{InterfaceID.TOB_PARTYDETAILS, InterfaceID.TobPartydetails.UNIVERSE},
+		{InterfaceID.TOB_SCOREBOARD, InterfaceID.TobScoreboard.UNIVERSE},
+		{InterfaceID.TOB_INFOBOARD, InterfaceID.TobInfoboard.UNIVERSE},
+		{InterfaceID.TOA_PARTYLIST, InterfaceID.ToaPartylist.UNIVERSE},
+		{InterfaceID.TOA_PARTYDETAILS, InterfaceID.ToaPartydetails.UNIVERSE},
+		{InterfaceID.TOA_SCOREBOARD, InterfaceID.ToaScoreboard.UNIVERSE},
+		{InterfaceID.TFA_PARTYLIST, InterfaceID.TfaPartylist.UNIVERSE},
+		{InterfaceID.TFA_PARTYDETAILS, InterfaceID.TfaPartydetails.UNIVERSE}
+	};
+
 	private static int flairInterfaceRoot(int group) {
-		// Dialogue: only the game-designated name/title component, never the body text. This covers
-		// quest conversations and ordinary player dialogue without recolouring an RSN mentioned in prose.
-		if (group == InterfaceID.CHAT_LEFT) return InterfaceID.ChatLeft.NAME;
-		if (group == InterfaceID.CHAT_RIGHT) return InterfaceID.ChatRight.NAME;
-		if (group == InterfaceID.CHAT_BOTH) return InterfaceID.ChatBoth.NAMES;
-		if (group == InterfaceID.MESSAGEBOX_TITLED) return InterfaceID.MessageboxTitled.TITLE;
-		if (group == InterfaceID.TRADEMAIN) return InterfaceID.Trademain.WHOLESCREEN;
-		if (group == InterfaceID.TRADECONFIRM) return InterfaceID.Tradeconfirm.ROOT_RECT0;
-		if (group == InterfaceID.BOARDGAMES_CHALLENGE) return InterfaceID.BoardgamesChallenge.UNIVERSE;
-		if (group == InterfaceID.PVP_ARENA_UNRANKEDDUEL) return InterfaceID.PvpArenaUnrankedduel.UNIVERSE;
-		if (group == InterfaceID.RAIDS_CHALLENGE) return InterfaceID.RaidsChallenge.UNIVERSE;
-		if (group == InterfaceID.RAIDS_LOBBY_PARTYLIST) return InterfaceID.RaidsLobbyPartylist.UNIVERSE;
-		if (group == InterfaceID.RAIDS_LOBBY_PARTYDETAILS) return InterfaceID.RaidsLobbyPartydetails.UNIVERSE;
-		if (group == InterfaceID.TOB_PARTYLIST) return InterfaceID.TobPartylist.UNIVERSE;
-		if (group == InterfaceID.TOB_PARTYDETAILS) return InterfaceID.TobPartydetails.UNIVERSE;
-		if (group == InterfaceID.TOB_SCOREBOARD) return InterfaceID.TobScoreboard.UNIVERSE;
-		if (group == InterfaceID.TOB_INFOBOARD) return InterfaceID.TobInfoboard.UNIVERSE;
-		if (group == InterfaceID.TOA_PARTYLIST) return InterfaceID.ToaPartylist.UNIVERSE;
-		if (group == InterfaceID.TOA_PARTYDETAILS) return InterfaceID.ToaPartydetails.UNIVERSE;
-		if (group == InterfaceID.TOA_SCOREBOARD) return InterfaceID.ToaScoreboard.UNIVERSE;
-		if (group == InterfaceID.TFA_PARTYLIST) return InterfaceID.TfaPartylist.UNIVERSE;
-		if (group == InterfaceID.TFA_PARTYDETAILS) return InterfaceID.TfaPartydetails.UNIVERSE;
+		for (int[] r : FLAIR_ROOTS) if (r[0] == group) return r[1];
 		return -1;
 	}
 
@@ -6613,22 +6610,14 @@ public class AnvilPlugin extends Plugin {
 		long frame = currentChatNameFrame();
 		interfaceNameFrame = frame;
 		double shift = interfaceNameShift(frame);
-		flairInterfaceTree(root, shift, Collections.newSetFromMap(new IdentityHashMap<>()));
-	}
-
-	private void flairInterfaceTree(Widget widget, double shift, Set<Widget> visited) {
-		if (widget == null || !visited.add(widget)) return;
-		String text = widget.getText();
-		String painted = chatFlair.paintNames(text, false, shift);
-		if (painted != null) {
-			widget.setText(painted);
-			interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text)));
-		}
-		Widget[][] childSets = {widget.getChildren(), widget.getDynamicChildren(), widget.getStaticChildren(), widget.getNestedChildren()};
-		for (Widget[] children : childSets) {
-			if (children == null) continue;
-			for (Widget child : children) flairInterfaceTree(child, shift, visited);
-		}
+		walk(root, widget -> {
+			String text = widget.getText();
+			String painted = chatFlair.paintNames(text, false, shift);
+			if (painted != null) {
+				widget.setText(painted);
+				interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text)));
+			}
+		});
 	}
 
 	/** Repaint remembered interface names only; never walk the whole client widget tree per frame. */
@@ -6943,26 +6932,27 @@ public class AnvilPlugin extends Plugin {
 	 * way a fetched one is, so tile completions and missions announce exactly as they do on a poll.
 	 */
 	private void applyPush(JsonObject m) {
-		if ("feed".equals(m.get("t").getAsString())) {
+		String kind = m.get("t").getAsString();
+		if ("feed".equals(kind)) {
 			feedLine(m);
 			// A tile opening or a mission dropping on one of our boards: the line, plus the mission chime.
 			if (config.chatFeed() && m.has("kind") && "reveal".equals(m.get("kind").getAsString())) playMissionSound(false);
 			return;
 		}
-		if ("look".equals(m.get("t").getAsString())) {
+		if ("look".equals(kind)) {
 			refreshLook();
 			return;
 		}
 		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
-		if ("flair".equals(m.get("t").getAsString()) || "hello".equals(m.get("t").getAsString())) {
+		if ("flair".equals(kind) || "hello".equals(kind)) {
 			if (config.supporterChatFlair() && apiClient.isConfigured()) {
-				if ("hello".equals(m.get("t").getAsString())) {
+				if ("hello".equals(kind)) {
 					chatFlairSync.soon();
 				} else chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));
 			}
 			return;
 		}
-		if (m.get("t").getAsString().startsWith("rows")) {
+		if (kind.startsWith("rows")) {
 			// Panel rows (the Feed tab's lists): never the chatbox, never capped — the list batches them.
 			AnvilSidebarPanel panel = sidebarPanel;
 			if (panel != null) panel.feedPush(m);
@@ -6972,12 +6962,11 @@ public class AnvilPlugin extends Plugin {
 		int eventId = m.get("eventId").getAsInt();
 		int myTeam = cfg != null && cfg.team != null ? cfg.team.id : 0;
 		int me = cfg != null && cfg.player != null ? cfg.player.id : 0;
-		if ("tile".equals(m.get("t").getAsString())) {
+		if ("tile".equals(kind)) {
 			tileTracker.pushed(eventId, m.get("tileId").getAsInt(),
 					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam, me);
 			return;
 		}
-		String kind = m.get("t").getAsString();
 		boolean ours = cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt();
 		AnvilSidebarPanel panel = sidebarPanel;
 		if ("counts".equals(kind)) {
@@ -8656,7 +8645,7 @@ public class AnvilPlugin extends Plugin {
 
 		final boolean duplicate;
 		/** When the pet line landed — the name is only looked for inside {@link #PET_NAME_WINDOW_MS}. */
-		final long at = System.currentTimeMillis();
+		final long at = now();
 		/** Captured on the client thread when the pet line arrives. */
 		final String rsn;
 		final String source;
@@ -8726,7 +8715,7 @@ public class AnvilPlugin extends Plugin {
 		synchronized (petLock) {
 			pet = pendingPet;
 		}
-		if (pet == null || pet.name != null || System.currentTimeMillis() - pet.at > PET_NAME_WINDOW_MS) return;
+		if (pet == null || pet.name != null || now() - pet.at > PET_NAME_WINDOW_MS) return;
 		NPC follower = client.getFollower();
 		if (follower != null && follower.getIndex() != petFollowerBefore && follower.getName() != null) {
 			claimPetName(follower.getName());
@@ -8763,7 +8752,7 @@ public class AnvilPlugin extends Plugin {
 			// to post again (the "Pet drop!" + separate "Dom" pair this used to produce).
 			PendingPet named = pendingPet != null && pendingPet.name != null ? pendingPet : lastNamedPet;
 			if (named != null && itemName.equalsIgnoreCase(named.name)
-					&& System.currentTimeMillis() - named.at <= PET_RECLAIM_MS) {
+					&& now() - named.at <= PET_RECLAIM_MS) {
 				return named;
 			}
 			if (pendingPet == null || pendingPet.name != null) return null;
