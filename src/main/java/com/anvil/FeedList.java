@@ -527,8 +527,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		protected void paintComponent(Graphics g0) {
-			var g = (Graphics2D) g0.create();
-			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			var g = Ui.smooth(g0);
 			int w = getWidth(), h = getHeight();
 			if (on) {
 				g.setColor(SEG_ON);
@@ -1041,8 +1040,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
-			var g2 = (Graphics2D) g.create();
-			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			var g2 = Ui.smooth(g);
 			g2.setColor(tint);
 			g2.fillRoundRect(x, y, ICON_W, ICON_W - 2, 6, 6);
 			g2.dispose();

@@ -1864,8 +1864,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		b.setUI(new BasicButtonUI() {
 			@Override
 			public void paint(Graphics g, JComponent c) {
-				var g2 = (Graphics2D) g.create();
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				var g2 = smooth(g);
 				g2.setColor(c.getBackground());
 				g2.fillRoundRect(0, 0, c.getWidth(), c.getHeight(), 8, 8);
 				g2.dispose();

@@ -61,8 +61,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 	@Override
 	protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
 		if (r.isEmpty() || !scrollbar.isEnabled()) return;
-		var g2 = (Graphics2D) g.create();
-		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		var g2 = Ui.smooth(g);
 		g2.setColor(isThumbRollover() || isDragging ? THUMB_HOVER : THUMB);
 		int inset = 1;
 		g2.fillRoundRect(r.x + inset, r.y + inset, r.width - inset * 2, r.height - inset * 2, WIDTH, WIDTH);

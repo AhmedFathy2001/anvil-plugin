@@ -661,8 +661,7 @@ final class UiView extends JPanel {
 			: chip != null ? new ClipLabel() {
 				@Override
 				protected void paintComponent(Graphics g) {
-					var g2 = (Graphics2D) g.create();
-					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					var g2 = smooth(g);
 					g2.setColor(chip);
 					g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
 					g2.dispose();
@@ -788,8 +787,7 @@ final class UiView extends JPanel {
 		JPanel card = new JPanel(null) {
 			@Override
 			protected void paintComponent(Graphics gr) {
-				var g2 = (Graphics2D) gr.create();
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				var g2 = smooth(gr);
 				g2.setColor(DARKER_GRAY_COLOR);
 				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
 				g2.dispose();
@@ -992,8 +990,7 @@ final class UiView extends JPanel {
 		JPanel bar = new JPanel() {
 			@Override
 			protected void paintComponent(Graphics g) {
-				var g2 = (Graphics2D) g.create();
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				var g2 = smooth(g);
 				int k = cs.size();
 				var w = (getWidth() - 3f * (k - 1)) / Math.max(1, k);
 				for (int i = 0; i < k; i++) {
@@ -1019,8 +1016,7 @@ final class UiView extends JPanel {
 		JPanel gutter = new JPanel() {
 			@Override
 			protected void paintComponent(Graphics g) {
-				var g2 = (Graphics2D) g.create();
-				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				var g2 = smooth(g);
 				int x = 3, y = 3;
 				if (line != null) {
 					g2.setColor(line);

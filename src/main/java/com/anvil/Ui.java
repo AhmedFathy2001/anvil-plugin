@@ -15,6 +15,13 @@ import javax.swing.event.DocumentEvent;
  * the same way, so the sidebar and the card views can't drift apart in how they look.
  */
 final class Ui {
+	/** A copy of {@code g} that draws antialiased; the caller disposes it. */
+	static Graphics2D smooth(Graphics g) {
+		var g2 = (Graphics2D) g.create();
+		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		return g2;
+	}
+
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 	static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
