@@ -10,15 +10,11 @@ import java.util.function.Consumer;
  * the logged-in character, pins, the starting shot, syncs and banner sounds. What it shows of the
  * clan and its boards is the site's (UiView); this is only what the client alone can know or do.
  */
+@RequiredArgsConstructor
 public class AnvilSidebarDataSource {
 	private final Supplier<PluginConfigResponse> configSupplier;
 
 	private final BingoApiClient apiClient;
-
-	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient) {
-		this.configSupplier = configSupplier;
-		this.apiClient = apiClient;
-	}
 
 	/**
 	 * The starting-shot action, bound by the plugin after construction (Guice builds this source
@@ -344,6 +340,7 @@ public class AnvilSidebarDataSource {
 	 * <p>A roster sync scrapes the clan channel you are standing in, so it needs an admin with that
 	 * channel readable. A profile sync goes to the site the plugin is authenticated against.
 	 */
+	@RequiredArgsConstructor
 	public static final class PanelActions {
 		public static final PanelActions NONE = new PanelActions(false, false, null);
 
@@ -353,11 +350,5 @@ public class AnvilSidebarDataSource {
 		public final boolean canSyncProfile;
 		/** Why the roster button is absent, when the reason is worth saying. Null when it isn't. */
 		public final String rosterNote;
-
-		public PanelActions(boolean canSyncRoster, boolean canSyncProfile, String rosterNote) {
-			this.canSyncRoster = canSyncRoster;
-			this.canSyncProfile = canSyncProfile;
-			this.rosterNote = rosterNote;
-		}
 	}
 }

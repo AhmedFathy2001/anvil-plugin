@@ -1,11 +1,13 @@
 package com.anvil;
 
+import lombok.AllArgsConstructor;
 /**
  * Which level-ups a destination wants posted: 99s, every {@code skillStep} levels from
  * {@code skillFrom}, every {@code totalStep} total from {@code totalFrom}, and maxing. The site sends
  * one set for the clan's channel and one for the player's own webhooks; a null set wants nothing.
  * {@link #LEGACY_CLAN} is the fixed 99s-and-high-totals set the highlight feed keeps.
  */
+@AllArgsConstructor
 public class LevelRules {
 	public boolean ninetyNines;
 	public int skillStep;
@@ -14,6 +16,7 @@ public class LevelRules {
 	public int totalFrom;
 	public boolean maxTotal;
 
+	@AllArgsConstructor
 	public static class Sets {
 		public LevelRules clan;
 		public LevelRules personal;
@@ -21,24 +24,11 @@ public class LevelRules {
 		Sets() {
 		}
 
-		Sets(LevelRules clan, LevelRules personal) {
-			this.clan = clan;
-			this.personal = personal;
-		}
 	}
 
 	static final LevelRules LEGACY_CLAN = new LevelRules(true, 0, 1, 100, 1800, true);
 
 	LevelRules() {
-	}
-
-	LevelRules(boolean ninetyNines, int skillStep, int skillFrom, int totalStep, int totalFrom, boolean maxTotal) {
-		this.ninetyNines = ninetyNines;
-		this.skillStep = skillStep;
-		this.skillFrom = skillFrom;
-		this.totalStep = totalStep;
-		this.totalFrom = totalFrom;
-		this.maxTotal = maxTotal;
 	}
 
 	/**

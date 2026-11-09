@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.*;
 
 /**
@@ -21,19 +22,16 @@ import java.util.*;
  */
 final class VestigeRolls {
 	/** One boss's cycle state. */
+	@RequiredArgsConstructor
 	static final class State {
 		/** Rolls seen since the last vestige — 0 means "a vestige is 3 rolls away". */
 		final int rolls;
 		/** True once a vestige has been observed, which anchors the cycle. */
 		final boolean exact;
-
-		State(int rolls, boolean exact) {
-			this.rolls = rolls;
-			this.exact = exact;
-		}
 	}
 
 	/** What a drop did to the cycle, and what to say about it. */
+	@RequiredArgsConstructor
 	static final class Result {
 		final State state;
 		/** True when this drop WAS the vestige. */
@@ -42,13 +40,6 @@ final class VestigeRolls {
 		final boolean vestigeNext;
 		/** One line for chat and the drop post, or null when there's nothing worth saying. */
 		final String line;
-
-		Result(State state, boolean vestige, boolean vestigeNext, String line) {
-			this.state = state;
-			this.vestige = vestige;
-			this.vestigeNext = vestigeNext;
-			this.line = line;
-		}
 	}
 
 	private final Map<String, State> byBoss = new HashMap<>();

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import com.google.gson.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -16,6 +17,7 @@ import okhttp3.*;
  * ticket is what decides what this client hears; null closes it.</p>
  */
 @Slf4j
+@RequiredArgsConstructor
 final class PushSocket extends WebSocketListener {
 	private static final long FIRST_RETRY_MS = 2_000;
 	private static final long MAX_RETRY_MS = 5 * 60_000;
@@ -32,13 +34,6 @@ final class PushSocket extends WebSocketListener {
 	private ScheduledFuture<?> pending;
 	private int failures;
 	private volatile boolean live;
-
-	PushSocket(BingoApiClient api, ScheduledExecutorService executor, Gson gson, Consumer<JsonObject> onMessage) {
-		this.api = api;
-		this.executor = executor;
-		this.gson = gson;
-		this.onMessage = onMessage;
-	}
 
 	/** Up and hearing changes, so polls may slow down. */
 	boolean live() {

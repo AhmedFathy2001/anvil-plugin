@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import static com.anvil.Ui.BOLD;
 import static com.anvil.Ui.REGULAR;
 import static com.anvil.Ui.SMALL;
@@ -773,12 +774,9 @@ final class FeedList extends JPanel {
 		return "text".equals(UiView.str(ui, "t")) && "error".equals(UiView.str(ui, "color")) ? UiView.str(ui, "s") : null;
 	}
 
+	@RequiredArgsConstructor
 	private static final class MaxLength extends DocumentFilter {
 		private final int max;
-
-		MaxLength(int max) {
-			this.max = max;
-		}
 
 		@Override
 		public void insertString(FilterBypass fb, int offset, String s, AttributeSet a) throws BadLocationException {
@@ -1032,14 +1030,10 @@ final class FeedList extends JPanel {
 	}
 
 	/** A row's picture on a rounded tile of its kind's colour (purple rare, green done, coral death). */
+	@RequiredArgsConstructor
 	private static final class Tinted implements Icon {
 		private final Icon in;
 		private final Color tint;
-
-		Tinted(Icon in, Color tint) {
-			this.in = in;
-			this.tint = tint;
-		}
 
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {

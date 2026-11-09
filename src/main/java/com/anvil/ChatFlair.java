@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -72,18 +73,12 @@ final class ChatFlair {
 	}
 
 	/** One version of the list. */
+	@RequiredArgsConstructor
 	private static final class Held {
 		final int v;
 		final String[] names;
 		final char[] ix;
 		final Entry[] styles;
-
-		Held(int v, String[] names, char[] ix, Entry[] styles) {
-			this.v = v;
-			this.names = names;
-			this.ix = ix;
-			this.styles = styles;
-		}
 	}
 
 	/** A sender as the game writes it: rank/account-type icons, then the plain name. */
@@ -361,14 +356,10 @@ final class ChatFlair {
 	// friend", reply, report) from that data, and a tagged name breaks the friend check and the action.
 
 	/** Raw chat text's visible characters (tags out, nbsp as a space), and where each sits in the raw. */
+	@RequiredArgsConstructor
 	static final class Shown {
 		final String text;
 		final int[] at;
-
-		Shown(String text, int[] at) {
-			this.text = text;
-			this.at = at;
-		}
 	}
 
 	static Shown shown(String raw) {

@@ -1,5 +1,7 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AllArgsConstructor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,17 +39,13 @@ final class GameValueCounters {
 	/** Fallback per-source jump cap when the site sends none. */
 	static final int DEFAULT_MAX_DELTA = 1000;
 
+	@AllArgsConstructor
 	static final class Source {
 		/** "varbit" or "varp". */
 		String type;
 		int id;
 
 		Source() {
-		}
-
-		Source(String type, int id) {
-			this.type = type;
-			this.id = id;
 		}
 
 		boolean isVarp() {
@@ -120,14 +118,10 @@ final class GameValueCounters {
 	}
 
 	/** A change to credit under {@code entry.name}. */
+	@RequiredArgsConstructor
 	static final class Credit {
 		final Entry entry;
 		final int amount;
-
-		Credit(Entry entry, int amount) {
-			this.entry = entry;
-			this.amount = amount;
-		}
 	}
 
 	interface Reader {

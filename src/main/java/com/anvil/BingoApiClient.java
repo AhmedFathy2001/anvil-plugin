@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import com.google.gson.*;
 import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
@@ -1440,16 +1441,12 @@ public class BingoApiClient {
 	}
 
 	/** What a client could see of its company at kill time. Both halves are best-effort. */
+	@RequiredArgsConstructor
 	public static final class CoopFingerprint {
 		/** Lowercased RSNs of ROSTER teammates seen in the instance — empty when none could be named. */
 		public final List<String> teammates;
 		/** Instance/raid party headcount, which is reliable exactly where names aren't. 0 = unknown. */
 		public final int partySize;
-
-		public CoopFingerprint(List<String> teammates, int partySize) {
-			this.teammates = teammates;
-			this.partySize = partySize;
-		}
 
 		public boolean isEmpty() {
 			return (teammates == null || teammates.isEmpty()) && partySize <= 1;

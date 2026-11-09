@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import com.google.gson.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -123,6 +124,7 @@ final class UiView extends JPanel {
 	private final Map<String, Integer> seq = new HashMap<>();
 	private int requests;
 
+	@RequiredArgsConstructor
 	private static final class Slot {
 		final JPanel holder;
 		final JsonObject panes;
@@ -131,12 +133,6 @@ final class UiView extends JPanel {
 		final Map<String, JComponent> built = new HashMap<>();
 		final Map<String, JComponent> from = new HashMap<>();
 		Round marked;
-
-		Slot(JPanel holder, JsonObject panes, String first) {
-			this.holder = holder;
-			this.panes = panes;
-			this.first = first;
-		}
 	}
 
 	/** The last thing clicked, so a nav slot can mark it when the reader comes back. */

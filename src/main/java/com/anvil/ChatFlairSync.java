@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.function.LongSupplier;
 
 
@@ -10,6 +11,7 @@ import java.util.function.LongSupplier;
  * reaches every plugin at once; this spreads their requests), which answers with the deltas when few,
  * else the whole versioned list (CDN-cached) is downloaded. Nothing about who the player sees is sent.
  */
+@RequiredArgsConstructor
 final class ChatFlairSync {
 	interface Source {
 		/** The site's version and the deltas from {@code v}; null on failure. Blocking. */
@@ -33,14 +35,6 @@ final class ChatFlairSync {
 	/** After the list changed: repaint, save. */
 	private final Runnable changed;
 	private boolean pending;
-
-	ChatFlairSync(ChatFlair flair, Source source, Scheduler scheduler, LongSupplier jitter, Runnable changed) {
-		this.flair = flair;
-		this.source = source;
-		this.scheduler = scheduler;
-		this.jitter = jitter;
-		this.changed = changed;
-	}
 
 
 	/** A {"t":"flair"} push: applied if it follows our version, else a jittered catch-up. */

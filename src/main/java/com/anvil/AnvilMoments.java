@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.*;
 
 /**
@@ -39,6 +40,7 @@ class AnvilMoments {
 	/** Below this a drop isn't worth reporting on price alone. The site's floors are stricter. */
 	static final long MIN_REPORTABLE_GP = 100_000L;
 
+	@RequiredArgsConstructor
 	static final class Moment {
 		/** 'pet' | 'drop' | 'death' | 'ca' | 'level', and the chat feed's own 'clog' | 'diary'. */
 		final String kind;
@@ -58,22 +60,6 @@ class AnvilMoments {
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
 			   String source, String sourceKind, Integer kc, long at, String key) {
 			this(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc, null, null, at, key);
-		}
-
-		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
-			   String source, String sourceKind, Integer kc, String taskName, String tier, long at, String key) {
-			this.kind = kind;
-			this.itemId = itemId;
-			this.itemName = itemName;
-			this.quantity = quantity;
-			this.valueGp = valueGp;
-			this.source = source;
-			this.sourceKind = sourceKind;
-			this.kc = kc;
-			this.taskName = taskName;
-			this.tier = tier;
-			this.at = at;
-			this.key = key;
 		}
 
 		/** A completed combat task. The site decides which boss it belongs to and whether it's news. */

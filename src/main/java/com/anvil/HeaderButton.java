@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.function.BooleanSupplier;
 
 import net.runelite.api.*;
@@ -35,6 +36,7 @@ import net.runelite.api.widgets.*;
  * who ran last — which is plugin load order, and nobody's to rely on. The answer is not to fight it:
  * we keep hold of what we made, notice when it is no longer attached, and build it again.
  */
+@RequiredArgsConstructor
 final class HeaderButton {
 	/** Matches the native header buttons: small, and tall enough to hit comfortably. */
 	private static final int WIDTH = 71;
@@ -107,19 +109,6 @@ final class HeaderButton {
 	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, String label, String action,
 			BooleanSupplier enabled, Runnable onClick) {
 		this(client, parentId, anchorId, rightOffset, rightOffset, label, action, enabled, onClick);
-	}
-
-	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, int nearOffset, String label, String action,
-				 BooleanSupplier enabled, Runnable onClick) {
-		this.client = client;
-		this.parentId = parentId;
-		this.anchorId = anchorId;
-		this.rightOffset = rightOffset;
-		this.nearOffset = nearOffset;
-		this.label = label;
-		this.action = action;
-		this.enabled = enabled;
-		this.onClick = onClick;
 	}
 
 	/**

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import com.anvil.BingoApiClient.*;
 import com.anvil.PendingSubmissionStore.PendingSubmission;
@@ -6464,6 +6465,7 @@ public class AnvilPlugin extends Plugin {
 	private static final List<String> CLAN_BOOST_STILL = Collections.unmodifiableList(Arrays.asList("ff9a5a", "e05ad0", "7a8cff"));
 	private static final List<String> CLAN_BOOST_MOVING = Collections.unmodifiableList(Arrays.asList("ffd27a", "ff7ab8", "7ae0ff"));
 
+	@AllArgsConstructor
 	private static final class ClanTitleFlair {
 		String plain;
 		String painted;
@@ -6471,14 +6473,6 @@ public class AnvilPlugin extends Plugin {
 		/** What follows the name (the live member count): re-read whenever the game rewrites the title. */
 		String suffix;
 		final int level;
-
-		ClanTitleFlair(String plain, String painted, String name, String suffix, int level) {
-			this.plain = plain;
-			this.painted = painted;
-			this.name = name;
-			this.suffix = suffix;
-			this.level = level;
-		}
 	}
 
 	private final Map<Widget, ClanTitleFlair> clanTitleFlair = new WeakHashMap<>();
@@ -6599,16 +6593,11 @@ public class AnvilPlugin extends Plugin {
 		return -1;
 	}
 
+	@AllArgsConstructor
 	private static final class InterfaceNameFlair {
 		String plain;
 		String painted;
 		boolean moving;
-
-		InterfaceNameFlair(String plain, String painted, boolean moving) {
-			this.plain = plain;
-			this.painted = painted;
-			this.moving = moving;
-		}
 	}
 
 	/** Only widgets in the explicitly allowed interfaces above; weak keys disappear with the UI. */
@@ -7865,17 +7854,12 @@ public class AnvilPlugin extends Plugin {
 	 * <p>Null when nothing had us targeted, which is a mechanic or a fall, and the feed then says
 	 * only that someone died. A death with no killer is a smaller story than one with the wrong.
 	 */
+	@RequiredArgsConstructor
 	private static final class AttributedDeath {
 		final String source;
 		final String sourceKind;
 		/** Players that had us targeted (the death post's pile-on). */
 		final int pile;
-
-		AttributedDeath(String source, String sourceKind, int pile) {
-			this.source = source;
-			this.sourceKind = sourceKind;
-			this.pile = pile;
-		}
 	}
 
 	/** Resolve one death once, so the Feed and Discord cannot disagree about what killed us. */
@@ -8548,18 +8532,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** An item id seen in a recent loot event, with the time it landed and what it fell out of. */
+	@RequiredArgsConstructor
 	static final class RecentItem {
 
 		final int itemId;
 		final long at;
 		/** The loot event this item was actually in — not merely the latest one. */
 		final String source;
-
-		RecentItem(int itemId, long at, String source) {
-			this.itemId = itemId;
-			this.at = at;
-			this.source = source;
-		}
 	}
 
 	/**
@@ -8670,6 +8649,7 @@ public class AnvilPlugin extends Plugin {
 	 * arrived second the pet would post unnamed and the unlock would post separately — the same two
 	 * posts this code replaces, so the failure mode is the old behaviour rather than a broken one.
 	 */
+	@RequiredArgsConstructor
 	private static final class PendingPet {
 
 		final boolean duplicate;
@@ -8698,17 +8678,6 @@ public class AnvilPlugin extends Plugin {
 		Integer resolvedKc;
 		/** Resolved on the client thread with the collection-log name. */
 		Integer itemId;
-
-		PendingPet(boolean duplicate, String rsn, String source, String sourceKind, Integer killCount,
-				   boolean announce, String momentKey) {
-			this.duplicate = duplicate;
-			this.rsn = rsn;
-			this.source = source;
-			this.sourceKind = sourceKind;
-			this.killCount = killCount;
-			this.announce = announce;
-			this.momentKey = momentKey;
-		}
 	}
 
 	private final Object petLock = new Object();
