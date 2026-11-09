@@ -18,15 +18,15 @@ import net.runelite.client.util.ImageUtil;
  */
 @Singleton
 class StartSpotMarker {
-	private static final BufferedImage PIN = ImageUtil.resizeImage(
+	static final BufferedImage PIN = ImageUtil.resizeImage(
 		ImageUtil.loadImageResource(StartSpotMarker.class, "/com/anvil/sidebar_icon.png"), 20, 20);
 
-	private final Client client;
-	private final WorldMapPointManager mapPoints;
-	private final EventBus eventBus;
+	final Client client;
+	final WorldMapPointManager mapPoints;
+	final EventBus eventBus;
 
-	private WorldPoint shown;
-	private WorldMapPoint mapPoint;
+	WorldPoint shown;
+	WorldMapPoint mapPoint;
 
 	@Inject
 	StartSpotMarker(Client client, WorldMapPointManager mapPoints, EventBus eventBus) {

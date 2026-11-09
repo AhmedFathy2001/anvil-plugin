@@ -21,14 +21,14 @@ import net.runelite.api.widgets.*;
  * allocates nothing beyond the page it returns and never blocks.
  */
 final class ClogPageReader {
-	private ClogPageReader() {}
+	ClogPageReader() {}
 
 	/** "Obtained: 5/9" — the log's own progress line, and our correctness check. */
-	private static final Pattern OBTAINED = Pattern.compile("obtained:\\s*(\\d+)\\s*/\\s*(\\d+)");
+	static final Pattern OBTAINED = Pattern.compile("obtained:\\s*(\\d+)\\s*/\\s*(\\d+)");
 	/** "Abyssal Sire kills: 1,204" / "Chest openings: 87" — label and value, commas stripped. */
-	private static final Pattern COUNT_LINE = Pattern.compile("^(.+?):\\s*([\\d,]+)$");
+	static final Pattern COUNT_LINE = Pattern.compile("^(.+?):\\s*([\\d,]+)$");
 	/** Widget tags: the log wraps names in colour tags we don't want in the payload. */
-	private static final Pattern TAGS = Pattern.compile("<[^>]*>");
+	static final Pattern TAGS = Pattern.compile("<[^>]*>");
 
 	/**
 	 * The page on screen, or null when it isn't readable yet (mid-draw, empty, or the obtained
@@ -110,12 +110,12 @@ final class ClogPageReader {
 	 * fully opaque and carry their count. Either signal alone has an edge case, so both are accepted
 	 * and the header's "Obtained: N" arbitrates — see {@link #read}.
 	 */
-	private static boolean isObtained(Widget cell) {
+	static boolean isObtained(Widget cell) {
 		if (cell == null || cell.getItemId() <= 0) return false;
 		return cell.getOpacity() == 0 || cell.getItemQuantity() > 0;
 	}
 
-	private static String strip(String raw) {
+	static String strip(String raw) {
 		if (raw == null) return "";
 		// The regex is the expensive part and most lines carry no tags at all — one scan for '<'
 		// saves building a Matcher on every header line of every redraw.
@@ -123,7 +123,7 @@ final class ClogPageReader {
 		return TAGS.matcher(raw).replaceAll("").trim();
 	}
 
-	private static int parseInt(String raw) {
+	static int parseInt(String raw) {
 		try {
 			return Integer.parseInt(raw);
 		} catch (NumberFormatException e) {

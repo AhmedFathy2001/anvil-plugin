@@ -13,8 +13,8 @@ import javax.swing.plaf.basic.BasicScrollBarUI;
 final class SlimScrollBarUI extends BasicScrollBarUI {
 	static final int WIDTH = 7;
 
-	private static final Color THUMB = MEDIUM_GRAY_COLOR;
-	private static final Color THUMB_HOVER = LIGHT_GRAY_COLOR;
+	static final Color THUMB = MEDIUM_GRAY_COLOR;
+	static final Color THUMB_HOVER = LIGHT_GRAY_COLOR;
 
 	/** Restyle every scroll pane directly under {@code root} (the PluginPanel's wrapper). */
 	static void applyTo(Container root) {
@@ -43,7 +43,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		return zeroButton();
 	}
 
-	private static JButton zeroButton() {
+	static JButton zeroButton() {
 		var b = new JButton();
 		var none = new Dimension(0, 0);
 		b.setPreferredSize(none);

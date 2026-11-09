@@ -23,20 +23,20 @@ final class CoalescedPush {
 		void send(Map<String, Integer> batch) throws IOException;
 	}
 
-	private final String what;
-	private final long delayMs;
-	private final Supplier<ScheduledExecutorService> executor;
-	private final BooleanSupplier allowed;
-	private final Sender sender;
-	private final Runnable afterSend;
+	final String what;
+	final long delayMs;
+	final Supplier<ScheduledExecutorService> executor;
+	final BooleanSupplier allowed;
+	final Sender sender;
+	final Runnable afterSend;
 	/** What the site last accepted, when only a RISE is worth sending; null to send every value. */
-	private final Map<String, Integer> sent;
-	private final Map<String, Integer> pending = new HashMap<>();
-	private ScheduledFuture<?> task;
+	final Map<String, Integer> sent;
+	final Map<String, Integer> pending = new HashMap<>();
+	ScheduledFuture<?> task;
 	/** Failed sends since the last success; 0 = healthy. Drives the retry wait. */
-	private int failures;
+	int failures;
 	/** When the oldest unsent value was queued; 0 while nothing is waiting. */
-	private long holdingSince;
+	long holdingSince;
 	/**
 	 * Longest a value waits for the streak to settle. The settle timer restarts on every new value,
 	 * so without a cap a non-stop skilling session (an XP drop every few seconds) never paused long
@@ -124,7 +124,7 @@ final class CoalescedPush {
 		}
 	}
 
-	private void schedule(ScheduledExecutorService ex, long waitMs) {
+	void schedule(ScheduledExecutorService ex, long waitMs) {
 		if (task != null) task.cancel(false);
 		task = ex.schedule(this::flush, waitMs, TimeUnit.MILLISECONDS);
 	}

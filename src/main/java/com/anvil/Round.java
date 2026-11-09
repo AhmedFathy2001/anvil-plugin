@@ -12,7 +12,7 @@ final class Round extends JPanel {
 	final int arc;
 	final Color hover;
 	Color edge;
-	private boolean filled;
+	boolean filled;
 
 	Round(LayoutManager layout, int arc, Color fill, Color edge, Color hover) {
 		super(layout);

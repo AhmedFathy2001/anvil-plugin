@@ -21,7 +21,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class ChatPatterns {
-	private ChatPatterns() {}
+	ChatPatterns() {}
 
 	static final class Sample {
 		String line;
@@ -63,18 +63,18 @@ final class ChatPatterns {
 
 	static final int MAX_LENGTH = 500;
 	/** charAt calls one test input may cost; a backtracking bomb blows through this in microseconds. */
-	private static final long STEP_BUDGET = 2_000_000L;
+	static final long STEP_BUDGET = 2_000_000L;
 	/**
 	 * charAt calls an OVERRIDE may spend on one real chat line. Vetting can't foresee every line, and
 	 * these run on the client thread — an override that overspends is dropped for the session.
 	 */
 	static final long LINE_BUDGET = 100_000L;
-	private static final Pattern NEVER = Pattern.compile("(?!)");
+	static final Pattern NEVER = Pattern.compile("(?!)");
 
-	private static volatile Map<String, Entry> entries = Collections.emptyMap();
-	private static volatile Map<String, Pattern> defaults = Collections.emptyMap();
+	static volatile Map<String, Entry> entries = Collections.emptyMap();
+	static volatile Map<String, Pattern> defaults = Collections.emptyMap();
 	/** The accepted overrides and their hints, swapped as ONE object so a reader never pairs mismatched halves. */
-	private static final class Live {
+	static final class Live {
 		final Map<String, Pattern> patterns;
 		final Map<String, String> hints;
 
@@ -84,7 +84,7 @@ final class ChatPatterns {
 		}
 	}
 
-	private static volatile Live live = new Live(new HashMap<>(), new HashMap<>());
+	static volatile Live live = new Live(new HashMap<>(), new HashMap<>());
 
 	/** Read the bundled catalog. Idempotent; a broken resource leaves every key matching nothing. */
 	static synchronized void loadDefaults(Gson gson) {
@@ -122,7 +122,7 @@ final class ChatPatterns {
 		return match(key, text, true);
 	}
 
-	private static Matcher match(String key, String text, boolean whole) {
+	static Matcher match(String key, String text, boolean whole) {
 		var l = live;
 		var o = l.patterns.get(key);
 		if (o != null) {
@@ -143,7 +143,7 @@ final class ChatPatterns {
 	}
 
 	/** Retire an override that overspent on a real line. Only if it is still the live one. */
-	private static synchronized void drop(String key, Pattern bad) {
+	static synchronized void drop(String key, Pattern bad) {
 		var l = live;
 		if (l.patterns.get(key) != bad) return;
 		Map<String, Pattern> next = new HashMap<>(l.patterns);
@@ -229,7 +229,7 @@ final class ChatPatterns {
 		return p;
 	}
 
-	private static List<String> stressInputs(Entry e) {
+	static List<String> stressInputs(Entry e) {
 		List<String> out = new ArrayList<>();
 		if (e.samples != null) {
 			for (Sample s : e.samples) {
@@ -245,7 +245,7 @@ final class ChatPatterns {
 		return out;
 	}
 
-	private static int flagsOf(Entry e) {
+	static int flagsOf(Entry e) {
 		int f = 0;
 		if (e.flags != null) {
 			for (String s : e.flags) {
@@ -263,7 +263,7 @@ final class ChatPatterns {
 		return entries;
 	}
 
-	private static final class BudgetExceeded extends RuntimeException {
+	static final class BudgetExceeded extends RuntimeException {
 		BudgetExceeded() {
 			super(null, null, false, false);
 		}
@@ -271,9 +271,9 @@ final class ChatPatterns {
 
 	/** A CharSequence that gives up once the regex engine has read it too many times. */
 	@RequiredArgsConstructor
-	private static final class Budgeted implements CharSequence {
-		private final String s;
-		private final long[] left;
+	static final class Budgeted implements CharSequence {
+		final String s;
+		final long[] left;
 
 		Budgeted(String s) {
 			this(s, STEP_BUDGET);

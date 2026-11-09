@@ -28,13 +28,13 @@ final class ChatFlairSync {
 
 	static final long JITTER_MS = 20_000;
 
-	private final ChatFlair flair;
-	private final Source source;
-	private final Scheduler scheduler;
-	private final LongSupplier jitter;
+	final ChatFlair flair;
+	final Source source;
+	final Scheduler scheduler;
+	final LongSupplier jitter;
 	/** After the list changed: repaint, save. */
-	private final Runnable changed;
-	private boolean pending;
+	final Runnable changed;
+	boolean pending;
 
 
 	/** A {"t":"flair"} push: applied if it follows our version, else a jittered catch-up. */

@@ -35,21 +35,21 @@ final class GifIcon implements Icon {
 	static final long MAX_PIXELS = 6_000_000L;
 	static final int MAX_FRAMES = 300;
 	/** GIF delays are centiseconds; 0/1 means "as fast as possible", which browsers show as 100 ms. */
-	private static final int MIN_DELAY_MS = 20;
-	private static final int FALLBACK_DELAY_MS = 100;
+	static final int MIN_DELAY_MS = 20;
+	static final int FALLBACK_DELAY_MS = 100;
 
-	private static final Set<GifIcon> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
-	private static long lastTick;
-	private static final Timer TICK = new Timer(20, e -> tick());
+	static final Set<GifIcon> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
+	static long lastTick;
+	static final Timer TICK = new Timer(20, e -> tick());
 
-	private final BufferedImage[] frames;
-	private final int[] ends;
-	private final int total;
-	private final Map<Component, Boolean> hosts = new WeakHashMap<>();
-	private long playedMs;
-	private int shown;
+	final BufferedImage[] frames;
+	final int[] ends;
+	final int total;
+	final Map<Component, Boolean> hosts = new WeakHashMap<>();
+	long playedMs;
+	int shown;
 
-	private GifIcon(BufferedImage[] frames, int[] ends) {
+	GifIcon(BufferedImage[] frames, int[] ends) {
 		this.frames = frames;
 		this.ends = ends;
 		total = ends[ends.length - 1];
@@ -87,7 +87,7 @@ final class GifIcon implements Icon {
 	}
 
 	/** EDT: advance every icon some showing label holds, while the client window is in front. */
-	private static void tick() {
+	static void tick() {
 		var now = System.currentTimeMillis();
 		// Clamped, so a stalled EDT or a long idle never fast-forwards: playback resumes where it was.
 		var dt = Math.max(0, Math.min(100, now - lastTick));
@@ -107,7 +107,7 @@ final class GifIcon implements Icon {
 		}
 	}
 
-	private boolean anyShowing() {
+	boolean anyShowing() {
 		for (Component c : hosts.keySet()) {
 			if (c.isShowing()) return true;
 		}
@@ -188,14 +188,14 @@ final class GifIcon implements Icon {
 		}
 	}
 
-	private static final class Frame {
+	static final class Frame {
 		int x;
 		int y;
 		int delayMs = FALLBACK_DELAY_MS;
 		String disposal = "none";
 	}
 
-	private static Frame frameInfo(IIOMetadata meta) {
+	static Frame frameInfo(IIOMetadata meta) {
 		var root = meta == null ? null : meta.getAsTree("javax_imageio_gif_image_1.0");
 		if (root == null) return null;
 		var f = new Frame();
@@ -215,7 +215,7 @@ final class GifIcon implements Icon {
 		return placed ? f : null;
 	}
 
-	private static BufferedImage copyOf(BufferedImage src) {
+	static BufferedImage copyOf(BufferedImage src) {
 		var out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
 		var g = out.createGraphics();
 		g.setComposite(AlphaComposite.Src);

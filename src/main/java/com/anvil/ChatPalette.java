@@ -28,8 +28,8 @@ final class ChatPalette {
 		}
 	}
 
-	private static final Pattern HEX = Pattern.compile("[0-9a-fA-F]{6}");
-	private static final String HEX_DIGITS = "0123456789abcdef";
+	static final Pattern HEX = Pattern.compile("[0-9a-fA-F]{6}");
+	static final String HEX_DIGITS = "0123456789abcdef";
 
 	static final ChatPalette ANVIL = anvil();
 
@@ -37,7 +37,7 @@ final class ChatPalette {
 	 * The Anvil tones on the OPAQUE chatbox: its parchment washes the bright set out, so the same tones
 	 * in the dark inks the game itself uses there. A player's own (custom) palette is theirs, kept as is.
 	 */
-	private static final Map<Tone, String> OPAQUE = new EnumMap<>(Tone.class);
+	static final Map<Tone, String> OPAQUE = new EnumMap<>(Tone.class);
 
 	static {
 		OPAQUE.put(Tone.DONE, "006a00");
@@ -49,16 +49,16 @@ final class ChatPalette {
 	}
 
 	/** Null: plain. */
-	private final Map<Tone, String> colors;
+	final Map<Tone, String> colors;
 	/** Custom palettes colour INFO too; the Anvil one leaves it to the player's own text colour. */
-	private final boolean custom;
+	final boolean custom;
 
-	private ChatPalette(Map<Tone, String> colors, boolean custom) {
+	ChatPalette(Map<Tone, String> colors, boolean custom) {
 		this.colors = colors;
 		this.custom = custom;
 	}
 
-	private static ChatPalette anvil() {
+	static ChatPalette anvil() {
 		Map<Tone, String> m = new EnumMap<>(Tone.class);
 		m.put(Tone.DONE, "16c60c");
 		m.put(Tone.NEAR, "ffb000");
@@ -157,17 +157,17 @@ final class ChatPalette {
 	}
 
 	/** Six lower-case hex digits without the allocation-heavy Formatter used by the static path. */
-	private static void appendHex(StringBuilder out, int rgb) {
+	static void appendHex(StringBuilder out, int rgb) {
 		for (int shift = 20; shift >= 0; shift -= 4) out.append(HEX_DIGITS.charAt(rgb >> shift & 0xf));
 	}
 
 	// What the chatbox's text sits on: the opaque box's parchment, and a dark game scene behind the
 	// transparent one (the worst case: night, a cave, the Wilderness). Approximations, not exact pixels.
-	private static final int OPAQUE_BG = 0xC4B48C;
-	private static final int TRANSPARENT_BG = 0x262626;
+	static final int OPAQUE_BG = 0xC4B48C;
+	static final int TRANSPARENT_BG = 0x262626;
 	/** WCAG's floor for large or bold text; chat text is small but heavy and shadowed on the dark box. */
 	static final double MIN_CONTRAST = 3.0;
-	private static final Pattern COL = Pattern.compile("<col=([0-9a-fA-F]{6})>");
+	static final Pattern COL = Pattern.compile("<col=([0-9a-fA-F]{6})>");
 
 	/**
 	 * Every {@code <col=…>} in a chat line made readable on this chatbox: a colour that already
@@ -226,16 +226,16 @@ final class ChatPalette {
 		return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 	}
 
-	private static double luminance(int rgb) {
+	static double luminance(int rgb) {
 		return 0.2126 * channel(rgb >> 16) + 0.7152 * channel(rgb >> 8) + 0.0722 * channel(rgb);
 	}
 
-	private static double channel(int v) {
+	static double channel(int v) {
 		var c = (v & 0xff) / 255.0;
 		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 	}
 
-	private static int mix(int a, int b, double t) {
+	static int mix(int a, int b, double t) {
 		int r = (int) Math.round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
 		int g = (int) Math.round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
 		int bl = (int) Math.round((a & 0xff) * (1 - t) + (b & 0xff) * t);

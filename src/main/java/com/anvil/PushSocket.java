@@ -19,21 +19,21 @@ import okhttp3.*;
 @Slf4j
 @RequiredArgsConstructor
 final class PushSocket extends WebSocketListener {
-	private static final long FIRST_RETRY_MS = 2_000;
-	private static final long MAX_RETRY_MS = 5 * 60_000;
+	static final long FIRST_RETRY_MS = 2_000;
+	static final long MAX_RETRY_MS = 5 * 60_000;
 	/** Close code for "ticket expired": reconnect at once with a fresh one. */
-	private static final int TICKET_EXPIRED = 4001;
+	static final int TICKET_EXPIRED = 4001;
 
-	private final BingoApiClient api;
-	private final ScheduledExecutorService executor;
-	private final Gson gson;
-	private final Consumer<JsonObject> onMessage;
+	final BingoApiClient api;
+	final ScheduledExecutorService executor;
+	final Gson gson;
+	final Consumer<JsonObject> onMessage;
 
-	private String scope;
-	private volatile WebSocket socket;
-	private ScheduledFuture<?> pending;
-	private int failures;
-	private volatile boolean live;
+	String scope;
+	volatile WebSocket socket;
+	ScheduledFuture<?> pending;
+	int failures;
+	volatile boolean live;
 
 	/** Up and hearing changes, so polls may slow down. */
 	boolean live() {
@@ -49,7 +49,7 @@ final class PushSocket extends WebSocketListener {
 		if (next != null) retryIn(0);
 	}
 
-	private void close() {
+	void close() {
 		live = false;
 		if (pending != null) {
 			pending.cancel(false);
@@ -61,7 +61,7 @@ final class PushSocket extends WebSocketListener {
 		}
 	}
 
-	private synchronized void retryIn(long ms) {
+	synchronized void retryIn(long ms) {
 		if (scope == null || pending != null) return;
 		try {
 			pending = executor.schedule(this::connect, ms, TimeUnit.MILLISECONDS);
@@ -70,7 +70,7 @@ final class PushSocket extends WebSocketListener {
 		}
 	}
 
-	private void connect() {
+	void connect() {
 		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows.
 		boolean feed;
 		boolean rows;
@@ -90,7 +90,7 @@ final class PushSocket extends WebSocketListener {
 		}
 	}
 
-	private void withTicket(BingoApiClient.PushTicket ticket) {
+	void withTicket(BingoApiClient.PushTicket ticket) {
 		synchronized (this) {
 			if (scope == null || socket != null) return;
 			if (ticket == null || ticket.url == null || ticket.ticket == null) {
@@ -131,7 +131,7 @@ final class PushSocket extends WebSocketListener {
 		dropped(ws, false);
 	}
 
-	private synchronized void dropped(WebSocket ws, boolean ticketExpired) {
+	synchronized void dropped(WebSocket ws, boolean ticketExpired) {
 		if (ws != socket) {
 			return; // an old socket we already replaced or closed
 		}

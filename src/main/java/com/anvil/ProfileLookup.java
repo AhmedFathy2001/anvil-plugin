@@ -37,17 +37,17 @@ final class ProfileLookup {
 	static final String OPTION = "Anvil";
 
 	/** List options our entry goes AFTER (below) / BEFORE (above), matching the hiscores plugin. */
-	private static final Set<String> AFTER_OPTIONS = Set.of("Message", "Add ignore", "Remove friend", "Delete", "Kick", "Reply");
-	private static final Set<String> BEFORE_OPTIONS = Set.of("Add friend", "Remove ignore");
+	static final Set<String> AFTER_OPTIONS = Set.of("Message", "Add ignore", "Remove friend", "Delete", "Kick", "Reply");
+	static final Set<String> BEFORE_OPTIONS = Set.of("Add friend", "Remove ignore");
 
-	private final Client client;
-	private final MenuManager menuManager;
-	private final AnvilConfig config;
-	private final EventBus eventBus;
+	final Client client;
+	final MenuManager menuManager;
+	final AnvilConfig config;
+	final EventBus eventBus;
 
-	private boolean playerItemShown;
+	boolean playerItemShown;
 	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
-	@Setter private volatile Predicate<String> panelOpener;
+	@Setter volatile Predicate<String> panelOpener;
 
 	@Inject
 	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus) {
@@ -58,7 +58,7 @@ final class ProfileLookup {
 	}
 
 	/** {@code rsn} as a path segment, or null when there is no name to look up. */
-	private static String pathName(String rsn) {
+	static String pathName(String rsn) {
 		if (rsn == null) return null;
 		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
 		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
@@ -82,7 +82,7 @@ final class ProfileLookup {
 	}
 
 	/** The name lists (friends, ignores, chat channels, clans, raid party, private chat) that get the entry. */
-	private static final Set<Integer> NAME_LISTS = Set.of(InterfaceID.FRIENDS, InterfaceID.IGNORE, InterfaceID.CHATCHANNEL_CURRENT,
+	static final Set<Integer> NAME_LISTS = Set.of(InterfaceID.FRIENDS, InterfaceID.IGNORE, InterfaceID.CHATCHANNEL_CURRENT,
 		InterfaceID.CLANS_SIDEPANEL, InterfaceID.CLANS_GUEST_SIDEPANEL, InterfaceID.RAIDS_SIDEPANEL, InterfaceID.PM_CHAT);
 
 	/**
@@ -98,7 +98,7 @@ final class ProfileLookup {
 	}
 
 	/** Whether the per-surface setting lets the entry onto names in this interface. */
-	private boolean surfaceOn(int groupId) {
+	boolean surfaceOn(int groupId) {
 		switch (groupId) {
 			case InterfaceID.CHATBOX:
 			case InterfaceID.PM_CHAT:
@@ -141,7 +141,7 @@ final class ProfileLookup {
 	}
 
 	/** The panel's Lookup tab when it can show cards, the browser when it can't. */
-	private void lookUp(String rsn) {
+	void lookUp(String rsn) {
 		var opener = panelOpener;
 		if (opener != null && rsn != null && opener.test(rsn)) return;
 		open(rsn);

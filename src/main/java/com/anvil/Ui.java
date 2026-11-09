@@ -16,7 +16,7 @@ import javax.swing.event.DocumentEvent;
  */
 final class Ui {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
-	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+	static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
 	// FontManager hands out the same static instances every call, so holding them changes nothing.
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
@@ -26,7 +26,7 @@ final class Ui {
 	/** Secondary text: counts, hints, the quieter half of a row. */
 	static final Color MUTED = new Color(0xa8_a8_a8);
 
-	private Ui() {
+	Ui() {
 	}
 
 	/**
@@ -111,7 +111,7 @@ final class Ui {
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.putClientProperty(CLICKS, Boolean.TRUE);
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
-			private boolean down;
+			boolean down;
 
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -300,7 +300,7 @@ final class Ui {
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
 	static final class SearchField extends JTextField {
-		private final String placeholder;
+		final String placeholder;
 
 		SearchField(String placeholder, String value) {
 			super(value == null ? "" : value);

@@ -12,11 +12,11 @@ import net.runelite.client.ui.overlay.components.*;
  */
 class StartProofOverlay extends OverlayPanel {
 	/** How long "you're tracked" stays up once the shot is filed. */
-	private static final long DONE_SHOWN_MS = 10_000;
-	private static final Color ORANGE = new Color(255, 152, 31);
+	static final long DONE_SHOWN_MS = 10_000;
+	static final Color ORANGE = new Color(255, 152, 31);
 
-	private final AnvilPlugin plugin;
-	private final AnvilConfig config;
+	final AnvilPlugin plugin;
+	final AnvilConfig config;
 
 	@Inject
 	StartProofOverlay(AnvilPlugin plugin, AnvilConfig config) {
@@ -57,11 +57,11 @@ class StartProofOverlay extends OverlayPanel {
 		return null;
 	}
 
-	private void title(String text, Color color) {
+	void title(String text, Color color) {
 		panelComponent.getChildren().add(TitleComponent.builder().text(text).color(color).build());
 	}
 
-	private void line(String left, String right, Color rightColor) {
+	void line(String left, String right, Color rightColor) {
 		panelComponent.getChildren().add(LineComponent.builder().left(left).right(right).rightColor(rightColor).build());
 	}
 }

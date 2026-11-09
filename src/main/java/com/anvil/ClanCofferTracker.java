@@ -11,7 +11,7 @@ import java.util.Locale;
  * truth and an unconfirmed movement is still reported anonymously.</p>
  */
 final class ClanCofferTracker {
-	private static final long ACTOR_WINDOW_MS = 15_000L;
+	static final long ACTOR_WINDOW_MS = 15_000L;
 
 	@RequiredArgsConstructor
 	enum Kind {
@@ -32,10 +32,10 @@ final class ClanCofferTracker {
 
 	}
 
-	private Integer lastBalance;
-	private Integer candidate;
-	private Kind recentSelfAction;
-	private long recentSelfActionAt;
+	Integer lastBalance;
+	Integer candidate;
+	Kind recentSelfAction;
+	long recentSelfActionAt;
 
 	void reset() {
 		lastBalance = null;

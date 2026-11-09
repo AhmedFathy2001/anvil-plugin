@@ -27,8 +27,8 @@ public final class DeviceSignIn {
 	static final String LINK_PATH = "/link-device";
 
 	/** Fallback pacing/deadline when the server response omits them. */
-	private static final int DEFAULT_INTERVAL_S = 5;
-	private static final int DEFAULT_EXPIRES_S = 600;
+	static final int DEFAULT_INTERVAL_S = 5;
+	static final int DEFAULT_EXPIRES_S = 600;
 
 	public enum Outcome {
 		SIGNED_IN, DENIED, EXPIRED, UNAVAILABLE
@@ -42,11 +42,11 @@ public final class DeviceSignIn {
 
 	}
 
-	private final BingoApiClient apiClient;
-	private final BrowserOpener browserOpener;
-	private final PollScheduler scheduler;
+	final BingoApiClient apiClient;
+	final BrowserOpener browserOpener;
+	final PollScheduler scheduler;
 	// Polling runs on RuneLite's shared executor, which outlives the plugin, so stopping it is ours to do.
-	private volatile boolean cancelled;
+	volatile boolean cancelled;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
 	public DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor) {
@@ -64,7 +64,7 @@ public final class DeviceSignIn {
 	 * same call from here. Everything downstream is written so that distinction doesn't matter — the
 	 * address and the code go on screen either way.
 	 */
-	private static boolean browse(String url) {
+	static boolean browse(String url) {
 		LinkBrowser.browse(url);
 		return true;
 	}
@@ -76,7 +76,7 @@ public final class DeviceSignIn {
 		schedule(() -> start(status, done), 0, status, done);
 	}
 
-	private void start(Consumer<String> status, Consumer<Result> done) {
+	void start(Consumer<String> status, Consumer<Result> done) {
 		var start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty()) {
 			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
@@ -108,7 +108,7 @@ public final class DeviceSignIn {
 
 	/** One scheduled approval poll; reschedules itself (server {@code slow_down} stretches the delay)
 	 * until a terminal status or the deadline. */
-	private void poll(Consumer<String> status, Consumer<Result> done, String deviceCode, long intervalMs, long deadline) {
+	void poll(Consumer<String> status, Consumer<Result> done, String deviceCode, long intervalMs, long deadline) {
 		if (System.currentTimeMillis() >= deadline) {
 			fail(status, done, "The code expired — try again.", Outcome.EXPIRED);
 			return;
@@ -143,7 +143,7 @@ public final class DeviceSignIn {
 
 	/** Schedule a flow step; an escaped {@link RuntimeException} would otherwise vanish inside the
 	 * executor, so surface it as the terminal failure. */
-	private static void fail(Consumer<String> status, Consumer<Result> done, String message, Outcome outcome) {
+	static void fail(Consumer<String> status, Consumer<Result> done, String message, Outcome outcome) {
 		status.accept(message);
 		done.accept(new Result(outcome, null));
 	}
@@ -153,7 +153,7 @@ public final class DeviceSignIn {
 		cancelled = true;
 	}
 
-	private void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done) {
+	void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done) {
 		scheduler.schedule(() -> {
 			if (cancelled) return;
 			try {

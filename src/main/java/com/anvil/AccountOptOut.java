@@ -21,9 +21,9 @@ import java.util.*;
 final class AccountOptOut {
 	static final AccountOptOut EMPTY = new AccountOptOut(Collections.emptySet());
 
-	private final Set<String> digests;
+	final Set<String> digests;
 
-	private AccountOptOut(Set<String> digests) {
+	AccountOptOut(Set<String> digests) {
 		this.digests = Collections.unmodifiableSet(digests);
 	}
 
@@ -85,7 +85,7 @@ final class AccountOptOut {
 	}
 
 	/** First 16 hex chars of SHA-256 — plenty to tell a handful of local characters apart. */
-	private static String digest(String s) {
+	static String digest(String s) {
 		try {
 			var d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
 			var sb = new StringBuilder(16);

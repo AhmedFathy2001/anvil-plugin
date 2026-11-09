@@ -21,12 +21,12 @@ final class SyncBackoff {
 	static final long FIRST_MS = 30_000L;
 	static final long MAX_MS = 600_000L;
 
-	private final long firstMs;
-	private final long maxMs;
+	final long firstMs;
+	final long maxMs;
 	/** A uniform draw in [0, 1) spreading each wait ±20%; 0.5 gives the exact doubling. */
-	private final DoubleSupplier jitter;
-	private long nextAttemptAt;
-	private int failures;
+	final DoubleSupplier jitter;
+	long nextAttemptAt;
+	int failures;
 
 	SyncBackoff() {
 		this(FIRST_MS, MAX_MS);

@@ -34,7 +34,7 @@ final class LookupSuggestions extends KeyAdapter {
 			this.clan = copy(clan);
 		}
 
-		private static List<String> copy(Collection<String> names) {
+		static List<String> copy(Collection<String> names) {
 			return names == null ? Collections.emptyList() : new ArrayList<>(names);
 		}
 	}
@@ -59,12 +59,12 @@ final class LookupSuggestions extends KeyAdapter {
 		return null;
 	}
 
-	private final JTextComponent field;
-	private final BooleanSupplier enabled;
-	private final Supplier<List<String>> recent;
-	private final Supplier<String> me;
-	private final Consumer<Consumer<Names>> fetch;
-	private volatile Names names = Names.EMPTY;
+	final JTextComponent field;
+	final BooleanSupplier enabled;
+	final Supplier<List<String>> recent;
+	final Supplier<String> me;
+	final Consumer<Consumer<Names>> fetch;
+	volatile Names names = Names.EMPTY;
 
 	/**
 	 * @param fetch reads the game's lists and hands them back on any thread (the client thread, live)
@@ -117,7 +117,7 @@ final class LookupSuggestions extends KeyAdapter {
 		});
 	}
 
-	private void fill(String typed) {
+	void fill(String typed) {
 		var name = complete(typed, recent.get(), names, me.get());
 		if (name == null || name.length() <= typed.length()) return;
 		try {

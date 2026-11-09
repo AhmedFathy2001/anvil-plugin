@@ -8,7 +8,7 @@ import java.util.*;
  * reason it doesn't, worded for the player's chat box.
  */
 final class RaidGates {
-	private RaidGates() {
+	RaidGates() {
 	}
 
 	/** Only ToA has a raid level; a floor on any other raid's tile is ignored rather than failing it. */

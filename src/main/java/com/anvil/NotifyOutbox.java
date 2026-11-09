@@ -67,14 +67,14 @@ final class NotifyOutbox {
 		transient byte[] png;
 	}
 
-	private final Gson gson;
-	private final Supplier<ScheduledExecutorService> scheduler;
-	private final Supplier<ExecutorService> sendPool;
-	@Setter private volatile Filepath dir;
-	@Setter private volatile Sender sender;
-	private final List<Item> items = new ArrayList<>();
-	private ScheduledFuture<?> task;
-	private boolean pumping;
+	final Gson gson;
+	final Supplier<ScheduledExecutorService> scheduler;
+	final Supplier<ExecutorService> sendPool;
+	@Setter volatile Filepath dir;
+	@Setter volatile Sender sender;
+	final List<Item> items = new ArrayList<>();
+	ScheduledFuture<?> task;
+	boolean pumping;
 
 
 	synchronized int size() {
@@ -189,7 +189,7 @@ final class NotifyOutbox {
 		cancel();
 	}
 
-	private void cancel() {
+	void cancel() {
 		if (task != null) {
 			task.cancel(false);
 			task = null;
@@ -197,7 +197,7 @@ final class NotifyOutbox {
 	}
 
 	/** Call with the monitor held. */
-	private void prune(long now) {
+	void prune(long now) {
 		var evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, MAX_BYTES);
 		if (evict.isEmpty()) return;
 		items.removeAll(evict);
@@ -207,7 +207,7 @@ final class NotifyOutbox {
 	}
 
 	/** Call with the monitor held. */
-	private void schedule(long waitMs) {
+	void schedule(long waitMs) {
 		var ex = scheduler.get();
 		if (ex == null || ex.isShutdown()) return;
 		cancel();
@@ -215,7 +215,7 @@ final class NotifyOutbox {
 	}
 
 	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
-	private void handOff() {
+	void handOff() {
 		var pool = sendPool.get();
 		if (pool != null && !pool.isShutdown()) pool.submit(this::pump);
 	}
@@ -267,20 +267,20 @@ final class NotifyOutbox {
 		}
 	}
 
-	private byte[] screenshot(Item it) {
+	byte[] screenshot(Item it) {
 		if (it.png != null) return it.png;
 		var d = dir;
 		return d == null ? null : DiskFiles.read(d.joinSegment(it.id + ".png"));
 	}
 
-	private void remove(Item it) {
+	void remove(Item it) {
 		synchronized (this) {
 			items.remove(it);
 		}
 		deleteFiles(it);
 	}
 
-	private void rewrite(Item it) {
+	void rewrite(Item it) {
 		var d = dir;
 		if (d == null) return;
 		try {
@@ -289,7 +289,7 @@ final class NotifyOutbox {
 		}
 	}
 
-	private void deleteFiles(Item it) {
+	void deleteFiles(Item it) {
 		var d = dir;
 		if (d == null || it.id == null) return;
 		try {

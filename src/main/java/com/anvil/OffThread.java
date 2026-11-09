@@ -15,10 +15,10 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class OffThread {
-	private static volatile BooleanSupplier onClientThread = () -> false;
-	private static final Set<String> reported = ConcurrentHashMap.newKeySet();
+	static volatile BooleanSupplier onClientThread = () -> false;
+	static final Set<String> reported = ConcurrentHashMap.newKeySet();
 
-	private OffThread() {
+	OffThread() {
 	}
 
 	/** Bound by the plugin at startUp ({@code client::isClientThread}); unbound reads as "not". */

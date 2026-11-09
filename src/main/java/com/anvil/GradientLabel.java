@@ -24,10 +24,10 @@ final class GradientLabel extends JLabel {
 	static final long PANEL_CYCLE_MS = 5000;
 	/** RuneScape chat and widget names use the same calm five-second cycle as the side panel. */
 	static final long GAME_CYCLE_MS = 5000;
-	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
+	static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
 	@Setter static volatile boolean animate = true;
-	private static final Timer TICK = new Timer(40, e -> { if (animate && clientActive()) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
+	static final Timer TICK = new Timer(40, e -> { if (animate && clientActive()) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
 
 	/**
 	 * Whether the client window is in front. WINDOW focus on purpose: RuneLite's FocusChanged follows
@@ -43,7 +43,7 @@ final class GradientLabel extends JLabel {
 	}
 
 	/** The active-window state, kept by a focus-manager listener on the EDT. */
-	private static final class ActiveWindow {
+	static final class ActiveWindow {
 		volatile boolean active = true;
 
 		ActiveWindow() {
@@ -55,11 +55,11 @@ final class GradientLabel extends JLabel {
 		}
 	}
 
-	private static final ActiveWindow ACTIVE = new ActiveWindow();
+	static final ActiveWindow ACTIVE = new ActiveWindow();
 
 	/** Played animation time: starts at the wall clock (clients begin in step) and runs only while in front. */
-	private static long playedMs = System.currentTimeMillis();
-	private static long lastWallMs = playedMs;
+	static long playedMs = System.currentTimeMillis();
+	static long lastWallMs = playedMs;
 
 	/**
 	 * Shared phase clock for Swing labels and game widgets (EDT and client thread). It never resets on
@@ -78,20 +78,20 @@ final class GradientLabel extends JLabel {
 		return playedMs;
 	}
 
-	private final Color[] stops;
-	private final float[] fractions;
-	private final boolean moving;
+	final Color[] stops;
+	final float[] fractions;
+	final boolean moving;
 
 	// The label as Swing draws it, plus a same-size buffer each frame is composed in.
-	private BufferedImage base;
-	private BufferedImage frame;
-	private final Rectangle textR = new Rectangle();
-	private final Rectangle iconR = new Rectangle();
+	BufferedImage base;
+	BufferedImage frame;
+	final Rectangle textR = new Rectangle();
+	final Rectangle iconR = new Rectangle();
 	/** The supporter star takes the gradient too; any other icon keeps its colours. */
-	private boolean tintIcon;
+	boolean tintIcon;
 	/** What the gradient fills: the text, or the text and the star. */
-	private final Rectangle fillR = new Rectangle();
-	private String baseKey;
+	final Rectangle fillR = new Rectangle();
+	String baseKey;
 
 	/** Paint the icon with the gradient too (the supporter star), not only the text. */
 	void setTintIcon(boolean tintIcon) {
@@ -175,7 +175,7 @@ final class GradientLabel extends JLabel {
 		}
 	}
 
-	private void drawBase(Graphics2D g, int w, int h, int iw, int ih, double sx, double sy) {
+	void drawBase(Graphics2D g, int w, int h, int iw, int ih, double sx, double sy) {
 		if (base == null || base.getWidth() != iw || base.getHeight() != ih) {
 			base = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
 			frame = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);

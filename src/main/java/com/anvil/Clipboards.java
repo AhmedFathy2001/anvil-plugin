@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class Clipboards {
-	private Clipboards() {
+	Clipboards() {
 	}
 
 	/** True when the text made it onto the clipboard, so a caller can say so rather than assume. */
@@ -23,7 +23,7 @@ final class Clipboards {
 		return set(new StringSelection(value));
 	}
 
-	private static boolean set(Transferable contents) {
+	static boolean set(Transferable contents) {
 		try {
 			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(contents, null);
 			return true;

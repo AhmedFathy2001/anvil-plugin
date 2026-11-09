@@ -87,30 +87,30 @@ import javax.swing.JComponent;
 
 final class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
-	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+	static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
 	static final int FLUSH_MS = 400;
 	/** How long after our own press's post answers before held reaction pushes are laid over it. */
 	static final int SETTLE_MS = 1500;
 	/** Reaction pushes held per pressed row, at most (the newest kept). */
-	private static final int HELD_CAP = 16;
-	private static final int ICON_W = 24;
-	private static final int ICON_H = 21;
-	private static final Color GOLD = new Color(0xFF_D3_5C);
-	private static final Color MINE_BG = new Color(0x2E_2A_22);
-	private static final Color CORAL = new Color(0xFF_7A_6B);
-	private static final Color SEG_BG = new Color(0x1E_1E_1E);
-	private static final Color SEG_ON = new Color(0x3A_3A_3A);
+	static final int HELD_CAP = 16;
+	static final int ICON_W = 24;
+	static final int ICON_H = 21;
+	static final Color GOLD = new Color(0xFF_D3_5C);
+	static final Color MINE_BG = new Color(0x2E_2A_22);
+	static final Color CORAL = new Color(0xFF_7A_6B);
+	static final Color SEG_BG = new Color(0x1E_1E_1E);
+	static final Color SEG_ON = new Color(0x3A_3A_3A);
 
 	final String id;
-	private final UiView.Host host;
-	private final ItemManager items;
-	private final SpriteManager sprites;
-	private final SkillIconManager skills;
-	private final Consumer<JsonObject> act;
-	private final int cap;
-	private final RowModel model = new RowModel();
-	private final JList<JsonObject> list = new JList<JsonObject>(model) {
+	final UiView.Host host;
+	final ItemManager items;
+	final SpriteManager sprites;
+	final SkillIconManager skills;
+	final Consumer<JsonObject> act;
+	final int cap;
+	final RowModel model = new RowModel();
+	final JList<JsonObject> list = new JList<JsonObject>(model) {
 		@Override
 		public boolean getScrollableTracksViewportWidth() {
 			return true;
@@ -134,39 +134,39 @@ final class FeedList extends JPanel {
 			return line.isEmpty() ? null : Ui.wrapHtml(esc(Ui.fontSafe(line + (value.isEmpty() ? "" : " · " + value))), 200);
 		}
 	};
-	private final JScrollPane scroll;
-	private final JLabel empty;
-	private final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
-	private final JLabel error = new ClipLabel();
-	private final JLabel lockLine = new ClipLabel();
-	private final JLabel lockSub = new ClipLabel();
+	final JScrollPane scroll;
+	final JLabel empty;
+	final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
+	final JLabel error = new ClipLabel();
+	final JLabel lockLine = new ClipLabel();
+	final JLabel lockSub = new ClipLabel();
 	/** In place of the message box while locked: the reason, coral when it's the viewer's own timeout. */
-	private final JPanel lockBox = new JPanel(new BorderLayout(0, 2));
-	private JPanel boxPanel;
+	final JPanel lockBox = new JPanel(new BorderLayout(0, 2));
+	JPanel boxPanel;
 	/** Chat: the channel switch over the list (My team | All teams | Announcements). */
-	private final List<Seg> segs = new ArrayList<>();
-	private JTextField input;
-	private JsonObject send;
+	final List<Seg> segs = new ArrayList<>();
+	JTextField input;
+	JsonObject send;
 	/** A chat (it has a message box): oldest at the top, newest at the bottom, pinned to the latest. */
-	private final boolean chat;
+	final boolean chat;
 	/** Pinned to the newest line: true until the reader scrolls away from it. */
-	private boolean following = true;
+	boolean following = true;
 	/** Whose lines are the viewer's own, re-read at each flush. */
-	private String me;
+	String me;
 	/** Chat: every name the viewer's own lines carry (the site's `mine`: their characters and host name), per person. */
-	private final Set<String> mineNames = new HashSet<>();
+	final Set<String> mineNames = new HashSet<>();
 	/** Arrived since the last flush, oldest first. */
-	private final List<JsonObject> pending = new ArrayList<>();
-	private final Set<String> pendingDel = new HashSet<>();
+	final List<JsonObject> pending = new ArrayList<>();
+	final Set<String> pendingDel = new HashSet<>();
 	/** Rows whose reaction chip this viewer just pressed: their pushes wait (see {@link #reaction}). */
-	private final Map<String, Held> held = new HashMap<>();
-	private final Timer flush = new Timer(FLUSH_MS, e -> flush());
+	final Map<String, Held> held = new HashMap<>();
+	final Timer flush = new Timer(FLUSH_MS, e -> flush());
 	/** Repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
-	private final Timer slide = new Timer(40, e -> slideVisible());
-	private int unseen;
-	private final Map<Integer, Icon> icons = new HashMap<>();
-	private final Map<Integer, Icon> spriteIcons = new HashMap<>();
-	private final Map<String, Icon> skillIcons = new HashMap<>();
+	final Timer slide = new Timer(40, e -> slideVisible());
+	int unseen;
+	final Map<Integer, Icon> icons = new HashMap<>();
+	final Map<Integer, Icon> spriteIcons = new HashMap<>();
+	final Map<String, Icon> skillIcons = new HashMap<>();
 
 	FeedList(JsonObject n, UiView.Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills, Consumer<JsonObject> act) {
 		super(new BorderLayout(0, 4));
@@ -246,7 +246,7 @@ final class FeedList extends JPanel {
 		list.addMouseListener(hover);
 		// Chat rows wrap to the width: a new width means new heights, so drop JList's cached ones.
 		list.addComponentListener(new ComponentAdapter() {
-			private int lastW = -1;
+			int lastW = -1;
 
 			@Override
 			public void componentResized(ComponentEvent e) {
@@ -354,7 +354,7 @@ final class FeedList extends JPanel {
 		applyReactionToList(rowId, update);
 	}
 
-	private void applyReactionToList(String rowId, JsonObject update) {
+	void applyReactionToList(String rowId, JsonObject update) {
 		for (JsonObject row : pending) {
 			if (rowId.equals(str(row, "id"))) applyReaction(row, update);
 		}
@@ -378,7 +378,7 @@ final class FeedList extends JPanel {
 		return changed;
 	}
 
-	private static boolean applyChip(JsonObject chip, String kind, JsonObject update) {
+	static boolean applyChip(JsonObject chip, String kind, JsonObject update) {
 		if (kind.isEmpty()) return false;
 		var changed = false;
 		if (update.has(kind) && update.get(kind).isJsonPrimitive()) {
@@ -412,12 +412,12 @@ final class FeedList extends JPanel {
 	}
 
 	/** A press on this row's chip just went out: hold its pushes until it settles. */
-	private void hold(String rowId) {
+	void hold(String rowId) {
 		held.computeIfAbsent(rowId, k -> new Held()).posts++;
 	}
 
 	/** One of the row's posts answered: once none are out, wait {@link #SETTLE_MS} and replay what was held. */
-	private void unhold(String rowId) {
+	void unhold(String rowId) {
 		var h = held.get(rowId);
 		if (h == null) return;
 		h.posts = Math.max(0, h.posts - 1);
@@ -428,7 +428,7 @@ final class FeedList extends JPanel {
 		t.start();
 	}
 
-	private void settle(String rowId, int gen) {
+	void settle(String rowId, int gen) {
 		var h = held.get(rowId);
 		if (h == null || h.posts > 0 || h.gen != gen) return;
 		held.remove(rowId);
@@ -444,7 +444,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** Pushes for a row whose chip this viewer just pressed. */
-	private static final class Held {
+	static final class Held {
 		int posts;
 		int gen;
 		final List<JsonObject> queued = new ArrayList<>();
@@ -489,7 +489,7 @@ final class FeedList extends JPanel {
 		return -1;
 	}
 
-	private JPanel switchOf(JsonArray chans) {
+	JPanel switchOf(JsonArray chans) {
 		var bar = new JPanel(new java.awt.GridLayout(1, 0, 2, 0));
 		bar.setBackground(SEG_BG);
 		bar.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
@@ -505,7 +505,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** One channel on the switch: its name, lit when open, and an unread pill when not. */
-	private static final class Seg extends JComponent {
+	static final class Seg extends JComponent {
 		final String label;
 		final String feed;
 		final boolean on;
@@ -581,7 +581,7 @@ final class FeedList extends JPanel {
 		slide.stop();
 	}
 
-	private void slideVisible() {
+	void slideVisible() {
 		if (!list.isShowing() || !GradientLabel.animate || !GradientLabel.clientActive()) return;
 		int first = list.getFirstVisibleIndex();
 		int last = list.getLastVisibleIndex();
@@ -620,7 +620,7 @@ final class FeedList extends JPanel {
 		return error.isVisible() ? error.getText() : null;
 	}
 
-	private void schedule() {
+	void schedule() {
 		if (!flush.isRunning()) flush.start();
 	}
 
@@ -672,13 +672,13 @@ final class FeedList extends JPanel {
 	}
 
 	/** At the newest row: the bottom for a chat, the top for a feed. */
-	private boolean atLatest() {
+	boolean atLatest() {
 		javax.swing.JViewport vp = scroll.getViewport();
 		if (!chat) return vp.getViewPosition().y <= 2;
 		return vp.getViewPosition().y + vp.getExtentSize().height >= list.getHeight() - 4;
 	}
 
-	private void toLatest() {
+	void toLatest() {
 		following = true;
 		unseen = 0;
 		newPill.setVisible(false);
@@ -692,7 +692,7 @@ final class FeedList extends JPanel {
 		} else scroll.getViewport().setViewPosition(new Point(0, 0));
 	}
 
-	private void syncEmpty() {
+	void syncEmpty() {
 		var none = model.getSize() == 0;
 		if (empty.isVisible() != (none && !empty.getText().isEmpty())) {
 			empty.setVisible(none && !empty.getText().isEmpty());
@@ -702,7 +702,7 @@ final class FeedList extends JPanel {
 
 	// ---- The message box ---------------------------------------------------------------------------
 
-	private JPanel sendBox() {
+	JPanel sendBox() {
 		var box = new JPanel(new BorderLayout(0, 2));
 		box.setOpaque(false);
 		input = new JTextField();
@@ -742,13 +742,13 @@ final class FeedList extends JPanel {
 	}
 
 	/** A send on its way: Enter again does nothing (the box is never disabled — that moves focus). */
-	private boolean sending;
+	boolean sending;
 
 	/**
 	 * Post the line. Sent, the keyboard goes straight back to the game, so Key Remapping, WASD and
 	 * Enter-to-chat work as before; refused, it stays in the box so the line can be fixed.
 	 */
-	private void sendNow() {
+	void sendNow() {
 		var text = input.getText().trim();
 		if (text.isEmpty() || !input.isEnabled() || sending) return;
 		sending = true;
@@ -765,7 +765,7 @@ final class FeedList extends JPanel {
 		});
 	}
 
-	private void showError(String err) {
+	void showError(String err) {
 		error.setText(err == null ? "" : plainText(err));
 		error.setVisible(err != null);
 		revalidate();
@@ -779,8 +779,8 @@ final class FeedList extends JPanel {
 	}
 
 	@RequiredArgsConstructor
-	private static final class MaxLength extends DocumentFilter {
-		private final int max;
+	static final class MaxLength extends DocumentFilter {
+		final int max;
 
 		@Override
 		public void insertString(FilterBypass fb, int offset, String s, AttributeSet a) throws BadLocationException {
@@ -798,7 +798,7 @@ final class FeedList extends JPanel {
 
 	// ---- Clicks ------------------------------------------------------------------------------------
 
-	private final class Clicks extends MouseAdapter {
+	final class Clicks extends MouseAdapter {
 		@Override
 		public void mousePressed(MouseEvent e) {
 			popup(e);
@@ -809,13 +809,13 @@ final class FeedList extends JPanel {
 			if (!popup(e) && SwingUtilities.isLeftMouseButton(e)) click(e);
 		}
 
-		private int rowAt(MouseEvent e) {
+		int rowAt(MouseEvent e) {
 			int i = list.locationToIndex(e.getPoint());
 			var b = i < 0 ? null : list.getCellBounds(i, i);
 			return b != null && b.contains(e.getPoint()) ? i : -1;
 		}
 
-		private boolean popup(MouseEvent e) {
+		boolean popup(MouseEvent e) {
 			if (!e.isPopupTrigger()) return false;
 			int i = rowAt(e);
 			var r = i < 0 ? null : model.getElementAt(i);
@@ -834,7 +834,7 @@ final class FeedList extends JPanel {
 			return true;
 		}
 
-		private void click(MouseEvent e) {
+		void click(MouseEvent e) {
 			int i = rowAt(e);
 			if (i < 0) return;
 			var r = model.getElementAt(i);
@@ -849,7 +849,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** A reaction chip pressed: flipped at once, posted, and the row's pushes held until the post settles. */
-	private void press(int i, JsonObject chip) {
+	void press(int i, JsonObject chip) {
 		var mine = chip.has("mine") && chip.get("mine").getAsBoolean();
 		int count = chip.has("n") ? chip.get("n").getAsInt() : 0;
 		chip.addProperty("mine", !mine);
@@ -876,7 +876,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** A post that must not redraw the view: only an error line comes back. */
-	private void quietly(JsonObject on) {
+	void quietly(JsonObject on) {
 		if (!"post".equals(str(on, "a"))) {
 			act.accept(on);
 			return;
@@ -886,9 +886,9 @@ final class FeedList extends JPanel {
 
 	// ---- The model: one list, changed in batches -------------------------------------------------
 
-	private static final class RowModel extends AbstractListModel<JsonObject> {
-		private final List<JsonObject> rows = new ArrayList<>();
-		private final Set<String> ids = new HashSet<>();
+	static final class RowModel extends AbstractListModel<JsonObject> {
+		final List<JsonObject> rows = new ArrayList<>();
+		final Set<String> ids = new HashSet<>();
 
 		@Override
 		public int getSize() {
@@ -968,7 +968,7 @@ final class FeedList extends JPanel {
 
 	// ---- One renderer, reused for every row --------------------------------------------------------
 
-	private Icon iconFor(JsonObject r) {
+	Icon iconFor(JsonObject r) {
 		if (r.has("item") && items != null) {
 			int item = r.get("item").getAsInt();
 			var cached = icons.get(item);
@@ -1016,7 +1016,7 @@ final class FeedList extends JPanel {
 		return null;
 	}
 
-	private static int spriteId(String name) {
+	static int spriteId(String name) {
 		switch (name) {
 			case "quest":
 				return SpriteID.QUESTS_PAGE_ICON_BLUE_QUESTS;
@@ -1035,9 +1035,9 @@ final class FeedList extends JPanel {
 
 	/** A row's picture on a rounded tile of its kind's colour (purple rare, green done, coral death). */
 	@RequiredArgsConstructor
-	private static final class Tinted implements Icon {
-		private final Icon in;
-		private final Color tint;
+	static final class Tinted implements Icon {
+		final Icon in;
+		final Color tint;
 
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
@@ -1060,7 +1060,7 @@ final class FeedList extends JPanel {
 		}
 	}
 
-		private static final class BlankIcon implements Icon {
+		static final class BlankIcon implements Icon {
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
 		}
@@ -1076,7 +1076,7 @@ final class FeedList extends JPanel {
 		}
 	}
 
-	private final ChatCell chatCell = new ChatCell();
+	final ChatCell chatCell = new ChatCell();
 
 	/**
 	 * One chat line, painted straight onto the list: the name (and team, or HOST / MOD / TEAM) with
@@ -1087,15 +1087,15 @@ final class FeedList extends JPanel {
 	 * the wrapping is done once per row and width with plain font metrics and kept, so a flush is cheap
 	 * however long the chat is, and nothing a player typed can ever become markup.
 	 */
-	private final class ChatCell extends JComponent {
-		private static final int PAD_X = 8;
-		private final Map<String, List<String>> wraps = new HashMap<>();
-		private int wrapWidth = -1;
-		private JsonObject r;
-		private boolean grouped;
-		private boolean mine;
-		private List<String> lines = Collections.emptyList();
-		private int height;
+	final class ChatCell extends JComponent {
+		static final int PAD_X = 8;
+		final Map<String, List<String>> wraps = new HashMap<>();
+		int wrapWidth = -1;
+		JsonObject r;
+		boolean grouped;
+		boolean mine;
+		List<String> lines = Collections.emptyList();
+		int height;
 
 		ChatCell() {
 			setOpaque(true);
@@ -1218,12 +1218,12 @@ final class FeedList extends JPanel {
 	 * its text every 40ms frame, so Swing re-parsed the markup 25 times a second for each visible
 	 * moving row; drawing the same letters in the same colours costs only the drawString calls.
 	 */
-	private static final class WhoLine extends JComponent {
-		private JsonObject r;
-		private String who = "";
-		private String tag = "";
-		private Color whoInk = Color.WHITE;
-		private Color tagInk = MUTED;
+	static final class WhoLine extends JComponent {
+		JsonObject r;
+		String who = "";
+		String tag = "";
+		Color whoInk = Color.WHITE;
+		Color tagInk = MUTED;
 
 		void show(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
 			this.r = r;
@@ -1257,11 +1257,11 @@ final class FeedList extends JPanel {
 		}
 	}
 
-	private static String font(Color c, String text) {
+	static String font(Color c, String text) {
 		return String.format("<font color='#%06x'>%s</font>", c.getRGB() & 0xffffff, Ui.esc(text));
 	}
 
-	private static Color mix(Color a, Color b, float t) {
+	static Color mix(Color a, Color b, float t) {
 		return new Color(Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
 				Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
 				Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
@@ -1323,13 +1323,13 @@ final class FeedList extends JPanel {
 		return out;
 	}
 
-	private final class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
-		private final JLabel icon = new ClipLabel();
-		private final JLabel line1 = new ClipLabel();
-		private final WhoLine line2 = new WhoLine();
-		private final JLabel value = new ClipLabel();
-		private final JLabel gz = new ClipLabel();
-		private final Chips chips = new Chips();
+	final class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
+		final JLabel icon = new ClipLabel();
+		final JLabel line1 = new ClipLabel();
+		final WhoLine line2 = new WhoLine();
+		final JLabel value = new ClipLabel();
+		final JLabel gz = new ClipLabel();
+		final Chips chips = new Chips();
 
 		RowRenderer() {
 			super(new BorderLayout(6, 0));
@@ -1362,11 +1362,11 @@ final class FeedList extends JPanel {
 			add(right, BorderLayout.EAST);
 		}
 
-		private final javax.swing.border.Border feedBorder = BorderFactory.createCompoundBorder(
+		final javax.swing.border.Border feedBorder = BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, DARK_GRAY_COLOR),
 			BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
-		private boolean mine(JsonObject r) {
+		boolean mine(JsonObject r) {
 			return (r.has("mine") && r.get("mine").getAsBoolean()) || (me != null && !me.isEmpty() && Rsn.same(me, str(r, "who")))
 					|| (!mineNames.isEmpty() && mineNames.contains(ChatFlair.normalize(str(r, "who"))));
 		}
@@ -1426,10 +1426,10 @@ final class FeedList extends JPanel {
 	}
 
 	/** The row and pill under the mouse, lit by the renderer (-1: none). EDT. */
-	private int hoverRow = -1;
-	private int hoverChip = -1;
+	int hoverRow = -1;
+	int hoverChip = -1;
 
-	private void setHover(int row, int chip) {
+	void setHover(int row, int chip) {
 		if (row == hoverRow && chip == hoverChip) return;
 		int was = hoverRow;
 		hoverRow = row;
@@ -1445,11 +1445,11 @@ final class FeedList extends JPanel {
 	static final int CHIP_PAD = 6;
 	static final int CHIP_SPACE = 3;
 	/** Soft fills, no outline: quiet when idle, a little lighter under the mouse, tinted when yours. */
-	private static final Color CHIP_FILL = new Color(0x303030);
-	private static final Color CHIP_FILL_HOVER = new Color(0x404040);
-	private static final Color CHIP_MINE = new Color(255, 152, 31, 52);
-	private static final Color CHIP_MINE_HOVER = new Color(255, 152, 31, 84);
-	private static final Color CHIP_INK = new Color(0xb4b4b4);
+	static final Color CHIP_FILL = new Color(0x303030);
+	static final Color CHIP_FILL_HOVER = new Color(0x404040);
+	static final Color CHIP_MINE = new Color(255, 152, 31, 52);
+	static final Color CHIP_MINE_HOVER = new Color(255, 152, 31, 84);
+	static final Color CHIP_INK = new Color(0xb4b4b4);
 
 	/** "Sit 3", or just "Sit" before anyone has. */
 	static String chipText(JsonObject c) {
@@ -1555,7 +1555,7 @@ final class FeedList extends JPanel {
 		return a > 0 && b > 0 && Math.abs(a - b) <= RUN_GAP_MS;
 	}
 
-	private static long millis(String at) {
+	static long millis(String at) {
 		if (at == null || at.isEmpty()) return 0;
 		var iso = at.trim().replace(' ', 'T');
 		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";

@@ -16,7 +16,7 @@ import net.runelite.api.gameval.ItemID;
  * pick: a wrong credit costs a reviewer more than a manual proof does.
  */
 final class DuplicateInference {
-	private DuplicateInference() {
+	DuplicateInference() {
 	}
 
 	/** The one pet {@code source} drops, or null when it drops none or several. */
@@ -33,7 +33,7 @@ final class DuplicateInference {
 	}
 
 	/** The single pet matching {@code test}, or null when none or several do (or {@code want} is blank). */
-	private static String onlyPet(PluginConfigResponse.DropFacts facts, String want, Predicate<PluginConfigResponse.DropFacts.Pet> test) {
+	static String onlyPet(PluginConfigResponse.DropFacts facts, String want, Predicate<PluginConfigResponse.DropFacts.Pet> test) {
 		if (facts == null || facts.pets == null || want.isEmpty()) return null;
 		String found = null;
 		for (Map.Entry<String, PluginConfigResponse.DropFacts.Pet> e : facts.pets.entrySet()) {
@@ -47,7 +47,7 @@ final class DuplicateInference {
 
 	// Champion's scrolls by NPC name, checked in order: "x*" is a prefix (hobgoblin before goblin),
 	// "*x" a suffix, anything else the whole name.
-	private static final Map<String, Integer> CHAMPION_SCROLLS = new LinkedHashMap<>();
+	static final Map<String, Integer> CHAMPION_SCROLLS = new LinkedHashMap<>();
 	static {
 		CHAMPION_SCROLLS.put("hobgoblin*", ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN);
 		CHAMPION_SCROLLS.put("goblin*", ItemID.CHAMPIONS_CHALLENGE_GOBLIN);

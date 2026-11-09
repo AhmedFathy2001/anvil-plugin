@@ -23,14 +23,14 @@ final class ClogSync {
 	/** Send at most this many pages per request; a full first sync becomes a handful of them. */
 	static final int BATCH_PAGES = 25;
 	/** Queue this many and go early — a bulk sync shouldn't sit waiting on the quiet timer. */
-	private static final int EAGER_AT = BATCH_PAGES;
+	static final int EAGER_AT = BATCH_PAGES;
 
 	/** Last hash we successfully sent, per page name. The persisted half of the state. */
-	private final Map<String, Long> sent = new HashMap<>();
+	final Map<String, Long> sent = new HashMap<>();
 	/** Changed pages awaiting a push, newest write wins. Insertion-ordered so batches are stable. */
-	private final Map<String, ClogPage> pending = new LinkedHashMap<>();
+	final Map<String, ClogPage> pending = new LinkedHashMap<>();
 
-	private long lastChangeAt;
+	long lastChangeAt;
 
 	/**
 	 * Offer the page currently on screen. Cheap and idempotent — the common case is a hash compare

@@ -17,7 +17,7 @@ import net.runelite.api.WorldType;
  * before RuneLite has a flag for it.</p>
  */
 final class WorldInfo {
-	private WorldInfo() {
+	WorldInfo() {
 	}
 
 	/**

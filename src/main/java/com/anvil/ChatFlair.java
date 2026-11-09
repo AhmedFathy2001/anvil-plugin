@@ -74,7 +74,7 @@ final class ChatFlair {
 
 	/** One version of the list. */
 	@RequiredArgsConstructor
-	private static final class Held {
+	static final class Held {
 		final int v;
 		final String[] names;
 		final char[] ix;
@@ -82,9 +82,9 @@ final class ChatFlair {
 	}
 
 	/** A sender as the game writes it: rank/account-type icons, then the plain name. */
-	private static final Pattern SENDER = Pattern.compile("^((?:<img=\\d+>)*)([^<>]+)$");
+	static final Pattern SENDER = Pattern.compile("^((?:<img=\\d+>)*)([^<>]+)$");
 
-	private volatile Held held = new Held(0, new String[0], new char[0], new Entry[0]);
+	volatile Held held = new Held(0, new String[0], new char[0], new Entry[0]);
 
 	int version() {
 		return held.v;
@@ -112,7 +112,7 @@ final class ChatFlair {
 		return true;
 	}
 
-	private static void put(Map<String, Entry> into, Wire w) {
+	static void put(Map<String, Entry> into, Wire w) {
 		if (w.names == null || w.ix == null || w.styles == null) return;
 		for (int n = 0; n < w.names.length && n < w.ix.length; n++) {
 			int i = w.ix[n];
@@ -121,7 +121,7 @@ final class ChatFlair {
 		}
 	}
 
-	private static Held build(int v, TreeMap<String, Entry> all) {
+	static Held build(int v, TreeMap<String, Entry> all) {
 		Map<String, Integer> palette = new HashMap<>();
 		List<Entry> styles = new ArrayList<>();
 		var names = new String[all.size()];
@@ -134,7 +134,7 @@ final class ChatFlair {
 		return new Held(v, names, ix, styles.toArray(new Entry[0]));
 	}
 
-	private static Held merge(int v, Held h, TreeMap<String, Entry> set, Map<String, Boolean> gone) {
+	static Held merge(int v, Held h, TreeMap<String, Entry> set, Map<String, Boolean> gone) {
 		Map<String, Integer> palette = new HashMap<>();
 		List<Entry> styles = new ArrayList<>();
 		for (Entry e : h.styles) intern(palette, styles, e);
@@ -166,7 +166,7 @@ final class ChatFlair {
 		return new Held(v, Arrays.copyOf(names, n), Arrays.copyOf(ix, n), styles.toArray(new Entry[0]));
 	}
 
-	private static int intern(Map<String, Integer> palette, List<Entry> styles, Entry e) {
+	static int intern(Map<String, Integer> palette, List<Entry> styles, Entry e) {
 		var key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s) + "|" + e.d + "|" + e.l;
 		var i = palette.get(key);
 		if (i == null) {
@@ -210,12 +210,12 @@ final class ChatFlair {
 	}
 
 	// Compiled once: normalize runs for every chat sender and every friends / channel list row.
-	private static final Pattern SPACES = Pattern.compile("[\\s_]+");
-	private static final Pattern TAGS = Pattern.compile("<[^>]*>");
-	private static final int MAX_NAME_LENGTH = 24;
+	static final Pattern SPACES = Pattern.compile("[\\s_]+");
+	static final Pattern TAGS = Pattern.compile("<[^>]*>");
+	static final int MAX_NAME_LENGTH = 24;
 
 	/** A sender column's text ("[02:25] <img=1>Name:" with any colouring): the name inside, or null. */
-	private static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)*(?:(?:From|To)\\s+)?(.+?):$");
+	static final Pattern SENDER_COLUMN = Pattern.compile("^(?:\\[[^\\]]*\\]\\s*)*(?:(?:From|To)\\s+)?(.+?):$");
 
 	/**
 	 * What to say on hover over a chat line's SENDER: "Anvil Patron" / "Anvil Champion" / "Anvil
@@ -230,7 +230,7 @@ final class ChatFlair {
 		return e == null ? null : tierLabel(e);
 	}
 
-	private static String tierLabel(Entry e) {
+	static String tierLabel(Entry e) {
 		return Boolean.TRUE.equals(e.s) ? "Anvil Patron" : e.g != null && e.g.size() >= 2 ? "Anvil Champion" : "Anvil Supporter";
 	}
 
@@ -305,7 +305,7 @@ final class ChatFlair {
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
-	private String decorate(String sender, String star, double shift, Boolean opaque) {
+	String decorate(String sender, String star, double shift, Boolean opaque) {
 		if (sender == null || isEmpty()) return null;
 		var m = SENDER.matcher(sender);
 		if (!m.matches()) return null;
@@ -320,7 +320,7 @@ final class ChatFlair {
 		return m.group(1) + (starred ? star : "") + painted;
 	}
 
-	private static String readableColor(Entry e, boolean opaque) {
+	static String readableColor(Entry e, boolean opaque) {
 		var cached = opaque ? e.opaqueColor : e.darkColor;
 		if (cached != null) return cached;
 		var own = opaque ? e.l : e.d;
@@ -333,7 +333,7 @@ final class ChatFlair {
 		return derived;
 	}
 
-	private static List<String> readableGradient(Entry e, boolean opaque) {
+	static List<String> readableGradient(Entry e, boolean opaque) {
 		var cached = opaque ? e.opaqueGradient : e.darkGradient;
 		var own = opaque ? e.l : e.d;
 		var picked = own != null && ChatPalette.nameColor(own.c) != null;
@@ -384,10 +384,10 @@ final class ChatFlair {
 	 * on a private message, then the name and a colon. Group 2 is From/To, group 3 the name, group 4
 	 * whatever follows the colon (empty in the chatbox's sender column; the message on a split-PM line).
 	 */
-	private static final Pattern SENDER_SHOWN = Pattern.compile("^\\s*((?:\\[[^\\]]*\\]\\s*)*)(?:(From|To)\\s+)?([^:\\[\\]]{1,24}):(.*)$", Pattern.DOTALL);
+	static final Pattern SENDER_SHOWN = Pattern.compile("^\\s*((?:\\[[^\\]]*\\]\\s*)*)(?:(From|To)\\s+)?([^:\\[\\]]{1,24}):(.*)$", Pattern.DOTALL);
 	/** Chat kinds a screenshot can leave out (PluginConfigResponse.Me.Hide), as bits; 0 = keep. */
 	static final int PM = 1, PUBLIC = 2, CLAN_OTHERS = 4, CLAN_SELF = 8, CHANNEL = 16, GROUP = 32;
-	private static final String[] HIDE_KEYS = {"pm", "public", "clanOthers", "clanSelf", "channel", "group"};
+	static final String[] HIDE_KEYS = {"pm", "public", "clanOthers", "clanSelf", "channel", "group"};
 
 	/** The site's screenshot privacy as kind bits; PMs alone when it hasn't said. */
 	static int hideMask(Map<String, Boolean> hide) {
@@ -397,7 +397,7 @@ final class ChatFlair {
 		return mask;
 	}
 
-	private static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
+	static final Pattern BRACKET = Pattern.compile("\\[([^\\]]*)\\]");
 
 	/**
 	 * Which kind of chat a chatbox SENDER COLUMN's text is ("From Bob:", "[Clan] Bob:", "Bob:"), given
@@ -423,7 +423,7 @@ final class ChatFlair {
 	}
 
 	/** Leading "[channel]" / "[timestamp]" groups and spaces before a broadcast's text. */
-	private static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
+	static final Pattern LEAD = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*\\s*");
 
 	/**
 	 * A chatbox SENDER COLUMN's text ("Name:", "[Clan] <icons>Name:", "From Name:", "To Name:") with the
@@ -453,7 +453,7 @@ final class ChatFlair {
 		return paintSender(raw, star, opaque, true, shift);
 	}
 
-	private String paintSender(String raw, String star, boolean opaque, boolean pmLine, double shift) {
+	String paintSender(String raw, String star, boolean opaque, boolean pmLine, double shift) {
 		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0) return null;
 		var s = shown(raw);
 		var m = SENDER_SHOWN.matcher(s.text);
@@ -681,7 +681,7 @@ final class ChatFlair {
 		return raw == null ? null : key(shown(raw));
 	}
 
-	private static String key(Shown s) {
+	static String key(Shown s) {
 		var m = LEAD.matcher(s.text);
 		return m.lookingAt() ? s.text.substring(m.end()) : s.text;
 	}
@@ -756,7 +756,7 @@ final class ChatFlair {
 	 * most {@link #MAX_NAME_LENGTH} characters that ends on a word ("Bob" is not the start of "Bobby has…")
 	 * and is on the list.
 	 */
-	private int leadName(Shown s) {
+	int leadName(Shown s) {
 		var t = s.text;
 		var m = LEAD.matcher(t);
 		int from = m.lookingAt() ? m.end() : 0;
@@ -767,7 +767,7 @@ final class ChatFlair {
 		return -1;
 	}
 
-	private static boolean nameChar(char c) {
+	static boolean nameChar(char c) {
 		return Character.isLetterOrDigit(c) || c == '_' || c == '-';
 	}
 
@@ -776,7 +776,7 @@ final class ChatFlair {
 	 * re-opening the colour the text had there so the rest of the line keeps it. Null when the name
 	 * carries tags inside (gradient-painted already) or our paint is right before it (painted already).
 	 */
-	private String paintAt(String raw, Shown s, int from, int to, String star, boolean opaque, double shift) {
+	String paintAt(String raw, Shown s, int from, int to, String star, boolean opaque, double shift) {
 		int rs = s.at[from];
 		int re = s.at[to - 1] + 1;
 		var name = raw.substring(rs, re);

@@ -60,7 +60,7 @@ public class LevelRules {
 		return Math.max(totalMilestone(prev, now, s.clan), totalMilestone(prev, now, s.personal));
 	}
 
-	private static int totalMilestone(int prev, int now, LevelRules r) {
+	static int totalMilestone(int prev, int now, LevelRules r) {
 		if (r == null || r.totalStep <= 0) return 0;
 		// The highest multiple reached; if that is under the floor, every lower one is too.
 		int m = now / r.totalStep * r.totalStep;

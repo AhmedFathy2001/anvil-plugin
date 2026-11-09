@@ -13,9 +13,9 @@ final class ModeLines {
 	static final int MAX_BATCH = 20;
 	static final long FLUSH_MS = 5_000;
 
-	private final List<String> pending = new ArrayList<>();
-	private long firstAt;
-	private String last;
+	final List<String> pending = new ArrayList<>();
+	long firstAt;
+	String last;
 
 	/** Keep one line if it looks like an announcement. True when kept. */
 	synchronized boolean offer(String raw, long nowMs) {

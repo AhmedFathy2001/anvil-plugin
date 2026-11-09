@@ -5,7 +5,7 @@ package com.anvil;
  * long to wait before doing so.
  */
 final class RetryPolicy {
-	private RetryPolicy() {
+	RetryPolicy() {
 	}
 
 	/**

@@ -35,13 +35,13 @@ public class BannerSoundService {
 	 * is still wherever the user got it, and Add sounds re-imports it through the same picker they
 	 * used the first time.
 	 */
-	private volatile Filepath root;
+	volatile Filepath root;
 
-	private final AnvilConfig config;
-	private final AudioPlayer audioPlayer;
+	final AnvilConfig config;
+	final AudioPlayer audioPlayer;
 	// The service is a singleton that outlives a plugin stop/start, so shutdown() can't leave a dead
 	// executor behind: the next play() would throw RejectedExecutionException into the loot handler.
-	private ExecutorService audioExecutor;
+	ExecutorService audioExecutor;
 
 	@Inject
 	public BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer) {
@@ -69,12 +69,12 @@ public class BannerSoundService {
 		BANNER("banner"),
 		MISSION("mission");
 
-		private final String folder;
+		final String folder;
 
 	}
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
-	private Filepath dir(Kind kind) {
+	Filepath dir(Kind kind) {
 		var d = root;
 		if (d == null) return null;
 		try {
@@ -93,7 +93,7 @@ public class BannerSoundService {
 	 * here rather than asking means nobody's sounds stop working because the layout changed under
 	 * them.
 	 */
-	private void migrateLooseClips() {
+	void migrateLooseClips() {
 		var d = root;
 		List<Filepath> loose = d == null || !d.isDirectory() ? new ArrayList<>() : wavsIn(d);
 		var banner = loose.isEmpty() ? null : dir(Kind.BANNER);
@@ -107,12 +107,12 @@ public class BannerSoundService {
 	}
 
 	/** Every .wav in one kind's folder. Depth 1 — a clip is a file in it, never deeper. */
-	private List<Filepath> wavFiles(Kind kind) {
+	List<Filepath> wavFiles(Kind kind) {
 		var dir = dir(kind);
 		return dir == null ? new ArrayList<>() : wavsIn(dir);
 	}
 
-	private static List<Filepath> wavsIn(Filepath dir) {
+	static List<Filepath> wavsIn(Filepath dir) {
 		try (Stream<Filepath> walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav")).collect(Collectors.toList());
 		} catch (IOException e) {
@@ -130,12 +130,12 @@ public class BannerSoundService {
 	 * so it is always answered from memory and the re-read happens on {@link #audioExecutor}; a clip
 	 * dropped into the folder by hand shows up this much later at worst (Add sounds re-reads at once).
 	 */
-	private static final long LISTING_TTL_MS = 10_000L;
-	private final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
-	private final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
-	private final Set<Kind> relisting = EnumSet.noneOf(Kind.class);
+	static final long LISTING_TTL_MS = 10_000L;
+	final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
+	final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
+	final Set<Kind> relisting = EnumSet.noneOf(Kind.class);
 	/** Told (on the audio thread) when a re-read finds the clips changed, so the panel can redraw. */
-	private volatile Runnable onClipsChanged = () -> { };
+	volatile Runnable onClipsChanged = () -> { };
 
 	public void setOnClipsChanged(Runnable onChange) {
 		onClipsChanged = onChange == null ? () -> { } : onChange;
@@ -159,7 +159,7 @@ public class BannerSoundService {
 	}
 
 	/** Re-read one kind's folder on the audio thread; a no-op while a re-read is already queued. */
-	private void relist(Kind kind) {
+	void relist(Kind kind) {
 		synchronized (this) {
 			if (!relisting.add(kind)) return;
 		}
@@ -173,7 +173,7 @@ public class BannerSoundService {
 	}
 
 	/** Blocking (disk) — the audio thread only. */
-	private void relistNow(Kind kind) {
+	void relistNow(Kind kind) {
 		var names = Collections.unmodifiableList(wavFiles(kind).stream()
 			.map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList()));
 		List<String> before;
@@ -231,7 +231,7 @@ public class BannerSoundService {
 		}
 	}
 
-	private synchronized ExecutorService executor() {
+	synchronized ExecutorService executor() {
 		if (audioExecutor == null || audioExecutor.isShutdown()) {
 			audioExecutor = Executors.newSingleThreadExecutor(r -> {
 				var t = new Thread(r, "anvil-banner-sound");
@@ -242,7 +242,7 @@ public class BannerSoundService {
 		return audioExecutor;
 	}
 
-	private void playBlocking(Kind kind) {
+	void playBlocking(Kind kind) {
 		try {
 			var files = wavFiles(kind);
 			if (files.isEmpty()) return;
@@ -268,7 +268,7 @@ public class BannerSoundService {
 	 * (unattenuated); lower volumes attenuate logarithmically; 0 → effectively silent. AudioPlayer
 	 * clamps to the line's supported range.
 	 */
-	private float gainDb() {
+	float gainDb() {
 		int vol = Math.max(0, Math.min(100, config.bannerSoundVolume()));
 		return vol <= 0 ? -80f : (float) (20.0 * Math.log10(vol / 100.0));
 	}
@@ -303,7 +303,7 @@ public class BannerSoundService {
 	}
 
 	/** Blocking (disk) — the audio thread only. */
-	private void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported) {
+	void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported) {
 		List<String> imported = new ArrayList<>();
 		for (Filepath src : chosen) {
 			var name = src.getFileName();

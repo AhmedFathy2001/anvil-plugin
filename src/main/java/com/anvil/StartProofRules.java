@@ -24,7 +24,7 @@ final class StartProofRules {
 	/** {@code sessionLoginAtMs} when we never saw the login — a plugin enabled mid-session. */
 	static final long UNKNOWN_LOGIN = 0L;
 
-	private StartProofRules() {
+	StartProofRules() {
 	}
 
 	/**

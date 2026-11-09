@@ -23,9 +23,9 @@ final class GlyphIcon implements Icon {
 		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN
 	}
 
-	private final Shape shape;
-	private final int size;
-	private final Color color;
+	final Shape shape;
+	final int size;
+	final Color color;
 
 	GlyphIcon(Shape shape, int size) {
 		this(shape, size, null);
@@ -121,7 +121,7 @@ final class GlyphIcon implements Icon {
 	}
 
 	/** Adds one polyline to {@code p}: x,y pairs as fractions of the icon's size {@code s}. */
-	private static Path2D stroke(Path2D p, float s, double... xy) {
+	static Path2D stroke(Path2D p, float s, double... xy) {
 		p.moveTo(s * xy[0], s * xy[1]);
 		for (int i = 2; i < xy.length; i += 2) p.lineTo(s * xy[i], s * xy[i + 1]);
 		return p;

@@ -42,7 +42,7 @@ final class VestigeRolls {
 		final String line;
 	}
 
-	private final Map<String, State> byBoss = new HashMap<>();
+	final Map<String, State> byBoss = new HashMap<>();
 
 	static String key(String boss) {
 		return boss == null ? "" : boss.trim().toLowerCase(Locale.ROOT);

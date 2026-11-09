@@ -37,12 +37,12 @@ final class ClogFullSync {
 	static final int MIN_ITEMS = 5;
 
 	/** itemId -> quantity, in arrival order so a batch reads like the log does. */
-	private final Map<Integer, Integer> items = new LinkedHashMap<>();
+	final Map<Integer, Integer> items = new LinkedHashMap<>();
 
-	private long lastItemAt;
-	private boolean receiving;
+	long lastItemAt;
+	boolean receiving;
 	/** Set when the player asked for this explicitly, so a no-change sync still gets sent + reported. */
-	@Getter private boolean manual;
+	@Getter boolean manual;
 
 	/** A transmit is starting (the log was opened / the button was pressed). Clears anything stale. */
 	void begin(boolean manualRequest) {

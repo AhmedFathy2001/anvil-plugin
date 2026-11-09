@@ -30,7 +30,7 @@ final class ResponseDiskCache {
 	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file. */
 	static final String CHAT_FLAIR = "chat-flair";
 	/** A board bigger than this isn't worth the disk; the next launch just downloads it. */
-	private static final int MAX_BODY_CHARS = 2_000_000;
+	static final int MAX_BODY_CHARS = 2_000_000;
 
 	/** One saved answer. */
 	static final class Entry {
@@ -42,12 +42,12 @@ final class ResponseDiskCache {
 		long savedAt;
 	}
 
-	private final Gson gson;
-	@Setter private volatile Filepath dir;
+	final Gson gson;
+	@Setter volatile Filepath dir;
 	/** Fingerprint of the token in use, "" when signed out. */
-	private volatile String account = "";
+	volatile String account = "";
 	/** kind → etag (or body hash) last written, so an unchanged 30s poll doesn't rewrite the file. */
-	private final Map<String, String> written = new ConcurrentHashMap<>();
+	final Map<String, String> written = new ConcurrentHashMap<>();
 
 
 	/**
@@ -64,7 +64,7 @@ final class ResponseDiskCache {
 		return prev.isEmpty() ? null : prev;
 	}
 
-	private Filepath file(String kind, String acct) {
+	Filepath file(String kind, String acct) {
 		var d = DiskFiles.ensureDir(dir);
 		return d == null || acct == null || acct.isEmpty() ? null : d.joinSegment(kind + "-" + acct + ".json");
 	}

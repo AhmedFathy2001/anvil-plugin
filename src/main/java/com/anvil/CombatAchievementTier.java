@@ -20,7 +20,7 @@ public enum CombatAchievementTier {
 	MASTER(VarbitID.CA_THRESHOLD_MASTER),
 	GRANDMASTER(VarbitID.CA_THRESHOLD_GRANDMASTER);
 
-	@Getter private final int thresholdVarbitId;
+	@Getter final int thresholdVarbitId;
 
 
 	/** "Easy" … "Grandmaster". */

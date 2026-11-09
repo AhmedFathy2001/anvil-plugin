@@ -34,10 +34,10 @@ import java.util.regex.*;
  *                activity-name fallback matches tiles like "gwenith glide" / "tempor tantrum".
  */
 final class TimedClearParser {
-	private TimedClearParser() {}
+	TimedClearParser() {}
 
-	private static final Pattern SPACES = Pattern.compile("\\s+");
-	private static final Pattern TRAILING_NON_LETTERS = Pattern.compile("[^a-z]+$");
+	static final Pattern SPACES = Pattern.compile("\\s+");
+	static final Pattern TRAILING_NON_LETTERS = Pattern.compile("[^a-z]+$");
 
 	// A duration keyword followed (within a few non-digits) by an [h:]mm:ss token. Fractional
 	// ".ff" tails are intentionally left out of the capture group. Minutes go to three digits:
@@ -69,10 +69,10 @@ final class TimedClearParser {
 	// chat line, identify that activity. The identifying line is typically the boss/raid
 	// kill/completion-count message, which names the boss rather than the activity (e.g. Inferno
 	// -> "tzkal-zuk", Colosseum -> "sol heredit"). Default signature is the activity name itself.
-	private static final Map<String, List<String>> SIGNATURES = new HashMap<>();
+	static final Map<String, List<String>> SIGNATURES = new HashMap<>();
 
 	// {"activity|alias…", signature…}
-	private static final String[][] SIGNATURE_TABLE = {
+	static final String[][] SIGNATURE_TABLE = {
 		// Zuk's kill-count line only — never the bare word: TzHaar-Ket-Rak's challenges end with
 		// "You need to complete the Inferno to unlock …", which credited a 3:11 Jad challenge
 		// to a 65-minute Inferno tile.
@@ -163,7 +163,7 @@ final class TimedClearParser {
 
 	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
 	// veto it reads as a Fight Caves (boss just died) or Inferno clear. Its count line is unique.
-	private static final String KET_RAK_CLEAR = "your completion count for tzhaar-ket-rak";
+	static final String KET_RAK_CLEAR = "your completion count for tzhaar-ket-rak";
 
 	/**
 	 * True when the lines around a duration show it belongs to a different activity than
@@ -199,8 +199,8 @@ final class TimedClearParser {
 	// each with its own PB) — so a rank tile must match the EXACT rank the game reports, never a time
 	// cap (a Shark run is not just a slow Marlin run). The completion line names both:
 	//   "You have completed the Gwenith Glide and achieved the Marlin rank."
-	private static final String[] TRIAL_COURSES = { "tempor tantrum", "jubbly jive", "gwenith glide" };
-	private static final String[] TRIAL_RANKS = { "swordfish", "shark", "marlin" };
+	static final String[] TRIAL_COURSES = { "tempor tantrum", "jubbly jive", "gwenith glide" };
+	static final String[] TRIAL_RANKS = { "swordfish", "shark", "marlin" };
 	// → chat-patterns.json "timed.trial_completion" (ChatPatterns).
 
 	/** {course, rank} from a Barracuda Trials completion line, or null if this line isn't one. */

@@ -129,11 +129,11 @@ final class GameValueCounters {
 	}
 
 	// Baselines, keyed per entry name AND var, so two entries on one var each keep their own.
-	private final Map<String, Integer> last = new HashMap<>();
-	private List<Entry> entries = Collections.emptyList();
-	private List<Entry> source;
-	private boolean inGame;
-	private int settleTicks;
+	final Map<String, Integer> last = new HashMap<>();
+	List<Entry> entries = Collections.emptyList();
+	List<Entry> source;
+	boolean inGame;
+	int settleTicks;
 
 	/** Replace the catalog (a no-op for the same list as last time). Invalid entries are dropped. */
 	void configure(List<Entry> next) {
@@ -221,7 +221,7 @@ final class GameValueCounters {
 	 * This source's change since last tick in the entry's direction, re-baselining as it goes; 0 for
 	 * a first sighting, a change the other way (spend / reset) or a jump past the cap (a resync).
 	 */
-	private int delta(Reader reader, Entry e, String prefix, Source s) {
+	int delta(Reader reader, Entry e, String prefix, Source s) {
 		int now = reader.read(s.isVarp(), s.id);
 		var before = last.put(prefix + s.key(), now);
 		if (before == null) return 0;

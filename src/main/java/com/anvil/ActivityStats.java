@@ -28,20 +28,20 @@ import net.runelite.api.gameval.*;
  */
 final class ActivityStats {
 	/** Where a counter lives — the two id spaces are separate, so the kind picks the reader. */
-	private enum Kind {
+	enum Kind {
 		VARBIT,
 		VARP
 	}
 
 	@RequiredArgsConstructor
-	private static final class Source {
+	static final class Source {
 		final Kind kind;
 		final int id;
 
 	}
 
 	/** Site tracked-stat key -> where to read it. Keys mirror lib/hiscoresActivities.ts exactly. */
-	private static final Map<String, Source> SOURCES;
+	static final Map<String, Source> SOURCES;
 
 	/** The site's key for the summed clue total, which has no single counter of its own. */
 	static final String CLUES_ALL = "cluesAll";
@@ -139,6 +139,6 @@ final class ActivityStats {
 		return Math.max(0, total);
 	}
 
-	private ActivityStats() {
+	ActivityStats() {
 	}
 }

@@ -16,7 +16,7 @@ final class ChatCredits {
 	static final long WINDOW_MS = 30 * 60_000;
 
 	/** itemId → {quantity still owed, when it was credited}. */
-	private final Map<Integer, long[]> owed = new HashMap<>();
+	final Map<Integer, long[]> owed = new HashMap<>();
 
 	/** Lines naming the same item this close together (drop line + clog line) are one acquisition. */
 	static final long SAME_DROP_MS = 10_000;

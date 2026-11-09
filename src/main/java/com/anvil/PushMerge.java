@@ -9,7 +9,7 @@ import java.util.Map;
  * number from {@code members} here. (The panel's rows are the site's own view now.)
  */
 final class PushMerge {
-	private PushMerge() {
+	PushMerge() {
 	}
 
 	/**

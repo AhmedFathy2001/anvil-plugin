@@ -47,7 +47,7 @@ final class ClogPage {
 	 * log. No boxing, no allocation, no string building; a page is folded in a few hundred nanoseconds
 	 * and the result is what stops us re-sending 125 identical pages.
 	 */
-	private long computeHash() {
+	long computeHash() {
 		var h = 0xcbf29ce484222325L;
 		h = fold(h, name == null ? 0 : name.hashCode());
 		h = fold(h, obtained);
@@ -63,7 +63,7 @@ final class ClogPage {
 		return h;
 	}
 
-	private static long fold(long h, int value) {
+	static long fold(long h, int value) {
 		h ^= value;
 		return h * 0x100000001b3L;
 	}

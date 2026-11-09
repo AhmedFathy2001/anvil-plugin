@@ -18,7 +18,7 @@ import net.runelite.client.util.Filepath;
  * method here blocks on disk — callers run them on the plugin executor, never the client thread.
  */
 final class DiskFiles {
-	private DiskFiles() {
+	DiskFiles() {
 	}
 
 	/** {@code dir}, created on demand; null when it can't be. */

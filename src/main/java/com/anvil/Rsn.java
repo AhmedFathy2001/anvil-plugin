@@ -34,11 +34,11 @@ import java.util.Locale;
  * player would silently stop matching their own roster row.</p>
  */
 public final class Rsn {
-	private Rsn() {
+	Rsn() {
 	}
 
 	/** Whitespace-or-underscore runs. U+00A0 is named explicitly — Java's {@code \s} omits it. */
-	private static final java.util.regex.Pattern FOLD =
+	static final java.util.regex.Pattern FOLD =
 		java.util.regex.Pattern.compile("[\\s\\u00a0_]+");
 
 	/**

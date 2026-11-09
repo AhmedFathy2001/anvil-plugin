@@ -36,7 +36,7 @@ final class PushStash {
 			return empty(kc) && empty(xp) && empty(activity) && (moments == null || moments.isEmpty());
 		}
 
-		private static boolean empty(Map<?, ?> m) {
+		static boolean empty(Map<?, ?> m) {
 			return m == null || m.isEmpty();
 		}
 	}
@@ -79,8 +79,8 @@ final class PushStash {
 		}
 	}
 
-	private final Gson gson;
-	@Setter private volatile Filepath dir;
+	final Gson gson;
+	@Setter volatile Filepath dir;
 
 
 	/** The file stem for a character: by account hash when known, else by name. Null when neither is. */
@@ -113,7 +113,7 @@ final class PushStash {
 		return out;
 	}
 
-	private static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
+	static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
 		for (Map<String, Integer> m : Arrays.asList(a, b)) {
 			if (m != null) {
 				m.forEach((k, v) -> {
@@ -123,7 +123,7 @@ final class PushStash {
 		}
 	}
 
-	private Filepath file(String key) {
+	Filepath file(String key) {
 		var d = DiskFiles.ensureDir(dir);
 		return d == null || key == null ? null : d.joinSegment("pushes-" + key + ".json");
 	}

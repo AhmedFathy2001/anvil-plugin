@@ -18,12 +18,12 @@ import net.runelite.client.ui.overlay.tooltip.TooltipManager;
  * frame it only reads the mouse, and walks the chat lines only while the mouse is over them.
  */
 final class ChatFlairTooltip extends Overlay {
-	private final Client client;
-	private final TooltipManager tooltips;
-	private final ChatFlair flair;
-	private final BooleanSupplier on;
+	final Client client;
+	final TooltipManager tooltips;
+	final ChatFlair flair;
+	final BooleanSupplier on;
 	/** One chat line's height. */
-	private static final int LINE_H = 14;
+	static final int LINE_H = 14;
 
 	ChatFlairTooltip(Client client, TooltipManager tooltips, ChatFlair flair, BooleanSupplier on) {
 		this.client = client;

@@ -18,7 +18,7 @@ import java.util.*;
  * <p>No RuneLite dependencies, so it is unit-testable.
  */
 final class TileNotes {
-	private TileNotes() {
+	TileNotes() {
 	}
 
 
@@ -89,7 +89,7 @@ final class TileNotes {
 		return noun + "s";
 	}
 
-	private static String fmt(long n) {
+	static String fmt(long n) {
 		return String.format(Locale.ROOT, "%,d", n);
 	}
 }

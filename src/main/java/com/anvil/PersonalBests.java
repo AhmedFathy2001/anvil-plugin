@@ -31,20 +31,20 @@ final class PersonalBests {
 	static final long QUIET_MS = 3_000;
 
 	/** Best known time per activity, keyed lowercase. Lower is better; that's the whole model. */
-	private final Map<String, Integer> best = new HashMap<>();
+	final Map<String, Integer> best = new HashMap<>();
 	/** What the server already has, so an unchanged PB is never re-sent. */
-	private final Map<String, Integer> sent = new HashMap<>();
+	final Map<String, Integer> sent = new HashMap<>();
 	/** Activities whose best has moved since the last successful push. */
-	private final Set<String> dirty = new LinkedHashSet<>();
+	final Set<String> dirty = new LinkedHashSet<>();
 
 	/** The most recent activity name from a kill-count line, and when we saw it. */
-	private String recentActivity;
-	private long recentActivityAt;
+	String recentActivity;
+	long recentActivityAt;
 	/** A PB that arrived before its activity did (Inferno ordering), awaiting a name. */
-	private int orphanCentis;
-	private long orphanAt;
+	int orphanCentis;
+	long orphanAt;
 
-	private long lastChangeAt;
+	long lastChangeAt;
 
 	/** The activity a kill-count line just named. Cheap: two field writes, no parsing. */
 	void onActivitySeen(String activity, long now) {
@@ -90,7 +90,7 @@ final class PersonalBests {
 	}
 
 	/** Keep the fastest. A PB only ever goes down, so a slower number is noise, not an update. */
-	private boolean record(String activity, int centis, long now) {
+	boolean record(String activity, int centis, long now) {
 		if (activity == null || activity.isEmpty() || centis <= 0) return false;
 		var current = best.get(activity);
 		if (current != null && current <= centis) return false;

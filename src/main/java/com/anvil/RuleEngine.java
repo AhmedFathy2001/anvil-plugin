@@ -109,13 +109,13 @@ final class RuleEngine {
 		final List<Rule> toasts = new ArrayList<>();
 	}
 
-	private static final long DEDUP_MS = 3_000;
+	static final long DEDUP_MS = 3_000;
 
-	private volatile Table table;
-	private final Map<Integer, Long> seenItems = new HashMap<>();
-	private final Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
+	volatile Table table;
+	final Map<Integer, Long> seenItems = new HashMap<>();
+	final Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
 	/** Gains held per tile until the batch goes or the tile completes. */
-	private final Map<Integer, Long> held = new HashMap<>();
+	final Map<Integer, Long> held = new HashMap<>();
 	/** This client's unconfirmed count for a tile: event rules build on it when the table is older. */
 	volatile IntToLongFunction floor = t -> 0;
 
@@ -384,7 +384,7 @@ final class RuleEngine {
 		return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
 	}
 
-	private Out stat(String on, String name, long gained, TreeSet<Long> minutes, long minute) {
+	Out stat(String on, String name, long gained, TreeSet<Long> minutes, long minute) {
 		var out = new Out();
 		var t = table;
 		if (t == null || gained <= 0 || name == null) return out;
@@ -448,7 +448,7 @@ final class RuleEngine {
 	}
 
 	/** The rule as it stands now, for the popup: read outside the lock, it must not see the next answer land. */
-	private static Rule snap(Rule r) {
+	static Rule snap(Rule r) {
 		var s = new Rule();
 		s.t = r.t;
 		s.label = r.label;
@@ -457,7 +457,7 @@ final class RuleEngine {
 		return s;
 	}
 
-	private static List<Rule> all(Table t) {
+	static List<Rule> all(Table t) {
 		List<Rule> out = new ArrayList<>(t.values);
 		t.drops.values().forEach(out::addAll);
 		t.kills.values().forEach(out::addAll);
@@ -472,7 +472,7 @@ final class RuleEngine {
 		return Math.floor(current / step) > Math.floor((current - added) / step);
 	}
 
-	private static boolean sourceOk(DropRule r, String source, String kind) {
+	static boolean sourceOk(DropRule r, String source, String kind) {
 		if (r.src != null && !r.src.isEmpty() ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
 		return r.npcs == null || r.npcs.isEmpty() || DropSource.sourceMatches(r.npcs, source);
 	}
@@ -485,13 +485,13 @@ final class RuleEngine {
 		return false;
 	}
 
-	private static JsonObject fact(String k) {
+	static JsonObject fact(String k) {
 		var f = new JsonObject();
 		f.addProperty("k", k);
 		return f;
 	}
 
-	private static String fill(Table t, String key, Rule r, String... extra) {
+	static String fill(Table t, String key, Rule r, String... extra) {
 		var s = t.say.getOrDefault(key, "{label} ({have}/{of})");
 		var big = r.of >= 10_000;
 		s = s.replace("{label}", r.label == null ? "" : r.label)
@@ -525,7 +525,7 @@ final class RuleEngine {
 		return out;
 	}
 
-	private static String more(String s, int n) {
+	static String more(String s, int n) {
 		return n > 1 ? s + " +" + (n - 1) + " more" : s;
 	}
 

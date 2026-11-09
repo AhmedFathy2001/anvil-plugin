@@ -16,7 +16,7 @@ import java.util.*;
 public class PendingSubmissionStore {
 	// Garbage-collect pending submissions older than this. Prevents unbounded disk growth
 	// when retries keep failing (e.g. site URL permanently wrong) and the user never clears.
-	private static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
+	static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
 
 	/**
 	 * The plugin's own directory, handed over by AnvilPlugin — the only class allowed to ask for it.
@@ -30,9 +30,9 @@ public class PendingSubmissionStore {
 	 * "no store": nothing queues, nothing loads, and the caller's own error path takes over — which
 	 * is the same thing that happened when the disk was full.
 	 */
-	@Setter private volatile Filepath root;
+	@Setter volatile Filepath root;
 
-	private final Gson gson;
+	final Gson gson;
 
 	@Inject
 	public PendingSubmissionStore(Gson gson) {
@@ -91,7 +91,7 @@ public class PendingSubmissionStore {
 	}
 
 	/** The directory, created on demand, or null when there is nowhere to write. */
-	private Filepath dir() {
+	Filepath dir() {
 		return DiskFiles.ensureDir(root);
 	}
 

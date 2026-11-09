@@ -13,19 +13,19 @@ import java.util.function.Consumer;
  */
 @RequiredArgsConstructor
 public class AnvilSidebarDataSource {
-	private final Supplier<PluginConfigResponse> configSupplier;
+	final Supplier<PluginConfigResponse> configSupplier;
 
-	private final BingoApiClient apiClient;
+	final BingoApiClient apiClient;
 
 	/**
 	 * The starting-shot action, bound by the plugin after construction (Guice builds this source
 	 * before the plugin's own fields exist, so it can't be a constructor argument). Null in tests and
 	 * anywhere the panel is driven without a live plugin — the sidebar then simply shows no button.
 	 */
-	@Setter private volatile Runnable startProofCapture;
+	@Setter volatile Runnable startProofCapture;
 
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
-	@Setter private volatile AnvilPlugin plugin;
+	@Setter volatile AnvilPlugin plugin;
 
 	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
 	public boolean seasonalSharingOffered() {
@@ -56,13 +56,13 @@ public class AnvilSidebarDataSource {
 	}
 
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
-	private void withPlugin(Consumer<AnvilPlugin> f) {
+	void withPlugin(Consumer<AnvilPlugin> f) {
 		var p = plugin;
 		if (p != null) f.accept(p);
 	}
 
 	/** {@code f} of the bound plugin, or {@code none} when there isn't one. */
-	private <T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none) {
+	<T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none) {
 		var p = plugin;
 		return p == null ? none : f.apply(p);
 	}
