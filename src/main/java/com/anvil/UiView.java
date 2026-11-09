@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static net.runelite.client.ui.ColorScheme.*;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.*;
 import java.awt.*;
@@ -73,7 +74,7 @@ final class UiView extends JPanel {
 		}
 
 		/** A picture by site path (node {@code img}); motion may be frozen by client preference. */
-		default void image(String path, int w, int h, boolean motion, Consumer<javax.swing.Icon> done) {
+		default void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
 		}
 	}
 
@@ -144,7 +145,7 @@ final class UiView extends JPanel {
 
 	UiView(Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills) {
 		super(new BorderLayout());
-		setBackground(ColorScheme.DARK_GRAY_COLOR);
+		setBackground(DARK_GRAY_COLOR);
 		setAlignmentX(LEFT_ALIGNMENT);
 		this.host = host;
 		this.items = items;
@@ -233,7 +234,7 @@ final class UiView extends JPanel {
 		// A list whose slot was redrawn is no longer under this view: forget it.
 		feeds.removeIf(f -> !SwingUtilities.isDescendingFrom(f, this));
 		if (feeds.isEmpty() || !m.has("feeds") || !m.get("feeds").isJsonArray()) return;
-		java.util.Set<String> named = new java.util.HashSet<>();
+		Set<String> named = new HashSet<>();
 		for (JsonElement e : m.getAsJsonArray("feeds")) named.add(e.getAsString());
 		String t = str(m, "t");
 		for (FeedList f : feeds) {
@@ -460,10 +461,10 @@ final class UiView extends JPanel {
 		s.marked = back && was instanceof Round ? (Round) was : null;
 		if (s.marked != null) {
 			s.marked.putClientProperty("edge", s.marked.edge);
-			s.marked.edge = ColorScheme.BRAND_ORANGE;
+			s.marked.edge = BRAND_ORANGE;
 			// A brief "you were here", not a stuck focus ring: the outline lets go after a moment.
 			Round m = s.marked;
-			javax.swing.Timer fade = new javax.swing.Timer(1500, e -> {
+			Timer fade = new Timer(1500, e -> {
 				if (s.marked != m) return;
 				m.edge = (Color) m.getClientProperty("edge");
 				s.marked = null;
@@ -611,8 +612,8 @@ final class UiView extends JPanel {
 	private static JPanel surface(JsonObject n, LayoutManager layout, boolean card) {
 		String bg = str(n, "bg");
 		Color edge = color(str(n, "edge"), null);
-		Color fill = card || "card".equals(bg) ? ColorScheme.DARKER_GRAY_COLOR
-			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? ColorScheme.DARK_GRAY_COLOR : null;
+		Color fill = card || "card".equals(bg) ? DARKER_GRAY_COLOR
+			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? DARK_GRAY_COLOR : null;
 		if (fill == null && edge == null && !n.has("on")) {
 			JPanel p = new JPanel(layout);
 			p.setOpaque(false);
@@ -709,7 +710,7 @@ final class UiView extends JPanel {
 		if (bool(n, "cell")) {
 			l.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
 			l.setOpaque(true);
-			l.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			l.setBackground(DARK_GRAY_COLOR);
 		}
 		return l;
 	}
@@ -758,7 +759,7 @@ final class UiView extends JPanel {
 		body.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
 		Icon[] pic = new Icon[1];
 		JsonArray g = n.has("grad") && n.get("grad").isJsonArray() ? n.getAsJsonArray("grad") : null;
-		Color from = g != null && g.size() > 1 ? color(g.get(0).getAsString(), ColorScheme.DARK_GRAY_COLOR) : ColorScheme.DARK_GRAY_COLOR;
+		Color from = g != null && g.size() > 1 ? color(g.get(0).getAsString(), DARK_GRAY_COLOR) : DARK_GRAY_COLOR;
 		Color to = g != null && g.size() > 1 ? color(g.get(1).getAsString(), from) : from;
 		JComponent strip = new JComponent() {
 			@Override
@@ -790,7 +791,7 @@ final class UiView extends JPanel {
 			protected void paintComponent(Graphics gr) {
 				Graphics2D g2 = (Graphics2D) gr.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-				g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+				g2.setColor(DARKER_GRAY_COLOR);
 				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
 				g2.dispose();
 			}
@@ -827,7 +828,7 @@ final class UiView extends JPanel {
 		JLabel l = new JLabel();
 		l.setHorizontalAlignment(SwingConstants.CENTER);
 		l.setOpaque(false);
-		l.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		l.setBackground(DARKER_GRAY_COLOR);
 		Dimension d = new Dimension(w, h);
 		Dimension empty = new Dimension(0, 0);
 		l.setPreferredSize(empty);
@@ -950,8 +951,8 @@ final class UiView extends JPanel {
 
 	private JComponent bar(JsonObject n) {
 		int pct = Math.max(0, Math.min(100, num(n, "pct", 0)));
-		Color bg = "card".equals(str(n, "bg")) ? ColorScheme.DARKER_GRAY_COLOR : ColorScheme.DARK_GRAY_COLOR;
-		Color fg = color(str(n, "color"), pct >= 100 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.BRAND_ORANGE);
+		Color bg = "card".equals(str(n, "bg")) ? DARKER_GRAY_COLOR : DARK_GRAY_COLOR;
+		Color fg = color(str(n, "color"), pct >= 100 ? PROGRESS_COMPLETE_COLOR : BRAND_ORANGE);
 		int h = num(n, "h", 3);
 		if (n.has("label")) {
 			ProgressBar bar = new ProgressBar();
@@ -1027,11 +1028,11 @@ final class UiView extends JPanel {
 					g2.fillRect(x + 5, y + 12, 2, getHeight() - y - 12);
 				}
 				g2.setStroke(new BasicStroke(2f));
-				Color gold = ColorScheme.BRAND_ORANGE;
+				Color gold = BRAND_ORANGE;
 				if ("done".equals(dot)) {
 					g2.setColor(DONE_DOT);
 					g2.fillOval(x, y, 12, 12);
-					g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+					g2.setColor(DARKER_GRAY_COLOR);
 					g2.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 					g2.drawPolyline(new int[]{x + 3, x + 5, x + 9}, new int[]{y + 6, y + 8, y + 4}, 3);
 				} else if ("now".equals(dot)) {
@@ -1113,7 +1114,7 @@ final class UiView extends JPanel {
 
 	/** A segmented switch: a dark rounded track, the picked segment raised with an orange underline. */
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
-		Round strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, ColorScheme.DARKER_GRAY_COLOR, null, null);
+		Round strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
 		strip.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 		left(strip);
 		Map<String, Round> segs = new LinkedHashMap<>();
@@ -1123,7 +1124,7 @@ final class UiView extends JPanel {
 			JLabel l = (JLabel) seg.getComponent(0);
 			l.setForeground(on ? Color.WHITE : MUTED);
 			l.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(0, 0, 2, 0, on ? ColorScheme.BRAND_ORANGE : new Color(0, 0, 0, 0)),
+				BorderFactory.createMatteBorder(0, 0, 2, 0, on ? BRAND_ORANGE : new Color(0, 0, 0, 0)),
 				BorderFactory.createEmptyBorder(3, 2, 2, 2)));
 			seg.repaint();
 		});
@@ -1220,7 +1221,7 @@ final class UiView extends JPanel {
 			SearchField search = new SearchField(str(n, "hint"), "");
 			styleSearch(search);
 			search.setFont(SMALL);
-			search.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			search.setBackground(DARK_GRAY_COLOR);
 			search.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 			onEdit(search, () -> {
 				query[0] = search.getText().trim();
@@ -1269,7 +1270,7 @@ final class UiView extends JPanel {
 		lives.forEach(Runnable::run);
 	}
 
-	private void live(JsonObject n, java.util.function.BiConsumer<Long, Long> show) {
+	private void live(JsonObject n, BiConsumer<Long, Long> show) {
 		if (!n.has("live") || !n.get("live").isJsonObject()) return;
 		JsonObject live = n.getAsJsonObject("live");
 		int tile = num(live, "tile", 0);
@@ -1377,7 +1378,7 @@ final class UiView extends JPanel {
 				JSpinner spinner = new JSpinner(new SpinnerNumberModel(start, min, max, Math.max(1, num(n, "step", 1))));
 				spinner.setFont(SMALL);
 				JTextField field = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
-				field.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+				field.setBackground(DARKER_GRAY_COLOR);
 				field.setForeground(Color.WHITE);
 				field.setCaretColor(Color.WHITE);
 				inputs.put(name, () -> String.valueOf(spinner.getValue()));
@@ -1459,7 +1460,7 @@ final class UiView extends JPanel {
 	private void clickable(JComponent c, Runnable action) {
 		boolean opaque = c instanceof Round ? ((Round) c).filled() : c.isOpaque();
 		Color base = c.getBackground();
-		Color hover = c instanceof Round && ((Round) c).hover != null ? ((Round) c).hover : ColorScheme.DARK_GRAY_HOVER_COLOR;
+		Color hover = c instanceof Round && ((Round) c).hover != null ? ((Round) c).hover : DARK_GRAY_HOVER_COLOR;
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -1509,19 +1510,19 @@ final class UiView extends JPanel {
 			case "white":
 				return Color.WHITE;
 			case "text":
-				return ColorScheme.TEXT_COLOR;
+				return TEXT_COLOR;
 			case "muted":
 				return MUTED;
 			case "brand":
-				return ColorScheme.BRAND_ORANGE;
+				return BRAND_ORANGE;
 			case "done":
-				return ColorScheme.PROGRESS_COMPLETE_COLOR;
+				return PROGRESS_COMPLETE_COLOR;
 			case "error":
-				return ColorScheme.PROGRESS_ERROR_COLOR;
+				return PROGRESS_ERROR_COLOR;
 			case "claim":
 				return new Color(0x7D_C4_F0);
 			case "progress":
-				return ColorScheme.PROGRESS_INPROGRESS_COLOR;
+				return PROGRESS_INPROGRESS_COLOR;
 			default:
 				return teamColor(c, fallback);
 		}

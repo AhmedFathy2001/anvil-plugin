@@ -325,7 +325,7 @@ public class BingoApiClient {
 	/** {@code colors} is null for "plain": the plugin's own prefix/text colours for everything. */
 	public static class Look {
 		public String palette;
-		public java.util.Map<String, String> colors;
+		public Map<String, String> colors;
 	}
 
 	/** Asked like the config (the brief is built from the same answer). Null on any failure. */
@@ -989,8 +989,8 @@ public class BingoApiClient {
 	 * memory. Null when unreadable or refused.
 	 */
 	static BufferedImage decodeSmall(byte[] bytes, int w, int h) {
-		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new java.io.ByteArrayInputStream(bytes))) {
-			java.util.Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
+		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+			Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
 			if (readers == null || !readers.hasNext()) return null;
 			javax.imageio.ImageReader reader = readers.next();
 			try {
@@ -1466,7 +1466,7 @@ public class BingoApiClient {
 	/** The same mode-line batch with the frame that was visible when it was sent. */
 	public void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
 		JsonObject payload = new JsonObject();
-		com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+		JsonArray arr = new JsonArray();
 		lines.forEach(arr::add);
 		payload.add("lines", arr);
 		// Freeze the world into the body as notifications do: a hop while the request is in flight must

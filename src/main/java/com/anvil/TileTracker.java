@@ -11,6 +11,8 @@ import net.runelite.client.ui.overlay.components.*;
 import java.util.function.IntFunction;
 import java.util.function.ToLongBiFunction;
 import java.time.*;
+import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable
@@ -26,6 +28,7 @@ import java.time.*;
  * <p>A pin your team finishes shows "Done" for a moment and then takes itself down. A done tile can't be
  * pinned — the sidebar offers no button for it.
  */
+
 @Singleton
 public class TileTracker {
 	static final int MAX_PINS = 3;
@@ -58,9 +61,9 @@ public class TileTracker {
 	 */
 	@Setter private volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
 	/** The live boards' ids, to find the board of a pin saved without one. */
-	private volatile java.util.function.Supplier<List<Integer>> boards = Collections::emptyList;
+	private volatile Supplier<List<Integer>> boards = Collections::emptyList;
 	/** Says why a pin came down (a chat line). */
-	private volatile java.util.function.Consumer<String> told = m -> { };
+	private volatile Consumer<String> told = m -> { };
 	/**
 	 * One panel holding every pin (the default) or a movable widget per pin. One panel can't end up
 	 * with pins on top of each other, and is one thing to place; separate ones can be put anywhere.
@@ -93,7 +96,7 @@ public class TileTracker {
 	private volatile java.util.function.IntConsumer doneSeen = id -> { };
 	private volatile Runnable unpinned = () -> { };
 
-	void setBoards(java.util.function.Supplier<List<Integer>> live, java.util.function.Consumer<String> tell) {
+	void setBoards(Supplier<List<Integer>> live, Consumer<String> tell) {
 		boards = live;
 		told = tell;
 	}

@@ -1,5 +1,7 @@
 package com.anvil;
 
+import static net.runelite.client.ui.ColorScheme.*;
+import com.anvil.AnvilSidebarDataSource.*;
 import lombok.Setter;
 import com.google.gson.JsonObject;
 import java.awt.*;
@@ -46,8 +48,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	// Anvil theme for the interactive widgets: flat dark surfaces with the gold/orange accent the
 	// rest of the sidebar (title, bars, links) already uses — default Swing chrome sticks out badly.
-	private static final Color WIDGET_BG = ColorScheme.DARKER_GRAY_COLOR;
-	private static final Color WIDGET_BG_HOVER = ColorScheme.DARK_GRAY_HOVER_COLOR;
+	private static final Color WIDGET_BG = DARKER_GRAY_COLOR;
+	private static final Color WIDGET_BG_HOVER = DARK_GRAY_HOVER_COLOR;
 	private static final Color WIDGET_BORDER = new Color(0x47_47_47);
 	// Buttons sit a step above the panel, not sunk below it, so they read as something to press.
 	private static final Color BUTTON_BG = new Color(0x3a_3a_3a);
@@ -152,14 +154,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** "Tracking" + the tracked name in its Supporter colours (ChatFlair), swapped as the look changes. */
 	private final JPanel accountLine = new JPanel();
 	private JLabel accountName;
-	private final JLabel accountLink = small("", ColorScheme.BRAND_ORANGE);
+	private final JLabel accountLink = small("", BRAND_ORANGE);
 	private final JLabel accountStatus = small("", MUTED);
 	private final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	/** On a seasonal world: whether its progress is shared with the clan, and a switch for it. */
 	private final JPanel seasonRow = new JPanel(new BorderLayout(6, 0));
 	private final JLabel seasonLabel = small("Sharing season progress", MUTED);
 	private final JLabel seasonLink = new JLabel("Turn off");
-	private AnvilSidebarDataSource.AccountRow shownAccountRow;
+	private AccountRow shownAccountRow;
 	private boolean accountActionInFlight;
 
 	private final JPanel content = column();
@@ -202,13 +204,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
-		setBackground(ColorScheme.DARK_GRAY_COLOR);
+		setBackground(DARK_GRAY_COLOR);
 
 		add(buildHeader(), BorderLayout.NORTH);
 		SlimScrollBarUI.applyTo(getWrappedPanel());
 
 		buildTabBodies();
-		tabBody.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		tabBody.setBackground(DARK_GRAY_COLOR);
 		tabBody.add(content, BorderLayout.NORTH);
 		add(tabBody, BorderLayout.CENTER);
 
@@ -224,10 +226,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	private JPanel buildHeader() {
 		JPanel header = new JPanel(new BorderLayout(0, 8));
-		header.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		header.setBackground(DARK_GRAY_COLOR);
 		header.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
 
-		JLabel title = label("Anvil Progress", BOLD, ColorScheme.BRAND_ORANGE);
+		JLabel title = label("Anvil Progress", BOLD, BRAND_ORANGE);
 
 		styleFlatButton(refreshButton, Color.WHITE);
 		refreshButton.addActionListener(e -> refresh(true));
@@ -237,16 +239,16 @@ public class AnvilSidebarPanel extends PluginPanel {
 		refreshButton.setText("Refresh");
 
 		JPanel titleRow = left(new JPanel(new BorderLayout()));
-		titleRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		titleRow.setBackground(DARK_GRAY_COLOR);
 		titleRow.add(title, BorderLayout.WEST);
 		titleRow.add(refreshButton, BorderLayout.EAST);
 		capH(titleRow);
 
 		// Sign-in affordance — visible whenever there is no token (see refreshSignInRow).
-		styleFlatButton(signInButton, ColorScheme.BRAND_ORANGE);
+		styleFlatButton(signInButton, BRAND_ORANGE);
 		signInButton.addActionListener(e -> startSignIn());
 		signInStatus.setVisible(false);
-		signInRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		signInRow.setBackground(DARK_GRAY_COLOR);
 		signInRow.add(signInButton, BorderLayout.NORTH);
 		signInRow.add(signInStatus, BorderLayout.CENTER);
 		styleLink(pasteTokenLink, "Paste the token from anvilosrs.com (Profile → RuneLite plugin)", this::pasteToken);
@@ -260,10 +262,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// about the sign-in itself behind the ⋯ menu on the right. BorderLayout, not FlowLayout: every
 		// label is centred on the same line, where FlowLayout sat the link on its own baseline.
 		JPanel accountActions = new JPanel(new BorderLayout(8, 0));
-		accountActions.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		accountActions.setBackground(DARKER_GRAY_COLOR);
 		accountActions.add(accountLink, BorderLayout.CENTER);
 		accountActions.add(accountMenuLink, BorderLayout.EAST);
-		accountRowPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		accountRowPanel.setBackground(DARKER_GRAY_COLOR);
 		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
 		accountLine.setLayout(new BoxLayout(accountLine, BoxLayout.X_AXIS));
 		accountLine.setOpaque(false);
@@ -275,7 +277,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		styleLink(seasonLink, "Your seasonal progress (relics, areas, tasks, with a screenshot) goes to your clan."
 			+ " Your clan chooses what gets posted on the Anvil website.", () -> dataSource.setShareSeasonal(!dataSource.shareSeasonal()));
-		seasonRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		seasonRow.setBackground(DARKER_GRAY_COLOR);
 		seasonRow.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
 		seasonRow.add(seasonLabel, BorderLayout.CENTER);
 		seasonRow.add(seasonLink, BorderLayout.EAST);
@@ -300,7 +302,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			switchClan(sel.slug);
 		});
 		JPanel south = new JPanel(new BorderLayout(0, 8));
-		south.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		south.setBackground(DARK_GRAY_COLOR);
 		south.add(buildTabStrip(), BorderLayout.NORTH);
 		south.add(clanPicker, BorderLayout.SOUTH);
 		header.add(south, BorderLayout.SOUTH);
@@ -326,7 +328,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// ---- Tabs ---------------------------------------------------------------------------------------
 
 	private JPanel buildTabStrip() {
-		tabStrip.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		tabStrip.setBackground(DARK_GRAY_COLOR);
 		GridBagConstraints gc = new GridBagConstraints();
 		gc.fill = GridBagConstraints.BOTH;
 		gc.gridy = 0;
@@ -370,9 +372,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private void styleTabs() {
 		for (Map.Entry<Tab, JLabel> e : tabLabels.entrySet()) {
 			boolean on = tabsOn && e.getKey() == tab;
-			e.getValue().setForeground(on ? Color.WHITE : tabsOn ? MUTED : ColorScheme.MEDIUM_GRAY_COLOR);
+			e.getValue().setForeground(on ? Color.WHITE : tabsOn ? MUTED : MEDIUM_GRAY_COLOR);
 			e.getValue().setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(0, 0, on ? 2 : 1, 0, on ? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR),
+				BorderFactory.createMatteBorder(0, 0, on ? 2 : 1, 0, on ? BRAND_ORANGE : MEDIUM_GRAY_COLOR),
 				BorderFactory.createEmptyBorder(4, 0, on ? 3 : 4, 0)));
 		}
 	}
@@ -400,8 +402,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 			lookupSearch.requestFocusInWindow();
 			lookupView.say(lookupClans ? "Search a clan by name." : LOOKUP_HINT);
 		});
-		lookupBox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		setBoxLine(ColorScheme.MEDIUM_GRAY_COLOR);
+		lookupBox.setBackground(DARKER_GRAY_COLOR);
+		setBoxLine(MEDIUM_GRAY_COLOR);
 		lookupBox.add(small("Name", MUTED), BorderLayout.WEST);
 		lookupBox.add(lookupSearch, BorderLayout.CENTER);
 		lookupBox.add(lookupClear, BorderLayout.EAST);
@@ -410,13 +412,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 		lookupSearch.addFocusListener(new FocusAdapter() {
 			@Override
 			public void focusGained(FocusEvent e) {
-				setBoxLine(ColorScheme.BRAND_ORANGE);
+				setBoxLine(BRAND_ORANGE);
 				lookupCompleter.refresh();
 			}
 
 			@Override
 			public void focusLost(FocusEvent e) {
-				setBoxLine(ColorScheme.MEDIUM_GRAY_COLOR);
+				setBoxLine(MEDIUM_GRAY_COLOR);
 			}
 		});
 
@@ -608,7 +610,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			@Override
-			public void image(String path, int w, int h, boolean motion, Consumer<javax.swing.Icon> done) {
+			public void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
 				apiClient.thumb(path, w, h, motion && GradientLabel.animate, img -> SwingUtilities.invokeLater(() -> done.accept(img)));
 			}
 
@@ -661,11 +663,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		if (recentLookups.size() > 1) {
 			// Recent names as chips: a grey outline, one click looks them up again.
 			JPanel wrap = left(new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4)));
-			wrap.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			wrap.setBackground(DARK_GRAY_COLOR);
 			for (String n : recentLookups.subList(1, recentLookups.size())) {
-				Round chip = new Round(new BorderLayout(), 3, null, ColorScheme.MEDIUM_GRAY_COLOR, null);
+				Round chip = new Round(new BorderLayout(), 3, null, MEDIUM_GRAY_COLOR, null);
 				chip.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-				chip.add(small(plainText(n), ColorScheme.LIGHT_GRAY_COLOR));
+				chip.add(small(plainText(n), LIGHT_GRAY_COLOR));
 				chip.setToolTipText(plainText("Look up " + n));
 				JPanel slot = new JPanel(new BorderLayout());
 				slot.setOpaque(false);
@@ -697,7 +699,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private Map<String, String> feedArgs = Collections.emptyMap();
 
 	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
-	public void feedPush(com.google.gson.JsonObject m) {
+	public void feedPush(JsonObject m) {
 		SwingUtilities.invokeLater(() -> feedView.feedPush(m));
 	}
 
@@ -741,7 +743,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * here is urgent.
 	 */
 	void renderSettings() {
-		AnvilSidebarDataSource.PanelActions actions = dataSource.actionsFor();
+		PanelActions actions = dataSource.actionsFor();
 		// Asked on every refresh, but what it shows only moves with these: rebuild only when one does.
 		String key = settingsKey(actions);
 		if (key.equals(settingsShown)) return;
@@ -759,7 +761,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		siteRow("Guides", "The side panel, events, proofs, Supporter perks", "/guide");
 		siteRow("What's new", "Everything new on Anvil, for your roles", "/whats-new");
 		settingsPanel.add(gap(6));
-		Round support = linkRow(ColorScheme.DARKER_GRAY_COLOR, small((isSupporter() ? "★ Your Supporter perks" : "★ Become a Supporter"), new Color(0xFF_D3_5C)), null,
+		Round support = linkRow(DARKER_GRAY_COLOR, small((isSupporter() ? "★ Your Supporter perks" : "★ Become a Supporter"), new Color(0xFF_D3_5C)), null,
 			"Name colours, profile banners, clan boosts — and it keeps Anvil running", this::openSupporter);
 		settingsPanel.add(support);
 		settingsPanel.revalidate();
@@ -769,7 +771,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** A section as a card: the darker rounded surface, 10px in. */
 	private void addCard(JPanel inner) {
 		darken(inner);
-		Round card = left(new Round(new BorderLayout(), 6, ColorScheme.DARKER_GRAY_COLOR, null, null));
+		Round card = left(new Round(new BorderLayout(), 6, DARKER_GRAY_COLOR, null, null));
 		card.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 		card.add(inner);
 		settingsPanel.add(capH(card));
@@ -778,8 +780,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Panel-grey grounds inside a card take the card's colour. */
 	private static void darken(Component c) {
-		if (c instanceof JPanel && !(c instanceof Round) && ColorScheme.DARK_GRAY_COLOR.equals(c.getBackground())) {
-			c.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		if (c instanceof JPanel && !(c instanceof Round) && DARK_GRAY_COLOR.equals(c.getBackground())) {
+			c.setBackground(DARKER_GRAY_COLOR);
 		}
 		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) darken(k);
 	}
@@ -803,7 +805,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** What the settings tab last drew from (settingsKey), so an unchanged refresh skips the rebuild. */
 	private String settingsShown;
 
-	private String settingsKey(AnvilSidebarDataSource.PanelActions actions) {
+	private String settingsKey(PanelActions actions) {
 		StringBuilder k = new StringBuilder()
 			.append(actions.canSyncProfile).append('|').append(actions.canSyncRoster).append('|').append(actions.rosterNote)
 			.append('|').append(isSupporter());
@@ -904,7 +906,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** A small orange link that runs {@code action}. */
 	private static JLabel styleLink(JLabel link, String tooltip, Runnable action) {
 		link.setFont(SMALL);
-		link.setForeground(ColorScheme.BRAND_ORANGE);
+		link.setForeground(BRAND_ORANGE);
 		link.setToolTipText(tooltip);
 		return onClick(link, action);
 	}
@@ -934,8 +936,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	private void showAccountMenu(Component anchor) {
 		JPopupMenu menu = new JPopupMenu();
-		AnvilSidebarDataSource.AccountRow row = shownAccountRow;
-		if (row != null && row.state == AnvilSidebarDataSource.AccountRow.State.TRACKING) {
+		AccountRow row = shownAccountRow;
+		if (row != null && row.state == AccountRow.State.TRACKING) {
 			JMenuItem profile = new JMenuItem("View my profile on Anvil");
 			profile.setToolTipText("Open " + row.rsn + "'s Anvil profile in your browser");
 			profile.addActionListener(e -> {
@@ -949,7 +951,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		support.setToolTipText("Name colours, profile banners, clan boosts — and it keeps Anvil running");
 		support.addActionListener(e -> openSupporter());
 		menu.add(support);
-		if (row != null && row.state == AnvilSidebarDataSource.AccountRow.State.TRACKING && !accountActionInFlight) {
+		if (row != null && row.state == AccountRow.State.TRACKING && !accountActionInFlight) {
 			JMenuItem notMine = new JMenuItem("Not my account…");
 			notMine.setToolTipText("Someone else plays " + row.rsn + " here — stop tracking it on this computer");
 			notMine.addActionListener(e -> onAccountButton());
@@ -984,7 +986,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	private void refreshAccountRow() {
 		seasonalChanged();
-		AnvilSidebarDataSource.AccountRow row = dataSource.accountRow();
+		AccountRow row = dataSource.accountRow();
 		boolean changed = shownAccountRow == null || row == null
 			|| shownAccountRow.state != row.state || !shownAccountRow.rsn.equals(row.rsn);
 		shownAccountRow = row;
@@ -1023,22 +1025,22 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	private void onAccountButton() {
-		AnvilSidebarDataSource.AccountRow row = shownAccountRow;
+		AccountRow row = shownAccountRow;
 		if (row == null || accountActionInFlight) return;
-		AnvilSidebarDataSource.AccountRow.Action action;
+		AccountRow.Action action;
 		String question;
 		switch (row.state) {
 			case PAUSED:
-				action = AnvilSidebarDataSource.AccountRow.Action.TRACK_AGAIN;
+				action = AccountRow.Action.TRACK_AGAIN;
 				question = null; // undoing is harmless — no confirm
 				break;
 			case OTHER:
-				action = AnvilSidebarDataSource.AccountRow.Action.DISPUTE;
+				action = AccountRow.Action.DISPUTE;
 				question = "Ask Anvil staff to move " + row.rsn + " to your Anvil account?\n\n"
 					+ "It's linked to someone else right now. Staff will check and move it if it's yours.";
 				break;
 			default:
-				action = AnvilSidebarDataSource.AccountRow.Action.NOT_MINE;
+				action = AccountRow.Action.NOT_MINE;
 				question = "Stop tracking " + row.rsn + " on this computer?\n\n"
 					+ "Use this if someone else plays it here — a sibling, a friend. It's unlinked from your "
 					+ "Anvil account and nothing is sent while it's logged in. Your other accounts aren't affected, "
@@ -1074,8 +1076,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// The panel is a dark surface: the owner's own dark look as-is, else the adapted main one.
 		ChatFlair.Surface own = e == null || e.d == null || ChatPalette.nameColor(e.d.c) == null ? null : e.d;
 		List<String> source = own != null ? own.g : e == null ? null : e.g;
-		List<Color> stops = new java.util.ArrayList<>();
-		for (String g : source == null ? java.util.Collections.<String>emptyList() : source) {
+		List<Color> stops = new ArrayList<>();
+		for (String g : source == null ? Collections.<String>emptyList() : source) {
 			if (stops.size() < 4) stops.add(own != null ? Ui.teamColor("#" + ChatPalette.nameColor(g), Color.WHITE) : ChatPalette.readableColor(g, false, Color.WHITE));
 		}
 		boolean star = e != null && Boolean.TRUE.equals(e.s);
@@ -1513,7 +1515,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * says why rather than vanishing without explanation. Both buttons carry the same limits as
 	 * their in-game counterparts, which live in the plugin, not here.
 	 */
-	private JPanel buildPanelActions(AnvilSidebarDataSource.PanelActions actions) {
+	private JPanel buildPanelActions(PanelActions actions) {
 		JPanel panel = column();
 		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null) {
 			return panel; // nothing this account can do here; no empty card either
@@ -1625,9 +1627,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 		swatch.setPreferredSize(new Dimension(8, 8));
 		swatch.setMinimumSize(new Dimension(8, 8));
 		swatch.setMaximumSize(new Dimension(8, 8));
-		swatch.setBackground(on ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.DARK_GRAY_COLOR);
+		swatch.setBackground(on ? PROGRESS_COMPLETE_COLOR : DARK_GRAY_COLOR);
 		swatch.setBorder(BorderFactory.createLineBorder(on
-			? ColorScheme.PROGRESS_COMPLETE_COLOR : WIDGET_BORDER));
+			? PROGRESS_COMPLETE_COLOR : WIDGET_BORDER));
 		// Centre the 8px square against the text line rather than stretching it down the row.
 		JPanel swatchBox = new JPanel(new GridBagLayout());
 		swatchBox.setOpaque(false);
@@ -1635,8 +1637,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		swatchBox.add(swatch);
 
 		row.add(swatchBox, BorderLayout.WEST);
-		row.add(small(display.length() <= 26 ? display : display.substring(0, 25).trim() + "…", on ? ColorScheme.TEXT_COLOR : MUTED), BorderLayout.CENTER);
-		hoverable(capH(row), ColorScheme.DARKER_GRAY_COLOR, () -> {
+		row.add(small(display.length() <= 26 ? display : display.substring(0, 25).trim() + "…", on ? TEXT_COLOR : MUTED), BorderLayout.CENTER);
+		hoverable(capH(row), DARKER_GRAY_COLOR, () -> {
 			dataSource.toggleBannerSound(clip);
 			renderSettings();
 		});
@@ -1647,7 +1649,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** A small gold section label, matching the panel's header style. */
 	private static JLabel sectionHeader(String text) {
-		return small(text, ColorScheme.BRAND_ORANGE);
+		return small(text, BRAND_ORANGE);
 	}
 
 	/** A section heading and the gap under it, added to {@code into}. */
@@ -1671,9 +1673,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private JPanel buildStartProofCard(PluginConfigResponse.StartProof proof) {
 		JPanel card = block();
 		card.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE),
+			BorderFactory.createLineBorder(BRAND_ORANGE),
 			BorderFactory.createEmptyBorder(6, 8, 8, 8)));
-		card.add(small("Starting shot needed", ColorScheme.BRAND_ORANGE));
+		card.add(small("Starting shot needed", BRAND_ORANGE));
 
 		if (proof.location != null && !proof.location.isEmpty()) {
 			JLabel where = small("Go to " + proof.location, Color.WHITE);
@@ -1723,12 +1725,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		if (proof.spot != null && dataSource.autoStartShot()) {
 			card.add(gap(2));
-			card.add(small("Taken and sent automatically once both are green.", ColorScheme.LIGHT_GRAY_COLOR));
+			card.add(small("Taken and sent automatically once both are green.", LIGHT_GRAY_COLOR));
 
 		}
 
 		JButton take = new JButton("Take starting shot");
-		styleFlatButton(take, ColorScheme.BRAND_ORANGE);
+		styleFlatButton(take, BRAND_ORANGE);
 		take.addActionListener(e -> {
 			take.setEnabled(false);
 			take.setText("Sending...");
@@ -1768,9 +1770,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 		into.putClientProperty(START_PROOF_SHOWN, key);
 		into.removeAll();
 		for (StartProofRules.Check c : list) {
-			Color color = c.state == StartProofRules.Check.State.OK ? ColorScheme.PROGRESS_COMPLETE_COLOR
-				: c.state == StartProofRules.Check.State.BAD ? ColorScheme.PROGRESS_ERROR_COLOR
-				: ColorScheme.LIGHT_GRAY_COLOR;
+			Color color = c.state == StartProofRules.Check.State.OK ? PROGRESS_COMPLETE_COLOR
+				: c.state == StartProofRules.Check.State.BAD ? PROGRESS_ERROR_COLOR
+				: LIGHT_GRAY_COLOR;
 			GlyphIcon.Shape shape = c.state == StartProofRules.Check.State.OK ? GlyphIcon.Shape.CHECK : GlyphIcon.Shape.CLOSE;
 			JLabel row = small(c.text, color);
 			row.setIcon(new GlyphIcon(shape, 9, color));
@@ -1793,7 +1795,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	private JLabel warningLabel(String message) {
-		JLabel warn = small(message, ColorScheme.PROGRESS_ERROR_COLOR);
+		JLabel warn = small(message, PROGRESS_ERROR_COLOR);
 		return warn;
 	}
 
@@ -1813,7 +1815,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** A themed action button in the panel's orange, wired to one thing it does. */
 	static JButton flatButton(String label, String tooltip, Runnable onClick) {
-		return flatButton(label, tooltip, ColorScheme.BRAND_ORANGE, onClick);
+		return flatButton(label, tooltip, BRAND_ORANGE, onClick);
 	}
 
 	private static JButton flatButton(String label, String tooltip, Color foreground, Runnable onClick) {
@@ -1845,7 +1847,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	private static JPanel buttons(GridLayout layout, JButton... buttons) {
 		JPanel row = left(new JPanel(layout));
-		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setBackground(DARK_GRAY_COLOR);
 		for (JButton b : buttons) row.add(b);
 		return capH(row);
 	}
@@ -1894,7 +1896,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			@Override
 			protected JButton createArrowButton() {
 				BasicArrowButton arrow = new BasicArrowButton(
-					SwingConstants.SOUTH, WIDGET_BG, WIDGET_BG, ColorScheme.BRAND_ORANGE, WIDGET_BG);
+					SwingConstants.SOUTH, WIDGET_BG, WIDGET_BG, BRAND_ORANGE, WIDGET_BG);
 				arrow.setBorder(BorderFactory.createEmptyBorder());
 				return arrow;
 			}
@@ -1934,7 +1936,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			// index >= 0 → a popup row; -1 → the closed field. Dark rows, gold-tinted hover.
 			boolean hover = isSelected && index >= 0;
 			row.setBackground(hover ? WIDGET_BG_HOVER : WIDGET_BG);
-			name.setForeground(hover ? ColorScheme.BRAND_ORANGE : Color.WHITE);
+			name.setForeground(hover ? BRAND_ORANGE : Color.WHITE);
 			detail.setForeground(MUTED);
 
 			name.setText(value == null ? "" : plainText(value.label));

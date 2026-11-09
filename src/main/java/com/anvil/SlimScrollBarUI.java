@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.plaf.basic.BasicScrollBarUI;
@@ -13,8 +14,8 @@ import net.runelite.client.ui.ColorScheme;
 final class SlimScrollBarUI extends BasicScrollBarUI {
 	static final int WIDTH = 7;
 
-	private static final Color THUMB = ColorScheme.MEDIUM_GRAY_COLOR;
-	private static final Color THUMB_HOVER = ColorScheme.LIGHT_GRAY_COLOR;
+	private static final Color THUMB = MEDIUM_GRAY_COLOR;
+	private static final Color THUMB_HOVER = LIGHT_GRAY_COLOR;
 
 	/** Restyle every scroll pane directly under {@code root} (the PluginPanel's wrapper). */
 	static void applyTo(Container root) {
@@ -28,7 +29,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		bar.setUI(new SlimScrollBarUI());
 		bar.setPreferredSize(new Dimension(WIDTH, 0));
 		bar.setOpaque(true);
-		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		bar.setBackground(DARK_GRAY_COLOR);
 		bar.setBorder(null);
 		bar.setUnitIncrement(16);
 	}
@@ -54,7 +55,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 
 	@Override
 	protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
-		g.setColor(ColorScheme.DARK_GRAY_COLOR);
+		g.setColor(DARK_GRAY_COLOR);
 		g.fillRect(r.x, r.y, r.width, r.height);
 	}
 

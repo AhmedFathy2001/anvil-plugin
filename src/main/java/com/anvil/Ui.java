@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.time.*;
@@ -140,7 +141,7 @@ final class Ui {
 		onClick(c, onClick).addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseEntered(MouseEvent e) {
-				c.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
+				c.setBackground(DARK_GRAY_HOVER_COLOR);
 			}
 
 			@Override
@@ -154,14 +155,14 @@ final class Ui {
 	static JPanel column() {
 		JPanel p = new JPanel();
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-		p.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		p.setBackground(DARK_GRAY_COLOR);
 		return left(p);
 	}
 
 	/** A {@link #column} as a card: the darker surface with an 8px inset. */
 	static JPanel block() {
 		JPanel p = column();
-		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		p.setBackground(DARKER_GRAY_COLOR);
 		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 		return p;
 	}
@@ -187,10 +188,10 @@ final class Ui {
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
 	static void styleSearch(JTextField f) {
-		f.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		f.setBackground(DARKER_GRAY_COLOR);
 		f.setForeground(Color.WHITE);
 		f.setCaretColor(Color.WHITE);
-		f.setSelectionColor(ColorScheme.BRAND_ORANGE);
+		f.setSelectionColor(BRAND_ORANGE);
 		f.setSelectedTextColor(Color.BLACK);
 		f.setFont(REGULAR);
 	}
@@ -237,7 +238,7 @@ final class Ui {
 	/** A section's orange name, with an optional white figure at the right. */
 	static JPanel header(String left, String right) {
 		JPanel row = row(0);
-		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
+		row.add(small(left, BRAND_ORANGE), BorderLayout.WEST);
 		if (right != null) row.add(small(right, Color.WHITE), BorderLayout.EAST);
 		return capH(row);
 	}
@@ -333,8 +334,8 @@ final class Ui {
 		String s = ts == null ? "" : ts.trim().replace(' ', 'T');
 		try {
 			return s.length() == 10
-				? java.time.LocalDate.parse(s).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
-				: java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
+				? LocalDate.parse(s).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+				: Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
 		} catch (RuntimeException e) {
 			return -1;
 		}
