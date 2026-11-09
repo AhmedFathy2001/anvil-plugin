@@ -284,17 +284,48 @@ final class UiView extends JPanel {
 		host.load(view, args, v -> land(into, n, v, background));
 	}
 
-	private void land(String into, int n, JsonObject view, boolean background) {
+	/** The slot node with this id inside an answer (not inside panes or other slots' loads), or null. */
+	static JsonObject ownSlot(JsonElement e, String id) {
+		if (e == null) return null;
+		if (e.isJsonArray()) {
+			for (JsonElement x : e.getAsJsonArray()) {
+				JsonObject hit = ownSlot(x, id);
+				if (hit != null) return hit;
+			}
+			return null;
+		}
+		if (!e.isJsonObject()) return null;
+		JsonObject o = e.getAsJsonObject();
+		if ("slot".equals(str(o, "t")) && id.equals(str(o, "id"))) return o;
+		for (Map.Entry<String, JsonElement> kv : o.entrySet()) {
+			if (kv.getKey().equals("panes") || kv.getKey().equals("on") || kv.getKey().equals("menu") || kv.getKey().equals("load")) continue;
+			JsonObject hit = ownSlot(kv.getValue(), id);
+			if (hit != null) return hit;
+		}
+		return null;
+	}
+
+	private void land(String into, int n, JsonObject answer, boolean background) {
+		JsonObject view = answer;
 		if (seq.getOrDefault(String.valueOf(into), 0) != n) return;
 		// A press older than PRESS_STALE_MS is over: a redraw under it can swallow its release, and the
 		// flag would otherwise hold every later background refresh off for good.
 		long sincePress = System.currentTimeMillis() - pressedAt;
 		if (background && ((pressing && sincePress < PRESS_STALE_MS) || sincePress < CLICK_SETTLE_MS)) {
 			// Redrawing now would swap the row out from under the press, and the click would be lost.
-			Timer later = new Timer((int) CLICK_SETTLE_MS, e -> land(into, n, view, true));
+			Timer later = new Timer((int) CLICK_SETTLE_MS, e -> land(into, n, answer, true));
 			later.setRepeats(false);
 			later.start();
 			return;
+		}
+		if (into != null && view != null && view.has("ui") && view.get("ui").isJsonObject()) {
+			// A slot only ever takes its own inner content: a whole page answered into it (one that carries
+			// this same slot) would stack the page's header again on every answer, so keep just that slot's part.
+			JsonObject own = ownSlot(view.getAsJsonObject("ui"), into);
+			if (own != null && own.has("c") && own.get("c").isJsonObject()) {
+				view = view.deepCopy();
+				view.add("ui", own.get("c"));
+			}
 		}
 		JsonElement ui = view == null ? null : view.get("ui");
 		if (ui != null && ui.equals(drawn.get(String.valueOf(into)))) {
@@ -1336,6 +1367,10 @@ final class UiView extends JPanel {
 					JsonObject on = n.getAsJsonObject("on");
 					combo.addActionListener(e -> fire(on));
 				}
+				// The widest option must not set the panel's width: the combo takes the row it's given.
+				combo.setPrototypeDisplayValue("");
+				combo.setPreferredSize(new Dimension(40, combo.getPreferredSize().height));
+				combo.setMinimumSize(new Dimension(0, combo.getPreferredSize().height));
 				return capH(combo);
 			case "search":
 				return search(n, name, value);

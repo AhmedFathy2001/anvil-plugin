@@ -228,6 +228,49 @@ public class UiViewTest
 		assertFalse(String.valueOf(option).startsWith("<html><u>"));
 	}
 
+	/** The board page: a header (back, search) over slot tiles, whose detail claims post into tiles. */
+	private static final String BOARD_PAGE = "{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"All tiles\"},"
+		+ "{\"t\":\"input\",\"name\":\"q\",\"kind\":\"search\",\"value\":\"\",\"label\":\"Search 200 tiles…\"},"
+		+ "{\"t\":\"slot\",\"id\":\"tiles\",\"c\":{\"t\":\"slot\",\"id\":\"tile\",\"c\":{\"t\":\"col\",\"c\":["
+		+ "{\"t\":\"text\",\"s\":\"Vorkath\"},"
+		+ "{\"t\":\"text\",\"s\":\"Claim tile\",\"on\":{\"a\":\"post\",\"act\":\"claim\",\"args\":{\"tile\":\"3\"},\"into\":\"tiles\"}}]}}},"
+		+ "{\"t\":\"text\",\"s\":\"Click for details\"}]}";
+
+	@Test
+	public void claimingTwiceIntoTheListSlotKeepsExactlyOneHeader()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view(BOARD_PAGE));
+		for (int i = 0; i < 2; i++)
+		{
+			click(v, "Claim tile");
+			// An older site answers the whole page into the slot: only the slot's own part may land.
+			host.pending.get(host.pending.size() - 1).accept(view(BOARD_PAGE));
+			List<String> t = texts(v);
+			assertEquals(t.toString(), 1, Collections.frequency(t, "All tiles"));
+			assertEquals(t.toString(), 1, Collections.frequency(t, "Click for details"));
+			assertEquals(t.toString(), 1, Collections.frequency(t, "Vorkath"));
+		}
+		// The slot's own answer (rows only) lands as is.
+		click(v, "Claim tile");
+		host.pending.get(host.pending.size() - 1).accept(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Planning: You\"},"
+			+ "{\"t\":\"text\",\"s\":\"Claim tile\"}]}"));
+		List<String> t = texts(v);
+		assertEquals(1, Collections.frequency(t, "All tiles"));
+		assertTrue(t.toString(), t.contains("Planning: You"));
+	}
+
+	@Test
+	public void aDropdownWithALongOptionDoesNotWidenThePanel()
+	{
+		UiView v = new UiView(new FakeHost(), null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"row\",\"l\":{\"t\":\"text\",\"s\":\"Show\"},\"c\":"
+			+ "{\"t\":\"input\",\"name\":\"status\",\"kind\":\"select\",\"value\":\"all\",\"options\":["
+			+ "{\"v\":\"all\",\"label\":\"All\"},{\"v\":\"closest\",\"label\":\"Closest first — furthest along tiles not done yet\"}]}}]}"));
+		assertTrue("preferred width " + v.getPreferredSize().width, v.getPreferredSize().width <= 225);
+	}
+
 	@Test
 	public void panesSwapInPlaceAndLoadsLandInTheirSlot()
 	{
