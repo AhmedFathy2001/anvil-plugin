@@ -156,7 +156,7 @@ final class CoalescedPush {
 		} catch (BingoApiClient.PermanentSubmissionException e) {
 			// The site will never take this batch (a 4xx that isn't 401/408/429). Drop it rather than
 			// resend it forever; newer values queued meanwhile still go on their own.
-			log.warn("{} push refused ({} key(s)) — dropping: {}", what, batch.size(), e.getMessage());
+			log.warn("{} push refused: {}", what, e.getMessage());
 			synchronized (this) {
 				failures = 0;
 			}
@@ -166,7 +166,7 @@ final class CoalescedPush {
 				failures++;
 				batch.forEach((k, v) -> pending.merge(k, v, Integer::max));
 				long wait = retryDelayMs(failures, delayMs, Math.random());
-				log.warn("{} push failed ({} key(s)) — retrying in {}s: {}", what, batch.size(), wait / 1000, e.getMessage());
+				log.warn("{} push failed, retry in {}s: {}", what, wait / 1000, e.getMessage());
 				ScheduledExecutorService ex = executor.get();
 				if (ex != null && !ex.isShutdown()) schedule(ex, wait);
 			}

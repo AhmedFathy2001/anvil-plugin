@@ -106,7 +106,7 @@ public class PendingSubmissionStore {
 		try {
 			DiskFiles.writeAtomic(png, pngBytes);
 		} catch (IOException e) {
-			log.error("Failed to save pending screenshot: {}", e.getMessage());
+			log.error("Proof image save failed: {}", e.getMessage());
 			return null;
 		}
 
@@ -114,13 +114,13 @@ public class PendingSubmissionStore {
 		try {
 			DiskFiles.writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
-			log.error("Failed to save pending submission metadata: {}", e.getMessage());
+			log.error("Proof save failed: {}", e.getMessage());
 			// The PNG without its metadata is an orphan nothing will ever read.
 			DiskFiles.deleteQuietly(png);
 			return null;
 		}
 
-		log.info("Saved pending submission: {} (tile '{}')", id, sub.label);
+		log.info("Saved proof {}", id);
 		return id;
 	}
 
@@ -163,7 +163,7 @@ public class PendingSubmissionStore {
 		try {
 			DiskFiles.writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
-			log.error("Failed to update a pending proof: {}", e.getMessage());
+			log.error("Proof update failed: {}", e.getMessage());
 		}
 	}
 
@@ -175,7 +175,7 @@ public class PendingSubmissionStore {
 		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
 			return in.readAllBytes();
 		} catch (IOException | RuntimeException e) {
-			log.error("Failed to read pending screenshot {}: {}", sub.screenshotFile, e.getMessage());
+			log.error("Unreadable proof {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
 	}
@@ -187,9 +187,9 @@ public class PendingSubmissionStore {
 		try {
 			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();
-			log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
+			log.info("Removed proof {}", baseName);
 		} catch (IOException | RuntimeException e) {
-			log.warn("Failed to remove pending submission {}: {}", baseName, e.getMessage());
+			log.warn("Can't remove proof {}: {}", baseName, e.getMessage());
 		}
 	}
 

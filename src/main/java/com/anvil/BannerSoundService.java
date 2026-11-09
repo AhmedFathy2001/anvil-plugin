@@ -82,7 +82,7 @@ public class BannerSoundService {
 			if (!sub.exists()) sub.createDirectories();
 			return sub;
 		} catch (IOException e) {
-			log.warn("Anvil: cannot create the {} sounds directory: {}", kind.folder, e.getMessage());
+			log.warn("No {} sounds directory: {}", kind.folder, e.getMessage());
 			return null;
 		}
 	}

@@ -553,7 +553,7 @@ public class BingoApiClient {
 			// honest answer to "why didn't my 99 post" was that nobody could tell.
 			@Override
 			public void onFailure(Call call, IOException e) {
-				log.warn("Anvil: '{}' notification never reached the site: {}", channel, e.getMessage());
+				log.warn("{} notification failed: {}", channel, e.getMessage());
 				keepForRetry(url, channel, payloadJson, png, filename, rsn, hash);
 			}
 
@@ -561,7 +561,7 @@ public class BingoApiClient {
 			public void onResponse(Call call, Response response) throws IOException {
 				try (Response r = response) {
 					if (!r.isSuccessful()) {
-						log.warn("Anvil: the site refused a '{}' notification (HTTP {}).", channel, r.code());
+						log.warn("{} notification refused: HTTP {}", channel, r.code());
 						if (!RetryPolicy.isPermanent(r.code())) keepForRetry(url, channel, payloadJson, png, filename, rsn, hash);
 						return;
 					}
@@ -569,13 +569,13 @@ public class BingoApiClient {
 					// while a failed Discord fan-out answered {ok:false} with HTTP 200. Both looked
 					// exactly like a successful post in the only log a player can share with us.
 					if (r.code() == 204) {
-						log.warn("Anvil: '{}' notification had no configured Discord destination.", channel);
+						log.warn("{} notification: no destination", channel);
 						return;
 					}
 					// A successful older site may return no JSON contract. Success is still success.
 					String ok = r.body() == null ? null : jsonString(jsonObject(r.body().string()), "ok");
 					if (ok != null && !Boolean.parseBoolean(ok)) {
-						log.warn("Anvil: Discord refused every '{}' notification destination.", channel);
+						log.warn("{} notification: Discord refused all", channel);
 					}
 				}
 			}
@@ -629,7 +629,7 @@ public class BingoApiClient {
 			return execute(httpClient, authedRequest(it.url, it.rsn, null, it.accountHash)
 				.post(notifyBody(it.payload, png, it.filename)), (r, body) -> {
 				if (r.isSuccessful()) {
-					log.info("Anvil: queued '{}' notification delivered", it.channel);
+					log.info("Queued {} notification sent", it.channel);
 					return NotifyOutbox.Result.SENT;
 				}
 				return RetryPolicy.isPermanent(r.code()) ? NotifyOutbox.Result.PERMANENT : NotifyOutbox.Result.RETRY;
@@ -1133,12 +1133,12 @@ public class BingoApiClient {
 					// 401 = this token's user isn't an admin (or the token is stale). Anything else is
 					// the site having a bad time. Logged either way: "the button vanished" is otherwise
 					// indistinguishable between the two, and one of them is worth retrying.
-					log.info("Anvil: admin probe answered HTTP {} — no clan-sync button this session", r.code());
+					log.info("Admin probe: HTTP {}", r.code());
 				}
 				return r.code() == 200;
 			});
 		} catch (Exception e) {
-			log.info("Anvil: admin probe couldn't reach the site ({}) — will retry", e.getMessage());
+			log.info("Admin probe failed: {}", e.getMessage());
 			return false;
 		}
 	}

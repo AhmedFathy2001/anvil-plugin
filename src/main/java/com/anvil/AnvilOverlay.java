@@ -92,7 +92,7 @@ public class AnvilOverlay extends OverlayPanel {
 				event.startDate == null ? Instant.MIN : Instant.parse(event.startDate),
 				event.endDate == null ? Instant.MAX : Instant.parse(event.endDate)};
 		} catch (Exception e) {
-			log.warn("Failed to parse event dates '{}' / '{}': {}", event.startDate, event.endDate, e.getMessage());
+			log.warn("Bad event dates: {}", e.getMessage());
 			return null;
 		}
 	}

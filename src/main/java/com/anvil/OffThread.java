@@ -30,7 +30,7 @@ final class OffThread {
 	static void check(String what) {
 		String thread = where();
 		if (thread != null && reported.add(what + "@" + thread)) {
-			log.warn("Anvil: {} blocked the {} — a freeze; please report this log", what, thread, new Throwable("called from"));
+			log.warn("{} blocked the {}", what, thread, new Throwable("called from"));
 		}
 	}
 

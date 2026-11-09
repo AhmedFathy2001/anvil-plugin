@@ -142,7 +142,7 @@ final class NotifyOutbox {
 			}
 			items.sort(Comparator.comparingLong(x -> x.createdAt));
 			prune(System.currentTimeMillis());
-			log.info("Anvil: {} notification(s) waiting from last session", items.size());
+			log.info("{} notification(s) waiting", items.size());
 			schedule(FIRST_RETRY_MS);
 		}
 	}
@@ -201,7 +201,7 @@ final class NotifyOutbox {
 		List<Item> evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, MAX_BYTES);
 		if (evict.isEmpty()) return;
 		items.removeAll(evict);
-		log.info("Anvil: dropped {} undelivered notification(s) (too old, or too many waiting)", evict.size());
+		log.info("Dropped {} stale notification(s)", evict.size());
 		ExecutorService pool = sendPool.get();
 		if (pool != null && !pool.isShutdown()) pool.submit(() -> evict.forEach(this::deleteFiles));
 	}
@@ -242,7 +242,7 @@ final class NotifyOutbox {
 				Result r = s.send(it, png);
 				if (r != Result.RETRY) {
 					if (r == Result.PERMANENT) {
-						log.warn("Anvil: the site refused a queued '{}' notification — dropping it", it.channel);
+						log.warn("Queued {} notification refused", it.channel);
 					}
 					remove(it);
 					continue;

@@ -101,7 +101,7 @@ final class ChatPatterns {
 			entries = Collections.unmodifiableMap(e);
 			defaults = Collections.unmodifiableMap(d);
 		} catch (Exception ex) {
-			log.warn("Anvil: chat pattern catalog failed to load", ex);
+			log.warn("Chat patterns failed to load", ex);
 		}
 	}
 
@@ -151,7 +151,7 @@ final class ChatPatterns {
 		Map<String, String> hints = new HashMap<>(l.hints);
 		hints.remove(key);
 		live = new Live(next, hints);
-		log.warn("Anvil: chat pattern override for {} was too slow on a real line — using the default this session", key);
+		log.warn("Chat pattern {} too slow; default this session", key);
 	}
 
 	/**

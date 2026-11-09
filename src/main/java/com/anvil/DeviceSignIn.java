@@ -89,7 +89,7 @@ public final class DeviceSignIn {
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
 		if (!isConfiguredHomeUrl(BingoApiClient.site(), url)) {
 			// A response steering the browser anywhere but the member's own configured site is hostile.
-			log.warn("refusing sign-in URL not on the configured home: {}", url);
+			log.warn("Off-site sign-in URL: {}", url);
 			fail(status, done, "Sign-in blocked — the site returned a suspicious login page.", Outcome.UNAVAILABLE);
 			return;
 		}

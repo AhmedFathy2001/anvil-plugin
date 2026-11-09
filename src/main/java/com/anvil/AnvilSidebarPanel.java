@@ -893,7 +893,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 					// the manual route, which always works.
 					String stored = configManager.getConfiguration("osrsbingo", "playerToken");
 					if (stored == null || stored.isEmpty()) {
-						log.warn("Anvil: signed in but the token did not persist to the RuneLite config");
+						log.warn("Token did not persist");
 						setSignInStatus("Signed in, but RuneLite didn't save the token — copy it "
 							+ "from Profile > RuneLite plugin on the site and use Paste a token below.");
 					} else setSignInStatus("");

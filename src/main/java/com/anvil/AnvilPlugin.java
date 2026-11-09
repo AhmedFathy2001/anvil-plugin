@@ -1117,13 +1117,13 @@ public class AnvilPlugin extends Plugin {
 			responseCache = rc;
 			apiClient.setDiskCache(rc);
 		} catch (IOException | RuntimeException e) {
-			log.warn("No plugin directory — pending submissions and banner sounds are off this session", e);
+			log.warn("No plugin directory", e);
 		}
 		try (Reader r = new InputStreamReader(getClass().getResourceAsStream("/anvil_text.json"),
 				java.nio.charset.StandardCharsets.UTF_8)) {
 			text = gson.fromJson(r, ShippedText.class);
 		} catch (IOException | RuntimeException e) {
-			log.warn("Shipped text (anvil_text.json) unavailable", e);
+			log.warn("No anvil_text.json", e);
 		}
 
 		// The window's TITLE BAR, not the entry pane's header the log also calls a header — that one
@@ -1413,7 +1413,7 @@ public class AnvilPlugin extends Plugin {
 			task.run();
 		} catch (Exception e) {
 			// The type too: several JDK exceptions carry no message, and "threw: null" said nothing.
-			log.warn("Scheduled task '{}' threw, continuing: {}", name, e.toString());
+			log.warn("Task {} threw: {}", name, e.toString());
 		}
 	}
 
@@ -2265,7 +2265,7 @@ public class AnvilPlugin extends Plugin {
 			} catch (IOException e) {
 				// A later open sends an absolute snapshot, so a lost transition reconciles without
 				// manufacturing an actor. Never block the client thread retrying a money endpoint.
-				log.warn("Clan Coffer sync failed (the next observation reconciles): {}", e.getMessage());
+				log.warn("Coffer sync failed: {}", e.getMessage());
 			}
 		});
 	}
@@ -2720,7 +2720,7 @@ public class AnvilPlugin extends Plugin {
 	private void restampIfRenamed() {
 		String live = getLocalPlayerName();
 		if (!renamedMidSession(apiClient.getCurrentRsn(), live) || !execLive()) return;
-		log.info("In-game name changed to {} — re-stamping identity", live);
+		log.info("Renamed to {}", live);
 		apiClient.setCurrentRsn(live);
 		submit(this::stampIdentityAndGreet);
 	}
@@ -2753,7 +2753,7 @@ public class AnvilPlugin extends Plugin {
 		boolean paused = shouldPauseAccount(optedOutAccounts, rsn, accountHash);
 		apiClient.setAccountPaused(paused);
 		if (paused) {
-			log.info("{} is marked Not my account — sending nothing", rsn);
+			log.info("{} is Not my account", rsn);
 			dropConfigForPausedAccount();
 			repaintSidebar();
 			return;
@@ -4162,7 +4162,7 @@ public class AnvilPlugin extends Plugin {
 				BufferedImage buffered = composeDualProof(trigger, image);
 				if (trigger != null) b.proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
 				if (pendingSubmissionStore.save(b, jpeg(buffered)) == null) {
-					log.error("Failed to persist a facts proof to disk");
+					log.error("Proof not saved");
 					return;
 				}
 				if (processPendingSubmission(b)) {
@@ -4469,7 +4469,7 @@ public class AnvilPlugin extends Plugin {
 	private void creditLootingBagGain(String source, Map<Integer, Integer> before, Map<Integer, Integer> after) {
 		List<ItemStack> gained = lootingBagGains(before, after);
 		if (gained.isEmpty()) return;
-		log.info("{} put {} item stack(s) straight into the looting bag", source, gained.size());
+		log.info("{}: {} stack(s) into the looting bag", source, gained.size());
 		processLoot(source, gained, "event");
 		processValueTiles(source, gained, "event");
 		recordEventLoot(source, gained, "event");
@@ -5011,7 +5011,7 @@ public class AnvilPlugin extends Plugin {
 				sendChatMessage(Tone.DONE, "Starting shot sent. You're clear to play.");
 				refreshConfig();
 			} catch (IOException e) {
-				log.error("Failed to file starting shot: {}", e.getMessage());
+				log.error("Starting shot failed: {}", e.getMessage());
 				sendChatMessage(Tone.WARN, "Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
 			} finally {
 				startProofInFlight = false;
@@ -5033,7 +5033,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		byte[] pngBytes = pendingSubmissionStore.readScreenshot(pending);
 		if (pngBytes == null) {
-			log.error("No screenshot found for pending submission (tile '{}')", pending.label);
+			log.error("No screenshot for proof {}", pending.label);
 			pendingSubmissionStore.remove(pending);
 			return false;
 		}
@@ -5047,7 +5047,7 @@ public class AnvilPlugin extends Plugin {
 			} catch (PermanentSubmissionException e) {
 				proofLost(labels, e);
 			} catch (IOException e) {
-				log.error("Proof upload failed (will retry): {}", e.getMessage());
+				log.error("Proof upload failed: {}", e.getMessage());
 				if (now() - pending.keyAt < PROOF_GIVE_UP_MS) continue;
 				proofLost(labels, e);
 			}
@@ -5081,7 +5081,7 @@ public class AnvilPlugin extends Plugin {
 		pending.removeIf(sub -> sub.manual);
 		if (pending.isEmpty()) return;
 
-		log.info("Found {} pending submission(s), retrying...", pending.size());
+		log.info("Retrying {} proof(s)", pending.size());
 		boolean anyFailed = false;
 		for (PendingSubmission sub : pending) {
 			// Manual proofs (older versions saved them for pets / duplicate Champion's scrolls) have no
@@ -5104,7 +5104,7 @@ public class AnvilPlugin extends Plugin {
 
 		if (anyFailed) {
 			proofBackoff.onFailure(now());
-			log.info("Pending retries failed; next attempt in {}s", proofBackoff.secondsUntilReady(now()));
+			log.info("Proof retry failed; next in {}s", proofBackoff.secondsUntilReady(now()));
 		} else proofBackoff.onSuccess();
 
 		// Refresh config to get updated counts from server
@@ -5343,7 +5343,7 @@ public class AnvilPlugin extends Plugin {
 			if (key != null) data = PushStash.merge(data, stash.take(key, t));
 		}
 		if (data == null || data.isEmpty()) return;
-		log.info("Anvil: resending {} count(s) and {} moment(s) saved from an earlier session",
+		log.info("Resending {} count(s), {} moment(s)",
 				sizeOf(data.kc) + sizeOf(data.xp) + sizeOf(data.activity), sizeOf(data.moments));
 		kcPush.restore(data.kc);
 		skillXpPush.restore(data.xp);
@@ -5370,7 +5370,7 @@ public class AnvilPlugin extends Plugin {
 	 * goes now rather than sitting out the rest of its wait (up to ten minutes for the profile syncs).
 	 */
 	private void onSiteRecovered() {
-		log.info("Anvil: site reachable again — sending what was waiting");
+		log.info("Site back");
 		clogBackoff.reset();
 		clogFullBackoff.reset();
 		pbBackoff.reset();
@@ -5925,7 +5925,7 @@ public class AnvilPlugin extends Plugin {
 		for (ClanRef c : fresh.clans) {
 			if (c != null && chosen.equalsIgnoreCase(c.slug)) return;
 		}
-		log.info("No seat in '{}' any more — back to Auto", chosen);
+		log.info("No seat in {}", chosen);
 		cfgSet(CFG_ACTIVE_CLAN, "");
 		apiClient.setChosenClan("");
 	}
@@ -6849,7 +6849,7 @@ public class AnvilPlugin extends Plugin {
 		if (res == null || res == chatPatternsApplied) return;
 		chatPatternsApplied = res;
 		for (String why : ChatPatterns.applyOverrides(res.overrides)) {
-			log.warn("Chat pattern override rejected — {}", why);
+			log.warn("Pattern override rejected: {}", why);
 		}
 	}
 
@@ -7100,9 +7100,9 @@ public class AnvilPlugin extends Plugin {
 					// The diagnostic "money line" for debug exports: the token is valid AND this RSN
 					// IS a player in a live bingo — but the account/token isn't linked to it, so
 					// tracking is silently OFF. Distinct from a genuine "not enrolled anywhere" below.
-					log.warn("RSN '{}' plays in '{}' but isn't linked to this token — tracking is OFF",
+					log.warn("{} plays in {} unlinked; tracking off",
 							getLocalPlayerName(), fresh.unlinkedActiveEvent);
-				} else log.info("Token valid, no active event");
+				} else log.info("No active event");
 				warnUnlinkedRsn(fresh.unlinkedActiveEvent);
 				return;
 			}
@@ -7142,7 +7142,7 @@ public class AnvilPlugin extends Plugin {
 			maybeReprobeAdmin();
 
 		} catch (IOException e) {
-			log.warn("Failed to refresh Anvil config: {}", e.getMessage());
+			log.warn("Config refresh failed: {}", e.getMessage());
 			// A definite refusal (no clan, bad token) is an answer too: the saved copy goes. A site
 			// that is down or slow is not — keep showing it until one does answer.
 			int code = e instanceof HttpStatusException ? ((HttpStatusException) e).code : 0;
@@ -7229,7 +7229,7 @@ public class AnvilPlugin extends Plugin {
 		adminProbeAttempted = true;
 		boolean admin = apiClient.fetchIsAdmin(config.playerToken());
 		if (admin != isAdmin) {
-			log.info("Admin re-checked on Refresh — now {}", admin ? "admin" : "not admin");
+			log.info("Admin now {}", admin);
 		}
 		isAdmin = admin;
 	}
@@ -7694,7 +7694,7 @@ public class AnvilPlugin extends Plugin {
 		try {
 			apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
 		} catch (IOException e) {
-			log.warn("Counter push failed (deaths={}, lootGp={}, pvpKills={}) — retrying: {}", deaths, lootGp, pvpKills, e.getMessage());
+			log.warn("Counter push failed, retrying: {}", e.getMessage());
 			scheduleCounterPush();
 		}
 	}
@@ -7859,7 +7859,7 @@ public class AnvilPlugin extends Plugin {
 		String killer = deathAttribution.killer(fighting, now);
 		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
 		// and which one we picked, next to what we were hitting.
-		log.info("Death: killer='{}' (attackers={}, we were fighting '{}')",
+		log.info("Death: {} ({} attackers, fighting {})",
 				killer, deathAttribution.attackerCount(), fighting);
 		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
 		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
@@ -7947,7 +7947,7 @@ public class AnvilPlugin extends Plugin {
 			apiClient.submitMoments(batch);
 		} catch (PermanentSubmissionException e) {
 			// The site will never take this batch; drop it rather than resend it forever.
-			log.warn("Moment push refused — dropping {}: {}", batch.size(), e.getMessage());
+			log.warn("Moments refused: {}", e.getMessage());
 			moments.onSent(batch);
 			return;
 		} catch (IOException e) {
@@ -8058,7 +8058,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void logTrackingSuppressed(String reason) {
 		if (loggedSuppressions.add(reason)) {
-			log.info("Tracking suppressed — {} (logged once per session)", reason);
+			log.info("Tracking off: {}", reason);
 		}
 	}
 
@@ -9179,14 +9179,14 @@ public class AnvilPlugin extends Plugin {
 		if (skill == null) return;
 		if (!levelsPost()) {
 			if (level >= 99 && prev < 99) {
-				log.info("99 {} not announced — not real progression on this world", skill);
+				log.info("99 {} not announced: world", skill);
 			}
 			return;
 		}
 		int at = LevelRules.skillMilestone(prev, level, levelRules());
 		if (at == 0) {
 			if (level >= 99 && prev < 99) {
-				log.info("99 {} not announced — no destination for level posts", skill);
+				log.info("99 {} not announced: no destination", skill);
 			}
 			return;
 		}
@@ -9435,7 +9435,7 @@ public class AnvilPlugin extends Plugin {
 		}, null);
 		later(() -> {
 			if (delivered.compareAndSet(false, true)) {
-				log.info("No frame within {}ms — notifying without a screenshot", FRAME_CAPTURE_TIMEOUT_MS);
+				log.info("No frame; posting without a screenshot");
 				consumer.accept(null);
 			}
 		}, FRAME_CAPTURE_TIMEOUT_MS);
@@ -9978,7 +9978,7 @@ public class AnvilPlugin extends Plugin {
 
 		int adopted = personalBests.seed(imported, now());
 		cfgSet(accountKey(CFG_PB_IMPORTED, rsnKey), signature);
-		log.info("Imported {} existing personal best(s) from RuneLite ({} probed)",
+		log.info("Imported {} PB(s) ({} probed)",
 				adopted, imported.size());
 		if (adopted > 0) {
 			sendChatMessage("Imported " + adopted + " personal best" + (adopted == 1 ? "" : "s")
@@ -10025,7 +10025,7 @@ public class AnvilPlugin extends Plugin {
 		} catch (RateLimitedException e) {
 			limited.accept(e.retryAfterMs);
 		} catch (PermanentSubmissionException e) {
-			log.info("{} refused, dropping it: {}", what, e.getMessage());
+			log.info("{} refused: {}", what, e.getMessage());
 			refused.accept(e.getMessage());
 		} catch (Exception e) {
 			backoff.onFailure(now);
