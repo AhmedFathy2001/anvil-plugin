@@ -1105,9 +1105,16 @@ public class BingoApiClient {
 	 * tile. Null on any failure. Blocking.
 	 */
 	public TileTracker.Progress fetchTileProgress(int eventId, int tileId) {
-		return !isConfigured() || eventId <= 0 || tileId <= 0 ? null
-			: etagGetOrNull(clanUrl("/api/plugin/event/" + eventId + "/tile/" + tileId + "/progress"),
+		if (!isConfigured() || eventId <= 0 || tileId <= 0) return null;
+		try {
+			return etagGet(clanUrl("/api/plugin/event/" + eventId + "/tile/" + tileId + "/progress"),
 				TileTracker.Progress.class, trackedTiles, "tile progress fetch");
+		} catch (HttpStatusException e) {
+			// The site answered "not on your boards" (or hidden): final, unlike a network blip.
+			return e.code == 404 || e.code == 403 || e.code == 410 ? TileTracker.Progress.GONE : null;
+		} catch (IOException | JsonParseException e) {
+			return null;
+		}
 	}
 
 	/**

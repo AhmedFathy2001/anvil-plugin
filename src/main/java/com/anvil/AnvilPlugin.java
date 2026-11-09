@@ -1171,6 +1171,12 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
 		tileTracker.setNotes(this::tileNotes);
+		tileTracker.setBoards(() -> {
+			PluginConfigResponse c = pluginConfig;
+			List<Integer> ids = new ArrayList<>();
+			if (c != null && c.boards != null) c.boards.forEach(b -> ids.add(b.eventId));
+			return ids;
+		}, this::sendChatMessage);
 		tileTracker.setOnePanel(config.trackerOnePanel());
 		tileTracker.startUp();
 		overlayManager.add(startProofOverlay);

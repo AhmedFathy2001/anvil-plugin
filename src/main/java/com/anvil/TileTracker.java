@@ -35,6 +35,8 @@ public class TileTracker {
 	private static final LineComponent GAP = LineComponent.builder().build();
 	/** How long a just-finished pin keeps showing "Done" before it unpins (hidden on the next fetch after). */
 	static final long DONE_LINGER_MS = 10_000;
+	/** Failed fetches of a pin that never loaded before it is let go (30s apart). */
+	static final int MAX_FAILS = 6;
 
 	private final OverlayManager overlayManager;
 	private final ConfigManager configManager;
@@ -54,6 +56,10 @@ public class TileTracker {
 	 * the polled config each frame. None until the plugin sets it.
 	 */
 	private volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
+	/** The live boards' ids, to find the board of a pin saved without one. */
+	private volatile java.util.function.Supplier<List<Integer>> boards = Collections::emptyList;
+	/** Says why a pin came down (a chat line). */
+	private volatile java.util.function.Consumer<String> told = m -> { };
 	/**
 	 * One panel holding every pin (the default) or a movable widget per pin. One panel can't end up
 	 * with pins on top of each other, and is one thing to place; separate ones can be put anywhere.
@@ -79,6 +85,11 @@ public class TileTracker {
 
 	void setNotes(IntFunction<List<String>> lines) {
 		notes = lines;
+	}
+
+	void setBoards(java.util.function.Supplier<List<Integer>> live, java.util.function.Consumer<String> tell) {
+		boards = live;
+		told = tell;
 	}
 
 	/** Switch between one panel and a widget per pin, moving whatever is pinned across. */
@@ -147,7 +158,7 @@ public class TileTracker {
 			configManager.setConfiguration("osrsbingo", key(), saved);
 		}
 		if (hash != -1) legacyPins = null;
-		if (saved == null || !saved.contains(":")) return;
+		if (saved == null || saved.isEmpty()) return;
 		try {
 			parse(saved).forEach((tile, event) -> {
 				if (pins.size() < MAX_PINS) add(event, tile);
@@ -209,13 +220,46 @@ public class TileTracker {
 			w = pins.get(tileId);
 		}
 		if (w == null) return;
-		int event = w.event;
-		Progress p = apiClient.fetchTileProgress(event, tileId);
-		if (p != null && p.phase != null && p.phase.contains("ended")) {
-			clear(event);
-		} else if (p != null) {
-			show(event, tileId, w, p);
+		Progress p = fetch(w);
+		if (letGo(w, p)) {
+			drop(w);
+		} else if (p != null && p != Progress.GONE) {
+			if (p.phase != null && p.phase.contains("ended")) clear(w.event);
+			else show(w.event, tileId, w, p);
 		}
+	}
+
+	/**
+	 * Note one fetch on the pin and say whether to take it down: the site says the tile is gone, or it has failed {@link #MAX_FAILS} times without ever loading.
+	 */
+	static boolean letGo(Widget w, Progress p) {
+		if (p == Progress.GONE) return true; // deleted (a reseed) or off your boards: final, no retry
+		if (p == null) return w.progress == null && ++w.fails >= MAX_FAILS;
+		w.fails = 0;
+		return false;
+	}
+
+	/** The board's fetch; a pin with no board tries each live one. */
+	private Progress fetch(Widget w) {
+		if (w.event > 0) return apiClient.fetchTileProgress(w.event, w.tileId);
+		Progress last = Progress.GONE;
+		for (int b : boards.get()) {
+			Progress p = apiClient.fetchTileProgress(b, w.tileId);
+			if (p != null && p != Progress.GONE) {
+				w.event = b;
+				save();
+				return p;
+			}
+			if (p == null) last = null;
+		}
+		return last;
+	}
+
+	private synchronized void drop(Widget w) {
+		if (pins.get(w.tileId) != w) return;
+		hide(removePin(w.tileId));
+		save();
+		told.accept("Stopped tracking " + (w.label != null ? w.label : "a tile") + " (tile removed)");
 	}
 
 	/**
@@ -238,6 +282,7 @@ public class TileTracker {
 
 	private void show(int event, int tileId, Widget w, Progress p) {
 		w.progress = p;
+		w.label = p.label;
 		if (finishedAndShown(w, p, System.currentTimeMillis())) unpinDone(event, tileId, w);
 	}
 
@@ -343,8 +388,21 @@ public class TileTracker {
 	static Map<Integer, Integer> parse(String saved) {
 		Map<Integer, Integer> out = new LinkedHashMap<>();
 		for (String board : saved.split(";")) {
-			String[] parts = board.split(":", 2);
-			for (String id : parts[1].split(",")) if (!id.isEmpty()) out.put(Integer.valueOf(id), Integer.valueOf(parts[0]));
+			// "event:tile,tile"; a bare "tile,tile" (saved before pins kept a board) gets board 0, found at fetch.
+			String[] parts = board.contains(":") ? board.split(":", 2) : new String[]{"0", board};
+			int event;
+			try {
+				event = Integer.parseInt(parts[0].trim());
+			} catch (NumberFormatException e) {
+				continue;
+			}
+			for (String id : parts[1].split(",")) {
+				try {
+					out.put(Integer.valueOf(id.trim()), event);
+				} catch (NumberFormatException e) {
+					// skip a bad id, keep the rest
+				}
+			}
 		}
 		return out;
 	}
@@ -396,6 +454,8 @@ public class TileTracker {
 		int goal;
 		String statType;
 		List<Team> teams;
+		/** Fetch result for "the site says this tile is not on your boards". */
+		static final Progress GONE = new Progress();
 	}
 
 	static class Team {
@@ -430,6 +490,9 @@ public class TileTracker {
 		volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
 		private List<String> builtNotes = Collections.emptyList();
 		volatile Progress progress;
+		/** The tile's name once seen; fetches failed with nothing shown. */
+		String label;
+		int fails;
 		/**
 		 * Stay up after the team finishes? Pins restored from config start false, so a tile finished
 		 * while the client was closed still comes down; a fresh pin is decided by its first fetch.
@@ -516,7 +579,7 @@ public class TileTracker {
 			bar = null;
 			you = startsIn = null;
 			shownAhead = shownSecs = -1;
-			if (p == null || p.teams == null) {
+			if (p == null || (p.teams == null && p.label == null)) {
 				lines.add(TitleComponent.builder().text("Anvil: loading tile…").color(GOLD).build());
 				return;
 			}
@@ -534,6 +597,7 @@ public class TileTracker {
 				}
 				return;
 			}
+			if (p.teams == null) return; // named, nothing to rank yet
 			int others = 0;
 			for (Team t : p.teams) {
 				if (t.mine) {

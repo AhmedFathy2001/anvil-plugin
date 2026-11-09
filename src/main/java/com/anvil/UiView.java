@@ -572,7 +572,7 @@ final class UiView extends JPanel {
 			p.setOpaque(false);
 			return left(p);
 		}
-		return left(new Round(layout, card ? 6 : 4, fill, edge, "raised".equals(bg) ? RAISED_HOVER : null));
+		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge, "raised".equals(bg) ? RAISED_HOVER : null));
 	}
 
 	private JComponent col(JsonObject n) {
@@ -721,14 +721,20 @@ final class UiView extends JPanel {
 				g2.setPaint(new GradientPaint(0, 0, from, getWidth(), 0, to));
 				g2.fillRect(0, 0, getWidth(), getHeight());
 				if (pic[0] != null) {
-					g2.setClip(0, 0, getWidth(), getHeight());
-					pic[0].paintIcon(this, g2, (getWidth() - pic[0].getIconWidth()) / 2, (getHeight() - pic[0].getIconHeight()) / 2);
+					g2.clipRect(0, 0, getWidth(), getHeight()); // intersect: setClip would drop the card's rounded clip
+					// Cover: scale to fill the strip at its real size, crop the overflow (a GIF scales as it plays).
+					int iw = Math.max(1, pic[0].getIconWidth()), ih = Math.max(1, pic[0].getIconHeight());
+					double k = Math.max((double) getWidth() / iw, (double) getHeight() / ih);
+					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+					g2.translate((getWidth() - iw * k) / 2, (getHeight() - ih * k) / 2);
+					g2.scale(k, k);
+					pic[0].paintIcon(this, g2, 0, 0);
 				}
 				g2.dispose();
 			}
 		};
 		if (n.has("src")) {
-			host.image(str(n, "src"), 220, bannerH, bool(n, "motion"), image -> {
+			host.image(str(n, "src"), 480, bannerH * 2, bool(n, "motion"), image -> {
 				pic[0] = image;
 				strip.repaint();
 			});
@@ -739,14 +745,14 @@ final class UiView extends JPanel {
 				Graphics2D g2 = (Graphics2D) gr.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
-				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
 				g2.dispose();
 			}
 
 			@Override
 			protected void paintChildren(Graphics gr) {
 				Graphics2D g2 = (Graphics2D) gr.create();
-				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 20, 20));
+				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 22, 22));
 				super.paintChildren(g2);
 				g2.dispose();
 			}
@@ -837,17 +843,23 @@ final class UiView extends JPanel {
 					if (masked == null) masked = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 					// Clipping a GIF directly leaves a visibly jagged Swing edge. Paint the current frame into
 					// a tiny ARGB buffer, then apply an antialiased alpha mask; ImageIcon still advances normally.
+					// A DstIn fill only touches pixels inside the shape, so it can't cut the corners away: the
+					// frame goes into a buffer and is painted through the shape instead.
+					BufferedImage raw = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+					Graphics2D rg = raw.createGraphics();
+					try {
+						image.paintIcon(c, rg, 0, 0); // a GifIcon registers c and repaints it per frame itself
+					} finally {
+						rg.dispose();
+					}
 					Graphics2D copy = masked.createGraphics();
 					try {
 						copy.setComposite(AlphaComposite.Clear);
 						copy.fillRect(0, 0, w, h);
 						copy.setComposite(AlphaComposite.SrcOver);
-						// A GifIcon registers c and repaints it per frame itself.
-						image.paintIcon(c, copy, 0, 0);
-						copy.setComposite(AlphaComposite.DstIn);
 						copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-						copy.setColor(Color.WHITE);
-						copy.fill(rad > 0 ? new java.awt.geom.RoundRectangle2D.Float(0.5f, 0.5f, w - 1f, h - 1f, rad * 2f, rad * 2f) : new java.awt.geom.Ellipse2D.Float(0.5f, 0.5f, w - 1f, h - 1f));
+						copy.setPaint(new TexturePaint(raw, new Rectangle(0, 0, w, h)));
+						copy.fill(rad > 0 ? new java.awt.geom.RoundRectangle2D.Float(0, 0, w, h, rad * 2f, rad * 2f) : new java.awt.geom.Ellipse2D.Float(0, 0, w, h));
 					} finally {
 						copy.dispose();
 					}
@@ -988,7 +1000,11 @@ final class UiView extends JPanel {
 					g2.drawOval(x + 1, y + 1, 10, 10);
 				} else {
 					g2.setColor(new Color(0x666666));
-					g2.drawOval(x + 2, y + 2, 8, 8);
+					if ("lock".equals(dot)) { // not reached yet: a small padlock
+						g2.setStroke(new BasicStroke(1.4f));
+						g2.drawArc(x + 3, y, 6, 7, 0, 180);
+						g2.fillRoundRect(x + 2, y + 5, 8, 7, 2, 2);
+					} else g2.drawOval(x + 2, y + 2, 8, 8);
 				}
 				g2.dispose();
 			}
