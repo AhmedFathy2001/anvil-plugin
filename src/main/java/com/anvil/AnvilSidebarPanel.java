@@ -756,6 +756,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		siteRow("Discord posts & screenshot privacy", "What you post to your clan's Discord", "/settings/announcements");
 		siteRow("All your Anvil settings", "Profile, characters, name colours and more", "/settings");
 		siteRow("Guides", "The side panel, events, proofs, Supporter perks", "/guide");
+		siteRow("What's new", "Everything new on Anvil, for your roles", "/whats-new");
 		settingsPanel.add(gap(6));
 		Round support = linkRow(ColorScheme.DARKER_GRAY_COLOR, small((isSupporter() ? "★ Your Supporter perks" : "★ Become a Supporter"), new Color(0xFF_D3_5C)), null,
 			"Name colours, profile banners, clan boosts — and it keeps Anvil running", this::openSupporter);
