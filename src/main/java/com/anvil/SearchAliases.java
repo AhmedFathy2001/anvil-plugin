@@ -39,7 +39,7 @@ final class SearchAliases {
 	/** {@code text} plus the other name of every boss it mentions — search it like any other text. */
 	static String augment(String text) {
 		if (text == null || text.isEmpty()) return "";
-		String words = " " + fold(text) + " ";
+		var words = " " + fold(text) + " ";
 		var out = new StringBuilder(text);
 		for (String[] p : PAIRS) {
 			if (words.contains(" " + p[0] + " ")) {

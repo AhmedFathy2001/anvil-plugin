@@ -48,7 +48,7 @@ final class ClogPage {
 	 * and the result is what stops us re-sending 125 identical pages.
 	 */
 	private long computeHash() {
-		long h = 0xcbf29ce484222325L;
+		var h = 0xcbf29ce484222325L;
 		h = fold(h, name == null ? 0 : name.hashCode());
 		h = fold(h, obtained);
 		h = fold(h, total);

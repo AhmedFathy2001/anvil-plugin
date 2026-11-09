@@ -34,7 +34,7 @@ final class DiskFiles {
 
 	static void writeAtomic(Filepath target, byte[] data) throws IOException {
 		OffThread.check("disk write");
-		Filepath tmp = target.getParent().joinSegment(target.getFileName() + ".tmp");
+		var tmp = target.getParent().joinSegment(target.getFileName() + ".tmp");
 		tmp.write(data);
 		try {
 			tmp.moveTo(target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -59,13 +59,13 @@ final class DiskFiles {
 	}
 
 	static String readText(Filepath file) {
-		byte[] b = read(file);
+		var b = read(file);
 		return b == null ? null : new String(b, StandardCharsets.UTF_8);
 	}
 
 	/** The file as a {@code type}, or null when it is missing, empty or not valid JSON (a truncated write). */
 	static <T> T readJson(Gson gson, Filepath file, Class<T> type) {
-		String text = readText(file);
+		var text = readText(file);
 		try {
 			return text == null ? null : gson.fromJson(text, type);
 		} catch (RuntimeException e) {
@@ -99,7 +99,7 @@ final class DiskFiles {
 	static String fingerprint(String secret) {
 		if (secret == null || secret.trim().isEmpty()) return "";
 		try {
-			byte[] digest = MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8));
+			var digest = MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8));
 			var sb = new StringBuilder();
 			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", digest[i]));
 			return sb.toString();

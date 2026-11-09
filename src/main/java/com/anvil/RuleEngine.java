@@ -125,9 +125,9 @@ final class RuleEngine {
 
 	/** Could this item be rare enough to post? An npc or pickpocket drop on the site's rare table. */
 	boolean rare(String kind, String source, int itemId) {
-		Table t = table;
-		String p = "npc".equals(kind) ? "" : "pickpocket".equals(kind) ? "pp:" : null;
-		Set<Integer> ids = t == null || p == null || source == null ? null : t.rare.get(p + source.toLowerCase());
+		var t = table;
+		var p = "npc".equals(kind) ? "" : "pickpocket".equals(kind) ? "pp:" : null;
+		var ids = t == null || p == null || source == null ? null : t.rare.get(p + source.toLowerCase());
 		return ids != null && ids.contains(itemId);
 	}
 
@@ -136,24 +136,24 @@ final class RuleEngine {
 	}
 
 	boolean blackout() {
-		Table t = table;
+		var t = table;
 		return t != null && t.blackout;
 	}
 
 	/** Drop or value tiles to credit: those also credit off the game's drop line. */
 	boolean dropLines() {
-		Table t = table;
+		var t = table;
 		return t != null && !(t.drops.isEmpty() && t.values.isEmpty());
 	}
 
 	boolean tracksKill(String name) {
-		Table t = table;
+		var t = table;
 		return t != null && name != null && t.kills.containsKey(name.toLowerCase(Locale.ROOT));
 	}
 
 	/** Item ids some drop tile tracks (clog lines and inferred drops look items up by name). */
 	Set<Integer> dropItemIds() {
-		Table t = table;
+		var t = table;
 		Set<Integer> ids = new HashSet<>();
 		if (t != null) t.drops.keySet().forEach(k -> ids.add(Integer.valueOf(k)));
 		return ids;
@@ -162,18 +162,18 @@ final class RuleEngine {
 	/** One kill/open/counter event: each moved name and its amount; a tile reached by several takes the largest, once. */
 	synchronized Out kill(Map<String, Integer> moved, Collection<String> unverified, String inferred) {
 		var out = new Out();
-		Table t = table;
+		var t = table;
 		if (t == null) return out;
 		Map<KillRule, Integer> byRule = new IdentityHashMap<>();
 		for (Map.Entry<String, Integer> e : moved.entrySet()) {
 			for (KillRule r : t.kills.getOrDefault(e.getKey().toLowerCase(Locale.ROOT), Collections.emptyList())) byRule.merge(r, e.getValue(), Math::max);
 		}
-		boolean any = false;
+		var any = false;
 		for (Map.Entry<KillRule, Integer> e : byRule.entrySet()) {
-			KillRule r = e.getKey();
+			var r = e.getKey();
 			if (r.have >= r.of) continue;
 			any = true;
-			long n = Math.min(e.getValue(), r.of - r.have);
+			var n = Math.min(e.getValue(), r.of - r.have);
 			r.have += n;
 			out.raised.put(r.t, r.have);
 			out.coop |= r.coop;
@@ -183,7 +183,7 @@ final class RuleEngine {
 			}
 		}
 		if (!any) return out;
-		JsonObject f = fact("kill");
+		var f = fact("kill");
 		var n = new JsonObject();
 		moved.forEach(n::addProperty);
 		f.add("n", n);
@@ -200,16 +200,16 @@ final class RuleEngine {
 	/** One loot event ({@code items} as [id, qty]); a repeat of an item within the dedup window is the same loot fired twice. */
 	synchronized Out loot(String source, String kind, List<int[]> items, Integer party, String inferred, long now) {
 		var out = new Out();
-		Table t = table;
+		var t = table;
 		if (t == null || items == null) return out;
 		var sent = new JsonArray();
 		Set<DropRule> said = Collections.newSetFromMap(new IdentityHashMap<>());
 		for (int[] it : items) {
-			List<DropRule> rules = t.drops.get(String.valueOf(it[0]));
+			var rules = t.drops.get(String.valueOf(it[0]));
 			if (rules == null) continue;
-			Long last = seenItems.put(it[0], now);
+			var last = seenItems.put(it[0], now);
 			if (last != null && now - last < DEDUP_MS) continue;
-			boolean any = false;
+			var any = false;
 			for (DropRule r : rules) {
 				if (!sourceOk(r, source, kind) || (r.simple && r.have >= r.of)) continue;
 				any = true;
@@ -232,7 +232,7 @@ final class RuleEngine {
 		}
 		if (sent.size() == 0) return out;
 		out.shot = true;
-		JsonObject f = fact("loot");
+		var f = fact("loot");
 		f.addProperty("src", source);
 		f.addProperty("kind", kind);
 		f.add("items", sent);
@@ -245,10 +245,10 @@ final class RuleEngine {
 	/** A priced haul, for loot-value tiles. */
 	synchronized Out value(String source, String kind, long gp) {
 		var out = new Out();
-		Table t = table;
+		var t = table;
 		if (t == null || gp <= 0) return out;
 		for (ValueRule r : t.values) {
-			boolean total = r.min <= 0;
+			var total = r.min <= 0;
 			if ((total ? r.have >= r.of : gp < r.min) || !valueSourceOk(r.src, source, kind)) continue;
 			r.have = total ? Math.min(r.of, r.have + gp) : r.of;
 			out.raised.put(r.t, r.have);
@@ -256,7 +256,7 @@ final class RuleEngine {
 		}
 		if (out.say.isEmpty()) return out;
 		out.shot = true;
-		JsonObject f = fact("value");
+		var f = fact("value");
 		f.addProperty("src", source);
 		f.addProperty("kind", kind);
 		f.addProperty("gp", gp);
@@ -266,7 +266,7 @@ final class RuleEngine {
 
 	/** Is any event rule of this kind open? */
 	boolean has(String on) {
-		Table t = table;
+		var t = table;
 		return t != null && t.events.stream().anyMatch(r -> on.equals(r.on));
 	}
 
@@ -283,11 +283,11 @@ final class RuleEngine {
 	 */
 	synchronized List<EventRule> match(String on, Predicate<EventRule> hit, long value, String x, int party, String teamWhy, IntPredicate claim, List<String> no) {
 		List<EventRule> out = new ArrayList<>();
-		Table t = table;
+		var t = table;
 		if (t == null) return out;
 		for (EventRule r : t.events) {
 			if (!on.equals(r.on) || r.of > 0 && Math.max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
-			String why = r.max != null && value > r.max ? "max" : value < r.min ? "min" : r.party > 0 && party != r.party ? "party" : r.team && teamWhy != null ? "team" : null;
+			var why = r.max != null && value > r.max ? "max" : value < r.min ? "min" : r.party > 0 && party != r.party ? "party" : r.team && teamWhy != null ? "team" : null;
 			if (why == null) out.add(r);
 			else if (t.say.containsKey(on + "." + why)) no.add(fill(t, on + "." + why, r, "{x}", x, "{seen}", String.valueOf(party), "{party}", String.valueOf(r.party), "{why}", teamWhy));
 		}
@@ -299,7 +299,7 @@ final class RuleEngine {
 	 * its tile fact with the extras {@code kv}. A gain is held for its tile's batch until it completes the tile.
 	 */
 	synchronized Out credit(Out o, EventRule r, long n, String x, Object... kv) {
-		Table t = table;
+		var t = table;
 		if (t == null) return o;
 		if (r.of > 0) {
 			r.have = Math.max(r.have, floor.applyAsLong(r.t));
@@ -308,8 +308,8 @@ final class RuleEngine {
 			r.have += n;
 			o.raised.put(r.t, r.have);
 		}
-		boolean gain = "gain".equals(r.on);
-		String key = r.say != null ? r.say : r.on;
+		var gain = "gain".equals(r.on);
+		var key = r.say != null ? r.say : r.on;
 		if (t.say.containsKey(key) && !(gain && held.containsKey(r.t))) o.say.add(fill(t, key, r, "{x}", x));
 		if (gain) {
 			n = held.merge(r.t, n, Long::sum);
@@ -342,7 +342,7 @@ final class RuleEngine {
 
 	/** A multi-run timed tile's {have, of}; null for anything else. */
 	synchronized long[] runs(int id) {
-		Table t = table;
+		var t = table;
 		if (t != null) {
 			for (EventRule r : t.events) {
 				if (r.t == id && "timed".equals(r.on) && r.of > 1) return new long[]{r.have, r.of};
@@ -353,11 +353,11 @@ final class RuleEngine {
 
 	/** A `tile` fact: the tile, the amount, and extras in pairs (a null value is left out). */
 	static JsonObject tile(int id, long n, Object... kv) {
-		JsonObject f = fact("tile");
+		var f = fact("tile");
 		f.addProperty("t", id);
 		f.addProperty("n", n);
 		for (int i = 0; i + 1 < kv.length; i += 2) {
-			Object v = kv[i + 1];
+			var v = kv[i + 1];
 			if (v instanceof Number) f.addProperty((String) kv[i], (Number) v);
 			else if (v instanceof Boolean) f.addProperty((String) kv[i], (Boolean) v);
 			else if (v != null) f.addProperty((String) kv[i], v.toString());
@@ -368,7 +368,7 @@ final class RuleEngine {
 	/** Skill XP gained: a line per clean step crossed, only while the skill is actually being trained. */
 	synchronized Out xp(String skill, long gained, long now) {
 		TreeSet<Long> minutes = xpMinutes.computeIfAbsent(key(skill), k -> new TreeSet<>());
-		long minute = now / 60_000;
+		var minute = now / 60_000;
 		minutes.add(minute);
 		minutes.headSet(minute - 60).clear();
 		return stat("xp", skill, gained, minutes, minute);
@@ -386,12 +386,12 @@ final class RuleEngine {
 
 	private Out stat(String on, String name, long gained, TreeSet<Long> minutes, long minute) {
 		var out = new Out();
-		Table t = table;
+		var t = table;
 		if (t == null || gained <= 0 || name == null) return out;
-		String key = key(name);
+		var key = key(name);
 		for (StatRule r : t.stats) {
 			if (!on.equals(r.on) || r.names == null || !r.names.contains(key) || r.have >= r.of) continue;
-			long before = r.have;
+			var before = r.have;
 			r.have = Math.min(r.of, r.have + gained);
 			out.raised.put(r.t, r.have);
 			if (r.have >= r.of) {
@@ -413,16 +413,16 @@ final class RuleEngine {
 	/** The site's answer: every touched tile's real count replaces the local guess. Returns lines to print. */
 	synchronized List<String> adopt(JsonObject reply) {
 		List<String> lines = new ArrayList<>();
-		Table t = table;
+		var t = table;
 		if (t == null || reply == null) return lines;
 		if (reply.has("credits")) {
 			for (JsonElement el : reply.getAsJsonArray("credits")) {
-				JsonObject c = el.getAsJsonObject();
+				var c = el.getAsJsonObject();
 				// A refused credit's count isn't the tile's: the next config's table says what is.
 				if (c.has("ok") && !c.get("ok").getAsBoolean()) continue;
 				int id = c.get("t").getAsInt();
-				long have = c.get("have").getAsLong();
-				long of = c.get("of").getAsLong();
+				var have = c.get("have").getAsLong();
+				var of = c.get("of").getAsLong();
 				for (Rule r : all(t)) {
 					if (r.t == id && r.of > 0) {
 						r.have = have;
@@ -437,12 +437,12 @@ final class RuleEngine {
 
 	/** A live push's counts (tile id → the team's count): every rule on that tile, stats too, rises to it. */
 	synchronized void raise(Map<Integer, Long> have) {
-		Table t = table;
+		var t = table;
 		if (t == null) return;
-		List<Rule> rules = all(t);
+		var rules = all(t);
 		rules.addAll(t.stats);
 		for (Rule r : rules) {
-			Long n = have.get(r.t);
+			var n = have.get(r.t);
 			if (n != null && r.of > 0) r.have = Math.max(r.have, n);
 		}
 	}
@@ -468,7 +468,7 @@ final class RuleEngine {
 	/** A grindy kill tile screenshots only on proof steps (and completion); a small one on every credit. */
 	static boolean milestone(long added, long current, long required, Proof p) {
 		if (required < p.min) return true;
-		double step = Math.max(1.0, required * p.frac);
+		var step = Math.max(1.0, required * p.frac);
 		return Math.floor(current / step) > Math.floor((current - added) / step);
 	}
 
@@ -492,8 +492,8 @@ final class RuleEngine {
 	}
 
 	private static String fill(Table t, String key, Rule r, String... extra) {
-		String s = t.say.getOrDefault(key, "{label} ({have}/{of})");
-		boolean big = r.of >= 10_000;
+		var s = t.say.getOrDefault(key, "{label} ({have}/{of})");
+		var big = r.of >= 10_000;
 		s = s.replace("{label}", r.label == null ? "" : r.label)
 			.replace("{have}", big ? String.format(Locale.ROOT, "%,d", r.have) : String.valueOf(r.have))
 			.replace("{of}", big ? String.format(Locale.ROOT, "%,d", r.of) : String.valueOf(r.of))
@@ -518,7 +518,7 @@ final class RuleEngine {
 		List<String> out = new ArrayList<>();
 		by.forEach((head, boards) -> {
 			if (boards.size() > maxBoards) {
-				String first = boards.values().iterator().next().get(0);
+				var first = boards.values().iterator().next().get(0);
 				out.add(more(head + " on " + boards.size() + " boards" + first.substring(head.length()), boards.values().stream().mapToInt(List::size).sum()));
 			} else boards.values().forEach(l -> out.add(more(l.get(0), l.size())));
 		});

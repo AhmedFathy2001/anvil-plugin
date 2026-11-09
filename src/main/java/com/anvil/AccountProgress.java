@@ -182,7 +182,7 @@ final class AccountProgress {
 		List<Item> out = new ArrayList<>();
 		if (client == null) return out;
 		for (Quest quest : Quest.values()) {
-			QuestState state = quest.getState(client);
+			var state = quest.getState(client);
 			int code = state == QuestState.FINISHED ? 2 : state == QuestState.IN_PROGRESS ? 1 : 0;
 			out.add(new Item(quest.getId(), quest.getName(), code));
 		}

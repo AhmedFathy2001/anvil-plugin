@@ -32,20 +32,20 @@ final class PersonalBestParser {
 	 */
 	static Integer parseCentis(String message) {
 		if (message == null) return null;
-		String lower = message.toLowerCase();
+		var lower = message.toLowerCase();
 		int marker = lower.indexOf("personal best");
 		if (marker < 0) return null;
 
 		// "Personal best: <time>" — read the time AFTER the label, and only that one.
-		Matcher explicit = EXPLICIT.matcher(lower);
+		var explicit = EXPLICIT.matcher(lower);
 		if (explicit.find(marker)) {
-			Matcher time = TIME.matcher(lower);
+			var time = TIME.matcher(lower);
 			if (time.find(explicit.end())) return toCentis(time);
 			return null;
 		}
 
 		// "(new personal best)" — this run IS the best, so the line's own duration is the number.
-		Matcher time = TIME.matcher(lower);
+		var time = TIME.matcher(lower);
 		if (time.find()) return toCentis(time);
 		return null;
 	}
@@ -53,7 +53,7 @@ final class PersonalBestParser {
 	private static Integer toCentis(Matcher m) {
 		try {
 			int centis = TimedClearParser.clockSeconds(m.group(1), m.group(2), m.group(3)) * 100;
-			String fraction = m.group(4);
+			var fraction = m.group(4);
 			if (fraction != null) {
 				// ".3" is three tenths — pad to hundredths rather than reading it as three.
 				centis += fraction.length() == 1

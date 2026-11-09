@@ -75,7 +75,7 @@ final class ChatPalette {
 		Map<Tone, String> m = new EnumMap<>(ANVIL.colors);
 		if (colors != null) {
 			for (Map.Entry<String, String> e : colors.entrySet()) {
-				String v = e.getValue() == null ? "" : e.getValue().replace("#", "");
+				var v = e.getValue() == null ? "" : e.getValue().replace("#", "");
 				if (HEX.matcher(v).matches()) m.put(Tone.of(e.getKey()), v.toLowerCase(Locale.ROOT));
 			}
 		}
@@ -85,7 +85,7 @@ final class ChatPalette {
 	/** The text colour for {@code tone}, {@code ownText} being the player's configured text colour. */
 	String text(Tone tone, String ownText, boolean opaque) {
 		if (colors == null || (tone == Tone.INFO && !custom)) return ownText;
-		String c = opaque && !custom ? OPAQUE.get(tone) : colors.get(tone);
+		var c = opaque && !custom ? OPAQUE.get(tone) : colors.get(tone);
 		return c != null ? c : ownText;
 	}
 
@@ -102,8 +102,8 @@ final class ChatPalette {
 	 * handles static versus gradient markup and animation sampling.
 	 */
 	static String paintName(String safeName, String color, List<String> stops, double shift) {
-		String gradient = stops != null && stops.size() >= 2 ? gradientName(safeName, stops, shift) : null;
-		String solid = nameColor(color);
+		var gradient = stops != null && stops.size() >= 2 ? gradientName(safeName, stops, shift) : null;
+		var solid = nameColor(color);
 		return gradient != null ? gradient
 			: solid != null && safeName != null && !safeName.isEmpty() ? "<col=" + solid + ">" + safeName + "</col>" : null;
 	}
@@ -115,7 +115,7 @@ final class ChatPalette {
 	static String gradientName(String safeName, List<String> stops, double shift) {
 		List<int[]> rgb = new ArrayList<>();
 		for (String s : stops == null ? new ArrayList<String>() : stops) {
-			String hex = nameColor(s);
+			var hex = nameColor(s);
 			if (hex != null && rgb.size() < 4) {
 				int v = Integer.parseInt(hex, 16);
 				rgb.add(new int[]{(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff});
@@ -130,13 +130,13 @@ final class ChatPalette {
 			int cp = safeName.codePointAt(off);
 			off += Character.charCount(cp);
 			if (!Character.isWhitespace(cp) && !Character.isSpaceChar(cp)) {
-				double p = n == 1 ? shift : (double) i / (n - 1) + shift;
+				var p = n == 1 ? shift : (double) i / (n - 1) + shift;
 				p %= 2;
 				if (p < 0) p += 2;
 				p = p > 1 ? 2 - p : p;
-				double t = p * (rgb.size() - 1);
+				var t = p * (rgb.size() - 1);
 				int seg = Math.min((int) t, rgb.size() - 2);
-				double f = t - seg;
+				var f = t - seg;
 				int[] a = rgb.get(seg);
 				int[] b = rgb.get(seg + 1);
 				int c = (int) Math.round(a[0] + (b[0] - a[0]) * f) << 16
@@ -189,7 +189,7 @@ final class ChatPalette {
 	 * panel stop used to silently become its fallback (a white Tracking name, a one-colour Lookup name).
 	 */
 	static Color readableColor(String hex, boolean opaque, Color fallback) {
-		String v = nameColor(hex);
+		var v = nameColor(hex);
 		return v == null ? fallback : new Color(Integer.parseInt(readableHex(v, opaque), 16));
 	}
 
@@ -221,8 +221,8 @@ final class ChatPalette {
 	}
 
 	static double contrast(int a, int b) {
-		double la = luminance(a);
-		double lb = luminance(b);
+		var la = luminance(a);
+		var lb = luminance(b);
 		return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 	}
 
@@ -231,7 +231,7 @@ final class ChatPalette {
 	}
 
 	private static double channel(int v) {
-		double c = (v & 0xff) / 255.0;
+		var c = (v & 0xff) / 255.0;
 		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 	}
 
@@ -244,7 +244,7 @@ final class ChatPalette {
 
 	/** A name colour from the site ("#rrggbb"), or null. */
 	static String nameColor(String s) {
-		String v = s == null ? "" : s.replace("#", "");
+		var v = s == null ? "" : s.replace("#", "");
 		return HEX.matcher(v).matches() ? v.toLowerCase(Locale.ROOT) : null;
 	}
 }

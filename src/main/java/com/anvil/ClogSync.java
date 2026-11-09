@@ -40,9 +40,9 @@ final class ClogSync {
 	 */
 	boolean offer(ClogPage page, long now) {
 		if (page == null || page.name == null || page.name.isEmpty()) return false;
-		Long alreadySent = sent.get(page.name);
+		var alreadySent = sent.get(page.name);
 		if (alreadySent != null && alreadySent == page.hash) return false;
-		ClogPage queued = pending.get(page.name);
+		var queued = pending.get(page.name);
 		if (queued != null && queued.hash == page.hash) return false;
 		pending.put(page.name, page);
 		lastChangeAt = now;
@@ -71,7 +71,7 @@ final class ClogSync {
 	 */
 	void onSent(Collection<ClogPage> batch) {
 		for (ClogPage page : batch) {
-			ClogPage queued = pending.get(page.name);
+			var queued = pending.get(page.name);
 			// Left queued if it changed again while the request was in flight.
 			if (queued != null && queued.hash == page.hash) pending.remove(page.name);
 			sent.put(page.name, page.hash);

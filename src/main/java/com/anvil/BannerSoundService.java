@@ -75,10 +75,10 @@ public class BannerSoundService {
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
 	private Filepath dir(Kind kind) {
-		Filepath d = root;
+		var d = root;
 		if (d == null) return null;
 		try {
-			Filepath sub = d.joinSegment(kind.folder);
+			var sub = d.joinSegment(kind.folder);
 			if (!sub.exists()) sub.createDirectories();
 			return sub;
 		} catch (IOException e) {
@@ -94,9 +94,9 @@ public class BannerSoundService {
 	 * them.
 	 */
 	private void migrateLooseClips() {
-		Filepath d = root;
+		var d = root;
 		List<Filepath> loose = d == null || !d.isDirectory() ? new ArrayList<>() : wavsIn(d);
-		Filepath banner = loose.isEmpty() ? null : dir(Kind.BANNER);
+		var banner = loose.isEmpty() ? null : dir(Kind.BANNER);
 		if (banner == null) return;
 		for (Filepath f : loose) {
 			try {
@@ -108,7 +108,7 @@ public class BannerSoundService {
 
 	/** Every .wav in one kind's folder. Depth 1 — a clip is a file in it, never deeper. */
 	private List<Filepath> wavFiles(Kind kind) {
-		Filepath dir = dir(kind);
+		var dir = dir(kind);
 		return dir == null ? new ArrayList<>() : wavsIn(dir);
 	}
 
@@ -151,7 +151,7 @@ public class BannerSoundService {
 		boolean stale;
 		synchronized (this) {
 			cached = listed.getOrDefault(kind, Collections.emptyList());
-			Long at = listedAt.get(kind);
+			var at = listedAt.get(kind);
 			stale = at == null || System.currentTimeMillis() - at >= LISTING_TTL_MS;
 		}
 		if (stale) relist(kind);
@@ -174,7 +174,7 @@ public class BannerSoundService {
 
 	/** Blocking (disk) — the audio thread only. */
 	private void relistNow(Kind kind) {
-		List<String> names = Collections.unmodifiableList(wavFiles(kind).stream()
+		var names = Collections.unmodifiableList(wavFiles(kind).stream()
 			.map(Filepath::getFileName).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList()));
 		List<String> before;
 		synchronized (this) {
@@ -193,7 +193,7 @@ public class BannerSoundService {
 	 * interface. Lives here rather than in either panel because both of them show the same files.
 	 */
 	public static String displayName(String file) {
-		String s = file == null ? "" : file.trim();
+		var s = file == null ? "" : file.trim();
 		int dot = s.lastIndexOf('.');
 		if (dot > 0) s = s.substring(0, dot);
 		s = s.replace('_', ' ').replace('-', ' ').replaceAll("\\s+", " ").trim();
@@ -206,7 +206,7 @@ public class BannerSoundService {
 	 * {@link AnvilConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
 	 */
 	public boolean isSelected(String name) {
-		Set<String> sel = parseSelected(config.bannerSoundClip());
+		var sel = parseSelected(config.bannerSoundClip());
 		return sel.isEmpty() || sel.contains(name.toLowerCase());
 	}
 
@@ -215,7 +215,7 @@ public class BannerSoundService {
 		Set<String> out = new LinkedHashSet<>();
 		if (csv == null) return out;
 		for (String part : csv.split(",")) {
-			String s = part.trim().toLowerCase();
+			var s = part.trim().toLowerCase();
 			if (s.isEmpty()) continue;
 			if (!s.endsWith(".wav")) s += ".wav";
 			out.add(s);
@@ -244,7 +244,7 @@ public class BannerSoundService {
 
 	private void playBlocking(Kind kind) {
 		try {
-			List<Filepath> files = wavFiles(kind);
+			var files = wavFiles(kind);
 			if (files.isEmpty()) return;
 
 			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
@@ -284,7 +284,7 @@ public class BannerSoundService {
 			// plugin is granted anything outside its own directory, and it is the same dialog they
 			// were already looking at. Nothing else about this flow changes — the clips are copied
 			// in, and playback still only ever reads our own folder.
-			List<Filepath> chosen = new Filepath.Chooser()
+			var chosen = new Filepath.Chooser()
 				.setIsOpen()
 				.setAcceptsFiles()
 				.setMultiSelectionEnabled(true)
@@ -292,7 +292,7 @@ public class BannerSoundService {
 				.addExtensionFilter("WAV audio", "wav")
 				.showDialog((java.awt.Component) null);
 			if (chosen == null || chosen.isEmpty()) return;
-			Filepath dir = dir(kind);
+			var dir = dir(kind);
 			if (dir == null) return;
 			// The picker needs the EDT; the copies don't, and a big .wav is a long copy.
 			try {
@@ -306,7 +306,7 @@ public class BannerSoundService {
 	private void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported) {
 		List<String> imported = new ArrayList<>();
 		for (Filepath src : chosen) {
-			String name = src.getFileName();
+			var name = src.getFileName();
 			try {
 				src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);
 				imported.add(name);
@@ -320,7 +320,7 @@ public class BannerSoundService {
 
 	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */
 	public void copyFolderPath() {
-		Filepath dir = root;
+		var dir = root;
 		if (dir == null) return;
 		// The PARENT, not one kind's folder: both `banner/` and `mission/` are inside it, so one
 		// paste lands somewhere the player can see the whole arrangement and drag files between them.

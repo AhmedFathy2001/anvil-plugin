@@ -36,7 +36,7 @@ final class RaidGates {
 		if (team == null || team.isEmpty()) return "the team roster isn't loaded";
 		int named = 0;
 		for (String name : seen) {
-			String n = Rsn.normalize(name);
+			var n = Rsn.normalize(name);
 			if (n.isEmpty()) continue;
 			if (!team.contains(n)) return name + " isn't on your team";
 			named++;

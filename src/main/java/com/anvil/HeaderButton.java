@@ -119,8 +119,8 @@ final class HeaderButton {
 	 * script has had its turn.
 	 */
 	void render() {
-		Widget parent = client.getWidget(parentId);
-		Widget anchor = client.getWidget(anchorId);
+		var parent = client.getWidget(parentId);
+		var anchor = client.getWidget(anchorId);
 		if (parent == null || anchor == null || !enabled.getAsBoolean()) return;
 		int x = slotFor(parent);
 		if (stillAttached(parent)) {
@@ -138,7 +138,7 @@ final class HeaderButton {
 		int y = anchor.getOriginalY();
 		int yMode = anchor.getYPositionMode();
 		int span = WIDTH - (CORNER * 2);
-		Widget[] made = new Widget[PARTS];
+		var made = new Widget[PARTS];
 
 		// Background first so every edge draws over it, then the corners, then the edges between.
 		made[0] = piece(parent, 0, x, y, WIDTH, h, yMode);
@@ -153,7 +153,7 @@ final class HeaderButton {
 
 		// The text covers the whole button, so it is what the mouse actually meets: one layer owns
 		// the click, the hover and the label, and the nine underneath are decoration.
-		Widget text = child(parent, WidgetType.TEXT, x, y, WIDTH, h, yMode);
+		var text = child(parent, WidgetType.TEXT, x, y, WIDTH, h, yMode);
 		text.setText(label);
 		text.setTextColor(TEXT_IDLE);
 		text.setFontId(FontID.PLAIN_11);
@@ -187,7 +187,7 @@ final class HeaderButton {
 	 */
 	private int slotFor(Widget parent) {
 		if (nearOffset >= rightOffset) return rightOffset;
-		Widget[] children = parent.getDynamicChildren();
+		var children = parent.getDynamicChildren();
 		if (children != null) {
 			for (Widget child : children) {
 				if (child == null || NAME.equals(child.getName())) {
@@ -205,7 +205,7 @@ final class HeaderButton {
 
 	/** One piece of the frame, by its index into the sprite sets. */
 	private Widget piece(Widget parent, int index, int x, int y, int w, int h, int yMode) {
-		Widget piece = child(parent, WidgetType.GRAPHIC, x, y, w, h, yMode);
+		var piece = child(parent, WidgetType.GRAPHIC, x, y, w, h, yMode);
 		piece.setSpriteId(SPRITES_IDLE[index]);
 		piece.revalidate();
 		return piece;
@@ -213,7 +213,7 @@ final class HeaderButton {
 
 	/** One of our widgets, named as ours and placed from the parent's right edge. */
 	private static Widget child(Widget parent, int type, int x, int y, int w, int h, int yMode) {
-		Widget c = parent.createChild(-1, type);
+		var c = parent.createChild(-1, type);
 		c.setName(NAME);
 		c.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
 		c.setYPositionMode(yMode);
@@ -232,7 +232,7 @@ final class HeaderButton {
 	 * right, render() returns on an identity scan.</p>
 	 */
 	void refresh() {
-		Widget parent = client.getWidget(parentId);
+		var parent = client.getWidget(parentId);
 		if (parent == null) {
 			// The window is closed. Our widgets went with it, so forget them rather than hiding
 			// objects that are no longer attached to anything.
@@ -282,7 +282,7 @@ final class HeaderButton {
 	 */
 	private boolean stillAttached(Widget parent) {
 		if (parts == null || parts[TEXT] == null) return false;
-		Widget[] children = parent.getDynamicChildren();
+		var children = parent.getDynamicChildren();
 		if (children == null) return false;
 		for (Widget w : children) {
 			if (w == parts[TEXT]) return true;

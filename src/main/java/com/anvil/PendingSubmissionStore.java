@@ -96,13 +96,13 @@ public class PendingSubmissionStore {
 	}
 
 	public String save(PendingSubmission sub, byte[] pngBytes) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null) return null;
-		String id = sub.tileId + "-" + sub.timestamp;
+		var id = sub.tileId + "-" + sub.timestamp;
 
 		// Both atomic: a client killed mid-write leaves no half file for the retry loop to choke on.
-		String ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
-		Filepath png = dir.joinSegment(id + ext);
+		var ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
+		var png = dir.joinSegment(id + ext);
 		try {
 			DiskFiles.writeAtomic(png, pngBytes);
 		} catch (IOException e) {
@@ -131,9 +131,9 @@ public class PendingSubmissionStore {
 	 */
 	public List<PendingSubmission> loadAll() {
 		List<PendingSubmission> result = new ArrayList<>();
-		long now = System.currentTimeMillis();
+		var now = System.currentTimeMillis();
 		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json"))) {
-			PendingSubmission sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
+			var sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
 			if (sub == null) {
 				log.warn("Failed to read pending submission {}", f.getFileName());
 				continue;
@@ -152,13 +152,13 @@ public class PendingSubmissionStore {
 
 	/** The facts the site's answer says to send again (their filing failed for a passing reason), or null. */
 	static JsonArray retries(JsonObject reply) {
-		JsonArray a = reply != null && reply.has("retry") && reply.get("retry").isJsonArray() ? reply.getAsJsonArray("retry") : null;
+		var a = reply != null && reply.has("retry") && reply.get("retry").isJsonArray() ? reply.getAsJsonArray("retry") : null;
 		return a == null || a.size() == 0 ? null : a;
 	}
 
 	/** Rewrite a saved proof's metadata (what is still to credit and upload); its screenshot stays. */
 	void update(PendingSubmission sub) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return;
 		try {
 			DiskFiles.writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
@@ -168,7 +168,7 @@ public class PendingSubmissionStore {
 	}
 
 	public byte[] readScreenshot(PendingSubmission sub) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return null;
 		// joinSegment, not join: it refuses a separator, so a screenshotFile read back out of a JSON
 		// file cannot walk anywhere with "../" in it.
@@ -181,9 +181,9 @@ public class PendingSubmissionStore {
 	}
 
 	public void remove(PendingSubmission sub) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return;
-		String baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");
+		var baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");
 		try {
 			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();

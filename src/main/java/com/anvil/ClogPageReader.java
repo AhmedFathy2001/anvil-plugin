@@ -35,8 +35,8 @@ final class ClogPageReader {
 	 * count disagrees with what we read — see the class note).
 	 */
 	static ClogPage read(Client client) {
-		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
-		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+		var header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		var items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
 		if (header == null || items == null) return null;
 
 		String name = null;
@@ -46,24 +46,24 @@ final class ClogPageReader {
 		// redraw of every page the player scrolls past.
 		Map<String, Integer> counts = null;
 
-		Widget[] lines = header.getStaticChildren();
+		var lines = header.getStaticChildren();
 		if (lines == null) return null;
 		for (Widget line : lines) {
 			if (line == null) continue;
-			String text = strip(line.getText());
+			var text = strip(line.getText());
 			if (text.isEmpty()) continue;
 			// First non-empty line is the entry title; the rest are progress and counters.
 			if (name == null) {
 				name = text;
 				continue;
 			}
-			Matcher progress = OBTAINED.matcher(text.toLowerCase());
+			var progress = OBTAINED.matcher(text.toLowerCase());
 			if (progress.find()) {
 				obtained = parseInt(progress.group(1));
 				total = parseInt(progress.group(2));
 				continue;
 			}
-			Matcher count = COUNT_LINE.matcher(text);
+			var count = COUNT_LINE.matcher(text);
 			if (count.matches()) {
 				int value = parseInt(count.group(2).replace(",", ""));
 				if (value >= 0) {
@@ -75,7 +75,7 @@ final class ClogPageReader {
 
 		if (name == null || name.isEmpty() || obtained < 0 || total <= 0) return null;
 
-		Widget[] cells = items.getDynamicChildren();
+		var cells = items.getDynamicChildren();
 		if (cells == null) return null;
 
 		// Two passes so the arrays are exactly sized — a page is at most a few dozen items, and this

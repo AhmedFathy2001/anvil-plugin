@@ -64,8 +64,8 @@ final class TileNotes {
 		if (combo.parts != null) {
 			for (ComboPart p : combo.parts) {
 				if (p == null) continue;
-				String label = p.label == null ? "Part" : p.label.trim();
-				long[] c = counts == null ? null : counts.get(p.tileId);
+				var label = p.label == null ? "Part" : p.label.trim();
+				var c = counts == null ? null : counts.get(p.tileId);
 				if (p.completed) {
 					out.add(label + "  done");
 				} else if (c != null && c[1] > 1) {
@@ -83,7 +83,7 @@ final class TileNotes {
 	}
 
 	static String plural(String noun) {
-		String n = noun.toLowerCase(Locale.ROOT);
+		var n = noun.toLowerCase(Locale.ROOT);
 		if (n.endsWith("s") || n.endsWith("x") || n.endsWith("z") || n.endsWith("sh") || n.endsWith("ch")) return noun + "es";
 		if (n.length() > 1 && n.endsWith("y") && "aeiou".indexOf(n.charAt(n.length() - 2)) < 0) return noun.substring(0, noun.length() - 1) + "ies";
 		return noun + "s";

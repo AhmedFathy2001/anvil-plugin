@@ -30,8 +30,8 @@ class StartProofOverlay extends OverlayPanel {
 	public Dimension render(Graphics2D graphics) {
 		if (!config.startSpotGuide()) return null;
 		if (plugin.needsStartProof()) {
-			PluginConfigResponse cfg = plugin.getPluginConfig();
-			PluginConfigResponse.StartProof proof = cfg == null ? null : cfg.startProof;
+			var cfg = plugin.getPluginConfig();
+			var proof = cfg == null ? null : cfg.startProof;
 			if (proof == null) return null;
 			title("Starting shot needed", ORANGE);
 			if (proof.location != null) line("Go to", proof.location, Color.WHITE);
@@ -48,7 +48,7 @@ class StartProofOverlay extends OverlayPanel {
 			}
 			return super.render(graphics);
 		}
-		long filedAt = plugin.startProofFiledAt();
+		var filedAt = plugin.startProofFiledAt();
 		if (filedAt > 0 && System.currentTimeMillis() - filedAt < DONE_SHOWN_MS) {
 			title("You're tracked", Color.GREEN);
 			line("Starting shot filed — drops and tiles count now", "", Color.WHITE);

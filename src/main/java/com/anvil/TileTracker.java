@@ -124,7 +124,7 @@ public class TileTracker {
 	}
 
 	private Widget removePin(int tileId) {
-		Widget w = pins.remove(tileId);
+		var w = pins.remove(tileId);
 		drawn = new ArrayList<>(pins.values());
 		return w;
 	}
@@ -145,7 +145,7 @@ public class TileTracker {
 	 */
 	synchronized void startUp() {
 		account = -1;
-		String old = configManager.getConfiguration("osrsbingo", CFG_PINS);
+		var old = configManager.getConfiguration("osrsbingo", CFG_PINS);
 		if (old != null) {
 			legacyPins = old;
 			configManager.unsetConfiguration("osrsbingo", CFG_PINS);
@@ -161,7 +161,7 @@ public class TileTracker {
 		if (hash == account) return;
 		shutDown();
 		account = hash;
-		String saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
+		var saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
 		if (saved == null && hash != -1 && legacyPins != null) {
 			saved = legacyPins;
 			configManager.setConfiguration("osrsbingo", key(), saved);
@@ -185,7 +185,7 @@ public class TileTracker {
 	}
 
 	synchronized boolean isPinned(int eventId, int tileId) {
-		Widget w = pins.get(tileId);
+		var w = pins.get(tileId);
 		return w != null && w.event == eventId;
 	}
 
@@ -229,7 +229,7 @@ public class TileTracker {
 			w = pins.get(tileId);
 		}
 		if (w == null) return;
-		Progress p = fetch(w);
+		var p = fetch(w);
 		if (letGo(w, p)) {
 			drop(w, p == Progress.LOCKED ? "not open for you" : p == Progress.GONE ? "tile removed" : "couldn't load");
 		} else if (p != null && p != Progress.GONE) {
@@ -251,9 +251,9 @@ public class TileTracker {
 	/** The board's fetch; a pin with no board tries each live one. */
 	private Progress fetch(Widget w) {
 		if (w.event > 0) return apiClient.fetchTileProgress(w.event, w.tileId);
-		Progress last = Progress.GONE;
+		var last = Progress.GONE;
 		for (int b : boards.get()) {
-			Progress p = apiClient.fetchTileProgress(b, w.tileId);
+			var p = apiClient.fetchTileProgress(b, w.tileId);
 			if (p != null && p != Progress.GONE) {
 				w.event = b;
 				save();
@@ -301,7 +301,7 @@ public class TileTracker {
 
 	/** What a fetch means for the pin: nothing, "Done" just went up (ask again after the linger), or take it down. */
 	static int afterFetch(Widget w, Progress p, long now) {
-		long was = w.doneSinceMs;
+		var was = w.doneSinceMs;
 		if (finishedAndShown(w, p, now)) return UNPIN;
 		return was == 0 && w.doneSinceMs != 0 ? DONE_SHOWN : KEEP;
 	}
@@ -312,7 +312,7 @@ public class TileTracker {
 	 * {@link #DONE_LINGER_MS}.
 	 */
 	static boolean finishedAndShown(Widget w, Progress p, long now) {
-		boolean done = ownTeamDone(p);
+		var done = ownTeamDone(p);
 		if (w.keepWhenDone == null) w.keepWhenDone = done;
 		if (!done || w.keepWhenDone) return false;
 		if (w.doneSinceMs == 0) {
@@ -410,7 +410,7 @@ public class TileTracker {
 		Map<Integer, Integer> out = new LinkedHashMap<>();
 		for (String board : saved.split(";")) {
 			// "event:tile,tile"; a bare "tile,tile" (saved before pins kept a board) gets board 0, found at fetch.
-			String[] parts = board.contains(":") ? board.split(":", 2) : new String[]{"0", board};
+			var parts = board.contains(":") ? board.split(":", 2) : new String[]{"0", board};
 			int event;
 			try {
 				event = Integer.parseInt(parts[0].trim());
@@ -451,7 +451,7 @@ public class TileTracker {
 		@Override
 		public Dimension render(Graphics2D graphics) {
 			if (AnvilPlugin.capturing) return null;
-			List<Widget> shown = drawn; // no lock on the frame path
+			var shown = drawn; // no lock on the frame path
 			for (int i = 0; i < shown.size(); i++) {
 				if (i > 0) panelComponent.getChildren().add(GAP);
 				shown.get(i).drawInto(panelComponent, true);
@@ -566,15 +566,15 @@ public class TileTracker {
 		 * each made a panel taller than the game view.
 		 */
 		void drawInto(PanelComponent panelComponent, boolean compact) {
-			Progress p = progress;
-			List<String> n = notes.apply(tileId);
+			var p = progress;
+			var n = notes.apply(tileId);
 			if (n == null) n = Collections.emptyList();
 			if (p != builtFor || compact != builtCompact || lines.isEmpty() || !n.equals(builtNotes)) {
 				builtNotes = n;
 				build(p, compact);
 			}
 			if (startsIn != null && startsAt != null) {
-				long s = Math.max(0, Duration.between(Instant.now(), startsAt).getSeconds());
+				var s = Math.max(0, Duration.between(Instant.now(), startsAt).getSeconds());
 				if (s != shownSecs) {
 					shownSecs = s;
 					startsIn.setRight(s >= 3600 ? (s / 3600) + "h " + (s % 3600 / 60) + "m" : s >= 60 ? (s / 60) + "m " + (s % 60) + "s" : s + "s");
@@ -582,9 +582,9 @@ public class TileTracker {
 			}
 			if (bar != null && !mine.complete) {
 				// Your own kill counts here the moment it happens; the fetch after the push confirms it.
-				long current = shown.applyAsLong(tileId, mine.current);
+				var current = shown.applyAsLong(tileId, mine.current);
 				bar.setValue(Math.min(current, p.goal));
-				long ahead = Math.max(0, current - mine.current);
+				var ahead = Math.max(0, current - mine.current);
 				if (you != null && ahead != shownAhead) {
 					shownAhead = ahead;
 					you.setRight(Ui.count(youBase + ahead));
@@ -645,7 +645,7 @@ public class TileTracker {
 			lines.add(bar);
 			if (compact || t.members == null) return;
 			for (Member m : t.members) {
-				LineComponent line = LineComponent.builder()
+				var line = LineComponent.builder()
 					.left(m.mine ? "You" : m.name)
 					.leftColor(m.mine ? GOLD : Color.LIGHT_GRAY)
 					.right(Ui.count(m.amount))

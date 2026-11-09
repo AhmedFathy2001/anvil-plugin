@@ -52,13 +52,13 @@ public final class Rsn {
 	public static String normalize(String rsn) {
 		if (rsn == null) return "";
 		// U+00A0 → space BEFORE trimming, so a name padded with them trims like it does on the server.
-		String plain = rsn.replace('\u00A0', ' ').trim().toLowerCase(Locale.ROOT);
+		var plain = rsn.replace('\u00A0', ' ').trim().toLowerCase(Locale.ROOT);
 		return FOLD.matcher(plain).replaceAll(" ").trim();
 	}
 
 	/** Do these two names denote the same account? Empty never matches, including empty itself. */
 	public static boolean same(String a, String b) {
-		String left = normalize(a);
+		var left = normalize(a);
 		return !left.isEmpty() && left.equals(normalize(b));
 	}
 }

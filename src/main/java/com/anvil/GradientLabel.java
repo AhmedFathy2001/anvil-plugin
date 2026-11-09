@@ -48,7 +48,7 @@ final class GradientLabel extends JLabel {
 
 		ActiveWindow() {
 			SwingUtilities.invokeLater(() -> {
-				KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+				var kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
 				active = kfm.getActiveWindow() != null || GraphicsEnvironment.isHeadless();
 				kfm.addPropertyChangeListener("activeWindow", e -> active = e.getNewValue() != null);
 			});
@@ -68,8 +68,8 @@ final class GradientLabel extends JLabel {
 	 */
 	static synchronized long animationTimeMillis() {
 		if (!animate) return 0;
-		long now = System.currentTimeMillis();
-		long dt = now - lastWallMs;
+		var now = System.currentTimeMillis();
+		var dt = now - lastWallMs;
 		lastWallMs = now;
 		if (dt > 0 && clientActive()) {
 			// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
@@ -135,20 +135,20 @@ final class GradientLabel extends JLabel {
 			return;
 		}
 		var g2d = (Graphics2D) g;
-		AffineTransform at = g2d.getTransform();
-		double sx = Math.max(1, at.getScaleX());
-		double sy = Math.max(1, at.getScaleY());
+		var at = g2d.getTransform();
+		var sx = Math.max(1, at.getScaleX());
+		var sy = Math.max(1, at.getScaleY());
 		int iw = (int) Math.ceil(w * sx);
 		int ih = (int) Math.ceil(h * sy);
 
-		String key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
+		var key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
 			+ "|" + System.identityHashCode(getIcon()) + "|" + getInsets();
 		if (base == null || !key.equals(baseKey)) {
 			drawBase(g2d, w, h, iw, ih, sx, sy);
 			baseKey = key;
 		}
 
-		Graphics2D fg = frame.createGraphics();
+		var fg = frame.createGraphics();
 		try {
 			fg.setComposite(AlphaComposite.Src);
 			fg.drawImage(base, 0, 0, null);
@@ -156,8 +156,8 @@ final class GradientLabel extends JLabel {
 				fg.scale(sx, sy);
 				fg.setComposite(AlphaComposite.SrcIn);
 				// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
-				float period = 2f * fillR.width;
-				float shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
+				var period = 2f * fillR.width;
+				var shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
 				fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
 					MultipleGradientPaint.CycleMethod.REFLECT));
 				fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);
@@ -180,7 +180,7 @@ final class GradientLabel extends JLabel {
 			base = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
 			frame = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
 		}
-		Graphics2D ig = base.createGraphics();
+		var ig = base.createGraphics();
 		try {
 			ig.setComposite(AlphaComposite.Clear);
 			ig.fillRect(0, 0, iw, ih);
@@ -194,7 +194,7 @@ final class GradientLabel extends JLabel {
 		} finally {
 			ig.dispose();
 		}
-		Insets in = getInsets();
+		var in = getInsets();
 		var view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
 		textR.setBounds(0, 0, 0, 0);
 		iconR.setBounds(0, 0, 0, 0);

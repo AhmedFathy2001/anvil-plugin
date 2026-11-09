@@ -77,13 +77,13 @@ public final class DeviceSignIn {
 	}
 
 	private void start(Consumer<String> status, Consumer<Result> done) {
-		BingoApiClient.DeviceAuthStart start = apiClient.authStart();
+		var start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty()) {
 			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
 			return;
 		}
 
-		String url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
+		var url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
 			? start.verification_url_complete : start.verification_url;
 		// Checked against the fixed site, not the client's address — that stays empty until there is a
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
@@ -100,8 +100,8 @@ public final class DeviceSignIn {
 			status.accept("Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
 		} else status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
-		long intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
-		long deadline = System.currentTimeMillis()
+		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
+		var deadline = System.currentTimeMillis()
 			+ (start.expires_in > 0 ? start.expires_in : DEFAULT_EXPIRES_S) * 1000L;
 		poll(status, done, start.device_code, intervalMs, deadline);
 	}
@@ -114,8 +114,8 @@ public final class DeviceSignIn {
 			return;
 		}
 		schedule(() -> {
-			long nextIntervalMs = intervalMs;
-			BingoApiClient.DeviceAuthPoll poll = apiClient.authPoll(deviceCode);
+			var nextIntervalMs = intervalMs;
+			var poll = apiClient.authPoll(deviceCode);
 			if (poll != null && poll.status != null) {
 				switch (poll.status) {
 					case "complete":

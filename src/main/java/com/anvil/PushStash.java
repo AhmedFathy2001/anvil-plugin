@@ -124,15 +124,15 @@ final class PushStash {
 	}
 
 	private Filepath file(String key) {
-		Filepath d = DiskFiles.ensureDir(dir);
+		var d = DiskFiles.ensureDir(dir);
 		return d == null || key == null ? null : d.joinSegment("pushes-" + key + ".json");
 	}
 
 	/** Save {@code data} for the character {@code key}, folded into anything already saved. */
 	void save(String key, Data data) {
-		Filepath f = file(key);
+		var f = file(key);
 		if (f == null || data == null || data.isEmpty()) return;
-		Data merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
+		var merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
 		try {
 			DiskFiles.writeAtomic(f, gson.toJson(merged));
 		} catch (IOException | RuntimeException e) {
@@ -141,8 +141,8 @@ final class PushStash {
 
 	/** What was saved for {@code key} (deleting it), or null when nothing fresh was. */
 	Data take(String key, long now) {
-		Filepath f = file(key);
-		Data d = DiskFiles.readJson(gson, f, Data.class);
+		var f = file(key);
+		var d = DiskFiles.readJson(gson, f, Data.class);
 		DiskFiles.deleteQuietly(f);
 		return d == null || now - d.savedAt > MAX_AGE_MS ? null : d;
 	}

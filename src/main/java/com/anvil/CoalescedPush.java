@@ -63,11 +63,11 @@ final class CoalescedPush {
 
 	/** Buffer {@code values} and restart the settle timer — unless nothing in them is new. */
 	synchronized void queue(Map<String, Integer> values) {
-		ScheduledExecutorService ex = executor.get();
+		var ex = executor.get();
 		if (ex == null || ex.isShutdown()) return;
-		boolean queued = false;
+		var queued = false;
 		for (Map.Entry<String, Integer> e : values.entrySet()) {
-			Integer last = sent == null ? null : sent.get(e.getKey());
+			var last = sent == null ? null : sent.get(e.getKey());
 			if (last == null || last < e.getValue()) {
 				pending.put(e.getKey(), e.getValue());
 				queued = true;
@@ -93,13 +93,13 @@ final class CoalescedPush {
 		values.forEach((k, v) -> {
 			if (k != null && v != null) pending.merge(k, v, Integer::max);
 		});
-		ScheduledExecutorService ex = executor.get();
+		var ex = executor.get();
 		if (ex != null && !ex.isShutdown()) schedule(ex, delayMs);
 	}
 
 	/** Send what's waiting now (a value that completes a tile) — unless backing off a failing site. */
 	synchronized void sendNow() {
-		ScheduledExecutorService ex = executor.get();
+		var ex = executor.get();
 		if (pending.isEmpty() || failures > 0 || ex == null || ex.isShutdown()) return;
 		schedule(ex, 0);
 	}
@@ -108,7 +108,7 @@ final class CoalescedPush {
 	synchronized void kick() {
 		if (failures == 0 || pending.isEmpty()) return;
 		failures = 0;
-		ScheduledExecutorService ex = executor.get();
+		var ex = executor.get();
 		if (ex != null && !ex.isShutdown()) schedule(ex, 0);
 	}
 
@@ -165,9 +165,9 @@ final class CoalescedPush {
 			synchronized (this) {
 				failures++;
 				batch.forEach((k, v) -> pending.merge(k, v, Integer::max));
-				long wait = retryDelayMs(failures, delayMs, Math.random());
+				var wait = retryDelayMs(failures, delayMs, Math.random());
 				log.warn("{} push failed, retry in {}s: {}", what, wait / 1000, e.getMessage());
-				ScheduledExecutorService ex = executor.get();
+				var ex = executor.get();
 				if (ex != null && !ex.isShutdown()) schedule(ex, wait);
 			}
 			return;

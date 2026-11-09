@@ -60,17 +60,17 @@ final class ChatFlairSync {
 
 	/** Bring the list to the site's version now. Blocking. */
 	void sync() {
-		ChatFlair.Since s = source.since(flair.version());
+		var s = source.since(flair.version());
 		if (s == null) return;
 		if (s.v == flair.version()) {
 			// A dev client can retain a valid version number with an empty/corrupt disk snapshot. The
 			// version endpoint then quite correctly says "current", but none of that client's names ever
 			// recover. An empty current generation is cheap and safe to verify from the CDN-cached full list.
-			boolean wrongSize = s.n != null && s.n >= 0 && flair.size() != s.n;
+			var wrongSize = s.n != null && s.n >= 0 && flair.size() != s.n;
 			if (s.v > 0 && (flair.isEmpty() || wrongSize) && flair.adopt(source.full(s.v))) changed.run();
 			return;
 		}
-		boolean moved = false;
+		var moved = false;
 		if (s.deltas != null) {
 			for (ChatFlair.Wire d : s.deltas) moved |= flair.apply(d);
 		}

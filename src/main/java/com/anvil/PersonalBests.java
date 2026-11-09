@@ -65,7 +65,7 @@ final class PersonalBests {
 	 * chat, so the negative path is the one that has to be free.
 	 */
 	boolean onChatLine(String message, long now) {
-		Integer centis = PersonalBestParser.parseCentis(message);
+		var centis = PersonalBestParser.parseCentis(message);
 		if (centis == null) return false;
 		if (recentActivity != null && now - recentActivityAt <= CORRELATION_MS) return record(recentActivity, centis, now);
 		// No name yet — hold it for the kill-count line that's about to arrive.
@@ -92,7 +92,7 @@ final class PersonalBests {
 	/** Keep the fastest. A PB only ever goes down, so a slower number is noise, not an update. */
 	private boolean record(String activity, int centis, long now) {
 		if (activity == null || activity.isEmpty() || centis <= 0) return false;
-		Integer current = best.get(activity);
+		var current = best.get(activity);
 		if (current != null && current <= centis) return false;
 		best.put(activity, centis);
 		dirty.add(activity);
@@ -108,7 +108,7 @@ final class PersonalBests {
 	Map<String, Integer> nextBatch() {
 		Map<String, Integer> batch = new LinkedHashMap<>(dirty.size());
 		for (String activity : dirty) {
-			Integer centis = best.get(activity);
+			var centis = best.get(activity);
 			if (centis != null) batch.put(activity, centis);
 		}
 		return batch;
@@ -121,7 +121,7 @@ final class PersonalBests {
 	void onSent(Map<String, Integer> batch) {
 		for (Map.Entry<String, Integer> e : batch.entrySet()) {
 			sent.put(e.getKey(), e.getValue());
-			Integer current = best.get(e.getKey());
+			var current = best.get(e.getKey());
 			if (current != null && current.equals(e.getValue())) dirty.remove(e.getKey());
 		}
 	}

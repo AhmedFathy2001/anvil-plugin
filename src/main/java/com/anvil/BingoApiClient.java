@@ -69,7 +69,7 @@ public class BingoApiClient {
 
 	private okhttp3.Interceptor pauseGate() {
 		return chain -> {
-			Request r = chain.request();
+			var r = chain.request();
 			if (accountPaused && r.header("Authorization") != null && r.tag(AccountAction.class) == null) throw new IOException("Anvil is off for this account on this computer (Not my account).");
 			return chain.proceed(r);
 		};
@@ -179,7 +179,7 @@ public class BingoApiClient {
 	 * already had, and so cannot break anything.
 	 */
 	private static String cleanSlug(String slug) {
-		String clean = slug == null ? "" : slug.trim().toLowerCase();
+		var clean = slug == null ? "" : slug.trim().toLowerCase();
 		return !clean.isEmpty() && CLAN_SLUG.matcher(clean).matches() ? clean : "";
 	}
 
@@ -190,7 +190,7 @@ public class BingoApiClient {
 	 * before any clan is known ({@link #rootUrl}), and the config poll in Auto ({@link #configUrl}).
 	 */
 	String clanUrl(String path) {
-		String slug = getActiveClan();
+		var slug = getActiveClan();
 		return slug.isEmpty() ? apiUrl + path : apiUrl + "/c/" + slug + path;
 	}
 
@@ -346,10 +346,10 @@ public class BingoApiClient {
 	 */
 	PushTicket fetchPushTicket(boolean feed, boolean rows) {
 		// ?flair=1 always: this plugin applies Supporter-list deltas (ChatFlairSync).
-		String path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "");
-		PushTicket t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class) : null;
-		HttpUrl socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
-		HttpUrl site = HttpUrl.parse(getApiUrl());
+		var path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "");
+		var t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class) : null;
+		var socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
+		var site = HttpUrl.parse(getApiUrl());
 		return socket != null && site != null && socket.host().equals(site.host()) ? t : null;
 	}
 
@@ -367,7 +367,7 @@ public class BingoApiClient {
 	/** Poll the device sign-in. Null on transport failure (caller treats as a pending tick). */
 	public DeviceAuthPoll authPoll(String deviceCode) {
 		if (deviceCode == null || deviceCode.isEmpty()) return null;
-		RequestBody body = RequestBody.create(MediaType.parse("application/json"),
+		var body = RequestBody.create(MediaType.parse("application/json"),
 			gson.toJson(Collections.singletonMap("device_code", deviceCode)));
 		return getOrNull(plainRequest(authUrl("/api/plugin/auth/poll")).post(body), DeviceAuthPoll.class);
 	}
@@ -386,8 +386,8 @@ public class BingoApiClient {
 	 * which clan the caller means. A caller without a token gets exactly what it got before.
 	 */
 	private Request.Builder publicRequest(String url) {
-		Request.Builder rb = plainRequest(url).get();
-		String token = playerToken;
+		var rb = plainRequest(url).get();
+		var token = playerToken;
 		if (token != null && !token.trim().isEmpty()) rb.header("Authorization", "Bearer " + token.trim());
 		return rb;
 	}
@@ -404,7 +404,7 @@ public class BingoApiClient {
 	 * as an {@link HttpStatusException} (or a subclass), so a caller can tell a refusal by its code.
 	 */
 	private <T> T execute(OkHttpClient client, Request.Builder request, Reply<T> reply) throws IOException {
-		Request req = request.build();
+		var req = request.build();
 		OffThread.check("HTTP " + req.method() + " " + req.url().encodedPath());
 		try (Response r = client.newCall(req).execute()) {
 			return reply.read(r, r.body() != null ? r.body().string() : "");
@@ -451,14 +451,14 @@ public class BingoApiClient {
 	 */
 	private Request.Builder authedRequest(String url, String rsn, String hint, String hash) {
 		// X-Anvil-Boards: this client credits tiles tagged with another board (TrackedTile.board).
-		Request.Builder b = plainRequest(url).header("Authorization", "Bearer " + playerToken).header("X-Anvil-Boards", "1");
+		var b = plainRequest(url).header("Authorization", "Bearer " + playerToken).header("X-Anvil-Boards", "1");
 		if (rsn != null && !rsn.isEmpty()) b.header("X-RSN", rsn);
 		else if (hint != null) b.header("X-RSN-Hint", hint);
 		if (hash != null && !hash.isEmpty()) b.header("X-Account-Hash", hash);
 		// Ambient like the RSN. A queued notification carries its own copy in the payload (`world`),
 		// which the site prefers, so a resend from another world isn't misfiled by these.
-		String types = worldTypes;
-		String activity = worldActivity;
+		var types = worldTypes;
+		var activity = worldActivity;
 		if (types != null) b.header("X-World-Types", types);
 		if (activity != null) b.header("X-World-Activity", activity);
 		return b;
@@ -497,8 +497,8 @@ public class BingoApiClient {
 		try {
 			return execute(httpClient, authedRequest(clanUrl("/api/plugin/account"))
 				.tag(AccountAction.class, ACCOUNT_ACTION).post(json(obj("action", action))), (r, text) -> {
-				AccountActionResult parsed = text.isEmpty() ? null : gson.fromJson(text, AccountActionResult.class);
-				AccountActionResult res = parsed != null ? parsed : out;
+				var parsed = text.isEmpty() ? null : gson.fromJson(text, AccountActionResult.class);
+				var res = parsed != null ? parsed : out;
 				res.ok = r.isSuccessful();
 				if (!res.ok && res.error == null) res.error = "The site said " + r.code() + ".";
 				return res;
@@ -520,7 +520,7 @@ public class BingoApiClient {
 
 	public void postNotification(String channel, String content, NotifyFacts facts, byte[] image, String filename) {
 		if (!isConfigured() || channel == null || channel.isEmpty()) return;
-		byte[] png = noShot.test(facts != null ? facts.kind : channel) ? null : image;
+		var png = noShot.test(facts != null ? facts.kind : channel) ? null : image;
 		var payload = new JsonObject();
 		payload.addProperty("channel", channel);
 		// Where it happened, frozen into the post itself: the site routes Deadman, Leagues, hardcore
@@ -532,12 +532,12 @@ public class BingoApiClient {
 			payload.add("facts", facts.facts);
 		}
 
-		String url = clanUrl("/api/plugin/notify");
-		String payloadJson = payload.toString();
+		var url = clanUrl("/api/plugin/notify");
+		var payloadJson = payload.toString();
 		// Read once: a retry, should this attempt fail, says the same thing as the same character.
-		String rsn = currentRsn;
-		String hash = accountHash;
-		Request request = authedRequest(url, rsn, rsnHint, hash).post(notifyBody(payloadJson, png, filename)).build();
+		var rsn = currentRsn;
+		var hash = accountHash;
+		var request = authedRequest(url, rsn, rsnHint, hash).post(notifyBody(payloadJson, png, filename)).build();
 		httpClient.newCall(request).enqueue(new Callback() {
 			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
 			// that the server rejected looked exactly like one that was never sent, and the only
@@ -564,7 +564,7 @@ public class BingoApiClient {
 						return;
 					}
 					// A successful older site may return no JSON contract. Success is still success.
-					String ok = r.body() == null ? null : jsonString(jsonObject(r.body().string()), "ok");
+					var ok = r.body() == null ? null : jsonString(jsonObject(r.body().string()), "ok");
 					if (ok != null && !Boolean.parseBoolean(ok)) {
 						log.warn("{} notification: Discord refused all", channel);
 					}
@@ -591,9 +591,9 @@ public class BingoApiClient {
 	/** Runs on an OkHttp callback thread: hand the failed notification to the outbox. */
 	private void keepForRetry(String url, String channel, String payloadJson, byte[] png, String filename,
 		String rsn, String hash) {
-		NotifyOutbox outbox = notifyOutbox;
+		var outbox = notifyOutbox;
 		if (outbox == null) return;
-		NotifyOutbox.Item it = NotifyOutbox.newItem(System.currentTimeMillis());
+		var it = NotifyOutbox.newItem(System.currentTimeMillis());
 		it.url = url;
 		it.channel = channel;
 		it.payload = payloadJson;
@@ -609,7 +609,7 @@ public class BingoApiClient {
 	 * calls it on the OkHttp pool. Never throws.
 	 */
 	NotifyOutbox.Result sendQueuedNotification(NotifyOutbox.Item it, byte[] png) {
-		String base = getApiUrl();
+		var base = getApiUrl();
 		if (!isConfigured() || base.isEmpty()) {
 			return NotifyOutbox.Result.RETRY; // paused, or between sign-ins: it can wait (or expire)
 		}
@@ -655,10 +655,10 @@ public class BingoApiClient {
 	}
 
 	private void refreshVersionCaps() {
-		long now = System.currentTimeMillis();
+		var now = System.currentTimeMillis();
 		if (now - versionCapsAt < VERSION_CAPS_TTL_MS) return;
 		versionCapsAt = now;
-		VersionInfo info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class);
+		var info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class);
 		if (info != null) versionCaps = info.capabilities == null ? Collections.emptySet() : new HashSet<>(info.capabilities);
 	}
 
@@ -670,7 +670,7 @@ public class BingoApiClient {
 	/** GET /api/plugin/config — event, team, player and everything the client tracks. */
 	public PluginConfigResponse fetchConfig() throws IOException {
 		try {
-			PluginConfigResponse parsed = etagGet(configUrl("/api/plugin/config"), PluginConfigResponse.class, polls, "Config fetch",
+			var parsed = etagGet(configUrl("/api/plugin/config"), PluginConfigResponse.class, polls, "Config fetch",
 				ResponseDiskCache.CONFIG);
 			lastConfigNoClan = false;
 			return parsed;
@@ -692,7 +692,7 @@ public class BingoApiClient {
 
 	/** GET /api/plugin/rules ({@link RuleEngine}), addressed like the config it is built from. Null on failure. */
 	RuleEngine.Table fetchRules() {
-		RuleEngine.Table t = etagGetOrNull(configUrl("/api/plugin/rules"), RuleEngine.Table.class, polls, "Rules");
+		var t = etagGetOrNull(configUrl("/api/plugin/rules"), RuleEngine.Table.class, polls, "Rules");
 		// A fresh copy each time: the engine counts on the table it holds, and a 304 hands back the cached
 		// object — so a guess the site never took (a refused credit) would outlive every refresh.
 		return t == null ? null : gson.fromJson(gson.toJson(t), RuleEngine.Table.class);
@@ -820,8 +820,8 @@ public class BingoApiClient {
 	 * {@link HttpStatusException} otherwise. A {@code persistAs} kind also saves a fresh body to disk.
 	 */
 	private <T> T etagGet(String url, Class<T> type, Map<String, Object[]> cache, String label, String persistAs) throws IOException {
-		Request.Builder rb = authedRequest(url).get();
-		Object[] hit = cache.get(url);
+		var rb = authedRequest(url).get();
+		var hit = cache.get(url);
 		if (hit != null) rb.header("If-None-Match", (String) hit[0]);
 		return execute(readClient, rb, (response, text) -> {
 			if (response.code() == 304 && hit != null) {
@@ -829,11 +829,11 @@ public class BingoApiClient {
 			}
 			if (!response.isSuccessful()) throw new HttpStatusException(label + " failed: HTTP " + response.code() + (response.code() == 410 ? " — " + text : ""), response.code());
 			T parsed = gson.fromJson(text, type);
-			String etag = response.header("ETag");
+			var etag = response.header("ETag");
 			if (etag != null && parsed != null) {
 				cache.put(url, new Object[]{etag, parsed});
 			}
-			ResponseDiskCache disk = diskCache;
+			var disk = diskCache;
 			if (persistAs != null && disk != null && parsed != null) disk.store(persistAs, url, etag, text, currentRsn != null ? currentRsn : rsnHint);
 			return parsed;
 		});
@@ -859,7 +859,7 @@ public class BingoApiClient {
 	 * names it. Null on any failure. Blocking; off the EDT.
 	 */
 	public JsonObject fetchUi(String view, Map<String, String> args, String clan) {
-		HttpUrl.Builder url = HttpUrl.get(rootUrl("/api/plugin/ui")).newBuilder().addQueryParameter("v", view);
+		var url = HttpUrl.get(rootUrl("/api/plugin/ui")).newBuilder().addQueryParameter("v", view);
 		args.forEach(url::addQueryParameter);
 		if (clan != null && !clan.isEmpty()) url.addQueryParameter("clan", clan);
 		return getOrNull(uiRequest(url.build().toString()).get(), JsonObject.class);
@@ -882,8 +882,8 @@ public class BingoApiClient {
 
 	/** A page on the site this plugin talks to: a view's link names a path, never a host. */
 	public String siteLink(String path) {
-		HttpUrl base = HttpUrl.parse(getApiUrl().isEmpty() ? site() : getApiUrl());
-		HttpUrl url = base == null ? null : base.resolve(path);
+		var base = HttpUrl.parse(getApiUrl().isEmpty() ? site() : getApiUrl());
+		var url = base == null ? null : base.resolve(path);
 		return url == null ? CANONICAL_SITE : url.toString();
 	}
 
@@ -902,23 +902,23 @@ public class BingoApiClient {
 	 * once from the cache. Anything bigger than {@link #THUMB_MAX_BYTES} is dropped unread.
 	 */
 	void thumb(String path, int w, int h, boolean motion, java.util.function.Consumer<Icon> done) {
-		String key = w + "x" + h + ":" + motion + path;
+		var key = w + "x" + h + ":" + motion + path;
 		Icon hit;
 		synchronized (thumbs) {
 			hit = thumbs.get(key);
 		}
-		HttpUrl url = path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0 ? HttpUrl.parse(siteLink(path)) : null;
+		var url = path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0 ? HttpUrl.parse(siteLink(path)) : null;
 		if (url != null && motion) url = url.newBuilder().setQueryParameter("motion", "1").build();
 		// Panel-media routes render animated GIFs at the exact widget size. Swing can scale a still
 		// safely, but scaling ImageIcon's GIF frames destroys their animation (and a 36px clan logo in
 		// an 18px row used to be rejected as unsafe), so ask the site for the final dimensions once.
 		if (url != null && path.startsWith("/api/plugin/media/")) url = url.newBuilder().setQueryParameter("w", Integer.toString(w)).setQueryParameter("h", Integer.toString(h)).build();
-		HttpUrl base = HttpUrl.parse(siteLink("/"));
+		var base = HttpUrl.parse(siteLink("/"));
 		if (hit != null || url == null || base == null || !url.host().equals(base.host()) || w <= 0 || h <= 0) {
 			done.accept(hit instanceof GifIcon ? ((GifIcon) hit).copy() : hit);
 			return;
 		}
-		Request.Builder imageRequest = accountPaused ? publicRequest(url.toString()) : authedRequest(url.toString());
+		var imageRequest = accountPaused ? publicRequest(url.toString()) : authedRequest(url.toString());
 		readClient.newCall(imageRequest.get().build()).enqueue(new Callback() {
 			@Override
 			public void onFailure(Call call, IOException e) {
@@ -929,15 +929,15 @@ public class BingoApiClient {
 			public void onResponse(Call call, Response r) {
 				Icon img = null;
 				try (Response res = r) {
-					ResponseBody body = res.body();
+					var body = res.body();
 					// request() is false once the whole body is buffered: it fit under the cap.
 					if (res.isSuccessful() && body != null && body.contentLength() <= THUMB_MAX_BYTES && !body.source().request(THUMB_MAX_BYTES + 1L)) {
-						byte[] bytes = body.source().buffer().readByteArray();
+						var bytes = body.source().buffer().readByteArray();
 						// Motion asked for, but the site may answer with a still (over its size cap, or the
 						// clan/tier isn't entitled to motion): show that still rather than nothing.
 						img = motion ? animatedIcon(bytes, w, h) : null;
 						if (img == null) {
-							BufferedImage still = fit(decodeSmall(bytes, w, h), w, h);
+							var still = fit(decodeSmall(bytes, w, h), w, h);
 							img = still == null ? null : new javax.swing.ImageIcon(still);
 						}
 					}
@@ -977,7 +977,7 @@ public class BingoApiClient {
 	 */
 	static BufferedImage decodeSmall(byte[] bytes, int w, int h) {
 		try (javax.imageio.stream.ImageInputStream in = javax.imageio.ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
-			Iterator<javax.imageio.ImageReader> readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
+			var readers = in == null ? null : javax.imageio.ImageIO.getImageReaders(in);
 			if (readers == null || !readers.hasNext()) return null;
 			javax.imageio.ImageReader reader = readers.next();
 			try {
@@ -999,7 +999,7 @@ public class BingoApiClient {
 
 	static BufferedImage fit(BufferedImage src, int w, int h) {
 		if (src == null) return null;
-		double k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
+		var k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
 		int tw = Math.max(1, (int) Math.round(src.getWidth() * k));
 		int th = Math.max(1, (int) Math.round(src.getHeight() * k));
 		var out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
@@ -1031,7 +1031,7 @@ public class BingoApiClient {
 	/** {@code body} as a JSON object, or null when it isn't one. */
 	static JsonObject jsonObject(String body) {
 		try {
-			JsonElement json = new JsonParser().parse(body);
+			var json = new JsonParser().parse(body);
 			return json.isJsonObject() ? json.getAsJsonObject() : null;
 		} catch (RuntimeException e) {
 			return null;
@@ -1040,13 +1040,13 @@ public class BingoApiClient {
 
 	/** A primitive member as a string, or null when {@code json} is null or the member isn't a primitive. */
 	static String jsonString(JsonObject json, String key) {
-		JsonElement e = json == null ? null : json.get(key);
+		var e = json == null ? null : json.get(key);
 		return e != null && e.isJsonPrimitive() ? e.getAsString() : null;
 	}
 
 	private void addWorld(JsonObject payload) {
-		String types = worldTypes;
-		String activity = worldActivity;
+		var types = worldTypes;
+		var activity = worldActivity;
 		if (types == null && activity == null) return;
 		var world = new JsonObject();
 		if (types != null) world.addProperty("types", types);
@@ -1058,7 +1058,7 @@ public class BingoApiClient {
 	static JsonObject obj(Object... kv) {
 		var o = new JsonObject();
 		for (int i = 0; i < kv.length; i += 2) {
-			Object v = kv[i + 1];
+			var v = kv[i + 1];
 			o.add((String) kv[i], v == null ? JsonNull.INSTANCE : v instanceof JsonElement ? (JsonElement) v
 				: v instanceof Number ? new JsonPrimitive((Number) v) : v instanceof Boolean ? new JsonPrimitive((Boolean) v) : new JsonPrimitive(v.toString()));
 		}
@@ -1091,7 +1091,7 @@ public class BingoApiClient {
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */
 	public String uploadImage(byte[] pngBytes, String filename) throws IOException {
-		MultipartBody multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
+		var multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
 			.addFormDataPart("file", filename, RequestBody.create(isJpeg(pngBytes) ? JPEG : PNG, pngBytes)).build();
 		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(multipart), (r, body) -> {
 			if (!r.isSuccessful()) throw new HttpStatusException("Image upload failed: HTTP " + r.code(), r.code());
@@ -1160,7 +1160,7 @@ public class BingoApiClient {
 		payload.add("members", gson.toJsonTree(members));
 		// The checked refusals can't leave the lambda, so it hands back the status and they're thrown here.
 		int[] status = new int[1];
-		String responseBody = execute(httpClient, tokenRequest("/api/plugin/clan-sync", accountToken).post(json(payload)),
+		var responseBody = execute(httpClient, tokenRequest("/api/plugin/clan-sync", accountToken).post(json(payload)),
 			(r, body) -> {
 				status[0] = r.code();
 				return body;
@@ -1265,7 +1265,7 @@ public class BingoApiClient {
 	 */
 	static String friendlyError(int code, String body) {
 		// Not JSON, or not the shape we expect — fall through to the generic wording.
-		String serverSaid = jsonString(jsonObject(body), "error");
+		var serverSaid = jsonString(jsonObject(body), "error");
 		if (serverSaid != null && !serverSaid.isEmpty()) return serverSaid;
 		switch (code) {
 			case 401:
@@ -1309,8 +1309,8 @@ public class BingoApiClient {
 
 	/** Permanent (a 4xx other than 401/408/429 — RetryPolicy) unless it's waiting on a starting shot. */
 	private static HttpStatusException classified(String message, int code, String body) {
-		boolean awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
-		HttpStatusException e = RetryPolicy.isPermanent(code) && !awaitingStartProof
+		var awaitingStartProof = body != null && body.contains(START_PROOF_REQUIRED);
+		var e = RetryPolicy.isPermanent(code) && !awaitingStartProof
 			? new PermanentSubmissionException(message, code)
 			: new HttpStatusException(message, code);
 		return e.withPlayerMessage(friendlyError(code, body));
@@ -1330,7 +1330,7 @@ public class BingoApiClient {
 
 	private String post(String path, RequestBody payload, String what, boolean classify) throws IOException {
 		// A full URL (configUrl) is already addressed.
-		String url = path.startsWith("/") ? clanUrl(path) : path;
+		var url = path.startsWith("/") ? clanUrl(path) : path;
 		return execute(httpClient, authedRequest(url).post(payload), (response, body) -> {
 			int code = response.code();
 			if (response.isSuccessful()) return body;
@@ -1338,7 +1338,7 @@ public class BingoApiClient {
 				if (code == 429) throw new RateLimitedException(friendlyError(429, body), retryAfterFrom(body));
 				throw friendlyFailure(code, body);
 			}
-			String shown = body.isEmpty() ? "no body" : body;
+			var shown = body.isEmpty() ? "no body" : body;
 			throw classify
 				? submissionError(what, code, shown)
 				: new HttpStatusException(what + ": HTTP " + code + " — " + shown, code).withPlayerMessage(friendlyError(code, body));
@@ -1374,9 +1374,9 @@ public class BingoApiClient {
 		if (items == null || items.isEmpty()) return new ClogPushResult();
 		var payload = new JsonObject();
 		payload.add("items", pairs(items, "id", "q"));
-		String body = postJson("/api/plugin/clog", payload, null, false);
+		var body = postJson("/api/plugin/clog", payload, null, false);
 		try {
-			ClogPushResult result = gson.fromJson(body, ClogPushResult.class);
+			var result = gson.fromJson(body, ClogPushResult.class);
 			return result != null ? result : new ClogPushResult();
 		} catch (RuntimeException ignored) {
 			// An older site doesn't report counts. The push still worked; we just can't say what
@@ -1482,7 +1482,7 @@ public class BingoApiClient {
 			postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
 			return;
 		}
-		String url = clanUrl("/api/plugin/mode-lines");
+		var url = clanUrl("/api/plugin/mode-lines");
 		execute(httpClient, authedRequest(url).post(notifyBody(payload.toString(), png, filename)), (response, body) -> {
 			if (!response.isSuccessful()) {
 				throw new HttpStatusException("Mode lines failed: HTTP " + response.code() + " — "
@@ -1551,13 +1551,13 @@ public class BingoApiClient {
 	public void submitProgress(Map<String, Integer> progress, String itemCategory,
 		List<AccountProgress.Item> items, Map<Integer, Integer> caVarps,
 		int caPoints) throws IOException {
-		boolean hasItems = itemCategory != null && items != null && !items.isEmpty();
-		boolean hasVarps = caVarps != null && !caVarps.isEmpty() && caPoints > 0;
+		var hasItems = itemCategory != null && items != null && !items.isEmpty();
+		var hasVarps = caVarps != null && !caVarps.isEmpty() && caPoints > 0;
 		// The game mode is not a progress row: rows are max-merged, and a mode goes down. It has
 		// its own top-level field, which a server that doesn't know it simply ignores.
 		Map<String, Integer> rest = new LinkedHashMap<>(progress == null ? Collections.emptyMap() : progress);
-		Integer accountType = rest.remove(AccountProgress.ACCOUNT_TYPE_KEY);
-		JsonArray rows = pairs(rest, "key", "value");
+		var accountType = rest.remove(AccountProgress.ACCOUNT_TYPE_KEY);
+		var rows = pairs(rest, "key", "value");
 		if (rows.size() == 0 && !hasItems && !hasVarps && accountType == null) return;
 
 		var payload = new JsonObject();

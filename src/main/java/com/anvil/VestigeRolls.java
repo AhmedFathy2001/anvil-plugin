@@ -63,8 +63,8 @@ final class VestigeRolls {
 	Result record(PluginConfigResponse.RollTable table, int itemId) {
 		if (table == null || table.rollItemIds == null || !table.rollItemIds.contains(itemId)) return null;
 		int cycle = Math.max(2, table.rollsPerVestige);
-		State was = get(table.boss);
-		Result r = advance(was, itemId == table.vestigeItemId, cycle, table.vestigeName);
+		var was = get(table.boss);
+		var r = advance(was, itemId == table.vestigeItemId, cycle, table.vestigeName);
 		put(table.boss, r.state);
 		return r;
 	}
@@ -75,7 +75,7 @@ final class VestigeRolls {
 	 * the plugin wasn't watching) — start the cycle over from this drop and stop claiming exact.
 	 */
 	static Result advance(State was, boolean isVestige, int rollsPerVestige, String vestigeName) {
-		String vestige = vestigeName == null || vestigeName.isEmpty() ? "vestige" : vestigeName;
+		var vestige = vestigeName == null || vestigeName.isEmpty() ? "vestige" : vestigeName;
 		if (isVestige) {
 			return new Result(new State(0, true), true, false,
 				vestige + "! The cycle resets — the next one is " + rollsPerVestige + " rolls away.");
@@ -88,8 +88,8 @@ final class VestigeRolls {
 				"Roll 1 of " + rollsPerVestige + " (estimated — the count was off, re-anchoring)");
 		}
 
-		boolean vestigeNext = next == rollsPerVestige - 1;
-		String line = "Roll " + next + " of " + rollsPerVestige
+		var vestigeNext = next == rollsPerVestige - 1;
+		var line = "Roll " + next + " of " + rollsPerVestige
 			+ (vestigeNext ? " — the next unique is the " + vestige + "!" : "")
 			+ (was.exact ? "" : " (estimated)");
 		return new Result(new State(next, was.exact), false, vestigeNext, line);
@@ -109,12 +109,12 @@ final class VestigeRolls {
 		var out = new VestigeRolls();
 		if (raw == null || raw.trim().isEmpty()) return out;
 		for (String part : raw.split(";")) {
-			String[] kv = part.split("=", 2);
+			var kv = part.split("=", 2);
 			if (kv.length != 2) continue;
-			String[] v = kv[1].split(":", 2);
+			var v = kv[1].split(":", 2);
 			try {
 				int rolls = Integer.parseInt(v[0].trim());
-				boolean exact = v.length > 1 && "1".equals(v[1].trim());
+				var exact = v.length > 1 && "1".equals(v[1].trim());
 				out.byBoss.put(key(kv[0]), new State(Math.max(0, rolls), exact));
 			} catch (NumberFormatException ignored) {
 				// A corrupted entry just loses that boss's count — it re-estimates from the next drop.

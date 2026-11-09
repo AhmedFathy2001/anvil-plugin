@@ -99,7 +99,7 @@ final class ActivityStats {
 		if (wanted == null || wanted.isEmpty()) return out;
 		for (String key : wanted) {
 			if (key == null) continue;
-			String k = key.trim();
+			var k = key.trim();
 			int value;
 			if (CLUES_ALL.equals(k)) {
 				// The clue tiers (the "clues…" sources, in hiscores order) summed.
@@ -108,7 +108,7 @@ final class ActivityStats {
 					if (e.getKey().startsWith("clues")) value += Math.max(0, varbit.applyAsInt(e.getValue().id));
 				}
 			} else {
-				Source s = SOURCES.get(k);
+				var s = SOURCES.get(k);
 				if (s == null) {
 					continue; // a rank-based or unreadable key — the hiscores sweep still covers it
 				}

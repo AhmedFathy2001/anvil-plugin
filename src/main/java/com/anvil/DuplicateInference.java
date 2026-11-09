@@ -21,14 +21,14 @@ final class DuplicateInference {
 
 	/** The one pet {@code source} drops, or null when it drops none or several. */
 	static String petForSource(PluginConfigResponse.DropFacts facts, String source) {
-		String want = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);
+		var want = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);
 		return onlyPet(facts, want, pet -> pet.sources != null
 			&& pet.sources.stream().anyMatch(s -> s != null && s.trim().toLowerCase(Locale.ROOT).equals(want)));
 	}
 
 	/** The one skilling pet {@code skill} gives, or null. */
 	static String petForSkill(PluginConfigResponse.DropFacts facts, String skill) {
-		String want = skill == null ? "" : skill.trim();
+		var want = skill == null ? "" : skill.trim();
 		return onlyPet(facts, want, pet -> "skill".equals(pet.kind) && want.equalsIgnoreCase(pet.skill));
 	}
 
@@ -64,9 +64,9 @@ final class DuplicateInference {
 	/** The champion's scroll item id {@code npc} drops, or null. */
 	static Integer championScrollFor(String npc) {
 		if (npc == null) return null;
-		String n = npc.trim().toLowerCase(Locale.ROOT);
+		var n = npc.trim().toLowerCase(Locale.ROOT);
 		for (Map.Entry<String, Integer> e : CHAMPION_SCROLLS.entrySet()) {
-			String k = e.getKey();
+			var k = e.getKey();
 			if (k.endsWith("*") ? n.startsWith(k.substring(0, k.length() - 1))
 				: k.startsWith("*") ? n.endsWith(k.substring(1)) : n.equals(k)) {
 				return e.getValue();

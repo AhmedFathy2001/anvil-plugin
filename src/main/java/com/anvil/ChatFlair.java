@@ -101,7 +101,7 @@ final class ChatFlair {
 
 	/** Apply a delta onto the version it was made from. False when it doesn't fit (fetch instead). */
 	boolean apply(Wire d) {
-		Held h = held;
+		var h = held;
 		if (d == null || d.from == null || d.from != h.v || h.v <= 0 || Boolean.TRUE.equals(d.full)) return false;
 		TreeMap<String, Entry> set = new TreeMap<>();
 		put(set, d);
@@ -116,7 +116,7 @@ final class ChatFlair {
 		if (w.names == null || w.ix == null || w.styles == null) return;
 		for (int n = 0; n < w.names.length && n < w.ix.length; n++) {
 			int i = w.ix[n];
-			Entry e = i >= 0 && i < w.styles.size() ? w.styles.get(i) : null;
+			var e = i >= 0 && i < w.styles.size() ? w.styles.get(i) : null;
 			if (w.names[n] != null && e != null && ChatPalette.nameColor(e.c) != null) into.put(normalize(w.names[n]), e);
 		}
 	}
@@ -124,7 +124,7 @@ final class ChatFlair {
 	private static Held build(int v, TreeMap<String, Entry> all) {
 		Map<String, Integer> palette = new HashMap<>();
 		List<Entry> styles = new ArrayList<>();
-		String[] names = new String[all.size()];
+		var names = new String[all.size()];
 		char[] ix = new char[all.size()];
 		int n = 0;
 		for (Map.Entry<String, Entry> kv : all.entrySet()) {
@@ -138,12 +138,12 @@ final class ChatFlair {
 		Map<String, Integer> palette = new HashMap<>();
 		List<Entry> styles = new ArrayList<>();
 		for (Entry e : h.styles) intern(palette, styles, e);
-		String[] names = new String[h.names.length + set.size()];
+		var names = new String[h.names.length + set.size()];
 		char[] ix = new char[names.length];
 		int n = 0;
 		int i = 0;
 		java.util.Iterator<Map.Entry<String, Entry>> it = set.entrySet().iterator();
-		Map.Entry<String, Entry> next = it.hasNext() ? it.next() : null;
+		var next = it.hasNext() ? it.next() : null;
 		while (i < h.names.length || next != null) {
 			int cmp = next == null ? -1 : i >= h.names.length ? 1 : h.names[i].compareTo(next.getKey());
 			if (cmp < 0) {
@@ -167,8 +167,8 @@ final class ChatFlair {
 	}
 
 	private static int intern(Map<String, Integer> palette, List<Entry> styles, Entry e) {
-		String key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s) + "|" + e.d + "|" + e.l;
-		Integer i = palette.get(key);
+		var key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s) + "|" + e.d + "|" + e.l;
+		var i = palette.get(key);
 		if (i == null) {
 			palette.put(key, i = styles.size());
 			styles.add(e);
@@ -179,14 +179,14 @@ final class ChatFlair {
 	/** The look a (normalized) name wears, or null. */
 	Entry entry(String name) {
 		if (name == null) return null;
-		Held h = held;
+		var h = held;
 		int at = Arrays.binarySearch(h.names, normalize(name));
 		return at >= 0 ? h.styles[h.ix[at]] : null;
 	}
 
 	/** The list as a whole download (for the disk copy). */
 	Wire toWire() {
-		Held h = held;
+		var h = held;
 		var w = new Wire();
 		w.v = h.v;
 		w.names = h.names;
@@ -224,9 +224,9 @@ final class ChatFlair {
 	 */
 	String tierOfSender(String widgetText) {
 		if (widgetText == null || isEmpty()) return null;
-		Matcher m = SENDER_COLUMN.matcher(TAGS.matcher(widgetText).replaceAll("").trim());
+		var m = SENDER_COLUMN.matcher(TAGS.matcher(widgetText).replaceAll("").trim());
 		if (!m.matches()) return null;
-		Entry e = entry(m.group(1));
+		var e = entry(m.group(1));
 		return e == null ? null : tierLabel(e);
 	}
 
@@ -256,16 +256,16 @@ final class ChatFlair {
 			plain.append(ch == '\u00A0' ? ' ' : Character.toLowerCase(ch));
 			at.add(i);
 		}
-		String text = plain.toString();
+		var text = plain.toString();
 		// Every place a painted word starts, and the bounded names that could start there:
 		// a handful of lookups per line, however long the list.
 		for (int from = 0; from < text.length(); from++) {
 			if (from > 0 && Character.isLetterOrDigit(text.charAt(from - 1)) || !Character.isLetterOrDigit(text.charAt(from))) continue;
-			String before = raw.substring(0, at.get(from));
+			var before = raw.substring(0, at.get(from));
 			if (!paintedJustBefore(before)) continue;
 			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 				if (to < text.length() && Character.isLetterOrDigit(text.charAt(to))) continue;
-				Entry e = entry(text.substring(from, to));
+				var e = entry(text.substring(from, to));
 				if (e == null) continue;
 				int x0 = width.applyAsInt(before);
 				int x1 = width.applyAsInt(raw.substring(0, at.get(to - 1) + 1));
@@ -301,32 +301,32 @@ final class ChatFlair {
 	 * this so a pushed name matches the same name in chat.
 	 */
 	String paintNameFor(String safeName, boolean opaque) {
-		Entry e = safeName == null || safeName.isEmpty() ? null : entry(safeName);
+		var e = safeName == null || safeName.isEmpty() ? null : entry(safeName);
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
 	private String decorate(String sender, String star, double shift, Boolean opaque) {
 		if (sender == null || isEmpty()) return null;
-		Matcher m = SENDER.matcher(sender);
+		var m = SENDER.matcher(sender);
 		if (!m.matches()) return null;
-		String name = m.group(2);
-		Entry e = entry(name);
+		var name = m.group(2);
+		var e = entry(name);
 		if (e == null) return null;
-		List<String> stops = opaque == null ? e.g : readableGradient(e, opaque);
-		String color = opaque == null ? ChatPalette.nameColor(e.c) : readableColor(e, opaque);
-		String painted = ChatPalette.paintName(name, color, stops, Boolean.TRUE.equals(e.s) ? shift : 0);
+		var stops = opaque == null ? e.g : readableGradient(e, opaque);
+		var color = opaque == null ? ChatPalette.nameColor(e.c) : readableColor(e, opaque);
+		var painted = ChatPalette.paintName(name, color, stops, Boolean.TRUE.equals(e.s) ? shift : 0);
 		if (painted == null) return null;
-		boolean starred = Boolean.TRUE.equals(e.s) && star != null;
+		var starred = Boolean.TRUE.equals(e.s) && star != null;
 		return m.group(1) + (starred ? star : "") + painted;
 	}
 
 	private static String readableColor(Entry e, boolean opaque) {
-		String cached = opaque ? e.opaqueColor : e.darkColor;
+		var cached = opaque ? e.opaqueColor : e.darkColor;
 		if (cached != null) return cached;
-		Surface own = opaque ? e.l : e.d;
-		String picked = own == null ? null : ChatPalette.nameColor(own.c);
-		String source = ChatPalette.nameColor(e.c);
-		String derived = picked != null ? picked : source == null ? null : ChatPalette.readableHex(source, opaque);
+		var own = opaque ? e.l : e.d;
+		var picked = own == null ? null : ChatPalette.nameColor(own.c);
+		var source = ChatPalette.nameColor(e.c);
+		var derived = picked != null ? picked : source == null ? null : ChatPalette.readableHex(source, opaque);
 		if (opaque) {
 			e.opaqueColor = derived;
 		} else e.darkColor = derived;
@@ -334,15 +334,15 @@ final class ChatFlair {
 	}
 
 	private static List<String> readableGradient(Entry e, boolean opaque) {
-		List<String> cached = opaque ? e.opaqueGradient : e.darkGradient;
-		Surface own = opaque ? e.l : e.d;
-		boolean picked = own != null && ChatPalette.nameColor(own.c) != null;
+		var cached = opaque ? e.opaqueGradient : e.darkGradient;
+		var own = opaque ? e.l : e.d;
+		var picked = own != null && ChatPalette.nameColor(own.c) != null;
 		if (cached != null || (e.g == null && !picked)) return cached;
 		// The owner's own surface look is exactly what they chose: a solid one also drops the gradient here.
 		List<String> source = picked ? (own.g == null ? new ArrayList<>() : own.g) : e.g;
 		List<String> derived = new ArrayList<>(source.size());
 		for (String stop : source) {
-			String hex = ChatPalette.nameColor(stop);
+			var hex = ChatPalette.nameColor(stop);
 			if (hex != null) derived.add("#" + (picked ? hex : ChatPalette.readableHex(hex, opaque)));
 		}
 		if (opaque) {
@@ -407,13 +407,13 @@ final class ChatFlair {
 	 */
 	static int chatKind(String raw, String clan, String group, String channel, String me) {
 		if (raw == null || raw.indexOf(':') < 0) return 0;
-		Matcher m = SENDER_SHOWN.matcher(shown(raw).text);
+		var m = SENDER_SHOWN.matcher(shown(raw).text);
 		if (!m.matches() || !m.group(4).trim().isEmpty()) return 0;
 		if (m.group(2) != null) return PM;
-		Matcher b = BRACKET.matcher(m.group(1));
-		boolean bracket = false;
+		var b = BRACKET.matcher(m.group(1));
+		var bracket = false;
 		while (b.find()) {
-			String g = b.group(1).trim();
+			var g = b.group(1).trim();
 			if (Rsn.same(g, clan)) return Rsn.same(m.group(3), me) ? CLAN_SELF : CLAN_OTHERS;
 			if (Rsn.same(g, group)) return GROUP;
 			if (Rsn.same(g, channel)) return CHANNEL;
@@ -455,8 +455,8 @@ final class ChatFlair {
 
 	private String paintSender(String raw, String star, boolean opaque, boolean pmLine, double shift) {
 		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0) return null;
-		Shown s = shown(raw);
-		Matcher m = SENDER_SHOWN.matcher(s.text);
+		var s = shown(raw);
+		var m = SENDER_SHOWN.matcher(s.text);
 		// A sender column ends at the colon; a split-PM line is "From/To Name: …". A typed "[Clan] Bob: hi"
 		// in a message widget is neither.
 		if (!m.matches() || (pmLine ? m.group(2) == null : !m.group(4).trim().isEmpty())) return null;
@@ -470,21 +470,21 @@ final class ChatFlair {
 	/** Whether a validated sender column belongs to a Patron with a movable gradient. */
 	boolean movingSender(String raw) {
 		if (raw == null || raw.isEmpty()) return false;
-		Matcher m = SENDER_SHOWN.matcher(shown(raw).text);
+		var m = SENDER_SHOWN.matcher(shown(raw).text);
 		if (!m.matches()) return false;
-		String name = m.group(3).trim();
+		var name = m.group(3).trim();
 		return name.length() <= MAX_NAME_LENGTH && movingName(name);
 	}
 
 	/** Whether this name belongs to a Patron with a movable gradient. */
 	boolean movingName(String name) {
-		Entry e = entry(name);
+		var e = entry(name);
 		return e != null && Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2;
 	}
 
 	/** Whether an icon-prefixed plain sender/name belongs to a Patron with a movable gradient. */
 	boolean movingDecoratedName(String sender) {
-		Matcher m = sender == null ? null : SENDER.matcher(sender);
+		var m = sender == null ? null : SENDER.matcher(sender);
 		return m != null && m.matches() && movingName(m.group(2));
 	}
 
@@ -496,7 +496,7 @@ final class ChatFlair {
 	static boolean senderColumn(int i, int n, IntUnaryOperator x, IntUnaryOperator y,
 		java.util.function.IntFunction<String> text) {
 		for (int j = i + 1; j < n && j <= i + 3; j++) {
-			String t = text.apply(j);
+			var t = text.apply(j);
 			if (t != null && !t.isEmpty() && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) > x.applyAsInt(i)) return true;
 		}
 		return false;
@@ -509,7 +509,7 @@ final class ChatFlair {
 	static boolean typedBySomeone(int i, IntUnaryOperator x, IntUnaryOperator y,
 		java.util.function.IntFunction<String> text) {
 		for (int j = i - 1; j >= 0 && j >= i - 3; j--) {
-			String t = text.apply(j);
+			var t = text.apply(j);
 			if (t != null && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) < x.applyAsInt(i) && column(t)) return true;
 		}
 		return false;
@@ -525,7 +525,7 @@ final class ChatFlair {
 	 */
 	static boolean makeRoom(int at, int d, int need, int n, int[] ax, int[] ay, int[] x, int[] w, boolean[] shown, int[] recX, int[] recW) {
 		if (d <= 0) return false;
-		boolean moved = false;
+		var moved = false;
 		if (w[at] != recW[at]) {
 			w[at] += d;
 			recW[at] = w[at];
@@ -579,9 +579,9 @@ final class ChatFlair {
 	/** A player-menu target at one point in the Patron animation cycle. */
 	String paintMenuTarget(String target, String name, boolean override, double shift) {
 		if (target == null || name == null || isEmpty()) return null;
-		String d = decorateReadable(name, null, shift, false);
+		var d = decorateReadable(name, null, shift, false);
 		if (d == null) return null;
-		Shown s = shown(target);
+		var s = shown(target);
 		int from = s.text.indexOf(name.replace('\u00A0', ' '));
 		if (from < 0) return null;
 		int rs = s.at[from];
@@ -597,8 +597,8 @@ final class ChatFlair {
 			if (col == null && target.startsWith("<col=", open)) col = target.substring(open + 5, start - 1);
 			start = open;
 		}
-		boolean theirs = !override && col != null && !col.equalsIgnoreCase("ffffff");
-		String plain = s.text.substring(from, from + name.length());
+		var theirs = !override && col != null && !col.equalsIgnoreCase("ffffff");
+		var plain = s.text.substring(from, from + name.length());
 		if (theirs && target.substring(rs, re).equals(plain)) return null;
 		// Our paint ends with its own close: an old one after the name goes, or a repaint every tick would pile them up.
 		while (target.startsWith("</col>", re)) re += 6;
@@ -611,7 +611,7 @@ final class ChatFlair {
 
 	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
 	static boolean column(String raw) {
-		String t = shown(raw).text.trim();
+		var t = shown(raw).text.trim();
 		return t.endsWith(":");
 	}
 
@@ -621,7 +621,7 @@ final class ChatFlair {
 	 */
 	static String clanTitleSuffix(String text, String name) {
 		if (text == null || name == null || name.isEmpty()) return null;
-		String plain = AnvilPlugin.MARKUP_TAG.matcher(text).replaceAll("");
+		var plain = AnvilPlugin.MARKUP_TAG.matcher(text).replaceAll("");
 		if (!plain.regionMatches(true, 0, name, 0, name.length())) return null;
 		if (plain.length() == name.length()) return "";
 		char next = plain.charAt(name.length());
@@ -672,7 +672,7 @@ final class ChatFlair {
 	 */
 	String leadKey(String raw) {
 		if (raw == null || raw.isEmpty() || isEmpty()) return null;
-		Shown s = shown(raw);
+		var s = shown(raw);
 		return leadName(s) < 0 ? null : key(s);
 	}
 
@@ -682,7 +682,7 @@ final class ChatFlair {
 	}
 
 	private static String key(Shown s) {
-		Matcher m = LEAD.matcher(s.text);
+		var m = LEAD.matcher(s.text);
 		return m.lookingAt() ? s.text.substring(m.end()) : s.text;
 	}
 
@@ -694,10 +694,10 @@ final class ChatFlair {
 	/** A broadcast's leading name at one point in the Patron animation cycle. */
 	String paintLead(String raw, String star, boolean opaque, double shift) {
 		if (raw == null || raw.isEmpty() || isEmpty()) return null;
-		Shown s = shown(raw);
+		var s = shown(raw);
 		int end = leadName(s);
 		if (end < 0) return null;
-		Matcher m = LEAD.matcher(s.text);
+		var m = LEAD.matcher(s.text);
 		int from = m.lookingAt() ? m.end() : 0;
 		return paintAt(raw, s, from, end, star, opaque, shift);
 	}
@@ -705,10 +705,10 @@ final class ChatFlair {
 	/** Whether a broadcast begins with a Patron name whose gradient should move. */
 	boolean movingLead(String raw) {
 		if (raw == null || raw.isEmpty()) return false;
-		Shown s = shown(raw);
+		var s = shown(raw);
 		int end = leadName(s);
 		if (end < 0) return false;
-		Matcher m = LEAD.matcher(s.text);
+		var m = LEAD.matcher(s.text);
 		int from = m.lookingAt() ? m.end() : 0;
 		return movingName(s.text.substring(from, end));
 	}
@@ -719,15 +719,15 @@ final class ChatFlair {
 	 */
 	String paintNames(String raw, boolean opaque, double shift) {
 		if (raw == null || raw.isEmpty() || isEmpty()) return null;
-		Shown shown = shown(raw);
-		String out = raw;
-		boolean changed = false;
+		var shown = shown(raw);
+		var out = raw;
+		var changed = false;
 		for (int from = shown.text.length() - 1; from >= 0; from--) {
 			if (from > 0 && nameChar(shown.text.charAt(from - 1))) continue;
 			int limit = Math.min(shown.text.length(), from + MAX_NAME_LENGTH);
 			for (int to = limit; to > from; to--) {
 				if (to < shown.text.length() && nameChar(shown.text.charAt(to)) || entry(shown.text.substring(from, to)) == null) continue;
-				String painted = paintAt(out, shown, from, to, null, opaque, shift);
+				var painted = paintAt(out, shown, from, to, null, opaque, shift);
 				if (painted != null) {
 					out = painted;
 					changed = true;
@@ -741,7 +741,7 @@ final class ChatFlair {
 	/** Whether a trusted interface text contains at least one moving Patron name. */
 	boolean movingNames(String raw) {
 		if (raw == null || raw.isEmpty()) return false;
-		String text = shown(raw).text;
+		var text = shown(raw).text;
 		for (int from = 0; from < text.length(); from++) {
 			if (from > 0 && nameChar(text.charAt(from - 1))) continue;
 			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
@@ -757,8 +757,8 @@ final class ChatFlair {
 	 * and is on the list.
 	 */
 	private int leadName(Shown s) {
-		String t = s.text;
-		Matcher m = LEAD.matcher(t);
+		var t = s.text;
+		var m = LEAD.matcher(t);
 		int from = m.lookingAt() ? m.end() : 0;
 		for (int to = Math.min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 			if (!Character.isLetterOrDigit(t.charAt(to - 1)) || to < t.length() && nameChar(t.charAt(to))) continue;
@@ -779,15 +779,15 @@ final class ChatFlair {
 	private String paintAt(String raw, Shown s, int from, int to, String star, boolean opaque, double shift) {
 		int rs = s.at[from];
 		int re = s.at[to - 1] + 1;
-		String name = raw.substring(rs, re);
+		var name = raw.substring(rs, re);
 		if (name.indexOf('<') >= 0) return null;
-		String d = decorateReadable(name, star, shift, opaque);
+		var d = decorateReadable(name, star, shift, opaque);
 		if (d == null) return null;
 		int k = shown(d).at[0];
 		if (rs >= k && raw.startsWith(d.substring(0, k), rs - k)) return null;
-		String before = raw.substring(0, rs);
+		var before = raw.substring(0, rs);
 		int open = before.lastIndexOf("<col=");
-		String reopen = open >= 0 && open > before.lastIndexOf("</col>") && before.indexOf('>', open) > 0
+		var reopen = open >= 0 && open > before.lastIndexOf("</col>") && before.indexOf('>', open) > 0
 			? before.substring(open, before.indexOf('>', open) + 1) : "";
 		return before + d + reopen + raw.substring(re);
 	}

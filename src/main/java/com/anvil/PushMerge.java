@@ -18,9 +18,9 @@ final class PushMerge {
 	 * tile; null when we have none).
 	 */
 	static JsonObject merge(JsonObject held, JsonObject team, JsonObject mine) {
-		JsonObject out = held.deepCopy();
+		var out = held.deepCopy();
 		for (Map.Entry<String, JsonElement> e : team.deepCopy().entrySet()) {
-			JsonElement cur = out.get(e.getKey());
+			var cur = out.get(e.getKey());
 			if (cur != null && cur.isJsonObject() && e.getValue().isJsonObject()) {
 				for (Map.Entry<String, JsonElement> f : e.getValue().getAsJsonObject().entrySet()) cur.getAsJsonObject().add(f.getKey(), f.getValue());
 			} else {
@@ -31,15 +31,15 @@ final class PushMerge {
 				out.add(e.getKey(), e.getValue());
 			}
 		}
-		JsonObject c = mine != null && mine.has("c") ? mine.getAsJsonObject("c") : new JsonObject();
+		var c = mine != null && mine.has("c") ? mine.getAsJsonObject("c") : new JsonObject();
 		for (Map.Entry<String, JsonElement> e : out.entrySet()) {
 			// The tracked lists carry tileId/currentAmount, the count list ({@code tiles}) t/have.
-			boolean counts = e.getKey().equals("tiles");
+			var counts = e.getKey().equals("tiles");
 			if ((counts || e.getKey().startsWith("tracked")) && e.getValue().isJsonArray()) {
 				for (JsonElement row : e.getValue().getAsJsonArray()) {
-					JsonObject r = row.isJsonObject() ? row.getAsJsonObject() : null;
-					JsonElement id = r == null ? null : r.get(counts ? "t" : "tileId");
-					String tile = id == null ? null : id.getAsString();
+					var r = row.isJsonObject() ? row.getAsJsonObject() : null;
+					var id = r == null ? null : r.get(counts ? "t" : "tileId");
+					var tile = id == null ? null : id.getAsString();
 					if (tile != null && c.has(tile)) r.add(counts ? "have" : "currentAmount", c.get(tile));
 				}
 			}

@@ -91,7 +91,7 @@ final class ChatPatterns {
 		if (!defaults.isEmpty()) return;
 		try (InputStream in = ChatPatterns.class.getResourceAsStream("chat-patterns.json");
 			Reader r = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-			Catalog c = gson.fromJson(r, Catalog.class);
+			var c = gson.fromJson(r, Catalog.class);
 			Map<String, Entry> e = new HashMap<>();
 			Map<String, Pattern> d = new HashMap<>();
 			for (Entry p : c.patterns) {
@@ -107,7 +107,7 @@ final class ChatPatterns {
 
 	/** The live pattern for a key: the site's override if one was accepted, else the default. */
 	static Pattern get(String key) {
-		Pattern p = live.patterns.get(key);
+		var p = live.patterns.get(key);
 		if (p == null) p = defaults.get(key);
 		return p == null ? NEVER : p;
 	}
@@ -123,12 +123,12 @@ final class ChatPatterns {
 	}
 
 	private static Matcher match(String key, String text, boolean whole) {
-		Live l = live;
-		Pattern o = l.patterns.get(key);
+		var l = live;
+		var o = l.patterns.get(key);
 		if (o != null) {
-			String hint = l.hints.get(key);
+			var hint = l.hints.get(key);
 			if (hint != null && !text.contains(hint)) return null;
-			Matcher m = o.matcher(new Budgeted(text, LINE_BUDGET));
+			var m = o.matcher(new Budgeted(text, LINE_BUDGET));
 			try {
 				return (whole ? m.matches() : m.find()) ? m : null;
 			} catch (BudgetExceeded ex) {
@@ -136,15 +136,15 @@ final class ChatPatterns {
 				// fall through to the default — this line still deserves a reading
 			}
 		}
-		Pattern p = defaults.get(key);
+		var p = defaults.get(key);
 		if (p == null) return null;
-		Matcher m = p.matcher(text);
+		var m = p.matcher(text);
 		return (whole ? m.matches() : m.find()) ? m : null;
 	}
 
 	/** Retire an override that overspent on a real line. Only if it is still the live one. */
 	private static synchronized void drop(String key, Pattern bad) {
-		Live l = live;
+		var l = live;
 		if (l.patterns.get(key) != bad) return;
 		Map<String, Pattern> next = new HashMap<>(l.patterns);
 		next.remove(key);
@@ -159,12 +159,12 @@ final class ChatPatterns {
 	 * every chat line. An overridden key skips it: the new wording may not carry the old phrase.
 	 */
 	static boolean mayMatch(String key, String text) {
-		Live l = live;
+		var l = live;
 		if (l.patterns.containsKey(key)) {
-			String hint = l.hints.get(key);
+			var hint = l.hints.get(key);
 			return hint == null || text.contains(hint);
 		}
-		Entry e = entries.get(key);
+		var e = entries.get(key);
 		return e == null || e.hint == null || text.contains(e.hint);
 	}
 
@@ -179,7 +179,7 @@ final class ChatPatterns {
 		if (list != null) {
 			for (SiteOverride o : list) {
 				if (o == null || o.key == null || o.regex == null) continue;
-				Entry e = entries.get(o.key);
+				var e = entries.get(o.key);
 				if (e == null) {
 					rejected.add(o.key + ": unknown key");
 					continue;
@@ -210,7 +210,7 @@ final class ChatPatterns {
 		} catch (PatternSyntaxException ex) {
 			throw new IllegalArgumentException("does not compile: " + ex.getDescription());
 		}
-		Matcher m = probe.matcher("");
+		var m = probe.matcher("");
 		if (!m.matches()) throw new IllegalArgumentException("does not compile cleanly");
 		for (String g : e.groups) {
 			try {

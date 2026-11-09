@@ -87,9 +87,9 @@ public class BingoClogBannerOverlay extends Overlay {
 
 	/** Backwards-compatible entry point used by the existing drop call site. */
 	public boolean show(String label, int current, int required) {
-		boolean complete = current >= required;
-		String middle = complete ? "Tile complete!" : "Progress:";
-		String bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
+		var complete = current >= required;
+		var middle = complete ? "Tile complete!" : "Progress:";
+		var bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
 		return show("Anvil Bingo", middle, bottom);
 	}
 
@@ -110,12 +110,12 @@ public class BingoClogBannerOverlay extends Overlay {
 	public Dimension render(Graphics2D g) {
 		if (background == null || AnvilPlugin.capturing) return null;
 
-		long now = System.currentTimeMillis();
-		long hEnd = H_EXPAND_MS;
-		long vEnd = hEnd + V_EXPAND_MS;
-		long holdEnd = vEnd + HOLD_MS;
+		var now = System.currentTimeMillis();
+		var hEnd = H_EXPAND_MS;
+		var vEnd = hEnd + V_EXPAND_MS;
+		var holdEnd = vEnd + HOLD_MS;
 		long vCollapseEnd = holdEnd + V_COLLAPSE_MS;
-		long total = vCollapseEnd + H_COLLAPSE_MS;
+		var total = vCollapseEnd + H_COLLAPSE_MS;
 
 		if (active == null || now - startedAt >= total) {
 			active = queue.poll();
@@ -130,7 +130,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		long e = now - startedAt;
 
 		// w/h = current panel size; line = just the thin opening/closing line (no bg/text yet).
-		boolean line = e < hEnd || e >= vCollapseEnd;
+		var line = e < hEnd || e >= vCollapseEnd;
 		float w = BASE_W;
 		float h = line ? LINE_H : BASE_H;
 		if (e < hEnd) {
@@ -192,9 +192,9 @@ public class BingoClogBannerOverlay extends Overlay {
 	 *  first (line-height 1); extra lines advance downward by {@link #WRAP_LINE_H}. */
 	private static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY) {
 		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics();
+		var fm = g.getFontMetrics();
 		for (int i = 0; i < lines.size(); i++) {
-			String shown = lines.get(i);
+			var shown = lines.get(i);
 			int x = (BASE_W - fm.stringWidth(shown)) / 2;
 			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
 			g.setColor(SHADOW);
@@ -217,7 +217,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		}
 		var line = new StringBuilder();
 		for (String word : text.split("\\s+")) {
-			String trial = line.length() == 0 ? word : line + " " + word;
+			var trial = line.length() == 0 ? word : line + " " + word;
 			if (fm.stringWidth(trial) <= maxWidth) {
 				line.setLength(0);
 				line.append(trial);
@@ -246,7 +246,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	/** Trims {@code text} with a trailing ellipsis so it fits within {@code maxWidth} px. */
 	private static String truncate(String text, FontMetrics fm, int maxWidth) {
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) return text;
-		String ellipsis = "...";
+		var ellipsis = "...";
 		int ellipsisW = fm.stringWidth(ellipsis);
 		int end = text.length();
 		while (end > 0 && fm.stringWidth(text.substring(0, end)) + ellipsisW > maxWidth) end--;

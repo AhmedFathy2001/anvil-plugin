@@ -117,7 +117,7 @@ class AnvilMoments {
 	 * {@code source} leaves the queued one alone: the caller learned nothing better.
 	 */
 	synchronized boolean nameQueued(String key, String itemName, Integer itemId, String source, Integer kc) {
-		Moment existing = pending.get(key);
+		var existing = pending.get(key);
 		if (existing == null || itemName == null || itemName.isEmpty()) return false;
 		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
 			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
@@ -185,7 +185,7 @@ class AnvilMoments {
 	 * second genuine drop of the same item minutes later does not.
 	 */
 	static String keyFor(String kind, String source, Integer itemId, long at) {
-		long bucket = at / 10_000L;
+		var bucket = at / 10_000L;
 		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
 			+ (itemId == null ? "" : itemId) + "|" + bucket;
 	}

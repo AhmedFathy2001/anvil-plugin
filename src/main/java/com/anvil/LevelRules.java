@@ -38,7 +38,7 @@ public class LevelRules {
 	 */
 	static Sets resolve(PluginConfigResponse cfg, boolean clanChannel, PluginConfigResponse.ModeThresholds mode) {
 		if (mode != null) return new Sets(clanChannel ? mode.levelRules : null, null);
-		Sets s = cfg != null && cfg.levelRules != null ? cfg.levelRules : new Sets();
+		var s = cfg != null && cfg.levelRules != null ? cfg.levelRules : new Sets();
 		return new Sets(clanChannel ? s.clan : null, s.personal);
 	}
 

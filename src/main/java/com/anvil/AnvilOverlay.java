@@ -41,12 +41,12 @@ public class AnvilOverlay extends OverlayPanel {
 	public Dimension render(Graphics2D graphics) {
 		if (!config.showOverlay() || AnvilPlugin.capturing) return null;
 
-		PluginConfigResponse pluginConfig = plugin.getPluginConfig();
+		var pluginConfig = plugin.getPluginConfig();
 		if (pluginConfig == null || pluginConfig.event == null) return null;
 		if (pluginConfig != builtFor) build(pluginConfig);
 
 		// Don't show overlay if event isn't active
-		long now = System.currentTimeMillis();
+		var now = System.currentTimeMillis();
 		if (!within(window, Instant.ofEpochMilli(now))) return null;
 
 		panelComponent.getChildren().add(TITLE);

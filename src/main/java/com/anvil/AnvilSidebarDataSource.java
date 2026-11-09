@@ -29,54 +29,54 @@ public class AnvilSidebarDataSource {
 
 	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
 	public boolean seasonalSharingOffered() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		return p != null && p.seasonalSharingOffered();
 	}
 
 	public boolean shareSeasonal() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		return p != null && p.shareSeasonal();
 	}
 
 	public void setShareSeasonal(boolean on) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) p.setShareSeasonal(on);
 	}
 
 	/** Hand the keyboard back to the game canvas. */
 	public void gameFocus() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) p.gameFocus();
 	}
 
 	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
 	public void feedOnScreen(boolean on) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) p.feedOnScreen(on);
 	}
 
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
 	private void withPlugin(Consumer<AnvilPlugin> f) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) f.accept(p);
 	}
 
 	/** {@code f} of the bound plugin, or {@code none} when there isn't one. */
 	private <T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		return p == null ? none : f.apply(p);
 	}
 
 	/** Actions available for the clan on screen. Never null. */
 	public PanelActions actionsFor() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p == null) return PanelActions.NONE;
-		boolean profile = p.canSyncProfileFromPanel();
+		var profile = p.canSyncProfileFromPanel();
 		if (!p.isAdmin()) return new PanelActions(false, profile, null);
 		// Admin — but the roster comes from the clan channel, so it has to be readable. The CACHED
 		// answer: this runs while the panel paints, on the EDT, where asking the client directly is a
 		// thread violation.
-		boolean scrape = p.isClanRosterReadable();
+		var scrape = p.isClanRosterReadable();
 		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
 	}
 
@@ -208,7 +208,7 @@ public class AnvilSidebarDataSource {
 
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	public void captureStartProof() {
-		Runnable capture = startProofCapture;
+		var capture = startProofCapture;
 		if (capture != null) capture.run();
 	}
 
@@ -228,7 +228,7 @@ public class AnvilSidebarDataSource {
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
 	public void lookupNames(Consumer<LookupSuggestions.Names> then) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p == null) {
 			then.accept(LookupSuggestions.Names.EMPTY);
 			return;

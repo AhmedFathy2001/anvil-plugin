@@ -109,7 +109,7 @@ final class DeathAttribution {
 			}
 		}
 		String newest = null;
-		long newestAt = Long.MIN_VALUE;
+		var newestAt = Long.MIN_VALUE;
 		for (Map.Entry<String, Long> entry : attackers.entrySet()) {
 			if (entry.getValue() >= newestAt) {
 				newestAt = entry.getValue();

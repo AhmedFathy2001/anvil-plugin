@@ -46,7 +46,7 @@ final class ClanCofferTracker {
 
 	/** Remember a server-authored coffer line only when it names this account (or says “you”). */
 	void onChatLine(String line, String localRsn, long now) {
-		Kind action = selfAction(line, localRsn);
+		var action = selfAction(line, localRsn);
 		if (action != null) {
 			recentSelfAction = action;
 			recentSelfActionAt = now;
@@ -68,8 +68,8 @@ final class ClanCofferTracker {
 		int before = lastBalance;
 		if (before == balance) return null;
 
-		Kind kind = balance > before ? Kind.DEPOSIT : Kind.WITHDRAWAL;
-		boolean confirmed = recentSelfAction == kind
+		var kind = balance > before ? Kind.DEPOSIT : Kind.WITHDRAWAL;
+		var confirmed = recentSelfAction == kind
 			&& now >= recentSelfActionAt
 			&& now - recentSelfActionAt <= ACTOR_WINDOW_MS;
 		lastBalance = balance;
@@ -81,13 +81,13 @@ final class ClanCofferTracker {
 
 	static Kind selfAction(String line, String localRsn) {
 		if (line == null) return null;
-		String plain = AnvilPlugin.MARKUP_TAG.matcher(line).replaceAll("").trim();
-		String lower = plain.toLowerCase(Locale.ROOT);
+		var plain = AnvilPlugin.MARKUP_TAG.matcher(line).replaceAll("").trim();
+		var lower = plain.toLowerCase(Locale.ROOT);
 		if (!lower.contains("coffer")) return null;
-		boolean namesSelf = lower.startsWith("you ") || lower.startsWith("you've ");
-		String self = Rsn.normalize(localRsn);
+		var namesSelf = lower.startsWith("you ") || lower.startsWith("you've ");
+		var self = Rsn.normalize(localRsn);
 		if (!namesSelf && !self.isEmpty()) {
-			String normalizedLine = Rsn.normalize(plain);
+			var normalizedLine = Rsn.normalize(plain);
 			namesSelf = normalizedLine.equals(self) || normalizedLine.startsWith(self + " ");
 		}
 		if (!namesSelf) return null;

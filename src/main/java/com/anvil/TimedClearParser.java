@@ -128,13 +128,13 @@ final class TimedClearParser {
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */
 	static Integer parseDurationSeconds(String message) {
 		if (message == null) return null;
-		String lower = message.toLowerCase();
+		var lower = message.toLowerCase();
 		// A ToA per-room / per-challenge sub-time — never the raid clear time. Ignore it so a
 		// slow raid can't pass a timed tile off a fast final room (see RAID_SUBTIME).
 		if (ChatPatterns.find("timed.raid_subtime", lower) != null) return null;
-		Matcher m = ChatPatterns.find("timed.duration", lower);
+		var m = ChatPatterns.find("timed.duration", lower);
 		if (m == null) return null;
-		String[] p = m.group("time").split(":");
+		var p = m.group("time").split(":");
 		try {
 			int s = clockSeconds(p[0], p[1], p.length == 3 ? p[2] : null);
 			return s > 0 ? s : null;
@@ -144,8 +144,8 @@ final class TimedClearParser {
 	}
 
 	static List<String> signaturesFor(String activity) {
-		String a = norm(activity);
-		List<String> s = SIGNATURES.get(a);
+		var a = norm(activity);
+		var s = SIGNATURES.get(a);
 		if (s != null) return s;
 		return a.isEmpty() ? Collections.emptyList() : Collections.singletonList(a);
 	}
@@ -180,7 +180,7 @@ final class TimedClearParser {
 	/** True when {@code message} contains any of the activity's identifying signatures. */
 	static boolean messageMatchesActivity(String message, String activity) {
 		if (message == null) return false;
-		String nmsg = norm(message);
+		var nmsg = norm(message);
 		// Every signature is already in norm() form: the table is written that way, the fallback is norm()ed.
 		for (String sig : signaturesFor(activity)) {
 			if (nmsg.contains(sig)) return true;
@@ -206,10 +206,10 @@ final class TimedClearParser {
 	/** {course, rank} from a Barracuda Trials completion line, or null if this line isn't one. */
 	static String[] parseTrialCompletion(String message) {
 		if (message == null) return null;
-		Matcher m = ChatPatterns.find("timed.trial_completion", message.toLowerCase());
+		var m = ChatPatterns.find("timed.trial_completion", message.toLowerCase());
 		if (m == null) return null;
-		String course = norm(m.group("course"));
-		String rank = m.group("rank");
+		var course = norm(m.group("course"));
+		var rank = m.group("rank");
 		for (String c : TRIAL_COURSES) {
 			if (course.endsWith(c)) {
 				for (String r : TRIAL_RANKS) {
@@ -224,11 +224,11 @@ final class TimedClearParser {
 
 	/** {course, rank} a tile's activity targets (e.g. "Gwenith Glide — Marlin"), or null if it's not a rank tile. */
 	static String[] trialTileTarget(String activity) {
-		String a = norm(activity);
+		var a = norm(activity);
 		if (a.isEmpty()) return null;
 		for (String r : TRIAL_RANKS) {
 			if (a.endsWith(" " + r)) {
-				String course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
+				var course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
 				for (String c : TRIAL_COURSES) {
 					if (course.equals(c) || course.endsWith(c)) {
 						return new String[]{ c, r };

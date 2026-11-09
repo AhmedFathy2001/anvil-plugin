@@ -109,7 +109,7 @@ final class NotifyOutbox {
 		}
 		int i = 0;
 		while (i < kept.size() && (kept.size() - i > maxItems || bytes > maxBytes)) {
-			Item oldest = kept.get(i++);
+			var oldest = kept.get(i++);
 			bytes -= Math.max(0, oldest.pngBytes);
 			evict.add(oldest);
 		}
@@ -125,14 +125,14 @@ final class NotifyOutbox {
 				pngs.add(f);
 				continue;
 			}
-			Item it = DiskFiles.readJson(gson, f, Item.class);
+			var it = DiskFiles.readJson(gson, f, Item.class);
 			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json")) {
 				found.add(it);
 			} else DiskFiles.deleteQuietly(f);
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
 		for (Filepath png : pngs) {
-			String id = png.getFileName().substring(0, png.getFileName().length() - 4);
+			var id = png.getFileName().substring(0, png.getFileName().length() - 4);
 			if (found.stream().noneMatch(it -> it.id.equals(id))) DiskFiles.deleteQuietly(png);
 		}
 		if (found.isEmpty()) return;
@@ -149,7 +149,7 @@ final class NotifyOutbox {
 
 	/** Keep a notification that just failed to send. Blocking (disk); never on the client thread. */
 	void enqueue(Item item, byte[] png) {
-		Filepath d = DiskFiles.ensureDir(dir);
+		var d = DiskFiles.ensureDir(dir);
 		item.pngBytes = png == null ? 0 : png.length;
 		if (d != null) {
 			try {
@@ -198,17 +198,17 @@ final class NotifyOutbox {
 
 	/** Call with the monitor held. */
 	private void prune(long now) {
-		List<Item> evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, MAX_BYTES);
+		var evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, MAX_BYTES);
 		if (evict.isEmpty()) return;
 		items.removeAll(evict);
 		log.info("Dropped {} stale notification(s)", evict.size());
-		ExecutorService pool = sendPool.get();
+		var pool = sendPool.get();
 		if (pool != null && !pool.isShutdown()) pool.submit(() -> evict.forEach(this::deleteFiles));
 	}
 
 	/** Call with the monitor held. */
 	private void schedule(long waitMs) {
-		ScheduledExecutorService ex = scheduler.get();
+		var ex = scheduler.get();
 		if (ex == null || ex.isShutdown()) return;
 		cancel();
 		task = ex.schedule(this::handOff, Math.max(0, waitMs), TimeUnit.MILLISECONDS);
@@ -216,30 +216,30 @@ final class NotifyOutbox {
 
 	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
 	private void handOff() {
-		ExecutorService pool = sendPool.get();
+		var pool = sendPool.get();
 		if (pool != null && !pool.isShutdown()) pool.submit(this::pump);
 	}
 
 	/** One pass over what's due. Blocking HTTP; runs on the OkHttp pool. */
 	void pump() {
-		Sender s = sender;
+		var s = sender;
 		List<Item> due;
 		synchronized (this) {
 			if (pumping || s == null) return;
 			pumping = true;
-			long now = System.currentTimeMillis();
+			var now = System.currentTimeMillis();
 			prune(now);
 			due = items.stream().filter(it -> it.nextAttemptAt <= now).collect(Collectors.toList());
 		}
 		try {
 			for (int i = 0; i < due.size(); i++) {
-				Item it = due.get(i);
-				byte[] png = it.pngBytes > 0 ? screenshot(it) : null;
+				var it = due.get(i);
+				var png = it.pngBytes > 0 ? screenshot(it) : null;
 				if (it.pngBytes > 0 && png == null) {
 					remove(it); // its screenshot is gone; nothing sensible left to send
 					continue;
 				}
-				Result r = s.send(it, png);
+				var r = s.send(it, png);
 				if (r != Result.RETRY) {
 					if (r == Result.PERMANENT) {
 						log.warn("Queued {} notification refused", it.channel);
@@ -248,7 +248,7 @@ final class NotifyOutbox {
 					continue;
 				}
 				// Still down. Push this one back, and don't dial again for the rest — same wait for all.
-				long now = System.currentTimeMillis();
+				var now = System.currentTimeMillis();
 				long next;
 				synchronized (this) {
 					it.attempts++;
@@ -269,7 +269,7 @@ final class NotifyOutbox {
 
 	private byte[] screenshot(Item it) {
 		if (it.png != null) return it.png;
-		Filepath d = dir;
+		var d = dir;
 		return d == null ? null : DiskFiles.read(d.joinSegment(it.id + ".png"));
 	}
 
@@ -281,7 +281,7 @@ final class NotifyOutbox {
 	}
 
 	private void rewrite(Item it) {
-		Filepath d = dir;
+		var d = dir;
 		if (d == null) return;
 		try {
 			DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
@@ -290,7 +290,7 @@ final class NotifyOutbox {
 	}
 
 	private void deleteFiles(Item it) {
-		Filepath d = dir;
+		var d = dir;
 		if (d == null || it.id == null) return;
 		try {
 			DiskFiles.deleteQuietly(d.joinSegment(it.id + ".json"));

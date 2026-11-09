@@ -161,7 +161,7 @@ final class Ui {
 
 	/** A {@link #column} as a card: the darker surface with an 8px inset. */
 	static JPanel block() {
-		JPanel p = column();
+		var p = column();
 		p.setBackground(DARKER_GRAY_COLOR);
 		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 		return p;
@@ -176,7 +176,7 @@ final class Ui {
 
 	/** {@link #row(int)} on an opaque {@code bg}. */
 	static JPanel row(int hgap, Color bg) {
-		JPanel p = row(hgap);
+		var p = row(hgap);
 		p.setOpaque(true);
 		p.setBackground(bg);
 		return p;
@@ -230,14 +230,14 @@ final class Ui {
 
 	/** A transparent, left-aligned grid {@code cols} across. */
 	static JPanel grid(int cols, int hgap, int vgap) {
-		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
+		var grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
 		grid.setOpaque(false);
 		return grid;
 	}
 
 	/** A section's orange name, with an optional white figure at the right. */
 	static JPanel header(String left, String right) {
-		JPanel row = row(0);
+		var row = row(0);
 		row.add(small(left, BRAND_ORANGE), BorderLayout.WEST);
 		if (right != null) row.add(small(right, Color.WHITE), BorderLayout.EAST);
 		return capH(row);
@@ -255,8 +255,8 @@ final class Ui {
 	static String count(long n) {
 		if (n < 10_000) return String.format(Locale.ROOT, "%,d", n);
 		if (n < 1_000_000) return n / 1000 + "K";
-		boolean b = n >= 1_000_000_000;
-		long tenths = n / (b ? 100_000_000 : 100_000);
+		var b = n >= 1_000_000_000;
+		var tenths = n / (b ? 100_000_000 : 100_000);
 		return tenths / 10 + (tenths % 10 == 0 ? "" : "." + tenths % 10) + (b ? "B" : "M");
 	}
 
@@ -281,14 +281,14 @@ final class Ui {
 
 	static String ago(String at, Instant now) {
 		if (at == null || at.isEmpty()) return "";
-		String iso = at.trim().replace(' ', 'T');
+		var iso = at.trim().replace(' ', 'T');
 		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";
 		try {
-			long minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
+			var minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
 			if (minutes < 60) return minutes <= 1 ? "just now" : minutes + "m ago";
-			long hours = minutes / 60;
+			var hours = minutes / 60;
 			if (hours < 24) return hours + "h ago";
-			long days = hours / 24;
+			var days = hours / 24;
 			if (days < 14) return days + "d ago";
 			if (days < 60) return (days / 7) + "w ago";
 			if (days < 730) return (days / 30) + "mo ago";
@@ -318,8 +318,8 @@ final class Ui {
 			var g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());
-			FontMetrics metrics = g.getFontMetrics();
-			Insets insets = getInsets();
+			var metrics = g.getFontMetrics();
+			var insets = getInsets();
 			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
 			g.drawString(placeholder, insets.left, y);
 			g.dispose();
@@ -331,7 +331,7 @@ final class Ui {
 	 * {@code yyyy-MM-dd HH:mm:ss} form, or a bare date (midnight UTC) — as epoch millis; -1 if unparseable.
 	 */
 	static long utcMillis(String ts) {
-		String s = ts == null ? "" : ts.trim().replace(' ', 'T');
+		var s = ts == null ? "" : ts.trim().replace(' ', 'T');
 		try {
 			return s.length() == 10
 				? LocalDate.parse(s).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
