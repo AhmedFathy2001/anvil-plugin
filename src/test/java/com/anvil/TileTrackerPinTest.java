@@ -45,4 +45,9 @@ public class TileTrackerPinTest {
 		for (int i = 1; i < TileTracker.MAX_FAILS; i++) assertFalse(TileTracker.letGo(never, null));
 		assertTrue(TileTracker.letGo(never, null));
 	}
+
+	@Test
+	public void lockedTileComesDownAtOnce() {
+		assertTrue(TileTracker.letGo(pin(), TileTracker.Progress.LOCKED));
+	}
 }

@@ -222,7 +222,7 @@ public class TileTracker {
 		if (w == null) return;
 		Progress p = fetch(w);
 		if (letGo(w, p)) {
-			drop(w);
+			drop(w, p == Progress.LOCKED ? "not open for you" : "tile removed");
 		} else if (p != null && p != Progress.GONE) {
 			if (p.phase != null && p.phase.contains("ended")) clear(w.event);
 			else show(w.event, tileId, w, p);
@@ -233,7 +233,7 @@ public class TileTracker {
 	 * Note one fetch on the pin and say whether to take it down: the site says the tile is gone, or it has failed {@link #MAX_FAILS} times without ever loading.
 	 */
 	static boolean letGo(Widget w, Progress p) {
-		if (p == Progress.GONE) return true; // deleted (a reseed) or off your boards: final, no retry
+		if (p == Progress.GONE || p == Progress.LOCKED) return true; // deleted (a reseed) or off your boards: final, no retry
 		if (p == null) return w.progress == null && ++w.fails >= MAX_FAILS;
 		w.fails = 0;
 		return false;
@@ -255,11 +255,17 @@ public class TileTracker {
 		return last;
 	}
 
-	private synchronized void drop(Widget w) {
+	/** A fresh config: drop pins whose tile is on none of the character's boards (an empty set means no data). */
+	synchronized void keepOnly(Set<Integer> live) {
+		if (live.isEmpty()) return;
+		for (Widget w : new ArrayList<>(pins.values())) if (!live.contains(w.tileId)) drop(w, "tile removed");
+	}
+
+	private synchronized void drop(Widget w, String why) {
 		if (pins.get(w.tileId) != w) return;
 		hide(removePin(w.tileId));
 		save();
-		told.accept("Stopped tracking " + (w.label != null ? w.label : "a tile") + " (tile removed)");
+		told.accept("Stopped tracking " + (w.label != null ? w.label : "a tile") + " (" + why + ")");
 	}
 
 	/**
@@ -456,6 +462,8 @@ public class TileTracker {
 		List<Team> teams;
 		/** Fetch result for "the site says this tile is not on your boards". */
 		static final Progress GONE = new Progress();
+		/** Fetch result for "exists, but not open for you" (a race step ahead, a closed tile). */
+		static final Progress LOCKED = new Progress();
 	}
 
 	static class Team {

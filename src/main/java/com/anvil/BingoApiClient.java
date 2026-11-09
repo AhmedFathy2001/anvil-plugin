@@ -879,7 +879,7 @@ public class BingoApiClient {
 			if (response.code() == 304 && hit != null) {
 				return type.cast(hit[1]); // unchanged since the last poll — reuse it, no body transferred
 			}
-			if (!response.isSuccessful()) throw new HttpStatusException(label + " failed: HTTP " + response.code(), response.code());
+			if (!response.isSuccessful()) throw new HttpStatusException(label + " failed: HTTP " + response.code() + (response.code() == 410 ? " — " + text : ""), response.code());
 			T parsed = gson.fromJson(text, type);
 			String etag = response.header("ETag");
 			if (etag != null && parsed != null) {
@@ -1111,7 +1111,8 @@ public class BingoApiClient {
 				TileTracker.Progress.class, trackedTiles, "tile progress fetch");
 		} catch (HttpStatusException e) {
 			// The site answered "not on your boards" (or hidden): final, unlike a network blip.
-			return e.code == 404 || e.code == 403 || e.code == 410 ? TileTracker.Progress.GONE : null;
+			return e.code == 410 && String.valueOf(e.getMessage()).contains("\"locked\"") ? TileTracker.Progress.LOCKED
+				: e.code == 404 || e.code == 403 || e.code == 410 ? TileTracker.Progress.GONE : null;
 		} catch (IOException | JsonParseException e) {
 			return null;
 		}
