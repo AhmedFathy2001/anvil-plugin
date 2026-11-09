@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
 import java.io.IOException;
@@ -42,16 +43,12 @@ final class ResponseDiskCache {
 	}
 
 	private final Gson gson;
-	private volatile Filepath dir;
+	@Setter private volatile Filepath dir;
 	/** Fingerprint of the token in use, "" when signed out. */
 	private volatile String account = "";
 	/** kind → etag (or body hash) last written, so an unchanged 30s poll doesn't rewrite the file. */
 	private final Map<String, String> written = new ConcurrentHashMap<>();
 
-
-	void setDir(Filepath dir) {
-		this.dir = dir;
-	}
 
 	/**
 	 * Point at the account behind {@code token}. Returns the fingerprint whose files should now be

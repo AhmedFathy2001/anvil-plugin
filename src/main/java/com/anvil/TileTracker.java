@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
@@ -50,12 +51,12 @@ public class TileTracker {
 	 * (tileId, site count) → what to show for your team: the plugin's own newer count when it has one,
 	 * so a pinned tile moves on your kill. Identity until the plugin sets it.
 	 */
-	private volatile ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
+	@Setter private volatile ToLongBiFunction<Integer, Long> shownProgress = (id, site) -> site;
 	/**
 	 * tileId → the plugin's extra lines for it ("3/5 runs", a combo's parts, TileNotes), read from
 	 * the polled config each frame. None until the plugin sets it.
 	 */
-	private volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
+	@Setter private volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
 	/** The live boards' ids, to find the board of a pin saved without one. */
 	private volatile java.util.function.Supplier<List<Integer>> boards = Collections::emptyList;
 	/** Says why a pin came down (a chat line). */
@@ -77,14 +78,6 @@ public class TileTracker {
 		this.overlayManager = overlayManager;
 		this.configManager = configManager;
 		this.apiClient = apiClient;
-	}
-
-	void setShownProgress(ToLongBiFunction<Integer, Long> shown) {
-		shownProgress = shown;
-	}
-
-	void setNotes(IntFunction<List<String>> lines) {
-		notes = lines;
 	}
 
 	/**

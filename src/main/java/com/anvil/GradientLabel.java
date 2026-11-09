@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
@@ -25,7 +26,7 @@ final class GradientLabel extends JLabel {
 	static final long GAME_CYCLE_MS = 5000;
 	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
-	static volatile boolean animate = true;
+	@Setter static volatile boolean animate = true;
 	private static final Timer TICK = new Timer(40, e -> { if (animate && clientActive()) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
 
 	/**
@@ -55,11 +56,6 @@ final class GradientLabel extends JLabel {
 	}
 
 	private static final ActiveWindow ACTIVE = new ActiveWindow();
-
-	/** Off resets to the base gradient; on resumes the shared wall-clock phase. */
-	static void setAnimate(boolean enabled) {
-		animate = enabled;
-	}
 
 	/** Played animation time: starts at the wall clock (clients begin in step) and runs only while in front. */
 	private static long playedMs = System.currentTimeMillis();

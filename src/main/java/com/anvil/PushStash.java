@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
 import java.io.IOException;
@@ -79,12 +80,8 @@ final class PushStash {
 	}
 
 	private final Gson gson;
-	private volatile Filepath dir;
+	@Setter private volatile Filepath dir;
 
-
-	void setDir(Filepath dir) {
-		this.dir = dir;
-	}
 
 	/** The file stem for a character: by account hash when known, else by name. Null when neither is. */
 	static String keyFor(String rsn, String accountHash) {

@@ -1,5 +1,7 @@
 package com.anvil;
 
+import lombok.Setter;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.*;
 import javax.inject.*;
@@ -36,16 +38,16 @@ public class BingoApiClient {
 	// In-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
 	// request so the server can scope the per-user plugin token to the correct clan_member
 	// (and reject drops on accounts that aren't signed up for the active event).
-	private volatile String currentRsn;
+	@Getter private volatile String currentRsn;
 	// Stable Jagex account hash (client.getAccountHash()) of the locally logged-in account.
 	// Sent as `X-Account-Hash` so the server can anchor auto-verification to the account even
 	// across in-game renames. Null when logged out / unavailable.
-	private volatile String accountHash;
+	@Getter private volatile String accountHash;
 	// The character the Jagex Launcher says is about to log in (client.getLauncherDisplayName()), sent
 	// as `X-RSN-Hint` only while no RSN is stamped. The site uses it to pick which of this person's own
 	// characters a read is about, so the panel shows the right board before Play; it never claims,
 	// links or verifies anything — that stays with X-RSN after the real login. Null off the launcher.
-	private volatile String rsnHint;
+	@Getter private volatile String rsnHint;
 
 	// The world the player is on, as the site reads it (WorldInfo): its type flags and its world-list
 	// activity line. Sent as X-World-Types / X-World-Activity on every request so the site can tell
@@ -57,7 +59,7 @@ public class BingoApiClient {
 	// NOTHING carrying the Account Token leaves the client — isConfigured() says no, so every gated
 	// path stays quiet, and an interceptor refuses anything that slips past a gate. The one exception
 	// is the account action itself (tagged ACCOUNT_ACTION), which is how the choice reaches the site.
-	private volatile boolean accountPaused;
+	@Setter @Getter private volatile boolean accountPaused;
 
 	/** Request tag that lets an account action through while {@link #accountPaused} is set. */
 	private static final class AccountAction {
@@ -151,7 +153,7 @@ public class BingoApiClient {
 	// clan on the canonical address, where nothing in the URL says which clan is meant.
 
 	/** The member's explicit pick, or "" for Auto. Survives restarts (AnvilPlugin persists it). */
-	private volatile String chosenClan = "";
+	@Getter private volatile String chosenClan = "";
 
 	/** The clan the site last said it answered for. In-memory: it is the server's judgement, not a setting. */
 	private volatile String resolvedClan = "";
@@ -159,11 +161,6 @@ public class BingoApiClient {
 	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
 	public void setChosenClan(String slug) {
 		this.chosenClan = cleanSlug(slug);
-	}
-
-	/** The member's explicit pick, or "" when they are on Auto. */
-	public String getChosenClan() {
-		return chosenClan;
 	}
 
 	/** The site answered, and named the clan it answered for. */
@@ -231,11 +228,6 @@ public class BingoApiClient {
 		this.currentRsn = (rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0) ? null : rsn;
 	}
 
-	/** The RSN currently stamped on requests (the logged-in character), or null. Thread-safe read. */
-	public String getCurrentRsn() {
-		return currentRsn;
-	}
-
 	/**
 	 * Sets the stable Jagex account hash of the locally logged-in account. Call alongside
 	 * {@link #setCurrentRsn} on login (and clear on logout). Pass the raw value from
@@ -249,15 +241,6 @@ public class BingoApiClient {
 	/** The Jagex Launcher's character name, or null when RuneLite wasn't started from the launcher. */
 	public void setRsnHint(String name) {
 		this.rsnHint = (name == null || name.trim().isEmpty()) ? null : name.trim();
-	}
-
-	/** The account hash currently stamped on requests, or null. */
-	public String getAccountHash() {
-		return accountHash;
-	}
-
-	public String getRsnHint() {
-		return rsnHint;
 	}
 
 
@@ -490,15 +473,6 @@ public class BingoApiClient {
 		return !getApiUrl().isEmpty() && !needsSignIn();
 	}
 
-	/** Stop (or resume) every Anvil request for the logged-in character. See {@link #accountPaused}. */
-	public void setAccountPaused(boolean paused) {
-		this.accountPaused = paused;
-	}
-
-	public boolean isAccountPaused() {
-		return accountPaused;
-	}
-
 	/** Result of POST /api/plugin/account. */
 	public static class AccountActionResult {
 		public boolean ok;
@@ -609,11 +583,7 @@ public class BingoApiClient {
 	}
 
 	/** Notifications that failed for a reason that may clear wait here (NotifyOutbox); null = dropped as before. */
-	private volatile NotifyOutbox notifyOutbox;
-
-	void setNotifyOutbox(NotifyOutbox outbox) {
-		this.notifyOutbox = outbox;
-	}
+	@Setter private volatile NotifyOutbox notifyOutbox;
 
 	private static RequestBody notifyBody(String payloadJson, byte[] png, String filename) {
 		if (png != null && png.length > 0) {
@@ -834,11 +804,7 @@ public class BingoApiClient {
 	 * Where the last good config and board are saved between sessions (ResponseDiskCache). Null until
 	 * the plugin hands one over, and in tests — nothing is saved then.
 	 */
-	private volatile ResponseDiskCache diskCache;
-
-	void setDiskCache(ResponseDiskCache diskCache) {
-		this.diskCache = diskCache;
-	}
+	@Setter private volatile ResponseDiskCache diskCache;
 
 	/**
 	 * Load a saved answer into the conditional-GET cache, so the first poll of a session asks

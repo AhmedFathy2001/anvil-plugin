@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
@@ -46,7 +47,7 @@ final class ProfileLookup {
 
 	private boolean playerItemShown;
 	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
-	private volatile Predicate<String> panelOpener;
+	@Setter private volatile Predicate<String> panelOpener;
 
 	@Inject
 	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus) {
@@ -137,10 +138,6 @@ final class ProfileLookup {
 			menuManager.removePlayerMenuItem(OPTION);
 			playerItemShown = false;
 		}
-	}
-
-	void setPanelOpener(Predicate<String> opener) {
-		this.panelOpener = opener;
 	}
 
 	/** The panel's Lookup tab when it can show cards, the browser when it can't. */

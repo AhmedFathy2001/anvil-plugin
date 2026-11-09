@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Getter;
 import java.util.*;
 
 /**
@@ -41,7 +42,7 @@ final class ClogFullSync {
 	private long lastItemAt;
 	private boolean receiving;
 	/** Set when the player asked for this explicitly, so a no-change sync still gets sent + reported. */
-	private boolean manual;
+	@Getter private boolean manual;
 
 	/** A transmit is starting (the log was opened / the button was pressed). Clears anything stale. */
 	void begin(boolean manualRequest) {
@@ -67,11 +68,6 @@ final class ClogFullSync {
 			&& lastItemAt > 0
 			&& items.size() >= MIN_ITEMS
 			&& now - lastItemAt >= QUIET_MS;
-	}
-
-	/** True when the player pressed the button, so the caller can report the result in chat. */
-	boolean isManual() {
-		return manual;
 	}
 
 	/** Everything received, as an unmodifiable snapshot. Does not clear — see {@link #onSent}. */

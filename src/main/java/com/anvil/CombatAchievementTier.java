@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import java.util.Locale;
 import net.runelite.api.gameval.VarbitID;
@@ -19,16 +20,12 @@ public enum CombatAchievementTier {
 	MASTER(VarbitID.CA_THRESHOLD_MASTER),
 	GRANDMASTER(VarbitID.CA_THRESHOLD_GRANDMASTER);
 
-	private final int thresholdVarbitId;
+	@Getter private final int thresholdVarbitId;
 
 
 	/** "Easy" … "Grandmaster". */
 	public String getDisplayName() {
 		return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
-	}
-
-	public int getThresholdVarbitId() {
-		return thresholdVarbitId;
 	}
 
 	@Override

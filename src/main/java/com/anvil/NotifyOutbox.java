@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
 import java.io.IOException;
@@ -69,20 +70,12 @@ final class NotifyOutbox {
 	private final Gson gson;
 	private final Supplier<ScheduledExecutorService> scheduler;
 	private final Supplier<ExecutorService> sendPool;
-	private volatile Filepath dir;
-	private volatile Sender sender;
+	@Setter private volatile Filepath dir;
+	@Setter private volatile Sender sender;
 	private final List<Item> items = new ArrayList<>();
 	private ScheduledFuture<?> task;
 	private boolean pumping;
 
-
-	void setDir(Filepath dir) {
-		this.dir = dir;
-	}
-
-	void setSender(Sender sender) {
-		this.sender = sender;
-	}
 
 	synchronized int size() {
 		return items.size();

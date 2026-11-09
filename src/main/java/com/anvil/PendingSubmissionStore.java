@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -29,7 +30,7 @@ public class PendingSubmissionStore {
 	 * "no store": nothing queues, nothing loads, and the caller's own error path takes over — which
 	 * is the same thing that happened when the disk was full.
 	 */
-	private volatile Filepath root;
+	@Setter private volatile Filepath root;
 
 	private final Gson gson;
 
@@ -87,10 +88,6 @@ public class PendingSubmissionStore {
 		JsonArray a = new JsonArray();
 		a.add(f);
 		return a;
-	}
-
-	public void setRoot(Filepath dir) {
-		this.root = dir;
 	}
 
 	/** The directory, created on demand, or null when there is nowhere to write. */

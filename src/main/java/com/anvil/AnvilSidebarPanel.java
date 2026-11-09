@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import com.google.gson.JsonObject;
 import java.awt.*;
 import java.util.*;
@@ -1282,12 +1283,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		if (onScreen && clanShown) clanView.refresh();
 	}
 
-	private BooleanSupplier pushLive = () -> false;
+	@Setter private BooleanSupplier pushLive = () -> false;
 	private int quietTicks;
-
-	void setPushLive(BooleanSupplier live) {
-		pushLive = live;
-	}
 
 	/** The live push says the board moved: ask now. */
 	void boardChanged() {

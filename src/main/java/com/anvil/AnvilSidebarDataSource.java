@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.util.*;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -21,15 +22,10 @@ public class AnvilSidebarDataSource {
 	 * before the plugin's own fields exist, so it can't be a constructor argument). Null in tests and
 	 * anywhere the panel is driven without a live plugin — the sidebar then simply shows no button.
 	 */
-	private volatile Runnable startProofCapture;
-
-	/** Bind the capture action. Idempotent; passing null unbinds. */
-	public void setStartProofCapture(Runnable capture) {
-		this.startProofCapture = capture;
-	}
+	@Setter private volatile Runnable startProofCapture;
 
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
-	private volatile AnvilPlugin plugin;
+	@Setter private volatile AnvilPlugin plugin;
 
 	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
 	public boolean seasonalSharingOffered() {
@@ -57,10 +53,6 @@ public class AnvilSidebarDataSource {
 	public void feedOnScreen(boolean on) {
 		AnvilPlugin p = plugin;
 		if (p != null) p.feedOnScreen(on);
-	}
-
-	public void setPlugin(AnvilPlugin plugin) {
-		this.plugin = plugin;
 	}
 
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
