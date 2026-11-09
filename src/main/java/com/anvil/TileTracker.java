@@ -222,7 +222,7 @@ public class TileTracker {
 		if (w == null) return;
 		Progress p = fetch(w);
 		if (letGo(w, p)) {
-			drop(w, p == Progress.LOCKED ? "not open for you" : "tile removed");
+			drop(w, p == Progress.LOCKED ? "not open for you" : p == Progress.GONE ? "tile removed" : "couldn't load");
 		} else if (p != null && p != Progress.GONE) {
 			if (p.phase != null && p.phase.contains("ended")) clear(w.event);
 			else show(w.event, tileId, w, p);
@@ -253,12 +253,6 @@ public class TileTracker {
 			if (p == null) last = null;
 		}
 		return last;
-	}
-
-	/** A fresh config: drop pins whose tile is on none of the character's boards (an empty set means no data). */
-	synchronized void keepOnly(Set<Integer> live) {
-		if (live.isEmpty()) return;
-		for (Widget w : new ArrayList<>(pins.values())) if (!live.contains(w.tileId)) drop(w, "tile removed");
 	}
 
 	private synchronized void drop(Widget w, String why) {

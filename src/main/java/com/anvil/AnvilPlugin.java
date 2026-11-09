@@ -7328,11 +7328,6 @@ public class AnvilPlugin extends Plugin {
 		partCombo = TileNotes.partCombos(cfg == null ? null : cfg.trackedCombos);
 		tileRows = rows;
 		notesFor = cfg;
-		if (cfg != null) {
-			Set<Integer> live = new HashSet<>(rows.keySet());
-			live.addAll(comboById.keySet());
-			tileTracker.keepOnly(live);
-		}
 	}
 
 	/**
