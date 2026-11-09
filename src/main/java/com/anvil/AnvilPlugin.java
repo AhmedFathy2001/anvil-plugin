@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static net.runelite.api.ChatMessageType.*;
 import static java.util.Collections.*;
 import static javax.swing.SwingUtilities.invokeLater;
 import com.anvil.AnvilMoments.Moment;
@@ -509,20 +510,20 @@ public class AnvilPlugin extends Plugin {
 	// could type "X received a drop: …" into (spoofing a credit onto X's client — the
 	// recipient check alone can't catch that) never do.
 	static final Set<ChatMessageType> PLAYER_AUTHORED_CHAT = EnumSet.of(
-			ChatMessageType.PUBLICCHAT,
-			ChatMessageType.MODCHAT,
-			ChatMessageType.AUTOTYPER,
-			ChatMessageType.MODAUTOTYPER,
-			ChatMessageType.PRIVATECHAT,
-			ChatMessageType.MODPRIVATECHAT,
-			ChatMessageType.PRIVATECHATOUT,
-			ChatMessageType.FRIENDSCHAT,
-			ChatMessageType.CLAN_CHAT,
-			ChatMessageType.CLAN_GUEST_CHAT,
-			ChatMessageType.CLAN_GIM_CHAT);
+			PUBLICCHAT,
+			MODCHAT,
+			AUTOTYPER,
+			MODAUTOTYPER,
+			PRIVATECHAT,
+			MODPRIVATECHAT,
+			PRIVATECHATOUT,
+			FRIENDSCHAT,
+			CLAN_CHAT,
+			CLAN_GUEST_CHAT,
+			CLAN_GIM_CHAT);
 	// The channels the game's own lines arrive on — everything below the drop/clog block parses only these.
-	static final Set<ChatMessageType> PARSED_CHAT = EnumSet.of(ChatMessageType.GAMEMESSAGE,
-			ChatMessageType.SPAM, ChatMessageType.MESBOX, ChatMessageType.FRIENDSCHATNOTIFICATION);
+	static final Set<ChatMessageType> PARSED_CHAT = EnumSet.of(GAMEMESSAGE,
+			SPAM, MESBOX, FRIENDSCHATNOTIFICATION);
 
 	// Completions that award a guaranteed item straight to the inventory — no loot event ever
 	// fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
@@ -3404,11 +3405,11 @@ public class AnvilPlugin extends Plugin {
 		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
 		// the actor included. Each client reports only its own player's line; the site books the
 		// movement with it once a coffer reading shows the money.
-		if (event.getType() == ChatMessageType.CLAN_MESSAGE) maybeReportCofferLine(msg);
+		if (event.getType() == CLAN_MESSAGE) maybeReportCofferLine(msg);
 		// On a game-mode world the site turns the game's announcements into relic/area/task posts.
-		if (event.getType() == ChatMessageType.GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
+		if (event.getType() == GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
 		var ct = event.getType();
-		if (ct == ChatMessageType.GAMEMESSAGE || ct == ChatMessageType.SPAM || ct == ChatMessageType.TRADE) watchLine(stripChatTags(msg));
+		if (ct == GAMEMESSAGE || ct == SPAM || ct == TRADE) watchLine(stripChatTags(msg));
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
@@ -5986,20 +5987,20 @@ public class AnvilPlugin extends Plugin {
 	ScheduledFuture<?> chatFlairSave;
 	// Broadcasts whose text starts with a player's name ("Nisbro HCM has completed a quest: …").
 	static final Set<ChatMessageType> FLAIR_BROADCASTS = EnumSet.of(
-			ChatMessageType.CLAN_CHAT,
-			ChatMessageType.CLAN_MESSAGE,
-			ChatMessageType.CLAN_GIM_CHAT,
-			ChatMessageType.CLAN_GIM_MESSAGE,
-			ChatMessageType.CLAN_GUEST_CHAT,
-			ChatMessageType.CLAN_GUEST_MESSAGE,
-			ChatMessageType.BROADCAST,
-			ChatMessageType.FRIENDSCHATNOTIFICATION,
-			ChatMessageType.FRIENDNOTIFICATION,
-			ChatMessageType.TRADEREQ,
-			ChatMessageType.TRADE_SENT,
-			ChatMessageType.TRADE,
+			CLAN_CHAT,
+			CLAN_MESSAGE,
+			CLAN_GIM_CHAT,
+			CLAN_GIM_MESSAGE,
+			CLAN_GUEST_CHAT,
+			CLAN_GUEST_MESSAGE,
+			BROADCAST,
+			FRIENDSCHATNOTIFICATION,
+			FRIENDNOTIFICATION,
+			TRADEREQ,
+			TRADE_SENT,
+			TRADE,
 			// "Drenvox has logged in." — a friend coming on or going off.
-			ChatMessageType.LOGINLOGOUTNOTIFICATION);
+			LOGINLOGOUTNOTIFICATION);
 	/** Client thread: keys (ChatFlair.key) of recent broadcasts that start with a Supporter's name. */
 	final Set<String> flairBroadcasts = newSetFromMap(
 			new LinkedHashMap<String, Boolean>(16, 0.75f, false) {
@@ -9696,7 +9697,7 @@ public class AnvilPlugin extends Plugin {
 			// half-initialised state: doing so can cascade into unrelated plugin exceptions and an
 			// injected-client crash.
 			if (!loggedIn() || client.getLocalPlayer() == null) return;
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", line, null);
+			client.addChatMessage(GAMEMESSAGE, "", line, null);
 		});
 	}
 
