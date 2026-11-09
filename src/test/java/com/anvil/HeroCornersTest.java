@@ -68,7 +68,7 @@ public class HeroCornersTest {
 			// The banner's outermost corner pixel must not be the picture, and the strip's middle must be.
 			assertNotEquals("banner corner square at " + scale + "x", PIC.getRGB(), im.getRGB(0, 0) | 0xff000000);
 			// The badge picture's own corner (8px radius) is cut: the ring shows there.
-			int bx = 12 * scale, by = 71 * scale; // bottom-left of the 32px picture (body at x10, y38; ring 2px)
+			int bx = 12 * scale, by = 89 * scale; // bottom-left of the 32px picture (body at x10, y56: banner 74 less the 18 pull-up; ring 2px)
 			assertNotEquals("badge corner square at " + scale + "x", PIC.getRGB(), im.getRGB(bx, by) | 0xff000000);
 			assertEquals("banner body", PIC.getRGB(), im.getRGB(im.getWidth() / 2, 10 * scale) | 0xff000000);
 		}

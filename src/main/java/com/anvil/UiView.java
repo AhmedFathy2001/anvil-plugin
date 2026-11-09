@@ -704,7 +704,7 @@ final class UiView extends JPanel {
 	 * rounded top corners; the body starts 18px up over it, so its first row's badge overlaps the edge.
 	 */
 	private JComponent hero(JsonObject n) {
-		final int bannerH = 56, up = 18;
+		final int bannerH = 74, up = 18; // about 3:1 at panel width, the shape banners are uploaded in
 		JsonObject b = new JsonObject();
 		b.add("c", n.get("c"));
 		b.addProperty("gap", 6);
@@ -734,7 +734,7 @@ final class UiView extends JPanel {
 			}
 		};
 		if (n.has("src")) {
-			host.image(str(n, "src"), 480, bannerH * 2, bool(n, "motion"), image -> {
+			host.image(str(n, "src"), 480, 160, bool(n, "motion"), image -> {
 				pic[0] = image;
 				strip.repaint();
 			});
