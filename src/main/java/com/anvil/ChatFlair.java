@@ -187,7 +187,7 @@ final class ChatFlair {
 	/** The list as a whole download (for the disk copy). */
 	Wire toWire() {
 		Held h = held;
-		Wire w = new Wire();
+		var w = new Wire();
 		w.v = h.v;
 		w.names = h.names;
 		w.ix = new int[h.ix.length];
@@ -243,7 +243,7 @@ final class ChatFlair {
 	String tierInLine(String raw, int x, java.util.function.ToIntFunction<String> width) {
 		if (raw == null || raw.isEmpty() || isEmpty() || x < 0) return null;
 		// The visible characters, and where each one sits in the raw text.
-		StringBuilder plain = new StringBuilder();
+		var plain = new StringBuilder();
 		List<Integer> at = new ArrayList<>();
 		for (int i = 0; i < raw.length(); i++) {
 			char ch = raw.charAt(i);
@@ -363,7 +363,7 @@ final class ChatFlair {
 	}
 
 	static Shown shown(String raw) {
-		StringBuilder plain = new StringBuilder(raw.length());
+		var plain = new StringBuilder(raw.length());
 		int[] at = new int[raw.length()];
 		for (int i = 0; i < raw.length(); i++) {
 			char ch = raw.charAt(i);
@@ -643,7 +643,7 @@ final class ChatFlair {
 	 * and the room a star needs both go through this, so an icon or the star never shifts them.
 	 */
 	static int measure(String raw, java.util.function.ToIntFunction<String> textWidth, IntUnaryOperator iconWidth) {
-		StringBuilder text = new StringBuilder(raw.length());
+		var text = new StringBuilder(raw.length());
 		int icons = 0;
 		for (int i = 0; i < raw.length(); i++) {
 			char ch = raw.charAt(i);

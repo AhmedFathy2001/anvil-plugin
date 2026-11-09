@@ -97,7 +97,7 @@ final class VestigeRolls {
 
 	/** Serialised as "boss=rolls:exact;…" for the RuneLite config, so the cycle survives a restart. */
 	String serialise() {
-		StringBuilder sb = new StringBuilder();
+		var sb = new StringBuilder();
 		for (Map.Entry<String, State> e : byBoss.entrySet()) {
 			if (sb.length() > 0) sb.append(';');
 			sb.append(e.getKey()).append('=').append(e.getValue().rolls).append(':').append(e.getValue().exact ? 1 : 0);
@@ -106,7 +106,7 @@ final class VestigeRolls {
 	}
 
 	static VestigeRolls parse(String raw) {
-		VestigeRolls out = new VestigeRolls();
+		var out = new VestigeRolls();
 		if (raw == null || raw.trim().isEmpty()) return out;
 		for (String part : raw.split(";")) {
 			String[] kv = part.split("=", 2);

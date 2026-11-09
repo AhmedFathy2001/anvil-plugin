@@ -489,7 +489,7 @@ public class BingoApiClient {
 	 * Never throws; a network failure comes back as {@code ok=false} with the reason.
 	 */
 	public AccountActionResult postAccountAction(String action) {
-		AccountActionResult out = new AccountActionResult();
+		var out = new AccountActionResult();
 		if (!isSignedIn() || currentRsn == null) {
 			out.error = "Sign in and log in to the account first.";
 			return out;
@@ -521,7 +521,7 @@ public class BingoApiClient {
 	public void postNotification(String channel, String content, NotifyFacts facts, byte[] image, String filename) {
 		if (!isConfigured() || channel == null || channel.isEmpty()) return;
 		byte[] png = noShot.test(facts != null ? facts.kind : channel) ? null : image;
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.addProperty("channel", channel);
 		// Where it happened, frozen into the post itself: the site routes Deadman, Leagues, hardcore
 		// and any mode it learns later off this — the plugin reports only the world, the server decides.
@@ -704,7 +704,7 @@ public class BingoApiClient {
 	 * {@code proofKey} names the credits it is for ({@link #postProof}).
 	 */
 	JsonObject postFacts(JsonArray facts, JsonObject proof, CoopFingerprint coop) throws IOException {
-		JsonObject body = new JsonObject();
+		var body = new JsonObject();
 		body.add("facts", facts);
 		if (proof != null) {
 			body.add("proof", proof);
@@ -764,7 +764,7 @@ public class BingoApiClient {
 	 */
 	static String forPlayer(IOException e) {
 		if (e instanceof HttpStatusException) {
-			HttpStatusException h = (HttpStatusException) e;
+			var h = (HttpStatusException) e;
 			return h.playerMessage != null ? h.playerMessage : friendlyError(h.code, null);
 		}
 		return "couldn't reach the site";
@@ -867,7 +867,7 @@ public class BingoApiClient {
 
 	/** {@code POST /api/plugin/ui}: one of a view's actions, answered with the view to show next. */
 	public JsonObject postUi(String act, Map<String, String> args, Map<String, String> fields) {
-		JsonObject body = new JsonObject();
+		var body = new JsonObject();
 		body.addProperty("act", act);
 		body.add("args", strings(args));
 		body.add("fields", strings(fields));
@@ -875,7 +875,7 @@ public class BingoApiClient {
 	}
 
 	private static JsonObject strings(Map<String, String> map) {
-		JsonObject o = new JsonObject();
+		var o = new JsonObject();
 		map.forEach(o::addProperty);
 		return o;
 	}
@@ -1002,7 +1002,7 @@ public class BingoApiClient {
 		double k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
 		int tw = Math.max(1, (int) Math.round(src.getWidth() * k));
 		int th = Math.max(1, (int) Math.round(src.getHeight() * k));
-		BufferedImage out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
+		var out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
 		java.awt.Graphics2D g = out.createGraphics();
 		g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g.drawImage(src, 0, 0, tw, th, null);
@@ -1048,7 +1048,7 @@ public class BingoApiClient {
 		String types = worldTypes;
 		String activity = worldActivity;
 		if (types == null && activity == null) return;
-		JsonObject world = new JsonObject();
+		var world = new JsonObject();
 		if (types != null) world.addProperty("types", types);
 		if (activity != null) world.addProperty("activity", activity);
 		payload.add("world", world);
@@ -1056,7 +1056,7 @@ public class BingoApiClient {
 
 	/** {key, value, ...} as a JSON object, values as addProperty/add would store them. */
 	static JsonObject obj(Object... kv) {
-		JsonObject o = new JsonObject();
+		var o = new JsonObject();
 		for (int i = 0; i < kv.length; i += 2) {
 			Object v = kv[i + 1];
 			o.add((String) kv[i], v == null ? JsonNull.INSTANCE : v instanceof JsonElement ? (JsonElement) v
@@ -1155,7 +1155,7 @@ public class BingoApiClient {
 	 */
 	public ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException {
 		if (getApiUrl().isEmpty()) throw new IOException("Not signed in to Anvil");
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.addProperty("clanName", clanName);
 		payload.add("members", gson.toJsonTree(members));
 		// The checked refusals can't leave the lambda, so it hands back the status and they're thrown here.
@@ -1347,10 +1347,10 @@ public class BingoApiClient {
 
 	/** {@code [{k: key, v: value}, …]} for every entry with both halves present. */
 	private JsonArray pairs(Map<?, ? extends Number> map, String k, String v) {
-		JsonArray out = new JsonArray();
+		var out = new JsonArray();
 		for (Map.Entry<?, ? extends Number> e : map.entrySet()) {
 			if (e.getKey() == null || e.getValue() == null) continue;
-			JsonObject o = new JsonObject();
+			var o = new JsonObject();
 			o.add(k, gson.toJsonTree(e.getKey()));
 			o.addProperty(v, e.getValue());
 			out.add(o);
@@ -1372,7 +1372,7 @@ public class BingoApiClient {
 
 	public ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException {
 		if (items == null || items.isEmpty()) return new ClogPushResult();
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add("items", pairs(items, "id", "q"));
 		String body = postJson("/api/plugin/clog", payload, null, false);
 		try {
@@ -1399,7 +1399,7 @@ public class BingoApiClient {
 	 */
 	public void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt,
 		Integer x, Integer y, String loginAt) throws IOException {
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.addProperty("imageUrl", imageUrl);
 		if (keyword != null) payload.addProperty("keyword", keyword);
 		if (capturedAt != null) payload.addProperty("capturedAt", capturedAt);
@@ -1434,7 +1434,7 @@ public class BingoApiClient {
 	 */
 	private void submitStats(Map<String, Integer> values, String field, String key, String value, String what) throws IOException {
 		if (values == null || values.isEmpty()) return;
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add(field, pairs(values, key, value));
 		// Classified: a permanent refusal (PermanentSubmissionException) stops CoalescedPush resending
 		// the batch; a 401 (fired before X-RSN was stamped), 429 or 5xx stays a plain, retryable failure.
@@ -1471,8 +1471,8 @@ public class BingoApiClient {
 
 	/** The same mode-line batch with the frame that was visible when it was sent. */
 	public void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
-		JsonObject payload = new JsonObject();
-		JsonArray arr = new JsonArray();
+		var payload = new JsonObject();
+		var arr = new JsonArray();
 		lines.forEach(arr::add);
 		payload.add("lines", arr);
 		// Freeze the world into the body as notifications do: a hop while the request is in flight must
@@ -1560,19 +1560,19 @@ public class BingoApiClient {
 		JsonArray rows = pairs(rest, "key", "value");
 		if (rows.size() == 0 && !hasItems && !hasVarps && accountType == null) return;
 
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add("progress", rows);
 		if (accountType != null) payload.addProperty("accountType", accountType);
 		if (hasItems) {
-			JsonArray itemRows = new JsonArray();
+			var itemRows = new JsonArray();
 			for (AccountProgress.Item item : items) {
 				if (item == null || item.name == null || item.name.isEmpty()) continue;
 				itemRows.add(gson.toJsonTree(item)); // {id, name, state}
 			}
-			JsonObject set = new JsonObject();
+			var set = new JsonObject();
 			set.addProperty("category", itemCategory);
 			set.add("items", itemRows);
-			JsonArray sets = new JsonArray();
+			var sets = new JsonArray();
 			sets.add(set);
 			payload.add("items", sets);
 		}
@@ -1594,11 +1594,11 @@ public class BingoApiClient {
 	 * of a clan that isn't on Anvil onto one page.
 	 */
 	public void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException {
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		if (clanName == null) {
 			payload.add("clan", JsonNull.INSTANCE);
 		} else {
-			JsonObject clan = new JsonObject();
+			var clan = new JsonObject();
 			clan.addProperty("name", clanName);
 			if (rank != null) clan.addProperty("rank", rank);
 			if (title != null) clan.addProperty("title", title);
@@ -1622,15 +1622,15 @@ public class BingoApiClient {
 	 * its catalogue and ignores a slot it already holds. Blocking; off the client thread.
 	 */
 	public void submitClogUnlock(String itemName, String kcName, Integer kc) throws IOException {
-		JsonObject unlock = new JsonObject();
+		var unlock = new JsonObject();
 		unlock.addProperty("name", itemName);
 		if (kcName != null && kc != null) {
 			unlock.addProperty("kcName", kcName);
 			unlock.addProperty("kc", kc);
 		}
-		JsonArray unlocks = new JsonArray();
+		var unlocks = new JsonArray();
 		unlocks.add(unlock);
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add("unlocks", unlocks);
 		postJson("/api/plugin/clog", payload, "Collection log unlock push failed", false);
 	}
@@ -1648,17 +1648,17 @@ public class BingoApiClient {
 	 */
 	public void submitClogPages(List<ClogPage> pages, int syncedPages) throws IOException {
 		if (pages == null || pages.isEmpty()) return;
-		JsonArray out = new JsonArray();
+		var out = new JsonArray();
 		for (ClogPage page : pages) {
 			if (page == null || page.name == null || page.name.isEmpty()) continue;
-			JsonArray items = new JsonArray();
+			var items = new JsonArray();
 			for (int i = 0; i < page.itemIds.length; i++) {
-				JsonObject item = new JsonObject();
+				var item = new JsonObject();
 				item.addProperty("id", page.itemIds[i]);
 				item.addProperty("q", page.quantities[i]);
 				items.add(item);
 			}
-			JsonObject p = new JsonObject();
+			var p = new JsonObject();
 			p.addProperty("name", page.name);
 			p.addProperty("obtained", page.obtained);
 			p.addProperty("total", page.total);
@@ -1668,7 +1668,7 @@ public class BingoApiClient {
 		}
 		if (out.size() == 0) return;
 
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add("pages", out);
 		// How much of the log this account has opened at all — drives the site's "68% synced" note.
 		payload.addProperty("syncedPages", syncedPages);
@@ -1689,7 +1689,7 @@ public class BingoApiClient {
 			if (k != null && !k.isEmpty() && v != null && v > 0) valid.put(k, v);
 		});
 		if (valid.isEmpty()) return;
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add("bests", pairs(valid, "activity", "centis"));
 		postJson("/api/plugin/pb", payload, "Personal best push failed", true);
 	}
@@ -1710,10 +1710,10 @@ public class BingoApiClient {
 	 */
 	public void submitMoments(List<AnvilMoments.Moment> batch) throws IOException {
 		if (batch == null || batch.isEmpty()) return;
-		JsonArray out = new JsonArray();
+		var out = new JsonArray();
 		for (AnvilMoments.Moment m : batch) {
 			if (m == null || m.kind == null || m.key == null) continue;
-			JsonObject o = new JsonObject();
+			var o = new JsonObject();
 			o.addProperty("kind", m.kind);
 			o.addProperty("key", m.key);
 			o.addProperty("at", java.time.Instant.ofEpochMilli(m.at).toString());
@@ -1731,7 +1731,7 @@ public class BingoApiClient {
 			out.add(o);
 		}
 		if (out.size() == 0) return;
-		JsonObject payload = new JsonObject();
+		var payload = new JsonObject();
 		payload.add("moments", out);
 		postJson("/api/plugin/moments", payload, "Moment push failed", true);
 	}

@@ -88,7 +88,7 @@ final class AccountOptOut {
 	private static String digest(String s) {
 		try {
 			byte[] d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
-			StringBuilder sb = new StringBuilder(16);
+			var sb = new StringBuilder(16);
 			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i]));
 			return sb.toString();
 		} catch (NoSuchAlgorithmException e) {

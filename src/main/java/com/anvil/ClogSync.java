@@ -107,7 +107,7 @@ final class ClogSync {
 
 	/** {@code <value>|<name>} per line — the shape this and {@link PersonalBests} persist. */
 	static <V> String writeLines(Map<String, V> map, Function<V, String> value) {
-		StringBuilder out = new StringBuilder(map.size() * 24);
+		var out = new StringBuilder(map.size() * 24);
 		for (Map.Entry<String, V> e : map.entrySet()) {
 			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0) continue;
 			if (out.length() > 0) out.append('\n');

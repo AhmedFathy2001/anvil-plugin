@@ -100,7 +100,7 @@ final class DiskFiles {
 		if (secret == null || secret.trim().isEmpty()) return "";
 		try {
 			byte[] digest = MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8));
-			StringBuilder sb = new StringBuilder();
+			var sb = new StringBuilder();
 			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", digest[i]));
 			return sb.toString();
 		} catch (NoSuchAlgorithmException e) {

@@ -40,7 +40,7 @@ final class SearchAliases {
 	static String augment(String text) {
 		if (text == null || text.isEmpty()) return "";
 		String words = " " + fold(text) + " ";
-		StringBuilder out = new StringBuilder(text);
+		var out = new StringBuilder(text);
 		for (String[] p : PAIRS) {
 			if (words.contains(" " + p[0] + " ")) {
 				out.append(' ').append(p[1]);

@@ -83,7 +83,7 @@ final class NotifyOutbox {
 
 	/** A fresh entry: first retry after {@link #FIRST_RETRY_MS} (jittered). */
 	static Item newItem(long now) {
-		Item it = new Item();
+		var it = new Item();
 		it.id = now + "-" + UUID.randomUUID().toString().substring(0, 8);
 		it.createdAt = now;
 		it.attempts = 1;

@@ -49,7 +49,7 @@ final class WorldInfo {
 	 */
 	static String activity(String raw) {
 		if (raw == null) return null;
-		StringBuilder b = new StringBuilder(Math.min(raw.length(), MAX_ACTIVITY));
+		var b = new StringBuilder(Math.min(raw.length(), MAX_ACTIVITY));
 		boolean space = false;
 		for (int i = 0; i < raw.length() && b.length() < MAX_ACTIVITY; i++) {
 			char c = raw.charAt(i);

@@ -225,7 +225,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	private JPanel buildHeader() {
-		JPanel header = new JPanel(new BorderLayout(0, 8));
+		var header = new JPanel(new BorderLayout(0, 8));
 		header.setBackground(DARK_GRAY_COLOR);
 		header.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
 
@@ -261,7 +261,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// One strip for who you are here: the character being tracked on the left, and everything
 		// about the sign-in itself behind the ⋯ menu on the right. BorderLayout, not FlowLayout: every
 		// label is centred on the same line, where FlowLayout sat the link on its own baseline.
-		JPanel accountActions = new JPanel(new BorderLayout(8, 0));
+		var accountActions = new JPanel(new BorderLayout(8, 0));
 		accountActions.setBackground(DARKER_GRAY_COLOR);
 		accountActions.add(accountLink, BorderLayout.CENTER);
 		accountActions.add(accountMenuLink, BorderLayout.EAST);
@@ -297,11 +297,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		clanPicker.setFocusable(false);
 		clanPicker.addActionListener(e -> {
 			if (rebuildingPicker) return;
-			ClanChoice sel = (ClanChoice) clanPicker.getSelectedItem();
+			var sel = (ClanChoice) clanPicker.getSelectedItem();
 			if (sel == null || sel.slug.equals(dataSource.chosenClan())) return;
 			switchClan(sel.slug);
 		});
-		JPanel south = new JPanel(new BorderLayout(0, 8));
+		var south = new JPanel(new BorderLayout(0, 8));
 		south.setBackground(DARK_GRAY_COLOR);
 		south.add(buildTabStrip(), BorderLayout.NORTH);
 		south.add(clanPicker, BorderLayout.SOUTH);
@@ -329,7 +329,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	private JPanel buildTabStrip() {
 		tabStrip.setBackground(DARK_GRAY_COLOR);
-		GridBagConstraints gc = new GridBagConstraints();
+		var gc = new GridBagConstraints();
 		gc.fill = GridBagConstraints.BOTH;
 		gc.gridy = 0;
 		for (Tab t : Tab.values()) {
@@ -640,7 +640,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		out.put("chosen", dataSource.chosenClan().isEmpty() ? "" : "1");
 		if (dataSource.canTrackTiles(event, "1".equals(args.get("pre")))) {
 			out.put("track", "1");
-			StringBuilder pins = new StringBuilder();
+			var pins = new StringBuilder();
 			for (int id : dataSource.pinnedTiles(event)) pins.append(pins.length() > 0 ? "," : "").append(id);
 			out.put("pins", pins.toString());
 		}
@@ -665,11 +665,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 			JPanel wrap = left(new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4)));
 			wrap.setBackground(DARK_GRAY_COLOR);
 			for (String n : recentLookups.subList(1, recentLookups.size())) {
-				Round chip = new Round(new BorderLayout(), 3, null, MEDIUM_GRAY_COLOR, null);
+				var chip = new Round(new BorderLayout(), 3, null, MEDIUM_GRAY_COLOR, null);
 				chip.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
 				chip.add(small(plainText(n), LIGHT_GRAY_COLOR));
 				chip.setToolTipText(plainText("Look up " + n));
-				JPanel slot = new JPanel(new BorderLayout());
+				var slot = new JPanel(new BorderLayout());
 				slot.setOpaque(false);
 				slot.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 				slot.add(onClick(chip, () -> showLookup(n)));
@@ -806,7 +806,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	private String settingsShown;
 
 	private String settingsKey(PanelActions actions) {
-		StringBuilder k = new StringBuilder()
+		var k = new StringBuilder()
 			.append(actions.canSyncProfile).append('|').append(actions.canSyncRoster).append('|').append(actions.rosterNote)
 			.append('|').append(isSupporter());
 		for (String clip : dataSource.sounds(BannerSoundService.Kind.BANNER)) {
@@ -935,10 +935,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	private void showAccountMenu(Component anchor) {
-		JPopupMenu menu = new JPopupMenu();
+		var menu = new JPopupMenu();
 		AccountRow row = shownAccountRow;
 		if (row != null && row.state == AccountRow.State.TRACKING) {
-			JMenuItem profile = new JMenuItem("View my profile on Anvil");
+			var profile = new JMenuItem("View my profile on Anvil");
 			profile.setToolTipText("Open " + row.rsn + "'s Anvil profile in your browser");
 			profile.addActionListener(e -> {
 				if (tabsOn) {
@@ -947,18 +947,18 @@ public class AnvilSidebarPanel extends PluginPanel {
 			});
 			menu.add(profile);
 		}
-		JMenuItem support = new JMenuItem(isSupporter() ? "Your Supporter perks" : "Become a Supporter");
+		var support = new JMenuItem(isSupporter() ? "Your Supporter perks" : "Become a Supporter");
 		support.setToolTipText("Name colours, profile banners, clan boosts — and it keeps Anvil running");
 		support.addActionListener(e -> openSupporter());
 		menu.add(support);
 		if (row != null && row.state == AccountRow.State.TRACKING && !accountActionInFlight) {
-			JMenuItem notMine = new JMenuItem("Not my account…");
+			var notMine = new JMenuItem("Not my account…");
 			notMine.setToolTipText("Someone else plays " + row.rsn + " here — stop tracking it on this computer");
 			notMine.addActionListener(e -> onAccountButton());
 			menu.add(notMine);
 			menu.addSeparator();
 		}
-		JMenuItem signOut = new JMenuItem("Sign out…");
+		var signOut = new JMenuItem("Sign out…");
 		signOut.addActionListener(e -> signOut());
 		menu.add(signOut);
 		menu.show(anchor, 0, anchor.getHeight());
@@ -1452,10 +1452,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 		// Signed in, but no config answered: the site can't be reached yet. Say that rather than
 		// "no clans", and keep the roster button and the sound lists, since the tab strip is hidden here.
-		PluginErrorPanel empty = new PluginErrorPanel();
+		var empty = new PluginErrorPanel();
 		empty.setContent("Can't show your clan here", "Anvil can't be reached right now. It'll keep trying.");
 		renderSettings();
-		JPanel stack = new JPanel();
+		var stack = new JPanel();
 		stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
 		stack.setOpaque(false);
 		stack.add(empty);
@@ -1540,7 +1540,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Muted small text that wraps at {@code widthPt} rather than clipping. */
 	private static JLabel note(String text, int widthPt) {
-		JLabel l = new JLabel(wrapHtml(esc(text), widthPt));
+		var l = new JLabel(wrapHtml(esc(text), widthPt));
 		l.setFont(SMALL);
 		l.setForeground(MUTED);
 		return left(l);
@@ -1623,7 +1623,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		row.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 4));
 		row.setToolTipText(plainText(display) + (on ? " — click to mute" : " — muted; click to unmute"));
 
-		JPanel swatch = new JPanel();
+		var swatch = new JPanel();
 		swatch.setPreferredSize(new Dimension(8, 8));
 		swatch.setMinimumSize(new Dimension(8, 8));
 		swatch.setMaximumSize(new Dimension(8, 8));
@@ -1631,7 +1631,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		swatch.setBorder(BorderFactory.createLineBorder(on
 			? PROGRESS_COMPLETE_COLOR : WIDGET_BORDER));
 		// Centre the 8px square against the text line rather than stretching it down the row.
-		JPanel swatchBox = new JPanel(new GridBagLayout());
+		var swatchBox = new JPanel(new GridBagLayout());
 		swatchBox.setOpaque(false);
 		swatchBox.setPreferredSize(new Dimension(CLIP_TEXT_INSET - 6, 12));
 		swatchBox.add(swatch);
@@ -1729,7 +1729,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		}
 
-		JButton take = new JButton("Take starting shot");
+		var take = new JButton("Take starting shot");
 		styleFlatButton(take, BRAND_ORANGE);
 		take.addActionListener(e -> {
 			take.setEnabled(false);
@@ -1763,7 +1763,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		List<StartProofRules.Check> list = dataSource.startProofChecks(proof);
 		// Ticked every second, but the checks only move when you log in or walk to the spot: rebuild
 		// only when what they say changes.
-		StringBuilder said = new StringBuilder();
+		var said = new StringBuilder();
 		for (StartProofRules.Check c : list) said.append(c.state).append('|').append(c.text).append('\n');
 		String key = said.toString();
 		if (key.equals(into.getClientProperty(START_PROOF_SHOWN))) return;
@@ -1819,7 +1819,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	private static JButton flatButton(String label, String tooltip, Color foreground, Runnable onClick) {
-		JButton b = new JButton(label);
+		var b = new JButton(label);
 		styleFlatButton(b, foreground);
 		b.setToolTipText(tooltip);
 		b.addActionListener(e -> onClick.run());
@@ -1864,7 +1864,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		b.setUI(new BasicButtonUI() {
 			@Override
 			public void paint(Graphics g, JComponent c) {
-				Graphics2D g2 = (Graphics2D) g.create();
+				var g2 = (Graphics2D) g.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setColor(c.getBackground());
 				g2.fillRoundRect(0, 0, c.getWidth(), c.getHeight(), 8, 8);
@@ -1895,7 +1895,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		combo.setUI(new BasicComboBoxUI() {
 			@Override
 			protected JButton createArrowButton() {
-				BasicArrowButton arrow = new BasicArrowButton(
+				var arrow = new BasicArrowButton(
 					SwingConstants.SOUTH, WIDGET_BG, WIDGET_BG, BRAND_ORANGE, WIDGET_BG);
 				arrow.setBorder(BorderFactory.createEmptyBorder());
 				return arrow;

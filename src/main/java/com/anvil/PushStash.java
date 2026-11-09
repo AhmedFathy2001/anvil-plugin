@@ -57,7 +57,7 @@ final class PushStash {
 		String key;
 
 		static SavedMoment of(AnvilMoments.Moment m) {
-			SavedMoment s = new SavedMoment();
+			var s = new SavedMoment();
 			s.kind = m.kind;
 			s.itemId = m.itemId;
 			s.itemName = m.itemName;
@@ -96,7 +96,7 @@ final class PushStash {
 			// Either side can be missing: no stash on disk yet, or nothing left to take for this character.
 			return older == null ? newer : older;
 		}
-		Data out = new Data();
+		var out = new Data();
 		out.savedAt = Math.max(older.savedAt, newer.savedAt);
 		mergeMax(out.kc, older.kc, newer.kc);
 		mergeMax(out.xp, older.xp, newer.xp);

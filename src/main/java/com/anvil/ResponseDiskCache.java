@@ -86,7 +86,7 @@ final class ResponseDiskCache {
 		if (marker.equals(written.get(kind))) return;
 		Filepath f = file(kind, acct);
 		if (f == null) return;
-		Entry e = new Entry();
+		var e = new Entry();
 		e.url = url;
 		e.etag = etag;
 		e.body = body;

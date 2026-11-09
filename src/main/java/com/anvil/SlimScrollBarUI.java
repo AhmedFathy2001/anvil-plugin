@@ -44,8 +44,8 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 	}
 
 	private static JButton zeroButton() {
-		JButton b = new JButton();
-		Dimension none = new Dimension(0, 0);
+		var b = new JButton();
+		var none = new Dimension(0, 0);
 		b.setPreferredSize(none);
 		b.setMinimumSize(none);
 		b.setMaximumSize(none);
@@ -61,7 +61,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 	@Override
 	protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
 		if (r.isEmpty() || !scrollbar.isEnabled()) return;
-		Graphics2D g2 = (Graphics2D) g.create();
+		var g2 = (Graphics2D) g.create();
 		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g2.setColor(isThumbRollover() || isDragging ? THUMB_HOVER : THUMB);
 		int inset = 1;

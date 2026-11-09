@@ -136,7 +136,7 @@ public class AnvilSidebarDataSource {
 	 * one, on sites that predate the feature, and the moment one is filed.
 	 */
 	public PluginConfigResponse.StartProof startProof() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		if (cfg == null || cfg.startProof == null || !cfg.startProof.required
 			|| !cfg.startProof.drawn || !cfg.startProof.needsUpload) {
 			return null;
@@ -169,7 +169,7 @@ public class AnvilSidebarDataSource {
 	 * playing, or one still waiting to start (pinned early, it counts down and goes live at the whistle).
 	 */
 	public boolean canTrackTiles(int eventId, boolean preStart) {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return eventId > 0 && (preStart || cfg != null && cfg.live(eventId))
 			&& fromPlugin(AnvilPlugin::supportsTileTracker, false)
 			&& fromPlugin(AnvilPlugin::inGame, false);
@@ -177,7 +177,7 @@ public class AnvilSidebarDataSource {
 
 	/** The live board's event id, or 0 with none. */
 	public int activeEventId() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
 	}
 
@@ -267,13 +267,13 @@ public class AnvilSidebarDataSource {
 	 * site sends {@code activeClan.kind = "creator"} for one; older sites send nothing, which reads as a clan.
 	 */
 	public boolean activeIsSpace() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return cfg != null && cfg.activeClan != null && "creator".equals(cfg.activeClan.kind);
 	}
 
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	public List<PluginConfigResponse.ClanRef> clans() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return cfg == null ? Collections.emptyList() : cfg.switchableClans();
 	}
 

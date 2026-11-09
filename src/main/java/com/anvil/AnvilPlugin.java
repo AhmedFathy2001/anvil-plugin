@@ -1082,7 +1082,7 @@ public class AnvilPlugin extends Plugin {
 		// that needs it instead of that line going out without it.
 		chatStar();
 		// Built before the directory is known: without one they still work, in memory, for the session.
-		NotifyOutbox outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
+		var outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
 		outbox.setSender(apiClient::sendQueuedNotification);
 		notifyOutbox = outbox;
 		apiClient.setNotifyOutbox(outbox);
@@ -1112,7 +1112,7 @@ public class AnvilPlugin extends Plugin {
 			bannerSound.setRoot(pluginDir.join("sounds"));
 			notifyOutbox.setDir(pluginDir.join("outbox", "notify"));
 			pushStash.setDir(pluginDir.join("outbox"));
-			ResponseDiskCache rc = new ResponseDiskCache(gson);
+			var rc = new ResponseDiskCache(gson);
 			rc.setDir(pluginDir.join("cache"));
 			responseCache = rc;
 			apiClient.setDiskCache(rc);
@@ -1172,7 +1172,7 @@ public class AnvilPlugin extends Plugin {
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
 		tileTracker.setNotes(this::tileNotes);
 		tileTracker.setBoards(() -> {
-			PluginConfigResponse c = pluginConfig;
+			var c = pluginConfig;
 			List<Integer> ids = new ArrayList<>();
 			if (c != null && c.boards != null) c.boards.forEach(b -> ids.add(b.eventId));
 			return ids;
@@ -1294,7 +1294,7 @@ public class AnvilPlugin extends Plugin {
 	 * its progress is not this one's.
 	 */
 	private void pushAccountProgress() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		if (!apiClient.isConfigured() || !loggedIn() || cfg == null) return;
 		clientThread.invoke(() -> {
 			Map<String, Integer> sampled = AccountProgress.sample(client);
@@ -1739,7 +1739,7 @@ public class AnvilPlugin extends Plugin {
 		// method references bind lazily and are only invoked at fetch time. The executor is RuneLite's
 		// shared client-lifetime scheduler (NOT this.executor, which only exists between startUp/shutDown).
 		// Kept in the signature because the sidebar's device sign-in still paces its poll on it.
-		AnvilSidebarDataSource delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient);
+		var delegate = new AnvilSidebarDataSource(this::sidebarConfig, apiClient);
 		// The starting-shot button's action. Bound after construction for the same reason the
 		// suppliers above are method references: this provider can run before the plugin's own
 		// @Inject fields exist, and the capture only ever fires from a click, long after that.
@@ -2293,7 +2293,7 @@ public class AnvilPlugin extends Plugin {
 		startProofStillTicks = here != null && here.equals(startProofPosition) ? startProofStillTicks + 1 : 0;
 		startProofPosition = here;
 		maybeAutoStartProof(here);
-		PluginConfigResponse cfgNow = pluginConfig;
+		var cfgNow = pluginConfig;
 		startSpotMarker.update(here != null && config.startSpotGuide() && cfgNow != null
 				? StartSpotMarker.target(cfgNow.startProof) : null,
 				cfgNow != null && cfgNow.startProof != null ? cfgNow.startProof.location : null);
@@ -2776,7 +2776,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void announceAccountOnce(String rsn, long accountHash) {
 		if (!apiClient.isConfigured() || announcedAccounts.contains(accountHash, rsn)) return;
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		String standing = cfg == null ? null : cfg.accountStanding;
 		if (standing == null) {
 			// Older site, or the refresh failed — nothing reliable to say yet; try at the next login.
@@ -2808,7 +2808,7 @@ public class AnvilPlugin extends Plugin {
 		String rsn = apiClient.getCurrentRsn();
 		if (rsn == null || !apiClient.isSignedIn()) return null;
 		if (apiClient.isAccountPaused()) return new AccountRow(rsn, AccountRow.State.PAUSED);
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		if (cfg != null && "other".equals(cfg.accountStanding)) return new AccountRow(rsn, AccountRow.State.OTHER);
 		return new AccountRow(rsn, AccountRow.State.TRACKING);
 	}
@@ -4324,7 +4324,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	private void tickGameCounters() {
 		if (!loggedIn()) return;
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		gameValueCounters.configure(cfg != null ? cfg.gameCounters : null);
 		if (gameValueCounters.entries().isEmpty()) return;
 		gameValueCounters.onLoggedIn();
@@ -4541,7 +4541,7 @@ public class AnvilPlugin extends Plugin {
 		movedFrom.forEach((id, q) -> now.merge(id, -q, Integer::sum));
 		movedFrom = null;
 		movedTick = -1;
-		NotifyFacts f = new NotifyFacts(movedKind, getLocalPlayerName());
+		var f = new NotifyFacts(movedKind, getLocalPlayerName());
 		now.forEach((id, q) -> {
 			if (q != 0 && (!f.facts.has("items") || f.facts.getAsJsonArray("items").size() < 30)) f.item(id, itemManager.getItemComposition(id).getName(), q, (long) itemManager.getItemPrice(id) * q);
 		});
@@ -4604,7 +4604,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** What the site stamps a proof's banner from, less the title/detail (lib/proofStamp). */
 	private JsonObject proofMeta() {
-		JsonObject proof = new JsonObject();
+		var proof = new JsonObject();
 		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
 		proof.addProperty("capturedAt", now());
 		proof.addProperty("tick", client.getTickCount());
@@ -4805,7 +4805,7 @@ public class AnvilPlugin extends Plugin {
 		int divider = 4;
 		int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
 		int h = triggerFrame.getHeight() + divider + flushFrame.getHeight();
-		BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+		var out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 		Graphics2D g = out.createGraphics();
 		try {
 			g.setColor(Color.BLACK);
@@ -4846,9 +4846,9 @@ public class AnvilPlugin extends Plugin {
 			meta.add("UTC: " + java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
 					.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-			Font titleFont = new Font(Font.SANS_SERIF, Font.BOLD, 14);
-			Font detailFont = new Font(Font.SANS_SERIF, Font.BOLD, 18);
-			Font metaFont = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
+			var titleFont = new Font(Font.SANS_SERIF, Font.BOLD, 14);
+			var detailFont = new Font(Font.SANS_SERIF, Font.BOLD, 18);
+			var metaFont = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
 			FontMetrics tfm = g.getFontMetrics(titleFont);
 			FontMetrics dfm = g.getFontMetrics(detailFont);
 			FontMetrics mfm = g.getFontMetrics(metaFont);
@@ -4914,7 +4914,7 @@ public class AnvilPlugin extends Plugin {
 	 * login nudge. False on every site/event that doesn't ask for one, and the moment one is filed.
 	 */
 	public boolean needsStartProof() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg != null
 				&& cfg.startProof != null
 				&& cfg.startProof.required
@@ -4942,7 +4942,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private void captureStartProofOnClientThread() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		if (cfg == null || cfg.startProof == null || cfg.event == null || !cfg.startProof.drawn) {
 			sendChatMessage("No starting shot is being asked for right now.");
 			return;
@@ -5211,7 +5211,7 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread, every tick: take the starting shot unprompted once every check is green. */
 	private void maybeAutoStartProof(WorldPoint here) {
 		if (here == null || autoStartProofTried || startProofInFlight || !config.autoStartShot()) return;
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		StartProof proof = cfg == null ? null : cfg.startProof;
 		if (!StartProofRules.autoReady(proof, sessionLoginAtMs, now(),
 				here.getX(), here.getY(), startProofStillTicks)) {
@@ -5239,7 +5239,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** The sidebar's "Route me there": hand the start spot to Shortest Path, if it's installed. */
 	void routeToStartSpot() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		WorldPoint target = cfg == null ? null : StartSpotMarker.target(cfg.startProof);
 		clientThread.invokeLater(() -> startSpotMarker.route(target));
 	}
@@ -5295,7 +5295,7 @@ public class AnvilPlugin extends Plugin {
 		String key = PushStash.keyFor(rsn, accountHash);
 		PushStash stash = pushStash;
 		if (key == null || stash == null) return null;
-		PushStash.Data data = new PushStash.Data();
+		var data = new PushStash.Data();
 		data.savedAt = now();
 		data.kc = kcPush.snapshot();
 		data.xp = skillXpPush.snapshot();
@@ -5408,7 +5408,7 @@ public class AnvilPlugin extends Plugin {
 	 * session — last session's saved copy. Never read by tracking; that is {@link #pluginConfig}.
 	 */
 	PluginConfigResponse sidebarConfig() {
-		PluginConfigResponse live = pluginConfig;
+		var live = pluginConfig;
 		return live != null || liveConfigAnswered ? live : savedConfig;
 	}
 
@@ -5539,7 +5539,7 @@ public class AnvilPlugin extends Plugin {
 			String clanName = settings.getName();
 			List<BingoApiClient.ClanMember> members = new ArrayList<>();
 			for (ClanMember m : settings.getMembers()) {
-				BingoApiClient.ClanMember out = new BingoApiClient.ClanMember();
+				var out = new BingoApiClient.ClanMember();
 				out.rsn = m.getName();
 				ClanRank rank = m.getRank();
 				if (rank != null) {
@@ -5666,7 +5666,7 @@ public class AnvilPlugin extends Plugin {
 	private boolean announceCompletedNow(int tileId, String label) {
 		configFetchLock.lock();
 		try {
-			PluginConfigResponse cfg = pluginConfig;
+			var cfg = pluginConfig;
 			if (cfg == null || seededBoards.isEmpty() || !notifiedCompletedTiles.add(tileId)) {
 				return false;
 			}
@@ -6194,7 +6194,7 @@ public class AnvilPlugin extends Plugin {
 				moving = false;
 			}
 			if (viewport == null) viewport = area.getBounds();
-			Rectangle runway = new Rectangle(viewport);
+			var runway = new Rectangle(viewport);
 			runway.grow(0, 80);
 			if (!runway.intersects(w.getBounds())) {
 				chatboxSeen[i] = text;
@@ -6878,7 +6878,7 @@ public class AnvilPlugin extends Plugin {
 
 	private void syncPush() {
 		PushSocket p = pushSocket;
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		int eventId = cfg == null ? 0 : cfg.event != null ? cfg.event.id : cfg.homeBoard != null ? cfg.homeBoard.eventId : 0;
 		// The chat feed listens with no board too (":f" asks the ticket for feed lines).
 		boolean feed = config.chatFeed();
@@ -6931,7 +6931,7 @@ public class AnvilPlugin extends Plugin {
 			if (panel != null) panel.feedPush(m);
 			return;
 		}
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		int eventId = m.get("eventId").getAsInt();
 		int myTeam = cfg != null && cfg.team != null ? cfg.team.id : 0;
 		int me = cfg != null && cfg.player != null ? cfg.player.id : 0;
@@ -6950,7 +6950,7 @@ public class AnvilPlugin extends Plugin {
 				JsonObject own = members.has(String.valueOf(me)) ? members.getAsJsonObject(String.valueOf(me)) : new JsonObject();
 				JsonObject counts = m.has("c") ? m.getAsJsonObject("c").deepCopy() : new JsonObject();
 				if (own.has("c")) own.getAsJsonObject("c").entrySet().forEach(e -> counts.add(e.getKey(), e.getValue()));
-				JsonObject mine = new JsonObject();
+				var mine = new JsonObject();
 				mine.add("c", counts);
 				if (own.has("y")) mine.add("y", own.get("y"));
 				adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), new JsonObject(), mine));
@@ -7224,7 +7224,7 @@ public class AnvilPlugin extends Plugin {
 	 * Rebuild the per-config lookups (boards, gain items, allowlists) for O(1) matching.
 	 */
 	private void rebuildItemDropIndex() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		boolean has = cfg != null;
 		Set<Integer> notable = has && cfg.alwaysNotifyItemIds != null ? new HashSet<>(cfg.alwaysNotifyItemIds) : new HashSet<>();
 		notable.remove(null);
@@ -7243,7 +7243,7 @@ public class AnvilPlugin extends Plugin {
 	 * quietly keeps its hiscores-sweep behaviour.
 	 */
 	private void rebuildTrackedActivityKeys() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		trackedActivityKeys = names(cfg != null ? cfg.trackedActivityKeys : null,
 				k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
 		if (trackedActivityKeys.isEmpty()) activityPush.reset();
@@ -7318,7 +7318,7 @@ public class AnvilPlugin extends Plugin {
 	 * by the tracker, so it only looks up maps built once per config.
 	 */
 	List<String> tileNotes(int tileId) {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		if (cfg == null) return Collections.emptyList();
 		indexNotes(cfg);
 		long[] runs = rules.runs(tileId);
@@ -7662,7 +7662,7 @@ public class AnvilPlugin extends Plugin {
 			minutes = eventMinutes;
 			caTasks = eventCaTasks;
 		}
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) {
 			return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
 		}
@@ -7716,7 +7716,7 @@ public class AnvilPlugin extends Plugin {
 	private void recordLootMoments(String source, String sourceKind, Collection<ItemStack> items) {
 		if (items == null || items.isEmpty() || !momentsEnabled()) return;
 		Set<Integer> boardItems = rules.dropItemIds();
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null
 				? new HashSet<>(cfg.luckItemIds) : Collections.emptySet();
 		// Merge stacks first — a kill that drops coins twice is one line, not two.
@@ -8007,7 +8007,7 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		int party = partySize();
-		CoopFingerprint fp = new CoopFingerprint(teammates, party);
+		var fp = new CoopFingerprint(teammates, party);
 		return fp.isEmpty() ? null : fp;
 	}
 
@@ -8102,7 +8102,7 @@ public class AnvilPlugin extends Plugin {
 			Me me = me();
 			if (me == null || !me.deaths) return;
 			// The site words the post (the person's death message, or now and then a fun one).
-			NotifyFacts facts = new NotifyFacts("death", getLocalPlayerName())
+			var facts = new NotifyFacts("death", getLocalPlayerName())
 					.put("source", death.source).put("sourceKind", death.sourceKind);
 			if (death.pile > 0) facts.put("pile", death.pile);
 			captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
@@ -8149,13 +8149,13 @@ public class AnvilPlugin extends Plugin {
 	 * tracking gate applies later inside ensureCounterEvent().
 	 */
 	private boolean pvpCounterActive() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg != null && cfg.event != null && AnvilOverlay.isEventActive(cfg.event);
 	}
 
 	/** Is any board this character is on live? (Every one of them is tracked.) */
 	private boolean live() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg != null && cfg.live();
 	}
 
@@ -8406,7 +8406,7 @@ public class AnvilPlugin extends Plugin {
 
 		// How much of the log this fills in (0 until the log has synced this session; the site then
 		// leaves the count and rank out rather than guessing).
-		NotifyFacts f = new NotifyFacts("clogSlot", getLocalPlayerName()).put("item", itemName)
+		var f = new NotifyFacts("clogSlot", getLocalPlayerName()).put("item", itemName)
 				.put("itemId", resolveItemIdByName(itemName))
 				.put("slots", ActivityStats.clogSlots(client::getVarpValue))
 				.put("slotsMax", ActivityStats.clogSlotsMax(client::getVarpValue));
@@ -8572,7 +8572,7 @@ public class AnvilPlugin extends Plugin {
 	 * field so every caller sees the same null-safety.
 	 */
 	private DropFacts dropFacts() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg != null ? cfg.dropFacts : null;
 	}
 
@@ -8591,7 +8591,7 @@ public class AnvilPlugin extends Plugin {
 	 * impling) still wants.
 	 */
 	private Integer killCountFor(String source) {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		if (cfg != null && !cfg.showKillCount) return null;
 		if (source == null) return null;
 		if (lastKcName != null
@@ -8778,7 +8778,7 @@ public class AnvilPlugin extends Plugin {
 		// Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
 		// park a pet nothing will ever collect: the next collection-log line would claim it.
 		if (!announce && momentKey == null) return;
-		PendingPet pet = new PendingPet(duplicate, getLocalPlayerName(), source, sourceKind, kc,
+		var pet = new PendingPet(duplicate, getLocalPlayerName(), source, sourceKind, kc,
 				announce, momentKey);
 		notePetSurroundings();
 		synchronized (petLock) {
@@ -8806,7 +8806,7 @@ public class AnvilPlugin extends Plugin {
 		// took the same answer). A pet that never got named, or one nothing can place, falls back to
 		// the observed loot source — which is all this ever had.
 		String petName = pet.name;
-		NotifyFacts f = new NotifyFacts("pet", pet.rsn).put("name", petName).flag("duplicate", pet.duplicate);
+		var f = new NotifyFacts("pet", pet.rsn).put("name", petName).flag("duplicate", pet.duplicate);
 		synchronized (petLock) {
 			f.put("source", petName == null ? pet.source : pet.resolvedSource)
 					.put("kc", petName == null ? pet.killCount : pet.resolvedKc);
@@ -9137,7 +9137,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** The site's thresholds for this game-mode world, or null on the main game / an older site. */
 	private ModeThresholds modeThresholds() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg != null && WorldInfo.separateSave(client.getWorldType()) ? cfg.modeThresholds : null;
 	}
 
@@ -9244,7 +9244,7 @@ public class AnvilPlugin extends Plugin {
 
 
 	private void postTotalMilestone(int total, boolean maxed) {
-		NotifyFacts f = new NotifyFacts("totalLevel", getLocalPlayerName()).put("total", total).flag("maxed", maxed)
+		var f = new NotifyFacts("totalLevel", getLocalPlayerName()).put("total", total).flag("maxed", maxed)
 				.put("milestone", maxed ? null : (Integer) total);
 		// Where this leaves them — from the LIVE total, not the milestone above: somebody who crossed
 		// 1800 on a level that took them to 1803 is 474 from max, not 477. Left out on a build not
@@ -9348,7 +9348,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private Me me() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg == null || (!seasonalWorld && !config.shareActivity()) ? null : cfg.me;
 	}
 
@@ -9366,7 +9366,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		String v = configManager.getConfiguration("osrsbingo", CFG_DEFAULTS_VERSION);
 		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(v)) return;
-		JsonObject o = new JsonObject();
+		var o = new JsonObject();
 		for (String k : new String[]{"notifyRareDrops", "rareDropMinValue", "rareDropMinRarity", "lootKeyMinValue", "notifyPets",
 			"notifyDeaths", "deathMessage", "notifyPvpKills", "notifyClogSlots", "notifyLevelUps", "notifyDiaries", "caMinTaskTier",
 			"questAnnounce", CFG_DEFAULTS_VERSION}) {
@@ -9399,7 +9399,7 @@ public class AnvilPlugin extends Plugin {
 	 * notification (a Maggot King fang post vanished this way).
 	 */
 	private void captureFrameAsync(Consumer<byte[]> consumer) {
-		AtomicBoolean delivered = new AtomicBoolean(false);
+		var delivered = new AtomicBoolean(false);
 		onNextFrame(image -> {
 			byte[] png = null;
 			try {
@@ -9436,7 +9436,7 @@ public class AnvilPlugin extends Plugin {
 	 * Returns how to show them again, or null.
 	 */
 	private Runnable hideChatForShot() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		int mask = ChatFlair.hideMask(cfg == null || cfg.me == null ? null : cfg.me.hide);
 		if (mask == 0 || !client.isClientThread()) return null;
 		shotMask = mask;
@@ -9533,7 +9533,7 @@ public class AnvilPlugin extends Plugin {
 		javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
 		param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
 		param.setCompressionQuality(0.8f);
-		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		var baos = new ByteArrayOutputStream();
 		try (javax.imageio.stream.ImageOutputStream out = ImageIO.createImageOutputStream(baos)) {
 			writer.setOutput(out);
 			writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
@@ -9544,13 +9544,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	private static byte[] png(BufferedImage img) throws IOException {
-		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		var baos = new ByteArrayOutputStream();
 		ImageIO.write(img, "png", baos);
 		return baos.toByteArray();
 	}
 
 	private static BufferedImage copyFrame(BufferedImage src) {
-		BufferedImage copy = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+		var copy = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
 		Graphics2D g = copy.createGraphics();
 		g.drawImage(src, 0, 0, null);
 		g.dispose();
@@ -9621,7 +9621,7 @@ public class AnvilPlugin extends Plugin {
 
 	private String chatStar() {
 		if (chatStarIcon < 0) {
-			BufferedImage img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
+			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
 			Graphics2D g = img.createGraphics();
 			try {
 				new GlyphIcon(GlyphIcon.Shape.STAR, 11, new Color(0xff, 0xd2, 0x7a)).paintIcon(null, g, 0, 0);
@@ -9812,7 +9812,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Any thread: whether the side panel should offer the seasonal-sharing switch. */
 	public boolean seasonalSharingOffered() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return seasonalWorld && cfg != null;
 	}
 
@@ -9872,7 +9872,7 @@ public class AnvilPlugin extends Plugin {
 	 * is a 404 and carries no capabilities; /api/version answers instead.
 	 */
 	private boolean pushEnabled() {
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		return cfg != null ? cfg.serverSupports("push-ws")
 				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises("push-ws");
 	}
@@ -9923,7 +9923,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The names to ask for. Without them there is nothing to probe, so we leave the flag unset
 		// and try again once the site's config has landed.
-		PluginConfigResponse cfg = pluginConfig;
+		var cfg = pluginConfig;
 		List<String> activities = cfg != null ? cfg.pbActivities : null;
 		if (activities == null || activities.isEmpty()) return;
 		// String.hashCode is specified, so the same list gives the same signature on every client

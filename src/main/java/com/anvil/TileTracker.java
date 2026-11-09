@@ -376,7 +376,7 @@ public class TileTracker {
 	private Widget add(int eventId, int tileId) {
 		int slot = 0;
 		while (slotTaken(slot)) slot++;
-		Widget w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
+		var w = new Widget(slot, tileId, (id, site) -> shownProgress.applyAsLong(id, site));
 		w.event = eventId;
 		w.notes = id -> notes.apply(id);
 		pins.put(tileId, w);
@@ -429,7 +429,7 @@ public class TileTracker {
 	}
 
 	static String format(Collection<Widget> pins) {
-		StringJoiner sj = new StringJoiner(";");
+		var sj = new StringJoiner(";");
 		pins.forEach(w -> sj.add(w.event + ":" + w.tileId));
 		return sj.toString();
 	}

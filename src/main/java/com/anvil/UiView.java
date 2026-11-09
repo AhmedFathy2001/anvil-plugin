@@ -309,7 +309,7 @@ final class UiView extends JPanel {
 		long sincePress = System.currentTimeMillis() - pressedAt;
 		if (background && ((pressing && sincePress < PRESS_STALE_MS) || sincePress < CLICK_SETTLE_MS)) {
 			// Redrawing now would swap the row out from under the press, and the click would be lost.
-			Timer later = new Timer((int) CLICK_SETTLE_MS, e -> land(into, n, answer, true));
+			var later = new Timer((int) CLICK_SETTLE_MS, e -> land(into, n, answer, true));
 			later.setRepeats(false);
 			later.start();
 			return;
@@ -442,7 +442,7 @@ final class UiView extends JPanel {
 	/** Keeps the pane being left (its build, scroll, clicked row) and names the one entered; returns the viewport. */
 	private JViewport leave(Slot s, String into, String name) {
 		String from = openPanes.getOrDefault(into, s.first);
-		JViewport vp = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, s.holder);
+		var vp = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, s.holder);
 		if (s.holder.getComponentCount() > 0) s.built.put(from, (JComponent) s.holder.getComponent(0));
 		if (lastClicked != null && SwingUtilities.isDescendingFrom(lastClicked, s.holder)) s.from.put(from, lastClicked);
 		if (vp != null) scrolls.put(into + ":" + from, vp.getViewPosition().y);
@@ -561,7 +561,7 @@ final class UiView extends JPanel {
 				// of its siblings sideways (an absent start-proof card indented a whole board page).
 				return left(part == null ? new JPanel() : part);
 			case "feed": {
-				FeedList f = new FeedList(n, host, items, sprites, skills, this::act);
+				var f = new FeedList(n, host, items, sprites, skills, this::act);
 				feeds.add(f);
 				return left(f);
 			}
@@ -614,7 +614,7 @@ final class UiView extends JPanel {
 		Color fill = card || "card".equals(bg) ? DARKER_GRAY_COLOR
 			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? DARK_GRAY_COLOR : null;
 		if (fill == null && edge == null && !n.has("on")) {
-			JPanel p = new JPanel(layout);
+			var p = new JPanel(layout);
 			p.setOpaque(false);
 			return left(p);
 		}
@@ -661,7 +661,7 @@ final class UiView extends JPanel {
 			: chip != null ? new ClipLabel() {
 				@Override
 				protected void paintComponent(Graphics g) {
-					Graphics2D g2 = (Graphics2D) g.create();
+					var g2 = (Graphics2D) g.create();
 					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 					g2.setColor(chip);
 					g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
@@ -691,7 +691,7 @@ final class UiView extends JPanel {
 		int width = num(n, "wrap", 0) > 0 ? num(n, "wrap", 0) : WRAP_PT;
 		if (n.has("runs") && n.get("runs").isJsonArray()) {
 			// Runs in their own colours (names in team colours), always wrapped.
-			StringBuilder h = new StringBuilder();
+			var h = new StringBuilder();
 			for (JsonElement e : n.getAsJsonArray("runs")) {
 				JsonObject r = e.getAsJsonObject();
 				h.append(String.format("<font color='#%06x'>", color(str(r, "color"), ink).getRGB() & 0xffffff)).append(esc(fontSafe(str(r, "s")))).append("</font>");
@@ -732,7 +732,7 @@ final class UiView extends JPanel {
 					super.paintComponent(g);
 					return;
 				}
-				Graphics2D g2 = (Graphics2D) g.create();
+				var g2 = (Graphics2D) g.create();
 				g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.25f));
 				super.paintComponent(g2);
 				g2.dispose();
@@ -751,10 +751,10 @@ final class UiView extends JPanel {
 	 */
 	private JComponent hero(JsonObject n) {
 		int bannerH = 74, up = 18; // about 3:1 at panel width, the shape banners are uploaded in
-		JsonObject b = new JsonObject();
+		var b = new JsonObject();
 		b.add("c", n.get("c"));
 		b.addProperty("gap", 6);
-		JPanel body = (JPanel) col(b);
+		var body = (JPanel) col(b);
 		body.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
 		Icon[] pic = new Icon[1];
 		JsonArray g = n.has("grad") && n.get("grad").isJsonArray() ? n.getAsJsonArray("grad") : null;
@@ -763,7 +763,7 @@ final class UiView extends JPanel {
 		JComponent strip = new JComponent() {
 			@Override
 			protected void paintComponent(Graphics gr) {
-				Graphics2D g2 = (Graphics2D) gr.create();
+				var g2 = (Graphics2D) gr.create();
 				g2.setPaint(new GradientPaint(0, 0, from, getWidth(), 0, to));
 				g2.fillRect(0, 0, getWidth(), getHeight());
 				if (pic[0] != null) {
@@ -788,7 +788,7 @@ final class UiView extends JPanel {
 		JPanel card = new JPanel(null) {
 			@Override
 			protected void paintComponent(Graphics gr) {
-				Graphics2D g2 = (Graphics2D) gr.create();
+				var g2 = (Graphics2D) gr.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setColor(DARKER_GRAY_COLOR);
 				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 22, 22);
@@ -797,7 +797,7 @@ final class UiView extends JPanel {
 
 			@Override
 			protected void paintChildren(Graphics gr) {
-				Graphics2D g2 = (Graphics2D) gr.create();
+				var g2 = (Graphics2D) gr.create();
 				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 22, 22));
 				super.paintChildren(g2);
 				g2.dispose();
@@ -824,12 +824,12 @@ final class UiView extends JPanel {
 	private JComponent img(JsonObject n) {
 		int w = Math.max(1, Math.min(240, num(n, "w", 64)));
 		int h = Math.max(1, Math.min(240, num(n, "h", 40)));
-		JLabel l = new JLabel();
+		var l = new JLabel();
 		l.setHorizontalAlignment(SwingConstants.CENTER);
 		l.setOpaque(false);
 		l.setBackground(DARKER_GRAY_COLOR);
-		Dimension d = new Dimension(w, h);
-		Dimension empty = new Dimension(0, 0);
+		var d = new Dimension(w, h);
+		var empty = new Dimension(0, 0);
 		l.setPreferredSize(empty);
 		l.setMinimumSize(empty);
 		l.setMaximumSize(empty);
@@ -891,7 +891,7 @@ final class UiView extends JPanel {
 					// a tiny ARGB buffer, then apply an antialiased alpha mask; ImageIcon still advances normally.
 					// A DstIn fill only touches pixels inside the shape, so it can't cut the corners away: the
 					// frame goes into a buffer and is painted through the shape instead.
-					BufferedImage raw = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+					var raw = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 					Graphics2D rg = raw.createGraphics();
 					try {
 						image.paintIcon(c, rg, 0, 0); // a GifIcon registers c and repaints it per frame itself
@@ -954,7 +954,7 @@ final class UiView extends JPanel {
 		Color fg = color(str(n, "color"), pct >= 100 ? PROGRESS_COMPLETE_COLOR : BRAND_ORANGE);
 		int h = num(n, "h", 3);
 		if (n.has("label")) {
-			ProgressBar bar = new ProgressBar();
+			var bar = new ProgressBar();
 			bar.setMaximumValue(100);
 			bar.setValue(pct);
 			bar.setCenterLabel(Ui.plainText(str(n, "label")));
@@ -992,7 +992,7 @@ final class UiView extends JPanel {
 		JPanel bar = new JPanel() {
 			@Override
 			protected void paintComponent(Graphics g) {
-				Graphics2D g2 = (Graphics2D) g.create();
+				var g2 = (Graphics2D) g.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				int k = cs.size();
 				float w = (getWidth() - 3f * (k - 1)) / Math.max(1, k);
@@ -1019,7 +1019,7 @@ final class UiView extends JPanel {
 		JPanel gutter = new JPanel() {
 			@Override
 			protected void paintComponent(Graphics g) {
-				Graphics2D g2 = (Graphics2D) g.create();
+				var g2 = (Graphics2D) g.create();
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				int x = 3, y = 3;
 				if (line != null) {
@@ -1057,11 +1057,11 @@ final class UiView extends JPanel {
 		};
 		gutter.setOpaque(false);
 		gutter.setPreferredSize(new Dimension(18, 18));
-		JPanel body = new JPanel(new BorderLayout());
+		var body = new JPanel(new BorderLayout());
 		body.setOpaque(false);
 		body.setBorder(BorderFactory.createEmptyBorder(0, 0, line != null ? 8 : 0, 0));
 		if (n.has("c") && n.get("c").isJsonObject()) body.add(node(n.getAsJsonObject("c")), BorderLayout.CENTER);
-		Round p = new Round(new BorderLayout(6, 0), 4, null, null, null);
+		var p = new Round(new BorderLayout(6, 0), 4, null, null, null);
 		p.add(gutter, BorderLayout.WEST);
 		p.add(body, BorderLayout.CENTER);
 		return capH(left(p));
@@ -1113,14 +1113,14 @@ final class UiView extends JPanel {
 
 	/** A segmented switch: a dark rounded track, the picked segment raised with an orange underline. */
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
-		Round strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
+		var strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
 		strip.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 		left(strip);
 		Map<String, Round> segs = new LinkedHashMap<>();
 		Consumer<String> paint = name -> segs.forEach((k, seg) -> {
 			boolean on = k.equals(name);
 			seg.setOpaque(on);
-			JLabel l = (JLabel) seg.getComponent(0);
+			var l = (JLabel) seg.getComponent(0);
 			l.setForeground(on ? Color.WHITE : MUTED);
 			l.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 0, 2, 0, on ? BRAND_ORANGE : new Color(0, 0, 0, 0)),
@@ -1128,7 +1128,7 @@ final class UiView extends JPanel {
 			seg.repaint();
 		});
 		for (String name : labels) {
-			Round seg = new Round(new BorderLayout(), 3, RAISED, null, null);
+			var seg = new Round(new BorderLayout(), 3, RAISED, null, null);
 			JLabel l = new ClipLabel(plainText(name), SwingConstants.CENTER);
 			l.setFont(SMALL);
 			seg.add(l, BorderLayout.CENTER);
@@ -1217,7 +1217,7 @@ final class UiView extends JPanel {
 		};
 		refill.run();
 		if (bool(n, "box")) {
-			SearchField search = new SearchField(str(n, "hint"), "");
+			var search = new SearchField(str(n, "hint"), "");
 			styleSearch(search);
 			search.setFont(SMALL);
 			search.setBackground(DARK_GRAY_COLOR);
@@ -1242,7 +1242,7 @@ final class UiView extends JPanel {
 	 * every input's value. The results belong in a slot, so the box itself — and its caret — stays put.
 	 */
 	private JComponent search(JsonObject n, String name, String value) {
-		SearchField field = new SearchField(str(n, "label"), value);
+		var field = new SearchField(str(n, "label"), value);
 		styleSearch(field);
 		field.setFont(SMALL);
 		field.setBorder(BorderFactory.createCompoundBorder(
@@ -1250,7 +1250,7 @@ final class UiView extends JPanel {
 		inputs.put(name, () -> field.getText().trim());
 		JsonObject on = n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null;
 		if (on != null) {
-			Timer pause = new Timer(350, e -> fire(on));
+			var pause = new Timer(350, e -> fire(on));
 			pause.setRepeats(false);
 			onEdit(field, pause::restart);
 			field.addActionListener(e -> {
@@ -1374,7 +1374,7 @@ final class UiView extends JPanel {
 				int min = num(n, "min", 0);
 				int max = num(n, "max", Integer.MAX_VALUE);
 				int start = Math.max(min, Math.min(max, parseInt(value, min)));
-				JSpinner spinner = new JSpinner(new SpinnerNumberModel(start, min, max, Math.max(1, num(n, "step", 1))));
+				var spinner = new JSpinner(new SpinnerNumberModel(start, min, max, Math.max(1, num(n, "step", 1))));
 				spinner.setFont(SMALL);
 				JTextField field = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
 				field.setBackground(DARKER_GRAY_COLOR);
@@ -1386,7 +1386,7 @@ final class UiView extends JPanel {
 				row.add(spinner, BorderLayout.CENTER);
 				return capH(row);
 			case "check":
-				JCheckBox check = new JCheckBox(plainText(str(n, "label")), "1".equals(value));
+				var check = new JCheckBox(plainText(str(n, "label")), "1".equals(value));
 				check.setFont(SMALL);
 				check.setOpaque(false);
 				inputs.put(name, () -> check.isSelected() ? "1" : "");
@@ -1436,10 +1436,10 @@ final class UiView extends JPanel {
 
 			private void show(MouseEvent e) {
 				if (!e.isPopupTrigger()) return;
-				JPopupMenu menu = new JPopupMenu();
+				var menu = new JPopupMenu();
 				for (JsonElement el : items) {
 					JsonObject item = el.getAsJsonObject();
-					JMenuItem mi = new JMenuItem(plainText(str(item, "label")));
+					var mi = new JMenuItem(plainText(str(item, "label")));
 					if (item.has("on") && item.get("on").isJsonObject()) {
 						JsonObject on = item.getAsJsonObject("on");
 						mi.addActionListener(ev -> act(on));
@@ -1580,7 +1580,7 @@ final class UiView extends JPanel {
 
 	/** Every text in {@code n}, for a row a filter searches without a {@code k}. */
 	private static String words(JsonObject n) {
-		StringBuilder sb = new StringBuilder(str(n, "s")).append(' ').append(str(n, "alt"));
+		var sb = new StringBuilder(str(n, "s")).append(' ').append(str(n, "alt"));
 		for (Map.Entry<String, JsonElement> e : n.entrySet()) {
 			if (e.getValue().isJsonObject()) {
 				sb.append(' ').append(words(e.getValue().getAsJsonObject()));

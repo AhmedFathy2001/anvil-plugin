@@ -134,7 +134,7 @@ final class GradientLabel extends JLabel {
 			super.paintComponent(g);
 			return;
 		}
-		Graphics2D g2d = (Graphics2D) g;
+		var g2d = (Graphics2D) g;
 		AffineTransform at = g2d.getTransform();
 		double sx = Math.max(1, at.getScaleX());
 		double sy = Math.max(1, at.getScaleY());
@@ -166,7 +166,7 @@ final class GradientLabel extends JLabel {
 			fg.dispose();
 		}
 
-		Graphics2D g2 = (Graphics2D) g.create();
+		var g2 = (Graphics2D) g.create();
 		try {
 			g2.scale(1 / sx, 1 / sy);
 			g2.drawImage(frame, 0, 0, null);
@@ -195,7 +195,7 @@ final class GradientLabel extends JLabel {
 			ig.dispose();
 		}
 		Insets in = getInsets();
-		Rectangle view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
+		var view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
 		textR.setBounds(0, 0, 0, 0);
 		iconR.setBounds(0, 0, 0, 0);
 		SwingUtilities.layoutCompoundLabel(this, getFontMetrics(getFont()), getText(), getIcon(),

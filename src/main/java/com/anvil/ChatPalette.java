@@ -123,7 +123,7 @@ final class ChatPalette {
 		}
 		if (rgb.size() < 2 || safeName == null || safeName.isEmpty()) return null;
 		int n = safeName.codePointCount(0, safeName.length());
-		StringBuilder out = new StringBuilder(safeName.length() * 20);
+		var out = new StringBuilder(safeName.length() * 20);
 		int last = -1;
 		int i = 0;
 		for (int off = 0; off < safeName.length(); ) {
@@ -177,7 +177,7 @@ final class ChatPalette {
 	 */
 	static String readable(String line, boolean opaque) {
 		java.util.regex.Matcher m = COL.matcher(line);
-		StringBuffer out = new StringBuffer();
+		var out = new StringBuffer();
 		while (m.find()) m.appendReplacement(out, "<col=" + readableHex(m.group(1), opaque) + ">");
 		m.appendTail(out);
 		return out.toString();

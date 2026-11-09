@@ -234,7 +234,7 @@ public class BannerSoundService {
 	private synchronized ExecutorService executor() {
 		if (audioExecutor == null || audioExecutor.isShutdown()) {
 			audioExecutor = Executors.newSingleThreadExecutor(r -> {
-				Thread t = new Thread(r, "anvil-banner-sound");
+				var t = new Thread(r, "anvil-banner-sound");
 				t.setDaemon(true);
 				return t;
 			});

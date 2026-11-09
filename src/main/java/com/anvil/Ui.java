@@ -153,7 +153,7 @@ final class Ui {
 
 	/** A left-aligned vertical stack on the panel background. */
 	static JPanel column() {
-		JPanel p = new JPanel();
+		var p = new JPanel();
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
 		p.setBackground(DARK_GRAY_COLOR);
 		return left(p);
@@ -169,7 +169,7 @@ final class Ui {
 
 	/** A transparent, left-aligned BorderLayout row with {@code hgap} between its parts. */
 	static JPanel row(int hgap) {
-		JPanel p = new JPanel(new BorderLayout(hgap, 0));
+		var p = new JPanel(new BorderLayout(hgap, 0));
 		p.setOpaque(false);
 		return left(p);
 	}
@@ -218,7 +218,7 @@ final class Ui {
 
 	/** The panel's flat 0–100 progress bar: no text, no border, {@code h} px tall. */
 	static JProgressBar bar(int percent, Color fg, Color bg, int h) {
-		JProgressBar bar = new JProgressBar(0, 100);
+		var bar = new JProgressBar(0, 100);
 		bar.setValue(percent);
 		bar.setStringPainted(false);
 		bar.setBorderPainted(false);
@@ -315,7 +315,7 @@ final class Ui {
 		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
 			if (!getText().isEmpty() || isFocusOwner()) return;
-			Graphics2D g = (Graphics2D) graphics.create();
+			var g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());
 			FontMetrics metrics = g.getFontMetrics();

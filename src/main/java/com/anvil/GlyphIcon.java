@@ -44,7 +44,7 @@ final class GlyphIcon implements Icon {
 
 	@Override
 	public void paintIcon(Component c, Graphics graphics, int x, int y) {
-		Graphics2D g = (Graphics2D) graphics.create();
+		var g = (Graphics2D) graphics.create();
 		try {
 			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);

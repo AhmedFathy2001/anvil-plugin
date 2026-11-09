@@ -77,7 +77,7 @@ public class PendingSubmissionStore {
 	 * its note marks it as one, and the site keeps that note and the saved banner.
 	 */
 	static JsonArray legacyFacts(PendingSubmission p) {
-		JsonObject f = new JsonObject();
+		var f = new JsonObject();
 		f.addProperty("k", "tile");
 		f.addProperty("t", p.tileId);
 		f.addProperty("n", Math.max(1, p.amount));
@@ -85,7 +85,7 @@ public class PendingSubmissionStore {
 		if (p.itemId != null) f.addProperty("item", p.itemId);
 		if (p.inferred != null) f.addProperty("inf", p.inferred);
 		f.addProperty("note", p.note == null ? "" : p.note);
-		JsonArray a = new JsonArray();
+		var a = new JsonArray();
 		a.add(f);
 		return a;
 	}

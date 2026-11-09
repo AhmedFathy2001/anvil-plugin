@@ -201,18 +201,18 @@ final class FeedList extends JPanel {
 		}
 		model.reset(kept);
 
-		RowRenderer renderer = new RowRenderer();
+		var renderer = new RowRenderer();
 		list.setCellRenderer(renderer);
 		if (!chat) {
 			// Every feed row is the same shape: measure one and never measure again.
-			JsonObject probe = new JsonObject();
+			var probe = new JsonObject();
 			probe.addProperty("id", "probe");
 			probe.addProperty("title", "Probe");
 			probe.addProperty("who", "Probe");
 			probe.addProperty("value", "1m");
 			probe.addProperty("glyph", "check");
 			// With a reaction pill, so the fixed height has room for one.
-			JsonObject probeGz = new JsonObject();
+			var probeGz = new JsonObject();
 			probeGz.addProperty("n", 1);
 			probe.add("gz", probeGz);
 			list.setFixedCellHeight(renderer.getListCellRendererComponent(list, probe, 0, false, false).getPreferredSize().height);
@@ -293,7 +293,7 @@ final class FeedList extends JPanel {
 		empty.setFont(SMALL);
 		empty.setForeground(MUTED);
 
-		JPanel top = new JPanel(new BorderLayout(0, 4));
+		var top = new JPanel(new BorderLayout(0, 4));
 		top.setOpaque(false);
 		if (!chat) top.add(newPill, BorderLayout.NORTH);
 		else if (n.has("chans") && n.get("chans").isJsonArray()) top.add(switchOf(n.getAsJsonArray("chans")), BorderLayout.NORTH);
@@ -303,7 +303,7 @@ final class FeedList extends JPanel {
 
 		if (chat) {
 			send = n.getAsJsonObject("send");
-			JPanel bottom = new JPanel(new BorderLayout(0, 4));
+			var bottom = new JPanel(new BorderLayout(0, 4));
 			bottom.setOpaque(false);
 			bottom.add(newPill, BorderLayout.NORTH);
 			bottom.add(boxPanel = sendBox(), BorderLayout.CENTER);
@@ -423,7 +423,7 @@ final class FeedList extends JPanel {
 		h.posts = Math.max(0, h.posts - 1);
 		if (h.posts > 0) return;
 		int gen = ++h.gen;
-		Timer t = new Timer(SETTLE_MS, e -> settle(rowId, gen));
+		var t = new Timer(SETTLE_MS, e -> settle(rowId, gen));
 		t.setRepeats(false);
 		t.start();
 	}
@@ -490,13 +490,13 @@ final class FeedList extends JPanel {
 	}
 
 	private JPanel switchOf(JsonArray chans) {
-		JPanel bar = new JPanel(new java.awt.GridLayout(1, 0, 2, 0));
+		var bar = new JPanel(new java.awt.GridLayout(1, 0, 2, 0));
 		bar.setBackground(SEG_BG);
 		bar.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 		for (JsonElement e : chans) {
 			if (!e.isJsonObject()) continue;
 			JsonObject c = e.getAsJsonObject();
-			Seg g = new Seg(c);
+			var g = new Seg(c);
 			segs.add(g);
 			if (!g.on && c.has("act") && c.get("act").isJsonObject()) Ui.onClick(g, () -> act.accept(c.getAsJsonObject("act")));
 			bar.add(g);
@@ -527,7 +527,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		protected void paintComponent(Graphics g0) {
-			Graphics2D g = (Graphics2D) g0.create();
+			var g = (Graphics2D) g0.create();
 			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			int w = getWidth(), h = getHeight();
 			if (on) {
@@ -703,7 +703,7 @@ final class FeedList extends JPanel {
 	// ---- The message box ---------------------------------------------------------------------------
 
 	private JPanel sendBox() {
-		JPanel box = new JPanel(new BorderLayout(0, 2));
+		var box = new JPanel(new BorderLayout(0, 2));
 		box.setOpaque(false);
 		input = new JTextField();
 		styleSearch(input);
@@ -732,7 +732,7 @@ final class FeedList extends JPanel {
 		lockBox.add(lockLine, BorderLayout.NORTH);
 		lockBox.add(lockSub, BorderLayout.SOUTH);
 		lockBox.setVisible(false);
-		JPanel lines = new JPanel(new BorderLayout());
+		var lines = new JPanel(new BorderLayout());
 		lines.setOpaque(false);
 		lines.add(hint, BorderLayout.NORTH);
 		lines.add(error, BorderLayout.CENTER);
@@ -820,10 +820,10 @@ final class FeedList extends JPanel {
 			int i = rowAt(e);
 			JsonObject r = i < 0 ? null : model.getElementAt(i);
 			if (r == null || !r.has("menu") || !r.get("menu").isJsonArray()) return true;
-			JPopupMenu menu = new JPopupMenu();
+			var menu = new JPopupMenu();
 			for (JsonElement el : r.getAsJsonArray("menu")) {
 				JsonObject item = el.getAsJsonObject();
-				JMenuItem mi = new JMenuItem(plainText(str(item, "label")));
+				var mi = new JMenuItem(plainText(str(item, "label")));
 				JsonObject on = item.has("on") && item.get("on").isJsonObject() ? item.getAsJsonObject("on") : null;
 				if (on == null) {
 					mi.setEnabled(false);
@@ -1041,7 +1041,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
-			Graphics2D g2 = (Graphics2D) g.create();
+			var g2 = (Graphics2D) g.create();
 			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g2.setColor(tint);
 			g2.fillRoundRect(x, y, ICON_W, ICON_W - 2, 6, 6);
@@ -1127,7 +1127,7 @@ final class FeedList extends JPanel {
 
 		@Override
 		protected void paintComponent(Graphics g0) {
-			Graphics2D g = (Graphics2D) g0;
+			var g = (Graphics2D) g0;
 			g.setColor(mine ? MINE_BG : DARKER_GRAY_COLOR);
 			g.fillRect(0, 0, getWidth(), getHeight());
 			FontMetrics fm = g.getFontMetrics(REGULAR);
@@ -1187,7 +1187,7 @@ final class FeedList extends JPanel {
 	 * sent the team (whoColor "muted") gets the name in the team's colour, as before.
 	 */
 	static String whoHtml(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
-		StringBuilder sb = new StringBuilder("<html>");
+		var sb = new StringBuilder("<html>");
 		whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> sb.append(font(ink, text)));
 		return sb.toString();
 	}
@@ -1242,7 +1242,7 @@ final class FeedList extends JPanel {
 		@Override
 		protected void paintComponent(Graphics g0) {
 			if (r == null) return;
-			Graphics2D g = (Graphics2D) g0;
+			var g = (Graphics2D) g0;
 			g.setFont(SMALL);
 			FontMetrics fm = g.getFontMetrics();
 			int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
@@ -1298,7 +1298,7 @@ final class FeedList extends JPanel {
 	/** Words into lines no wider than {@code width}; a word longer than a line is broken where it must be. */
 	static List<String> wrap(String text, FontMetrics fm, int width) {
 		List<String> out = new ArrayList<>();
-		StringBuilder line = new StringBuilder();
+		var line = new StringBuilder();
 		for (String word : text.split(" ")) {
 			if (word.isEmpty()) continue;
 			String candidate = line.length() == 0 ? word : line + " " + word;
@@ -1344,15 +1344,15 @@ final class FeedList extends JPanel {
 			value.setHorizontalAlignment(SwingConstants.RIGHT);
 			gz.setFont(SMALL);
 			gz.setHorizontalAlignment(SwingConstants.RIGHT);
-			JPanel middle = new JPanel(new BorderLayout());
+			var middle = new JPanel(new BorderLayout());
 			middle.setOpaque(false);
 			middle.add(line1, BorderLayout.NORTH);
 			middle.add(line2, BorderLayout.SOUTH);
-			JPanel right = new JPanel(new BorderLayout());
+			var right = new JPanel(new BorderLayout());
 			right.setOpaque(false);
 			right.add(value, BorderLayout.NORTH);
 			// The second line: reaction pills when the row has them, else the plain gz/time text.
-			JPanel bottom = new JPanel(new BorderLayout());
+			var bottom = new JPanel(new BorderLayout());
 			bottom.setOpaque(false);
 			bottom.add(gz, BorderLayout.CENTER);
 			bottom.add(chips, BorderLayout.EAST);
@@ -1464,7 +1464,7 @@ final class FeedList extends JPanel {
 		if (r.has("gz") && r.get("gz").isJsonObject()) {
 			JsonObject g = r.getAsJsonObject("gz");
 			if (!g.has("label")) g.addProperty("label", "GZ");
-			JsonArray one = new JsonArray();
+			var one = new JsonArray();
 			one.add(g);
 			return one;
 		}
@@ -1518,7 +1518,7 @@ final class FeedList extends JPanel {
 		@Override
 		protected void paintComponent(Graphics g) {
 			if (chips == null) return;
-			Graphics2D g2 = (Graphics2D) g.create();
+			var g2 = (Graphics2D) g.create();
 			try {
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				g2.setFont(getFont());

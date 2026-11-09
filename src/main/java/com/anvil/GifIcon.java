@@ -156,7 +156,7 @@ final class GifIcon implements Icon {
 				if (n <= 0 || n > MAX_FRAMES || (long) lw * lh * n > MAX_PIXELS) return null;
 				BufferedImage[] frames = new BufferedImage[n];
 				int[] ends = new int[n];
-				BufferedImage canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
+				var canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
 				int at = 0;
 				for (int i = 0; i < n; i++) {
 					int fw = reader.getWidth(i), fh = reader.getHeight(i);
@@ -198,7 +198,7 @@ final class GifIcon implements Icon {
 	private static Frame frameInfo(IIOMetadata meta) {
 		Node root = meta == null ? null : meta.getAsTree("javax_imageio_gif_image_1.0");
 		if (root == null) return null;
-		Frame f = new Frame();
+		var f = new Frame();
 		boolean placed = false;
 		for (Node n = root.getFirstChild(); n != null; n = n.getNextSibling()) {
 			NamedNodeMap a = n.getAttributes();
@@ -216,7 +216,7 @@ final class GifIcon implements Icon {
 	}
 
 	private static BufferedImage copyOf(BufferedImage src) {
-		BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+		var out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = out.createGraphics();
 		g.setComposite(AlphaComposite.Src);
 		g.drawImage(src, 0, 0, null);

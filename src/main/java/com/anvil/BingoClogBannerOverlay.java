@@ -152,7 +152,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		int x = (BASE_W - iw) / 2; // centre the (partly-open) panel within the reserved area
 		int y = (BASE_H - ih) / 2;
 
-		Graphics2D g2 = (Graphics2D) g.create();
+		var g2 = (Graphics2D) g.create();
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
@@ -215,7 +215,7 @@ public class BingoClogBannerOverlay extends Overlay {
 			lines.add(text);
 			return lines;
 		}
-		StringBuilder line = new StringBuilder();
+		var line = new StringBuilder();
 		for (String word : text.split("\\s+")) {
 			String trial = line.length() == 0 ? word : line + " " + word;
 			if (fm.stringWidth(trial) <= maxWidth) {
@@ -232,7 +232,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		if (line.length() > 0) lines.add(line.toString());
 		if (lines.size() > maxLines) {
 			// Fold every line past the cap into the last kept line (it gets ellipsised below).
-			StringBuilder tail = new StringBuilder(lines.get(maxLines - 1));
+			var tail = new StringBuilder(lines.get(maxLines - 1));
 			for (int i = maxLines; i < lines.size(); i++) tail.append(' ').append(lines.get(i));
 			lines = new ArrayList<>(lines.subList(0, maxLines - 1));
 			lines.add(tail.toString());

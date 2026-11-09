@@ -57,7 +57,7 @@ final class NotifyFacts {
 			items = new JsonArray();
 			facts.add("items", items);
 		}
-		JsonObject it = new JsonObject();
+		var it = new JsonObject();
 		it.addProperty("id", id);
 		it.addProperty("name", name);
 		it.addProperty("qty", qty);

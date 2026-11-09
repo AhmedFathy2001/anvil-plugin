@@ -172,8 +172,8 @@ public final class DeviceSignIn {
 	static boolean isConfiguredHomeUrl(String configuredApiUrl, String url) {
 		if (configuredApiUrl == null || configuredApiUrl.isEmpty() || url == null || url.isEmpty()) return false;
 		try {
-			URI home = new URI(configuredApiUrl);
-			URI target = new URI(url);
+			var home = new URI(configuredApiUrl);
+			var target = new URI(url);
 			return target.getScheme() != null && target.getHost() != null && target.getUserInfo() == null
 				&& target.getScheme().equalsIgnoreCase(home.getScheme())
 				&& target.getHost().equalsIgnoreCase(home.getHost()) && target.getPort() == home.getPort()

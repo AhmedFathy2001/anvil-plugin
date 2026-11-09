@@ -161,7 +161,7 @@ final class RuleEngine {
 
 	/** One kill/open/counter event: each moved name and its amount; a tile reached by several takes the largest, once. */
 	synchronized Out kill(Map<String, Integer> moved, Collection<String> unverified, String inferred) {
-		Out out = new Out();
+		var out = new Out();
 		Table t = table;
 		if (t == null) return out;
 		Map<KillRule, Integer> byRule = new IdentityHashMap<>();
@@ -184,11 +184,11 @@ final class RuleEngine {
 		}
 		if (!any) return out;
 		JsonObject f = fact("kill");
-		JsonObject n = new JsonObject();
+		var n = new JsonObject();
 		moved.forEach(n::addProperty);
 		f.add("n", n);
 		if (unverified != null && !unverified.isEmpty()) {
-			JsonArray u = new JsonArray();
+			var u = new JsonArray();
 			unverified.forEach(u::add);
 			f.add("unv", u);
 		}
@@ -199,10 +199,10 @@ final class RuleEngine {
 
 	/** One loot event ({@code items} as [id, qty]); a repeat of an item within the dedup window is the same loot fired twice. */
 	synchronized Out loot(String source, String kind, List<int[]> items, Integer party, String inferred, long now) {
-		Out out = new Out();
+		var out = new Out();
 		Table t = table;
 		if (t == null || items == null) return out;
-		JsonArray sent = new JsonArray();
+		var sent = new JsonArray();
 		Set<DropRule> said = Collections.newSetFromMap(new IdentityHashMap<>());
 		for (int[] it : items) {
 			List<DropRule> rules = t.drops.get(String.valueOf(it[0]));
@@ -224,7 +224,7 @@ final class RuleEngine {
 				}
 			}
 			if (any) {
-				JsonArray pair = new JsonArray();
+				var pair = new JsonArray();
 				pair.add(it[0]);
 				pair.add(it[1]);
 				sent.add(pair);
@@ -244,7 +244,7 @@ final class RuleEngine {
 
 	/** A priced haul, for loot-value tiles. */
 	synchronized Out value(String source, String kind, long gp) {
-		Out out = new Out();
+		var out = new Out();
 		Table t = table;
 		if (t == null || gp <= 0) return out;
 		for (ValueRule r : t.values) {
@@ -327,14 +327,14 @@ final class RuleEngine {
 
 	/** One event against the rules of kind {@code on}: each one it names and passes, credited (a gain by {@code value}, else 1). */
 	synchronized Out event(String on, Predicate<EventRule> hit, long value, String x, IntPredicate claim, Object... kv) {
-		Out o = new Out();
+		var o = new Out();
 		for (EventRule r : match(on, hit, value, x, 0, null, claim, o.say)) credit(o, r, "gain".equals(on) ? value : 1, x, kv);
 		return o;
 	}
 
 	/** Every held gain, as count-only facts (the batch timer, logout, hop). */
 	synchronized Out flushGains() {
-		Out o = new Out();
+		var o = new Out();
 		held.forEach((t, n) -> o.facts.add(tile(t, n)));
 		held.clear();
 		return o;
@@ -385,7 +385,7 @@ final class RuleEngine {
 	}
 
 	private Out stat(String on, String name, long gained, TreeSet<Long> minutes, long minute) {
-		Out out = new Out();
+		var out = new Out();
 		Table t = table;
 		if (t == null || gained <= 0 || name == null) return out;
 		String key = key(name);
@@ -449,7 +449,7 @@ final class RuleEngine {
 
 	/** The rule as it stands now, for the popup: read outside the lock, it must not see the next answer land. */
 	private static Rule snap(Rule r) {
-		Rule s = new Rule();
+		var s = new Rule();
 		s.t = r.t;
 		s.label = r.label;
 		s.have = r.have;
@@ -486,7 +486,7 @@ final class RuleEngine {
 	}
 
 	private static JsonObject fact(String k) {
-		JsonObject f = new JsonObject();
+		var f = new JsonObject();
 		f.addProperty("k", k);
 		return f;
 	}
