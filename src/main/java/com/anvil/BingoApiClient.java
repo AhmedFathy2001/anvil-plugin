@@ -494,11 +494,9 @@ public class BingoApiClient {
 			out.error = "Sign in and log in to the account first.";
 			return out;
 		}
-		JsonObject payload = new JsonObject();
-		payload.addProperty("action", action);
 		try {
 			return execute(httpClient, authedRequest(clanUrl("/api/plugin/account"))
-				.tag(AccountAction.class, ACCOUNT_ACTION).post(json(payload)), (r, text) -> {
+				.tag(AccountAction.class, ACCOUNT_ACTION).post(json(obj("action", action))), (r, text) -> {
 				AccountActionResult parsed = text.isEmpty() ? null : gson.fromJson(text, AccountActionResult.class);
 				AccountActionResult res = parsed != null ? parsed : out;
 				res.ok = r.isSuccessful();
@@ -527,14 +525,7 @@ public class BingoApiClient {
 		payload.addProperty("channel", channel);
 		// Where it happened, frozen into the post itself: the site routes Deadman, Leagues, hardcore
 		// and any mode it learns later off this — the plugin reports only the world, the server decides.
-		String types = worldTypes;
-		String activity = worldActivity;
-		if (types != null || activity != null) {
-			JsonObject world = new JsonObject();
-			if (types != null) world.addProperty("types", types);
-			if (activity != null) world.addProperty("activity", activity);
-			payload.add("world", world);
-		}
+		addWorld(payload);
 		if (content != null && !content.isEmpty()) payload.addProperty("content", content);
 		if (facts != null) {
 			payload.addProperty("kind", facts.kind);
@@ -725,20 +716,16 @@ public class BingoApiClient {
 
 	/** POST /api/plugin/facts/proof: the screenshot for the credits {@code key} names. A 410: too late, they were reversed. */
 	void postProof(String key, byte[] image, JsonObject proof) throws IOException {
-		JsonObject body = new JsonObject();
-		body.add("proof", proof);
 		post(configUrl("/api/plugin/facts/proof"), new MultipartBody.Builder().setType(MultipartBody.FORM)
 			.addFormDataPart("key", key)
-			.addFormDataPart("body", gson.toJson(body))
+			.addFormDataPart("body", gson.toJson(obj("proof", proof)))
 			.addFormDataPart("file", isJpeg(image) ? "proof.jpg" : "proof.png", RequestBody.create(isJpeg(image) ? JPEG : PNG, image))
 			.build(), "Proof", true);
 	}
 
 	/** POST /api/plugin/notify-prefs: the notify settings RuneLite used to hold, once. */
 	void postNotifyPrefs(JsonObject prefs) throws IOException {
-		JsonObject body = new JsonObject();
-		body.add("prefs", prefs);
-		postJson(configUrl("/api/plugin/notify-prefs"), body, "Notify prefs", true);
+		postJson(configUrl("/api/plugin/notify-prefs"), obj("prefs", prefs), "Notify prefs", true);
 	}
 
 	/** GET chat-flair/v?since= — the Supporter list's version and the deltas to it (ChatFlairSync). Public; null on failure. */
@@ -1057,6 +1044,27 @@ public class BingoApiClient {
 		return e != null && e.isJsonPrimitive() ? e.getAsString() : null;
 	}
 
+	private void addWorld(JsonObject payload) {
+		String types = worldTypes;
+		String activity = worldActivity;
+		if (types == null && activity == null) return;
+		JsonObject world = new JsonObject();
+		if (types != null) world.addProperty("types", types);
+		if (activity != null) world.addProperty("activity", activity);
+		payload.add("world", world);
+	}
+
+	/** {key, value, ...} as a JSON object, values as addProperty/add would store them. */
+	static JsonObject obj(Object... kv) {
+		JsonObject o = new JsonObject();
+		for (int i = 0; i < kv.length; i += 2) {
+			Object v = kv[i + 1];
+			o.add((String) kv[i], v == null ? JsonNull.INSTANCE : v instanceof JsonElement ? (JsonElement) v
+				: v instanceof Number ? new JsonPrimitive((Number) v) : v instanceof Boolean ? new JsonPrimitive((Boolean) v) : new JsonPrimitive(v.toString()));
+		}
+		return o;
+	}
+
 	private static RequestBody json(JsonObject payload) {
 		return RequestBody.create(JSON, payload.toString());
 	}
@@ -1097,13 +1105,11 @@ public class BingoApiClient {
 	 */
 	public HelloResponse hello(String rsn) {
 		if (getApiUrl().isEmpty()) return null;
-		JsonObject payload = new JsonObject();
-		payload.addProperty("rsn", rsn);
 		// The token rides along when we have one. This call has never REQUIRED it — anyone running the
 		// plugin may say hello — but on the canonical address, which names no clan, the token is the
 		// only thing left that can say which clan is being greeted. A site addressed by /c/<slug> or
 		// by an old per-clan hostname ignores it and answers exactly as before.
-		return getOrNull(publicRequest(clanUrl("/api/plugin/hello")).post(json(payload)), HelloResponse.class);
+		return getOrNull(publicRequest(clanUrl("/api/plugin/hello")).post(json(obj("rsn", rsn))), HelloResponse.class);
 	}
 
 	public static class HelloResponse {
@@ -1471,14 +1477,7 @@ public class BingoApiClient {
 		payload.add("lines", arr);
 		// Freeze the world into the body as notifications do: a hop while the request is in flight must
 		// not relabel a Hardcore/League event as main-game activity.
-		String types = worldTypes;
-		String activity = worldActivity;
-		if (types != null || activity != null) {
-			JsonObject world = new JsonObject();
-			if (types != null) world.addProperty("types", types);
-			if (activity != null) world.addProperty("activity", activity);
-			payload.add("world", world);
-		}
+		addWorld(payload);
 		if (png == null || png.length == 0) {
 			postJson("/api/plugin/mode-lines", payload, "Mode lines failed", false);
 			return;
@@ -1494,10 +1493,7 @@ public class BingoApiClient {
 	}
 
 	public void submitCofferLine(String line, String clanName) throws IOException {
-		JsonObject payload = new JsonObject();
-		payload.addProperty("line", line);
-		payload.addProperty("clanName", clanName);
-		postJson("/api/plugin/coffer/broadcast", payload, "Coffer line failed", false);
+		postJson("/api/plugin/coffer/broadcast", obj("line", line, "clanName", clanName), "Coffer line failed", false);
 	}
 
 	/**
@@ -1506,13 +1502,8 @@ public class BingoApiClient {
 	 */
 	public void submitClanCoffer(String eventKey, ClanCofferTracker.Observation observation) throws IOException {
 		if (observation == null) return;
-		JsonObject payload = new JsonObject();
-		payload.addProperty("eventKey", eventKey);
-		payload.addProperty("kind", observation.kind.wire);
-		payload.addProperty("beforeBalance", observation.beforeBalance);
-		payload.addProperty("afterBalance", observation.afterBalance);
-		payload.addProperty("actorConfirmed", observation.actorConfirmed);
-		postJson("/api/plugin/coffer", payload, "Coffer sync failed", false);
+		postJson("/api/plugin/coffer", obj("eventKey", eventKey, "kind", observation.kind.wire, "beforeBalance", observation.beforeBalance,
+			"afterBalance", observation.afterBalance, "actorConfirmed", observation.actorConfirmed), "Coffer sync failed", false);
 		log.info("Clan Coffer {} synced: {} -> {}{}", observation.kind.wire,
 			observation.beforeBalance, observation.afterBalance,
 			observation.actorConfirmed ? " (local actor confirmed)" : "");
@@ -1527,16 +1518,8 @@ public class BingoApiClient {
 	 * Purely cosmetic (superlatives only — never scoring).
 	 */
 	public void submitEventCounters(int deaths, long lootGp, int pvpKills, int biggestHit, int minutesPlayed, int caTasks) throws IOException {
-		JsonObject payload = new JsonObject();
-		payload.addProperty("deaths", deaths);
-		payload.addProperty("lootGp", lootGp);
-		payload.addProperty("pvpKills", pvpKills);
-		// Newer counters. A site that predates them ignores unknown JSON keys, so an updated plugin
-		// keeps working against an older instance — the extra awards simply don't appear there.
-		payload.addProperty("biggestHit", biggestHit);
-		payload.addProperty("minutesPlayed", minutesPlayed);
-		payload.addProperty("caTasks", caTasks);
-		postJson("/api/plugin/counters", payload, "Counter push failed", false);
+		postJson("/api/plugin/counters", obj("deaths", deaths, "lootGp", lootGp, "pvpKills", pvpKills,
+			"biggestHit", biggestHit, "minutesPlayed", minutesPlayed, "caTasks", caTasks), "Counter push failed", false);
 	}
 
 	/**
@@ -1630,9 +1613,7 @@ public class BingoApiClient {
 	 * for the chat feed's guest bridge. Only the channel's name.
 	 */
 	public void submitGuestChannel(String guestChannel) throws IOException {
-		JsonObject payload = new JsonObject();
-		payload.addProperty("guestChannel", guestChannel);
-		postJson("/api/plugin/presence", payload, "Presence push failed", false);
+		postJson("/api/plugin/presence", obj("guestChannel", guestChannel), "Presence push failed", false);
 	}
 
 	/**

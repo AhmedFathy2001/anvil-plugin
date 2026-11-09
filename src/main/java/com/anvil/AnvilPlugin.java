@@ -1432,7 +1432,8 @@ public class AnvilPlugin extends Plugin {
 
 	/** Run {@code task} on the executor, if it is up. */
 	private void submit(Runnable task) {
-		if (execLive()) executor.submit(task);
+		ScheduledExecutorService ex = executor;
+		if (ex != null && !ex.isShutdown()) ex.submit(task);
 	}
 
 	/** Run {@code task} on the executor in {@code ms}, if it is up; null when it isn't. */
@@ -2214,15 +2215,10 @@ public class AnvilPlugin extends Plugin {
 		String line = stripChatTags(msg);
 		int has = line.indexOf(" has ");
 		if (has <= 0 || !Rsn.same(line.substring(0, has), getLocalPlayerName())) return;
-		PluginConfigResponse cfg = pluginConfig;
 		ClanChannel channel = client.getClanChannel();
-		ScheduledExecutorService ex = executor;
-		if (cfg == null || channel == null || channel.getName() == null
-				|| ex == null || ex.isShutdown()) {
-			return;
-		}
+		if (pluginConfig == null || channel == null || channel.getName() == null) return;
 		String clanName = channel.getName();
-		ex.submit(() -> {
+		submit(() -> {
 			try {
 				apiClient.submitCofferLine(line, clanName);
 			} catch (IOException e) {
@@ -2232,12 +2228,7 @@ public class AnvilPlugin extends Plugin {
 
 	private void flushModeLines() {
 		List<String> batch = modeLines.drain(now());
-		PluginConfigResponse cfg = pluginConfig;
-		ScheduledExecutorService ex = executor;
-		if (batch == null || cfg == null || !apiClient.isConfigured()
-				|| !config.shareSeasonal() || ex == null || ex.isShutdown()) {
-			return;
-		}
+		if (batch == null || pluginConfig == null || !apiClient.isConfigured() || !config.shareSeasonal() || !execLive()) return;
 		captureFrameAsync(png -> {
 			try {
 				apiClient.submitModeLines(batch, png, "anvil-mode.png");
@@ -2256,10 +2247,9 @@ public class AnvilPlugin extends Plugin {
 		Integer balance = readClanCofferBalance();
 		if (balance == null) return;
 		ClanCofferTracker.Observation observation = clanCofferTracker.observe(balance, now());
-		ScheduledExecutorService ex = executor;
-		if (observation == null || ex == null || ex.isShutdown()) return;
+		if (observation == null) return;
 		String eventKey = UUID.randomUUID().toString();
-		ex.submit(() -> {
+		submit(() -> {
 			try {
 				apiClient.submitClanCoffer(eventKey, observation);
 			} catch (IOException e) {
@@ -3449,10 +3439,7 @@ public class AnvilPlugin extends Plugin {
 		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
 		if (!PLAYER_AUTHORED_CHAT.contains(event.getType())) {
-			JsonObject line = new JsonObject();
-			line.addProperty("tick", client.getTickCount());
-			line.addProperty("type", event.getType().name());
-			line.addProperty("text", msg);
+			JsonObject line = BingoApiClient.obj("tick", client.getTickCount(), "type", event.getType().name(), "text", msg);
 			synchronized (recentChat) {
 				recentChat.addLast(line);
 				if (recentChat.size() > 30) recentChat.removeFirst();
@@ -4500,22 +4487,13 @@ public class AnvilPlugin extends Plugin {
 		Map<Integer, Integer> previous = lastHeldItemCounts;
 		lastHeldItemCounts = counts;
 
-		// Why (if at all) is a gather suppressed this tick? Compute once so the diagnostic below can
-		// report it. null = nothing suppressing → we credit.
-		String suppress =
-				previous == null ? "baseline snapshot"
-				: !rules.has("gain") ? "no gain tiles configured"
-				: !live() ? "no live board"
-				: rules.blackout() ? "blackout"
-				: gainSuppressingInterfaceOpen() ? "bank/GE/trade/seed-vault open"
-				: (client.getTickCount() - lastGroundTakeTick <= 2) ? "recent ground Take"
-				: (client.getTickCount() - lastTelegrabTick <= TELEGRAB_GUARD_TICKS) ? "recent telegrab"
-				: (client.getTickCount() - lastSuppressCloseTick <= 2) ? "interface just closed"
-				: (client.getTickCount() - lastStorageMoveTick <= 2) ? "emptied from storage"
-				: null;
-
-		// Baseline snapshot (login/config load) or a non-gather context → record only.
-		if (suppress != null) return;
+		// Baseline snapshot (login/config load), no live gain tiles, a blackout, bank/GE/trade/seed vault
+		// open, a recent ground Take or telegrab, an interface just closed, or emptied from storage:
+		// record only.
+		int tick = client.getTickCount();
+		if (previous == null || !rules.has("gain") || !live() || rules.blackout() || gainSuppressingInterfaceOpen()
+				|| tick - lastGroundTakeTick <= 2 || tick - lastTelegrabTick <= TELEGRAB_GUARD_TICKS
+				|| tick - lastSuppressCloseTick <= 2 || tick - lastStorageMoveTick <= 2) return;
 
 		for (Map.Entry<Integer, Integer> e : counts.entrySet()) {
 			int delta = e.getValue() - previous.getOrDefault(e.getKey(), 0);
@@ -6263,12 +6241,9 @@ public class AnvilPlugin extends Plugin {
 	 * again is never moved twice.
 	 */
 	private void makeRoom(Widget[] lines, int at, String plain, String painted) {
-		ToIntFunction<String> text = t -> 0;
-		ChatFlairTooltip tip = chatFlairTooltip;
-		IntUnaryOperator icon = tip != null ? tip::iconWidth : n -> 13;
-		int d = ChatFlair.measure(painted, text, icon) - ChatFlair.measure(plain, text, icon);
 		Widget s = lines[at];
-		int need = ChatFlair.need(painted, s.getFont(), icon);
+		int[] room = starRoom(plain, painted, s.getFont());
+		int d = room[0], need = room[1];
 		if (d <= 0) return;
 		// A position alone can't say "already moved": a longer name's plain layout can land exactly on the
 		// spot an earlier, shorter starred name in this slot was moved to, leaving its message overlapping.
@@ -9875,9 +9850,7 @@ public class AnvilPlugin extends Plugin {
 		boolean recentKill = lastKcName != null && now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS;
 		String kcName = recentKill ? lastKcName : null;
 		Integer kc = recentKill ? lastKcValue : null;
-		ScheduledExecutorService ex = executor;
-		if (ex == null) return;
-		ex.submit(() -> {
+		submit(() -> {
 			try {
 				apiClient.submitClogUnlock(item, kcName, kc);
 			} catch (Exception e) {
