@@ -34,10 +34,10 @@ import java.util.regex.*;
  *                activity-name fallback matches tiles like "gwenith glide" / "tempor tantrum".
  */
 final class TimedClearParser {
-	private TimedClearParser() {}
+	TimedClearParser() {}
 
-	private static final Pattern SPACES = Pattern.compile("\\s+");
-	private static final Pattern TRAILING_NON_LETTERS = Pattern.compile("[^a-z]+$");
+	static final Pattern SPACES = Pattern.compile("\\s+");
+	static final Pattern TRAILING_NON_LETTERS = Pattern.compile("[^a-z]+$");
 
 	// A duration keyword followed (within a few non-digits) by an [h:]mm:ss token. Fractional
 	// ".ff" tails are intentionally left out of the capture group. Minutes go to three digits:
@@ -69,10 +69,10 @@ final class TimedClearParser {
 	// chat line, identify that activity. The identifying line is typically the boss/raid
 	// kill/completion-count message, which names the boss rather than the activity (e.g. Inferno
 	// -> "tzkal-zuk", Colosseum -> "sol heredit"). Default signature is the activity name itself.
-	private static final Map<String, List<String>> SIGNATURES = new HashMap<>();
+	static final Map<String, List<String>> SIGNATURES = new HashMap<>();
 
 	// {"activity|alias…", signature…}
-	private static final String[][] SIGNATURE_TABLE = {
+	static final String[][] SIGNATURE_TABLE = {
 		// Zuk's kill-count line only — never the bare word: TzHaar-Ket-Rak's challenges end with
 		// "You need to complete the Inferno to unlock …", which credited a 3:11 Jad challenge
 		// to a 65-minute Inferno tile.
@@ -128,13 +128,13 @@ final class TimedClearParser {
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */
 	static Integer parseDurationSeconds(String message) {
 		if (message == null) return null;
-		String lower = message.toLowerCase();
+		var lower = message.toLowerCase();
 		// A ToA per-room / per-challenge sub-time — never the raid clear time. Ignore it so a
 		// slow raid can't pass a timed tile off a fast final room (see RAID_SUBTIME).
 		if (ChatPatterns.find("timed.raid_subtime", lower) != null) return null;
-		Matcher m = ChatPatterns.find("timed.duration", lower);
+		var m = ChatPatterns.find("timed.duration", lower);
 		if (m == null) return null;
-		String[] p = m.group("time").split(":");
+		var p = m.group("time").split(":");
 		try {
 			int s = clockSeconds(p[0], p[1], p.length == 3 ? p[2] : null);
 			return s > 0 ? s : null;
@@ -144,8 +144,8 @@ final class TimedClearParser {
 	}
 
 	static List<String> signaturesFor(String activity) {
-		String a = norm(activity);
-		List<String> s = SIGNATURES.get(a);
+		var a = norm(activity);
+		var s = SIGNATURES.get(a);
 		if (s != null) return s;
 		return a.isEmpty() ? Collections.emptyList() : Collections.singletonList(a);
 	}
@@ -163,7 +163,7 @@ final class TimedClearParser {
 
 	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
 	// veto it reads as a Fight Caves (boss just died) or Inferno clear. Its count line is unique.
-	private static final String KET_RAK_CLEAR = "your completion count for tzhaar-ket-rak";
+	static final String KET_RAK_CLEAR = "your completion count for tzhaar-ket-rak";
 
 	/**
 	 * True when the lines around a duration show it belongs to a different activity than
@@ -180,7 +180,7 @@ final class TimedClearParser {
 	/** True when {@code message} contains any of the activity's identifying signatures. */
 	static boolean messageMatchesActivity(String message, String activity) {
 		if (message == null) return false;
-		String nmsg = norm(message);
+		var nmsg = norm(message);
 		// Every signature is already in norm() form: the table is written that way, the fallback is norm()ed.
 		for (String sig : signaturesFor(activity)) {
 			if (nmsg.contains(sig)) return true;
@@ -199,17 +199,17 @@ final class TimedClearParser {
 	// each with its own PB) — so a rank tile must match the EXACT rank the game reports, never a time
 	// cap (a Shark run is not just a slow Marlin run). The completion line names both:
 	//   "You have completed the Gwenith Glide and achieved the Marlin rank."
-	private static final String[] TRIAL_COURSES = { "tempor tantrum", "jubbly jive", "gwenith glide" };
-	private static final String[] TRIAL_RANKS = { "swordfish", "shark", "marlin" };
+	static final String[] TRIAL_COURSES = { "tempor tantrum", "jubbly jive", "gwenith glide" };
+	static final String[] TRIAL_RANKS = { "swordfish", "shark", "marlin" };
 	// → chat-patterns.json "timed.trial_completion" (ChatPatterns).
 
 	/** {course, rank} from a Barracuda Trials completion line, or null if this line isn't one. */
 	static String[] parseTrialCompletion(String message) {
 		if (message == null) return null;
-		Matcher m = ChatPatterns.find("timed.trial_completion", message.toLowerCase());
+		var m = ChatPatterns.find("timed.trial_completion", message.toLowerCase());
 		if (m == null) return null;
-		String course = norm(m.group("course"));
-		String rank = m.group("rank");
+		var course = norm(m.group("course"));
+		var rank = m.group("rank");
 		for (String c : TRIAL_COURSES) {
 			if (course.endsWith(c)) {
 				for (String r : TRIAL_RANKS) {
@@ -224,11 +224,11 @@ final class TimedClearParser {
 
 	/** {course, rank} a tile's activity targets (e.g. "Gwenith Glide — Marlin"), or null if it's not a rank tile. */
 	static String[] trialTileTarget(String activity) {
-		String a = norm(activity);
+		var a = norm(activity);
 		if (a.isEmpty()) return null;
 		for (String r : TRIAL_RANKS) {
 			if (a.endsWith(" " + r)) {
-				String course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
+				var course = TRAILING_NON_LETTERS.matcher(a.substring(0, a.length() - r.length())).replaceFirst("");
 				for (String c : TRIAL_COURSES) {
 					if (course.equals(c) || course.endsWith(c)) {
 						return new String[]{ c, r };

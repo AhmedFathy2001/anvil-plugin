@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.function.LongSupplier;
 
 
@@ -10,6 +11,7 @@ import java.util.function.LongSupplier;
  * reaches every plugin at once; this spreads their requests), which answers with the deltas when few,
  * else the whole versioned list (CDN-cached) is downloaded. Nothing about who the player sees is sent.
  */
+@RequiredArgsConstructor
 final class ChatFlairSync {
 	interface Source {
 		/** The site's version and the deltas from {@code v}; null on failure. Blocking. */
@@ -26,30 +28,20 @@ final class ChatFlairSync {
 
 	static final long JITTER_MS = 20_000;
 
-	private final ChatFlair flair;
-	private final Source source;
-	private final Scheduler scheduler;
-	private final LongSupplier jitter;
+	final ChatFlair flair;
+	final Source source;
+	final Scheduler scheduler;
+	final LongSupplier jitter;
 	/** After the list changed: repaint, save. */
-	private final Runnable changed;
-	private boolean pending;
-
-	ChatFlairSync(ChatFlair flair, Source source, Scheduler scheduler, LongSupplier jitter, Runnable changed) {
-		this.flair = flair;
-		this.source = source;
-		this.scheduler = scheduler;
-		this.jitter = jitter;
-		this.changed = changed;
-	}
+	final Runnable changed;
+	boolean pending;
 
 
 	/** A {"t":"flair"} push: applied if it follows our version, else a jittered catch-up. */
 	void pushed(ChatFlair.Wire d) {
 		if (flair.apply(d)) {
 			changed.run();
-		} else if (d == null || d.v != flair.version() || d.v == 0) {
-			soon();
-		}
+		} else if (d == null || d.v != flair.version() || d.v == 0) soon();
 	}
 
 	/** Catch up after the jitter; several asks before it runs are one. */
@@ -66,17 +58,17 @@ final class ChatFlairSync {
 
 	/** Bring the list to the site's version now. Blocking. */
 	void sync() {
-		ChatFlair.Since s = source.since(flair.version());
+		var s = source.since(flair.version());
 		if (s == null) return;
 		if (s.v == flair.version()) {
 			// A dev client can retain a valid version number with an empty/corrupt disk snapshot. The
 			// version endpoint then quite correctly says "current", but none of that client's names ever
 			// recover. An empty current generation is cheap and safe to verify from the CDN-cached full list.
-			boolean wrongSize = s.n != null && s.n >= 0 && flair.size() != s.n;
+			var wrongSize = s.n != null && s.n >= 0 && flair.size() != s.n;
 			if (s.v > 0 && (flair.isEmpty() || wrongSize) && flair.adopt(source.full(s.v))) changed.run();
 			return;
 		}
-		boolean moved = false;
+		var moved = false;
 		if (s.deltas != null) {
 			for (ChatFlair.Wire d : s.deltas) moved |= flair.apply(d);
 		}

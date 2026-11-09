@@ -5,7 +5,7 @@ package com.anvil;
  * long to wait before doing so.
  */
 final class RetryPolicy {
-	private RetryPolicy() {
+	RetryPolicy() {
 	}
 
 	/**
@@ -25,10 +25,10 @@ final class RetryPolicy {
 	 */
 	static long backoffMs(int failures, long firstMs, long capMs, double jitter) {
 		if (failures <= 0) return 0;
-		long base = firstMs;
+		var base = firstMs;
 		for (int i = 1; i < failures && base < capMs; i++) base *= 2;
 		base = Math.min(base, capMs);
-		double j = Math.max(0, Math.min(1, jitter));
+		var j = Math.max(0, Math.min(1, jitter));
 		return Math.min(capMs, Math.round(base * (0.8 + 0.4 * j)));
 	}
 }

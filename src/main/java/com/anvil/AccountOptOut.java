@@ -21,9 +21,9 @@ import java.util.*;
 final class AccountOptOut {
 	static final AccountOptOut EMPTY = new AccountOptOut(Collections.emptySet());
 
-	private final Set<String> digests;
+	final Set<String> digests;
 
-	private AccountOptOut(Set<String> digests) {
+	AccountOptOut(Set<String> digests) {
 		this.digests = Collections.unmodifiableSet(digests);
 	}
 
@@ -31,7 +31,7 @@ final class AccountOptOut {
 		Set<String> out = new LinkedHashSet<>();
 		if (raw != null) {
 			for (String part : raw.split(",")) {
-				String p = part.trim();
+				var p = part.trim();
 				if (!p.isEmpty()) out.add(p);
 			}
 		}
@@ -44,21 +44,21 @@ final class AccountOptOut {
 
 	/** Is this character opted out? Either key matches: the hash is rename-proof, the name works pre-login. */
 	boolean contains(long accountHash, String rsn) {
-		String h = hashKey(accountHash);
-		String n = nameKey(rsn);
+		var h = hashKey(accountHash);
+		var n = nameKey(rsn);
 		return (h != null && digests.contains(h)) || (n != null && digests.contains(n));
 	}
 
 	/** The launcher's pre-login name: withhold the hint for a character that's opted out. */
 	boolean containsName(String rsn) {
-		String n = nameKey(rsn);
+		var n = nameKey(rsn);
 		return n != null && digests.contains(n);
 	}
 
 	AccountOptOut with(long accountHash, String rsn) {
 		Set<String> next = new LinkedHashSet<>(digests);
-		String h = hashKey(accountHash);
-		String n = nameKey(rsn);
+		var h = hashKey(accountHash);
+		var n = nameKey(rsn);
 		if (h != null) next.add(h);
 		if (n != null) next.add(n);
 		return new AccountOptOut(next);
@@ -80,15 +80,15 @@ final class AccountOptOut {
 	}
 
 	static String nameKey(String rsn) {
-		String norm = Rsn.normalize(rsn);
+		var norm = Rsn.normalize(rsn);
 		return norm.isEmpty() ? null : "n" + digest("rsn:" + norm);
 	}
 
 	/** First 16 hex chars of SHA-256 — plenty to tell a handful of local characters apart. */
-	private static String digest(String s) {
+	static String digest(String s) {
 		try {
-			byte[] d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
-			StringBuilder sb = new StringBuilder(16);
+			var d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
+			var sb = new StringBuilder(16);
 			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i]));
 			return sb.toString();
 		} catch (NoSuchAlgorithmException e) {

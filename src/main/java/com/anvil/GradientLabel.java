@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
@@ -23,10 +24,10 @@ final class GradientLabel extends JLabel {
 	static final long PANEL_CYCLE_MS = 5000;
 	/** RuneScape chat and widget names use the same calm five-second cycle as the side panel. */
 	static final long GAME_CYCLE_MS = 5000;
-	private static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
+	static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
-	static volatile boolean animate = true;
-	private static final Timer TICK = new Timer(40, e -> { if (animate && clientActive()) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
+	@Setter static volatile boolean animate = true;
+	static final Timer TICK = new Timer(40, e -> { if (animate && clientActive()) MOVING.forEach(l -> { if (l.isShowing()) l.repaint(); }); });
 
 	/**
 	 * Whether the client window is in front. WINDOW focus on purpose: RuneLite's FocusChanged follows
@@ -42,28 +43,23 @@ final class GradientLabel extends JLabel {
 	}
 
 	/** The active-window state, kept by a focus-manager listener on the EDT. */
-	private static final class ActiveWindow {
+	static final class ActiveWindow {
 		volatile boolean active = true;
 
 		ActiveWindow() {
 			SwingUtilities.invokeLater(() -> {
-				KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+				var kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
 				active = kfm.getActiveWindow() != null || GraphicsEnvironment.isHeadless();
 				kfm.addPropertyChangeListener("activeWindow", e -> active = e.getNewValue() != null);
 			});
 		}
 	}
 
-	private static final ActiveWindow ACTIVE = new ActiveWindow();
-
-	/** Off resets to the base gradient; on resumes the shared wall-clock phase. */
-	static void setAnimate(boolean enabled) {
-		animate = enabled;
-	}
+	static final ActiveWindow ACTIVE = new ActiveWindow();
 
 	/** Played animation time: starts at the wall clock (clients begin in step) and runs only while in front. */
-	private static long playedMs = System.currentTimeMillis();
-	private static long lastWallMs = playedMs;
+	static long playedMs = System.currentTimeMillis();
+	static long lastWallMs = playedMs;
 
 	/**
 	 * Shared phase clock for Swing labels and game widgets (EDT and client thread). It never resets on
@@ -72,30 +68,28 @@ final class GradientLabel extends JLabel {
 	 */
 	static synchronized long animationTimeMillis() {
 		if (!animate) return 0;
-		long now = System.currentTimeMillis();
-		long dt = now - lastWallMs;
+		var now = System.currentTimeMillis();
+		var dt = now - lastWallMs;
 		lastWallMs = now;
-		if (dt > 0 && clientActive()) {
-			// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
-			playedMs += Math.min(dt, 250);
-		}
+		// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
+		if (dt > 0 && clientActive()) playedMs += Math.min(dt, 250);
 		return playedMs;
 	}
 
-	private final Color[] stops;
-	private final float[] fractions;
-	private final boolean moving;
+	final Color[] stops;
+	final float[] fractions;
+	final boolean moving;
 
 	// The label as Swing draws it, plus a same-size buffer each frame is composed in.
-	private BufferedImage base;
-	private BufferedImage frame;
-	private final Rectangle textR = new Rectangle();
-	private final Rectangle iconR = new Rectangle();
+	BufferedImage base;
+	BufferedImage frame;
+	final Rectangle textR = new Rectangle();
+	final Rectangle iconR = new Rectangle();
 	/** The supporter star takes the gradient too; any other icon keeps its colours. */
-	private boolean tintIcon;
+	boolean tintIcon;
 	/** What the gradient fills: the text, or the text and the star. */
-	private final Rectangle fillR = new Rectangle();
-	private String baseKey;
+	final Rectangle fillR = new Rectangle();
+	String baseKey;
 
 	/** Paint the icon with the gradient too (the supporter star), not only the text. */
 	void setTintIcon(boolean tintIcon) {
@@ -107,7 +101,7 @@ final class GradientLabel extends JLabel {
 	GradientLabel(Color[] stops, boolean moving) {
 		this.stops = stops;
 		this.moving = moving;
-		this.fractions = new float[stops.length];
+		fractions = new float[stops.length];
 		for (int i = 0; i < stops.length; i++) fractions[i] = stops.length == 1 ? 0f : (float) i / (stops.length - 1);
 	}
 
@@ -138,21 +132,21 @@ final class GradientLabel extends JLabel {
 			super.paintComponent(g);
 			return;
 		}
-		Graphics2D g2d = (Graphics2D) g;
-		AffineTransform at = g2d.getTransform();
-		double sx = Math.max(1, at.getScaleX());
-		double sy = Math.max(1, at.getScaleY());
+		var g2d = (Graphics2D) g;
+		var at = g2d.getTransform();
+		var sx = Math.max(1, at.getScaleX());
+		var sy = Math.max(1, at.getScaleY());
 		int iw = (int) Math.ceil(w * sx);
 		int ih = (int) Math.ceil(h * sy);
 
-		String key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
+		var key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
 			+ "|" + System.identityHashCode(getIcon()) + "|" + getInsets();
 		if (base == null || !key.equals(baseKey)) {
 			drawBase(g2d, w, h, iw, ih, sx, sy);
 			baseKey = key;
 		}
 
-		Graphics2D fg = frame.createGraphics();
+		var fg = frame.createGraphics();
 		try {
 			fg.setComposite(AlphaComposite.Src);
 			fg.drawImage(base, 0, 0, null);
@@ -160,8 +154,8 @@ final class GradientLabel extends JLabel {
 				fg.scale(sx, sy);
 				fg.setComposite(AlphaComposite.SrcIn);
 				// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
-				float period = 2f * fillR.width;
-				float shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
+				var period = 2f * fillR.width;
+				var shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
 				fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
 					MultipleGradientPaint.CycleMethod.REFLECT));
 				fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);
@@ -170,7 +164,7 @@ final class GradientLabel extends JLabel {
 			fg.dispose();
 		}
 
-		Graphics2D g2 = (Graphics2D) g.create();
+		var g2 = (Graphics2D) g.create();
 		try {
 			g2.scale(1 / sx, 1 / sy);
 			g2.drawImage(frame, 0, 0, null);
@@ -179,12 +173,12 @@ final class GradientLabel extends JLabel {
 		}
 	}
 
-	private void drawBase(Graphics2D g, int w, int h, int iw, int ih, double sx, double sy) {
+	void drawBase(Graphics2D g, int w, int h, int iw, int ih, double sx, double sy) {
 		if (base == null || base.getWidth() != iw || base.getHeight() != ih) {
 			base = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
 			frame = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
 		}
-		Graphics2D ig = base.createGraphics();
+		var ig = base.createGraphics();
 		try {
 			ig.setComposite(AlphaComposite.Clear);
 			ig.fillRect(0, 0, iw, ih);
@@ -198,8 +192,8 @@ final class GradientLabel extends JLabel {
 		} finally {
 			ig.dispose();
 		}
-		Insets in = getInsets();
-		Rectangle view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
+		var in = getInsets();
+		var view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
 		textR.setBounds(0, 0, 0, 0);
 		iconR.setBounds(0, 0, 0, 0);
 		SwingUtilities.layoutCompoundLabel(this, getFontMetrics(getFont()), getText(), getIcon(),

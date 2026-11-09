@@ -1,9 +1,9 @@
 package com.anvil;
 
+import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.plaf.basic.BasicScrollBarUI;
-import net.runelite.client.ui.ColorScheme;
 
 /**
  * A thin, flat scrollbar for the side panel: no arrow buttons, a rounded thumb that lightens under
@@ -13,8 +13,8 @@ import net.runelite.client.ui.ColorScheme;
 final class SlimScrollBarUI extends BasicScrollBarUI {
 	static final int WIDTH = 7;
 
-	private static final Color THUMB = ColorScheme.MEDIUM_GRAY_COLOR;
-	private static final Color THUMB_HOVER = ColorScheme.LIGHT_GRAY_COLOR;
+	static final Color THUMB = MEDIUM_GRAY_COLOR;
+	static final Color THUMB_HOVER = LIGHT_GRAY_COLOR;
 
 	/** Restyle every scroll pane directly under {@code root} (the PluginPanel's wrapper). */
 	static void applyTo(Container root) {
@@ -28,7 +28,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		bar.setUI(new SlimScrollBarUI());
 		bar.setPreferredSize(new Dimension(WIDTH, 0));
 		bar.setOpaque(true);
-		bar.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		bar.setBackground(DARK_GRAY_COLOR);
 		bar.setBorder(null);
 		bar.setUnitIncrement(16);
 	}
@@ -43,9 +43,9 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		return zeroButton();
 	}
 
-	private static JButton zeroButton() {
-		JButton b = new JButton();
-		Dimension none = new Dimension(0, 0);
+	static JButton zeroButton() {
+		var b = new JButton();
+		var none = new Dimension(0, 0);
 		b.setPreferredSize(none);
 		b.setMinimumSize(none);
 		b.setMaximumSize(none);
@@ -54,15 +54,14 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 
 	@Override
 	protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
-		g.setColor(ColorScheme.DARK_GRAY_COLOR);
+		g.setColor(DARK_GRAY_COLOR);
 		g.fillRect(r.x, r.y, r.width, r.height);
 	}
 
 	@Override
 	protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
 		if (r.isEmpty() || !scrollbar.isEnabled()) return;
-		Graphics2D g2 = (Graphics2D) g.create();
-		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		var g2 = Ui.smooth(g);
 		g2.setColor(isThumbRollover() || isDragging ? THUMB_HOVER : THUMB);
 		int inset = 1;
 		g2.fillRoundRect(r.x + inset, r.y + inset, r.width - inset * 2, r.height - inset * 2, WIDTH, WIDTH);

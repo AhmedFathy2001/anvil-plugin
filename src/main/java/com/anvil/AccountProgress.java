@@ -27,7 +27,7 @@ final class AccountProgress {
 	 * name. They were once believed to have no completion flag at all, which left three of Karamja's
 	 * four tiers reading as unknown.
 	 */
-	private static final int[][] DIARY_VARBITS = {
+	static final int[][] DIARY_VARBITS = {
 		{VarbitID.ARDOUGNE_DIARY_EASY_COMPLETE, VarbitID.ARDOUGNE_DIARY_MEDIUM_COMPLETE, VarbitID.ARDOUGNE_DIARY_HARD_COMPLETE, VarbitID.ARDOUGNE_DIARY_ELITE_COMPLETE},
 		{VarbitID.DESERT_DIARY_EASY_COMPLETE, VarbitID.DESERT_DIARY_MEDIUM_COMPLETE, VarbitID.DESERT_DIARY_HARD_COMPLETE, VarbitID.DESERT_DIARY_ELITE_COMPLETE},
 		{VarbitID.FALADOR_DIARY_EASY_COMPLETE, VarbitID.FALADOR_DIARY_MEDIUM_COMPLETE, VarbitID.FALADOR_DIARY_HARD_COMPLETE, VarbitID.FALADOR_DIARY_ELITE_COMPLETE},
@@ -42,19 +42,19 @@ final class AccountProgress {
 		{VarbitID.ATJUN_EASY_DONE, VarbitID.ATJUN_MED_DONE, VarbitID.ATJUN_HARD_DONE, VarbitID.KARAMJA_DIARY_ELITE_COMPLETE},
 	};
 
-	private static final String[] DIARY_KEYS = {"diaryEasy", "diaryMedium", "diaryHard", "diaryElite"};
+	static final String[] DIARY_KEYS = {"diaryEasy", "diaryMedium", "diaryHard", "diaryElite"};
 
 	/**
 	 * The key each region's tier mask is stored under, in the same order as {@link #DIARY_VARBITS}.
 	 * Matches DIARY_REGIONS on the site.
 	 */
-	private static final String[] DIARY_REGION_KEYS = {
+	static final String[] DIARY_REGION_KEYS = {
 		"diaryArdougne", "diaryDesert", "diaryFalador", "diaryFremennik", "diaryKandarin",
 		"diaryKourend", "diaryLumbridge", "diaryMorytania", "diaryVarrock", "diaryWestern",
 		"diaryWilderness", "diaryKaramja",
 	};
 
-	private AccountProgress() {
+	AccountProgress() {
 	}
 
 	/**
@@ -117,7 +117,7 @@ final class AccountProgress {
 	static final String ACCOUNT_TYPE_KEY = "accountType";
 
 	/** One region's four tiers, as a mask: easy 1, medium 2, hard 4, elite 8 — the site's numbering. */
-	private static int regionMask(Client client, int[] region) {
+	static int regionMask(Client client, int[] region) {
 		int mask = 0;
 		for (int tier = 0; tier < region.length; tier++) {
 			if (client.getVarbitValue(region[tier]) > 0) mask |= 1 << tier;
@@ -132,7 +132,7 @@ final class AccountProgress {
 	 * calls it, and the only way to the number: the game keeps no "quests completed" counter, only
 	 * quest points, and those weight quests differently.
 	 */
-	private static int countQuests(Client client) {
+	static int countQuests(Client client) {
 		int done = 0;
 		for (Quest quest : Quest.values()) {
 			if (quest.getState(client) == QuestState.FINISHED) done++;
@@ -182,7 +182,7 @@ final class AccountProgress {
 		List<Item> out = new ArrayList<>();
 		if (client == null) return out;
 		for (Quest quest : Quest.values()) {
-			QuestState state = quest.getState(client);
+			var state = quest.getState(client);
 			int code = state == QuestState.FINISHED ? 2 : state == QuestState.IN_PROGRESS ? 1 : 0;
 			out.add(new Item(quest.getId(), quest.getName(), code));
 		}
@@ -197,7 +197,7 @@ final class AccountProgress {
 	 * completion post already uses, and a tier the player cleared but never claimed the reward for
 	 * still counts as cleared.
 	 */
-	private static int tierMask(Client client, int caPoints) {
+	static int tierMask(Client client, int caPoints) {
 		int mask = 0;
 		int index = 0;
 		for (CombatAchievementTier t : CombatAchievementTier.values()) {

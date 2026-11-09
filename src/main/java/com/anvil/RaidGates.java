@@ -8,7 +8,7 @@ import java.util.*;
  * reason it doesn't, worded for the player's chat box.
  */
 final class RaidGates {
-	private RaidGates() {
+	RaidGates() {
 	}
 
 	/** Only ToA has a raid level; a floor on any other raid's tile is ignored rather than failing it. */
@@ -36,7 +36,7 @@ final class RaidGates {
 		if (team == null || team.isEmpty()) return "the team roster isn't loaded";
 		int named = 0;
 		for (String name : seen) {
-			String n = Rsn.normalize(name);
+			var n = Rsn.normalize(name);
 			if (n.isEmpty()) continue;
 			if (!team.contains(n)) return name + " isn't on your team";
 			named++;

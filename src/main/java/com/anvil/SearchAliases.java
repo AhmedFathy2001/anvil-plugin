@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
  */
 final class SearchAliases {
 	/** {nickname, full name} as both read once lower-cased with punctuation turned to spaces. */
-	private static final String[][] PAIRS = {
+	static final String[][] PAIRS = {
 		{"toa", "tombs of amascut"}, {"tob", "theatre of blood"}, {"cox", "chambers of xeric"}, {"tfa", "fractured archive"},
 		{"cm", "challenge mode"}, {"hm", "hard mode"}, {"jad", "tztok jad"}, {"fight caves", "tztok jad"},
 		{"zuk", "tzkal zuk"}, {"inferno", "tzkal zuk"}, {"colo", "sol heredit"}, {"colosseum", "sol heredit"},
@@ -26,9 +26,9 @@ final class SearchAliases {
 		{"ba", "barbarian assault"}, {"lms", "last man standing"}, {"pc", "pest control"}, {"ca", "combat achievement"},
 	};
 
-	private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
+	static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
-	private SearchAliases() {
+	SearchAliases() {
 	}
 
 	/** Lower-cased with every run of punctuation and spaces turned into one space: "K'ril  Tsutsaroth" → "k ril tsutsaroth". */
@@ -39,14 +39,12 @@ final class SearchAliases {
 	/** {@code text} plus the other name of every boss it mentions — search it like any other text. */
 	static String augment(String text) {
 		if (text == null || text.isEmpty()) return "";
-		String words = " " + fold(text) + " ";
-		StringBuilder out = new StringBuilder(text);
+		var words = " " + fold(text) + " ";
+		var out = new StringBuilder(text);
 		for (String[] p : PAIRS) {
 			if (words.contains(" " + p[0] + " ")) {
 				out.append(' ').append(p[1]);
-			} else if (words.contains(" " + p[1] + " ")) {
-				out.append(' ').append(p[0]);
-			}
+			} else if (words.contains(" " + p[1] + " ")) out.append(' ').append(p[0]);
 		}
 		return out.toString();
 	}

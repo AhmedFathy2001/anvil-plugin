@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.util.*;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -10,85 +11,72 @@ import java.util.function.Consumer;
  * the logged-in character, pins, the starting shot, syncs and banner sounds. What it shows of the
  * clan and its boards is the site's (UiView); this is only what the client alone can know or do.
  */
+@RequiredArgsConstructor
 public class AnvilSidebarDataSource {
-	private final Supplier<PluginConfigResponse> configSupplier;
+	final Supplier<PluginConfigResponse> configSupplier;
 
-	private final BingoApiClient apiClient;
-
-	public AnvilSidebarDataSource(Supplier<PluginConfigResponse> configSupplier, BingoApiClient apiClient) {
-		this.configSupplier = configSupplier;
-		this.apiClient = apiClient;
-	}
+	final BingoApiClient apiClient;
 
 	/**
 	 * The starting-shot action, bound by the plugin after construction (Guice builds this source
 	 * before the plugin's own fields exist, so it can't be a constructor argument). Null in tests and
 	 * anywhere the panel is driven without a live plugin — the sidebar then simply shows no button.
 	 */
-	private volatile Runnable startProofCapture;
-
-	/** Bind the capture action. Idempotent; passing null unbinds. */
-	public void setStartProofCapture(Runnable capture) {
-		this.startProofCapture = capture;
-	}
+	@Setter volatile Runnable startProofCapture;
 
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
-	private volatile AnvilPlugin plugin;
+	@Setter volatile AnvilPlugin plugin;
 
 	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
 	public boolean seasonalSharingOffered() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		return p != null && p.seasonalSharingOffered();
 	}
 
 	public boolean shareSeasonal() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		return p != null && p.shareSeasonal();
 	}
 
 	public void setShareSeasonal(boolean on) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) p.setShareSeasonal(on);
 	}
 
 	/** Hand the keyboard back to the game canvas. */
 	public void gameFocus() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) p.gameFocus();
 	}
 
 	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
 	public void feedOnScreen(boolean on) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p != null) p.feedOnScreen(on);
 	}
 
-	public void setPlugin(AnvilPlugin plugin) {
-		this.plugin = plugin;
-	}
-
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
-	private void withPlugin(Consumer<AnvilPlugin> f) {
-		AnvilPlugin p = plugin;
+	void withPlugin(Consumer<AnvilPlugin> f) {
+		var p = plugin;
 		if (p != null) f.accept(p);
 	}
 
 	/** {@code f} of the bound plugin, or {@code none} when there isn't one. */
-	private <T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none) {
-		AnvilPlugin p = plugin;
+	<T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none) {
+		var p = plugin;
 		return p == null ? none : f.apply(p);
 	}
 
 	/** Actions available for the clan on screen. Never null. */
 	public PanelActions actionsFor() {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p == null) return PanelActions.NONE;
-		boolean profile = p.canSyncProfileFromPanel();
+		var profile = p.canSyncProfileFromPanel();
 		if (!p.isAdmin()) return new PanelActions(false, profile, null);
 		// Admin — but the roster comes from the clan channel, so it has to be readable. The CACHED
 		// answer: this runs while the panel paints, on the EDT, where asking the client directly is a
 		// thread violation.
-		boolean scrape = p.isClanRosterReadable();
+		var scrape = p.isClanRosterReadable();
 		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
 	}
 
@@ -148,7 +136,7 @@ public class AnvilSidebarDataSource {
 	 * one, on sites that predate the feature, and the moment one is filed.
 	 */
 	public PluginConfigResponse.StartProof startProof() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		if (cfg == null || cfg.startProof == null || !cfg.startProof.required
 			|| !cfg.startProof.drawn || !cfg.startProof.needsUpload) {
 			return null;
@@ -181,7 +169,7 @@ public class AnvilSidebarDataSource {
 	 * playing, or one still waiting to start (pinned early, it counts down and goes live at the whistle).
 	 */
 	public boolean canTrackTiles(int eventId, boolean preStart) {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return eventId > 0 && (preStart || cfg != null && cfg.live(eventId))
 			&& fromPlugin(AnvilPlugin::supportsTileTracker, false)
 			&& fromPlugin(AnvilPlugin::inGame, false);
@@ -189,7 +177,7 @@ public class AnvilSidebarDataSource {
 
 	/** The live board's event id, or 0 with none. */
 	public int activeEventId() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
 	}
 
@@ -220,7 +208,7 @@ public class AnvilSidebarDataSource {
 
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	public void captureStartProof() {
-		Runnable capture = startProofCapture;
+		var capture = startProofCapture;
 		if (capture != null) capture.run();
 	}
 
@@ -240,7 +228,7 @@ public class AnvilSidebarDataSource {
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
 	public void lookupNames(Consumer<LookupSuggestions.Names> then) {
-		AnvilPlugin p = plugin;
+		var p = plugin;
 		if (p == null) {
 			then.accept(LookupSuggestions.Names.EMPTY);
 			return;
@@ -279,13 +267,13 @@ public class AnvilSidebarDataSource {
 	 * site sends {@code activeClan.kind = "creator"} for one; older sites send nothing, which reads as a clan.
 	 */
 	public boolean activeIsSpace() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return cfg != null && cfg.activeClan != null && "creator".equals(cfg.activeClan.kind);
 	}
 
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	public List<PluginConfigResponse.ClanRef> clans() {
-		PluginConfigResponse cfg = configSupplier.get();
+		var cfg = configSupplier.get();
 		return cfg == null ? Collections.emptyList() : cfg.switchableClans();
 	}
 
@@ -344,6 +332,7 @@ public class AnvilSidebarDataSource {
 	 * <p>A roster sync scrapes the clan channel you are standing in, so it needs an admin with that
 	 * channel readable. A profile sync goes to the site the plugin is authenticated against.
 	 */
+	@RequiredArgsConstructor
 	public static final class PanelActions {
 		public static final PanelActions NONE = new PanelActions(false, false, null);
 
@@ -353,11 +342,5 @@ public class AnvilSidebarDataSource {
 		public final boolean canSyncProfile;
 		/** Why the roster button is absent, when the reason is worth saying. Null when it isn't. */
 		public final String rosterNote;
-
-		public PanelActions(boolean canSyncRoster, boolean canSyncProfile, String rosterNote) {
-			this.canSyncRoster = canSyncRoster;
-			this.canSyncProfile = canSyncProfile;
-			this.rosterNote = rosterNote;
-		}
 	}
 }

@@ -24,7 +24,7 @@ final class StartProofRules {
 	/** {@code sessionLoginAtMs} when we never saw the login — a plugin enabled mid-session. */
 	static final long UNKNOWN_LOGIN = 0L;
 
-	private StartProofRules() {
+	StartProofRules() {
 	}
 
 	/**
@@ -58,7 +58,7 @@ final class StartProofRules {
 				return "Log out and back in before your starting shot — that's what saves your hiscores"
 					+ " so your starting totals are right.";
 			}
-			long minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
+			var minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
 			if (minutes > proof.maxSessionMinutes) {
 				return "You've been logged in for " + describeMinutes(minutes) + " — log out and back in,"
 					+ " then take your starting shot within " + proof.maxSessionMinutes + " min."
@@ -110,7 +110,7 @@ final class StartProofRules {
 	static Check sessionCheck(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs) {
 		if (proof == null || proof.maxSessionMinutes <= 0) return null;
 		if (sessionLoginAtMs == UNKNOWN_LOGIN) return new Check(Check.State.BAD, "Log out and back in (then under " + proof.maxSessionMinutes + " min)");
-		long minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
+		var minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
 		if (minutes > proof.maxSessionMinutes) {
 			return new Check(Check.State.BAD, "Session " + describeMinutes(minutes) + ": relog (under "
 				+ proof.maxSessionMinutes + " min)");
@@ -141,7 +141,7 @@ final class StartProofRules {
 		} catch (java.time.format.DateTimeParseException e) {
 			return null;
 		}
-		long minutes = (endsMs - nowMs) / 60_000L;
+		var minutes = (endsMs - nowMs) / 60_000L;
 		return minutes <= 0 ? null : describeMinutes(minutes);
 	}
 

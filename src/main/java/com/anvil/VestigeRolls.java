@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.*;
 
 /**
@@ -21,19 +22,16 @@ import java.util.*;
  */
 final class VestigeRolls {
 	/** One boss's cycle state. */
+	@RequiredArgsConstructor
 	static final class State {
 		/** Rolls seen since the last vestige — 0 means "a vestige is 3 rolls away". */
 		final int rolls;
 		/** True once a vestige has been observed, which anchors the cycle. */
 		final boolean exact;
-
-		State(int rolls, boolean exact) {
-			this.rolls = rolls;
-			this.exact = exact;
-		}
 	}
 
 	/** What a drop did to the cycle, and what to say about it. */
+	@RequiredArgsConstructor
 	static final class Result {
 		final State state;
 		/** True when this drop WAS the vestige. */
@@ -42,16 +40,9 @@ final class VestigeRolls {
 		final boolean vestigeNext;
 		/** One line for chat and the drop post, or null when there's nothing worth saying. */
 		final String line;
-
-		Result(State state, boolean vestige, boolean vestigeNext, String line) {
-			this.state = state;
-			this.vestige = vestige;
-			this.vestigeNext = vestigeNext;
-			this.line = line;
-		}
 	}
 
-	private final Map<String, State> byBoss = new HashMap<>();
+	final Map<String, State> byBoss = new HashMap<>();
 
 	static String key(String boss) {
 		return boss == null ? "" : boss.trim().toLowerCase(Locale.ROOT);
@@ -72,8 +63,8 @@ final class VestigeRolls {
 	Result record(PluginConfigResponse.RollTable table, int itemId) {
 		if (table == null || table.rollItemIds == null || !table.rollItemIds.contains(itemId)) return null;
 		int cycle = Math.max(2, table.rollsPerVestige);
-		State was = get(table.boss);
-		Result r = advance(was, itemId == table.vestigeItemId, cycle, table.vestigeName);
+		var was = get(table.boss);
+		var r = advance(was, itemId == table.vestigeItemId, cycle, table.vestigeName);
 		put(table.boss, r.state);
 		return r;
 	}
@@ -84,7 +75,7 @@ final class VestigeRolls {
 	 * the plugin wasn't watching) — start the cycle over from this drop and stop claiming exact.
 	 */
 	static Result advance(State was, boolean isVestige, int rollsPerVestige, String vestigeName) {
-		String vestige = vestigeName == null || vestigeName.isEmpty() ? "vestige" : vestigeName;
+		var vestige = vestigeName == null || vestigeName.isEmpty() ? "vestige" : vestigeName;
 		if (isVestige) {
 			return new Result(new State(0, true), true, false,
 				vestige + "! The cycle resets — the next one is " + rollsPerVestige + " rolls away.");
@@ -97,8 +88,8 @@ final class VestigeRolls {
 				"Roll 1 of " + rollsPerVestige + " (estimated — the count was off, re-anchoring)");
 		}
 
-		boolean vestigeNext = next == rollsPerVestige - 1;
-		String line = "Roll " + next + " of " + rollsPerVestige
+		var vestigeNext = next == rollsPerVestige - 1;
+		var line = "Roll " + next + " of " + rollsPerVestige
 			+ (vestigeNext ? " — the next unique is the " + vestige + "!" : "")
 			+ (was.exact ? "" : " (estimated)");
 		return new Result(new State(next, was.exact), false, vestigeNext, line);
@@ -106,7 +97,7 @@ final class VestigeRolls {
 
 	/** Serialised as "boss=rolls:exact;…" for the RuneLite config, so the cycle survives a restart. */
 	String serialise() {
-		StringBuilder sb = new StringBuilder();
+		var sb = new StringBuilder();
 		for (Map.Entry<String, State> e : byBoss.entrySet()) {
 			if (sb.length() > 0) sb.append(';');
 			sb.append(e.getKey()).append('=').append(e.getValue().rolls).append(':').append(e.getValue().exact ? 1 : 0);
@@ -115,15 +106,15 @@ final class VestigeRolls {
 	}
 
 	static VestigeRolls parse(String raw) {
-		VestigeRolls out = new VestigeRolls();
+		var out = new VestigeRolls();
 		if (raw == null || raw.trim().isEmpty()) return out;
 		for (String part : raw.split(";")) {
-			String[] kv = part.split("=", 2);
+			var kv = part.split("=", 2);
 			if (kv.length != 2) continue;
-			String[] v = kv[1].split(":", 2);
+			var v = kv[1].split(":", 2);
 			try {
 				int rolls = Integer.parseInt(v[0].trim());
-				boolean exact = v.length > 1 && "1".equals(v[1].trim());
+				var exact = v.length > 1 && "1".equals(v[1].trim());
 				out.byBoss.put(key(kv[0]), new State(Math.max(0, rolls), exact));
 			} catch (NumberFormatException ignored) {
 				// A corrupted entry just loses that boss's count — it re-estimates from the next drop.

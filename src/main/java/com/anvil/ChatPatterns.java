@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.util.Collections.*;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
 import java.io.*;
@@ -21,7 +22,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class ChatPatterns {
-	private ChatPatterns() {}
+	ChatPatterns() {}
 
 	static final class Sample {
 		String line;
@@ -63,51 +64,51 @@ final class ChatPatterns {
 
 	static final int MAX_LENGTH = 500;
 	/** charAt calls one test input may cost; a backtracking bomb blows through this in microseconds. */
-	private static final long STEP_BUDGET = 2_000_000L;
+	static final long STEP_BUDGET = 2_000_000L;
 	/**
 	 * charAt calls an OVERRIDE may spend on one real chat line. Vetting can't foresee every line, and
 	 * these run on the client thread — an override that overspends is dropped for the session.
 	 */
 	static final long LINE_BUDGET = 100_000L;
-	private static final Pattern NEVER = Pattern.compile("(?!)");
+	static final Pattern NEVER = Pattern.compile("(?!)");
 
-	private static volatile Map<String, Entry> entries = Collections.emptyMap();
-	private static volatile Map<String, Pattern> defaults = Collections.emptyMap();
+	static volatile Map<String, Entry> entries = emptyMap();
+	static volatile Map<String, Pattern> defaults = emptyMap();
 	/** The accepted overrides and their hints, swapped as ONE object so a reader never pairs mismatched halves. */
-	private static final class Live {
+	static final class Live {
 		final Map<String, Pattern> patterns;
 		final Map<String, String> hints;
 
 		Live(Map<String, Pattern> patterns, Map<String, String> hints) {
-			this.patterns = Collections.unmodifiableMap(patterns);
-			this.hints = Collections.unmodifiableMap(hints);
+			this.patterns = unmodifiableMap(patterns);
+			this.hints = unmodifiableMap(hints);
 		}
 	}
 
-	private static volatile Live live = new Live(new HashMap<>(), new HashMap<>());
+	static volatile Live live = new Live(new HashMap<>(), new HashMap<>());
 
 	/** Read the bundled catalog. Idempotent; a broken resource leaves every key matching nothing. */
 	static synchronized void loadDefaults(Gson gson) {
 		if (!defaults.isEmpty()) return;
 		try (InputStream in = ChatPatterns.class.getResourceAsStream("chat-patterns.json");
 			Reader r = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-			Catalog c = gson.fromJson(r, Catalog.class);
+			var c = gson.fromJson(r, Catalog.class);
 			Map<String, Entry> e = new HashMap<>();
 			Map<String, Pattern> d = new HashMap<>();
 			for (Entry p : c.patterns) {
 				e.put(p.key, p);
 				d.put(p.key, Pattern.compile(p.regex, flagsOf(p)));
 			}
-			entries = Collections.unmodifiableMap(e);
-			defaults = Collections.unmodifiableMap(d);
+			entries = unmodifiableMap(e);
+			defaults = unmodifiableMap(d);
 		} catch (Exception ex) {
-			log.warn("Anvil: chat pattern catalog failed to load", ex);
+			log.warn("Chat patterns failed to load", ex);
 		}
 	}
 
 	/** The live pattern for a key: the site's override if one was accepted, else the default. */
 	static Pattern get(String key) {
-		Pattern p = live.patterns.get(key);
+		var p = live.patterns.get(key);
 		if (p == null) p = defaults.get(key);
 		return p == null ? NEVER : p;
 	}
@@ -122,13 +123,13 @@ final class ChatPatterns {
 		return match(key, text, true);
 	}
 
-	private static Matcher match(String key, String text, boolean whole) {
-		Live l = live;
-		Pattern o = l.patterns.get(key);
+	static Matcher match(String key, String text, boolean whole) {
+		var l = live;
+		var o = l.patterns.get(key);
 		if (o != null) {
-			String hint = l.hints.get(key);
+			var hint = l.hints.get(key);
 			if (hint != null && !text.contains(hint)) return null;
-			Matcher m = o.matcher(new Budgeted(text, LINE_BUDGET));
+			var m = o.matcher(new Budgeted(text, LINE_BUDGET));
 			try {
 				return (whole ? m.matches() : m.find()) ? m : null;
 			} catch (BudgetExceeded ex) {
@@ -136,22 +137,22 @@ final class ChatPatterns {
 				// fall through to the default — this line still deserves a reading
 			}
 		}
-		Pattern p = defaults.get(key);
+		var p = defaults.get(key);
 		if (p == null) return null;
-		Matcher m = p.matcher(text);
+		var m = p.matcher(text);
 		return (whole ? m.matches() : m.find()) ? m : null;
 	}
 
 	/** Retire an override that overspent on a real line. Only if it is still the live one. */
-	private static synchronized void drop(String key, Pattern bad) {
-		Live l = live;
+	static synchronized void drop(String key, Pattern bad) {
+		var l = live;
 		if (l.patterns.get(key) != bad) return;
 		Map<String, Pattern> next = new HashMap<>(l.patterns);
 		next.remove(key);
 		Map<String, String> hints = new HashMap<>(l.hints);
 		hints.remove(key);
 		live = new Live(next, hints);
-		log.warn("Anvil: chat pattern override for {} was too slow on a real line — using the default this session", key);
+		log.warn("Chat pattern {} too slow; default this session", key);
 	}
 
 	/**
@@ -159,12 +160,12 @@ final class ChatPatterns {
 	 * every chat line. An overridden key skips it: the new wording may not carry the old phrase.
 	 */
 	static boolean mayMatch(String key, String text) {
-		Live l = live;
+		var l = live;
 		if (l.patterns.containsKey(key)) {
-			String hint = l.hints.get(key);
+			var hint = l.hints.get(key);
 			return hint == null || text.contains(hint);
 		}
-		Entry e = entries.get(key);
+		var e = entries.get(key);
 		return e == null || e.hint == null || text.contains(e.hint);
 	}
 
@@ -179,7 +180,7 @@ final class ChatPatterns {
 		if (list != null) {
 			for (SiteOverride o : list) {
 				if (o == null || o.key == null || o.regex == null) continue;
-				Entry e = entries.get(o.key);
+				var e = entries.get(o.key);
 				if (e == null) {
 					rejected.add(o.key + ": unknown key");
 					continue;
@@ -210,7 +211,7 @@ final class ChatPatterns {
 		} catch (PatternSyntaxException ex) {
 			throw new IllegalArgumentException("does not compile: " + ex.getDescription());
 		}
-		Matcher m = probe.matcher("");
+		var m = probe.matcher("");
 		if (!m.matches()) throw new IllegalArgumentException("does not compile cleanly");
 		for (String g : e.groups) {
 			try {
@@ -229,7 +230,7 @@ final class ChatPatterns {
 		return p;
 	}
 
-	private static List<String> stressInputs(Entry e) {
+	static List<String> stressInputs(Entry e) {
 		List<String> out = new ArrayList<>();
 		if (e.samples != null) {
 			for (Sample s : e.samples) {
@@ -245,15 +246,13 @@ final class ChatPatterns {
 		return out;
 	}
 
-	private static int flagsOf(Entry e) {
+	static int flagsOf(Entry e) {
 		int f = 0;
 		if (e.flags != null) {
 			for (String s : e.flags) {
 				if ("CASE_INSENSITIVE".equals(s)) {
 					f |= Pattern.CASE_INSENSITIVE;
-				} else if ("DOTALL".equals(s)) {
-					f |= Pattern.DOTALL;
-				}
+				} else if ("DOTALL".equals(s)) f |= Pattern.DOTALL;
 			}
 		}
 		return f;
@@ -263,7 +262,7 @@ final class ChatPatterns {
 		return entries;
 	}
 
-	private static final class BudgetExceeded extends RuntimeException {
+	static final class BudgetExceeded extends RuntimeException {
 		BudgetExceeded() {
 			super(null, null, false, false);
 		}
@@ -271,9 +270,9 @@ final class ChatPatterns {
 
 	/** A CharSequence that gives up once the regex engine has read it too many times. */
 	@RequiredArgsConstructor
-	private static final class Budgeted implements CharSequence {
-		private final String s;
-		private final long[] left;
+	static final class Budgeted implements CharSequence {
+		final String s;
+		final long[] left;
 
 		Budgeted(String s) {
 			this(s, STEP_BUDGET);

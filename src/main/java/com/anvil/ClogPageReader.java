@@ -21,22 +21,22 @@ import net.runelite.api.widgets.*;
  * allocates nothing beyond the page it returns and never blocks.
  */
 final class ClogPageReader {
-	private ClogPageReader() {}
+	ClogPageReader() {}
 
 	/** "Obtained: 5/9" — the log's own progress line, and our correctness check. */
-	private static final Pattern OBTAINED = Pattern.compile("obtained:\\s*(\\d+)\\s*/\\s*(\\d+)");
+	static final Pattern OBTAINED = Pattern.compile("obtained:\\s*(\\d+)\\s*/\\s*(\\d+)");
 	/** "Abyssal Sire kills: 1,204" / "Chest openings: 87" — label and value, commas stripped. */
-	private static final Pattern COUNT_LINE = Pattern.compile("^(.+?):\\s*([\\d,]+)$");
+	static final Pattern COUNT_LINE = Pattern.compile("^(.+?):\\s*([\\d,]+)$");
 	/** Widget tags: the log wraps names in colour tags we don't want in the payload. */
-	private static final Pattern TAGS = Pattern.compile("<[^>]*>");
+	static final Pattern TAGS = Pattern.compile("<[^>]*>");
 
 	/**
 	 * The page on screen, or null when it isn't readable yet (mid-draw, empty, or the obtained
 	 * count disagrees with what we read — see the class note).
 	 */
 	static ClogPage read(Client client) {
-		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
-		Widget items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+		var header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		var items = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
 		if (header == null || items == null) return null;
 
 		String name = null;
@@ -46,24 +46,24 @@ final class ClogPageReader {
 		// redraw of every page the player scrolls past.
 		Map<String, Integer> counts = null;
 
-		Widget[] lines = header.getStaticChildren();
+		var lines = header.getStaticChildren();
 		if (lines == null) return null;
 		for (Widget line : lines) {
 			if (line == null) continue;
-			String text = strip(line.getText());
+			var text = strip(line.getText());
 			if (text.isEmpty()) continue;
 			// First non-empty line is the entry title; the rest are progress and counters.
 			if (name == null) {
 				name = text;
 				continue;
 			}
-			Matcher progress = OBTAINED.matcher(text.toLowerCase());
+			var progress = OBTAINED.matcher(text.toLowerCase());
 			if (progress.find()) {
 				obtained = parseInt(progress.group(1));
 				total = parseInt(progress.group(2));
 				continue;
 			}
-			Matcher count = COUNT_LINE.matcher(text);
+			var count = COUNT_LINE.matcher(text);
 			if (count.matches()) {
 				int value = parseInt(count.group(2).replace(",", ""));
 				if (value >= 0) {
@@ -75,7 +75,7 @@ final class ClogPageReader {
 
 		if (name == null || name.isEmpty() || obtained < 0 || total <= 0) return null;
 
-		Widget[] cells = items.getDynamicChildren();
+		var cells = items.getDynamicChildren();
 		if (cells == null) return null;
 
 		// Two passes so the arrays are exactly sized — a page is at most a few dozen items, and this
@@ -110,12 +110,12 @@ final class ClogPageReader {
 	 * fully opaque and carry their count. Either signal alone has an edge case, so both are accepted
 	 * and the header's "Obtained: N" arbitrates — see {@link #read}.
 	 */
-	private static boolean isObtained(Widget cell) {
+	static boolean isObtained(Widget cell) {
 		if (cell == null || cell.getItemId() <= 0) return false;
 		return cell.getOpacity() == 0 || cell.getItemQuantity() > 0;
 	}
 
-	private static String strip(String raw) {
+	static String strip(String raw) {
 		if (raw == null) return "";
 		// The regex is the expensive part and most lines carry no tags at all — one scan for '<'
 		// saves building a Matcher on every header line of every redraw.
@@ -123,7 +123,7 @@ final class ClogPageReader {
 		return TAGS.matcher(raw).replaceAll("").trim();
 	}
 
-	private static int parseInt(String raw) {
+	static int parseInt(String raw) {
 		try {
 			return Integer.parseInt(raw);
 		} catch (NumberFormatException e) {

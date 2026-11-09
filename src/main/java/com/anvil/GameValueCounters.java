@@ -1,5 +1,7 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AllArgsConstructor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,17 +39,13 @@ final class GameValueCounters {
 	/** Fallback per-source jump cap when the site sends none. */
 	static final int DEFAULT_MAX_DELTA = 1000;
 
+	@AllArgsConstructor
 	static final class Source {
 		/** "varbit" or "varp". */
 		String type;
 		int id;
 
 		Source() {
-		}
-
-		Source(String type, int id) {
-			this.type = type;
-			this.id = id;
 		}
 
 		boolean isVarp() {
@@ -120,14 +118,10 @@ final class GameValueCounters {
 	}
 
 	/** A change to credit under {@code entry.name}. */
+	@RequiredArgsConstructor
 	static final class Credit {
 		final Entry entry;
 		final int amount;
-
-		Credit(Entry entry, int amount) {
-			this.entry = entry;
-			this.amount = amount;
-		}
 	}
 
 	interface Reader {
@@ -135,11 +129,11 @@ final class GameValueCounters {
 	}
 
 	// Baselines, keyed per entry name AND var, so two entries on one var each keep their own.
-	private final Map<String, Integer> last = new HashMap<>();
-	private List<Entry> entries = Collections.emptyList();
-	private List<Entry> source;
-	private boolean inGame;
-	private int settleTicks;
+	final Map<String, Integer> last = new HashMap<>();
+	List<Entry> entries = Collections.emptyList();
+	List<Entry> source;
+	boolean inGame;
+	int settleTicks;
 
 	/** Replace the catalog (a no-op for the same list as last time). Invalid entries are dropped. */
 	void configure(List<Entry> next) {
@@ -195,13 +189,13 @@ final class GameValueCounters {
 		}
 		List<Credit> out = null;
 		for (Entry e : entries) {
-			String prefix = e.name.toLowerCase(Locale.ROOT) + "|";
+			var prefix = e.name.toLowerCase(Locale.ROOT) + "|";
 			if (!wanted.test(e)) {
 				last.keySet().removeIf(k -> k.startsWith(prefix));
 				continue;
 			}
 			int total = 0;
-			boolean moved = false;
+			var moved = false;
 			for (Source s : e.sources) {
 				int delta = delta(reader, e, prefix, s);
 				if (delta > 0) {
@@ -209,12 +203,10 @@ final class GameValueCounters {
 					moved = true;
 				}
 			}
-			boolean vetoed = false;
+			var vetoed = false;
 			if (e.unless != null) {
-				for (Source s : e.unless) {
-					// Every veto source is read (not short-circuited) so each keeps its baseline current.
-					vetoed |= delta(reader, e, prefix + "!", s) > 0;
-				}
+				// Every veto source is read (not short-circuited) so each keeps its baseline current.
+				for (Source s : e.unless) vetoed |= delta(reader, e, prefix + "!", s) > 0;
 			}
 			if (!moved || vetoed) continue;
 			if (out == null) out = new ArrayList<>();
@@ -227,9 +219,9 @@ final class GameValueCounters {
 	 * This source's change since last tick in the entry's direction, re-baselining as it goes; 0 for
 	 * a first sighting, a change the other way (spend / reset) or a jump past the cap (a resync).
 	 */
-	private int delta(Reader reader, Entry e, String prefix, Source s) {
+	int delta(Reader reader, Entry e, String prefix, Source s) {
 		int now = reader.read(s.isVarp(), s.id);
-		Integer before = last.put(prefix + s.key(), now);
+		var before = last.put(prefix + s.key(), now);
 		if (before == null) return 0;
 		if (e.balance && before == 0 && !e.decreasing()) {
 			return 0; // a balance reading 0 then a real number: it arrived, nobody earned it

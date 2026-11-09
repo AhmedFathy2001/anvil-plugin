@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.time.*;
@@ -14,8 +15,15 @@ import javax.swing.event.DocumentEvent;
  * the same way, so the sidebar and the card views can't drift apart in how they look.
  */
 final class Ui {
+	/** A copy of {@code g} that draws antialiased; the caller disposes it. */
+	static Graphics2D smooth(Graphics g) {
+		var g2 = (Graphics2D) g.create();
+		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		return g2;
+	}
+
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
-	private static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+	static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
 	// FontManager hands out the same static instances every call, so holding them changes nothing.
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
@@ -25,7 +33,7 @@ final class Ui {
 	/** Secondary text: counts, hints, the quieter half of a row. */
 	static final Color MUTED = new Color(0xa8_a8_a8);
 
-	private Ui() {
+	Ui() {
 	}
 
 	/**
@@ -110,7 +118,7 @@ final class Ui {
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.putClientProperty(CLICKS, Boolean.TRUE);
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
-			private boolean down;
+			boolean down;
 
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -140,7 +148,7 @@ final class Ui {
 		onClick(c, onClick).addMouseListener(new MouseAdapter() {
 			@Override
 			public void mouseEntered(MouseEvent e) {
-				c.setBackground(ColorScheme.DARK_GRAY_HOVER_COLOR);
+				c.setBackground(DARK_GRAY_HOVER_COLOR);
 			}
 
 			@Override
@@ -152,30 +160,30 @@ final class Ui {
 
 	/** A left-aligned vertical stack on the panel background. */
 	static JPanel column() {
-		JPanel p = new JPanel();
+		var p = new JPanel();
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-		p.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		p.setBackground(DARK_GRAY_COLOR);
 		return left(p);
 	}
 
 	/** A {@link #column} as a card: the darker surface with an 8px inset. */
 	static JPanel block() {
-		JPanel p = column();
-		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		var p = column();
+		p.setBackground(DARKER_GRAY_COLOR);
 		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 		return p;
 	}
 
 	/** A transparent, left-aligned BorderLayout row with {@code hgap} between its parts. */
 	static JPanel row(int hgap) {
-		JPanel p = new JPanel(new BorderLayout(hgap, 0));
+		var p = new JPanel(new BorderLayout(hgap, 0));
 		p.setOpaque(false);
 		return left(p);
 	}
 
 	/** {@link #row(int)} on an opaque {@code bg}. */
 	static JPanel row(int hgap, Color bg) {
-		JPanel p = row(hgap);
+		var p = row(hgap);
 		p.setOpaque(true);
 		p.setBackground(bg);
 		return p;
@@ -187,10 +195,10 @@ final class Ui {
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
 	static void styleSearch(JTextField f) {
-		f.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		f.setBackground(DARKER_GRAY_COLOR);
 		f.setForeground(Color.WHITE);
 		f.setCaretColor(Color.WHITE);
-		f.setSelectionColor(ColorScheme.BRAND_ORANGE);
+		f.setSelectionColor(BRAND_ORANGE);
 		f.setSelectedTextColor(Color.BLACK);
 		f.setFont(REGULAR);
 	}
@@ -217,7 +225,7 @@ final class Ui {
 
 	/** The panel's flat 0–100 progress bar: no text, no border, {@code h} px tall. */
 	static JProgressBar bar(int percent, Color fg, Color bg, int h) {
-		JProgressBar bar = new JProgressBar(0, 100);
+		var bar = new JProgressBar(0, 100);
 		bar.setValue(percent);
 		bar.setStringPainted(false);
 		bar.setBorderPainted(false);
@@ -229,15 +237,15 @@ final class Ui {
 
 	/** A transparent, left-aligned grid {@code cols} across. */
 	static JPanel grid(int cols, int hgap, int vgap) {
-		JPanel grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
+		var grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
 		grid.setOpaque(false);
 		return grid;
 	}
 
 	/** A section's orange name, with an optional white figure at the right. */
 	static JPanel header(String left, String right) {
-		JPanel row = row(0);
-		row.add(small(left, ColorScheme.BRAND_ORANGE), BorderLayout.WEST);
+		var row = row(0);
+		row.add(small(left, BRAND_ORANGE), BorderLayout.WEST);
 		if (right != null) row.add(small(right, Color.WHITE), BorderLayout.EAST);
 		return capH(row);
 	}
@@ -254,8 +262,8 @@ final class Ui {
 	static String count(long n) {
 		if (n < 10_000) return String.format(Locale.ROOT, "%,d", n);
 		if (n < 1_000_000) return n / 1000 + "K";
-		boolean b = n >= 1_000_000_000;
-		long tenths = n / (b ? 100_000_000 : 100_000);
+		var b = n >= 1_000_000_000;
+		var tenths = n / (b ? 100_000_000 : 100_000);
 		return tenths / 10 + (tenths % 10 == 0 ? "" : "." + tenths % 10) + (b ? "B" : "M");
 	}
 
@@ -280,14 +288,14 @@ final class Ui {
 
 	static String ago(String at, Instant now) {
 		if (at == null || at.isEmpty()) return "";
-		String iso = at.trim().replace(' ', 'T');
+		var iso = at.trim().replace(' ', 'T');
 		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";
 		try {
-			long minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
+			var minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
 			if (minutes < 60) return minutes <= 1 ? "just now" : minutes + "m ago";
-			long hours = minutes / 60;
+			var hours = minutes / 60;
 			if (hours < 24) return hours + "h ago";
-			long days = hours / 24;
+			var days = hours / 24;
 			if (days < 14) return days + "d ago";
 			if (days < 60) return (days / 7) + "w ago";
 			if (days < 730) return (days / 30) + "mo ago";
@@ -299,7 +307,7 @@ final class Ui {
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
 	static final class SearchField extends JTextField {
-		private final String placeholder;
+		final String placeholder;
 
 		SearchField(String placeholder, String value) {
 			super(value == null ? "" : value);
@@ -314,11 +322,11 @@ final class Ui {
 		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
 			if (!getText().isEmpty() || isFocusOwner()) return;
-			Graphics2D g = (Graphics2D) graphics.create();
+			var g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());
-			FontMetrics metrics = g.getFontMetrics();
-			Insets insets = getInsets();
+			var metrics = g.getFontMetrics();
+			var insets = getInsets();
 			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
 			g.drawString(placeholder, insets.left, y);
 			g.dispose();
@@ -330,11 +338,11 @@ final class Ui {
 	 * {@code yyyy-MM-dd HH:mm:ss} form, or a bare date (midnight UTC) — as epoch millis; -1 if unparseable.
 	 */
 	static long utcMillis(String ts) {
-		String s = ts == null ? "" : ts.trim().replace(' ', 'T');
+		var s = ts == null ? "" : ts.trim().replace(' ', 'T');
 		try {
 			return s.length() == 10
-				? java.time.LocalDate.parse(s).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
-				: java.time.Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
+				? LocalDate.parse(s).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+				: Instant.parse(s.endsWith("Z") ? s : s + "Z").toEpochMilli();
 		} catch (RuntimeException e) {
 			return -1;
 		}

@@ -52,12 +52,12 @@ final class NotifyFacts {
 
 	/** Adds one entry to the drop's {@code items}. */
 	NotifyFacts item(int id, String name, int qty, long value) {
-		JsonArray items = facts.getAsJsonArray("items");
+		var items = facts.getAsJsonArray("items");
 		if (items == null) {
 			items = new JsonArray();
 			facts.add("items", items);
 		}
-		JsonObject it = new JsonObject();
+		var it = new JsonObject();
 		it.addProperty("id", id);
 		it.addProperty("name", name);
 		it.addProperty("qty", qty);

@@ -26,9 +26,9 @@ class ClipLabel extends JLabel {
 
 	@Override
 	public String getToolTipText(MouseEvent e) {
-		String own = super.getToolTipText(e);
+		var own = super.getToolTipText(e);
 		if (own != null) return own;
-		String text = getText();
+		var text = getText();
 		if (text == null || text.isEmpty() || getWidth() <= 0 || getPreferredSize().width <= getWidth()) return null;
 		// Shown as plain text: HTML labels wrap rather than clip, so a clipped one is plain already.
 		return text.regionMatches(true, 0, "<html", 0, 5) ? null : Ui.wrapHtml(Ui.esc(text), 200);

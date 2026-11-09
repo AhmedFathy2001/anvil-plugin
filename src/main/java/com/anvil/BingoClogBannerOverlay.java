@@ -20,64 +20,64 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class BingoClogBannerOverlay extends Overlay {
 	// Design space (matches Skeldoor's .collection-log-panel). 1.0 = original asset size.
-	private static final int BASE_W = 178;
-	private static final int BASE_H = 100;
+	static final int BASE_W = 178;
+	static final int BASE_H = 100;
 
 	// Text tops (design px) + size. Tuned for even vertical rhythm on the small panel: the header sits
 	// just under the top of the frame (11), the "Tile complete!/Progress:" line clears the divider (36),
 	// and the label sits close under it (52) so the middle→label gap matches the ~15px gap between the
 	// two wrapped label lines — otherwise the body reads as two disconnected zones.
-	private static final int TOP_Y = 11;
-	private static final int MID_Y = 36;
-	private static final int BOTTOM_Y = 52;
-	private static final float FONT_PX = 16f;
+	static final int TOP_Y = 11;
+	static final int MID_Y = 36;
+	static final int BOTTOM_Y = 52;
+	static final float FONT_PX = 16f;
 	// The bottom label wraps onto a second line at full size when it's too wide — the RS font is a
 	// bitmap face that pixelates when scaled, so we never shrink glyphs. WRAP_LINE_H is the vertical
 	// advance (design px) between the two lines, kept tight so both clear the 100px panel.
-	private static final int WRAP_LINE_H = 15;
-	private static final int BOTTOM_MAX_LINES = 2;
+	static final int WRAP_LINE_H = 15;
+	static final int BOTTOM_MAX_LINES = 2;
 
 	// Horizontal padding (design px) kept clear inside the panel; text wider than the inner width wraps
 	// onto up to BOTTOM_MAX_LINES lines (bottom label) and is ellipsised only if it overflows the last.
-	private static final int TEXT_MARGIN_X = 12;
+	static final int TEXT_MARGIN_X = 12;
 
 	// Animation (matches the reference gif): a thin line grows to full WIDTH, then the whole
 	// background unsquishes to full HEIGHT; close reverses it. Linear motion, no fade.
-	private static final long H_EXPAND_MS = 800;    // line grows to full width
-	private static final long V_EXPAND_MS = 800;    // unsquish to full height
-	private static final long HOLD_MS = 2500;
-	private static final long V_COLLAPSE_MS = 650;  // squish back down to the line
-	private static final long H_COLLAPSE_MS = 650;  // line shrinks to nothing
-	private static final int LINE_H = 1;            // design-px height of the thin opening line
+	static final long H_EXPAND_MS = 800;    // line grows to full width
+	static final long V_EXPAND_MS = 800;    // unsquish to full height
+	static final long HOLD_MS = 2500;
+	static final long V_COLLAPSE_MS = 650;  // squish back down to the line
+	static final long H_COLLAPSE_MS = 650;  // line shrinks to nothing
+	static final int LINE_H = 1;            // design-px height of the thin opening line
 
-	private static final Color ORANGE = new Color(255, 152, 31);
-	private static final Color WHITE = new Color(255, 255, 255);
-	private static final Color SHADOW = new Color(0, 0, 0, 255);
-	private static final Color LINE_COLOR = Color.BLACK; // the thin opening/closing line
+	static final Color ORANGE = new Color(255, 152, 31);
+	static final Color WHITE = new Color(255, 255, 255);
+	static final Color SHADOW = new Color(0, 0, 0, 255);
+	static final Color LINE_COLOR = Color.BLACK; // the thin opening/closing line
 
-	private final ConcurrentLinkedQueue<String[]> queue = new ConcurrentLinkedQueue<>();
-	private final BufferedImage background;
-	private final Font headerFont;
-	private final Font bodyFont;
-	private String[] active; // {top, middle, bottom}
+	final ConcurrentLinkedQueue<String[]> queue = new ConcurrentLinkedQueue<>();
+	final BufferedImage background;
+	final Font headerFont;
+	final Font bodyFont;
+	String[] active; // {top, middle, bottom}
 	/** {@link #active} wrapped to the panel, once per banner rather than every frame; null until first drawn. */
-	private List<List<String>> wrapped;
-	private long startedAt;
+	List<List<String>> wrapped;
+	long startedAt;
 
 	@Inject
 	public BingoClogBannerOverlay(AnvilPlugin plugin) {
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
-		this.background = loadBackground();
-		this.headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
+		background = loadBackground();
+		headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
 		// crisp size — the standard chat font read too large on the small panel. No deriveFont: scaling
 		// a bitmap font off its native grid pixelates (see the wrap-not-shrink note above).
-		this.bodyFont = FontManager.getRunescapeSmallFont();
+		bodyFont = FontManager.getRunescapeSmallFont();
 	}
 
-	private static BufferedImage loadBackground() {
+	static BufferedImage loadBackground() {
 		try (InputStream in = BingoClogBannerOverlay.class.getResourceAsStream("/com/anvil/clog_banner.png")) {
 			return in == null ? null : ImageIO.read(in);
 		} catch (IOException e) {
@@ -87,9 +87,9 @@ public class BingoClogBannerOverlay extends Overlay {
 
 	/** Backwards-compatible entry point used by the existing drop call site. */
 	public boolean show(String label, int current, int required) {
-		boolean complete = current >= required;
-		String middle = complete ? "Tile complete!" : "Progress:";
-		String bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
+		var complete = current >= required;
+		var middle = complete ? "Tile complete!" : "Progress:";
+		var bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
 		return show("Anvil Bingo", middle, bottom);
 	}
 
@@ -104,18 +104,18 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** Banners past the three waiting: one "+N more" closes the run, the rest is in chat and the panel. */
-	private final AtomicInteger folded = new AtomicInteger();
+	final AtomicInteger folded = new AtomicInteger();
 
 	@Override
 	public Dimension render(Graphics2D g) {
 		if (background == null || AnvilPlugin.capturing) return null;
 
-		long now = System.currentTimeMillis();
-		long hEnd = H_EXPAND_MS;
-		long vEnd = hEnd + V_EXPAND_MS;
-		long holdEnd = vEnd + HOLD_MS;
+		var now = System.currentTimeMillis();
+		var hEnd = H_EXPAND_MS;
+		var vEnd = hEnd + V_EXPAND_MS;
+		var holdEnd = vEnd + HOLD_MS;
 		long vCollapseEnd = holdEnd + V_COLLAPSE_MS;
-		long total = vCollapseEnd + H_COLLAPSE_MS;
+		var total = vCollapseEnd + H_COLLAPSE_MS;
 
 		if (active == null || now - startedAt >= total) {
 			active = queue.poll();
@@ -130,7 +130,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		long e = now - startedAt;
 
 		// w/h = current panel size; line = just the thin opening/closing line (no bg/text yet).
-		boolean line = e < hEnd || e >= vCollapseEnd;
+		var line = e < hEnd || e >= vCollapseEnd;
 		float w = BASE_W;
 		float h = line ? LINE_H : BASE_H;
 		if (e < hEnd) {
@@ -152,7 +152,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		int x = (BASE_W - iw) / 2; // centre the (partly-open) panel within the reserved area
 		int y = (BASE_H - ih) / 2;
 
-		Graphics2D g2 = (Graphics2D) g.create();
+		var g2 = (Graphics2D) g.create();
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
@@ -190,11 +190,11 @@ public class BingoClogBannerOverlay extends Overlay {
 
 	/** Draws {@link #wrap wrapped} lines centred horizontally, {@code topY} being the CSS-style top of the
 	 *  first (line-height 1); extra lines advance downward by {@link #WRAP_LINE_H}. */
-	private static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY) {
+	static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY) {
 		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics();
+		var fm = g.getFontMetrics();
 		for (int i = 0; i < lines.size(); i++) {
-			String shown = lines.get(i);
+			var shown = lines.get(i);
 			int x = (BASE_W - fm.stringWidth(shown)) / 2;
 			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
 			g.setColor(SHADOW);
@@ -208,16 +208,16 @@ public class BingoClogBannerOverlay extends Overlay {
 	 *  size (the RS bitmap font pixelates when scaled, so we wrap rather than shrink); any overflow past
 	 *  the last line is folded into it, and every kept line is ellipsised if it still overflows (covers a
 	 *  lone over-long word too). No text, no lines. */
-	private static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines) {
+	static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines) {
 		List<String> lines = new ArrayList<>();
 		if (text == null || text.isEmpty()) return lines;
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) {
 			lines.add(text);
 			return lines;
 		}
-		StringBuilder line = new StringBuilder();
+		var line = new StringBuilder();
 		for (String word : text.split("\\s+")) {
-			String trial = line.length() == 0 ? word : line + " " + word;
+			var trial = line.length() == 0 ? word : line + " " + word;
 			if (fm.stringWidth(trial) <= maxWidth) {
 				line.setLength(0);
 				line.append(trial);
@@ -232,7 +232,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		if (line.length() > 0) lines.add(line.toString());
 		if (lines.size() > maxLines) {
 			// Fold every line past the cap into the last kept line (it gets ellipsised below).
-			StringBuilder tail = new StringBuilder(lines.get(maxLines - 1));
+			var tail = new StringBuilder(lines.get(maxLines - 1));
 			for (int i = maxLines; i < lines.size(); i++) tail.append(' ').append(lines.get(i));
 			lines = new ArrayList<>(lines.subList(0, maxLines - 1));
 			lines.add(tail.toString());
@@ -244,9 +244,9 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** Trims {@code text} with a trailing ellipsis so it fits within {@code maxWidth} px. */
-	private static String truncate(String text, FontMetrics fm, int maxWidth) {
+	static String truncate(String text, FontMetrics fm, int maxWidth) {
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) return text;
-		final String ellipsis = "...";
+		var ellipsis = "...";
 		int ellipsisW = fm.stringWidth(ellipsis);
 		int end = text.length();
 		while (end > 0 && fm.stringWidth(text.substring(0, end)) + ellipsisW > maxWidth) end--;

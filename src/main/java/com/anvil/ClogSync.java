@@ -23,15 +23,14 @@ final class ClogSync {
 	/** Send at most this many pages per request; a full first sync becomes a handful of them. */
 	static final int BATCH_PAGES = 25;
 	/** Queue this many and go early — a bulk sync shouldn't sit waiting on the quiet timer. */
-	private static final int EAGER_AT = BATCH_PAGES;
+	static final int EAGER_AT = BATCH_PAGES;
 
 	/** Last hash we successfully sent, per page name. The persisted half of the state. */
-	private final Map<String, Long> sent = new HashMap<>();
+	final Map<String, Long> sent = new HashMap<>();
 	/** Changed pages awaiting a push, newest write wins. Insertion-ordered so batches are stable. */
-	private final Map<String, ClogPage> pending = new LinkedHashMap<>();
+	final Map<String, ClogPage> pending = new LinkedHashMap<>();
 
-	private long lastChangeAt;
-	private boolean stateLoaded;
+	long lastChangeAt;
 
 	/**
 	 * Offer the page currently on screen. Cheap and idempotent — the common case is a hash compare
@@ -41,9 +40,9 @@ final class ClogSync {
 	 */
 	boolean offer(ClogPage page, long now) {
 		if (page == null || page.name == null || page.name.isEmpty()) return false;
-		Long alreadySent = sent.get(page.name);
+		var alreadySent = sent.get(page.name);
 		if (alreadySent != null && alreadySent == page.hash) return false;
-		ClogPage queued = pending.get(page.name);
+		var queued = pending.get(page.name);
 		if (queued != null && queued.hash == page.hash) return false;
 		pending.put(page.name, page);
 		lastChangeAt = now;
@@ -72,7 +71,7 @@ final class ClogSync {
 	 */
 	void onSent(Collection<ClogPage> batch) {
 		for (ClogPage page : batch) {
-			ClogPage queued = pending.get(page.name);
+			var queued = pending.get(page.name);
 			// Left queued if it changed again while the request was in flight.
 			if (queued != null && queued.hash == page.hash) pending.remove(page.name);
 			sent.put(page.name, page.hash);
@@ -93,7 +92,6 @@ final class ClogSync {
 		sent.clear();
 		pending.clear();
 		lastChangeAt = 0;
-		stateLoaded = false;
 	}
 
 	/**
@@ -109,7 +107,7 @@ final class ClogSync {
 
 	/** {@code <value>|<name>} per line — the shape this and {@link PersonalBests} persist. */
 	static <V> String writeLines(Map<String, V> map, Function<V, String> value) {
-		StringBuilder out = new StringBuilder(map.size() * 24);
+		var out = new StringBuilder(map.size() * 24);
 		for (Map.Entry<String, V> e : map.entrySet()) {
 			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0) continue;
 			if (out.length() > 0) out.append('\n');
@@ -135,7 +133,6 @@ final class ClogSync {
 	/** Restore from {@link #serializeState}. Junk lines are skipped, never fatal. */
 	void restoreState(String raw) {
 		sent.clear();
-		stateLoaded = true;
 		readLines(raw, (hash, page) -> sent.put(page, Long.parseUnsignedLong(hash, 16)));
 	}
 }

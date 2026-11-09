@@ -30,18 +30,18 @@ final class DeathAttribution {
 	 * gap between a killing blow and the death animation, short enough that the thing that killed
 	 * us half a minute ago in another fight is not still on the list.
 	 */
-	private static final long DAMAGE_WINDOW_MS = 15_000;
+	static final long DAMAGE_WINDOW_MS = 15_000;
 
 	/** Nothing sane has this many things attacking it; the cap is against a leak, not a crowd. */
-	private static final int MAX_ATTACKERS = 24;
+	static final int MAX_ATTACKERS = 24;
 
 	/** Who has us targeted, and when they acquired us. Insertion-ordered so "most recent" is cheap. */
-	private final Map<String, Long> attackers = new LinkedHashMap<>();
+	final Map<String, Long> attackers = new LinkedHashMap<>();
 	/** Which of {@link #attackers} are players rather than NPCs. */
-	private final Set<String> players = new HashSet<>();
+	final Set<String> players = new HashSet<>();
 
 	/** When we last took damage from something other than ourselves. */
-	private long lastDamageAt;
+	long lastDamageAt;
 
 	/**
 	 * Something acquired us as its target.
@@ -109,7 +109,7 @@ final class DeathAttribution {
 			}
 		}
 		String newest = null;
-		long newestAt = Long.MIN_VALUE;
+		var newestAt = Long.MIN_VALUE;
 		for (Map.Entry<String, Long> entry : attackers.entrySet()) {
 			if (entry.getValue() >= newestAt) {
 				newestAt = entry.getValue();

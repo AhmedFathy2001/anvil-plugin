@@ -34,7 +34,7 @@ final class LookupSuggestions extends KeyAdapter {
 			this.clan = copy(clan);
 		}
 
-		private static List<String> copy(Collection<String> names) {
+		static List<String> copy(Collection<String> names) {
 			return names == null ? Collections.emptyList() : new ArrayList<>(names);
 		}
 	}
@@ -44,27 +44,27 @@ final class LookupSuggestions extends KeyAdapter {
 	 * friends, clan members online, players nearby and the rest of the clan — or null. Never your own.
 	 */
 	static String complete(String typed, List<String> recent, Names names, String me) {
-		String q = Rsn.normalize(typed);
+		var q = Rsn.normalize(typed);
 		if (q.isEmpty()) return null;
-		String mine = Rsn.normalize(me);
+		var mine = Rsn.normalize(me);
 		for (List<String> list : Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan)) {
 			if (list == null) continue;
 			for (String raw : list) {
 				if (raw == null) continue;
-				String name = raw.replace(' ', ' ').trim();
-				String key = Rsn.normalize(name);
+				var name = raw.replace(' ', ' ').trim();
+				var key = Rsn.normalize(name);
 				if (key.length() > q.length() && key.startsWith(q) && !key.equals(mine)) return name;
 			}
 		}
 		return null;
 	}
 
-	private final JTextComponent field;
-	private final BooleanSupplier enabled;
-	private final Supplier<List<String>> recent;
-	private final Supplier<String> me;
-	private final Consumer<Consumer<Names>> fetch;
-	private volatile Names names = Names.EMPTY;
+	final JTextComponent field;
+	final BooleanSupplier enabled;
+	final Supplier<List<String>> recent;
+	final Supplier<String> me;
+	final Consumer<Consumer<Names>> fetch;
+	volatile Names names = Names.EMPTY;
 
 	/**
 	 * @param fetch reads the game's lists and hands them back on any thread (the client thread, live)
@@ -81,7 +81,7 @@ final class LookupSuggestions extends KeyAdapter {
 
 	/** Read the game's lists again, then retry the box if it is waiting on a name. */
 	void refresh() {
-		String asked = field.getText();
+		var asked = field.getText();
 		fetch.accept(n -> SwingUtilities.invokeLater(() -> {
 			names = n;
 			// Only for the letters that asked, and only while nothing is filled in after them.
@@ -109,7 +109,7 @@ final class LookupSuggestions extends KeyAdapter {
 		}
 		// Otherwise the letter replaces the guess; once it's in, look for a name again.
 		SwingUtilities.invokeLater(() -> {
-			String typed = field.getText();
+			var typed = field.getText();
 			if (field.getCaretPosition() == typed.length()) {
 				fill(typed);
 				refresh();
@@ -117,8 +117,8 @@ final class LookupSuggestions extends KeyAdapter {
 		});
 	}
 
-	private void fill(String typed) {
-		String name = complete(typed, recent.get(), names, me.get());
+	void fill(String typed) {
+		var name = complete(typed, recent.get(), names, me.get());
 		if (name == null || name.length() <= typed.length()) return;
 		try {
 			field.getDocument().insertString(typed.length(), name.substring(typed.length()), null);

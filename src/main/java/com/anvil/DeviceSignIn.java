@@ -27,8 +27,8 @@ public final class DeviceSignIn {
 	static final String LINK_PATH = "/link-device";
 
 	/** Fallback pacing/deadline when the server response omits them. */
-	private static final int DEFAULT_INTERVAL_S = 5;
-	private static final int DEFAULT_EXPIRES_S = 600;
+	static final int DEFAULT_INTERVAL_S = 5;
+	static final int DEFAULT_EXPIRES_S = 600;
 
 	public enum Outcome {
 		SIGNED_IN, DENIED, EXPIRED, UNAVAILABLE
@@ -42,11 +42,11 @@ public final class DeviceSignIn {
 
 	}
 
-	private final BingoApiClient apiClient;
-	private final BrowserOpener browserOpener;
-	private final PollScheduler scheduler;
+	final BingoApiClient apiClient;
+	final BrowserOpener browserOpener;
+	final PollScheduler scheduler;
 	// Polling runs on RuneLite's shared executor, which outlives the plugin, so stopping it is ours to do.
-	private volatile boolean cancelled;
+	volatile boolean cancelled;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
 	public DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor) {
@@ -64,7 +64,7 @@ public final class DeviceSignIn {
 	 * same call from here. Everything downstream is written so that distinction doesn't matter — the
 	 * address and the code go on screen either way.
 	 */
-	private static boolean browse(String url) {
+	static boolean browse(String url) {
 		LinkBrowser.browse(url);
 		return true;
 	}
@@ -76,20 +76,20 @@ public final class DeviceSignIn {
 		schedule(() -> start(status, done), 0, status, done);
 	}
 
-	private void start(Consumer<String> status, Consumer<Result> done) {
-		BingoApiClient.DeviceAuthStart start = apiClient.authStart();
+	void start(Consumer<String> status, Consumer<Result> done) {
+		var start = apiClient.authStart();
 		if (start == null || start.device_code == null || start.device_code.isEmpty()) {
 			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
 			return;
 		}
 
-		String url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
+		var url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
 			? start.verification_url_complete : start.verification_url;
 		// Checked against the fixed site, not the client's address — that stays empty until there is a
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
 		if (!isConfiguredHomeUrl(BingoApiClient.site(), url)) {
 			// A response steering the browser anywhere but the member's own configured site is hostile.
-			log.warn("refusing sign-in URL not on the configured home: {}", url);
+			log.warn("Off-site sign-in URL: {}", url);
 			fail(status, done, "Sign-in blocked — the site returned a suspicious login page.", Outcome.UNAVAILABLE);
 			return;
 		}
@@ -100,22 +100,22 @@ public final class DeviceSignIn {
 			status.accept("Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
 		} else status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
-		long intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
-		long deadline = System.currentTimeMillis()
+		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
+		var deadline = System.currentTimeMillis()
 			+ (start.expires_in > 0 ? start.expires_in : DEFAULT_EXPIRES_S) * 1000L;
 		poll(status, done, start.device_code, intervalMs, deadline);
 	}
 
 	/** One scheduled approval poll; reschedules itself (server {@code slow_down} stretches the delay)
 	 * until a terminal status or the deadline. */
-	private void poll(Consumer<String> status, Consumer<Result> done, String deviceCode, long intervalMs, long deadline) {
+	void poll(Consumer<String> status, Consumer<Result> done, String deviceCode, long intervalMs, long deadline) {
 		if (System.currentTimeMillis() >= deadline) {
 			fail(status, done, "The code expired — try again.", Outcome.EXPIRED);
 			return;
 		}
 		schedule(() -> {
-			long nextIntervalMs = intervalMs;
-			BingoApiClient.DeviceAuthPoll poll = apiClient.authPoll(deviceCode);
+			var nextIntervalMs = intervalMs;
+			var poll = apiClient.authPoll(deviceCode);
 			if (poll != null && poll.status != null) {
 				switch (poll.status) {
 					case "complete":
@@ -143,7 +143,7 @@ public final class DeviceSignIn {
 
 	/** Schedule a flow step; an escaped {@link RuntimeException} would otherwise vanish inside the
 	 * executor, so surface it as the terminal failure. */
-	private static void fail(Consumer<String> status, Consumer<Result> done, String message, Outcome outcome) {
+	static void fail(Consumer<String> status, Consumer<Result> done, String message, Outcome outcome) {
 		status.accept(message);
 		done.accept(new Result(outcome, null));
 	}
@@ -153,7 +153,7 @@ public final class DeviceSignIn {
 		cancelled = true;
 	}
 
-	private void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done) {
+	void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done) {
 		scheduler.schedule(() -> {
 			if (cancelled) return;
 			try {
@@ -172,8 +172,8 @@ public final class DeviceSignIn {
 	static boolean isConfiguredHomeUrl(String configuredApiUrl, String url) {
 		if (configuredApiUrl == null || configuredApiUrl.isEmpty() || url == null || url.isEmpty()) return false;
 		try {
-			URI home = new URI(configuredApiUrl);
-			URI target = new URI(url);
+			var home = new URI(configuredApiUrl);
+			var target = new URI(url);
 			return target.getScheme() != null && target.getHost() != null && target.getUserInfo() == null
 				&& target.getScheme().equalsIgnoreCase(home.getScheme())
 				&& target.getHost().equalsIgnoreCase(home.getHost()) && target.getPort() == home.getPort()

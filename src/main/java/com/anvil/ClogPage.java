@@ -36,7 +36,7 @@ final class ClogPage {
 		this.counts = counts == null || counts.isEmpty()
 			? Collections.emptyMap()
 			: Collections.unmodifiableMap(new LinkedHashMap<>(counts));
-		this.hash = computeHash();
+		hash = computeHash();
 	}
 
 	/**
@@ -47,8 +47,8 @@ final class ClogPage {
 	 * log. No boxing, no allocation, no string building; a page is folded in a few hundred nanoseconds
 	 * and the result is what stops us re-sending 125 identical pages.
 	 */
-	private long computeHash() {
-		long h = 0xcbf29ce484222325L;
+	long computeHash() {
+		var h = 0xcbf29ce484222325L;
 		h = fold(h, name == null ? 0 : name.hashCode());
 		h = fold(h, obtained);
 		h = fold(h, total);
@@ -63,7 +63,7 @@ final class ClogPage {
 		return h;
 	}
 
-	private static long fold(long h, int value) {
+	static long fold(long h, int value) {
 		h ^= value;
 		return h * 0x100000001b3L;
 	}

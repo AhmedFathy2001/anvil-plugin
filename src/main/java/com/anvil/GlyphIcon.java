@@ -23,9 +23,9 @@ final class GlyphIcon implements Icon {
 		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN
 	}
 
-	private final Shape shape;
-	private final int size;
-	private final Color color;
+	final Shape shape;
+	final int size;
+	final Color color;
 
 	GlyphIcon(Shape shape, int size) {
 		this(shape, size, null);
@@ -44,11 +44,11 @@ final class GlyphIcon implements Icon {
 
 	@Override
 	public void paintIcon(Component c, Graphics graphics, int x, int y) {
-		Graphics2D g = (Graphics2D) graphics.create();
+		var g = (Graphics2D) graphics.create();
 		try {
 			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-			Color ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
+			var ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
 			if (c != null && !c.isEnabled()) ink = ink.darker();
 			g.setColor(ink);
 			float s = size;
@@ -74,19 +74,19 @@ final class GlyphIcon implements Icon {
 					g.draw(stroke(p, s, 0.72, 0.28, 0.28, 0.72));
 					break;
 				case ELLIPSIS:
-					float d = Math.max(2f, s / 6f);
+					var d = Math.max(2f, s / 6f);
 					for (int i = 0; i < 3; i++) {
-						float cx = s * (0.25f + 0.25f * i);
+						var cx = s * (0.25f + 0.25f * i);
 						g.fill(new java.awt.geom.Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
 					}
 					break;
 				case GEAR:
 					// A ring with eight short teeth — the settings mark everyone reads without a label.
-					float cx = s / 2f;
-					float r = s * 0.24f;
+					var cx = s / 2f;
+					var r = s * 0.24f;
 					g.draw(new java.awt.geom.Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
 					for (int i = 0; i < 8; i++) {
-						double a = Math.PI / 4 * i;
+						var a = Math.PI / 4 * i;
 						p.moveTo(cx + Math.cos(a) * s * 0.33, cx + Math.sin(a) * s * 0.33);
 						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
 					}
@@ -95,10 +95,10 @@ final class GlyphIcon implements Icon {
 				case STAR:
 					// Filled five points: an Anvil Supporter, beside their name.
 					for (int i = 0; i < 10; i++) {
-						double ang = -Math.PI / 2 + Math.PI / 5 * i;
-						double rad = s * (i % 2 == 0 ? 0.5 : 0.21);
-						double px = s / 2.0 + Math.cos(ang) * rad;
-						double py = s * 0.53 + Math.sin(ang) * rad;
+						var ang = -Math.PI / 2 + Math.PI / 5 * i;
+						var rad = s * (i % 2 == 0 ? 0.5 : 0.21);
+						var px = s / 2.0 + Math.cos(ang) * rad;
+						var py = s * 0.53 + Math.sin(ang) * rad;
 						if (i == 0) {
 							p.moveTo(px, py);
 						} else p.lineTo(px, py);
@@ -109,7 +109,7 @@ final class GlyphIcon implements Icon {
 				case UP:
 				case DOWN:
 					// A filled triangle: a rank moving up or down since the start of the day.
-					boolean up = shape == Shape.UP;
+					var up = shape == Shape.UP;
 					g.fill(stroke(p, s, 0.12, up ? 0.78 : 0.22, 0.5, up ? 0.22 : 0.78, 0.88, up ? 0.78 : 0.22));
 					break;
 				default:
@@ -121,7 +121,7 @@ final class GlyphIcon implements Icon {
 	}
 
 	/** Adds one polyline to {@code p}: x,y pairs as fractions of the icon's size {@code s}. */
-	private static Path2D stroke(Path2D p, float s, double... xy) {
+	static Path2D stroke(Path2D p, float s, double... xy) {
 		p.moveTo(s * xy[0], s * xy[1]);
 		for (int i = 2; i < xy.length; i += 2) p.lineTo(s * xy[i], s * xy[i + 1]);
 		return p;

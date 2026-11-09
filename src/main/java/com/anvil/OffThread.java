@@ -15,10 +15,10 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class OffThread {
-	private static volatile BooleanSupplier onClientThread = () -> false;
-	private static final Set<String> reported = ConcurrentHashMap.newKeySet();
+	static volatile BooleanSupplier onClientThread = () -> false;
+	static final Set<String> reported = ConcurrentHashMap.newKeySet();
 
-	private OffThread() {
+	OffThread() {
 	}
 
 	/** Bound by the plugin at startUp ({@code client::isClientThread}); unbound reads as "not". */
@@ -28,10 +28,8 @@ final class OffThread {
 
 	/** {@code what} is about to block. Warns if that's on the client thread or the EDT. */
 	static void check(String what) {
-		String thread = where();
-		if (thread != null && reported.add(what + "@" + thread)) {
-			log.warn("Anvil: {} blocked the {} — a freeze; please report this log", what, thread, new Throwable("called from"));
-		}
+		var thread = where();
+		if (thread != null && reported.add(what + "@" + thread)) log.warn("{} blocked the {}", what, thread, new Throwable("called from"));
 	}
 
 	/** The thread that must not block, if this is one; null otherwise. */

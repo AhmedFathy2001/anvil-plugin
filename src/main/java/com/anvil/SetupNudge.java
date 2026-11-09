@@ -61,6 +61,6 @@ public final class SetupNudge {
 		}
 	}
 
-	private SetupNudge() {
+	SetupNudge() {
 	}
 }

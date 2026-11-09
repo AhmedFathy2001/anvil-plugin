@@ -34,11 +34,11 @@ import java.util.Locale;
  * player would silently stop matching their own roster row.</p>
  */
 public final class Rsn {
-	private Rsn() {
+	Rsn() {
 	}
 
 	/** Whitespace-or-underscore runs. U+00A0 is named explicitly — Java's {@code \s} omits it. */
-	private static final java.util.regex.Pattern FOLD =
+	static final java.util.regex.Pattern FOLD =
 		java.util.regex.Pattern.compile("[\\s\\u00a0_]+");
 
 	/**
@@ -52,13 +52,13 @@ public final class Rsn {
 	public static String normalize(String rsn) {
 		if (rsn == null) return "";
 		// U+00A0 → space BEFORE trimming, so a name padded with them trims like it does on the server.
-		String plain = rsn.replace('\u00A0', ' ').trim().toLowerCase(Locale.ROOT);
+		var plain = rsn.replace('\u00A0', ' ').trim().toLowerCase(Locale.ROOT);
 		return FOLD.matcher(plain).replaceAll(" ").trim();
 	}
 
 	/** Do these two names denote the same account? Empty never matches, including empty itself. */
 	public static boolean same(String a, String b) {
-		String left = normalize(a);
+		var left = normalize(a);
 		return !left.isEmpty() && left.equals(normalize(b));
 	}
 }

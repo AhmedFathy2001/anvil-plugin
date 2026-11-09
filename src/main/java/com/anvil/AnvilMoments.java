@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.*;
 
 /**
@@ -39,6 +40,7 @@ class AnvilMoments {
 	/** Below this a drop isn't worth reporting on price alone. The site's floors are stricter. */
 	static final long MIN_REPORTABLE_GP = 100_000L;
 
+	@RequiredArgsConstructor
 	static final class Moment {
 		/** 'pet' | 'drop' | 'death' | 'ca' | 'level', and the chat feed's own 'clog' | 'diary'. */
 		final String kind;
@@ -58,22 +60,6 @@ class AnvilMoments {
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
 			   String source, String sourceKind, Integer kc, long at, String key) {
 			this(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc, null, null, at, key);
-		}
-
-		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
-			   String source, String sourceKind, Integer kc, String taskName, String tier, long at, String key) {
-			this.kind = kind;
-			this.itemId = itemId;
-			this.itemName = itemName;
-			this.quantity = quantity;
-			this.valueGp = valueGp;
-			this.source = source;
-			this.sourceKind = sourceKind;
-			this.kc = kc;
-			this.taskName = taskName;
-			this.tier = tier;
-			this.at = at;
-			this.key = key;
 		}
 
 		/** A completed combat task. The site decides which boss it belongs to and whether it's news. */
@@ -99,7 +85,7 @@ class AnvilMoments {
 	}
 
 	/** Keyed so a duplicate observation replaces rather than repeats; insertion-ordered for the batch. */
-	private final Map<String, Moment> pending = new LinkedHashMap<>();
+	final Map<String, Moment> pending = new LinkedHashMap<>();
 
 	/**
 	 * Queue one. A repeat of a key already waiting REPLACES it — the second sighting of the same pet
@@ -131,7 +117,7 @@ class AnvilMoments {
 	 * {@code source} leaves the queued one alone: the caller learned nothing better.
 	 */
 	synchronized boolean nameQueued(String key, String itemName, Integer itemId, String source, Integer kc) {
-		Moment existing = pending.get(key);
+		var existing = pending.get(key);
 		if (existing == null || itemName == null || itemName.isEmpty()) return false;
 		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
 			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
@@ -199,7 +185,7 @@ class AnvilMoments {
 	 * second genuine drop of the same item minutes later does not.
 	 */
 	static String keyFor(String kind, String source, Integer itemId, long at) {
-		long bucket = at / 10_000L;
+		var bucket = at / 10_000L;
 		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
 			+ (itemId == null ? "" : itemId) + "|" + bucket;
 	}

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -15,7 +16,7 @@ import java.util.*;
 public class PendingSubmissionStore {
 	// Garbage-collect pending submissions older than this. Prevents unbounded disk growth
 	// when retries keep failing (e.g. site URL permanently wrong) and the user never clears.
-	private static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
+	static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000; // 7 days
 
 	/**
 	 * The plugin's own directory, handed over by AnvilPlugin — the only class allowed to ask for it.
@@ -29,9 +30,9 @@ public class PendingSubmissionStore {
 	 * "no store": nothing queues, nothing loads, and the caller's own error path takes over — which
 	 * is the same thing that happened when the disk was full.
 	 */
-	private volatile Filepath root;
+	@Setter volatile Filepath root;
 
-	private final Gson gson;
+	final Gson gson;
 
 	@Inject
 	public PendingSubmissionStore(Gson gson) {
@@ -42,7 +43,6 @@ public class PendingSubmissionStore {
 		public int eventId;
 		public int tileId;
 		public int teamId;
-		public int playerId;
 		public int amount;
 		public String label;
 		public String note;
@@ -77,7 +77,7 @@ public class PendingSubmissionStore {
 	 * its note marks it as one, and the site keeps that note and the saved banner.
 	 */
 	static JsonArray legacyFacts(PendingSubmission p) {
-		JsonObject f = new JsonObject();
+		var f = new JsonObject();
 		f.addProperty("k", "tile");
 		f.addProperty("t", p.tileId);
 		f.addProperty("n", Math.max(1, p.amount));
@@ -85,32 +85,28 @@ public class PendingSubmissionStore {
 		if (p.itemId != null) f.addProperty("item", p.itemId);
 		if (p.inferred != null) f.addProperty("inf", p.inferred);
 		f.addProperty("note", p.note == null ? "" : p.note);
-		JsonArray a = new JsonArray();
+		var a = new JsonArray();
 		a.add(f);
 		return a;
 	}
 
-	public void setRoot(Filepath dir) {
-		this.root = dir;
-	}
-
 	/** The directory, created on demand, or null when there is nowhere to write. */
-	private Filepath dir() {
+	Filepath dir() {
 		return DiskFiles.ensureDir(root);
 	}
 
 	public String save(PendingSubmission sub, byte[] pngBytes) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null) return null;
-		String id = sub.tileId + "-" + sub.timestamp;
+		var id = sub.tileId + "-" + sub.timestamp;
 
 		// Both atomic: a client killed mid-write leaves no half file for the retry loop to choke on.
-		String ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
-		Filepath png = dir.joinSegment(id + ext);
+		var ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
+		var png = dir.joinSegment(id + ext);
 		try {
 			DiskFiles.writeAtomic(png, pngBytes);
 		} catch (IOException e) {
-			log.error("Failed to save pending screenshot: {}", e.getMessage());
+			log.error("Proof image save failed: {}", e.getMessage());
 			return null;
 		}
 
@@ -118,13 +114,13 @@ public class PendingSubmissionStore {
 		try {
 			DiskFiles.writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
-			log.error("Failed to save pending submission metadata: {}", e.getMessage());
+			log.error("Proof save failed: {}", e.getMessage());
 			// The PNG without its metadata is an orphan nothing will ever read.
 			DiskFiles.deleteQuietly(png);
 			return null;
 		}
 
-		log.info("Saved pending submission: {} (tile '{}')", id, sub.label);
+		log.info("Saved proof {}", id);
 		return id;
 	}
 
@@ -135,9 +131,9 @@ public class PendingSubmissionStore {
 	 */
 	public List<PendingSubmission> loadAll() {
 		List<PendingSubmission> result = new ArrayList<>();
-		long now = System.currentTimeMillis();
+		var now = System.currentTimeMillis();
 		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json"))) {
-			PendingSubmission sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
+			var sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
 			if (sub == null) {
 				log.warn("Failed to read pending submission {}", f.getFileName());
 				continue;
@@ -156,44 +152,44 @@ public class PendingSubmissionStore {
 
 	/** The facts the site's answer says to send again (their filing failed for a passing reason), or null. */
 	static JsonArray retries(JsonObject reply) {
-		JsonArray a = reply != null && reply.has("retry") && reply.get("retry").isJsonArray() ? reply.getAsJsonArray("retry") : null;
+		var a = reply != null && reply.has("retry") && reply.get("retry").isJsonArray() ? reply.getAsJsonArray("retry") : null;
 		return a == null || a.size() == 0 ? null : a;
 	}
 
 	/** Rewrite a saved proof's metadata (what is still to credit and upload); its screenshot stays. */
 	void update(PendingSubmission sub) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return;
 		try {
 			DiskFiles.writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
-			log.error("Failed to update a pending proof: {}", e.getMessage());
+			log.error("Proof update failed: {}", e.getMessage());
 		}
 	}
 
 	public byte[] readScreenshot(PendingSubmission sub) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return null;
 		// joinSegment, not join: it refuses a separator, so a screenshotFile read back out of a JSON
 		// file cannot walk anywhere with "../" in it.
 		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
 			return in.readAllBytes();
 		} catch (IOException | RuntimeException e) {
-			log.error("Failed to read pending screenshot {}: {}", sub.screenshotFile, e.getMessage());
+			log.error("Unreadable proof {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
 	}
 
 	public void remove(PendingSubmission sub) {
-		Filepath dir = dir();
+		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return;
-		String baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");
+		var baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");
 		try {
 			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();
-			log.info("Removed pending submission: {} (tile '{}')", baseName, sub.label);
+			log.info("Removed proof {}", baseName);
 		} catch (IOException | RuntimeException e) {
-			log.warn("Failed to remove pending submission {}: {}", baseName, e.getMessage());
+			log.warn("Can't remove proof {}: {}", baseName, e.getMessage());
 		}
 	}
 

@@ -20,40 +20,40 @@ import java.util.regex.*;
  * second regex over every line of chat. RuneLite-free, so the fragile part is unit-tested.
  */
 final class PersonalBestParser {
-	private PersonalBestParser() {}
+	PersonalBestParser() {}
 
 	/** An [h:]mm:ss[.cc] token. The game never prints a bare seconds count for a PB. */
-	private static final Pattern TIME = Pattern.compile("(\\d{1,3}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d{1,2}))?");
+	static final Pattern TIME = Pattern.compile("(\\d{1,3}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d{1,2}))?");
 	/** "personal best: 7:59" — the explicit form, where this run was NOT the best. */
-	private static final Pattern EXPLICIT = Pattern.compile("personal best:\\s*");
+	static final Pattern EXPLICIT = Pattern.compile("personal best:\\s*");
 
 	/**
 	 * The personal best this line reports, in centiseconds, or null when it reports none.
 	 */
 	static Integer parseCentis(String message) {
 		if (message == null) return null;
-		String lower = message.toLowerCase();
+		var lower = message.toLowerCase();
 		int marker = lower.indexOf("personal best");
 		if (marker < 0) return null;
 
 		// "Personal best: <time>" — read the time AFTER the label, and only that one.
-		Matcher explicit = EXPLICIT.matcher(lower);
+		var explicit = EXPLICIT.matcher(lower);
 		if (explicit.find(marker)) {
-			Matcher time = TIME.matcher(lower);
+			var time = TIME.matcher(lower);
 			if (time.find(explicit.end())) return toCentis(time);
 			return null;
 		}
 
 		// "(new personal best)" — this run IS the best, so the line's own duration is the number.
-		Matcher time = TIME.matcher(lower);
+		var time = TIME.matcher(lower);
 		if (time.find()) return toCentis(time);
 		return null;
 	}
 
-	private static Integer toCentis(Matcher m) {
+	static Integer toCentis(Matcher m) {
 		try {
 			int centis = TimedClearParser.clockSeconds(m.group(1), m.group(2), m.group(3)) * 100;
-			String fraction = m.group(4);
+			var fraction = m.group(4);
 			if (fraction != null) {
 				// ".3" is three tenths — pad to hundredths rather than reading it as three.
 				centis += fraction.length() == 1

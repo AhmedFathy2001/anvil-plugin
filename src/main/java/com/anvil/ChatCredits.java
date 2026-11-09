@@ -16,15 +16,15 @@ final class ChatCredits {
 	static final long WINDOW_MS = 30 * 60_000;
 
 	/** itemId → {quantity still owed, when it was credited}. */
-	private final Map<Integer, long[]> owed = new HashMap<>();
+	final Map<Integer, long[]> owed = new HashMap<>();
 
 	/** Lines naming the same item this close together (drop line + clog line) are one acquisition. */
 	static final long SAME_DROP_MS = 10_000;
 
 	synchronized void note(Collection<ItemStack> credited, long now) {
 		for (ItemStack s : credited) {
-			long[] o = owed.get(s.getId());
-			long qty = o == null || now - o[1] > WINDOW_MS ? s.getQuantity()
+			var o = owed.get(s.getId());
+			var qty = o == null || now - o[1] > WINDOW_MS ? s.getQuantity()
 				: now - o[1] <= SAME_DROP_MS ? Math.max(o[0], s.getQuantity())
 				: o[0] + s.getQuantity();
 			owed.put(s.getId(), new long[]{qty, now});
@@ -36,7 +36,7 @@ final class ChatCredits {
 		owed.values().removeIf(o -> now - o[1] > WINDOW_MS);
 		List<ItemStack> out = new ArrayList<>(items.size());
 		for (ItemStack s : items) {
-			long[] o = owed.get(s.getId());
+			var o = owed.get(s.getId());
 			int left = s.getQuantity();
 			if (o != null) {
 				int take = (int) Math.min(o[0], left);

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.Gson;
 import java.io.IOException;
@@ -35,7 +36,7 @@ final class PushStash {
 			return empty(kc) && empty(xp) && empty(activity) && (moments == null || moments.isEmpty());
 		}
 
-		private static boolean empty(Map<?, ?> m) {
+		static boolean empty(Map<?, ?> m) {
 			return m == null || m.isEmpty();
 		}
 	}
@@ -56,7 +57,7 @@ final class PushStash {
 		String key;
 
 		static SavedMoment of(AnvilMoments.Moment m) {
-			SavedMoment s = new SavedMoment();
+			var s = new SavedMoment();
 			s.kind = m.kind;
 			s.itemId = m.itemId;
 			s.itemName = m.itemName;
@@ -78,13 +79,9 @@ final class PushStash {
 		}
 	}
 
-	private final Gson gson;
-	private volatile Filepath dir;
+	final Gson gson;
+	@Setter volatile Filepath dir;
 
-
-	void setDir(Filepath dir) {
-		this.dir = dir;
-	}
 
 	/** The file stem for a character: by account hash when known, else by name. Null when neither is. */
 	static String keyFor(String rsn, String accountHash) {
@@ -95,11 +92,9 @@ final class PushStash {
 
 	/** Merge two stashes — counts are absolute, so the larger wins; moments by key, newer wins. */
 	static Data merge(Data older, Data newer) {
-		if (older == null || newer == null) {
-			// Either side can be missing: no stash on disk yet, or nothing left to take for this character.
-			return older == null ? newer : older;
-		}
-		Data out = new Data();
+		// Either side can be missing: no stash on disk yet, or nothing left to take for this character.
+		if (older == null || newer == null) return older == null ? newer : older;
+		var out = new Data();
 		out.savedAt = Math.max(older.savedAt, newer.savedAt);
 		mergeMax(out.kc, older.kc, newer.kc);
 		mergeMax(out.xp, older.xp, newer.xp);
@@ -116,7 +111,7 @@ final class PushStash {
 		return out;
 	}
 
-	private static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
+	static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
 		for (Map<String, Integer> m : Arrays.asList(a, b)) {
 			if (m != null) {
 				m.forEach((k, v) -> {
@@ -126,16 +121,16 @@ final class PushStash {
 		}
 	}
 
-	private Filepath file(String key) {
-		Filepath d = DiskFiles.ensureDir(dir);
+	Filepath file(String key) {
+		var d = DiskFiles.ensureDir(dir);
 		return d == null || key == null ? null : d.joinSegment("pushes-" + key + ".json");
 	}
 
 	/** Save {@code data} for the character {@code key}, folded into anything already saved. */
 	void save(String key, Data data) {
-		Filepath f = file(key);
+		var f = file(key);
 		if (f == null || data == null || data.isEmpty()) return;
-		Data merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
+		var merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
 		try {
 			DiskFiles.writeAtomic(f, gson.toJson(merged));
 		} catch (IOException | RuntimeException e) {
@@ -144,8 +139,8 @@ final class PushStash {
 
 	/** What was saved for {@code key} (deleting it), or null when nothing fresh was. */
 	Data take(String key, long now) {
-		Filepath f = file(key);
-		Data d = DiskFiles.readJson(gson, f, Data.class);
+		var f = file(key);
+		var d = DiskFiles.readJson(gson, f, Data.class);
 		DiskFiles.deleteQuietly(f);
 		return d == null || now - d.savedAt > MAX_AGE_MS ? null : d;
 	}

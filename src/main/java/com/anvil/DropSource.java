@@ -11,9 +11,9 @@ import java.util.regex.Pattern;
  * <p>Pure and RuneLite-free, so it is unit-tested directly (DropSourceTest).
  */
 final class DropSource {
-	private static final Pattern WIKI_QUALIFIER = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
+	static final Pattern WIKI_QUALIFIER = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
 
-	private DropSource() {
+	DropSource() {
 	}
 
 	/**
@@ -64,13 +64,11 @@ final class DropSource {
 	 */
 	static String resolvePetSource(PluginConfigResponse.DropFacts facts, String petName, String observed,
 								   Map<String, Integer> killCount) {
-		PluginConfigResponse.DropFacts.Pet pet = petEntry(facts, petName);
-		if (pet == null || pet.sources == null || pet.sources.isEmpty()) {
-			// Nothing known about this pet: an older site, or a pet the catalogue has not placed.
-			// The observed source is then the best guess there is, which is where we started.
-			return pet == null ? observed : null;
-		}
-		List<String> sources = pet.sources;
+		var pet = petEntry(facts, petName);
+		// Nothing known about this pet: an older site, or a pet the catalogue has not placed.
+		// The observed source is then the best guess there is, which is where we started.
+		if (pet == null || pet.sources == null || pet.sources.isEmpty()) return pet == null ? observed : null;
+		var sources = pet.sources;
 		if (observed != null && !observed.trim().isEmpty()) {
 			for (String candidate : sources) {
 				if (candidate.equalsIgnoreCase(observed.trim())) return candidate;

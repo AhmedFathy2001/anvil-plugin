@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.RequiredArgsConstructor;
 import java.util.function.BooleanSupplier;
 
 import net.runelite.api.*;
@@ -35,16 +36,17 @@ import net.runelite.api.widgets.*;
  * who ran last — which is plugin load order, and nobody's to rely on. The answer is not to fight it:
  * we keep hold of what we made, notice when it is no longer attached, and build it again.
  */
+@RequiredArgsConstructor
 final class HeaderButton {
 	/** Matches the native header buttons: small, and tall enough to hit comfortably. */
-	private static final int WIDTH = 71;
-	private static final int FALLBACK_HEIGHT = 20;
+	static final int WIDTH = 71;
+	static final int FALLBACK_HEIGHT = 20;
 	/** The dimensions the nine-slice sprites are cut at. Stretching a corner is what looks wrong. */
-	private static final int CORNER = 9;
-	private static final int EDGE = 4;
+	static final int CORNER = 9;
+	static final int EDGE = 4;
 
 	/** The stone button as it sits: raised, on the light backing. */
-	private static final int[] SPRITES_IDLE = {
+	static final int[] SPRITES_IDLE = {
 		SpriteID.TRADEBACKING,
 		SpriteID.V2StoneButtonOut.A_TOP_LEFT,
 		SpriteID.V2StoneButtonOut.A_TOP_RIGHT,
@@ -57,7 +59,7 @@ final class HeaderButton {
 	};
 
 	/** The same button pressed in, on the dark backing — the game's own hover state for it. */
-	private static final int[] SPRITES_HOVERED = {
+	static final int[] SPRITES_HOVERED = {
 		SpriteID.TRADEBACKING_DARK,
 		SpriteID.V2StoneButtonIn.A_TOP_LEFT,
 		SpriteID.V2StoneButtonIn.A_TOP_RIGHT,
@@ -70,56 +72,43 @@ final class HeaderButton {
 	};
 
 	/** The frame's nine pieces, then the text on top. */
-	private static final int PARTS = 10;
-	private static final int TEXT = 9;
+	static final int PARTS = 10;
+	static final int TEXT = 9;
 
-	private static final int TEXT_IDLE = 0xd6d6d6;
-	private static final int TEXT_HOVERED = 0xffffff;
+	static final int TEXT_IDLE = 0xd6d6d6;
+	static final int TEXT_HOVERED = 0xffffff;
 
 	/**
 	 * The menu TARGET. The game builds an entry as "&lt;action&gt; &lt;name&gt;", which is why the
 	 * action passed in is a verb alone — spelling it in both produced "Sync to Anvil Anvil".
 	 */
-	private static final String NAME = "Anvil";
+	static final String NAME = "Anvil";
 
-	private final Client client;
+	final Client client;
 	/** The container to draw in — the one the neighbouring buttons use, so we share its space. */
-	private final int parentId;
+	final int parentId;
 	/** A native control in that bar, read for the row's height and vertical anchoring. */
-	private final int anchorId;
+	final int anchorId;
 	/** Distance from the bar's right edge to our left edge, in the slot left of our neighbours. */
-	private final int rightOffset;
+	final int rightOffset;
 	/** Where to sit when the slot nearer the close button is empty. Equal to rightOffset when the
 	 *  caller has no nearer slot to fall back to (the clan window, where we are already first). */
-	private final int nearOffset;
-	private final String label;
+	final int nearOffset;
+	final String label;
 	/** The verb alone; the game appends {@link #NAME} to it. */
-	private final String action;
+	final String action;
 	/** Whether syncing is possible right now — no site or no token means no button. */
-	private final BooleanSupplier enabled;
-	private final Runnable onClick;
+	final BooleanSupplier enabled;
+	final Runnable onClick;
 
 	/** What we drew last time. Null until the first render, stale after a neighbour clears the bar. */
-	private Widget[] parts;
+	Widget[] parts;
 	/** The slot those parts were drawn in, so a change of neighbours can be noticed and acted on. */
-	private int drawnAt = Integer.MIN_VALUE;
+	int drawnAt = Integer.MIN_VALUE;
 
 	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, String label, String action,
 			BooleanSupplier enabled, Runnable onClick) {
 		this(client, parentId, anchorId, rightOffset, rightOffset, label, action, enabled, onClick);
-	}
-
-	HeaderButton(Client client, int parentId, int anchorId, int rightOffset, int nearOffset, String label, String action,
-				 BooleanSupplier enabled, Runnable onClick) {
-		this.client = client;
-		this.parentId = parentId;
-		this.anchorId = anchorId;
-		this.rightOffset = rightOffset;
-		this.nearOffset = nearOffset;
-		this.label = label;
-		this.action = action;
-		this.enabled = enabled;
-		this.onClick = onClick;
 	}
 
 	/**
@@ -130,10 +119,10 @@ final class HeaderButton {
 	 * script has had its turn.
 	 */
 	void render() {
-		Widget parent = client.getWidget(parentId);
-		Widget anchor = client.getWidget(anchorId);
+		var parent = client.getWidget(parentId);
+		var anchor = client.getWidget(anchorId);
 		if (parent == null || anchor == null || !enabled.getAsBoolean()) return;
-		final int x = slotFor(parent);
+		int x = slotFor(parent);
 		if (stillAttached(parent)) {
 			if (drawnAt == x) {
 				return; // ours, intact, in the right slot — drawing again would only make a second one
@@ -145,11 +134,11 @@ final class HeaderButton {
 			hideParts();
 		}
 
-		final int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
-		final int y = anchor.getOriginalY();
-		final int yMode = anchor.getYPositionMode();
-		final int span = WIDTH - (CORNER * 2);
-		final Widget[] made = new Widget[PARTS];
+		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
+		int y = anchor.getOriginalY();
+		int yMode = anchor.getYPositionMode();
+		int span = WIDTH - (CORNER * 2);
+		var made = new Widget[PARTS];
 
 		// Background first so every edge draws over it, then the corners, then the edges between.
 		made[0] = piece(parent, 0, x, y, WIDTH, h, yMode);
@@ -164,7 +153,7 @@ final class HeaderButton {
 
 		// The text covers the whole button, so it is what the mouse actually meets: one layer owns
 		// the click, the hover and the label, and the nine underneath are decoration.
-		Widget text = child(parent, WidgetType.TEXT, x, y, WIDTH, h, yMode);
+		var text = child(parent, WidgetType.TEXT, x, y, WIDTH, h, yMode);
 		text.setText(label);
 		text.setTextColor(TEXT_IDLE);
 		text.setFontId(FontID.PLAIN_11);
@@ -196,16 +185,16 @@ final class HeaderButton {
 	 * floating a slot-width away from the close button with an empty gap between them — reserved for
 	 * a plugin that was not running.
 	 */
-	private int slotFor(Widget parent) {
+	int slotFor(Widget parent) {
 		if (nearOffset >= rightOffset) return rightOffset;
-		Widget[] children = parent.getDynamicChildren();
+		var children = parent.getDynamicChildren();
 		if (children != null) {
 			for (Widget child : children) {
 				if (child == null || NAME.equals(child.getName())) {
 					continue; // ours, from a previous render we are about to replace
 				}
 				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
-				final int childX = child.getOriginalX();
+				int childX = child.getOriginalX();
 				if (childX >= nearOffset && childX < rightOffset) {
 					return rightOffset; // somebody is in the near slot; take the one beyond it
 				}
@@ -215,16 +204,16 @@ final class HeaderButton {
 	}
 
 	/** One piece of the frame, by its index into the sprite sets. */
-	private Widget piece(Widget parent, int index, int x, int y, int w, int h, int yMode) {
-		Widget piece = child(parent, WidgetType.GRAPHIC, x, y, w, h, yMode);
+	Widget piece(Widget parent, int index, int x, int y, int w, int h, int yMode) {
+		var piece = child(parent, WidgetType.GRAPHIC, x, y, w, h, yMode);
 		piece.setSpriteId(SPRITES_IDLE[index]);
 		piece.revalidate();
 		return piece;
 	}
 
 	/** One of our widgets, named as ours and placed from the parent's right edge. */
-	private static Widget child(Widget parent, int type, int x, int y, int w, int h, int yMode) {
-		Widget c = parent.createChild(-1, type);
+	static Widget child(Widget parent, int type, int x, int y, int w, int h, int yMode) {
+		var c = parent.createChild(-1, type);
 		c.setName(NAME);
 		c.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
 		c.setYPositionMode(yMode);
@@ -243,7 +232,7 @@ final class HeaderButton {
 	 * right, render() returns on an identity scan.</p>
 	 */
 	void refresh() {
-		Widget parent = client.getWidget(parentId);
+		var parent = client.getWidget(parentId);
 		if (parent == null) {
 			// The window is closed. Our widgets went with it, so forget them rather than hiding
 			// objects that are no longer attached to anything.
@@ -276,7 +265,7 @@ final class HeaderButton {
 	}
 
 	/** Swap the frame between its idle and hovered sprite sets. */
-	private static void paint(Widget[] made, int[] sprites, int textColour) {
+	static void paint(Widget[] made, int[] sprites, int textColour) {
 		for (int i = 0; i < TEXT; i++) {
 			if (made[i] != null) made[i].setSpriteId(sprites[i]);
 		}
@@ -291,9 +280,9 @@ final class HeaderButton {
 	 * bar still holds the one we made, which answers both "were we wiped" and "did the interface
 	 * rebuild underneath us".
 	 */
-	private boolean stillAttached(Widget parent) {
+	boolean stillAttached(Widget parent) {
 		if (parts == null || parts[TEXT] == null) return false;
-		Widget[] children = parent.getDynamicChildren();
+		var children = parent.getDynamicChildren();
 		if (children == null) return false;
 		for (Widget w : children) {
 			if (w == parts[TEXT]) return true;

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Setter;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
@@ -36,17 +37,17 @@ final class ProfileLookup {
 	static final String OPTION = "Anvil";
 
 	/** List options our entry goes AFTER (below) / BEFORE (above), matching the hiscores plugin. */
-	private static final Set<String> AFTER_OPTIONS = Set.of("Message", "Add ignore", "Remove friend", "Delete", "Kick", "Reply");
-	private static final Set<String> BEFORE_OPTIONS = Set.of("Add friend", "Remove ignore");
+	static final Set<String> AFTER_OPTIONS = Set.of("Message", "Add ignore", "Remove friend", "Delete", "Kick", "Reply");
+	static final Set<String> BEFORE_OPTIONS = Set.of("Add friend", "Remove ignore");
 
-	private final Client client;
-	private final MenuManager menuManager;
-	private final AnvilConfig config;
-	private final EventBus eventBus;
+	final Client client;
+	final MenuManager menuManager;
+	final AnvilConfig config;
+	final EventBus eventBus;
 
-	private boolean playerItemShown;
+	boolean playerItemShown;
 	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
-	private volatile Predicate<String> panelOpener;
+	@Setter volatile Predicate<String> panelOpener;
 
 	@Inject
 	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus) {
@@ -57,31 +58,31 @@ final class ProfileLookup {
 	}
 
 	/** {@code rsn} as a path segment, or null when there is no name to look up. */
-	private static String pathName(String rsn) {
+	static String pathName(String rsn) {
 		if (rsn == null) return null;
 		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
 		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
-		String name = rsn.replace(' ', ' ').trim();
+		var name = rsn.replace(' ', ' ').trim();
 		return name.isEmpty() ? null : URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
 	}
 
 	/** The character page for {@code rsn}, or null when there is no name to look up. */
 	static String profileUrl(String rsn) {
-		String name = pathName(rsn);
+		var name = pathName(rsn);
 		return name == null ? null : BingoApiClient.site() + "/p/" + name;
 	}
 
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
 	static boolean open(String rsn) {
-		String url = profileUrl(rsn);
+		var url = profileUrl(rsn);
 		if (url == null) return false;
 		LinkBrowser.browse(url);
 		return true;
 	}
 
 	/** The name lists (friends, ignores, chat channels, clans, raid party, private chat) that get the entry. */
-	private static final Set<Integer> NAME_LISTS = Set.of(InterfaceID.FRIENDS, InterfaceID.IGNORE, InterfaceID.CHATCHANNEL_CURRENT,
+	static final Set<Integer> NAME_LISTS = Set.of(InterfaceID.FRIENDS, InterfaceID.IGNORE, InterfaceID.CHATCHANNEL_CURRENT,
 		InterfaceID.CLANS_SIDEPANEL, InterfaceID.CLANS_GUEST_SIDEPANEL, InterfaceID.RAIDS_SIDEPANEL, InterfaceID.PM_CHAT);
 
 	/**
@@ -90,14 +91,14 @@ final class ProfileLookup {
 	 * there — the same carve-out the hiscores plugin makes.
 	 */
 	static int listPlacement(int groupId, String option) {
-		boolean nameList = NAME_LISTS.contains(groupId) || (groupId == InterfaceID.CHATBOX && !"Kick".equals(option));
+		var nameList = NAME_LISTS.contains(groupId) || (groupId == InterfaceID.CHATBOX && !"Kick".equals(option));
 		if (!nameList || option == null) return 0;
 		if (AFTER_OPTIONS.contains(option)) return 1;
 		return BEFORE_OPTIONS.contains(option) ? -1 : 0;
 	}
 
 	/** Whether the per-surface setting lets the entry onto names in this interface. */
-	private boolean surfaceOn(int groupId) {
+	boolean surfaceOn(int groupId) {
 		switch (groupId) {
 			case InterfaceID.CHATBOX:
 			case InterfaceID.PM_CHAT:
@@ -118,7 +119,7 @@ final class ProfileLookup {
 	 * that option, so a click on a name never opens a lookup.
 	 */
 	static int menuIndex(int groupId, int placement) {
-		boolean chat = groupId == InterfaceID.CHATBOX || groupId == InterfaceID.PM_CHAT;
+		var chat = groupId == InterfaceID.CHATBOX || groupId == InterfaceID.PM_CHAT;
 		return placement > 0 || chat ? -2 : -1;
 	}
 
@@ -139,20 +140,16 @@ final class ProfileLookup {
 		}
 	}
 
-	void setPanelOpener(Predicate<String> opener) {
-		this.panelOpener = opener;
-	}
-
 	/** The panel's Lookup tab when it can show cards, the browser when it can't. */
-	private void lookUp(String rsn) {
-		Predicate<String> opener = panelOpener;
+	void lookUp(String rsn) {
+		var opener = panelOpener;
 		if (opener != null && rsn != null && opener.test(rsn)) return;
 		open(rsn);
 	}
 
 	/** Add or remove the in-world player item to match the settings. Called on start and config change. */
 	void syncPlayerItem() {
-		boolean want = config.profileLookupMenu() && config.lookupPlayers();
+		var want = config.profileLookupMenu() && config.lookupPlayers();
 		if (want == playerItemShown) return;
 		if (want) {
 			menuManager.addPlayerMenuItem(OPTION);
@@ -182,7 +179,7 @@ final class ProfileLookup {
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event) {
 		if (event.getMenuAction() != MenuAction.RUNELITE_PLAYER || !OPTION.equals(event.getMenuOption())) return;
-		Player player = event.getMenuEntry().getPlayer();
+		var player = event.getMenuEntry().getPlayer();
 		if (player != null) lookUp(player.getName());
 	}
 }

@@ -13,10 +13,10 @@ import java.time.format.DateTimeFormatter;
 @Slf4j
 public class AnvilOverlay extends OverlayPanel {
 
-	private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'");
+	static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'");
 
-	private final AnvilPlugin plugin;
-	private final AnvilConfig config;
+	final AnvilPlugin plugin;
+	final AnvilConfig config;
 
 	@Inject
 	public AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
@@ -28,25 +28,25 @@ public class AnvilOverlay extends OverlayPanel {
 	}
 
 	/** The config the lines below were built from; rebuilt only when a poll swaps it. Client thread only. */
-	private PluginConfigResponse builtFor;
+	PluginConfigResponse builtFor;
 	/** The event's [start, end], or null when it can't be live (force-ended, an unparseable date). */
-	private Instant[] window;
-	private LineComponent team;
-	private final LineComponent date = LineComponent.builder().left("Date:").build();
-	private long dateMinute = -1;
+	Instant[] window;
+	LineComponent team;
+	final LineComponent date = LineComponent.builder().left("Date:").build();
+	long dateMinute = -1;
 
-	private static final TitleComponent TITLE = TitleComponent.builder().text("Anvil").color(new Color(255, 215, 0)).build();
+	static final TitleComponent TITLE = TitleComponent.builder().text("Anvil").color(new Color(255, 215, 0)).build();
 
 	@Override
 	public Dimension render(Graphics2D graphics) {
 		if (!config.showOverlay() || AnvilPlugin.capturing) return null;
 
-		PluginConfigResponse pluginConfig = plugin.getPluginConfig();
+		var pluginConfig = plugin.getPluginConfig();
 		if (pluginConfig == null || pluginConfig.event == null) return null;
 		if (pluginConfig != builtFor) build(pluginConfig);
 
 		// Don't show overlay if event isn't active
-		long now = System.currentTimeMillis();
+		var now = System.currentTimeMillis();
 		if (!within(window, Instant.ofEpochMilli(now))) return null;
 
 		panelComponent.getChildren().add(TITLE);
@@ -61,7 +61,7 @@ public class AnvilOverlay extends OverlayPanel {
 		return super.render(graphics);
 	}
 
-	private void build(PluginConfigResponse cfg) {
+	void build(PluginConfigResponse cfg) {
 		builtFor = cfg;
 		window = window(cfg.event);
 		// Team — the only proof we need on a screenshot. Team name + UTC date are
@@ -77,7 +77,7 @@ public class AnvilOverlay extends OverlayPanel {
 		return within(window(event), Instant.now());
 	}
 
-	private static boolean within(Instant[] window, Instant now) {
+	static boolean within(Instant[] window, Instant now) {
 		return window != null && !now.isBefore(window[0]) && !now.isAfter(window[1]);
 	}
 
@@ -85,14 +85,14 @@ public class AnvilOverlay extends OverlayPanel {
 	 * When the event runs, open-ended where a date is missing — or null when it never does: missing,
 	 * force-ended by admin, or a date that won't parse (treated as inactive).
 	 */
-	private static Instant[] window(PluginConfigResponse.EventInfo event) {
+	static Instant[] window(PluginConfigResponse.EventInfo event) {
 		if (event == null || event.forceEndedAt != null) return null;
 		try {
 			return new Instant[] {
 				event.startDate == null ? Instant.MIN : Instant.parse(event.startDate),
 				event.endDate == null ? Instant.MAX : Instant.parse(event.endDate)};
 		} catch (Exception e) {
-			log.warn("Failed to parse event dates '{}' / '{}': {}", event.startDate, event.endDate, e.getMessage());
+			log.warn("Bad event dates: {}", e.getMessage());
 			return null;
 		}
 	}

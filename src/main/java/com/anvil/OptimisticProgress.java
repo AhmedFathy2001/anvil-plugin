@@ -19,7 +19,7 @@ final class OptimisticProgress {
 	static final long TTL_MS = 120_000;
 
 	/** tileId → {floor, expiresAt}. */
-	private final Map<Integer, long[]> floors = new ConcurrentHashMap<>();
+	final Map<Integer, long[]> floors = new ConcurrentHashMap<>();
 	/**
 	 * tileId → the highest count the site has been seen at, from any source (a tile push, the config).
 	 * The next gain builds on this rather than on the caller's possibly older count: a teammate's
@@ -27,9 +27,9 @@ final class OptimisticProgress {
 	 * until they climbed past it. Building on it can only undercount for a moment (if our earlier
 	 * gains hadn't reached the site yet), never overcount.
 	 */
-	private final Map<Integer, Long> seenSite = new ConcurrentHashMap<>();
+	final Map<Integer, Long> seenSite = new ConcurrentHashMap<>();
 	/** Told when the site's count for a tile went DOWN (a deleted submission): views showing the old one redraw. */
-	private volatile Runnable onDrop;
+	volatile Runnable onDrop;
 
 	void onDrop(Runnable r) {
 		onDrop = r;
@@ -45,15 +45,15 @@ final class OptimisticProgress {
 	/** This client gained {@code delta} on a tile the site last put at {@code siteCurrent}. */
 	void add(int tileId, long siteCurrent, long delta, long now) {
 		if (tileId == 0 || delta <= 0) return;
-		long[] f = live(tileId, siteCurrent, now);
-		long base = Math.max(Math.max(siteCurrent, seenSite.getOrDefault(tileId, 0L)), f == null ? 0 : f[0]);
+		var f = live(tileId, siteCurrent, now);
+		var base = Math.max(Math.max(siteCurrent, seenSite.getOrDefault(tileId, 0L)), f == null ? 0 : f[0]);
 		raise(tileId, base + delta, now);
 	}
 
 	/** What to show for a tile the site puts at {@code siteCurrent}. */
 	long apply(int tileId, long siteCurrent, long now) {
 		seen(tileId, siteCurrent);
-		long[] f = live(tileId, siteCurrent, now);
+		var f = live(tileId, siteCurrent, now);
 		return f == null ? siteCurrent : Math.max(siteCurrent, f[0]);
 	}
 
@@ -63,7 +63,7 @@ final class OptimisticProgress {
 	 * to {@link #apply} as the site's: that would read as "caught up" and throw the floor away.
 	 */
 	long floor(int tileId, long now) {
-		long[] f = floors.get(tileId);
+		var f = floors.get(tileId);
 		return f == null || now > f[1] ? 0 : f[0];
 	}
 
@@ -75,11 +75,11 @@ final class OptimisticProgress {
 	 */
 	void seen(int tileId, long siteCurrent) {
 		if (tileId == 0 || siteCurrent < 0) return;
-		Long before = seenSite.get(tileId);
+		var before = seenSite.get(tileId);
 		if (before != null && siteCurrent < before) {
 			seenSite.put(tileId, siteCurrent);
 			floors.remove(tileId);
-			Runnable r = onDrop;
+			var r = onDrop;
 			if (r != null) r.run();
 			return;
 		}
@@ -98,8 +98,8 @@ final class OptimisticProgress {
 	}
 
 	/** The tile's floor while it still means something; drops it once the site caught up or it expired. */
-	private long[] live(int tileId, long siteCurrent, long now) {
-		long[] f = floors.get(tileId);
+	long[] live(int tileId, long siteCurrent, long now) {
+		var f = floors.get(tileId);
 		if (f == null) return null;
 		if (siteCurrent >= f[0] || now > f[1]) {
 			floors.remove(tileId, f);

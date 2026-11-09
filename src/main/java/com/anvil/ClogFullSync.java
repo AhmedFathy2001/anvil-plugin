@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.Getter;
 import java.util.*;
 
 /**
@@ -36,12 +37,12 @@ final class ClogFullSync {
 	static final int MIN_ITEMS = 5;
 
 	/** itemId -> quantity, in arrival order so a batch reads like the log does. */
-	private final Map<Integer, Integer> items = new LinkedHashMap<>();
+	final Map<Integer, Integer> items = new LinkedHashMap<>();
 
-	private long lastItemAt;
-	private boolean receiving;
+	long lastItemAt;
+	boolean receiving;
 	/** Set when the player asked for this explicitly, so a no-change sync still gets sent + reported. */
-	private boolean manual;
+	@Getter boolean manual;
 
 	/** A transmit is starting (the log was opened / the button was pressed). Clears anything stale. */
 	void begin(boolean manualRequest) {
@@ -69,11 +70,6 @@ final class ClogFullSync {
 			&& now - lastItemAt >= QUIET_MS;
 	}
 
-	/** True when the player pressed the button, so the caller can report the result in chat. */
-	boolean isManual() {
-		return manual;
-	}
-
 	/** Everything received, as an unmodifiable snapshot. Does not clear — see {@link #onSent}. */
 	Map<Integer, Integer> snapshot() {
 		return Collections.unmodifiableMap(new LinkedHashMap<>(items));
@@ -94,7 +90,7 @@ final class ClogFullSync {
 		long hash = items.size();
 		for (Map.Entry<Integer, Integer> e : items.entrySet()) {
 			// Mixed per entry then XORed in: adding an item changes it, and reordering doesn't.
-			long h = e.getKey() * 0x9E3779B97F4A7C15L + e.getValue();
+			var h = e.getKey() * 0x9E3779B97F4A7C15L + e.getValue();
 			hash ^= h ^ (h >>> 29);
 		}
 		return hash;

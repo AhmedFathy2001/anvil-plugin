@@ -35,24 +35,24 @@ final class GifIcon implements Icon {
 	static final long MAX_PIXELS = 6_000_000L;
 	static final int MAX_FRAMES = 300;
 	/** GIF delays are centiseconds; 0/1 means "as fast as possible", which browsers show as 100 ms. */
-	private static final int MIN_DELAY_MS = 20;
-	private static final int FALLBACK_DELAY_MS = 100;
+	static final int MIN_DELAY_MS = 20;
+	static final int FALLBACK_DELAY_MS = 100;
 
-	private static final Set<GifIcon> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
-	private static long lastTick;
-	private static final Timer TICK = new Timer(20, e -> tick());
+	static final Set<GifIcon> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
+	static long lastTick;
+	static final Timer TICK = new Timer(20, e -> tick());
 
-	private final BufferedImage[] frames;
-	private final int[] ends;
-	private final int total;
-	private final Map<Component, Boolean> hosts = new WeakHashMap<>();
-	private long playedMs;
-	private int shown;
+	final BufferedImage[] frames;
+	final int[] ends;
+	final int total;
+	final Map<Component, Boolean> hosts = new WeakHashMap<>();
+	long playedMs;
+	int shown;
 
-	private GifIcon(BufferedImage[] frames, int[] ends) {
+	GifIcon(BufferedImage[] frames, int[] ends) {
 		this.frames = frames;
 		this.ends = ends;
-		this.total = ends[ends.length - 1];
+		total = ends[ends.length - 1];
 	}
 
 	/** Its own clock for another label; the decoded frames are shared. */
@@ -87,18 +87,18 @@ final class GifIcon implements Icon {
 	}
 
 	/** EDT: advance every icon some showing label holds, while the client window is in front. */
-	private static void tick() {
-		long now = System.currentTimeMillis();
+	static void tick() {
+		var now = System.currentTimeMillis();
 		// Clamped, so a stalled EDT or a long idle never fast-forwards: playback resumes where it was.
-		long dt = Math.max(0, Math.min(100, now - lastTick));
+		var dt = Math.max(0, Math.min(100, now - lastTick));
 		lastTick = now;
 		if (LIVE.isEmpty()) {
 			TICK.stop();
 			return;
 		}
-		boolean active = GradientLabel.clientActive();
+		var active = GradientLabel.clientActive();
 		for (Iterator<GifIcon> it = LIVE.iterator(); it.hasNext(); ) {
-			GifIcon icon = it.next();
+			var icon = it.next();
 			if (icon.hosts.isEmpty()) {
 				it.remove();
 				continue;
@@ -107,7 +107,7 @@ final class GifIcon implements Icon {
 		}
 	}
 
-	private boolean anyShowing() {
+	boolean anyShowing() {
 		for (Component c : hosts.keySet()) {
 			if (c.isShowing()) return true;
 		}
@@ -147,37 +147,35 @@ final class GifIcon implements Icon {
 		int lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
 		if (lw <= 0 || lh <= 0 || lw > w || lh > h) return null;
 		try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
-			Iterator<ImageReader> readers = in == null ? null : ImageIO.getImageReaders(in);
+			var readers = in == null ? null : ImageIO.getImageReaders(in);
 			if (readers == null || !readers.hasNext()) return null;
-			ImageReader reader = readers.next();
+			var reader = readers.next();
 			try {
 				reader.setInput(in, false, false);
 				int n = reader.getNumImages(true);
 				if (n <= 0 || n > MAX_FRAMES || (long) lw * lh * n > MAX_PIXELS) return null;
-				BufferedImage[] frames = new BufferedImage[n];
+				var frames = new BufferedImage[n];
 				int[] ends = new int[n];
-				BufferedImage canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
+				var canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
 				int at = 0;
 				for (int i = 0; i < n; i++) {
 					int fw = reader.getWidth(i), fh = reader.getHeight(i);
-					Frame f = frameInfo(reader.getImageMetadata(i));
+					var f = frameInfo(reader.getImageMetadata(i));
 					if (f == null || fw <= 0 || fh <= 0 || f.x < 0 || f.y < 0 || f.x + fw > lw || f.y + fh > lh) return null;
-					BufferedImage before = "restoreToPrevious".equals(f.disposal) ? copyOf(canvas) : null;
-					BufferedImage raw = reader.read(i);
-					Graphics2D g = canvas.createGraphics();
+					var before = "restoreToPrevious".equals(f.disposal) ? copyOf(canvas) : null;
+					var raw = reader.read(i);
+					var g = canvas.createGraphics();
 					g.drawImage(raw, f.x, f.y, null);
 					g.dispose();
 					frames[i] = copyOf(canvas);
 					at += f.delayMs;
 					ends[i] = at;
 					if ("restoreToBackgroundColor".equals(f.disposal)) {
-						Graphics2D clear = canvas.createGraphics();
+						var clear = canvas.createGraphics();
 						clear.setComposite(AlphaComposite.Clear);
 						clear.fillRect(f.x, f.y, fw, fh);
 						clear.dispose();
-					} else if (before != null) {
-						canvas = before;
-					}
+					} else if (before != null) canvas = before;
 				}
 				return n == 1 ? new ImageIcon(frames[0]) : new GifIcon(frames, ends);
 			} finally {
@@ -188,20 +186,20 @@ final class GifIcon implements Icon {
 		}
 	}
 
-	private static final class Frame {
+	static final class Frame {
 		int x;
 		int y;
 		int delayMs = FALLBACK_DELAY_MS;
 		String disposal = "none";
 	}
 
-	private static Frame frameInfo(IIOMetadata meta) {
-		Node root = meta == null ? null : meta.getAsTree("javax_imageio_gif_image_1.0");
+	static Frame frameInfo(IIOMetadata meta) {
+		var root = meta == null ? null : meta.getAsTree("javax_imageio_gif_image_1.0");
 		if (root == null) return null;
-		Frame f = new Frame();
-		boolean placed = false;
+		var f = new Frame();
+		var placed = false;
 		for (Node n = root.getFirstChild(); n != null; n = n.getNextSibling()) {
-			NamedNodeMap a = n.getAttributes();
+			var a = n.getAttributes();
 			if ("ImageDescriptor".equals(n.getNodeName())) {
 				f.x = Integer.parseInt(a.getNamedItem("imageLeftPosition").getNodeValue());
 				f.y = Integer.parseInt(a.getNamedItem("imageTopPosition").getNodeValue());
@@ -215,9 +213,9 @@ final class GifIcon implements Icon {
 		return placed ? f : null;
 	}
 
-	private static BufferedImage copyOf(BufferedImage src) {
-		BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
-		Graphics2D g = out.createGraphics();
+	static BufferedImage copyOf(BufferedImage src) {
+		var out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+		var g = out.createGraphics();
 		g.setComposite(AlphaComposite.Src);
 		g.drawImage(src, 0, 0, null);
 		g.dispose();
