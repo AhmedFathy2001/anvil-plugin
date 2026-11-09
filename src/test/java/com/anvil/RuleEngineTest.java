@@ -677,4 +677,13 @@ public class RuleEngineTest
 		assertTrue(e.has("timed"));
 		assertFalse(e.has("lms"));
 	}
+
+	@Test
+	public void foldsOneLinePerBoard() {
+		assertEquals(Arrays.asList("Tracked kill: Araxxor ×7 · Lab (1/14) +2 more", "Tracked kill: Araxxor (1/5)", "Submitted: a"),
+			RuleEngine.fold(Arrays.asList("Tracked kill: Araxxor ×7 · Lab (1/14)", "Tracked kill: Araxxor (1/5)",
+				"Tracked kill: Araxxor ×13 · Lab (1/26)", "Submitted: a", "Tracked kill: Araxxor · Lab (1/2)")));
+		assertEquals(Arrays.asList("Tile complete on 4 boards: X · A +4 more"),
+			RuleEngine.fold(Arrays.asList("Tile complete: X · A", "Tile complete: Y · B", "Tile complete: Y", "Tile complete: Z · C", "Tile complete: X2 · A")));
+	}
 }
