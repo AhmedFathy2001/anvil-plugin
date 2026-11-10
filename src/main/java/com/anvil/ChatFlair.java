@@ -307,9 +307,9 @@ final class ChatFlair {
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
-	/** A tenure style's chat icon tag for a surface and motion shift (set by the plugin); "" while it loads. */
+	/** A tenure style's chat icon tag for a surface, coloured at gradient place p (set by the plugin). */
 	interface TenureIcon {
-		String get(Entry e, boolean opaque, double shift);
+		String get(Entry e, boolean opaque, double p);
 	}
 
 	TenureIcon tenureIcon;
@@ -326,8 +326,9 @@ final class ChatFlair {
 		var moved = Boolean.TRUE.equals(e.s) ? shift : 0;
 		var painted = ChatPalette.paintName(name, color, stops, moved);
 		if (painted == null) return null;
-		// The tenure icon wears the name's gradient and moves with it (a Patron's moving name).
-		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), moved) : Boolean.TRUE.equals(e.s) ? star : "";
+		// The tenure icon is coloured as one more letter before the name (and moves with it).
+		int n = name.codePointCount(0, name.length());
+		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), moved - (n > 1 ? 1.0 / (n - 1) : 0.1)) : Boolean.TRUE.equals(e.s) ? star : "";
 		return m.group(1) + mark + painted;
 	}
 

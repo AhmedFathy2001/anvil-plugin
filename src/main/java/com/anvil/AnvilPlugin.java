@@ -6065,11 +6065,12 @@ public class AnvilPlugin extends Plugin {
 			// first; painting the new style on top caused the transient double-star and bad widths.
 			unflairAll();
 			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
-			// A moving name's 8 gradient frames too, so the icon never blinks out while one loads.
-			for (var e : chatFlair.held.styles) for (int k = -1; e.t != null && k < (e.t == 4 ? 4 : 0); k++)
-				for (int fr = 0; fr < (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 && config.animatedNames() ? 8 : 1); fr++) {
-					tenureIcon(e, false, k, fr / 4.0);
-					tenureIcon(e, true, k, fr / 4.0);
+			// Every colour a gradient star can take, so it never blinks out while one loads.
+			// (A Legend's glint frames register as they come: a blink, not a full cache.)
+			for (var e : chatFlair.held.styles)
+				for (int q = 0; e.t != null && q <= (e.g != null && e.g.size() >= 2 ? 40 : 0); q++) {
+					tenureIcon(e, false, -1, q / 40.0);
+					tenureIcon(e, true, -1, q / 40.0);
 				}
 			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
 			// scripts have restored both the plain text and its original sender/message geometry.
@@ -9598,38 +9599,29 @@ public class AnvilPlugin extends Plugin {
 	static final GlyphIcon.Shape[] TENURE = {GlyphIcon.Shape.STAR, GlyphIcon.Shape.STAR_RING, GlyphIcon.Shape.STAR_HEX, GlyphIcon.Shape.HEX};
 
 	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
-		return tenureIcon(e, opaque, glint, 0);
+		return tenureIcon(e, opaque, glint, -0.1);
 	}
 
 	/**
-	 * The tenure icon in the name's own look: its gradient, sampled where the name starts, and for a
-	 * moving name one of 8 frames along the same motion ({@code shift}, 0-2 per cycle).
+	 * The tenure icon in the name's own look. With a gradient it is coloured like one more letter in
+	 * front of the name: {@code p} is that letter's place along the gradient (and its motion), so the
+	 * star moves in step with the name. Cached by colour (rounded a little), shared by every name.
 	 */
-	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint, double shift) {
+	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint, double p) {
 		var c = ChatPalette.nameColor(ChatFlair.readableColor(e, opaque));
 		if (c == null || e.t < 1 || e.t > 4) return "";
 		var rgb = ChatPalette.rgbOf(ChatFlair.readableGradient(e, opaque));
-		int fr = rgb.size() < 2 ? -1 : (int) Math.round(shift * 4) % 8;
-		var key = e.t + c + glint + (fr < 0 ? "" : rgb.stream().map(java.util.Arrays::toString).reduce("", String::concat) + fr);
+		int ink = rgb.size() < 2 ? Integer.parseInt(c, 16) : ChatPalette.sample(rgb, p) & 0xf8f8f8;
+		var key = e.t + ":" + ink + ":" + glint;
 		var id = tenureIcons.get(key);
 		if (id == null) {
-			if (tenureIcons.size() >= 128) return fr > 0 ? tenureIcon(e, opaque, glint, 0) : "";
+			if (tenureIcons.size() >= 512) return "";
 			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
 			var g = img.createGraphics();
 			try {
-				var icon = new GlyphIcon(TENURE[e.t - 1], 11, new Color(Integer.parseInt(c, 16)));
+				var icon = new GlyphIcon(TENURE[e.t - 1], 11, new Color(ink));
 				icon.glint = glint;
 				icon.paintIcon(null, g, 0, 0);
-				if (fr >= 0) {
-					// Recolour, keeping the shape's alpha (the hex hole, the faint fill): the name's first
-					// stretch of gradient, left to right, at this frame's point in the motion.
-					var s0 = fr / 4.0;
-					var cols = new Color[4];
-					for (int i = 0; i < 4; i++) cols[i] = new Color(ChatPalette.sample(rgb, s0 + i * 0.12));
-					g.setComposite(java.awt.AlphaComposite.SrcIn);
-					g.setPaint(new java.awt.LinearGradientPaint(0, 0, 11, 0, new float[]{0, 0.33f, 0.66f, 1}, cols));
-					g.fillRect(0, 0, 11, 11);
-				}
 			} finally {
 				g.dispose();
 			}
