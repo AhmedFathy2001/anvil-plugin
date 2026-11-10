@@ -6065,11 +6065,13 @@ public class AnvilPlugin extends Plugin {
 			// first; painting the new style on top caused the transient double-star and bad widths.
 			unflairAll();
 			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
-			// Each look's icon (and a Legend's 4 glint frames), so lines don't go out without one.
-			for (var e : chatFlair.held.styles) for (int k = -1; e.t != null && k < (e.t == 4 ? 4 : 0); k++) {
-				tenureIcon(e, false, k, 0);
-				tenureIcon(e, true, k, 0);
-			}
+			// Every colour a moving gradient star can take (a Legend's glint frames register as they come),
+			// so lines don't go out without one.
+			for (var e : chatFlair.held.styles)
+				for (int q = 0; e.t != null && q <= (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 ? 40 : 0); q++) {
+					tenureIcon(e, false, -1, q / 40.0);
+					tenureIcon(e, true, -1, q / 40.0);
+				}
 			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
 			// scripts have restored both the plain text and its original sender/message geometry.
 			clientThread.invokeLater(() -> {
@@ -9613,13 +9615,14 @@ public class AnvilPlugin extends Plugin {
 		var key = e.t + ":" + ink + ":" + glint;
 		var id = tenureIcons.get(key);
 		if (id == null) {
-			if (tenureIcons.size() >= 128) return "";
+			if (tenureIcons.size() >= 512) return "";
 			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
 			var g = img.createGraphics();
 			try {
 				var icon = new GlyphIcon(TENURE[e.t - 1], 11, new Color(ink));
 				icon.glint = glint;
 				icon.paintIcon(null, g, 0, 0);
+				opaquePixels(img);
 			} finally {
 				g.dispose();
 			}
@@ -9631,6 +9634,18 @@ public class AnvilPlugin extends Plugin {
 		var shape = e.t + ":" + glint + ":" + opaque;
 		if (index >= 0) tenureReady.put(shape, "<img=" + index + ">");
 		return tenureReady.getOrDefault(shape, "");
+	}
+
+	/**
+	 * Chat icons become the game's palette sprites, which keep only fully opaque pixels: a thin
+	 * antialiased ring came out as a stray tick. Snap each pixel to solid or clear.
+	 */
+	static void opaquePixels(BufferedImage img) {
+		for (int y = 0; y < img.getHeight(); y++)
+			for (int x = 0; x < img.getWidth(); x++) {
+				int p = img.getRGB(x, y);
+				img.setRGB(x, y, (p >>> 24) >= 100 ? p | 0xff000000 : 0);
+			}
 	}
 
 	/** Per shape, glint and surface: the last tenure icon tag that had finished loading. */
