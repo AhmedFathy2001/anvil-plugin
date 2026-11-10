@@ -66,8 +66,9 @@ public class TenureGlyphTest
 				// The game keeps solid pixels only: every pixel is all or nothing.
 				assertTrue(a == 0 || a == 255);
 				if (x >= 11 || y == 0) assertEquals("the gap before the name, the row above", 0, a);
-				px.append(a == 0 ? '.' : '#');
+				px.append(Integer.toHexString(img.getRGB(x, y))).append(',');
 			}
+			// Same outline is fine (a border is an upgrade); the same picture isn't.
 			assertTrue(seen.add(px.toString()));
 		}
 		assertNotEquals(AnvilPlugin.tenureSprite(6, 0x4da3ff, 1).getRGB(5, 3), AnvilPlugin.tenureSprite(6, 0x4da3ff, -1).getRGB(5, 3));
