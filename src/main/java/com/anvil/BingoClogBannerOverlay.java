@@ -202,9 +202,11 @@ public class BingoClogBannerOverlay extends Overlay {
 		var w = client.getWidget(InterfaceID.NotificationDisplay.CONTENT);
 		var me = getBounds();
 		if (w == null || w.isHidden() || me == null) return null;
-		var p = w.getBounds();
+		var b = w.getBounds();
+		// Restyle plugins draw it about twice the widget's size around the same centre: keep clear of that.
+		var p = new Rectangle(b.x - b.width / 2, b.y, b.width * 2, b.height * 2);
 		if (!p.intersects(me.x, me.y, BASE_W, BASE_H)) return null;
-		int gap = 4, vx = client.getViewportXOffset(), right = p.x + p.width + gap;
+		int gap = 12, vx = client.getViewportXOffset(), right = p.x + p.width + gap;
 		if (p.x - gap - vx >= BASE_W) return new Point(p.x - gap - BASE_W - me.x, p.y - me.y);
 		if (vx + client.getViewportWidth() - right >= BASE_W) return new Point(right - me.x, p.y - me.y);
 		return new Point(0, p.y + p.height + gap - me.y);
