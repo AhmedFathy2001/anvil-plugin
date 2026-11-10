@@ -64,7 +64,8 @@ public class BingoClogBannerOverlay extends Overlay {
 	String[] active; // {top, middle, bottom}
 	/** {@link #active} wrapped to the panel, once per banner rather than every frame; null until first drawn. */
 	List<List<String>> wrapped;
-	long startedAt;
+	long startedAt, lastFrame;
+	float ox, oy;
 
 	@Inject
 	Client client;
@@ -74,6 +75,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
+		setLayer(OverlayLayer.ABOVE_WIDGETS);
 		background = loadBackground();
 		headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
@@ -158,8 +160,18 @@ public class BingoClogBannerOverlay extends Overlay {
 		int y = (BASE_H - ih) / 2;
 
 		var g2 = (Graphics2D) g.create();
+		// Glide to the dodge spot (and back) instead of jumping when the popup comes or goes; a banner
+		// that starts with the popup already up starts there.
 		var off = dodge();
-		if (off != null) g2.translate(off.x, off.y);
+		float tx = off == null ? 0 : off.x, ty = off == null ? 0 : off.y;
+		if (e < 50 || lastFrame == 0) { ox = tx; oy = ty; }
+		else {
+			float k = 1f - (float) Math.exp(-(now - lastFrame) / 70.0);
+			ox += (tx - ox) * k;
+			oy += (ty - oy) * k;
+		}
+		lastFrame = now;
+		g2.translate(Math.round(ox), Math.round(oy));
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
@@ -201,9 +213,11 @@ public class BingoClogBannerOverlay extends Overlay {
 		var w = client.getWidget(InterfaceID.NotificationDisplay.CONTENT);
 		var me = getBounds();
 		if (w == null || w.isHidden() || me == null) return null;
-		var p = w.getBounds();
+		var b = w.getBounds();
+		// Restyle plugins draw it about twice the widget's size around the same centre: keep clear of that.
+		var p = new Rectangle(b.x - b.width / 2, b.y, b.width * 2, b.height * 2);
 		if (!p.intersects(me.x, me.y, BASE_W, BASE_H)) return null;
-		int gap = 4, vx = client.getViewportXOffset(), right = p.x + p.width + gap;
+		int gap = 12, vx = client.getViewportXOffset(), right = p.x + p.width + gap;
 		if (p.x - gap - vx >= BASE_W) return new Point(p.x - gap - BASE_W - me.x, p.y - me.y);
 		if (vx + client.getViewportWidth() - right >= BASE_W) return new Point(right - me.x, p.y - me.y);
 		return new Point(0, p.y + p.height + gap - me.y);
