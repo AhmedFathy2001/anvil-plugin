@@ -9434,6 +9434,13 @@ public class AnvilPlugin extends Plugin {
 		List<Widget> hid = new ArrayList<>();
 		var split = (mask & ChatFlair.PM) == 0 ? null : client.getWidget(InterfaceID.PmChat.CONTAINER);
 		if (split != null && !split.isHidden()) hid.add(split);
+		// A PM being typed: "Enter message to send to Name" and the text so far.
+		var ask = (mask & ChatFlair.PM) == 0 ? null : client.getWidget(InterfaceID.Chatbox.MES_TEXT);
+		if (ask != null && !ask.isHidden() && ask.getText() != null && ask.getText().startsWith("Enter message to send to")) {
+			hid.add(ask);
+			var typed = client.getWidget(InterfaceID.Chatbox.MES_TEXT2);
+			if (typed != null && !typed.isHidden()) hid.add(typed);
+		}
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines != null) {
