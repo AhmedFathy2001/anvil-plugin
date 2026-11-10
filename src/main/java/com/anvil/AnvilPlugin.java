@@ -3849,8 +3849,14 @@ public class AnvilPlugin extends Plugin {
 		Integer notifyId = null;
 		if (!synthetic.isEmpty()) {
 			notifyId = synthetic.get(synthetic.size() - 1).getId();
+			// Claim only items no loot event already brought: a stale claim eats the next real drop.
+			var t = now();
+			List<ItemStack> claim = new ArrayList<>(synthetic);
+			synchronized (recentLootItemIds) {
+				claim.removeIf(st -> { var at = recentLootItemIds.get(st.getId()); return at != null && t - at <= CLOG_LOOT_DEDUP_MS; });
+			}
 			processLoot(source, synthetic, "npc");
-			chatCredits.note(synthetic, now());
+			chatCredits.note(claim, t);
 		}
 
 		// Clan rare-drop post — also for items no tile tracks (kill may pre-date any event).
@@ -5684,6 +5690,7 @@ public class AnvilPlugin extends Plugin {
 		Set<Integer> doneNow = new HashSet<>();
 		for (CompletedTile t : cfg.completedTiles) doneNow.add(t.tileId);
 		var now = now();
+		var reopened = false;
 		for (Iterator<Integer> it = notifiedCompletedTiles.iterator(); it.hasNext(); ) {
 			var was = it.next();
 			var at = confirmedDoneAt.get(was);
@@ -5694,8 +5701,11 @@ public class AnvilPlugin extends Plugin {
 				it.remove();
 				locallyShownTiles.remove(was);
 				confirmedDoneAt.remove(was);
+				reopened = true;
 			}
 		}
+		// The rule table dropped the tile when it finished, and pushes only raise counts: fetch it again.
+		if (reopened) submit(() -> safely("refreshConfig", this::refreshConfig));
 		for (CompletedTile t : cfg.completedTiles) {
 			if (!notifiedCompletedTiles.add(t.tileId)) continue;
 			// The grace covers completions this client announced, not ones it found already done on
