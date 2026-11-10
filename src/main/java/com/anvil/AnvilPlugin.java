@@ -6065,13 +6065,11 @@ public class AnvilPlugin extends Plugin {
 			// first; painting the new style on top caused the transient double-star and bad widths.
 			unflairAll();
 			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
-			// Every colour a gradient star can take, so it never blinks out while one loads.
-			// (A Legend's glint frames register as they come: a blink, not a full cache.)
-			for (var e : chatFlair.held.styles)
-				for (int q = 0; e.t != null && q <= (e.g != null && e.g.size() >= 2 ? 40 : 0); q++) {
-					tenureIcon(e, false, -1, q / 40.0);
-					tenureIcon(e, true, -1, q / 40.0);
-				}
+			// Each look's icon (and a Legend's 4 glint frames), so lines don't go out without one.
+			for (var e : chatFlair.held.styles) for (int k = -1; e.t != null && k < (e.t == 4 ? 4 : 0); k++) {
+				tenureIcon(e, false, k, 0);
+				tenureIcon(e, true, k, 0);
+			}
 			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
 			// scripts have restored both the plain text and its original sender/message geometry.
 			clientThread.invokeLater(() -> {
@@ -9615,7 +9613,7 @@ public class AnvilPlugin extends Plugin {
 		var key = e.t + ":" + ink + ":" + glint;
 		var id = tenureIcons.get(key);
 		if (id == null) {
-			if (tenureIcons.size() >= 512) return "";
+			if (tenureIcons.size() >= 128) return "";
 			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
 			var g = img.createGraphics();
 			try {

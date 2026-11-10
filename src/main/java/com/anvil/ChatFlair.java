@@ -326,8 +326,9 @@ final class ChatFlair {
 		var moved = Boolean.TRUE.equals(e.s) ? shift : 0;
 		var painted = ChatPalette.paintName(name, color, stops, moved);
 		if (painted == null) return null;
-		// The tenure icon wears the first letter's colour at this frame, so it moves with the name.
-		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), moved) : Boolean.TRUE.equals(e.s) ? star : "";
+		// The tenure icon wears the gradient's start colour, still: one icon per look (a moving one meant
+		// dozens of chat icons, more than the game's icon list keeps straight).
+		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), 0) : Boolean.TRUE.equals(e.s) ? star : "";
 		return m.group(1) + mark + painted;
 	}
 
