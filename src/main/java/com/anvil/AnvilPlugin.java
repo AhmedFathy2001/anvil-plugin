@@ -613,10 +613,11 @@ public class AnvilPlugin extends Plugin {
 	// completion" message) by NAME — which also lets multiple completions in one tick all post,
 	// unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
 	final Set<String> notifiedCaTasks = new LinkedHashSet<>();
-	// Slots announced this session, so the personal line and the clan broadcast — which can both
-	// arrive for the same unlock — post it once. Item names, lowercased; cleared per account.
-	final Set<String> recentClogUnlocks = new LinkedHashSet<>();
-	static final int MAX_RECENT_CLOG_UNLOCKS = 64;
+	// Slots announced moments ago, so the personal line and the clan broadcast — which can both
+	// arrive for the same unlock — post it once. Item names, lowercased, to when; cleared per account.
+	// A window, not the session: several slots share a name (Decorative armour in each colour).
+	final Map<String, Long> recentClogUnlocks = new HashMap<>();
+	static final long CLOG_UNLOCK_SAME_MS = 15_000;
 	// One nudge per session about the in-game "Repeat completion" CA setting.
 	boolean caRepeatNudgeSent;
 	// One nudge per session about the in-game loot drop notifications (rare-drop post dependency).
@@ -3671,13 +3672,10 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void handleClogUnlock(String item) {
 		if (item == null || item.isEmpty()) return;
-		if (!recentClogUnlocks.add(item.toLowerCase(Locale.ROOT))) {
-			return; // already handled this session — the other line got here first
-		}
-		if (recentClogUnlocks.size() > MAX_RECENT_CLOG_UNLOCKS) {
-			var it = recentClogUnlocks.iterator();
-			it.next();
-			it.remove();
+		var t = now();
+		recentClogUnlocks.values().removeIf(at -> t - at > CLOG_UNLOCK_SAME_MS);
+		if (recentClogUnlocks.putIfAbsent(item.toLowerCase(Locale.ROOT), t) != null) {
+			return; // the other line for this unlock got here first
 		}
 		// A pet drop moments ago is still waiting to learn WHICH pet it was — this line is the
 		// only thing that says so. It takes the name and both clog posts stand down, or the same
