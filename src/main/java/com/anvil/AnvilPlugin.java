@@ -1084,6 +1084,10 @@ public class AnvilPlugin extends Plugin {
 		// The Patron star's chat icon loads asynchronously; asked for now, it's ready by the first line
 		// that needs it instead of that line going out without it.
 		chatStar();
+		chatFlair.tenureIcon = (e, opaque) -> {
+			long f = e.t == 4 ? currentChatNameFrame() : -1;
+			return tenureIcon(e, opaque, f < 0 || f / 3 % 30 > 3 ? -1 : (int) (f / 3 % 30));
+		};
 		// Built before the directory is known: without one they still work, in memory, for the session.
 		var outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
 		outbox.setSender(apiClient::sendQueuedNotification);
@@ -5666,7 +5670,8 @@ public class AnvilPlugin extends Plugin {
 		var who = completedBy == null ? "" : clean(completedBy.trim());
 		if (!who.isEmpty() && config.supporterChatFlair() && chatFlair.entry(who) != null) {
 			var e = chatFlair.entry(who);
-			var star = Boolean.TRUE.equals(e.s) ? chatStar() : null;
+			// A tenure icon is added by the chatbox pass; a star here as well would show twice.
+			var star = e.t == null && Boolean.TRUE.equals(e.s) ? chatStar() : null;
 			sendChatLine("Anvil", line + " — by ", Tone.DONE, null, (star != null ? star : "") + who + "!");
 		} else sendChatMessage(Tone.DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
 	}
@@ -6061,6 +6066,11 @@ public class AnvilPlugin extends Plugin {
 			// Visible widgets may still contain our old tags/star. Ask the game for clean source rows
 			// first; painting the new style on top caused the transient double-star and bad widths.
 			unflairAll();
+			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
+			for (var e : chatFlair.held.styles) for (int k = -1; e.t != null && k < (e.t == 4 ? 4 : 0); k++) {
+				tenureIcon(e, false, k);
+				tenureIcon(e, true, k);
+			}
 			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
 			// scripts have restored both the plain text and its original sender/message geometry.
 			clientThread.invokeLater(() -> {
@@ -9583,6 +9593,32 @@ public class AnvilPlugin extends Plugin {
 	/** The Patron star's chat icon, registered once; -1 until then. */
 	int chatStarIcon = -1;
 
+	/** Registered tenure icons by shape, colour and glint frame. */
+	final Map<String, Integer> tenureIcons = new HashMap<>();
+	static final GlyphIcon.Shape[] TENURE = {GlyphIcon.Shape.STAR, GlyphIcon.Shape.STAR_RING, GlyphIcon.Shape.STAR_HEX, GlyphIcon.Shape.HEX};
+
+	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
+		var c = ChatPalette.nameColor(ChatFlair.readableColor(e, opaque));
+		if (c == null || e.t < 1 || e.t > 4) return "";
+		var key = e.t + c + glint;
+		var id = tenureIcons.get(key);
+		if (id == null) {
+			if (tenureIcons.size() >= 128) return "";
+			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
+			var g = img.createGraphics();
+			try {
+				var icon = new GlyphIcon(TENURE[e.t - 1], 11, new Color(Integer.parseInt(c, 16)));
+				icon.glint = glint;
+				icon.paintIcon(null, g, 0, 0);
+			} finally {
+				g.dispose();
+			}
+			tenureIcons.put(key, id = chatIconManager.registerChatIcon(img));
+		}
+		int index = chatIconManager.chatIconIndex(id);
+		return index >= 0 ? "<img=" + index + ">" : "";
+	}
+
 	String chatStar() {
 		if (chatStarIcon < 0) {
 			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
@@ -9666,7 +9702,8 @@ public class AnvilPlugin extends Plugin {
 		var own = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.paintNameFor(clean(who), lastChatboxOpaque);
 		var name = own != null ? own : grad != null ? grad
 				: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who);
-		var lead = who.isEmpty() ? null : (star ? chatStar() : "") + name;
+		var fe = own == null ? null : chatFlair.entry(clean(who));
+		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, lastChatboxOpaque, -1) : star ? chatStar() : "") + name;
 		var tone = Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
 		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
 	}
