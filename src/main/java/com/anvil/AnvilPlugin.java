@@ -9599,7 +9599,7 @@ public class AnvilPlugin extends Plugin {
 	static final GlyphIcon.Shape[] TENURE = {GlyphIcon.Shape.STAR, GlyphIcon.Shape.STAR_RING, GlyphIcon.Shape.STAR_HEX, GlyphIcon.Shape.HEX};
 
 	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
-		return tenureIcon(e, opaque, glint, -0.1);
+		return tenureIcon(e, opaque, glint, 0);
 	}
 
 	/**
@@ -9628,8 +9628,15 @@ public class AnvilPlugin extends Plugin {
 			tenureIcons.put(key, id = chatIconManager.registerChatIcon(img));
 		}
 		int index = chatIconManager.chatIconIndex(id);
-		return index >= 0 ? "<img=" + index + ">" : "";
+		// A colour still loading shows the last one this shape had ready, never a blank: a gap made the
+		// moving star blink while its frames loaded.
+		var shape = e.t + ":" + glint + ":" + opaque;
+		if (index >= 0) tenureReady.put(shape, "<img=" + index + ">");
+		return tenureReady.getOrDefault(shape, "");
 	}
+
+	/** Per shape, glint and surface: the last tenure icon tag that had finished loading. */
+	final Map<String, String> tenureReady = new HashMap<>();
 
 	String chatStar() {
 		if (chatStarIcon < 0) {
