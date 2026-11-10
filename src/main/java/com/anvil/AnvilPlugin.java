@@ -9596,7 +9596,6 @@ public class AnvilPlugin extends Plugin {
 
 	/** Registered tenure icons by shape, colour and glint frame. */
 	final Map<String, Integer> tenureIcons = new HashMap<>();
-	static final GlyphIcon.Shape[] TENURE = {GlyphIcon.Shape.STAR, GlyphIcon.Shape.STAR_RING, GlyphIcon.Shape.STAR_HEX, GlyphIcon.Shape.HEX};
 
 	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
 		return tenureIcon(e, opaque, glint, 0);
@@ -9616,16 +9615,7 @@ public class AnvilPlugin extends Plugin {
 		var id = tenureIcons.get(key);
 		if (id == null) {
 			if (tenureIcons.size() >= 512) return "";
-			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
-			var g = img.createGraphics();
-			try {
-				var icon = new GlyphIcon(TENURE[e.t - 1], 11, new Color(ink));
-				icon.glint = glint;
-				icon.paintIcon(null, g, 0, 0);
-				opaquePixels(img);
-			} finally {
-				g.dispose();
-			}
+			var img = tenureSprite(e.t, ink, glint);
 			tenureIcons.put(key, id = chatIconManager.registerChatIcon(img));
 		}
 		int index = chatIconManager.chatIconIndex(id);
@@ -9637,15 +9627,25 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Chat icons become the game's palette sprites, which keep only fully opaque pixels: a thin
-	 * antialiased ring came out as a stray tick. Snap each pixel to solid or clear.
+	 * The chat tenure icons as pixel art: chat icons become the game's palette sprites, which keep only
+	 * solid pixels, so a drawn (antialiased) shape loses most of itself. Star, ringed, hex, solid hex.
 	 */
-	static void opaquePixels(BufferedImage img) {
-		for (int y = 0; y < img.getHeight(); y++)
-			for (int x = 0; x < img.getWidth(); x++) {
-				int p = img.getRGB(x, y);
-				img.setRGB(x, y, (p >>> 24) >= 100 ? p | 0xff000000 : 0);
-			}
+	static final String[][] TENURE_PX = {
+		{".....#.....", ".....#.....", "....###....", "###########", ".#########.", "..#######..", "..#######..", ".####.####.", ".###...###.", ".##.....##.", "..........."},
+		{"...#####...", "..#.....#..", ".#...#...#.", "#...###...#", "#.#######.#", "#..#####..#", "#...###...#", "#..##.##..#", ".#.#...#.#.", "..#.....#..", "...#####..."},
+		{".....#.....", "...##.##...", ".##.....##.", "#....#....#", "#...###...#", "#.#######.#", "#..#####..#", "#...###...#", "#..#...#..#", ".##.....##.", "...##.##..."},
+		{".....#.....", "...#####...", ".#########.", "#####.#####", "####...####", "##.......##", "###.....###", "####...####", ".##.###.##.", "...#####...", ".....#....."},
+	};
+
+	/** 13x11: the art, then a 2px gap before the name. A Legend's glint brightens a sweeping band. */
+	static BufferedImage tenureSprite(int t, int ink, int glint) {
+		var img = new BufferedImage(13, 11, BufferedImage.TYPE_INT_ARGB);
+		var rows = TENURE_PX[t - 1];
+		var lit = new Color(ink).brighter().brighter().getRGB();
+		for (int y = 0; y < 11; y++)
+			for (int x = 0; x < 11; x++)
+				if (rows[y].charAt(x) == '#') img.setRGB(x, y, glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1 ? lit : 0xff000000 | ink);
+		return img;
 	}
 
 	/** Per shape, glint and surface: the last tenure icon tag that had finished loading. */

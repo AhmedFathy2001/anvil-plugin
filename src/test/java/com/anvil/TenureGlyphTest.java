@@ -25,7 +25,7 @@ public class TenureGlyphTest
 	public void eachTenureShapeDrawsSomethingDifferent()
 	{
 		java.util.Set<String> seen = new java.util.HashSet<>();
-		for (GlyphIcon.Shape s : AnvilPlugin.TENURE)
+		for (GlyphIcon.Shape s : new GlyphIcon.Shape[]{GlyphIcon.Shape.STAR, GlyphIcon.Shape.STAR_RING, GlyphIcon.Shape.STAR_HEX, GlyphIcon.Shape.HEX})
 		{
 			BufferedImage img = draw(s, -1);
 			StringBuilder px = new StringBuilder();
@@ -49,5 +49,27 @@ public class TenureGlyphTest
 		for (int y = 0; y < 11; y++) for (int x = 0; x < 11; x++) differs |= draw(GlyphIcon.Shape.HEX, 1).getRGB(x, y) != plain.getRGB(x, y);
 		assertTrue(differs);
 		assertNotEquals(draw(GlyphIcon.Shape.HEX, 0).getRGB(1, 3), draw(GlyphIcon.Shape.HEX, 3).getRGB(1, 3));
+	}
+
+	@Test
+	public void chatSpritesAreSolidPixelArtWithAGapAndAGlint()
+	{
+		java.util.Set<String> seen = new java.util.HashSet<>();
+		for (int t = 1; t <= 4; t++)
+		{
+			BufferedImage img = AnvilPlugin.tenureSprite(t, 0x4da3ff, -1);
+			assertEquals(13, img.getWidth());
+			StringBuilder px = new StringBuilder();
+			for (int y = 0; y < 11; y++) for (int x = 0; x < 13; x++)
+			{
+				int a = img.getRGB(x, y) >>> 24;
+				// The game keeps solid pixels only: every pixel is all or nothing.
+				assertTrue(a == 0 || a == 255);
+				if (x >= 11) assertEquals("the gap before the name", 0, a);
+				px.append(a == 0 ? '.' : '#');
+			}
+			assertTrue(seen.add(px.toString()));
+		}
+		assertNotEquals(AnvilPlugin.tenureSprite(4, 0x4da3ff, 1).getRGB(5, 2), AnvilPlugin.tenureSprite(4, 0x4da3ff, -1).getRGB(5, 2));
 	}
 }
