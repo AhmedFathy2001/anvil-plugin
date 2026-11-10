@@ -20,12 +20,14 @@ import javax.swing.Icon;
 @RequiredArgsConstructor
 final class GlyphIcon implements Icon {
 	enum Shape {
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, STAR_RING, STAR_HEX, HEX, UP, DOWN
 	}
 
 	final Shape shape;
 	final int size;
 	final Color color;
+	/** HEX only: 0-3 picks where a highlight sweeps across it (the Legend glint), -1 none. */
+	int glint = -1;
 
 	GlyphIcon(Shape shape, int size) {
 		this(shape, size, null);
@@ -94,17 +96,41 @@ final class GlyphIcon implements Icon {
 					break;
 				case STAR:
 					// Filled five points: an Anvil Supporter, beside their name.
-					for (int i = 0; i < 10; i++) {
-						var ang = -Math.PI / 2 + Math.PI / 5 * i;
-						var rad = s * (i % 2 == 0 ? 0.5 : 0.21);
-						var px = s / 2.0 + Math.cos(ang) * rad;
-						var py = s * 0.53 + Math.sin(ang) * rad;
-						if (i == 0) {
-							p.moveTo(px, py);
-						} else p.lineTo(px, py);
+					g.fill(star(p, s, 1));
+					break;
+				// Tenure: the star gains a ring, then a hex frame, then a solid hex (Legend).
+				case STAR_RING:
+					g.setStroke(new BasicStroke(s / 10f));
+					g.draw(new java.awt.geom.Ellipse2D.Float(s * 0.06f, s * 0.06f, s * 0.88f, s * 0.88f));
+					g.fill(star(p, s, 0.56));
+					break;
+				case STAR_HEX:
+					var h = hex(s);
+					g.setColor(new Color(ink.getRed(), ink.getGreen(), ink.getBlue(), 70));
+					g.fill(h);
+					g.setColor(ink);
+					g.setStroke(new BasicStroke(s / 11f));
+					g.draw(h);
+					g.fill(star(p, s, 0.55));
+					break;
+				case HEX:
+					// Drawn apart so the star is a real hole: the panel's gradient tint keeps alpha, not colour.
+					var img = new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+					var ig = img.createGraphics();
+					ig.setRenderingHints(g.getRenderingHints());
+					ig.setColor(ink);
+					ig.fill(hex(s));
+					if (glint >= 0) {
+						ig.clip(hex(s));
+						ig.setColor(new Color(255, 255, 255, 120));
+						var gx = s * (glint * 0.4f - 0.3f);
+						ig.fill(stroke(p, 1, gx, s, gx + s * 0.3f, 0, gx + s * 0.6f, 0, gx + s * 0.3f, s));
+						ig.setClip(null);
 					}
-					p.closePath();
-					g.fill(p);
+					ig.setComposite(AlphaComposite.DstOut);
+					ig.fill(star(new Path2D.Float(), s, 0.55));
+					ig.dispose();
+					g.drawImage(img, 0, 0, null);
 					break;
 				case UP:
 				case DOWN:
@@ -118,6 +144,32 @@ final class GlyphIcon implements Icon {
 		} finally {
 			g.dispose();
 		}
+	}
+
+	/** A pointy-top hexagon filling the icon. */
+	static Path2D hex(float s) {
+		var h = new Path2D.Float();
+		for (int i = 0; i < 6; i++) {
+			var a = -Math.PI / 2 + Math.PI / 3 * i;
+			if (i == 0) h.moveTo(s / 2.0 + Math.cos(a) * s * 0.49, s / 2.0 + Math.sin(a) * s * 0.49);
+			else h.lineTo(s / 2.0 + Math.cos(a) * s * 0.49, s / 2.0 + Math.sin(a) * s * 0.49);
+		}
+		h.closePath();
+		return h;
+	}
+
+	/** A five-point star {@code k} of the icon's size, centred. */
+	static Path2D star(Path2D p, float s, double k) {
+		for (int i = 0; i < 10; i++) {
+			var ang = -Math.PI / 2 + Math.PI / 5 * i;
+			var rad = s * k * (i % 2 == 0 ? 0.5 : 0.21);
+			var px = s / 2.0 + Math.cos(ang) * rad;
+			var py = s * (0.5 + 0.03 * k) + Math.sin(ang) * rad;
+			if (i == 0) p.moveTo(px, py);
+			else p.lineTo(px, py);
+		}
+		p.closePath();
+		return p;
 	}
 
 	/** Adds one polyline to {@code p}: x,y pairs as fractions of the icon's size {@code s}. */

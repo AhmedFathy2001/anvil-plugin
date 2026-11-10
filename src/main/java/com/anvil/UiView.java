@@ -678,7 +678,7 @@ final class UiView extends JPanel {
 			if (!draw(l, spec) && !str(spec, "alt").isEmpty()) {
 				// No picture for it: the name has to carry it, or it's an unlabelled number.
 				s = str(spec, "alt") + " " + s;
-			} else if (l instanceof GradientLabel && "star".equals(str(spec, "glyph"))) {
+			} else if (l instanceof GradientLabel && str(spec, "glyph").matches("star.*|hex")) {
 				// A supporter's star is part of their name: the gradient runs through it.
 				((GradientLabel) l).setTintIcon(true);
 			}
@@ -1556,6 +1556,12 @@ final class UiView extends JPanel {
 				return GlyphIcon.Shape.CLOSE;
 			case "star":
 				return GlyphIcon.Shape.STAR;
+			case "star-ring":
+				return GlyphIcon.Shape.STAR_RING;
+			case "star-hex":
+				return GlyphIcon.Shape.STAR_HEX;
+			case "hex":
+				return GlyphIcon.Shape.HEX;
 			case "up":
 				return GlyphIcon.Shape.UP;
 			case "down":

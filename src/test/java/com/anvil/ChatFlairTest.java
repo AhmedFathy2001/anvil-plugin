@@ -55,6 +55,26 @@ public class ChatFlairTest
 	}
 
 	@Test
+	public void tenureIconReplacesThePatronStarForEveryTier()
+	{
+		ChatFlair.Entry sup = entry("ab", "#ffd35c", null);
+		sup.t = 3;
+		ChatFlair.Entry pat = entry("cd", "#ff7ab8", true, "#ff0000", "#0000ff");
+		pat.t = 4;
+		ChatFlair f = with(sup, pat, entry("ef", "#ffd35c", true));
+		f.tenureIcon = (e, opaque) -> "<img=" + (opaque ? 50 : 40) + e.t + ">";
+		assertEquals("<img=403><col=ffd35c>Ab</col>", f.decorate("Ab", "<img=99>"));
+		assertTrue(f.decorate("Cd", "<img=99>").startsWith("<img=404><col=ff0000>"));
+		assertTrue(f.decorateReadable("Cd", "<img=99>", 0, true).startsWith("<img=504>"));
+		// No t: today's Patron star; no icon asked for: none.
+		assertTrue(f.decorate("Ef", "<img=99>").startsWith("<img=99>"));
+		assertEquals("<col=ffd35c>Ab</col>", f.decorate("Ab", null));
+		// A Legend repaints like a moving name (its hex glints); a plain Supporter doesn't.
+		assertTrue(f.movingName("cd"));
+		assertFalse(f.movingName("ab"));
+	}
+
+	@Test
 	public void screenshotPrivacyMaskDefaultsToPrivateMessages()
 	{
 		assertEquals(ChatFlair.PM, ChatFlair.hideMask(null));
