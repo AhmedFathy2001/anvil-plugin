@@ -62,7 +62,7 @@ public class ChatFlairTest
 		ChatFlair.Entry pat = entry("cd", "#ff7ab8", true, "#ff0000", "#0000ff");
 		pat.t = 4;
 		ChatFlair f = with(sup, pat, entry("ef", "#ffd35c", true));
-		f.tenureIcon = (e, opaque) -> "<img=" + (opaque ? 50 : 40) + e.t + ">";
+		f.tenureIcon = (e, opaque, shift) -> "<img=" + (opaque ? 50 : 40) + e.t + ">";
 		assertEquals("<img=403><col=ffd35c>Ab</col>", f.decorate("Ab", "<img=99>"));
 		assertTrue(f.decorate("Cd", "<img=99>").startsWith("<img=404><col=ff0000>"));
 		assertTrue(f.decorateReadable("Cd", "<img=99>", 0, true).startsWith("<img=504>"));

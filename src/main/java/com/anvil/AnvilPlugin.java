@@ -1085,9 +1085,9 @@ public class AnvilPlugin extends Plugin {
 		// The Patron star's chat icon loads asynchronously; asked for now, it's ready by the first line
 		// that needs it instead of that line going out without it.
 		chatStar();
-		chatFlair.tenureIcon = (e, opaque) -> {
+		chatFlair.tenureIcon = (e, opaque, shift) -> {
 			long f = e.t == 4 ? currentChatNameFrame() : -1;
-			return tenureIcon(e, opaque, f < 0 || f / 3 % 30 > 3 ? -1 : (int) (f / 3 % 30));
+			return tenureIcon(e, opaque, f < 0 || f / 3 % 30 > 3 ? -1 : (int) (f / 3 % 30), shift);
 		};
 		// Built before the directory is known: without one they still work, in memory, for the session.
 		var outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
@@ -6065,10 +6065,12 @@ public class AnvilPlugin extends Plugin {
 			// first; painting the new style on top caused the transient double-star and bad widths.
 			unflairAll();
 			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
-			for (var e : chatFlair.held.styles) for (int k = -1; e.t != null && k < (e.t == 4 ? 4 : 0); k++) {
-				tenureIcon(e, false, k);
-				tenureIcon(e, true, k);
-			}
+			// A moving name's 8 gradient frames too, so the icon never blinks out while one loads.
+			for (var e : chatFlair.held.styles) for (int k = -1; e.t != null && k < (e.t == 4 ? 4 : 0); k++)
+				for (int fr = 0; fr < (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 && config.animatedNames() ? 8 : 1); fr++) {
+					tenureIcon(e, false, k, fr / 4.0);
+					tenureIcon(e, true, k, fr / 4.0);
+				}
 			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
 			// scripts have restored both the plain text and its original sender/message geometry.
 			clientThread.invokeLater(() -> {
@@ -9596,18 +9598,38 @@ public class AnvilPlugin extends Plugin {
 	static final GlyphIcon.Shape[] TENURE = {GlyphIcon.Shape.STAR, GlyphIcon.Shape.STAR_RING, GlyphIcon.Shape.STAR_HEX, GlyphIcon.Shape.HEX};
 
 	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
+		return tenureIcon(e, opaque, glint, 0);
+	}
+
+	/**
+	 * The tenure icon in the name's own look: its gradient, sampled where the name starts, and for a
+	 * moving name one of 8 frames along the same motion ({@code shift}, 0-2 per cycle).
+	 */
+	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint, double shift) {
 		var c = ChatPalette.nameColor(ChatFlair.readableColor(e, opaque));
 		if (c == null || e.t < 1 || e.t > 4) return "";
-		var key = e.t + c + glint;
+		var rgb = ChatPalette.rgbOf(ChatFlair.readableGradient(e, opaque));
+		int fr = rgb.size() < 2 ? -1 : (int) Math.round(shift * 4) % 8;
+		var key = e.t + c + glint + (fr < 0 ? "" : rgb.stream().map(java.util.Arrays::toString).reduce("", String::concat) + fr);
 		var id = tenureIcons.get(key);
 		if (id == null) {
-			if (tenureIcons.size() >= 128) return "";
+			if (tenureIcons.size() >= 128) return fr > 0 ? tenureIcon(e, opaque, glint, 0) : "";
 			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
 			var g = img.createGraphics();
 			try {
 				var icon = new GlyphIcon(TENURE[e.t - 1], 11, new Color(Integer.parseInt(c, 16)));
 				icon.glint = glint;
 				icon.paintIcon(null, g, 0, 0);
+				if (fr >= 0) {
+					// Recolour, keeping the shape's alpha (the hex hole, the faint fill): the name's first
+					// stretch of gradient, left to right, at this frame's point in the motion.
+					var s0 = fr / 4.0;
+					var cols = new Color[4];
+					for (int i = 0; i < 4; i++) cols[i] = new Color(ChatPalette.sample(rgb, s0 + i * 0.12));
+					g.setComposite(java.awt.AlphaComposite.SrcIn);
+					g.setPaint(new java.awt.LinearGradientPaint(0, 0, 11, 0, new float[]{0, 0.33f, 0.66f, 1}, cols));
+					g.fillRect(0, 0, 11, 11);
+				}
 			} finally {
 				g.dispose();
 			}

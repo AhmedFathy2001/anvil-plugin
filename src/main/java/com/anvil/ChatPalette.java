@@ -112,7 +112,7 @@ final class ChatPalette {
 	 * A gradient name sampled {@code shift} name-widths farther along a reflecting gradient. A shift
 	 * from 0 to 2 is one seamless there-and-back animation cycle; zero is the ordinary static look.
 	 */
-	static String gradientName(String safeName, List<String> stops, double shift) {
+	static List<int[]> rgbOf(List<String> stops) {
 		List<int[]> rgb = new ArrayList<>();
 		for (String s : stops == null ? new ArrayList<String>() : stops) {
 			var hex = nameColor(s);
@@ -121,6 +121,26 @@ final class ChatPalette {
 				rgb.add(new int[]{(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff});
 			}
 		}
+		return rgb;
+	}
+
+	/** The reflecting gradient's colour at {@code p} (0-1 across a name, +shift for the motion). */
+	static int sample(List<int[]> rgb, double p) {
+		p %= 2;
+		if (p < 0) p += 2;
+		p = p > 1 ? 2 - p : p;
+		var t = p * (rgb.size() - 1);
+		int seg = Math.min((int) t, rgb.size() - 2);
+		var f = t - seg;
+		int[] a = rgb.get(seg);
+		int[] b = rgb.get(seg + 1);
+		return (int) Math.round(a[0] + (b[0] - a[0]) * f) << 16
+			| (int) Math.round(a[1] + (b[1] - a[1]) * f) << 8
+			| (int) Math.round(a[2] + (b[2] - a[2]) * f);
+	}
+
+	static String gradientName(String safeName, List<String> stops, double shift) {
+		var rgb = rgbOf(stops);
 		if (rgb.size() < 2 || safeName == null || safeName.isEmpty()) return null;
 		int n = safeName.codePointCount(0, safeName.length());
 		var out = new StringBuilder(safeName.length() * 20);
@@ -130,18 +150,7 @@ final class ChatPalette {
 			int cp = safeName.codePointAt(off);
 			off += Character.charCount(cp);
 			if (!Character.isWhitespace(cp) && !Character.isSpaceChar(cp)) {
-				var p = n == 1 ? shift : (double) i / (n - 1) + shift;
-				p %= 2;
-				if (p < 0) p += 2;
-				p = p > 1 ? 2 - p : p;
-				var t = p * (rgb.size() - 1);
-				int seg = Math.min((int) t, rgb.size() - 2);
-				var f = t - seg;
-				int[] a = rgb.get(seg);
-				int[] b = rgb.get(seg + 1);
-				int c = (int) Math.round(a[0] + (b[0] - a[0]) * f) << 16
-					| (int) Math.round(a[1] + (b[1] - a[1]) * f) << 8
-					| (int) Math.round(a[2] + (b[2] - a[2]) * f);
+				int c = sample(rgb, n == 1 ? shift : (double) i / (n - 1) + shift);
 				if (c != last) {
 					if (last >= 0) out.append("</col>");
 					out.append("<col=");

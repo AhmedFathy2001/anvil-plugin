@@ -307,8 +307,12 @@ final class ChatFlair {
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
-	/** A tenure style's chat icon tag for a surface (set by the plugin); "" while it loads. */
-	java.util.function.BiFunction<Entry, Boolean, String> tenureIcon;
+	/** A tenure style's chat icon tag for a surface and motion shift (set by the plugin); "" while it loads. */
+	interface TenureIcon {
+		String get(Entry e, boolean opaque, double shift);
+	}
+
+	TenureIcon tenureIcon;
 
 	String decorate(String sender, String star, double shift, Boolean opaque) {
 		if (sender == null || isEmpty()) return null;
@@ -319,9 +323,11 @@ final class ChatFlair {
 		if (e == null) return null;
 		var stops = opaque == null ? e.g : readableGradient(e, opaque);
 		var color = opaque == null ? ChatPalette.nameColor(e.c) : readableColor(e, opaque);
-		var painted = ChatPalette.paintName(name, color, stops, Boolean.TRUE.equals(e.s) ? shift : 0);
+		var moved = Boolean.TRUE.equals(e.s) ? shift : 0;
+		var painted = ChatPalette.paintName(name, color, stops, moved);
 		if (painted == null) return null;
-		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.apply(e, Boolean.TRUE.equals(opaque)) : Boolean.TRUE.equals(e.s) ? star : "";
+		// The tenure icon wears the name's gradient and moves with it (a Patron's moving name).
+		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), moved) : Boolean.TRUE.equals(e.s) ? star : "";
 		return m.group(1) + mark + painted;
 	}
 
