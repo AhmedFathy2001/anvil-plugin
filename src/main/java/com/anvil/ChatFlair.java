@@ -40,7 +40,7 @@ final class ChatFlair {
 		String c;
 		List<String> g;
 		Boolean s;
-		/** Tenure chat shape, 1 star · 2 ringed · 3 hex · 4 solid hex (Legend); drawn instead of {@code s}, any tier. */
+		/** Tenure chat shape, 1-6 (Apprentice … Legend, AnvilPlugin.TENURE_PX); drawn instead of {@code s}, any tier. */
 		Integer t;
 		/** The owner's own look for dark surfaces / light (parchment) ones: drawn as-is, never adapted. */
 		Surface d;
@@ -491,7 +491,7 @@ final class ChatFlair {
 	boolean movingName(String name) {
 		var e = entry(name);
 		// A Legend's hex glints, so its lines repaint with the moving names.
-		return e != null && (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 || Integer.valueOf(4).equals(e.t));
+		return e != null && (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 || Integer.valueOf(AnvilPlugin.TENURE_PX.length).equals(e.t));
 	}
 
 	/** Whether an icon-prefixed plain sender/name belongs to a Patron with a movable gradient. */

@@ -55,7 +55,7 @@ public class TenureGlyphTest
 	public void chatSpritesAreSolidPixelArtWithAGapAndAGlint()
 	{
 		java.util.Set<String> seen = new java.util.HashSet<>();
-		for (int t = 1; t <= 4; t++)
+		for (int t = 1; t <= AnvilPlugin.TENURE_PX.length; t++)
 		{
 			BufferedImage img = AnvilPlugin.tenureSprite(t, 0x4da3ff, -1);
 			assertEquals(13, img.getWidth());
@@ -70,6 +70,6 @@ public class TenureGlyphTest
 			}
 			assertTrue(seen.add(px.toString()));
 		}
-		assertNotEquals(AnvilPlugin.tenureSprite(4, 0x4da3ff, 1).getRGB(5, 3), AnvilPlugin.tenureSprite(4, 0x4da3ff, -1).getRGB(5, 3));
+		assertNotEquals(AnvilPlugin.tenureSprite(6, 0x4da3ff, 1).getRGB(5, 3), AnvilPlugin.tenureSprite(6, 0x4da3ff, -1).getRGB(5, 3));
 	}
 }
