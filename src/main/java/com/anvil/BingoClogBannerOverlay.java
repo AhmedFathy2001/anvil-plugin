@@ -196,7 +196,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** The game's collection log popup (restyled or not) sits top centre too: when it would cover the
-	 *  banner, the banner goes beside it if the viewport has room on a side, else under it. */
+	 *  banner, the banner goes left of it (the right is minimap and orbs), else right, else under it. */
 	Point dodge() {
 		var w = client.getWidget(InterfaceID.NotificationDisplay.CONTENT);
 		var me = getBounds();
@@ -204,8 +204,8 @@ public class BingoClogBannerOverlay extends Overlay {
 		var p = w.getBounds();
 		if (!p.intersects(me.x, me.y, BASE_W, BASE_H)) return null;
 		int gap = 4, vx = client.getViewportXOffset(), right = p.x + p.width + gap;
-		if (vx + client.getViewportWidth() - right >= BASE_W) return new Point(right - me.x, p.y - me.y);
 		if (p.x - gap - vx >= BASE_W) return new Point(p.x - gap - BASE_W - me.x, p.y - me.y);
+		if (vx + client.getViewportWidth() - right >= BASE_W) return new Point(right - me.x, p.y - me.y);
 		return new Point(0, p.y + p.height + gap - me.y);
 	}
 
