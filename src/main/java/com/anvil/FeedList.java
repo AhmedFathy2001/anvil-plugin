@@ -1158,6 +1158,12 @@ final class FeedList extends JPanel {
 				} else g.setColor(supporter || !team ? color(whoColor, Color.WHITE) : color(str(r, "tagColor"), Color.WHITE));
 				g.drawString(who, x, y + fm.getAscent());
 				x += nameW + 6;
+				// A Supporter's star after the name, in their tenure shape and their colour.
+				var shape = UiView.glyph(str(r, "whoGlyph"));
+				if (shape != null && supporter) {
+					new GlyphIcon(shape, 11, grad != null ? grad[0] : color(whoColor, Color.WHITE)).paintIcon(this, g, x - 3, y + fm.getAscent() - 10);
+					x += 12;
+				}
 				g.setFont(SMALL);
 				if (role) {
 					g.setColor(color(str(r, "tagColor"), MUTED));
