@@ -9637,14 +9637,14 @@ public class AnvilPlugin extends Plugin {
 		{".....#.....", "...#####...", ".#########.", "#####.#####", "####...####", "##.......##", "###.....###", "####...####", ".##.###.##.", "...#####...", ".....#....."},
 	};
 
-	/** 13x11: the art, then a 2px gap before the name. A Legend's glint brightens a sweeping band. */
+	/** 13x12: an empty top row (level with the text), the art, then a 2px gap before the name. A Legend's glint brightens a sweeping band. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
-		var img = new BufferedImage(13, 11, BufferedImage.TYPE_INT_ARGB);
+		var img = new BufferedImage(13, 12, BufferedImage.TYPE_INT_ARGB);
 		var rows = TENURE_PX[t - 1];
 		var lit = new Color(ink).brighter().brighter().getRGB();
 		for (int y = 0; y < 11; y++)
 			for (int x = 0; x < 11; x++)
-				if (rows[y].charAt(x) == '#') img.setRGB(x, y, glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1 ? lit : 0xff000000 | ink);
+				if (rows[y].charAt(x) == '#') img.setRGB(x, y + 1, glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1 ? lit : 0xff000000 | ink);
 		return img;
 	}
 

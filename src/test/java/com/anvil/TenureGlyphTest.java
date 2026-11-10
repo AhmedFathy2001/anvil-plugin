@@ -60,16 +60,16 @@ public class TenureGlyphTest
 			BufferedImage img = AnvilPlugin.tenureSprite(t, 0x4da3ff, -1);
 			assertEquals(13, img.getWidth());
 			StringBuilder px = new StringBuilder();
-			for (int y = 0; y < 11; y++) for (int x = 0; x < 13; x++)
+			for (int y = 0; y < 12; y++) for (int x = 0; x < 13; x++)
 			{
 				int a = img.getRGB(x, y) >>> 24;
 				// The game keeps solid pixels only: every pixel is all or nothing.
 				assertTrue(a == 0 || a == 255);
-				if (x >= 11) assertEquals("the gap before the name", 0, a);
+				if (x >= 11 || y == 0) assertEquals("the gap before the name, the row above", 0, a);
 				px.append(a == 0 ? '.' : '#');
 			}
 			assertTrue(seen.add(px.toString()));
 		}
-		assertNotEquals(AnvilPlugin.tenureSprite(4, 0x4da3ff, 1).getRGB(5, 2), AnvilPlugin.tenureSprite(4, 0x4da3ff, -1).getRGB(5, 2));
+		assertNotEquals(AnvilPlugin.tenureSprite(4, 0x4da3ff, 1).getRGB(5, 3), AnvilPlugin.tenureSprite(4, 0x4da3ff, -1).getRGB(5, 3));
 	}
 }
