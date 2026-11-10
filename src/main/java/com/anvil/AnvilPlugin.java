@@ -1086,7 +1086,7 @@ public class AnvilPlugin extends Plugin {
 		// that needs it instead of that line going out without it.
 		chatStar();
 		chatFlair.tenureIcon = (e, opaque, shift) -> {
-			long f = e.t == TENURE_PX.length ? currentChatNameFrame() : -1;
+			long f = e.t == TENURE_STEPS ? currentChatNameFrame() : -1;
 			return tenureIcon(e, opaque, f < 0 || f / 3 % 30 > 3 ? -1 : (int) (f / 3 % 30), shift);
 		};
 		// Built before the directory is known: without one they still work, in memory, for the session.
@@ -9615,7 +9615,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint, double p) {
 		var c = ChatPalette.nameColor(ChatFlair.readableColor(e, opaque));
-		if (c == null || e.t < 1 || e.t > TENURE_PX.length) return "";
+		if (c == null || e.t < 1 || e.t > TENURE_STEPS) return "";
 		var rgb = ChatPalette.rgbOf(ChatFlair.readableGradient(e, opaque));
 		int ink = rgb.size() < 2 ? Integer.parseInt(c, 16) : ChatPalette.sample(rgb, p) & 0xf8f8f8;
 		var key = e.t + ":" + ink + ":" + glint;
@@ -9633,30 +9633,22 @@ public class AnvilPlugin extends Plugin {
 		return tenureReady.getOrDefault(shape, "");
 	}
 
-	/**
-	 * The chat tenure icons as pixel art: chat icons become the game's palette sprites, which keep only
-	 * solid pixels, so a drawn (antialiased) shape loses most of itself. Star, ringed, hex, solid hex.
-	 */
-	static final String[][] TENURE_PX = {
-		{".....#.....", ".....#.....", "....###....", "###########", ".#########.", "..#######..", "..#######..", ".####.####.", ".###...###.", ".##.....##.", "..........."},
-		{"...#####...", "..#.....#..", ".#...#...#.", "#...###...#", "#.#######.#", "#..#####..#", "#...###...#", "#..##.##..#", ".#.#...#.#.", "..#.....#..", "...#####..."},
-		{"...#####...", "..#ooooo#..", ".#ooo#ooo#.", "#ooo###ooo#", "#o#######o#", "#oo#####oo#", "#ooo###ooo#", "#oo##o##oo#", ".#o#ooo#o#.", "..#ooooo#..", "...#####..."},
-		{".....#.....", "...##.##...", ".##.....##.", "#....#....#", "#...###...#", "#.#######.#", "#..#####..#", "#...###...#", "#..#...#..#", ".##.....##.", "...##.##..."},
-		{".....#.....", "...##o##...", ".##ooooo##.", "#oooo#oooo#", "#ooo###ooo#", "#o#######o#", "#oo#####oo#", "#ooo###ooo#", "#oo#ooo#oo#", ".##ooooo##.", "...##.##..."},
-		{".....#.....", "...#####...", ".#########.", "#####.#####", "####...####", "##.......##", "###.....###", "####...####", ".##.###.##.", "...#####...", ".....#....."},
-	};
+	/** Tenure steps (Apprentice … Legend); their chat sprites sit side by side in tenure.png, 11px each. */
+	static final int TENURE_STEPS = 6;
+	/** Pixel art, because chat icons keep only solid pixels: white is the shape, grey the dim fill. */
+	static final BufferedImage TENURE_SHEET = ImageUtil.loadImageResource(AnvilPlugin.class, "/com/anvil/tenure.png");
 
 	/** 13x12: an empty top row (level with the text), the art, then a 2px gap before the name. A Legend's glint brightens a sweeping band. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
 		var img = new BufferedImage(13, 12, BufferedImage.TYPE_INT_ARGB);
-		var rows = TENURE_PX[t - 1];
 		var lit = new Color(ink).brighter().brighter().getRGB();
-		// 'o': the dim fill inside a frame (Artisan, Grandmaster), the ink at 40%.
 		int dim = 0xff000000 | ((ink >> 16 & 0xff) * 2 / 5) << 16 | ((ink >> 8 & 0xff) * 2 / 5) << 8 | (ink & 0xff) * 2 / 5;
 		for (int y = 0; y < 11; y++)
-			for (int x = 0; x < 11; x++)
-				if (rows[y].charAt(x) == 'o') img.setRGB(x, y + 1, dim);
-				else if (rows[y].charAt(x) == '#') img.setRGB(x, y + 1, glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1 ? lit : 0xff000000 | ink);
+			for (int x = 0; x < 11; x++) {
+				int p = TENURE_SHEET.getRGB((t - 1) * 11 + x, y);
+				if (p >>> 24 == 0) continue;
+				img.setRGB(x, y + 1, (p & 0xff) < 200 ? dim : glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1 ? lit : 0xff000000 | ink);
+			}
 		return img;
 	}
 

@@ -55,7 +55,7 @@ public class TenureGlyphTest
 	public void chatSpritesAreSolidPixelArtWithAGapAndAGlint()
 	{
 		java.util.Set<String> seen = new java.util.HashSet<>();
-		for (int t = 1; t <= AnvilPlugin.TENURE_PX.length; t++)
+		for (int t = 1; t <= AnvilPlugin.TENURE_STEPS; t++)
 		{
 			BufferedImage img = AnvilPlugin.tenureSprite(t, 0x4da3ff, -1);
 			assertEquals(13, img.getWidth());
