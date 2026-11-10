@@ -6972,6 +6972,10 @@ public class AnvilPlugin extends Plugin {
 				Map<Integer, Long> have = new HashMap<>();
 				if (fresh.tiles != null) fresh.tiles.forEach(r -> have.put(r.t, r.have));
 				rules.raise(have);
+				// A count went down (a proof deleted): the rule table can only rise, and a finished tile
+				// left it, so fetch it again or the next drop for that tile is never seen.
+				if (held.tiles != null && held.tiles.stream().anyMatch(r -> have.getOrDefault(r.t, r.have) < r.have))
+					submit(() -> safely("refreshConfig", this::refreshConfig));
 				if (apiClient.getCurrentRsn() != null) {
 					checkTileCompletions(fresh);
 					checkMissionAlerts(fresh);

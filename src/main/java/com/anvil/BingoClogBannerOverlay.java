@@ -64,7 +64,8 @@ public class BingoClogBannerOverlay extends Overlay {
 	String[] active; // {top, middle, bottom}
 	/** {@link #active} wrapped to the panel, once per banner rather than every frame; null until first drawn. */
 	List<List<String>> wrapped;
-	long startedAt;
+	long startedAt, lastFrame;
+	float ox, oy;
 
 	@Inject
 	Client client;
@@ -159,8 +160,18 @@ public class BingoClogBannerOverlay extends Overlay {
 		int y = (BASE_H - ih) / 2;
 
 		var g2 = (Graphics2D) g.create();
+		// Glide to the dodge spot (and back) instead of jumping when the popup comes or goes; a banner
+		// that starts with the popup already up starts there.
 		var off = dodge();
-		if (off != null) g2.translate(off.x, off.y);
+		float tx = off == null ? 0 : off.x, ty = off == null ? 0 : off.y;
+		if (e < 50 || lastFrame == 0) { ox = tx; oy = ty; }
+		else {
+			float k = 1f - (float) Math.exp(-(now - lastFrame) / 70.0);
+			ox += (tx - ox) * k;
+			oy += (ty - oy) * k;
+		}
+		lastFrame = now;
+		g2.translate(Math.round(ox), Math.round(oy));
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
