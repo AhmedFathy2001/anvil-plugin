@@ -1,5 +1,7 @@
 package com.anvil;
 
+import net.runelite.api.Client;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.*;
 
@@ -63,6 +65,9 @@ public class BingoClogBannerOverlay extends Overlay {
 	/** {@link #active} wrapped to the panel, once per banner rather than every frame; null until first drawn. */
 	List<List<String>> wrapped;
 	long startedAt;
+
+	@Inject
+	Client client;
 
 	@Inject
 	public BingoClogBannerOverlay(AnvilPlugin plugin) {
@@ -153,6 +158,8 @@ public class BingoClogBannerOverlay extends Overlay {
 		int y = (BASE_H - ih) / 2;
 
 		var g2 = (Graphics2D) g.create();
+		var off = dodge();
+		if (off != null) g2.translate(off.x, off.y);
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
@@ -186,6 +193,20 @@ public class BingoClogBannerOverlay extends Overlay {
 		g2.dispose();
 
 		return new Dimension(BASE_W, BASE_H);
+	}
+
+	/** The game's collection log popup (restyled or not) sits top centre too: when it would cover the
+	 *  banner, the banner goes beside it if the viewport has room on a side, else under it. */
+	Point dodge() {
+		var w = client.getWidget(InterfaceID.NotificationDisplay.CONTENT);
+		var me = getBounds();
+		if (w == null || w.isHidden() || me == null) return null;
+		var p = w.getBounds();
+		if (!p.intersects(me.x, me.y, BASE_W, BASE_H)) return null;
+		int gap = 4, vx = client.getViewportXOffset(), right = p.x + p.width + gap;
+		if (vx + client.getViewportWidth() - right >= BASE_W) return new Point(right - me.x, p.y - me.y);
+		if (p.x - gap - vx >= BASE_W) return new Point(p.x - gap - BASE_W - me.x, p.y - me.y);
+		return new Point(0, p.y + p.height + gap - me.y);
 	}
 
 	/** Draws {@link #wrap wrapped} lines centred horizontally, {@code topY} being the CSS-style top of the
