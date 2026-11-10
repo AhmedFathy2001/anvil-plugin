@@ -74,6 +74,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
+		setLayer(OverlayLayer.ABOVE_WIDGETS);
 		background = loadBackground();
 		headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
