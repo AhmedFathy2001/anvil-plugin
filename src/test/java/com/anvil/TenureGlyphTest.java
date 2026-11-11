@@ -27,15 +27,15 @@ public class TenureGlyphTest
 		{
 			BufferedImage img = AnvilPlugin.tenureSprite(t, 0x4da3ff, -1);
 			assertEquals(15, img.getWidth());
-			assertEquals(13, img.getHeight());
+			assertEquals("two clear rows on top, so it sits level with the text", 15, img.getHeight());
 			java.util.Set<Integer> tones = new java.util.HashSet<>();
 			StringBuilder px = new StringBuilder();
-			for (int y = 0; y < 13; y++) for (int x = 0; x < 15; x++)
+			for (int y = 0; y < 15; y++) for (int x = 0; x < 15; x++)
 			{
 				int p = img.getRGB(x, y), a = p >>> 24;
 				// The game keeps solid pixels only: every pixel is all or nothing.
 				assertTrue(a == 0 || a == 255);
-				if (x >= 13) assertEquals("the gap before the name", 0, a);
+				if (x >= 13 || y < 2) assertEquals("the gap before the name, the rows above", 0, a);
 				if (a > 0) tones.add(p);
 				px.append(Integer.toHexString(p)).append(',');
 			}
@@ -44,10 +44,10 @@ public class TenureGlyphTest
 		}
 		// The Legend's glint moves a highlight across it.
 		boolean differs = false;
-		for (int y = 0; y < 13; y++) for (int x = 0; x < 15; x++)
+		for (int y = 0; y < 15; y++) for (int x = 0; x < 15; x++)
 			differs |= AnvilPlugin.tenureSprite(6, 0x4da3ff, 1).getRGB(x, y) != AnvilPlugin.tenureSprite(6, 0x4da3ff, -1).getRGB(x, y);
 		assertTrue(differs);
-		assertNotEquals(AnvilPlugin.tenureSprite(6, 0x4da3ff, -1).getRGB(6, 4), AnvilPlugin.tenureSprite(6, 0xe05ad0, -1).getRGB(6, 4));
+		assertNotEquals(AnvilPlugin.tenureSprite(6, 0x4da3ff, -1).getRGB(6, 6), AnvilPlugin.tenureSprite(6, 0xe05ad0, -1).getRGB(6, 6));
 	}
 
 	@Test

@@ -9640,17 +9640,22 @@ public class AnvilPlugin extends Plugin {
 	/** Per tone key 1..13: mix the name's colour towards white (> 0) or black (< 0) by this much. */
 	static final double[] TENURE_TONE = {-0.72, 0, 0.5, -0.2, -0.45, -0.28, -0.58, -0.25, 0.15, -0.42, 0.6, 0.8, 0.4};
 
-	/** 15x13: the art in tones of the name's colour, a 2px gap. A Legend's glint brightens a sweeping band. */
+	/** The chat icon: 15x15, two clear rows on top (so it sits level with the text), then the art. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
+		return tenureArt(t, ink, glint, 2);
+	}
+
+	/** The art in tones of the name's colour, {@code top} clear rows above, a 2px gap after. A Legend's glint brightens a sweeping band. */
+	static BufferedImage tenureArt(int t, int ink, int glint, int top) {
 		ink = tenureInk(ink);
-		var img = new BufferedImage(TENURE_PX + 2, TENURE_PX, BufferedImage.TYPE_INT_ARGB);
+		var img = new BufferedImage(TENURE_PX + 2, TENURE_PX + top, BufferedImage.TYPE_INT_ARGB);
 		for (int y = 0; y < TENURE_PX; y++)
 			for (int x = 0; x < TENURE_PX; x++) {
 				int p = TENURE_SHEET.getRGB((t - 1) * TENURE_PX + x, y), key = (p >> 16 & 255) / 16;
 				if (p >>> 24 == 0 || key < 1 || key > TENURE_TONE.length) continue;
 				double f = TENURE_TONE[key - 1];
 				if (glint >= 0 && key > 1 && Math.abs(x + y - glint * 7 - 3) <= 1) f = Math.min(0.85, Math.max(f, 0) + 0.5);
-				img.setRGB(x, y, 0xff000000 | (f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f)));
+				img.setRGB(x, y + top, 0xff000000 | (f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f)));
 			}
 		return img;
 	}
@@ -9665,7 +9670,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** The sprite at a whole-number scale (crisp pixels) for the panel, where we choose the size. */
 	static BufferedImage tenureSprite(int t, int ink, int glint, int scale) {
-		var one = tenureSprite(t, ink, glint);
+		var one = tenureArt(t, ink, glint, 0);
 		if (scale <= 1) return one;
 		var img = new BufferedImage(one.getWidth() * scale, one.getHeight() * scale, BufferedImage.TYPE_INT_ARGB);
 		var g = img.createGraphics();
