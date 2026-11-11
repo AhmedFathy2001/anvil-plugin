@@ -9653,6 +9653,18 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
+	/** The sprite at a whole-number scale (crisp pixels) for the panel, where we choose the size. */
+	static BufferedImage tenureSprite(int t, int ink, int glint, int scale) {
+		var one = tenureSprite(t, ink, glint);
+		if (scale <= 1) return one;
+		var img = new BufferedImage(one.getWidth() * scale, one.getHeight() * scale, BufferedImage.TYPE_INT_ARGB);
+		var g = img.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+		g.drawImage(one, 0, 0, img.getWidth(), img.getHeight(), null);
+		g.dispose();
+		return img;
+	}
+
 	/** Per shape, glint and surface: the last tenure icon tag that had finished loading. */
 	final Map<String, String> tenureReady = new HashMap<>();
 
