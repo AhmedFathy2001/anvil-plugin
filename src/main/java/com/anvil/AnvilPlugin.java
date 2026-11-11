@@ -9626,6 +9626,9 @@ public class AnvilPlugin extends Plugin {
 			tenureIcons.put(key, id = chatIconManager.registerChatIcon(img));
 		}
 		int index = chatIconManager.chatIconIndex(id);
+		// The game sits an icon's bottom on the text line; drawn 2px lower, the badge is level with the name.
+		var icons = index >= 0 ? client.getModIcons() : null;
+		if (icons != null && index < icons.length && icons[index] != null && icons[index].getOffsetY() != TENURE_DROP) icons[index].setOffsetY(TENURE_DROP);
 		// A colour still loading shows the last one this shape had ready, never a blank: a gap made the
 		// moving star blink while its frames loaded.
 		var shape = e.t + ":" + glint + ":" + opaque;
@@ -9640,17 +9643,12 @@ public class AnvilPlugin extends Plugin {
 	/** Per tone key 1..13: mix the name's colour towards white (> 0) or black (< 0) by this much. */
 	static final double[] TENURE_TONE = {-0.72, 0, 0.5, -0.2, -0.45, -0.28, -0.58, -0.25, 0.15, -0.42, 0.6, 0.8, 0.4};
 
-	/**
-	 * The chat icon, 2px lower than the art's box: two clear rows on top, and up to two empty rows cut
-	 * from the bottom (the game sits an icon's bottom on the text line, so empty rows there lift it).
-	 */
+	/** How far below its usual place the chat icon is drawn (the sprite's own offset, so every step moves alike). */
+	static final int TENURE_DROP = 2;
+
+	/** The chat icon: the 13px art and a 2px gap before the name. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
-		var art = tenureArt(t, ink, glint, 2);
-		int h = art.getHeight();
-		for (int cut = 0; cut < 2; cut++, h--)
-			for (int x = 0; x < art.getWidth(); x++)
-				if (art.getRGB(x, h - 1) >>> 24 != 0) return art.getSubimage(0, 0, art.getWidth(), h);
-		return art.getSubimage(0, 0, art.getWidth(), h);
+		return tenureArt(t, ink, glint, 0);
 	}
 
 	/** The art in tones of the name's colour, {@code top} clear rows above, a 2px gap after. A Legend's glint brightens a sweeping band. */
