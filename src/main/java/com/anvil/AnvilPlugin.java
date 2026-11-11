@@ -9635,22 +9635,23 @@ public class AnvilPlugin extends Plugin {
 
 	/** Tenure steps (Apprentice … Legend); their chat sprites sit side by side in tenure.png, 11px each. */
 	static final int TENURE_STEPS = 6;
-	/** Pixel art, because chat icons keep only solid pixels: white is the shape, grey the dim fill. */
+	/** Pixel art (chat icons keep only solid pixels), three greys: dark the outline, mid the body, white the highlight. */
 	static final BufferedImage TENURE_SHEET = ImageUtil.loadImageResource(AnvilPlugin.class, "/com/anvil/tenure.png");
 
-	/** 13x12: an empty top row (level with the text), the art, then a 2px gap before the name. A Legend's glint brightens a sweeping band. */
+	/** 13x12: an empty top row (level with the text), the art in the name's colour, a 2px gap. A Legend's glint brightens a sweeping band. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
 		var img = new BufferedImage(13, 12, BufferedImage.TYPE_INT_ARGB);
-		var lit = new Color(ink).brighter().brighter().getRGB();
-		int dim = 0xff000000 | ((ink >> 16 & 0xff) * 2 / 5) << 16 | ((ink >> 8 & 0xff) * 2 / 5) << 8 | (ink & 0xff) * 2 / 5;
+		int dark = 0xff000000 | ChatPalette.mix(ink, 0, 0.65), lite = 0xff000000 | ChatPalette.mix(ink, 0xffffff, 0.55);
 		for (int y = 0; y < 11; y++)
 			for (int x = 0; x < 11; x++) {
-				int p = TENURE_SHEET.getRGB((t - 1) * 11 + x, y);
+				int p = TENURE_SHEET.getRGB((t - 1) * 11 + x, y), g = p & 0xff;
 				if (p >>> 24 == 0) continue;
-				img.setRGB(x, y + 1, (p & 0xff) < 200 ? dim : glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1 ? lit : 0xff000000 | ink);
+				boolean lit = glint >= 0 && g >= 100 && Math.abs(x + y - glint * 5 - 3) <= 1;
+				img.setRGB(x, y + 1, g < 100 ? dark : g > 220 || lit ? lite : 0xff000000 | ink);
 			}
 		return img;
 	}
+
 
 	/** Per shape, glint and surface: the last tenure icon tag that had finished loading. */
 	final Map<String, String> tenureReady = new HashMap<>();

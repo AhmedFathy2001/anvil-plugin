@@ -678,7 +678,7 @@ final class UiView extends JPanel {
 			if (!draw(l, spec) && !str(spec, "alt").isEmpty()) {
 				// No picture for it: the name has to carry it, or it's an unlabelled number.
 				s = str(spec, "alt") + " " + s;
-			} else if (l instanceof GradientLabel && str(spec, "glyph").matches("star.*|hex")) {
+			} else if (l instanceof GradientLabel && "star".equals(str(spec, "glyph"))) {
 				// A supporter's star is part of their name: the gradient runs through it.
 				((GradientLabel) l).setTintIcon(true);
 			}
@@ -918,6 +918,12 @@ final class UiView extends JPanel {
 		int size = num(spec, "w", 12);
 		if ("swatch".equals(str(spec, "glyph"))) {
 			l.setIcon(swatch(color(str(spec, "color"), MUTED), size));
+			return true;
+		}
+		var tenure = tenureStep(str(spec, "glyph"));
+		if (tenure > 0) {
+			// The Supporter tenure badge: the chat's pixel sprite, shaded in the name's colour.
+			l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, color(str(spec, "color"), Color.WHITE).getRGB() & 0xffffff, -1)));
 			return true;
 		}
 		if (spec.has("glyph")) {
@@ -1542,6 +1548,11 @@ final class UiView extends JPanel {
 		};
 	}
 
+	/** "tenure-1".."tenure-6" (a Supporter's tenure badge), else 0. */
+	static int tenureStep(String g) {
+		return g != null && g.length() == 8 && g.startsWith("tenure-") && g.charAt(7) >= '1' && g.charAt(7) <= '6' ? g.charAt(7) - '0' : 0;
+	}
+
 	static GlyphIcon.Shape glyph(String g) {
 		switch (g) {
 			case "check":
@@ -1556,12 +1567,6 @@ final class UiView extends JPanel {
 				return GlyphIcon.Shape.CLOSE;
 			case "star":
 				return GlyphIcon.Shape.STAR;
-			case "star-ring":
-				return GlyphIcon.Shape.STAR_RING;
-			case "star-hex":
-				return GlyphIcon.Shape.STAR_HEX;
-			case "hex":
-				return GlyphIcon.Shape.HEX;
 			case "up":
 				return GlyphIcon.Shape.UP;
 			case "down":
