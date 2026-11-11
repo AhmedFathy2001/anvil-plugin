@@ -8303,19 +8303,15 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * True when the item is on the always-notify allowlist (baked-in defaults +
-	 * server list).
+	 * True when the item is on the clan's always-notify list. The site sends the whole list (its
+	 * defaults included, so a clan can remove one); the baked-in copy is only for no config yet.
 	 */
 	boolean isAlwaysNotifyItem(String name) {
 		if (name == null || name.isEmpty()) return false;
 		var n = name.toLowerCase();
-		for (String pattern : text.alwaysNotify) {
+		var cfg = pluginConfig;
+		for (String pattern : cfg == null || cfg.alwaysNotifyItems == null ? text.alwaysNotify : alwaysNotifyLower) {
 			if (n.contains(pattern)) return true;
-		}
-		if (pluginConfig != null) {
-			for (String pattern : alwaysNotifyLower) {
-				if (n.contains(pattern)) return true;
-			}
 		}
 		return false;
 	}
