@@ -9633,25 +9633,35 @@ public class AnvilPlugin extends Plugin {
 		return tenureReady.getOrDefault(shape, "");
 	}
 
-	/** Tenure steps (Apprentice … Legend); their chat sprites sit side by side in tenure.png, 11px each. */
-	static final int TENURE_STEPS = 6;
-	/** Pixel art (chat icons keep only solid pixels), three greys: dark the outline, mid the body, white the highlight. */
+	/** Tenure steps (Apprentice … Legend); their chat sprites sit side by side in tenure.png, 13px each. */
+	static final int TENURE_STEPS = 6, TENURE_PX = 13;
+	/** Pixel art as tone keys (red / 16, made by Anvil/tenure-sheet.py); chat icons keep only solid pixels. */
 	static final BufferedImage TENURE_SHEET = ImageUtil.loadImageResource(AnvilPlugin.class, "/com/anvil/tenure.png");
+	/** Per tone key 1..13: mix the name's colour towards white (> 0) or black (< 0) by this much. */
+	static final double[] TENURE_TONE = {-0.72, 0, 0.5, -0.2, -0.45, -0.28, -0.58, -0.25, 0.15, -0.42, 0.6, 0.8, 0.4};
 
-	/** 13x12: an empty top row (level with the text), the art in the name's colour, a 2px gap. A Legend's glint brightens a sweeping band. */
+	/** 15x13: the art in tones of the name's colour, a 2px gap. A Legend's glint brightens a sweeping band. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
-		var img = new BufferedImage(13, 12, BufferedImage.TYPE_INT_ARGB);
-		int dark = 0xff000000 | ChatPalette.mix(ink, 0, 0.65), lite = 0xff000000 | ChatPalette.mix(ink, 0xffffff, 0.55);
-		for (int y = 0; y < 11; y++)
-			for (int x = 0; x < 11; x++) {
-				int p = TENURE_SHEET.getRGB((t - 1) * 11 + x, y), g = p & 0xff;
-				if (p >>> 24 == 0) continue;
-				boolean lit = glint >= 0 && g >= 100 && Math.abs(x + y - glint * 5 - 3) <= 1;
-				img.setRGB(x, y + 1, g < 100 ? dark : g > 220 || lit ? lite : 0xff000000 | ink);
+		ink = tenureInk(ink);
+		var img = new BufferedImage(TENURE_PX + 2, TENURE_PX, BufferedImage.TYPE_INT_ARGB);
+		for (int y = 0; y < TENURE_PX; y++)
+			for (int x = 0; x < TENURE_PX; x++) {
+				int p = TENURE_SHEET.getRGB((t - 1) * TENURE_PX + x, y), key = (p >> 16 & 255) / 16;
+				if (p >>> 24 == 0 || key < 1 || key > TENURE_TONE.length) continue;
+				double f = TENURE_TONE[key - 1];
+				if (glint >= 0 && key > 1 && Math.abs(x + y - glint * 7 - 3) <= 1) f = Math.min(0.85, Math.max(f, 0) + 0.5);
+				img.setRGB(x, y, 0xff000000 | (f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f)));
 			}
 		return img;
 	}
 
+	/** The badge colour from the name's, never a Jagex mod's: greys/silver/white turn icy blue, gold/yellow amber. */
+	static int tenureInk(int rgb) {
+		float[] h = Color.RGBtoHSB(rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, null);
+		if (h[1] < 0.22f) return Color.HSBtoRGB(0.58f, Math.max(h[1], 0.55f), Math.max(h[2], 0.85f)) & 0xffffff;
+		if (h[0] >= 0.105f && h[0] <= 0.175f && h[1] > 0.3f) return Color.HSBtoRGB(0.075f, h[1], h[2]) & 0xffffff;
+		return rgb & 0xffffff;
+	}
 
 	/** The sprite at a whole-number scale (crisp pixels) for the panel, where we choose the size. */
 	static BufferedImage tenureSprite(int t, int ink, int glint, int scale) {

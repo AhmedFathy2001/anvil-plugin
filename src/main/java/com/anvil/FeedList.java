@@ -1162,7 +1162,7 @@ final class FeedList extends JPanel {
 				int step = UiView.tenureStep(str(r, "whoGlyph"));
 				if (step > 0 && supporter) {
 					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, 2), x - 4, y + fm.getAscent() - 19, null);
-					x += 22;
+					x += 26;
 				}
 				g.setFont(SMALL);
 				if (role) {
