@@ -6559,12 +6559,12 @@ public class AnvilPlugin extends Plugin {
 		String plain;
 		String painted;
 		boolean moving;
-		/** Drawn on the chatbox's own surface (dialogue): parchment when it's opaque. */
+		/** Drawn on parchment (dialogue), so the light look. */
 		boolean opaque;
 	}
 
-	/** Dialogue and message boxes sit in the chatbox, so they take its surface; the rest are dark stone. */
-	static boolean inChatbox(int rootId) {
+	/** Dialogue and message boxes are drawn on parchment whatever the chatbox setting; the rest are dark stone. */
+	static boolean onParchment(int rootId) {
 		return rootId == InterfaceID.ChatLeft.NAME || rootId == InterfaceID.ChatRight.NAME
 			|| rootId == InterfaceID.ChatBoth.NAMES || rootId == InterfaceID.MessageboxTitled.TITLE;
 	}
@@ -6580,7 +6580,7 @@ public class AnvilPlugin extends Plugin {
 		var frame = currentChatNameFrame();
 		interfaceNameFrame = frame;
 		var shift = interfaceNameShift(frame);
-		var opaque = inChatbox(rootId) && opaqueChatbox();
+		var opaque = onParchment(rootId);
 		walk(root, widget -> {
 			var text = widget.getText();
 			var painted = chatFlair.paintNames(text, opaque, shift);
