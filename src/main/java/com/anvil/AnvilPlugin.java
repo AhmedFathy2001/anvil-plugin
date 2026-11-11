@@ -6559,6 +6559,14 @@ public class AnvilPlugin extends Plugin {
 		String plain;
 		String painted;
 		boolean moving;
+		/** Drawn on the chatbox's own surface (dialogue): parchment when it's opaque. */
+		boolean opaque;
+	}
+
+	/** Dialogue and message boxes sit in the chatbox, so they take its surface; the rest are dark stone. */
+	static boolean inChatbox(int rootId) {
+		return rootId == InterfaceID.ChatLeft.NAME || rootId == InterfaceID.ChatRight.NAME
+			|| rootId == InterfaceID.ChatBoth.NAMES || rootId == InterfaceID.MessageboxTitled.TITLE;
 	}
 
 	/** Only widgets in the explicitly allowed interfaces above; weak keys disappear with the UI. */
@@ -6572,12 +6580,13 @@ public class AnvilPlugin extends Plugin {
 		var frame = currentChatNameFrame();
 		interfaceNameFrame = frame;
 		var shift = interfaceNameShift(frame);
+		var opaque = inChatbox(rootId) && opaqueChatbox();
 		walk(root, widget -> {
 			var text = widget.getText();
-			var painted = chatFlair.paintNames(text, false, shift);
+			var painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				widget.setText(painted);
-				interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text)));
+				interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text), opaque));
 			}
 		});
 	}
@@ -6601,7 +6610,7 @@ public class AnvilPlugin extends Plugin {
 			var current = widget.getText();
 			var plain = state.painted.equals(current) ? state.plain : current;
 			if (!state.moving && state.painted.equals(current)) continue;
-			var painted = chatFlair.paintNames(plain, false, shift);
+			var painted = chatFlair.paintNames(plain, state.opaque, shift);
 			if (painted == null) {
 				it.remove();
 				continue;
