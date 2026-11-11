@@ -57,7 +57,13 @@ public class TenureGlyphTest
 		{
 			int c = AnvilPlugin.tenureInk(ink);
 			float[] h = java.awt.Color.RGBtoHSB(c >> 16 & 255, c >> 8 & 255, c & 255, null);
-			assertTrue(Integer.toHexString(ink), h[1] > 0.3f && !(h[0] > 0.105f && h[0] < 0.175f));
+			assertTrue(Integer.toHexString(ink), h[1] > 0.3f && !(h[0] > 0.115f && h[0] < 0.19f));
+		}
+		// Smooth: neighbouring colours (a moving gradient's frames) stay neighbours.
+		for (int v = 0; v < 255; v++)
+		{
+			int a = AnvilPlugin.tenureInk(0x808080 + v / 4 * 0x010000), b = AnvilPlugin.tenureInk(0x808080 + (v / 4 + 1) * 0x010000);
+			assertTrue(Math.abs((a >> 16 & 255) - (b >> 16 & 255)) + Math.abs((a >> 8 & 255) - (b >> 8 & 255)) + Math.abs((a & 255) - (b & 255)) < 24);
 		}
 		assertEquals(0xe05ad0, AnvilPlugin.tenureInk(0xe05ad0));
 	}

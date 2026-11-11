@@ -9661,16 +9661,26 @@ public class AnvilPlugin extends Plugin {
 				if (p >>> 24 == 0 || key < 1 || key > TENURE_TONE.length) continue;
 				double f = TENURE_TONE[key - 1];
 				if (glint >= 0 && key > 1 && Math.abs(x + y - glint * 7 - 3) <= 1) f = Math.min(0.85, Math.max(f, 0) + 0.5);
-				img.setRGB(x, y + top, 0xff000000 | (f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f)));
+				int c = f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f);
+				// Pure black can read as see-through in the game's icon palette: a hole that blinks.
+				img.setRGB(x, y + top, 0xff000000 | (c == 0 ? 0x010101 : c));
 			}
 		return img;
 	}
 
-	/** The badge colour from the name's, never a Jagex mod's: greys/silver/white turn icy blue, gold/yellow amber. */
+	/**
+	 * The badge colour from the name's, never a Jagex mod's: yellows lean amber, greys/silver/white
+	 * turn icy blue. Both blend smoothly, never stepped: a moving gradient sweeps through these colours,
+	 * and a step (or a near-grey's jumpy hue) made the badge flicker.
+	 */
 	static int tenureInk(int rgb) {
 		float[] h = Color.RGBtoHSB(rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, null);
-		if (h[1] < 0.22f) return Color.HSBtoRGB(0.58f, Math.max(h[1], 0.55f), Math.max(h[2], 0.85f)) & 0xffffff;
-		if (h[0] >= 0.105f && h[0] <= 0.175f && h[1] > 0.3f) return Color.HSBtoRGB(0.075f, h[1], h[2]) & 0xffffff;
+		if (h[0] > 0.075f && h[0] < 0.22f) {
+			double u = (h[0] - 0.075) / 0.145;
+			rgb = Color.HSBtoRGB((float) (0.075 + 0.145 * u * u * u), h[1], h[2]);
+		}
+		double w = Math.max(0, 1 - h[1] / 0.3);
+		if (w > 0) rgb = ChatPalette.mix(rgb, Color.HSBtoRGB(0.58f, 0.55f, Math.max(h[2], 0.85f)), w);
 		return rgb & 0xffffff;
 	}
 
