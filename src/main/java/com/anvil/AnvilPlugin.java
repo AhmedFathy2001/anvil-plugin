@@ -9640,9 +9640,17 @@ public class AnvilPlugin extends Plugin {
 	/** Per tone key 1..13: mix the name's colour towards white (> 0) or black (< 0) by this much. */
 	static final double[] TENURE_TONE = {-0.72, 0, 0.5, -0.2, -0.45, -0.28, -0.58, -0.25, 0.15, -0.42, 0.6, 0.8, 0.4};
 
-	/** The chat icon: 15x15, two clear rows on top (so it sits level with the text), then the art. */
+	/**
+	 * The chat icon, 2px lower than the art's box: two clear rows on top, and up to two empty rows cut
+	 * from the bottom (the game sits an icon's bottom on the text line, so empty rows there lift it).
+	 */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
-		return tenureArt(t, ink, glint, 2);
+		var art = tenureArt(t, ink, glint, 2);
+		int h = art.getHeight();
+		for (int cut = 0; cut < 2; cut++, h--)
+			for (int x = 0; x < art.getWidth(); x++)
+				if (art.getRGB(x, h - 1) >>> 24 != 0) return art.getSubimage(0, 0, art.getWidth(), h);
+		return art.getSubimage(0, 0, art.getWidth(), h);
 	}
 
 	/** The art in tones of the name's colour, {@code top} clear rows above, a 2px gap after. A Legend's glint brightens a sweeping band. */
@@ -9668,14 +9676,19 @@ public class AnvilPlugin extends Plugin {
 		return rgb & 0xffffff;
 	}
 
-	/** The sprite at a whole-number scale (crisp pixels) for the panel, where we choose the size. */
-	static BufferedImage tenureSprite(int t, int ink, int glint, int scale) {
+	/** The sprite {@code size} px tall for the panel, where we choose the size: crisp at whole multiples, smooth between. */
+	static BufferedImage tenureSprite(int t, int ink, int glint, int size) {
 		var one = tenureArt(t, ink, glint, 0);
-		if (scale <= 1) return one;
-		var img = new BufferedImage(one.getWidth() * scale, one.getHeight() * scale, BufferedImage.TYPE_INT_ARGB);
+		int k = Math.max(1, (size + TENURE_PX - 1) / TENURE_PX);
+		var img = scaled(one, one.getWidth() * k, one.getHeight() * k, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+		return size == img.getHeight() ? img : scaled(img, img.getWidth() * size / img.getHeight(), size, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+	}
+
+	private static BufferedImage scaled(BufferedImage src, int w, int h, Object how) {
+		var img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 		var g = img.createGraphics();
-		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-		g.drawImage(one, 0, 0, img.getWidth(), img.getHeight(), null);
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, how);
+		g.drawImage(src, 0, 0, w, h, null);
 		g.dispose();
 		return img;
 	}

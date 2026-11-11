@@ -1161,8 +1161,8 @@ final class FeedList extends JPanel {
 				// A Supporter's star after the name, in their tenure shape and their colour.
 				int step = UiView.tenureStep(str(r, "whoGlyph"));
 				if (step > 0 && supporter) {
-					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, 2), x - 4, y + fm.getAscent() - 19, null);
-					x += 26;
+					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, 24), x - 4, y + fm.getAscent() - 18, null);
+					x += 23;
 				}
 				g.setFont(SMALL);
 				if (role) {
