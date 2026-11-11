@@ -129,6 +129,14 @@ public class DropNotificationLineTest
 			"Kayle has a funny feeling like she would have been followed: Baby mole at 412 killcount.");
 		assertTrue(dupe.matches());
 		assertEquals("Baby mole", dupe.group(2));
+		assertEquals("412", dupe.group(3));
+		assertNull(m.group(3)); // "519 levels" is not a count of kills
+
+		Matcher activity = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
+			"BazookaBret has a funny feeling like he's being followed: Orion at 80 completions.");
+		assertTrue(activity.matches());
+		assertEquals("Orion", activity.group(2));
+		assertEquals("80", activity.group(3));
 
 		Matcher pack = AnvilPlugin.CLAN_PET_BROADCAST_PATTERN.matcher(
 			"Zezima feels something weird sneaking into their backpack: Heron at 13,034,431 XP.");

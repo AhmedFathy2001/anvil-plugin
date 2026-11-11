@@ -483,7 +483,7 @@ public class AnvilPlugin extends Plugin {
 			"^(.{1,20}?) (?:has a funny feeling like (?:he's|she's|they're|he|she|they) (?:being|would have been) followed"
 					+ "|feels something weird sneaking into (?:his|her|their) backpack"
 					+ "|feels like (?:he's|she's|they've|he has|she has|they have) acquired something special)"
-					+ ": (.+?)(?: at [\\d,]+ .*)?\\.?$");
+					+ ": (.+?)(?: at ([\\d,]+) (?:completions|killcount|kill count)\\b.*| at [\\d,]+ .*)?\\.?$");
 
 	// Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
 	// Fired for drops handed out through channels that produce NO loot event — Maggot King's
@@ -3471,7 +3471,16 @@ public class AnvilPlugin extends Plugin {
 			if (msg.contains("funny feeling like") || msg.contains("sneaking into")
 					|| msg.contains("acquired something special")) {
 				var petBroadcast = CLAN_PET_BROADCAST_PATTERN.matcher(stripChatTags(msg));
-				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) claimPetName(petBroadcast.group(2).trim());
+				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) {
+					var pet = claimPetName(petBroadcast.group(2).trim());
+					// "Orion at 80 completions": a pet with no loot source to count (an activity, not a
+					// kill) takes its count from the broadcast.
+					if (pet != null && petBroadcast.group(3) != null) {
+						synchronized (petLock) {
+							if (pet.resolvedKc == null) pet.resolvedKc = Integer.valueOf(petBroadcast.group(3).replace(",", ""));
+						}
+					}
+				}
 			}
 			if (ChatPatterns.mayMatch("clog.clan_broadcast", msg)) {
 				var clogBroadcast = ChatPatterns.full("clog.clan_broadcast", stripChatTags(msg));
