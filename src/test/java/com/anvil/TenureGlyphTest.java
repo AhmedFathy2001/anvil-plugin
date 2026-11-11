@@ -53,16 +53,18 @@ public class TenureGlyphTest
 	@Test
 	public void neverAModsGoldOrSilver()
 	{
-		for (int ink : new int[]{0xffd35c, 0xffff00, 0xffffff, 0xc0c0c0, 0x808080})
+		for (int ink : new int[]{0xffd35c, 0xffff00, 0xffffff, 0xc0c0c0, 0xa0a0a0})
 		{
 			int c = AnvilPlugin.tenureInk(ink);
 			float[] h = java.awt.Color.RGBtoHSB(c >> 16 & 255, c >> 8 & 255, c & 255, null);
 			assertTrue(Integer.toHexString(ink), h[1] > 0.3f && !(h[0] > 0.115f && h[0] < 0.19f));
 		}
+		// Dark greys and black are no mod's colour: they stay dark (a blue-to-black gradient once flashed bright).
+		assertTrue((AnvilPlugin.tenureInk(0x101010) & 0xff) < 0x30);
 		// Smooth: neighbouring colours (a moving gradient's frames) stay neighbours.
-		for (int v = 0; v < 255; v++)
+		for (int v = 0; v < 254; v++)
 		{
-			int a = AnvilPlugin.tenureInk(0x808080 + v / 4 * 0x010000), b = AnvilPlugin.tenureInk(0x808080 + (v / 4 + 1) * 0x010000);
+			int a = AnvilPlugin.tenureInk(v * 0x010101), b = AnvilPlugin.tenureInk((v + 1) * 0x010101);
 			assertTrue(Math.abs((a >> 16 & 255) - (b >> 16 & 255)) + Math.abs((a >> 8 & 255) - (b >> 8 & 255)) + Math.abs((a & 255) - (b & 255)) < 24);
 		}
 		assertEquals(0xe05ad0, AnvilPlugin.tenureInk(0xe05ad0));

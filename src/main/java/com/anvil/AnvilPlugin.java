@@ -9620,8 +9620,8 @@ public class AnvilPlugin extends Plugin {
 		int ink = rgb.size() < 2 ? Integer.parseInt(c, 16) : ChatPalette.sample(rgb, p) & 0xf8f8f8;
 		var key = e.t + ":" + ink + ":" + glint;
 		var id = tenureIcons.get(key);
+		if (id == null && tenureIcons.size() >= 512) return tenureReady.getOrDefault(e.t + ":" + glint + ":" + opaque, "");
 		if (id == null) {
-			if (tenureIcons.size() >= 512) return "";
 			var img = tenureSprite(e.t, ink, glint);
 			tenureIcons.put(key, id = chatIconManager.registerChatIcon(img));
 		}
@@ -9669,9 +9669,9 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * The badge colour from the name's, never a Jagex mod's: yellows lean amber, greys/silver/white
-	 * turn icy blue. Both blend smoothly, never stepped: a moving gradient sweeps through these colours,
-	 * and a step (or a near-grey's jumpy hue) made the badge flicker.
+	 * The badge colour from the name's, never a Jagex mod's: yellows lean amber, light greys/silver/
+	 * white turn icy blue at the same brightness (dark greys and black are no mod's, so they stay). All
+	 * smooth, never stepped: a moving gradient sweeps through these colours, and a step flickered.
 	 */
 	static int tenureInk(int rgb) {
 		float[] h = Color.RGBtoHSB(rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, null);
@@ -9679,8 +9679,8 @@ public class AnvilPlugin extends Plugin {
 			double u = (h[0] - 0.075) / 0.145;
 			rgb = Color.HSBtoRGB((float) (0.075 + 0.145 * u * u * u), h[1], h[2]);
 		}
-		double w = Math.max(0, 1 - h[1] / 0.3);
-		if (w > 0) rgb = ChatPalette.mix(rgb, Color.HSBtoRGB(0.58f, 0.55f, Math.max(h[2], 0.85f)), w);
+		double w = Math.max(0, 1 - h[1] / 0.3) * Math.max(0, Math.min(1, (h[2] - 0.35) / 0.3));
+		if (w > 0) rgb = ChatPalette.mix(rgb, Color.HSBtoRGB(0.58f, 0.55f, h[2]), w);
 		return rgb & 0xffffff;
 	}
 
