@@ -307,9 +307,9 @@ final class ChatFlair {
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
-	/** A tenure style's chat icon tag, in its gem's own colours (set by the plugin). */
+	/** A tenure style's chat icon tag for a surface, coloured at gradient place p (set by the plugin). */
 	interface TenureIcon {
-		String get(Entry e);
+		String get(Entry e, boolean opaque, double p);
 	}
 
 	TenureIcon tenureIcon;
@@ -326,7 +326,8 @@ final class ChatFlair {
 		var moved = Boolean.TRUE.equals(e.s) ? shift : 0;
 		var painted = ChatPalette.paintName(name, color, stops, moved);
 		if (painted == null) return null;
-		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e) : Boolean.TRUE.equals(e.s) ? star : "";
+		// The tenure icon wears the first letter's colour at this frame, so it moves with the name.
+		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), moved) : Boolean.TRUE.equals(e.s) ? star : "";
 		return m.group(1) + mark + painted;
 	}
 

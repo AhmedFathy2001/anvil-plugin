@@ -1085,9 +1085,9 @@ public class AnvilPlugin extends Plugin {
 		// The Patron star's chat icon loads asynchronously; asked for now, it's ready by the first line
 		// that needs it instead of that line going out without it.
 		chatStar();
-		chatFlair.tenureIcon = e -> {
+		chatFlair.tenureIcon = (e, opaque, shift) -> {
 			long f = e.t == TENURE_STEPS ? currentChatNameFrame() : -1;
-			return tenureIcon(e, f < 0 || f / 3 % 30 > 3 ? -1 : (int) (f / 3 % 30));
+			return tenureIcon(e, opaque, f < 0 || f / 3 % 30 > 3 ? -1 : (int) (f / 3 % 30), shift);
 		};
 		// Built before the directory is known: without one they still work, in memory, for the session.
 		var outbox = new NotifyOutbox(gson, () -> executor, apiClient::interactiveExecutor);
@@ -6064,10 +6064,14 @@ public class AnvilPlugin extends Plugin {
 			// Visible widgets may still contain our old tags/star. Ask the game for clean source rows
 			// first; painting the new style on top caused the transient double-star and bad widths.
 			unflairAll();
-			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare
-			// (a Legend's glint frames register as they come).
+			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
+			// Every colour a moving gradient star can take (a Legend's glint frames register as they come),
+			// so lines don't go out without one.
 			for (var e : chatFlair.held.styles)
-				if (e.t != null) tenureIcon(e, -1);
+				for (int q = 0; e.t != null && q <= (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 ? 40 : 0); q++) {
+					tenureIcon(e, false, -1, q / 40.0);
+					tenureIcon(e, true, -1, q / 40.0);
+				}
 			// refreshChat rebuilds through client scripts. Paint on the following client turn, after those
 			// scripts have restored both the plain text and its original sender/message geometry.
 			clientThread.invokeLater(() -> {
@@ -9597,41 +9601,61 @@ public class AnvilPlugin extends Plugin {
 	/** The Patron star's chat icon, registered once; -1 until then. */
 	int chatStarIcon = -1;
 
-	/** Registered tenure icons by step and glint frame. */
+	/** Registered tenure icons by shape, colour and glint frame. */
 	final Map<String, Integer> tenureIcons = new HashMap<>();
 
-	/** The tenure icon: the step's gem, in its own fixed colours (never the name's), so the gem says the tier. */
-	String tenureIcon(ChatFlair.Entry e, int glint) {
-		if (e.t == null || e.t < 1 || e.t > TENURE_STEPS) return "";
-		var key = e.t + ":" + glint;
-		var id = tenureIcons.computeIfAbsent(key, k -> chatIconManager.registerChatIcon(tenureSprite(e.t, glint)));
+	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
+		return tenureIcon(e, opaque, glint, 0);
+	}
+
+	/**
+	 * The tenure icon in the name's own look. With a gradient it is coloured like one more letter in
+	 * front of the name: {@code p} is that letter's place along the gradient (and its motion), so the
+	 * star moves in step with the name. Cached by colour (rounded a little), shared by every name.
+	 */
+	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint, double p) {
+		var c = ChatPalette.nameColor(ChatFlair.readableColor(e, opaque));
+		if (c == null || e.t < 1 || e.t > TENURE_STEPS) return "";
+		var rgb = ChatPalette.rgbOf(ChatFlair.readableGradient(e, opaque));
+		int ink = rgb.size() < 2 ? Integer.parseInt(c, 16) : ChatPalette.sample(rgb, p) & 0xf8f8f8;
+		var key = e.t + ":" + ink + ":" + glint;
+		var id = tenureIcons.get(key);
+		if (id == null) {
+			if (tenureIcons.size() >= 512) return "";
+			var img = tenureSprite(e.t, ink, glint);
+			tenureIcons.put(key, id = chatIconManager.registerChatIcon(img));
+		}
 		int index = chatIconManager.chatIconIndex(id);
-		// A glint frame still loading shows the last one this step had ready, never a blank.
-		if (index >= 0) tenureReady.put(e.t, "<img=" + index + ">");
-		return tenureReady.getOrDefault(e.t, "");
+		// A colour still loading shows the last one this shape had ready, never a blank: a gap made the
+		// moving star blink while its frames loaded.
+		var shape = e.t + ":" + glint + ":" + opaque;
+		if (index >= 0) tenureReady.put(shape, "<img=" + index + ">");
+		return tenureReady.getOrDefault(shape, "");
 	}
 
 	/** Tenure steps (Apprentice … Legend); their chat sprites sit side by side in tenure.png, 11px each. */
 	static final int TENURE_STEPS = 6;
-	/** Pixel art in each step's gem colours (chat icons keep only solid pixels); made by Anvil/tenure-sheet.py. */
+	/** Pixel art (chat icons keep only solid pixels), three greys: dark the outline, mid the body, white the highlight. */
 	static final BufferedImage TENURE_SHEET = ImageUtil.loadImageResource(AnvilPlugin.class, "/com/anvil/tenure.png");
 
-	/** 13x12: an empty top row (level with the text), the art, a 2px gap. A Legend's glint brightens a sweeping band. */
-	static BufferedImage tenureSprite(int t, int glint) {
+	/** 13x12: an empty top row (level with the text), the art in the name's colour, a 2px gap. A Legend's glint brightens a sweeping band. */
+	static BufferedImage tenureSprite(int t, int ink, int glint) {
 		var img = new BufferedImage(13, 12, BufferedImage.TYPE_INT_ARGB);
+		int dark = 0xff000000 | ChatPalette.mix(ink, 0, 0.65), lite = 0xff000000 | ChatPalette.mix(ink, 0xffffff, 0.55);
 		for (int y = 0; y < 11; y++)
 			for (int x = 0; x < 11; x++) {
-				int p = TENURE_SHEET.getRGB((t - 1) * 11 + x, y);
+				int p = TENURE_SHEET.getRGB((t - 1) * 11 + x, y), g = p & 0xff;
 				if (p >>> 24 == 0) continue;
-				boolean lit = glint >= 0 && Math.abs(x + y - glint * 5 - 3) <= 1;
-				img.setRGB(x, y + 1, lit ? 0xff000000 | ChatPalette.mix(p & 0xffffff, 0xffffff, 0.5) : p | 0xff000000);
+				boolean lit = glint >= 0 && g >= 100 && Math.abs(x + y - glint * 5 - 3) <= 1;
+				img.setRGB(x, y + 1, g < 100 ? dark : g > 220 || lit ? lite : 0xff000000 | ink);
 			}
 		return img;
 	}
 
+
 	/** The sprite at a whole-number scale (crisp pixels) for the panel, where we choose the size. */
-	static BufferedImage tenureSprite(int t, int glint, int scale) {
-		var one = tenureSprite(t, glint);
+	static BufferedImage tenureSprite(int t, int ink, int glint, int scale) {
+		var one = tenureSprite(t, ink, glint);
 		if (scale <= 1) return one;
 		var img = new BufferedImage(one.getWidth() * scale, one.getHeight() * scale, BufferedImage.TYPE_INT_ARGB);
 		var g = img.createGraphics();
@@ -9641,8 +9665,8 @@ public class AnvilPlugin extends Plugin {
 		return img;
 	}
 
-	/** Per step: the last tenure icon tag that had finished loading. */
-	final Map<Integer, String> tenureReady = new HashMap<>();
+	/** Per shape, glint and surface: the last tenure icon tag that had finished loading. */
+	final Map<String, String> tenureReady = new HashMap<>();
 
 	String chatStar() {
 		if (chatStarIcon < 0) {
@@ -9728,7 +9752,7 @@ public class AnvilPlugin extends Plugin {
 		var name = own != null ? own : grad != null ? grad
 				: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who);
 		var fe = own == null ? null : chatFlair.entry(clean(who));
-		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, -1) : star ? chatStar() : "") + name;
+		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, lastChatboxOpaque, -1) : star ? chatStar() : "") + name;
 		var tone = Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
 		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
 	}

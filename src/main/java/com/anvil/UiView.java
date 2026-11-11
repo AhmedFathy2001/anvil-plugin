@@ -922,9 +922,9 @@ final class UiView extends JPanel {
 		}
 		var tenure = tenureStep(str(spec, "glyph"));
 		if (tenure > 0) {
-			// The Supporter tenure badge: the chat's pixel sprite, in its gem's colours.
+			// The Supporter tenure badge: the chat's pixel sprite, shaded in the name's colour.
 			// The site picks the size: a whole multiple of the 11px art keeps it crisp.
-			l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, -1, Math.max(1, Math.min(3, size / 11)))));
+			l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, color(str(spec, "color"), Color.WHITE).getRGB() & 0xffffff, -1, Math.max(1, Math.min(3, size / 11)))));
 			return true;
 		}
 		if (spec.has("glyph")) {
