@@ -1422,6 +1422,9 @@ final class FeedList extends JPanel {
 			if (rowChips != null) {
 				// Reactions as pills (GZ / Sad / Sit), so they read as buttons rather than labels.
 				chips.chips = rowChips;
+				// The renderer is shared: a death's two pills after a GZ row's one need the space re-laid out,
+				// or "Sad" draws off the left edge until a hover repaints the row.
+				chips.invalidate();
 				chips.hover = index == hoverRow ? hoverChip : -1;
 				chips.setVisible(true);
 				gz.setVisible(false);
