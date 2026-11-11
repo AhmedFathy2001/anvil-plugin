@@ -1083,7 +1083,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		l.setToolTipText(accountLabel.getToolTipText());
 		if (star) {
 			l.setIconTextGap(2);
-			if (tenure > 0) l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, (stops.isEmpty() ? l.getForeground() : stops.get(0)).getRGB() & 0xffffff, -1, 20)));
+			if (tenure > 0) l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, (stops.isEmpty() ? l.getForeground() : stops.get(0)).getRGB() & 0xffffff, -1, 16)));
 			else {
 				l.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 10));
 				if (l instanceof GradientLabel) ((GradientLabel) l).setTintIcon(true);
