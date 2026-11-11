@@ -40,6 +40,8 @@ final class ChatFlair {
 		String c;
 		List<String> g;
 		Boolean s;
+		/** Tenure chat shape, 1-6 (Apprentice … Legend, tenure.png); drawn instead of {@code s}, any tier. */
+		Integer t;
 		/** The owner's own look for dark surfaces / light (parchment) ones: drawn as-is, never adapted. */
 		Surface d;
 		Surface l;
@@ -167,7 +169,7 @@ final class ChatFlair {
 	}
 
 	static int intern(Map<String, Integer> palette, List<Entry> styles, Entry e) {
-		var key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s) + "|" + e.d + "|" + e.l;
+		var key = e.c + "|" + e.g + "|" + Boolean.TRUE.equals(e.s) + "|" + e.d + "|" + e.l + "|" + e.t;
 		var i = palette.get(key);
 		if (i == null) {
 			palette.put(key, i = styles.size());
@@ -305,6 +307,13 @@ final class ChatFlair {
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
+	/** A tenure style's chat icon tag for a surface, coloured at gradient place p (set by the plugin). */
+	interface TenureIcon {
+		String get(Entry e, boolean opaque, double p);
+	}
+
+	TenureIcon tenureIcon;
+
 	String decorate(String sender, String star, double shift, Boolean opaque) {
 		if (sender == null || isEmpty()) return null;
 		var m = SENDER.matcher(sender);
@@ -314,10 +323,12 @@ final class ChatFlair {
 		if (e == null) return null;
 		var stops = opaque == null ? e.g : readableGradient(e, opaque);
 		var color = opaque == null ? ChatPalette.nameColor(e.c) : readableColor(e, opaque);
-		var painted = ChatPalette.paintName(name, color, stops, Boolean.TRUE.equals(e.s) ? shift : 0);
+		var moved = Boolean.TRUE.equals(e.s) ? shift : 0;
+		var painted = ChatPalette.paintName(name, color, stops, moved);
 		if (painted == null) return null;
-		var starred = Boolean.TRUE.equals(e.s) && star != null;
-		return m.group(1) + (starred ? star : "") + painted;
+		// The tenure icon wears the first letter's colour at this frame, so it moves with the name.
+		var mark = star == null ? "" : e.t != null && tenureIcon != null ? tenureIcon.get(e, Boolean.TRUE.equals(opaque), moved) : Boolean.TRUE.equals(e.s) ? star : "";
+		return m.group(1) + mark + painted;
 	}
 
 	static String readableColor(Entry e, boolean opaque) {
@@ -479,7 +490,8 @@ final class ChatFlair {
 	/** Whether this name belongs to a Patron with a movable gradient. */
 	boolean movingName(String name) {
 		var e = entry(name);
-		return e != null && Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2;
+		// A Legend's hex glints, so its lines repaint with the moving names.
+		return e != null && (Boolean.TRUE.equals(e.s) && e.g != null && e.g.size() >= 2 || Integer.valueOf(AnvilPlugin.TENURE_STEPS).equals(e.t));
 	}
 
 	/** Whether an icon-prefixed plain sender/name belongs to a Patron with a movable gradient. */

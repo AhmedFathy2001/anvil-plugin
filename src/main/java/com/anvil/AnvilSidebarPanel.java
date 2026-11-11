@@ -1072,17 +1072,22 @@ public class AnvilSidebarPanel extends PluginPanel {
 		for (String g : source == null ? Collections.<String>emptyList() : source) {
 			if (stops.size() < 4) stops.add(own != null ? Ui.teamColor("#" + ChatPalette.nameColor(g), Color.WHITE) : ChatPalette.readableColor(g, false, Color.WHITE));
 		}
-		var star = e != null && Boolean.TRUE.equals(e.s);
-		var l = stops.size() >= 2 ? new GradientLabel(stops.toArray(new Color[0]), star) : new JLabel();
+		// The tenure badge (any tier) the chat shows; else the old Patron-only star.
+		var tenure = e == null || e.t == null || e.t < 1 || e.t > AnvilPlugin.TENURE_STEPS ? 0 : e.t;
+		var star = e != null && (tenure > 0 || Boolean.TRUE.equals(e.s));
+		var l = stops.size() >= 2 ? new GradientLabel(stops.toArray(new Color[0]), Boolean.TRUE.equals(e == null ? null : e.s)) : new JLabel();
 		l.setText(rsn);
 		l.setFont(accountLabel.getFont().deriveFont(Font.BOLD));
 		l.setForeground(own != null ? Ui.teamColor("#" + ChatPalette.nameColor(own.c), Color.WHITE)
 			: ChatPalette.readableColor(e == null ? null : e.c, false, Color.WHITE));
 		l.setToolTipText(accountLabel.getToolTipText());
 		if (star) {
-			l.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 10));
 			l.setIconTextGap(2);
-			if (l instanceof GradientLabel) ((GradientLabel) l).setTintIcon(true);
+			if (tenure > 0) l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, (stops.isEmpty() ? l.getForeground() : stops.get(0)).getRGB() & 0xffffff, -1, 20)));
+			else {
+				l.setIcon(new GlyphIcon(GlyphIcon.Shape.STAR, 10));
+				if (l instanceof GradientLabel) ((GradientLabel) l).setTintIcon(true);
+			}
 		}
 		accountName = l;
 		accountLine.add(l);

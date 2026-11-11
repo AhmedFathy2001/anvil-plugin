@@ -1011,7 +1011,7 @@ public class BingoApiClient {
 
 	Request.Builder uiRequest(String url) {
 		// The panel draws the Feed tab: the site's clan card can keep its drop log short.
-		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1").header("X-Anvil-Panel-Images", "1").header("X-Anvil-Tab-Links", "2");
+		return (accountPaused ? publicRequest(url) : authedRequest(url)).header("X-Anvil-Feed-Tab", "1").header("X-Anvil-Panel-Images", "1").header("X-Anvil-Tab-Links", "2").header("X-Anvil-Glyphs", "1");
 	}
 
 	/**

@@ -1144,6 +1144,12 @@ final class FeedList extends JPanel {
 					g.fillOval(x, y + fm.getAscent() - 7, 6, 6);
 					x += 10;
 				}
+				// A Supporter's tenure badge in front of the name, in their colour.
+				int step = UiView.tenureStep(str(r, "whoGlyph"));
+				if (step > 0 && supporter) {
+					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX), x, y + fm.getAscent() - 11, null);
+					x += 15;
+				}
 				g.setFont(BOLD);
 				var who = Ui.fontSafe(str(r, "who"));
 				int nameW = g.getFontMetrics().stringWidth(who);
@@ -1232,7 +1238,8 @@ final class FeedList extends JPanel {
 		@Override
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(SMALL);
-			return new Dimension(0, fm.getHeight());
+			// Tall enough for a tenure badge beside the name.
+			return new Dimension(0, Math.max(fm.getHeight(), UiView.tenureStep(r == null ? null : str(r, "whoGlyph")) > 0 ? AnvilPlugin.TENURE_PX : 0));
 		}
 
 		@Override
@@ -1244,6 +1251,14 @@ final class FeedList extends JPanel {
 			int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
 			int[] x = {0};
 			int max = getWidth();
+			// A Supporter's tenure badge in front of the name, at the art's own 13px.
+			int step = UiView.tenureStep(str(r, "whoGlyph"));
+			if (step > 0) {
+				var grad = stops(r);
+				var badge = AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : whoInk).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX);
+				g.drawImage(badge, 0, (getHeight() - badge.getHeight()) / 2, null);
+				x[0] = badge.getWidth();
+			}
 			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {
 				if (x[0] >= max) return;
 				g.setColor(ink);

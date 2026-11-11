@@ -27,8 +27,9 @@ import net.runelite.client.util.Filepath;
 final class ResponseDiskCache {
 	static final String CONFIG = "config";
 	static final String CHAT_PATTERNS = "chat-patterns";
-	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file. */
-	static final String CHAT_FLAIR = "chat-flair";
+	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file.
+	 * Renamed whenever the wire gains a field: an old file at the same version would never refetch. */
+	static final String CHAT_FLAIR = "chat-flair-2";
 	/** A board bigger than this isn't worth the disk; the next launch just downloads it. */
 	static final int MAX_BODY_CHARS = 2_000_000;
 

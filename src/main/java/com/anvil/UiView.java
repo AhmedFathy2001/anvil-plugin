@@ -920,6 +920,13 @@ final class UiView extends JPanel {
 			l.setIcon(swatch(color(str(spec, "color"), MUTED), size));
 			return true;
 		}
+		var tenure = tenureStep(str(spec, "glyph"));
+		if (tenure > 0) {
+			// The Supporter tenure badge: the chat's pixel sprite, shaded in the name's colour.
+			// The site picks the size: a whole multiple of the 11px art keeps it crisp.
+			l.setIcon(new ImageIcon(AnvilPlugin.tenureSprite(tenure, color(str(spec, "color"), Color.WHITE).getRGB() & 0xffffff, -1, Math.max(AnvilPlugin.TENURE_PX, Math.min(39, size)))));
+			return true;
+		}
 		if (spec.has("glyph")) {
 			var shape = glyph(str(spec, "glyph"));
 			if (shape == null) return false;
@@ -1540,6 +1547,11 @@ final class UiView extends JPanel {
 				return size;
 			}
 		};
+	}
+
+	/** "tenure-1".."tenure-6" (a Supporter's tenure badge), else 0. */
+	static int tenureStep(String g) {
+		return g != null && g.length() == 8 && g.startsWith("tenure-") && g.charAt(7) >= '1' && g.charAt(7) <= '6' ? g.charAt(7) - '0' : 0;
 	}
 
 	static GlyphIcon.Shape glyph(String g) {

@@ -94,17 +94,7 @@ final class GlyphIcon implements Icon {
 					break;
 				case STAR:
 					// Filled five points: an Anvil Supporter, beside their name.
-					for (int i = 0; i < 10; i++) {
-						var ang = -Math.PI / 2 + Math.PI / 5 * i;
-						var rad = s * (i % 2 == 0 ? 0.5 : 0.21);
-						var px = s / 2.0 + Math.cos(ang) * rad;
-						var py = s * 0.53 + Math.sin(ang) * rad;
-						if (i == 0) {
-							p.moveTo(px, py);
-						} else p.lineTo(px, py);
-					}
-					p.closePath();
-					g.fill(p);
+					g.fill(star(p, s, 1));
 					break;
 				case UP:
 				case DOWN:
@@ -118,6 +108,20 @@ final class GlyphIcon implements Icon {
 		} finally {
 			g.dispose();
 		}
+	}
+
+	/** A five-point star {@code k} of the icon's size, centred. */
+	static Path2D star(Path2D p, float s, double k) {
+		for (int i = 0; i < 10; i++) {
+			var ang = -Math.PI / 2 + Math.PI / 5 * i;
+			var rad = s * k * (i % 2 == 0 ? 0.5 : 0.21);
+			var px = s / 2.0 + Math.cos(ang) * rad;
+			var py = s * (0.5 + 0.03 * k) + Math.sin(ang) * rad;
+			if (i == 0) p.moveTo(px, py);
+			else p.lineTo(px, py);
+		}
+		p.closePath();
+		return p;
 	}
 
 	/** Adds one polyline to {@code p}: x,y pairs as fractions of the icon's size {@code s}. */
