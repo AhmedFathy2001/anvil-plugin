@@ -1169,6 +1169,7 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
 		GradientLabel.setAnimate(config.animatedNames());
+		SwingUtilities.invokeLater(() -> GradientLabel.watch(client.getCanvas() == null ? null : SwingUtilities.getWindowAncestor(client.getCanvas())));
 		// A count the site lowered (a deleted submission): the panel asks for its views again now,
 		// not at the 15s catch-up, so the old number doesn't sit on screen.
 		optimistic.onDrop(() -> {
@@ -1504,6 +1505,7 @@ public class AnvilPlugin extends Plugin {
 	@Override
 	protected void shutDown() {
 		clientThread.invokeLater(this::unflairAll);
+		SwingUtilities.invokeLater(() -> GradientLabel.watch(null));
 		overlayManager.remove(overlay);
 		overlayManager.remove(clogBanner);
 		if (chatFlairTooltip != null) {

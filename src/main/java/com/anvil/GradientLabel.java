@@ -36,26 +36,32 @@ final class GradientLabel extends JLabel {
 	 * wall clock, so on refocus they pick up where they'd be with no reset.
 	 */
 	static boolean clientActive() {
-		// A field read, never the focus manager itself: its getters lock KeyboardFocusManager.class,
-		// which the EDT holds while it handles focus/window events, and this is asked several times a
-		// frame from the client thread — that wait showed up as a 2-3 frame hitch every few seconds.
-		return ACTIVE.active;
+		// A field read, asked several times a frame from the client thread: kept by window events.
+		return active;
 	}
 
-	/** The active-window state, kept by a focus-manager listener on the EDT. */
-	static final class ActiveWindow {
-		volatile boolean active = true;
-
-		ActiveWindow() {
-			SwingUtilities.invokeLater(() -> {
-				var kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
-				active = kfm.getActiveWindow() != null || GraphicsEnvironment.isHeadless();
-				kfm.addPropertyChangeListener("activeWindow", e -> active = e.getNewValue() != null);
-			});
+	static volatile boolean active = true;
+	static Window watched;
+	/** Follows the client window coming to the front and going behind (listening only, no input). */
+	static final java.awt.event.WindowAdapter FRONT = new java.awt.event.WindowAdapter() {
+		@Override
+		public void windowActivated(java.awt.event.WindowEvent e) {
+			active = true;
 		}
-	}
 
-	static final ActiveWindow ACTIVE = new ActiveWindow();
+		@Override
+		public void windowDeactivated(java.awt.event.WindowEvent e) {
+			active = false;
+		}
+	};
+
+	/** Watch this window (the client's); null stops watching. On the EDT. */
+	static void watch(Window w) {
+		if (watched != null) watched.removeWindowListener(FRONT);
+		watched = w;
+		active = true;
+		if (w != null) w.addWindowListener(FRONT);
+	}
 
 	/** Played animation time: starts at the wall clock (clients begin in step) and runs only while in front. */
 	static long playedMs = System.currentTimeMillis();
