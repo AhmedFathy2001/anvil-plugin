@@ -1161,8 +1161,8 @@ final class FeedList extends JPanel {
 				// A Supporter's star after the name, in their tenure shape and their colour.
 				int step = UiView.tenureStep(str(r, "whoGlyph"));
 				if (step > 0 && supporter) {
-					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, 24), x - 4, y + fm.getAscent() - 18, null);
-					x += 23;
+					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX), x - 2, y + fm.getAscent() - 11, null);
+					x += 15;
 				}
 				g.setFont(SMALL);
 				if (role) {
@@ -1238,7 +1238,8 @@ final class FeedList extends JPanel {
 		@Override
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(SMALL);
-			return new Dimension(0, fm.getHeight());
+			// Tall enough for a tenure badge beside the name.
+			return new Dimension(0, Math.max(fm.getHeight(), UiView.tenureStep(r == null ? null : str(r, "whoGlyph")) > 0 ? AnvilPlugin.TENURE_PX : 0));
 		}
 
 		@Override
@@ -1250,12 +1251,25 @@ final class FeedList extends JPanel {
 			int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
 			int[] x = {0};
 			int max = getWidth();
+			// A Supporter's tenure badge after the name (before "· Team"), at the art's own 13px.
+			int step = UiView.tenureStep(str(r, "whoGlyph"));
+			var grad = stops(r);
+			var badge = step > 0 ? AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : whoInk).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX) : null;
+			boolean[] drawn = {badge == null};
+			Runnable mark = () -> {
+				if (drawn[0] || x[0] >= max) return;
+				g.drawImage(badge, x[0] + 3, (getHeight() - badge.getHeight()) / 2, null);
+				x[0] += badge.getWidth() + 3;
+				drawn[0] = true;
+			};
 			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {
+				if (text.startsWith(" \u00b7 ")) mark.run();
 				if (x[0] >= max) return;
 				g.setColor(ink);
 				g.drawString(text, x[0], y);
 				x[0] += fm.stringWidth(text);
 			});
+			mark.run();
 		}
 	}
 
