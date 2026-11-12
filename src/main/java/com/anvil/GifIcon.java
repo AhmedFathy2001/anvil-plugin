@@ -1,26 +1,15 @@
 package com.anvil;
 
-import java.awt.AlphaComposite;
-import java.awt.Component;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
-import java.util.WeakHashMap;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
+import java.io.*;
+import java.util.*;
+import javax.imageio.*;
 import javax.imageio.metadata.IIOMetadata;
 import javax.imageio.stream.ImageInputStream;
-import javax.swing.Icon;
-import javax.swing.ImageIcon;
+import javax.swing.*;
 import javax.swing.Timer;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
+import org.w3c.dom.*;
 
 /**
  * A panel GIF decoded by us and played on our own clock, instead of handing raw bytes to AWT's

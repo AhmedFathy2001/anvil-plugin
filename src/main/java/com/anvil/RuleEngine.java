@@ -1,12 +1,8 @@
 package com.anvil;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 import java.util.*;
-import java.util.function.IntPredicate;
-import java.util.function.IntToLongFunction;
-import java.util.function.Predicate;
+import java.util.function.*;
 
 /**
  * The site's rule table (GET /api/plugin/rules), run locally. It decides only

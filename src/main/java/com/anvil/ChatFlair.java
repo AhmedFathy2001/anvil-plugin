@@ -1,15 +1,8 @@
 package com.anvil;
 
 import lombok.RequiredArgsConstructor;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.*;
+import java.util.regex.*;
 import java.util.function.IntUnaryOperator;
 
 /**

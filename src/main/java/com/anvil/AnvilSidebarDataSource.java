@@ -1,10 +1,8 @@
 package com.anvil;
 
-import lombok.Setter;
+import lombok.*;
 import java.util.*;
-import java.util.function.Supplier;
-import lombok.RequiredArgsConstructor;
-import java.util.function.Consumer;
+import java.util.function.*;
 
 /**
  * What the side panel reads from the plugin itself: the polled config (the clan picker, capabilities),

@@ -1,7 +1,6 @@
 package com.anvil;
 
-import lombok.Setter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.Map;

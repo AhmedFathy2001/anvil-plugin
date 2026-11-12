@@ -1,9 +1,7 @@
 package com.anvil;
 
 import lombok.Setter;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;

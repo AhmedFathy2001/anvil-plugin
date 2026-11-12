@@ -1,17 +1,12 @@
 package com.anvil;
 
-import java.awt.Dimension;
-import java.awt.Graphics2D;
+import java.awt.*;
 import java.util.function.BooleanSupplier;
-import net.runelite.api.Client;
-import net.runelite.api.Point;
+import net.runelite.api.*;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.client.ui.overlay.Overlay;
-import net.runelite.client.ui.overlay.OverlayLayer;
-import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.tooltip.Tooltip;
-import net.runelite.client.ui.overlay.tooltip.TooltipManager;
+import net.runelite.client.ui.overlay.*;
+import net.runelite.client.ui.overlay.tooltip.*;
 
 /**
  * Hover a Supporter's name in the chatbox: "Anvil Patron" (Champion, Supporter). Draws nothing; per

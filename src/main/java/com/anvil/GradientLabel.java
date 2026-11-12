@@ -4,11 +4,8 @@ import lombok.Setter;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
-import java.util.Set;
-import java.util.WeakHashMap;
-import java.util.Collections;
-import javax.swing.JLabel;
-import javax.swing.SwingUtilities;
+import java.util.*;
+import javax.swing.*;
 import javax.swing.Timer;
 
 /**

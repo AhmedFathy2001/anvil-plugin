@@ -5,15 +5,13 @@ import static java.util.Collections.*;
 import static javax.swing.SwingUtilities.invokeLater;
 import com.anvil.AnvilMoments.Moment;
 import com.anvil.ChatPalette.Tone;
-import lombok.AllArgsConstructor;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.anvil.BingoApiClient.*;
 import com.anvil.PendingSubmissionStore.PendingSubmission;
 import com.anvil.PluginConfigResponse.*;
 import com.anvil.AnvilSidebarDataSource.AccountRow;
 import com.google.gson.*;
 import com.google.inject.Provides;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.clan.*;
@@ -42,14 +40,13 @@ import javax.swing.SwingUtilities;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.time.Instant;
+import java.time.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.*;
 import java.util.regex.*;
-import java.time.LocalDate;
 import java.util.concurrent.locks.ReentrantLock;
 import net.runelite.api.clan.ClanMember;
 
@@ -10074,9 +10071,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onChatboxInput(ChatboxInput e) {
 		log.debug("Relay: typed (type {})", e.getChatType());
-		if (e.getChatType() == 0 && !e.getValue().startsWith("/")) {
-			relaySay("public", Text.removeTags(e.getValue()).replaceFirst("(?i)^((yellow|red|green|cyan|purple|white|flash[123]|glow[123]|wave2?|scroll|shake|slide):)+", ""), null);
-		}
+		if (e.getChatType() == 0 && !e.getValue().startsWith("/")) relaySay("public", Text.removeTags(e.getValue()).replaceFirst("(?i)^((yellow|red|green|cyan|purple|white|flash[123]|glow[123]|wave2?|scroll|shake|slide):)+", ""), null);
 	}
 
 	/**

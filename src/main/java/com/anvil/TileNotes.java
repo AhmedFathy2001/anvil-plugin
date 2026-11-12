@@ -1,7 +1,6 @@
 package com.anvil;
 
-import com.anvil.PluginConfigResponse.ComboPart;
-import com.anvil.PluginConfigResponse.TrackedCombo;
+import com.anvil.PluginConfigResponse.*;
 import java.util.*;
 
 /**

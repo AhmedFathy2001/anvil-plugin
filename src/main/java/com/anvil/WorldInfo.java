@@ -1,9 +1,6 @@
 package com.anvil;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import net.runelite.api.WorldType;
 

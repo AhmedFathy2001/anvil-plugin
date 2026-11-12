@@ -1,8 +1,7 @@
 package com.anvil;
 
 import java.awt.event.MouseEvent;
-import javax.swing.JLabel;
-import javax.swing.ToolTipManager;
+import javax.swing.*;
 
 /**
  * A label that says the rest of itself: when its text is cut short ("…") it shows the whole text as

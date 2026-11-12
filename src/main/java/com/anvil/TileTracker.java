@@ -8,11 +8,8 @@ import javax.inject.*;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
-import java.util.function.IntFunction;
-import java.util.function.ToLongBiFunction;
+import java.util.function.*;
 import java.time.*;
-import java.util.function.Supplier;
-import java.util.function.Consumer;
 
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable

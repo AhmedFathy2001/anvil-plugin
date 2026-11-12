@@ -24,9 +24,7 @@ import net.runelite.client.game.*;
 
 import static com.anvil.Ui.*;
 import net.runelite.client.config.ConfigManager;
-import java.util.function.Supplier;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
+import java.util.function.*;
 
 /**
  * The side panel. What it holds natively is what only this client has: signing in, the account line,

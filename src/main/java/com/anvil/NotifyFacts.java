@@ -92,9 +92,7 @@ final class NotifyFacts {
 			} else if (si >= 0) {
 				i = si;
 				j = ++sj;
-			} else {
-				return -1;
-			}
+			} else return -1;
 		}
 		while (i < p.length() && p.charAt(i) == '*') i++;
 		return i == p.length() ? n : -1;

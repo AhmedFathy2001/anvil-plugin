@@ -1,9 +1,7 @@
 package com.anvil;
 
 import static java.util.Collections.*;
-import lombok.Setter;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.*;
 import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Pattern;
-import java.util.List;
 import javax.swing.Icon;
 
 @Slf4j
