@@ -9889,14 +9889,17 @@ public class AnvilPlugin extends Plugin {
 			if (ch == null || ch.findMember(n) == null) return;
 			from = ch.getName();
 		}
-		var xh = m.get("xh").getAsString();
-		relayShown.put(Text.removeTags(xh), m);
+		// Untrusted all the same: the words with no markup at all, the name rebuilt from the plain name
+		// (only a game icon tag may lead it).
+		var x = clean(m.get("x").getAsString());
+		var icon = m.has("nm") ? m.get("nm").getAsString().replaceFirst("^(<img=\\d+>)?.*$", "$1") : "";
+		relayShown.put(x, m);
 		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
-		client.addChatMessage(pub ? PUBLICCHAT : CLAN_CHAT, m.get("nm").getAsString(), xh, from);
+		client.addChatMessage(pub ? PUBLICCHAT : CLAN_CHAT, icon + Text.toJagexName(n), x, from);
 		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PUBLIC_FILTER);
 		var mode = f == null ? "" : Text.removeTags(f.getText());
 		if (near != null && !mode.contains("Hide") && !mode.contains("Off") && (!mode.contains("Friends") || client.isFriended(n, false))) {
-			near.setOverheadText(m.get("x").getAsString());
+			near.setOverheadText(x);
 			near.setOverheadCycle(150);
 		}
 	}
@@ -9924,7 +9927,10 @@ public class AnvilPlugin extends Plugin {
 			if (panel != null) panel.feedUnread();
 			return;
 		}
-		var line = m.get(chatOne && m.has("cb1") ? "cb1" : "cb").getAsString();
+		// The site escapes what people typed; still, only colour tags and escapes stay, and only a line led
+		// by its "[Board · Channel]" prefix is printed, so nothing can pass for a game message.
+		var line = m.get(chatOne && m.has("cb1") ? "cb1" : "cb").getAsString().replaceAll("<(?!/?col(=[0-9a-fA-F]{6})?>|lt>|gt>)[^>]*>", "");
+		if (!line.matches("^<col=[0-9a-fA-F]{6}>\\[[^<\\]]+\\]</col> .*")) return;
 		// "chat:<event>:<channel>": where "Reply in" posts.
 		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
 		eventLines.put(Text.removeTags(line), feed[1] + ":" + feed[2]);
