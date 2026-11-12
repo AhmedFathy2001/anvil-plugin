@@ -483,7 +483,7 @@ public class AnvilPlugin extends Plugin {
 			"^(.{1,20}?) (?:has a funny feeling like (?:he's|she's|they're|he|she|they) (?:being|would have been) followed"
 					+ "|feels something weird sneaking into (?:his|her|their) backpack"
 					+ "|feels like (?:he's|she's|they've|he has|she has|they have) acquired something special)"
-					+ ": (.+?)(?: at [\\d,]+ .*)?\\.?$");
+					+ ": (.+?)(?: at ([\\d,]+) (?:completions|killcount|kill count)\\b.*| at [\\d,]+ .*)?\\.?$");
 
 	// Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
 	// Fired for drops handed out through channels that produce NO loot event — Maggot King's
@@ -3230,6 +3230,13 @@ public class AnvilPlugin extends Plugin {
 		} else deathAttribution.stoppedTargetingUs(name);
 	}
 
+	/** An NPC that despawns while on us never "stops targeting" us: drop it, or a Kephri scarab is blamed at Zebak. */
+	@Subscribe
+	public void onNpcDespawned(NpcDespawned event) {
+		var npc = event.getNpc();
+		if (npc.getInteracting() == client.getLocalPlayer()) deathAttribution.stoppedTargetingUs(npc.getName());
+	}
+
 	@Subscribe
 	public void onHitsplatApplied(HitsplatApplied event) {
 		var ourHit = event.getHitsplat();
@@ -3471,7 +3478,16 @@ public class AnvilPlugin extends Plugin {
 			if (msg.contains("funny feeling like") || msg.contains("sneaking into")
 					|| msg.contains("acquired something special")) {
 				var petBroadcast = CLAN_PET_BROADCAST_PATTERN.matcher(stripChatTags(msg));
-				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) claimPetName(petBroadcast.group(2).trim());
+				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) {
+					var pet = claimPetName(petBroadcast.group(2).trim());
+					// "Orion at 80 completions": a pet with no loot source to count (an activity, not a
+					// kill) takes its count from the broadcast.
+					if (pet != null && petBroadcast.group(3) != null) {
+						synchronized (petLock) {
+							if (pet.resolvedKc == null) pet.resolvedKc = Integer.valueOf(petBroadcast.group(3).replace(",", ""));
+						}
+					}
+				}
 			}
 			if (ChatPatterns.mayMatch("clog.clan_broadcast", msg)) {
 				var clogBroadcast = ChatPatterns.full("clog.clan_broadcast", stripChatTags(msg));
@@ -6559,6 +6575,14 @@ public class AnvilPlugin extends Plugin {
 		String plain;
 		String painted;
 		boolean moving;
+		/** Drawn on parchment (dialogue), so the light look. */
+		boolean opaque;
+	}
+
+	/** Dialogue and message boxes are drawn on parchment whatever the chatbox setting; the rest are dark stone. */
+	static boolean onParchment(int rootId) {
+		return rootId == InterfaceID.ChatLeft.NAME || rootId == InterfaceID.ChatRight.NAME
+			|| rootId == InterfaceID.ChatBoth.NAMES || rootId == InterfaceID.MessageboxTitled.TITLE;
 	}
 
 	/** Only widgets in the explicitly allowed interfaces above; weak keys disappear with the UI. */
@@ -6572,12 +6596,13 @@ public class AnvilPlugin extends Plugin {
 		var frame = currentChatNameFrame();
 		interfaceNameFrame = frame;
 		var shift = interfaceNameShift(frame);
+		var opaque = onParchment(rootId);
 		walk(root, widget -> {
 			var text = widget.getText();
-			var painted = chatFlair.paintNames(text, false, shift);
+			var painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				widget.setText(painted);
-				interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text)));
+				interfaceNameFlair.put(widget, new InterfaceNameFlair(text, painted, chatFlair.movingNames(text), opaque));
 			}
 		});
 	}
@@ -6601,7 +6626,7 @@ public class AnvilPlugin extends Plugin {
 			var current = widget.getText();
 			var plain = state.painted.equals(current) ? state.plain : current;
 			if (!state.moving && state.painted.equals(current)) continue;
-			var painted = chatFlair.paintNames(plain, false, shift);
+			var painted = chatFlair.paintNames(plain, state.opaque, shift);
 			if (painted == null) {
 				it.remove();
 				continue;
@@ -8303,19 +8328,15 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * True when the item is on the always-notify allowlist (baked-in defaults +
-	 * server list).
+	 * True when the item is on the clan's always-notify list. The site sends the whole list (its
+	 * defaults included, so a clan can remove one); the baked-in copy is only for no config yet.
 	 */
 	boolean isAlwaysNotifyItem(String name) {
 		if (name == null || name.isEmpty()) return false;
 		var n = name.toLowerCase();
-		for (String pattern : text.alwaysNotify) {
+		var cfg = pluginConfig;
+		for (String pattern : cfg == null || cfg.alwaysNotifyItems == null ? text.alwaysNotify : alwaysNotifyLower) {
 			if (n.contains(pattern)) return true;
-		}
-		if (pluginConfig != null) {
-			for (String pattern : alwaysNotifyLower) {
-				if (n.contains(pattern)) return true;
-			}
 		}
 		return false;
 	}
@@ -8877,9 +8898,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void postCaTierClear(CombatAchievementTier tier) {
-		// Message-only — no screenshot.
-		apiClient.postNotification("combatAchievements", null,
-				new NotifyFacts("caTier", getLocalPlayerName()).put("tier", tier.getDisplayName()), null, null);
+		postWithScreenshot("combatAchievements", new NotifyFacts("caTier", getLocalPlayerName()).put("tier", tier.getDisplayName()),
+				"anvil-ca-tier.png");
 	}
 
 	/**
@@ -9085,9 +9105,9 @@ public class AnvilPlugin extends Plugin {
 		var difficulty = text.questTiers.get(questName.toLowerCase());
 		if (me == null || !me.quests.contains("*") && !me.quests.contains(difficulty)) return;
 		// Message-only, like a tier clear. Difficulty goes as its display form ("Experienced").
-		apiClient.postNotification("quests", null, new NotifyFacts("quest", getLocalPlayerName())
+		postWithScreenshot("quests", new NotifyFacts("quest", getLocalPlayerName())
 				.put("quest", questName).put("difficulty", difficulty == null ? null
-						: difficulty.charAt(0) + difficulty.substring(1).toLowerCase()), null, null);
+						: difficulty.charAt(0) + difficulty.substring(1).toLowerCase()), "anvil-quest.png");
 	}
 
 	/**
