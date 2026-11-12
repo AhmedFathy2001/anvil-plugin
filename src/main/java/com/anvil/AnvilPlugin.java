@@ -6998,7 +6998,11 @@ public class AnvilPlugin extends Plugin {
 
 	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
 	void onPush(JsonObject m) {
-		if (execLive()) executor.execute(() -> safely("push", () -> applyPush(m)));
+		// A relayed line goes straight to the client thread: queued behind the executor's other work (a
+		// flush, a config merge), it could wait seconds.
+		if ("relay".equals(m.get("t").getAsString())) {
+			if (config.anvilChat() != AnvilConfig.Relay.Off) clientThread.invoke(() -> showRelay(m));
+		} else if (execLive()) executor.execute(() -> safely("push", () -> applyPush(m)));
 	}
 
 	/**
@@ -7016,10 +7020,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		if ("look".equals(kind)) {
 			refreshLook();
-			return;
-		}
-		if ("relay".equals(kind)) {
-			if (config.anvilChat() != AnvilConfig.Relay.Off) clientThread.invoke(() -> showRelay(m));
 			return;
 		}
 		// Presence (relay sockets only): who else beside us has the relay on.
