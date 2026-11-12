@@ -323,10 +323,14 @@ public class BingoApiClient {
 		public String text;
 	}
 
-	/** {@code colors} is null for "plain": the plugin's own prefix/text colours for everything. */
+	/** {@code colors} is null for "plain": one plain colour for everything. */
 	public static class Look {
 		public String palette;
 		public Map<String, String> colors;
+		/** The [Anvil] tag's colour (hex, no '#'), or null for Anvil gold. */
+		public String tag;
+		/** Boards (event ids) whose chat stays out of the chatbox. */
+		public List<String> off;
 	}
 
 	/** Asked like the config (the brief is built from the same answer). Null on any failure. */

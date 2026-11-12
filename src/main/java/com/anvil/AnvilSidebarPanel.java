@@ -1183,13 +1183,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		seasonRow.revalidate();
 	}
 
-	/** Rebuild the visible site view so animated image nodes swap to their still/animated rendition. */
-	public void motionChanged() {
-		if (!onScreen) return;
-		var view = tab == Tab.YOU ? youView : tab == Tab.LOOKUP ? lookupView : tab == Tab.FEED ? feedView : clanView;
-		view.refresh();
-	}
-
 	/** A background refresh (the timer): the same, and the view redraws only if the site's answer changed. */
 	public void poll() {
 		refresh(false);

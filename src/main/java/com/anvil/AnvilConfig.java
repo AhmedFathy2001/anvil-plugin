@@ -1,6 +1,5 @@
 package com.anvil;
 
-import java.awt.Color;
 import net.runelite.client.config.*;
 
 @ConfigGroup("osrsbingo")
@@ -33,135 +32,94 @@ public interface AnvilConfig extends Config {
 	@ConfigSection(
 		name = "Profile sync",
 		description = "Send your collection log and best times to your Anvil profile.",
-		position = 7,
+		position = 9,
 		closedByDefault = true
 	)
 	String profileSection = "profileSection";
 
 	@ConfigSection(
-		name = "Chat messages",
-		description = "How Anvil's own lines look in your chatbox.",
+		name = "General",
+		description = "Anvil's own lines in your chatbox, and Supporters' names. Chat colours are on the Anvil website: Settings > In-game chat.",
 		position = 6,
 		closedByDefault = true
 	)
 	String chatSection = "chatSection";
 
-	@ConfigItem(
-		keyName = "chatPrefixColor",
-		name = "[Anvil] tag colour",
-		description = "Colour of the [Anvil] tag at the start of each line. Until you pick one, it turns dark gold on an opaque chatbox.",
-		position = 1,
-		section = "chatSection"
+	@ConfigSection(
+		name = "Anvil chat",
+		description = "Public, clan, friends chat and private lines that Anvil players send through Anvil, for when the game doesn't show them.",
+		position = 7,
+		closedByDefault = true
 	)
-	default Color chatPrefixColor() {
-		return new Color(0xFFD700);
-	}
+	String relaySection = "relaySection";
 
-	@ConfigItem(
-		keyName = "chatTextColor",
-		name = "Message colour",
-		description = "Colour of the message after the tag. Until you pick one, it turns black on an opaque chatbox.",
-		position = 2,
-		section = "chatSection"
+	@ConfigSection(
+		name = "Event chat",
+		description = "Your boards' event chat in the game chatbox. Which boards show here is set on the Anvil website: Settings > In-game chat.",
+		position = 8,
+		closedByDefault = true
 	)
-	default Color chatTextColor() {
-		return Color.WHITE;
-	}
+	String eventSection = "eventSection";
 
 	@ConfigItem(
 		keyName = "chatFeed",
-		name = "Show feed in game chat",
-		description = "Also print the feed in your game chatbox as it happens: big drops, pets and achievements from boards whose host turned it on and clans you guest in, your teammates' tile progress, and other teams' finished tiles. The side panel's Feed tab works either way. Pick what shows on your Anvil profile.",
-		position = 3,
+		name = "Anvil messages in chat",
+		description = "Print the feed in your game chatbox as it happens: big drops, pets and achievements from boards whose host turned it on and clans you guest in, your teammates' tile progress, and other teams' finished tiles. The side panel's Feed tab works either way. Pick what shows on your Anvil profile.",
+		position = 1,
 		section = "chatSection"
 	)
 	default boolean chatFeed() {
 		return true;
 	}
 
-	@ConfigItem(
-		keyName = "supporterChatFlair",
-		name = "Supporter names in chat",
-		description = "Show Anvil Supporters' name colours (and a Patron's star) in public, clan, friends and private chat, and on your friends list and channel member lists while they are online. The list of names is downloaded from Anvil; nothing about who you see is sent.",
-		position = 4,
-		section = "chatSection"
-	)
-	default boolean supporterChatFlair() {
-		return true;
+	/** Supporters' colours: off, in chat, or in chat and on right-click menus (never in PvP areas). */
+	enum Names {
+		Off, Chat, Chat_menus;
+
+		@Override
+		public String toString() {
+			return name().replace("_", " + ");
+		}
 	}
 
 	@ConfigItem(
-		keyName = "animatedNames",
-		name = "Animated names",
-		description = "Let Patron and boosted-clan gradients slide, and animated panel banners play. Off resets names and uses still images.",
-		position = 5,
+		keyName = "supporterNames",
+		name = "Supporter names",
+		description = "Show Anvil Supporters' name colours and badges in chat (and on your friends list and channel member lists while they are online), and on their name when you right-click them. Never in PvP areas. The list of names is downloaded from Anvil; nothing about who you see is sent.",
+		position = 2,
 		section = "chatSection"
 	)
-	default boolean animatedNames() {
-		return true;
+	default Names supporterNames() {
+		return Names.Chat_menus;
+	}
+
+	/** Anvil chat: off, see others' lines, also send your own, also your private messages. */
+	enum Relay {
+		Off, See_others, See_send, See_send_PMs;
+
+		@Override
+		public String toString() {
+			return this == See_others ? "See others" : name().replace("_", " + ");
+		}
 	}
 
 	@ConfigItem(
-		keyName = "menuNameFlair",
-		name = "Supporter names in menus",
-		description = "Show Anvil Supporters' name colours on their name when you right-click them. Never on PvP worlds or in the Wilderness. Nothing about who you see is sent.",
-		position = 6,
-		section = "chatSection"
+		keyName = "anvilChat",
+		name = "Anvil chat",
+		description = "See: lines other Anvil players sent through Anvil show when your game didn't show them (they carry a small anvil). Send: a copy of your own public, clan, friends chat and guest clan lines goes through Anvil too (your chat itself is never changed). PMs: your private messages as well, only to players who have Anvil chat on.",
+		position = 1,
+		section = "relaySection"
 	)
-	default boolean menuNameFlair() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "menuFlairOverride",
-		name = "Over other plugins' colours",
-		description = "On: a Supporter's colours replace a name colour another plugin set (like Player Indicators' clan colour). Off: names another plugin coloured are left alone.",
-		position = 7,
-		section = "chatSection"
-	)
-	default boolean menuFlairOverride() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "relaySend",
-		name = "Send my chat through Anvil",
-		description = "Signed in: also send a copy of your own public and clan chat lines through Anvil, so Anvil players whose game doesn't show them (if you're muted, for example) still see them. Your chat itself is never changed.",
-		position = 8,
-		section = "chatSection"
-	)
-	default boolean relaySend() {
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "relayPm",
-		name = "Also relay my private messages",
-		description = "Signed in: a private message you send also goes through Anvil, only to that player and only when they have Anvil chat on, so they see it even if their game doesn't show it.",
-		position = 8,
-		section = "chatSection"
-	)
-	default boolean relayPm() {
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "relayShow",
-		name = "Show Anvil chat",
-		description = "Show public and clan lines other Anvil players sent through Anvil when your game didn't show them, like normal chat. Lines that came through Anvil carry a small Anvil icon.",
-		position = 9,
-		section = "chatSection"
-	)
-	default boolean relayShow() {
-		return true;
+	default Relay anvilChat() {
+		return Relay.See_others;
 	}
 
 	@ConfigItem(
 		keyName = "eventChatbox",
-		name = "Show event chat in the chatbox",
-		description = "Print your boards' event chat in the game chatbox too, as [Board · Team] Name: message. The Feed tab shows it either way.",
-		position = 10,
-		section = "chatSection"
+		name = "Event chat in chatbox",
+		description = "Print your boards' event chat in the game chatbox too. Off, it stays in the panel's Feed tab, with a dot when something new comes in.",
+		position = 1,
+		section = "eventSection"
 	)
 	default boolean eventChatbox() {
 		return true;
@@ -171,8 +129,8 @@ public interface AnvilConfig extends Config {
 		keyName = "eventChatKey",
 		name = "Event chat key",
 		description = "Opens a chat input for your board's event chat; press it again to switch channel. You can also right-click the Clan chat tab.",
-		position = 11,
-		section = "chatSection"
+		position = 2,
+		section = "eventSection"
 	)
 	default Keybind eventChatKey() {
 		return new Keybind(java.awt.event.KeyEvent.VK_INSERT, 0);

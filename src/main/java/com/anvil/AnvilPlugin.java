@@ -1174,7 +1174,6 @@ public class AnvilPlugin extends Plugin {
 		apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
 		overlayManager.add(overlay);
 		overlayManager.add(clogBanner);
-		GradientLabel.setAnimate(config.animatedNames());
 		SwingUtilities.invokeLater(() -> GradientLabel.watch(client.getCanvas() == null ? null : SwingUtilities.getWindowAncestor(client.getCanvas())));
 		// A count the site lowered (a deleted submission): the panel asks for its views again now,
 		// not at the 15s catch-up, so the old number doesn't sit on screen.
@@ -1182,7 +1181,7 @@ public class AnvilPlugin extends Plugin {
 			var panel = sidebarPanel;
 			if (panel != null) panel.boardChanged();
 		});
-		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, () -> config.supporterChatFlair());
+		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, this::flairOn);
 		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress((id, site) -> shownProgress(id, site));
 		tileTracker.setNotes(this::tileNotes);
@@ -1212,6 +1211,7 @@ public class AnvilPlugin extends Plugin {
 				.panel(sidebarPanel)
 				.build();
 		clientToolbar.addNavigation(sidebarNavButton);
+		migrateChatSettings();
 		keyManager.registerKeyListener(eventChatKey);
 		// Registered now: a chat icon's index only exists once it has loaded, and the first line drawn
 		// before that went without it.
@@ -1785,23 +1785,16 @@ public class AnvilPlugin extends Plugin {
 		// client thread, often several keys at once — none of it changes what the site sends back.
 		// Colours off (or the plugin about to stop): show the game's own plain text at once, rather
 		// than whenever the game next redraws the chat (the next Enter or private message).
-		if (("supporterChatFlair".equals(key) && !config.supporterChatFlair())
-				|| ("menuNameFlair".equals(key) && !config.menuNameFlair())) {
+		if ("supporterNames".equals(key) && !menusFlair()) {
 			clientThread.invokeLater(this::unflairAll);
 			return;
 		}
 		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
-		if ("animatedNames".equals(key)) {
-			GradientLabel.setAnimate(config.animatedNames());
-			clientThread.invokeLater(this::refreshClanTitleWidgets);
-			if (sidebarPanel != null) invokeLater(sidebarPanel::motionChanged);
-			return;
-		}
 		if (isInternalStateKey(key)) return;
 		configureApiClient();
 		if ("profileLookupMenu".equals(key) || "lookupPlayers".equals(key)) profileLookup.syncPlayerItem();
 		if ("trackerOnePanel".equals(key)) tileTracker.setOnePanel(config.trackerOnePanel());
-		if ("chatFeed".equals(key) || key.startsWith("relay")) {
+		if ("chatFeed".equals(key) || "anvilChat".equals(key)) {
 			syncPush();
 			submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		}
@@ -1837,7 +1830,7 @@ public class AnvilPlugin extends Plugin {
 		int g = event.getGroupId();
 		int flairRoot = flairInterfaceRoot(g);
 		// Names and dynamic rows are populated just after the group itself appears.
-		if (flairRoot != -1 && config.supporterChatFlair()) clientThread.invokeLater(() -> flairInterface(flairRoot));
+		if (flairRoot != -1 && flairOn()) clientThread.invokeLater(() -> flairInterface(flairRoot));
 		// The clan window. Its header is where other plugins put buttons, and ours goes
 		// beside it — placed against whatever is already there rather than at a fixed offset.
 		//
@@ -5711,7 +5704,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void announceTileComplete(String line, String completedBy) {
 		var who = completedBy == null ? "" : clean(completedBy.trim());
-		if (!who.isEmpty() && config.supporterChatFlair() && chatFlair.entry(who) != null) {
+		if (!who.isEmpty() && flairOn() && chatFlair.entry(who) != null) {
 			var e = chatFlair.entry(who);
 			// A tenure icon is added by the chatbox pass; a star here as well would show twice.
 			var star = e.t == null && Boolean.TRUE.equals(e.s) ? chatStar() : null;
@@ -6076,7 +6069,7 @@ public class AnvilPlugin extends Plugin {
 	 * version every 10 minutes (deltas between come over the socket).
 	 */
 	void maybeRefreshChatFlair() {
-		if (!config.supporterChatFlair() || !apiClient.isConfigured()) return;
+		if (!flairOn() || !apiClient.isConfigured()) return;
 		var rc = responseCache;
 		if (!chatFlairSeeded && rc != null) {
 			chatFlairSeeded = true;
@@ -6132,8 +6125,39 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** The panel's tracked name: its Supporter look, or null. */
+	boolean flairOn() {
+		return config.supporterNames() != AnvilConfig.Names.Off;
+	}
+
+	boolean menusFlair() {
+		return config.supporterNames() == AnvilConfig.Names.Chat_menus;
+	}
+
+	/**
+	 * The chat settings before they were merged (Anvil chat, Supporter names): read once, mapped to the
+	 * new ones, then gone. The colour pickers moved to the site (Settings > In-game chat).
+	 */
+	void migrateChatSettings() {
+		var g = "osrsbingo";
+		var show = configManager.getConfiguration(g, "relayShow");
+		var send = configManager.getConfiguration(g, "relaySend");
+		var pm = configManager.getConfiguration(g, "relayPm");
+		if (show != null || send != null || pm != null) {
+			configManager.setConfiguration(g, "anvilChat", "false".equals(show) ? AnvilConfig.Relay.Off : "true".equals(pm) ? AnvilConfig.Relay.See_send_PMs
+					: "true".equals(send) ? AnvilConfig.Relay.See_send : AnvilConfig.Relay.See_others);
+		}
+		var chat = configManager.getConfiguration(g, "supporterChatFlair");
+		var menus = configManager.getConfiguration(g, "menuNameFlair");
+		if (chat != null || menus != null) {
+			configManager.setConfiguration(g, "supporterNames", "false".equals(chat) ? AnvilConfig.Names.Off : "false".equals(menus) ? AnvilConfig.Names.Chat : AnvilConfig.Names.Chat_menus);
+		}
+		for (var k : new String[]{"relayShow", "relaySend", "relayPm", "supporterChatFlair", "menuNameFlair", "animatedNames", "menuFlairOverride", "chatPrefixColor", "chatTextColor"}) {
+			if (configManager.getConfiguration(g, k) != null) configManager.unsetConfiguration(g, k);
+		}
+	}
+
 	boolean flairOff() {
-		return !config.supporterChatFlair() || chatFlair.isEmpty();
+		return !flairOn() || chatFlair.isEmpty();
 	}
 
 	ChatFlair.Entry flairOf(String rsn) {
@@ -6148,7 +6172,7 @@ public class AnvilPlugin extends Plugin {
 	 * a broadcast that starts with a Supporter's name is noted, so the walk knows its widget.
 	 */
 	void maybeKeepFlairBroadcast(ChatMessage event) {
-		if (!FLAIR_BROADCASTS.contains(event.getType()) || chatFlair.isEmpty() || !config.supporterChatFlair()) return;
+		if (!FLAIR_BROADCASTS.contains(event.getType()) || chatFlair.isEmpty() || !flairOn()) return;
 		var key = chatFlair.leadKey(event.getMessage());
 		if (key != null) flairBroadcasts.add(key);
 	}
@@ -6165,7 +6189,7 @@ public class AnvilPlugin extends Plugin {
 	long currentChatNameFrame() {
 		// Unfocused, the shared clock stands still, so the frame holds and moving names stop repainting;
 		// the per-frame paint pass keeps running (painting only on change made names flash plain).
-		return config.animatedNames() ? GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS : -1;
+		return GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS;
 	}
 	static double chatNameShift(long frame) {
 		return nameShift(frame, GradientLabel.GAME_CYCLE_MS);
@@ -6554,7 +6578,7 @@ public class AnvilPlugin extends Plugin {
 			if (hex != null && stops.size() < 4) stops.add(ChatPalette.readableHex(hex, false));
 		}
 		if (stops.isEmpty()) stops = level >= 2 ? CLAN_BOOST_MOVING : CLAN_BOOST_STILL;
-		var painted = ChatPalette.paintName(clean(name), stops.get(0), stops, level >= 2 && config.animatedNames() ? shift : 0);
+		var painted = ChatPalette.paintName(clean(name), stops.get(0), stops, level >= 2 ? shift : 0);
 		return (painted == null ? name : painted) + suffix;
 	}
 
@@ -6723,18 +6747,17 @@ public class AnvilPlugin extends Plugin {
 	void flairMenuTargets() {
 		// Cheap checks first, and nothing that reads varbits before login: those aren't loaded yet and
 		// getVarbitValue threw every frame on the login screen.
-		if (!config.menuNameFlair() || chatFlair.isEmpty() || !client.isMenuOpen()
+		if (!menusFlair() || chatFlair.isEmpty() || !client.isMenuOpen()
 				|| client.getGameState() != GameState.LOGGED_IN
 				|| inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) {
 			return;
 		}
-		var override = config.menuFlairOverride();
 		var frame = currentChatNameFrame();
 		var shift = interfaceNameShift(frame);
 		for (MenuEntry e : client.getMenuEntries()) {
 			var p = e.getPlayer();
 			var name = p == null ? null : p.getName();
-			var t = name == null ? null : chatFlair.paintMenuTarget(e.getTarget(), name, override, shift);
+			var t = name == null ? null : chatFlair.paintMenuTarget(e.getTarget(), name, true, shift);
 			if (t != null) e.setTarget(t);
 		}
 	}
@@ -6962,7 +6985,7 @@ public class AnvilPlugin extends Plugin {
 		// socket just for the Feed, and only while it's on screen.
 		// The chat relay (either half on) listens too, on the world it is on: a hop or another character
 		// re-tickets, since the ticket names both (docs/PLUGIN_WIRE.md chat-relay).
-		int world = (config.relaySend() || config.relayShow()) && loggedIn()
+		int world = config.anvilChat() != AnvilConfig.Relay.Off && loggedIn()
 				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
 		var rows = eventId > 0 || feed || feedWatching || world > 0;
 		if (p != null) {
@@ -6996,7 +7019,7 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if ("relay".equals(kind)) {
-			if (config.relayShow()) clientThread.invoke(() -> showRelay(m));
+			if (config.anvilChat() != AnvilConfig.Relay.Off) clientThread.invoke(() -> showRelay(m));
 			return;
 		}
 		// Presence (relay sockets only): who else beside us has the relay on.
@@ -7014,7 +7037,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 		if ("flair".equals(kind) || "hello".equals(kind)) {
-			if (config.supporterChatFlair() && apiClient.isConfigured()) {
+			if (flairOn() && apiClient.isConfigured()) {
 				if ("hello".equals(kind)) {
 					chatFlairSync.soon();
 				} else chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));
@@ -8266,7 +8289,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe(priority = -1)
 	public void onMenuEntryAdded(MenuEntryAdded event) {
-		if (!config.menuNameFlair() || chatFlair.isEmpty()) return;
+		if (!menusFlair() || chatFlair.isEmpty()) return;
 		var entry = event.getMenuEntry();
 		var p = entry.getPlayer();
 		var name = p == null ? null : p.getName();
@@ -8274,9 +8297,6 @@ public class AnvilPlugin extends Plugin {
 		var target = entry.getTarget();
 		var m = menuNamePattern(name).matcher(target == null ? "" : target);
 		if (!m.find()) return;
-		// Another plugin coloured it (any colour but the game's white): leave it unless told to paint over.
-		var col = m.group(1);
-		if (col != null && !col.equalsIgnoreCase("ffffff") && !config.menuFlairOverride()) return;
 		var painted = chatFlair.decorateReadable(name, null, 0, false);
 		if (painted != null) entry.setTarget(target.substring(0, m.start()) + painted + target.substring(m.end()));
 	}
@@ -9688,14 +9708,6 @@ public class AnvilPlugin extends Plugin {
 		return s.replace('|', '\u00A6').replace('<', '\u2039').replace('>', '\u203A');
 	}
 
-	/** A setting left at its default: RuneLite stores nothing until the player changes it. */
-	boolean unset(String key) {
-		return configManager.getConfiguration("osrsbingo", key) == null;
-	}
-
-	static String hexOf(Color c, String fallback) {
-		return c == null ? fallback : String.format("%06x", c.getRGB() & 0xFFFFFF);
-	}
 
 	void sendChatMessage(String message) {
 		sendChatLine("Anvil", message, Tone.INFO, null);
@@ -9832,9 +9844,19 @@ public class AnvilPlugin extends Plugin {
 	 * Re-read the chat colours alone (no lines): the player changed them on the site (a {"t":"look"}
 	 * push), or pressed Refresh. Without this they only took effect at the next login.
 	 */
+	/** The site's chat look: line colours, the [Anvil] tag's colour, and boards kept out of the chatbox. */
+	void adoptLook(BingoApiClient.Look l) {
+		chatPalette = ChatPalette.from(l.palette, l.colors);
+		chatTag = l.tag != null && ChatPalette.HEX.matcher(l.tag).matches() ? l.tag : null;
+		chatboxOff = l.off != null ? l.off : List.of();
+	}
+
+	volatile String chatTag;
+	volatile List<String> chatboxOff = List.of();
+
 	void refreshLook() {
 		var b = apiClient.fetchBrief();
-		if (b != null && b.look != null) chatPalette = ChatPalette.from(b.look.palette, b.look.colors);
+		if (b != null && b.look != null) adoptLook(b.look);
 	}
 
 	/** Manual panel Refresh: bypass the ten-minute cadence so changed public name styles appear now. */
@@ -9847,7 +9869,7 @@ public class AnvilPlugin extends Plugin {
 	void sendBrief() {
 		var b = apiClient.fetchBrief();
 		if (b == null) return;
-		if (b.look != null) chatPalette = ChatPalette.from(b.look.palette, b.look.colors);
+		if (b.look != null) adoptLook(b.look);
 		if (b.lines != null) {
 			for (BriefLine l : b.lines) {
 				if (l != null && l.text != null) sendChatMessage(Tone.of(l.tone), l.text);
@@ -9932,7 +9954,8 @@ public class AnvilPlugin extends Plugin {
 	/** Our own line out; true when it went (the line then wears the icon: you can see you're connected). */
 	boolean relaySay(String c, String text, String to) {
 		var p = pushSocket;
-		if (!("pm".equals(c) ? config.relayPm() : config.relaySend()) || p == null || text.startsWith("::")) return false;
+		var on = config.anvilChat();
+		if (!("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : on.compareTo(AnvilConfig.Relay.See_send) >= 0) || p == null || text.startsWith("::")) return false;
 		log.debug("Relay: sending own {} line", c);
 		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
@@ -10053,7 +10076,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: a relayed line — the icon on the game's copy, else the line itself, at once (sender muted). */
 	void showRelay(JsonObject m) {
-		if (!config.relayShow() || !loggedIn() || client.getLocalPlayer() == null) return;
+		if (config.anvilChat() == AnvilConfig.Relay.Off || !loggedIn() || client.getLocalPlayer() == null) return;
 		var n = m.get("n").getAsString();
 		var c = m.get("c").getAsString();
 		var key = c + relayKey(n, m.get("x").getAsString());
@@ -10141,7 +10164,10 @@ public class AnvilPlugin extends Plugin {
 
 	/** An event chat push row: its chatbox copy (built by the site), or the Feed tab's dot when that's off. */
 	void eventChatLine(JsonObject m) {
-		if (!config.eventChatbox()) {
+		// "chat:<event>:<channel>": where "Reply in" posts, and the line's colours.
+		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
+		// Off here, or this board switched off on the site: the panel's Feed tab gets a dot instead.
+		if (!config.eventChatbox() || chatboxOff.contains(feed[1])) {
 			var panel = sidebarPanel;
 			if (panel != null) panel.feedUnread();
 			return;
@@ -10150,8 +10176,6 @@ public class AnvilPlugin extends Plugin {
 		// by its "[Board · Channel]" prefix is printed, so nothing can pass for a game message.
 		var line = m.get(chatOne && m.has("cb1") ? "cb1" : "cb").getAsString().replaceAll("<(?!/?col(=[0-9a-fA-F]{6})?>|lt>|gt>)[^>]*>", "");
 		if (!line.matches("^<col=[0-9a-fA-F]{6}>\\[[^<\\]]+\\]</col> .*")) return;
-		// "chat:<event>:<channel>": where "Reply in" posts, and the line's colours.
-		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
 		int tag = line.indexOf(']'), colon = line.indexOf(": ", tag);
 		if (colon < 0) return;
 		var ai = m.has("ai") ? "<img=" + m.get("ai").getAsInt() + ">" : "";
@@ -10178,7 +10202,7 @@ public class AnvilPlugin extends Plugin {
 		var c = EVENT_COLS[lastChatboxOpaque ? 0 : 1];
 		// The name as in game chat: the Supporter badge and colours (ChatFlair, as on player lines), then
 		// the account-type icon before the name.
-		var d = config.supporterChatFlair() ? chatFlair.decorateReadable(p[1], chatStar(), 0, lastChatboxOpaque) : null;
+		var d = flairOn() ? chatFlair.decorateReadable(p[1], chatStar(), 0, lastChatboxOpaque) : null;
 		var who = d == null ? p[4] + p[1] : d.replaceFirst("^(<img=\\d+>)?", "$1" + p[4]);
 		return relayIcon() + "<col=" + c[0] + ">[" + p[0] + "]</col> " + who + ": <col=" + c["team".equals(p[3]) ? 1 : "all".equals(p[3]) ? 2 : 3] + ">" + p[2] + "</col>";
 	}
@@ -10309,7 +10333,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The dataset's look for this surface (own dark/light look, else adapted) wins over the push's
 		// raw colours, so a feed line's name matches the same name in chat.
-		var own = who.isEmpty() || !config.supporterChatFlair() ? null : chatFlair.paintNameFor(clean(who), lastChatboxOpaque);
+		var own = who.isEmpty() || !flairOn() ? null : chatFlair.paintNameFor(clean(who), lastChatboxOpaque);
 		var name = own != null ? own : grad != null ? grad
 				: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who);
 		var fe = own == null ? null : chatFlair.entry(clean(who));
@@ -10343,11 +10367,9 @@ public class AnvilPlugin extends Plugin {
 			// The opaque chatbox (fixed mode, or resizable with transparency off) is light parchment: the
 			// default bright colours swap for dark ones there. Colours the player picked are kept.
 			var opaque = opaqueChatbox();
-			var own = hexOf(config.chatTextColor(), "ffffff");
-			var prefix = hexOf(config.chatPrefixColor(), "ffd700");
-			// Only a colour nobody set: one the player chose (even the default value itself) is kept.
-			if (opaque && unset("chatTextColor")) own = "000000";
-			if (opaque && unset("chatPrefixColor")) prefix = "7a5600";
+			// The tag's colour is the site's (Settings > In-game chat), else Anvil gold; plain text white.
+			var own = opaque ? "000000" : "ffffff";
+			var prefix = chatTag != null ? chatTag : opaque ? "7a5600" : "ffd700";
 			// Every colour in the line, whoever chose it, readable on this chatbox (ChatPalette.readable).
 			var line = ChatPalette.readable("<col=" + prefix + ">[" + clean(tag) + "]</col> "
 					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>"
