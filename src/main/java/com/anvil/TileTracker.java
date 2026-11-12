@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.Setter;
+import lombok.*;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
@@ -8,11 +8,8 @@ import javax.inject.*;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
-import java.util.function.IntFunction;
-import java.util.function.ToLongBiFunction;
+import java.util.function.*;
 import java.time.*;
-import java.util.function.Supplier;
-import java.util.function.Consumer;
 
 /**
  * Tiles pinned from the sidebar as in-game widgets ("Track on screen"): one movable, resizable
@@ -30,9 +27,10 @@ import java.util.function.Consumer;
  */
 
 @Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class TileTracker {
 	static final int MAX_PINS = 3;
-	static final String CFG_PINS = "trackedTiles";
+	static final String CFG_PINS = "trackedTiles", G = "osrsbingo";
 	static final Color GOLD = new Color(255, 215, 0);
 	static final int OTHER_TEAMS_SHOWN = 4;
 	/** The blank line between pins in the shared panel; one instance serves every gap. */
@@ -59,7 +57,7 @@ public class TileTracker {
 	 * tileId → the plugin's extra lines for it ("3/5 runs", a combo's parts, TileNotes), read from
 	 * the polled config each frame. None until the plugin sets it.
 	 */
-	@Setter volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
+	@Setter volatile IntFunction<List<String>> notes = id -> List.of();
 	/** The live boards' ids, to find the board of a pin saved without one. */
 	volatile Supplier<List<Integer>> boards = Collections::emptyList;
 	/** Says why a pin came down (a chat line). */
@@ -76,24 +74,18 @@ public class TileTracker {
 	 */
 	volatile List<Widget> drawn = new ArrayList<>();
 
-	@Inject
-	TileTracker(OverlayManager overlayManager, ConfigManager configManager, BingoApiClient apiClient) {
-		this.overlayManager = overlayManager;
-		this.configManager = configManager;
-		this.apiClient = apiClient;
-	}
 
 	/**
 	 * {@code doneSeen}: a pin just started showing "Done" (tileId) — the plugin asks again after the
 	 * linger, so it comes down on time instead of on the next 30s poll. {@code unpinned}: a finished pin
 	 * came down, so whatever lists the pins (the panel's "Tracked on screen") asks again.
 	 */
-	void setDoneHooks(java.util.function.IntConsumer doneSeen, Runnable unpinned) {
+	void setDoneHooks(IntConsumer doneSeen, Runnable unpinned) {
 		this.doneSeen = doneSeen;
 		this.unpinned = unpinned;
 	}
 
-	volatile java.util.function.IntConsumer doneSeen = id -> { };
+	volatile IntConsumer doneSeen = id -> { };
 	volatile Runnable unpinned = () -> { };
 
 	void setBoards(Supplier<List<Integer>> live, Consumer<String> tell) {
@@ -111,7 +103,7 @@ public class TileTracker {
 
 	void hideAll() {
 		overlayManager.remove(combined);
-		for (Widget w : pins.values()) overlayManager.remove(w);
+		for (var w : pins.values()) overlayManager.remove(w);
 	}
 
 	void showAll() {
@@ -119,14 +111,18 @@ public class TileTracker {
 		if (onePanel) {
 			overlayManager.add(combined);
 		} else {
-			for (Widget w : pins.values()) overlayManager.add(w);
+			for (var w : pins.values()) overlayManager.add(w);
 		}
 	}
 
 	Widget removePin(int tileId) {
 		var w = pins.remove(tileId);
-		drawn = new ArrayList<>(pins.values());
+		redraw();
 		return w;
+	}
+
+	void redraw() {
+		drawn = new ArrayList<>(pins.values());
 	}
 
 	/** Take one pin's widget down, and the shared panel with the last one. */
@@ -145,10 +141,10 @@ public class TileTracker {
 	 */
 	synchronized void startUp() {
 		account = -1;
-		var old = configManager.getConfiguration("osrsbingo", CFG_PINS);
+		var old = configManager.getConfiguration(G, CFG_PINS);
 		if (old != null) {
 			legacyPins = old;
-			configManager.unsetConfiguration("osrsbingo", CFG_PINS);
+			configManager.unsetConfiguration(G, CFG_PINS);
 		}
 	}
 
@@ -161,10 +157,10 @@ public class TileTracker {
 		if (hash == account) return;
 		shutDown();
 		account = hash;
-		var saved = hash == -1 ? null : configManager.getConfiguration("osrsbingo", key());
+		var saved = hash == -1 ? null : configManager.getConfiguration(G, key());
 		if (saved == null && hash != -1 && legacyPins != null) {
 			saved = legacyPins;
-			configManager.setConfiguration("osrsbingo", key(), saved);
+			configManager.setConfiguration(G, key(), saved);
 		}
 		if (hash != -1) legacyPins = null;
 		if (saved == null || saved.isEmpty()) return;
@@ -181,7 +177,7 @@ public class TileTracker {
 	synchronized void shutDown() {
 		hideAll();
 		pins.clear();
-		drawn = new ArrayList<>();
+		redraw();
 	}
 
 	synchronized boolean isPinned(int eventId, int tileId) {
@@ -199,12 +195,9 @@ public class TileTracker {
 
 	/** Pin or unpin. */
 	synchronized void toggle(int eventId, int tileId) {
-		if (!TileNotes.pinnable(tileId)) {
-			return; // a cap counter's virtual entry is never pinned
-		}
-		if (isPinned(eventId, tileId)) {
-			hide(removePin(tileId));
-		} else {
+		if (!TileNotes.pinnable(tileId)) return; // a cap counter's virtual entry is never pinned
+		if (isPinned(eventId, tileId)) hide(removePin(tileId));
+		else {
 			if (pins.size() >= MAX_PINS) return;
 			// A done tile can't be pinned (the sidebar offers no button), so a pin that turns out done
 			// on its first fetch was finished in between — it comes down like any other.
@@ -222,12 +215,13 @@ public class TileTracker {
 		for (int id : ids) refresh(id);
 	}
 
+	synchronized Widget pin(int tileId) {
+		return pins.get(tileId);
+	}
+
 	/** Refetch one pinned tile (no-op when it isn't pinned). Blocking. */
 	void refresh(int tileId) {
-		Widget w;
-		synchronized (this) {
-			w = pins.get(tileId);
-		}
+		var w = pin(tileId);
 		if (w == null) return;
 		var p = fetch(w);
 		if (letGo(w, p)) {
@@ -276,12 +270,9 @@ public class TileTracker {
 	 * as the route ranks it for a caller), then shown like a fetch.
 	 */
 	void pushed(int event, int tileId, Progress p, int myTeam, int myPlayer) {
-		Widget w;
-		synchronized (this) {
-			w = pins.get(tileId);
-		}
+		var w = pin(tileId);
 		if (w == null || w.event != event || p == null || p.teams == null || p.phase == null || p.phase.contains("ended")) return;
-		for (Team t : p.teams) {
+		for (var t : p.teams) {
 			t.mine = t.teamId == myTeam;
 			if (t.members != null) t.members.forEach(m -> m.mine = m.id > 0 && m.id == myPlayer);
 		}
@@ -324,23 +315,22 @@ public class TileTracker {
 
 	static boolean ownTeamDone(Progress p) {
 		if (p.teams == null || "upcoming".equals(p.phase)) return false;
-		for (Team t : p.teams) {
+		for (var t : p.teams) {
 			if (t.mine) return t.complete;
 		}
 		return false;
 	}
 
 	synchronized void unpinDone(int event, int tileId, Widget w) {
-		if (pins.get(tileId) == w) {
-			hide(removePin(tileId));
-			save();
-			unpinned.run();
-		}
+		if (pins.get(tileId) != w) return;
+		hide(removePin(tileId));
+		save();
+		unpinned.run();
 	}
 
 	/** The tiles pinned for this event, in pin order. */
 	synchronized List<Integer> pinned(int eventId) {
-		List<Integer> out = new ArrayList<>();
+		var out = new ArrayList<Integer>();
 		pins.values().forEach(w -> {
 			if (w.event == eventId) out.add(w.tileId);
 		});
@@ -350,9 +340,8 @@ public class TileTracker {
 	/** The widget's right-click "Unpin": one pin, or every pin from the shared panel. */
 	synchronized boolean unpinFrom(Overlay overlay, String option) {
 		if (option == null || !option.startsWith("Unpin")) return false;
-		if (overlay == combined) {
-			shutDown();
-		} else if (overlay instanceof Widget && pins.get(((Widget) overlay).tileId) == overlay) {
+		if (overlay == combined) shutDown();
+		else if (overlay instanceof Widget && pins.get(((Widget) overlay).tileId) == overlay) {
 			hide(removePin(((Widget) overlay).tileId));
 		} else return false;
 		save();
@@ -367,7 +356,7 @@ public class TileTracker {
 
 	/** Asked from the client thread on every credited kill, so read off the snapshot, lock-free. */
 	boolean tracks(int tileId) {
-		for (Widget w : drawn) {
+		for (var w : drawn) {
 			if (w.tileId == tileId) return true;
 		}
 		return false;
@@ -380,7 +369,7 @@ public class TileTracker {
 		w.event = eventId;
 		w.notes = id -> notes.apply(id);
 		pins.put(tileId, w);
-		drawn = new ArrayList<>(pins.values());
+		redraw();
 		if (onePanel) {
 			overlayManager.remove(combined); // re-added, so it is never in twice
 			overlayManager.add(combined);
@@ -398,17 +387,14 @@ public class TileTracker {
 
 	void save() {
 		if (account == -1) return;
-		if (pins.isEmpty()) {
-			configManager.unsetConfiguration("osrsbingo", key());
-			return;
-		}
-		configManager.setConfiguration("osrsbingo", key(), format(pins.values()));
+		if (pins.isEmpty()) configManager.unsetConfiguration(G, key());
+		else configManager.setConfiguration(G, key(), format(pins.values()));
 	}
 
 	/** Saved pins, tile → its board: "event:tile,tile;event:tile" (one board's "event:tile,tile" too). */
 	static Map<Integer, Integer> parse(String saved) {
-		Map<Integer, Integer> out = new LinkedHashMap<>();
-		for (String board : saved.split(";")) {
+		var out = new LinkedHashMap<Integer, Integer>();
+		for (var board : saved.split(";")) {
 			// "event:tile,tile"; a bare "tile,tile" (saved before pins kept a board) gets board 0, found at fetch.
 			var parts = board.contains(":") ? board.split(":", 2) : new String[]{"0", board};
 			int event;
@@ -417,7 +403,7 @@ public class TileTracker {
 			} catch (NumberFormatException e) {
 				continue;
 			}
-			for (String id : parts[1].split(",")) {
+			for (var id : parts[1].split(",")) {
 				try {
 					out.put(Integer.valueOf(id.trim()), event);
 				} catch (NumberFormatException e) {
@@ -435,20 +421,15 @@ public class TileTracker {
 	}
 
 	/** Every pin in one movable panel, in pin order, a blank line between them — name and bar each. */
-	class Combined extends OverlayPanel {
+	class Combined extends Pinned {
 		Combined() {
-			addUnpin(this, "Unpin all");
-			setPosition(OverlayPosition.TOP_LEFT);
-			setResizable(true);
-			setMovable(true);
+			super("Unpin all");
 		}
 
-		@Override
 		public String getName() {
 			return "AnvilTileTrackerPanel";
 		}
 
-		@Override
 		public Dimension render(Graphics2D graphics) {
 			if (AnvilPlugin.capturing) return null;
 			var shown = drawn; // no lock on the frame path
@@ -460,8 +441,14 @@ public class TileTracker {
 		}
 	}
 
-	static void addUnpin(Overlay overlay, String option) {
-		overlay.getMenuEntries().add(new OverlayMenuEntry(net.runelite.api.MenuAction.RUNELITE_OVERLAY, option, "Anvil tile"));
+	/** A movable, resizable pin panel with its right-click "Unpin" option. */
+	static class Pinned extends OverlayPanel {
+		Pinned(String option) {
+			getMenuEntries().add(new OverlayMenuEntry(net.runelite.api.MenuAction.RUNELITE_OVERLAY, option, "Anvil tile"));
+			setPosition(OverlayPosition.TOP_LEFT);
+			setResizable(true);
+			setMovable(true);
+		}
 	}
 
 	/** The site's answer (lib/tileTracker): the viewer's team first, then the rest by progress. */
@@ -502,15 +489,15 @@ public class TileTracker {
 	 * One pinned tile. Alt-drag moves it and drags its edge to resize, like any overlay; each slot has
 	 * its own name so RuneLite remembers where every one was put.
 	 */
-	static class Widget extends OverlayPanel {
+	static class Widget extends Pinned {
 		final int slot;
 		final int tileId;
 		/** The board it's on. */
 		int event;
 		final ToLongBiFunction<Integer, Long> shown;
 		/** This tile's extra lines (TileTracker.notes); none by default. */
-		volatile IntFunction<List<String>> notes = id -> Collections.emptyList();
-		List<String> builtNotes = Collections.emptyList();
+		volatile IntFunction<List<String>> notes = id -> List.of();
+		List<String> builtNotes = List.of();
 		volatile Progress progress;
 		/** The tile's name once seen; fetches failed with nothing shown. */
 		String label;
@@ -539,21 +526,17 @@ public class TileTracker {
 		long shownSecs;
 
 		Widget(int slot, int tileId, ToLongBiFunction<Integer, Long> shown) {
+			super("Unpin");
 			this.slot = slot;
 			this.tileId = tileId;
 			this.shown = shown;
-			addUnpin(this, "Unpin");
-			setPosition(OverlayPosition.TOP_LEFT);
-			setResizable(true);
-			setMovable(true);
 		}
 
-		@Override
+
 		public String getName() {
 			return "AnvilTileTracker" + slot;
 		}
 
-		@Override
 		public Dimension render(Graphics2D graphics) {
 			if (AnvilPlugin.capturing) return null;
 			drawInto(panelComponent, false);
@@ -568,7 +551,8 @@ public class TileTracker {
 		void drawInto(PanelComponent panelComponent, boolean compact) {
 			var p = progress;
 			var n = notes.apply(tileId);
-			if (n == null) n = Collections.emptyList();
+			if (n == null) n = List.of();
+
 			if (p != builtFor || compact != builtCompact || lines.isEmpty() || !n.equals(builtNotes)) {
 				builtNotes = n;
 				build(p, compact);
@@ -606,7 +590,7 @@ public class TileTracker {
 				return;
 			}
 			lines.add(TitleComponent.builder().text(p.label).color(GOLD).build());
-			for (String note : builtNotes) lines.add(LineComponent.builder().left(note).leftColor(Color.LIGHT_GRAY).build());
+			for (var note : builtNotes) lines.add(LineComponent.builder().left(note).leftColor(Color.LIGHT_GRAY).build());
 			if ("upcoming".equals(p.phase)) {
 				// Nothing counts before the start, so there is no progress to draw yet — only when.
 				lines.add(LineComponent.builder().left("Goal").right(Ui.count(p.goal)).build());
@@ -621,7 +605,7 @@ public class TileTracker {
 			}
 			if (p.teams == null) return; // named, nothing to rank yet
 			int others = 0;
-			for (Team t : p.teams) {
+			for (var t : p.teams) {
 				if (t.mine) {
 					buildOwnTeam(p, t, compact);
 				} else if (!compact && others++ < OTHER_TEAMS_SHOWN) {
@@ -644,7 +628,7 @@ public class TileTracker {
 			bar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.FULL);
 			lines.add(bar);
 			if (compact || t.members == null) return;
-			for (Member m : t.members) {
+			for (var m : t.members) {
 				var line = LineComponent.builder()
 					.left(m.mine ? "You" : m.name)
 					.leftColor(m.mine ? GOLD : Color.LIGHT_GRAY)

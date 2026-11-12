@@ -1,10 +1,6 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.awt.Color;
 
@@ -20,7 +16,7 @@ final class ChatPalette {
 
 		static Tone of(String s) {
 			if (s != null) {
-				for (Tone t : values()) {
+				for (var t : values()) {
 					if (t.name().equalsIgnoreCase(s)) return t;
 				}
 			}
@@ -37,15 +33,13 @@ final class ChatPalette {
 	 * The Anvil tones on the OPAQUE chatbox: its parchment washes the bright set out, so the same tones
 	 * in the dark inks the game itself uses there. A player's own (custom) palette is theirs, kept as is.
 	 */
-	static final Map<Tone, String> OPAQUE = new EnumMap<>(Tone.class);
+	static final Map<Tone, String> OPAQUE = tones("006a00", "7a4a00", "a03c00", "4d4d4d", "9e0000", "000000");
 
-	static {
-		OPAQUE.put(Tone.DONE, "006a00");
-		OPAQUE.put(Tone.NEAR, "7a4a00");
-		OPAQUE.put(Tone.DROP, "a03c00");
-		OPAQUE.put(Tone.FEED, "4d4d4d");
-		OPAQUE.put(Tone.WARN, "9e0000");
-		OPAQUE.put(Tone.INFO, "000000");
+	/** One colour per tone, in Tone order. */
+	static Map<Tone, String> tones(String... hex) {
+		Map<Tone, String> m = new EnumMap<>(Tone.class);
+		for (var t : Tone.values()) m.put(t, hex[t.ordinal()]);
+		return m;
 	}
 
 	/** Null: plain. */
@@ -59,14 +53,7 @@ final class ChatPalette {
 	}
 
 	static ChatPalette anvil() {
-		Map<Tone, String> m = new EnumMap<>(Tone.class);
-		m.put(Tone.DONE, "16c60c");
-		m.put(Tone.NEAR, "ffb000");
-		m.put(Tone.DROP, "ff7f27");
-		m.put(Tone.FEED, "9a9a9a");
-		m.put(Tone.WARN, "ff3b3b");
-		m.put(Tone.INFO, "ffffff");
-		return new ChatPalette(m, false);
+		return new ChatPalette(tones("16c60c", "ffb000", "ff7f27", "9a9a9a", "ff3b3b", "ffffff"), false);
 	}
 
 	/** The site's look ({palette, colors}); anything unreadable keeps the Anvil colour for that tone. */
@@ -74,9 +61,9 @@ final class ChatPalette {
 		if ("plain".equals(palette)) return new ChatPalette(null, false);
 		Map<Tone, String> m = new EnumMap<>(ANVIL.colors);
 		if (colors != null) {
-			for (Map.Entry<String, String> e : colors.entrySet()) {
-				var v = e.getValue() == null ? "" : e.getValue().replace("#", "");
-				if (HEX.matcher(v).matches()) m.put(Tone.of(e.getKey()), v.toLowerCase(Locale.ROOT));
+			for (var e : colors.entrySet()) {
+				var v = nameColor(e.getValue());
+				if (v != null) m.put(Tone.of(e.getKey()), v);
 			}
 		}
 		return new ChatPalette(m, "custom".equals(palette));
@@ -114,7 +101,7 @@ final class ChatPalette {
 	 */
 	static List<int[]> rgbOf(List<String> stops) {
 		List<int[]> rgb = new ArrayList<>();
-		for (String s : stops == null ? new ArrayList<String>() : stops) {
+		for (var s : stops == null ? new ArrayList<String>() : stops) {
 			var hex = nameColor(s);
 			if (hex != null && rgb.size() < 4) {
 				int v = Integer.parseInt(hex, 16);
@@ -185,7 +172,7 @@ final class ChatPalette {
 	 * and Supporter names and every letter of a gradient, whoever chose the colour.
 	 */
 	static String readable(String line, boolean opaque) {
-		java.util.regex.Matcher m = COL.matcher(line);
+		var m = COL.matcher(line);
 		var out = new StringBuffer();
 		while (m.find()) m.appendReplacement(out, "<col=" + readableHex(m.group(1), opaque) + ">");
 		m.appendTail(out);
@@ -221,12 +208,10 @@ final class ChatPalette {
 				readable = candidate;
 			} else lo = mid;
 		}
-		char[] out = new char[6];
-		for (int at = 5; at >= 0; at--) {
-			out[at] = HEX_DIGITS.charAt(readable & 0xf);
-			readable >>>= 4;
-		}
-		return new String(out);
+		var out = new StringBuilder(6);
+		appendHex(out, readable);
+		return out.toString();
+
 	}
 
 	static double contrast(int a, int b) {

@@ -1,7 +1,6 @@
 package com.anvil;
 
-import lombok.Setter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.*;
@@ -100,9 +99,9 @@ final class PushStash {
 		mergeMax(out.xp, older.xp, newer.xp);
 		mergeMax(out.activity, older.activity, newer.activity);
 		Map<String, SavedMoment> byKey = new LinkedHashMap<>();
-		for (List<SavedMoment> list : Arrays.asList(older.moments, newer.moments)) {
+		for (var list : Arrays.asList(older.moments, newer.moments)) {
 			if (list != null) {
-				for (SavedMoment m : list) {
+				for (var m : list) {
 					if (m != null && m.key != null) byKey.put(m.key, m);
 				}
 			}
@@ -112,7 +111,7 @@ final class PushStash {
 	}
 
 	static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
-		for (Map<String, Integer> m : Arrays.asList(a, b)) {
+		for (var m : Arrays.asList(a, b)) {
 			if (m != null) {
 				m.forEach((k, v) -> {
 					if (k != null && v != null) into.merge(k, v, Integer::max);

@@ -51,14 +51,13 @@ final class ClogSync {
 
 	/** Whether a flush should run now: the queue has settled, or it's big enough to go early. */
 	boolean isDue(long now) {
-		if (pending.isEmpty()) return false;
-		return pending.size() >= EAGER_AT || now - lastChangeAt >= QUIET_MS;
+		return !pending.isEmpty() && (pending.size() >= EAGER_AT || now - lastChangeAt >= QUIET_MS);
 	}
 
 	/** Pages to send in the next request, oldest first. Does NOT clear them — see {@link #onSent}. */
 	List<ClogPage> nextBatch() {
 		List<ClogPage> batch = new ArrayList<>(Math.min(BATCH_PAGES, pending.size()));
-		for (ClogPage page : pending.values()) {
+		for (var page : pending.values()) {
 			batch.add(page);
 			if (batch.size() >= BATCH_PAGES) break;
 		}
@@ -70,7 +69,7 @@ final class ClogSync {
 	 * the pages queued and the next flush retries them — no bookkeeping, no lost pages.
 	 */
 	void onSent(Collection<ClogPage> batch) {
-		for (ClogPage page : batch) {
+		for (var page : batch) {
 			var queued = pending.get(page.name);
 			// Left queued if it changed again while the request was in flight.
 			if (queued != null && queued.hash == page.hash) pending.remove(page.name);
@@ -108,7 +107,7 @@ final class ClogSync {
 	/** {@code <value>|<name>} per line — the shape this and {@link PersonalBests} persist. */
 	static <V> String writeLines(Map<String, V> map, Function<V, String> value) {
 		var out = new StringBuilder(map.size() * 24);
-		for (Map.Entry<String, V> e : map.entrySet()) {
+		for (var e : map.entrySet()) {
 			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0) continue;
 			if (out.length() > 0) out.append('\n');
 			out.append(value.apply(e.getValue())).append('|').append(e.getKey());
@@ -119,7 +118,7 @@ final class ClogSync {
 	/** Each well-formed {@link #writeLines} line as (value, name); a line whose value won't parse is skipped. */
 	static void readLines(String raw, BiConsumer<String, String> line) {
 		if (raw == null || raw.isEmpty()) return;
-		for (String l : raw.split("\n")) {
+		for (var l : raw.split("\n")) {
 			int pipe = l.indexOf('|');
 			if (pipe <= 0 || pipe == l.length() - 1) continue;
 			try {

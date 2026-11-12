@@ -158,7 +158,7 @@ final class ProfileLookup {
 	}
 
 	@Subscribe
-	public void onMenuEntryAdded(MenuEntryAdded event) {
+	void onMenuEntryAdded(MenuEntryAdded event) {
 		if (!config.profileLookupMenu()) return;
 		int groupId = WidgetUtil.componentToInterface(event.getActionParam1());
 		int placement = listPlacement(groupId, event.getOption());
@@ -177,7 +177,7 @@ final class ProfileLookup {
 	}
 
 	@Subscribe
-	public void onMenuOptionClicked(MenuOptionClicked event) {
+	void onMenuOptionClicked(MenuOptionClicked event) {
 		if (event.getMenuAction() != MenuAction.RUNELITE_PLAYER || !OPTION.equals(event.getMenuOption())) return;
 		var player = event.getMenuEntry().getPlayer();
 		if (player != null) lookUp(player.getName());

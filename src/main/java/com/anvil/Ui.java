@@ -6,9 +6,11 @@ import java.awt.event.*;
 import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import javax.swing.*;
 import net.runelite.client.ui.*;
-import javax.swing.event.DocumentEvent;
+import javax.swing.event.*;
+import javax.swing.text.JTextComponent;
 
 /**
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds
@@ -23,18 +25,21 @@ final class Ui {
 	}
 
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
-	static final java.util.regex.Pattern HAS_OFFSET = java.util.regex.Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
+	static final Pattern HAS_OFFSET = Pattern.compile(".*[+-]\\d\\d:\\d\\d$");
 
 	// FontManager hands out the same static instances every call, so holding them changes nothing.
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
 	static final Font REGULAR = FontManager.getRunescapeFont();
 	static final Font BOLD = FontManager.getRunescapeBoldFont();
+	static final java.util.Map<Font, Font> FALLBACK = new java.util.concurrent.ConcurrentHashMap<>();
+
+	/** {@code f}, or the system font at its size and style when {@code f} lacks a glyph of {@code t} (a Mac draws a box for ✓ → … in the RS fonts). */
+	static Font fit(Font f, String t) {
+		return f == null || t == null || f.canDisplayUpTo(t) < 0 ? f : FALLBACK.computeIfAbsent(f, k -> new Font(Font.DIALOG, k.getStyle(), k.getSize()));
+	}
 
 	/** Secondary text: counts, hints, the quieter half of a row. */
 	static final Color MUTED = new Color(0xa8_a8_a8);
-
-	Ui() {
-	}
 
 	/**
 	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
@@ -59,8 +64,7 @@ final class Ui {
 	 * The site writes proper typography, so it is folded to the plain ASCII the font does have.
 	 */
 	static String fontSafe(String s) {
-		if (s == null) return null;
-		return s.replace('\u2019', '\'').replace('\u2018', '\'')
+		return s == null ? null : s.replace('\u2019', '\'').replace('\u2018', '\'')
 			.replace('\u201C', '"').replace('\u201D', '"')
 			.replace('\u2013', '-').replace('\u2014', '-')
 			.replace("\u2026", "...");
@@ -78,7 +82,7 @@ final class Ui {
 
 	/** A label in {@code font} and {@code color}, its text sanitized ({@link #plainText}). */
 	static JLabel label(String text, Font font, Color color) {
-		JLabel l = new ClipLabel(plainText(text));
+		var l = new ClipLabel(plainText(text));
 		l.setFont(font);
 		l.setForeground(color);
 		return l;
@@ -86,10 +90,6 @@ final class Ui {
 
 	static JLabel small(String text, Color color) {
 		return label(text, SMALL, color);
-	}
-
-	static JLabel title(String text) {
-		return label(text, BOLD, Color.WHITE);
 	}
 
 	/**
@@ -120,12 +120,10 @@ final class Ui {
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
 			boolean down;
 
-			@Override
 			public void mousePressed(MouseEvent e) {
 				down = SwingUtilities.isLeftMouseButton(e) && ownClick(c, e);
 			}
 
-			@Override
 			public void mouseReleased(MouseEvent e) {
 				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), c))) action.run();
 				down = false;
@@ -146,12 +144,10 @@ final class Ui {
 		c.setOpaque(true);
 		c.setBackground(base);
 		onClick(c, onClick).addMouseListener(new MouseAdapter() {
-			@Override
 			public void mouseEntered(MouseEvent e) {
 				c.setBackground(DARK_GRAY_HOVER_COLOR);
 			}
 
-			@Override
 			public void mouseExited(MouseEvent e) {
 				if (c.getMousePosition(true) == null) c.setBackground(base); // into a child is still inside
 			}
@@ -181,14 +177,6 @@ final class Ui {
 		return left(p);
 	}
 
-	/** {@link #row(int)} on an opaque {@code bg}. */
-	static JPanel row(int hgap, Color bg) {
-		var p = row(hgap);
-		p.setOpaque(true);
-		p.setBackground(bg);
-		return p;
-	}
-
 	static Component gap(int h) {
 		return Box.createVerticalStrut(h);
 	}
@@ -204,35 +192,20 @@ final class Ui {
 	}
 
 	/** Runs {@code changed} on every edit of the field's text. */
-	static void onEdit(javax.swing.text.JTextComponent f, Runnable changed) {
-		f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			@Override
+	static void onEdit(JTextComponent f, Runnable changed) {
+		f.getDocument().addDocumentListener(new DocumentListener() {
 			public void insertUpdate(DocumentEvent e) {
 				changed.run();
 			}
 
-			@Override
 			public void removeUpdate(DocumentEvent e) {
 				changed.run();
 			}
 
-			@Override
 			public void changedUpdate(DocumentEvent e) {
 				changed.run();
 			}
 		});
-	}
-
-	/** The panel's flat 0–100 progress bar: no text, no border, {@code h} px tall. */
-	static JProgressBar bar(int percent, Color fg, Color bg, int h) {
-		var bar = new JProgressBar(0, 100);
-		bar.setValue(percent);
-		bar.setStringPainted(false);
-		bar.setBorderPainted(false);
-		bar.setForeground(fg);
-		bar.setBackground(bg);
-		bar.setPreferredSize(new Dimension(0, h));
-		return bar;
 	}
 
 	/** A transparent, left-aligned grid {@code cols} across. */
@@ -240,14 +213,6 @@ final class Ui {
 		var grid = left(new JPanel(new GridLayout(0, cols, hgap, vgap)));
 		grid.setOpaque(false);
 		return grid;
-	}
-
-	/** A section's orange name, with an optional white figure at the right. */
-	static JPanel header(String left, String right) {
-		var row = row(0);
-		row.add(small(left, BRAND_ORANGE), BorderLayout.WEST);
-		if (right != null) row.add(small(right, Color.WHITE), BorderLayout.EAST);
-		return capH(row);
 	}
 
 	/** {@code part} of {@code whole} as 0..100, rounded down so a goal never reads as reached before it is. */
@@ -289,7 +254,7 @@ final class Ui {
 	static String ago(String at, Instant now) {
 		if (at == null || at.isEmpty()) return "";
 		var iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso = iso + "Z";
+		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso += "Z";
 		try {
 			var minutes = Math.max(0, Duration.between(Instant.parse(iso), now).toMinutes());
 			if (minutes < 60) return minutes <= 1 ? "just now" : minutes + "m ago";
@@ -297,9 +262,9 @@ final class Ui {
 			if (hours < 24) return hours + "h ago";
 			var days = hours / 24;
 			if (days < 14) return days + "d ago";
-			if (days < 60) return (days / 7) + "w ago";
-			if (days < 730) return (days / 30) + "mo ago";
-			return (days / 365) + "y ago";
+			if (days < 60) return days / 7 + "w ago";
+			if (days < 730) return days / 30 + "mo ago";
+			return days / 365 + "y ago";
 		} catch (DateTimeParseException e) {
 			return "";
 		}
@@ -313,12 +278,11 @@ final class Ui {
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
 			addFocusListener(new FocusAdapter() {
-				@Override public void focusGained(FocusEvent e) { repaint(); }
-				@Override public void focusLost(FocusEvent e) { repaint(); }
+				public void focusGained(FocusEvent e) { repaint(); }
+				public void focusLost(FocusEvent e) { repaint(); }
 			});
 		}
 
-		@Override
 		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
 			if (!getText().isEmpty() || isFocusOwner()) return;
@@ -326,9 +290,7 @@ final class Ui {
 			g.setColor(MUTED);
 			g.setFont(getFont());
 			var metrics = g.getFontMetrics();
-			var insets = getInsets();
-			int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
-			g.drawString(placeholder, insets.left, y);
+			g.drawString(placeholder, getInsets().left, (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent());
 			g.dispose();
 		}
 	}

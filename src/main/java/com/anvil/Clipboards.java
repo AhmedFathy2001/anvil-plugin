@@ -14,13 +14,9 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class Clipboards {
-	Clipboards() {
-	}
-
 	/** True when the text made it onto the clipboard, so a caller can say so rather than assume. */
 	static boolean copy(String value) {
-		if (value == null || value.isEmpty()) return false;
-		return set(new StringSelection(value));
+		return value != null && !value.isEmpty() && set(new StringSelection(value));
 	}
 
 	static boolean set(Transferable contents) {

@@ -1,16 +1,9 @@
 package com.anvil;
 
 import lombok.RequiredArgsConstructor;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.function.IntUnaryOperator;
+import java.util.*;
+import java.util.regex.*;
+import java.util.function.*;
 
 /**
  * Anvil Supporters' colours on their names in normal game chat. The
@@ -30,7 +23,6 @@ final class ChatFlair {
 		String c;
 		List<String> g;
 
-		@Override
 		public String toString() {
 			return c + "/" + g;
 		}
@@ -95,7 +87,7 @@ final class ChatFlair {
 	/** Take a whole list. False when it is unusable (then nothing changes). */
 	boolean adopt(Wire w) {
 		if (w == null || w.v <= 0 || w.names == null || w.ix == null || w.styles == null || w.ix.length != w.names.length) return false;
-		TreeMap<String, Entry> all = new TreeMap<>();
+		var all = new TreeMap<String, Entry>();
 		put(all, w);
 		held = build(w.v, all);
 		return true;
@@ -105,10 +97,10 @@ final class ChatFlair {
 	boolean apply(Wire d) {
 		var h = held;
 		if (d == null || d.from == null || d.from != h.v || h.v <= 0 || Boolean.TRUE.equals(d.full)) return false;
-		TreeMap<String, Entry> set = new TreeMap<>();
+		var set = new TreeMap<String, Entry>();
 		put(set, d);
-		Map<String, Boolean> gone = new HashMap<>();
-		for (String n : d.del == null ? new String[0] : d.del) gone.put(normalize(n), true);
+		var gone = new HashMap<String, Boolean>();
+		for (var n : d.del == null ? new String[0] : d.del) gone.put(normalize(n), true);
 		// Merge the sorted held names with the sorted changes: one pass, no map of everything.
 		held = merge(d.v, h, set, gone);
 		return true;
@@ -124,12 +116,12 @@ final class ChatFlair {
 	}
 
 	static Held build(int v, TreeMap<String, Entry> all) {
-		Map<String, Integer> palette = new HashMap<>();
-		List<Entry> styles = new ArrayList<>();
+		var palette = new HashMap<String, Integer>();
+		var styles = new ArrayList<Entry>();
 		var names = new String[all.size()];
-		char[] ix = new char[all.size()];
+		var ix = new char[all.size()];
 		int n = 0;
-		for (Map.Entry<String, Entry> kv : all.entrySet()) {
+		for (var kv : all.entrySet()) {
 			names[n] = kv.getKey();
 			ix[n++] = (char) intern(palette, styles, kv.getValue());
 		}
@@ -137,14 +129,13 @@ final class ChatFlair {
 	}
 
 	static Held merge(int v, Held h, TreeMap<String, Entry> set, Map<String, Boolean> gone) {
-		Map<String, Integer> palette = new HashMap<>();
-		List<Entry> styles = new ArrayList<>();
-		for (Entry e : h.styles) intern(palette, styles, e);
+		var palette = new HashMap<String, Integer>();
+		var styles = new ArrayList<Entry>();
+		for (var e : h.styles) intern(palette, styles, e);
 		var names = new String[h.names.length + set.size()];
-		char[] ix = new char[names.length];
-		int n = 0;
-		int i = 0;
-		java.util.Iterator<Map.Entry<String, Entry>> it = set.entrySet().iterator();
+		var ix = new char[names.length];
+		int n = 0, i = 0;
+		var it = set.entrySet().iterator();
 		var next = it.hasNext() ? it.next() : null;
 		while (i < h.names.length || next != null) {
 			int cmp = next == null ? -1 : i >= h.names.length ? 1 : h.names[i].compareTo(next.getKey());
@@ -156,9 +147,7 @@ final class ChatFlair {
 				i++;
 				continue;
 			}
-			if (cmp == 0) {
-				i++; // replaced by the delta's look
-			}
+			if (cmp == 0) i++; // replaced by the delta's look
 			if (!gone.containsKey(next.getKey())) {
 				names[n] = next.getKey();
 				ix[n++] = (char) intern(palette, styles, next.getValue());
@@ -242,35 +231,26 @@ final class ChatFlair {
 	 * painted in their colours, else null. {@code width} measures raw chat text the way the chat font
 	 * draws it (tags and icons included), so only the name itself answers, not the whole line.
 	 */
-	String tierInLine(String raw, int x, java.util.function.ToIntFunction<String> width) {
+	String tierInLine(String raw, int x, ToIntFunction<String> width) {
 		if (raw == null || raw.isEmpty() || isEmpty() || x < 0) return null;
-		// The visible characters, and where each one sits in the raw text.
-		var plain = new StringBuilder();
-		List<Integer> at = new ArrayList<>();
-		for (int i = 0; i < raw.length(); i++) {
-			char ch = raw.charAt(i);
-			if (ch == '<') {
-				int close = raw.indexOf('>', i);
-				if (close < 0) break;
-				i = close;
-				continue;
-			}
-			plain.append(ch == '\u00A0' ? ' ' : Character.toLowerCase(ch));
-			at.add(i);
-		}
-		var text = plain.toString();
+		// The visible characters (lower case), and where each one sits in the raw text.
+		var s = shown(raw);
+		var at = s.at;
+		var c = s.text.toCharArray();
+		for (int i = 0; i < c.length; i++) c[i] = Character.toLowerCase(c[i]);
+		var text = new String(c);
 		// Every place a painted word starts, and the bounded names that could start there:
 		// a handful of lookups per line, however long the list.
 		for (int from = 0; from < text.length(); from++) {
 			if (from > 0 && Character.isLetterOrDigit(text.charAt(from - 1)) || !Character.isLetterOrDigit(text.charAt(from))) continue;
-			var before = raw.substring(0, at.get(from));
+			var before = raw.substring(0, at[from]);
 			if (!paintedJustBefore(before)) continue;
 			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 				if (to < text.length() && Character.isLetterOrDigit(text.charAt(to))) continue;
 				var e = entry(text.substring(from, to));
 				if (e == null) continue;
 				int x0 = width.applyAsInt(before);
-				int x1 = width.applyAsInt(raw.substring(0, at.get(to - 1) + 1));
+				int x1 = width.applyAsInt(raw.substring(0, at[to - 1] + 1));
 				if (x >= x0 && x < x1) return tierLabel(e);
 				break;
 			}
@@ -338,9 +318,8 @@ final class ChatFlair {
 		var picked = own == null ? null : ChatPalette.nameColor(own.c);
 		var source = ChatPalette.nameColor(e.c);
 		var derived = picked != null ? picked : source == null ? null : ChatPalette.readableHex(source, opaque);
-		if (opaque) {
-			e.opaqueColor = derived;
-		} else e.darkColor = derived;
+		if (opaque) e.opaqueColor = derived;
+		else e.darkColor = derived;
 		return derived;
 	}
 
@@ -351,14 +330,13 @@ final class ChatFlair {
 		if (cached != null || (e.g == null && !picked)) return cached;
 		// The owner's own surface look is exactly what they chose: a solid one also drops the gradient here.
 		List<String> source = picked ? (own.g == null ? new ArrayList<>() : own.g) : e.g;
-		List<String> derived = new ArrayList<>(source.size());
-		for (String stop : source) {
+		var derived = new ArrayList<String>(source.size());
+		for (var stop : source) {
 			var hex = ChatPalette.nameColor(stop);
 			if (hex != null) derived.add("#" + (picked ? hex : ChatPalette.readableHex(hex, opaque)));
 		}
-		if (opaque) {
-			e.opaqueGradient = derived;
-		} else e.darkGradient = derived;
+		if (opaque) e.opaqueGradient = derived;
+		else e.darkGradient = derived;
 		return derived;
 	}
 
@@ -375,7 +353,7 @@ final class ChatFlair {
 
 	static Shown shown(String raw) {
 		var plain = new StringBuilder(raw.length());
-		int[] at = new int[raw.length()];
+		var at = new int[raw.length()];
 		for (int i = 0; i < raw.length(); i++) {
 			char ch = raw.charAt(i);
 			if (ch == '<') {
@@ -505,8 +483,7 @@ final class ChatFlair {
 	 * (same row, to its right, within the line's few widgets). A typed "[Clan] Bob:" is the message
 	 * widget, the last on its row. {@code text(j)} is null for a hidden or missing widget.
 	 */
-	static boolean senderColumn(int i, int n, IntUnaryOperator x, IntUnaryOperator y,
-		java.util.function.IntFunction<String> text) {
+	static boolean senderColumn(int i, int n, IntUnaryOperator x, IntUnaryOperator y, IntFunction<String> text) {
 		for (int j = i + 1; j < n && j <= i + 3; j++) {
 			var t = text.apply(j);
 			if (t != null && !t.isEmpty() && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) > x.applyAsInt(i)) return true;
@@ -518,8 +495,7 @@ final class ChatFlair {
 	 * A line text with a player's sender column to its left ("Name:" — someone typed it): never a
 	 * broadcast, whatever it says. A broadcast's row has only the channel ("[The AFK Spot]") or nothing.
 	 */
-	static boolean typedBySomeone(int i, IntUnaryOperator x, IntUnaryOperator y,
-		java.util.function.IntFunction<String> text) {
+	static boolean typedBySomeone(int i, IntUnaryOperator x, IntUnaryOperator y, IntFunction<String> text) {
 		for (int j = i - 1; j >= 0 && j >= i - 3; j--) {
 			var t = text.apply(j);
 			if (t != null && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) < x.applyAsInt(i) && column(t)) return true;
@@ -623,8 +599,7 @@ final class ChatFlair {
 
 	/** A sender widget that is just the column ("…Name:"), not a whole line: the line's text sits beside it. */
 	static boolean column(String raw) {
-		var t = shown(raw).text.trim();
-		return t.endsWith(":");
+		return shown(raw).text.trim().endsWith(":");
 	}
 
 	/**
@@ -654,7 +629,7 @@ final class ChatFlair {
 	 * no tags), plus each {@code <img=n>} at {@code iconWidth(n)}. Colour tags take no room. The hover maths
 	 * and the room a star needs both go through this, so an icon or the star never shifts them.
 	 */
-	static int measure(String raw, java.util.function.ToIntFunction<String> textWidth, IntUnaryOperator iconWidth) {
+	static int measure(String raw, ToIntFunction<String> textWidth, IntUnaryOperator iconWidth) {
 		var text = new StringBuilder(raw.length());
 		int icons = 0;
 		for (int i = 0; i < raw.length(); i++) {
@@ -694,8 +669,13 @@ final class ChatFlair {
 	}
 
 	static String key(Shown s) {
-		var m = LEAD.matcher(s.text);
-		return m.lookingAt() ? s.text.substring(m.end()) : s.text;
+		return s.text.substring(leadEnd(s.text));
+	}
+
+	/** Where the leading "[channel]" groups and spaces end. */
+	static int leadEnd(String t) {
+		var m = LEAD.matcher(t);
+		return m.lookingAt() ? m.end() : 0;
 	}
 
 	/** A broadcast widget with the leading name painted (icons and colours kept); null when none / already. */
@@ -708,10 +688,7 @@ final class ChatFlair {
 		if (raw == null || raw.isEmpty() || isEmpty()) return null;
 		var s = shown(raw);
 		int end = leadName(s);
-		if (end < 0) return null;
-		var m = LEAD.matcher(s.text);
-		int from = m.lookingAt() ? m.end() : 0;
-		return paintAt(raw, s, from, end, star, opaque, shift);
+		return end < 0 ? null : paintAt(raw, s, leadEnd(s.text), end, star, opaque, shift);
 	}
 
 	/** Whether a broadcast begins with a Patron name whose gradient should move. */
@@ -719,10 +696,7 @@ final class ChatFlair {
 		if (raw == null || raw.isEmpty()) return false;
 		var s = shown(raw);
 		int end = leadName(s);
-		if (end < 0) return false;
-		var m = LEAD.matcher(s.text);
-		int from = m.lookingAt() ? m.end() : 0;
-		return movingName(s.text.substring(from, end));
+		return end >= 0 && movingName(s.text.substring(leadEnd(s.text), end));
 	}
 
 	/**
@@ -770,9 +744,9 @@ final class ChatFlair {
 	 */
 	int leadName(Shown s) {
 		var t = s.text;
-		var m = LEAD.matcher(t);
-		int from = m.lookingAt() ? m.end() : 0;
-		for (int to = Math.min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+		int from = leadEnd(t);
+		for (int to
+ = Math.min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 			if (!Character.isLetterOrDigit(t.charAt(to - 1)) || to < t.length() && nameChar(t.charAt(to))) continue;
 			if (entry(t.substring(from, to)) != null) return to;
 		}

@@ -49,7 +49,7 @@ public final class Rsn {
 	 * {@code !me.isEmpty()} before comparing, so an unknown local name matches nobody rather than
 	 * everybody.</p>
 	 */
-	public static String normalize(String rsn) {
+	static String normalize(String rsn) {
 		if (rsn == null) return "";
 		// U+00A0 → space BEFORE trimming, so a name padded with them trims like it does on the server.
 		var plain = rsn.replace('\u00A0', ' ').trim().toLowerCase(Locale.ROOT);
@@ -57,7 +57,7 @@ public final class Rsn {
 	}
 
 	/** Do these two names denote the same account? Empty never matches, including empty itself. */
-	public static boolean same(String a, String b) {
+	static boolean same(String a, String b) {
 		var left = normalize(a);
 		return !left.isEmpty() && left.equals(normalize(b));
 	}

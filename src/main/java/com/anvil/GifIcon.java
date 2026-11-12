@@ -1,26 +1,15 @@
 package com.anvil;
 
-import java.awt.AlphaComposite;
-import java.awt.Component;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
-import java.util.WeakHashMap;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
+import java.io.*;
+import java.util.*;
+import javax.imageio.*;
 import javax.imageio.metadata.IIOMetadata;
-import javax.imageio.stream.ImageInputStream;
-import javax.swing.Icon;
-import javax.swing.ImageIcon;
+
+import javax.swing.*;
 import javax.swing.Timer;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
+import org.w3c.dom.*;
 
 /**
  * A panel GIF decoded by us and played on our own clock, instead of handing raw bytes to AWT's
@@ -64,17 +53,14 @@ final class GifIcon implements Icon {
 		return frames.length;
 	}
 
-	@Override
 	public int getIconWidth() {
 		return frames[0].getWidth();
 	}
 
-	@Override
 	public int getIconHeight() {
 		return frames[0].getHeight();
 	}
 
-	@Override
 	public void paintIcon(Component c, Graphics g, int x, int y) {
 		if (c != null && frames.length > 1) {
 			hosts.put(c, Boolean.TRUE);
@@ -97,7 +83,7 @@ final class GifIcon implements Icon {
 			return;
 		}
 		var active = GradientLabel.clientActive();
-		for (Iterator<GifIcon> it = LIVE.iterator(); it.hasNext(); ) {
+		for (var it = LIVE.iterator(); it.hasNext(); ) {
 			var icon = it.next();
 			if (icon.hosts.isEmpty()) {
 				it.remove();
@@ -108,9 +94,7 @@ final class GifIcon implements Icon {
 	}
 
 	boolean anyShowing() {
-		for (Component c : hosts.keySet()) {
-			if (c.isShowing()) return true;
-		}
+		for (var c : hosts.keySet()) if (c.isShowing()) return true;
 		return false;
 	}
 
@@ -119,16 +103,12 @@ final class GifIcon implements Icon {
 		int next = frameAt(playedMs);
 		if (next != shown) {
 			shown = next;
-			for (Component c : hosts.keySet()) {
-				if (c.isShowing()) c.repaint();
-			}
+			for (var c : hosts.keySet()) if (c.isShowing()) c.repaint();
 		}
 	}
 
 	int frameAt(long t) {
-		for (int i = 0; i < ends.length; i++) {
-			if (t < ends[i]) return i;
-		}
+		for (int i = 0; i < ends.length; i++) if (t < ends[i]) return i;
 		return ends.length - 1;
 	}
 
@@ -146,7 +126,7 @@ final class GifIcon implements Icon {
 		int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8;
 		int lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
 		if (lw <= 0 || lh <= 0 || lw > w || lh > h) return null;
-		try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+		try (var in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
 			var readers = in == null ? null : ImageIO.getImageReaders(in);
 			if (readers == null || !readers.hasNext()) return null;
 			var reader = readers.next();
@@ -201,19 +181,24 @@ final class GifIcon implements Icon {
 		for (Node n = root.getFirstChild(); n != null; n = n.getNextSibling()) {
 			var a = n.getAttributes();
 			if ("ImageDescriptor".equals(n.getNodeName())) {
-				f.x = Integer.parseInt(a.getNamedItem("imageLeftPosition").getNodeValue());
-				f.y = Integer.parseInt(a.getNamedItem("imageTopPosition").getNodeValue());
+				f.x = Integer.parseInt(attr(a, "imageLeftPosition"));
+				f.y = Integer.parseInt(attr(a, "imageTopPosition"));
 				placed = true;
 			} else if ("GraphicControlExtension".equals(n.getNodeName())) {
-				int cs = Integer.parseInt(a.getNamedItem("delayTime").getNodeValue());
+				int cs = Integer.parseInt(attr(a, "delayTime"));
 				f.delayMs = cs <= 1 ? FALLBACK_DELAY_MS : Math.max(MIN_DELAY_MS, cs * 10);
-				f.disposal = a.getNamedItem("disposalMethod").getNodeValue();
+				f.disposal = attr(a, "disposalMethod");
 			}
 		}
 		return placed ? f : null;
 	}
 
-	static BufferedImage copyOf(BufferedImage src) {
+	static String attr(NamedNodeMap a, String k) {
+		return a.getNamedItem(k).getNodeValue();
+	}
+
+	static BufferedImage copyOf(
+BufferedImage src) {
 		var out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
 		var g = out.createGraphics();
 		g.setComposite(AlphaComposite.Src);

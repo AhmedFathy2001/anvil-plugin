@@ -20,8 +20,6 @@ import java.util.regex.*;
  * second regex over every line of chat. RuneLite-free, so the fragile part is unit-tested.
  */
 final class PersonalBestParser {
-	PersonalBestParser() {}
-
 	/** An [h:]mm:ss[.cc] token. The game never prints a bare seconds count for a PB. */
 	static final Pattern TIME = Pattern.compile("(\\d{1,3}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d{1,2}))?");
 	/** "personal best: 7:59" — the explicit form, where this run was NOT the best. */

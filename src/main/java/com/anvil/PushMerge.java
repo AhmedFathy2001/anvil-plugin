@@ -9,9 +9,6 @@ import java.util.Map;
  * number from {@code members} here. (The panel's rows are the site's own view now.)
  */
 final class PushMerge {
-	PushMerge() {
-	}
-
 	/**
 	 * {@code held} with {@code team}'s fields over it (one level deep, so the event's and panel's
 	 * caller-only fields survive), then our own numbers from {@code mine} ({@code c}: progress by
@@ -19,24 +16,24 @@ final class PushMerge {
 	 */
 	static JsonObject merge(JsonObject held, JsonObject team, JsonObject mine) {
 		var out = held.deepCopy();
-		for (Map.Entry<String, JsonElement> e : team.deepCopy().entrySet()) {
+		for (var e : team.deepCopy().entrySet()) {
 			var cur = out.get(e.getKey());
 			if (cur != null && cur.isJsonObject() && e.getValue().isJsonObject()) {
-				for (Map.Entry<String, JsonElement> f : e.getValue().getAsJsonObject().entrySet()) cur.getAsJsonObject().add(f.getKey(), f.getValue());
+				for (var f : e.getValue().getAsJsonObject().entrySet()) cur.getAsJsonObject().add(f.getKey(), f.getValue());
 			} else {
 				// The push is the addressed board's: another board's rows (tagged) stay as they were.
 				if (cur != null && cur.isJsonArray() && e.getValue().isJsonArray()) {
-					for (JsonElement r : cur.getAsJsonArray()) if (r.isJsonObject() && r.getAsJsonObject().has("board")) e.getValue().getAsJsonArray().add(r);
+					for (var r : cur.getAsJsonArray()) if (r.isJsonObject() && r.getAsJsonObject().has("board")) e.getValue().getAsJsonArray().add(r);
 				}
 				out.add(e.getKey(), e.getValue());
 			}
 		}
 		var c = mine != null && mine.has("c") ? mine.getAsJsonObject("c") : new JsonObject();
-		for (Map.Entry<String, JsonElement> e : out.entrySet()) {
+		for (var e : out.entrySet()) {
 			// The tracked lists carry tileId/currentAmount, the count list ({@code tiles}) t/have.
 			var counts = e.getKey().equals("tiles");
 			if ((counts || e.getKey().startsWith("tracked")) && e.getValue().isJsonArray()) {
-				for (JsonElement row : e.getValue().getAsJsonArray()) {
+				for (var row : e.getValue().getAsJsonArray()) {
 					var r = row.isJsonObject() ? row.getAsJsonObject() : null;
 					var id = r == null ? null : r.get(counts ? "t" : "tileId");
 					var tile = id == null ? null : id.getAsString();

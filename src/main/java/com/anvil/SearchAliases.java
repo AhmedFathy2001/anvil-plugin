@@ -28,9 +28,6 @@ final class SearchAliases {
 
 	static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
-	SearchAliases() {
-	}
-
 	/** Lower-cased with every run of punctuation and spaces turned into one space: "K'ril  Tsutsaroth" → "k ril tsutsaroth". */
 	static String fold(String s) {
 		return NON_ALNUM.matcher(s.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
@@ -41,7 +38,7 @@ final class SearchAliases {
 		if (text == null || text.isEmpty()) return "";
 		var words = " " + fold(text) + " ";
 		var out = new StringBuilder(text);
-		for (String[] p : PAIRS) {
+		for (var p : PAIRS) {
 			if (words.contains(" " + p[0] + " ")) {
 				out.append(' ').append(p[1]);
 			} else if (words.contains(" " + p[1] + " ")) out.append(' ').append(p[0]);

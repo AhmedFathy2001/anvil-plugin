@@ -2,7 +2,7 @@ package com.anvil;
 
 import lombok.RequiredArgsConstructor;
 import java.awt.*;
-import java.awt.geom.Path2D;
+import java.awt.geom.*;
 import javax.swing.Icon;
 
 /**
@@ -32,21 +32,17 @@ final class GlyphIcon implements Icon {
 	}
 
 
-	@Override
 	public int getIconWidth() {
 		return size;
 	}
 
-	@Override
 	public int getIconHeight() {
 		return size;
 	}
 
-	@Override
 	public void paintIcon(Component c, Graphics graphics, int x, int y) {
-		var g = (Graphics2D) graphics.create();
+		var g = Ui.smooth(graphics);
 		try {
-			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 			g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 			var ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
 			if (c != null && !c.isEnabled()) ink = ink.darker();
@@ -54,7 +50,7 @@ final class GlyphIcon implements Icon {
 			float s = size;
 			g.setStroke(new BasicStroke(Math.max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 			g.translate(x, y);
-			Path2D p = new Path2D.Float();
+			var p = new Path2D.Float();
 			switch (shape) {
 				case CHEVRON_LEFT:
 					g.draw(stroke(p, s, 0.62, 0.22, 0.34, 0.5, 0.62, 0.78));
@@ -77,14 +73,14 @@ final class GlyphIcon implements Icon {
 					var d = Math.max(2f, s / 6f);
 					for (int i = 0; i < 3; i++) {
 						var cx = s * (0.25f + 0.25f * i);
-						g.fill(new java.awt.geom.Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
+						g.fill(new Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
 					}
 					break;
 				case GEAR:
 					// A ring with eight short teeth — the settings mark everyone reads without a label.
 					var cx = s / 2f;
 					var r = s * 0.24f;
-					g.draw(new java.awt.geom.Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
+					g.draw(new Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
 					for (int i = 0; i < 8; i++) {
 						var a = Math.PI / 4 * i;
 						p.moveTo(cx + Math.cos(a) * s * 0.33, cx + Math.sin(a) * s * 0.33);
@@ -102,9 +98,8 @@ final class GlyphIcon implements Icon {
 					var up = shape == Shape.UP;
 					g.fill(stroke(p, s, 0.12, up ? 0.78 : 0.22, 0.5, up ? 0.22 : 0.78, 0.88, up ? 0.78 : 0.22));
 					break;
-				default:
-					break;
 			}
+
 		} finally {
 			g.dispose();
 		}

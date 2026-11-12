@@ -16,9 +16,6 @@ import net.runelite.api.gameval.ItemID;
  * pick: a wrong credit costs a reviewer more than a manual proof does.
  */
 final class DuplicateInference {
-	DuplicateInference() {
-	}
-
 	/** The one pet {@code source} drops, or null when it drops none or several. */
 	static String petForSource(PluginConfigResponse.DropFacts facts, String source) {
 		var want = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);
@@ -36,7 +33,7 @@ final class DuplicateInference {
 	static String onlyPet(PluginConfigResponse.DropFacts facts, String want, Predicate<PluginConfigResponse.DropFacts.Pet> test) {
 		if (facts == null || facts.pets == null || want.isEmpty()) return null;
 		String found = null;
-		for (Map.Entry<String, PluginConfigResponse.DropFacts.Pet> e : facts.pets.entrySet()) {
+		for (var e : facts.pets.entrySet()) {
 			if (e.getValue() != null && test.test(e.getValue())) {
 				if (found != null) return null;
 				found = e.getKey();
@@ -49,23 +46,24 @@ final class DuplicateInference {
 	// "*x" a suffix, anything else the whole name.
 	static final Map<String, Integer> CHAMPION_SCROLLS = new LinkedHashMap<>();
 	static {
-		CHAMPION_SCROLLS.put("hobgoblin*", ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN);
-		CHAMPION_SCROLLS.put("goblin*", ItemID.CHAMPIONS_CHALLENGE_GOBLIN);
-		CHAMPION_SCROLLS.put("imp", ItemID.CHAMPIONS_CHALLENGE_IMP);
-		CHAMPION_SCROLLS.put("skeleton*", ItemID.CHAMPIONS_CHALLENGE_SKELETON);
-		CHAMPION_SCROLLS.put("zombie*", ItemID.CHAMPIONS_CHALLENGE_ZOMBIE);
-		CHAMPION_SCROLLS.put("ghoul", ItemID.CHAMPIONS_CHALLENGE_GHOUL);
-		CHAMPION_SCROLLS.put("earth warrior", ItemID.CHAMPIONS_CHALLENGE_EARTHWARRIOR);
-		CHAMPION_SCROLLS.put("jogre", ItemID.CHAMPIONS_CHALLENGE_JOGRE);
-		CHAMPION_SCROLLS.put("lesser demon", ItemID.CHAMPIONS_CHALLENGE_LESSERDEMON);
-		CHAMPION_SCROLLS.put("* giant", ItemID.CHAMPIONS_CHALLENGE_GIANT);
+		var m = CHAMPION_SCROLLS;
+		m.put("hobgoblin*", ItemID.CHAMPIONS_CHALLENGE_HOBGOBLIN);
+		m.put("goblin*", ItemID.CHAMPIONS_CHALLENGE_GOBLIN);
+		m.put("imp", ItemID.CHAMPIONS_CHALLENGE_IMP);
+		m.put("skeleton*", ItemID.CHAMPIONS_CHALLENGE_SKELETON);
+		m.put("zombie*", ItemID.CHAMPIONS_CHALLENGE_ZOMBIE);
+		m.put("ghoul", ItemID.CHAMPIONS_CHALLENGE_GHOUL);
+		m.put("earth warrior", ItemID.CHAMPIONS_CHALLENGE_EARTHWARRIOR);
+		m.put("jogre", ItemID.CHAMPIONS_CHALLENGE_JOGRE);
+		m.put("lesser demon", ItemID.CHAMPIONS_CHALLENGE_LESSERDEMON);
+		m.put("* giant", ItemID.CHAMPIONS_CHALLENGE_GIANT);
 	}
 
 	/** The champion's scroll item id {@code npc} drops, or null. */
 	static Integer championScrollFor(String npc) {
 		if (npc == null) return null;
 		var n = npc.trim().toLowerCase(Locale.ROOT);
-		for (Map.Entry<String, Integer> e : CHAMPION_SCROLLS.entrySet()) {
+		for (var e : CHAMPION_SCROLLS.entrySet()) {
 			var k = e.getKey();
 			if (k.endsWith("*") ? n.startsWith(k.substring(0, k.length() - 1))
 				: k.startsWith("*") ? n.endsWith(k.substring(1)) : n.equals(k)) {

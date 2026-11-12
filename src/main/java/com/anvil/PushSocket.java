@@ -34,6 +34,8 @@ final class PushSocket extends WebSocketListener {
 	ScheduledFuture<?> pending;
 	int failures;
 	volatile boolean live;
+	/** The site said this socket may relay chat ({"t":"hello","relay":1}); any other closes on a message. */
+	volatile boolean relayOk;
 
 	/** Up and hearing changes, so polls may slow down. */
 	boolean live() {
@@ -71,37 +73,46 @@ final class PushSocket extends WebSocketListener {
 	}
 
 	void connect() {
-		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows.
-		boolean feed;
-		boolean rows;
+		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows,
+		// ":c<world>" the chat relay on that world.
+		String s;
 		synchronized (this) {
 			pending = null;
-			feed = scope != null && scope.matches(".*:f(:r)?$");
-			// Always: this plugin reads panel rows, and the site only sends them to one that says so
-			// (an older plugin would log each). ":r" only decides whether to connect with no board.
-			rows = true;
+			s = scope;
 		}
+		var feed = s != null && s.contains(":f");
+		var c = s == null ? null : java.util.regex.Pattern.compile(":c(\\d+)").matcher(s);
+		var relay = c != null && c.find() ? Integer.parseInt(c.group(1)) : 0;
+		var fc = s == null || s.indexOf('@') < 0 ? "" : s.substring(s.indexOf('@') + 1);
+		// rows always true: this plugin reads panel rows, and the site only sends them to one that says so
+		// (an older plugin would log each). ":r" only decides whether to connect with no board.
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try {
-			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed, rows)));
+			api.interactiveExecutor().execute(() -> withTicket(s, api.fetchPushTicket(feed, true, relay, fc)));
 		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
 	}
 
-	void withTicket(BingoApiClient.PushTicket ticket) {
+	/** A ticket asked for scope {@code s}: dropped if the scope moved meanwhile (its own fetch is on the way). */
+	void withTicket(String s, BingoApiClient.PushTicket ticket) {
 		synchronized (this) {
-			if (scope == null || socket != null) return;
+			if (scope == null || socket != null || !scope.equals(s)) return;
 			if (ticket == null || ticket.url == null || ticket.ticket == null) {
-				retryIn(RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random()));
+				retryIn(backoff());
 				return;
 			}
 			socket = api.openPush(ticket, this);
 		}
 	}
 
-	@Override
+	/** A chat relay line out (only a relay ticket's socket may send; any other is closed by the site). */
+	boolean say(String json) {
+		var s = socket;
+		return live && relayOk && s != null && s.send(json);
+	}
+
 	public void onMessage(WebSocket ws, String text) {
 		JsonObject m;
 		try {
@@ -116,27 +127,29 @@ final class PushSocket extends WebSocketListener {
 				failures = 0;
 			}
 			live = true;
+			relayOk = m.has("relay");
 		}
 		onMessage.accept(m);
 	}
 
-	@Override
 	public void onClosing(WebSocket ws, int code, String reason) {
 		ws.close(1000, null);
 		dropped(ws, code == TICKET_EXPIRED);
 	}
 
-	@Override
 	public void onFailure(WebSocket ws, Throwable t, Response response) {
 		dropped(ws, false);
 	}
 
+	/** Call with the monitor held. */
+	long backoff() {
+		return RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
+	}
+
 	synchronized void dropped(WebSocket ws, boolean ticketExpired) {
-		if (ws != socket) {
-			return; // an old socket we already replaced or closed
-		}
+		if (ws != socket) return; // an old socket we already replaced or closed
 		socket = null;
 		live = false;
-		retryIn(ticketExpired ? 0 : RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random()));
+		retryIn(ticketExpired ? 0 : backoff());
 	}
 }

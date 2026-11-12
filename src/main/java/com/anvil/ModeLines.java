@@ -1,8 +1,6 @@
 package com.anvil;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 /**
  * The highlighted game messages seen on a game-mode world (Leagues, Deadman, ...), batched for

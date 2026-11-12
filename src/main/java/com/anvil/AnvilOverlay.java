@@ -19,7 +19,7 @@ public class AnvilOverlay extends OverlayPanel {
 	final AnvilConfig config;
 
 	@Inject
-	public AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
+	AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
 		super(plugin);
 		this.plugin = plugin;
 		this.config = config;
@@ -37,7 +37,6 @@ public class AnvilOverlay extends OverlayPanel {
 
 	static final TitleComponent TITLE = TitleComponent.builder().text("Anvil").color(new Color(255, 215, 0)).build();
 
-	@Override
 	public Dimension render(Graphics2D graphics) {
 		if (!config.showOverlay() || AnvilPlugin.capturing) return null;
 
@@ -49,14 +48,16 @@ public class AnvilOverlay extends OverlayPanel {
 		var now = System.currentTimeMillis();
 		if (!within(window, Instant.ofEpochMilli(now))) return null;
 
-		panelComponent.getChildren().add(TITLE);
-		if (team != null) panelComponent.getChildren().add(team);
+		var c = panelComponent.getChildren();
+		c.add(TITLE);
+		if (team != null) c.add(team);
 		// Date — UTC for unambiguous time-of-drop on the proof image; it only reads to the minute.
 		if (now / 60_000 != dateMinute) {
 			dateMinute = now / 60_000;
 			date.setRight(ZonedDateTime.now(ZoneOffset.UTC).format(DATE_FMT));
 		}
-		panelComponent.getChildren().add(date);
+		c.add(date);
+
 
 		return super.render(graphics);
 	}
@@ -73,8 +74,13 @@ public class AnvilOverlay extends OverlayPanel {
 						.rightColor(Ui.teamColor(cfg.team.color, Color.WHITE)).build();
 	}
 
+	/** The last event asked about and its window: asked every frame, parsed (and a bad date logged) once. */
+	static volatile Object[] active = {};
+
 	static boolean isEventActive(PluginConfigResponse.EventInfo event) {
-		return within(window(event), Instant.now());
+		var a = active;
+		if (a.length == 0 || a[0] != event) active = a = new Object[]{event, window(event)};
+		return within((Instant[]) a[1], Instant.now());
 	}
 
 	static boolean within(Instant[] window, Instant now) {

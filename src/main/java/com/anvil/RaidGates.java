@@ -8,9 +8,6 @@ import java.util.*;
  * reason it doesn't, worded for the player's chat box.
  */
 final class RaidGates {
-	RaidGates() {
-	}
-
 	/** Only ToA has a raid level; a floor on any other raid's tile is ignored rather than failing it. */
 	static boolean isToa(String activity) {
 		return activity != null && activity.toLowerCase(Locale.ROOT).contains("tombs of amascut");
@@ -35,7 +32,7 @@ final class RaidGates {
 	static String wholePartyFromTeam(Collection<String> seen, Set<String> team, int partySize) {
 		if (team == null || team.isEmpty()) return "the team roster isn't loaded";
 		int named = 0;
-		for (String name : seen) {
+		for (var name : seen) {
 			var n = Rsn.normalize(name);
 			if (n.isEmpty()) continue;
 			if (!team.contains(n)) return name + " isn't on your team";

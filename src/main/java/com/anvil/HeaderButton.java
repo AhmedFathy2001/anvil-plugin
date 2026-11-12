@@ -189,7 +189,7 @@ final class HeaderButton {
 		if (nearOffset >= rightOffset) return rightOffset;
 		var children = parent.getDynamicChildren();
 		if (children != null) {
-			for (Widget child : children) {
+			for (var child : children) {
 				if (child == null || NAME.equals(child.getName())) {
 					continue; // ours, from a previous render we are about to replace
 				}
@@ -256,7 +256,7 @@ final class HeaderButton {
 	 */
 	void hideParts() {
 		if (parts != null) {
-			for (Widget w : parts) {
+			for (var w : parts) {
 				if (w != null) w.setHidden(true);
 			}
 		}
@@ -284,7 +284,7 @@ final class HeaderButton {
 		if (parts == null || parts[TEXT] == null) return false;
 		var children = parent.getDynamicChildren();
 		if (children == null) return false;
-		for (Widget w : children) {
+		for (var w : children) {
 			if (w == parts[TEXT]) return true;
 		}
 		return false;
