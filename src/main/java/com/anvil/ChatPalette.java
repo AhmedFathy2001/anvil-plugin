@@ -33,7 +33,7 @@ final class ChatPalette {
 	 * The Anvil tones on the OPAQUE chatbox: its parchment washes the bright set out, so the same tones
 	 * in the dark inks the game itself uses there. A player's own (custom) palette is theirs, kept as is.
 	 */
-	static final Map<Tone, String> OPAQUE = tones("006a00", "7a4a00", "a03c00", "4d4d4d", "9e0000", "000000");
+	static final Map<Tone, String> OPAQUE = tones("006a00", "7a4a00", "a03c00", "4d4d4d", "9e0000", "8f1515");
 
 	/** One colour per tone, in Tone order. */
 	static Map<Tone, String> tones(String... hex) {
@@ -44,7 +44,7 @@ final class ChatPalette {
 
 	/** Null: plain. */
 	final Map<Tone, String> colors;
-	/** Custom palettes colour INFO too; the Anvil one leaves it to the player's own text colour. */
+	/** Whether the colours came from the player's custom palette (kept exact on either chat surface). */
 	final boolean custom;
 
 	ChatPalette(Map<Tone, String> colors, boolean custom) {
@@ -53,7 +53,7 @@ final class ChatPalette {
 	}
 
 	static ChatPalette anvil() {
-		return new ChatPalette(tones("16c60c", "ffb000", "ff7f27", "9a9a9a", "ff3b3b", "ffffff"), false);
+		return new ChatPalette(tones("16c60c", "ffb000", "ff7f27", "9a9a9a", "ff3b3b", "ff5c5c"), false);
 	}
 
 	/** The site's look ({palette, colors}); anything unreadable keeps the Anvil colour for that tone. */
@@ -71,7 +71,7 @@ final class ChatPalette {
 
 	/** The text colour for {@code tone}, {@code ownText} being the player's configured text colour. */
 	String text(Tone tone, String ownText, boolean opaque) {
-		if (colors == null || (tone == Tone.INFO && !custom)) return ownText;
+		if (colors == null) return ownText;
 		var c = opaque && !custom ? OPAQUE.get(tone) : colors.get(tone);
 		return c != null ? c : ownText;
 	}
