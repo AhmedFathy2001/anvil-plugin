@@ -2994,6 +2994,8 @@ public class AnvilPlugin extends Plugin {
 		var resp = apiClient.hello(rsn);
 		helloSent = true;
 		if (resp == null) return;
+		// A clan learned after log in re-tickets the chat relay, or clan lines never reach its clan room.
+		if (resp.knownMember != knownMember) submit(() -> safely("push", this::syncPush));
 		knownMember = resp.knownMember;
 		isGuest = resp.isGuest;
 		// The breadcrumb this decision never left. "Tracked as a guest" fired once against a clan the
@@ -6918,7 +6920,8 @@ public class AnvilPlugin extends Plugin {
 		if (p != null) {
 			p.scope(rows && apiClient.isConfigured() && pushEnabled()
 					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
-					+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() : "") : null);
+					// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
+					+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (knownMember ? "m" : "") : "") : null);
 		}
 	}
 
