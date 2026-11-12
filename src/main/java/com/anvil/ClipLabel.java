@@ -23,7 +23,6 @@ class ClipLabel extends JLabel {
 		ToolTipManager.sharedInstance().registerComponent(this);
 	}
 
-	@Override
 	public String getToolTipText(MouseEvent e) {
 		var own = super.getToolTipText(e);
 		if (own != null) return own;

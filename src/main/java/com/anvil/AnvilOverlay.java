@@ -37,7 +37,6 @@ public class AnvilOverlay extends OverlayPanel {
 
 	static final TitleComponent TITLE = TitleComponent.builder().text("Anvil").color(new Color(255, 215, 0)).build();
 
-	@Override
 	public Dimension render(Graphics2D graphics) {
 		if (!config.showOverlay() || AnvilPlugin.capturing) return null;
 

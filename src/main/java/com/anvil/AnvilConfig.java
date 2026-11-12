@@ -76,7 +76,6 @@ public interface AnvilConfig extends Config {
 	enum Names {
 		Animated, Still_colours, Off;
 
-		@Override
 		public String toString() {
 			return name().replace('_', ' ');
 		}
@@ -108,7 +107,6 @@ public interface AnvilConfig extends Config {
 	enum Relay {
 		Off, See_others, See_send, See_send_PMs;
 
-		@Override
 		public String toString() {
 			return this == See_others ? "See others" : name().replace("_", " + ");
 		}

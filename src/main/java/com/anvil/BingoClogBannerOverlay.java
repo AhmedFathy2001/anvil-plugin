@@ -113,7 +113,6 @@ public class BingoClogBannerOverlay extends Overlay {
 	/** Banners past the three waiting: one "+N more" closes the run, the rest is in chat and the panel. */
 	final AtomicInteger folded = new AtomicInteger();
 
-	@Override
 	public Dimension render(Graphics2D g) {
 		if (background == null || AnvilPlugin.capturing) return null;
 

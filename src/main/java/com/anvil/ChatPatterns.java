@@ -283,23 +283,19 @@ final class ChatPatterns {
 		}
 
 
-		@Override
 		public char charAt(int i) {
 			if (--left[0] < 0) throw new BudgetExceeded();
 			return s.charAt(i);
 		}
 
-		@Override
 		public int length() {
 			return s.length();
 		}
 
-		@Override
 		public CharSequence subSequence(int start, int end) {
 			return new Budgeted(s.substring(start, end), left);
 		}
 
-		@Override
 		public String toString() {
 			return s;
 		}

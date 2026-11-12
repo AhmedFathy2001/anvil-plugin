@@ -33,12 +33,10 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		bar.setUnitIncrement(16);
 	}
 
-	@Override
 	protected JButton createDecreaseButton(int orientation) {
 		return zeroButton();
 	}
 
-	@Override
 	protected JButton createIncreaseButton(int orientation) {
 		return zeroButton();
 	}
@@ -52,13 +50,11 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		return b;
 	}
 
-	@Override
 	protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
 		g.setColor(DARK_GRAY_COLOR);
 		g.fillRect(r.x, r.y, r.width, r.height);
 	}
 
-	@Override
 	protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
 		if (r.isEmpty() || !scrollbar.isEnabled()) return;
 		var g2 = Ui.smooth(g);
@@ -68,7 +64,6 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 		g2.dispose();
 	}
 
-	@Override
 	protected Dimension getMinimumThumbSize() {
 		return new Dimension(WIDTH, 24);
 	}

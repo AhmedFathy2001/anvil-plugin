@@ -61,13 +61,11 @@ final class FeedList extends JPanel {
 	final int cap;
 	final RowModel model = new RowModel();
 	final JList<JsonObject> list = new JList<JsonObject>(model) {
-		@Override
 		public boolean getScrollableTracksViewportWidth() {
 			return true;
 		}
 
 		/** A row's whole text, for when the width cut it short. */
-		@Override
 		public String getToolTipText(MouseEvent e) {
 			int i = locationToIndex(e.getPoint());
 			var b = i < 0 ? null : getCellBounds(i, i);
@@ -172,7 +170,6 @@ final class FeedList extends JPanel {
 		list.addMouseListener(new Clicks());
 		// Over a pill you can press: a hand cursor and the pill lights, so reactions read as buttons.
 		MouseAdapter hover = new MouseAdapter() {
-			@Override
 			public void mouseMoved(MouseEvent e) {
 				int i = list.locationToIndex(e.getPoint());
 				var b = i < 0 ? null : list.getCellBounds(i, i);
@@ -185,7 +182,6 @@ final class FeedList extends JPanel {
 				setHover(chip >= 0 ? i : -1, chip);
 			}
 
-			@Override
 			public void mouseExited(MouseEvent e) {
 				setHover(-1, -1);
 			}
@@ -196,7 +192,6 @@ final class FeedList extends JPanel {
 		list.addComponentListener(new ComponentAdapter() {
 			int lastW = -1;
 
-			@Override
 			public void componentResized(ComponentEvent e) {
 				if (list.getWidth() != lastW) {
 					lastW = list.getWidth();
@@ -230,7 +225,6 @@ final class FeedList extends JPanel {
 		newPill.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		newPill.setVisible(false);
 		newPill.addMouseListener(new MouseAdapter() {
-			@Override
 			public void mouseClicked(MouseEvent e) {
 				toLatest();
 			}
@@ -473,7 +467,6 @@ final class FeedList extends JPanel {
 			setToolTipText(plainText(!tip.isEmpty() ? tip : label + (n > 0 ? " · " + n + " unread" : "")));
 		}
 
-		@Override
 		protected void paintComponent(Graphics g0) {
 			var g = Ui.smooth(g0);
 			int w = getWidth(), h = getHeight();
@@ -514,7 +507,6 @@ final class FeedList extends JPanel {
 		slide.stop();
 	}
 
-	@Override
 	public void addNotify() {
 		super.addNotify();
 		// Chat lines and Feed rows both slide a Patron's gradient; slideVisible repaints only the
@@ -522,7 +514,6 @@ final class FeedList extends JPanel {
 		slide.start();
 	}
 
-	@Override
 	public void removeNotify() {
 		super.removeNotify();
 		slide.stop();
@@ -661,7 +652,6 @@ final class FeedList extends JPanel {
 		// Escape hands the keyboard back to the game without sending.
 		input.getInputMap().put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), "anvil-game");
 		input.getActionMap().put("anvil-game", new javax.swing.AbstractAction() {
-			@Override
 			public void actionPerformed(java.awt.event.ActionEvent e) {
 				host.gameFocus();
 			}
@@ -729,12 +719,10 @@ final class FeedList extends JPanel {
 	static final class MaxLength extends DocumentFilter {
 		final int max;
 
-		@Override
 		public void insertString(FilterBypass fb, int offset, String s, AttributeSet a) throws BadLocationException {
 			replace(fb, offset, 0, s, a);
 		}
 
-		@Override
 		public void replace(FilterBypass fb, int offset, int length, String s, AttributeSet a) throws BadLocationException {
 			var add = s == null ? "" : s;
 			int room = max - (fb.getDocument().getLength() - length);
@@ -746,12 +734,10 @@ final class FeedList extends JPanel {
 	// ---- Clicks ------------------------------------------------------------------------------------
 
 	final class Clicks extends MouseAdapter {
-		@Override
 		public void mousePressed(MouseEvent e) {
 			popup(e);
 		}
 
-		@Override
 		public void mouseReleased(MouseEvent e) {
 			if (!popup(e) && SwingUtilities.isLeftMouseButton(e)) click(e);
 		}
@@ -837,12 +823,10 @@ final class FeedList extends JPanel {
 		final List<JsonObject> rows = new ArrayList<>();
 		final Set<String> ids = new HashSet<>();
 
-		@Override
 		public int getSize() {
 			return rows.size();
 		}
 
-		@Override
 		public JsonObject getElementAt(int index) {
 			return rows.get(index);
 		}
@@ -986,7 +970,6 @@ final class FeedList extends JPanel {
 		final Icon in;
 		final Color tint;
 
-		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
 			var g2 = Ui.smooth(g);
 			g2.setColor(tint);
@@ -995,28 +978,23 @@ final class FeedList extends JPanel {
 			in.paintIcon(c, g, x + (ICON_W - in.getIconWidth()) / 2, y + (ICON_W - 2 - in.getIconHeight()) / 2);
 		}
 
-		@Override
 		public int getIconWidth() {
 			return ICON_W;
 		}
 
-		@Override
 		public int getIconHeight() {
 			return ICON_W - 2;
 		}
 	}
 
 		static final class BlankIcon implements Icon {
-		@Override
 		public void paintIcon(Component c, Graphics g, int x, int y) {
 		}
 
-		@Override
 		public int getIconWidth() {
 			return ICON_W;
 		}
 
-		@Override
 		public int getIconHeight() {
 			return ICON_H;
 		}
@@ -1066,14 +1044,12 @@ final class FeedList extends JPanel {
 			return this;
 		}
 
-		@Override
 		public Dimension getPreferredSize() {
 			// No width of its own: one taken from the wrap fed back into the list, which then grew past the
 			// panel and cut long lines off at its right edge.
 			return new Dimension(0, height);
 		}
 
-		@Override
 		protected void paintComponent(Graphics g0) {
 			var g = (Graphics2D) g0;
 			g.setColor(mine ? MINE_BG : DARKER_GRAY_COLOR);
@@ -1190,14 +1166,12 @@ final class FeedList extends JPanel {
 			this.tagInk = tagInk;
 		}
 
-		@Override
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(SMALL);
 			// Tall enough for a tenure badge beside the name.
 			return new Dimension(0, Math.max(fm.getHeight(), UiView.tenureStep(r == null ? null : str(r, "whoGlyph")) > 0 ? AnvilPlugin.TENURE_PX : 0));
 		}
 
-		@Override
 		protected void paintComponent(Graphics g0) {
 			if (r == null) return;
 			var g = (Graphics2D) g0;
@@ -1339,7 +1313,6 @@ final class FeedList extends JPanel {
 					|| (!mineNames.isEmpty() && mineNames.contains(ChatFlair.normalize(str(r, "who"))));
 		}
 
-		@Override
 		public Component getListCellRendererComponent(JList<? extends JsonObject> l, JsonObject r, int index, boolean selected, boolean focus) {
 			if (chat) return chatCell.show(r, index, l.getWidth(), mine(r));
 			setBorder(feedBorder);
@@ -1478,7 +1451,6 @@ final class FeedList extends JPanel {
 			setOpaque(false);
 		}
 
-		@Override
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(getFont());
 			int w = 0;
@@ -1486,7 +1458,6 @@ final class FeedList extends JPanel {
 			return new Dimension(w, fm.getHeight() + 2);
 		}
 
-		@Override
 		protected void paintComponent(Graphics g) {
 			if (chips == null) return;
 			var g2 = (Graphics2D) g.create();

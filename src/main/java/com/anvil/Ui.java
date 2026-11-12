@@ -120,12 +120,10 @@ final class Ui {
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
 			boolean down;
 
-			@Override
 			public void mousePressed(MouseEvent e) {
 				down = SwingUtilities.isLeftMouseButton(e) && ownClick(c, e);
 			}
 
-			@Override
 			public void mouseReleased(MouseEvent e) {
 				if (down && SwingUtilities.isLeftMouseButton(e) && c.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), c))) action.run();
 				down = false;
@@ -146,12 +144,10 @@ final class Ui {
 		c.setOpaque(true);
 		c.setBackground(base);
 		onClick(c, onClick).addMouseListener(new MouseAdapter() {
-			@Override
 			public void mouseEntered(MouseEvent e) {
 				c.setBackground(DARK_GRAY_HOVER_COLOR);
 			}
 
-			@Override
 			public void mouseExited(MouseEvent e) {
 				if (c.getMousePosition(true) == null) c.setBackground(base); // into a child is still inside
 			}
@@ -206,17 +202,14 @@ final class Ui {
 	/** Runs {@code changed} on every edit of the field's text. */
 	static void onEdit(javax.swing.text.JTextComponent f, Runnable changed) {
 		f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			@Override
 			public void insertUpdate(DocumentEvent e) {
 				changed.run();
 			}
 
-			@Override
 			public void removeUpdate(DocumentEvent e) {
 				changed.run();
 			}
 
-			@Override
 			public void changedUpdate(DocumentEvent e) {
 				changed.run();
 			}
@@ -313,12 +306,11 @@ final class Ui {
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
 			addFocusListener(new FocusAdapter() {
-				@Override public void focusGained(FocusEvent e) { repaint(); }
-				@Override public void focusLost(FocusEvent e) { repaint(); }
+				public void focusGained(FocusEvent e) { repaint(); }
+				public void focusLost(FocusEvent e) { repaint(); }
 			});
 		}
 
-		@Override
 		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
 			if (!getText().isEmpty() || isFocusOwner()) return;

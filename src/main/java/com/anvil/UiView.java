@@ -658,7 +658,6 @@ final class UiView extends JPanel {
 		var chip = color(str(n, "chip"), null);
 		JLabel l = n.has("grad") && n.get("grad").isJsonArray() ? gradient(n.getAsJsonArray("grad"), ink, bool(n, "move"))
 			: chip != null ? new ClipLabel() {
-				@Override
 				protected void paintComponent(Graphics g) {
 					var g2 = smooth(g);
 					g2.setColor(chip);
@@ -724,7 +723,6 @@ final class UiView extends JPanel {
 	JComponent icon(JsonObject n) {
 		var dim = bool(n, "dim");
 		JLabel l = new ClipLabel() {
-			@Override
 			protected void paintComponent(Graphics g) {
 				if (!dim) {
 					super.paintComponent(g);
@@ -759,7 +757,6 @@ final class UiView extends JPanel {
 		var from = g != null && g.size() > 1 ? color(g.get(0).getAsString(), DARK_GRAY_COLOR) : DARK_GRAY_COLOR;
 		var to = g != null && g.size() > 1 ? color(g.get(1).getAsString(), from) : from;
 		JComponent strip = new JComponent() {
-			@Override
 			protected void paintComponent(Graphics gr) {
 				var g2 = (Graphics2D) gr.create();
 				g2.setPaint(new GradientPaint(0, 0, from, getWidth(), 0, to));
@@ -784,7 +781,6 @@ final class UiView extends JPanel {
 			});
 		}
 		JPanel card = new JPanel(null) {
-			@Override
 			protected void paintComponent(Graphics gr) {
 				var g2 = smooth(gr);
 				g2.setColor(DARKER_GRAY_COLOR);
@@ -792,7 +788,6 @@ final class UiView extends JPanel {
 				g2.dispose();
 			}
 
-			@Override
 			protected void paintChildren(Graphics gr) {
 				var g2 = (Graphics2D) gr.create();
 				g2.setClip(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 22, 22));
@@ -802,11 +797,10 @@ final class UiView extends JPanel {
 		};
 		card.setOpaque(false);
 		card.setLayout(new LayoutManager() {
-			@Override public void addLayoutComponent(String name, Component comp) { }
-			@Override public void removeLayoutComponent(Component comp) { }
-			@Override public Dimension preferredLayoutSize(Container p) { return new Dimension(0, bannerH - up + body.getPreferredSize().height); }
-			@Override public Dimension minimumLayoutSize(Container p) { return preferredLayoutSize(p); }
-			@Override
+			public void addLayoutComponent(String name, Component comp) { }
+			public void removeLayoutComponent(Component comp) { }
+			public Dimension preferredLayoutSize(Container p) { return new Dimension(0, bannerH - up + body.getPreferredSize().height); }
+			public Dimension minimumLayoutSize(Container p) { return preferredLayoutSize(p); }
 			public void layoutContainer(Container p) {
 				strip.setBounds(0, 0, p.getWidth(), bannerH);
 				body.setBounds(0, bannerH - up, p.getWidth(), p.getHeight() - bannerH + up);
@@ -876,10 +870,9 @@ final class UiView extends JPanel {
 			int maskedFrame = -1;
 			Component maskedFor;
 
-			@Override public int getIconWidth() { return w; }
-			@Override public int getIconHeight() { return h; }
+			public int getIconWidth() { return w; }
+			public int getIconHeight() { return h; }
 
-			@Override
 			public void paintIcon(Component c, Graphics g, int x, int y) {
 				int frame = image instanceof GifIcon ? ((GifIcon) image).shownFrame() : 0;
 				if (masked == null || frame != maskedFrame || c != maskedFor) {
@@ -972,7 +965,6 @@ final class UiView extends JPanel {
 		}
 		int[] fill = {pct};
 		JPanel bar = new JPanel() {
-			@Override
 			protected void paintComponent(Graphics g) {
 				g.setColor(bg);
 				g.fillRect(0, 0, getWidth(), getHeight());
@@ -994,7 +986,6 @@ final class UiView extends JPanel {
 		if (n.has("c") && n.get("c").isJsonArray()) for (JsonElement e : n.getAsJsonArray("c")) cs.add(color(e.getAsString(), MUTED));
 		int h = num(n, "h", 6);
 		JPanel bar = new JPanel() {
-			@Override
 			protected void paintComponent(Graphics g) {
 				var g2 = smooth(g);
 				int k = cs.size();
@@ -1020,7 +1011,6 @@ final class UiView extends JPanel {
 		var dot = str(n, "dot");
 		var line = color(str(n, "line"), null);
 		JPanel gutter = new JPanel() {
-			@Override
 			protected void paintComponent(Graphics g) {
 				var g2 = smooth(g);
 				int x = 3, y = 3;
@@ -1426,12 +1416,10 @@ final class UiView extends JPanel {
 	/** A right-click menu on {@code c} and everything in it (Swing doesn't bubble a click up from a label). */
 	void menu(JComponent c, JsonArray items) {
 		MouseAdapter popup = new MouseAdapter() {
-			@Override
 			public void mousePressed(MouseEvent e) {
 				show(e);
 			}
 
-			@Override
 			public void mouseReleased(MouseEvent e) {
 				show(e);
 			}
@@ -1463,25 +1451,21 @@ final class UiView extends JPanel {
 		var base = c.getBackground();
 		var hover = c instanceof Round && ((Round) c).hover != null ? ((Round) c).hover : DARK_GRAY_HOVER_COLOR;
 		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
-			@Override
 			public void mousePressed(MouseEvent e) {
 				if (SwingUtilities.isLeftMouseButton(e) && Ui.ownClick(c, e)) pressing = true;
 			}
 
-			@Override
 			public void mouseReleased(MouseEvent e) {
 				pressing = false;
 				pressedAt = System.currentTimeMillis();
 			}
 
-			@Override
 			public void mouseEntered(MouseEvent e) {
 				c.setOpaque(true);
 				c.setBackground(hover);
 				c.repaint();
 			}
 
-			@Override
 			public void mouseExited(MouseEvent e) {
 				if (c.getMousePosition(true) == null) // into a child is still inside
 				{
@@ -1532,18 +1516,15 @@ final class UiView extends JPanel {
 	/** A team's colour as a square. */
 	static Icon swatch(Color c, int size) {
 		return new Icon() {
-			@Override
 			public void paintIcon(Component comp, Graphics g, int x, int y) {
 				g.setColor(c);
 				g.fillRect(x, y, size, size);
 			}
 
-			@Override
 			public int getIconWidth() {
 				return size;
 			}
 
-			@Override
 			public int getIconHeight() {
 				return size;
 			}

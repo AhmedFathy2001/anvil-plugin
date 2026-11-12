@@ -53,17 +53,14 @@ final class GifIcon implements Icon {
 		return frames.length;
 	}
 
-	@Override
 	public int getIconWidth() {
 		return frames[0].getWidth();
 	}
 
-	@Override
 	public int getIconHeight() {
 		return frames[0].getHeight();
 	}
 
-	@Override
 	public void paintIcon(Component c, Graphics g, int x, int y) {
 		if (c != null && frames.length > 1) {
 			hosts.put(c, Boolean.TRUE);

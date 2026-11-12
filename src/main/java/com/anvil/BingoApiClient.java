@@ -552,13 +552,11 @@ public class BingoApiClient {
 			// WARN, not debug. RuneLite logs at INFO, so both of these were invisible: a notification
 			// that the server rejected looked exactly like one that was never sent, and the only
 			// honest answer to "why didn't my 99 post" was that nobody could tell.
-			@Override
 			public void onFailure(Call call, IOException e) {
 				log.warn("{} notification failed: {}", channel, e.getMessage());
 				keepForRetry(url, channel, payloadJson, png, filename, rsn, hash);
 			}
 
-			@Override
 			public void onResponse(Call call, Response response) throws IOException {
 				try (Response r = response) {
 					if (!r.isSuccessful()) {
@@ -786,7 +784,6 @@ public class BingoApiClient {
 	/** A map that drops its eldest entry (least recently used with {@code lru}, else first put) past {@code max}. */
 	static <K, V> Map<K, V> capped(int max, boolean lru) {
 		return new LinkedHashMap<K, V>(16, 0.75f, lru) {
-			@Override
 			protected boolean removeEldestEntry(Map.Entry<K, V> e) {
 				return size() > max;
 			}
@@ -903,7 +900,6 @@ public class BingoApiClient {
 	static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
 	/** Decoded panel pictures by path and size, least recently used first. */
 	final Map<String, Icon> thumbs = new LinkedHashMap<String, Icon>(16, 0.75f, true) {
-		@Override
 		protected boolean removeEldestEntry(Map.Entry<String, Icon> e) {
 			// Animated pictures hold every frame (megabytes each): no more than 8 of them either.
 			return size() > 50 || values().stream().filter(v -> v instanceof GifIcon).count() > 8;
@@ -934,12 +930,10 @@ public class BingoApiClient {
 		}
 		var imageRequest = accountPaused ? publicRequest(url.toString()) : authedRequest(url.toString());
 		readClient.newCall(imageRequest.get().build()).enqueue(new Callback() {
-			@Override
 			public void onFailure(Call call, IOException e) {
 				done.accept(null);
 			}
 
-			@Override
 			public void onResponse(Call call, Response r) {
 				Icon img = null;
 				try (Response res = r) {

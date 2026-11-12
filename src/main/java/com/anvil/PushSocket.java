@@ -118,7 +118,6 @@ final class PushSocket extends WebSocketListener {
 		return live && relayOk && s != null && s.send(json);
 	}
 
-	@Override
 	public void onMessage(WebSocket ws, String text) {
 		JsonObject m;
 		try {
@@ -138,13 +137,11 @@ final class PushSocket extends WebSocketListener {
 		onMessage.accept(m);
 	}
 
-	@Override
 	public void onClosing(WebSocket ws, int code, String reason) {
 		ws.close(1000, null);
 		dropped(ws, code == TICKET_EXPIRED);
 	}
 
-	@Override
 	public void onFailure(WebSocket ws, Throwable t, Response response) {
 		dropped(ws, false);
 	}

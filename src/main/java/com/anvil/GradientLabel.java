@@ -41,12 +41,10 @@ final class GradientLabel extends JLabel {
 	static Window watched;
 	/** Follows the client window coming to the front and going behind (listening only, no input). */
 	static final java.awt.event.WindowAdapter FRONT = new java.awt.event.WindowAdapter() {
-		@Override
 		public void windowActivated(java.awt.event.WindowEvent e) {
 			active = true;
 		}
 
-		@Override
 		public void windowDeactivated(java.awt.event.WindowEvent e) {
 			active = false;
 		}
@@ -108,7 +106,6 @@ final class GradientLabel extends JLabel {
 		for (int i = 0; i < stops.length; i++) fractions[i] = stops.length == 1 ? 0f : (float) i / (stops.length - 1);
 	}
 
-	@Override
 	public void addNotify() {
 		super.addNotify();
 		if (moving) {
@@ -117,7 +114,6 @@ final class GradientLabel extends JLabel {
 		}
 	}
 
-	@Override
 	public void removeNotify() {
 		super.removeNotify();
 		MOVING.remove(this);
@@ -127,7 +123,6 @@ final class GradientLabel extends JLabel {
 		baseKey = null;
 	}
 
-	@Override
 	protected void paintComponent(Graphics g) {
 		int w = getWidth();
 		int h = getHeight();

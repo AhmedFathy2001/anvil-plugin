@@ -32,17 +32,14 @@ final class GlyphIcon implements Icon {
 	}
 
 
-	@Override
 	public int getIconWidth() {
 		return size;
 	}
 
-	@Override
 	public int getIconHeight() {
 		return size;
 	}
 
-	@Override
 	public void paintIcon(Component c, Graphics graphics, int x, int y) {
 		var g = (Graphics2D) graphics.create();
 		try {

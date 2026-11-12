@@ -27,7 +27,6 @@ public enum CombatAchievementTier {
 		return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
 	}
 
-	@Override
 	public String toString() {
 		return getDisplayName();
 	}

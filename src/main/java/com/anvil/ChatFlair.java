@@ -23,7 +23,6 @@ final class ChatFlair {
 		String c;
 		List<String> g;
 
-		@Override
 		public String toString() {
 			return c + "/" + g;
 		}

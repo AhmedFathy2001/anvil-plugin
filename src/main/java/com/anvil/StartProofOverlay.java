@@ -26,7 +26,6 @@ class StartProofOverlay extends OverlayPanel {
 		setPosition(OverlayPosition.TOP_CENTER);
 	}
 
-	@Override
 	public Dimension render(Graphics2D graphics) {
 		if (!config.startSpotGuide()) return null;
 		if (plugin.needsStartProof()) {

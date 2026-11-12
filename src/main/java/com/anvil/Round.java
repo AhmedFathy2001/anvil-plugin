@@ -28,13 +28,11 @@ final class Round extends JPanel {
 		return filled;
 	}
 
-	@Override
 	public void setOpaque(boolean on) {
 		filled = on;
 		super.setOpaque(false);
 	}
 
-	@Override
 	protected void paintComponent(Graphics g) {
 		var g2 = Ui.smooth(g);
 		if (filled) {

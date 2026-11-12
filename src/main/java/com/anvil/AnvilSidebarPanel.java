@@ -412,13 +412,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		capH(left(lookupBox));
 		// Focus shows as the underline turning orange.
 		lookupSearch.addFocusListener(new FocusAdapter() {
-			@Override
 			public void focusGained(FocusEvent e) {
 				setBoxLine(BRAND_ORANGE);
 				lookupCompleter.refresh();
 			}
 
-			@Override
 			public void focusLost(FocusEvent e) {
 				setBoxLine(MEDIUM_GRAY_COLOR);
 			}
@@ -534,7 +532,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 */
 	UiView.Host uiHost() {
 		return new UiView.Host() {
-			@Override
 			public void load(String view, Map<String, String> args, Consumer<JsonObject> done) {
 				var clan = dataSource.activeClan();
 				var sent = withPins(args);
@@ -551,7 +548,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 				});
 			}
 
-			@Override
 			public void pin(int event, int tile, boolean on) {
 				uiCache.clear();
 				if (tile <= 0) {
@@ -559,12 +555,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 				} else dataSource.setTileTracked(event, tile, on);
 			}
 
-			@Override
 			public void switchClan(String slug) {
 				AnvilSidebarPanel.this.switchClan(slug);
 			}
 
-			@Override
 			public void openTab(String name, Map<String, String> args) {
 				// Only a tab this panel is showing.
 				var feed = tabLabels.get(Tab.FEED);
@@ -573,49 +567,40 @@ public class AnvilSidebarPanel extends PluginPanel {
 				selectTab(Tab.FEED);
 			}
 
-			@Override
 			public long count(int tile) {
 				return dataSource.tileCount(tile);
 			}
 
-			@Override
 			public String myName() {
 				return dataSource.myRsn();
 			}
 
-			@Override
 			public void gameFocus() {
 				dataSource.gameFocus();
 			}
 
-			@Override
 			public JComponent nativePart(String name) {
 				var proof = "start-proof".equals(name) ? dataSource.startProof() : null;
 				return proof == null ? null : buildStartProofCard(proof);
 			}
 
-			@Override
 			public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done) {
 				uiCache.clear();
 				async(() -> apiClient.postUi(act, args, fields), done);
 			}
 
-			@Override
 			public void site(String path) {
 				LinkBrowser.browse(apiClient.siteLink(path));
 			}
 
-			@Override
 			public void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
 				apiClient.thumb(path, w, h, motion && GradientLabel.animate, img -> invokeLater(() -> done.accept(img)));
 			}
 
-			@Override
 			public void lookup(String rsn) {
 				showLookup(rsn);
 			}
 
-			@Override
 			public void clan(String slug) {
 				if (tab != Tab.LOOKUP) selectTab(Tab.LOOKUP);
 				setLookupMode(true);
@@ -821,7 +806,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	// ---- Lifecycle (Activatable) — poll only while the panel is on screen -------------------------
 
-	@Override
 	public void onActivate() {
 		onScreen = true;
 		feedRead();
@@ -832,7 +816,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		startProofTimer.start();
 	}
 
-	@Override
 	public void onDeactivate() {
 		onScreen = false;
 		dataSource.feedOnScreen(false);
@@ -1414,7 +1397,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 			return (c.space ? "Space \u00b7 " : "") + (more > 0 ? head + "  +" + more + " more" : head);
 		}
 
-		@Override
 		public String toString() {
 			return label;
 		}
@@ -1854,7 +1836,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		b.setContentAreaFilled(false);
 		b.setOpaque(false);
 		b.setUI(new BasicButtonUI() {
-			@Override
 			public void paint(Graphics g, JComponent c) {
 				var g2 = smooth(g);
 				g2.setColor(c.getBackground());
@@ -1865,12 +1846,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 		});
 		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		b.addMouseListener(new MouseAdapter() {
-			@Override
 			public void mouseEntered(MouseEvent e) {
 				if (b.isEnabled()) b.setBackground(BUTTON_HOVER);
 			}
 
-			@Override
 			public void mouseExited(MouseEvent e) {
 				b.setBackground(BUTTON_BG);
 			}
@@ -1884,7 +1863,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		combo.setFont(SMALL);
 		combo.setBorder(BorderFactory.createLineBorder(WIDGET_BORDER));
 		combo.setUI(new BasicComboBoxUI() {
-			@Override
 			protected JButton createArrowButton() {
 				var arrow = new BasicArrowButton(
 					SwingConstants.SOUTH, WIDGET_BG, WIDGET_BG, BRAND_ORANGE, WIDGET_BG);
@@ -1921,7 +1899,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 			row.add(detail, BorderLayout.SOUTH);
 		}
 
-		@Override
 		public Component getListCellRendererComponent(JList<? extends ClanChoice> list, ClanChoice value,
 			int index, boolean isSelected, boolean cellHasFocus) {
 			// index >= 0 → a popup row; -1 → the closed field. Dark rows, gold-tinted hover.

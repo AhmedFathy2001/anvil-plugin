@@ -1079,7 +1079,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
-	@Override
 	protected void startUp() {
 		// A capture cut short by the last shutdown must not keep every overlay hidden.
 		capturing = false;
@@ -1520,7 +1519,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	@Override
 	protected void shutDown() {
 		keyManager.unregisterKeyListener(eventChatKey);
 		clientThread.invokeLater(this::unflairAll);
@@ -6029,12 +6027,10 @@ public class AnvilPlugin extends Plugin {
 	static final long CHAT_FLAIR_EVERY_MS = 10 * 60_000L;
 	/** Socket deltas and jittered catch-ups (ChatFlairSync); HTTP on OkHttp's pool, never the client thread. */
 	final ChatFlairSync chatFlairSync = new ChatFlairSync(chatFlair, new ChatFlairSync.Source() {
-		@Override
 		public ChatFlair.Since since(int v) {
 			return apiClient.fetchChatFlairSince(v);
 		}
 
-		@Override
 		public ChatFlair.Wire full(int v) {
 			return apiClient.fetchChatFlairList(v);
 		}
@@ -9946,7 +9942,6 @@ public class AnvilPlugin extends Plugin {
 	int relayIcon = -1;
 
 	final HotkeyListener eventChatKey = new HotkeyListener(() -> config.eventChatKey()) {
-		@Override
 		public void hotkeyPressed() {
 			clientThread.invoke(() -> {
 				// Pressed again with our input open: the next channel, keeping what was typed.

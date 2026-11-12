@@ -440,12 +440,10 @@ public class TileTracker {
 			setMovable(true);
 		}
 
-		@Override
 		public String getName() {
 			return "AnvilTileTrackerPanel";
 		}
 
-		@Override
 		public Dimension render(Graphics2D graphics) {
 			if (AnvilPlugin.capturing) return null;
 			var shown = drawn; // no lock on the frame path
@@ -545,12 +543,10 @@ public class TileTracker {
 			setMovable(true);
 		}
 
-		@Override
 		public String getName() {
 			return "AnvilTileTracker" + slot;
 		}
 
-		@Override
 		public Dimension render(Graphics2D graphics) {
 			if (AnvilPlugin.capturing) return null;
 			drawInto(panelComponent, false);

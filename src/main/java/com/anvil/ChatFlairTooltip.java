@@ -29,7 +29,6 @@ final class ChatFlairTooltip extends Overlay {
 		setLayer(OverlayLayer.ABOVE_WIDGETS);
 	}
 
-	@Override
 	public Dimension render(Graphics2D g) {
 		if (flair.isEmpty() || !on.getAsBoolean()) return null;
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);

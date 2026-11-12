@@ -92,7 +92,6 @@ final class LookupSuggestions extends KeyAdapter {
 		}));
 	}
 
-	@Override
 	public void keyTyped(KeyEvent e) {
 		char c = e.getKeyChar();
 		if (!enabled.getAsBoolean() || Character.isISOControl(c) || !(Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')
