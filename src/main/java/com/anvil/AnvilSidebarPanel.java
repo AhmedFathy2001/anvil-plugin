@@ -475,6 +475,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	void selectTab(Tab next) {
 		tab = next;
+		feedRead();
 		dataSource.feedOnScreen(onScreen && next == Tab.FEED);
 		tabBody.removeAll();
 		tabBody.add(next == Tab.CLAN ? content : next == Tab.FEED ? feedView : next == Tab.YOU ? youView : next == Tab.LOOKUP ? lookupPanel : settingsPanel,
@@ -700,6 +701,18 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** The list the next Feed-tab open shows (a board's feed or chat from its buttons); empty = the default. */
 	Map<String, String> feedArgs = emptyMap();
 
+	/** Event chat came in while its chatbox copy is off: a dot on the Feed tab until it's looked at. Any thread. */
+	public void feedUnread() {
+		invokeLater(() -> {
+			if (!onScreen || tab != Tab.FEED) tabLabels.get(Tab.FEED).setText("Feed \u2022");
+		});
+	}
+
+	void feedRead() {
+		var l = tabLabels.get(Tab.FEED);
+		if (onScreen && tab == Tab.FEED && l != null) l.setText("Feed");
+	}
+
 	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
 	public void feedPush(JsonObject m) {
 		invokeLater(() -> feedView.feedPush(m));
@@ -818,6 +831,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	@Override
 	public void onActivate() {
 		onScreen = true;
+		feedRead();
 		dataSource.feedOnScreen(tab == Tab.FEED);
 		refresh();
 		autoRefresh.start();

@@ -89,6 +89,12 @@ public class AnvilPlugin extends Plugin {
 	ChatIconManager chatIconManager;
 
 	@Inject
+	net.runelite.client.input.KeyManager keyManager;
+
+	@Inject
+	net.runelite.client.game.chatbox.ChatboxPanelManager chatboxPanelManager;
+
+	@Inject
 	AnvilConfig config;
 
 	@Inject
@@ -1206,6 +1212,7 @@ public class AnvilPlugin extends Plugin {
 				.panel(sidebarPanel)
 				.build();
 		clientToolbar.addNavigation(sidebarNavButton);
+		keyManager.registerKeyListener(eventChatKey);
 
 		resetCompletionBaseline();
 		executor = Executors.newSingleThreadScheduledExecutor();
@@ -1504,6 +1511,7 @@ public class AnvilPlugin extends Plugin {
 
 	@Override
 	protected void shutDown() {
+		keyManager.unregisterKeyListener(eventChatKey);
 		clientThread.invokeLater(this::unflairAll);
 		SwingUtilities.invokeLater(() -> GradientLabel.watch(null));
 		overlayManager.remove(overlay);
@@ -1790,7 +1798,7 @@ public class AnvilPlugin extends Plugin {
 		configureApiClient();
 		if ("profileLookupMenu".equals(key) || "lookupPlayers".equals(key)) profileLookup.syncPlayerItem();
 		if ("trackerOnePanel".equals(key)) tileTracker.setOnePanel(config.trackerOnePanel());
-		if ("chatFeed".equals(key)) {
+		if ("chatFeed".equals(key) || key.startsWith("relay")) {
 			syncPush();
 			submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		}
@@ -2501,6 +2509,8 @@ public class AnvilPlugin extends Plugin {
 		// session forgets the baselines — the next account's balances are not this one's.
 		var gs = event.getGameState();
 		if (gs == GameState.LOGGED_IN || gs == GameState.LOGIN_SCREEN) markSeasonalWorld();
+		// The relay's public room is the world: a hop (or a log in) re-tickets it.
+		if (gs == GameState.LOGGED_IN) submit(() -> safely("push", this::syncPush));
 		if (gs == GameState.LOADING) {
 			gameValueCounters.onLoading();
 		} else if (gs == GameState.LOGIN_SCREEN || gs == GameState.HOPPING || gs == GameState.CONNECTION_LOST) {
@@ -3415,6 +3425,7 @@ public class AnvilPlugin extends Plugin {
 		var msg = event.getMessage();
 		if (msg == null || msg.isEmpty()) return;
 		maybeKeepFlairBroadcast(event);
+		relayHeard(event);
 
 		// Every coffer use is announced to the whole clan ("X has deposited 519 coins into the coffer."),
 		// the actor included. Each client reports only its own player's line; the site books the
@@ -6164,7 +6175,8 @@ public class AnvilPlugin extends Plugin {
 	 * line's menu options come from the message data, not from this text.
 	 */
 	void flairChatbox() {
-		if (flairOff()) return;
+		var flair = !flairOff();
+		if (!flair && relayMarks.isEmpty()) return;
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines == null) return;
@@ -6220,16 +6232,17 @@ public class AnvilPlugin extends Plugin {
 			// Which widget is which comes from the layout, never from what the text says: a typed
 			// "[Clan] Bob:" or "Bob has completed a quest: …" is someone's message widget.
 			var sender = text.indexOf(':') >= 0 && ChatFlair.senderColumn(i, lines.length, x, y, shown);
-			var painted = sender ? chatFlair.paintSender(text, star, opaque, shift) : null;
+			var painted = sender && flair ? chatFlair.paintSender(text, star, opaque, shift) : null;
+			if (sender && !relayMarks.isEmpty()) painted = relayMark(lines, i, text, painted);
 			var lead = false;
-			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
+			if (!sender && flair && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
 					&& !ChatFlair.typedBySomeone(i, x, y, shown)) {
 				painted = chatFlair.paintLead(text, star, opaque, shift);
 				lead = true;
 			}
 			// Our own lines naming someone ("Tile complete: … — by Bob!"): a player can't write a non-sender
 			// "[Anvil]" line, so its names are painted, and move, like a sender's.
-			var ours = painted == null && !sender && anvilLine(text);
+			var ours = flair && painted == null && !sender && anvilLine(text);
 			if (ours) painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				w.setText(painted);
@@ -6897,10 +6910,15 @@ public class AnvilPlugin extends Plugin {
 		// the chat feed must ask too: without it, a board player's chat and Feed only filled in when
 		// something else redrew the panel. A player with neither a board nor the chat feed opens a
 		// socket just for the Feed, and only while it's on screen.
-		var rows = eventId > 0 || feed || feedWatching;
+		// The chat relay (either half on) listens too, on the world it is on: a hop or another character
+		// re-tickets, since the ticket names both (docs/PLUGIN_WIRE.md chat-relay).
+		int world = (config.relaySend() || config.relayShow()) && loggedIn()
+				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
+		var rows = eventId > 0 || feed || feedWatching || world > 0;
 		if (p != null) {
 			p.scope(rows && apiClient.isConfigured() && pushEnabled()
-					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") : null);
+					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
+					+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() : "") : null);
 		}
 	}
 
@@ -6926,6 +6944,12 @@ public class AnvilPlugin extends Plugin {
 			refreshLook();
 			return;
 		}
+		if ("relay".equals(kind)) {
+			// Held a moment: the game's own copy of the line usually lands first, and then only gets an icon.
+			if (config.relayShow()) later(() -> clientThread.invoke(() -> showRelay(m)), 1_500);
+			return;
+		}
+		if ("hello".equals(kind)) fetchChatChans(null);
 		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 		if ("flair".equals(kind) || "hello".equals(kind)) {
 			if (config.supporterChatFlair() && apiClient.isConfigured()) {
@@ -6939,6 +6963,7 @@ public class AnvilPlugin extends Plugin {
 			// Panel rows (the Feed tab's lists): never the chatbox, never capped — the list batches them.
 			var panel = sidebarPanel;
 			if (panel != null) panel.feedPush(m);
+			if (m.has("cb")) eventChatLine(m);
 			return;
 		}
 		var cfg = pluginConfig;
@@ -9779,6 +9804,221 @@ public class AnvilPlugin extends Plugin {
 	 * achievement, or another team's tile. The site already decided this player wants it; the cap here
 	 * only keeps a busy minute from burying the chatbox.
 	 */
+	// -- Chat relay + event chat in the chatbox (docs/PLUGIN_WIRE.md chat-relay) ----------------------
+	//
+	// Outgoing chat is never touched: the relay READS the local player's own line as the client shows it
+	// (a muted player still sees theirs) and sends a copy. Others' lines arrive pre-built by the site and
+	// are only printed: a line the game already showed gets an icon after the name (relayMarks, painted
+	// on the chatbox widgets like Supporter flair — never on the MessageNode); one it didn't is added as
+	// normal chat of its type, so tab filters, chat plugins and timestamps treat it as one. Nothing about
+	// who is around is ever sent.
+
+	/** Client thread: others' public/clan lines the game showed in the last 10 s, by relayKey. */
+	final Map<String, Long> relaySeen = new HashMap<>();
+	/** Client thread: lines both the game and the relay delivered — their name gets the Anvil icon. */
+	final Set<String> relayMarks = new LinkedHashSet<>();
+	/** Client thread: lines the relay added, by their shown text, for "Report to Anvil". */
+	final Map<String, JsonObject> relayShown = new LinkedHashMap<>();
+	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
+	final Map<String, String> eventLines = new ConcurrentHashMap<>();
+	/** Where the chatbox event chat input may post, in its key's order; null until fetched. */
+	volatile JsonArray chatChans;
+	volatile boolean chatOne = true;
+	int eventChatAt;
+	net.runelite.client.game.chatbox.ChatboxTextInput eventChatInput;
+	int relayIcon = -1;
+
+	final HotkeyListener eventChatKey = new HotkeyListener(() -> config.eventChatKey()) {
+		@Override
+		public void hotkeyPressed() {
+			clientThread.invoke(() -> {
+				// Pressed again with our input open: the next channel, keeping what was typed.
+				var open = eventChatInput != null && chatboxPanelManager.getCurrentInput() == eventChatInput;
+				if (open) {
+					openEventChat(eventChatAt + 1, eventChatInput.getValue());
+				} else if (loggedIn() && apiClient.isConfigured()) {
+					if (chatChans != null) openEventChat(eventChatAt, "");
+					fetchChatChans(chatChans == null ? () -> openEventChat(eventChatAt, "") : null);
+				}
+			});
+		}
+	};
+
+	static String relayKey(String name, String text) {
+		return Text.standardize(name) + "\n" + Text.standardize(text).replaceAll("\\s+", " ");
+	}
+
+	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
+	void relayHeard(ChatMessage e) {
+		var ct = e.getType();
+		if (ct != PUBLICCHAT && ct != CLAN_CHAT || e.getName() == null) return;
+		var name = Text.removeTags(e.getName());
+		var text = Text.removeTags(e.getMessage());
+		if (Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
+			var p = pushSocket;
+			if (config.relaySend() && p != null && !text.startsWith("::")) p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", ct == PUBLICCHAT ? "public" : "clan", "x", text)));
+			return;
+		}
+		var now = now();
+		relaySeen.values().removeIf(t -> now - t > 10_000);
+		relaySeen.put(relayKey(name, text), now);
+	}
+
+	/** Client thread: a relayed line — an icon on the game's copy, else the line itself (sender muted). */
+	void showRelay(JsonObject m) {
+		if (!config.relayShow() || !loggedIn() || client.getLocalPlayer() == null) return;
+		var n = m.get("n").getAsString();
+		var pub = "public".equals(m.get("c").getAsString());
+		var key = relayKey(n, m.get("x").getAsString());
+		if (relaySeen.remove(key) != null) {
+			relayMarks.add(key);
+			if (relayMarks.size() > 100) relayMarks.remove(relayMarks.iterator().next());
+			client.refreshChat();
+			return;
+		}
+		if (client.getIgnoreContainer().findByName(n) != null) return;
+		Player near = null;
+		String from = null;
+		if (pub) {
+			// Public: only someone on screen, as the game would.
+			for (Player q : client.getPlayers()) if (q != null && Text.standardize(n).equals(Text.standardize(String.valueOf(q.getName())))) near = q;
+			if (near == null) return;
+		} else {
+			// Clan: only a member of our own clan channel.
+			var ch = client.getClanChannel();
+			if (ch == null || ch.findMember(n) == null) return;
+			from = ch.getName();
+		}
+		var xh = m.get("xh").getAsString();
+		relayShown.put(Text.removeTags(xh), m);
+		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
+		client.addChatMessage(pub ? PUBLICCHAT : CLAN_CHAT, m.get("nm").getAsString(), xh, from);
+		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PUBLIC_FILTER);
+		var mode = f == null ? "" : Text.removeTags(f.getText());
+		if (near != null && !mode.contains("Hide") && !mode.contains("Off") && (!mode.contains("Friends") || client.isFriended(n, false))) {
+			near.setOverheadText(m.get("x").getAsString());
+			near.setOverheadCycle(150);
+		}
+	}
+
+	/** Client thread (flairChatbox): a sender column of a line the relay also brought, with the icon after the name. */
+	String relayMark(Widget[] lines, int i, String text, String painted) {
+		for (int j = i + 1; j < lines.length && j <= i + 3; j++) {
+			var w = lines[j];
+			if (w == null || w.isHidden() || w.getOriginalY() != lines[i].getOriginalY() || w.getText() == null) continue;
+			var name = Text.removeTags(text).replaceFirst("^\\[[^\\]]*\\] *", "");
+			if (name.lastIndexOf(':') < 0 || !relayMarks.contains(relayKey(name.substring(0, name.lastIndexOf(':')), Text.removeTags(w.getText())))) return painted;
+			var base = painted != null ? painted : text;
+			int c = base.lastIndexOf(':');
+			if (relayIcon < 0) relayIcon = chatIconManager.registerChatIcon(ImageUtil.resizeImage(ImageUtil.loadImageResource(getClass(), "sidebar_icon.png"), 11, 11));
+			int at = chatIconManager.chatIconIndex(relayIcon);
+			return at < 0 ? painted : base.substring(0, c) + "<img=" + at + ">" + base.substring(c);
+		}
+		return painted;
+	}
+
+	/** An event chat push row: its chatbox copy (built by the site), or the Feed tab's dot when that's off. */
+	void eventChatLine(JsonObject m) {
+		if (!config.eventChatbox()) {
+			var panel = sidebarPanel;
+			if (panel != null) panel.feedUnread();
+			return;
+		}
+		var line = m.get(chatOne && m.has("cb1") ? "cb1" : "cb").getAsString();
+		// "chat:<event>:<channel>": where "Reply in" posts.
+		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
+		eventLines.put(Text.removeTags(line), feed[1] + ":" + feed[2]);
+		if (eventLines.size() > 50) eventLines.remove(eventLines.keySet().iterator().next());
+		clientThread.invokeLater(() -> {
+			if (loggedIn() && client.getLocalPlayer() != null) client.addChatMessage(GAMEMESSAGE, "", ChatPalette.readable(line, opaqueChatbox()), null);
+		});
+	}
+
+	void fetchChatChans(Runnable then) {
+		try {
+			apiClient.interactiveExecutor().execute(() -> {
+				var r = apiClient.chatChans();
+				if (r != null && r.has("chans")) {
+					chatChans = r.getAsJsonArray("chans");
+					chatOne = !r.has("one") || r.get("one").getAsBoolean();
+				}
+				if (then != null && chatChans != null) clientThread.invoke(then);
+			});
+		} catch (RejectedExecutionException e) {
+			// shutting down
+		}
+	}
+
+	/** Client thread: RuneLite's own chatbox input (never the game's chat) for one event chat channel. */
+	void openEventChat(int i, String value) {
+		var list = chatChans;
+		if (list == null || list.size() == 0) {
+			sendChatLine("Anvil", "No event chat you can post in right now.", Tone.INFO, null);
+			return;
+		}
+		eventChatAt = Math.floorMod(i, list.size());
+		var c = list.get(eventChatAt).getAsJsonObject();
+		eventChatInput = chatboxPanelManager.openTextInput("[" + c.get("l").getAsString() + "] " + getLocalPlayerName() + ":")
+				.value(value)
+				.onDone((Consumer<String>) t -> sendEventChat(c, t))
+				.build();
+	}
+
+	void sendEventChat(JsonObject c, String text) {
+		if (text == null || text.trim().isEmpty()) return;
+		apiClient.interactiveExecutor().execute(() -> {
+			var err = FeedList.errorOf(apiClient.postUi("chat-send", Map.of("e", c.get("e").getAsString(), "to", c.get("to").getAsString()), Map.of("msg", text.trim())));
+			if (err != null) sendChatLine("Anvil", err, Tone.WARN, null);
+		});
+	}
+
+	/** Client-side entries only (nothing is sent to the game): event chat on the Clan tab, Reply / Report on a line. */
+	@Subscribe
+	public void onMenuOpened(MenuOpened e) {
+		var chans = chatChans;
+		for (MenuEntry en : e.getMenuEntries()) {
+			if (en.getParam1() != InterfaceID.Chatbox.CHAT_CLAN) continue;
+			for (int i = chans == null ? -1 : chans.size() - 1; i >= 0; i--) {
+				int at = i;
+				menuEntry("Event chat:", chans.get(i).getAsJsonObject().get("l").getAsString(), () -> openEventChat(at, ""));
+			}
+			return;
+		}
+		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
+		var mp = client.getMouseCanvasPosition();
+		var kids = area == null || area.isHidden() ? null : area.getDynamicChildren();
+		if (kids == null || !area.getBounds().contains(mp.getX(), mp.getY())) return;
+		for (Widget w : kids) {
+			if (w == null || w.isHidden() || w.getText() == null || !w.getBounds().contains(mp.getX(), mp.getY())) continue;
+			var t = Text.removeTags(w.getText());
+			var r = relayShown.get(t);
+			if (r != null) menuEntry("Report to Anvil", "<col=ffffff>" + r.get("n").getAsString(), () -> reportRelay(r));
+			for (var line : eventLines.entrySet()) {
+				if (!t.endsWith(line.getKey()) || chans == null) continue;
+				for (int i = 0; i < chans.size(); i++) {
+					var c = chans.get(i).getAsJsonObject();
+					int at = i;
+					if (line.getValue().equals(c.get("e").getAsString() + ":" + c.get("to").getAsString())) menuEntry("Reply in", c.get("l").getAsString(), () -> openEventChat(at, ""));
+				}
+			}
+		}
+	}
+
+	void menuEntry(String option, String target, Runnable run) {
+		client.getMenu().createMenuEntry(1).setOption(option).setTarget("<col=ffb54d>" + target).setType(MenuAction.RUNELITE).onClick(x -> run.run());
+	}
+
+	void reportRelay(JsonObject m) {
+		apiClient.interactiveExecutor().execute(() -> {
+			try {
+				apiClient.postJson("/api/plugin/chat-relay/report", m, "Report", false);
+				sendChatLine("Anvil", "Reported to Anvil staff. Thanks.", Tone.INFO, null);
+			} catch (IOException ex) {
+				sendChatLine("Anvil", "Couldn't send the report — try again in a moment.", Tone.WARN, null);
+			}
+		});
+	}
+
 	synchronized void feedLine(JsonObject m) {
 		if (!config.chatFeed()) return;
 		var tag = m.has("tag") ? m.get("tag").getAsString() : "";

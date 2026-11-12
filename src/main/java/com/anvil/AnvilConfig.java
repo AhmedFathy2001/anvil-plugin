@@ -123,6 +123,50 @@ public interface AnvilConfig extends Config {
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "relaySend",
+		name = "Send my chat through Anvil",
+		description = "Signed in: also send a copy of your own public and clan chat lines through Anvil, so Anvil players whose game doesn't show them (if you're muted, for example) still see them. Your chat itself is never changed.",
+		position = 8,
+		section = "chatSection"
+	)
+	default boolean relaySend() {
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "relayShow",
+		name = "Show Anvil chat",
+		description = "Show public and clan lines other Anvil players sent through Anvil when your game didn't show them, like normal chat. A line you already saw gets a small Anvil icon after the name.",
+		position = 9,
+		section = "chatSection"
+	)
+	default boolean relayShow() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "eventChatbox",
+		name = "Show event chat in the chatbox",
+		description = "Print your boards' event chat in the game chatbox too, as [Board · Team] Name: message. The Feed tab shows it either way.",
+		position = 10,
+		section = "chatSection"
+	)
+	default boolean eventChatbox() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "eventChatKey",
+		name = "Event chat key",
+		description = "Opens a chat input for your board's event chat; press it again to switch channel. You can also right-click the Clan chat tab.",
+		position = 11,
+		section = "chatSection"
+	)
+	default Keybind eventChatKey() {
+		return new Keybind(java.awt.event.KeyEvent.VK_INSERT, 0);
+	}
+
 	// ---- Setup ----
 
 	// No Site URL: the plugin only talks to https://anvilosrs.com (BingoApiClient.CANONICAL_SITE).

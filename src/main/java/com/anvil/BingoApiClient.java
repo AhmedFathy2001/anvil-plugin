@@ -345,13 +345,20 @@ public class BingoApiClient {
 	 * Null when signed out, refused, or there's no board to listen to (204) — and when the socket it
 	 * names isn't on the site this plugin already talks to, which it never dials anywhere else.
 	 */
-	PushTicket fetchPushTicket(boolean feed, boolean rows) {
-		// ?flair=1 always: this plugin applies Supporter-list deltas (ChatFlairSync).
-		var path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "");
+	PushTicket fetchPushTicket(boolean feed, boolean rows, int relayWorld) {
+		// ?flair=1 always: this plugin applies Supporter-list deltas (ChatFlairSync). ?relay=1&world=: the
+		// chat relay is on, and the world is its public room (docs/PLUGIN_WIRE.md chat-relay).
+		var path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "")
+				+ (relayWorld > 0 ? "&relay=1&world=" + relayWorld : "");
 		var t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class) : null;
 		var socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
 		var site = HttpUrl.parse(getApiUrl());
 		return socket != null && site != null && socket.host().equals(site.host()) ? t : null;
+	}
+
+	/** GET /api/plugin/chat-chans: where the chatbox event chat input may post ({one, chans}). Null on failure. */
+	JsonObject chatChans() {
+		return getOrNull(authedRequest(clanUrl("/api/plugin/chat-chans")).get(), JsonObject.class);
 	}
 
 	/**
