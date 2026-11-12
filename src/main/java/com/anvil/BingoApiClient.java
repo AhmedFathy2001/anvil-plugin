@@ -345,11 +345,11 @@ public class BingoApiClient {
 	 * Null when signed out, refused, or there's no board to listen to (204) — and when the socket it
 	 * names isn't on the site this plugin already talks to, which it never dials anywhere else.
 	 */
-	PushTicket fetchPushTicket(boolean feed, boolean rows, int relayWorld) {
+	PushTicket fetchPushTicket(boolean feed, boolean rows, int relayWorld, String fc) {
 		// ?flair=1 always: this plugin applies Supporter-list deltas (ChatFlairSync). ?relay=1&world=: the
 		// chat relay is on, and the world is its public room (docs/PLUGIN_WIRE.md chat-relay).
 		var path = "/api/plugin/push/ticket?flair=1" + (feed ? "&feed=1" : "") + (rows ? "&rows=1" : "")
-				+ (relayWorld > 0 ? "&relay=1&world=" + relayWorld : "");
+				+ (relayWorld > 0 ? "&relay=1&world=" + relayWorld + "&fc=" + fc.replaceAll("[^a-z0-9_-]", "+") : "");
 		var t = isConfigured() ? getOrNull(authedRequest(clanUrl(path)).get(), PushTicket.class) : null;
 		var socket = t == null || t.url == null ? null : HttpUrl.parse(t.url.replaceFirst("^ws", "http"));
 		var site = HttpUrl.parse(getApiUrl());

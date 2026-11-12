@@ -39,7 +39,7 @@ public class PushSocketTest
 		}
 
 		@Override
-		PushTicket fetchPushTicket(boolean feed, boolean rows, int relay)
+		PushTicket fetchPushTicket(boolean feed, boolean rows, int relay, String fc)
 		{
 			ticketsAsked++;
 			lastFeed = feed;

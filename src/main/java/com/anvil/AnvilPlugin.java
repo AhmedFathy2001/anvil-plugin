@@ -2286,6 +2286,11 @@ public class AnvilPlugin extends Plugin {
 
 	@Subscribe
 	public void onGameTick(GameTick event) {
+		// Joined, left or changed friends chat: the relay's friends chat room follows (a new ticket).
+		if (!fcSeen.equals(fcOwner())) {
+			fcSeen = fcOwner();
+			submit(() -> safely("push", this::syncPush));
+		}
 		lastWornItemIds = wornItemIds();
 		maybeSettleStats();
 		tickGameCounters();
@@ -6177,8 +6182,7 @@ public class AnvilPlugin extends Plugin {
 	 * line's menu options come from the message data, not from this text.
 	 */
 	void flairChatbox() {
-		var flair = !flairOff();
-		if (!flair && relayMarks.isEmpty()) return;
+		if (flairOff()) return;
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines == null) return;
@@ -6234,17 +6238,16 @@ public class AnvilPlugin extends Plugin {
 			// Which widget is which comes from the layout, never from what the text says: a typed
 			// "[Clan] Bob:" or "Bob has completed a quest: …" is someone's message widget.
 			var sender = text.indexOf(':') >= 0 && ChatFlair.senderColumn(i, lines.length, x, y, shown);
-			var painted = sender && flair ? chatFlair.paintSender(text, star, opaque, shift) : null;
-			if (sender && !relayMarks.isEmpty()) painted = relayMark(lines, i, text, painted);
+			var painted = sender ? chatFlair.paintSender(text, star, opaque, shift) : null;
 			var lead = false;
-			if (!sender && flair && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
+			if (!sender && !flairBroadcasts.isEmpty() && flairBroadcasts.contains(ChatFlair.key(text))
 					&& !ChatFlair.typedBySomeone(i, x, y, shown)) {
 				painted = chatFlair.paintLead(text, star, opaque, shift);
 				lead = true;
 			}
 			// Our own lines naming someone ("Tile complete: … — by Bob!"): a player can't write a non-sender
 			// "[Anvil]" line, so its names are painted, and move, like a sender's.
-			var ours = flair && painted == null && !sender && anvilLine(text);
+			var ours = painted == null && !sender && anvilLine(text);
 			if (ours) painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				w.setText(painted);
@@ -6957,7 +6960,7 @@ public class AnvilPlugin extends Plugin {
 			p.scope(rows && apiClient.isConfigured() && pushEnabled()
 					? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
 					// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
-					+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") : "") : null);
+					+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "@" + fcOwner() : "") : null);
 		}
 	}
 
@@ -6984,11 +6987,22 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if ("relay".equals(kind)) {
-			// Held a moment: the game's own copy of the line usually lands first, and then only gets an icon.
-			if (config.relayShow()) later(() -> clientThread.invoke(() -> showRelay(m)), 1_500);
+			if (config.relayShow()) clientThread.invoke(() -> showRelay(m));
 			return;
 		}
-		if ("hello".equals(kind)) fetchChatChans(null);
+		// Presence (relay sockets only): who else beside us has the relay on.
+		if ("here".equals(kind)) {
+			for (JsonElement n : m.getAsJsonArray("n")) relayHere.add(n.getAsString());
+			return;
+		}
+		if ("gone".equals(kind)) {
+			relayHere.remove(m.get("n").getAsString());
+			return;
+		}
+		if ("hello".equals(kind)) {
+			relayHere.clear();
+			fetchChatChans(null);
+		}
 		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 		if ("flair".equals(kind) || "hello".equals(kind)) {
 			if (config.supporterChatFlair() && apiClient.isConfigured()) {
@@ -9847,19 +9861,24 @@ public class AnvilPlugin extends Plugin {
 	//
 	// Outgoing chat is never touched: the relay READS the local player's own line as the client shows it
 	// (a muted player still sees theirs) and sends a copy. Others' lines arrive pre-built by the site and
-	// are only printed: a line the game already showed gets an icon after the name (relayMarks, painted
-	// on the chatbox widgets like Supporter flair — never on the MessageNode); one it didn't is added as
-	// normal chat of its type, so tab filters, chat plugins and timestamps treat it as one. Nothing about
+	// are only printed: one the game didn't show is added at once as normal chat of its type (so tab
+	// filters, chat plugins and timestamps treat it as one); if the game's own copy turns up after all,
+	// ours is removed and the game's kept. Either way the line carries the Anvil icon at the start of its
+	// text — never in the name, which the game's own menu options and clan rank icon read. Nothing about
 	// who is around is ever sent.
 
 	/** Client thread: others' public/clan lines the game showed in the last 10 s, by relayKey. */
-	final Map<String, Long> relaySeen = new HashMap<>();
-	/** Client thread: lines both the game and the relay delivered — their name gets the Anvil icon. */
-	final Set<String> relayMarks = new LinkedHashSet<>();
+	final Map<String, MessageNode> relaySeen = new HashMap<>();
+	/** Client thread: lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
+	final Map<String, MessageNode> relayNodes = new LinkedHashMap<>();
+	/** Client thread: the chat input's last text, to tell our own typed public line by its overhead. */
+	String typed = "";
 	/** Client thread: lines the relay added, by their shown text, for "Report to Anvil". */
 	final Map<String, JsonObject> relayShown = new LinkedHashMap<>();
 	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
 	final Map<String, String> eventLines = new ConcurrentHashMap<>();
+	/** Characters beside us (our world, clan, friends chat) with Anvil chat on, as the site names them. */
+	final Set<String> relayHere = ConcurrentHashMap.newKeySet();
 	/** Where the chatbox event chat input may post, in its key's order; null until fetched. */
 	volatile JsonArray chatChans;
 	volatile boolean chatOne = true;
@@ -9884,84 +9903,175 @@ public class AnvilPlugin extends Plugin {
 	};
 
 	static String relayKey(String name, String text) {
-		return Text.standardize(name) + "\n" + Text.standardize(text).replaceAll("\\s+", " ");
+		return Text.standardize(name).replaceAll("[ _-]+", " ") + "\n" + Text.standardize(text).replaceAll("\\s+", " ");
+	}
+
+	/** The friends chat owner we sit with (its room on the relay), or "". */
+	String fcOwner() {
+		var fc = client.getFriendsChatManager();
+		return fc == null || fc.getOwner() == null ? "" : Text.standardize(fc.getOwner());
+	}
+
+	/** The friends chat owner the push scope was last built with: a change re-tickets (onGameTick). */
+	String fcSeen = "";
+
+	void relaySay(String c, String text) {
+		var p = pushSocket;
+		if (!config.relaySend() || p == null || text.startsWith("::")) return;
+		log.debug("Relay: sending own {} line", c);
+		p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text)));
 	}
 
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
-		if (ct != PUBLICCHAT && ct != CLAN_CHAT || e.getName() == null) return;
+		if (ct != PUBLICCHAT && ct != MODCHAT && ct != CLAN_CHAT && ct != FRIENDSCHAT || e.getName() == null) return;
 		var name = Text.removeTags(e.getName());
 		var text = Text.removeTags(e.getMessage());
 		if (Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
-			var p = pushSocket;
-			if (config.relaySend() && p != null && !text.startsWith("::")) p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", ct == PUBLICCHAT ? "public" : "clan", "x", text)));
+			log.debug("Relay: own {} line", ct);
+			relaySay(ct == CLAN_CHAT ? "clan" : ct == FRIENDSCHAT ? "fc" : "public", text);
 			return;
 		}
-		var now = now();
-		relaySeen.values().removeIf(t -> now - t > 10_000);
-		relaySeen.put(relayKey(name, text), now);
+		var key = relayKey(name, text);
+		var ours = relayNodes.get(key);
+		if (ours != null && ours == e.getMessageNode()) return;
+		if (ours != null) {
+			// The game's copy came after ours after all: one line, the game's, with the icon.
+			relayNodes.remove(key);
+			client.getChatLineMap().get(ours.getType().getType()).removeMessageNode(ours);
+			relayMarkNode(e.getMessageNode());
+			return;
+		}
+		var now = (int) (now() / 1000);
+		relaySeen.values().removeIf(n -> now - n.getTimestamp() > 10);
+		relaySeen.put(key, e.getMessageNode());
+	}
+
+	/** Client thread: game lines the relay also brought; their name gets the icon as the chatbox is built. */
+	final Set<MessageNode> relayMarked = new LinkedHashSet<>();
+
+	void relayMarkNode(MessageNode n) {
+		if (n == null) return;
+		relayMarked.add(n);
+		if (relayMarked.size() > 100) relayMarked.remove(relayMarked.iterator().next());
+		client.refreshChat();
+	}
+
+	/** The chatbox building a line's name (the way RuneLite adds rank icons): a marked one gets the icon after it. */
+	@Subscribe
+	public void onScriptCallbackEvent(ScriptCallbackEvent e) {
+		if (relayMarked.isEmpty() || !"chatMessageBuilding".equals(e.getEventName())) return;
+		var node = client.getMessages().get(client.getIntStack()[client.getIntStackSize() - 1]);
+		if (node == null || !relayMarked.contains(node)) return;
+		var os = client.getObjectStack();
+		int at = client.getObjectStackSize() - 3;
+		os[at] = os[at] + relayIcon();
+	}
+
+	/** A muted player's public line never comes back as chat, but the client still shows it overhead. */
+	@Subscribe
+	public void onOverheadTextChanged(OverheadTextChanged e) {
+		var t = e.getOverheadText();
+		if (e.getActor() != client.getLocalPlayer() || t == null || typed.isEmpty() || !Text.standardize(typed).endsWith(Text.standardize(t))) return;
+		typed = "";
+		relaySay("public", Text.removeTags(t));
+	}
+
+	@Subscribe
+	public void onVarClientStrChanged(VarClientStrChanged e) {
+		if (e.getIndex() != VarClientID.CHATINPUT) return;
+		var v = client.getVarcStrValue(VarClientID.CHATINPUT);
+		if (v != null && !v.isEmpty()) typed = v;
+	}
+
+	/** The Anvil icon: pixel art at the chat icons' own size, drawn 1:1 by the game. */
+	String relayIcon() {
+		if (relayIcon < 0) {
+			String[] a = {"XXXXXXXXXXXX", ".XXXXXXXXXXX", "...XXXXXXXX.", "....XXXXXX..", ".....XXXX...", ".....XXXX...", "....XXXXXX..", "...XXXXXXXX."};
+			var img = new BufferedImage(14, 10, BufferedImage.TYPE_INT_ARGB);
+			for (int pass = 0; pass < 2; pass++) {
+				for (int y = 0; y < a.length; y++) {
+					for (int x = 0; x < 12; x++) {
+						if (a[y].charAt(x) != 'X') continue;
+						if (pass == 1) img.setRGB(x + 1, y + 1, 0xFFFFB54D);
+						else for (int d = 0; d < 9; d++) img.setRGB(x + d % 3, y + d / 3, 0xFF2A1C08);
+					}
+				}
+			}
+			relayIcon = chatIconManager.registerChatIcon(img);
+		}
+		int i = chatIconManager.chatIconIndex(relayIcon);
+		return i < 0 ? "" : "<img=" + i + ">";
 	}
 
 	// The account-type icons the site may send (ironman, ultimate, hardcore, group, hardcore group, unranked group); nothing else.
 	static final java.util.regex.Pattern ICON_LEAD = java.util.regex.Pattern.compile("^<img=(2|3|10|41|42|43)>");
 
-	/** Client thread: a relayed line — an icon on the game's copy, else the line itself (sender muted). */
+	/** Client thread: a relayed line — the icon on the game's copy, else the line itself, at once (sender muted). */
 	void showRelay(JsonObject m) {
 		if (!config.relayShow() || !loggedIn() || client.getLocalPlayer() == null) return;
 		var n = m.get("n").getAsString();
-		var pub = "public".equals(m.get("c").getAsString());
+		var c = m.get("c").getAsString();
 		var key = relayKey(n, m.get("x").getAsString());
-		if (relaySeen.remove(key) != null) {
-			relayMarks.add(key);
-			if (relayMarks.size() > 100) relayMarks.remove(relayMarks.iterator().next());
-			client.refreshChat();
+		log.debug("Relay: got a {} line", c);
+		var seen = relaySeen.remove(key);
+		if (seen != null) {
+			relayMarkNode(seen);
 			return;
 		}
 		if (client.getIgnoreContainer().findByName(n) != null) return;
+		// The sender as our own client knows them: on screen (public), or in our own channel's member list
+		// with the rank icon it shows there (clan, friends chat). Nobody unknown to it is shown.
 		Player near = null;
 		String from = null;
-		if (pub) {
-			// Public: only someone on screen, as the game would.
-			for (Player q : client.getPlayers()) if (q != null && Text.standardize(n).equals(Text.standardize(String.valueOf(q.getName())))) near = q;
-			if (near == null) return;
-		} else {
-			// Clan: only a member of our own clan channel.
+		String shown = null;
+		var rank = "";
+		var type = PUBLICCHAT;
+		if ("public".equals(c)) {
+			for (Player q : client.getPlayers()) if (q != null && q.getName() != null && relayKey(n, "").equals(relayKey(q.getName(), ""))) near = q;
+			if (near != null) shown = near.getName();
+		} else if ("clan".equals(c)) {
 			var ch = client.getClanChannel();
-			if (ch == null || ch.findMember(n) == null) return;
-			from = ch.getName();
+			var member = ch == null ? null : ch.findMember(n);
+			var cs = client.getClanSettings();
+			var title = member == null || cs == null ? null : cs.titleForRank(member.getRank());
+			if (member != null) {
+				shown = member.getName();
+				from = ch.getName();
+				type = CLAN_CHAT;
+				rank = title == null ? "" : "<img=" + chatIconManager.getIconNumber(title) + ">";
+			}
+		} else {
+			var fc = client.getFriendsChatManager();
+			var member = fc == null ? null : fc.findByName(n);
+			if (member != null) {
+				shown = member.getName();
+				from = fc.getName();
+				type = FRIENDSCHAT;
+				rank = member.getRank() == null || member.getRank() == FriendsChatRank.UNRANKED ? "" : "<img=" + chatIconManager.getIconNumber(member.getRank()) + ">";
+			}
 		}
-		// Untrusted all the same: the words with no markup at all, the name rebuilt from the plain name
-		// (only a game icon tag may lead it).
-		var x = clean(m.get("x").getAsString());
-		// Only a leading account-type icon survives, by explicit match (a fail-open replace let a raw name through).
+		if (shown == null) {
+			log.debug("Relay: {} sender unknown here", c);
+			return;
+		}
+		// Untrusted all the same: the words escaped; the name our client's own, after the rank and the
+		// account-type icon (only those six indices, by explicit match) and before the Anvil icon.
+		var x = Text.escapeJagex(m.get("x").getAsString());
 		var im = m.has("nm") ? ICON_LEAD.matcher(m.get("nm").getAsString()) : null;
 		var icon = im != null && im.lookingAt() ? "<img=" + im.group(1) + ">" : "";
-		relayShown.put(x, m);
+		relayShown.put(Text.removeTags(x), m);
 		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
-		client.addChatMessage(pub ? PUBLICCHAT : CLAN_CHAT, icon + Text.toJagexName(n), x, from);
+		relayNodes.put(key, client.addChatMessage(type, rank + icon + shown + relayIcon(), x, from));
+		if (relayNodes.size() > 50) relayNodes.remove(relayNodes.keySet().iterator().next());
+		relaySeen.remove(key);
 		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PUBLIC_FILTER);
 		var mode = f == null ? "" : Text.removeTags(f.getText());
 		if (near != null && !mode.contains("Hide") && !mode.contains("Off") && (!mode.contains("Friends") || client.isFriended(n, false))) {
-			near.setOverheadText(x);
+			near.setOverheadText(Text.removeTags(x));
 			near.setOverheadCycle(150);
 		}
-	}
-
-	/** Client thread (flairChatbox): a sender column of a line the relay also brought, with the icon after the name. */
-	String relayMark(Widget[] lines, int i, String text, String painted) {
-		for (int j = i + 1; j < lines.length && j <= i + 3; j++) {
-			var w = lines[j];
-			if (w == null || w.isHidden() || w.getOriginalY() != lines[i].getOriginalY() || w.getText() == null) continue;
-			var name = Text.removeTags(text).replaceFirst("^\\[[^\\]]*\\] *", "");
-			if (name.lastIndexOf(':') < 0 || !relayMarks.contains(relayKey(name.substring(0, name.lastIndexOf(':')), Text.removeTags(w.getText())))) return painted;
-			var base = painted != null ? painted : text;
-			int c = base.lastIndexOf(':');
-			if (relayIcon < 0) relayIcon = chatIconManager.registerChatIcon(ImageUtil.resizeImage(ImageUtil.loadImageResource(getClass(), "sidebar_icon.png"), 11, 11));
-			int at = chatIconManager.chatIconIndex(relayIcon);
-			return at < 0 ? painted : base.substring(0, c) + "<img=" + at + ">" + base.substring(c);
-		}
-		return painted;
 	}
 
 	/** An event chat push row: its chatbox copy (built by the site), or the Feed tab's dot when that's off. */
@@ -10026,6 +10136,13 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onMenuOpened(MenuOpened e) {
 		var chans = chatChans;
+		// A player, a channel member or a chat line of someone with Anvil chat on: an info line, no action.
+		for (MenuEntry en : e.getMenuEntries()) {
+			var who = Text.standardize(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$|[_-]", " ").replaceAll("\\s+", " ").trim();
+			if (!relayHere.contains(who)) continue;
+			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: connected").setTarget("").setType(MenuAction.RUNELITE);
+			break;
+		}
 		for (MenuEntry en : e.getMenuEntries()) {
 			if (en.getParam1() != InterfaceID.Chatbox.CHAT_CLAN) continue;
 			for (int i = chans == null ? -1 : chans.size() - 1; i >= 0; i--) {
@@ -10041,7 +10158,7 @@ public class AnvilPlugin extends Plugin {
 		for (Widget w : kids) {
 			if (w == null || w.isHidden() || w.getText() == null || !w.getBounds().contains(mp.getX(), mp.getY())) continue;
 			var t = Text.removeTags(w.getText());
-			var r = relayShown.get(t);
+			var r = relayShown.get(t.trim());
 			if (r != null) menuEntry("Report to Anvil", "<col=ffffff>" + r.get("n").getAsString(), () -> reportRelay(r));
 			for (var line : eventLines.entrySet()) {
 				if (!t.endsWith(line.getKey()) || chans == null) continue;

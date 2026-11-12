@@ -137,7 +137,7 @@ public interface AnvilConfig extends Config {
 	@ConfigItem(
 		keyName = "relayShow",
 		name = "Show Anvil chat",
-		description = "Show public and clan lines other Anvil players sent through Anvil when your game didn't show them, like normal chat. A line you already saw gets a small Anvil icon after the name.",
+		description = "Show public and clan lines other Anvil players sent through Anvil when your game didn't show them, like normal chat. Lines that came through Anvil carry a small Anvil icon.",
 		position = 9,
 		section = "chatSection"
 	)

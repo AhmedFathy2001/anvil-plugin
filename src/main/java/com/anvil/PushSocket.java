@@ -78,11 +78,13 @@ final class PushSocket extends WebSocketListener {
 		boolean feed;
 		boolean rows;
 		int relay;
+		String fc;
 		synchronized (this) {
 			pending = null;
 			feed = scope != null && scope.contains(":f");
 			var c = scope == null ? null : java.util.regex.Pattern.compile(":c(\\d+)").matcher(scope);
 			relay = c != null && c.find() ? Integer.parseInt(c.group(1)) : 0;
+			fc = scope == null || scope.indexOf('@') < 0 ? "" : scope.substring(scope.indexOf('@') + 1);
 			// Always: this plugin reads panel rows, and the site only sends them to one that says so
 			// (an older plugin would log each). ":r" only decides whether to connect with no board.
 			rows = true;
@@ -90,7 +92,7 @@ final class PushSocket extends WebSocketListener {
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try {
-			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed, rows, relay)));
+			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed, rows, relay, fc)));
 		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
@@ -111,6 +113,7 @@ final class PushSocket extends WebSocketListener {
 	void say(String json) {
 		var s = socket;
 		if (live && relayOk && s != null) s.send(json);
+		else log.debug("Relay: socket not ready (live={}, relay={})", live, relayOk);
 	}
 
 	@Override
