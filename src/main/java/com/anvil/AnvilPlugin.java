@@ -9920,8 +9920,6 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
 	boolean injecting;
-	/** Client thread: lines the relay added, by their shown text, for "Report to Anvil". */
-	final Map<String, JsonObject> relayShown = new LinkedHashMap<>();
 	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
 	final Map<String, String> eventLines = new LinkedHashMap<>();
 	/** Characters beside us (our world, clan, friends chat) with Anvil chat on, as the site names them. */
@@ -10148,8 +10146,6 @@ public class AnvilPlugin extends Plugin {
 		var x = Text.escapeJagex(m.get("x").getAsString());
 		var im = m.has("nm") ? ICON_LEAD.matcher(m.get("nm").getAsString()) : null;
 		var icon = im != null && im.lookingAt() ? "<img=" + im.group(1) + ">" : "";
-		relayShown.put(Text.removeTags(x), m);
-		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
 		injecting = true;
 		try {
 			// The name stays the plain one: RuneLite's channel plugin finds the sender's rank by it, and the
@@ -10257,7 +10253,7 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/** Client-side entries only (nothing is sent to the game): event chat on the Clan tab, Reply / Report on a line. */
+	/** Client-side entries only (nothing is sent to the game): event chat on the Clan tab, Reply on a line. */
 	@Subscribe
 	public void onMenuOpened(MenuOpened e) {
 		var chans = chatChans;
@@ -10290,8 +10286,6 @@ public class AnvilPlugin extends Plugin {
 		for (Widget w : kids) {
 			if (w == null || w.isHidden() || w.getText() == null || !w.getBounds().contains(mp.getX(), mp.getY())) continue;
 			var t = Text.removeTags(w.getText());
-			var r = relayShown.get(t.trim());
-			if (r != null) menuEntry("Report to Anvil", "<col=ffffff>" + r.get("n").getAsString(), () -> reportRelay(r));
 			for (var line : eventLines.entrySet()) {
 				if (!t.endsWith(line.getKey()) || chans == null) continue;
 				for (int i = 0; i < chans.size(); i++) {
@@ -10305,17 +10299,6 @@ public class AnvilPlugin extends Plugin {
 
 	void menuEntry(String option, String target, Runnable run) {
 		client.getMenu().createMenuEntry(1).setOption(option).setTarget("<col=ffb54d>" + target).setType(MenuAction.RUNELITE).onClick(x -> run.run());
-	}
-
-	void reportRelay(JsonObject m) {
-		apiClient.interactiveExecutor().execute(() -> {
-			try {
-				apiClient.postJson("/api/plugin/chat-relay/report", m, "Report", false);
-				sendChatLine("Anvil", "Reported to Anvil staff. Thanks.", Tone.INFO, null);
-			} catch (IOException ex) {
-				sendChatLine("Anvil", "Couldn't send the report — try again in a moment.", Tone.WARN, null);
-			}
-		});
 	}
 
 	synchronized void feedLine(JsonObject m) {
