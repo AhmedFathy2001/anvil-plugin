@@ -1,5 +1,6 @@
 package com.anvil;
 
+import java.awt.Font;
 import java.awt.event.MouseEvent;
 import javax.swing.*;
 
@@ -21,6 +22,11 @@ class ClipLabel extends JLabel {
 	ClipLabel(String text, int align) {
 		super(text, align);
 		ToolTipManager.sharedInstance().registerComponent(this);
+	}
+
+	/** Site text with a symbol the RS font lacks is drawn in the system font (see {@link Ui#fit}). */
+	public Font getFont() {
+		return Ui.fit(super.getFont(), getText());
 	}
 
 	public String getToolTipText(MouseEvent e) {

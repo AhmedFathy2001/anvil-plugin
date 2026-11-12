@@ -222,10 +222,10 @@ public class BingoClogBannerOverlay extends Overlay {
 	/** Draws {@link #wrap wrapped} lines centred horizontally, {@code topY} being the CSS-style top of the
 	 *  first (line-height 1); extra lines advance downward by {@link #WRAP_LINE_H}. */
 	static void drawLines(Graphics2D g, List<String> lines, Font font, Color color, int topY) {
-		g.setFont(font);
-		var fm = g.getFontMetrics();
 		for (int i = 0; i < lines.size(); i++) {
 			var shown = lines.get(i);
+			g.setFont(Ui.fit(font, shown));
+			var fm = g.getFontMetrics();
 			int x = (BASE_W - fm.stringWidth(shown)) / 2;
 			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
 			g.setColor(Color.BLACK);

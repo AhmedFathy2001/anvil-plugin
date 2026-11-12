@@ -31,6 +31,12 @@ final class Ui {
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
 	static final Font REGULAR = FontManager.getRunescapeFont();
 	static final Font BOLD = FontManager.getRunescapeBoldFont();
+	static final java.util.Map<Font, Font> FALLBACK = new java.util.concurrent.ConcurrentHashMap<>();
+
+	/** {@code f}, or the system font at its size and style when {@code f} lacks a glyph of {@code t} (a Mac draws a box for ✓ → … in the RS fonts). */
+	static Font fit(Font f, String t) {
+		return f == null || t == null || f.canDisplayUpTo(t) < 0 ? f : FALLBACK.computeIfAbsent(f, k -> new Font(Font.DIALOG, k.getStyle(), k.getSize()));
+	}
 
 	/** Secondary text: counts, hints, the quieter half of a row. */
 	static final Color MUTED = new Color(0xa8_a8_a8);
