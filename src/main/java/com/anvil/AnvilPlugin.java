@@ -6675,22 +6675,17 @@ public class AnvilPlugin extends Plugin {
 		return f != null && f.getWorld() > 0;
 	}
 
-	/** Our relay is live and the player asked for the connected marks. */
+	/** Our relay is live and the player asked for the connected status on right-click. */
 	boolean relayPresenceVisible() {
 		var p = pushSocket;
 		return p != null && p.live() && p.relayOk && config.relayWho()
-			&& config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
+			&& config.anvilChat() != AnvilConfig.Relay.Off;
 	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
 	boolean relayConnected(String name) {
 		var who = Text.standardize(Text.removeTags(String.valueOf(name))).replaceAll("[ _-]+", " ");
 		return relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
-	}
-
-	/** Presence changed: repaint existing chat lines now. */
-	void relayPresenceChanged() {
-		clientThread.invoke(client::refreshChat);
 	}
 
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */
@@ -6811,15 +6806,12 @@ public class AnvilPlugin extends Plugin {
 			// Presence (relay sockets only): who else beside us has the relay on.
 			case "here":
 				for (var n : m.getAsJsonArray("n")) relayHere.add(n.getAsString());
-				relayPresenceChanged();
 				return;
 			case "gone":
 				relayHere.remove(m.get("n").getAsString());
-				relayPresenceChanged();
 				return;
 			case "hello":
 				relayHere.clear();
-				relayPresenceChanged();
 				fetchChatChans(null);
 			// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 			case "flair":
@@ -9695,19 +9687,18 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe(priority = -1)
 	void onScriptCallbackEvent(ScriptCallbackEvent e) {
-		if (!"chatMessageBuilding".equals(e.getEventName())) return;
+		if (relayMarked.isEmpty() || !"chatMessageBuilding".equals(e.getEventName())) return;
 		var node = client.getMessages().get(client.getIntStack()[client.getIntStackSize() - 1]);
-		var marked = node != null && relayMarked.containsKey(node);
-		var icon = marked ? relayMarked.get(node) : null;
-		if (!marked && (!relayPresenceVisible() || node == null || !relayConnected(node.getName()))) return;
+		var icon = node == null ? null : relayMarked.get(node);
+		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
 		var name = String.valueOf(os[at]);
 		// A clan line we added has no rank to the game, which draws its default orb: the sender's real
 		// rank icon (from our own member list) in its place, or none.
-		var rank = marked ? relayRank.get(node) : null;
+		var rank = relayRank.get(node);
 		if (rank != null) name = name.replaceFirst("^<img=\\d+>", rank);
-		os[at] = (marked ? name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) : name) + relayIcon();
+		os[at] = name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
 	}
 
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
@@ -9916,14 +9907,13 @@ public class AnvilPlugin extends Plugin {
 		var chans = chatChans;
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
-		// Only while we send (then it's who hears us), and only if wanted.
+		// Available in receive-only mode too: those sockets still know who can hear Anvil chat.
 		var show = relayPresenceVisible();
 		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
-			var opt = String.valueOf(en.getOption()).toLowerCase();
-			if (en.getPlayer() == null && !opt.contains("friend") && !opt.contains("ignore")) continue;
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
-			var name = LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim();
+			var name = en.getPlayer() == null ? LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim() : en.getPlayer().getName();
+			if (empty(name)) continue;
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
