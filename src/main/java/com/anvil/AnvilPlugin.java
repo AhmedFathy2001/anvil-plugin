@@ -10002,25 +10002,28 @@ public class AnvilPlugin extends Plugin {
 
 	/**
 	 * The Anvil chat icon: an anvil (pointed horn, flat top, narrow waist, wide foot) in flat gold with a
-	 * dark outline, 15x9, drawn 1:1 by the game; reads on both the parchment and the transparent chatbox.
+	 * dark outline, drawn 1:1. Laid out like the tenure badge (tenureArt): a 13px-tall canvas with the
+	 * 9px glyph on rows 2-10, dropped TENURE_DROP, so the two sit level either side of the name.
 	 */
 	String relayIcon() {
 		if (relayIcon < 0) {
-			String[] a = {"...XXXXXXXXXX", "XXXXXXXXXXXXX", "..XXXXXXXXXXX", "......SSSSS..", "......SSSSS..", ".....XXXXXXX.", "....XXXXXXXXX"};
-			var img = new BufferedImage(15, 9, BufferedImage.TYPE_INT_ARGB);
+			String[] a = {"..XXXXXXXXX", "XXXXXXXXXXX", "..XXXXXXXX.", ".....SSS...", ".....SSS...", "....XXXXX..", "...XXXXXXX."};
+			var img = new BufferedImage(15, 13, BufferedImage.TYPE_INT_ARGB);
 			for (int pass = 0; pass < 2; pass++) {
 				for (int y = 0; y < 7; y++) {
-					for (int x = 0; x < 13; x++) {
+					for (int x = 0; x < 11; x++) {
 						char k = a[y].charAt(x);
 						if (k == '.') continue;
-						if (pass == 1) img.setRGB(x + 1, y + 1, k == 'X' ? 0xFFFFCE28 : 0xFFD6A014);
-						else for (int d = 0; d < 9; d++) img.setRGB(x + d % 3, y + d / 3, 0xFF2A1C08);
+						if (pass == 1) img.setRGB(x + 2, y + 3, k == 'X' ? 0xFFFFCE28 : 0xFFD6A014);
+						else for (int d = 0; d < 9; d++) img.setRGB(x + 1 + d % 3, y + 2 + d / 3, 0xFF2A1C08);
 					}
 				}
 			}
 			relayIcon = chatIconManager.registerChatIcon(img);
 		}
 		int i = chatIconManager.chatIconIndex(relayIcon);
+		var icons = i >= 0 ? client.getModIcons() : null;
+		if (icons != null && i < icons.length && icons[i] != null && icons[i].getOffsetY() != TENURE_DROP) icons[i].setOffsetY(TENURE_DROP);
 		return i < 0 ? "" : "<img=" + i + ">";
 	}
 
