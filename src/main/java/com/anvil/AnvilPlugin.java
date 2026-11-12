@@ -10132,7 +10132,9 @@ public class AnvilPlugin extends Plugin {
 		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
 		int tag = line.indexOf(']'), colon = line.indexOf(": ", tag);
 		if (colon < 0) return;
-		String[] p = {line.substring(line.indexOf('[') + 1, tag), line.substring(tag + 8, colon), line.substring(colon + 2).replaceAll("</?col[^>]*>", ""), feed[2]};
+		var ai = m.has("ai") ? "<img=" + m.get("ai").getAsInt() + ">" : "";
+		String[] p = {line.substring(line.indexOf('[') + 1, tag), line.substring(tag + 8, colon), line.substring(colon + 2).replaceAll("</?col[^>]*>", ""), feed[2],
+				ICON_LEAD.matcher(ai).lookingAt() ? ai : ""};
 		clientThread.invokeLater(() -> {
 			if (!loggedIn() || client.getLocalPlayer() == null) return;
 			opaqueChatbox();
@@ -10149,10 +10151,14 @@ public class AnvilPlugin extends Plugin {
 	/** Tag, Team, All, Announcements: on the opaque chatbox, then the transparent one. */
 	static final String[][] EVENT_COLS = {{"b04e00", "0a6b0a", "00666e", "7a4800"}, {"ff9b30", "72e872", "3ddbe0", "ffc34d"}};
 
-	/** "<anvil>[Tag · All] Name: message": the icon first (Anvil's line), the tag in Anvil orange, the words by channel. */
+	/** "<anvil>[Tag · All] <badge><icon>Name: message": the icon first (Anvil's line), the tag in Anvil orange, the words by channel. */
 	String eventText(String[] p) {
 		var c = EVENT_COLS[lastChatboxOpaque ? 0 : 1];
-		return relayIcon() + "<col=" + c[0] + ">[" + p[0] + "]</col> " + p[1] + ": <col=" + c["team".equals(p[3]) ? 1 : "all".equals(p[3]) ? 2 : 3] + ">" + p[2] + "</col>";
+		// The name as in game chat: the Supporter badge and colours (ChatFlair, as on player lines), then
+		// the account-type icon before the name.
+		var d = config.supporterChatFlair() ? chatFlair.decorateReadable(p[1], chatStar(), 0, lastChatboxOpaque) : null;
+		var who = d == null ? p[4] + p[1] : d.replaceFirst("^(<img=\\d+>)?", "$1" + p[4]);
+		return relayIcon() + "<col=" + c[0] + ">[" + p[0] + "]</col> " + who + ": <col=" + c["team".equals(p[3]) ? 1 : "all".equals(p[3]) ? 2 : 3] + ">" + p[2] + "</col>";
 	}
 
 	void fetchChatChans(Runnable then) {
