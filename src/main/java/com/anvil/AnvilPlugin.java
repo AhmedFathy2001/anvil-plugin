@@ -10000,15 +10000,22 @@ public class AnvilPlugin extends Plugin {
 		if (v != null && !v.isEmpty()) typed = v;
 	}
 
-	/** The Anvil logo (gold glyph on a dark rounded square) as an 11x11 chat icon, drawn 1:1 by the game. */
+	/**
+	 * The Anvil chat icon: an anvil (pointed horn, flat top, narrow waist, wide foot) in flat gold with a
+	 * dark outline, 15x9, drawn 1:1 by the game; reads on both the parchment and the transparent chatbox.
+	 */
 	String relayIcon() {
 		if (relayIcon < 0) {
-			String[] a = {".BBBBBBBBB.", "BDDDDDDDDDB", "BDGGGGGGGDB", "BDDGGGGGSDB", "BDDDGGSDDDB", "BDDDGGSDDDB", "BDDDGGSDDDB", "BDDGGGGSDDB", "BDGGGGGGSDB", "BDDDDDDDDDB", ".BBBBBBBBB."};
-			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
-			for (int y = 0; y < 11; y++) {
-				for (int x = 0; x < 11; x++) {
-					int k = ".BDGS".indexOf(a[y].charAt(x));
-					img.setRGB(x, y, new int[]{0, 0xFFC49628, 0xFF402C16, 0xFFFFD81A, 0xFFC7960F}[k]);
+			String[] a = {"...XXXXXXXXXX", "XXXXXXXXXXXXX", "..XXXXXXXXXXX", "......SSSSS..", "......SSSSS..", ".....XXXXXXX.", "....XXXXXXXXX"};
+			var img = new BufferedImage(15, 9, BufferedImage.TYPE_INT_ARGB);
+			for (int pass = 0; pass < 2; pass++) {
+				for (int y = 0; y < 7; y++) {
+					for (int x = 0; x < 13; x++) {
+						char k = a[y].charAt(x);
+						if (k == '.') continue;
+						if (pass == 1) img.setRGB(x + 1, y + 1, k == 'X' ? 0xFFFFCE28 : 0xFFD6A014);
+						else for (int d = 0; d < 9; d++) img.setRGB(x + d % 3, y + d / 3, 0xFF2A1C08);
+					}
 				}
 			}
 			relayIcon = chatIconManager.registerChatIcon(img);
