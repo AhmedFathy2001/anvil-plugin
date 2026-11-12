@@ -27,30 +27,25 @@ public class AnvilSidebarDataSource {
 
 	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
 	boolean seasonalSharingOffered() {
-		var p = plugin;
-		return p != null && p.seasonalSharingOffered();
+		return fromPlugin(AnvilPlugin::seasonalSharingOffered, false);
 	}
 
 	boolean shareSeasonal() {
-		var p = plugin;
-		return p != null && p.shareSeasonal();
+		return fromPlugin(AnvilPlugin::shareSeasonal, false);
 	}
 
 	void setShareSeasonal(boolean on) {
-		var p = plugin;
-		if (p != null) p.setShareSeasonal(on);
+		withPlugin(p -> p.setShareSeasonal(on));
 	}
 
 	/** Hand the keyboard back to the game canvas. */
 	void gameFocus() {
-		var p = plugin;
-		if (p != null) p.gameFocus();
+		withPlugin(AnvilPlugin::gameFocus);
 	}
 
 	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
 	void feedOnScreen(boolean on) {
-		var p = plugin;
-		if (p != null) p.feedOnScreen(on);
+		withPlugin(p -> p.feedOnScreen(on));
 	}
 
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
@@ -60,7 +55,7 @@ public class AnvilSidebarDataSource {
 	}
 
 	/** {@code f} of the bound plugin, or {@code none} when there isn't one. */
-	<T> T fromPlugin(java.util.function.Function<AnvilPlugin, T> f, T none) {
+	<T> T fromPlugin(Function<AnvilPlugin, T> f, T none) {
 		var p = plugin;
 		return p == null ? none : f.apply(p);
 	}
@@ -169,8 +164,7 @@ public class AnvilSidebarDataSource {
 	boolean canTrackTiles(int eventId, boolean preStart) {
 		var cfg = configSupplier.get();
 		return eventId > 0 && (preStart || cfg != null && cfg.live(eventId))
-			&& fromPlugin(AnvilPlugin::supportsTileTracker, false)
-			&& fromPlugin(AnvilPlugin::inGame, false);
+			&& fromPlugin(p -> p.supportsTileTracker() && p.inGame(), false);
 	}
 
 	/** The live board's event id, or 0 with none. */
@@ -184,10 +178,10 @@ public class AnvilSidebarDataSource {
 		return fromPlugin(p -> p.tileCount(tileId), -1L);
 	}
 
-		/** The tiles pinned over the game on {@code eventId}. */
+	/** The tiles pinned over the game on {@code eventId}. */
 	List<Integer> pinnedTiles(int eventId) {
-		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), Collections.<Integer>emptyList())
-			: Collections.<Integer>emptyList();
+		List<Integer> none = Collections.emptyList();
+		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), none) : none;
 	}
 
 	/** Signed in, and the first config answer hasn't come back (or failed) yet. */
@@ -219,19 +213,11 @@ public class AnvilSidebarDataSource {
 		return configSupplier.get() != null || apiClient.signedInWithoutClan();
 	}
 
-	/** The Feed tab's live lists can be asked for (same condition as the tabs). */
-	boolean feedTabAvailable() {
-		return supportsPluginUi();
-	}
-
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
 	void lookupNames(Consumer<LookupSuggestions.Names> then) {
 		var p = plugin;
-		if (p == null) {
-			then.accept(LookupSuggestions.Names.EMPTY);
-			return;
-		}
-		p.lookupNames(then);
+		if (p == null) then.accept(LookupSuggestions.Names.EMPTY);
+		else p.lookupNames(then);
 	}
 
 	/** The character logged in right now, or null at the login screen. */
