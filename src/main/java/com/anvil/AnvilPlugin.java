@@ -6625,8 +6625,7 @@ public class AnvilPlugin extends Plugin {
 	 * stays plain. A painted name no longer matches decorate()'s plain-name test, so a repaint is a no-op.
 	 */
 	void flairNameLists() {
-		var presence = relayPresenceVisible();
-		if (menusOff() && !presence) return;
+		if (menusOff()) return;
 		var frame = currentChatNameFrame();
 		nameListFrame = frame;
 		var shift = interfaceNameShift(frame);
@@ -6641,16 +6640,11 @@ public class AnvilPlugin extends Plugin {
 			var friends = id == InterfaceID.Friends.LIST;
 			for (var w : rows) {
 				var text = w.getText();
-				if (empty(text) || (friends && !online.contains(Text.standardize(Text.removeTags(text))))) continue;
-				var badge = presence || text.contains("<img=") ? relayIcon() : "";
-				var hadBadge = !badge.isEmpty() && text.endsWith(badge);
-				var source = hadBadge ? text.substring(0, text.length() - badge.length()) : text;
-				var painted = menusOff() ? null : chatFlair.decorateReadable(source, null, shift, false);
-				if (presence && relayConnected(source)) painted = (painted == null ? source : painted) + badge;
-				else if (hadBadge && painted == null) painted = source;
+				if (empty(text) || (friends && !online.contains(Text.standardize(text)))) continue;
+				var painted = chatFlair.decorateReadable(text, null, shift, false);
 				if (painted != null) {
 					w.setText(painted);
-					if (chatFlair.movingDecoratedName(source)) nameListMoving.put(w, new String[]{source, painted});
+					if (chatFlair.movingDecoratedName(text)) nameListMoving.put(w, new String[]{text, painted});
 				}
 			}
 		}
@@ -6670,7 +6664,6 @@ public class AnvilPlugin extends Plugin {
 			if (w == null || !state[1].equals(w.getText())) { it.remove(); continue; }
 			if (w.isHidden()) continue;
 			var painted = chatFlair.decorateReadable(state[0], null, shift, false);
-			if (relayPresenceVisible() && relayConnected(state[0])) painted = (painted == null ? state[0] : painted) + relayIcon();
 			if (painted == null) { it.remove(); continue; }
 			w.setText(state[1] = painted);
 		}
@@ -6695,12 +6688,9 @@ public class AnvilPlugin extends Plugin {
 		return relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
 	}
 
-	/** Presence changed: repaint existing chat lines and the visible online lists now. */
+	/** Presence changed: repaint existing chat lines now. */
 	void relayPresenceChanged() {
-		clientThread.invoke(() -> {
-			client.refreshChat();
-			flairNameLists();
-		});
+		clientThread.invoke(client::refreshChat);
 	}
 
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */

@@ -126,7 +126,7 @@ public interface AnvilConfig extends Config {
 	@ConfigItem(
 		keyName = "relayWho",
 		name = "Show who's connected",
-		description = "While you send through Anvil: show the Anvil icon by connected names in chat and online lists; right-clicking them shows connected or disconnected.",
+		description = "While you send through Anvil: show the Anvil icon by connected names in the chatbox; right-clicking them shows connected or disconnected.",
 		position = 2,
 		section = "relaySection"
 	)
