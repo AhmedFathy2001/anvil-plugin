@@ -9991,8 +9991,19 @@ public class AnvilPlugin extends Plugin {
 		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
-		os[at] = String.valueOf(os[at]).replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
+		var name = String.valueOf(os[at]);
+		// A clan line we added has no rank to the game, which draws its default orb: the sender's real
+		// rank icon (from our own member list) in its place, or none.
+		var rank = relayRank.get(node);
+		if (rank != null) {
+			log.debug("Relay: clan line name built as {}", name);
+			name = name.replaceFirst("^<img=\\d+>", rank);
+		}
+		os[at] = name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
 	}
+
+	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
+	final Map<MessageNode, String> relayRank = new LinkedHashMap<>();
 
 	/** A muted player's public line never comes back as chat, but the client still shows it overhead. */
 	@Subscribe
@@ -10057,6 +10068,7 @@ public class AnvilPlugin extends Plugin {
 		// (clan, guest clan, friends chat). Nobody unknown to it is shown.
 		Player near = null;
 		String from = null;
+		String rank = null;
 		String shown = null;
 		var type = PUBLICCHAT;
 		if ("public".equals(c)) {
@@ -10070,6 +10082,10 @@ public class AnvilPlugin extends Plugin {
 				shown = member.getName();
 				from = ch.getName();
 				type = g ? CLAN_GUEST_CHAT : CLAN_CHAT;
+				var cs = g ? client.getGuestClanSettings() : client.getClanSettings();
+				var title = cs == null ? null : cs.titleForRank(member.getRank());
+				int r = title == null ? -1 : chatIconManager.getIconNumber(title);
+				rank = r < 0 ? "" : "<img=" + r + ">";
 			}
 		} else if ("pm".equals(c)) {
 			// As the game would: Private On (anyone), Friends (a friend), Off (nobody); no filter read, nobody.
@@ -10107,6 +10123,8 @@ public class AnvilPlugin extends Plugin {
 			// icons go on as the chatbox builds the line (onScriptCallbackEvent).
 			var node = client.addChatMessage(type, shown, x, from);
 			relayNodes.put(key, node);
+			if (rank != null) relayRank.put(node, rank);
+			if (relayRank.size() > 50) relayRank.remove(relayRank.keySet().iterator().next());
 			relayMark(node, icon);
 		} finally {
 			injecting = false;
