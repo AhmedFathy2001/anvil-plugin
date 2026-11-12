@@ -75,26 +75,21 @@ final class PushSocket extends WebSocketListener {
 	void connect() {
 		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows,
 		// ":c<world>" the chat relay on that world.
-		boolean feed;
-		boolean rows;
-		int relay;
-		String fc;
 		String s;
 		synchronized (this) {
 			pending = null;
 			s = scope;
-			feed = scope != null && scope.contains(":f");
-			var c = scope == null ? null : java.util.regex.Pattern.compile(":c(\\d+)").matcher(scope);
-			relay = c != null && c.find() ? Integer.parseInt(c.group(1)) : 0;
-			fc = scope == null || scope.indexOf('@') < 0 ? "" : scope.substring(scope.indexOf('@') + 1);
-			// Always: this plugin reads panel rows, and the site only sends them to one that says so
-			// (an older plugin would log each). ":r" only decides whether to connect with no board.
-			rows = true;
 		}
+		var feed = s != null && s.contains(":f");
+		var c = s == null ? null : java.util.regex.Pattern.compile(":c(\\d+)").matcher(s);
+		var relay = c != null && c.find() ? Integer.parseInt(c.group(1)) : 0;
+		var fc = s == null || s.indexOf('@') < 0 ? "" : s.substring(s.indexOf('@') + 1);
+		// rows always true: this plugin reads panel rows, and the site only sends them to one that says so
+		// (an older plugin would log each). ":r" only decides whether to connect with no board.
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try {
-			api.interactiveExecutor().execute(() -> withTicket(s, api.fetchPushTicket(feed, rows, relay, fc)));
+			api.interactiveExecutor().execute(() -> withTicket(s, api.fetchPushTicket(feed, true, relay, fc)));
 		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
@@ -105,7 +100,7 @@ final class PushSocket extends WebSocketListener {
 		synchronized (this) {
 			if (scope == null || socket != null || !scope.equals(s)) return;
 			if (ticket == null || ticket.url == null || ticket.ticket == null) {
-				retryIn(RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random()));
+				retryIn(backoff());
 				return;
 			}
 			socket = api.openPush(ticket, this);
@@ -146,12 +141,15 @@ final class PushSocket extends WebSocketListener {
 		dropped(ws, false);
 	}
 
+	/** Call with the monitor held. */
+	long backoff() {
+		return RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
+	}
+
 	synchronized void dropped(WebSocket ws, boolean ticketExpired) {
-		if (ws != socket) {
-			return; // an old socket we already replaced or closed
-		}
+		if (ws != socket) return; // an old socket we already replaced or closed
 		socket = null;
 		live = false;
-		retryIn(ticketExpired ? 0 : RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random()));
+		retryIn(ticketExpired ? 0 : backoff());
 	}
 }

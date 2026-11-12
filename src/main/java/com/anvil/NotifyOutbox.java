@@ -95,13 +95,12 @@ final class NotifyOutbox {
 	 * oldest until at most {@code maxItems} remain and their screenshots fit in {@code maxBytes}.
 	 */
 	static List<Item> overflow(List<Item> queue, long now, int maxItems, long maxAge, long maxBytes) {
-		List<Item> evict = new ArrayList<>();
-		List<Item> kept = new ArrayList<>();
+		var evict = new ArrayList<Item>();
+		var kept = new ArrayList<Item>();
 		long bytes = 0;
-		for (Item it : queue) {
-			if (now - it.createdAt > maxAge) {
-				evict.add(it);
-			} else {
+		for (var it : queue) {
+			if (now - it.createdAt > maxAge) evict.add(it);
+			else {
 				kept.add(it);
 				bytes += Math.max(0, it.pngBytes);
 			}
@@ -117,28 +116,26 @@ final class NotifyOutbox {
 
 	/** Read what a previous session left. Blocking (disk); call off the client thread. */
 	void load() {
-		List<Item> found = new ArrayList<>();
-		List<Filepath> pngs = new ArrayList<>();
-		for (Filepath f : DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png"))) {
+		var found = new ArrayList<Item>();
+		var pngs = new ArrayList<Filepath>();
+		for (var f : DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png"))) {
 			if (f.getFileName().endsWith(".png")) {
 				pngs.add(f);
 				continue;
 			}
 			var it = DiskFiles.readJson(gson, f, Item.class);
-			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json")) {
-				found.add(it);
-			} else DiskFiles.deleteQuietly(f);
+			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json")) found.add(it);
+			else DiskFiles.deleteQuietly(f);
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
-		for (Filepath png : pngs) {
-			var id = png.getFileName().substring(0, png.getFileName().length() - 4);
+		for (var png : pngs) {
+			var n = png.getFileName();
+			var id = n.substring(0, n.length() - 4);
 			if (found.stream().noneMatch(it -> it.id.equals(id))) DiskFiles.deleteQuietly(png);
 		}
 		if (found.isEmpty()) return;
 		synchronized (this) {
-			for (Item it : found) {
-				if (items.stream().noneMatch(x -> x.id.equals(it.id))) items.add(it);
-			}
+			for (var it : found) if (items.stream().noneMatch(x -> x.id.equals(it.id))) items.add(it);
 			items.sort(Comparator.comparingLong(x -> x.createdAt));
 			prune(System.currentTimeMillis());
 			log.info("{} notification(s) waiting", items.size());
@@ -150,14 +147,15 @@ final class NotifyOutbox {
 	void enqueue(Item item, byte[] png) {
 		var d = DiskFiles.ensureDir(dir);
 		item.pngBytes = png == null ? 0 : png.length;
-		if (d != null) {
+		if (d == null) item.png = png;
+		else {
 			try {
 				if (png != null && png.length > 0) DiskFiles.writeAtomic(d.joinSegment(item.id + ".png"), png);
 				DiskFiles.writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
 			} catch (IOException | RuntimeException e) {
 				item.png = png; // keep it for this session at least
 			}
-		} else item.png = png;
+		}
 		synchronized (this) {
 			items.add(item);
 			prune(System.currentTimeMillis());
@@ -168,7 +166,7 @@ final class NotifyOutbox {
 	/** The site is back: try everything now. */
 	synchronized void kick() {
 		if (items.isEmpty()) return;
-		for (Item it : items) it.nextAttemptAt = 0;
+		for (var it : items) it.nextAttemptAt = 0;
 		schedule(0);
 	}
 
@@ -201,8 +199,7 @@ final class NotifyOutbox {
 		if (evict.isEmpty()) return;
 		items.removeAll(evict);
 		log.info("Dropped {} stale notification(s)", evict.size());
-		var pool = sendPool.get();
-		if (pool != null && !pool.isShutdown()) pool.submit(() -> evict.forEach(this::deleteFiles));
+		onPool(() -> evict.forEach(this::deleteFiles));
 	}
 
 	/** Call with the monitor held. */
@@ -215,8 +212,12 @@ final class NotifyOutbox {
 
 	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
 	void handOff() {
+		onPool(this::pump);
+	}
+
+	void onPool(Runnable r) {
 		var pool = sendPool.get();
-		if (pool != null && !pool.isShutdown()) pool.submit(this::pump);
+		if (pool != null && !pool.isShutdown()) pool.submit(r);
 	}
 
 	/** One pass over what's due. Blocking HTTP; runs on the OkHttp pool. */
@@ -246,11 +247,9 @@ final class NotifyOutbox {
 				}
 				// Still down. Push this one back, and don't dial again for the rest — same wait for all.
 				var now = System.currentTimeMillis();
-				long next;
 				synchronized (this) {
-					it.attempts++;
-					next = now + RetryPolicy.backoffMs(it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
-					for (int j = i; j < due.size(); j++) due.get(j).nextAttemptAt = Math.max(due.get(j).nextAttemptAt, next);
+					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
+					for (var x : due.subList(i, due.size())) x.nextAttemptAt = Math.max(x.nextAttemptAt, next);
 				}
 				rewrite(it);
 				break;
@@ -258,7 +257,7 @@ final class NotifyOutbox {
 		} finally {
 			synchronized (this) {
 				pumping = false;
-				long soonest = items.stream().mapToLong(it -> it.nextAttemptAt).min().orElse(-1);
+				var soonest = items.stream().mapToLong(it -> it.nextAttemptAt).min().orElse(-1);
 				if (soonest >= 0) schedule(soonest - System.currentTimeMillis());
 			}
 		}

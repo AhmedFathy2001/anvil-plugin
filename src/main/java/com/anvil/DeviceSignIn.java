@@ -39,7 +39,6 @@ public final class DeviceSignIn {
 	static final class Result {
 		final Outcome outcome;
 		final String token;
-
 	}
 
 	final BingoApiClient apiClient;
@@ -83,8 +82,8 @@ public final class DeviceSignIn {
 			return;
 		}
 
-		var url = start.verification_url_complete != null && !start.verification_url_complete.isEmpty()
-			? start.verification_url_complete : start.verification_url;
+		var full = start.verification_url_complete;
+		var url = full != null && !full.isEmpty() ? full : start.verification_url;
 		// Checked against the fixed site, not the client's address — that stays empty until there is a
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
 		if (!isConfiguredHomeUrl(BingoApiClient.site(), url)) {
@@ -96,9 +95,8 @@ public final class DeviceSignIn {
 		// The address is on screen whether or not the browser opened. We can't tell the difference
 		// (see browse), and the failure mode of assuming success is a player staring at a code with
 		// nowhere to type it — while the cost of saying both is one extra clause.
-		if (!browserOpener.open(url)) {
-			status.accept("Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
-		} else status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
+		status.accept(browserOpener.open(url) ? "Approve code " + start.user_code + " in your browser. If it didn't open: " + url
+			: "Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
 
 		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
 		var deadline = System.currentTimeMillis()

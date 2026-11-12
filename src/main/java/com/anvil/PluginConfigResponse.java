@@ -39,10 +39,8 @@ public class PluginConfigResponse {
 	List<ClanRef> clans;
 
 	static class ClanRef {
-		String slug;
-		String name;
-		/** Verified in-game clan-channel name; may differ from the site's display name. */
-		String gameName;
+		/** gameName: the verified in-game clan-channel name; may differ from the site's display name. */
+		String slug, name, gameName;
 		/** Clan boost level in force; zero on older sites. */
 		int boostLevel;
 		/** Clan-admin chosen boosted-name palette; null on older sites or the default look. */
@@ -105,9 +103,7 @@ public class PluginConfigResponse {
 
 	/** The slug this response was resolved for, or null on a site that does not say. */
 	String activeClanSlug() {
-		return activeClan == null || activeClan.slug == null || activeClan.slug.isEmpty()
-			? null
-			: activeClan.slug;
+		return activeClan == null || activeClan.slug == null || activeClan.slug.isEmpty() ? null : activeClan.slug;
 	}
 
 	EventInfo event;
@@ -159,8 +155,7 @@ public class PluginConfigResponse {
 
 	/** Earned/total for the board as a whole — points on a points board, tiles otherwise. */
 	static class BoardTally {
-		int tilesComplete;
-		int tilesTotal;
+		int tilesComplete, tilesTotal;
 	}
 
 	/**
@@ -225,9 +220,7 @@ public class PluginConfigResponse {
 
 		/** The drawn spot on the world map: where, and how many squares from it still counts. */
 		static class Spot {
-			int x;
-			int y;
-			int radius;
+			int x, y, radius;
 		}
 	}
 	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
@@ -328,10 +321,7 @@ public class PluginConfigResponse {
 
 	static class EventInfo {
 		int id;
-		String name;
-		String startDate;
-		String endDate;
-		String forceEndedAt;
+		String name, startDate, endDate, forceEndedAt;
 		// Drives which in-game Anvil view opens for the player's own active event:
 		//   format="tilerace" -> race track; format="bingo" + scoringMode="points" -> accordion;
 		//   format="bingo" + scoringMode="tiles" -> square grid. May be null on older servers.
@@ -351,7 +341,8 @@ public class PluginConfigResponse {
 	static class Mission {
 		int tileId;
 		String label;
-		int points;        // face value before the decay ramp
+		// points: face value before the decay ramp
+		int points;
 		String category;
 	}
 
@@ -359,14 +350,13 @@ public class PluginConfigResponse {
 		int tileId;
 		String label;
 		int points;
-		String rsn;        // finisher's RSN; null when unattributed
-		String at;         // ISO completion time
+		// rsn: finisher's RSN, null when unattributed; at: ISO completion time
+		String rsn, at;
 	}
 
 	static class TeamInfo {
 		int id;
-		String name;
-		String color;
+		String name, color;
 	}
 
 	static class PlayerInfo {
@@ -376,10 +366,10 @@ public class PluginConfigResponse {
 
 	/** What every tile on the wire shares (tracked tiles and the board's). */
 	abstract static class TrackedTile {
-		int tileId;
-		int position;   // board position — the list mirrors the site's tile order (0 on old servers)
-		String label;
-		String description;   // tile description, for the clog task accordion
+		// position: board position — the list mirrors the site's tile order (0 on old servers)
+		int tileId, position;
+		// description: tile description, for the clog task accordion
+		String label, description;
 		int points;           // Leagues-style reward value (0 = not a points event)
 		String category;      // free-text grouping (boss/skill) for the clog task filter
 		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
@@ -420,9 +410,8 @@ public class PluginConfigResponse {
 	 */
 	static class TrackedCombo extends TrackedTile {
 		String rule;
-		int needed;
-		int done;
-		int percent; // rule "mix" only: weighted progress 0–100, done at 100
+		// percent: rule "mix" only, weighted progress 0–100, done at 100
+		int needed, done, percent;
 		List<ComboPart> parts;
 		boolean completed;
 	}
@@ -441,8 +430,7 @@ public class PluginConfigResponse {
 
 	static class TileCount {
 		int t;
-		long have;
-		long of;
+		long have, of;
 		boolean set; // a set / collection tile: counts pieces, not what the panel shows
 	}
 }
