@@ -11,7 +11,7 @@ import java.util.function.*;
  */
 @RequiredArgsConstructor
 public class AnvilSidebarDataSource {
-	final Supplier<PluginConfigResponse> configSupplier;
+	final Supplier<PluginConfigResponse> config;
 
 	final BingoApiClient apiClient;
 
@@ -129,14 +129,11 @@ public class AnvilSidebarDataSource {
 	 * one, on sites that predate the feature, and the moment one is filed.
 	 */
 	PluginConfigResponse.StartProof startProof() {
-		var cfg = configSupplier.get();
-		if (cfg == null || cfg.startProof == null || !cfg.startProof.required
-			|| !cfg.startProof.drawn || !cfg.startProof.needsUpload) {
-			return null;
-		}
+		var cfg = config.get();
+		var sp = cfg == null ? null : cfg.startProof;
 		// Only while the event is actually live — the same gate the in-game overlay uses, so the
 		// panel can't ask for a shot of an event that has ended.
-		return AnvilOverlay.isEventActive(cfg.event) ? cfg.startProof : null;
+		return sp != null && sp.required && sp.drawn && sp.needsUpload && AnvilOverlay.isEventActive(cfg.event) ? sp : null;
 	}
 
 	/**
@@ -162,14 +159,14 @@ public class AnvilSidebarDataSource {
 	 * playing, or one still waiting to start (pinned early, it counts down and goes live at the whistle).
 	 */
 	boolean canTrackTiles(int eventId, boolean preStart) {
-		var cfg = configSupplier.get();
+		var cfg = config.get();
 		return eventId > 0 && (preStart || cfg != null && cfg.live(eventId))
 			&& fromPlugin(p -> p.supportsTileTracker() && p.inGame(), false);
 	}
 
 	/** The live board's event id, or 0 with none. */
 	int activeEventId() {
-		var cfg = configSupplier.get();
+		var cfg = config.get();
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
 	}
 
@@ -210,7 +207,7 @@ public class AnvilSidebarDataSource {
 	 * still get. False ⇒ no tabs, and a lookup opens the browser.
 	 */
 	boolean supportsPluginUi() {
-		return configSupplier.get() != null || apiClient.signedInWithoutClan();
+		return config.get() != null || apiClient.signedInWithoutClan();
 	}
 
 	/** The game's name lists for Lookup's suggestions; {@code then} runs on the client thread. */
@@ -251,13 +248,13 @@ public class AnvilSidebarDataSource {
 	 * site sends {@code activeClan.kind = "creator"} for one; older sites send nothing, which reads as a clan.
 	 */
 	boolean activeIsSpace() {
-		var cfg = configSupplier.get();
+		var cfg = config.get();
 		return cfg != null && cfg.activeClan != null && "creator".equals(cfg.activeClan.kind);
 	}
 
 	/** Every clan the signed-in person holds a seat in. Empty on an older site, or before the first poll. */
 	List<PluginConfigResponse.ClanRef> clans() {
-		var cfg = configSupplier.get();
+		var cfg = config.get();
 		return cfg == null ? Collections.emptyList() : cfg.switchableClans();
 	}
 
