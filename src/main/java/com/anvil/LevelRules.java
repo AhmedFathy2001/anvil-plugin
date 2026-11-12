@@ -9,17 +9,17 @@ import lombok.AllArgsConstructor;
  */
 @AllArgsConstructor
 public class LevelRules {
-	public boolean ninetyNines;
-	public int skillStep;
-	public int skillFrom;
-	public int totalStep;
-	public int totalFrom;
-	public boolean maxTotal;
+	boolean ninetyNines;
+	int skillStep;
+	int skillFrom;
+	int totalStep;
+	int totalFrom;
+	boolean maxTotal;
 
 	@AllArgsConstructor
-	public static class Sets {
-		public LevelRules clan;
-		public LevelRules personal;
+	static class Sets {
+		LevelRules clan;
+		LevelRules personal;
 
 		Sets() {
 		}

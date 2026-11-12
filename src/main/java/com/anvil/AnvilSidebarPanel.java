@@ -186,7 +186,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	@Inject
-	public AnvilSidebarPanel(AnvilSidebarDataSource dataSource, BingoApiClient apiClient,
+	AnvilSidebarPanel(AnvilSidebarDataSource dataSource, BingoApiClient apiClient,
 		ConfigManager configManager, ScheduledExecutorService executor,
 		ItemManager itemManager, SpriteManager spriteManager, SkillIconManager skillIconManager) {
 		super(true); // wrap in RuneLite's scroll pane so a long nearest-tiles list scrolls
@@ -491,17 +491,17 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** The ⋯ menu's "View my profile": your own card. */
-	public void showYou() {
+	void showYou() {
 		invokeLater(() -> selectTab(Tab.YOU));
 	}
 
 	/** Whether a lookup can open in the panel; false ⇒ the caller opens the browser instead. */
-	public boolean playerCardsAvailable() {
+	boolean playerCardsAvailable() {
 		return playerCardsOn();
 	}
 
 	/** Look a character up in the Lookup tab — the right-click "Anvil" entry lands here. */
-	public void showLookup(String rawName) {
+	void showLookup(String rawName) {
 		invokeLater(() -> {
 			var name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
 			if (tab != Tab.LOOKUP) selectTab(Tab.LOOKUP);
@@ -700,7 +700,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	Map<String, String> feedArgs = emptyMap();
 
 	/** Event chat came in while its chatbox copy is off: a dot on the Feed tab until it's looked at. Any thread. */
-	public void feedUnread() {
+	void feedUnread() {
 		invokeLater(() -> {
 			if (!onScreen || tab != Tab.FEED) tabLabels.get(Tab.FEED).setText("Feed \u2022");
 		});
@@ -712,7 +712,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** Push rows for the Feed tab's lists (AnvilPlugin.applyPush), from any thread. */
-	public void feedPush(JsonObject m) {
+	void feedPush(JsonObject m) {
 		invokeLater(() -> feedView.feedPush(m));
 	}
 
@@ -1153,7 +1153,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * which is indefinitely when the new ones are wrong, so the member sits looking at a clan they
 	 * just left and reasonably concludes the change didn't take.
 	 */
-	public void clearForCredentialChange() {
+	void clearForCredentialChange() {
 		clanShown = false;
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
@@ -1165,12 +1165,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** Ask again: the clan picker and sign-in state from the config the plugin holds, the tab from the site. */
-	public void refresh() {
+	void refresh() {
 		refresh(false);
 	}
 
 	/** EDT: show or update the seasonal-sharing switch (seasonal world, setting changed, config polled). */
-	public void seasonalChanged() {
+	void seasonalChanged() {
 		var show = dataSource.seasonalSharingOffered();
 		if (show) {
 			var on = dataSource.shareSeasonal();
@@ -1182,7 +1182,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** A background refresh (the timer): the same, and the view redraws only if the site's answer changed. */
-	public void poll() {
+	void poll() {
 		refresh(false);
 	}
 
@@ -1263,7 +1263,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** The site confirmed a tile done: ask now, so a tile's detail doesn't say "Open" after the chat said done. */
-	public void tileCompleted() {
+	void tileCompleted() {
 		// The whole page: a race's road and "Up next" are on it, not in a slot a plain refresh would pick.
 		uiCache.clear();
 		clanAskedAt = System.currentTimeMillis();

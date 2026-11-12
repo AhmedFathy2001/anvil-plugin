@@ -44,12 +44,12 @@ public class BannerSoundService {
 	ExecutorService audioExecutor;
 
 	@Inject
-	public BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer) {
+	BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer) {
 		this.config = config;
 		this.audioPlayer = audioPlayer;
 	}
 
-	public void setRoot(Filepath dir) {
+	void setRoot(Filepath dir) {
 		root = dir;
 		migrateLooseClips();
 		for (Kind kind : Kind.values()) relist(kind);
@@ -65,7 +65,7 @@ public class BannerSoundService {
 	 * empty and they keep the built-in chime.</p>
 	 */
 	@RequiredArgsConstructor
-	public enum Kind {
+	enum Kind {
 		BANNER("banner"),
 		MISSION("mission");
 
@@ -121,7 +121,7 @@ public class BannerSoundService {
 	}
 
 	/** True if this kind has at least one .wav (i.e. it could play something of its own). */
-	public boolean hasClips(Kind kind) {
+	boolean hasClips(Kind kind) {
 		return !wavFiles(kind).isEmpty();
 	}
 
@@ -137,7 +137,7 @@ public class BannerSoundService {
 	/** Told (on the audio thread) when a re-read finds the clips changed, so the panel can redraw. */
 	volatile Runnable onClipsChanged = () -> { };
 
-	public void setOnClipsChanged(Runnable onChange) {
+	void setOnClipsChanged(Runnable onChange) {
 		onClipsChanged = onChange == null ? () -> { } : onChange;
 	}
 
@@ -146,7 +146,7 @@ public class BannerSoundService {
 	 * touches disk: it answers from the last listing (empty before the first) and, if that's stale,
 	 * re-reads the folder in the background.
 	 */
-	public List<String> listClips(Kind kind) {
+	List<String> listClips(Kind kind) {
 		List<String> cached;
 		boolean stale;
 		synchronized (this) {
@@ -192,7 +192,7 @@ public class BannerSoundService {
 	 * the in-game list and the side panel look like a directory listing that had leaked into the
 	 * interface. Lives here rather than in either panel because both of them show the same files.
 	 */
-	public static String displayName(String file) {
+	static String displayName(String file) {
 		var s = file == null ? "" : file.trim();
 		int dot = s.lastIndexOf('.');
 		if (dot > 0) s = s.substring(0, dot);
@@ -205,7 +205,7 @@ public class BannerSoundService {
 	 * True if {@code name} is in the play cycle. The cycle is the comma-separated allowlist in
 	 * {@link AnvilConfig#bannerSoundClip()}; an empty allowlist means "every clip plays".
 	 */
-	public boolean isSelected(String name) {
+	boolean isSelected(String name) {
 		var sel = parseSelected(config.bannerSoundClip());
 		return sel.isEmpty() || sel.contains(name.toLowerCase());
 	}
@@ -223,7 +223,7 @@ public class BannerSoundService {
 		return out;
 	}
 
-	public void play(Kind kind) {
+	void play(Kind kind) {
 		if (!config.bannerSound()) return;
 		try {
 			executor().submit(() -> playBlocking(kind));
@@ -278,7 +278,7 @@ public class BannerSoundService {
 	 * (may be null) is invoked with the successfully-copied filenames so the caller can confirm in chat;
 	 * it's skipped when the user cancels or nothing copied.
 	 */
-	public void importSounds(Kind kind, Consumer<List<String>> onImported) {
+	void importSounds(Kind kind, Consumer<List<String>> onImported) {
 		SwingUtilities.invokeLater(() -> {
 			// Filepath.Chooser rather than a bare JFileChooser: the user picking a file is how a
 			// plugin is granted anything outside its own directory, and it is the same dialog they
@@ -319,7 +319,7 @@ public class BannerSoundService {
 	}
 
 	/** Copies the user sounds folder's path — see Clipboards for why it can't be opened directly. */
-	public void copyFolderPath() {
+	void copyFolderPath() {
 		var dir = root;
 		if (dir == null) return;
 		// The PARENT, not one kind's folder: both `banner/` and `mission/` are inside it, so one
@@ -334,7 +334,7 @@ public class BannerSoundService {
 		Clipboards.copy(dir.toString());
 	}
 
-	public synchronized void shutdown() {
+	synchronized void shutdown() {
 		if (audioExecutor != null) {
 			audioExecutor.shutdownNow();
 			audioExecutor = null;

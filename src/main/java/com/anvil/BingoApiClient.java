@@ -108,13 +108,13 @@ public class BingoApiClient {
 	 * install nobody has signed into reaches nothing — every poll bails on an empty {@code apiUrl}.
 	 * Sign-in itself goes to the constant directly ({@link #authUrl}), since it runs before any token.
 	 */
-	public void configure(String playerToken) {
+	void configure(String playerToken) {
 		this.playerToken = playerToken;
 		apiUrl = playerToken == null || playerToken.trim().isEmpty() ? "" : site();
 	}
 
 	/** The site base URL in use, or "" while signed out (see {@link #configure}). */
-	public String getApiUrl() {
+	String getApiUrl() {
 		return apiUrl == null ? "" : apiUrl;
 	}
 
@@ -157,17 +157,17 @@ public class BingoApiClient {
 	volatile String resolvedClan = "";
 
 	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
-	public void setChosenClan(String slug) {
+	void setChosenClan(String slug) {
 		chosenClan = cleanSlug(slug);
 	}
 
 	/** The site answered, and named the clan it answered for. */
-	public void setResolvedClan(String slug) {
+	void setResolvedClan(String slug) {
 		resolvedClan = cleanSlug(slug);
 	}
 
 	/** The clan this client is actually addressing right now — a pick beats the server's guess. */
-	public String getActiveClan() {
+	String getActiveClan() {
 		return !chosenClan.isEmpty() ? chosenClan : resolvedClan;
 	}
 
@@ -220,7 +220,7 @@ public class BingoApiClient {
 	 * server will fall back to "any active event" matching, but cross-account safety
 	 * degrades.
 	 */
-	public void setCurrentRsn(String rsn) {
+	void setCurrentRsn(String rsn) {
 		// Mid-login the client names the player "#Player2014" for a tick or two. No real name has a
 		// '#', and stamping that one filed requests under a character that doesn't exist.
 		currentRsn = (rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0) ? null : rsn;
@@ -232,18 +232,18 @@ public class BingoApiClient {
 	 * {@code client.getAccountHash()}; values that mean "not logged in" (null or -1) are
 	 * treated as cleared.
 	 */
-	public void setAccountHash(long hash) {
+	void setAccountHash(long hash) {
 		accountHash = hash == -1L ? null : Long.toString(hash);
 	}
 
 	/** The Jagex Launcher's character name, or null when RuneLite wasn't started from the launcher. */
-	public void setRsnHint(String name) {
+	void setRsnHint(String name) {
 		rsnHint = (name == null || name.trim().isEmpty()) ? null : name.trim();
 	}
 
 
 	/** Called on login and every hop: the world's flags and activity, already cleaned (WorldInfo). */
-	public void setWorld(String types, String activity) {
+	void setWorld(String types, String activity) {
 		worldTypes = types;
 		worldActivity = activity;
 	}
@@ -279,7 +279,7 @@ public class BingoApiClient {
 	 * The Sign-in button is the way in for a fresh install — it fills the token in itself
 	 * (DeviceSignIn), so nobody has to copy anything out of the site.
 	 */
-	public boolean needsSignIn() {
+	boolean needsSignIn() {
 		return playerToken == null || playerToken.isEmpty();
 	}
 
@@ -310,24 +310,24 @@ public class BingoApiClient {
 	}
 
 	/** GET /api/plugin/brief: the lines printed at login and the palette Anvil chat lines use. */
-	public static class Brief {
-		public List<BriefLine> lines;
-		public Look look;
+	static class Brief {
+		List<BriefLine> lines;
+		Look look;
 	}
 
-	public static class BriefLine {
-		public String tone;
-		public String text;
+	static class BriefLine {
+		String tone;
+		String text;
 	}
 
 	/** {@code colors} is null for "plain": one plain colour for everything. */
-	public static class Look {
-		public String palette;
-		public Map<String, String> colors;
+	static class Look {
+		String palette;
+		Map<String, String> colors;
 		/** The [Anvil] tag's colour (hex, no '#'), or null for Anvil gold. */
-		public String tag;
+		String tag;
 		/** Boards (event ids) whose chat stays out of the chatbox. */
-		public List<String> off;
+		List<String> off;
 	}
 
 	/** Asked like the config (the brief is built from the same answer). Null on any failure. */
@@ -336,9 +336,9 @@ public class BingoApiClient {
 	}
 
 	/** GET /api/plugin/push/ticket: a pass onto the live push socket ({@link PushSocket}). */
-	public static class PushTicket {
-		public String url;
-		public String ticket;
+	static class PushTicket {
+		String url;
+		String ticket;
 	}
 
 	/**
@@ -474,22 +474,22 @@ public class BingoApiClient {
 		return b;
 	}
 
-	public boolean isConfigured() {
+	boolean isConfigured() {
 		return isSignedIn() && !accountPaused;
 	}
 
 	/** Signed in at all, whether or not the logged-in character is paused. For the panel's account row. */
-	public boolean isSignedIn() {
+	boolean isSignedIn() {
 		return !getApiUrl().isEmpty() && !needsSignIn();
 	}
 
 	/** Result of POST /api/plugin/account. */
-	public static class AccountActionResult {
-		public boolean ok;
-		public String error;
-		public String reason;
+	static class AccountActionResult {
+		boolean ok;
+		String error;
+		String reason;
 		/** What to tell the player (e.g. the XP check that starts an ownership claim). */
-		public String message;
+		String message;
 	}
 
 	/**
@@ -498,7 +498,7 @@ public class BingoApiClient {
 	 * thread — call it off the EDT. Allowed through while paused: it is how the choice gets there.
 	 * Never throws; a network failure comes back as {@code ok=false} with the reason.
 	 */
-	public AccountActionResult postAccountAction(String action) {
+	AccountActionResult postAccountAction(String action) {
 		var out = new AccountActionResult();
 		if (!isSignedIn() || currentRsn == null) {
 			out.error = "Sign in and log in to the account first.";
@@ -528,7 +528,7 @@ public class BingoApiClient {
 	/** Kinds (or channels) the player posts without a screenshot (Me.noShot). Proofs never come through here. */
 	volatile java.util.function.Predicate<String> noShot = k -> false;
 
-	public void postNotification(String channel, String content, NotifyFacts facts, byte[] image, String filename) {
+	void postNotification(String channel, String content, NotifyFacts facts, byte[] image, String filename) {
 		if (!isConfigured() || channel == null || channel.isEmpty()) return;
 		var png = noShot.test(facts != null ? facts.kind : channel) ? null : image;
 		var payload = new JsonObject();
@@ -646,7 +646,7 @@ public class BingoApiClient {
 	 * theirs, and the stats route takes a push for a character the token owns (the site's account-only
 	 * path), so the plugin keeps reporting — that's what makes the profile useful without a clan.
 	 */
-	public boolean signedInWithoutClan() {
+	boolean signedInWithoutClan() {
 		return isConfigured() && lastConfigNoClan;
 	}
 
@@ -658,7 +658,7 @@ public class BingoApiClient {
 	volatile long versionCapsAt;
 
 	/** A capability /api/version advertised (the no-clan fallback for {@link PluginConfigResponse#serverSupports}). */
-	public boolean siteAdvertises(String capability) {
+	boolean siteAdvertises(String capability) {
 		return versionCaps.contains(capability);
 	}
 
@@ -676,7 +676,7 @@ public class BingoApiClient {
 	}
 
 	/** GET /api/plugin/config — event, team, player and everything the client tracks. */
-	public PluginConfigResponse fetchConfig() throws IOException {
+	PluginConfigResponse fetchConfig() throws IOException {
 		try {
 			var parsed = etagGet(configUrl("/api/plugin/config"), PluginConfigResponse.class, polls, "Config fetch",
 				ResponseDiskCache.CONFIG);
@@ -866,7 +866,7 @@ public class BingoApiClient {
 	 * goals are about the character being played — except while that character is paused, when nothing
 	 * names it. Null on any failure. Blocking; off the EDT.
 	 */
-	public JsonObject fetchUi(String view, Map<String, String> args, String clan) {
+	JsonObject fetchUi(String view, Map<String, String> args, String clan) {
 		var url = HttpUrl.get(rootUrl("/api/plugin/ui")).newBuilder().addQueryParameter("v", view);
 		args.forEach(url::addQueryParameter);
 		if (clan != null && !clan.isEmpty()) url.addQueryParameter("clan", clan);
@@ -874,7 +874,7 @@ public class BingoApiClient {
 	}
 
 	/** {@code POST /api/plugin/ui}: one of a view's actions, answered with the view to show next. */
-	public JsonObject postUi(String act, Map<String, String> args, Map<String, String> fields) {
+	JsonObject postUi(String act, Map<String, String> args, Map<String, String> fields) {
 		var body = new JsonObject();
 		body.addProperty("act", act);
 		body.add("args", strings(args));
@@ -889,7 +889,7 @@ public class BingoApiClient {
 	}
 
 	/** A page on the site this plugin talks to: a view's link names a path, never a host. */
-	public String siteLink(String path) {
+	String siteLink(String path) {
 		var base = HttpUrl.parse(getApiUrl().isEmpty() ? site() : getApiUrl());
 		var url = base == null ? null : base.resolve(path);
 		return url == null ? CANONICAL_SITE : url.toString();
@@ -1033,7 +1033,7 @@ public class BingoApiClient {
 	 * dispatcher pool belongs to the client's own HTTP stack (the pool its async calls run on), so
 	 * this adds no thread of ours and the shared thread stays free.
 	 */
-	public ExecutorService interactiveExecutor() {
+	ExecutorService interactiveExecutor() {
 		return httpClient.dispatcher().executorService();
 	}
 
@@ -1082,7 +1082,7 @@ public class BingoApiClient {
 	 * {@code GET /api/plugin/event/<id>/tile/<tileId>/progress} — every team's progress on one pinned
 	 * tile. Null on any failure. Blocking.
 	 */
-	public TileTracker.Progress fetchTileProgress(int eventId, int tileId) {
+	TileTracker.Progress fetchTileProgress(int eventId, int tileId) {
 		if (!isConfigured() || eventId <= 0 || tileId <= 0) return null;
 		try {
 			return etagGet(clanUrl("/api/plugin/event/" + eventId + "/tile/" + tileId + "/progress"),
@@ -1099,7 +1099,7 @@ public class BingoApiClient {
 	/**
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */
-	public String uploadImage(byte[] pngBytes, String filename) throws IOException {
+	String uploadImage(byte[] pngBytes, String filename) throws IOException {
 		var multipart = new MultipartBody.Builder().setType(MultipartBody.FORM)
 			.addFormDataPart("file", filename, RequestBody.create(isJpeg(pngBytes) ? JPEG : PNG, pngBytes)).build();
 		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(multipart), (r, body) -> {
@@ -1112,7 +1112,7 @@ public class BingoApiClient {
 	 * POST /api/plugin/hello — self-register as a guest clan member. Unauthenticated.
 	 * Returns {knownMember, isGuest}. Never throws — failures become a null return + log.
 	 */
-	public HelloResponse hello(String rsn) {
+	HelloResponse hello(String rsn) {
 		if (getApiUrl().isEmpty()) return null;
 		// The token rides along when we have one. This call has never REQUIRED it — anyone running the
 		// plugin may say hello — but on the canonical address, which names no clan, the token is the
@@ -1121,16 +1121,16 @@ public class BingoApiClient {
 		return getOrNull(publicRequest(clanUrl("/api/plugin/hello")).post(json(obj("rsn", rsn))), HelloResponse.class);
 	}
 
-	public static class HelloResponse {
-		public boolean knownMember;
-		public boolean isGuest;
+	static class HelloResponse {
+		boolean knownMember;
+		boolean isGuest;
 		// WHICH CLAN ANSWERED, and about whom. "Tracked as a guest" is a claim about one person in one
 		// clan and the message named neither, so somebody in two clans could not tell a wrong answer
 		// from a surprising one.
-		public String clanName;
-		public String rsn;
+		String clanName;
+		String rsn;
 		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
-		public String seatKind;
+		String seatKind;
 	}
 
 	/**
@@ -1140,7 +1140,7 @@ public class BingoApiClient {
 	 * (the site returns {isAdmin:true} for admins, 401 for non-admins / invalid tokens).
 	 * Tolerates network/parse failures by returning false — a hidden panel is the safe default.
 	 */
-	public boolean fetchIsAdmin(String accountToken) {
+	boolean fetchIsAdmin(String accountToken) {
 		if (getApiUrl().isEmpty() || accountToken == null || accountToken.isEmpty()) return false;
 		try {
 			return execute(readClient, tokenRequest("/api/plugin/me", accountToken).get(), (r, body) -> {
@@ -1160,7 +1160,7 @@ public class BingoApiClient {
 	 * POST /api/plugin/clan-sync — upload the scraped clan roster. Authenticated with the
 	 * caller's per-user account token (must belong to a site admin).
 	 */
-	public ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException {
+	ClanSyncResponse syncClan(String accountToken, String clanName, List<ClanMember> members) throws IOException, ClanMismatchException, AdminUnauthorizedException {
 		if (getApiUrl().isEmpty()) throw new IOException("Not signed in to Anvil");
 		var payload = new JsonObject();
 		payload.addProperty("clanName", clanName);
@@ -1187,43 +1187,43 @@ public class BingoApiClient {
 		return plainRequest(clanUrl(path)).header("Authorization", "Bearer " + accountToken);
 	}
 
-	public static class ClanMember {
-		public String rsn;
-		public String rank;
+	static class ClanMember {
+		String rsn;
+		String rank;
 		// The in-game rank number (higher = more senior), so the site can order custom titles.
-		public Integer rankNum;
-		public Integer joinedDays;
+		Integer rankNum;
+		Integer joinedDays;
 		// Only set for the locally-logged-in player — used by the site for stable identity /
 		// rename detection. Null for everyone else; gson omits it from the payload.
-		public String accountHash;
+		String accountHash;
 	}
 
-	public static class ClanSyncResponse {
-		public int added;
-		public int updated;
-		public int markedLeft;
-		public String capNotice;
+	static class ClanSyncResponse {
+		int added;
+		int updated;
+		int markedLeft;
+		String capNotice;
 		/** The chat lines, written by the site: background line, button report, warnings. */
-		public Say say;
+		Say say;
 	}
 
-	public static class Say {
-		public List<String> auto = emptyList();
-		public List<String> manual = emptyList();
-		public List<String> warn = emptyList();
+	static class Say {
+		List<String> auto = emptyList();
+		List<String> manual = emptyList();
+		List<String> warn = emptyList();
 	}
 
 
-	public static class ClanMismatchException extends Exception {
-		public final String serverClanName;
-		public ClanMismatchException(String serverClanName) {
+	static class ClanMismatchException extends Exception {
+		final String serverClanName;
+		ClanMismatchException(String serverClanName) {
 			super("Clan name mismatch");
 			this.serverClanName = serverClanName;
 		}
 	}
 
-	public static class AdminUnauthorizedException extends Exception {
-		public AdminUnauthorizedException(String message) { super(message); }
+	static class AdminUnauthorizedException extends Exception {
+		AdminUnauthorizedException(String message) { super(message); }
 	}
 
 	/**
@@ -1231,7 +1231,7 @@ public class BingoApiClient {
 	 * data's invalid — so retrying it will never succeed. The retry loop drops these instead of
 	 * looping forever (the "Get 5M in PvP Loot already complete, keeps retrying" bug).
 	 */
-	public static class PermanentSubmissionException extends HttpStatusException {
+	static class PermanentSubmissionException extends HttpStatusException {
 		PermanentSubmissionException(String message, int code) {
 			super(message, code);
 		}
@@ -1252,8 +1252,8 @@ public class BingoApiClient {
 	 * that learns nothing and costs the clan's server a request every time. Carrying the wait means
 	 * the plugin can hold off instead of guessing, and tell the player a number.
 	 */
-	public static class RateLimitedException extends HttpStatusException {
-		public final long retryAfterMs;
+	static class RateLimitedException extends HttpStatusException {
+		final long retryAfterMs;
 
 		RateLimitedException(String message, long retryAfterMs) {
 			super(message, 429);
@@ -1371,11 +1371,11 @@ public class BingoApiClient {
 	 * maps ids onto pages, so a Jagex reshuffle is a dataset rebuild there rather than a release here.
 	 */
 	/** What a whole-log push changed, so an automatic sync can stay quiet when it changed nothing. */
-	public static final class ClogPushResult {
-		public int added;
+	static final class ClogPushResult {
+		int added;
 	}
 
-	public ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException {
+	ClogPushResult submitClogItems(Map<Integer, Integer> items) throws IOException {
 		if (items == null || items.isEmpty()) return new ClogPushResult();
 		var payload = new JsonObject();
 		payload.add("items", pairs(items, "id", "q"));
@@ -1402,7 +1402,7 @@ public class BingoApiClient {
 	 * verdict, and a shot that fails one lands `pending` instead of accepted. Both are optional:
 	 * pass null when we can't answer, and the server simply doesn't run that check.
 	 */
-	public void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt,
+	void submitStartProof(int eventId, String imageUrl, String keyword, String capturedAt,
 		Integer x, Integer y, String loginAt) throws IOException {
 		var payload = new JsonObject();
 		payload.addProperty("imageUrl", imageUrl);
@@ -1419,13 +1419,13 @@ public class BingoApiClient {
 
 	/** What a client could see of its company at kill time. Both halves are best-effort. */
 	@RequiredArgsConstructor
-	public static final class CoopFingerprint {
+	static final class CoopFingerprint {
 		/** Lowercased RSNs of ROSTER teammates seen in the instance — empty when none could be named. */
-		public final List<String> teammates;
+		final List<String> teammates;
 		/** Instance/raid party headcount, which is reliable exactly where names aren't. 0 = unknown. */
-		public final int partySize;
+		final int partySize;
 
-		public boolean isEmpty() {
+		boolean isEmpty() {
 			return (teammates == null || teammates.isEmpty()) && partySize <= 1;
 		}
 	}
@@ -1447,12 +1447,12 @@ public class BingoApiClient {
 	}
 
 	/** Boss KC: {@code {"stats":[{"name":"<in-game boss name>","kc":<absolute count>}]}}. */
-	public void submitStatKc(Map<String, Integer> counts) throws IOException {
+	void submitStatKc(Map<String, Integer> counts) throws IOException {
 		submitStats(counts, "stats", "name", "kc", "KC push failed");
 	}
 
 	/** Skill XP: {@code {"skills":[{"name":"<skill>","xp":<absolute xp>}]}}. */
-	public void submitStatXp(Map<String, Integer> xp) throws IOException {
+	void submitStatXp(Map<String, Integer> xp) throws IOException {
 		submitStats(xp, "skills", "name", "xp", "Skill XP push failed");
 	}
 
@@ -1464,7 +1464,7 @@ public class BingoApiClient {
 	 * the site's own key — they're read from named varbits, so the plugin already knows which counter
 	 * it holds. Unknown keys are dropped server-side rather than stored.
 	 */
-	public void submitStatActivities(Map<String, Integer> values) throws IOException {
+	void submitStatActivities(Map<String, Integer> values) throws IOException {
 		submitStats(values, "activities", "key", "value", "Activity push failed");
 	}
 
@@ -1475,7 +1475,7 @@ public class BingoApiClient {
 	/** POST /api/plugin/mode-lines — highlighted game messages from a game-mode world (ModeLines). */
 
 	/** The same mode-line batch with the frame that was visible when it was sent. */
-	public void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
+	void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
 		var payload = new JsonObject();
 		var arr = new JsonArray();
 		lines.forEach(arr::add);
@@ -1497,7 +1497,7 @@ public class BingoApiClient {
 		});
 	}
 
-	public void submitCofferLine(String line, String clanName) throws IOException {
+	void submitCofferLine(String line, String clanName) throws IOException {
 		postJson("/api/plugin/coffer/broadcast", obj("line", line, "clanName", clanName), "Coffer line failed", false);
 	}
 
@@ -1505,7 +1505,7 @@ public class BingoApiClient {
 	 * POST /api/plugin/coffer — one absolute in-game Clan Coffer transition. The event key makes a
 	 * retry idempotent; the server also serializes distinct clients observing the same final balance.
 	 */
-	public void submitClanCoffer(String eventKey, ClanCofferTracker.Observation observation) throws IOException {
+	void submitClanCoffer(String eventKey, ClanCofferTracker.Observation observation) throws IOException {
 		if (observation == null) return;
 		postJson("/api/plugin/coffer", obj("eventKey", eventKey, "kind", observation.kind.wire, "beforeBalance", observation.beforeBalance,
 			"afterBalance", observation.afterBalance, "actorConfirmed", observation.actorConfirmed), "Coffer sync failed", false);
@@ -1522,7 +1522,7 @@ public class BingoApiClient {
 	 * max(stored, pushed) per counter, so a retry or client restart never double-counts. No screenshot.
 	 * Purely cosmetic (superlatives only — never scoring).
 	 */
-	public void submitEventCounters(int deaths, long lootGp, int pvpKills, int biggestHit, int minutesPlayed, int caTasks) throws IOException {
+	void submitEventCounters(int deaths, long lootGp, int pvpKills, int biggestHit, int minutesPlayed, int caTasks) throws IOException {
 		postJson("/api/plugin/counters", obj("deaths", deaths, "lootGp", lootGp, "pvpKills", pvpKills,
 			"biggestHit", biggestHit, "minutesPlayed", minutesPlayed, "caTasks", caTasks), "Counter push failed", false);
 	}
@@ -1541,7 +1541,7 @@ public class BingoApiClient {
 	 *
 	 * <p>Never scoring: nothing here completes a tile or moves a standing.
 	 */
-	public void submitProgress(Map<String, Integer> progress, String itemCategory,
+	void submitProgress(Map<String, Integer> progress, String itemCategory,
 		List<AccountProgress.Item> items) throws IOException {
 		submitProgress(progress, itemCategory, items, null, 0);
 	}
@@ -1553,7 +1553,7 @@ public class BingoApiClient {
 	 * and refuses the lot if the points don't reconcile. Nothing here knows what a combat task is,
 	 * which is the point: the catalogue lives where it can be updated without a release.
 	 */
-	public void submitProgress(Map<String, Integer> progress, String itemCategory,
+	void submitProgress(Map<String, Integer> progress, String itemCategory,
 		List<AccountProgress.Item> items, Map<Integer, Integer> caVarps,
 		int caPoints) throws IOException {
 		var hasItems = itemCategory != null && items != null && !items.isEmpty();
@@ -1598,7 +1598,7 @@ public class BingoApiClient {
 	 * list. A null name says "in no clan". The site shows it on the profile and gathers Anvil players
 	 * of a clan that isn't on Anvil onto one page.
 	 */
-	public void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException {
+	void submitGameClan(String clanName, Integer rank, String title, java.time.LocalDate joined) throws IOException {
 		var payload = new JsonObject();
 		if (clanName == null) {
 			payload.add("clan", JsonNull.INSTANCE);
@@ -1617,7 +1617,7 @@ public class BingoApiClient {
 	 * POST /api/plugin/presence — the clan whose GUEST channel this character sits in now (null: none),
 	 * for the chat feed's guest bridge. Only the channel's name.
 	 */
-	public void submitGuestChannel(String guestChannel) throws IOException {
+	void submitGuestChannel(String guestChannel) throws IOException {
 		postJson("/api/plugin/presence", obj("guestChannel", guestChannel), "Presence push failed", false);
 	}
 
@@ -1626,7 +1626,7 @@ public class BingoApiClient {
 	 * fires, with the most recent kill line when there was one. The site resolves the name against
 	 * its catalogue and ignores a slot it already holds. Blocking; off the client thread.
 	 */
-	public void submitClogUnlock(String itemName, String kcName, Integer kc) throws IOException {
+	void submitClogUnlock(String itemName, String kcName, Integer kc) throws IOException {
 		var unlock = new JsonObject();
 		unlock.addProperty("name", itemName);
 		if (kcName != null && kc != null) {
@@ -1651,7 +1651,7 @@ public class BingoApiClient {
 	 * <p>Idempotent: the server keys on (member, page) and replaces, so a retry or a client restart
 	 * mid-sync costs nothing. Profile data only — never scoring.
 	 */
-	public void submitClogPages(List<ClogPage> pages, int syncedPages) throws IOException {
+	void submitClogPages(List<ClogPage> pages, int syncedPages) throws IOException {
 		if (pages == null || pages.isEmpty()) return;
 		var out = new JsonArray();
 		for (ClogPage page : pages) {
@@ -1687,7 +1687,7 @@ public class BingoApiClient {
 	 * the game itself doesn't. The server keeps the FASTEST of stored and pushed, so a retry, a
 	 * stale client or an out-of-order request can never raise somebody's record.
 	 */
-	public void submitPersonalBests(Map<String, Integer> bests) throws IOException {
+	void submitPersonalBests(Map<String, Integer> bests) throws IOException {
 		if (bests == null || bests.isEmpty()) return;
 		Map<String, Integer> valid = new LinkedHashMap<>();
 		bests.forEach((k, v) -> {
@@ -1713,7 +1713,7 @@ public class BingoApiClient {
 	 *
 	 * <p>Never scoring: nothing here completes a tile or moves a standing.
 	 */
-	public void submitMoments(List<AnvilMoments.Moment> batch) throws IOException {
+	void submitMoments(List<AnvilMoments.Moment> batch) throws IOException {
 		if (batch == null || batch.isEmpty()) return;
 		var out = new JsonArray();
 		for (AnvilMoments.Moment m : batch) {

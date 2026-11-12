@@ -30,15 +30,15 @@ public final class DeviceSignIn {
 	static final int DEFAULT_INTERVAL_S = 5;
 	static final int DEFAULT_EXPIRES_S = 600;
 
-	public enum Outcome {
+	enum Outcome {
 		SIGNED_IN, DENIED, EXPIRED, UNAVAILABLE
 	}
 
 	/** Result: outcome + the account token when {@link Outcome#SIGNED_IN}. */
 	@RequiredArgsConstructor
-	public static final class Result {
-		public final Outcome outcome;
-		public final String token;
+	static final class Result {
+		final Outcome outcome;
+		final String token;
 
 	}
 
@@ -49,7 +49,7 @@ public final class DeviceSignIn {
 	volatile boolean cancelled;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
-	public DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor) {
+	DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor) {
 		this(apiClient, DeviceSignIn::browse,
 			(step, delayMs) -> executor.schedule(step, delayMs, TimeUnit.MILLISECONDS));
 	}
@@ -71,7 +71,7 @@ public final class DeviceSignIn {
 
 	/** Run the whole flow. {@code status} receives short human-readable progress lines for the UI;
 	 * {@code done} the terminal {@link Result}. Both called on the executor thread. */
-	public void run(Consumer<String> status, Consumer<Result> done) {
+	void run(Consumer<String> status, Consumer<Result> done) {
 		// The first step runs on the executor too — authStart is network I/O, keep it off the EDT.
 		schedule(() -> start(status, done), 0, status, done);
 	}
@@ -149,7 +149,7 @@ public final class DeviceSignIn {
 	}
 
 	/** Stop polling: any step not yet run is skipped and the callbacks never fire. */
-	public void cancel() {
+	void cancel() {
 		cancelled = true;
 	}
 

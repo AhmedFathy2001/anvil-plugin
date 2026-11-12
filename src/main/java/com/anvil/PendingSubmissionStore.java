@@ -33,41 +33,41 @@ public class PendingSubmissionStore {
 	final Gson gson;
 
 	@Inject
-	public PendingSubmissionStore(Gson gson) {
+	PendingSubmissionStore(Gson gson) {
 		this.gson = gson.newBuilder().setPrettyPrinting().create();
 	}
 
-	public static class PendingSubmission {
-		public int eventId;
-		public int tileId;
-		public int teamId;
-		public int amount;
-		public String label;
-		public String note;
-		public String screenshotFile;
-		public long timestamp;
+	static class PendingSubmission {
+		int eventId;
+		int tileId;
+		int teamId;
+		int amount;
+		String label;
+		String note;
+		String screenshotFile;
+		long timestamp;
 		// itemId / durationSeconds / inferred / note: read from proofs older builds saved (legacyFacts).
-		public Integer itemId;
-		public Integer durationSeconds;
-		public String capturedRsn; // character the drop was obtained on; only re-submitted while on it
-		public String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
+		Integer itemId;
+		Integer durationSeconds;
+		String capturedRsn; // character the drop was obtained on; only re-submitted while on it
+		String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
 		// Shared kills/runs: teammates seen + party size at the time (lib/coopRuns on the site). Null
 		// when the tile doesn't ask; kept on disk so a retried proof still says who was there.
-		public List<String> coopGroup;
-		public int coopPartySize;
+		List<String> coopGroup;
+		int coopPartySize;
 		// A proof the plugin can't auto-submit to a specific tile (pet drop, duplicate Champion's
 		// scroll — the "would have received" line names no item), captured so the player has a ready
 		// screenshot to attach when they submit by hand on the site. The retry loop skips these.
-		public boolean manual;
+		boolean manual;
 		// What the site draws the proof's banner from (lib/proofStamp); null on an older capture.
-		public JsonObject proof;
+		JsonObject proof;
 		// Another board's clan slug (TrackedTile.board), null for the active board: where a retry posts.
-		public String clan;
+		String clan;
 		// The facts this screenshot proves still to credit (posted image-less to /api/plugin/facts; the
 		// site picks the tiles), and each credit's proof key → its tiles' labels, the screenshot still owed.
-		public JsonArray facts;
-		public JsonObject keys = new JsonObject();
-		public long keyAt; // when the last key came: the site reverses a credit a minute after it
+		JsonArray facts;
+		JsonObject keys = new JsonObject();
+		long keyAt; // when the last key came: the site reverses a credit a minute after it
 	}
 
 	/**
@@ -93,7 +93,7 @@ public class PendingSubmissionStore {
 		return DiskFiles.ensureDir(root);
 	}
 
-	public String save(PendingSubmission sub, byte[] pngBytes) {
+	String save(PendingSubmission sub, byte[] pngBytes) {
 		var dir = dir();
 		if (dir == null) return null;
 		var id = sub.tileId + "-" + sub.timestamp;
@@ -127,7 +127,7 @@ public class PendingSubmissionStore {
 	 * of the plugin directory alongside `sounds/`, and descending would read a banner clip's
 	 * neighbours looking for JSON. An empty or truncated file reads as nothing and is skipped.
 	 */
-	public List<PendingSubmission> loadAll() {
+	List<PendingSubmission> loadAll() {
 		List<PendingSubmission> result = new ArrayList<>();
 		var now = System.currentTimeMillis();
 		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json"))) {
@@ -165,7 +165,7 @@ public class PendingSubmissionStore {
 		}
 	}
 
-	public byte[] readScreenshot(PendingSubmission sub) {
+	byte[] readScreenshot(PendingSubmission sub) {
 		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return null;
 		// joinSegment, not join: it refuses a separator, so a screenshotFile read back out of a JSON
@@ -178,7 +178,7 @@ public class PendingSubmissionStore {
 		}
 	}
 
-	public void remove(PendingSubmission sub) {
+	void remove(PendingSubmission sub) {
 		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return;
 		var baseName = sub.screenshotFile.replaceAll("\\.(png|jpg)$", "");

@@ -1072,7 +1072,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * Callback for the async clan-sync action invoked from the side panel.
 	 */
-	public interface AdminActionCallback {
+	interface AdminActionCallback {
 
 		void onResult(boolean ok, String message);
 	}
@@ -1658,7 +1658,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onOverlayMenuClicked(OverlayMenuClicked event) {
+	void onOverlayMenuClicked(OverlayMenuClicked event) {
 		// Every plugin's overlay menu clicks arrive here; only our own Unpin entries are ours to act on.
 		if (tileTracker.unpinFrom(event.getOverlay(), event.getEntry().getOption())) invokeLater(sidebarPanel::refresh);
 	}
@@ -1672,7 +1672,7 @@ public class AnvilPlugin extends Plugin {
 	 * baseline guards the total the same way.
 	 */
 	@Subscribe
-	public void onStatChanged(StatChanged event) {
+	void onStatChanged(StatChanged event) {
 		var skill = event.getSkill();
 		if (skill == null) return;
 		// Preset / alt-save worlds (PvP Arena, Leagues, Deadman, LMS, …) report levels/XP that aren't the
@@ -1785,7 +1785,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onConfigChanged(ConfigChanged event) {
+	void onConfigChanged(ConfigChanged event) {
 		if (!"osrsbingo".equals(event.getGroup())) return;
 		var key = event.getKey();
 		// The plugin's own bookkeeping (recap counters, sync state, nudges) is persisted from the
@@ -1835,7 +1835,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onWidgetLoaded(WidgetLoaded event) {
+	void onWidgetLoaded(WidgetLoaded event) {
 		int g = event.getGroupId();
 		int flairRoot = flairInterfaceRoot(g);
 		// Names and dynamic rows are populated just after the group itself appears.
@@ -1855,7 +1855,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onWidgetClosed(WidgetClosed event) {
+	void onWidgetClosed(WidgetClosed event) {
 		// Gain tiles: trade/bank items can land the tick their interface closes — keep those
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
@@ -1886,7 +1886,7 @@ public class AnvilPlugin extends Plugin {
 	 * channel for the rest of the session.
 	 */
 	@Subscribe
-	public void onWorldChanged(WorldChanged event) {
+	void onWorldChanged(WorldChanged event) {
 		stampWorld();
 		markSeasonalWorld();
 		// Hopping between the main game and a separate save swaps the whole stat table: baseline
@@ -1948,7 +1948,7 @@ public class AnvilPlugin extends Plugin {
 	static final long CLOG_TRANSMIT_COOLDOWN_MS = 10_000L;
 
 	@Subscribe
-	public void onScriptPostFired(ScriptPostFired event) {
+	void onScriptPostFired(ScriptPostFired event) {
 		int id = event.getScriptId();
 		if (id == ScriptID.CHAT_TEXT_INPUT_REBUILD) {
 			flairChatInput();
@@ -1989,7 +1989,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onScriptPreFired(ScriptPreFired event) {
+	void onScriptPreFired(ScriptPreFired event) {
 		if (event.getScriptId() != COLLECTION_DELAYED_TRANSMIT) return;
 		// Viewing someone else's log through a POH adventure log fires the same script with THEIR
 		// items. Storing those would overwrite this account's log with a stranger's.
@@ -2104,7 +2104,7 @@ public class AnvilPlugin extends Plugin {
 	 * spot; otherwise we arm it, and opening the log finishes the job. Either way the player never
 	 * has to page through anything.
 	 */
-	public void syncProfileNow() {
+	void syncProfileNow() {
 		if (!config.syncClog()) {
 			sendChatMessage("Collection log sync is off — turn it on in Configuration → Anvil → Profile sync.");
 			return;
@@ -2206,7 +2206,7 @@ public class AnvilPlugin extends Plugin {
 	 * anything else happens — this event fires constantly, and the check is a short array scan.
 	 */
 	@Subscribe
-	public void onVarbitChanged(VarbitChanged event) {
+	void onVarbitChanged(VarbitChanged event) {
 		if (!trackedActivityKeys.isEmpty() && ActivityStats.isTrigger(event.getVarbitId(), event.getVarpId())) maybeQueueActivityPush();
 		// The chatbox went transparent or opaque: event chat lines take that surface's colours.
 		if (event.getVarbitId() == VarbitID.CHATBOX_TRANSPARENCY && !eventNodes.isEmpty()) {
@@ -2296,7 +2296,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onGameTick(GameTick event) {
+	void onGameTick(GameTick event) {
 		// Joined, left or changed friends chat: the relay's friends chat room follows (a new ticket).
 		if (!fcSeen.equals(fcOwner())) {
 			fcSeen = fcOwner();
@@ -2427,7 +2427,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onPlayerSpawned(PlayerSpawned event) {
+	void onPlayerSpawned(PlayerSpawned event) {
 		if (wasInInstance) noteInstancePlayer(event.getPlayer());
 	}
 
@@ -2520,7 +2520,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onGameStateChanged(GameStateChanged event) {
+	void onGameStateChanged(GameStateChanged event) {
 		// Game-value counters: a loading zone pauses reads (same account, values persist); leaving the
 		// session forgets the baselines — the next account's balances are not this one's.
 		var gs = event.getGameState();
@@ -2816,7 +2816,7 @@ public class AnvilPlugin extends Plugin {
 	// -- The sidebar's account row ---------------------------------------------------------------
 
 	/** What the side panel says about the logged-in character, or null when there's nothing to say. */
-	public AccountRow accountRow() {
+	AccountRow accountRow() {
 		var rsn = apiClient.getCurrentRsn();
 		if (rsn == null || !apiClient.isSignedIn()) return null;
 		if (apiClient.isAccountPaused()) return new AccountRow(rsn, AccountRow.State.PAUSED);
@@ -2829,7 +2829,7 @@ public class AnvilPlugin extends Plugin {
 	 * Run one of the account row's buttons off the EDT and report a one-line outcome to {@code done}
 	 * (called on the executor — the panel marshals it).
 	 */
-	public void accountAction(AccountRow.Action action, Consumer<String> done) {
+	void accountAction(AccountRow.Action action, Consumer<String> done) {
 		if (accountActionRunning || !execLive()) return;
 		accountActionRunning = true;
 		submit(() -> {
@@ -3048,7 +3048,7 @@ public class AnvilPlugin extends Plugin {
 	 * kills never double.
 	 */
 	@Subscribe
-	public void onServerNpcLoot(ServerNpcLoot event) {
+	void onServerNpcLoot(ServerNpcLoot event) {
 		if (event.getComposition() == null) return;
 		var firstServerLoot = !serverNpcLootSeen;
 		serverNpcLootSeen = true;
@@ -3074,7 +3074,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onNpcLootReceived(NpcLootReceived event) {
+	void onNpcLootReceived(NpcLootReceived event) {
 		var name = event.getNpc().getName();
 		trackVestigeRolls(name, event.getItems());
 		processLoot(name, chatCredits.unclaimed(event.getItems(), now()), "npc");
@@ -3093,7 +3093,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onLootReceived(LootReceived event) {
+	void onLootReceived(LootReceived event) {
 		// Minigame loot isn't real — an LMS kill "drops" the victim's throwaway loadout — so never
 		// post it to the drops channel or feed it to any bingo tile (drop/value/rare-drop).
 		if (lmsInGame) return;
@@ -3193,7 +3193,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onPlayerLootReceived(PlayerLootReceived event) {
+	void onPlayerLootReceived(PlayerLootReceived event) {
 		if (lmsInGame) {
 			return; // LMS PvP loot is minigame loot — not a real drop; skip tiles + the drops channel.
 		}
@@ -3240,7 +3240,7 @@ public class AnvilPlugin extends Plugin {
 	 * thing that killed it rather than the thing it was killing (DeathAttribution).
 	 */
 	@Subscribe
-	public void onInteractingChanged(InteractingChanged event) {
+	void onInteractingChanged(InteractingChanged event) {
 		var source = event.getSource();
 		if (source == null || source == client.getLocalPlayer()) {
 			return; // our own target changing is the other question entirely
@@ -3260,13 +3260,13 @@ public class AnvilPlugin extends Plugin {
 
 	/** An NPC that despawns while on us never "stops targeting" us: drop it, or a Kephri scarab is blamed at Zebak. */
 	@Subscribe
-	public void onNpcDespawned(NpcDespawned event) {
+	void onNpcDespawned(NpcDespawned event) {
 		var npc = event.getNpc();
 		if (npc.getInteracting() == client.getLocalPlayer()) deathAttribution.stoppedTargetingUs(npc.getName());
 	}
 
 	@Subscribe
-	public void onHitsplatApplied(HitsplatApplied event) {
+	void onHitsplatApplied(HitsplatApplied event) {
 		var ourHit = event.getHitsplat();
 		// Damage TAKEN — the clock a death is attributed against. ANY hit landing on us counts: the
 		// game draws damage we take with the "me" hitsplats and poison / venom / disease with their
@@ -3324,7 +3324,7 @@ public class AnvilPlugin extends Plugin {
 	 * setting: adding a clip there is the whole act of choosing one, and an empty folder means
 	 * missions keep the built-in chime that tells them apart from a completed tile.</p>
 	 */
-	public void importSounds(BannerSoundService.Kind kind) {
+	void importSounds(BannerSoundService.Kind kind) {
 		var banner = kind == BannerSoundService.Kind.BANNER;
 		bannerSound.importSounds(kind, names -> sendChatMessage("Added to " + (banner ? "banner" : "mission")
 				+ " sounds: " + String.join(", ", names) + (banner
@@ -3333,7 +3333,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Clip filenames in {@code kind}'s folder — the tab's list; missions say "chime" when it's empty. */
-	public List<String> soundClips(BannerSoundService.Kind kind) {
+	List<String> soundClips(BannerSoundService.Kind kind) {
 		return bannerSound.listClips(kind);
 	}
 
@@ -3341,7 +3341,7 @@ public class AnvilPlugin extends Plugin {
 	 * Whether {@code name} is currently in the play cycle (for the tab's on/off
 	 * rendering).
 	 */
-	public boolean bannerSoundSelected(String name) {
+	boolean bannerSoundSelected(String name) {
 		return bannerSound.isSelected(name);
 	}
 
@@ -3351,7 +3351,7 @@ public class AnvilPlugin extends Plugin {
 	 * allowlist means "all clips play", so we materialise the full set before
 	 * removing one, and collapse back to empty when everything's on.
 	 */
-	public void toggleBannerSound(String name) {
+	void toggleBannerSound(String name) {
 		var all = bannerSound.listClips(BannerSoundService.Kind.BANNER);
 		Set<String> sel = new LinkedHashSet<>();
 		var csv = config.bannerSoundClip();
@@ -3389,7 +3389,7 @@ public class AnvilPlugin extends Plugin {
 	 * player pastes the path instead — and is told that's what happened, because a button that
 	 * silently does something other than what it says is worse than one that does less.
 	 */
-	public void copyBannerSoundsPath() {
+	void copyBannerSoundsPath() {
 		bannerSound.copyFolderPath();
 		sendChatMessage("Sounds folder path copied — paste it into your file manager.");
 	}
@@ -3442,7 +3442,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onChatMessage(ChatMessage event) {
+	void onChatMessage(ChatMessage event) {
 		var msg = event.getMessage();
 		if (msg == null || msg.isEmpty()) return;
 		maybeKeepFlairBroadcast(event);
@@ -4382,7 +4382,7 @@ public class AnvilPlugin extends Plugin {
 	 * on the proof screenshot is the audit trail for that (same trust model as kill tiles).
 	 */
 	@Subscribe
-	public void onItemContainerChanged(ItemContainerChanged event) {
+	void onItemContainerChanged(ItemContainerChanged event) {
 		// Flag inventory OR worn changes; the actual diff runs once on the next onGameTick, after
 		// both containers have settled. Equipping/unequipping touches both in the same tick, so
 		// diffing here per-container would read the unequip's inventory bump as a phantom gain.
@@ -4592,7 +4592,7 @@ public class AnvilPlugin extends Plugin {
 	 * change look like a fresh gain when it's really floor loot.
 	 */
 	@Subscribe
-	public void onMenuOptionClicked(MenuOptionClicked event) {
+	void onMenuOptionClicked(MenuOptionClicked event) {
 		if ("Take".equalsIgnoreCase(event.getMenuOption())) {
 			lastGroundTakeTick = client.getTickCount();
 		} else if (isStorageMove(event.getMenuOption())) {
@@ -4944,7 +4944,7 @@ public class AnvilPlugin extends Plugin {
 	 * Is a STARTING SHOT outstanding for this account right now? Drives the sidebar button and the
 	 * login nudge. False on every site/event that doesn't ask for one, and the moment one is filed.
 	 */
-	public boolean needsStartProof() {
+	boolean needsStartProof() {
 		var cfg = pluginConfig;
 		return cfg != null
 				&& cfg.startProof != null
@@ -4967,7 +4967,7 @@ public class AnvilPlugin extends Plugin {
 	 * moment the next config poll agrees. A failure says so in chat and leaves the button up, since
 	 * the whole action is one keypress to repeat.
 	 */
-	public void captureStartProof() {
+	void captureStartProof() {
 		// The click arrives on the Swing thread; where the player stands is client-thread state.
 		clientThread.invokeLater(this::captureStartProofOnClientThread);
 	}
@@ -5174,7 +5174,7 @@ public class AnvilPlugin extends Plugin {
 	/* -------------------------------------------------------------- */
  /* Player/account helpers                                          */
  /* -------------------------------------------------------------- */
-	public String getLocalPlayerName() {
+	String getLocalPlayerName() {
 		if (client == null || client.getLocalPlayer() == null) return null;
 		return client.getLocalPlayer().getName();
 	}
@@ -5368,7 +5368,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client closing (not just the plugin stopping): save unsent pushes, and have the client wait for it. */
 	@Subscribe
-	public void onClientShutdown(ClientShutdown event) {
+	void onClientShutdown(ClientShutdown event) {
 		var save = stashPushes();
 		if (save != null) event.waitFor(sharedExecutor.submit(save));
 	}
@@ -5505,7 +5505,7 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	public boolean isClanScrapeAvailable() {
+	boolean isClanScrapeAvailable() {
 		if (client == null) return false;
 		var ch = client.getClanChannel();
 		var settings = client.getClanSettings();
@@ -5518,7 +5518,7 @@ public class AnvilPlugin extends Plugin {
 	 * site (off the client thread), authenticated with the player's account
 	 * token.
 	 */
-	public void syncClanRoster(AdminActionCallback cb) {
+	void syncClanRoster(AdminActionCallback cb) {
 		// Every way out of here says why when somebody pressed the button: after "Syncing the clan
 		// roster..." a silent return reads as a sync that never finished.
 		var automatic = autoRosterAnnounce;
@@ -6535,7 +6535,7 @@ public class AnvilPlugin extends Plugin {
 	 * the name needs painting.
 	 */
 	@Subscribe
-	public void onBeforeRender(BeforeRender event) {
+	void onBeforeRender(BeforeRender event) {
 		flairChatInput();
 		flairChatbox();
 		flairSplitPm();
@@ -8220,7 +8220,7 @@ public class AnvilPlugin extends Plugin {
  /* via the site, independent of bingo state).                     */
  /* -------------------------------------------------------------- */
 	@Subscribe
-	public void onActorDeath(ActorDeath event) {
+	void onActorDeath(ActorDeath event) {
 		// Runs on the client thread — keep this cheap: a reference check + (optionally) a frame
 		// request. Encoding and the network send happen off-thread.
 		var actor = event.getActor();
@@ -8324,7 +8324,7 @@ public class AnvilPlugin extends Plugin {
 	 * sent. Never in PvP areas: there a colour must not single anyone out.
 	 */
 	@Subscribe(priority = -1)
-	public void onMenuEntryAdded(MenuEntryAdded event) {
+	void onMenuEntryAdded(MenuEntryAdded event) {
 		if (!menusFlair() || chatFlair.isEmpty()) return;
 		var entry = event.getMenuEntry();
 		var p = entry.getPlayer();
@@ -9461,7 +9461,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** A finished Grand Exchange offer, when the player turned these on. A slot's first sighting is its baseline. */
 	@Subscribe
-	public void onGrandExchangeOfferChanged(GrandExchangeOfferChanged e) {
+	void onGrandExchangeOfferChanged(GrandExchangeOfferChanged e) {
 		var o = e.getOffer();
 		int slot = e.getSlot();
 		if (o == null || slot < 0 || slot >= geSlots.length) return;
@@ -9478,7 +9478,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Another plugin asking for a post: namespace "anvil", name "announce", data {source, text}. The site keeps the player's allow-list. */
 	@Subscribe
-	public void onPluginMessage(PluginMessage m) {
+	void onPluginMessage(PluginMessage m) {
 		Me me = me();
 		Object src = m.getData().get("source"), text = m.getData().get("text");
 		if (!"anvil".equals(m.getNamespace()) || !"announce".equals(m.getName()) || me == null || me.on == null
@@ -10041,7 +10041,7 @@ public class AnvilPlugin extends Plugin {
 	 * lays the line out, so it wraps and aligns as its own.
 	 */
 	@Subscribe(priority = -1)
-	public void onScriptCallbackEvent(ScriptCallbackEvent e) {
+	void onScriptCallbackEvent(ScriptCallbackEvent e) {
 		if (relayMarked.isEmpty() || !"chatMessageBuilding".equals(e.getEventName())) return;
 		var node = client.getMessages().get(client.getIntStack()[client.getIntStackSize() - 1]);
 		var icon = node == null ? null : relayMarked.get(node);
@@ -10069,7 +10069,7 @@ public class AnvilPlugin extends Plugin {
 	 * the words.
 	 */
 	@Subscribe
-	public void onChatboxInput(ChatboxInput e) {
+	void onChatboxInput(ChatboxInput e) {
 		log.debug("Relay: typed (type {})", e.getChatType());
 		if (e.getChatType() == 0 && !e.getValue().startsWith("/")) relaySay("public", Text.removeTags(e.getValue()).replaceFirst("(?i)^((yellow|red|green|cyan|purple|white|flash[123]|glow[123]|wave2?|scroll|shake|slide):)+", ""), null);
 	}
@@ -10277,7 +10277,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client-side entries only (nothing is sent to the game): event chat on the Clan tab, Reply on a line. */
 	@Subscribe
-	public void onMenuOpened(MenuOpened e) {
+	void onMenuOpened(MenuOpened e) {
 		var chans = chatChans;
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
@@ -10421,7 +10421,7 @@ public class AnvilPlugin extends Plugin {
 	 * and the result reported in chat where the player is looking. Refused outright when the clan
 	 * channel isn't readable — the roster is scraped from it, so there is nothing to send.
 	 */
-	public void syncClanRosterFromPanel() {
+	void syncClanRosterFromPanel() {
 		if (!isAdmin) {
 			sendChatMessage("Only clan admins can sync the roster.");
 			return;
@@ -10447,7 +10447,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * Whether profile data can be synced now — drives the in-tab "Sync profile" row.
 	 */
-	public boolean supportsProfileSync() {
+	boolean supportsProfileSync() {
 		return config.syncClog() && apiClient.isConfigured() && siteKnown();
 	}
 
@@ -10469,20 +10469,20 @@ public class AnvilPlugin extends Plugin {
 	volatile boolean seasonalWorld;
 
 	/** Any thread: whether the side panel should offer the seasonal-sharing switch. */
-	public boolean seasonalSharingOffered() {
+	boolean seasonalSharingOffered() {
 		var cfg = pluginConfig;
 		return seasonalWorld && cfg != null;
 	}
 
-	public boolean shareSeasonal() {
+	boolean shareSeasonal() {
 		return config.shareSeasonal();
 	}
 
-	public void setShareSeasonal(boolean on) {
+	void setShareSeasonal(boolean on) {
 		configManager.setConfiguration("osrsbingo", "shareSeasonal", on);
 	}
 
-	public boolean canSyncProfileFromPanel() {
+	boolean canSyncProfileFromPanel() {
 		return clogOpen && supportsProfileSync();
 	}
 
@@ -10827,7 +10827,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onClanChannelChanged(ClanChannelChanged event) {
+	void onClanChannelChanged(ClanChannelChanged event) {
 		// Joined or left a guest channel: tell the guest bridge now rather than on the next tick.
 		if (event.isGuest()) submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		// The member list arrives just after the channel; a delay is cheaper than polling for it.

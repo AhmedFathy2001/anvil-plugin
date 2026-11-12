@@ -19,7 +19,7 @@ public class AnvilOverlay extends OverlayPanel {
 	final AnvilConfig config;
 
 	@Inject
-	public AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
+	AnvilOverlay(AnvilPlugin plugin, AnvilConfig config) {
 		super(plugin);
 		this.plugin = plugin;
 		this.config = config;

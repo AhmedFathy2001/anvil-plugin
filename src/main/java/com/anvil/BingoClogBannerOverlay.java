@@ -71,7 +71,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	Client client;
 
 	@Inject
-	public BingoClogBannerOverlay(AnvilPlugin plugin) {
+	BingoClogBannerOverlay(AnvilPlugin plugin) {
 		super(plugin);
 		setPosition(OverlayPosition.TOP_CENTER);
 		setPriority(OverlayPriority.HIGHEST);
@@ -93,7 +93,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** Backwards-compatible entry point used by the existing drop call site. */
-	public boolean show(String label, int current, int required) {
+	boolean show(String label, int current, int required) {
 		var complete = current >= required;
 		var middle = complete ? "Tile complete!" : "Progress:";
 		var bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
@@ -101,7 +101,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** Full three-line control. False when it folded into the "+N more" banner (play no sound). */
-	public boolean show(String top, String middle, String bottom) {
+	boolean show(String top, String middle, String bottom) {
 		if (queue.size() >= 3) {
 			folded.incrementAndGet();
 			return false;
