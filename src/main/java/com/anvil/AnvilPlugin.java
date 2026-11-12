@@ -9871,6 +9871,8 @@ public class AnvilPlugin extends Plugin {
 	final Map<String, MessageNode> relaySeen = new HashMap<>();
 	/** Client thread: lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
 	final Map<String, MessageNode> relayNodes = new LinkedHashMap<>();
+	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
+	boolean injecting;
 	/** Client thread: the chat input's last text, to tell our own typed public line by its overhead. */
 	String typed = "";
 	/** Client thread: lines the relay added, by their shown text, for "Report to Anvil". */
@@ -9925,17 +9927,19 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
-		if (ct != PUBLICCHAT && ct != MODCHAT && ct != CLAN_CHAT && ct != FRIENDSCHAT || e.getName() == null) return;
+		// A line we added ourselves is never "the game's copy" of anything.
+		if (ct != PUBLICCHAT && ct != MODCHAT && ct != CLAN_CHAT && ct != FRIENDSCHAT || e.getName() == null
+				|| injecting || relayNodes.containsValue(e.getMessageNode())) return;
 		var name = Text.removeTags(e.getName());
 		var text = Text.removeTags(e.getMessage());
+		var c = ct == CLAN_CHAT ? "clan" : ct == FRIENDSCHAT ? "fc" : "public";
 		if (Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			log.debug("Relay: own {} line", ct);
-			relaySay(ct == CLAN_CHAT ? "clan" : ct == FRIENDSCHAT ? "fc" : "public", text);
+			relaySay(c, text);
 			return;
 		}
-		var key = relayKey(name, text);
+		var key = c + relayKey(name, text);
 		var ours = relayNodes.get(key);
-		if (ours != null && ours == e.getMessageNode()) return;
 		if (ours != null) {
 			// The game's copy came after ours after all: one line, the game's, with the icon.
 			relayNodes.remove(key);
@@ -9985,18 +9989,15 @@ public class AnvilPlugin extends Plugin {
 		if (v != null && !v.isEmpty()) typed = v;
 	}
 
-	/** The Anvil icon: pixel art at the chat icons' own size, drawn 1:1 by the game. */
+	/** The Anvil logo (gold glyph on a dark rounded square) as an 11x11 chat icon, drawn 1:1 by the game. */
 	String relayIcon() {
 		if (relayIcon < 0) {
-			String[] a = {"XXXXXXXXXXXX", ".XXXXXXXXXXX", "...XXXXXXXX.", "....XXXXXX..", ".....XXXX...", ".....XXXX...", "....XXXXXX..", "...XXXXXXXX."};
-			var img = new BufferedImage(14, 10, BufferedImage.TYPE_INT_ARGB);
-			for (int pass = 0; pass < 2; pass++) {
-				for (int y = 0; y < a.length; y++) {
-					for (int x = 0; x < 12; x++) {
-						if (a[y].charAt(x) != 'X') continue;
-						if (pass == 1) img.setRGB(x + 1, y + 1, 0xFFFFB54D);
-						else for (int d = 0; d < 9; d++) img.setRGB(x + d % 3, y + d / 3, 0xFF2A1C08);
-					}
+			String[] a = {".BBBBBBBBB.", "BDDDDDDDDDB", "BDGGGGGGGDB", "BDDGGGGGSDB", "BDDDGGSDDDB", "BDDDGGSDDDB", "BDDDGGSDDDB", "BDDGGGGSDDB", "BDGGGGGGSDB", "BDDDDDDDDDB", ".BBBBBBBBB."};
+			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
+			for (int y = 0; y < 11; y++) {
+				for (int x = 0; x < 11; x++) {
+					int k = ".BDGS".indexOf(a[y].charAt(x));
+					img.setRGB(x, y, new int[]{0, 0xFFC49628, 0xFF402C16, 0xFFFFD81A, 0xFFC7960F}[k]);
 				}
 			}
 			relayIcon = chatIconManager.registerChatIcon(img);
@@ -10013,7 +10014,7 @@ public class AnvilPlugin extends Plugin {
 		if (!config.relayShow() || !loggedIn() || client.getLocalPlayer() == null) return;
 		var n = m.get("n").getAsString();
 		var c = m.get("c").getAsString();
-		var key = relayKey(n, m.get("x").getAsString());
+		var key = c + relayKey(n, m.get("x").getAsString());
 		log.debug("Relay: got a {} line", c);
 		var seen = relaySeen.remove(key);
 		if (seen != null) {
@@ -10063,7 +10064,12 @@ public class AnvilPlugin extends Plugin {
 		var icon = im != null && im.lookingAt() ? "<img=" + im.group(1) + ">" : "";
 		relayShown.put(Text.removeTags(x), m);
 		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
-		relayNodes.put(key, client.addChatMessage(type, rank + icon + shown + relayIcon(), x, from));
+		injecting = true;
+		try {
+			relayNodes.put(key, client.addChatMessage(type, rank + icon + shown + relayIcon(), x, from));
+		} finally {
+			injecting = false;
+		}
 		if (relayNodes.size() > 50) relayNodes.remove(relayNodes.keySet().iterator().next());
 		relaySeen.remove(key);
 		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PUBLIC_FILTER);
