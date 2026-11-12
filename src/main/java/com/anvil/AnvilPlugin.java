@@ -9922,7 +9922,7 @@ public class AnvilPlugin extends Plugin {
 
 	void relaySay(String c, String text, String to) {
 		var p = pushSocket;
-		if (!config.relaySend() || p == null || text.startsWith("::")) return;
+		if (!("pm".equals(c) ? config.relayPm() : config.relaySend()) || p == null || text.startsWith("::")) return;
 		log.debug("Relay: sending own {} line", c);
 		p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
@@ -9938,7 +9938,8 @@ public class AnvilPlugin extends Plugin {
 		// Our own line (a PM we sent names its recipient instead).
 		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			log.debug("Relay: own {} line", ct);
-			relaySay(c, text, ct == PRIVATECHATOUT ? name : null);
+			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
+			if (ct != PRIVATECHATOUT || relayHere.contains(Text.standardize(name).replaceAll("[ _-]+", " "))) relaySay(c, text, ct == PRIVATECHATOUT ? name : null);
 			return;
 		}
 		var key = c + relayKey(name, text);
@@ -10051,11 +10052,13 @@ public class AnvilPlugin extends Plugin {
 				type = g ? CLAN_GUEST_CHAT : CLAN_CHAT;
 			}
 		} else if ("pm".equals(c)) {
-			// As the game would: only with Private on (or Friends, from a friend).
+			// As the game would: Private On (anyone), Friends (a friend), Off (nobody); no filter read, nobody.
 			var f = client.getWidget(InterfaceID.Chatbox.CHAT_PRIVATE_FILTER);
-			var mode = f == null ? "" : Text.removeTags(f.getText());
-			if (!mode.contains("Off") && (!mode.contains("Friends") || client.isFriended(n, false))) {
-				shown = Text.toJagexName(n);
+			var mode = f == null ? "Off" : Text.removeTags(f.getText());
+			var plain = Text.removeTags(n).replace('\u00a0', ' ');
+			if (plain.matches("[A-Za-z0-9 _-]{1,12}") && !mode.contains("Off") && client.getIgnoreContainer().findByName(plain) == null
+					&& (!mode.contains("Friends") || client.isFriended(plain, false))) {
+				shown = Text.escapeJagex(Text.toJagexName(plain));
 				type = PRIVATECHAT;
 			}
 		} else {

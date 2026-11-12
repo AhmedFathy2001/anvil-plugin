@@ -135,6 +135,17 @@ public interface AnvilConfig extends Config {
 	}
 
 	@ConfigItem(
+		keyName = "relayPm",
+		name = "Also relay my private messages",
+		description = "Signed in: a private message you send also goes through Anvil, only to that player and only when they have Anvil chat on, so they see it even if their game doesn't show it.",
+		position = 8,
+		section = "chatSection"
+	)
+	default boolean relayPm() {
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "relayShow",
 		name = "Show Anvil chat",
 		description = "Show public and clan lines other Anvil players sent through Anvil when your game didn't show them, like normal chat. Lines that came through Anvil carry a small Anvil icon.",
