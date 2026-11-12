@@ -219,6 +219,7 @@ final class UiView extends JPanel {
 		// The slots are gone, so whatever they were waiting for is too.
 		seq.keySet().removeIf(k -> !"null".equals(k));
 		lastLoads.keySet().removeIf(k -> !"null".equals(k));
+		warmed.clear();
 		replace(this, view == null || !view.has("ui") ? message("Couldn't reach Anvil — try again in a moment.") : node(view.getAsJsonObject("ui")));
 		if (tickers.isEmpty()) {
 			ticker.stop();

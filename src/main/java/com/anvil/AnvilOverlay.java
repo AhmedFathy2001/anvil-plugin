@@ -73,8 +73,13 @@ public class AnvilOverlay extends OverlayPanel {
 						.rightColor(Ui.teamColor(cfg.team.color, Color.WHITE)).build();
 	}
 
+	/** The last event asked about and its window: asked every frame, parsed (and a bad date logged) once. */
+	static volatile Object[] active = {};
+
 	static boolean isEventActive(PluginConfigResponse.EventInfo event) {
-		return within(window(event), Instant.now());
+		var a = active;
+		if (a.length == 0 || a[0] != event) active = a = new Object[]{event, window(event)};
+		return within((Instant[]) a[1], Instant.now());
 	}
 
 	static boolean within(Instant[] window, Instant now) {

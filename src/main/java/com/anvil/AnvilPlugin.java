@@ -1485,6 +1485,16 @@ public class AnvilPlugin extends Plugin {
 			cancel(gainsFlush);
 			gainsFlush = null;
 		}
+		// shutdownNow drops these without cancelling them: left as they were, isDone() stayed false and
+		// neither scheduled again for the rest of the session.
+		synchronized (chatFlairSync) {
+			cancel(chatFlairSave);
+			chatFlairSave = null;
+		}
+		synchronized (this) {
+			cancel(feedHeldFlush);
+			feedHeldFlush = null;
+		}
 	}
 
 	String cfgGet(String key) {
@@ -3301,7 +3311,10 @@ public class AnvilPlugin extends Plugin {
 		var name = actor.getName();
 		if (name == null || name.isEmpty()) return;
 		synchronized (lastDamagedPlayerAt) {
-			lastDamagedPlayerAt.put(name.toLowerCase(), now());
+			var now = now();
+			// Pruned here too: a session of hits with no kill would otherwise only ever grow it.
+			lastDamagedPlayerAt.values().removeIf(t -> now - t > PVP_KILL_ATTRIBUTION_MS);
+			lastDamagedPlayerAt.put(name.toLowerCase(), now);
 		}
 	}
 
@@ -6767,14 +6780,22 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		var frame = currentChatNameFrame();
+		var es = client.getMenuEntries();
+		// Once per animation frame (or a new menu), not every render frame.
+		if (frame == menuFlairFrame && es.length > 0 && es[es.length - 1] == menuFlairTop) return;
+		menuFlairFrame = frame;
+		menuFlairTop = es.length > 0 ? es[es.length - 1] : null;
 		var shift = interfaceNameShift(frame);
-		for (MenuEntry e : client.getMenuEntries()) {
+		for (MenuEntry e : es) {
 			var p = e.getPlayer();
 			var name = p == null ? null : p.getName();
 			var t = name == null ? null : chatFlair.paintMenuTarget(e.getTarget(), name, true, shift);
 			if (t != null) e.setTarget(t);
 		}
 	}
+
+	long menuFlairFrame = Long.MIN_VALUE;
+	MenuEntry menuFlairTop;
 
 	/** The chat input as the game wrote it, and as we painted it (unflairChat puts the first back). */
 	String inputPlain;
@@ -6866,6 +6887,10 @@ public class AnvilPlugin extends Plugin {
 		var frame = currentChatNameFrame();
 		nameListFrame = frame;
 		var shift = interfaceNameShift(frame);
+		// Who's online on the friends list, once: a lookup per row was rows x friends.
+		Set<String> online = new HashSet<>();
+		var fl = client.getFriendContainer();
+		if (fl != null) for (Friend f : fl.getMembers()) if (f.getWorld() > 0) online.add(Text.standardize(f.getName()));
 		for (int id : FLAIR_LISTS) {
 			var list = client.getWidget(id);
 			var rows = list == null ? null : list.getDynamicChildren();
@@ -6873,7 +6898,7 @@ public class AnvilPlugin extends Plugin {
 			boolean friends = id == InterfaceID.Friends.LIST;
 			for (Widget w : rows) {
 				var text = w.getText();
-				if (text == null || text.isEmpty() || (friends && !friendOnline(text))) continue;
+				if (text == null || text.isEmpty() || (friends && !online.contains(Text.standardize(text)))) continue;
 				var painted = chatFlair.decorateReadable(text, null, shift, false);
 				if (painted != null) {
 					w.setText(painted);
@@ -9922,6 +9947,8 @@ public class AnvilPlugin extends Plugin {
 	boolean injecting;
 	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
 	final Map<String, String> eventLines = new LinkedHashMap<>();
+	static final Pattern LEVEL = Pattern.compile("\\s*\\(level.*$");
+
 	/** Characters beside us (our world, clan, friends chat) with Anvil chat on, as the site names them. */
 	final Set<String> relayHere = ConcurrentHashMap.newKeySet();
 	/** Where the chatbox event chat input may post, in its key's order; null until fetched. */
@@ -10263,16 +10290,17 @@ public class AnvilPlugin extends Plugin {
 		// Only while we send (then it's who hears us), and only if wanted.
 		var show = ps != null && ps.live() && ps.relayOk && config.relayWho() && config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
 		for (MenuEntry en : show ? e.getMenuEntries() : new MenuEntry[0]) {
-			var opt = Text.removeTags(String.valueOf(en.getOption())).toLowerCase();
+			var opt = String.valueOf(en.getOption()).toLowerCase();
+			if (en.getPlayer() == null && !opt.contains("friend") && !opt.contains("ignore")) continue;
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
-			var name = Text.removeTags(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$", "").trim();
+			var name = LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim();
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
-			if (en.getPlayer() == null && (!opt.contains("friend") && !opt.contains("ignore") || !friendOnline(name)
-					&& (cc == null || cc.findMember(name) == null) && (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null))) continue;
-			var who = Text.standardize(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$|[_-]", " ").replaceAll("\\s+", " ").trim();
+			if (en.getPlayer() == null && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
+					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
+			var who = Text.standardize(name).replaceAll("[ _-]+", " ");
 			// Ourselves: connected exactly while our socket is (which it is, here).
 			var on = relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
 			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (on ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);

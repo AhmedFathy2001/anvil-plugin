@@ -903,7 +903,8 @@ public class BingoApiClient {
 	final Map<String, Icon> thumbs = new LinkedHashMap<String, Icon>(16, 0.75f, true) {
 		@Override
 		protected boolean removeEldestEntry(Map.Entry<String, Icon> e) {
-			return size() > 50;
+			// Animated pictures hold every frame (megabytes each): no more than 8 of them either.
+			return size() > 50 || values().stream().filter(v -> v instanceof GifIcon).count() > 8;
 		}
 	};
 
