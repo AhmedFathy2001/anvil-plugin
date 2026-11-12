@@ -9871,6 +9871,8 @@ public class AnvilPlugin extends Plugin {
 	final Map<String, MessageNode> relaySeen = new HashMap<>();
 	/** Client thread: lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
 	final Map<String, MessageNode> relayNodes = new LinkedHashMap<>();
+	static final Set<ChatMessageType> RELAYED = EnumSet.of(PUBLICCHAT, MODCHAT, CLAN_CHAT, CLAN_GUEST_CHAT, FRIENDSCHAT, PRIVATECHAT, PRIVATECHATOUT);
+
 	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
 	boolean injecting;
 	/** Client thread: the chat input's last text, to tell our own typed public line by its overhead. */
@@ -9908,34 +9910,35 @@ public class AnvilPlugin extends Plugin {
 		return Text.standardize(name).replaceAll("[ _-]+", " ") + "\n" + Text.standardize(text).replaceAll("\\s+", " ");
 	}
 
-	/** The friends chat owner we sit with (its room on the relay), or "". */
+	/** The friends chat owner and guest clan we sit in ("owner~clan", either may be empty): their relay rooms. */
 	String fcOwner() {
 		var fc = client.getFriendsChatManager();
-		return fc == null || fc.getOwner() == null ? "" : Text.standardize(fc.getOwner());
+		var g = client.getGuestClanChannel();
+		return (fc == null || fc.getOwner() == null ? "" : Text.standardize(fc.getOwner())) + "~" + (g == null ? "" : Text.standardize(g.getName()));
 	}
 
 	/** The friends chat owner the push scope was last built with: a change re-tickets (onGameTick). */
 	String fcSeen = "";
 
-	void relaySay(String c, String text) {
+	void relaySay(String c, String text, String to) {
 		var p = pushSocket;
 		if (!config.relaySend() || p == null || text.startsWith("::")) return;
 		log.debug("Relay: sending own {} line", c);
-		p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text)));
+		p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
 		// A line we added ourselves is never "the game's copy" of anything.
-		if (ct != PUBLICCHAT && ct != MODCHAT && ct != CLAN_CHAT && ct != FRIENDSCHAT || e.getName() == null
-				|| injecting || relayNodes.containsValue(e.getMessageNode())) return;
+		if (!RELAYED.contains(ct) || e.getName() == null || injecting || relayNodes.containsValue(e.getMessageNode())) return;
 		var name = Text.removeTags(e.getName());
 		var text = Text.removeTags(e.getMessage());
-		var c = ct == CLAN_CHAT ? "clan" : ct == FRIENDSCHAT ? "fc" : "public";
-		if (Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
+		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || ct == PRIVATECHATOUT ? "pm" : "public";
+		// Our own line (a PM we sent names its recipient instead).
+		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			log.debug("Relay: own {} line", ct);
-			relaySay(c, text);
+			relaySay(c, text, ct == PRIVATECHATOUT ? name : null);
 			return;
 		}
 		var key = c + relayKey(name, text);
@@ -9979,7 +9982,7 @@ public class AnvilPlugin extends Plugin {
 		var t = e.getOverheadText();
 		if (e.getActor() != client.getLocalPlayer() || t == null || typed.isEmpty() || !Text.standardize(typed).endsWith(Text.standardize(t))) return;
 		typed = "";
-		relaySay("public", Text.removeTags(t));
+		relaySay("public", Text.removeTags(t), null);
 	}
 
 	@Subscribe
@@ -10032,16 +10035,25 @@ public class AnvilPlugin extends Plugin {
 		if ("public".equals(c)) {
 			for (Player q : client.getPlayers()) if (q != null && q.getName() != null && relayKey(n, "").equals(relayKey(q.getName(), ""))) near = q;
 			if (near != null) shown = near.getName();
-		} else if ("clan".equals(c)) {
-			var ch = client.getClanChannel();
+		} else if ("clan".equals(c) || "guest".equals(c)) {
+			var g = "guest".equals(c);
+			var ch = g ? client.getGuestClanChannel() : client.getClanChannel();
 			var member = ch == null ? null : ch.findMember(n);
-			var cs = client.getClanSettings();
+			var cs = g ? client.getGuestClanSettings() : client.getClanSettings();
 			var title = member == null || cs == null ? null : cs.titleForRank(member.getRank());
 			if (member != null) {
 				shown = member.getName();
 				from = ch.getName();
-				type = CLAN_CHAT;
+				type = g ? CLAN_GUEST_CHAT : CLAN_CHAT;
 				rank = title == null ? "" : "<img=" + chatIconManager.getIconNumber(title) + ">";
+			}
+		} else if ("pm".equals(c)) {
+			// As the game would: only with Private on (or Friends, from a friend).
+			var f = client.getWidget(InterfaceID.Chatbox.CHAT_PRIVATE_FILTER);
+			var mode = f == null ? "" : Text.removeTags(f.getText());
+			if (!mode.contains("Off") && (!mode.contains("Friends") || client.isFriended(n, false))) {
+				shown = Text.toJagexName(n);
+				type = PRIVATECHAT;
 			}
 		} else {
 			var fc = client.getFriendsChatManager();
