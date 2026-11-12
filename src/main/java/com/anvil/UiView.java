@@ -947,7 +947,7 @@ final class UiView extends JPanel {
 			l.setIcon(new ImageIcon(skills.getSkillImage(skill, true)));
 			return true;
 		}
-		if (spec.has("boss")) return bossIcon(l, str(spec, "boss"));
+		if (spec.has("boss")) return bossIcon(l, str(spec, "boss"), Math.min(size, l.getFontMetrics(l.getFont()).getHeight()));
 		return false;
 	}
 
@@ -1679,10 +1679,13 @@ final class UiView extends JPanel {
 	}
 
 	/** A boss's sprite, else a skill it names (agility courses, "99 Attack"); false when neither. */
-	boolean bossIcon(JLabel l, String name) {
+	/** A boss's hiscore sprite, no taller than {@code max} (the row's text): at full size it pushed the card's last line out. */
+	boolean bossIcon(JLabel l, String name, int max) {
 		var boss = hiscoreSkill(name);
 		if (boss != null && boss.getSpriteId() > 0 && sprites != null) {
-			sprites.addSpriteTo(l, boss.getSpriteId(), 0);
+			sprites.getSpriteAsync(boss.getSpriteId(), 0, img -> SwingUtilities.invokeLater(() -> {
+				if (img != null) l.setIcon(new ImageIcon(img.getHeight() > max ? net.runelite.client.util.ImageUtil.resizeImage(img, max, max, true) : img));
+			}));
 			return true;
 		}
 		if (skills != null) {
