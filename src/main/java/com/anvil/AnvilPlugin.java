@@ -10180,7 +10180,9 @@ public class AnvilPlugin extends Plugin {
 		eventChatAt = Math.floorMod(i, list.size());
 		var c = list.get(eventChatAt).getAsJsonObject();
 		eventChatInput = chatboxPanelManager.openTextInput("[" + c.get("l").getAsString() + "] " + getLocalPlayerName() + ":")
-				.value(value)
+				// The game's own chat limit, which the site enforces too (a longer line was dropped there whole).
+				.value(value.length() > 80 ? value.substring(0, 80) : value)
+				.addCharValidator(ch -> eventChatInput == null || eventChatInput.getValue().length() < 80)
 				.onDone((Consumer<String>) t -> sendEventChat(c, t))
 				.build();
 	}
