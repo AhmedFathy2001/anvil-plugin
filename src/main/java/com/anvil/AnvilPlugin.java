@@ -6283,11 +6283,47 @@ public class AnvilPlugin extends Plugin {
 			}
 			int by = ChatFlair.shift(d, need, o.getOriginalX() - s.getOriginalX());
 			o.setOriginalX(o.getOriginalX() + by);
-			o.setOriginalWidth(Math.max(1, o.getOriginalWidth() - by));
+			int w = Math.max(1, o.getOriginalWidth() - by);
+			// Narrower can wrap onto an extra line, but the game laid the rows out for its own wrap: grow
+			// this one and push the rows below down by the same, or the extra line covers the next message.
+			var f = o.getFont();
+			int before = f == null ? 1 : wrapLines(o.getText(), o.getOriginalWidth(), f), after = f == null ? 1 : wrapLines(o.getText(), w, f);
+			o.setOriginalWidth(w);
+			if (after > before) pushRowsDown(lines, o, (after - before) * Math.max(1, o.getOriginalHeight() / before));
 			chatboxRoom[j] = o.getOriginalX();
 			chatboxRoomFor[j] = plain;
 			o.revalidate();
 		}
+	}
+
+	/** How many lines {@code text} wraps to at {@code width}: greedy on spaces, as the chatbox wraps. */
+	static int wrapLines(String text, int width, net.runelite.api.FontTypeFace f) {
+		int lines = 1, at = 0;
+		for (var word : Text.removeTags(text).split(" ")) {
+			int ww = f.getTextWidth(word), sp = at == 0 ? 0 : f.getTextWidth(" ");
+			if (at > 0 && at + sp + ww > width) {
+				lines++;
+				at = ww;
+			} else at += sp + ww;
+		}
+		return lines;
+	}
+
+	/** Grow {@code o} by {@code extra} px and move every chatbox row below it down to match, keeping the view where it was. */
+	void pushRowsDown(Widget[] lines, Widget o, int extra) {
+		int y = o.getOriginalY();
+		o.setOriginalHeight(o.getOriginalHeight() + extra);
+		o.revalidate();
+		for (var l : lines) {
+			if (l == null || l == o || l.getOriginalY() <= y) continue;
+			l.setOriginalY(l.getOriginalY() + extra);
+			l.revalidate();
+		}
+		var area = o.getParent();
+		if (area == null) return;
+		area.setScrollHeight(area.getScrollHeight() + extra);
+		area.setScrollY(area.getScrollY() + extra);
+		area.revalidateScroll();
 	}
 
 	/**
