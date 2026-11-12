@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.BingoApiClient.capped;
 import static net.runelite.api.ChatMessageType.*;
 import static java.util.Collections.*;
 import static javax.swing.SwingUtilities.invokeLater;
@@ -3951,12 +3952,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** findTradeableItemId's answers, oldest dropped past 512 names. */
-	final Map<String, Integer> itemIdByName = new LinkedHashMap<String, Integer>(64, 0.75f, true) {
-		@Override
-		protected boolean removeEldestEntry(Map.Entry<String, Integer> e) {
-			return size() > 512;
-		}
-	};
+	final Map<String, Integer> itemIdByName = capped(512, true);
 
 	// ---- Duplicates the game doesn't name (DuplicateInference) ----------------------------------
 	// Set only around the synthetic processLoot call below, on the client thread: it rides the loot fact to the site.
@@ -6065,13 +6061,7 @@ public class AnvilPlugin extends Plugin {
 			// "Drenvox has logged in." — a friend coming on or going off.
 			LOGINLOGOUTNOTIFICATION);
 	/** Client thread: keys (ChatFlair.key) of recent broadcasts that start with a Supporter's name. */
-	final Set<String> flairBroadcasts = newSetFromMap(
-			new LinkedHashMap<String, Boolean>(16, 0.75f, false) {
-				@Override
-				protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
-					return size() > 64;
-				}
-			});
+	final Set<String> flairBroadcasts = newSetFromMap(capped(64, false));
 	/** Client thread: split-PM line texts already looked at (painted, or nothing to paint). */
 	final Set<String> splitPmSeen = new HashSet<>();
 
@@ -9937,13 +9927,13 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread: others' public/clan lines the game showed in the last 10 s, by relayKey. */
 	final Map<String, MessageNode> relaySeen = new HashMap<>();
 	/** Client thread: lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
-	final Map<String, MessageNode> relayNodes = new LinkedHashMap<>();
+	final Map<String, MessageNode> relayNodes = capped(50, false);
 	static final Set<ChatMessageType> RELAYED = EnumSet.of(PUBLICCHAT, MODCHAT, CLAN_CHAT, CLAN_GUEST_CHAT, FRIENDSCHAT, PRIVATECHAT, PRIVATECHATOUT);
 
 	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
 	boolean injecting;
 	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
-	final Map<String, String> eventLines = new LinkedHashMap<>();
+	final Map<String, String> eventLines = capped(50, false);
 	static final Pattern LEVEL = Pattern.compile("\\s*\\(level.*$");
 
 	/** Characters beside us (our world, clan, friends chat) with Anvil chat on, as the site names them. */
@@ -9990,7 +9980,6 @@ public class AnvilPlugin extends Plugin {
 		var p = pushSocket;
 		var on = config.anvilChat();
 		if (!("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : on.compareTo(AnvilConfig.Relay.See_send) >= 0) || p == null || text.startsWith("::")) return false;
-		log.debug("Relay: sending own {} line", c);
 		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
@@ -10004,7 +9993,6 @@ public class AnvilPlugin extends Plugin {
 		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || ct == PRIVATECHATOUT ? "pm" : "public";
 		// Our own line (a PM we sent names its recipient instead).
 		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
-			log.debug("Relay: own {} line", ct);
 			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
 			if (ct != PRIVATECHATOUT || relayHere.contains(Text.standardize(name).replaceAll("[ _-]+", " "))) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
 			return;
@@ -10024,13 +10012,12 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Client thread: game lines the relay also brought; their name gets the icon as the chatbox is built. */
-	final Map<MessageNode, String> relayMarked = new LinkedHashMap<>();
+	final Map<MessageNode, String> relayMarked = capped(100, false);
 
 	/** Mark a line for the Anvil icon after its name, and {@code icon} (an account type) before it. */
 	void relayMark(MessageNode n, String icon) {
 		if (n == null) return;
 		relayMarked.put(n, icon);
-		if (relayMarked.size() > 100) relayMarked.remove(relayMarked.keySet().iterator().next());
 		client.refreshChat();
 	}
 
@@ -10052,15 +10039,12 @@ public class AnvilPlugin extends Plugin {
 		// A clan line we added has no rank to the game, which draws its default orb: the sender's real
 		// rank icon (from our own member list) in its place, or none.
 		var rank = relayRank.get(node);
-		if (rank != null) {
-			log.debug("Relay: clan line name built as {}", name);
-			name = name.replaceFirst("^<img=\\d+>", rank);
-		}
+		if (rank != null) name = name.replaceFirst("^<img=\\d+>", rank);
 		os[at] = name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
 	}
 
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
-	final Map<MessageNode, String> relayRank = new LinkedHashMap<>();
+	final Map<MessageNode, String> relayRank = capped(50, false);
 
 	/**
 	 * Enter on public chat: the line goes out now, read as typed (never changed or held: the game sends
@@ -10070,7 +10054,6 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe
 	void onChatboxInput(ChatboxInput e) {
-		log.debug("Relay: typed (type {})", e.getChatType());
 		if (e.getChatType() == 0 && !e.getValue().startsWith("/")) relaySay("public", Text.removeTags(e.getValue()).replaceFirst("(?i)^((yellow|red|green|cyan|purple|white|flash[123]|glow[123]|wave2?|scroll|shake|slide):)+", ""), null);
 	}
 
@@ -10110,7 +10093,6 @@ public class AnvilPlugin extends Plugin {
 		var n = m.get("n").getAsString();
 		var c = m.get("c").getAsString();
 		var key = c + relayKey(n, m.get("x").getAsString());
-		log.debug("Relay: got a {} line", c);
 		var seen = relaySeen.remove(key);
 		if (seen != null) {
 			relayMark(seen, "");
@@ -10159,10 +10141,7 @@ public class AnvilPlugin extends Plugin {
 				type = FRIENDSCHAT;
 			}
 		}
-		if (shown == null) {
-			log.debug("Relay: {} sender unknown here", c);
-			return;
-		}
+		if (shown == null) return;
 		// Untrusted all the same: the words escaped; the name our client's own, after the rank and the
 		// account-type icon (only those six indices, by explicit match) and before the Anvil icon.
 		var x = Text.escapeJagex(m.get("x").getAsString());
@@ -10175,12 +10154,10 @@ public class AnvilPlugin extends Plugin {
 			var node = client.addChatMessage(type, shown, x, from);
 			relayNodes.put(key, node);
 			if (rank != null) relayRank.put(node, rank);
-			if (relayRank.size() > 50) relayRank.remove(relayRank.keySet().iterator().next());
 			relayMark(node, icon);
 		} finally {
 			injecting = false;
 		}
-		if (relayNodes.size() > 50) relayNodes.remove(relayNodes.keySet().iterator().next());
 		relaySeen.remove(key);
 		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PUBLIC_FILTER);
 		var mode = f == null ? "" : Text.removeTags(f.getText());
@@ -10214,14 +10191,12 @@ public class AnvilPlugin extends Plugin {
 			opaqueChatbox();
 			var text = eventText(p);
 			eventLines.put(Text.removeTags(text), feed[1] + ":" + feed[2]);
-			if (eventLines.size() > 50) eventLines.remove(eventLines.keySet().iterator().next());
 			eventNodes.put(client.addChatMessage(GAMEMESSAGE, "", text, null), p);
-			if (eventNodes.size() > 50) eventNodes.remove(eventNodes.keySet().iterator().next());
 		});
 	}
 
 	/** Client thread: event chat lines in the chatbox, as {tag, name, message, channel}, recoloured with the chatbox. */
-	final Map<MessageNode, String[]> eventNodes = new LinkedHashMap<>();
+	final Map<MessageNode, String[]> eventNodes = capped(50, false);
 	/** Tag, Team, All, Announcements: on the opaque chatbox, then the transparent one. */
 	static final String[][] EVENT_COLS = {{"b04e00", "0a6b0a", "00666e", "7a4800"}, {"ff9b30", "72e872", "3ddbe0", "ffc34d"}};
 

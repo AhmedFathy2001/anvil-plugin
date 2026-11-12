@@ -519,12 +519,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * for again while the fresh one is on its way — going back, or between tabs, is instant. Anything
 	 * sent to the site (a claim, a pin) may change every view, so it empties. EDT only.
 	 */
-	final Map<String, JsonObject> uiCache = new LinkedHashMap<String, JsonObject>(16, 0.75f, true) {
-		@Override
-		protected boolean removeEldestEntry(Map.Entry<String, JsonObject> eldest) {
-			return size() > 40;
-		}
-	};
+	final Map<String, JsonObject> uiCache = BingoApiClient.capped(40, true);
 
 	<T> void async(Supplier<T> fetch, Consumer<T> then) {
 		interactive().execute(() -> {

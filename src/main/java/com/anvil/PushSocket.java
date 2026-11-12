@@ -115,9 +115,7 @@ final class PushSocket extends WebSocketListener {
 	/** A chat relay line out (only a relay ticket's socket may send; any other is closed by the site). */
 	boolean say(String json) {
 		var s = socket;
-		if (live && relayOk && s != null) return s.send(json);
-		log.debug("Relay: socket not ready (live={}, relay={})", live, relayOk);
-		return false;
+		return live && relayOk && s != null && s.send(json);
 	}
 
 	@Override

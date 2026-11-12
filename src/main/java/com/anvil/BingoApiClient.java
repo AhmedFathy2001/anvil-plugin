@@ -780,12 +780,17 @@ public class BingoApiClient {
 
 	/** A bounded URL → {etag, parsed body} cache, for If-None-Match. */
 	static Map<String, Object[]> etagCache(int max) {
-		return synchronizedMap(new LinkedHashMap<String, Object[]>(16, 0.75f, true) {
+		return synchronizedMap(capped(max, true));
+	}
+
+	/** A map that drops its eldest entry (least recently used with {@code lru}, else first put) past {@code max}. */
+	static <K, V> Map<K, V> capped(int max, boolean lru) {
+		return new LinkedHashMap<K, V>(16, 0.75f, lru) {
 			@Override
-			protected boolean removeEldestEntry(Map.Entry<String, Object[]> eldest) {
+			protected boolean removeEldestEntry(Map.Entry<K, V> e) {
 				return size() > max;
 			}
-		});
+		};
 	}
 
 	// Conditional-GET caches. The config poll runs every 30s and a clan's board rarely changes between
