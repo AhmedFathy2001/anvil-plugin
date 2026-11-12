@@ -6268,7 +6268,11 @@ public class AnvilPlugin extends Plugin {
 			}
 			int by = ChatFlair.shift(d, need, o.getOriginalX() - s.getOriginalX());
 			o.setOriginalX(o.getOriginalX() + by);
-			o.setOriginalWidth(Math.max(1, o.getOriginalWidth() - by));
+			// Narrow it only if it still fits on one line: the game laid the rows out for its wrap, so a
+			// message that gains a line runs over the next one. A wrapping one keeps its width.
+			int w = Math.max(1, o.getOriginalWidth() - by);
+			var f = o.getFont();
+			if (f == null || f.getTextWidth(Text.removeTags(o.getText())) <= w) o.setOriginalWidth(w);
 			chatboxRoom[j] = o.getOriginalX();
 			chatboxRoomFor[j] = plain;
 			o.revalidate();
