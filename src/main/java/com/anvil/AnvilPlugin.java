@@ -10209,11 +10209,16 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onMenuOpened(MenuOpened e) {
 		var chans = chatChans;
-		// A player, a channel member or a chat line of someone with Anvil chat on: an info line, no action.
-		for (MenuEntry en : e.getMenuEntries()) {
+		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
+		// no action; only while our own relay is live (else we can't know anyone's).
+		var ps = pushSocket;
+		for (MenuEntry en : ps != null && ps.live() && ps.relayOk ? e.getMenuEntries() : new MenuEntry[0]) {
+			var opt = Text.removeTags(String.valueOf(en.getOption())).toLowerCase();
+			if (en.getPlayer() == null && !opt.contains("friend") && !opt.contains("ignore")) continue;
 			var who = Text.standardize(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$|[_-]", " ").replaceAll("\\s+", " ").trim();
-			if (!relayHere.contains(who)) continue;
-			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: connected").setTarget("").setType(MenuAction.RUNELITE);
+			// Ourselves: connected exactly while our socket is (which it is, here).
+			var on = relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
+			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (on ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
 			break;
 		}
 		for (MenuEntry en : e.getMenuEntries()) {
