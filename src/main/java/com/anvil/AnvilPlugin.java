@@ -1213,6 +1213,9 @@ public class AnvilPlugin extends Plugin {
 				.build();
 		clientToolbar.addNavigation(sidebarNavButton);
 		keyManager.registerKeyListener(eventChatKey);
+		// Registered now: a chat icon's index only exists once it has loaded, and the first line drawn
+		// before that went without it.
+		relayIcon();
 
 		resetCompletionBaseline();
 		executor = Executors.newSingleThreadScheduledExecutor();
@@ -9926,11 +9929,12 @@ public class AnvilPlugin extends Plugin {
 	/** The friends chat owner the push scope was last built with: a change re-tickets (onGameTick). */
 	String fcSeen = "";
 
-	void relaySay(String c, String text, String to) {
+	/** Our own line out; true when it went (the line then wears the icon: you can see you're connected). */
+	boolean relaySay(String c, String text, String to) {
 		var p = pushSocket;
-		if (!("pm".equals(c) ? config.relayPm() : config.relaySend()) || p == null || text.startsWith("::")) return;
+		if (!("pm".equals(c) ? config.relayPm() : config.relaySend()) || p == null || text.startsWith("::")) return false;
 		log.debug("Relay: sending own {} line", c);
-		p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
+		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
@@ -9945,7 +9949,7 @@ public class AnvilPlugin extends Plugin {
 		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			log.debug("Relay: own {} line", ct);
 			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
-			if (ct != PRIVATECHATOUT || relayHere.contains(Text.standardize(name).replaceAll("[ _-]+", " "))) relaySay(c, text, ct == PRIVATECHATOUT ? name : null);
+			if (ct != PRIVATECHATOUT || relayHere.contains(Text.standardize(name).replaceAll("[ _-]+", " "))) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
 			return;
 		}
 		var key = c + relayKey(name, text);

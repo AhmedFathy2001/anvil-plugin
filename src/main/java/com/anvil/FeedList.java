@@ -1256,7 +1256,9 @@ final class FeedList extends JPanel {
 			if (step > 0) {
 				var grad = stops(r);
 				var badge = AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : whoInk).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX);
-				g.drawImage(badge, 0, (getHeight() - badge.getHeight()) / 2, null);
+				// Centred on the letters (about 0.7 of the ascent is cap height), not on the font's box, which
+				// has its leading on top and left the badge sitting high.
+				g.drawImage(badge, 0, y - fm.getAscent() * 7 / 20 - badge.getHeight() / 2, null);
 				x[0] = badge.getWidth();
 			}
 			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {
