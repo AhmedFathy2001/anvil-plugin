@@ -100,8 +100,8 @@ final class UiView extends JPanel {
 	final Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
 	/** The last request for each place, for {@link #refresh}. */
 	final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
-	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. */
-	final Map<String, Long> warmed = new HashMap<>();
+	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. The 64 most recent. */
+	final Map<String, Long> warmed = BingoApiClient.capped(64, true);
 	/** A clickable part's marker, so the row around it leaves its clicks to it. */
 	/** How long after a click a background refresh waits before redrawing. */
 	static final long CLICK_SETTLE_MS = 400;
@@ -227,7 +227,6 @@ final class UiView extends JPanel {
 		lives.clear();
 		// The slots are gone, so whatever they were waiting for is too.
 		for (var m : List.of(drawn, seq, lastLoads)) m.keySet().removeIf(k -> !"null".equals(k));
-		warmed.clear();
 		replace(this, view == null || !view.has("ui") ? message(OFFLINE) : node(view.getAsJsonObject("ui")));
 		if (tickers.isEmpty()) ticker.stop();
 		else ticker.start();
