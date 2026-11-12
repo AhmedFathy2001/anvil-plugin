@@ -95,8 +95,8 @@ public interface AnvilConfig extends Config {
 
 	@ConfigItem(
 		keyName = "menuNames",
-		name = "Supporter names in game menus",
-		description = "The same on right-click menus, your friends list and channel member lists. Never in PvP areas.",
+		name = "Supporter & clan looks in game (outside chat)",
+		description = "Supporters' names on right-click menus, your friends list and channel member lists, and a boosted clan's name in the clan panel. Never in PvP areas. The side panel shows them either way.",
 		position = 3,
 		section = "chatSection"
 	)

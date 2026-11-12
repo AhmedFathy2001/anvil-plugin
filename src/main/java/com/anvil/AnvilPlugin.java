@@ -6557,7 +6557,8 @@ public class AnvilPlugin extends Plugin {
 	/** Paint only the verified clan name in the channel header; its member count stays game-coloured. */
 	void flairClanTitleGroup(int group) {
 		var clan = pluginConfig == null ? null : pluginConfig.activeClan;
-		if (clan == null || clan.boostLevel < 1) return;
+		// A boosted clan's look outside chat follows "Supporter & clan looks in game" (Off: the game's own).
+		if (clan == null || clan.boostLevel < 1 || !menusFlair()) return;
 		var name = clan.gameName == null || clan.gameName.trim().isEmpty() ? clan.name : clan.gameName;
 		if (name == null || name.trim().isEmpty()) return;
 		var root = client.getWidget(group, 0);
