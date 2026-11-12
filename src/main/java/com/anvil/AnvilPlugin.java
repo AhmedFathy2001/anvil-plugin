@@ -9864,7 +9864,8 @@ public class AnvilPlugin extends Plugin {
 		relaySeen.put(relayKey(name, text), now);
 	}
 
-	static final java.util.regex.Pattern ICON_LEAD = java.util.regex.Pattern.compile("^<img=(\\d{1,2})>");
+	// The account-type icons the site may send (ironman, ultimate, hardcore, group, hardcore group, unranked group); nothing else.
+	static final java.util.regex.Pattern ICON_LEAD = java.util.regex.Pattern.compile("^<img=(2|3|10|41|42|43)>");
 
 	/** Client thread: a relayed line — an icon on the game's copy, else the line itself (sender muted). */
 	void showRelay(JsonObject m) {
