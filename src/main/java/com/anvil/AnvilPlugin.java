@@ -3230,6 +3230,13 @@ public class AnvilPlugin extends Plugin {
 		} else deathAttribution.stoppedTargetingUs(name);
 	}
 
+	/** An NPC that despawns while on us never "stops targeting" us: drop it, or a Kephri scarab is blamed at Zebak. */
+	@Subscribe
+	public void onNpcDespawned(NpcDespawned event) {
+		var npc = event.getNpc();
+		if (npc.getInteracting() == client.getLocalPlayer()) deathAttribution.stoppedTargetingUs(npc.getName());
+	}
+
 	@Subscribe
 	public void onHitsplatApplied(HitsplatApplied event) {
 		var ourHit = event.getHitsplat();
