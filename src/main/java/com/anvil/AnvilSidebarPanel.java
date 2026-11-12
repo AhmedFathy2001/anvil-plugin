@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static javax.swing.BorderFactory.createEmptyBorder;
 import static java.util.Collections.*;
 import static javax.swing.SwingUtilities.invokeLater;
 import static net.runelite.client.ui.ColorScheme.*;
@@ -205,7 +206,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		views = new UiView[]{clanView, youView, lookupView, feedView};
 
 		setLayout(new BorderLayout());
-		setBorder(BorderFactory.createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
+		setBorder(createEmptyBorder(BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET, BORDER_OFFSET));
 		setBackground(DARK_GRAY_COLOR);
 
 		add(buildHeader(), BorderLayout.NORTH);
@@ -229,7 +230,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	JPanel buildHeader() {
 		var header = new JPanel(new BorderLayout(0, 8));
 		header.setBackground(DARK_GRAY_COLOR);
-		header.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+		header.setBorder(createEmptyBorder(0, 0, 8, 0));
 
 		var title = label("Anvil Progress", BOLD, BRAND_ORANGE);
 
@@ -268,7 +269,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		accountActions.add(accountLink, BorderLayout.CENTER);
 		accountActions.add(accountMenuLink, BorderLayout.EAST);
 		accountRowPanel.setBackground(DARKER_GRAY_COLOR);
-		accountRowPanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+		accountRowPanel.setBorder(createEmptyBorder(6, 8, 6, 8));
 		accountLine.setLayout(new BoxLayout(accountLine, BoxLayout.X_AXIS));
 		accountLine.setOpaque(false);
 		accountLine.add(accountLabel);
@@ -280,7 +281,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		styleLink(seasonLink, "Your seasonal progress (relics, areas, tasks, with a screenshot) goes to your clan."
 			+ " Your clan chooses what gets posted on the Anvil website.", () -> dataSource.setShareSeasonal(!dataSource.shareSeasonal()));
 		seasonRow.setBackground(DARKER_GRAY_COLOR);
-		seasonRow.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+		seasonRow.setBorder(createEmptyBorder(4, 8, 4, 8));
 		seasonRow.add(seasonLabel, BorderLayout.CENTER);
 		seasonRow.add(seasonLink, BorderLayout.EAST);
 		left(capH(seasonRow)).setVisible(false);
@@ -377,7 +378,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			e.getValue().setForeground(on ? Color.WHITE : tabsOn ? MUTED : MEDIUM_GRAY_COLOR);
 			e.getValue().setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 0, on ? 2 : 1, 0, on ? BRAND_ORANGE : MEDIUM_GRAY_COLOR),
-				BorderFactory.createEmptyBorder(4, 0, on ? 3 : 4, 0)));
+				createEmptyBorder(4, 0, on ? 3 : 4, 0)));
 		}
 	}
 
@@ -386,7 +387,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// Our own field rather than RuneLite's IconTextField: that one draws typed text grey and a
 		// light-grey clear button with a red cross, neither of which can be restyled from outside.
 		styleSearch(lookupSearch);
-		lookupSearch.setBorder(BorderFactory.createEmptyBorder());
+		lookupSearch.setBorder(createEmptyBorder());
 		lookupSearch.setToolTipText("A player's name — press Enter");
 		lookupSearch.addActionListener(e -> {
 			if (lookupClans) {
@@ -437,7 +438,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void setBoxLine(Color c) {
 		lookupBox.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, c),
-			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+			createEmptyBorder(6, 8, 6, 8)));
 	}
 
 	/** Signed in to a site that builds the panel's cards — the condition for the strip to show at all. */
@@ -647,12 +648,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 			wrap.setBackground(DARK_GRAY_COLOR);
 			for (String n : recentLookups.subList(1, recentLookups.size())) {
 				var chip = new Round(new BorderLayout(), 3, null, MEDIUM_GRAY_COLOR, null);
-				chip.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+				chip.setBorder(createEmptyBorder(2, 6, 2, 6));
 				chip.add(small(plainText(n), LIGHT_GRAY_COLOR));
 				chip.setToolTipText(plainText("Look up " + n));
 				var slot = new JPanel(new BorderLayout());
 				slot.setOpaque(false);
-				slot.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
+				slot.setBorder(createEmptyBorder(0, 0, 0, 4));
 				slot.add(onClick(chip, () -> showLookup(n)));
 				wrap.add(slot);
 			}
@@ -765,7 +766,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void addCard(JPanel inner) {
 		darken(inner);
 		var card = left(new Round(new BorderLayout(), 6, DARKER_GRAY_COLOR, null, null));
-		card.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+		card.setBorder(createEmptyBorder(10, 10, 10, 10));
 		card.add(inner);
 		settingsPanel.add(capH(card));
 		settingsPanel.add(gap(10));
@@ -785,7 +786,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	static Round linkRow(Color fill, JLabel name, JLabel sub, String tip, Runnable open) {
 		var row = left(new Round(new BorderLayout(4, 2), 4, fill, null, new Color(0x47_47_47)));
-		row.setBorder(BorderFactory.createEmptyBorder(7, 8, 7, 8));
+		row.setBorder(createEmptyBorder(7, 8, 7, 8));
 		row.add(name, BorderLayout.CENTER);
 		row.add(small("↗", MUTED), BorderLayout.EAST);
 		if (sub != null) row.add(sub, BorderLayout.SOUTH);
@@ -1410,7 +1411,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// member is holding — then putting it back a second later — reads as the click having failed.
 		JLabel loading = new ClipLabel("Loading progress…", SwingConstants.CENTER);
 		loading.setForeground(MUTED);
-		loading.setBorder(BorderFactory.createEmptyBorder(24, 0, 0, 0));
+		loading.setBorder(createEmptyBorder(24, 0, 0, 0));
 		setContent(loading);
 	}
 
@@ -1448,7 +1449,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 */
 	JPanel firstRunCard() {
 		var card = section("New here?");
-		card.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+		card.setBorder(createEmptyBorder(8, 0, 0, 0));
 		card.add(note("Anvil tracks your OSRS progress — collection log, personal bests, records — and"
 			+ " your clan's bingo boards. Press Sign in with Discord above to make your free account"
 			+ " and connect this client in one step."));
@@ -1459,7 +1460,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			() -> LinkBrowser.browse(BingoApiClient.site()));
 		site.setIcon(new GlyphIcon(GlyphIcon.Shape.EXTERNAL, 11));
 		site.setHorizontalTextPosition(SwingConstants.LEADING);
-		site.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+		site.setBorder(createEmptyBorder(6, 0, 0, 0));
 		card.add(site);
 
 		return card;
@@ -1552,7 +1553,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 			if (clips.size() > BANNER_CLIPS_SHOWN) {
 				var more = small("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder", MUTED);
-				more.setBorder(BorderFactory.createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
+				more.setBorder(createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
 				panel.add(more);
 			}
 			panel.add(gap(4));
@@ -1594,7 +1595,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var display = BannerSoundService.displayName(clip);
 
 		var row = left(new JPanel(new BorderLayout(6, 0)));
-		row.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 4));
+		row.setBorder(createEmptyBorder(2, 0, 2, 4));
 		row.setToolTipText(plainText(display) + (on ? " — click to mute" : " — muted; click to unmute"));
 
 		var swatch = new JPanel();
@@ -1648,7 +1649,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var card = block();
 		card.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(BRAND_ORANGE),
-			BorderFactory.createEmptyBorder(6, 8, 8, 8)));
+			createEmptyBorder(6, 8, 8, 8)));
 		card.add(small("Starting shot needed", BRAND_ORANGE));
 
 		if (proof.location != null && !proof.location.isEmpty()) {
@@ -1831,7 +1832,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		b.setForeground(foreground);
 		b.setBackground(BUTTON_BG);
 		b.setFont(SMALL);
-		b.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+		b.setBorder(createEmptyBorder(5, 10, 5, 10));
 		// A raised row, like the site's: a rounded fill and no outline, painted once for every button.
 		b.setContentAreaFilled(false);
 		b.setOpaque(false);
@@ -1866,7 +1867,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			protected JButton createArrowButton() {
 				var arrow = new BasicArrowButton(
 					SwingConstants.SOUTH, WIDGET_BG, WIDGET_BG, BRAND_ORANGE, WIDGET_BG);
-				arrow.setBorder(BorderFactory.createEmptyBorder());
+				arrow.setBorder(createEmptyBorder());
 				return arrow;
 			}
 		});
@@ -1894,7 +1895,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			name.setFont(SMALL);
 			detail.setFont(SMALL);
 			row.setOpaque(true);
-			row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+			row.setBorder(createEmptyBorder(4, 6, 4, 6));
 			row.add(name, BorderLayout.NORTH);
 			row.add(detail, BorderLayout.SOUTH);
 		}

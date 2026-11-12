@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static javax.swing.BorderFactory.createEmptyBorder;
 import static net.runelite.client.ui.ColorScheme.*;
 import lombok.RequiredArgsConstructor;
 import com.google.gson.*;
@@ -625,7 +626,7 @@ final class UiView extends JPanel {
 		var p = surface(n, null, card);
 		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
 		int inset = num(n, "inset", card ? 8 : 0);
-		if (inset > 0) p.setBorder(BorderFactory.createEmptyBorder(inset, inset, inset, inset));
+		if (inset > 0) p.setBorder(createEmptyBorder(inset, inset, inset, inset));
 		int gap = num(n, "gap", 0);
 		for (JComponent c : children(n, "c")) {
 			if (gap > 0 && p.getComponentCount() > 0) p.add(gap(gap));
@@ -638,7 +639,7 @@ final class UiView extends JPanel {
 		var p = surface(n, new BorderLayout(num(n, "gap", 6), 0), false);
 		int pad = num(n, "pad", 0);
 		int inset = num(n, "inset", pad);
-		p.setBorder(BorderFactory.createEmptyBorder(pad, inset, pad, pad));
+		p.setBorder(createEmptyBorder(pad, inset, pad, pad));
 		String[][] parts = {{"l", BorderLayout.WEST}, {"c", BorderLayout.CENTER}, {"r", BorderLayout.EAST}};
 		for (String[] part : parts) {
 			if (n.has(part[0]) && n.get(part[0]).isJsonObject()) p.add(node(n.getAsJsonObject(part[0])), part[1]);
@@ -666,7 +667,7 @@ final class UiView extends JPanel {
 					super.paintComponent(g);
 				}
 			} : new ClipLabel();
-		if (chip != null) l.setBorder(BorderFactory.createEmptyBorder(1, 6, 1, 6));
+		if (chip != null) l.setBorder(createEmptyBorder(1, 6, 1, 6));
 		l.setFont(font(str(n, "font")));
 		l.setForeground(ink);
 		var align = str(n, "align");
@@ -704,7 +705,7 @@ final class UiView extends JPanel {
 			l.setMaximumSize(new Dimension(w, w));
 		} else if (w > 0) l.setPreferredSize(new Dimension(w, l.getPreferredSize().height));
 		if (bool(n, "cell")) {
-			l.setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
+			l.setBorder(createEmptyBorder(3, 4, 3, 4));
 			l.setOpaque(true);
 			l.setBackground(DARK_GRAY_COLOR);
 		}
@@ -751,7 +752,7 @@ final class UiView extends JPanel {
 		b.add("c", n.get("c"));
 		b.addProperty("gap", 6);
 		var body = (JPanel) col(b);
-		body.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+		body.setBorder(createEmptyBorder(0, 10, 10, 10));
 		var pic = new Icon[1];
 		var g = n.has("grad") && n.get("grad").isJsonArray() ? n.getAsJsonArray("grad") : null;
 		var from = g != null && g.size() > 1 ? color(g.get(0).getAsString(), DARK_GRAY_COLOR) : DARK_GRAY_COLOR;
@@ -1051,7 +1052,7 @@ final class UiView extends JPanel {
 		gutter.setPreferredSize(new Dimension(18, 18));
 		var body = new JPanel(new BorderLayout());
 		body.setOpaque(false);
-		body.setBorder(BorderFactory.createEmptyBorder(0, 0, line != null ? 8 : 0, 0));
+		body.setBorder(createEmptyBorder(0, 0, line != null ? 8 : 0, 0));
 		if (n.has("c") && n.get("c").isJsonObject()) body.add(node(n.getAsJsonObject("c")), BorderLayout.CENTER);
 		var p = new Round(new BorderLayout(6, 0), 4, null, null, null);
 		p.add(gutter, BorderLayout.WEST);
@@ -1106,7 +1107,7 @@ final class UiView extends JPanel {
 	/** A segmented switch: a dark rounded track, the picked segment raised with an orange underline. */
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
 		var strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
-		strip.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+		strip.setBorder(createEmptyBorder(2, 2, 2, 2));
 		left(strip);
 		Map<String, Round> segs = new LinkedHashMap<>();
 		Consumer<String> paint = name -> segs.forEach((k, seg) -> {
@@ -1116,7 +1117,7 @@ final class UiView extends JPanel {
 			l.setForeground(on ? Color.WHITE : MUTED);
 			l.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 0, 2, 0, on ? BRAND_ORANGE : new Color(0, 0, 0, 0)),
-				BorderFactory.createEmptyBorder(3, 2, 2, 2)));
+				createEmptyBorder(3, 2, 2, 2)));
 			seg.repaint();
 		});
 		for (String name : labels) {
@@ -1213,7 +1214,7 @@ final class UiView extends JPanel {
 			styleSearch(search);
 			search.setFont(SMALL);
 			search.setBackground(DARK_GRAY_COLOR);
-			search.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+			search.setBorder(createEmptyBorder(4, 6, 4, 6));
 			onEdit(search, () -> {
 				query[0] = search.getText().trim();
 				refill.run();
@@ -1238,7 +1239,7 @@ final class UiView extends JPanel {
 		styleSearch(field);
 		field.setFont(SMALL);
 		field.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(new Color(0x47_47_47)), BorderFactory.createEmptyBorder(4, 6, 4, 6)));
+			BorderFactory.createLineBorder(new Color(0x47_47_47)), createEmptyBorder(4, 6, 4, 6)));
 		inputs.put(name, () -> field.getText().trim());
 		var on = n.has("on") && n.get("on").isJsonObject() ? n.getAsJsonObject("on") : null;
 		if (on != null) {

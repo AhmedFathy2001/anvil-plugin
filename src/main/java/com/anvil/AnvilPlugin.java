@@ -1,5 +1,8 @@
 package com.anvil;
 
+import static com.anvil.ChatPalette.Tone.WARN;
+import static java.util.Locale.ROOT;
+import static com.anvil.ChatPatterns.find;
 import static com.anvil.BingoApiClient.capped;
 import static net.runelite.api.ChatMessageType.*;
 import static java.util.Collections.*;
@@ -2078,8 +2081,8 @@ public class AnvilPlugin extends Plugin {
 		manualSyncStartedAt = 0;
 		// A push in flight or already sent clears the batch, so anything still here never landed.
 		if (clogFullSync.size() == 0) {
-			sendChatMessage(Tone.WARN, "The game didn't send your collection log. Close and reopen it, then try again.");
-		} else sendChatMessage(Tone.WARN, "Only part of your collection log arrived — reopen it and sync again.");
+			sendChatMessage(WARN, "The game didn't send your collection log. Close and reopen it, then try again.");
+		} else sendChatMessage(WARN, "Only part of your collection log arrived — reopen it and sync again.");
 		clogFullSync.reset();
 	}
 
@@ -2221,7 +2224,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void maybeReportCofferLine(String msg) {
 		if (!config.syncClanCoffer() || !loggedIn() || !apiClient.isConfigured()
-				|| !msg.toLowerCase(Locale.ROOT).contains("coffer")) {
+				|| !msg.toLowerCase(ROOT).contains("coffer")) {
 			return;
 		}
 		var line = stripChatTags(msg);
@@ -2796,7 +2799,7 @@ public class AnvilPlugin extends Plugin {
 		announcedAccounts = announcedAccounts.with(accountHash, rsn);
 		cfgSet(CFG_ANNOUNCED_ACCOUNTS, announcedAccounts.serialize());
 		if ("other".equals(standing)) {
-			sendChatMessage(Tone.WARN, rsn + " is linked to another Anvil account, so nothing is tracked here. "
+			sendChatMessage(WARN, rsn + " is linked to another Anvil account, so nothing is tracked here. "
 					+ "If it's yours, open the Anvil side panel and press \"It's mine\".");
 		} else if (!"ignored".equals(standing)) {
 			sendChatMessage("Tracking " + rsn + " for your Anvil account. Not yours? "
@@ -2865,7 +2868,7 @@ public class AnvilPlugin extends Plugin {
 							+ "linked on the site until the event ends — ask your clan staff if it isn't yours.");
 					return "Stopped here. Still linked on the site until the event ends.";
 				}
-				sendChatMessage(Tone.WARN, "Stopped tracking " + rsn + " on this computer. Couldn't reach Anvil to unlink it — "
+				sendChatMessage(WARN, "Stopped tracking " + rsn + " on this computer. Couldn't reach Anvil to unlink it — "
 						+ "remove it from your profile on the site.");
 				return "Stopped here. " + (r.error == null ? "" : r.error);
 			}
@@ -2972,10 +2975,10 @@ public class AnvilPlugin extends Plugin {
 		}
 		connLastWarnedMs = now;
 		if (problem == ConnProblem.TOKEN) {
-			sendChatMessage(Tone.WARN, "Anvil: your Account Token was rejected — tracking is OFF. "
+			sendChatMessage(WARN, "Anvil: your Account Token was rejected — tracking is OFF. "
 					+ "Press Sign out in the Anvil side panel, then Sign in again.");
 		} else {
-			sendChatMessage(Tone.WARN, "Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
+			sendChatMessage(WARN, "Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
 					+ "Check your connection.");
 		}
 	}
@@ -3182,7 +3185,7 @@ public class AnvilPlugin extends Plugin {
 	 *  clue tier). */
 	static String normalizeClueSource(String name) {
 		if (name == null) return null;
-		var lower = name.toLowerCase(Locale.ROOT);
+		var lower = name.toLowerCase(ROOT);
 		var clueish = lower.contains("clue") || lower.contains("treasure trail") || lower.contains("casket");
 		if (!clueish) return name;
 		for (String tier : CLUE_TIERS) {
@@ -3544,7 +3547,7 @@ public class AnvilPlugin extends Plugin {
 		// The Jagex kill-count line is also the reliable kill signal for bosses whose loot comes
 		// from corpse interaction rather than a normal on-death drop (Maggot King, Araxxor, …),
 		// where NpcLootReceived may never fire — so it drives kill-count tiles for those bosses.
-		var kcMatcher = ChatPatterns.find("kc.count", plain);
+		var kcMatcher = find("kc.count", plain);
 		if (kcMatcher != null) {
 			try {
 				var kcName = kcMatcher.group("name").trim();
@@ -3572,7 +3575,7 @@ public class AnvilPlugin extends Plugin {
 		// Doom: push the deep-delve count as its boss KC. Deliberately NOT through the kill-line path
 		// above: that would put Doom in killCounts, and the loot path would then stop crediting the
 		// delve 1-8 kills that Doom kill tiles count today.
-		var delveMatcher = ChatPatterns.find("kc.deep_delves", plain);
+		var delveMatcher = find("kc.deep_delves", plain);
 		if (delveMatcher != null) {
 			try {
 				int kc = Integer.parseInt(delveMatcher.group("count").replace(",", ""));
@@ -3585,19 +3588,19 @@ public class AnvilPlugin extends Plugin {
 		}
 		// Hallowed Sepulchre — its own line shapes (see the patterns above). A floor clear credits
 		// that floor and the any-floor name; the Grand Hallowed Coffin credits a complete run.
-		var floorMatcher = ChatPatterns.find("sepulchre.floor", plain);
+		var floorMatcher = find("sepulchre.floor", plain);
 		if (floorMatcher != null) creditNamedCounter("Hallowed Sepulchre Floor " + floorMatcher.group("floor"), SEPULCHRE_ANY);
-		if (ChatPatterns.find("sepulchre.coffin", plain) != null) creditNamedCounter(SEPULCHRE_COFFIN);
+		if (find("sepulchre.coffin", plain) != null) creditNamedCounter(SEPULCHRE_COFFIN);
 		// Hunter Guild rumours and Woodcutting Guild egg offerings — same one-line-one-credit rule.
-		if (ChatPatterns.find("counter.hunter_rumour", plain) != null) creditNamedCounter(HUNTER_RUMOURS);
-		if (ChatPatterns.find("counter.egg_offering", plain) != null) creditNamedCounter(EGG_OFFERINGS);
+		if (find("counter.hunter_rumour", plain) != null) creditNamedCounter(HUNTER_RUMOURS);
+		if (find("counter.egg_offering", plain) != null) creditNamedCounter(EGG_OFFERINGS);
 		// counter.doom_delve deliberately credits nothing: "Doom of Mokhaiotl delves" is the sum of
 		// the per-level completion varps (site lib/gameCounters), which counts the same delves.
-		if (ChatPatterns.find("counter.reward_search", plain) != null && regionId() == GOTR_REGION) creditNamedCounter(GOTR_SEARCHES);
-		var vale = ChatPatterns.find("counter.vale_offerings", plain);
+		if (find("counter.reward_search", plain) != null && regionId() == GOTR_REGION) creditNamedCounter(GOTR_SEARCHES);
+		var vale = find("counter.vale_offerings", plain);
 		if (vale != null) creditNamedCounter("five".equalsIgnoreCase(vale.group("times")) ? 5 : 1, null, VALE_RESEARCH);
-		if (ChatPatterns.find("counter.sunstone_golem", plain) != null) creditNamedCounter(SUNSTONE_GOLEMS);
-		var energy = ChatPatterns.find("counter.gotr_energy", plain);
+		if (find("counter.sunstone_golem", plain) != null) creditNamedCounter(SUNSTONE_GOLEMS);
+		var energy = find("counter.gotr_energy", plain);
 		if (energy != null) {
 			int elemental = parseCount(energy.group("elemental"));
 			int catalytic = parseCount(energy.group("catalytic"));
@@ -3609,7 +3612,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
 		// so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
-		var clogLine = ChatPatterns.find("clog.unlock", plain);
+		var clogLine = find("clog.unlock", plain);
 		if (clogLine != null) {
 			var item = clogLine.group("item").trim();
 			if (item.endsWith(".")) item = item.substring(0, item.length() - 1).trim();
@@ -3623,7 +3626,7 @@ public class AnvilPlugin extends Plugin {
 		// a tier clear). With the in-game "Repeat completion" setting on, already-owned tasks
 		// re-fire this exact line (plus a " (N points)" suffix), which is what lets CA tiles
 		// count tasks the player completed before the event.
-		var caMatcher = ChatPatterns.find("ca.task", plain);
+		var caMatcher = find("ca.task", plain);
 		if (caMatcher != null) {
 			var caTier = CombatAchievementTier.byName(caMatcher.group("tier"));
 			if (caTier != null) {
@@ -3639,7 +3642,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// Achievement-diary tier completions — announce to the clan achievements channel and
 		// credit any diary bingo tiles. The line fires exactly once per account per tier.
-		var diaryMatcher = ChatPatterns.find("diary.complete", plain);
+		var diaryMatcher = find("diary.complete", plain);
 		if (diaryMatcher != null) {
 			var tier = diaryMatcher.group("tier").trim();
 			tier = Character.toUpperCase(tier.charAt(0)) + tier.substring(1).toLowerCase();
@@ -3648,13 +3651,13 @@ public class AnvilPlugin extends Plugin {
 			// + SPAM), so onChatMessage sees it twice — dedup by (area, tier) or we'd double-post
 			// the announcement AND double-credit the tile. The line can't legitimately re-fire
 			// (once per account per tier ever), so a short window is safe.
-			if (claim(lastDiaryHandledAt, (area + "|" + tier).toLowerCase(Locale.ROOT), now(),
+			if (claim(lastDiaryHandledAt, (area + "|" + tier).toLowerCase(ROOT), now(),
 					DIARY_DEDUP_MS)) {
 				// Rare (once per account per tier) — a breadcrumb so client.log shows the parse
 				// even when no tile matches.
 				maybeNotifyDiaryCompletion(area, tier);
 				recordFeedMoment(new Moment("diary", null, area, 1, null, null, null, null, null, tier,
-						now(), ("diary|" + area + "|" + tier).toLowerCase(Locale.ROOT)));
+						now(), ("diary|" + area + "|" + tier).toLowerCase(ROOT)));
 				creditDiaryTiles(area, tier);
 			}
 		}
@@ -3662,7 +3665,7 @@ public class AnvilPlugin extends Plugin {
 		// varbit/baseline dance needed.
 		Me me = me();
 		if (me != null && me.levels && !statsUnsettled && !statsAreArtificial()) {
-			var lvl = ChatPatterns.find("level.up", plain);
+			var lvl = find("level.up", plain);
 			if (lvl != null) {
 				try {
 					int level = Integer.parseInt(lvl.group("level"));
@@ -3679,8 +3682,8 @@ public class AnvilPlugin extends Plugin {
 		// Pet drops — no LootReceived fires for these. The third line is the duplicate ("would have
 		// been followed") shown when the pet is already owned; we handle it the same, so a member who
 		// already has the pet still gets a proof for the tile.
-		var duplicatePet = ChatPatterns.find("pet.duplicate", msg) != null;
-		if (duplicatePet || ChatPatterns.find("pet.drop", msg) != null) {
+		var duplicatePet = find("pet.duplicate", msg) != null;
+		if (duplicatePet || find("pet.drop", msg) != null) {
 			// Notify the clan rare-drops channel (independent of bingo — fires even with no event)
 			// and note it for the clan's highlight feed, which is NOT gated on that channel.
 			// A duplicate never fires a collection-log unlock (the slot is already filled), so it
@@ -3701,7 +3704,7 @@ public class AnvilPlugin extends Plugin {
 		// that you would have received a Champion's scroll…" with NO item and no loot event, so a
 		// real-drop tile would never see it. The line names no specific champion, so (like pets) we
 		// capture a proof for manual submission rather than auto-credit.
-		if (ChatPatterns.find("scroll.champion_duplicate", msg) != null) {
+		if (find("scroll.champion_duplicate", msg) != null) {
 			// The kill's loot can land a tick after this line, so name it on the next ticks
 			// (resolveDuplicateScroll) from whatever was just killed.
 			if (pluginConfig != null && pluginConfig.event != null) {
@@ -3727,7 +3730,7 @@ public class AnvilPlugin extends Plugin {
 		if (item == null || item.isEmpty()) return;
 		var t = now();
 		recentClogUnlocks.values().removeIf(at -> t - at > CLOG_UNLOCK_SAME_MS);
-		if (recentClogUnlocks.putIfAbsent(item.toLowerCase(Locale.ROOT), t) != null) {
+		if (recentClogUnlocks.putIfAbsent(item.toLowerCase(ROOT), t) != null) {
 			return; // the other line for this unlock got here first
 		}
 		// A pet drop moments ago is still waiting to learn WHICH pet it was — this line is the
@@ -3758,7 +3761,7 @@ public class AnvilPlugin extends Plugin {
 			maybeNotifyCollectionUnlock(item);
 			maybeNotifyClogSlot(item);
 			recordFeedMoment(new Moment("clog", null, item, 1, null, null, null, null, now(),
-					"clog|" + item.toLowerCase(Locale.ROOT)));
+					"clog|" + item.toLowerCase(ROOT)));
 		}
 		// Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
 		// minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
@@ -3925,7 +3928,7 @@ public class AnvilPlugin extends Plugin {
 	 * whole session. A miss isn't, since the price list may simply not have loaded yet.
 	 */
 	Integer findTradeableItemId(String name) {
-		var key = name.toLowerCase(Locale.ROOT);
+		var key = name.toLowerCase(ROOT);
 		synchronized (itemIdByName) {
 			var known = itemIdByName.get(key);
 			if (known != null) return known;
@@ -4181,7 +4184,7 @@ public class AnvilPlugin extends Plugin {
 					proofBackoff.onSuccess();
 				} else notifyUploadFailed(b.label);
 			} catch (IOException e) {
-				sendChatMessage(Tone.WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
+				sendChatMessage(WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
 			}
 		});
 	}
@@ -4229,7 +4232,7 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		completeSoon(getLocalPlayerName(), done);
-		RuleEngine.fold(no).forEach(s -> sendChatMessage(Tone.WARN, s));
+		RuleEngine.fold(no).forEach(s -> sendChatMessage(WARN, s));
 		refreshConfig();
 		// Our proof is on the site now: the open view (its proofs, who's on it) shows it at once.
 		var panel = sidebarPanel;
@@ -4465,7 +4468,7 @@ public class AnvilPlugin extends Plugin {
 		int tick = client.getTickCount();
 		Set<String> named = new HashSet<>();
 		for (DropLine l : recentDropLines) {
-			if (tick - l.tick <= 1 && named.add(l.name.toLowerCase(Locale.ROOT))) chestLineCredits.add(new ChestLineCredit(tick + CHEST_LINE_SETTLE_TICKS, source, l, now()));
+			if (tick - l.tick <= 1 && named.add(l.name.toLowerCase(ROOT))) chestLineCredits.add(new ChestLineCredit(tick + CHEST_LINE_SETTLE_TICKS, source, l, now()));
 		}
 		recentDropLines.clear();
 		if (lootingBagChangedTick == client.getTickCount() && lootingBagBefore != null) {
@@ -4605,7 +4608,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	static boolean isStorageMove(String option) {
 		if (option == null) return false;
-		var o = option.trim().toLowerCase(Locale.ROOT);
+		var o = option.trim().toLowerCase(ROOT);
 		return o.startsWith("empty") || o.startsWith("withdraw") || o.startsWith("remove");
 	}
 
@@ -4673,7 +4676,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	boolean namesActivity(String lowerMessage, String activity) {
 		return TimedClearParser.messageMatchesActivity(lowerMessage, activity)
-				&& (!lowerMessage.contains("entry mode") || activity.toLowerCase(Locale.ROOT).contains("entry mode"))
+				&& (!lowerMessage.contains("entry mode") || activity.toLowerCase(ROOT).contains("entry mode"))
 				&& !TimedClearParser.clearBelongsElsewhere(recentTimedLines(), activity);
 	}
 
@@ -4749,7 +4752,7 @@ public class AnvilPlugin extends Plugin {
 				deaths + (deaths == 1 ? " death" : " deaths"), party,
 				RaidGates.wholePartyFromTeam(new ArrayList<>(instancePlayersSeen), myTeamRoster(), party),
 				t -> claim(lastTimedSubmittedAt, t, now, TIMED_DEDUP_WINDOW_MS), no);
-		no.forEach(m -> sendChatMessage(Tone.WARN, m));
+		no.forEach(m -> sendChatMessage(WARN, m));
 		for (RuleEngine.EventRule r : hit) {
 			// Who was there is read NOW, while the party is still together in the Warden's room.
 			var coop = r.coop ? coopFingerprint() : null;
@@ -4795,7 +4798,7 @@ public class AnvilPlugin extends Plugin {
 		heldToaRuns.add(level -> {
 			var why = RaidGates.raidLevel(activity, minRaidLevel, level);
 			if (why != null) {
-				sendChatMessage(Tone.WARN, what + " not counted for " + label + ": " + why + ".");
+				sendChatMessage(WARN, what + " not counted for " + label + ": " + why + ".");
 			} else credit.accept(level);
 		});
 		sendChatMessage(label + ": checking the raid level at the chest.");
@@ -4851,7 +4854,7 @@ public class AnvilPlugin extends Plugin {
 	 * backoff — this just makes the failure visible and points at the file.
 	 */
 	void notifyUploadFailed(String label) {
-		sendChatMessage(Tone.WARN, "Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying.");
+		sendChatMessage(WARN, "Couldn't submit \"" + label + "\" — proof saved locally, will keep retrying.");
 	}
 
 
@@ -4930,7 +4933,7 @@ public class AnvilPlugin extends Plugin {
 	 * nothing to infer it from), so nothing was credited. Say so, rather than leave a tile waiting.
 	 */
 	void askForManualSubmission(String label) {
-		sendChatMessage(Tone.WARN, label + " — the game didn't say which, so it wasn't counted. "
+		sendChatMessage(WARN, label + " — the game didn't say which, so it wasn't counted. "
 				+ "If a tile needs it, submit it on the Anvil site with a screenshot.");
 	}
 
@@ -5015,7 +5018,7 @@ public class AnvilPlugin extends Plugin {
 				refreshConfig();
 			} catch (IOException e) {
 				log.error("Starting shot failed: {}", e.getMessage());
-				sendChatMessage(Tone.WARN, "Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
+				sendChatMessage(WARN, "Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
 			} finally {
 				startProofInFlight = false;
 			}
@@ -5067,7 +5070,7 @@ public class AnvilPlugin extends Plugin {
 	/** A screenshot the site will never take now (too late, or refused): its credits were reversed. */
 	void proofLost(String labels, IOException e) {
 		log.info("Proof given up: {}", e.getMessage());
-		sendChatMessage(Tone.WARN, "Proof didn't upload in time — " + (labels.isEmpty() ? "that drop" : labels) + " wasn't counted.");
+		sendChatMessage(WARN, "Proof didn't upload in time — " + (labels.isEmpty() ? "that drop" : labels) + " wasn't counted.");
 	}
 
 	/**
@@ -5590,7 +5593,7 @@ public class AnvilPlugin extends Plugin {
 						autoRosterReportedThisLogin = true;
 						(say.auto.isEmpty() && firstThisLogin ? singletonList("Clan roster checked — nothing changed.") : say.auto).forEach(this::sendChatMessage);
 					} else say.manual.forEach(this::sendChatMessage);
-					say.warn.forEach(w -> sendChatMessage(Tone.WARN, w));
+					say.warn.forEach(w -> sendChatMessage(WARN, w));
 					if (r.capNotice != null && !r.capNotice.isEmpty()) sendChatMessage(r.capNotice);
 					cb.onResult(true, lastSyncSummary);
 				} catch (AdminUnauthorizedException e) {
@@ -5626,7 +5629,7 @@ public class AnvilPlugin extends Plugin {
 	 * failed: " and the reason — and hand the reason to the button.
 	 */
 	void syncFailed(AdminActionCallback cb, boolean say, String chat, String why) {
-		if (say) sendChatMessage(Tone.WARN, chat != null ? chat : "Clan sync failed: " + Character.toLowerCase(why.charAt(0)) + why.substring(1));
+		if (say) sendChatMessage(WARN, chat != null ? chat : "Clan sync failed: " + Character.toLowerCase(why.charAt(0)) + why.substring(1));
 		cb.onResult(false, why);
 	}
 
@@ -7240,7 +7243,7 @@ public class AnvilPlugin extends Plugin {
 			// One tracking-state summary, logged only when it CHANGES (the refresh runs every
 			// ~30s) — the first thing to read in a client.log when "nothing tracked": it says
 			// what the plugin believed it was tracking, and when that belief changed.
-			var summary = String.format(Locale.ROOT, "event='%s' team='%s' completed=%d",
+			var summary = String.format(ROOT, "event='%s' team='%s' completed=%d",
 					pluginConfig.event.name, pluginConfig.team.name, sizeOf(pluginConfig.completedTiles));
 			if (!summary.equals(lastTrackingFingerprint)) {
 				lastTrackingFingerprint = summary;
@@ -7287,7 +7290,7 @@ public class AnvilPlugin extends Plugin {
 		var sp = pluginConfig.startProof;
 		startProofNudged = true;
 		var left = StartProofRules.describeWindow(sp, now());
-		sendChatMessage(Tone.WARN, "Starting shot needed before you play"
+		sendChatMessage(WARN, "Starting shot needed before you play"
 				+ (sp.location != null && !sp.location.isEmpty() ? " — go to " + sp.location : "")
 				+ (sp.spot != null && config.autoStartShot()
 						? ". Stand there and it's taken and sent for you (or press \"Take starting shot\" in the Anvil side panel)."
@@ -7314,7 +7317,7 @@ public class AnvilPlugin extends Plugin {
 	void warnStartProofBeforeCredit() {
 		if (startProofCreditWarned || !needsStartProof()) return;
 		startProofCreditWarned = true;
-		sendChatMessage(Tone.WARN, "That's recorded, but your starting shot is still missing — it stays held for"
+		sendChatMessage(WARN, "That's recorded, but your starting shot is still missing — it stays held for"
 				+ " review until you take it. Anvil side panel → \"Take starting shot\".");
 	}
 
@@ -8113,7 +8116,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (table == null) return;
 		var rsn = getLocalPlayerName();
-		var rsnKey = rsn == null ? "" : rsn.trim().toLowerCase(Locale.ROOT);
+		var rsnKey = rsn == null ? "" : rsn.trim().toLowerCase(ROOT);
 		if (vestigeRolls == null || !rsnKey.equals(vestigeRollsRsn)) {
 			vestigeRolls = VestigeRolls.parse(cfgGet(accountKey(CFG_VESTIGE_ROLLS, rsnKey)));
 			vestigeRollsRsn = rsnKey;
@@ -8561,7 +8564,7 @@ public class AnvilPlugin extends Plugin {
 	 * back to an exact-name GE lookup. Null when neither knows it; the post simply loses its sprite.
 	 */
 	Integer resolveItemIdByName(String name) {
-		var key = name.toLowerCase(Locale.ROOT);
+		var key = name.toLowerCase(ROOT);
 		var now = now();
 		synchronized (recentLootIds) {
 			recentLootIds.values().removeIf(e -> now - e.at > CLOG_LOOT_DEDUP_MS);
@@ -8596,7 +8599,7 @@ public class AnvilPlugin extends Plugin {
 	static String sourceOf(
 			Map<String, RecentItem> seen, String itemName, long now, long windowMs) {
 		if (itemName == null || itemName.isEmpty()) return null;
-		var hit = seen.get(itemName.toLowerCase(Locale.ROOT));
+		var hit = seen.get(itemName.toLowerCase(ROOT));
 		if (hit == null || now - hit.at > windowMs) return null;
 		return hit.source != null && !hit.source.isEmpty() ? hit.source : null;
 	}
@@ -8616,7 +8619,7 @@ public class AnvilPlugin extends Plugin {
 				var name = itemName(it.getId());
 				if (name != null && !name.isEmpty()) {
 					recentLootIds.put(
-							name.toLowerCase(Locale.ROOT),
+							name.toLowerCase(ROOT),
 							new RecentItem(it.getId(), now, source));
 				}
 			}
@@ -9195,7 +9198,7 @@ public class AnvilPlugin extends Plugin {
 			// The clan's achievements (the panel's Feed) and the chat feed, whatever the Discord setting:
 			// the site keys it by quest name, so a re-read scroll never lands twice.
 			recordFeedMoment(new Moment("quest", null, quest, 1, null, null, null, null, now(),
-					("quest|" + quest).toLowerCase(Locale.ROOT)));
+					("quest|" + quest).toLowerCase(ROOT)));
 		});
 	}
 
@@ -10241,7 +10244,7 @@ public class AnvilPlugin extends Plugin {
 		if (text == null || text.trim().isEmpty()) return;
 		apiClient.interactiveExecutor().execute(() -> {
 			var err = FeedList.errorOf(apiClient.postUi("chat-send", Map.of("e", c.get("e").getAsString(), "to", c.get("to").getAsString()), Map.of("msg", text.trim())));
-			if (err != null) sendChatLine("Anvil", err, Tone.WARN, null);
+			if (err != null) sendChatLine("Anvil", err, WARN, null);
 		});
 	}
 
@@ -10513,7 +10516,7 @@ public class AnvilPlugin extends Plugin {
 	 * when the same account logs back in, which is the common case.
 	 */
 	void loadProfileSyncState(String rsn) {
-		var key = rsn == null ? "" : rsn.trim().toLowerCase(Locale.ROOT);
+		var key = rsn == null ? "" : rsn.trim().toLowerCase(ROOT);
 		if (key.isEmpty() || key.equals(profileSyncRsn)) return;
 		profileSyncRsn = key;
 		clogSync.reset();
@@ -10700,10 +10703,10 @@ public class AnvilPlugin extends Plugin {
 					}
 				}, m -> {
 					clogFullSync.onSent();
-					if (manual) sendChatMessage(Tone.WARN, "Couldn't sync your profile: " + m + ".");
+					if (manual) sendChatMessage(WARN, "Couldn't sync your profile: " + m + ".");
 				}, m -> {
 					clogFullSync.onSendFailed(now);
-					if (manual) sendChatMessage(Tone.WARN, "Couldn't sync your profile: " + m + ". It'll retry on its own.");
+					if (manual) sendChatMessage(WARN, "Couldn't sync your profile: " + m + ". It'll retry on its own.");
 				});
 		manualSyncStartedAt = 0; // landed or given up on — nothing for the watchdog to complain about
 		if (result == null) return;

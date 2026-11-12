@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.awt.BorderLayout.NORTH;
 import static javax.swing.SwingUtilities.invokeLater;
 import static net.runelite.client.ui.ColorScheme.*;
 import static com.anvil.UiView.*;
@@ -237,17 +238,17 @@ final class FeedList extends JPanel {
 
 		var top = new JPanel(new BorderLayout(0, 4));
 		top.setOpaque(false);
-		if (!chat) top.add(newPill, BorderLayout.NORTH);
-		else if (n.has("chans") && n.get("chans").isJsonArray()) top.add(switchOf(n.getAsJsonArray("chans")), BorderLayout.NORTH);
+		if (!chat) top.add(newPill, NORTH);
+		else if (n.has("chans") && n.get("chans").isJsonArray()) top.add(switchOf(n.getAsJsonArray("chans")), NORTH);
 		top.add(empty, BorderLayout.SOUTH);
-		add(top, BorderLayout.NORTH);
+		add(top, NORTH);
 		add(scroll, BorderLayout.CENTER);
 
 		if (chat) {
 			send = n.getAsJsonObject("send");
 			var bottom = new JPanel(new BorderLayout(0, 4));
 			bottom.setOpaque(false);
-			bottom.add(newPill, BorderLayout.NORTH);
+			bottom.add(newPill, NORTH);
 			bottom.add(boxPanel = sendBox(), BorderLayout.CENTER);
 			bottom.add(lockBox, BorderLayout.SOUTH);
 			add(bottom, BorderLayout.SOUTH);
@@ -666,14 +667,14 @@ final class FeedList extends JPanel {
 		lockSub.setFont(SMALL);
 		lockSub.setForeground(MUTED);
 		lockBox.setOpaque(false);
-		lockBox.add(lockLine, BorderLayout.NORTH);
+		lockBox.add(lockLine, NORTH);
 		lockBox.add(lockSub, BorderLayout.SOUTH);
 		lockBox.setVisible(false);
 		var lines = new JPanel(new BorderLayout());
 		lines.setOpaque(false);
-		lines.add(hint, BorderLayout.NORTH);
+		lines.add(hint, NORTH);
 		lines.add(error, BorderLayout.CENTER);
-		box.add(input, BorderLayout.NORTH);
+		box.add(input, NORTH);
 		box.add(lines, BorderLayout.SOUTH);
 		return box;
 	}
@@ -1288,11 +1289,11 @@ final class FeedList extends JPanel {
 			gz.setHorizontalAlignment(SwingConstants.RIGHT);
 			var middle = new JPanel(new BorderLayout());
 			middle.setOpaque(false);
-			middle.add(line1, BorderLayout.NORTH);
+			middle.add(line1, NORTH);
 			middle.add(line2, BorderLayout.SOUTH);
 			var right = new JPanel(new BorderLayout());
 			right.setOpaque(false);
-			right.add(value, BorderLayout.NORTH);
+			right.add(value, NORTH);
 			// The second line: reaction pills when the row has them, else the plain gz/time text.
 			var bottom = new JPanel(new BorderLayout());
 			bottom.setOpaque(false);
