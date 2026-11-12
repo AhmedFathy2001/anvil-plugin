@@ -1785,8 +1785,10 @@ public class AnvilPlugin extends Plugin {
 		// client thread, often several keys at once — none of it changes what the site sends back.
 		// Colours off (or the plugin about to stop): show the game's own plain text at once, rather
 		// than whenever the game next redraws the chat (the next Enter or private message).
+		// Supporter names changed: strip what's painted and paint again now (chat, member and friends lists,
+		// interfaces), not on the game's next rebuild of each.
 		if ("chatNames".equals(key) || "menuNames".equals(key)) {
-			clientThread.invokeLater(this::unflairAll);
+			repaintFlair();
 			return;
 		}
 		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
@@ -9902,7 +9904,7 @@ public class AnvilPlugin extends Plugin {
 	// -- Chat relay + event chat in the chatbox (docs/PLUGIN_WIRE.md chat-relay) ----------------------
 	//
 	// Outgoing chat is never touched: the relay READS the local player's own line as the client shows it
-	// (a muted player still sees theirs) and sends a copy. Others' lines arrive pre-built by the site and
+	// (the local player's own line, as the client shows it) and sends a copy. Others' lines arrive pre-built by the site and
 	// are only printed: one the game didn't show is added at once as normal chat of its type (so tab
 	// filters, chat plugins and timestamps treat it as one); if the game's own copy turns up after all,
 	// ours is removed and the game's kept. Either way the line carries the Anvil icon at the start of its
@@ -10039,9 +10041,9 @@ public class AnvilPlugin extends Plugin {
 
 	/**
 	 * Enter on public chat: the line goes out now, read as typed (never changed or held: the game sends
-	 * it as ever). A muted player's line never comes back as chat, and the overhead that does only shows
-	 * on the next game tick; an unmuted one's echo, when it lands, is the same line again (the site drops
-	 * the repeat). Chat effects ("wave:", "red:") are the game's, not the words.
+	 * it as ever), without waiting for the game to echo it a tick later; when the echo lands it is the
+	 * same line again (the site drops the repeat). Chat effects ("wave:", "red:") are the game's, not
+	 * the words.
 	 */
 	@Subscribe
 	public void onChatboxInput(ChatboxInput e) {
@@ -10081,7 +10083,7 @@ public class AnvilPlugin extends Plugin {
 	// The account-type icons the site may send (ironman, ultimate, hardcore, group, hardcore group, unranked group); nothing else.
 	static final java.util.regex.Pattern ICON_LEAD = java.util.regex.Pattern.compile("^<img=(2|3|10|41|42|43)>");
 
-	/** Client thread: a relayed line — the icon on the game's copy, else the line itself, at once (sender muted). */
+	/** Client thread: a relayed line. If the game already showed it, add the icon to that copy; otherwise print the line at once. */
 	void showRelay(JsonObject m) {
 		if (config.anvilChat() == AnvilConfig.Relay.Off || !loggedIn() || client.getLocalPlayer() == null) return;
 		var n = m.get("n").getAsString();

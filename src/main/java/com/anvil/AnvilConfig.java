@@ -117,7 +117,7 @@ public interface AnvilConfig extends Config {
 	@ConfigItem(
 		keyName = "anvilChat",
 		name = "Anvil chat",
-		description = "See: lines other Anvil players sent through Anvil show when your game didn't show them (they carry a small anvil). Send: a copy of your own public, clan, friends chat and guest clan lines goes through Anvil too (your chat itself is never changed). PMs: your private messages as well, only to players who have Anvil chat on.",
+		description = "See: Anvil chat lines from other Anvil players, shown in your chat with a small anvil. Send: your own public, clan, friends chat and guest clan lines also go to Anvil chat (the game's chat is unchanged). PMs: your private messages as well, only to players who have Anvil chat on.",
 		position = 1,
 		section = "relaySection"
 	)
