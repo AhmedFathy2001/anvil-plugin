@@ -115,6 +115,17 @@ public interface AnvilConfig extends Config {
 	}
 
 	@ConfigItem(
+		keyName = "relayWho",
+		name = "Show who's connected on right-click",
+		description = "While you send through Anvil: right-clicking a player or a name in chat shows whether they have Anvil chat on (and so see your lines).",
+		position = 2,
+		section = "relaySection"
+	)
+	default boolean relayWho() {
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "eventChatbox",
 		name = "Event chat in chatbox",
 		description = "Print your boards' event chat in the game chatbox too. Off, it stays in the panel's Feed tab, with a dot when something new comes in.",

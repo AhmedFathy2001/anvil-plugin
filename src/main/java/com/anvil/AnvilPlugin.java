@@ -10250,7 +10250,9 @@ public class AnvilPlugin extends Plugin {
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
 		var ps = pushSocket;
-		for (MenuEntry en : ps != null && ps.live() && ps.relayOk ? e.getMenuEntries() : new MenuEntry[0]) {
+		// Only while we send (then it's who hears us), and only if wanted.
+		var show = ps != null && ps.live() && ps.relayOk && config.relayWho() && config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
+		for (MenuEntry en : show ? e.getMenuEntries() : new MenuEntry[0]) {
 			var opt = Text.removeTags(String.valueOf(en.getOption())).toLowerCase();
 			if (en.getPlayer() == null && !opt.contains("friend") && !opt.contains("ignore")) continue;
 			var who = Text.standardize(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$|[_-]", " ").replaceAll("\\s+", " ").trim();
