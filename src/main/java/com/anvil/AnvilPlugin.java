@@ -10264,7 +10264,14 @@ public class AnvilPlugin extends Plugin {
 		var show = ps != null && ps.live() && ps.relayOk && config.relayWho() && config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
 		for (MenuEntry en : show ? e.getMenuEntries() : new MenuEntry[0]) {
 			var opt = Text.removeTags(String.valueOf(en.getOption())).toLowerCase();
-			if (en.getPlayer() == null && !opt.contains("friend") && !opt.contains("ignore")) continue;
+			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
+			// lists, or online on our friends list. Never more than the game shows (no entry at all).
+			var name = Text.removeTags(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$", "").trim();
+			var cc = client.getClanChannel();
+			var gc = client.getGuestClanChannel();
+			var fc = client.getFriendsChatManager();
+			if (en.getPlayer() == null && (!opt.contains("friend") && !opt.contains("ignore") || !friendOnline(name)
+					&& (cc == null || cc.findMember(name) == null) && (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null))) continue;
 			var who = Text.standardize(String.valueOf(en.getTarget())).replaceAll("\\s*\\(level.*$|[_-]", " ").replaceAll("\\s+", " ").trim();
 			// Ourselves: connected exactly while our socket is (which it is, here).
 			var on = relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
