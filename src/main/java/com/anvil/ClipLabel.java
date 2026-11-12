@@ -14,9 +14,9 @@ class ClipLabel extends JLabel {
 	}
 
 	ClipLabel(String text) {
-		super(text);
-		ToolTipManager.sharedInstance().registerComponent(this);
+		this(text, LEADING);
 	}
+
 
 	ClipLabel(String text, int align) {
 		super(text, align);
