@@ -6625,7 +6625,8 @@ public class AnvilPlugin extends Plugin {
 	 * stays plain. A painted name no longer matches decorate()'s plain-name test, so a repaint is a no-op.
 	 */
 	void flairNameLists() {
-		if (menusOff()) return;
+		var presence = relayPresenceVisible();
+		if (menusOff() && !presence) return;
 		var frame = currentChatNameFrame();
 		nameListFrame = frame;
 		var shift = interfaceNameShift(frame);
@@ -6640,11 +6641,16 @@ public class AnvilPlugin extends Plugin {
 			var friends = id == InterfaceID.Friends.LIST;
 			for (var w : rows) {
 				var text = w.getText();
-				if (empty(text) || (friends && !online.contains(Text.standardize(text)))) continue;
-				var painted = chatFlair.decorateReadable(text, null, shift, false);
+				if (empty(text) || (friends && !online.contains(Text.standardize(Text.removeTags(text))))) continue;
+				var badge = presence || text.contains("<img=") ? relayIcon() : "";
+				var hadBadge = !badge.isEmpty() && text.endsWith(badge);
+				var source = hadBadge ? text.substring(0, text.length() - badge.length()) : text;
+				var painted = menusOff() ? null : chatFlair.decorateReadable(source, null, shift, false);
+				if (presence && relayConnected(source)) painted = (painted == null ? source : painted) + badge;
+				else if (hadBadge && painted == null) painted = source;
 				if (painted != null) {
 					w.setText(painted);
-					if (chatFlair.movingDecoratedName(text)) nameListMoving.put(w, new String[]{text, painted});
+					if (chatFlair.movingDecoratedName(source)) nameListMoving.put(w, new String[]{source, painted});
 				}
 			}
 		}
@@ -6664,6 +6670,7 @@ public class AnvilPlugin extends Plugin {
 			if (w == null || !state[1].equals(w.getText())) { it.remove(); continue; }
 			if (w.isHidden()) continue;
 			var painted = chatFlair.decorateReadable(state[0], null, shift, false);
+			if (relayPresenceVisible() && relayConnected(state[0])) painted = (painted == null ? state[0] : painted) + relayIcon();
 			if (painted == null) { it.remove(); continue; }
 			w.setText(state[1] = painted);
 		}
@@ -6673,6 +6680,27 @@ public class AnvilPlugin extends Plugin {
 		var friends = client.getFriendContainer();
 		var f = friends == null ? null : friends.findByName(name);
 		return f != null && f.getWorld() > 0;
+	}
+
+	/** Our relay is live and the player asked for the connected marks. */
+	boolean relayPresenceVisible() {
+		var p = pushSocket;
+		return p != null && p.live() && p.relayOk && config.relayWho()
+			&& config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
+	}
+
+	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
+	boolean relayConnected(String name) {
+		var who = Text.standardize(Text.removeTags(String.valueOf(name))).replaceAll("[ _-]+", " ");
+		return relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
+	}
+
+	/** Presence changed: repaint existing chat lines and the visible online lists now. */
+	void relayPresenceChanged() {
+		clientThread.invoke(() -> {
+			client.refreshChat();
+			flairNameLists();
+		});
 	}
 
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */
@@ -6793,12 +6821,15 @@ public class AnvilPlugin extends Plugin {
 			// Presence (relay sockets only): who else beside us has the relay on.
 			case "here":
 				for (var n : m.getAsJsonArray("n")) relayHere.add(n.getAsString());
+				relayPresenceChanged();
 				return;
 			case "gone":
 				relayHere.remove(m.get("n").getAsString());
+				relayPresenceChanged();
 				return;
 			case "hello":
 				relayHere.clear();
+				relayPresenceChanged();
 				fetchChatChans(null);
 			// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 			case "flair":
@@ -9674,18 +9705,19 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe(priority = -1)
 	void onScriptCallbackEvent(ScriptCallbackEvent e) {
-		if (relayMarked.isEmpty() || !"chatMessageBuilding".equals(e.getEventName())) return;
+		if (!"chatMessageBuilding".equals(e.getEventName())) return;
 		var node = client.getMessages().get(client.getIntStack()[client.getIntStackSize() - 1]);
-		var icon = node == null ? null : relayMarked.get(node);
-		if (icon == null) return;
+		var marked = node != null && relayMarked.containsKey(node);
+		var icon = marked ? relayMarked.get(node) : null;
+		if (!marked && (!relayPresenceVisible() || node == null || !relayConnected(node.getName()))) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
 		var name = String.valueOf(os[at]);
 		// A clan line we added has no rank to the game, which draws its default orb: the sender's real
 		// rank icon (from our own member list) in its place, or none.
-		var rank = relayRank.get(node);
+		var rank = marked ? relayRank.get(node) : null;
 		if (rank != null) name = name.replaceFirst("^<img=\\d+>", rank);
-		os[at] = name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
+		os[at] = (marked ? name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) : name) + relayIcon();
 	}
 
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
@@ -9894,9 +9926,8 @@ public class AnvilPlugin extends Plugin {
 		var chans = chatChans;
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
-		var ps = pushSocket;
 		// Only while we send (then it's who hears us), and only if wanted.
-		var show = ps != null && ps.live() && ps.relayOk && config.relayWho() && config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
+		var show = relayPresenceVisible();
 		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
 			var opt = String.valueOf(en.getOption()).toLowerCase();
 			if (en.getPlayer() == null && !opt.contains("friend") && !opt.contains("ignore")) continue;
@@ -9908,9 +9939,7 @@ public class AnvilPlugin extends Plugin {
 			var fc = client.getFriendsChatManager();
 			if (en.getPlayer() == null && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
-			var who = Text.standardize(name).replaceAll("[ _-]+", " ");
-			// Ourselves: connected exactly while our socket is (which it is, here).
-			var on = relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
+			var on = relayConnected(name);
 			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (on ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
 			break;
 		}
