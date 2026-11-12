@@ -1118,7 +1118,9 @@ final class FeedList extends JPanel {
 
 		@Override
 		public Dimension getPreferredSize() {
-			return new Dimension(wrapWidth + PAD_X * 2, height);
+			// No width of its own: one taken from the wrap fed back into the list, which then grew past the
+			// panel and cut long lines off at its right edge.
+			return new Dimension(0, height);
 		}
 
 		@Override
@@ -1147,7 +1149,10 @@ final class FeedList extends JPanel {
 				// A Supporter's tenure badge in front of the name, in their colour.
 				int step = UiView.tenureStep(str(r, "whoGlyph"));
 				if (step > 0 && supporter) {
-					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX), x, y + fm.getAscent() - 11, null);
+					// Centred on the name's capitals, measured off the font: the 13px badge's middle on theirs.
+					var cap = BOLD.createGlyphVector(g.getFontRenderContext(), "H").getVisualBounds().getHeight();
+					g.drawImage(AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : color(whoColor, Color.WHITE)).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX),
+							x, y + fm.getAscent() - (int) Math.round(cap / 2 + AnvilPlugin.TENURE_PX / 2.0), null);
 					x += 15;
 				}
 				g.setFont(BOLD);
@@ -1158,7 +1163,7 @@ final class FeedList extends JPanel {
 					for (int i = 0; i < grad.length; i++) at[i] = (float) i / (grad.length - 1);
 					// A Patron's gradient slides along (reflecting back), like everywhere else, unless the
 					// player turned "Animated names" off.
-					var shift = moves(r) ? (System.currentTimeMillis() % 6000) / 6000f * 2 * Math.max(1, nameW) : 0;
+					var shift = moves(r) ? (GradientLabel.animationTimeMillis() % 6000) / 6000f * 2 * Math.max(1, nameW) : 0;
 					g.setPaint(new java.awt.LinearGradientPaint(x - shift, 0, x - shift + Math.max(1, nameW), 0, at, grad,
 						java.awt.MultipleGradientPaint.CycleMethod.REFLECT));
 				} else g.setColor(supporter || !team ? color(whoColor, Color.WHITE) : color(str(r, "tagColor"), Color.WHITE));
@@ -1205,7 +1210,7 @@ final class FeedList extends JPanel {
 		var nameInk = !tag.isEmpty() && (whoColor.isEmpty() || "muted".equals(whoColor)) ? tagInk : whoInk;
 		var name = Ui.fontSafe(who);
 		if (grad != null && name.length() > 1) {
-			var phase = moves(r) ? (System.currentTimeMillis() % 6000) / 6000f * 2 : 0;
+			var phase = moves(r) ? (GradientLabel.animationTimeMillis() % 6000) / 6000f * 2 : 0;
 			for (int i = 0; i < name.length(); i++) {
 				var t = reflect((float) i / (name.length() - 1) + phase) * (grad.length - 1);
 				int k = Math.min((int) t, grad.length - 2);
@@ -1256,9 +1261,9 @@ final class FeedList extends JPanel {
 			if (step > 0) {
 				var grad = stops(r);
 				var badge = AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : whoInk).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX);
-				// Centred on the letters (about 0.7 of the ascent is cap height), not on the font's box, which
-				// has its leading on top and left the badge sitting high.
-				g.drawImage(badge, 0, y - fm.getAscent() * 7 / 20 - badge.getHeight() / 2, null);
+				// Centred on the name's capitals, measured off the font (its box has leading on top).
+				var cap = g.getFont().createGlyphVector(g.getFontRenderContext(), "H").getVisualBounds().getHeight();
+				g.drawImage(badge, 0, y - (int) Math.round(cap / 2 + badge.getHeight() / 2.0), null);
 				x[0] = badge.getWidth();
 			}
 			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {

@@ -9906,8 +9906,6 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
 	boolean injecting;
-	/** Client thread: the chat input's last text, to tell our own typed public line by its overhead. */
-	String typed = "";
 	/** Client thread: lines the relay added, by their shown text, for "Report to Anvil". */
 	final Map<String, JsonObject> relayShown = new LinkedHashMap<>();
 	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
@@ -10028,20 +10026,18 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
 	final Map<MessageNode, String> relayRank = new LinkedHashMap<>();
 
-	/** A muted player's public line never comes back as chat, but the client still shows it overhead. */
+	/**
+	 * Enter on public chat: the line goes out now, read as typed (never changed or held: the game sends
+	 * it as ever). A muted player's line never comes back as chat, and the overhead that does only shows
+	 * on the next game tick; an unmuted one's echo, when it lands, is the same line again (the site drops
+	 * the repeat). Chat effects ("wave:", "red:") are the game's, not the words.
+	 */
 	@Subscribe
-	public void onOverheadTextChanged(OverheadTextChanged e) {
-		var t = e.getOverheadText();
-		if (e.getActor() != client.getLocalPlayer() || t == null || typed.isEmpty() || !Text.standardize(typed).endsWith(Text.standardize(t))) return;
-		typed = "";
-		relaySay("public", Text.removeTags(t), null);
-	}
-
-	@Subscribe
-	public void onVarClientStrChanged(VarClientStrChanged e) {
-		if (e.getIndex() != VarClientID.CHATINPUT) return;
-		var v = client.getVarcStrValue(VarClientID.CHATINPUT);
-		if (v != null && !v.isEmpty()) typed = v;
+	public void onChatboxInput(ChatboxInput e) {
+		log.debug("Relay: typed (type {})", e.getChatType());
+		if (e.getChatType() == 0 && !e.getValue().startsWith("/")) {
+			relaySay("public", Text.removeTags(e.getValue()).replaceFirst("(?i)^((yellow|red|green|cyan|purple|white|flash[123]|glow[123]|wave2?|scroll|shake|slide):)+", ""), null);
+		}
 	}
 
 	/**
