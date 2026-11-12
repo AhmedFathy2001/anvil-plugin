@@ -1785,7 +1785,7 @@ public class AnvilPlugin extends Plugin {
 		// client thread, often several keys at once — none of it changes what the site sends back.
 		// Colours off (or the plugin about to stop): show the game's own plain text at once, rather
 		// than whenever the game next redraws the chat (the next Enter or private message).
-		if ("supporterNames".equals(key) && !menusFlair()) {
+		if ("chatNames".equals(key) || "menuNames".equals(key)) {
 			clientThread.invokeLater(this::unflairAll);
 			return;
 		}
@@ -1830,7 +1830,7 @@ public class AnvilPlugin extends Plugin {
 		int g = event.getGroupId();
 		int flairRoot = flairInterfaceRoot(g);
 		// Names and dynamic rows are populated just after the group itself appears.
-		if (flairRoot != -1 && flairOn()) clientThread.invokeLater(() -> flairInterface(flairRoot));
+		if (flairRoot != -1 && menusFlair()) clientThread.invokeLater(() -> flairInterface(flairRoot));
 		// The clan window. Its header is where other plugins put buttons, and ours goes
 		// beside it — placed against whatever is already there rather than at a fixed offset.
 		//
@@ -6069,7 +6069,7 @@ public class AnvilPlugin extends Plugin {
 	 * version every 10 minutes (deltas between come over the socket).
 	 */
 	void maybeRefreshChatFlair() {
-		if (!flairOn() || !apiClient.isConfigured()) return;
+		if (!flairOn() && !menusFlair() || !apiClient.isConfigured()) return;
 		var rc = responseCache;
 		if (!chatFlairSeeded && rc != null) {
 			chatFlairSeeded = true;
@@ -6126,11 +6126,11 @@ public class AnvilPlugin extends Plugin {
 
 	/** The panel's tracked name: its Supporter look, or null. */
 	boolean flairOn() {
-		return config.supporterNames() != AnvilConfig.Names.Off;
+		return config.chatNames() != AnvilConfig.Names.Off;
 	}
 
 	boolean menusFlair() {
-		return config.supporterNames() == AnvilConfig.Names.Chat_menus;
+		return config.menuNames() != AnvilConfig.Names.Off;
 	}
 
 	/**
@@ -6148,12 +6148,20 @@ public class AnvilPlugin extends Plugin {
 		}
 		var chat = configManager.getConfiguration(g, "supporterChatFlair");
 		var menus = configManager.getConfiguration(g, "menuNameFlair");
-		if (chat != null || menus != null) {
-			configManager.setConfiguration(g, "supporterNames", "false".equals(chat) ? AnvilConfig.Names.Off : "false".equals(menus) ? AnvilConfig.Names.Chat : AnvilConfig.Names.Chat_menus);
+		var names = configManager.getConfiguration(g, "supporterNames");
+		if (names == null && (chat != null || menus != null)) names = "false".equals(chat) ? "Off" : "false".equals(menus) ? "Chat" : "Chat_menus";
+		if (names != null) {
+			configManager.setConfiguration(g, "chatNames", "Off".equals(names) ? AnvilConfig.Names.Off : AnvilConfig.Names.Animated);
+			configManager.setConfiguration(g, "menuNames", "Chat_menus".equals(names) ? AnvilConfig.Names.Animated : AnvilConfig.Names.Off);
 		}
-		for (var k : new String[]{"relayShow", "relaySend", "relayPm", "supporterChatFlair", "menuNameFlair", "animatedNames", "menuFlairOverride", "chatPrefixColor", "chatTextColor"}) {
+		for (var k : new String[]{"supporterNames", "relayShow", "relaySend", "relayPm", "supporterChatFlair", "menuNameFlair", "animatedNames", "menuFlairOverride", "chatPrefixColor", "chatTextColor"}) {
 			if (configManager.getConfiguration(g, k) != null) configManager.unsetConfiguration(g, k);
 		}
+	}
+
+	/** Supporter names off in game menus and interfaces (friends list, channel member lists). */
+	boolean menusOff() {
+		return !menusFlair() || chatFlair.isEmpty();
 	}
 
 	boolean flairOff() {
@@ -6188,14 +6196,17 @@ public class AnvilPlugin extends Plugin {
 	long chatNameFrame = Long.MIN_VALUE;
 	long currentChatNameFrame() {
 		// Unfocused, the shared clock stands still, so the frame holds and moving names stop repainting;
-		// the per-frame paint pass keeps running (painting only on change made names flash plain).
-		return GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS;
+		// the per-frame paint pass keeps running (painting only on change made names flash plain). Neither
+		// chat nor menus animating: one frame forever, so nothing repaints for motion.
+		return config.chatNames() != AnvilConfig.Names.Animated && config.menuNames() != AnvilConfig.Names.Animated ? -1
+				: GradientLabel.animationTimeMillis() / CHAT_NAME_FRAME_MS;
 	}
-	static double chatNameShift(long frame) {
-		return nameShift(frame, GradientLabel.GAME_CYCLE_MS);
+	/** "Still colours": the gradient frozen at its start. */
+	double chatNameShift(long frame) {
+		return config.chatNames() == AnvilConfig.Names.Animated ? nameShift(frame, GradientLabel.GAME_CYCLE_MS) : 0;
 	}
-	static double interfaceNameShift(long frame) {
-		return nameShift(frame, GradientLabel.PANEL_CYCLE_MS);
+	double interfaceNameShift(long frame) {
+		return config.menuNames() == AnvilConfig.Names.Animated ? nameShift(frame, GradientLabel.PANEL_CYCLE_MS) : 0;
 	}
 	static double nameShift(long frame, long cycleMs) {
 		return frame < 0 ? 0 : (frame * CHAT_NAME_FRAME_MS % cycleMs) / (double) cycleMs * 2;
@@ -6677,7 +6688,7 @@ public class AnvilPlugin extends Plugin {
 	long interfaceNameFrame = Long.MIN_VALUE;
 
 	void flairInterface(int rootId) {
-		if (flairOff()) return;
+		if (menusOff()) return;
 		var root = client.getWidget(rootId);
 		if (root == null) return;
 		var frame = currentChatNameFrame();
@@ -6696,7 +6707,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Repaint remembered interface names only; never walk the whole client widget tree per frame. */
 	void animateFlairInterfaces() {
-		if (flairOff() || interfaceNameFlair.isEmpty()) return;
+		if (menusOff() || interfaceNameFlair.isEmpty()) return;
 		var frame = currentChatNameFrame();
 		if (frame == interfaceNameFrame) return;
 		interfaceNameFrame = frame;
@@ -6848,7 +6859,7 @@ public class AnvilPlugin extends Plugin {
 	 * stays plain. A painted name no longer matches decorate()'s plain-name test, so a repaint is a no-op.
 	 */
 	void flairNameLists() {
-		if (flairOff()) return;
+		if (menusOff()) return;
 		var frame = currentChatNameFrame();
 		nameListFrame = frame;
 		var shift = interfaceNameShift(frame);
@@ -6873,7 +6884,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Repaint only the Patron rows already discovered by a list rebuild; no full list scan per frame. */
 	void animateFlairNameLists() {
-		if (flairOff() || nameListMoving.isEmpty()) return;
+		if (menusOff() || nameListMoving.isEmpty()) return;
 		var frame = currentChatNameFrame();
 		if (frame == nameListFrame) return;
 		nameListFrame = frame;
@@ -7037,7 +7048,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 		if ("flair".equals(kind) || "hello".equals(kind)) {
-			if (flairOn() && apiClient.isConfigured()) {
+			if ((flairOn() || menusFlair()) && apiClient.isConfigured()) {
 				if ("hello".equals(kind)) {
 					chatFlairSync.soon();
 				} else chatFlairSync.pushed(gson.fromJson(m, ChatFlair.Wire.class));

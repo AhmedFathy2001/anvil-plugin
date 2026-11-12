@@ -72,25 +72,36 @@ public interface AnvilConfig extends Config {
 		return true;
 	}
 
-	/** Supporters' colours: off, in chat, or in chat and on right-click menus (never in PvP areas). */
+	/** How Supporters' names look in one part of the game: moving gradients, frozen colours, or plain. */
 	enum Names {
-		Off, Chat, Chat_menus;
+		Animated, Still_colours, Off;
 
 		@Override
 		public String toString() {
-			return name().replace("_", " + ");
+			return name().replace('_', ' ');
 		}
 	}
 
 	@ConfigItem(
-		keyName = "supporterNames",
-		name = "Supporter names",
-		description = "Show Anvil Supporters' name colours and badges in chat (and on your friends list and channel member lists while they are online), and on their name when you right-click them. Never in PvP areas. The list of names is downloaded from Anvil; nothing about who you see is sent.",
+		keyName = "chatNames",
+		name = "Supporter names in chat",
+		description = "Anvil Supporters' name colours and badges in the chatbox. The list of names is downloaded from Anvil; nothing about who you see is sent. The side panel shows them either way.",
 		position = 2,
 		section = "chatSection"
 	)
-	default Names supporterNames() {
-		return Names.Chat_menus;
+	default Names chatNames() {
+		return Names.Animated;
+	}
+
+	@ConfigItem(
+		keyName = "menuNames",
+		name = "Supporter names in game menus",
+		description = "The same on right-click menus, your friends list and channel member lists. Never in PvP areas.",
+		position = 3,
+		section = "chatSection"
+	)
+	default Names menuNames() {
+		return Names.Animated;
 	}
 
 	/** Anvil chat: off, see others' lines, also send your own, also your private messages. */
