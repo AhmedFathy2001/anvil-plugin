@@ -9947,7 +9947,7 @@ public class AnvilPlugin extends Plugin {
 			// The game's copy came after ours after all: one line, the game's, with the icon.
 			relayNodes.remove(key);
 			client.getChatLineMap().get(ours.getType().getType()).removeMessageNode(ours);
-			relayMarkNode(e.getMessageNode());
+			relayMark(e.getMessageNode(), "");
 			return;
 		}
 		var now = (int) (now() / 1000);
@@ -9956,24 +9956,31 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Client thread: game lines the relay also brought; their name gets the icon as the chatbox is built. */
-	final Set<MessageNode> relayMarked = new LinkedHashSet<>();
+	final Map<MessageNode, String> relayMarked = new LinkedHashMap<>();
 
-	void relayMarkNode(MessageNode n) {
+	/** Mark a line for the Anvil icon after its name, and {@code icon} (an account type) before it. */
+	void relayMark(MessageNode n, String icon) {
 		if (n == null) return;
-		relayMarked.add(n);
-		if (relayMarked.size() > 100) relayMarked.remove(relayMarked.iterator().next());
+		relayMarked.put(n, icon);
+		if (relayMarked.size() > 100) relayMarked.remove(relayMarked.keySet().iterator().next());
 		client.refreshChat();
 	}
 
-	/** The chatbox building a line's name (the way RuneLite adds rank icons): a marked one gets the icon after it. */
-	@Subscribe
+	/**
+	 * The chatbox building a line's name, after RuneLite's own channel plugin has put the rank icon in
+	 * front (it looks the sender up by the node's plain name, so ours stays plain): a marked line gets
+	 * its account-type icon after the leading icons and the Anvil icon after the name. Before the game
+	 * lays the line out, so it wraps and aligns as its own.
+	 */
+	@Subscribe(priority = -1)
 	public void onScriptCallbackEvent(ScriptCallbackEvent e) {
 		if (relayMarked.isEmpty() || !"chatMessageBuilding".equals(e.getEventName())) return;
 		var node = client.getMessages().get(client.getIntStack()[client.getIntStackSize() - 1]);
-		if (node == null || !relayMarked.contains(node)) return;
+		var icon = node == null ? null : relayMarked.get(node);
+		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
-		os[at] = os[at] + relayIcon();
+		os[at] = String.valueOf(os[at]).replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
 	}
 
 	/** A muted player's public line never comes back as chat, but the client still shows it overhead. */
@@ -10021,16 +10028,15 @@ public class AnvilPlugin extends Plugin {
 		log.debug("Relay: got a {} line", c);
 		var seen = relaySeen.remove(key);
 		if (seen != null) {
-			relayMarkNode(seen);
+			relayMark(seen, "");
 			return;
 		}
 		if (client.getIgnoreContainer().findByName(n) != null) return;
 		// The sender as our own client knows them: on screen (public), or in our own channel's member list
-		// with the rank icon it shows there (clan, friends chat). Nobody unknown to it is shown.
+		// (clan, guest clan, friends chat). Nobody unknown to it is shown.
 		Player near = null;
 		String from = null;
 		String shown = null;
-		var rank = "";
 		var type = PUBLICCHAT;
 		if ("public".equals(c)) {
 			for (Player q : client.getPlayers()) if (q != null && q.getName() != null && relayKey(n, "").equals(relayKey(q.getName(), ""))) near = q;
@@ -10039,13 +10045,10 @@ public class AnvilPlugin extends Plugin {
 			var g = "guest".equals(c);
 			var ch = g ? client.getGuestClanChannel() : client.getClanChannel();
 			var member = ch == null ? null : ch.findMember(n);
-			var cs = g ? client.getGuestClanSettings() : client.getClanSettings();
-			var title = member == null || cs == null ? null : cs.titleForRank(member.getRank());
 			if (member != null) {
 				shown = member.getName();
 				from = ch.getName();
 				type = g ? CLAN_GUEST_CHAT : CLAN_CHAT;
-				rank = title == null ? "" : "<img=" + chatIconManager.getIconNumber(title) + ">";
 			}
 		} else if ("pm".equals(c)) {
 			// As the game would: only with Private on (or Friends, from a friend).
@@ -10062,7 +10065,6 @@ public class AnvilPlugin extends Plugin {
 				shown = member.getName();
 				from = fc.getName();
 				type = FRIENDSCHAT;
-				rank = member.getRank() == null || member.getRank() == FriendsChatRank.UNRANKED ? "" : "<img=" + chatIconManager.getIconNumber(member.getRank()) + ">";
 			}
 		}
 		if (shown == null) {
@@ -10078,7 +10080,11 @@ public class AnvilPlugin extends Plugin {
 		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
 		injecting = true;
 		try {
-			relayNodes.put(key, client.addChatMessage(type, rank + icon + shown + relayIcon(), x, from));
+			// The name stays the plain one: RuneLite's channel plugin finds the sender's rank by it, and the
+			// icons go on as the chatbox builds the line (onScriptCallbackEvent).
+			var node = client.addChatMessage(type, shown, x, from);
+			relayNodes.put(key, node);
+			relayMark(node, icon);
 		} finally {
 			injecting = false;
 		}
