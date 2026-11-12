@@ -2203,6 +2203,12 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	public void onVarbitChanged(VarbitChanged event) {
 		if (!trackedActivityKeys.isEmpty() && ActivityStats.isTrigger(event.getVarbitId(), event.getVarpId())) maybeQueueActivityPush();
+		// The chatbox went transparent or opaque: event chat lines take that surface's colours.
+		if (event.getVarbitId() == VarbitID.CHATBOX_TRANSPARENCY && !eventNodes.isEmpty()) {
+			opaqueChatbox();
+			eventNodes.forEach((n, p) -> n.setValue(eventText(p)));
+			client.refreshChat();
+		}
 	}
 
 	/**
@@ -10122,13 +10128,31 @@ public class AnvilPlugin extends Plugin {
 		// by its "[Board · Channel]" prefix is printed, so nothing can pass for a game message.
 		var line = m.get(chatOne && m.has("cb1") ? "cb1" : "cb").getAsString().replaceAll("<(?!/?col(=[0-9a-fA-F]{6})?>|lt>|gt>)[^>]*>", "");
 		if (!line.matches("^<col=[0-9a-fA-F]{6}>\\[[^<\\]]+\\]</col> .*")) return;
-		// "chat:<event>:<channel>": where "Reply in" posts.
+		// "chat:<event>:<channel>": where "Reply in" posts, and the line's colours.
 		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
-		eventLines.put(Text.removeTags(line), feed[1] + ":" + feed[2]);
-		if (eventLines.size() > 50) eventLines.remove(eventLines.keySet().iterator().next());
+		int tag = line.indexOf(']'), colon = line.indexOf(": ", tag);
+		if (colon < 0) return;
+		String[] p = {line.substring(line.indexOf('[') + 1, tag), line.substring(tag + 8, colon), line.substring(colon + 2).replaceAll("</?col[^>]*>", ""), feed[2]};
 		clientThread.invokeLater(() -> {
-			if (loggedIn() && client.getLocalPlayer() != null) client.addChatMessage(GAMEMESSAGE, "", ChatPalette.readable(line, opaqueChatbox()), null);
+			if (!loggedIn() || client.getLocalPlayer() == null) return;
+			opaqueChatbox();
+			var text = eventText(p);
+			eventLines.put(Text.removeTags(text), feed[1] + ":" + feed[2]);
+			if (eventLines.size() > 50) eventLines.remove(eventLines.keySet().iterator().next());
+			eventNodes.put(client.addChatMessage(GAMEMESSAGE, "", text, null), p);
+			if (eventNodes.size() > 50) eventNodes.remove(eventNodes.keySet().iterator().next());
 		});
+	}
+
+	/** Client thread: event chat lines in the chatbox, as {tag, name, message, channel}, recoloured with the chatbox. */
+	final Map<MessageNode, String[]> eventNodes = new LinkedHashMap<>();
+	/** Tag, Team, All, Announcements: on the opaque chatbox, then the transparent one. */
+	static final String[][] EVENT_COLS = {{"b04e00", "0a6b0a", "00666e", "7a4800"}, {"ff9b30", "72e872", "3ddbe0", "ffc34d"}};
+
+	/** "<anvil>[Tag · All] Name: message": the icon first (Anvil's line), the tag in Anvil orange, the words by channel. */
+	String eventText(String[] p) {
+		var c = EVENT_COLS[lastChatboxOpaque ? 0 : 1];
+		return relayIcon() + "<col=" + c[0] + ">[" + p[0] + "]</col> " + p[1] + ": <col=" + c["team".equals(p[3]) ? 1 : "all".equals(p[3]) ? 2 : 3] + ">" + p[2] + "</col>";
 	}
 
 	void fetchChatChans(Runnable then) {
