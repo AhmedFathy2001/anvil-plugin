@@ -26,6 +26,7 @@ import java.util.stream.*;
  */
 @Slf4j
 @Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class BannerSoundService {
 	/**
 	 * The plugin's own `sounds/` folder, handed over by AnvilPlugin at startUp.
@@ -43,16 +44,11 @@ public class BannerSoundService {
 	// executor behind: the next play() would throw RejectedExecutionException into the loot handler.
 	ExecutorService audioExecutor;
 
-	@Inject
-	BannerSoundService(AnvilConfig config, AudioPlayer audioPlayer) {
-		this.config = config;
-		this.audioPlayer = audioPlayer;
-	}
 
 	void setRoot(Filepath dir) {
 		root = dir;
 		migrateLooseClips();
-		for (Kind kind : Kind.values()) relist(kind);
+		for (var kind : Kind.values()) relist(kind);
 	}
 
 	/**
@@ -64,13 +60,10 @@ public class BannerSoundService {
 	 * it without asking anything: drop a .wav in {@code mission/} and missions play it, leave it
 	 * empty and they keep the built-in chime.</p>
 	 */
-	@RequiredArgsConstructor
 	enum Kind {
-		BANNER("banner"),
-		MISSION("mission");
+		BANNER, MISSION;
 
-		final String folder;
-
+		final String folder = name().toLowerCase(Locale.ROOT);
 	}
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
@@ -98,7 +91,7 @@ public class BannerSoundService {
 		List<Filepath> loose = d == null || !d.isDirectory() ? new ArrayList<>() : wavsIn(d);
 		var banner = loose.isEmpty() ? null : dir(Kind.BANNER);
 		if (banner == null) return;
-		for (Filepath f : loose) {
+		for (var f : loose) {
 			try {
 				f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
 			} catch (Exception e) {
@@ -113,7 +106,7 @@ public class BannerSoundService {
 	}
 
 	static List<Filepath> wavsIn(Filepath dir) {
-		try (Stream<Filepath> walk = dir.walk(1)) {
+		try (var walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && f.getFileName().toLowerCase().endsWith(".wav")).collect(Collectors.toList());
 		} catch (IOException e) {
 			return new ArrayList<>();
@@ -182,7 +175,8 @@ public class BannerSoundService {
 			before = listed.put(kind, names);
 			listedAt.put(kind, System.currentTimeMillis());
 		}
-		if (!names.equals(before == null ? Collections.emptyList() : before)) onClipsChanged.run();
+		if (!names.equals(before == null ? List.of() : before)) onClipsChanged.run();
+
 	}
 
 	/**
@@ -212,9 +206,9 @@ public class BannerSoundService {
 
 	/** Parse the comma-separated clip allowlist into lowercased ".wav" filenames. Empty = play all. */
 	static Set<String> parseSelected(String csv) {
-		Set<String> out = new LinkedHashSet<>();
+		var out = new LinkedHashSet<String>();
 		if (csv == null) return out;
-		for (String part : csv.split(",")) {
+		for (var part : csv.split(",")) {
 			var s = part.trim().toLowerCase();
 			if (s.isEmpty()) continue;
 			if (!s.endsWith(".wav")) s += ".wav";
@@ -250,9 +244,9 @@ public class BannerSoundService {
 			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
 			// Each banner plays one at random from the eligible set, so a multi-clip cycle varies.
 			// Mission clips have no allowlist: the folder is already the choice of what plays.
-			Set<String> selected = kind == Kind.BANNER ? parseSelected(config.bannerSoundClip()) : Collections.emptySet();
-			List<Filepath> candidates = new ArrayList<>();
-			for (Filepath f : files) {
+			var selected = kind == Kind.BANNER ? parseSelected(config.bannerSoundClip()) : Set.<String>of();
+			var candidates = new ArrayList<Filepath>();
+			for (var f : files) {
 				if (selected.isEmpty() || selected.contains(f.getFileName().toLowerCase())) candidates.add(f);
 			}
 			if (candidates.isEmpty()) return;
@@ -304,8 +298,8 @@ public class BannerSoundService {
 
 	/** Blocking (disk) — the audio thread only. */
 	void copyIn(Kind kind, Filepath dir, List<Filepath> chosen, Consumer<List<String>> onImported) {
-		List<String> imported = new ArrayList<>();
-		for (Filepath src : chosen) {
+		var imported = new ArrayList<String>();
+		for (var src : chosen) {
 			var name = src.getFileName();
 			try {
 				src.copyTo(dir.joinSegment(name), StandardCopyOption.REPLACE_EXISTING);

@@ -2,6 +2,7 @@ package com.anvil;
 
 import lombok.Setter;
 import java.awt.*;
+import java.awt.event.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.util.*;
@@ -40,12 +41,13 @@ final class GradientLabel extends JLabel {
 	static volatile boolean active = true;
 	static Window watched;
 	/** Follows the client window coming to the front and going behind (listening only, no input). */
-	static final java.awt.event.WindowAdapter FRONT = new java.awt.event.WindowAdapter() {
-		public void windowActivated(java.awt.event.WindowEvent e) {
+	static final WindowAdapter FRONT = new WindowAdapter() {
+		public void windowActivated(WindowEvent e) {
 			active = true;
 		}
 
-		public void windowDeactivated(java.awt.event.WindowEvent e) {
+		public void windowDeactivated(WindowEvent e) {
+
 			active = false;
 		}
 	};

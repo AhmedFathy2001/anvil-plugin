@@ -19,7 +19,7 @@ final class SlimScrollBarUI extends BasicScrollBarUI {
 	/** Restyle every scroll pane directly under {@code root} (the PluginPanel's wrapper). */
 	static void applyTo(Container root) {
 		if (root == null) return;
-		for (Component c : root.getComponents()) {
+		for (var c : root.getComponents()) {
 			if (c instanceof JScrollPane) style(((JScrollPane) c).getVerticalScrollBar());
 		}
 	}

@@ -53,9 +53,6 @@ public class BingoClogBannerOverlay extends Overlay {
 	static final int LINE_H = 1;            // design-px height of the thin opening line
 
 	static final Color ORANGE = new Color(255, 152, 31);
-	static final Color WHITE = new Color(255, 255, 255);
-	static final Color SHADOW = new Color(0, 0, 0, 255);
-	static final Color LINE_COLOR = Color.BLACK; // the thin opening/closing line
 
 	final ConcurrentLinkedQueue<String[]> queue = new ConcurrentLinkedQueue<>();
 	final BufferedImage background;
@@ -85,7 +82,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	static BufferedImage loadBackground() {
-		try (InputStream in = BingoClogBannerOverlay.class.getResourceAsStream("/com/anvil/clog_banner.png")) {
+		try (var in = BingoClogBannerOverlay.class.getResourceAsStream("/com/anvil/clog_banner.png")) {
 			return in == null ? null : ImageIO.read(in);
 		} catch (IOException e) {
 			return null;
@@ -120,7 +117,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		var hEnd = H_EXPAND_MS;
 		var vEnd = hEnd + V_EXPAND_MS;
 		var holdEnd = vEnd + HOLD_MS;
-		long vCollapseEnd = holdEnd + V_COLLAPSE_MS;
+		var vCollapseEnd = holdEnd + V_COLLAPSE_MS;
 		var total = vCollapseEnd + H_COLLAPSE_MS;
 
 		if (active == null || now - startedAt >= total) {
@@ -177,7 +174,7 @@ public class BingoClogBannerOverlay extends Overlay {
 
 		if (line) {
 			// Opening/closing line: a plain strip in the banner's interior tone (not the bg, no text).
-			g2.setColor(LINE_COLOR);
+			g2.setColor(Color.BLACK);
 			g2.fillRect(x, y, iw, ih);
 		} else {
 			// Squish the WHOLE background into the current height (full width); it unsquishes to full.
@@ -197,7 +194,7 @@ public class BingoClogBannerOverlay extends Overlay {
 				}
 				drawLines(g2, wrapped.get(0), headerFont, ORANGE, TOP_Y);
 				drawLines(g2, wrapped.get(1), bodyFont, ORANGE, MID_Y);
-				drawLines(g2, wrapped.get(2), bodyFont, WHITE, BOTTOM_Y);
+				drawLines(g2, wrapped.get(2), bodyFont, Color.WHITE, BOTTOM_Y);
 			}
 		}
 
@@ -231,7 +228,7 @@ public class BingoClogBannerOverlay extends Overlay {
 			var shown = lines.get(i);
 			int x = (BASE_W - fm.stringWidth(shown)) / 2;
 			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
-			g.setColor(SHADOW);
+			g.setColor(Color.BLACK);
 			g.drawString(shown, x + 1, baseline + 1);
 			g.setColor(color);
 			g.drawString(shown, x, baseline);
@@ -243,14 +240,15 @@ public class BingoClogBannerOverlay extends Overlay {
 	 *  the last line is folded into it, and every kept line is ellipsised if it still overflows (covers a
 	 *  lone over-long word too). No text, no lines. */
 	static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines) {
-		List<String> lines = new ArrayList<>();
-		if (text == null || text.isEmpty()) return lines;
+		var lines = new ArrayList<String>();
+		if (text == null
+ || text.isEmpty()) return lines;
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) {
 			lines.add(text);
 			return lines;
 		}
 		var line = new StringBuilder();
-		for (String word : text.split("\\s+")) {
+		for (var word : text.split("\\s+")) {
 			var trial = line.length() == 0 ? word : line + " " + word;
 			if (fm.stringWidth(trial) <= maxWidth) {
 				line.setLength(0);

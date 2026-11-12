@@ -86,7 +86,7 @@ final class GameValueCounters {
 			this.name = name;
 			this.confirmed = confirmed;
 			this.maxDelta = maxDelta;
-			this.sources = java.util.Arrays.asList(sources);
+			this.sources = Arrays.asList(sources);
 		}
 
 		boolean decreasing() {
@@ -99,11 +99,11 @@ final class GameValueCounters {
 
 		boolean valid() {
 			if (name == null || name.trim().isEmpty() || sources == null || sources.isEmpty()) return false;
-			for (Source s : sources) {
+			for (var s : sources) {
 				if (s == null || !s.valid()) return false;
 			}
 			if (unless != null) {
-				for (Source s : unless) {
+				for (var s : unless) {
 					if (s == null || !s.valid()) return false;
 				}
 			}
@@ -135,7 +135,7 @@ final class GameValueCounters {
 		source = next;
 		List<Entry> clean = new ArrayList<>();
 		if (next != null) {
-			for (Entry e : next) {
+			for (var e : next) {
 				if (e != null && e.valid()) clean.add(e);
 			}
 		}
@@ -182,7 +182,7 @@ final class GameValueCounters {
 			return Collections.emptyList();
 		}
 		List<Credit> out = null;
-		for (Entry e : entries) {
+		for (var e : entries) {
 			var prefix = e.name.toLowerCase(Locale.ROOT) + "|";
 			if (!wanted.test(e)) {
 				last.keySet().removeIf(k -> k.startsWith(prefix));
@@ -190,7 +190,7 @@ final class GameValueCounters {
 			}
 			int total = 0;
 			var moved = false;
-			for (Source s : e.sources) {
+			for (var s : e.sources) {
 				int delta = delta(reader, e, prefix, s);
 				if (delta > 0) {
 					total += delta;
@@ -200,7 +200,7 @@ final class GameValueCounters {
 			var vetoed = false;
 			if (e.unless != null) {
 				// Every veto source is read (not short-circuited) so each keeps its baseline current.
-				for (Source s : e.unless) vetoed |= delta(reader, e, prefix + "!", s) > 0;
+				for (var s : e.unless) vetoed |= delta(reader, e, prefix + "!", s) > 0;
 			}
 			if (!moved || vetoed) continue;
 			if (out == null) out = new ArrayList<>();

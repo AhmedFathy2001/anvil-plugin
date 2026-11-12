@@ -48,14 +48,16 @@ public class AnvilOverlay extends OverlayPanel {
 		var now = System.currentTimeMillis();
 		if (!within(window, Instant.ofEpochMilli(now))) return null;
 
-		panelComponent.getChildren().add(TITLE);
-		if (team != null) panelComponent.getChildren().add(team);
+		var c = panelComponent.getChildren();
+		c.add(TITLE);
+		if (team != null) c.add(team);
 		// Date — UTC for unambiguous time-of-drop on the proof image; it only reads to the minute.
 		if (now / 60_000 != dateMinute) {
 			dateMinute = now / 60_000;
 			date.setRight(ZonedDateTime.now(ZoneOffset.UTC).format(DATE_FMT));
 		}
-		panelComponent.getChildren().add(date);
+		c.add(date);
+
 
 		return super.render(graphics);
 	}

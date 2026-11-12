@@ -18,9 +18,6 @@ final class OffThread {
 	static volatile BooleanSupplier onClientThread = () -> false;
 	static final Set<String> reported = ConcurrentHashMap.newKeySet();
 
-	OffThread() {
-	}
-
 	/** Bound by the plugin at startUp ({@code client::isClientThread}); unbound reads as "not". */
 	static void bindClientThread(BooleanSupplier check) {
 		onClientThread = check == null ? () -> false : check;

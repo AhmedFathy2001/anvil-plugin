@@ -34,7 +34,7 @@ class StartProofOverlay extends OverlayPanel {
 			if (proof == null) return null;
 			title("Starting shot needed", ORANGE);
 			if (proof.location != null) line("Go to", proof.location, Color.WHITE);
-			for (StartProofRules.Check c : plugin.startProofChecks(proof)) {
+			for (var c : plugin.startProofChecks(proof)) {
 				panelComponent.getChildren().add(LineComponent.builder().left(c.text).leftColor(
 					c.state == StartProofRules.Check.State.OK ? Color.GREEN
 						: c.state == StartProofRules.Check.State.BAD ? Color.RED : Color.LIGHT_GRAY).build());

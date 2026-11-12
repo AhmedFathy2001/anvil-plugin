@@ -1,7 +1,5 @@
 package com.anvil;
 
-import java.nio.charset.StandardCharsets;
-import java.security.*;
 import java.util.*;
 
 /**
@@ -28,9 +26,9 @@ final class AccountOptOut {
 	}
 
 	static AccountOptOut parse(String raw) {
-		Set<String> out = new LinkedHashSet<>();
+		var out = new LinkedHashSet<String>();
 		if (raw != null) {
-			for (String part : raw.split(",")) {
+			for (var part : raw.split(",")) {
 				var p = part.trim();
 				if (!p.isEmpty()) out.add(p);
 			}
@@ -56,7 +54,7 @@ final class AccountOptOut {
 	}
 
 	AccountOptOut with(long accountHash, String rsn) {
-		Set<String> next = new LinkedHashSet<>(digests);
+		var next = new LinkedHashSet<>(digests);
 		var h = hashKey(accountHash);
 		var n = nameKey(rsn);
 		if (h != null) next.add(h);
@@ -65,7 +63,7 @@ final class AccountOptOut {
 	}
 
 	AccountOptOut without(long accountHash, String rsn) {
-		Set<String> next = new LinkedHashSet<>(digests);
+		var next = new LinkedHashSet<>(digests);
 		next.remove(hashKey(accountHash));
 		next.remove(nameKey(rsn));
 		return new AccountOptOut(next);
@@ -75,24 +73,13 @@ final class AccountOptOut {
 		return digests.isEmpty();
 	}
 
+	/** "h" / "n" plus the first 16 hex chars of SHA-256 (DiskFiles.fingerprint): plenty to tell a handful of local characters apart. */
 	static String hashKey(long accountHash) {
-		return accountHash == -1L ? null : "h" + digest("hash:" + accountHash);
+		return accountHash == -1L ? null : "h" + DiskFiles.fingerprint("hash:" + accountHash);
 	}
 
 	static String nameKey(String rsn) {
 		var norm = Rsn.normalize(rsn);
-		return norm.isEmpty() ? null : "n" + digest("rsn:" + norm);
-	}
-
-	/** First 16 hex chars of SHA-256 — plenty to tell a handful of local characters apart. */
-	static String digest(String s) {
-		try {
-			var d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
-			var sb = new StringBuilder(16);
-			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", d[i]));
-			return sb.toString();
-		} catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 is always available", e);
-		}
+		return norm.isEmpty() ? null : "n" + DiskFiles.fingerprint("rsn:" + norm);
 	}
 }

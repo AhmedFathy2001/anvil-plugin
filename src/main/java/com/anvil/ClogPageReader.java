@@ -21,8 +21,6 @@ import net.runelite.api.widgets.*;
  * allocates nothing beyond the page it returns and never blocks.
  */
 final class ClogPageReader {
-	ClogPageReader() {}
-
 	/** "Obtained: 5/9" — the log's own progress line, and our correctness check. */
 	static final Pattern OBTAINED = Pattern.compile("obtained:\\s*(\\d+)\\s*/\\s*(\\d+)");
 	/** "Abyssal Sire kills: 1,204" / "Chest openings: 87" — label and value, commas stripped. */
@@ -48,7 +46,7 @@ final class ClogPageReader {
 
 		var lines = header.getStaticChildren();
 		if (lines == null) return null;
-		for (Widget line : lines) {
+		for (var line : lines) {
 			if (line == null) continue;
 			var text = strip(line.getText());
 			if (text.isEmpty()) continue;
@@ -81,7 +79,7 @@ final class ClogPageReader {
 		// Two passes so the arrays are exactly sized — a page is at most a few dozen items, and this
 		// avoids both an ArrayList's boxing and a grow-and-copy on every redraw.
 		int found = 0;
-		for (Widget cell : cells) {
+		for (var cell : cells) {
 			if (isObtained(cell)) found++;
 		}
 		// The log's own count is the authority. Disagreeing means we misread the page (or Jagex
@@ -91,7 +89,7 @@ final class ClogPageReader {
 		int[] ids = new int[found];
 		int[] quantities = new int[found];
 		int i = 0;
-		for (Widget cell : cells) {
+		for (var cell : cells) {
 			if (!isObtained(cell)) continue;
 			ids[i] = cell.getItemId();
 			// A quantity of 0 on an obtained item means "one, uncounted" for the handful of log
@@ -111,8 +109,7 @@ final class ClogPageReader {
 	 * and the header's "Obtained: N" arbitrates — see {@link #read}.
 	 */
 	static boolean isObtained(Widget cell) {
-		if (cell == null || cell.getItemId() <= 0) return false;
-		return cell.getOpacity() == 0 || cell.getItemQuantity() > 0;
+		return cell != null && cell.getItemId() > 0 && (cell.getOpacity() == 0 || cell.getItemQuantity() > 0);
 	}
 
 	static String strip(String raw) {

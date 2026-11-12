@@ -17,9 +17,6 @@ import java.util.*;
  * <p>No RuneLite dependencies, so it is unit-testable.
  */
 final class TileNotes {
-	TileNotes() {
-	}
-
 
 
 	/** Only real tiles can be pinned (the site serves no progress for a virtual id). */
@@ -38,9 +35,9 @@ final class TileNotes {
 	static Map<Integer, Integer> partCombos(List<TrackedCombo> combos) {
 		if (combos == null || combos.isEmpty()) return Collections.emptyMap();
 		Map<Integer, Integer> out = new HashMap<>();
-		for (TrackedCombo c : combos) {
+		for (var c : combos) {
 			if (c != null && c.parts != null) {
-				for (ComboPart p : c.parts) {
+				for (var p : c.parts) {
 					if (p != null) out.put(p.tileId, c.tileId);
 				}
 			}
@@ -61,7 +58,7 @@ final class TileNotes {
 			? Math.max(0, Math.min(100, combo.percent)) + "%"
 			: fmt(Math.min(combo.done, needed)) + " of " + fmt(needed) + " done");
 		if (combo.parts != null) {
-			for (ComboPart p : combo.parts) {
+			for (var p : combo.parts) {
 				if (p == null) continue;
 				var label = p.label == null ? "Part" : p.label.trim();
 				var c = counts == null ? null : counts.get(p.tileId);

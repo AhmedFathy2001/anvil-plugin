@@ -34,7 +34,7 @@ public enum CombatAchievementTier {
 	/** Resolves the tier from the word used in the completion message ("easy", "elite", …). */
 	static CombatAchievementTier byName(String name) {
 		if (name == null) return null;
-		for (CombatAchievementTier t : values()) {
+		for (var t : values()) {
 			if (t.name().equalsIgnoreCase(name)) return t;
 		}
 		return null;

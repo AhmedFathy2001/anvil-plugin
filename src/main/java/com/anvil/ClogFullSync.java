@@ -88,7 +88,7 @@ final class ClogFullSync {
 	 */
 	synchronized long fingerprint() {
 		long hash = items.size();
-		for (Map.Entry<Integer, Integer> e : items.entrySet()) {
+		for (var e : items.entrySet()) {
 			// Mixed per entry then XORed in: adding an item changes it, and reordering doesn't.
 			var h = e.getKey() * 0x9E3779B97F4A7C15L + e.getValue();
 			hash ^= h ^ (h >>> 29);

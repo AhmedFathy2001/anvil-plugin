@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.awt.image.BufferedImage;
+import lombok.RequiredArgsConstructor;
 import java.util.*;
 import javax.inject.*;
 import net.runelite.api.Client;
@@ -17,6 +18,7 @@ import net.runelite.client.util.ImageUtil;
  * whole route; without it the message simply goes unheard.
  */
 @Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 class StartSpotMarker {
 	static final BufferedImage PIN = ImageUtil.resizeImage(
 		ImageUtil.loadImageResource(StartSpotMarker.class, "/com/anvil/sidebar_icon.png"), 20, 20);
@@ -27,13 +29,6 @@ class StartSpotMarker {
 
 	WorldPoint shown;
 	WorldMapPoint mapPoint;
-
-	@Inject
-	StartSpotMarker(Client client, WorldMapPointManager mapPoints, EventBus eventBus) {
-		this.client = client;
-		this.mapPoints = mapPoints;
-		this.eventBus = eventBus;
-	}
 
 	/** The spot to mark, or null for none. Spots are drawn on the surface, so the plane is 0. */
 	static WorldPoint target(PluginConfigResponse.StartProof proof) {
