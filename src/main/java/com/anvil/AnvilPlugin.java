@@ -9911,7 +9911,7 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread: lines the relay added, by their shown text, for "Report to Anvil". */
 	final Map<String, JsonObject> relayShown = new LinkedHashMap<>();
 	/** Event chat lines printed in the chatbox, by their shown text: the board and channel to reply in. */
-	final Map<String, String> eventLines = new ConcurrentHashMap<>();
+	final Map<String, String> eventLines = new LinkedHashMap<>();
 	/** Characters beside us (our world, clan, friends chat) with Anvil chat on, as the site names them. */
 	final Set<String> relayHere = ConcurrentHashMap.newKeySet();
 	/** Where the chatbox event chat input may post, in its key's order; null until fetched. */

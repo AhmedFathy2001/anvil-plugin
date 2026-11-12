@@ -122,6 +122,23 @@ public class PushSocketTest
 	}
 
 	@Test
+	public void aTicketForAnOldScopeIsDropped() throws Exception
+	{
+		api.ticketsAvailable = false;
+		push.scope("5:2:c302#1@");
+		settle();
+		assertEquals(0, api.opened.size());
+		BingoApiClient.PushTicket t = new BingoApiClient.PushTicket();
+		t.url = "wss://anvilosrs.com/api/plugin/push/ws";
+		t.ticket = "old";
+		// Asked before a hop: the scope has moved on, so this ticket opens nothing.
+		push.withTicket("5:2:c301#1@", t);
+		assertEquals(0, api.opened.size());
+		push.withTicket("5:2:c302#1@", t);
+		assertEquals(1, api.opened.size());
+	}
+
+	@Test
 	public void scopeFlagsAskForFeedAndRelayWorld() throws Exception
 	{
 		push.scope("0:0:f:r:c302#77");

@@ -79,8 +79,10 @@ final class PushSocket extends WebSocketListener {
 		boolean rows;
 		int relay;
 		String fc;
+		String s;
 		synchronized (this) {
 			pending = null;
+			s = scope;
 			feed = scope != null && scope.contains(":f");
 			var c = scope == null ? null : java.util.regex.Pattern.compile(":c(\\d+)").matcher(scope);
 			relay = c != null && c.find() ? Integer.parseInt(c.group(1)) : 0;
@@ -92,15 +94,16 @@ final class PushSocket extends WebSocketListener {
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try {
-			api.interactiveExecutor().execute(() -> withTicket(api.fetchPushTicket(feed, rows, relay, fc)));
+			api.interactiveExecutor().execute(() -> withTicket(s, api.fetchPushTicket(feed, rows, relay, fc)));
 		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
 	}
 
-	void withTicket(BingoApiClient.PushTicket ticket) {
+	/** A ticket asked for scope {@code s}: dropped if the scope moved meanwhile (its own fetch is on the way). */
+	void withTicket(String s, BingoApiClient.PushTicket ticket) {
 		synchronized (this) {
-			if (scope == null || socket != null) return;
+			if (scope == null || socket != null || !scope.equals(s)) return;
 			if (ticket == null || ticket.url == null || ticket.ticket == null) {
 				retryIn(RetryPolicy.backoffMs(++failures, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random()));
 				return;
