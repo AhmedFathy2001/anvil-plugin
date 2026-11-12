@@ -9905,6 +9905,9 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	void onMenuOpened(MenuOpened e) {
 		var chans = chatChans;
+		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
+		var mp = client.getMouseCanvasPosition();
+		var overChatLine = area != null && !area.isHidden() && area.getBounds().contains(mp.getX(), mp.getY());
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
 		// Available in receive-only mode too: those sockets still know who can hear Anvil chat.
@@ -9917,7 +9920,7 @@ public class AnvilPlugin extends Plugin {
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
-			if (en.getPlayer() == null && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
+			if (en.getPlayer() == null && !overChatLine && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
 			var on = relayConnected(name);
 			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (on ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
@@ -9931,8 +9934,6 @@ public class AnvilPlugin extends Plugin {
 			}
 			return;
 		}
-		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
-		var mp = client.getMouseCanvasPosition();
 		var kids = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (kids == null || !area.getBounds().contains(mp.getX(), mp.getY())) return;
 		for (var w : kids) {
