@@ -9864,6 +9864,8 @@ public class AnvilPlugin extends Plugin {
 		relaySeen.put(relayKey(name, text), now);
 	}
 
+	static final java.util.regex.Pattern ICON_LEAD = java.util.regex.Pattern.compile("^<img=(\\d{1,2})>");
+
 	/** Client thread: a relayed line — an icon on the game's copy, else the line itself (sender muted). */
 	void showRelay(JsonObject m) {
 		if (!config.relayShow() || !loggedIn() || client.getLocalPlayer() == null) return;
@@ -9892,7 +9894,9 @@ public class AnvilPlugin extends Plugin {
 		// Untrusted all the same: the words with no markup at all, the name rebuilt from the plain name
 		// (only a game icon tag may lead it).
 		var x = clean(m.get("x").getAsString());
-		var icon = m.has("nm") ? m.get("nm").getAsString().replaceFirst("^(<img=\\d+>)?.*$", "$1") : "";
+		// Only a leading account-type icon survives, by explicit match (a fail-open replace let a raw name through).
+		var im = m.has("nm") ? ICON_LEAD.matcher(m.get("nm").getAsString()) : null;
+		var icon = im != null && im.lookingAt() ? "<img=" + im.group(1) + ">" : "";
 		relayShown.put(x, m);
 		if (relayShown.size() > 50) relayShown.remove(relayShown.keySet().iterator().next());
 		client.addChatMessage(pub ? PUBLICCHAT : CLAN_CHAT, icon + Text.toJagexName(n), x, from);
