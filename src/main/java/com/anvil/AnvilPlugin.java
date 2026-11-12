@@ -8891,9 +8891,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void postCaTierClear(CombatAchievementTier tier) {
-		// Message-only — no screenshot.
-		apiClient.postNotification("combatAchievements", null,
-				new NotifyFacts("caTier", getLocalPlayerName()).put("tier", tier.getDisplayName()), null, null);
+		postWithScreenshot("combatAchievements", new NotifyFacts("caTier", getLocalPlayerName()).put("tier", tier.getDisplayName()),
+				"anvil-ca-tier.png");
 	}
 
 	/**
@@ -9099,9 +9098,9 @@ public class AnvilPlugin extends Plugin {
 		var difficulty = text.questTiers.get(questName.toLowerCase());
 		if (me == null || !me.quests.contains("*") && !me.quests.contains(difficulty)) return;
 		// Message-only, like a tier clear. Difficulty goes as its display form ("Experienced").
-		apiClient.postNotification("quests", null, new NotifyFacts("quest", getLocalPlayerName())
+		postWithScreenshot("quests", new NotifyFacts("quest", getLocalPlayerName())
 				.put("quest", questName).put("difficulty", difficulty == null ? null
-						: difficulty.charAt(0) + difficulty.substring(1).toLowerCase()), null, null);
+						: difficulty.charAt(0) + difficulty.substring(1).toLowerCase()), "anvil-quest.png");
 	}
 
 	/**
