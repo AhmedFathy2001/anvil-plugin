@@ -921,6 +921,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void signOut() {
 		if (showConfirmDialog(this, "Sign this computer out of Anvil? Tracking stops until you sign in again.",
 			"Anvil", OK_CANCEL_OPTION, PLAIN_MESSAGE) != OK_OPTION) return;
+		if (api != null) api.revokeToken();
 		// Clearing the token fires onConfigChanged, which drops the session state (configureApiClient).
 		setToken("");
 		refreshSignInRow();

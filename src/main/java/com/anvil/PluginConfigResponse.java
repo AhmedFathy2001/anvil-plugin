@@ -158,16 +158,6 @@ public class PluginConfigResponse {
 		int tilesComplete, tilesTotal;
 	}
 
-	/**
-	 * How a BOARD is named across clans, so every side of the dedup builds the same string.
-	 *
-	 * A board id and a competition id come out of different tables and collide freely, which is why
-	 * the kind is half of it — see {@link ClanBoard#identity()}.
-	 */
-	static String boardIdentity(int eventId) {
-		return "bingo:" + eventId;
-	}
-
 	// Activity names for the personal-best import. RuneLite files its stored bests in a config scope
 	// a plugin can READ by key but cannot LIST, so the import has to ask by name — and the names come
 	// from the site so a new boss doesn't need a plugin release. Null on older sites.

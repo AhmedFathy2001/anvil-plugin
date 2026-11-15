@@ -85,7 +85,7 @@ final class ChatFlair {
 	}
 
 	/** Take a whole list. False when it is unusable (then nothing changes). */
-	boolean adopt(Wire w) {
+	synchronized boolean adopt(Wire w) {
 		if (w == null || w.v <= 0 || w.names == null || w.ix == null || w.styles == null || w.ix.length != w.names.length) return false;
 		var all = new TreeMap<String, Entry>();
 		put(all, w);
@@ -94,7 +94,7 @@ final class ChatFlair {
 	}
 
 	/** Apply a delta onto the version it was made from. False when it doesn't fit (fetch instead). */
-	boolean apply(Wire d) {
+	synchronized boolean apply(Wire d) {
 		var h = held;
 		if (d == null || d.from == null || d.from != h.v || h.v <= 0 || Boolean.TRUE.equals(d.full)) return false;
 		var set = new TreeMap<String, Entry>();

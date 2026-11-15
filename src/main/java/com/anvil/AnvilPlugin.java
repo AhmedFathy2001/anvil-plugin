@@ -20,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.clan.*;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.http.api.worlds.WorldResult;
 import net.runelite.api.events.*;
 import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.ItemID;
@@ -1046,8 +1045,7 @@ public class AnvilPlugin extends Plugin {
 	final SyncBackoff proofBackoff = new SyncBackoff(30_000L, 300_000L);
 
 	// Hello/membership flow state
-	volatile Boolean knownMember; // null = unknown, true = in clanMembers
-	volatile boolean isGuest;
+	volatile Boolean knownMember; // null = unknown (signed out, or the site did not say), true = in clanMembers
 	volatile boolean helloSent;
 
 	// Admin-only clan-roster sync. Authenticated by the player's per-user account token
@@ -2532,7 +2530,6 @@ public class AnvilPlugin extends Plugin {
 			// the answer rather than let the sidebar rank clans on the previous account's standing.
 			knownMember = null;
 			resetCoffer(false);
-			isGuest = false;
 
 			adminProbeAttempted = false;
 			identityStampRetries = 0;
@@ -2561,6 +2558,12 @@ public class AnvilPlugin extends Plugin {
 			// Nothing is attacking a logged-out player, and whatever was is not attacking the next
 			// account either.
 			deathAttribution.clear();
+			// A game cut short by a logout is over: without this the next login's first tick read
+			// "left the final duel without dying" and filed a win for a game nobody finished.
+			lmsInGame = false;
+			// "Already announced" is per account: an alt's first of the same task or quest is news.
+			notifiedCaTasks.clear();
+			announcedQuests.clear();
 			caRepeatNudgeSent = false;
 			lootNotifyNudgeSent = false;
 			clogNotifyNudgeSent = false;
@@ -2929,9 +2932,10 @@ public class AnvilPlugin extends Plugin {
 		helloSent = true;
 		if (resp == null) return;
 		// A clan learned after log in re-tickets the chat relay, or clan lines never reach its clan room.
-		if (!java.util.Objects.equals(resp.knownMember, knownMember)) pushSoon();
-		knownMember = resp.knownMember;
-		isGuest = resp.isGuest;
+		// The site answers membership only to a signed-in caller; signed out mid-greeting, it is unknown.
+		var known = apiClient.needsSignIn() ? null : resp.knownMember;
+		if (!Objects.equals(known, knownMember)) pushSoon();
+		knownMember = known;
 		// The breadcrumb this decision never left. "Tracked as a guest" fired once against a clan the
 		// player holds a MEMBER seat in, and there was no way to tell which clan had answered or
 		// which character it had been asked about — so the message could not be checked, only
@@ -2940,13 +2944,13 @@ public class AnvilPlugin extends Plugin {
 				rsn,
 				resp.clanName,
 				resp.seatKind != null ? resp.seatKind : "none",
-				resp.knownMember);
-		if (!resp.knownMember) {
+				known);
+		if (Boolean.FALSE.equals(known)) {
 			// NAME THE CLAN. Somebody who owns one clan and guests in another read "Tracked as a
 			// guest" as a claim about them, and it is a claim about them IN ONE CLAN — true there and
 			// irrelevant to the clan they run. Without the name it cannot be told apart from a wrong
 			// answer, which is exactly how it was read.
-			var where = resp.clanName != null && !resp.clanName.isEmpty() ? " in " + resp.clanName : "";
+			var where = empty(resp.clanName) ? "" : " in " + resp.clanName;
 			sendChatMessage("Tracked as a guest" + where
 					+ " — a clan admin can promote you to member on the site.");
 		}
@@ -3248,25 +3252,18 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void toggleBannerSound(String name) {
 		var all = bannerSound.listClips(BannerSoundService.Kind.BANNER);
-		var sel = new LinkedHashSet<String>();
-		var csv = config.bannerSoundClip();
-		if (csv != null && !csv.trim().isEmpty()) {
-			for (var part : csv.split(",")) {
-				var s = part.trim();
-				if (!s.isEmpty()) sel.add(s);
-			}
-		} else {
-			sel.addAll(all); // blank = everything on; materialise so we can switch one off
-		}
+		var sel = BannerSoundService.parseSelected(config.bannerSoundClip());
+		if (sel.isEmpty()) sel.addAll(all); // blank = everything on; materialise so we can switch one off
+		sel.remove("-.wav"); // "none ticked", below
 
 		// Toggle by case-insensitive filename match.
-		var match = sel.stream().filter(s -> s.equalsIgnoreCase(name)).findFirst();
-		if (match.isPresent()) sel.remove(match.get());
-		else sel.add(name);
+		if (!sel.removeIf(s -> s.equalsIgnoreCase(name))) sel.add(name);
 
 		// If every clip ends up selected, store blank ("all") to keep the value tidy and future-proof
-		// against newly-added files (which should default to on).
-		cfgSet("bannerSoundClip", sel.size() == all.size() && all.size() > 0 ? "" : String.join(", ", sel));
+		// against newly-added files (which should default to on). None ticked can't be blank too (it
+		// read back as "all", so muting the last clip unmuted every one): it is stored as "-", which
+		// parseSelected reads as a name no clip has.
+		cfgSet("bannerSoundClip", sel.size() == all.size() && all.size() > 0 ? "" : sel.isEmpty() ? "-" : String.join(", ", sel));
 	}
 
 	/**
@@ -4464,7 +4461,7 @@ public class AnvilPlugin extends Plugin {
 	/** What the site stamps a proof's banner from, less the title/detail (lib/proofStamp). */
 	JsonObject proofMeta() {
 		var proof = new JsonObject();
-		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
+		proof.addProperty("tz", ZoneId.systemDefault().getId());
 		proof.addProperty("capturedAt", now());
 		proof.addProperty("tick", client.getTickCount());
 		synchronized (recentChat) {
@@ -4695,7 +4692,7 @@ public class AnvilPlugin extends Plugin {
 			if (rsn != null && !rsn.isEmpty()) meta.add("RSN: " + rsn);
 			if (cfg != null && cfg.team != null && cfg.team.name != null) meta.add("Team: " + cfg.team.name);
 			if (cfg != null && cfg.event != null && cfg.event.name != null) meta.add("Event: " + cfg.event.name);
-			meta.add("UTC: " + java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+			meta.add("UTC: " + ZonedDateTime.now(ZoneOffset.UTC)
 					.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
 			var titleFont = new Font(Font.SANS_SERIF, Font.BOLD, 14);
@@ -4959,8 +4956,7 @@ public class AnvilPlugin extends Plugin {
 				if (stash != null) stash.clearAll();
 			});
 
-			knownMember = false;
-			isGuest = false;
+			knownMember = null;
 			isAdmin = false;
 			// So a later sign-in greets again rather than assuming it already did.
 			helloSent = false;
