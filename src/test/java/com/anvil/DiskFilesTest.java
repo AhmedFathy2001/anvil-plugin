@@ -295,4 +295,139 @@ public class DiskFilesTest
 			p.executor.shutdownNow();
 		}
 	}
+
+	// ── Fact ids: one per fact, for good ────────────────────────────────────────────────────────
+
+	/** A plugin signed in as token-a on Zezima, its sends answered by {@code code}. */
+	private AnvilPlugin pluginAnswering(int[] code, List<String> bodies)
+	{
+		okhttp3.OkHttpClient http = new okhttp3.OkHttpClient.Builder().addInterceptor(chain ->
+		{
+			okio.Buffer b = new okio.Buffer();
+			chain.request().body().writeTo(b);
+			bodies.add(b.readUtf8());
+			return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(code[0]).message("x")
+				.body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"), "{}")).build();
+		}).build();
+		BingoApiClient api = new BingoApiClient(new Gson(), http);
+		api.configure("token-a");
+		api.setCurrentRsn("Zezima");
+		AnvilPlugin p = new AnvilPlugin();
+		p.apiClient = api;
+		p.pushStash = stash();
+		return p;
+	}
+
+	private static String idOf(com.google.gson.JsonElement fact)
+	{
+		return fact.getAsJsonObject().get("id").getAsString();
+	}
+
+	@Test
+	public void everyFactGetsOneIdThatSurvivesARetryAndARestart() throws Exception
+	{
+		int[] code = {503};
+		List<String> bodies = new java.util.concurrent.CopyOnWriteArrayList<>();
+		AnvilPlugin p = pluginAnswering(code, bodies);
+		p.executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+		try
+		{
+			p.queueFact(fact(7), false, null);
+			p.queueFact(fact(8), false, null);
+			String id = idOf(p.factQueue.get(0));
+			assertTrue(id, id.matches("^[A-Za-z0-9_-]{8,40}$"));
+			assertTrue(!id.equals(idOf(p.factQueue.get(1))));
+
+			// The site is down: the send fails and the facts come back to the queue as they were.
+			p.flushFactQueue();
+			p.executor.submit(() -> { }).get();
+			assertEquals(1, bodies.size());
+			assertTrue(bodies.get(0), bodies.get(0).contains("\"id\":\"" + id + "\""));
+			assertEquals(2, p.factQueue.size());
+			assertEquals(0, p.factsSending.size());
+			assertEquals(id, idOf(p.factQueue.get(0)));
+
+			// Client closed and started again: the same ids come off the disk.
+			p.stashPushes().run();
+			assertEquals(0, p.factQueue.size());
+			p.restorePushes("Zezima", null);
+			assertEquals(2, p.factQueue.size());
+			assertEquals(id, idOf(p.factQueue.get(0)));
+		}
+		finally
+		{
+			p.executor.shutdownNow();
+		}
+	}
+
+	@Test
+	public void aFactOnTheWireAtCloseIsSavedAndResentOnce() throws Exception
+	{
+		int[] code = {200};
+		List<String> bodies = new java.util.concurrent.CopyOnWriteArrayList<>();
+		AnvilPlugin p = pluginAnswering(code, bodies);
+		com.google.gson.JsonObject sending = fact(7);
+		sending.addProperty("id", "wire-fact-0001");
+		p.factQueue.add(sending);
+		// Handed to a send that never answers: there is no executor, as after the plugin stopped.
+		p.flushFactQueue();
+		assertEquals(0, p.factQueue.size());
+		assertEquals(1, p.factsSending.size());
+
+		p.stashPushes().run();
+		assertEquals("nothing left in memory to go out a second time", 0, p.factsSending.size());
+		String key = PushStash.keyFor("Zezima", null);
+		PushStash.Data onDisk = DiskFiles.readJson(new Gson(), root.joinSegment("outbox").joinSegment("pushes-" + key + ".json"), PushStash.Data.class);
+		assertEquals("wire-fact-0001", idOf(onDisk.facts.get(0)));
+
+		p.executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+		try
+		{
+			p.restorePushes("Zezima", null);
+			assertEquals(1, p.factQueue.size());
+			p.flushFactQueue();
+			p.executor.submit(() -> { }).get();
+			assertEquals(1, bodies.size());
+			assertTrue(bodies.get(0), bodies.get(0).contains("\"id\":\"wire-fact-0001\""));
+			// Answered: gone from the queue, the in-flight list and the disk.
+			assertEquals(0, p.factQueue.size());
+			assertEquals(0, p.factsSending.size());
+			assertNull(stash().take(key, System.currentTimeMillis()));
+		}
+		finally
+		{
+			p.executor.shutdownNow();
+		}
+	}
+
+	@Test
+	public void factsFromAStashWrittenBeforeIdsGetOneWhenLoadedAndOneStashNeverExceedsFifty() throws Exception
+	{
+		AnvilPlugin p = pluginAnswering(new int[]{200}, new java.util.ArrayList<>());
+		String key = PushStash.keyFor("Zezima", null);
+		root.joinSegment("outbox").createDirectories();
+		root.joinSegment("outbox").joinSegment("pushes-" + key + ".json").write("{\"savedAt\":" + System.currentTimeMillis()
+			+ ",\"account\":\"" + DiskFiles.fingerprint("token-a") + "\",\"facts\":[{\"k\":\"tile\",\"t\":7,\"n\":1}]}");
+		p.executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+		try
+		{
+			p.restorePushes("Zezima", null);
+			assertEquals(1, p.factQueue.size());
+			assertEquals(7, p.factQueue.get(0).getAsJsonObject().get("t").getAsInt());
+			assertTrue(idOf(p.factQueue.get(0)).matches("^[A-Za-z0-9_-]{8,40}$"));
+		}
+		finally
+		{
+			p.executor.shutdownNow();
+		}
+
+		// A first save with nothing on disk is bounded too, newest kept.
+		PushStash.Data big = new PushStash.Data();
+		big.savedAt = 1;
+		for (int i = 1; i <= 60; i++) big.facts.add(fact(i));
+		stash().save("big", big);
+		PushStash.Data back = stash().take("big", 2);
+		assertEquals(50, back.facts.size());
+		assertEquals(11, back.facts.get(0).getAsJsonObject().get("t").getAsInt());
+	}
 }

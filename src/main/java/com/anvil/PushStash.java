@@ -109,9 +109,10 @@ final class PushStash {
 	void save(String key, Data data) {
 		var f = file(key);
 		if (f == null || data == null || data.isEmpty()) return;
-		var merged = merge(DiskFiles.readJson(gson, f, Data.class), data);
+		// Always through merge, which bounds the facts — also when nothing was saved before.
+		var old = DiskFiles.readJson(gson, f, Data.class);
 		try {
-			DiskFiles.writeAtomic(f, gson.toJson(merged));
+			DiskFiles.writeAtomic(f, gson.toJson(merge(old == null ? new Data() : old, data)));
 		} catch (IOException | RuntimeException e) {
 		}
 	}

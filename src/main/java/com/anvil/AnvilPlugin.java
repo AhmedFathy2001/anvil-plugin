@@ -262,6 +262,8 @@ public class AnvilPlugin extends Plugin {
 	volatile boolean notifyPrefsMoved;
 	/** Facts that need no screenshot, posted together a moment after the first. */
 	final JsonArray factQueue = new JsonArray();
+	/** Facts handed to a send that hasn't answered yet. Under the factQueue monitor. */
+	final JsonArray factsSending = new JsonArray();
 	CoopFingerprint factQueueCoop;
 	ScheduledFuture<?> factQueueFlush;
 	/** Facts a screenshot is being taken for, not yet credited (one dual-frame proof per burst). */
@@ -3916,6 +3918,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void queueFact(JsonObject fact, boolean shot, CoopFingerprint coop) {
+		// Its id (27 URL-safe characters of a random UUID), once and for good: the site credits an id one time (POST /api/plugin/facts), so
+		// every resend — a retry, the stash after a restart — carries this one. A fact restored from an
+		// older stash file has none yet and gets it here.
+		if (!fact.has("id")) fact.addProperty("id", UUID.randomUUID().toString().substring(9));
 		if (!execLive()) return;
 		if (shot) {
 			synchronized (factBurst) {
@@ -3959,6 +3965,7 @@ public class AnvilPlugin extends Plugin {
 		CoopFingerprint coop;
 		synchronized (factQueue) {
 			facts = PushStash.drain(factQueue);
+			factsSending.addAll(facts);
 			coop = factQueueCoop;
 			factQueueCoop = null;
 		}
@@ -3974,6 +3981,11 @@ public class AnvilPlugin extends Plugin {
 				log.info("Facts refused for good: {}", e.getMessage());
 				again = null;
 			} catch (IOException ignored) {
+			} finally {
+				// Answered, failed (back in the queue below) or thrown out of: no longer on the wire.
+				synchronized (factQueue) {
+					facts.forEach(factsSending::remove);
+				}
 			}
 			if (again == null) return;
 			synchronized (factQueue) {
@@ -5135,11 +5147,11 @@ public class AnvilPlugin extends Plugin {
 		kcPush.reset();
 		skillXpPush.reset();
 		activityPush.reset();
-		// Facts not yet sent: queued, or handed back by a failed send. One being sent right now is left
-		// out: nothing can say whether the site took it, and a fact carries no key the site could
-		// refuse a second copy by.
+		// Facts not yet answered: on the wire right now, queued, or handed back by a failed send. The
+		// one on the wire may have landed; its id makes sending it again safe.
 		synchronized (factQueue) {
-			data.facts = PushStash.drain(factQueue);
+			data.facts = PushStash.drain(factsSending);
+			data.facts.addAll(PushStash.drain(factQueue));
 			factQueueCoop = null;
 		}
 		data.account = DiskFiles.fingerprint(apiClient.playerToken);
@@ -5163,10 +5175,8 @@ public class AnvilPlugin extends Plugin {
 		// Off disk already (take deleted the file), so a client that dies after this send replays nothing.
 		// Only under the sign-in they were queued under.
 		if (DiskFiles.fingerprint(apiClient.playerToken).equals(data.account)) data.facts.forEach(f -> queueFact(f.getAsJsonObject(), false, null));
-		if (data.moments != null && !data.moments.isEmpty()) {
-			synchronized (moments) {
-				moments.restore(data.moments, t, PushStash.MAX_AGE_MS);
-			}
+		if (sizeOf(data.moments) > 0) {
+			moments.restore(data.moments, t, PushStash.MAX_AGE_MS); // takes the moments monitor itself
 			scheduleMomentPush();
 		}
 	}
