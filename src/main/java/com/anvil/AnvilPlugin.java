@@ -3958,9 +3958,8 @@ public class AnvilPlugin extends Plugin {
 		JsonArray facts;
 		CoopFingerprint coop;
 		synchronized (factQueue) {
-			facts = factQueue.deepCopy();
+			facts = PushStash.drain(factQueue);
 			coop = factQueueCoop;
-			while (factQueue.size() > 0) factQueue.remove(0);
 			factQueueCoop = null;
 		}
 		if (facts.size() == 0) return;
@@ -3993,8 +3992,7 @@ public class AnvilPlugin extends Plugin {
 		synchronized (factBurst) {
 			b = burst;
 			coop = factBurstCoop;
-			facts = factBurst.deepCopy();
-			while (factBurst.size() > 0) factBurst.remove(0);
+			facts = PushStash.drain(factBurst);
 		}
 		var cfg = pluginConfig;
 		if (b == null || facts.size() == 0 || cfg == null || cfg.event == null || cfg.team == null || cfg.player == null) return;
@@ -5131,12 +5129,20 @@ public class AnvilPlugin extends Plugin {
 		data.xp = skillXpPush.snapshot();
 		data.activity = activityPush.snapshot();
 		synchronized (moments) {
-			for (var m : moments.snapshot()) data.moments.add(PushStash.SavedMoment.of(m));
+			data.moments = moments.snapshot();
 			moments.reset();
 		}
 		kcPush.reset();
 		skillXpPush.reset();
 		activityPush.reset();
+		// Facts not yet sent: queued, or handed back by a failed send. One being sent right now is left
+		// out: nothing can say whether the site took it, and a fact carries no key the site could
+		// refuse a second copy by.
+		synchronized (factQueue) {
+			data.facts = PushStash.drain(factQueue);
+			factQueueCoop = null;
+		}
+		data.account = DiskFiles.fingerprint(apiClient.playerToken);
 		return data.isEmpty() ? null : () -> stash.save(key, data);
 	}
 
@@ -5154,11 +5160,12 @@ public class AnvilPlugin extends Plugin {
 		kcPush.restore(data.kc);
 		skillXpPush.restore(data.xp);
 		activityPush.restore(data.activity);
+		// Off disk already (take deleted the file), so a client that dies after this send replays nothing.
+		// Only under the sign-in they were queued under.
+		if (DiskFiles.fingerprint(apiClient.playerToken).equals(data.account)) data.facts.forEach(f -> queueFact(f.getAsJsonObject(), false, null));
 		if (data.moments != null && !data.moments.isEmpty()) {
-			var saved = new ArrayList<Moment>();
-			for (var m : data.moments) saved.add(m.toMoment());
 			synchronized (moments) {
-				moments.restore(saved, t, PushStash.MAX_AGE_MS);
+				moments.restore(data.moments, t, PushStash.MAX_AGE_MS);
 			}
 			scheduleMomentPush();
 		}

@@ -1,7 +1,7 @@
 package com.anvil;
 
 import lombok.*;
-import com.google.gson.Gson;
+import com.google.gson.*;
 import java.io.IOException;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
@@ -29,52 +29,19 @@ final class PushStash {
 		Map<String, Integer> kc = new HashMap<>();
 		Map<String, Integer> xp = new HashMap<>();
 		Map<String, Integer> activity = new HashMap<>();
-		List<SavedMoment> moments = new ArrayList<>();
+		/** Stored as they are: Gson fills the final fields itself, under the same names older files used. */
+		List<AnvilMoments.Moment> moments = new ArrayList<>();
+		/** Drop and kill facts (POST /api/plugin/facts) still to send, as queued. Never null. */
+		JsonArray facts = new JsonArray();
+		/** Fingerprint of the sign-in token the facts were queued under: another sign-in doesn't send them. */
+		String account;
 
 		boolean isEmpty() {
-			return empty(kc) && empty(xp) && empty(activity) && (moments == null || moments.isEmpty());
+			return empty(kc) && empty(xp) && empty(activity) && (moments == null || moments.isEmpty()) && facts.size() == 0;
 		}
 
 		static boolean empty(Map<?, ?> m) {
 			return m == null || m.isEmpty();
-		}
-	}
-
-	/** {@link AnvilMoments.Moment} as stored — a plain DTO, so nothing final needs reconstructing. */
-	static final class SavedMoment {
-		String kind;
-		Integer itemId;
-		String itemName;
-		int quantity;
-		Long valueGp;
-		String source;
-		String sourceKind;
-		Integer kc;
-		String taskName;
-		String tier;
-		long at;
-		String key;
-
-		static SavedMoment of(AnvilMoments.Moment m) {
-			var s = new SavedMoment();
-			s.kind = m.kind;
-			s.itemId = m.itemId;
-			s.itemName = m.itemName;
-			s.quantity = m.quantity;
-			s.valueGp = m.valueGp;
-			s.source = m.source;
-			s.sourceKind = m.sourceKind;
-			s.kc = m.kc;
-			s.taskName = m.taskName;
-			s.tier = m.tier;
-			s.at = m.at;
-			s.key = m.key;
-			return s;
-		}
-
-		AnvilMoments.Moment toMoment() {
-			return new AnvilMoments.Moment(kind, itemId, itemName, quantity, valueGp, source, sourceKind, kc,
-				taskName, tier, at, key);
 		}
 	}
 
@@ -98,7 +65,7 @@ final class PushStash {
 		mergeMax(out.kc, older.kc, newer.kc);
 		mergeMax(out.xp, older.xp, newer.xp);
 		mergeMax(out.activity, older.activity, newer.activity);
-		Map<String, SavedMoment> byKey = new LinkedHashMap<>();
+		Map<String, AnvilMoments.Moment> byKey = new LinkedHashMap<>();
 		for (var list : Arrays.asList(older.moments, newer.moments)) {
 			if (list != null) {
 				for (var m : list) {
@@ -107,6 +74,19 @@ final class PushStash {
 			}
 		}
 		out.moments = new ArrayList<>(byKey.values());
+		// Facts are events, not totals: both sides' in order — only the newer sign-in's when the two
+		// differ — and the oldest dropped past 50, which is what the site reads from one request.
+		out.account = newer.account;
+		if (Objects.equals(older.account, newer.account)) out.facts.addAll(older.facts);
+		out.facts.addAll(newer.facts);
+		while (out.facts.size() > 50) out.facts.remove(0);
+		return out;
+	}
+
+	/** Empty {@code queue}, returning what it held. Call with the queue's monitor held. */
+	static JsonArray drain(JsonArray queue) {
+		var out = queue.deepCopy();
+		while (queue.size() > 0) queue.remove(0);
 		return out;
 	}
 

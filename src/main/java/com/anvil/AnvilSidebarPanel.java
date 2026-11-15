@@ -868,10 +868,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** The manual route: paste the token from the site. Storing it runs the same path as Sign in. */
 	void pasteToken() {
 		if (signInInFlight) return;
-		var token = showInputDialog(this,
-			"Paste your token from anvilosrs.com (Profile → RuneLite plugin):", "Anvil", PLAIN_MESSAGE);
-		if (token == null || token.trim().isEmpty()) return;
-		setToken(token.trim());
+		// Masked: the token signs in as the member, and a stream or a screenshot must not show it.
+		var field = new JPasswordField();
+		field.addHierarchyListener(e -> invokeLater(field::requestFocusInWindow));
+		if (showConfirmDialog(this, new Object[]{"Paste your token from anvilosrs.com (Profile → RuneLite plugin):", field},
+			"Anvil", OK_CANCEL_OPTION, PLAIN_MESSAGE) != OK_OPTION) return;
+		var token = new String(field.getPassword()).trim();
+		if (token.isEmpty()) return;
+		setToken(token);
 		setSignInStatus("");
 		refreshSignInRow();
 		refresh();

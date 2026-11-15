@@ -154,4 +154,145 @@ public class DiskFilesTest
 		assertEquals(3, store.readScreenshot(all.get(0)).length);
 		assertNull(PendingSubmissionStore.retries(new Gson().fromJson("{\"retry\":[]}", com.google.gson.JsonObject.class)));
 	}
+
+	// ── Unsent facts (drop credits) across a client close ───────────────────────────────────────
+
+	private static com.google.gson.JsonObject fact(int tile)
+	{
+		return new Gson().fromJson("{\"k\":\"tile\",\"t\":" + tile + ",\"n\":1}", com.google.gson.JsonObject.class);
+	}
+
+	private PushStash stash()
+	{
+		PushStash stash = new PushStash(new Gson());
+		stash.setDir(root.joinSegment("outbox"));
+		return stash;
+	}
+
+	@Test
+	public void unsentFactsAndMomentsSurviveARestartAndAreHandedBackOnce()
+	{
+		PushStash.Data d = new PushStash.Data();
+		d.savedAt = 1_000;
+		d.account = "signin-a";
+		d.facts.add(fact(7));
+		d.facts.add(fact(8));
+		d.moments.add(new AnvilMoments.Moment("pet", 12921, "Pet snakeling", 1, 5L, "Zulrah", "npc", 44, 900, "k1"));
+		assertTrue(!d.isEmpty());
+		stash().save("char", d);
+
+		// A new client: nothing in memory, only the file.
+		PushStash.Data back = stash().take("char", 2_000);
+		assertEquals("signin-a", back.account);
+		assertEquals("[{\"k\":\"tile\",\"t\":7,\"n\":1},{\"k\":\"tile\",\"t\":8,\"n\":1}]", back.facts.toString());
+		// The moment's final fields come back as saved, with no constructor to run.
+		AnvilMoments.Moment m = back.moments.get(0);
+		assertEquals("pet", m.kind);
+		assertEquals(Integer.valueOf(12921), m.itemId);
+		assertEquals(Long.valueOf(5), m.valueGp);
+		assertEquals(Integer.valueOf(44), m.kc);
+		assertNull(m.taskName);
+		assertEquals(900, m.at);
+		assertEquals("k1", m.key);
+
+		// Taking deletes: a client that dies after the resend finds nothing to send a second time.
+		assertNull(stash().take("char", 2_000));
+	}
+
+	@Test
+	public void staleFactsAreDroppedAndAnOlderFileStillReads() throws Exception
+	{
+		PushStash.Data d = new PushStash.Data();
+		d.savedAt = 1_000;
+		d.facts.add(fact(7));
+		stash().save("char", d);
+		assertNull(stash().take("char", 1_000 + PushStash.MAX_AGE_MS + 1));
+		assertNull(stash().take("char", 1_001));
+
+		// Written by a build that knew no facts: none, not null, and its moment under the same names.
+		root.joinSegment("outbox").joinSegment("pushes-old.json").write(
+			"{\"savedAt\":5,\"kc\":{\"Zulrah\":3},\"moments\":[{\"kind\":\"death\",\"quantity\":1,\"at\":4,\"key\":\"k9\"}]}");
+		PushStash.Data old = stash().take("old", 6);
+		assertEquals(0, old.facts.size());
+		assertNull(old.account);
+		assertEquals("k9", old.moments.get(0).key);
+		assertEquals("death", old.moments.get(0).kind);
+	}
+
+	@Test
+	public void factsMergeInOrderBoundedAndNeverAcrossSignIns()
+	{
+		PushStash.Data older = new PushStash.Data();
+		older.account = "signin-a";
+		for (int i = 1; i <= 40; i++) older.facts.add(fact(i));
+		PushStash.Data newer = new PushStash.Data();
+		newer.account = "signin-a";
+		for (int i = 41; i <= 60; i++) newer.facts.add(fact(i));
+		PushStash.Data m = PushStash.merge(older, newer);
+		assertEquals(50, m.facts.size());
+		assertEquals(11, m.facts.get(0).getAsJsonObject().get("t").getAsInt());
+		assertEquals(60, m.facts.get(49).getAsJsonObject().get("t").getAsInt());
+		assertEquals("signin-a", m.account);
+
+		// Saved under another sign-in: the older facts are not carried into the newer one's file.
+		newer.account = "signin-b";
+		PushStash.Data other = PushStash.merge(older, newer);
+		assertEquals(20, other.facts.size());
+		assertEquals(41, other.facts.get(0).getAsJsonObject().get("t").getAsInt());
+		assertEquals("signin-b", other.account);
+	}
+
+	@Test
+	public void drainEmptiesTheQueueAndReturnsWhatItHeld()
+	{
+		com.google.gson.JsonArray q = new com.google.gson.JsonArray();
+		q.add(fact(1));
+		q.add(fact(2));
+		com.google.gson.JsonArray out = PushStash.drain(q);
+		assertEquals(0, q.size());
+		assertEquals(2, out.size());
+	}
+
+	@Test
+	public void pluginStashesQueuedFactsPerCharacterAndResendsOnlyUnderTheSameSignIn() throws Exception
+	{
+		Gson gson = new Gson();
+		BingoApiClient api = new BingoApiClient(gson, new okhttp3.OkHttpClient());
+		api.configure("token-a");
+		api.setCurrentRsn("Zezima");
+		AnvilPlugin p = new AnvilPlugin();
+		p.apiClient = api;
+		p.pushStash = stash();
+		p.factQueue.add(fact(7));
+
+		Runnable save = p.stashPushes();
+		assertEquals("taken out of memory, so nothing sends it as nobody after a logout", 0, p.factQueue.size());
+		save.run();
+		String key = PushStash.keyFor("Zezima", null);
+		PushStash.Data onDisk = DiskFiles.readJson(gson, root.joinSegment("outbox").joinSegment("pushes-" + key + ".json"), PushStash.Data.class);
+		assertEquals(1, onDisk.facts.size());
+		assertEquals(DiskFiles.fingerprint("token-a"), onDisk.account);
+
+		// Another sign-in on this computer logs the same character in: the facts are not sent.
+		api.configure("token-b");
+		p.restorePushes("Zezima", null);
+		assertEquals(0, p.factQueue.size());
+		assertNull("and they are gone, not waiting for a third sign-in", stash().take(key, System.currentTimeMillis()));
+
+		// The same sign-in: back in the queue (the executor, absent here, would send them).
+		api.configure("token-a");
+		p.factQueue.add(fact(9));
+		p.stashPushes().run();
+		p.executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+		try
+		{
+			p.restorePushes("Zezima", null);
+			assertEquals(1, p.factQueue.size());
+			assertEquals(9, p.factQueue.get(0).getAsJsonObject().get("t").getAsInt());
+		}
+		finally
+		{
+			p.executor.shutdownNow();
+		}
+	}
 }

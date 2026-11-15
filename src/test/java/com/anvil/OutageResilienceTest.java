@@ -273,18 +273,18 @@ public class OutageResilienceTest
 		PushStash.Data a = new PushStash.Data();
 		a.savedAt = 1;
 		a.kc.put("Zulrah", 10);
-		a.moments.add(PushStash.SavedMoment.of(new AnvilMoments.Moment("pet", null, null, 1, null, null, null, null, 1, "k1")));
+		a.moments.add(new AnvilMoments.Moment("pet", null, null, 1, null, null, null, null, 1, "k1"));
 		PushStash.Data b = new PushStash.Data();
 		b.savedAt = 2;
 		b.kc.put("Zulrah", 12);
 		b.xp.put("mining", 5);
-		b.moments.add(PushStash.SavedMoment.of(new AnvilMoments.Moment("death", null, null, 1, null, null, null, null, 2, "k2")));
+		b.moments.add(new AnvilMoments.Moment("death", null, null, 1, null, null, null, null, 2, "k2"));
 		PushStash.Data m = PushStash.merge(a, b);
 		assertEquals(2, m.savedAt);
 		assertEquals(Integer.valueOf(12), m.kc.get("Zulrah"));
 		assertEquals(Integer.valueOf(5), m.xp.get("mining"));
 		assertEquals(2, m.moments.size());
-		assertEquals("k2", m.moments.get(1).toMoment().key);
+		assertEquals("k2", m.moments.get(1).key);
 	}
 
 	@org.junit.Test

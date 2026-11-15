@@ -95,8 +95,8 @@ public final class DeviceSignIn {
 		// The address is on screen whether or not the browser opened. We can't tell the difference
 		// (see browse), and the failure mode of assuming success is a player staring at a code with
 		// nowhere to type it — while the cost of saying both is one extra clause.
-		status.accept(browserOpener.open(url) ? "Approve code " + start.user_code + " in your browser. If it didn't open: " + url
-			: "Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
+		browserOpener.open(url);
+		status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
 		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
 		var deadline = System.currentTimeMillis()
