@@ -6980,10 +6980,9 @@ public class AnvilPlugin extends Plugin {
 			}
 			// If the linked event has ended, drop it so tracking stops for the stale event.
 			if (fresh != null && eventIsOver(fresh.event)) {
-				log.info("Event '{}' ended — clearing player binding", fresh.event.name);
+				log.info("Event '{}' ended", fresh.event.name);
 				pluginConfig = null;
 				rebuildItemDropIndex();
-				cfgSet("playerToken", "");
 				return;
 			}
 			adoptTracking(fresh);
