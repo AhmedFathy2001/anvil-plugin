@@ -199,7 +199,7 @@ public class TileTracker {
 		if (isPinned(eventId, tileId)) hide(removePin(tileId));
 		else {
 			if (pins.size() >= MAX_PINS) {
-				told.accept("Anvil: you can pin 3 tiles. Unpin one first.");
+				told.accept("You can pin 3 tiles. Unpin one first.");
 				return;
 			}
 			// A done tile can't be pinned (the sidebar offers no button), so a pin that turns out done

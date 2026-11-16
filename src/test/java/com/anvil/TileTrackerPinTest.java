@@ -60,7 +60,7 @@ public class TileTrackerPinTest {
 		t.set(0, 1, true); // already pinned: nothing to say
 		assertTrue(said.isEmpty());
 		t.set(0, 9, true);
-		assertEquals(java.util.Collections.singletonList("Anvil: you can pin 3 tiles. Unpin one first."), said);
+		assertEquals(java.util.Collections.singletonList("You can pin 3 tiles. Unpin one first."), said);
 		assertEquals(TileTracker.MAX_PINS, t.pins.size());
 	}
 }

@@ -4809,7 +4809,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (drawManager == null || !execLive()) return;
 		if (startProofInFlight) {
-			sendChatMessage("Anvil: starting shot already in progress.");
+			sendChatMessage("Starting shot already in progress.");
 			return;
 		}
 
