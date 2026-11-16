@@ -335,9 +335,7 @@ final class FeedList extends JPanel {
 		h.posts = Math.max(0, h.posts - 1);
 		if (h.posts > 0) return;
 		int gen = ++h.gen;
-		var t = new Timer(SETTLE_MS, e -> settle(rowId, gen));
-		t.setRepeats(false);
-		t.start();
+		UiView.once(SETTLE_MS, e -> settle(rowId, gen));
 	}
 
 	void settle(String rowId, int gen) {

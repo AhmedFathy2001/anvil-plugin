@@ -4807,7 +4807,11 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage("No starting shot is being asked for right now.");
 			return;
 		}
-		if (drawManager == null || !execLive() || startProofInFlight) return;
+		if (drawManager == null || !execLive()) return;
+		if (startProofInFlight) {
+			sendChatMessage("Anvil: starting shot already in progress.");
+			return;
+		}
 
 		// Where this account is standing, for the drawn spot's position check. Read before anything
 		// async: by the time the frame arrives the player may have taken a step.
@@ -4818,8 +4822,7 @@ public class AnvilPlugin extends Plugin {
 		// Refuse rather than file something staff will only have to chase: standing in the wrong
 		// place or on a session too old to have flushed the hiscores are both fixable in-game, in
 		// seconds, and the message says how.
-		var blocked = StartProofRules.blockReason(
-				cfg.startProof, loginAtMs, now(), worldX, worldY);
+		var blocked = StartProofRules.blockReason(cfg.startProof, loginAtMs, now(), worldX, worldY);
 		if (blocked != null) {
 			sendChatMessage(blocked);
 			return;
@@ -4832,17 +4835,14 @@ public class AnvilPlugin extends Plugin {
 		var keyword = cfg.startProof.keyword;
 		var capturedRsn = getLocalPlayerName();
 		var capturedAt = Instant.now().toString();
-		var loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN
-				? null
-				: Instant.ofEpochMilli(loginAtMs).toString();
+		var loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN ? null : Instant.ofEpochMilli(loginAtMs).toString();
 
 		onNextFrame(image -> {
 			try {
 				var detail = keyword != null ? keyword : "";
-				if (location != null && !location.isEmpty()) detail = detail.isEmpty() ? location : detail + "  @  " + location;
-				var png = bakeCopy(image, "STARTING SHOT", detail, capturedRsn);
-				var imageUrl = apiClient.uploadImage(png, "start-proof-" + eventId + ".png");
-				apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
+				if (!empty(location)) detail = detail.isEmpty() ? location : detail + "  @  " + location;
+				var url = apiClient.uploadImage(bakeCopy(image, "STARTING SHOT", detail, capturedRsn), "start-proof-" + eventId + ".png");
+				apiClient.submitStartProof(eventId, url, keyword, capturedAt, worldX, worldY, loginAt);
 				startProofFiled = true;
 				startProofFiledAt = now();
 				sendChatMessage(Tone.DONE, "Starting shot sent. You're clear to play.");

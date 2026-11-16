@@ -1647,12 +1647,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 			// ...unless the capture refused it — standing in the wrong place, or a session too old to
 			// have flushed the hiscores. That answer arrives in chat, so the button has to come back
 			// rather than sit on "Sending..." until the next poll redraws the card.
-			var restore = new Timer(4000, ev -> {
+			UiView.once(4000, ev -> {
 				take.setText("Take starting shot");
 				take.setEnabled(true);
 			});
-			restore.setRepeats(false);
-			restore.start();
 		});
 		addAll(card, gap(6), take);
 

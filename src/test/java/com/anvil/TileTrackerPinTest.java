@@ -50,4 +50,17 @@ public class TileTrackerPinTest {
 	public void lockedTileComesDownAtOnce() {
 		assertTrue(TileTracker.letGo(pin(), TileTracker.Progress.LOCKED));
 	}
+
+	@Test
+	public void fourthPinIsRefusedWithOneChatLine() {
+		TileTracker t = new TileTracker(null, null, null);
+		java.util.List<String> said = new java.util.ArrayList<>();
+		t.setBoards(java.util.Collections::emptyList, said::add);
+		for (int id = 1; id <= TileTracker.MAX_PINS; id++) t.pins.put(id, new TileTracker.Widget(id - 1, id, (x, site) -> site));
+		t.set(0, 1, true); // already pinned: nothing to say
+		assertTrue(said.isEmpty());
+		t.set(0, 9, true);
+		assertEquals(java.util.Collections.singletonList("Anvil: you can pin 3 tiles. Unpin one first."), said);
+		assertEquals(TileTracker.MAX_PINS, t.pins.size());
+	}
 }
