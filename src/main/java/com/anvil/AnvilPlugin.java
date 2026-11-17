@@ -6688,11 +6688,11 @@ public class AnvilPlugin extends Plugin {
 		return f != null && f.getWorld() > 0;
 	}
 
-	/** Our relay is live and the player asked for the connected status on right-click. */
+	/** Our relay is live, we send through it, and the player asked for the connected status on right-click. */
 	boolean relayPresenceVisible() {
 		var p = pushSocket;
 		return p != null && p.live() && p.relayOk && config.relayWho()
-			&& config.anvilChat() != AnvilConfig.Relay.Off;
+			&& config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
 	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
@@ -9922,7 +9922,7 @@ public class AnvilPlugin extends Plugin {
 		var overChatLine = area != null && !area.isHidden() && area.getBounds().contains(mp.getX(), mp.getY());
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
-		// Available in receive-only mode too: those sockets still know who can hear Anvil chat.
+		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
 		var show = relayPresenceVisible();
 		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
