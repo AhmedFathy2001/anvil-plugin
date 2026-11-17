@@ -6698,7 +6698,12 @@ public class AnvilPlugin extends Plugin {
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
 	boolean relayConnected(String name) {
 		var who = Text.standardize(Text.removeTags(String.valueOf(name))).replaceAll("[ _-]+", " ");
-		return relayHere.contains(who) || who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
+		return relayHere.contains(who) || relaySends() && who.equals(Text.standardize(String.valueOf(getLocalPlayerName())));
+	}
+
+	/** Anvil chat sends our own lines too: only then are we shown as connected, to others and to ourselves. */
+	boolean relaySends() {
+		return config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
 	}
 
 	/** Config-poll thread only — never the client thread: it may hit disk and the network. */
@@ -6786,7 +6791,7 @@ public class AnvilPlugin extends Plugin {
 				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
 		var rows = eventId > 0 || feed || feedWatching || world > 0;
 		if (p != null) p.scope(rows && apiClient.isConfigured() && pushEnabled()
-				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
+				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "") + (relaySends() ? ":s" : "")
 				// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
 				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "@" + fcOwner() : "") : null);
 	}
@@ -6816,7 +6821,7 @@ public class AnvilPlugin extends Plugin {
 			case "look":
 				refreshLook();
 				return;
-			// Presence (relay sockets only): who else beside us has the relay on.
+			// Presence (relay sockets only): who else beside us is sending through Anvil chat.
 			case "here":
 				for (var n : m.getAsJsonArray("n")) relayHere.add(n.getAsString());
 				return;
@@ -9608,7 +9613,7 @@ public class AnvilPlugin extends Plugin {
 	final Map<String, String> eventLines = capped(50, false);
 	static final Pattern LEVEL = Pattern.compile("\\s*\\(level.*$");
 
-	/** Characters beside us (our world, clan, friends chat) with Anvil chat on, as the site names them. */
+	/** Characters beside us (our world, clan, friends chat) sending through Anvil chat, as the site names them. */
 	final Set<String> relayHere = ConcurrentHashMap.newKeySet();
 	/** Where the chatbox event chat input may post, in its key's order; null until fetched. */
 	volatile JsonArray chatChans;
@@ -9650,7 +9655,7 @@ public class AnvilPlugin extends Plugin {
 	boolean relaySay(String c, String text, String to) {
 		var p = pushSocket;
 		var on = config.anvilChat();
-		if (!("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : on.compareTo(AnvilConfig.Relay.See_send) >= 0) || p == null || text.startsWith("::")) return false;
+		if (!("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : relaySends()) || p == null || text.startsWith("::")) return false;
 		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
@@ -9920,9 +9925,9 @@ public class AnvilPlugin extends Plugin {
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var mp = client.getMouseCanvasPosition();
 		var overChatLine = area != null && !area.isHidden() && area.getBounds().contains(mp.getX(), mp.getY());
-		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
+		// A player, a channel member or a chat line's name: whether they send through Anvil chat. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
-		// Available in receive-only mode too: those sockets still know who can hear Anvil chat.
+		// Available in receive-only mode too: those sockets still hear who is sending.
 		var show = relayPresenceVisible();
 		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member

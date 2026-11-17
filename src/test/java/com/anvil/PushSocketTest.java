@@ -32,6 +32,7 @@ public class PushSocketTest
 		volatile int ticketsAsked;
 		volatile boolean lastFeed;
 		volatile int lastRelay;
+		volatile boolean lastSend;
 
 		FakeApi()
 		{
@@ -39,11 +40,12 @@ public class PushSocketTest
 		}
 
 		@Override
-		PushTicket fetchPushTicket(boolean feed, boolean rows, int relay, String fc)
+		PushTicket fetchPushTicket(boolean feed, boolean rows, int relay, boolean send, String fc)
 		{
 			ticketsAsked++;
 			lastFeed = feed;
 			lastRelay = relay;
+			lastSend = send;
 			if (!ticketsAvailable)
 			{
 				return null;
@@ -149,6 +151,32 @@ public class PushSocketTest
 		settle();
 		assertFalse(api.lastFeed);
 		assertEquals(0, api.lastRelay);
+	}
+
+	@Test
+	public void sendingModeIsInTheScopeSoAModeChangeReTickets() throws Exception
+	{
+		// "See others": the relay is on, but the ticket is not asked as a sender.
+		push.scope("0:0:r:c302#77@~");
+		settle();
+		assertEquals(302, api.lastRelay);
+		assertFalse(api.lastSend);
+		assertEquals(1, api.ticketsAsked);
+
+		// "See + send": the same world and character, only ":s" more: a new ticket, asked as a sender.
+		push.scope("0:0:r:s:c302#77@~");
+		settle();
+		assertTrue("the receive-only socket is closed", api.opened.get(0).closed);
+		assertEquals(2, api.ticketsAsked);
+		assertEquals(302, api.lastRelay);
+		assertTrue(api.lastSend);
+
+		// Back to receiving only: re-ticketed again, no longer a sender.
+		push.scope("0:0:r:c302#77@~");
+		settle();
+		assertTrue(api.opened.get(1).closed);
+		assertEquals(3, api.ticketsAsked);
+		assertFalse(api.lastSend);
 	}
 
 	@Test
