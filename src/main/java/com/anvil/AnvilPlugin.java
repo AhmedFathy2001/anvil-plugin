@@ -1857,6 +1857,8 @@ public class AnvilPlugin extends Plugin {
 	void onWorldChanged(WorldChanged event) {
 		stampWorld();
 		markSeasonalWorld();
+		// Whether this world counts on a board (quiet) is the site's answer for the world just stamped.
+		submit(() -> safely("refreshConfig", this::refreshConfig));
 		// Hopping between the main game and a separate save swaps the whole stat table: baseline
 		// again, or one character's levels would read as the other's level-ups.
 		var realm = EnumSet.noneOf(WorldType.class);
@@ -2156,7 +2158,10 @@ public class AnvilPlugin extends Plugin {
 		// The chatbox went transparent or opaque: event chat lines take that surface's colours.
 		if (event.getVarbitId() == VarbitID.CHATBOX_TRANSPARENCY && !eventNodes.isEmpty()) {
 			opaqueChatbox();
-			eventNodes.forEach((n, p) -> n.setValue(eventText(p)));
+			eventNodes.forEach((id, p) -> {
+				var n = client.getMessages().get(id);
+				if (n != null) n.setValue(eventText(p));
+			});
 			client.refreshChat();
 		}
 	}
@@ -3342,6 +3347,8 @@ public class AnvilPlugin extends Plugin {
 		// On a game-mode world the site turns the game's announcements into relic/area/task posts.
 		if (ct == GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
 		if (ct == GAMEMESSAGE || ct == SPAM || ct == TRADE) watchLine(plain);
+		// A death with no ActorDeath behind it (doomed in the Colosseum) still prints the game's own line.
+		if (ct == GAMEMESSAGE && plain.equals("Oh dear, you are dead!") && now() - ownDeathAt > 15_000) ownDeath();
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
@@ -4774,6 +4781,7 @@ public class AnvilPlugin extends Plugin {
 				&& sp.drawn
 				&& sp.needsUpload
 				&& !startProofFiled
+				&& !cfg.quiet
 				&& cfg.event != null
 				&& AnvilOverlay.isEventActive(cfg.event);
 	}
@@ -5574,15 +5582,19 @@ public class AnvilPlugin extends Plugin {
 				if (t.partOf != null) {
 					// A combo's part: progress on the combo, not a tile complete (no banner).
 					onTileConfirmedDone(t.partOf);
-					sendChatMessage(Tone.DONE, "Combo part done: " + t.label + "!");
+					// The combo finished with it: its own "Tile complete" line says so, once.
+					if (!doneNow.contains(t.partOf)) sendChatMessage(Tone.DONE, "Combo part done: " + t.label + "!");
 				} else if (!locallyShownTiles.contains(t.tileId)) newlyDone.add(t);
 			}
 		}
 		if (anyDone && sidebarPanel != null) invokeLater(sidebarPanel::tileCompleted);
-		if (newlyDone.isEmpty() || !config.teamCompletionBanner()) return;
+		if (newlyDone.isEmpty() || !config.teamCompletionBanner() || cfg.quiet) return;
 		// Banner only the hardest (most points) tile this poll to avoid a burst of banners.
-		var hardest = max(newlyDone, Comparator.comparingInt(t -> t.points));
-		if (clogBanner.show("Anvil Bingo", "Tile complete!", hardest.label)) playBannerSound();
+		// A combo whose part this client just bannered ("Tile complete!" on the drop) has had its popup.
+		Set<Integer> shown = new HashSet<>();
+		for (var t : cfg.completedTiles) if (t.partOf != null && locallyShownTiles.contains(t.tileId)) shown.add(t.partOf);
+		newlyDone.stream().filter(t -> !shown.contains(t.tileId)).max(Comparator.comparingInt(t -> t.points))
+			.ifPresent(t -> { if (clogBanner.show("Anvil Bingo", "Tile complete!", t.label)) playBannerSound(); });
 		// A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
@@ -6194,7 +6206,10 @@ public class AnvilPlugin extends Plugin {
 			pmShown[i] = !w.isHidden() && !empty(t);
 			pmX[i] = w.getOriginalX();
 			pmW[i] = w.getOriginalWidth();
+			// A record counts only for the line it was made for: the widgets are reused line to line, and a
+			// "From" line's message can land exactly where a "To" line's was moved to (it then stayed under the name).
 			var rec = pmRoom.get(w);
+			if (rec != null && rec[2] != Text.removeTags(String.valueOf(t)).hashCode()) rec = null;
 			pmRecX[i] = rec == null ? Integer.MIN_VALUE : rec[0];
 			pmRecW[i] = rec == null ? Integer.MIN_VALUE : rec[1];
 		}
@@ -6237,7 +6252,7 @@ public class AnvilPlugin extends Plugin {
 				w.setOriginalX(pmX[i]);
 				w.setOriginalWidth(pmW[i]);
 				w.revalidate();
-				pmRoom.put(w, new int[]{pmRecX[i], pmRecW[i]});
+				pmRoom.put(w, new int[]{pmRecX[i], pmRecW[i], Text.removeTags(String.valueOf(w.getText())).hashCode()});
 			}
 		}
 	}
@@ -7912,13 +7927,47 @@ public class AnvilPlugin extends Plugin {
 
 	/** The suppression reason for the shared config gates, or null when tracking is live. */
 	String trackingGateReason() {
-		return pluginConfig == null ? "no event config" : !pluginConfig.live() ? "no live board" : null;
+		var c = pluginConfig;
+		return c == null ? "no event config" : !c.live() ? "no live board" : c.quiet ? "world not counted" : null;
 	}
 
 	/* -------------------------------------------------------------- */
  /* Clan notifications — deaths, rare drops, pets (posted to Discord */
  /* via the site, independent of bingo state).                     */
  /* -------------------------------------------------------------- */
+	/** When our own death was last handled, so the chat line below never counts the same one twice. */
+	long ownDeathAt;
+
+	/**
+	 * Our own death: LMS placement, the recap counter, the clan feed and the deaths channel. From
+	 * ActorDeath, or from "Oh dear, you are dead!" for a scripted death that fires none (the
+	 * Colosseum's doom).
+	 */
+	void ownDeath() {
+		ownDeathAt = now();
+		// LMS: dying while the BR HUD reads N survivors means we placed Nth. Record before
+		// the notification gates — placement tracking is independent of death notifications.
+		// A counter never read (0) is an unknown place, not 2nd: guessing 2nd credited top-2
+		// tiles for deaths that could have been anywhere in the game.
+		if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) recordLmsPlacement(Math.max(lmsSurvivors, 2));
+		// Recap counter — count the death for the "Wipe Magnet" superlative even if death
+		// notifications are off (still gated on an active event inside).
+		recordEventDeath();
+		// Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
+		// the boss everyone is racing that week is the story; dying in general is a number.
+		// Recorded here rather than beside the post below, so the drops channel being off can't
+		// erase it.
+		var death = resolveDeathSource();
+		recordDeathMoment(death);
+		var me = me();
+		if (me == null || !me.deaths) return;
+		// The site words the post (the person's death message, or now and then a fun one).
+		var facts = facts("death")
+				.put("source", death.source).put("sourceKind", death.sourceKind);
+		if (death.pile > 0) facts.put("pile", death.pile);
+		captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
+	}
+
 	@Subscribe
 	void onActorDeath(ActorDeath event) {
 		// Runs on the client thread — keep this cheap: a reference check + (optionally) a frame
@@ -7940,27 +7989,7 @@ public class AnvilPlugin extends Plugin {
 
 		// Our own death → deaths channel.
 		if (actor == client.getLocalPlayer()) {
-			// LMS: dying while the BR HUD reads N survivors means we placed Nth. Record before
-			// the notification gates — placement tracking is independent of death notifications.
-			// A counter never read (0) is an unknown place, not 2nd: guessing 2nd credited top-2
-			// tiles for deaths that could have been anywhere in the game.
-			if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) recordLmsPlacement(Math.max(lmsSurvivors, 2));
-			// Recap counter — count the death for the "Wipe Magnet" superlative even if death
-			// notifications are off (still gated on an active event inside).
-			recordEventDeath();
-			// Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
-			// the boss everyone is racing that week is the story; dying in general is a number.
-			// Recorded here rather than beside the post below, so the drops channel being off can't
-			// erase it.
-			var death = resolveDeathSource();
-			recordDeathMoment(death);
-			var me = me();
-			if (me == null || !me.deaths) return;
-			// The site words the post (the person's death message, or now and then a fun one).
-			var facts = facts("death")
-					.put("source", death.source).put("sourceKind", death.sourceKind);
-			if (death.pile > 0) facts.put("pile", death.pile);
-			captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
+			ownDeath();
 			return;
 		}
 
@@ -9584,10 +9613,13 @@ public class AnvilPlugin extends Plugin {
 	// text — never in the name, which the game's own menu options and clan rank icon read. Nothing about
 	// who is around is ever sent.
 
-	/** Client thread: others' public/clan lines the game showed in the last 10 s, by relayKey. */
-	final Map<String, MessageNode> relaySeen = new HashMap<>();
-	/** Client thread: lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
-	final Map<String, MessageNode> relayNodes = capped(50, false);
+	// Lines are remembered by MESSAGE ID, never by MessageNode: the game keeps 100 lines per chat type
+	// and reuses the oldest node for the next line (with a new id), so a node held here would later be
+	// some stranger's line wearing our icon.
+	/** Client thread: others' public/clan lines the game showed in the last 10 s, by relayKey: {id, seconds}. */
+	final Map<String, int[]> relaySeen = new HashMap<>();
+	/** Client thread: ids of lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
+	final Map<String, Integer> relayNodes = capped(50, false);
 	static final Set<ChatMessageType> RELAYED = EnumSet.of(PUBLICCHAT, MODCHAT, CLAN_CHAT, CLAN_GUEST_CHAT, FRIENDSCHAT, PRIVATECHAT, PRIVATECHATOUT);
 
 	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
@@ -9646,7 +9678,7 @@ public class AnvilPlugin extends Plugin {
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
 		// A line we added ourselves is never "the game's copy" of anything.
-		if (!RELAYED.contains(ct) || e.getName() == null || injecting || relayNodes.containsValue(e.getMessageNode())) return;
+		if (!RELAYED.contains(ct) || e.getName() == null || injecting) return;
 		var name = Text.removeTags(e.getName());
 		var text = Text.removeTags(e.getMessage());
 		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || ct == PRIVATECHATOUT ? "pm" : "public";
@@ -9657,25 +9689,27 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		var key = c + relayKey(name, text);
-		var ours = relayNodes.remove(key);
-		if (ours != null) {
-			// The game's copy came after ours after all: one line, the game's, with the icon.
+		var id = relayNodes.remove(key);
+		var ours = id == null ? null : client.getMessages().get(id);
+		var now = (int) (now() / 1000);
+		// The game's copy came just after ours after all: one line, the game's, with the icon. (Ours from
+		// longer ago was another line: the same words said again.)
+		if (ours != null && now - ours.getTimestamp() <= 10) {
 			client.getChatLineMap().get(ours.getType().getType()).removeMessageNode(ours);
 			relayMark(e.getMessageNode(), "");
 			return;
 		}
-		var now = (int) (now() / 1000);
-		relaySeen.values().removeIf(n -> now - n.getTimestamp() > 10);
-		relaySeen.put(key, e.getMessageNode());
+		relaySeen.values().removeIf(n -> now - n[1] > 10);
+		relaySeen.put(key, new int[]{e.getMessageNode().getId(), now});
 	}
 
 	/** Client thread: game lines the relay also brought; their name gets the icon as the chatbox is built. */
-	final Map<MessageNode, String> relayMarked = capped(100, false);
+	final Map<Integer, String> relayMarked = capped(100, false);
 
 	/** Mark a line for the Anvil icon after its name, and {@code icon} (an account type) before it. */
 	void relayMark(MessageNode n, String icon) {
 		if (n == null) return;
-		relayMarked.put(n, icon);
+		relayMarked.put(n.getId(), icon);
 		client.refreshChat();
 	}
 
@@ -9688,8 +9722,8 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe(priority = -1)
 	void onScriptCallbackEvent(ScriptCallbackEvent e) {
 		if (relayMarked.isEmpty() || !"chatMessageBuilding".equals(e.getEventName())) return;
-		var node = client.getMessages().get(client.getIntStack()[client.getIntStackSize() - 1]);
-		var icon = node == null ? null : relayMarked.get(node);
+		var node = client.getIntStack()[client.getIntStackSize() - 1];
+		var icon = relayMarked.get(node);
 		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
@@ -9702,7 +9736,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
-	final Map<MessageNode, String> relayRank = capped(50, false);
+	final Map<Integer, String> relayRank = capped(50, false);
 
 	/**
 	 * Enter on public chat: the line goes out now, read as typed (never changed or held: the game sends
@@ -9747,8 +9781,9 @@ public class AnvilPlugin extends Plugin {
 		var c = m.get("c").getAsString();
 		var key = c + relayKey(n, m.get("x").getAsString());
 		var seen = relaySeen.remove(key);
-		if (seen != null) {
-			relayMark(seen, "");
+		var game = seen == null ? null : client.getMessages().get(seen[0]);
+		if (game != null) {
+			relayMark(game, "");
 			return;
 		}
 		if (client.getIgnoreContainer().findByName(n) != null) return;
@@ -9803,8 +9838,8 @@ public class AnvilPlugin extends Plugin {
 			// The name stays the plain one: RuneLite's channel plugin finds the sender's rank by it, and the
 			// icons go on as the chatbox builds the line (onScriptCallbackEvent).
 			var node = client.addChatMessage(type, shown, x, from);
-			relayNodes.put(key, node);
-			if (rank != null) relayRank.put(node, rank);
+			relayNodes.put(key, node.getId());
+			if (rank != null) relayRank.put(node.getId(), rank);
 			relayMark(node, icon);
 		} finally {
 			injecting = false;
@@ -9842,12 +9877,12 @@ public class AnvilPlugin extends Plugin {
 			opaqueChatbox();
 			var text = eventText(p);
 			eventLines.put(Text.removeTags(text), feed[1] + ":" + feed[2]);
-			eventNodes.put(client.addChatMessage(GAMEMESSAGE, "", text, null), p);
+			eventNodes.put(client.addChatMessage(GAMEMESSAGE, "", text, null).getId(), p);
 		});
 	}
 
 	/** Client thread: event chat lines in the chatbox, as {tag, name, message, channel}, recoloured with the chatbox. */
-	final Map<MessageNode, String[]> eventNodes = capped(50, false);
+	final Map<Integer, String[]> eventNodes = capped(50, false);
 	/** Tag, Team, All, Announcements: on the opaque chatbox, then the transparent one. */
 	static final String[][] EVENT_COLS = {{"b04e00", "0a6b0a", "00666e", "7a4800"}, {"ff9b30", "72e872", "3ddbe0", "ffc34d"}};
 

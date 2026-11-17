@@ -98,6 +98,7 @@ final class Ui {
 	 */
 	static <T extends JComponent> T capH(T c) {
 		c.setMaximumSize(new Dimension(Integer.MAX_VALUE, c.getPreferredSize().height));
+		c.putClientProperty("capH", true);
 		return c;
 	}
 

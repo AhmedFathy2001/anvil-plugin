@@ -216,6 +216,30 @@ public class RuleEngineTest
 	}
 
 	@Test
+	public void aSightingNoRuleTookDoesNotSwallowTheRealLoot()
+	{
+		// A new log slot's line arrives as "clog" loot named after the item, ahead of the kill's own loot.
+		RuleEngine.Table t = table();
+		RuleEngine.DropRule r = drop(20, 0, 1, true, "Zulrah unique");
+		r.npcs = Collections.singletonList("Zulrah");
+		addDrop(t, 100, r);
+		RuleEngine e = engine(t);
+		assertFalse(e.loot("Magic fang", "clog", Collections.singletonList(new int[]{100, 1}), null, null, 0).shot);
+		assertTrue(e.loot("Zulrah", "npc", Collections.singletonList(new int[]{100, 1}), null, null, 600).shot);
+	}
+
+	@Test
+	public void theRestOfAStackStillCountsAfterItsLogLineCountedOne()
+	{
+		// "New collection log item: Demon tear" counts 1; the loot (the stack less that one) lands a second later.
+		RuleEngine.Table t = table();
+		addDrop(t, 100, drop(20, 0, 500, true, "Demon tears"));
+		RuleEngine e = engine(t);
+		assertEquals(Long.valueOf(1), e.loot("Demon tear", "clog", Collections.singletonList(new int[]{100, 1}), null, null, 0).raised.get(20));
+		assertEquals(Long.valueOf(450), e.loot("Doom of Mokhaiotl", "event", Collections.singletonList(new int[]{100, 449}), null, null, 1000).raised.get(20));
+	}
+
+	@Test
 	public void simpleDropCreditsSaysToastsAndDedupsWithinWindow()
 	{
 		RuleEngine.Table t = simpleZulrahDrop();

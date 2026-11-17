@@ -201,8 +201,12 @@ final class RuleEngine {
 		for (int[] it : items) {
 			var rules = t.drops.get(String.valueOf(it[0]));
 			if (rules == null) continue;
-			var last = seenItems.put(it[0], now);
-			if (last != null && now - last < DEDUP_MS) continue;
+			// Marked seen only once a rule takes it (below), and never by a new log slot's "clog" line: that
+			// line counts one of the item ahead of the kill's own loot, which must still land (the fang a
+			// source-limited tile refused under the line; the other 449 of a 450 stack).
+			var clog = "clog".equals(kind);
+			var last = seenItems.get(it[0]);
+			if (!clog && last != null && now - last < DEDUP_MS) continue;
 			var any = false;
 			for (var r : rules) {
 				if (!sourceOk(r, source, kind) || (r.simple && r.have >= r.of)) continue;
@@ -215,6 +219,7 @@ final class RuleEngine {
 				out.toasts.add(snap(r));
 			}
 			if (any) {
+				if (!clog) seenItems.put(it[0], now);
 				var pair = new JsonArray();
 				pair.add(it[0]);
 				pair.add(it[1]);

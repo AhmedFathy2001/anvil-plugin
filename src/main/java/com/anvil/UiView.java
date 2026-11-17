@@ -350,6 +350,7 @@ final class UiView extends JPanel {
 	static void replace(JPanel holder, Component c) {
 		holder.removeAll();
 		holder.add(c, CENTER);
+		growCappedAncestors(c); // new content may be taller than a capped card around it was built for
 		holder.revalidate();
 		holder.repaint();
 	}
@@ -381,10 +382,11 @@ final class UiView extends JPanel {
 				host.clan(str(a, "slug"));
 				break;
 			case "load":
-				openPanes.clear();
+				var busy = slots.get(place);
+				// A load into a plain slot (a card's "Show more") leaves the page's open panes alone.
+				if (busy == null || busy.first != null) openPanes.clear();
 				var open = obj(a, "open");
 				if (open != null) openPanes.put(str(open, "into"), str(open, "pane"));
-				var busy = slots.get(place);
 				if (busy != null && busy.first == null) {
 					// The click registers at once: the slot says it is loading until the answer lands.
 					drawn.remove(into);
@@ -837,9 +839,11 @@ final class UiView extends JPanel {
 	 */
 	static void growCappedAncestors(Component c) {
 		for (Container p = c.getParent(); p instanceof JComponent && !(p instanceof JViewport); p = p.getParent()) {
-			var max = p.getMaximumSize();
+			// Only what capH capped: pinning a plain column to today's height cut off whatever it grew by later
+			// (a proofs card lost its last rows and "Show more" once the remaining thumbnails arrived).
+			if (((JComponent) p).getClientProperty("capH") == null) continue;
 			int want = p.getPreferredSize().height;
-			if (max.width == Integer.MAX_VALUE && max.height < want) ((JComponent) p).setMaximumSize(new Dimension(Integer.MAX_VALUE, want));
+			if (p.getMaximumSize().height < want) ((JComponent) p).setMaximumSize(new Dimension(Integer.MAX_VALUE, want));
 		}
 	}
 

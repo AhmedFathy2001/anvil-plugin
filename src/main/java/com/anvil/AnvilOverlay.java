@@ -41,7 +41,7 @@ public class AnvilOverlay extends OverlayPanel {
 		if (!config.showOverlay() || AnvilPlugin.capturing) return null;
 
 		var pluginConfig = plugin.getPluginConfig();
-		if (pluginConfig == null || pluginConfig.event == null) return null;
+		if (pluginConfig == null || pluginConfig.event == null || pluginConfig.quiet) return null;
 		if (pluginConfig != builtFor) build(pluginConfig);
 
 		// Don't show overlay if event isn't active

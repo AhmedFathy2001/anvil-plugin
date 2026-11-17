@@ -272,6 +272,8 @@ public class PluginConfigResponse {
 	 * re-checking its own on the site. 0 / null = the main-game gate. Null on the main game.
 	 */
 	ModeThresholds modeThresholds;
+	/** A game-mode world none of the live boards count: no tile tracking, no tile popups. */
+	boolean quiet;
 
 	static class ModeThresholds {
 		LevelRules levelRules;
