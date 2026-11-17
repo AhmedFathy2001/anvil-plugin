@@ -74,7 +74,7 @@ final class PushSocket extends WebSocketListener {
 
 	void connect() {
 		// Flags after the board and team (AnvilPlugin.syncPush): ":f" chat-feed lines, ":r" panel rows,
-		// ":s" Anvil chat sends our lines too, ":c<world>" the chat relay on that world.
+		// ":c<world>" the chat relay on that world.
 		String s;
 		synchronized (this) {
 			pending = null;
@@ -89,7 +89,7 @@ final class PushSocket extends WebSocketListener {
 		// A blocking HTTP call: on OkHttp's pool, not the one executor thread every push and flush shares
 		// (a hung site would stall all of it for the read timeout, on every retry).
 		try {
-			api.interactiveExecutor().execute(() -> withTicket(s, api.fetchPushTicket(feed, true, relay, s != null && s.contains(":s"), fc)));
+			api.interactiveExecutor().execute(() -> withTicket(s, api.fetchPushTicket(feed, true, relay, fc)));
 		} catch (RejectedExecutionException e) {
 			// shutting down
 		}
