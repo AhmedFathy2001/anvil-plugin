@@ -1768,7 +1768,8 @@ public class AnvilPlugin extends Plugin {
 		// Supporter names changed: strip what's painted and paint again now (chat, member and friends lists,
 		// interfaces), not on the game's next rebuild of each.
 		if ("chatNames".equals(key) || "menuNames".equals(key)) {
-			repaintFlair();
+			// The chat setting only governs the chatbox: leave the lists and interfaces alone (they flickered).
+			repaintFlair("chatNames".equals(key));
 			return;
 		}
 		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
@@ -5893,12 +5894,17 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void repaintFlair() {
+		repaintFlair(false);
+	}
+
+	void repaintFlair(boolean chatOnly) {
 		// The chat input and the side lists were drawn before the list changed and are only redrawn
 		// on the game's next rebuild: paint them now. The panel's "Tracking" name too.
 		clientThread.invokeLater(() -> {
 			// Visible widgets may still contain our old tags/star. Ask the game for clean source rows
 			// first; painting the new style on top caused the transient double-star and bad widths.
-			unflairAll();
+			if (chatOnly) unflairChat();
+			else unflairAll();
 			// Tenure icons register asynchronously: ask for every style's now, so lines don't go out bare.
 			// Every colour a moving gradient star can take (a Legend's glint frames register as they come),
 			// so lines don't go out without one.
@@ -5911,8 +5917,9 @@ public class AnvilPlugin extends Plugin {
 			// scripts have restored both the plain text and its original sender/message geometry.
 			clientThread.invokeLater(() -> {
 				flairChatInput();
-				flairNameLists();
 				flairChatbox();
+				if (chatOnly) return;
+				flairNameLists();
 				refreshClanTitleWidgets();
 				for (int r : FLAIR_ROOTS) flairInterface(r);
 			});
