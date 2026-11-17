@@ -9850,9 +9850,6 @@ public class AnvilPlugin extends Plugin {
 		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
-		// TEMP (remove before release): what the chatbox hands us, for our own real line and a relayed one.
-		int osz = client.getObjectStackSize(), isz = client.getIntStackSize();
-		log.info("relay-name id={} relayed={} objs={} ints={}", node, relayRank.containsKey(node), java.util.Arrays.toString(java.util.Arrays.copyOfRange(os, Math.max(0, osz - 7), osz)), java.util.Arrays.toString(java.util.Arrays.copyOfRange(client.getIntStack(), Math.max(0, isz - 10), isz)));
 		os[at] = relayName(String.valueOf(os[at]), null, icon) + relayIcon();
 	}
 
@@ -9943,7 +9940,6 @@ public class AnvilPlugin extends Plugin {
 				var title = cs == null ? null : cs.titleForRank(member.getRank());
 				int r = title == null ? -1 : chatIconManager.getIconNumber(title);
 				rank = r < 0 ? "" : "<img=" + r + ">";
-				log.info("relay-rank n={} rank={} title={} r={}", n, member.getRank(), title == null ? null : title.getId() + ":" + title.getName(), r); // TEMP
 			}
 		} else if ("pm".equals(c)) {
 			// As the game would: Private On (anyone), Friends (a friend), Off (nobody); no filter read, nobody.
