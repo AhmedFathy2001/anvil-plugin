@@ -9764,12 +9764,19 @@ public class AnvilPlugin extends Plugin {
 		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
-		var name = String.valueOf(os[at]);
-		// A clan line we added has no rank to the game, which draws its default orb: the sender's real
-		// rank icon (from our own member list) in its place, or none.
-		var rank = relayRank.get(node);
-		if (rank != null) name = name.replaceFirst("^<img=\\d+>", rank);
-		os[at] = name.replaceFirst("^((?:<img=\\d+>)*)", "$1" + icon) + relayIcon();
+		os[at] = relayName(String.valueOf(os[at]), relayRank.get(node), icon) + relayIcon();
+	}
+
+	/**
+	 * A relayed line's name as the chatbox draws it. A clan line we added has no rank to the game, which
+	 * draws its default orb: {@code rank} (the sender's real rank icon, "" for none, null to leave it)
+	 * goes in its place, and {@code icon} (an account type) before the name. The name may already be
+	 * wrapped in a colour tag by the player's chat colours, so leading tags are stepped over: anchored
+	 * on a bare {@code <img>}, a coloured name kept the default orb and read as a guest.
+	 */
+	static String relayName(String name, String rank, String icon) {
+		if (rank != null) name = name.replaceFirst("^((?:<(?!img=)[^>]*>)*)<img=\\d+>", "$1" + java.util.regex.Matcher.quoteReplacement(rank));
+		return name.replaceFirst("^((?:<[^>]*>)*)", "$1" + java.util.regex.Matcher.quoteReplacement(icon));
 	}
 
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
