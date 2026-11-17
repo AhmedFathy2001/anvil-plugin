@@ -1154,6 +1154,7 @@ public class AnvilPlugin extends Plugin {
 				client, InterfaceID.Collection.UNIVERSE, InterfaceID.Collection.SEARCH_TOGGLE,
 				109 /* CLOG_BUTTON_OFFSET */, 33 /* CLOG_BUTTON_NEAR_OFFSET */, "Anvil", "Sync to",
 				() -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
+		clogSyncButton.frameId = InterfaceID.Collection.FRAME;
 		clanSyncButton = new HeaderButton(
 				client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE,
 				33 /* CLAN_BUTTON_OFFSET */, "Anvil", "Sync roster to",
@@ -9975,7 +9976,13 @@ public class AnvilPlugin extends Plugin {
 			break;
 		}
 		for (var en : e.getMenuEntries()) {
-			if (en.getParam1() != InterfaceID.Chatbox.CHAT_CLAN) continue;
+			int on = en.getParam1();
+			// A log too narrow for the title-bar button: the same action on its menu button's right-click.
+			if (clogSyncButton.tucked && (on == InterfaceID.Collection.BURGER_BTN_MENU || on == InterfaceID.Collection.BURGER_MENU_FRAME)) {
+				menuEntry("Sync to", HeaderButton.NAME, this::syncProfileNow);
+				return;
+			}
+			if (on != InterfaceID.Chatbox.CHAT_CLAN) continue;
 			for (int i = chans == null ? -1 : chans.size() - 1; i >= 0; i--) {
 				int at = i;
 				menuEntry("Event chat:", chans.get(i).getAsJsonObject().get("l").getAsString(), () -> openEventChat(at, ""));
