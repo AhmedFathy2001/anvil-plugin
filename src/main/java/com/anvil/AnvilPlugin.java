@@ -6627,6 +6627,14 @@ public class AnvilPlugin extends Plugin {
 	void unflairAll() {
 		unflairChat();
 		unflairInterfaces();
+		// The side lists are only rebuilt by the game when they change: left alone, colours switched off
+		// stayed on the friends chat list until it was reopened. Back to the plain name, if it is still theirs.
+		for (var row : nameListPlain.entrySet()) {
+			var w = row.getKey();
+			if (w != null && Text.removeTags(String.valueOf(w.getText())).equals(Text.removeTags(row.getValue()))) w.setText(row.getValue());
+		}
+		nameListPlain.clear();
+		nameListMoving.clear();
 		unflairClanTitleWidgets();
 	}
 
@@ -6666,6 +6674,8 @@ public class AnvilPlugin extends Plugin {
 			InterfaceID.ClansGuestSidepanel.PLAYERLIST, InterfaceID.Friends.LIST};
 	/** Per visible moving list row: its tag-free source and the animated text currently installed. */
 	final Map<Widget, String[]> nameListMoving = new WeakHashMap<>();
+	/** Every list row we painted, and the name the game wrote there. */
+	final Map<Widget, String> nameListPlain = new WeakHashMap<>();
 	long nameListFrame = Long.MIN_VALUE;
 
 	/**
@@ -6697,6 +6707,7 @@ public class AnvilPlugin extends Plugin {
 				var painted = chatFlair.decorateReadable(text, null, shift, false);
 				if (painted != null) {
 					w.setText(painted);
+					nameListPlain.put(w, text);
 					if (chatFlair.movingDecoratedName(text)) nameListMoving.put(w, new String[]{text, painted});
 				}
 			}
