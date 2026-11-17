@@ -1808,16 +1808,10 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	void onWidgetLoaded(WidgetLoaded event) {
 		int g = event.getGroupId();
-		int flairRoot = flairInterfaceRoot(g);
-		// Names and dynamic rows are populated just after the group itself appears.
-		if (flairRoot != -1 && menusFlair()) clientThread.invokeLater(() -> flairInterface(flairRoot));
-		// The clan window. Its header is where other plugins put buttons, and ours goes
-		// beside it — placed against whatever is already there rather than at a fixed offset.
-		//
-		// Deferred a tick: the group has loaded, but the header's children (including other plugins'
-		// buttons, which is the whole thing we measure against) are not necessarily built yet.
-		if (g == InterfaceID.CLANS_INFO && clanSyncButton != null) clientThread.invokeLater(() -> clanSyncButton.render());
-		if (g == InterfaceID.CLANS_SIDEPANEL || g == InterfaceID.CLANS_GUEST_SIDEPANEL) clientThread.invokeLater(() -> flairClanTitleGroup(g));
+		// Names, rows and the clan window's header are filled in by scripts just after the group appears:
+		// paint before the next frame (onBeforeRender), which is after all of them and never a frame late.
+		if (flairInterfaceRoot(g) != -1 || g == InterfaceID.CLANS_SIDEPANEL || g == InterfaceID.CLANS_GUEST_SIDEPANEL) flairDue = true;
+		if (g == InterfaceID.CLANS_INFO) headerDue = true;
 		// The scroll's text child isn't populated yet on the load event — read it next tick,
 		// with a couple of retries in case the text lands late.
 		if (g == InterfaceID.QUESTSCROLL) scheduleQuestScrollRead(3);
@@ -1929,22 +1923,14 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if (id == ScriptID.COLLECTION_DRAW_LIST || id == COLLECTION_LOG_SETUP) {
+			// The title-bar button, before the next frame (onBeforeRender) rather than right here or a
+			// client tick later. A neighbouring plugin clears every dynamic child of this container before
+			// adding its own, on the setup script, each time the game redraws the log: drawing inline would
+			// depend on which plugin the event bus reaches first, and a tick later left frames without the
+			// button (it flickered). BeforeRender is after every subscriber, whatever the load order. Idempotent:
+			// render() returns on an identity scan when ours is still attached.
+			headerDue = true;
 			if (id == ScriptID.COLLECTION_DRAW_LIST) captureClogPage();
-			// A SECOND CHANCE AT THE BUTTON, and the reason it needs one: the setup script below is
-			// the only place we drew, and with WikiSync disabled nothing else touches this container
-			// — so a draw that came too early, or landed while the button was disabled in config,
-			// was the only attempt there would ever be and the bar stayed empty until the interface
-			// was rebuilt from scratch. This script runs whenever the list draws, including on every
-			// tab change, so a missing button reappears at the next thing the player does.
-			//
-			// Idempotent: render() returns immediately when ours is still attached, so the common
-			// case costs one identity scan of the container's children.
-			//
-			// On the setup script: the title-bar button, on the next client tick rather than right here.
-			// WikiSync clears every dynamic child of this container before adding its own, on this same
-			// script — so drawing inline means whether our button exists depends on which plugin the
-			// event bus reaches first. Deferring puts us after all of them, whatever the load order.
-			if (clogSyncButton != null) clientThread.invokeLater(() -> clogSyncButton.render());
 			// Opt-in until the trick has been proven on a real client: an unguarded version of this
 			// recursed through the interface scripts and crashed the game. The button asks for the
 			// same thing deliberately, which is the safe way to try it.
@@ -6321,6 +6307,19 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe
 	void onBeforeRender(BeforeRender event) {
+		if (headerDue && clanSyncButton != null) {
+			headerDue = false;
+			clogSyncButton.render();
+			clanSyncButton.render();
+		}
+		// The game rebuilt a member list (a tab switch, a sort, a join): its rows are new and plain.
+		if (flairDue || !menusOff() && nameListsRebuilt()) flairNameLists();
+		if (flairDue) {
+			flairDue = false;
+			flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
+			flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
+			for (int r : FLAIR_ROOTS) flairInterface(r);
+		}
 		flairChatInput();
 		flairChatbox();
 		flairSplitPm();
@@ -6331,6 +6330,26 @@ public class AnvilPlugin extends Plugin {
 		// A shot waiting for this frame: hide again. A chat line added the same tick (our own "counted" line)
 		// rebuilds the chatbox and shows every row, undoing the hide made when the shot was asked for.
 		if (shotsPending > 0) hideShotRows();
+	}
+
+	/** Client thread: a title-bar button, or a just-opened interface's names, to draw before the next frame. */
+	boolean headerDue, flairDue;
+	/** Client thread: each FLAIR_LISTS list's first row when we last painted it. */
+	final Widget[] listSeen = new Widget[FLAIR_LISTS.length];
+
+	Widget firstRow(int i) {
+		var list = client.getWidget(FLAIR_LISTS[i]);
+		var kids = list == null ? null : list.getChildren();
+		return kids == null || kids.length == 0 ? null : kids[0];
+	}
+
+	/**
+	 * Each frame, four reads and compares: the game makes new row widgets whenever it rebuilds a list,
+	 * and not always through a script we hear by id (a tab switch draws it from the tab's own script).
+	 */
+	boolean nameListsRebuilt() {
+		for (int i = 0; i < listSeen.length; i++) if (firstRow(i) != listSeen[i]) return true;
+		return false;
 	}
 
 	static final List<String> CLAN_BOOST_STILL = List.of("ff9a5a", "e05ad0", "7a8cff");
@@ -6498,7 +6517,8 @@ public class AnvilPlugin extends Plugin {
 		var opaque = onParchment(rootId);
 		walk(root, widget -> {
 			var text = widget.getText();
-			var painted = chatFlair.paintNames(text, opaque, shift);
+			var had = interfaceNameFlair.get(widget);
+			var painted = had != null && had.painted.equals(text) ? null : chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				widget.setText(painted);
 				interfaceNameFlair.put(widget, new Painted(text, painted, chatFlair.movingNames(text), opaque, null, null, 0));
@@ -6510,7 +6530,7 @@ public class AnvilPlugin extends Plugin {
 	void animateFlairInterfaces() {
 		if (menusOff() || interfaceNameFlair.isEmpty()) return;
 		var frame = currentChatNameFrame();
-		if (frame == interfaceNameFrame) return;
+		var move = frame != interfaceNameFrame;
 		interfaceNameFrame = frame;
 		var shift = interfaceNameShift(frame);
 		for (var it = interfaceNameFlair.entrySet().iterator(); it.hasNext(); ) {
@@ -6520,7 +6540,8 @@ public class AnvilPlugin extends Plugin {
 			if (widget == null) { it.remove(); continue; }
 			var current = widget.getText();
 			var plain = state.painted.equals(current) ? state.plain : current;
-			if (!state.moving && state.painted.equals(current)) continue;
+			// Ours and not due a new animation frame: one compare. Rewritten by the game: repaint now.
+			if (plain != current && !(move && state.moving)) continue;
 			var painted = chatFlair.paintNames(plain, state.opaque, shift);
 			if (painted == null) { it.remove(); continue; }
 			state.plain = plain;
@@ -6662,7 +6683,9 @@ public class AnvilPlugin extends Plugin {
 		Set<String> online = new HashSet<>();
 		var fl = client.getFriendContainer();
 		if (fl != null) for (var f : fl.getMembers()) if (f.getWorld() > 0) online.add(Text.standardize(f.getName()));
-		for (int id : FLAIR_LISTS) {
+		for (int i = 0; i < FLAIR_LISTS.length; i++) {
+			int id = FLAIR_LISTS[i];
+			listSeen[i] = firstRow(i);
 			var list = client.getWidget(id);
 			var rows = list == null ? null : list.getDynamicChildren();
 			if (rows == null) continue;
