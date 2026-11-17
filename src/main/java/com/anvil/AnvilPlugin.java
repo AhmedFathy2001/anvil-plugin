@@ -6356,18 +6356,23 @@ public class AnvilPlugin extends Plugin {
 		var f = client.getWidget(InterfaceID.Collection.BURGER_MENU_FRAME);
 		var kids = f == null || f.isHidden() ? null : f.getDynamicChildren();
 		if (kids == null || kids.length < 2) return;
-		var last = kids[kids.length - 1];
-		var ours = HeaderButton.NAME.equals(last.getName());
+		// Ours, if this build of the dropdown already has it (shown or put away), and the game's last row.
+		int mine = -1, base = -1;
+		for (int i = 0; i < kids.length; i++) {
+			if (kids[i] == null || kids[i].getType() != WidgetType.TEXT) continue;
+			if (HeaderButton.NAME.equals(kids[i].getName())) mine = i;
+			else base = i;
+		}
 		var want = clogSyncButton != null && clogSyncButton.tucked;
-		if (ours == want || !ours && last.getType() != WidgetType.TEXT) return;
+		if (base < 1 || want == (mine > 0 && !kids[mine].isHidden())) return;
+		var last = kids[base];
 		int h = last.getOriginalHeight(), y = last.getOriginalY();
-		if (ours) {
-			// Room in the title bar again: our two pieces go, and the frame is as tall as the game made it.
-			last.setHidden(true);
-			kids[kids.length - 2].setHidden(true);
-			last.setName("");
+		if (mine > 0) {
+			// Already built: shown while the title bar has no room for the button, put away when it does.
+			kids[mine].setHidden(!want);
+			kids[mine - 1].setHidden(!want);
 		} else {
-			var bg = kids[kids.length - 2];
+			var bg = kids[base - 1];
 			var r = f.createChild(-1, WidgetType.RECTANGLE);
 			var t = f.createChild(-1, WidgetType.TEXT);
 			for (var w : new Widget[]{r, t}) {
@@ -6394,9 +6399,11 @@ public class AnvilPlugin extends Plugin {
 			t.setOnMouseLeaveListener((JavaScriptCallback) e -> t.setTextColor(0xffffff));
 			t.revalidate();
 		}
-		f.setOriginalHeight(y + (ours ? h : 2 * h) + kids[kids.length - 2].getOriginalX());
+		// As tall as its rows: the game's own, plus ours while it shows. The margin under the last row
+		// is the one the game leaves beside them.
+		f.setOriginalHeight(y + (want ? 2 * h : h) + last.getOriginalX());
 		f.revalidate();
-		for (var k : kids) k.revalidate();
+		for (var k : f.getDynamicChildren()) k.revalidate();
 	}
 	/** Client thread: each FLAIR_LISTS list's first row when we last painted it. */
 	final Widget[] listSeen = new Widget[FLAIR_LISTS.length];
