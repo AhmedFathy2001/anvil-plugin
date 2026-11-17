@@ -9765,7 +9765,10 @@ public class AnvilPlugin extends Plugin {
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
 		// TEMP (remove before release): what the chatbox hands us for a relayed line, to place the rank icon.
-		if (relayRank.containsKey(node)) log.info("relay-name id={} [-4]={} [-3]={} [-2]={} rank={} icon={}", node, os[at - 1], os[at], String.valueOf(os[at + 1]).length(), relayRank.get(node), icon);
+		if (relayRank.containsKey(node)) {
+			int osz = client.getObjectStackSize(), isz = client.getIntStackSize();
+			log.info("relay-name id={} objs={} ints={}", node, java.util.Arrays.toString(java.util.Arrays.copyOfRange(os, Math.max(0, osz - 7), osz)), java.util.Arrays.toString(java.util.Arrays.copyOfRange(client.getIntStack(), Math.max(0, isz - 10), isz)));
+		}
 		os[at] = relayName(String.valueOf(os[at]), relayRank.get(node), icon) + relayIcon();
 	}
 
