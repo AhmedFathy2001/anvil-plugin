@@ -6342,6 +6342,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: a title-bar button, or a just-opened interface's names, to draw before the next frame. */
 	boolean headerDue, flairDue;
+	boolean clogDumped; // TEMP
 	/** Client thread: each FLAIR_LISTS list's first row when we last painted it. */
 	final Widget[] listSeen = new Widget[FLAIR_LISTS.length];
 
@@ -10036,6 +10037,18 @@ public class AnvilPlugin extends Plugin {
 		for (var en : e.getMenuEntries()) {
 			int on = en.getParam1();
 			// A log too narrow for the title-bar button: the same action on its menu button's right-click.
+			// TEMP: what the log's dropdown is made of, to add our own row to it.
+			if (on == InterfaceID.Collection.BURGER_BTN_MENU || on == InterfaceID.Collection.BURGER_MENU_FRAME || (on >>> 16) == (InterfaceID.Collection.FRAME >>> 16) && !clogDumped) {
+				clogDumped = true;
+				for (int id : new int[]{InterfaceID.Collection.BURGER_BTN_MENU, InterfaceID.Collection.BURGER_MENU_FRAME}) {
+					var w = client.getWidget(id);
+					if (w == null) continue;
+					log.info("clog-menu root id={} type={} hidden={} b={} orig={},{} {}x{} parent={}", id, w.getType(), w.isHidden(), w.getBounds(), w.getOriginalX(), w.getOriginalY(), w.getOriginalWidth(), w.getOriginalHeight(), w.getParentId());
+					for (var set : new Widget[][]{w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
+						for (var k : set == null ? new Widget[0] : set)
+							if (k != null) log.info("clog-menu   child idx={} id={} type={} text='{}' hidden={} orig={},{} {}x{} font={} col={} sprite={} actions={} listener={}", k.getIndex(), k.getId(), k.getType(), k.getText(), k.isHidden(), k.getOriginalX(), k.getOriginalY(), k.getOriginalWidth(), k.getOriginalHeight(), k.getFontId(), Integer.toHexString(k.getTextColor()), k.getSpriteId(), java.util.Arrays.toString(k.getActions()), k.hasListener());
+				}
+			}
 			if (clogSyncButton.tucked && (on == InterfaceID.Collection.BURGER_BTN_MENU || on == InterfaceID.Collection.BURGER_MENU_FRAME)) {
 				menuEntry("Sync to", HeaderButton.NAME, this::syncProfileNow);
 				return;

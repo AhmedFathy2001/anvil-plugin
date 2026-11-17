@@ -105,6 +105,7 @@ final class HeaderButton {
 	int frameId;
 	/** The title would run under the button, so it is not drawn: the caller offers the action elsewhere. */
 	boolean tucked;
+	boolean lastCover; // TEMP
 	/** Clear space kept between the title's last letter and our edge. */
 	static final int GAP = 4;
 
@@ -195,7 +196,12 @@ final class HeaderButton {
 				if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
 				var t = k.getBounds();
 				var bar = parent.getBounds();
-				return overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
+				// Not laid out yet (the window just opened or was rebuilt): stay out of the way until it is,
+				// rather than appear on the title for a moment and then leave.
+				if (t.width <= 0 || bar.width <= 0) return true;
+				var c = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
+				if (c != lastCover) org.slf4j.LoggerFactory.getLogger(HeaderButton.class).info("clog-cover {} title x={} w={} text={} barRight={} slot={}", lastCover = c, t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x); // TEMP
+				return c;
 			}
 		}
 		return false;
