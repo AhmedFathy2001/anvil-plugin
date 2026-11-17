@@ -2889,7 +2889,8 @@ public class AnvilPlugin extends Plugin {
 			connFailingSinceMs = now;
 			connLastWarnedMs = 0L;
 		}
-		if (now - connFailingSinceMs < 90_000 /* CONN_WARN_GRACE_MS */ // still inside the ride-out-blips grace window
+		// A rejected token is the site's answer, not a blip: say so at once. Only an unreachable site gets the grace window.
+		if (problem != ConnProblem.TOKEN && now - connFailingSinceMs < 90_000 /* CONN_WARN_GRACE_MS */
 				|| connLastWarnedMs != 0L && now - connLastWarnedMs < 5 * 60_000 /* CONN_WARN_INTERVAL_MS */ // throttled
 				|| !loggedIn()) return; // no chat to read yet — hold the nag until they're in-game
 		connLastWarnedMs = now;
