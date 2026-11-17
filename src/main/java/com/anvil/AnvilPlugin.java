@@ -6317,7 +6317,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe
 	void onBeforeRender(BeforeRender event) {
-		if (headerDue && clanSyncButton != null) {
+		if ((headerDue || clogSyncButton != null && clogSyncButton.unsure) && clanSyncButton != null) {
 			headerDue = false;
 			clogSyncButton.render();
 			clanSyncButton.render();

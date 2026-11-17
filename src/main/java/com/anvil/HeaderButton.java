@@ -105,6 +105,8 @@ final class HeaderButton {
 	int frameId;
 	/** The title would run under the button, so it is not drawn: the caller offers the action elsewhere. */
 	boolean tucked;
+	/** The last real reading of whether the title reaches us, and whether the latest look got one. */
+	boolean covered = true, unsure;
 	/** Clear space kept between the title's last letter and our edge. */
 	static final int GAP = 1;
 
@@ -129,7 +131,10 @@ final class HeaderButton {
 		var parent = client.getWidget(parentId);
 		var anchor = client.getWidget(anchorId);
 		tucked = false;
-		if (parent == null || anchor == null || !enabled.getAsBoolean()) return;
+		if (parent == null || anchor == null || !enabled.getAsBoolean()) {
+			unsure = false; // nothing open to measure: no reason to look again every frame
+			return;
+		}
 		int x = slotFor(parent);
 		if (tucked = covers(parent, x)) {
 			hideParts();
@@ -195,11 +200,16 @@ final class HeaderButton {
 				if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
 				var t = k.getBounds();
 				var bar = parent.getBounds();
-				// Not laid out yet (the window just opened or was rebuilt): stay out of the way until it is,
-				// rather than appear on the title for a moment and then leave.
-				// (A widget the client has not placed yet reports x = -1.)
-				if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) return true;
-				return overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
+				// Not laid out yet (the window just opened, was resized or was rebuilt; a widget the client
+				// has not placed reports x = -1): no reading to act on. Keep whatever was decided last, so
+				// the button neither appears on the title for a moment nor blinks out during a resize, and
+				// ask again next frame. Before any reading at all, that is "not shown".
+				if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) {
+					unsure = true;
+					return covered;
+				}
+				unsure = false;
+				return covered = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
 			}
 		}
 		return false;
