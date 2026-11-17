@@ -24,7 +24,9 @@ import net.runelite.api.events.*;
 import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.widgets.JavaScriptCallback;
 import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -6320,6 +6322,7 @@ public class AnvilPlugin extends Plugin {
 			clogSyncButton.render();
 			clanSyncButton.render();
 		}
+		clogMenuRow();
 		// The game rebuilt a member list (a tab switch, a sort, a join): its rows are new and plain.
 		if (flairDue || !menusOff() && nameListsRebuilt()) flairNameLists();
 		if (flairDue) {
@@ -6342,7 +6345,59 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: a title-bar button, or a just-opened interface's names, to draw before the next frame. */
 	boolean headerDue, flairDue;
-	boolean clogDumped; // TEMP
+
+	/**
+	 * Client thread, each frame the collection log is open: while the log is too narrow for the title-bar
+	 * button, the same action as a third row of the log's own dropdown ("View Log", "Overview", "Anvil"),
+	 * shaped after the row above it. The game rebuilds the dropdown when it opens, so the row is put back
+	 * whenever it is missing; with room in the title bar again it is taken out.
+	 */
+	void clogMenuRow() {
+		var f = client.getWidget(InterfaceID.Collection.BURGER_MENU_FRAME);
+		var kids = f == null || f.isHidden() ? null : f.getDynamicChildren();
+		if (kids == null || kids.length < 2) return;
+		var last = kids[kids.length - 1];
+		var ours = HeaderButton.NAME.equals(last.getName());
+		var want = clogSyncButton != null && clogSyncButton.tucked;
+		if (ours == want || !ours && last.getType() != WidgetType.TEXT) return;
+		int h = last.getOriginalHeight(), y = last.getOriginalY();
+		if (ours) {
+			// Room in the title bar again: our two pieces go, and the frame is as tall as the game made it.
+			last.setHidden(true);
+			kids[kids.length - 2].setHidden(true);
+			last.setName("");
+		} else {
+			var bg = kids[kids.length - 2];
+			var r = f.createChild(-1, WidgetType.RECTANGLE);
+			var t = f.createChild(-1, WidgetType.TEXT);
+			for (var w : new Widget[]{r, t}) {
+				w.setOriginalX(last.getOriginalX());
+				w.setOriginalY(y + h);
+				w.setOriginalWidth(last.getOriginalWidth());
+				w.setOriginalHeight(h);
+			}
+			r.setFilled(bg.isFilled());
+			r.setOpacity(bg.getOpacity());
+			r.setTextColor(bg.getTextColor());
+			r.revalidate();
+			t.setText(HeaderButton.NAME);
+			t.setName(HeaderButton.NAME);
+			t.setFontId(last.getFontId());
+			t.setTextColor(0xffffff);
+			t.setTextShadowed(last.getTextShadowed());
+			t.setXTextAlignment(last.getXTextAlignment());
+			t.setYTextAlignment(last.getYTextAlignment());
+			t.setHasListener(true);
+			t.setAction(0, "Sync to " + HeaderButton.NAME);
+			t.setOnOpListener((JavaScriptCallback) e -> syncProfileNow());
+			t.setOnMouseOverListener((JavaScriptCallback) e -> t.setTextColor(0xff981f));
+			t.setOnMouseLeaveListener((JavaScriptCallback) e -> t.setTextColor(0xffffff));
+			t.revalidate();
+		}
+		f.setOriginalHeight(y + (ours ? h : 2 * h) + kids[kids.length - 2].getOriginalX());
+		f.revalidate();
+		for (var k : kids) k.revalidate();
+	}
 	/** Client thread: each FLAIR_LISTS list's first row when we last painted it. */
 	final Widget[] listSeen = new Widget[FLAIR_LISTS.length];
 
@@ -10036,23 +10091,6 @@ public class AnvilPlugin extends Plugin {
 		}
 		for (var en : e.getMenuEntries()) {
 			int on = en.getParam1();
-			// A log too narrow for the title-bar button: the same action on its menu button's right-click.
-			// TEMP: what the log's dropdown is made of, to add our own row to it.
-			if (on == InterfaceID.Collection.BURGER_BTN_MENU || on == InterfaceID.Collection.BURGER_MENU_FRAME || (on >>> 16) == (InterfaceID.Collection.FRAME >>> 16) && !clogDumped) {
-				clogDumped = true;
-				for (int id : new int[]{InterfaceID.Collection.BURGER_BTN_MENU, InterfaceID.Collection.BURGER_MENU_FRAME}) {
-					var w = client.getWidget(id);
-					if (w == null) continue;
-					log.info("clog-menu root id={} type={} hidden={} b={} orig={},{} {}x{} parent={}", id, w.getType(), w.isHidden(), w.getBounds(), w.getOriginalX(), w.getOriginalY(), w.getOriginalWidth(), w.getOriginalHeight(), w.getParentId());
-					for (var set : new Widget[][]{w.getStaticChildren(), w.getDynamicChildren(), w.getNestedChildren()})
-						for (var k : set == null ? new Widget[0] : set)
-							if (k != null) log.info("clog-menu   child idx={} id={} type={} text='{}' hidden={} orig={},{} {}x{} font={} col={} sprite={} actions={} listener={}", k.getIndex(), k.getId(), k.getType(), k.getText(), k.isHidden(), k.getOriginalX(), k.getOriginalY(), k.getOriginalWidth(), k.getOriginalHeight(), k.getFontId(), Integer.toHexString(k.getTextColor()), k.getSpriteId(), java.util.Arrays.toString(k.getActions()), k.hasListener());
-				}
-			}
-			if (clogSyncButton.tucked && (on == InterfaceID.Collection.BURGER_BTN_MENU || on == InterfaceID.Collection.BURGER_MENU_FRAME)) {
-				menuEntry("Sync to", HeaderButton.NAME, this::syncProfileNow);
-				return;
-			}
 			if (on != InterfaceID.Chatbox.CHAT_CLAN) continue;
 			for (int i = chans == null ? -1 : chans.size() - 1; i >= 0; i--) {
 				int at = i;
