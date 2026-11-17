@@ -44,9 +44,17 @@ final class GifIcon implements Icon {
 		total = ends[ends.length - 1];
 	}
 
+	/** The copy handed out last: the next one carries on from its frame, so a redraw doesn't restart the GIF. */
+	GifIcon last;
+
 	/** Its own clock for another label; the decoded frames are shared. */
 	GifIcon copy() {
-		return new GifIcon(frames, ends);
+		var c = new GifIcon(frames, ends);
+		if (last != null) {
+			c.playedMs = last.playedMs;
+			c.shown = last.shown;
+		}
+		return last = c;
 	}
 
 	int frameCount() {

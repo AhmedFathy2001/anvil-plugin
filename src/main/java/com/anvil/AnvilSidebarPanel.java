@@ -570,7 +570,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			public void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
-				api.thumb(path, w, h, motion && GradientLabel.animate, img -> invokeLater(() -> done.accept(img)));
+				// A picture already in hand lands now, not a frame later: a redraw doesn't blink it out and back.
+				api.thumb(path, w, h, motion && GradientLabel.animate, img -> {
+					if (SwingUtilities.isEventDispatchThread()) done.accept(img);
+					else invokeLater(() -> done.accept(img));
+				});
 			}
 
 			public void lookup(String rsn) {
