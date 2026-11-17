@@ -6388,7 +6388,7 @@ public class AnvilPlugin extends Plugin {
 			t.setXTextAlignment(last.getXTextAlignment());
 			t.setYTextAlignment(last.getYTextAlignment());
 			t.setHasListener(true);
-			t.setAction(0, "Sync to " + HeaderButton.NAME);
+			t.setAction(0, "Sync to"); // the game adds the name: "Sync to Anvil"
 			t.setOnOpListener((JavaScriptCallback) e -> syncProfileNow());
 			t.setOnMouseOverListener((JavaScriptCallback) e -> t.setTextColor(0xff981f));
 			t.setOnMouseLeaveListener((JavaScriptCallback) e -> t.setTextColor(0xffffff));
