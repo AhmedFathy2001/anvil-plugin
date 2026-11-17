@@ -9748,7 +9748,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
-	final Map<Integer, String> relayRank = capped(50, false);
+	// As many as the game keeps: 100 lines each of clan and guest clan chat. Fewer, and an older line we added lost its rank icon and wore the game's default (guest) one.
+	final Map<Integer, String> relayRank = capped(200, false);
 
 	/**
 	 * Enter on public chat: the line goes out now, read as typed (never changed or held: the game sends
