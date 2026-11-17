@@ -291,6 +291,11 @@ final class HeaderButton {
 	 * removal the API offers clears the whole container, which would take the neighbours with it.
 	 * A hidden widget does not render and is collected when the interface is next rebuilt.</p>
 	 */
+	/** Whether the button is on screen right now. */
+	boolean shown() {
+		return parts != null && parts[TEXT] != null && !parts[TEXT].isHidden();
+	}
+
 	void hideParts() {
 		if (parts != null) {
 			for (var w : parts) {

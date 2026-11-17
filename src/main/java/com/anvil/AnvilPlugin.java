@@ -6363,7 +6363,9 @@ public class AnvilPlugin extends Plugin {
 			if (HeaderButton.NAME.equals(kids[i].getName())) mine = i;
 			else base = i;
 		}
-		var want = clogSyncButton != null && clogSyncButton.tucked;
+		// Either the button or the row, never neither: the row answers to whether the button is actually
+		// on screen, not to a second reading of the same measurement.
+		var want = clogSyncButton != null && clogSyncButton.enabled.getAsBoolean() && !clogSyncButton.shown();
 		if (base < 1 || want == (mine > 0 && !kids[mine].isHidden())) return;
 		var last = kids[base];
 		int h = last.getOriginalHeight(), y = last.getOriginalY();
