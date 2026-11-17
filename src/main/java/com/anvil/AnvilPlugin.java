@@ -9764,6 +9764,8 @@ public class AnvilPlugin extends Plugin {
 		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
+		// TEMP (remove before release): what the chatbox hands us for a relayed line, to place the rank icon.
+		if (relayRank.containsKey(node)) log.info("relay-name id={} [-4]={} [-3]={} [-2]={} rank={} icon={}", node, os[at - 1], os[at], String.valueOf(os[at + 1]).length(), relayRank.get(node), icon);
 		os[at] = relayName(String.valueOf(os[at]), relayRank.get(node), icon) + relayIcon();
 	}
 
@@ -9852,6 +9854,7 @@ public class AnvilPlugin extends Plugin {
 				var title = cs == null ? null : cs.titleForRank(member.getRank());
 				int r = title == null ? -1 : chatIconManager.getIconNumber(title);
 				rank = r < 0 ? "" : "<img=" + r + ">";
+				log.info("relay-rank n={} rank={} title={} r={}", n, member.getRank(), title == null ? null : title.getId() + ":" + title.getName(), r); // TEMP
 			}
 		} else if ("pm".equals(c)) {
 			// As the game would: Private On (anyone), Friends (a friend), Off (nobody); no filter read, nobody.
