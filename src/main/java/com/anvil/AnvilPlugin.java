@@ -6635,6 +6635,9 @@ public class AnvilPlugin extends Plugin {
 		}
 		nameListPlain.clear();
 		nameListMoving.clear();
+		// And forget which rows were painted: switched back on (the plugin, or the setting), the lists
+		// read as rebuilt and are painted before the next frame, not on the game's next redraw of them.
+		Arrays.fill(listSeen, null);
 		unflairClanTitleWidgets();
 	}
 
