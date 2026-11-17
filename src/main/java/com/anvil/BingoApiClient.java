@@ -370,6 +370,17 @@ public class BingoApiClient {
 			gson.toJson(singletonMap("device_code", deviceCode)))), DeviceAuthPoll.class);
 	}
 
+	/**
+	 * POST /api/plugin/auth/signout: revoke this token on the site, so Sign out ends it everywhere.
+	 * Call BEFORE the token is cleared. Best effort on the HTTP pool: a failure, or an older site's
+	 * 404, is ignored and never holds up the sign-out.
+	 */
+	void revokeToken() {
+		if (needsSignIn()) return;
+		var req = publicRequest(authUrl("/api/plugin/auth/signout")).post(RequestBody.create(null, new byte[0]));
+		interactiveExecutor().execute(() -> getOrNull(req, Object.class));
+	}
+
 	/** An unauthenticated request carrying only the plugin version. */
 	static Request.Builder plainRequest(String url) {
 		return new Request.Builder().url(url).header("X-Anvil-Plugin-Version", PLUGIN_VERSION);
@@ -1075,7 +1086,7 @@ public class BingoApiClient {
 
 	/**
 	 * POST /api/plugin/hello — self-register as a guest clan member. Unauthenticated.
-	 * Returns {knownMember, isGuest}. Never throws — failures become a null return + log.
+	 * Returns {knownMember}. Never throws — failures become a null return + log.
 	 */
 	HelloResponse hello(String rsn) {
 		if (getApiUrl().isEmpty()) return null;
@@ -1087,12 +1098,12 @@ public class BingoApiClient {
 	}
 
 	static class HelloResponse {
-		boolean knownMember, isGuest;
+		/** Null when the site does not say (it answers membership only to a signed-in caller). */
+		Boolean knownMember;
 		// WHICH CLAN ANSWERED, and about whom. "Tracked as a guest" is a claim about one person in one
 		// clan and the message named neither, so somebody in two clans could not tell a wrong answer
 		// from a surprising one.
 		String clanName;
-		String rsn;
 		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
 		String seatKind;
 	}

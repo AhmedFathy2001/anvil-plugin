@@ -868,10 +868,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** The manual route: paste the token from the site. Storing it runs the same path as Sign in. */
 	void pasteToken() {
 		if (signInInFlight) return;
-		var token = showInputDialog(this,
-			"Paste your token from anvilosrs.com (Profile → RuneLite plugin):", "Anvil", PLAIN_MESSAGE);
-		if (token == null || token.trim().isEmpty()) return;
-		setToken(token.trim());
+		// Masked: the token signs in as the member, and a stream or a screenshot must not show it.
+		var field = new JPasswordField();
+		field.addHierarchyListener(e -> invokeLater(field::requestFocusInWindow));
+		if (showConfirmDialog(this, new Object[]{"Paste your token from anvilosrs.com (Profile → RuneLite plugin):", field},
+			"Anvil", OK_CANCEL_OPTION, PLAIN_MESSAGE) != OK_OPTION) return;
+		var token = new String(field.getPassword()).trim();
+		if (token.isEmpty()) return;
+		setToken(token);
 		setSignInStatus("");
 		refreshSignInRow();
 		refresh();
@@ -921,6 +925,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void signOut() {
 		if (showConfirmDialog(this, "Sign this computer out of Anvil? Tracking stops until you sign in again.",
 			"Anvil", OK_CANCEL_OPTION, PLAIN_MESSAGE) != OK_OPTION) return;
+		if (api != null) api.revokeToken();
 		// Clearing the token fires onConfigChanged, which drops the session state (configureApiClient).
 		setToken("");
 		refreshSignInRow();
@@ -1642,12 +1647,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 			// ...unless the capture refused it — standing in the wrong place, or a session too old to
 			// have flushed the hiscores. That answer arrives in chat, so the button has to come back
 			// rather than sit on "Sending..." until the next poll redraws the card.
-			var restore = new Timer(4000, ev -> {
+			UiView.once(4000, ev -> {
 				take.setText("Take starting shot");
 				take.setEnabled(true);
 			});
-			restore.setRepeats(false);
-			restore.start();
 		});
 		addAll(card, gap(6), take);
 

@@ -1,7 +1,6 @@
 package com.anvil;
 
 import com.google.gson.*;
-import java.util.Map;
 
 /**
  * A team view from the live push ({@link PushSocket}) laid over the config this plugin holds. The

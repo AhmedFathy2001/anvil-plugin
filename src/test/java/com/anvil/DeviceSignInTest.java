@@ -66,7 +66,7 @@ public class DeviceSignInTest
 		// shutdown must leave every queued step a no-op (no request, no callback).
 		List<Runnable> queued = new ArrayList<>();
 		List<Object> callbacks = new ArrayList<>();
-		DeviceSignIn flow = new DeviceSignIn(null, url -> true, (step, delayMs) -> queued.add(step));
+		DeviceSignIn flow = new DeviceSignIn(null, url -> { }, (step, delayMs) -> queued.add(step));
 		flow.run(callbacks::add, callbacks::add);
 		flow.cancel();
 		for (Runnable step : new ArrayList<>(queued))

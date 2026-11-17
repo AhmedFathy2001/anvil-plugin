@@ -150,6 +150,7 @@ final class PushSocket extends WebSocketListener {
 		if (ws != socket) return; // an old socket we already replaced or closed
 		socket = null;
 		live = false;
-		retryIn(ticketExpired ? 0 : backoff());
+		// An expired ticket reconnects at once, the first time; a site that keeps saying so gets the backoff.
+		retryIn(ticketExpired && failures++ == 0 ? 0 : backoff());
 	}
 }

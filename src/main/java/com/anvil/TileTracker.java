@@ -198,7 +198,10 @@ public class TileTracker {
 		if (!TileNotes.pinnable(tileId)) return; // a cap counter's virtual entry is never pinned
 		if (isPinned(eventId, tileId)) hide(removePin(tileId));
 		else {
-			if (pins.size() >= MAX_PINS) return;
+			if (pins.size() >= MAX_PINS) {
+				told.accept("You can pin 3 tiles. Unpin one first.");
+				return;
+			}
 			// A done tile can't be pinned (the sidebar offers no button), so a pin that turns out done
 			// on its first fetch was finished in between — it comes down like any other.
 			add(eventId, tileId).keepWhenDone = false;

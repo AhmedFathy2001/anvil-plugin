@@ -45,7 +45,7 @@ final class ClogFullSync {
 	@Getter boolean manual;
 
 	/** A transmit is starting (the log was opened / the button was pressed). Clears anything stale. */
-	void begin(boolean manualRequest) {
+	synchronized void begin(boolean manualRequest) {
 		items.clear();
 		receiving = true;
 		manual = manual || manualRequest;
@@ -53,7 +53,7 @@ final class ClogFullSync {
 	}
 
 	/** One item, straight off the transmit script. Ignored unless a transmit is actually in flight. */
-	void onItem(int itemId, int quantity, long now) {
+	synchronized void onItem(int itemId, int quantity, long now) {
 		if (!receiving || itemId <= 0) return;
 		items.put(itemId, Math.max(1, quantity));
 		lastItemAt = now;
@@ -71,7 +71,7 @@ final class ClogFullSync {
 	}
 
 	/** Everything received, as an unmodifiable snapshot. Does not clear — see {@link #onSent}. */
-	Map<Integer, Integer> snapshot() {
+	synchronized Map<Integer, Integer> snapshot() {
 		return Collections.unmodifiableMap(new LinkedHashMap<>(items));
 	}
 
@@ -110,7 +110,7 @@ final class ClogFullSync {
 	}
 
 	/** Account switch / logout: a half-received log belongs to nobody. */
-	void reset() {
+	synchronized void reset() {
 		items.clear();
 		receiving = false;
 		manual = false;

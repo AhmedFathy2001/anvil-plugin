@@ -20,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.clan.*;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.http.api.worlds.WorldResult;
 import net.runelite.api.events.*;
 import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.ItemID;
@@ -263,6 +262,8 @@ public class AnvilPlugin extends Plugin {
 	volatile boolean notifyPrefsMoved;
 	/** Facts that need no screenshot, posted together a moment after the first. */
 	final JsonArray factQueue = new JsonArray();
+	/** Facts handed to a send that hasn't answered yet. Under the factQueue monitor. */
+	final JsonArray factsSending = new JsonArray();
 	CoopFingerprint factQueueCoop;
 	ScheduledFuture<?> factQueueFlush;
 	/** Facts a screenshot is being taken for, not yet credited (one dual-frame proof per burst). */
@@ -1046,8 +1047,7 @@ public class AnvilPlugin extends Plugin {
 	final SyncBackoff proofBackoff = new SyncBackoff(30_000L, 300_000L);
 
 	// Hello/membership flow state
-	volatile Boolean knownMember; // null = unknown, true = in clanMembers
-	volatile boolean isGuest;
+	volatile Boolean knownMember; // null = unknown (signed out, or the site did not say), true = in clanMembers
 	volatile boolean helloSent;
 
 	// Admin-only clan-roster sync. Authenticated by the player's per-user account token
@@ -2537,7 +2537,6 @@ public class AnvilPlugin extends Plugin {
 			// the answer rather than let the sidebar rank clans on the previous account's standing.
 			knownMember = null;
 			resetCoffer(false);
-			isGuest = false;
 
 			adminProbeAttempted = false;
 			identityStampRetries = 0;
@@ -2566,6 +2565,12 @@ public class AnvilPlugin extends Plugin {
 			// Nothing is attacking a logged-out player, and whatever was is not attacking the next
 			// account either.
 			deathAttribution.clear();
+			// A game cut short by a logout is over: without this the next login's first tick read
+			// "left the final duel without dying" and filed a win for a game nobody finished.
+			lmsInGame = false;
+			// "Already announced" is per account: an alt's first of the same task or quest is news.
+			notifiedCaTasks.clear();
+			announcedQuests.clear();
 			caRepeatNudgeSent = false;
 			lootNotifyNudgeSent = false;
 			clogNotifyNudgeSent = false;
@@ -2934,9 +2939,10 @@ public class AnvilPlugin extends Plugin {
 		helloSent = true;
 		if (resp == null) return;
 		// A clan learned after log in re-tickets the chat relay, or clan lines never reach its clan room.
-		if (!java.util.Objects.equals(resp.knownMember, knownMember)) pushSoon();
-		knownMember = resp.knownMember;
-		isGuest = resp.isGuest;
+		// The site answers membership only to a signed-in caller; signed out mid-greeting, it is unknown.
+		var known = apiClient.needsSignIn() ? null : resp.knownMember;
+		if (!Objects.equals(known, knownMember)) pushSoon();
+		knownMember = known;
 		// The breadcrumb this decision never left. "Tracked as a guest" fired once against a clan the
 		// player holds a MEMBER seat in, and there was no way to tell which clan had answered or
 		// which character it had been asked about — so the message could not be checked, only
@@ -2945,13 +2951,13 @@ public class AnvilPlugin extends Plugin {
 				rsn,
 				resp.clanName,
 				resp.seatKind != null ? resp.seatKind : "none",
-				resp.knownMember);
-		if (!resp.knownMember) {
+				known);
+		if (Boolean.FALSE.equals(known)) {
 			// NAME THE CLAN. Somebody who owns one clan and guests in another read "Tracked as a
 			// guest" as a claim about them, and it is a claim about them IN ONE CLAN — true there and
 			// irrelevant to the clan they run. Without the name it cannot be told apart from a wrong
 			// answer, which is exactly how it was read.
-			var where = resp.clanName != null && !resp.clanName.isEmpty() ? " in " + resp.clanName : "";
+			var where = empty(resp.clanName) ? "" : " in " + resp.clanName;
 			sendChatMessage("Tracked as a guest" + where
 					+ " — a clan admin can promote you to member on the site.");
 		}
@@ -3253,25 +3259,18 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void toggleBannerSound(String name) {
 		var all = bannerSound.listClips(BannerSoundService.Kind.BANNER);
-		var sel = new LinkedHashSet<String>();
-		var csv = config.bannerSoundClip();
-		if (csv != null && !csv.trim().isEmpty()) {
-			for (var part : csv.split(",")) {
-				var s = part.trim();
-				if (!s.isEmpty()) sel.add(s);
-			}
-		} else {
-			sel.addAll(all); // blank = everything on; materialise so we can switch one off
-		}
+		var sel = BannerSoundService.parseSelected(config.bannerSoundClip());
+		if (sel.isEmpty()) sel.addAll(all); // blank = everything on; materialise so we can switch one off
+		sel.remove("-.wav"); // "none ticked", below
 
 		// Toggle by case-insensitive filename match.
-		var match = sel.stream().filter(s -> s.equalsIgnoreCase(name)).findFirst();
-		if (match.isPresent()) sel.remove(match.get());
-		else sel.add(name);
+		if (!sel.removeIf(s -> s.equalsIgnoreCase(name))) sel.add(name);
 
 		// If every clip ends up selected, store blank ("all") to keep the value tidy and future-proof
-		// against newly-added files (which should default to on).
-		cfgSet("bannerSoundClip", sel.size() == all.size() && all.size() > 0 ? "" : String.join(", ", sel));
+		// against newly-added files (which should default to on). None ticked can't be blank too (it
+		// read back as "all", so muting the last clip unmuted every one): it is stored as "-", which
+		// parseSelected reads as a name no clip has.
+		cfgSet("bannerSoundClip", sel.size() == all.size() && all.size() > 0 ? "" : sel.isEmpty() ? "-" : String.join(", ", sel));
 	}
 
 	/**
@@ -3926,6 +3925,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void queueFact(JsonObject fact, boolean shot, CoopFingerprint coop) {
+		// Its id (27 URL-safe characters of a random UUID), once and for good: the site credits an id one time (POST /api/plugin/facts), so
+		// every resend — a retry, the stash after a restart — carries this one. A fact restored from an
+		// older stash file has none yet and gets it here.
+		if (!fact.has("id")) fact.addProperty("id", UUID.randomUUID().toString().substring(9));
 		if (!execLive()) return;
 		if (shot) {
 			synchronized (factBurst) {
@@ -3968,9 +3971,9 @@ public class AnvilPlugin extends Plugin {
 		JsonArray facts;
 		CoopFingerprint coop;
 		synchronized (factQueue) {
-			facts = factQueue.deepCopy();
+			facts = PushStash.drain(factQueue);
+			factsSending.addAll(facts);
 			coop = factQueueCoop;
-			while (factQueue.size() > 0) factQueue.remove(0);
 			factQueueCoop = null;
 		}
 		if (facts.size() == 0) return;
@@ -3985,6 +3988,11 @@ public class AnvilPlugin extends Plugin {
 				log.info("Facts refused for good: {}", e.getMessage());
 				again = null;
 			} catch (IOException ignored) {
+			} finally {
+				// Answered, failed (back in the queue below) or thrown out of: no longer on the wire.
+				synchronized (factQueue) {
+					facts.forEach(factsSending::remove);
+				}
 			}
 			if (again == null) return;
 			synchronized (factQueue) {
@@ -4003,8 +4011,7 @@ public class AnvilPlugin extends Plugin {
 		synchronized (factBurst) {
 			b = burst;
 			coop = factBurstCoop;
-			facts = factBurst.deepCopy();
-			while (factBurst.size() > 0) factBurst.remove(0);
+			facts = PushStash.drain(factBurst);
 		}
 		var cfg = pluginConfig;
 		if (b == null || facts.size() == 0 || cfg == null || cfg.event == null || cfg.team == null || cfg.player == null) return;
@@ -4471,7 +4478,7 @@ public class AnvilPlugin extends Plugin {
 	/** What the site stamps a proof's banner from, less the title/detail (lib/proofStamp). */
 	JsonObject proofMeta() {
 		var proof = new JsonObject();
-		proof.addProperty("tz", java.time.ZoneId.systemDefault().getId());
+		proof.addProperty("tz", ZoneId.systemDefault().getId());
 		proof.addProperty("capturedAt", now());
 		proof.addProperty("tick", client.getTickCount());
 		synchronized (recentChat) {
@@ -4702,7 +4709,7 @@ public class AnvilPlugin extends Plugin {
 			if (rsn != null && !rsn.isEmpty()) meta.add("RSN: " + rsn);
 			if (cfg != null && cfg.team != null && cfg.team.name != null) meta.add("Team: " + cfg.team.name);
 			if (cfg != null && cfg.event != null && cfg.event.name != null) meta.add("Event: " + cfg.event.name);
-			meta.add("UTC: " + java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+			meta.add("UTC: " + ZonedDateTime.now(ZoneOffset.UTC)
 					.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
 			var titleFont = new Font(Font.SANS_SERIF, Font.BOLD, 14);
@@ -4808,7 +4815,11 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage("No starting shot is being asked for right now.");
 			return;
 		}
-		if (drawManager == null || !execLive() || startProofInFlight) return;
+		if (drawManager == null || !execLive()) return;
+		if (startProofInFlight) {
+			sendChatMessage("Starting shot already in progress.");
+			return;
+		}
 
 		// Where this account is standing, for the drawn spot's position check. Read before anything
 		// async: by the time the frame arrives the player may have taken a step.
@@ -4819,8 +4830,7 @@ public class AnvilPlugin extends Plugin {
 		// Refuse rather than file something staff will only have to chase: standing in the wrong
 		// place or on a session too old to have flushed the hiscores are both fixable in-game, in
 		// seconds, and the message says how.
-		var blocked = StartProofRules.blockReason(
-				cfg.startProof, loginAtMs, now(), worldX, worldY);
+		var blocked = StartProofRules.blockReason(cfg.startProof, loginAtMs, now(), worldX, worldY);
 		if (blocked != null) {
 			sendChatMessage(blocked);
 			return;
@@ -4833,17 +4843,14 @@ public class AnvilPlugin extends Plugin {
 		var keyword = cfg.startProof.keyword;
 		var capturedRsn = getLocalPlayerName();
 		var capturedAt = Instant.now().toString();
-		var loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN
-				? null
-				: Instant.ofEpochMilli(loginAtMs).toString();
+		var loginAt = loginAtMs == StartProofRules.UNKNOWN_LOGIN ? null : Instant.ofEpochMilli(loginAtMs).toString();
 
 		onNextFrame(image -> {
 			try {
 				var detail = keyword != null ? keyword : "";
-				if (location != null && !location.isEmpty()) detail = detail.isEmpty() ? location : detail + "  @  " + location;
-				var png = bakeCopy(image, "STARTING SHOT", detail, capturedRsn);
-				var imageUrl = apiClient.uploadImage(png, "start-proof-" + eventId + ".png");
-				apiClient.submitStartProof(eventId, imageUrl, keyword, capturedAt, worldX, worldY, loginAt);
+				if (!empty(location)) detail = detail.isEmpty() ? location : detail + "  @  " + location;
+				var url = apiClient.uploadImage(bakeCopy(image, "STARTING SHOT", detail, capturedRsn), "start-proof-" + eventId + ".png");
+				apiClient.submitStartProof(eventId, url, keyword, capturedAt, worldX, worldY, loginAt);
 				startProofFiled = true;
 				startProofFiledAt = now();
 				sendChatMessage(Tone.DONE, "Starting shot sent. You're clear to play.");
@@ -4967,8 +4974,7 @@ public class AnvilPlugin extends Plugin {
 				if (stash != null) stash.clearAll();
 			});
 
-			knownMember = false;
-			isGuest = false;
+			knownMember = null;
 			isAdmin = false;
 			// So a later sign-in greets again rather than assuming it already did.
 			helloSent = false;
@@ -5143,12 +5149,20 @@ public class AnvilPlugin extends Plugin {
 		data.xp = skillXpPush.snapshot();
 		data.activity = activityPush.snapshot();
 		synchronized (moments) {
-			for (var m : moments.snapshot()) data.moments.add(PushStash.SavedMoment.of(m));
+			data.moments = moments.snapshot();
 			moments.reset();
 		}
 		kcPush.reset();
 		skillXpPush.reset();
 		activityPush.reset();
+		// Facts not yet answered: on the wire right now, queued, or handed back by a failed send. The
+		// one on the wire may have landed; its id makes sending it again safe.
+		synchronized (factQueue) {
+			data.facts = PushStash.drain(factsSending);
+			data.facts.addAll(PushStash.drain(factQueue));
+			factQueueCoop = null;
+		}
+		data.account = DiskFiles.fingerprint(apiClient.playerToken);
 		return data.isEmpty() ? null : () -> stash.save(key, data);
 	}
 
@@ -5166,12 +5180,11 @@ public class AnvilPlugin extends Plugin {
 		kcPush.restore(data.kc);
 		skillXpPush.restore(data.xp);
 		activityPush.restore(data.activity);
-		if (data.moments != null && !data.moments.isEmpty()) {
-			var saved = new ArrayList<Moment>();
-			for (var m : data.moments) saved.add(m.toMoment());
-			synchronized (moments) {
-				moments.restore(saved, t, PushStash.MAX_AGE_MS);
-			}
+		// Off disk already (take deleted the file), so a client that dies after this send replays nothing.
+		// Only under the sign-in they were queued under.
+		if (DiskFiles.fingerprint(apiClient.playerToken).equals(data.account)) data.facts.forEach(f -> queueFact(f.getAsJsonObject(), false, null));
+		if (sizeOf(data.moments) > 0) {
+			moments.restore(data.moments, t, PushStash.MAX_AGE_MS); // takes the moments monitor itself
 			scheduleMomentPush();
 		}
 	}
@@ -6690,11 +6703,11 @@ public class AnvilPlugin extends Plugin {
 		return f != null && f.getWorld() > 0;
 	}
 
-	/** Our relay is live and the player asked for the connected status on right-click. */
+	/** Our relay is live, we send through it, and the player asked for the connected status on right-click. */
 	boolean relayPresenceVisible() {
 		var p = pushSocket;
 		return p != null && p.live() && p.relayOk && config.relayWho()
-			&& config.anvilChat() != AnvilConfig.Relay.Off;
+			&& config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
 	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
@@ -6999,10 +7012,9 @@ public class AnvilPlugin extends Plugin {
 			}
 			// If the linked event has ended, drop it so tracking stops for the stale event.
 			if (fresh != null && eventIsOver(fresh.event)) {
-				log.info("Event '{}' ended — clearing player binding", fresh.event.name);
+				log.info("Event '{}' ended", fresh.event.name);
 				pluginConfig = null;
 				rebuildItemDropIndex();
-				cfgSet("playerToken", "");
 				return;
 			}
 			adoptTracking(fresh);
@@ -9945,7 +9957,7 @@ public class AnvilPlugin extends Plugin {
 		var overChatLine = area != null && !area.isHidden() && area.getBounds().contains(mp.getX(), mp.getY());
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
-		// Available in receive-only mode too: those sockets still know who can hear Anvil chat.
+		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
 		var show = relayPresenceVisible();
 		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member

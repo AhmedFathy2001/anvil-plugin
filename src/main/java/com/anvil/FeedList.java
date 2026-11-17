@@ -335,9 +335,7 @@ final class FeedList extends JPanel {
 		h.posts = Math.max(0, h.posts - 1);
 		if (h.posts > 0) return;
 		int gen = ++h.gen;
-		var t = new Timer(SETTLE_MS, e -> settle(rowId, gen));
-		t.setRepeats(false);
-		t.start();
+		UiView.once(SETTLE_MS, e -> settle(rowId, gen));
 	}
 
 	void settle(String rowId, int gen) {
@@ -540,9 +538,12 @@ final class FeedList extends JPanel {
 			return;
 		}
 		List<JsonObject> fresh = new ArrayList<>();
+		// A row that arrived twice inside one flush window (the push and a poll) is still one row.
+		var seen = new HashSet<String>();
 		for (int i = pending.size() - 1; i >= 0; i--) {
 			var r = pending.get(i);
-			if (!model.has(str(r, "id"))) fresh.add(r);
+			var id = str(r, "id");
+			if (!model.has(id) && seen.add(id)) fresh.add(r);
 		}
 		pending.clear();
 		if (fresh.isEmpty()) return;

@@ -3,7 +3,7 @@ package com.anvil;
 import lombok.RequiredArgsConstructor;
 import java.net.*;
 import java.util.concurrent.*;
-import java.util.function.Consumer;
+import java.util.function.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.LinkBrowser;
 
@@ -42,31 +42,19 @@ public final class DeviceSignIn {
 	}
 
 	final BingoApiClient apiClient;
-	final BrowserOpener browserOpener;
-	final PollScheduler scheduler;
+	/** Opens the sign-in page, and runs a step after a delay (ms): the two things a test replaces. */
+	final Consumer<String> browserOpener;
+	final BiConsumer<Runnable, Long> scheduler;
 	// Polling runs on RuneLite's shared executor, which outlives the plugin, so stopping it is ours to do.
 	volatile boolean cancelled;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
 	DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor) {
-		this(apiClient, DeviceSignIn::browse,
+		this(apiClient, LinkBrowser::browse,
 			(step, delayMs) -> executor.schedule(step, delayMs, TimeUnit.MILLISECONDS));
 	}
 
 	/** Test seam — injectable browser opener + scheduler so the flow runs offline and fast. */
-
-	/**
-	 * Ask the desktop to open the sign-in page.
-	 *
-	 * <p>Returns whether we ASKED without throwing, which is all RuneLite lets us know:
-	 * LinkBrowser.browse is void, so a browser that never appeared and one that opened fine are the
-	 * same call from here. Everything downstream is written so that distinction doesn't matter — the
-	 * address and the code go on screen either way.
-	 */
-	static boolean browse(String url) {
-		LinkBrowser.browse(url);
-		return true;
-	}
 
 	/** Run the whole flow. {@code status} receives short human-readable progress lines for the UI;
 	 * {@code done} the terminal {@link Result}. Both called on the executor thread. */
@@ -95,8 +83,8 @@ public final class DeviceSignIn {
 		// The address is on screen whether or not the browser opened. We can't tell the difference
 		// (see browse), and the failure mode of assuming success is a player staring at a code with
 		// nowhere to type it — while the cost of saying both is one extra clause.
-		status.accept(browserOpener.open(url) ? "Approve code " + start.user_code + " in your browser. If it didn't open: " + url
-			: "Couldn't open your browser — visit " + url + " and enter " + start.user_code + ".");
+		browserOpener.accept(url);
+		status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
 		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
 		var deadline = System.currentTimeMillis()
@@ -152,7 +140,7 @@ public final class DeviceSignIn {
 	}
 
 	void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done) {
-		scheduler.schedule(() -> {
+		scheduler.accept(() -> {
 			if (cancelled) return;
 			try {
 				step.run();
