@@ -1,8 +1,8 @@
 package com.anvil;
 
+import java.awt.Font;
 import java.awt.event.MouseEvent;
-import javax.swing.JLabel;
-import javax.swing.ToolTipManager;
+import javax.swing.*;
 
 /**
  * A label that says the rest of itself: when its text is cut short ("…") it shows the whole text as
@@ -15,16 +15,20 @@ class ClipLabel extends JLabel {
 	}
 
 	ClipLabel(String text) {
-		super(text);
-		ToolTipManager.sharedInstance().registerComponent(this);
+		this(text, LEADING);
 	}
+
 
 	ClipLabel(String text, int align) {
 		super(text, align);
 		ToolTipManager.sharedInstance().registerComponent(this);
 	}
 
-	@Override
+	/** Site text with a symbol the RS font lacks is drawn in the system font (see {@link Ui#fit}). */
+	public Font getFont() {
+		return Ui.fit(super.getFont(), getText());
+	}
+
 	public String getToolTipText(MouseEvent e) {
 		var own = super.getToolTipText(e);
 		if (own != null) return own;

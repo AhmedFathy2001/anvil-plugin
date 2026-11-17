@@ -22,7 +22,7 @@ final class ChatCredits {
 	static final long SAME_DROP_MS = 10_000;
 
 	synchronized void note(Collection<ItemStack> credited, long now) {
-		for (ItemStack s : credited) {
+		for (var s : credited) {
 			var o = owed.get(s.getId());
 			var qty = o == null || now - o[1] > WINDOW_MS ? s.getQuantity()
 				: now - o[1] <= SAME_DROP_MS ? Math.max(o[0], s.getQuantity())
@@ -35,7 +35,7 @@ final class ChatCredits {
 	synchronized List<ItemStack> unclaimed(Collection<ItemStack> items, long now) {
 		owed.values().removeIf(o -> now - o[1] > WINDOW_MS);
 		List<ItemStack> out = new ArrayList<>(items.size());
-		for (ItemStack s : items) {
+		for (var s : items) {
 			var o = owed.get(s.getId());
 			int left = s.getQuantity();
 			if (o != null) {

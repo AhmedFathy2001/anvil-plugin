@@ -22,8 +22,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 final class ChatPatterns {
-	ChatPatterns() {}
-
 	static final class Sample {
 		String line;
 		Map<String, String> expect;
@@ -90,12 +88,12 @@ final class ChatPatterns {
 	/** Read the bundled catalog. Idempotent; a broken resource leaves every key matching nothing. */
 	static synchronized void loadDefaults(Gson gson) {
 		if (!defaults.isEmpty()) return;
-		try (InputStream in = ChatPatterns.class.getResourceAsStream("chat-patterns.json");
-			Reader r = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+		try (var in = ChatPatterns.class.getResourceAsStream("chat-patterns.json");
+			var r = new InputStreamReader(in, StandardCharsets.UTF_8)) {
 			var c = gson.fromJson(r, Catalog.class);
-			Map<String, Entry> e = new HashMap<>();
-			Map<String, Pattern> d = new HashMap<>();
-			for (Entry p : c.patterns) {
+			var e = new HashMap<String, Entry>();
+			var d = new HashMap<String, Pattern>();
+			for (var p : c.patterns) {
 				e.put(p.key, p);
 				d.put(p.key, Pattern.compile(p.regex, flagsOf(p)));
 			}
@@ -129,17 +127,18 @@ final class ChatPatterns {
 		if (o != null) {
 			var hint = l.hints.get(key);
 			if (hint != null && !text.contains(hint)) return null;
-			var m = o.matcher(new Budgeted(text, LINE_BUDGET));
 			try {
-				return (whole ? m.matches() : m.find()) ? m : null;
+				return hit(o.matcher(new Budgeted(text, LINE_BUDGET)), whole);
 			} catch (BudgetExceeded ex) {
 				drop(key, o);
 				// fall through to the default — this line still deserves a reading
 			}
 		}
 		var p = defaults.get(key);
-		if (p == null) return null;
-		var m = p.matcher(text);
+		return p == null ? null : hit(p.matcher(text), whole);
+	}
+
+	static Matcher hit(Matcher m, boolean whole) {
 		return (whole ? m.matches() : m.find()) ? m : null;
 	}
 
@@ -147,9 +146,9 @@ final class ChatPatterns {
 	static synchronized void drop(String key, Pattern bad) {
 		var l = live;
 		if (l.patterns.get(key) != bad) return;
-		Map<String, Pattern> next = new HashMap<>(l.patterns);
+		var next = new HashMap<>(l.patterns);
 		next.remove(key);
-		Map<String, String> hints = new HashMap<>(l.hints);
+		var hints = new HashMap<>(l.hints);
 		hints.remove(key);
 		live = new Live(next, hints);
 		log.warn("Chat pattern {} too slow; default this session", key);
@@ -174,11 +173,11 @@ final class ChatPatterns {
 	 * Keys not named fall back to their defaults. Returns one "key: reason" per rejection.
 	 */
 	static synchronized List<String> applyOverrides(List<SiteOverride> list) {
-		Map<String, Pattern> next = new HashMap<>();
-		Map<String, String> hints = new HashMap<>();
-		List<String> rejected = new ArrayList<>();
+		var next = new HashMap<String, Pattern>();
+		var hints = new HashMap<String, String>();
+		var rejected = new ArrayList<String>();
 		if (list != null) {
-			for (SiteOverride o : list) {
+			for (var o : list) {
 				if (o == null || o.key == null || o.regex == null) continue;
 				var e = entries.get(o.key);
 				if (e == null) {
@@ -201,8 +200,7 @@ final class ChatPatterns {
 	static Pattern vet(Entry e, String regex) {
 		if (regex.length() > MAX_LENGTH) throw new IllegalArgumentException("longer than " + MAX_LENGTH + " chars");
 		int flags = flagsOf(e);
-		Pattern p;
-		Pattern probe;
+		Pattern p, probe;
 		try {
 			p = Pattern.compile(regex, flags);
 			// Java 11 has no Pattern.namedGroups(). An empty alternative lets "" match, and group(name)
@@ -213,14 +211,14 @@ final class ChatPatterns {
 		}
 		var m = probe.matcher("");
 		if (!m.matches()) throw new IllegalArgumentException("does not compile cleanly");
-		for (String g : e.groups) {
+		for (var g : e.groups) {
 			try {
 				m.group(g);
 			} catch (IllegalArgumentException ex) {
 				throw new IllegalArgumentException("missing named group (?<" + g + ">…)");
 			}
 		}
-		for (String input : stressInputs(e)) {
+		for (var input : stressInputs(e)) {
 			try {
 				p.matcher(new Budgeted(input)).find();
 			} catch (BudgetExceeded ex) {
@@ -231,9 +229,9 @@ final class ChatPatterns {
 	}
 
 	static List<String> stressInputs(Entry e) {
-		List<String> out = new ArrayList<>();
+		var out = new ArrayList<String>();
 		if (e.samples != null) {
-			for (Sample s : e.samples) {
+			for (var s : e.samples) {
 				out.add(s.line);
 				out.add(s.line + s.line + s.line + s.line);
 			}
@@ -249,10 +247,10 @@ final class ChatPatterns {
 	static int flagsOf(Entry e) {
 		int f = 0;
 		if (e.flags != null) {
-			for (String s : e.flags) {
-				if ("CASE_INSENSITIVE".equals(s)) {
-					f |= Pattern.CASE_INSENSITIVE;
-				} else if ("DOTALL".equals(s)) f |= Pattern.DOTALL;
+			for (var s : e.flags) {
+				if ("CASE_INSENSITIVE".equals(s)) f |= Pattern.CASE_INSENSITIVE;
+				else if
+ ("DOTALL".equals(s)) f |= Pattern.DOTALL;
 			}
 		}
 		return f;
@@ -283,23 +281,19 @@ final class ChatPatterns {
 		}
 
 
-		@Override
 		public char charAt(int i) {
 			if (--left[0] < 0) throw new BudgetExceeded();
 			return s.charAt(i);
 		}
 
-		@Override
 		public int length() {
 			return s.length();
 		}
 
-		@Override
 		public CharSequence subSequence(int start, int end) {
 			return new Budgeted(s.substring(start, end), left);
 		}
 
-		@Override
 		public String toString() {
 			return s;
 		}

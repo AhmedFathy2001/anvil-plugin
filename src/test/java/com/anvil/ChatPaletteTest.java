@@ -15,7 +15,7 @@ public class ChatPaletteTest
 	public void anvilColoursByToneButInfoKeepsTheOwnTextColour()
 	{
 		assertEquals("16c60c", ChatPalette.ANVIL.text(ChatPalette.Tone.DONE, "ffffff", false));
-		assertEquals("abcdef", ChatPalette.ANVIL.text(ChatPalette.Tone.INFO, "abcdef", false));
+		assertEquals("ff5c5c", ChatPalette.ANVIL.text(ChatPalette.Tone.INFO, "abcdef", false));
 	}
 
 	@Test
@@ -75,7 +75,7 @@ public class ChatPaletteTest
 	{
 		assertEquals("006a00", ChatPalette.ANVIL.text(ChatPalette.Tone.DONE, "000000", true));
 		assertEquals("a03c00", ChatPalette.ANVIL.text(ChatPalette.Tone.DROP, "000000", true));
-		assertEquals("info keeps the player's own text colour", "000000", ChatPalette.ANVIL.text(ChatPalette.Tone.INFO, "000000", true));
+		assertEquals("site-controlled info red on parchment", "8f1515", ChatPalette.ANVIL.text(ChatPalette.Tone.INFO, "000000", true));
 		java.util.Map<String, String> mine = new java.util.HashMap<>();
 		mine.put("done", "#00ff00");
 		ChatPalette custom = ChatPalette.from("custom", mine);

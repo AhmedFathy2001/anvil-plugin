@@ -24,9 +24,6 @@ final class StartProofRules {
 	/** {@code sessionLoginAtMs} when we never saw the login — a plugin enabled mid-session. */
 	static final long UNKNOWN_LOGIN = 0L;
 
-	StartProofRules() {
-	}
-
 	/**
 	 * Squares from the drawn spot, the way OSRS measures "within N squares" — the longer axis, not
 	 * the diagonal. -1 when there is nothing to measure (no pin, or no position to compare).
@@ -84,8 +81,7 @@ final class StartProofRules {
 	 */
 	static boolean autoReady(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs,
 		Integer x, Integer y, int stillTicks) {
-		if (proof == null || proof.spot == null || x == null || y == null || stillTicks < AUTO_STILL_TICKS) return false;
-		return blockReason(proof, sessionLoginAtMs, nowMs, x, y) == null;
+		return proof != null && proof.spot != null && x != null && y != null && stillTicks >= AUTO_STILL_TICKS && blockReason(proof, sessionLoginAtMs, nowMs, x, y) == null;
 	}
 
 	/** Ticks (0.6s each) standing on one square before an automatic shot. */

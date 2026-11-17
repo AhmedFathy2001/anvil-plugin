@@ -1,9 +1,6 @@
 package com.anvil;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import net.runelite.api.WorldType;
 
@@ -17,9 +14,6 @@ import net.runelite.api.WorldType;
  * before RuneLite has a flag for it.</p>
  */
 final class WorldInfo {
-	WorldInfo() {
-	}
-
 	/**
 	 * Worlds that run their own save — a separate character, its own drops and kill counts — so
 	 * nothing earned there is the player's main-game progression. The site has the authoritative

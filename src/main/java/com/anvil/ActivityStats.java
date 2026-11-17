@@ -48,20 +48,24 @@ final class ActivityStats {
 
 	static {
 		Map<String, Source> m = new LinkedHashMap<>();
-		m.put("cluesBeginner", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_BEGINNER_COMPLETED));
-		m.put("cluesEasy", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_EASY_COMPLETED));
-		m.put("cluesMedium", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_MEDIUM_COMPLETED));
-		m.put("cluesHard", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_HARD_COMPLETED));
-		m.put("cluesElite", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_ELITE_COMPLETED));
-		m.put("cluesMaster", new Source(Kind.VARBIT, VarbitID.COLLECTION_CLUES_MASTER_COMPLETED));
+		m.put("cluesBeginner", bit(VarbitID.COLLECTION_CLUES_BEGINNER_COMPLETED));
+		m.put("cluesEasy", bit(VarbitID.COLLECTION_CLUES_EASY_COMPLETED));
+		m.put("cluesMedium", bit(VarbitID.COLLECTION_CLUES_MEDIUM_COMPLETED));
+		m.put("cluesHard", bit(VarbitID.COLLECTION_CLUES_HARD_COMPLETED));
+		m.put("cluesElite", bit(VarbitID.COLLECTION_CLUES_ELITE_COMPLETED));
+		m.put("cluesMaster", bit(VarbitID.COLLECTION_CLUES_MASTER_COMPLETED));
 		m.put("colosseumGlory", new Source(Kind.VARP, VarPlayerID.COLOSSEUM_GLORY));
 		m.put("collectionsLogged", new Source(Kind.VARP, VarPlayerID.COLLECTION_COUNT));
 		SOURCES = Collections.unmodifiableMap(m);
 	}
 
+	static Source bit(int id) {
+		return new Source(Kind.VARBIT, id);
+	}
+
 	/** Every key this can report, for callers that want to filter the site's list down to the real ones. */
 	static Set<String> readableKeys() {
-		Set<String> keys = new HashSet<>(SOURCES.keySet());
+		var keys = new HashSet<>(SOURCES.keySet());
 		keys.add(CLUES_ALL);
 		return keys;
 	}
@@ -79,7 +83,7 @@ final class ActivityStats {
 	 * Passing -1 (RuneLite's "not a varbit"/"not a varp") never matches.
 	 */
 	static boolean isTrigger(int varbitId, int varpId) {
-		for (Source s : SOURCES.values()) {
+		for (var s : SOURCES.values()) {
 			if (s.kind == Kind.VARBIT ? s.id == varbitId : s.id == varpId) return true;
 		}
 		return false;
@@ -97,14 +101,14 @@ final class ActivityStats {
 	static Map<String, Integer> read(Collection<String> wanted, IntUnaryOperator varbit, IntUnaryOperator varp) {
 		Map<String, Integer> out = new LinkedHashMap<>();
 		if (wanted == null || wanted.isEmpty()) return out;
-		for (String key : wanted) {
+		for (var key : wanted) {
 			if (key == null) continue;
 			var k = key.trim();
 			int value;
 			if (CLUES_ALL.equals(k)) {
 				// The clue tiers (the "clues…" sources, in hiscores order) summed.
 				value = 0;
-				for (Map.Entry<String, Source> e : SOURCES.entrySet()) {
+				for (var e : SOURCES.entrySet()) {
 					if (e.getKey().startsWith("clues")) value += Math.max(0, varbit.applyAsInt(e.getValue().id));
 				}
 			} else {
@@ -135,10 +139,7 @@ final class ActivityStats {
 	 * which is a proportion of the total rather than a fixed number (see {@link ClogRank}).
 	 */
 	static int clogSlotsMax(IntUnaryOperator varp) {
-		int total = varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX);
-		return Math.max(0, total);
+		return Math.max(0, varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX));
 	}
 
-	ActivityStats() {
-	}
 }

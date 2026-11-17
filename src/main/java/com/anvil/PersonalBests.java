@@ -82,7 +82,7 @@ final class PersonalBests {
 	int seed(Map<String, Integer> centisByActivity, long now) {
 		if (centisByActivity == null || centisByActivity.isEmpty()) return 0;
 		int adopted = 0;
-		for (Map.Entry<String, Integer> e : centisByActivity.entrySet()) {
+		for (var e : centisByActivity.entrySet()) {
 			if (e.getKey() == null || e.getValue() == null) continue;
 			if (record(e.getKey().toLowerCase(Locale.ROOT), e.getValue(), now)) adopted++;
 		}
@@ -107,7 +107,7 @@ final class PersonalBests {
 	/** The pending bests, activity → centiseconds. */
 	Map<String, Integer> nextBatch() {
 		Map<String, Integer> batch = new LinkedHashMap<>(dirty.size());
-		for (String activity : dirty) {
+		for (var activity : dirty) {
 			var centis = best.get(activity);
 			if (centis != null) batch.put(activity, centis);
 		}
@@ -119,7 +119,7 @@ final class PersonalBests {
 	 * time is sent next round rather than being silently dropped.
 	 */
 	void onSent(Map<String, Integer> batch) {
-		for (Map.Entry<String, Integer> e : batch.entrySet()) {
+		for (var e : batch.entrySet()) {
 			sent.put(e.getKey(), e.getValue());
 			var current = best.get(e.getKey());
 			if (current != null && current.equals(e.getValue())) dirty.remove(e.getKey());

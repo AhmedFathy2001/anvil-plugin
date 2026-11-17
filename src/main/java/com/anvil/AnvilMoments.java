@@ -95,6 +95,10 @@ class AnvilMoments {
 		if (moment == null || moment.key == null || moment.key.isEmpty()) return;
 		pending.remove(moment.key);
 		pending.put(moment.key, moment);
+		trim();
+	}
+
+	void trim() {
 		while (pending.size() > MAX_QUEUED) pending.remove(pending.keySet().iterator().next());
 	}
 
@@ -135,8 +139,8 @@ class AnvilMoments {
 
 	/** The next batch to send. Stays queued until {@link #onSent} confirms it — a failed push retries. */
 	synchronized List<Moment> nextBatch() {
-		List<Moment> batch = new ArrayList<>();
-		for (Moment m : pending.values()) {
+		var batch = new ArrayList<Moment>();
+		for (var m : pending.values()) {
 			batch.add(m);
 			if (batch.size() >= BATCH) break;
 		}
@@ -146,7 +150,7 @@ class AnvilMoments {
 	/** Drop what the site has taken. */
 	synchronized void onSent(List<Moment> batch) {
 		if (batch == null) return;
-		for (Moment m : batch) pending.remove(m.key);
+		for (var m : batch) pending.remove(m.key);
 	}
 
 	/** Everything waiting, oldest first — for saving across a logout or restart. */
@@ -161,14 +165,14 @@ class AnvilMoments {
 	 */
 	synchronized void restore(List<Moment> saved, long now, long maxAgeMs) {
 		if (saved == null) return;
-		Map<String, Moment> merged = new LinkedHashMap<>();
-		for (Moment m : saved) {
+		var merged = new LinkedHashMap<String, Moment>();
+		for (var m : saved) {
 			if (m != null && m.key != null && !m.key.isEmpty() && m.kind != null && now - m.at <= maxAgeMs) merged.put(m.key, m);
 		}
 		merged.putAll(pending);
 		pending.clear();
 		pending.putAll(merged);
-		while (pending.size() > MAX_QUEUED) pending.remove(pending.keySet().iterator().next());
+		trim();
 	}
 
 	/** Forget everything — a different account logging in doesn't inherit this one's moments. */
@@ -185,8 +189,8 @@ class AnvilMoments {
 	 * second genuine drop of the same item minutes later does not.
 	 */
 	static String keyFor(String kind, String source, Integer itemId, long at) {
-		var bucket = at / 10_000L;
 		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
-			+ (itemId == null ? "" : itemId) + "|" + bucket;
+			+ (itemId == null ? "" : itemId) + "|" + at / 10_000L;
+
 	}
 }

@@ -1,7 +1,6 @@
 package com.anvil;
 
-import lombok.Setter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.Map;
@@ -35,9 +34,7 @@ final class ResponseDiskCache {
 
 	/** One saved answer. */
 	static final class Entry {
-		String url;
-		String etag;
-		String body;
+		String url, etag, body;
 		/** The character the request was made as (X-RSN, else the launcher hint), or null. */
 		String rsn;
 		long savedAt;
@@ -65,9 +62,10 @@ final class ResponseDiskCache {
 		return prev.isEmpty() ? null : prev;
 	}
 
+	/** {@code <kind>-<acct>.json}, or the shared {@code <kind>.json} for a null {@code acct}. */
 	Filepath file(String kind, String acct) {
 		var d = DiskFiles.ensureDir(dir);
-		return d == null || acct == null || acct.isEmpty() ? null : d.joinSegment(kind + "-" + acct + ".json");
+		return d == null || "".equals(acct) ? null : d.joinSegment(kind + (acct == null ? "" : "-" + acct) + ".json");
 	}
 
 	/** The saved answer of {@code kind} for the current account, or null. Blocking. */
@@ -102,16 +100,16 @@ final class ResponseDiskCache {
 
 	/** A saved copy of public data the same for everyone ({@code <kind>.json}), or null. Blocking. */
 	<T> T loadShared(String kind, Class<T> type) {
-		var d = DiskFiles.ensureDir(dir);
-		return d == null ? null : DiskFiles.readJson(gson, d.joinSegment(kind + ".json"), type);
+		var f = file(kind, null);
+		return f == null ? null : DiskFiles.readJson(gson, f, type);
 	}
 
 	/** Save {@link #loadShared}'s copy. Blocking; never the client thread. */
 	void storeShared(String kind, Object value) {
-		var d = DiskFiles.ensureDir(dir);
-		if (d == null) return;
+		var f = file(kind, null);
+		if (f == null) return;
 		try {
-			DiskFiles.writeAtomic(d.joinSegment(kind + ".json"), gson.toJson(value));
+			DiskFiles.writeAtomic(f, gson.toJson(value));
 		} catch (IOException | RuntimeException ex) {
 		}
 	}

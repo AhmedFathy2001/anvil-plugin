@@ -327,6 +327,31 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void signOutRevokesTheTokenItHeldAndIgnoresAnOlderSite() throws Exception
+	{
+		BingoApiClient c = client();
+		code = 404;
+		reply = "<html>Not found</html>";
+		c.revokeToken();
+		// The sign-out clears the token straight after; the request already carries the old one.
+		c.configure("");
+		long until = System.currentTimeMillis() + 5000;
+		while (seen.isEmpty() && System.currentTimeMillis() < until)
+		{
+			Thread.sleep(10);
+		}
+		assertEquals(1, seen.size());
+		assertEquals("POST", seen.get(0).method());
+		assertEquals("/api/plugin/auth/signout", seen.get(0).url().encodedPath());
+		assertEquals("Bearer tok", seen.get(0).header("Authorization"));
+
+		// Signed out already: nothing to revoke, nothing sent.
+		c.revokeToken();
+		Thread.sleep(100);
+		assertEquals(1, seen.size());
+	}
+
+	@Test
 	public void everyRefusalIsTypedWithItsStatus()
 	{
 		BingoApiClient c = client();

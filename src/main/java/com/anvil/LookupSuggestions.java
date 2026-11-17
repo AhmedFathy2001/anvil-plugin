@@ -47,9 +47,9 @@ final class LookupSuggestions extends KeyAdapter {
 		var q = Rsn.normalize(typed);
 		if (q.isEmpty()) return null;
 		var mine = Rsn.normalize(me);
-		for (List<String> list : Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan)) {
+		for (var list : Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan)) {
 			if (list == null) continue;
-			for (String raw : list) {
+			for (var raw : list) {
 				if (raw == null) continue;
 				var name = raw.replace(' ', ' ').trim();
 				var key = Rsn.normalize(name);
@@ -92,7 +92,6 @@ final class LookupSuggestions extends KeyAdapter {
 		}));
 	}
 
-	@Override
 	public void keyTyped(KeyEvent e) {
 		char c = e.getKeyChar();
 		if (!enabled.getAsBoolean() || Character.isISOControl(c) || !(Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')

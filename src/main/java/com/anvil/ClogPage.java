@@ -56,7 +56,7 @@ final class ClogPage {
 			h = fold(h, itemIds[i]);
 			h = fold(h, quantities[i]);
 		}
-		for (Map.Entry<String, Integer> e : counts.entrySet()) {
+		for (var e : counts.entrySet()) {
 			h = fold(h, e.getKey().hashCode());
 			h = fold(h, e.getValue());
 		}

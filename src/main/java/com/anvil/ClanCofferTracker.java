@@ -13,14 +13,10 @@ import java.util.Locale;
 final class ClanCofferTracker {
 	static final long ACTOR_WINDOW_MS = 15_000L;
 
-	@RequiredArgsConstructor
 	enum Kind {
-		SNAPSHOT("snapshot"),
-		DEPOSIT("deposit"),
-		WITHDRAWAL("withdrawal");
+		SNAPSHOT, DEPOSIT, WITHDRAWAL;
 
-		final String wire;
-
+		final String wire = name().toLowerCase(Locale.ROOT);
 	}
 
 	@RequiredArgsConstructor

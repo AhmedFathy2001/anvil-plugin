@@ -30,6 +30,8 @@ public class PushSocketTest
 		final List<FakeSocket> opened = new CopyOnWriteArrayList<>();
 		volatile boolean ticketsAvailable = true;
 		volatile int ticketsAsked;
+		volatile boolean lastFeed;
+		volatile int lastRelay;
 
 		FakeApi()
 		{
@@ -37,9 +39,11 @@ public class PushSocketTest
 		}
 
 		@Override
-		PushTicket fetchPushTicket(boolean feed, boolean rows)
+		PushTicket fetchPushTicket(boolean feed, boolean rows, int relay, String fc)
 		{
 			ticketsAsked++;
+			lastFeed = feed;
+			lastRelay = relay;
 			if (!ticketsAvailable)
 			{
 				return null;
@@ -115,6 +119,36 @@ public class PushSocketTest
 		push.onMessage(api.opened.get(0), "not json");
 		assertEquals(2, heard.size());
 		assertEquals(9, heard.get(1).get("tileId").getAsInt());
+	}
+
+	@Test
+	public void aTicketForAnOldScopeIsDropped() throws Exception
+	{
+		api.ticketsAvailable = false;
+		push.scope("5:2:c302#1@");
+		settle();
+		assertEquals(0, api.opened.size());
+		BingoApiClient.PushTicket t = new BingoApiClient.PushTicket();
+		t.url = "wss://anvilosrs.com/api/plugin/push/ws";
+		t.ticket = "old";
+		// Asked before a hop: the scope has moved on, so this ticket opens nothing.
+		push.withTicket("5:2:c301#1@", t);
+		assertEquals(0, api.opened.size());
+		push.withTicket("5:2:c302#1@", t);
+		assertEquals(1, api.opened.size());
+	}
+
+	@Test
+	public void scopeFlagsAskForFeedAndRelayWorld() throws Exception
+	{
+		push.scope("0:0:f:r:c302#77");
+		settle();
+		assertTrue(api.lastFeed);
+		assertEquals(302, api.lastRelay);
+		push.scope("5:2:r");
+		settle();
+		assertFalse(api.lastFeed);
+		assertEquals(0, api.lastRelay);
 	}
 
 	@Test

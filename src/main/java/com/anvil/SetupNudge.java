@@ -26,7 +26,7 @@ public final class SetupNudge {
 	/** The site, as it reads in a chat line — one source of truth with the address the plugin uses. */
 	static final String SITE_HOST = BingoApiClient.site().replaceFirst("^https?://", "");
 
-	public enum Kind {
+	enum Kind {
 		/** Connected, or done asking. Say nothing. */
 		NONE,
 		/** Not signed in — the fresh install. */
@@ -36,7 +36,7 @@ public final class SetupNudge {
 	/**
 	 * @param firstRunShown how many times the first-run line has already been printed on this install
 	 */
-	public static Kind decide(String token, int firstRunShown) {
+	static Kind decide(String token, int firstRunShown) {
 		if (token != null && !token.trim().isEmpty()) return Kind.NONE;
 		return firstRunShown < FIRST_RUN_NUDGES ? Kind.FIRST_RUN : Kind.NONE;
 	}
@@ -49,7 +49,7 @@ public final class SetupNudge {
 	 * for a person with no clan is the part that is not obvious. Neither line is a request to go
 	 * anywhere but the one site this plugin talks to.</p>
 	 */
-	public static String[] lines(Kind kind) {
+	static String[] lines(Kind kind) {
 		switch (kind) {
 			case FIRST_RUN:
 				return new String[]{

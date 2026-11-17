@@ -13,9 +13,6 @@ import java.util.regex.Pattern;
 final class DropSource {
 	static final Pattern WIKI_QUALIFIER = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
 
-	DropSource() {
-	}
-
 	/**
 	 * The in-game name for a wiki NPC name. The wiki tells same-named monsters apart with a
 	 * parenthetical ("Armoured zombie (Zemouregal's Fort)"), but the game reports them all as plain
@@ -31,7 +28,7 @@ final class DropSource {
 	/** True when the reported loot {@code source} is one of a tile's configured (wiki-named) NPCs. */
 	static boolean sourceMatches(List<String> sourceNpcs, String source) {
 		if (source == null || sourceNpcs == null) return false;
-		for (String npc : sourceNpcs) {
+		for (var npc : sourceNpcs) {
 			if (npc != null && (source.equalsIgnoreCase(npc) || source.equalsIgnoreCase(inGameNpcName(npc)))) return true;
 		}
 		return false;
@@ -70,7 +67,7 @@ final class DropSource {
 		if (pet == null || pet.sources == null || pet.sources.isEmpty()) return pet == null ? observed : null;
 		var sources = pet.sources;
 		if (observed != null && !observed.trim().isEmpty()) {
-			for (String candidate : sources) {
+			for (var candidate : sources) {
 				if (candidate.equalsIgnoreCase(observed.trim())) return candidate;
 			}
 		}
@@ -78,7 +75,7 @@ final class DropSource {
 		String best = null;
 		int bestKc = -1;
 		Map<String, Integer> counts = killCount == null ? Collections.emptyMap() : killCount;
-		for (String candidate : sources) {
+		for (var candidate : sources) {
 			Integer kc = counts.get(candidate.toLowerCase(Locale.ROOT));
 			int value = kc == null ? -1 : kc;
 			if (value > bestKc) {

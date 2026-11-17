@@ -70,7 +70,7 @@ final class ChatFlairSync {
 		}
 		var moved = false;
 		if (s.deltas != null) {
-			for (ChatFlair.Wire d : s.deltas) moved |= flair.apply(d);
+			for (var d : s.deltas) moved |= flair.apply(d);
 		}
 		if (flair.version() != s.v || s.n != null && s.n >= 0 && flair.size() != s.n) moved |= flair.adopt(source.full(s.v));
 		if (moved) changed.run();

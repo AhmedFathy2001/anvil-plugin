@@ -104,13 +104,13 @@ final class DeathAttribution {
 	synchronized String killer(String weWereFighting, long nowMs) {
 		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS || attackers.isEmpty()) return null;
 		if (weWereFighting != null && !weWereFighting.isEmpty()) {
-			for (String name : attackers.keySet()) {
+			for (var name : attackers.keySet()) {
 				if (Rsn.same(name, weWereFighting)) return name;
 			}
 		}
 		String newest = null;
 		var newestAt = Long.MIN_VALUE;
-		for (Map.Entry<String, Long> entry : attackers.entrySet()) {
+		for (var entry : attackers.entrySet()) {
 			if (entry.getValue() >= newestAt) {
 				newestAt = entry.getValue();
 				newest = entry.getKey();
@@ -123,7 +123,7 @@ final class DeathAttribution {
 	synchronized int players(long nowMs) {
 		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS) return 0;
 		int n = 0;
-		for (String name : attackers.keySet()) {
+		for (var name : attackers.keySet()) {
 			if (players.contains(name)) n++;
 		}
 		return n;

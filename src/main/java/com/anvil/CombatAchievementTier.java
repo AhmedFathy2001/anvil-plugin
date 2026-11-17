@@ -1,7 +1,6 @@
 package com.anvil;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import java.util.Locale;
 import net.runelite.api.gameval.VarbitID;
 
@@ -24,19 +23,18 @@ public enum CombatAchievementTier {
 
 
 	/** "Easy" … "Grandmaster". */
-	public String getDisplayName() {
+	String getDisplayName() {
 		return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
 	}
 
-	@Override
 	public String toString() {
 		return getDisplayName();
 	}
 
 	/** Resolves the tier from the word used in the completion message ("easy", "elite", …). */
-	public static CombatAchievementTier byName(String name) {
+	static CombatAchievementTier byName(String name) {
 		if (name == null) return null;
-		for (CombatAchievementTier t : values()) {
+		for (var t : values()) {
 			if (t.name().equalsIgnoreCase(name)) return t;
 		}
 		return null;

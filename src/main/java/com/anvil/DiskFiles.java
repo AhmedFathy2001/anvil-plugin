@@ -18,9 +18,6 @@ import net.runelite.client.util.Filepath;
  * method here blocks on disk — callers run them on the plugin executor, never the client thread.
  */
 final class DiskFiles {
-	DiskFiles() {
-	}
-
 	/** {@code dir}, created on demand; null when it can't be. */
 	static Filepath ensureDir(Filepath dir) {
 		if (dir == null) return null;
@@ -51,7 +48,7 @@ final class DiskFiles {
 	static byte[] read(Filepath file) {
 		OffThread.check("disk read");
 		if (file == null || !file.isFile()) return null;
-		try (InputStream in = file.openInputStream()) {
+		try (var in = file.openInputStream()) {
 			return in.readAllBytes();
 		} catch (IOException | RuntimeException e) {
 			return null;
@@ -76,7 +73,7 @@ final class DiskFiles {
 	/** The files directly in {@code dir} whose names pass {@code name}; empty when there is no listing. */
 	static List<Filepath> listFiles(Filepath dir, Predicate<String> name) {
 		if (dir == null) return new ArrayList<>();
-		try (Stream<Filepath> walk = dir.walk(1)) {
+		try (var walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && name.test(f.getFileName())).collect(Collectors.toList());
 		} catch (IOException | RuntimeException e) {
 			return new ArrayList<>();

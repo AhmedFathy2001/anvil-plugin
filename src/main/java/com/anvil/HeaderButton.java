@@ -101,6 +101,15 @@ final class HeaderButton {
 	final BooleanSupplier enabled;
 	final Runnable onClick;
 
+	/** The window frame whose centred title we must not sit on; 0 when the bar has none to mind. */
+	int frameId;
+	/** The title would run under the button, so it is not drawn: the caller offers the action elsewhere. */
+	boolean tucked;
+	/** The last real reading of whether the title reaches us, and whether the latest look got one. */
+	boolean covered = true, unsure;
+	/** Clear space kept between the title's last letter and our edge. */
+	static final int GAP = 1;
+
 	/** What we drew last time. Null until the first render, stale after a neighbour clears the bar. */
 	Widget[] parts;
 	/** The slot those parts were drawn in, so a change of neighbours can be noticed and acted on. */
@@ -115,14 +124,22 @@ final class HeaderButton {
 	 * Draw the button, or leave alone the one already there.
 	 *
 	 * <p>Safe to call on every draw of the interface. Must run on the client thread — and, because of
-	 * the neighbour that clears this container, wants to run AFTER every other subscriber to the
-	 * script has had its turn.
+	 * the neighbour that clears this container, AFTER every other subscriber to the script has had
+	 * its turn and before the frame is drawn: the plugin calls it from BeforeRender.
 	 */
 	void render() {
 		var parent = client.getWidget(parentId);
 		var anchor = client.getWidget(anchorId);
-		if (parent == null || anchor == null || !enabled.getAsBoolean()) return;
+		tucked = false;
+		if (parent == null || anchor == null || !enabled.getAsBoolean()) {
+			unsure = false; // nothing open to measure: no reason to look again every frame
+			return;
+		}
 		int x = slotFor(parent);
+		if (tucked = covers(parent, x)) {
+			hideParts();
+			return;
+		}
 		if (stillAttached(parent)) {
 			if (drawnAt == x) {
 				return; // ours, intact, in the right slot — drawing again would only make a second one
@@ -173,6 +190,36 @@ final class HeaderButton {
 		parent.revalidate();
 	}
 
+	/** Whether the window's title, as drawn at this width, reaches a button in slot x. */
+	boolean covers(Widget parent, int x) {
+		var frame = frameId == 0 ? null : client.getWidget(frameId);
+		var kids = frame == null ? null : frame.getDynamicChildren();
+		if (kids != null) {
+			for (var k : kids) {
+				// The frame's one line of text is its title.
+				if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
+				var t = k.getBounds();
+				var bar = parent.getBounds();
+				// Not laid out yet (the window just opened, was resized or was rebuilt; a widget the client
+				// has not placed reports x = -1): no reading to act on. Keep whatever was decided last, so
+				// the button neither appears on the title for a moment nor blinks out during a resize, and
+				// ask again next frame. Before any reading at all, that is "not shown".
+				if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) {
+					unsure = true;
+					return covered;
+				}
+				unsure = false;
+				return covered = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
+			}
+		}
+		return false;
+	}
+
+	/** A title centred in [titleX, titleX + titleW) against a button whose right edge is offset from barRight. */
+	static boolean overlaps(int titleX, int titleW, int textW, int barRight, int offset) {
+		return titleX + (titleW + textW) / 2 + GAP > barRight - offset - WIDTH;
+	}
+
 	/**
 	 * Which slot to sit in — the far one when a neighbour holds the near one, the near one otherwise.
 	 *
@@ -189,7 +236,7 @@ final class HeaderButton {
 		if (nearOffset >= rightOffset) return rightOffset;
 		var children = parent.getDynamicChildren();
 		if (children != null) {
-			for (Widget child : children) {
+			for (var child : children) {
 				if (child == null || NAME.equals(child.getName())) {
 					continue; // ours, from a previous render we are about to replace
 				}
@@ -254,9 +301,14 @@ final class HeaderButton {
 	 * removal the API offers clears the whole container, which would take the neighbours with it.
 	 * A hidden widget does not render and is collected when the interface is next rebuilt.</p>
 	 */
+	/** Whether the button is on screen right now. */
+	boolean shown() {
+		return parts != null && parts[TEXT] != null && !parts[TEXT].isHidden();
+	}
+
 	void hideParts() {
 		if (parts != null) {
-			for (Widget w : parts) {
+			for (var w : parts) {
 				if (w != null) w.setHidden(true);
 			}
 		}
@@ -284,7 +336,7 @@ final class HeaderButton {
 		if (parts == null || parts[TEXT] == null) return false;
 		var children = parent.getDynamicChildren();
 		if (children == null) return false;
-		for (Widget w : children) {
+		for (var w : children) {
 			if (w == parts[TEXT]) return true;
 		}
 		return false;
