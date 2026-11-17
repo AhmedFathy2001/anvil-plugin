@@ -106,7 +106,7 @@ final class HeaderButton {
 	/** The title would run under the button, so it is not drawn: the caller offers the action elsewhere. */
 	boolean tucked;
 	/** Clear space kept between the title's last letter and our edge. */
-	static final int GAP = 4;
+	static final int GAP = 1;
 
 	/** What we drew last time. Null until the first render, stale after a neighbour clears the bar. */
 	Widget[] parts;
