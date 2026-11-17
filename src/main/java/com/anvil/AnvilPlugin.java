@@ -9764,11 +9764,12 @@ public class AnvilPlugin extends Plugin {
 		if (icon == null) return;
 		var os = client.getObjectStack();
 		int at = client.getObjectStackSize() - 3;
-		// TEMP (remove before release): what the chatbox hands us for a relayed line, to place the rank icon.
-		if (relayRank.containsKey(node)) {
-			int osz = client.getObjectStackSize(), isz = client.getIntStackSize();
-			log.info("relay-name id={} objs={} ints={}", node, java.util.Arrays.toString(java.util.Arrays.copyOfRange(os, Math.max(0, osz - 7), osz)), java.util.Arrays.toString(java.util.Arrays.copyOfRange(client.getIntStack(), Math.max(0, isz - 10), isz)));
-		}
+		// TEMP (remove before release): what the chatbox hands us, for our own real line and a relayed one.
+		int osz = client.getObjectStackSize(), isz = client.getIntStackSize();
+		log.info("relay-name id={} relayed={} objs={} ints={}", node, relayRank.containsKey(node), java.util.Arrays.toString(java.util.Arrays.copyOfRange(os, Math.max(0, osz - 7), osz)), java.util.Arrays.toString(java.util.Arrays.copyOfRange(client.getIntStack(), Math.max(0, isz - 10), isz)));
+		// EXPERIMENT: the last string looks like the rank icon's own slot (empty on a line we added).
+		var rk = relayRank.get(node);
+		if (rk != null && !rk.isEmpty() && "".equals(os[osz - 1])) os[osz - 1] = rk;
 		os[at] = relayName(String.valueOf(os[at]), relayRank.get(node), icon) + relayIcon();
 	}
 
