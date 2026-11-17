@@ -10520,7 +10520,10 @@ public class AnvilPlugin extends Plugin {
 		clogFullSync.onSent();
 		log.info("Collection log synced: {} items", count);
 		if (manual) {
-			sendChatMessage(Tone.DONE, "Profile synced — " + count + " collection log slots.");
+			// The game's own slot count, as the log's title shows it: the transmit can carry a few more item
+			// ids than slots (the same slot under two ids), and "497" beside a log reading 493 looked wrong.
+			int slots = client.getVarpValue(VarPlayerID.COLLECTION_COUNT);
+			sendChatMessage(Tone.DONE, "Profile synced — " + (slots > 0 ? slots : count) + " collection log slots.");
 		} else if (result.added > 0) {
 			// New slots are news: always said.
 			autoClogReportedThisLogin = true;
