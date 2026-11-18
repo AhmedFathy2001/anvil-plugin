@@ -2463,6 +2463,10 @@ public class AnvilPlugin extends Plugin {
 			gameValueCounters.onSessionEnd();
 			movedFrom = null;
 			movedTick = -1;
+			// Chat line ids start over with the session, so an old mark would land on a stranger's line.
+			relayMarked.clear();
+			relaySeen.clear();
+			relayNodes.clear();
 		}
 		// SESSION CLOCK for the starting shot (StartProofRules). Only the login screen starts a new
 		// session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
