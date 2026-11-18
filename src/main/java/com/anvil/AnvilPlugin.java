@@ -6255,9 +6255,14 @@ public class AnvilPlugin extends Plugin {
 					pmPainted.put(painted, d);
 					if (repaint || chatFlair.movingSender(text)) pmMoving.put(w, new String[]{text, painted});
 					else pmMoving.remove(w);
+				} else if (column && sender && text.contains("<img=")) {
+					// Nothing of ours to paint, but the name carries an icon (the Anvil chat mark): the game
+					// may have placed the message for the plain name, so the fit is still checked.
+					d = starRoom(text, text, w.getFont());
+					pmPainted.put(text, d);
 				} else splitPmSeen.add(text);
 			}
-			if (d != null && d[0] > 0) moved |= ChatFlair.makeRoom(i, d[0], d[1], n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
+			if (d != null && (d[0] > 0 || d[1] > 0)) moved |= ChatFlair.makeRoom(i, d[0], d[1], n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
 		}
 		if (!moved) return;
 		for (int i = 0; i < n; i++) {
