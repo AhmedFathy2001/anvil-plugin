@@ -47,6 +47,7 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.time.*;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -10093,6 +10094,9 @@ public class AnvilPlugin extends Plugin {
 		// no action; only while our own relay is live (else we can't know anyone's).
 		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
 		int show = relayPresence();
+		// Every player this menu is about, once each: a crowd's menu names several, and one line about
+		// whichever came first read as the status of all of them.
+		var names = new LinkedHashMap<String, String>();
 		for (var en : show > 0 ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
@@ -10103,8 +10107,17 @@ public class AnvilPlugin extends Plugin {
 			var fc = client.getFriendsChatManager();
 			if (en.getPlayer() == null && !overChatLine && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
-			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (show < 2 ? "reconnecting" : relayConnected(name) ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
-			break;
+			names.putIfAbsent(Text.standardize(Text.removeTags(name)), Text.removeTags(name).replace('\u00a0', ' '));
+		}
+		if (!names.isEmpty()) {
+			String status;
+			if (show < 2) status = "reconnecting";
+			else if (names.size() == 1) status = relayConnected(names.values().iterator().next()) ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
+			else {
+				var on = names.values().stream().filter(this::relayConnected).collect(Collectors.toList());
+				status = on.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", on.subList(0, Math.min(3, on.size()))) + (on.size() > 3 ? " +" + (on.size() - 3) : "");
+			}
+			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + status).setTarget("").setType(MenuAction.RUNELITE);
 		}
 		for (var en : e.getMenuEntries()) {
 			int on = en.getParam1();
