@@ -3087,7 +3087,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	static final String[] REWARD_WINDOWS = {"chambers of xeric", "theatre of blood", "tombs of amascut",
-		"barrows", "clue scroll", "fortis colosseum", "lunar chest", "nightmare", "gauntlet"};
+		"barrows", "clue scroll", "fortis colosseum", "lunar chest", "gauntlet"};
 
 	/** {@code items} minus anything the player was wearing (an unequip, not a reward). */
 	static List<ItemStack> withoutWorn(Collection<ItemStack> items, Set<Integer> wornIds) {
