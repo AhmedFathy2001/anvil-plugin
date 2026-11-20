@@ -6022,6 +6022,13 @@ public class AnvilPlugin extends Plugin {
 	int[] chatboxRoom = new int[0];
 	/** Client thread: per chatbox slot, the plain sender line {@link #chatboxRoom} was set for. */
 	String[] chatboxRoomFor = new String[0];
+	/**
+	 * Client thread: per message widget we narrowed into an extra wrapped line, the height it was grown
+	 * to and its text then. The game lays the rows out again (a new message, a scroll) without asking us,
+	 * so the rows below would slide back under that extra line; each pass puts them right again.
+	 */
+	int[] chatboxGrown = new int[0];
+	String[] chatboxGrownText = new String[0];
 
 	/**
 	 * Client thread, right before each frame: each sender column ("Name:", "[Clan] <icons>Name:", "From
@@ -6044,8 +6051,11 @@ public class AnvilPlugin extends Plugin {
 			chatboxDeferred = Arrays.copyOf(chatboxDeferred, lines.length);
 			chatboxRoom = Arrays.copyOf(chatboxRoom, lines.length);
 			chatboxRoomFor = Arrays.copyOf(chatboxRoomFor, lines.length);
+			chatboxGrown = Arrays.copyOf(chatboxGrown, lines.length);
+			chatboxGrownText = Arrays.copyOf(chatboxGrownText, lines.length);
 			Arrays.fill(chatboxRoom, was, lines.length, Integer.MIN_VALUE);
 		}
+		keepGrownRows(lines);
 		var frame = currentChatNameFrame();
 		var move = frame != chatNameFrame;
 		chatNameFrame = frame;
@@ -6134,10 +6144,39 @@ public class AnvilPlugin extends Plugin {
 			var f = o.getFont();
 			int before = f == null ? 1 : wrapLines(o.getText(), o.getOriginalWidth(), f), after = f == null ? 1 : wrapLines(o.getText(), w, f);
 			o.setOriginalWidth(w);
-			if (after > before) pushRowsDown(lines, o, (after - before) * Math.max(1, o.getOriginalHeight() / before));
+			if (after > before) {
+				pushRowsDown(lines, o, (after - before) * Math.max(1, o.getOriginalHeight() / before));
+				chatboxGrown[j] = o.getOriginalHeight();
+				chatboxGrownText[j] = o.getText();
+			}
 			chatboxRoom[j] = o.getOriginalX();
 			chatboxRoomFor[j] = plain;
 			o.revalidate();
+		}
+	}
+
+	/**
+	 * A message we grew into an extra line keeps it, and the rows below stay under it, however often the
+	 * game lays the chat out again. Its text or position changing means the game rebuilt that slot plain:
+	 * it is forgotten. Otherwise its height comes back and anything that slid up under it moves down.
+	 */
+	void keepGrownRows(Widget[] lines) {
+		for (int j = 0; j < Math.min(lines.length, chatboxGrown.length); j++) {
+			if (chatboxGrown[j] <= 0) continue;
+			var o = lines[j];
+			if (o == null || o.isHidden() || o.getText() != chatboxGrownText[j] || o.getOriginalX() != chatboxRoom[j]) {
+				chatboxGrown[j] = 0;
+				chatboxGrownText[j] = null;
+				continue;
+			}
+			if (o.getOriginalHeight() < chatboxGrown[j]) {
+				pushRowsDown(lines, o, chatboxGrown[j] - o.getOriginalHeight());
+				continue;
+			}
+			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
+			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = Math.min(next, l.getOriginalY());
+			int under = y + o.getOriginalHeight() - next;
+			if (next != Integer.MAX_VALUE && under > 0) pushRowsDown(lines, o, under, false);
 		}
 	}
 
@@ -6156,9 +6195,15 @@ public class AnvilPlugin extends Plugin {
 
 	/** Grow {@code o} by {@code extra} px and move every chatbox row below it down to match, keeping the view where it was. */
 	void pushRowsDown(Widget[] lines, Widget o, int extra) {
+		pushRowsDown(lines, o, extra, true);
+	}
+
+	void pushRowsDown(Widget[] lines, Widget o, int extra, boolean grow) {
 		int y = o.getOriginalY();
-		o.setOriginalHeight(o.getOriginalHeight() + extra);
-		o.revalidate();
+		if (grow) {
+			o.setOriginalHeight(o.getOriginalHeight() + extra);
+			o.revalidate();
+		}
 		for (var l : lines) {
 			if (l == null || l == o || l.getOriginalY() <= y) continue;
 			l.setOriginalY(l.getOriginalY() + extra);
