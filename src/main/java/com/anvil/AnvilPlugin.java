@@ -3321,7 +3321,7 @@ public class AnvilPlugin extends Plugin {
 			bannerSound.play(BannerSoundService.Kind.MISSION);
 			return;
 		}
-		int id = claimed ? SoundEffectID.GE_COLLECT_BLOOP : SoundEffectID.GE_ADD_OFFER_DINGALING;
+		int id = claimed ? net.runelite.api.SoundEffectID.GE_COLLECT_BLOOP : net.runelite.api.SoundEffectID.GE_ADD_OFFER_DINGALING;
 		clientThread.invoke(() -> client.playSoundEffect(id));
 	}
 
