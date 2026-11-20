@@ -5,13 +5,14 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import net.runelite.client.game.ItemStack;
+import net.runelite.http.api.loottracker.LootRecordType;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** Rubbing a tarnished drop clean is read off an inventory diff: a gear swap in the same moment isn't loot. */
+/** Loot read off an inventory diff (a tarnished rub, a bird nest): a gear swap in the same moment isn't loot. */
 public class InventoryDiffLootTest
 {
 	private static final int HAUBERK = 24419;
@@ -20,11 +21,28 @@ public class InventoryDiffLootTest
 	@Test
 	public void tarnishedItemsAreInventoryDiffLoot()
 	{
-		assertTrue(AnvilPlugin.isInventoryDiffLoot("Tarnished longsword"));
-		assertTrue(AnvilPlugin.isInventoryDiffLoot("Tarnished 2h sword"));
-		assertFalse(AnvilPlugin.isInventoryDiffLoot("Tarnished chest"));
-		assertFalse(AnvilPlugin.isInventoryDiffLoot("Maggot King"));
-		assertFalse(AnvilPlugin.isInventoryDiffLoot(null));
+		assertTrue(AnvilPlugin.isInventoryDiffLoot("Tarnished longsword", LootRecordType.EVENT));
+		assertTrue(AnvilPlugin.isInventoryDiffLoot("Tarnished 2h sword", LootRecordType.EVENT));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Tarnished chest", LootRecordType.EVENT));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Maggot King", LootRecordType.NPC));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot(null, LootRecordType.EVENT));
+	}
+
+	@Test
+	public void nestsAndPickpocketsAreInventoryDiffLoot()
+	{
+		assertTrue(AnvilPlugin.isInventoryDiffLoot("Bird nest", LootRecordType.EVENT));
+		assertTrue(AnvilPlugin.isInventoryDiffLoot("Master Farmer", LootRecordType.PICKPOCKET));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Bird nest", LootRecordType.PLAYER));
+	}
+
+	@Test
+	public void rewardWindowsKeepAWornCopy()
+	{
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Tombs of Amascut", LootRecordType.EVENT));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Chambers of Xeric", LootRecordType.EVENT));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Barrows", LootRecordType.EVENT));
+		assertFalse(AnvilPlugin.isInventoryDiffLoot("Clue Scroll (Elite)", LootRecordType.EVENT));
 	}
 
 	@Test

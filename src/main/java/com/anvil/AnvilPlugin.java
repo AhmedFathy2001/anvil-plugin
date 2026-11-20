@@ -34,6 +34,7 @@ import net.runelite.client.events.*;
 import net.runelite.client.game.*;
 import net.runelite.client.plugins.*;
 import net.runelite.client.plugins.loottracker.LootReceived;
+import net.runelite.http.api.loottracker.LootRecordType;
 import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.*;
@@ -3048,8 +3049,9 @@ public class AnvilPlugin extends Plugin {
 		// also picks up a gear swap made in the same moment: an unequipped Inquisitor's hauberk
 		// landing in the inventory was reported as "loot from Tarnished longsword", credited an
 		// "any Nightmare unique" tile and posted a 94m rare drop. Nothing worn a tick ago is loot.
+		// Same for a searched bird nest: a Lightbearer taken off as the nest opened posted as a 3m drop.
 		List<ItemStack> items = new ArrayList<>(event.getItems());
-		if (isInventoryDiffLoot(source)) {
+		if (isInventoryDiffLoot(source, event.getType())) {
 			var worn = new HashSet<>(lastWornItemIds);
 			worn.addAll(wornItemIds());
 			items = withoutWorn(items, worn);
@@ -3073,12 +3075,19 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Loot sources RuneLite reads off an inventory diff, which a same-tick gear swap pollutes. */
-	static boolean isInventoryDiffLoot(String source) {
-		if (source == null) return false;
+	static boolean isInventoryDiffLoot(String source, LootRecordType type) {
+		if (source == null || type == LootRecordType.NPC || type == LootRecordType.PLAYER) return false;
 		var s = source.toLowerCase();
 		// "Tarnished chest" is a chest, not the rub-clean diff.
-		return s.startsWith("tarnished ") && !s.equals("tarnished chest");
+		if (s.startsWith("tarnished ")) return !s.equals("tarnished chest");
+		// Nests, sacks, crates, chests and pickpockets are all read off the inventory. Only reward
+		// windows aren't, and there a worn copy of the reward is a real second drop.
+		for (var w : REWARD_WINDOWS) if (s.contains(w)) return false;
+		return true;
 	}
+
+	static final String[] REWARD_WINDOWS = {"chambers of xeric", "theatre of blood", "tombs of amascut",
+		"barrows", "clue scroll", "fortis colosseum", "lunar chest", "nightmare", "gauntlet"};
 
 	/** {@code items} minus anything the player was wearing (an unequip, not a reward). */
 	static List<ItemStack> withoutWorn(Collection<ItemStack> items, Set<Integer> wornIds) {
