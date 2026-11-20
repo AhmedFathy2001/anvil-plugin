@@ -6823,11 +6823,15 @@ public class AnvilPlugin extends Plugin {
 		return f != null && f.getWorld() > 0;
 	}
 
-	/** Our relay is live, we send through it, and the player asked for the connected status on right-click. */
-	boolean relayPresenceVisible() {
+	/**
+	 * The connected status on right-click: 0 = no line (not asked for, or the site gave us no relay),
+	 * 1 = our own connection is down (it reopens by itself: every ten minutes, on a hop, on a deploy),
+	 * 2 = live, so we know who is here. The line used to vanish in state 1, which read as a bug.
+	 */
+	int relayPresence() {
 		var p = pushSocket;
-		return p != null && p.live() && p.relayOk && config.relayWho()
-			&& config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
+		if (p == null || !config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0) return 0;
+		return !p.live() ? 1 : p.relayOk ? 2 : 0;
 	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
@@ -10088,8 +10092,8 @@ public class AnvilPlugin extends Plugin {
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
 		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
-		var show = relayPresenceVisible();
-		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
+		int show = relayPresence();
+		for (var en : show > 0 ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
 			var name = en.getPlayer() == null ? LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim() : en.getPlayer().getName();
@@ -10099,8 +10103,7 @@ public class AnvilPlugin extends Plugin {
 			var fc = client.getFriendsChatManager();
 			if (en.getPlayer() == null && !overChatLine && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
-			var on = relayConnected(name);
-			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (on ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
+			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (show < 2 ? "reconnecting" : relayConnected(name) ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
 			break;
 		}
 		for (var en : e.getMenuEntries()) {
