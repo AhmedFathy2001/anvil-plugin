@@ -7019,10 +7019,10 @@ public class AnvilPlugin extends Plugin {
 		if (p != null) p.scope(rows && apiClient.isConfigured() && pushEnabled()
 				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
 				// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
-				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "@" + fcOwner()
 				// The name too: the site grants the relay only to a request that names the character, and a
 				// ticket asked for in the second after log in (before it was stamped) had none, for good.
-				+ "/" + apiClient.getCurrentRsn() : "") : null);
+				// Before the '@': PushSocket reads everything after it as the friends chat and guest clan.
+				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "/" + apiClient.getCurrentRsn() + "@" + fcOwner() : "") : null);
 	}
 
 	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
