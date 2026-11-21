@@ -7022,7 +7022,7 @@ public class AnvilPlugin extends Plugin {
 			case "ask":
 				var asker = m.get("n").getAsString();
 				clientThread.invoke(() -> {
-					if (client.isFriended(asker, false)) relaySend("t", "ok", "n", asker);
+					if ("friends".equals(pmModeSent) && client.isFriended(asker, false)) relaySend("t", "ok", "n", asker);
 				});
 				return;
 			case "hello":
