@@ -10291,13 +10291,17 @@ public class AnvilPlugin extends Plugin {
 		// whichever came first read as the status of all of them.
 		var names = new LinkedHashMap<String, String>();
 		var seen = new HashSet<String>();
+		var onFriendsList = false;
+		for (var en : e.getMenuEntries()) if (WidgetUtil.componentToInterface(en.getParam1()) == InterfaceID.FRIENDS) onFriendsList = true;
 		for (var en : show > 0 ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
 			var name = en.getPlayer() == null ? LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim() : en.getPlayer().getName();
 			if (empty(name)) continue;
-			// The friends list shows them logged out (offline, or hidden from us): no line there, whatever we share.
-			if (en.getPlayer() == null && WidgetUtil.componentToInterface(en.getParam1()) == InterfaceID.FRIENDS && !friendOnline(name)) continue;
+			// A menu opened on the friends list follows it: logged out there (offline, or hidden from us),
+			// no line, whatever we share. Other plugins' entries in the same menu (World Hopper's Hop-to,
+			// lookups) don't carry the list's widget, so this is decided for the menu, not per entry.
+			if (onFriendsList && !friendOnline(name)) continue;
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
