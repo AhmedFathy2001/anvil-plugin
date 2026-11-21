@@ -7022,7 +7022,9 @@ public class AnvilPlugin extends Plugin {
 			case "ask":
 				var asker = m.get("n").getAsString();
 				clientThread.invoke(() -> {
-					if ("friends".equals(pmModeSent) && client.isFriended(asker, false)) relaySend("t", "ok", "n", asker);
+					// Only where the game shows us to them anyway: on their screen (we're on each other's), or our
+					// friend while we're on Friends. Otherwise we stay offline to them, as the game keeps us.
+					if (inScene(asker) || ("friends".equals(pmModeSent) && client.isFriended(asker, false))) relaySend("t", "ok", "n", asker);
 				});
 				return;
 			case "hello":
@@ -9903,14 +9905,21 @@ public class AnvilPlugin extends Plugin {
 	/** Names we asked the relay about, and when (ms): once a minute each at most. */
 	final Map<String, Long> relayAsked = capped(200, false);
 
-	/** Friends the game shows online but we don't know as connected: ask (their own setting decides). */
+	/** Whether a player of that name is in our scene (the game shows them to us). */
+	boolean inScene(String name) {
+		var k = relayKey(name, "");
+		for (var q : client.getPlayers()) if (q != null && q.getName() != null && k.equals(relayKey(q.getName(), ""))) return true;
+		return false;
+	}
+
+	/** Players the game shows us (on screen, or online friends) not known as connected: ask; their own client decides. */
 	void relayWho(Collection<String> names) {
 		var ask = new ArrayList<String>();
 		long t = now();
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
-			if (relayConnected(n) || !friendOnline(n) || (was != null && t - was < 60_000)) continue;
+			if (relayConnected(n) || !(friendOnline(n) || inScene(n)) || (was != null && t - was < 60_000)) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
 		}
@@ -10195,7 +10204,6 @@ public class AnvilPlugin extends Plugin {
 		var chans = chatChans;
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var mp = client.getMouseCanvasPosition();
-		var overChatLine = area != null && !area.isHidden() && area.getBounds().contains(mp.getX(), mp.getY());
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
 		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
@@ -10211,7 +10219,7 @@ public class AnvilPlugin extends Plugin {
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
-			if (en.getPlayer() == null && !overChatLine && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
+			if (en.getPlayer() == null && !inScene(name) && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
 			names.putIfAbsent(Text.standardize(Text.removeTags(name)), Text.removeTags(name).replace('\u00a0', ' '));
 		}
