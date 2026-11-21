@@ -6886,9 +6886,18 @@ public class AnvilPlugin extends Plugin {
 	 */
 	int relayPresence() {
 		var p = pushSocket;
-		if (p == null || !config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0) return 0;
-		return !p.live() ? 1 : p.relayOk ? 2 : 0;
+		if (!config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0) return 0;
+		if (p == null) return 1;
+		if (p.live() && p.relayOk) return 2;
+		// A socket without the relay (asked for before we knew our world): ask again, at most every 10s.
+		if (p.live() && now() - relayRetried > 10_000) {
+			relayRetried = now();
+			pushSoon();
+		}
+		return 1;
 	}
+
+	long relayRetried;
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
 	boolean relayConnected(String name) {
@@ -7014,9 +7023,16 @@ public class AnvilPlugin extends Plugin {
 			// Presence (relay sockets only): who else beside us has the relay on.
 			case "here":
 				for (var n : m.getAsJsonArray("n")) relayHere.add(n.getAsString());
+				clientThread.invoke(this::relayMenuRefresh);
 				return;
 			case "gone":
-				relayHere.remove(m.get("n").getAsString());
+				var gone = m.get("n").getAsString();
+				relayHere.remove(gone);
+				// Gone may be a reconnect or a changed setting: the next menu asks again.
+				clientThread.invoke(() -> {
+					relayAsked.keySet().removeIf(k -> k.replaceAll("[ _-]+", " ").equals(gone));
+					relayMenuRefresh();
+				});
 				return;
 			// Someone asked whether we're connected while our private chat is on Friends: yes, only to a friend.
 			case "ask":
@@ -9902,7 +9918,7 @@ public class AnvilPlugin extends Plugin {
 		relaySend("t", "pm", "m", mode);
 	}
 
-	/** Names we asked the relay about, and when (ms): once a minute each at most. */
+	/** Names we asked the relay about, and when (ms): once every 10s each at most. */
 	final Map<String, Long> relayAsked = capped(200, false);
 
 	/** Whether a player of that name is in our group ironman group (the game lists them to us). */
@@ -9925,7 +9941,7 @@ public class AnvilPlugin extends Plugin {
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
-			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 60_000)) continue;
+			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 10_000)) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
 		}
@@ -10204,6 +10220,32 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/** Menu options about the player a chat line names (not a task or item it mentions). */
+	static final Set<String> PLAYER_OPTIONS = Set.of("Message", "Add friend", "Remove friend", "Delete friend", "Add ignore",
+		"Remove ignore", "Delete ignore", "Report", "Add Note", "Lookup", "Hop-to", "Reply", "Anvil");
+
+	/** The open menu's Anvil chat line, and whom it is about: a here/gone while it's open updates it. */
+	MenuEntry statusEntry;
+	Map<String, String> statusNames = Map.of();
+	Set<String> statusSeen = Set.of();
+
+	/** The status line for the menu's players: connected only for someone the game shows us right now. */
+	String relayStatus(int show) {
+		String status;
+		var live = new ArrayList<String>();
+		for (var n : statusNames.entrySet()) if (statusSeen.contains(n.getKey()) && relayConnected(n.getValue())) live.add(n.getValue());
+		if (show < 2) status = "reconnecting";
+		else if (statusNames.size() == 1) status = !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
+		else status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, Math.min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
+		return "<col=9f9f9f>Anvil chat: " + status;
+	}
+
+	/** Client thread: an answer came in while the menu is open: its line shows it at once. */
+	void relayMenuRefresh() {
+		var e = statusEntry;
+		if (e != null && client.isMenuOpen()) e.setOption(relayStatus(relayPresence()));
+	}
+
 	/** Client-side entries only (nothing is sent to the game): event chat on the Clan tab, Reply on a line. */
 	@Subscribe
 	void onMenuOpened(MenuOpened e) {
@@ -10232,22 +10274,19 @@ public class AnvilPlugin extends Plugin {
 			// it reads the same as someone without Anvil.
 			var visible = en.getPlayer() != null || inScene(name) || inGroup(name) || friendOnline(name) || (cc != null && cc.findMember(name) != null)
 				|| (gc != null && gc.findMember(name) != null) || (fc != null && fc.findByName(name) != null);
-			if (!visible && !overChatLine && !client.isFriended(name, false)) continue;
+			// A hidden name gets a line only off a chat line, and only on an option about a player (not a
+			// task or an item a broadcast names); an offline friend none at all.
+			if (!visible && !(overChatLine && PLAYER_OPTIONS.contains(Text.removeTags(String.valueOf(en.getOption()))))) continue;
 			var key = Text.standardize(Text.removeTags(name));
 			names.putIfAbsent(key, Text.removeTags(name).replace('\u00a0', ' '));
 			if (visible) seen.add(key);
 		}
 		if (show == 2) relayWho(names.values());
-		var live = new ArrayList<String>();
-		for (var n : names.entrySet()) if (seen.contains(n.getKey()) && relayConnected(n.getValue())) live.add(n.getValue());
+		statusEntry = null;
 		if (!names.isEmpty()) {
-			String status;
-			if (show < 2) status = "reconnecting";
-			else if (names.size() == 1) status = !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
-			else {
-				status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, Math.min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
-			}
-			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + status).setTarget("").setType(MenuAction.RUNELITE);
+			statusNames = names;
+			statusSeen = seen;
+			statusEntry = client.getMenu().createMenuEntry(1).setOption(relayStatus(show)).setTarget("").setType(MenuAction.RUNELITE);
 		}
 		for (var en : e.getMenuEntries()) {
 			int on = en.getParam1();
