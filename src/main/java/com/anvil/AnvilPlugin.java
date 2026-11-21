@@ -7022,9 +7022,9 @@ public class AnvilPlugin extends Plugin {
 			case "ask":
 				var asker = m.get("n").getAsString();
 				clientThread.invoke(() -> {
-					// Only where the game shows us to them anyway: on their screen (we're on each other's), or our
+					// Only where the game shows us to them anyway: on their screen (we're on each other's), in our group, or our
 					// friend while we're on Friends. Otherwise we stay offline to them, as the game keeps us.
-					if (inScene(asker) || ("friends".equals(pmModeSent) && client.isFriended(asker, false))) relaySend("t", "ok", "n", asker);
+					if (inScene(asker) || inGroup(asker) || ("friends".equals(pmModeSent) && client.isFriended(asker, false))) relaySend("t", "ok", "n", asker);
 				});
 				return;
 			case "hello":
@@ -9905,6 +9905,12 @@ public class AnvilPlugin extends Plugin {
 	/** Names we asked the relay about, and when (ms): once a minute each at most. */
 	final Map<String, Long> relayAsked = capped(200, false);
 
+	/** Whether a player of that name is in our group ironman group (the game lists them to us). */
+	boolean inGroup(String name) {
+		var g = client.getClanChannel(ClanID.GROUP_IRONMAN);
+		return g != null && g.findMember(name) != null;
+	}
+
 	/** Whether a player of that name is in our scene (the game shows them to us). */
 	boolean inScene(String name) {
 		var k = relayKey(name, "");
@@ -9919,7 +9925,7 @@ public class AnvilPlugin extends Plugin {
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
-			if (relayConnected(n) || !(friendOnline(n) || inScene(n)) || (was != null && t - was < 60_000)) continue;
+			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 60_000)) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
 		}
@@ -10219,7 +10225,7 @@ public class AnvilPlugin extends Plugin {
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
-			if (en.getPlayer() == null && !inScene(name) && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
+			if (en.getPlayer() == null && !inScene(name) && !inGroup(name) && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
 			names.putIfAbsent(Text.standardize(Text.removeTags(name)), Text.removeTags(name).replace('\u00a0', ' '));
 		}
