@@ -9865,6 +9865,17 @@ public class AnvilPlugin extends Plugin {
 		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
+	/**
+	 * A PM goes out only to someone the relay says is connected, or a friend the game shows offline (it
+	 * can't reach them, Anvil might: the server answers whether they're connected). A PM to anyone else
+	 * never leaves the client. Shared channels don't come into it.
+	 */
+	boolean pmViaRelay(String to) {
+		if (relayConnected(to)) return true;
+		var f = client.getFriendContainer() == null ? null : client.getFriendContainer().findByName(to);
+		return f != null && f.getWorld() <= 0;
+	}
+
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
@@ -9875,8 +9886,7 @@ public class AnvilPlugin extends Plugin {
 		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || ct == PRIVATECHATOUT ? "pm" : "public";
 		// Our own line (a PM we sent names its recipient instead).
 		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
-			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
-			if (ct != PRIVATECHATOUT || relayHere.contains(Text.standardize(name).replaceAll("[ _-]+", " "))) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
+			if (ct != PRIVATECHATOUT || pmViaRelay(name)) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
 			return;
 		}
 		var key = c + relayKey(name, text);
