@@ -2242,6 +2242,7 @@ public class AnvilPlugin extends Plugin {
 			pushSoon();
 		}
 		lastWornItemIds = wornItemIds();
+		relayHeal();
 		relayPmMode();
 		maybeSettleStats();
 		tickGameCounters();
@@ -6888,16 +6889,27 @@ public class AnvilPlugin extends Plugin {
 		var p = pushSocket;
 		if (!config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0) return 0;
 		if (p == null) return 1;
-		if (p.live() && p.relayOk) return 2;
-		// A socket without the relay (asked for before we knew our world): ask again, at most every 10s.
-		if (p.live() && now() - relayRetried > 10_000) {
-			relayRetried = now();
-			pushSoon();
-		}
-		return 1;
+		return p.live() && p.relayOk ? 2 : 1;
 	}
 
 	long relayRetried;
+	int relayWorldSeen;
+
+	/**
+	 * Client thread, each tick: logged in with Anvil chat on, the socket must be a relay one on this
+	 * world. A log in or a hop changes the world, and a socket opened before we knew it has no relay
+	 * at all: either way, a new ticket (at most every 10s). Before, only a settings toggle fixed it.
+	 */
+	void relayHeal() {
+		var p = pushSocket;
+		if (p == null || !loggedIn() || config.anvilChat() == AnvilConfig.Relay.Off) return;
+		var world = client.getWorld();
+		var stale = world != relayWorldSeen || (p.live() && !p.relayOk);
+		if (!stale || now() - relayRetried < 10_000) return;
+		relayRetried = now();
+		relayWorldSeen = world;
+		pushSoon();
+	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
 	boolean relayConnected(String name) {
