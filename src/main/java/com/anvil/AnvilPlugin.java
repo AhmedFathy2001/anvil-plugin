@@ -34,6 +34,7 @@ import net.runelite.client.events.*;
 import net.runelite.client.game.*;
 import net.runelite.client.plugins.*;
 import net.runelite.client.plugins.loottracker.LootReceived;
+import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.http.api.loottracker.LootRecordType;
 import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -7015,7 +7016,6 @@ public class AnvilPlugin extends Plugin {
 		int world = config.anvilChat() != AnvilConfig.Relay.Off && loggedIn()
 				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
 		var rows = eventId > 0 || feed || feedWatching || world > 0;
-		log.info("relay scope world={} cfg={} live={} relayOk={}", world, cfg != null, p != null && p.live(), p != null && p.relayOk);
 		if (p != null) p.scope(rows && apiClient.isConfigured() && pushEnabled()
 				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
 				// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
@@ -7041,7 +7041,6 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void applyPush(JsonObject m) {
 		var kind = m.get("t").getAsString();
-		if ("here".equals(kind) || "gone".equals(kind) || "ask".equals(kind) || "hello".equals(kind)) log.info("relay in {}", m);
 		switch (kind) {
 			case "feed":
 				feedLine(m);
@@ -9929,8 +9928,7 @@ public class AnvilPlugin extends Plugin {
 	/** A relay control message (not a chat line): our private chat setting, a who, a friend's yes. */
 	void relaySend(Object... kv) {
 		var p = pushSocket;
-		var sent = p != null && config.anvilChat() != AnvilConfig.Relay.Off && p.say(gson.toJson(BingoApiClient.obj(kv)));
-		log.info("relay out {} sent={} live={} relayOk={}", gson.toJson(BingoApiClient.obj(kv)), sent, p != null && p.live(), p != null && p.relayOk);
+		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(BingoApiClient.obj(kv)));
 	}
 
 	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
@@ -9945,10 +9943,7 @@ public class AnvilPlugin extends Plugin {
 		if (f == null || pushSocket == null || !pushSocket.relayOk) return;
 		var t = Text.removeTags(f.getText());
 		var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
-		if (mode == null || mode.equals(pmModeSent)) {
-			if (mode == null && client.getTickCount() % 50 == 0) log.info("relay pm mode unread: '{}'", t);
-			return;
-		}
+		if (mode == null || mode.equals(pmModeSent)) return;
 		pmModeSent = mode;
 		relaySend("t", "pm", "m", mode);
 	}
@@ -9976,7 +9971,6 @@ public class AnvilPlugin extends Plugin {
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
-			log.info("relay who? {} connected={} friendOnline={} scene={} group={} askedAgo={}", n, relayConnected(n), friendOnline(n), inScene(n), inGroup(n), was == null ? -1 : t - was);
 			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 10_000)) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
@@ -10302,6 +10296,8 @@ public class AnvilPlugin extends Plugin {
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
 			var name = en.getPlayer() == null ? LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim() : en.getPlayer().getName();
 			if (empty(name)) continue;
+			// The friends list shows them logged out (offline, or hidden from us): no line there, whatever we share.
+			if (en.getPlayer() == null && WidgetUtil.componentToInterface(en.getParam1()) == InterfaceID.FRIENDS && !friendOnline(name)) continue;
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
@@ -10317,7 +10313,6 @@ public class AnvilPlugin extends Plugin {
 			names.putIfAbsent(key, Text.removeTags(name).replace('\u00a0', ' '));
 			if (visible) seen.add(key);
 		}
-		log.info("relay menu show={} names={} seen={} here={}", show, names, seen, relayHere);
 		if (show == 2) relayWho(names.values());
 		statusEntry = null;
 		if (!names.isEmpty()) {
