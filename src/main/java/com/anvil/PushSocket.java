@@ -51,6 +51,13 @@ final class PushSocket extends WebSocketListener {
 		if (next != null) retryIn(0);
 	}
 
+	/** The same scope on a new ticket (the site may grant now what it refused then). */
+	synchronized void renew() {
+		if (scope == null) return;
+		close();
+		retryIn(0);
+	}
+
 	void close() {
 		live = false;
 		if (pending != null) {

@@ -6894,6 +6894,9 @@ public class AnvilPlugin extends Plugin {
 
 	long relayRetried;
 	int relayWorldSeen;
+	String relayRsnSeen;
+	/** How long before forcing another relay socket the site keeps refusing (doubles to 5 min). */
+	long relayRenewMs = 10_000;
 
 	/**
 	 * Client thread, each tick: logged in with Anvil chat on, the socket must be a relay one on this
@@ -6902,13 +6905,24 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void relayHeal() {
 		var p = pushSocket;
-		if (p == null || !loggedIn() || config.anvilChat() == AnvilConfig.Relay.Off) return;
+		var cfg = pluginConfig;
+		if (p == null || !loggedIn() || config.anvilChat() == AnvilConfig.Relay.Off || cfg == null || !cfg.serverSupports("chat-relay")) return;
 		var world = client.getWorld();
-		var stale = world != relayWorldSeen || (p.live() && !p.relayOk);
-		if (!stale || now() - relayRetried < 10_000) return;
+		if (p.relayOk) relayRenewMs = 10_000;
+		var rsn = apiClient.getCurrentRsn();
+		if (world != relayWorldSeen || !Objects.equals(rsn, relayRsnSeen)) {
+			relayWorldSeen = world;
+			relayRsnSeen = rsn;
+			relayRetried = now();
+			pushSoon();
+			return;
+		}
+		// A live socket the site gave no relay: the same scope won't ask again, so start it afresh.
+		if (!p.live() || p.relayOk || now() - relayRetried < relayRenewMs) return;
 		relayRetried = now();
-		relayWorldSeen = world;
-		pushSoon();
+		relayRenewMs = Math.min(relayRenewMs * 2, 300_000);
+		log.debug("relay renew: a socket without the relay");
+		p.renew();
 	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
@@ -7001,10 +7015,14 @@ public class AnvilPlugin extends Plugin {
 		int world = config.anvilChat() != AnvilConfig.Relay.Off && loggedIn()
 				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
 		var rows = eventId > 0 || feed || feedWatching || world > 0;
+		log.info("relay scope world={} cfg={} live={} relayOk={}", world, cfg != null, p != null && p.live(), p != null && p.relayOk);
 		if (p != null) p.scope(rows && apiClient.isConfigured() && pushEnabled()
 				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
 				// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
-				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "@" + fcOwner() : "") : null);
+				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "@" + fcOwner()
+				// The name too: the site grants the relay only to a request that names the character, and a
+				// ticket asked for in the second after log in (before it was stamped) had none, for good.
+				+ "/" + apiClient.getCurrentRsn() : "") : null);
 	}
 
 	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
@@ -7023,6 +7041,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void applyPush(JsonObject m) {
 		var kind = m.get("t").getAsString();
+		if ("here".equals(kind) || "gone".equals(kind) || "ask".equals(kind) || "hello".equals(kind)) log.info("relay in {}", m);
 		switch (kind) {
 			case "feed":
 				feedLine(m);
@@ -9910,7 +9929,8 @@ public class AnvilPlugin extends Plugin {
 	/** A relay control message (not a chat line): our private chat setting, a who, a friend's yes. */
 	void relaySend(Object... kv) {
 		var p = pushSocket;
-		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(BingoApiClient.obj(kv)));
+		var sent = p != null && config.anvilChat() != AnvilConfig.Relay.Off && p.say(gson.toJson(BingoApiClient.obj(kv)));
+		log.info("relay out {} sent={} live={} relayOk={}", gson.toJson(BingoApiClient.obj(kv)), sent, p != null && p.live(), p != null && p.relayOk);
 	}
 
 	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
@@ -9925,7 +9945,10 @@ public class AnvilPlugin extends Plugin {
 		if (f == null || pushSocket == null || !pushSocket.relayOk) return;
 		var t = Text.removeTags(f.getText());
 		var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
-		if (mode == null || mode.equals(pmModeSent)) return;
+		if (mode == null || mode.equals(pmModeSent)) {
+			if (mode == null && client.getTickCount() % 50 == 0) log.info("relay pm mode unread: '{}'", t);
+			return;
+		}
 		pmModeSent = mode;
 		relaySend("t", "pm", "m", mode);
 	}
@@ -9953,6 +9976,7 @@ public class AnvilPlugin extends Plugin {
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
+			log.info("relay who? {} connected={} friendOnline={} scene={} group={} askedAgo={}", n, relayConnected(n), friendOnline(n), inScene(n), inGroup(n), was == null ? -1 : t - was);
 			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 10_000)) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
@@ -10293,6 +10317,7 @@ public class AnvilPlugin extends Plugin {
 			names.putIfAbsent(key, Text.removeTags(name).replace('\u00a0', ' '));
 			if (visible) seen.add(key);
 		}
+		log.info("relay menu show={} names={} seen={} here={}", show, names, seen, relayHere);
 		if (show == 2) relayWho(names.values());
 		statusEntry = null;
 		if (!names.isEmpty()) {
