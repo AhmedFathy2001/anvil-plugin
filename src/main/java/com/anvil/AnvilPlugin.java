@@ -34,6 +34,8 @@ import net.runelite.client.events.*;
 import net.runelite.client.game.*;
 import net.runelite.client.plugins.*;
 import net.runelite.client.plugins.loottracker.LootReceived;
+import net.runelite.api.widgets.WidgetUtil;
+import net.runelite.http.api.loottracker.LootRecordType;
 import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.*;
@@ -47,6 +49,7 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.time.*;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -2240,6 +2243,8 @@ public class AnvilPlugin extends Plugin {
 			pushSoon();
 		}
 		lastWornItemIds = wornItemIds();
+		relayHeal();
+		relayPmMode();
 		maybeSettleStats();
 		tickGameCounters();
 		if (movedTick >= 0 && client.getTickCount() >= movedTick) movesSettled();
@@ -2463,6 +2468,10 @@ public class AnvilPlugin extends Plugin {
 			gameValueCounters.onSessionEnd();
 			movedFrom = null;
 			movedTick = -1;
+			// Chat line ids start over with the session, so an old mark would land on a stranger's line.
+			relayMarked.clear();
+			relaySeen.clear();
+			relayNodes.clear();
 		}
 		// SESSION CLOCK for the starting shot (StartProofRules). Only the login screen starts a new
 		// session: LOGGED_IN also fires on every loading zone, and a world hop reconnects without the
@@ -3043,8 +3052,9 @@ public class AnvilPlugin extends Plugin {
 		// also picks up a gear swap made in the same moment: an unequipped Inquisitor's hauberk
 		// landing in the inventory was reported as "loot from Tarnished longsword", credited an
 		// "any Nightmare unique" tile and posted a 94m rare drop. Nothing worn a tick ago is loot.
+		// Same for a searched bird nest: a Lightbearer taken off as the nest opened posted as a 3m drop.
 		List<ItemStack> items = new ArrayList<>(event.getItems());
-		if (isInventoryDiffLoot(source)) {
+		if (isInventoryDiffLoot(source, event.getType())) {
 			var worn = new HashSet<>(lastWornItemIds);
 			worn.addAll(wornItemIds());
 			items = withoutWorn(items, worn);
@@ -3068,12 +3078,19 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Loot sources RuneLite reads off an inventory diff, which a same-tick gear swap pollutes. */
-	static boolean isInventoryDiffLoot(String source) {
-		if (source == null) return false;
+	static boolean isInventoryDiffLoot(String source, LootRecordType type) {
+		if (source == null || type == LootRecordType.NPC || type == LootRecordType.PLAYER) return false;
 		var s = source.toLowerCase();
 		// "Tarnished chest" is a chest, not the rub-clean diff.
-		return s.startsWith("tarnished ") && !s.equals("tarnished chest");
+		if (s.startsWith("tarnished ")) return !s.equals("tarnished chest");
+		// Nests, sacks, crates, chests and pickpockets are all read off the inventory. Only reward
+		// windows aren't, and there a worn copy of the reward is a real second drop.
+		for (var w : REWARD_WINDOWS) if (s.contains(w)) return false;
+		return true;
 	}
+
+	static final String[] REWARD_WINDOWS = {"chambers of xeric", "theatre of blood", "tombs of amascut",
+		"barrows", "clue scroll", "fortis colosseum", "lunar chest", "gauntlet"};
 
 	/** {@code items} minus anything the player was wearing (an unequip, not a reward). */
 	static List<ItemStack> withoutWorn(Collection<ItemStack> items, Set<Integer> wornIds) {
@@ -3317,7 +3334,7 @@ public class AnvilPlugin extends Plugin {
 			bannerSound.play(BannerSoundService.Kind.MISSION);
 			return;
 		}
-		int id = claimed ? SoundEffectID.GE_COLLECT_BLOOP : SoundEffectID.GE_ADD_OFFER_DINGALING;
+		int id = claimed ? net.runelite.api.SoundEffectID.GE_COLLECT_BLOOP : net.runelite.api.SoundEffectID.GE_ADD_OFFER_DINGALING;
 		clientThread.invoke(() -> client.playSoundEffect(id));
 	}
 
@@ -6017,6 +6034,13 @@ public class AnvilPlugin extends Plugin {
 	int[] chatboxRoom = new int[0];
 	/** Client thread: per chatbox slot, the plain sender line {@link #chatboxRoom} was set for. */
 	String[] chatboxRoomFor = new String[0];
+	/**
+	 * Client thread: per message widget we narrowed into an extra wrapped line, the height it was grown
+	 * to and its text then. The game lays the rows out again (a new message, a scroll) without asking us,
+	 * so the rows below would slide back under that extra line; each pass puts them right again.
+	 */
+	int[] chatboxGrown = new int[0];
+	String[] chatboxGrownText = new String[0];
 
 	/**
 	 * Client thread, right before each frame: each sender column ("Name:", "[Clan] <icons>Name:", "From
@@ -6039,8 +6063,11 @@ public class AnvilPlugin extends Plugin {
 			chatboxDeferred = Arrays.copyOf(chatboxDeferred, lines.length);
 			chatboxRoom = Arrays.copyOf(chatboxRoom, lines.length);
 			chatboxRoomFor = Arrays.copyOf(chatboxRoomFor, lines.length);
+			chatboxGrown = Arrays.copyOf(chatboxGrown, lines.length);
+			chatboxGrownText = Arrays.copyOf(chatboxGrownText, lines.length);
 			Arrays.fill(chatboxRoom, was, lines.length, Integer.MIN_VALUE);
 		}
+		keepGrownRows(lines);
 		var frame = currentChatNameFrame();
 		var move = frame != chatNameFrame;
 		chatNameFrame = frame;
@@ -6129,10 +6156,39 @@ public class AnvilPlugin extends Plugin {
 			var f = o.getFont();
 			int before = f == null ? 1 : wrapLines(o.getText(), o.getOriginalWidth(), f), after = f == null ? 1 : wrapLines(o.getText(), w, f);
 			o.setOriginalWidth(w);
-			if (after > before) pushRowsDown(lines, o, (after - before) * Math.max(1, o.getOriginalHeight() / before));
+			if (after > before) {
+				pushRowsDown(lines, o, (after - before) * Math.max(1, o.getOriginalHeight() / before));
+				chatboxGrown[j] = o.getOriginalHeight();
+				chatboxGrownText[j] = o.getText();
+			}
 			chatboxRoom[j] = o.getOriginalX();
 			chatboxRoomFor[j] = plain;
 			o.revalidate();
+		}
+	}
+
+	/**
+	 * A message we grew into an extra line keeps it, and the rows below stay under it, however often the
+	 * game lays the chat out again. Its text or position changing means the game rebuilt that slot plain:
+	 * it is forgotten. Otherwise its height comes back and anything that slid up under it moves down.
+	 */
+	void keepGrownRows(Widget[] lines) {
+		for (int j = 0; j < Math.min(lines.length, chatboxGrown.length); j++) {
+			if (chatboxGrown[j] <= 0) continue;
+			var o = lines[j];
+			if (o == null || o.isHidden() || o.getText() != chatboxGrownText[j] || o.getOriginalX() != chatboxRoom[j]) {
+				chatboxGrown[j] = 0;
+				chatboxGrownText[j] = null;
+				continue;
+			}
+			if (o.getOriginalHeight() < chatboxGrown[j]) {
+				pushRowsDown(lines, o, chatboxGrown[j] - o.getOriginalHeight());
+				continue;
+			}
+			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
+			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = Math.min(next, l.getOriginalY());
+			int under = y + o.getOriginalHeight() - next;
+			if (next != Integer.MAX_VALUE && under > 0) pushRowsDown(lines, o, under, false);
 		}
 	}
 
@@ -6151,9 +6207,15 @@ public class AnvilPlugin extends Plugin {
 
 	/** Grow {@code o} by {@code extra} px and move every chatbox row below it down to match, keeping the view where it was. */
 	void pushRowsDown(Widget[] lines, Widget o, int extra) {
+		pushRowsDown(lines, o, extra, true);
+	}
+
+	void pushRowsDown(Widget[] lines, Widget o, int extra, boolean grow) {
 		int y = o.getOriginalY();
-		o.setOriginalHeight(o.getOriginalHeight() + extra);
-		o.revalidate();
+		if (grow) {
+			o.setOriginalHeight(o.getOriginalHeight() + extra);
+			o.revalidate();
+		}
 		for (var l : lines) {
 			if (l == null || l == o || l.getOriginalY() <= y) continue;
 			l.setOriginalY(l.getOriginalY() + extra);
@@ -6251,9 +6313,14 @@ public class AnvilPlugin extends Plugin {
 					pmPainted.put(painted, d);
 					if (repaint || chatFlair.movingSender(text)) pmMoving.put(w, new String[]{text, painted});
 					else pmMoving.remove(w);
+				} else if (column && sender && text.contains("<img=")) {
+					// Nothing of ours to paint, but the name carries an icon (the Anvil chat mark): the game
+					// may have placed the message for the plain name, so the fit is still checked.
+					d = starRoom(text, text, w.getFont());
+					pmPainted.put(text, d);
 				} else splitPmSeen.add(text);
 			}
-			if (d != null && d[0] > 0) moved |= ChatFlair.makeRoom(i, d[0], d[1], n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
+			if (d != null && (d[0] > 0 || d[1] > 0)) moved |= ChatFlair.makeRoom(i, d[0], d[1], n, pmAx, pmAy, pmX, pmW, pmShown, pmRecX, pmRecW);
 		}
 		if (!moved) return;
 		for (int i = 0; i < n; i++) {
@@ -6814,11 +6881,49 @@ public class AnvilPlugin extends Plugin {
 		return f != null && f.getWorld() > 0;
 	}
 
-	/** Our relay is live, we send through it, and the player asked for the connected status on right-click. */
-	boolean relayPresenceVisible() {
+	/**
+	 * The connected status on right-click: 0 = no line (not asked for, or the site gave us no relay),
+	 * 1 = our own connection is down (it reopens by itself: every ten minutes, on a hop, on a deploy),
+	 * 2 = live, so we know who is here. The line used to vanish in state 1, which read as a bug.
+	 */
+	int relayPresence() {
 		var p = pushSocket;
-		return p != null && p.live() && p.relayOk && config.relayWho()
-			&& config.anvilChat().compareTo(AnvilConfig.Relay.See_send) >= 0;
+		if (!config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0) return 0;
+		if (p == null) return 1;
+		return p.live() && p.relayOk ? 2 : 1;
+	}
+
+	long relayRetried;
+	int relayWorldSeen;
+	String relayRsnSeen;
+	/** How long before forcing another relay socket the site keeps refusing (doubles to 5 min). */
+	long relayRenewMs = 10_000;
+
+	/**
+	 * Client thread, each tick: logged in with Anvil chat on, the socket must be a relay one on this
+	 * world. A log in or a hop changes the world, and a socket opened before we knew it has no relay
+	 * at all: either way, a new ticket (at most every 10s). Before, only a settings toggle fixed it.
+	 */
+	void relayHeal() {
+		var p = pushSocket;
+		var cfg = pluginConfig;
+		if (p == null || !loggedIn() || config.anvilChat() == AnvilConfig.Relay.Off || cfg == null || !cfg.serverSupports("chat-relay")) return;
+		var world = client.getWorld();
+		if (p.relayOk) relayRenewMs = 10_000;
+		var rsn = apiClient.getCurrentRsn();
+		if (world != relayWorldSeen || !Objects.equals(rsn, relayRsnSeen)) {
+			relayWorldSeen = world;
+			relayRsnSeen = rsn;
+			relayRetried = now();
+			pushSoon();
+			return;
+		}
+		// A live socket the site gave no relay: the same scope won't ask again, so start it afresh.
+		if (!p.live() || p.relayOk || now() - relayRetried < relayRenewMs) return;
+		relayRetried = now();
+		relayRenewMs = Math.min(relayRenewMs * 2, 300_000);
+		log.debug("relay renew: a socket without the relay");
+		p.renew();
 	}
 
 	/** The relay presence set uses the same loose RuneScape-name shape as chat dedupe. */
@@ -6914,7 +7019,10 @@ public class AnvilPlugin extends Plugin {
 		if (p != null) p.scope(rows && apiClient.isConfigured() && pushEnabled()
 				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
 				// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
-				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "@" + fcOwner() : "") : null);
+				// The name too: the site grants the relay only to a request that names the character, and a
+				// ticket asked for in the second after log in (before it was stamped) had none, for good.
+				// Before the '@': PushSocket reads everything after it as the friends chat and guest clan.
+				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "/" + apiClient.getCurrentRsn() + "@" + fcOwner() : "") : null);
 	}
 
 	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
@@ -6945,12 +7053,32 @@ public class AnvilPlugin extends Plugin {
 			// Presence (relay sockets only): who else beside us has the relay on.
 			case "here":
 				for (var n : m.getAsJsonArray("n")) relayHere.add(n.getAsString());
+				clientThread.invoke(this::relayMenuRefresh);
 				return;
 			case "gone":
-				relayHere.remove(m.get("n").getAsString());
+				var gone = m.get("n").getAsString();
+				relayHere.remove(gone);
+				// Gone may be a reconnect or a changed setting: the next menu asks again.
+				clientThread.invoke(() -> {
+					relayAsked.keySet().removeIf(k -> k.replaceAll("[ _-]+", " ").equals(gone));
+					relayMenuRefresh();
+				});
+				return;
+			// Someone asked whether we're connected while our private chat is on Friends: yes, only to a friend.
+			case "ask":
+				var asker = m.get("n").getAsString();
+				clientThread.invoke(() -> {
+					// Only where the game shows us to them anyway: on their screen (we're on each other's), in our group, or our
+					// friend while we're on Friends. Otherwise we stay offline to them, as the game keeps us.
+					if (inScene(asker) || inGroup(asker) || ("friends".equals(pmModeSent) && client.isFriended(asker, false))) relaySend("t", "ok", "n", asker);
+				});
 				return;
 			case "hello":
 				relayHere.clear();
+				clientThread.invoke(() -> {
+					pmModeSent = "";
+					relayAsked.clear();
+				});
 				fetchChatChans(null);
 			// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 			case "flair":
@@ -9797,6 +9925,59 @@ public class AnvilPlugin extends Plugin {
 		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
+	/** A relay control message (not a chat line): our private chat setting, a who, a friend's yes. */
+	void relaySend(Object... kv) {
+		var p = pushSocket;
+		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(BingoApiClient.obj(kv)));
+	}
+
+	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
+	String pmModeSent = "";
+
+	/**
+	 * Client thread, each tick: our private chat setting, told to the relay when it changes. It decides
+	 * who past our shared channels may see us connected and PM us: On anyone, Friends our friends, Off nobody.
+	 */
+	void relayPmMode() {
+		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PRIVATE_FILTER);
+		if (f == null || pushSocket == null || !pushSocket.relayOk) return;
+		var t = Text.removeTags(f.getText());
+		var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
+		if (mode == null || mode.equals(pmModeSent)) return;
+		pmModeSent = mode;
+		relaySend("t", "pm", "m", mode);
+	}
+
+	/** Names we asked the relay about, and when (ms): once every 10s each at most. */
+	final Map<String, Long> relayAsked = capped(200, false);
+
+	/** Whether a player of that name is in our group ironman group (the game lists them to us). */
+	boolean inGroup(String name) {
+		var g = client.getClanChannel(ClanID.GROUP_IRONMAN);
+		return g != null && g.findMember(name) != null;
+	}
+
+	/** Whether a player of that name is in our scene (the game shows them to us). */
+	boolean inScene(String name) {
+		var k = relayKey(name, "");
+		for (var q : client.getPlayers()) if (q != null && q.getName() != null && k.equals(relayKey(q.getName(), ""))) return true;
+		return false;
+	}
+
+	/** Players the game shows us (on screen, or online friends) not known as connected: ask; their own client decides. */
+	void relayWho(Collection<String> names) {
+		var ask = new ArrayList<String>();
+		long t = now();
+		for (var n : names) {
+			var k = Text.standardize(n);
+			var was = relayAsked.get(k);
+			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 10_000)) continue;
+			relayAsked.put(k, t);
+			ask.add(n);
+		}
+		if (!ask.isEmpty()) relaySend("t", "who", "n", gson.toJsonTree(ask));
+	}
+
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
@@ -9808,7 +9989,7 @@ public class AnvilPlugin extends Plugin {
 		// Our own line (a PM we sent names its recipient instead).
 		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
-			if (ct != PRIVATECHATOUT || relayHere.contains(Text.standardize(name).replaceAll("[ _-]+", " "))) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
+			if (ct != PRIVATECHATOUT || relayConnected(name)) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
 			return;
 		}
 		var key = c + relayKey(name, text);
@@ -10069,6 +10250,32 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
+	/** Menu options about the player a chat line names (not a task or item it mentions). */
+	static final Set<String> PLAYER_OPTIONS = Set.of("Message", "Add friend", "Remove friend", "Delete friend", "Add ignore",
+		"Remove ignore", "Delete ignore", "Report", "Add Note", "Lookup", "Hop-to", "Reply", "Anvil");
+
+	/** The open menu's Anvil chat line, and whom it is about: a here/gone while it's open updates it. */
+	MenuEntry statusEntry;
+	Map<String, String> statusNames = Map.of();
+	Set<String> statusSeen = Set.of();
+
+	/** The status line for the menu's players: connected only for someone the game shows us right now. */
+	String relayStatus(int show) {
+		String status;
+		var live = new ArrayList<String>();
+		for (var n : statusNames.entrySet()) if (statusSeen.contains(n.getKey()) && relayConnected(n.getValue())) live.add(n.getValue());
+		if (show < 2) status = "reconnecting";
+		else if (statusNames.size() == 1) status = !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
+		else status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, Math.min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
+		return "<col=9f9f9f>Anvil chat: " + status;
+	}
+
+	/** Client thread: an answer came in while the menu is open: its line shows it at once. */
+	void relayMenuRefresh() {
+		var e = statusEntry;
+		if (e != null && client.isMenuOpen()) e.setOption(relayStatus(relayPresence()));
+	}
+
 	/** Client-side entries only (nothing is sent to the game): event chat on the Clan tab, Reply on a line. */
 	@Subscribe
 	void onMenuOpened(MenuOpened e) {
@@ -10079,20 +10286,43 @@ public class AnvilPlugin extends Plugin {
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
 		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
-		var show = relayPresenceVisible();
-		for (var en : show ? e.getMenuEntries() : new MenuEntry[0]) {
+		int show = relayPresence();
+		// Every player this menu is about, once each: a crowd's menu names several, and one line about
+		// whichever came first read as the status of all of them.
+		var names = new LinkedHashMap<String, String>();
+		var seen = new HashSet<String>();
+		var onFriendsList = false;
+		for (var en : e.getMenuEntries()) if (WidgetUtil.componentToInterface(en.getParam1()) == InterfaceID.FRIENDS) onFriendsList = true;
+		for (var en : show > 0 ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
 			var name = en.getPlayer() == null ? LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim() : en.getPlayer().getName();
 			if (empty(name)) continue;
+			// A menu opened on the friends list follows it: logged out there (offline, or hidden from us),
+			// no line, whatever we share. Other plugins' entries in the same menu (World Hopper's Hop-to,
+			// lookups) don't carry the list's widget, so this is decided for the menu, not per entry.
+			if (onFriendsList && !friendOnline(name)) continue;
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
-			if (en.getPlayer() == null && !overChatLine && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
-					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
-			var on = relayConnected(name);
-			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + (on ? "<col=00ff00>connected" : "<col=ff0000>disconnected")).setTarget("").setType(MenuAction.RUNELITE);
-			break;
+			// Visible: the game shows them to us right now. A chat line's name or a friend the game shows
+			// offline still gets a line, but always "disconnected": whoever hides as offline stays so, and
+			// it reads the same as someone without Anvil.
+			var visible = en.getPlayer() != null || inScene(name) || inGroup(name) || friendOnline(name) || (cc != null && cc.findMember(name) != null)
+				|| (gc != null && gc.findMember(name) != null) || (fc != null && fc.findByName(name) != null);
+			// A hidden name gets a line only off a chat line, and only on an option about a player (not a
+			// task or an item a broadcast names); an offline friend none at all.
+			if (!visible && !(overChatLine && PLAYER_OPTIONS.contains(Text.removeTags(String.valueOf(en.getOption()))))) continue;
+			var key = Text.standardize(Text.removeTags(name));
+			names.putIfAbsent(key, Text.removeTags(name).replace('\u00a0', ' '));
+			if (visible) seen.add(key);
+		}
+		if (show == 2) relayWho(names.values());
+		statusEntry = null;
+		if (!names.isEmpty()) {
+			statusNames = names;
+			statusSeen = seen;
+			statusEntry = client.getMenu().createMenuEntry(1).setOption(relayStatus(show)).setTarget("").setType(MenuAction.RUNELITE);
 		}
 		for (var en : e.getMenuEntries()) {
 			int on = en.getParam1();

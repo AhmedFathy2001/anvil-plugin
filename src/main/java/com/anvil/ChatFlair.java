@@ -512,19 +512,24 @@ final class ChatFlair {
 	 * {@code need} is the whole name segment's drawn width (see {@link #need}), 0 when unknown.
 	 */
 	static boolean makeRoom(int at, int d, int need, int n, int[] ax, int[] ay, int[] x, int[] w, boolean[] shown, int[] recX, int[] recW) {
-		if (d <= 0) return false;
+		// d = 0 with a need: no star was added, but the name may still overrun where the game put the
+		// message (an icon added after the layout); then only the overrun is made up, and nothing if it fits.
+		if (d <= 0 && need <= 0) return false;
 		var moved = false;
-		if (w[at] != recW[at]) {
-			w[at] += d;
-			recW[at] = w[at];
-			moved = true;
-		}
+		int grow = d;
 		for (int j = 0; j < n; j++) {
 			if (j == at || !shown[j] || ay[j] != ay[at] || ax[j] <= ax[at] || x[j] == recX[j]) continue;
 			int by = shift(d, need, ax[j] - ax[at]);
+			if (by <= 0) continue;
 			x[j] += by;
 			w[j] = Math.max(1, w[j] - by);
 			recX[j] = x[j];
+			if (d <= 0) grow = Math.max(grow, by);
+			moved = true;
+		}
+		if (grow > 0 && w[at] != recW[at]) {
+			w[at] += grow;
+			recW[at] = w[at];
 			moved = true;
 		}
 		return moved;
@@ -536,7 +541,7 @@ final class ChatFlair {
 	 * the message, e.g. an icon another plugin added after the layout. 0 {@code need}: just {@code d}.
 	 */
 	static int shift(int d, int need, int offset) {
-		return Math.max(d, need - offset);
+		return Math.max(d, need > 0 ? need - offset : 0);
 	}
 
 	/** The drawn width of a whole painted sender (every icon, the star, the text) plus a one-space gap; 0 with no font. */

@@ -631,6 +631,32 @@ public class ChatFlairTest
 		assertEquals(false, ChatFlair.makeRoom(2, 0, 0, 4, ax, ay, x, w, shown, recX, recW));
 	}
 
+	@Test
+	public void anIconAddedAfterTheLayoutIsMadeUpOnlyWhenTheNameOverruns()
+	{
+		final int min = Integer.MIN_VALUE;
+		// "To Sam Says<anvil>:" needs 115 px but the game put the message at 100: no star was added (d = 0).
+		int[] ax = {0, 100};
+		int[] ay = {0, 0};
+		int[] x = {0, 100};
+		int[] w = {100, 300};
+		boolean[] shown = {true, true};
+		int[] recX = {min, min};
+		int[] recW = {min, min};
+		assertEquals(true, ChatFlair.makeRoom(0, 0, 115, 2, ax, ay, x, w, shown, recX, recW));
+		assertEquals("the message moves by the overrun alone", 115, x[1]);
+		assertEquals(115, w[0]);
+		// Not twice.
+		assertEquals(false, ChatFlair.makeRoom(0, 0, 115, 2, ax, ay, x, w, shown, recX, recW));
+		// The game counted the icon itself (message already at 115): nothing moves, so no gap opens.
+		int[] bx = {0, 115};
+		int[] bw = {115, 285};
+		int[] brX = {min, min};
+		int[] brW = {min, min};
+		assertEquals(false, ChatFlair.makeRoom(0, 0, 115, 2, new int[]{0, 115}, ay, bx, bw, shown, brX, brW));
+		assertEquals(115, bx[1]);
+	}
+
 	/** A font with 6 px per character (a space too), standing in for the chat font. */
 	private static net.runelite.api.FontTypeFace font6() {
 		return (net.runelite.api.FontTypeFace) java.lang.reflect.Proxy.newProxyInstance(getClass0(),
