@@ -10210,6 +10210,7 @@ public class AnvilPlugin extends Plugin {
 		var chans = chatChans;
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var mp = client.getMouseCanvasPosition();
+		var overChatLine = area != null && !area.isHidden() && area.getBounds().contains(mp.getX(), mp.getY());
 		// A player, a channel member or a chat line's name: whether they have Anvil chat on. An info line,
 		// no action; only while our own relay is live (else we can't know anyone's).
 		// Only while we send through Anvil chat: who can receive it matters to a sender, nobody else.
@@ -10217,6 +10218,7 @@ public class AnvilPlugin extends Plugin {
 		// Every player this menu is about, once each: a crowd's menu names several, and one line about
 		// whichever came first read as the status of all of them.
 		var names = new LinkedHashMap<String, String>();
+		var seen = new HashSet<String>();
 		for (var en : show > 0 ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
@@ -10225,18 +10227,25 @@ public class AnvilPlugin extends Plugin {
 			var cc = client.getClanChannel();
 			var gc = client.getGuestClanChannel();
 			var fc = client.getFriendsChatManager();
-			if (en.getPlayer() == null && !inScene(name) && !inGroup(name) && !friendOnline(name) && (cc == null || cc.findMember(name) == null)
-					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
-			names.putIfAbsent(Text.standardize(Text.removeTags(name)), Text.removeTags(name).replace('\u00a0', ' '));
+			// Visible: the game shows them to us right now. A chat line's name or a friend the game shows
+			// offline still gets a line, but always "disconnected": whoever hides as offline stays so, and
+			// it reads the same as someone without Anvil.
+			var visible = en.getPlayer() != null || inScene(name) || inGroup(name) || friendOnline(name) || (cc != null && cc.findMember(name) != null)
+				|| (gc != null && gc.findMember(name) != null) || (fc != null && fc.findByName(name) != null);
+			if (!visible && !overChatLine && !client.isFriended(name, false)) continue;
+			var key = Text.standardize(Text.removeTags(name));
+			names.putIfAbsent(key, Text.removeTags(name).replace('\u00a0', ' '));
+			if (visible) seen.add(key);
 		}
 		if (show == 2) relayWho(names.values());
+		var live = new ArrayList<String>();
+		for (var n : names.entrySet()) if (seen.contains(n.getKey()) && relayConnected(n.getValue())) live.add(n.getValue());
 		if (!names.isEmpty()) {
 			String status;
 			if (show < 2) status = "reconnecting";
-			else if (names.size() == 1) status = relayConnected(names.values().iterator().next()) ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
+			else if (names.size() == 1) status = !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
 			else {
-				var on = names.values().stream().filter(this::relayConnected).collect(Collectors.toList());
-				status = on.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", on.subList(0, Math.min(3, on.size()))) + (on.size() > 3 ? " +" + (on.size() - 3) : "");
+				status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, Math.min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
 			}
 			client.getMenu().createMenuEntry(1).setOption("<col=9f9f9f>Anvil chat: " + status).setTarget("").setType(MenuAction.RUNELITE);
 		}
